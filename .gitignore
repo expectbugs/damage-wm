@@ -1,0 +1,23 @@
+# Third-party source trees — cloned for reference, each with its own git history and
+# licence (g2flash and faceclaw are GPL-3.0; openCFW, even-g2-notes and even-g2-protocol
+# carry NO licence at all, so we have no permission to redistribute them). 710 MB.
+# Clone them yourself; overview.md §9 lists every URL.
+reference/
+
+# Even Realities firmware images — vendor proprietary binaries, 270 files / 165 MB.
+# The public archive lives in SybilSight-webflasher; we do not re-host it.
+fws/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Scratch
+*.bak
+
+# BTSnoop HCI captures — kept local. Raw HCI contains device BD_ADDRs, and these are
+# the only ground truth for stock firmware 2.2.2 (absent from the public archive), so they
+# are irreplaceable once the glasses are flashed. Back them up somewhere private.
+captures/

@@ -1,0 +1,276 @@
+{
+ "sans": {
+  "B612": [
+   "/usr/share/fonts/polarsys-b612-fonts/B612-Regular.ttf",
+   "/usr/share/fonts/polarsys-b612-fonts/B612-Bold.ttf"
+  ],
+  "Clear Sans": [
+   "/usr/share/fonts/clearsans/ClearSans-Regular.ttf",
+   "/usr/share/fonts/clearsans/ClearSans-Bold.ttf"
+  ],
+  "Fira Sans": [
+   "/usr/share/fonts/fira-sans/FiraSans-Regular.otf",
+   "/usr/share/fonts/fira-sans/FiraSans-Bold.otf"
+  ],
+  "IBM Plex Sans": [
+   "/usr/share/fonts/ibm-plex/IBM-Plex-Sans/fonts/complete/ttf/IBMPlexSans-Regular.ttf",
+   "/usr/share/fonts/ibm-plex/IBM-Plex-Sans/fonts/complete/ttf/IBMPlexSans-Bold.ttf"
+  ],
+  "Source Sans 3": [
+   "/usr/share/fonts/source-sans-3/SourceSans3-Regular.otf",
+   "/usr/share/fonts/source-sans-3/SourceSans3-Bold.otf"
+  ],
+  "Open Sans": [
+   "/usr/share/fonts/open-sans/OpenSans-Regular.ttf",
+   "/usr/share/fonts/open-sans/OpenSans-Bold.ttf"
+  ],
+  "Roboto": [
+   "/usr/share/fonts/roboto/Roboto-Regular.ttf",
+   "/usr/share/fonts/roboto/Roboto-Bold.ttf"
+  ],
+  "Cantarell": [
+   "/usr/share/fonts/cantarell/Cantarell-VF.otf",
+   "/usr/share/fonts/cantarell/Cantarell-VF.otf"
+  ],
+  "Ubuntu": [
+   "/usr/share/fonts/ubuntu-font-family/Ubuntu-R.ttf",
+   "/usr/share/fonts/ubuntu-font-family/Ubuntu-B.ttf"
+  ],
+  "DejaVu Sans": [
+   "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+   "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"
+  ],
+  "Arimo": [
+   "/usr/share/fonts/croscorefonts/Arimo-Regular.ttf",
+   "/usr/share/fonts/croscorefonts/Arimo-Bold.ttf"
+  ],
+  "Nimbus Sans": [
+   "/usr/share/fonts/urw-fonts/NimbusSans-Regular.otf",
+   "/usr/share/fonts/urw-fonts/NimbusSans-Bold.otf"
+  ],
+  "Liberation Sans": [
+   "/usr/share/fonts/liberation-fonts/LiberationSans-Regular.ttf",
+   "/usr/share/fonts/liberation-fonts/LiberationSans-Bold.ttf"
+  ],
+  "Fira Sans Condensed": [
+   "/usr/share/fonts/fira-sans/FiraSansCondensed-Regular.otf",
+   "/usr/share/fonts/fira-sans/FiraSansCondensed-Bold.otf"
+  ],
+  "IBM Plex Sans Condensed": [
+   "/usr/share/fonts/ibm-plex/IBM-Plex-Sans-Condensed/fonts/complete/ttf/IBMPlexSansCondensed-Regular.ttf",
+   "/usr/share/fonts/ibm-plex/IBM-Plex-Sans-Condensed/fonts/complete/ttf/IBMPlexSansCondensed-Bold.ttf"
+  ],
+  "Nimbus Sans Narrow": [
+   "/usr/share/fonts/urw-fonts/NimbusSansNarrow-Regular.ttf",
+   "/usr/share/fonts/urw-fonts/NimbusSansNarrow-Bold.ttf"
+  ]
+ },
+ "geometric": {
+  "Exo 2": [
+   "/usr/share/fonts/exo/Exo2-Regular.otf",
+   "/usr/share/fonts/exo/Exo2-Bold.otf"
+  ],
+  "Gidole": [
+   "/usr/share/fonts/gidole/Gidole-Regular.ttf",
+   "/usr/share/fonts/gidole/Gidole-Regular.ttf"
+  ],
+  "Viga": [
+   "/usr/share/fonts/viga/Viga-Regular.otf",
+   "/usr/share/fonts/viga/Viga-Regular.otf"
+  ],
+  "Alegreya Sans": [
+   "/usr/share/fonts/alegreya-sans/AlegreyaSans-Regular.ttf",
+   "/usr/share/fonts/alegreya-sans/AlegreyaSans-Bold.ttf"
+  ],
+  "URW Gothic": [
+   "/usr/share/fonts/urw-fonts/URWGothic-Book.otf",
+   "/usr/share/fonts/urw-fonts/URWGothic-Book.otf"
+  ],
+  "Signika": [
+   "/usr/share/fonts/signika/Signika-Regular.ttf",
+   "/usr/share/fonts/signika/Signika-Bold.ttf"
+  ],
+  "Nunito": [
+   "/usr/share/fonts/nunito/Nunito-Regular.ttf",
+   "/usr/share/fonts/nunito/Nunito-Bold.ttf"
+  ],
+  "TeX Gyre Adventor": [
+   "/usr/share/fonts/tex-gyre/texgyreadventor-regular.otf",
+   "/usr/share/fonts/tex-gyre/texgyreadventor-bold.otf"
+  ]
+ },
+ "serif": {
+  "EB Garamond": [
+   "/usr/share/fonts/eb-garamond/EBGaramond08-Regular.otf",
+   "/usr/share/fonts/eb-garamond/EBGaramond08-Regular.otf"
+  ],
+  "Gentium Plus": [
+   "/usr/share/fonts/sil-gentium/GentiumPlus-Regular.ttf",
+   "/usr/share/fonts/sil-gentium/GentiumPlus-Bold.ttf"
+  ],
+  "Gentium Book Plus": [
+   "/usr/share/fonts/sil-gentium/GentiumBookPlus-Regular.ttf",
+   "/usr/share/fonts/sil-gentium/GentiumBookPlus-Bold.ttf"
+  ],
+  "Source Serif 4": [
+   "/usr/share/fonts/source-serif-4/SourceSerif4-Regular.otf",
+   "/usr/share/fonts/source-serif-4/SourceSerif4-Bold.otf"
+  ],
+  "Linux Libertine O": [
+   "/usr/share/fonts/libertine/LinLibertine_R.otf",
+   "/usr/share/fonts/libertine/LinLibertine_RB.otf"
+  ],
+  "Cardo": [
+   "/usr/share/fonts/cardo/Cardo104s.ttf",
+   "/usr/share/fonts/cardo/Cardob101.ttf"
+  ],
+  "Heuristica": [
+   "/usr/share/fonts/heuristica/Heuristica-Regular.otf",
+   "/usr/share/fonts/heuristica/Heuristica-Bold.otf"
+  ],
+  "Vollkorn": [
+   "/usr/share/fonts/vollkorn/Vollkorn-Regular.otf",
+   "/usr/share/fonts/vollkorn/Vollkorn-Bold.otf"
+  ],
+  "Tinos": [
+   "/usr/share/fonts/croscorefonts/Tinos-Regular.ttf",
+   "/usr/share/fonts/croscorefonts/Tinos-Bold.ttf"
+  ],
+  "TeX Gyre Bonum": [
+   "/usr/share/fonts/tex-gyre/texgyrebonum-regular.otf",
+   "/usr/share/fonts/tex-gyre/texgyrebonum-bold.otf"
+  ],
+  "TeX Gyre Schola": [
+   "/usr/share/fonts/tex-gyre/texgyreschola-regular.otf",
+   "/usr/share/fonts/tex-gyre/texgyreschola-bold.otf"
+  ],
+  "TeX Gyre Pagella": [
+   "/usr/share/fonts/tex-gyre/texgyrepagella-regular.otf",
+   "/usr/share/fonts/tex-gyre/texgyrepagella-bold.otf"
+  ],
+  "TeX Gyre Termes": [
+   "/usr/share/fonts/tex-gyre/texgyretermes-regular.otf",
+   "/usr/share/fonts/tex-gyre/texgyretermes-bold.otf"
+  ],
+  "Old Standard TT": [
+   "/usr/share/fonts/oldstandard/OldStandard-Regular.ttf",
+   "/usr/share/fonts/oldstandard/OldStandard-Bold.ttf"
+  ],
+  "Nimbus Roman": [
+   "/usr/share/fonts/urw-fonts/NimbusRoman-Regular.otf",
+   "/usr/share/fonts/urw-fonts/NimbusRoman-Bold.otf"
+  ],
+  "P052": [
+   "/usr/share/fonts/urw-fonts/P052-Roman.otf",
+   "/usr/share/fonts/urw-fonts/P052-Bold.otf"
+  ]
+ },
+ "mono": {
+  "B612 Mono": [
+   "/usr/share/fonts/polarsys-b612-fonts/B612Mono-Regular.ttf",
+   "/usr/share/fonts/polarsys-b612-fonts/B612Mono-Bold.ttf"
+  ],
+  "JetBrains Mono": [
+   "/usr/share/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf",
+   "/usr/share/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"
+  ],
+  "Hack": [
+   "/usr/share/fonts/hack/Hack-Regular.ttf",
+   "/usr/share/fonts/hack/Hack-Bold.ttf"
+  ],
+  "Iosevka": [
+   "/usr/share/fonts/iosevka/Iosevka.ttc",
+   "/usr/share/fonts/iosevka/Iosevka.ttc"
+  ],
+  "IBM Plex Mono": [
+   "/usr/share/fonts/ibm-plex/IBM-Plex-Mono/fonts/complete/ttf/IBMPlexMono-Regular.ttf",
+   "/usr/share/fonts/ibm-plex/IBM-Plex-Mono/fonts/complete/ttf/IBMPlexMono-Bold.ttf"
+  ],
+  "Source Code Pro": [
+   "/usr/share/fonts/source-code-pro/SourceCodePro-Regular.otf",
+   "/usr/share/fonts/source-code-pro/SourceCodePro-Bold.otf"
+  ],
+  "Cascadia Mono": [
+   "/usr/share/fonts/cascadia-code/CascadiaMono.ttf",
+   "/usr/share/fonts/cascadia-code/CascadiaMono.ttf"
+  ],
+  "Intel One Mono": [
+   "/usr/share/fonts/intel-one-mono/IntelOneMono-Regular.otf",
+   "/usr/share/fonts/intel-one-mono/IntelOneMono-Bold.otf"
+  ],
+  "Fira Code": [
+   "/usr/share/fonts/fira-code/FiraCode-Regular.ttf",
+   "/usr/share/fonts/fira-code/FiraCode-Bold.ttf"
+  ],
+  "Inconsolata": [
+   "/usr/share/fonts/inconsolata/Inconsolata-Regular.ttf",
+   "/usr/share/fonts/inconsolata/Inconsolata-Bold.ttf"
+  ],
+  "Anonymous Pro": [
+   "/usr/share/fonts/anonymous-pro/Anonymous Pro.ttf",
+   "/usr/share/fonts/anonymous-pro/Anonymous Pro B.ttf"
+  ],
+  "Terminus": [
+   "/usr/share/fonts/terminus/ter-u12n.otb",
+   "/usr/share/fonts/terminus/ter-u12b.otb"
+  ],
+  "Glass TTY VT220": [
+   "/usr/share/fonts/glass-tty-vt220/Glass_TTY_VT220.ttf",
+   "/usr/share/fonts/glass-tty-vt220/Glass_TTY_VT220.ttf"
+  ],
+  "Fantasque Sans Mono": [
+   "/usr/share/fonts/fantasque-sans-mono/FantasqueSansMono-Regular.otf",
+   "/usr/share/fonts/fantasque-sans-mono/FantasqueSansMono-Bold.otf"
+  ],
+  "Courier Prime": [
+   "/usr/share/fonts/courier-prime/Courier Prime.ttf",
+   "/usr/share/fonts/courier-prime/Courier Prime Bold.ttf"
+  ],
+  "JuliaMono": [
+   "/usr/share/fonts/juliamono/JuliaMono-Regular.ttf",
+   "/usr/share/fonts/juliamono/JuliaMono-Bold.ttf"
+  ],
+  "Monoid": [
+   "/usr/share/fonts/monoid/Monoid-Regular-0-1-NoCalt.ttf",
+   "/usr/share/fonts/monoid/Monoid-Bold-0-1-NoCalt.ttf"
+  ],
+  "Office Code Pro": [
+   "/usr/share/fonts/office-code-pro/OfficeCodePro-Regular.otf",
+   "/usr/share/fonts/office-code-pro/OfficeCodePro-Bold.otf"
+  ],
+  "DejaVu Sans Mono": [
+   "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
+   "/usr/share/fonts/dejavu/DejaVuSansMono-Bold.ttf"
+  ],
+  "Cousine": [
+   "/usr/share/fonts/croscorefonts/Cousine-Regular.ttf",
+   "/usr/share/fonts/croscorefonts/Cousine-Bold.ttf"
+  ]
+ },
+ "display": {
+  "Humor Sans": [
+   "/usr/share/fonts/Humor-Sans/Humor-Sans.ttf",
+   "/usr/share/fonts/Humor-Sans/Humor-Sans.ttf"
+  ],
+  "Comic Neue": [
+   "/usr/share/fonts/comic-neue/ComicNeue-Regular.otf",
+   "/usr/share/fonts/comic-neue/ComicNeue_Bold.otf"
+  ],
+  "Comic Neue Angular": [
+   "/usr/share/fonts/comic-neue/ComicNeue-Angular-Regular.otf",
+   "/usr/share/fonts/comic-neue/ComicNeue-Angular_Bold.otf"
+  ],
+  "Z003": [
+   "/usr/share/fonts/urw-fonts/Z003-MediumItalic.ttf",
+   "/usr/share/fonts/urw-fonts/Z003-MediumItalic.ttf"
+  ],
+  "URW Bookman": [
+   "/usr/share/fonts/urw-fonts/URWBookman-Light.ttf",
+   "/usr/share/fonts/urw-fonts/URWBookman-Light.ttf"
+  ],
+  "C059": [
+   "/usr/share/fonts/urw-fonts/C059-Roman.otf",
+   "/usr/share/fonts/urw-fonts/C059-Bold.otf"
+  ]
+ }
+}
