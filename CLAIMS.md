@@ -147,6 +147,22 @@ Everything here backs a decision in [`DESIGN.md`](DESIGN.md).
 | A 640×288 band is **0.63×** the bytes of 640×480, and shows 4 dashboard rows against 11 | **M** | rendered both, with and without simulated occlusion |
 | Usable panel extent under real optical occlusion | **U** | fit-dependent and personal; unknowable before first light. `DESIGN.md` §2.2b makes it a calibrated setting rather than a guess |
 
+## Deployment topology (added 2026-08-20 — `DESIGN.md` §10)
+
+| claim | grade | basis |
+|---|---|---|
+| A network gap > 90 s costs the screen if the lease is renewed across it | **I** | `settings_ext.c` lease semantics + the 45 s/90 s constants; fail-open is in the source, the *consequence* is inference |
+| Transport must be stateful and liveness-critical in every configuration | **I** | follows from the above |
+| The shell must run on Android **and** desktop ⇒ not Python | **I** | follows from the "app alone" configuration being required |
+| G2CC's `ble/` layer survives a CFW switch largely intact | **I** | it is transport-layer; the CFW changes modes, not the AA envelope. Not yet ported |
+| `Rasterizer.kt` proves arbitrary phone-side Canvas → 4bpp works | **M** | shipped and in daily use in G2CC |
+| A vertical rail costs ~+7.4 % per frame vs a horizontal strip | **M** | rendered both at 1× |
+| **Dual-band removes BT/WiFi coexistence contention** | **I** | 5 GHz WiFi + 2.4 GHz BLE do not share a radio. Sound in principle; **the effect on G2 throughput is UNMEASURED** |
+| Coexistence is a cause of the ~10× shortfall | **U** | one of three surviving candidates (§5.1); the hat is the experiment that would isolate it |
+| Hat bridge power budget (1260 mAh, WiFi 6 + BLE, one workday) | **U** | never measured |
+| macOS cannot set BLE connection parameters | **C** | CoreBluetooth's documented model; not tested against the G2 |
+| Bridge configurations cannot access phone APIs (SMS, notifications, media) | **V** | those are Android APIs; a Pi or laptop has no path to them |
+
 ---
 
 ## The five things most worth distrusting

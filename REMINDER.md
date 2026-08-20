@@ -13,14 +13,24 @@
 | Full documentation | **CLOSED.** `CLAIMS.md` grades every load-bearing claim; `CAPABILITIES.md` inventories what the hardware can do |
 | Offline CFW verification | **`research/verify_cfw.py` passes** — the image we would flash is reproducible from sources we hold, with no Thumb-bit defect |
 | Capture corpus | recovered, unfiltered, SHA-pinned in `captures/` |
-| **The shell design** | **CLOSED 2026-08-18.** `DESIGN.md`, ~1,850 lines. All six surfaces specified, typography locked, costs **measured** |
+| **The shell design** | **CLOSED 2026-08-18.** `DESIGN.md`. All six surfaces specified, typography locked, costs **measured** |
+| **Deployment topology** | **CLOSED 2026-08-20.** `DESIGN.md` §10 — three roles, four configurations, and the runtime constraint they impose |
+| **Licensing** | **DECIDED 2026-08-20.** Clean room: protocol knowledge from `g2flash`/`faceclaw`, **no code**. Borrow from G2CC freely. `CLAUDE.md` has the rule |
 | **The build gate** | **`tools/lint.py` + `tools/geometry.py`** — 20 rules, `--selftest` passes, repo exits 0 |
 | **The renderer** | **`design/render_shots.py`** — every surface at true 1× 640×480, priced through the firmware's own RLE |
 
 ## 🚀 Next
 
-**The feature-creep scope explosion — for the APP layer.** The shell is designed; what the windows
-actually *do* is not. Start from **`CAPABILITIES.md`** for what the hardware allows and
+Two candidates, and they are independent:
+
+**(a) The feature-creep scope explosion — for the APP layer.** The shell is designed; what the windows
+actually *do* is not.
+
+**(b) The transport ↔ shell protocol and the runtime choice** (`DESIGN.md` §10.2, and open items 11–12 in §11). These are
+the two decisions that **cannot be refactored away later**, and everything else hangs off them. If
+implementation is anywhere on the horizon, do this first.
+
+On (a): Start from **`CAPABILITIES.md`** for what the hardware allows and
 **`DESIGN.md` §0 / §4.6** for what the shell already provides and what is ruled out.
 
 Then, per Adam's stated order: *explosion → heavy refinery → consistency passes → a final plan of
@@ -71,6 +81,20 @@ in the existing corpus.
   `eErrorCode` has explicit `NOT_SUPPORT`/`SUPPORT`, so the probe is safe.
 
 ---
+
+## 🆕 Decided 2026-08-19/20 — the adaptable architecture
+
+`DESIGN.md` §10. Damage runs in four configurations: **app + home PC** (full power) · **app alone**
+(PC unreachable, degraded but functional) · **bridge appliance + home PC** (no phone) ·
+**laptop direct** (nothing else). Cross-platform: Windows, macOS, Linux.
+
+- 🔴 **The shell relocates between them**, so it must be one implementation that runs on **Android
+  and desktop** — which rules out Python for the shell specifically.
+- **Build laptop-direct FIRST.** It is the development environment: one process, real glasses, a real
+  debugger, no network to blame.
+- **The bridge appliance already exists on paper and in a parts box** — `G2CC/docs/HAT_BRIDGE_SPEC.md`,
+  design-locked 2026-06-08, BOM bought, never built. It is also a controlled experiment on the ~10 %
+  -of-spec throughput mystery, because its dual-band board removes BT/WiFi coexistence.
 
 ## Open design questions (not hardware-blocked)
 

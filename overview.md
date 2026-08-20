@@ -1244,6 +1244,34 @@ framebuffer pipeline is all still in the tree:
 | `scripts/render_menu.py` | menu rendering with **URW Chancery cursive** |
 | `scripts/btsnoop_parse.py`, `decode_display.py`, `decode_deep.py` | the capture-decoding toolchain |
 | `games/ff1/bridge/spike_out/*.png` | 109 real rendered frames — the compression test corpus |
+| **`docs/HAT_BRIDGE_SPEC.md`** | 🆕 **the bridge appliance, design-locked and BOM-purchased** — see below |
+
+### 🆕 The hat bridge is being resurrected (2026-08-20)
+
+`HAT_BRIDGE_SPEC.md` was design-locked 2026-06-08 and **the entire BOM was bought but never built**,
+because the v0.7 software fix (foreground service + wake lock + faster recovery) made the connection
+problems vanish. §1 of that spec says so outright.
+
+It is exactly the bridge appliance `DESIGN.md` §10 needs for the no-phone configurations:
+**Seeed XIAO ESP32-C5** (dual-band WiFi 6 + BLE 5), 3 × 420 mAh, a dual-band u.FL FPC antenna
+mounted **outside the hat, right side, 1–2″ from the glasses' temple-tip antenna**, WSS home to the
+PC's cloudflared tunnel.
+
+Two things now make it easier than when it was specced: under the CFW the framing is **simpler**
+than the `f1=0/3/5/7` port it planned (`CompressMode = 0` plus a mode byte), and if the host
+pre-deflates, **the bridge needs neither zlib nor the 153 KB shadow** — it forwards bytes and owns
+the lease.
+
+🔑 **And it is a controlled experiment on §5.1.** Its board was chosen because *"dual-band dodges
+WiFi/BLE coexistence"* — and coexistence on the phone's combo radio is one of the **three surviving
+candidates** for the ~10× throughput shortfall, specifically the one that is invisible at the HCI
+layer and therefore unresolvable from the captures alone. WiFi on 5 GHz and BLE on 2.4 removes the
+contention outright. **If throughput jumps on the hat, that isolates a cause nobody has been able to
+name** — including the CFW author, who says debugging it *"would make a much bigger difference than
+compression tuning."*
+
+⚠ The number that decides whether it is wearable: **1260 mAh running WiFi 6 plus BLE for a full
+workday.** The spec has a hybrid power policy and no measured budget.
 
 ---
 
@@ -1502,6 +1530,21 @@ was yes — **"subject to GPL."** So:
   knowledge (wire formats, constants, the lease protocol) kept separate from borrowed *code*.
   Facts about a wire protocol are not copyrightable; his implementation of them is.
   **Not a reason to avoid reading his code — a reason to know which is which while doing it.**
+
+### 🔴 DECIDED 2026-08-20 — clean room, and it is no longer hypothetical
+
+**Damage will contain no `faceclaw` or `g2flash` code.** Protocol knowledge only; the design does
+not need the implementation. An off-the-cuff public comment saying Damage would use *"some borrowed
+code from FaceClaw"* is **retracted**.
+
+What Damage *does* borrow heavily is **G2CC** — Adam's own, licence his to set, and far more mature:
+shipped, tested, and in daily use. Anything he does not control (Universal Paperclips, the FF1 ROM,
+Even's SDK) stays out of any release exactly as it already does in G2CC.
+
+**Why the timing matters:** a public, cross-platform release is now intended (§10 of `DESIGN.md`)
+and compensation is a live possibility. GPL-3.0 attaching to the whole derived work would foreclose
+options that are open today. The boundary costs nothing to keep before the compositor exists and is
+close to unfixable afterwards. The rule is in `CLAUDE.md`.
 
 ## 15. Collaboration — the Babcock thread (opened 2026-08-16)
 

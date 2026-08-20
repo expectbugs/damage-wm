@@ -15,7 +15,9 @@ capture measurements — every table says which. Two tools enforce the rest:
 the compositor).
 
 📍 **New here? Read `REMINDER.md` first** — project state, what comes next, and the consolidated
-first-light checklist.
+first-light checklist. **If you are deciding implementation, read §10 (deployment topology) before
+anything else** — it is the only part of this document that constrains *how* the shell is written,
+and it rules out one otherwise-obvious runtime choice.
 
 > Grades from [`CLAIMS.md`](CLAIMS.md): **V** vendor-authoritative · **M** measured · **C**
 > corroborated · **I** inferred · **S** single-source ⚠ · **U** unknown.
@@ -830,7 +832,32 @@ Live telemetry stays in the status bar (§4.4). Tracked as open item #5.
 | Status | result / state — ok, warn, error — plus the **input echo** (§9.2) |
 | Throughput ↑ · ack ms | uplink B/s and image ack latency. ⚠ downlink is *not* shown: the glasses send only acks and events, so it would read ~0 forever |
 | **Compass ✱** | 8 sectors (N NE E SE S SW W NW) — **hysteresis required**, see §7.2 |
-| Link signal | **four filled bars**, with the dBm numeral appearing only when the link is poor (≤ −75) — the same "louder only when it matters" rule as the battery. ⚠ (U) which link, and whether connected RSSI is readable at all. Sourced from the phone bridge |
+| Link signal | 🔴 **TWO links, one 120 px cell.** See below |
+
+#### 🔴 There are two links and they fail completely differently
+
+The status bar originally showed one. With §10's topology there are always two:
+
+| link | what its failure means |
+|---|---|
+| **transport ↔ glasses (BLE)** | nothing works; the screen may be frozen or already lost to stock LVGL |
+| **shell ↔ content host** (Tailscale / WSS) | **the shell works fully**; some windows are stale, a few are unavailable (§10.5) |
+
+Collapsing those into one indicator makes "re-seat my glasses" indistinguishable from "wait for
+signal," and the correct response differs. So the 120 px cell carries both: **four filled BLE bars
+(~40 px) on the right, host state on the left**, with the dBm numeral appearing only when the radio
+link is poor (≤ −75).
+
+**Host state stays near the ink floor while healthy** — a single dim mark — and spends ink only when
+the host is gone, exactly as the battery does (§4.1). And it reports **duration, not just state**:
+G2CC's `ConnectionManager` already tracks `offlineSince`, so `PC 4m` is free and far more actionable
+than `offline`.
+
+⚠ *Which* BLE link, and whether connected RSSI is readable at all, remain **(U)** — and the answer
+now differs per platform (§10.7).
+
+**Per-window capability lives elsewhere and costs nothing new:** Main's existing summary line already
+has a slot per window, so a window that is unavailable offline simply says so there (§10.5).
 
 ---
 
@@ -1855,7 +1882,140 @@ Correct, and it earns more than eyecandy:
 
 ---
 
-## 10. Open items
+## 10. Deployment topology — the adaptable contract
+
+**Decided 2026-08-19/20.** Adam: *fully powered when the app and the home PC are both present,
+with no sacrifices; falling back to what the app can do alone when the PC drops; able to run from a
+small bridge on any BLE+WiFi device with no phone at all; and able to be driven directly from a
+laptop over Bluetooth with no app, bridge or PC.* Cross-platform, so Windows, macOS and Linux users
+all get it.
+
+> 📍 **If you are deciding implementation, read this section first.** It is the only part of this
+> document that constrains *how* the shell is written rather than how it looks.
+
+### 10.1 Three roles, four deployments
+
+There are only three roles in the system:
+
+| role | owns |
+|---|---|
+| **TRANSPORT** | the BLE links, the framebuffer lease, msgId/seq/fid discipline, fragment writes, event forwarding. Must be within Bluetooth range |
+| **SHELL** | input grammar, focus, back stack, switcher, damage tracking, rasterization, compression — everything in §1–§9 of this document |
+| **CONTENT** | mail, files, terminal, AI, the library — the things *inside* windows |
+
+Every configuration Adam asked for is a placement of those three:
+
+| configuration | transport | shell | content |
+|---|---|---|---|
+| **app + home PC** — full power | phone | phone | PC |
+| **app alone** — PC unreachable | phone | phone | phone cache |
+| **bridge + home PC** — no phone | bridge appliance | **PC** | PC |
+| **laptop direct** — nothing else | laptop | laptop | laptop |
+
+🔑 **The shell moves between rows.** So it must be *one implementation that relocates*, and the
+seams between roles must be **protocols, not function calls** — neither side knowing whether its
+peer is in-process or across a network. Given that, all four configurations are the same three
+components with different link types, and no configuration is a special case.
+
+### 10.2 What this forces on the runtime
+
+- 🔴 **The shell must run on Android *and* desktop.** The "app alone" row requires it. That rules
+  out a Python shell, which is otherwise the house language — **the single most expensive thing to
+  discover late.** Kotlin/JVM and TypeScript both satisfy it.
+- ✅ **But the protocol split means each role picks its own best tool.** Transport on Android is
+  Kotlin (see §10.6); transport on desktop is most cheaply Python + `bleak`, the one library
+  covering Linux, Windows and macOS through a single API. Content can be anything the host likes.
+- ✅ **The offline simulator becomes just another transport.** `BleTransport` / `SimTransport` /
+  `RemoteTransport` behind one interface — G2CC's own `DisplaySink` pattern, one level up.
+
+### 10.3 Part of this is not optional
+
+⚠ **The framebuffer lease already forces transport-side liveness.** sid 0x09 field 101 op 5, both
+arms, 45 s renewal against a 90 s expiry, **failing open** (§1.6). If the PC drives it across the
+network, **any gap over 90 seconds costs the screen** and recovery is a full keyframe. The same
+applies to the EvenHub keepalive when idle and to the carrier layout's periodic text upgrade.
+
+⇒ Transport is necessarily stateful and liveness-critical **in every configuration**, including the
+bridge. This was never a question of whether the phone should hold state — only how much.
+
+### 10.4 The offline seam is already drawn
+
+🔑 **The shell/content split lands exactly on §4.6's content modes**, which is good evidence it is
+the natural seam:
+
+- **List** and **Document** — the WM already owns their damage tracking. If the bytes are local
+  they work offline with **no new machinery**.
+- **Canvas** — the window owns its own damage, so it is host-dependent by nature.
+
+🔑 **And offline capability is a free consequence of a contract §9.1 already demands.** Full
+persistence requires every window to declare a state blob the shell can restore, and §4.3's live
+preview requires that blob be sufficient to *render* the window without activating it. **A window
+that can be previewed is a window that can be read offline.** The change is "replicate those blobs
+to wherever the shell is," not "build offline apps."
+
+Reader is the easy case: declare the book as its cache — an epub is tiny — and page turns become
+pure shell.
+
+### 10.5 Capability is a function of what is present
+
+Extend §4.6's window contract with one field: **what the window NEEDS** (BLE · host · phone APIs).
+The shell marks a window unavailable when its needs are not met, using the same surface as staleness.
+
+⚠ **The bridge and laptop-direct configurations cannot have phone integration at all.** SMS,
+notifications, media state and phone battery come from Android APIs; a Pi or a laptop cannot see
+them. That is not an implementation gap to close later — it is a limit of what that box can know,
+and the shell should say so rather than pretend.
+
+### 10.6 The bridge appliance — already designed and bought
+
+`/home/user/G2CC/docs/HAT_BRIDGE_SPEC.md` (design locked 2026-06-08, **BOM purchased, never built**
+because the v0.7 software fix made the connection problems vanish). It is exactly the config-3
+device:
+
+**Seeed XIAO ESP32-C5** · 3 × 420 mAh · dual-band 2.4/5 GHz u.FL FPC antenna mounted **outside the
+hat, right side, 1–2″ from the glasses' temple-tip antenna** · WSS to the PC's cloudflared tunnel.
+
+Two things changed in its favour since it was specced. Under the CFW the framing is **simpler** than
+the `f1=0/3/5/7` port it planned — `CompressMode = 0` plus a mode byte — and if the host pre-deflates,
+**the bridge needs no zlib and no 153 KB shadow at all**; it forwards bytes and owns liveness.
+
+🔑 **It is also a controlled experiment on the throughput mystery.** Its board was chosen because
+*"dual-band dodges WiFi/BLE coexistence"* — and BT/WiFi coexistence on the phone's combo radio is
+**one of the three surviving candidate causes** of the ~10× shortfall in `overview.md` §5.1,
+explicitly the one invisible at the HCI layer. Putting WiFi on 5 GHz and BLE on 2.4 removes the
+contention entirely. If throughput jumps on the hat, that isolates the cause of a defect the
+firmware's own author says *"would make a much bigger difference than compression tuning."*
+
+⚠ Unmeasured: **1260 mAh running WiFi 6 plus BLE for a full workday.** The spec has a hybrid power
+policy but no power budget, and that number decides whether it is wearable or a desk toy.
+
+### 10.7 What this genuinely costs
+
+Three real prices, none of them fatal, all of them worth knowing before committing:
+
+1. **Damage coalescing depends on tight transport feedback.** §5.13's backpressure rule needs the
+   pipe's depth; a network hop makes that signal stale. Mitigation: transport owns the sliding
+   window and reports depth, shell targets a slightly conservative value. Costs a little throughput
+   in bridge mode.
+2. ⚠ **"No sacrifices" is not achievable across all platforms, because BLE stacks differ in what
+   they permit.** macOS will not let an application set connection parameters at all and hides MAC
+   addresses behind opaque UUIDs; Windows WinRT is limited; only Android exposes
+   `requestConnectionPriority`. Since §5.1's shortfall may itself be connection-parameter related,
+   **a Mac may simply be slower, with nothing to be done about it.**
+3. **It multiplies the work** — three components, a protocol spec, two or three BLE backends, and an
+   appliance, against "PC composes, phone displays." That is the refinery's problem, but it is not
+   free.
+
+### 10.8 Build order
+
+**Laptop-direct first.** It sounds like the exotic configuration; it is actually the *development
+environment* — one process, real glasses, a real debugger, no phone and no network to blame. Get it
+working, then split out transport for the bridge, then relocate the shell to Android for the phone
+rows. This inverts the phone-first assumption and is the cheaper path.
+
+---
+
+## 11. Open items
 
 | # | item | grade | resolves |
 |---|---|---|---|
@@ -1869,6 +2029,11 @@ Correct, and it earns more than eyecandy:
 | 8 | **Type legibility ON GLASS** — the assignments are locked and priced (§Type), but no render can answer whether they read at real angular size | measured / unproven | eyes on glass |
 | 9 | 🆕 **The safe area** (§2.2b) — how much of the panel is actually visible on Adam's face | **U** | first-light ramp; the layout is written relative to it so only the value changes |
 | 10 | **Per-window typefaces for windows not yet designed** — Files, Calendar, Music, SMS, Timers, Scout, Notices inherit Clear Sans until their app earns an override | design | app-layer phase |
+| 11 | 🆕 **The shell runtime** (§10.2) — must run on Android *and* desktop. Kotlin/JVM or TypeScript; **not Python** | design | before line one of the compositor |
+| 12 | 🆕 **The transport ↔ shell protocol** — the seam every configuration depends on, and the one thing that cannot be refactored away later | design | before the compositor |
+| 13 | 🆕 **Hat bridge power budget** — 1260 mAh running WiFi 6 + BLE for a workday (§10.6) | **U** | bench measurement |
+| 14 | 🆕 **Does dual-band actually lift throughput?** If it does, it isolates a cause of the ~10× shortfall | **U** | build the hat |
+| 15 | 🆕 **Cross-platform BLE parity** — macOS cannot set connection parameters at all (§10.7) | **U** | per-platform test |
 
 *(Retired 2026-08-17 by the switcher redesign: "is hold-plus-scroll comfortable?" and "what is the
 long-press hold threshold?" — nothing is held any more, and no interaction is timing-dependent.)*

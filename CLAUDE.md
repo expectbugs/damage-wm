@@ -35,6 +35,10 @@ anything, so you do not re-suggest a rejected idea.
 no keyframe, ink budgets, and glyphs the locked faces cannot render). `--selftest` proves every rule
 fires. It currently exits 0; keep it that way.
 
+**`DESIGN.md` §10 is the deployment topology** — three roles (transport / shell / content) and four
+configurations. It constrains the runtime: **the shell must run on Android and desktop, so it cannot
+be Python.** Read it before proposing any implementation.
+
 **Regenerate `design/shots/` with `python3 design/render_shots.py` after any design change**, and
 read the numbers it prints. Everything renders at **true 1× 640×480** on purpose — a 2× view
 flatters delicate type and misled us for several passes.
@@ -58,6 +62,27 @@ the explosion phase is deliberate and wanted; the refinery phase is what keeps i
 **Do not skip ahead to code.**
 
 ---
+
+## 🔴 Clean-room: no GPL code in Damage
+
+**Decided 2026-08-20.** Damage may borrow **protocol knowledge** from `g2flash` / `faceclaw` freely
+— wire formats, constants, mode semantics, the lease protocol, tuning values. **It must not contain
+their CODE.** Facts about a wire protocol are not copyrightable; Babcock's implementation of them is,
+and it is GPL-3.0.
+
+- ⚠ An off-the-cuff Reddit comment said Damage would use *"some borrowed code from FaceClaw."*
+  **That is retracted; the design does not need it.** Do not act on it.
+- ✅ **G2CC is Adam's own and its licence is his** — borrow from it heavily. It is more mature,
+  tested, and in daily use.
+- ❌ Keep anything he does not control out of any release, as G2CC already does: Universal
+  Paperclips, the FF1 ROM, Even's SDK, third-party fonts with unclear terms.
+- **Why it matters now:** a public release is intended, and compensation is on the table. GPL-3.0
+  attaching to the whole derived work would foreclose options that are currently open. The cost of
+  keeping the boundary clean is zero *before* the compositor exists and near-unfixable after.
+
+⇒ When reading `reference/faceclaw` or `reference/g2flash`, extract **facts into our own words and
+our own implementation**. Never paste. Cite the source file in a comment, as the wire-format rule
+already requires.
 
 ## Do NOT modify G2CC
 
