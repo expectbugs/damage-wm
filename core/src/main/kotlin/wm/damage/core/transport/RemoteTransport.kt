@@ -136,8 +136,15 @@ class RemoteTransportClient(
     private var out: DataOutputStream? = null
     private val nextId = AtomicLong(1)
     private val started = Channel<String?>(1)
+    /** A deliberate stop(): the reader's resulting link-down is expected and
+     *  logged as such, not as an error (round 3 D9). */
+    @Volatile private var closing = false
 
     override suspend fun start(warmupFrame: ByteArray) {
+        closing = false
+        // a failed earlier attempt leaves its link-down reason in the channel;
+        // consuming it here would misreport THIS attempt (round 3 D9)
+        while (started.tryReceive().isSuccess) { /* drain residue */ }
         val s = Socket(host, port)
         sock = s
         try {
@@ -175,7 +182,8 @@ class RemoteTransportClient(
     }
 
     private fun down(reason: String) {
-        Log.e("remote-transport", reason)
+        if (closing) Log.i("remote-transport", "$reason (expected: closing)")
+        else Log.e("remote-transport", reason)
         _state.value = _state.value.copy(connected = false, started = false, leaseHeld = false)
         // a caller parked in start() must get the answer, not a silent hang
         started.trySend(reason)
@@ -250,6 +258,7 @@ class RemoteTransportClient(
     }
 
     override suspend fun stop() {
+        closing = true
         try { out?.send(Ctl(t = "stop")) } catch (e: Exception) { /* closing anyway */ }
         sock?.close()
         _state.value = _state.value.copy(connected = false, started = false)
@@ -443,11 +452,10 @@ class RemoteTransportServer(
             Log.w("transport-server", "driver session error: ${e.message}")
         } finally {
             fwd?.cancel()
-            synchronized(this) { if (driver === sock) driver = null }
             try { sock.close() } catch (e: Exception) { /* closed */ }
             // only a connection that actually HELD the driver slot may signal
-            // the local shell to take back over — a rejected stranger must not
-            // trigger a dual-driver fight (review round 1)
+            // the local shell to take back over — a rejected connection must
+            // not trigger a dual-driver overlap (review round 1)
             if (holdsSlot) {
                 if (innerStarted) {
                     try { runBlocking { inner.stop() } } catch (e: Exception) {
@@ -456,6 +464,9 @@ class RemoteTransportServer(
                 }
                 onRemoteDriver(false)
             }
+            // release the slot LAST (round 3 D6): a reconnect during teardown is
+            // answered "busy", never granted a transport still being stopped
+            synchronized(this) { if (driver === sock) driver = null }
         }
     }
 

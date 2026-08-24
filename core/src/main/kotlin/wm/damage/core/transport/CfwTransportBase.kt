@@ -78,15 +78,19 @@ abstract class CfwTransportBase(
     }
 
     // ------------------------------------------------------------------ queues
-    private sealed class ImgWork {
-        class Flush(val id: Long, val request: FlushRequest) : ImgWork()
-        class Raw(val image: ByteArray, val done: CompletableDeferred<Unit>?) : ImgWork()
+    /** Every queued item is stamped with the session epoch it belongs to.
+     *  Sessions end (stop, failed start, link death) by bumping the epoch and
+     *  SWEEPING — lanes drop stale work LOUDLY, never execute it into the next
+     *  driver's session (review round 3 D1/D8). */
+    private sealed class ImgWork(val epoch: Long) {
+        class Flush(epoch: Long, val id: Long, val request: FlushRequest) : ImgWork(epoch)
+        class Raw(epoch: Long, val image: ByteArray, val done: CompletableDeferred<Unit>?) : ImgWork(epoch)
     }
 
-    private sealed class CtlWork {
-        class Hub(val payload: ByteArray, val awaitAck: CompletableDeferred<EvenHubMsg.Ack>?) : CtlWork()
-        class Settings(val payload: ByteArray) : CtlWork()
-        class Lease(val op: Int, val written: CompletableDeferred<Unit>? = null) : CtlWork()
+    private sealed class CtlWork(val epoch: Long) {
+        class Hub(epoch: Long, val payload: ByteArray, val awaitAck: CompletableDeferred<EvenHubMsg.Ack>?) : CtlWork(epoch)
+        class Settings(epoch: Long, val payload: ByteArray) : CtlWork(epoch)
+        class Lease(epoch: Long, val op: Int, val written: CompletableDeferred<Unit>? = null) : CtlWork(epoch)
     }
 
     private val imageQueue = Channel<ImgWork>(Channel.UNLIMITED)
@@ -106,17 +110,32 @@ abstract class CfwTransportBase(
     @Volatile private var sessionPenalty = false
 
     // image-lane-confined
-    private val fids = FidAllocator()
+    private var fids = FidAllocator()
     private val tracker = FidTracker()
+
+    /** Test hook: start the fid sequence near the wrap so a test can drive
+     *  the 0xFFFE -> 1 boundary in a few flushes. Call before start(). */
+    internal fun seedFidsForTest(start: Int) {
+        fids = FidAllocator(start)
+    }
 
     @Volatile protected var lastImageAtMs = 0L
     @Volatile protected var running = false
-    private var started = false
+    @Volatile private var started = false
     /** Lanes and maintenance loops are launched exactly ONCE and survive
      *  stop/start cycles (they idle on `running`) — a second start() during a
      *  PC takeover must not double them: two image lanes racing Emit was
      *  review round 2's fid-corruption finding. */
-    private var workersLaunched = false
+    @Volatile private var workersLaunched = false
+
+    /** The session epoch: bumped by start() and stop(). Work stamped with an
+     *  older epoch is dropped loudly by the lanes (round 3 D1/D8). */
+    private val sessionEpoch = AtomicLong(0)
+
+    /** True only while start()'s capability gate is waiting — settings frames
+     *  arriving at any other time must not poison the CONFLATED rendezvous
+     *  for a future gate (round 3 observation: uncorrelated capability). */
+    @Volatile private var awaitingCapability = false
 
     private class PendingAck(val flushId: Long, val windowed: Boolean) {
         val done = CompletableDeferred<EvenHubMsg.Ack>()
@@ -186,6 +205,10 @@ abstract class CfwTransportBase(
                     emitFault("abort", "e0-02 reassembly abort from glasses")
             }
             SettingsMsg.SID -> {
+                if (!awaitingCapability) {
+                    Log.d(name, "settings frame outside the capability gate ignored")
+                    return
+                }
                 val cap = SettingsMsg.parseCapability(frame.payload)
                 if (cap != null) {
                     capabilityChannel.trySend(cap)
@@ -249,53 +272,82 @@ abstract class CfwTransportBase(
     // ------------------------------------------------------------------ lifecycle
     override suspend fun start(warmupFrame: ByteArray) {
         check(!started) { "transport already started — a second driver must stop() first" }
+        val epoch = sessionEpoch.incrementAndGet()
         started = true
         running = true
-        connectLink()
-        updateState { it.copy(connected = true) }
-        _events.emit(TransportEvent.Link(true, "$name link up"))
+        try {
+            connectLink()
+            updateState { it.copy(connected = true) }
+            _events.emit(TransportEvent.Link(true, "$name link up"))
 
-        if (!workersLaunched) {
-            workersLaunched = true
-            scope.launch { imageLane() }
-            scope.launch { controlLane() }
-            launchMaintenance()
-        }
+            if (!workersLaunched) {
+                workersLaunched = true
+                scope.launch { imageLane() }
+                scope.launch { controlLane() }
+                launchMaintenance()
+            }
 
-        // 1. Capability gate (§9.2b): field 100 rides the settings READ response
-        //    itself — no timeout needed by construction; an ABSENT field is a
-        //    loud refusal (see onNotifyPacket).
-        controlQueue.trySend(CtlWork.Settings(SettingsMsg.settingsQuery(0)))
-        val cap = capabilityChannel.receive()
-        val missing = SettingsMsg.missingCaps(cap)
-        if (cap.isEmpty() || missing.isNotEmpty()) {
-            val msg = if (cap.isEmpty())
-                "capability gate FAILED: no EVENCFW string — this is NOT the CFW; refusing to paint"
-            else "capability gate FAILED: '$cap' missing $missing — refusing to paint"
-            _events.emit(TransportEvent.Fault("capability", msg))
+            // 1. Capability gate (§9.2b): field 100 rides the settings READ
+            //    response itself — no timeout needed by construction; an ABSENT
+            //    field is a loud refusal (see onNotifyPacket). Drain any stale
+            //    residue first (a swept prior gate leaves a poison ""), then
+            //    open the gate window.
+            capabilityChannel.tryReceive()
+            awaitingCapability = true
+            val cap = try {
+                controlQueue.trySend(CtlWork.Settings(epoch, SettingsMsg.settingsQuery(0)))
+                capabilityChannel.receive()
+            } finally {
+                awaitingCapability = false
+            }
+            val missing = SettingsMsg.missingCaps(cap)
+            if (cap.isEmpty() || missing.isNotEmpty()) {
+                val msg = if (cap.isEmpty())
+                    "capability gate FAILED: no EVENCFW string — this is NOT the CFW; refusing to paint"
+                else "capability gate FAILED: '$cap' missing $missing — refusing to paint"
+                _events.emit(TransportEvent.Fault("capability", msg))
+                throw LintError(msg)
+            }
+            updateState { it.copy(capability = cap) }
+
+            // 2. Carrier CREATE — image container + the full-screen dummy text
+            //    container that is the event antenna (overview.md §4.1).
+            val createAck = CompletableDeferred<EvenHubMsg.Ack>()
+            controlQueue.trySend(CtlWork.Hub(epoch, EvenHubMsg.carrierCreate(0), createAck))
+            val created = createAck.await()
+            if (created.errorCode != null)
+                throw LintError("carrier CREATE rejected: ErrorCode=${created.errorCode}")
+
+            // 3. FB lease, BOTH arms (display_copy_hook runs per lens).
+            controlQueue.trySend(CtlWork.Lease(epoch, SettingsMsg.OP_FB_ACQUIRE))
+
+            // 4. The sacrificial warmup frame — the firmware silently drops the
+            //    first burst after CREATE (§5.17: make it the splash).
+            val warmupDone = CompletableDeferred<Unit>()
+            imageQueue.trySend(ImgWork.Raw(epoch, warmupFrame, warmupDone))
+            warmupDone.await()
+
+            updateState { it.copy(started = true, leaseHeld = true) }
+        } catch (e: Exception) {
+            // Roll back COMPLETELY (round 3 D4): a failed start must not leave
+            // the lease renewing with no driver, or the instance refusing every
+            // retry with "already started". Best-effort release in case the
+            // lease was acquired before the failure — the 90 s fail-open is
+            // the backstop if this write cannot go out.
             running = false
-            throw LintError(msg)
+            started = false
+            sweepSession("start failed: ${e.message}")
+            if (workersLaunched) {
+                controlQueue.trySend(CtlWork.Lease(epoch, SettingsMsg.OP_FB_RELEASE))
+            }
+            try {
+                disconnectLink()
+            } catch (d: Exception) {
+                Log.w(name, "disconnect after failed start: ${d.message}")
+            }
+            updateState { it.copy(connected = false, started = false, leaseHeld = false) }
+            throw e
         }
-        updateState { it.copy(capability = cap) }
-
-        // 2. Carrier CREATE — image container + the full-screen dummy text
-        //    container that is the event antenna (overview.md §4.1).
-        val createAck = CompletableDeferred<EvenHubMsg.Ack>()
-        controlQueue.trySend(CtlWork.Hub(EvenHubMsg.carrierCreate(0), createAck))
-        val created = createAck.await()
-        if (created.errorCode != null)
-            throw LintError("carrier CREATE rejected: ErrorCode=${created.errorCode}")
-
-        // 3. FB lease, BOTH arms (display_copy_hook runs per lens).
-        controlQueue.trySend(CtlWork.Lease(SettingsMsg.OP_FB_ACQUIRE))
-
-        // 4. The sacrificial warmup frame — the firmware silently drops the
-        //    first burst after CREATE (§5.17: make it the splash).
-        val warmupDone = CompletableDeferred<Unit>()
-        imageQueue.trySend(ImgWork.Raw(warmupFrame, warmupDone))
-        warmupDone.await()
-
-        updateState { it.copy(started = true, leaseHeld = true) }
     }
 
     /** Maintenance: lease renewal (45 s against the 90 s fail-open expiry — a
@@ -308,21 +360,21 @@ abstract class CfwTransportBase(
         scope.launch {
             while (isActive) {
                 delay(if (instant) 50 else SettingsMsg.LEASE_RENEW_MS)
-                if (running) controlQueue.trySend(CtlWork.Lease(SettingsMsg.OP_FB_ACQUIRE))
+                if (running) controlQueue.trySend(CtlWork.Lease(sessionEpoch.get(), SettingsMsg.OP_FB_ACQUIRE))
             }
         }
         scope.launch {
             while (isActive) {
                 delay(if (instant) 50 else 4_000)
                 if (running && (nowMs() - lastImageAtMs > 4_000 || instant)) {
-                    controlQueue.trySend(CtlWork.Hub(EvenHubMsg.keepalive(0), null))
+                    controlQueue.trySend(CtlWork.Hub(sessionEpoch.get(), EvenHubMsg.keepalive(0), null))
                 }
             }
         }
         scope.launch {
             while (isActive) {
                 delay(if (instant) 50 else 30_000)
-                if (running) controlQueue.trySend(CtlWork.Hub(EvenHubMsg.carrierTextUpgrade(0), null))
+                if (running) controlQueue.trySend(CtlWork.Hub(sessionEpoch.get(), EvenHubMsg.carrierTextUpgrade(0), null))
             }
         }
         scope.launch {
@@ -340,26 +392,48 @@ abstract class CfwTransportBase(
     override suspend fun submit(flush: FlushRequest): Long {
         check(_state.value.started) { "submit before start()" }
         val id = flushIds.incrementAndGet()
-        imageQueue.trySend(ImgWork.Flush(id, flush))
+        imageQueue.trySend(ImgWork.Flush(sessionEpoch.get(), id, flush))
         return id
     }
 
     override suspend fun clearDiagFlags() {
-        imageQueue.trySend(ImgWork.Raw(byteArrayOf(7, 0), null))
+        imageQueue.trySend(ImgWork.Raw(sessionEpoch.get(), byteArrayOf(7, 0), null))
     }
 
     override suspend fun stop() {
+        val epoch = sessionEpoch.incrementAndGet()   // everything older is stale
         running = false
         started = false
-        // AWAIT the release actually reaching the wire — a fixed sleep lost it
-        // behind a mid-flight keyframe's wire-mutex hold (review round 2 #6),
-        // leaving the glasses leased/frozen up to the 90 s fail-open
-        val released = CompletableDeferred<Unit>()
-        controlQueue.trySend(CtlWork.Lease(SettingsMsg.OP_FB_RELEASE, released))
-        try {
-            released.await()
-        } catch (e: Exception) {
-            Log.w(name, "lease release write failed: ${e.message}")
+        // Sweep FIRST (round 3 D1): fail every pending ack, restore the window
+        // permits, and drain both queues loudly — a lane parked on a permit
+        // that a dead link will never return would otherwise deadlock this
+        // stop and every future start on the same instance.
+        sweepSession("$name stopped")
+        if (workersLaunched) {
+            // AWAIT the release actually reaching the wire — a fixed sleep lost
+            // it behind a mid-flight keyframe's wire-mutex hold (round 2 #6),
+            // leaving the glasses leased/frozen up to the 90 s fail-open. The
+            // select also completes if the transport scope itself dies (the
+            // lanes' finally-drains fail `released` on the way out; the onJoin
+            // arm is the last-resort if death races the enqueue) — round 3 D3.
+            val released = CompletableDeferred<Unit>()
+            controlQueue.trySend(CtlWork.Lease(epoch, SettingsMsg.OP_FB_RELEASE, released))
+            try {
+                val job = scope.coroutineContext[kotlinx.coroutines.Job]
+                if (job == null) {
+                    released.await()
+                } else {
+                    kotlinx.coroutines.selects.select<Unit> {
+                        released.onAwait { }
+                        job.onJoin {
+                            Log.w(name, "transport scope ended before the release write — " +
+                                "the 90 s fail-open covers the lease")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(name, "lease release write failed: ${e.message}")
+            }
         }
         try {
             disconnectLink()
@@ -370,26 +444,95 @@ abstract class CfwTransportBase(
         _events.emit(TransportEvent.Link(false, "$name stopped"))
     }
 
+    /** End-of-session sweep: fail every in-flight ack (releasing its window
+     *  permit — invariant: map membership <=> permit held), then drain both
+     *  queues, completing everything exceptionally. LOUD by construction. */
+    private fun sweepSession(why: String) {
+        for (id in pendingAcks.keys.toList()) {
+            val p = pendingAcks.remove(id) ?: continue
+            if (p.windowed) window.release()
+            p.done.completeExceptionally(LintError("$why (msgId $id un-acked)"))
+        }
+        updateState { it.copy(inFlight = WINDOW - window.availablePermits) }
+        while (true) {
+            val w = imageQueue.tryReceive().getOrNull() ?: break
+            failImgWork(w, why)
+        }
+        while (true) {
+            val w = controlQueue.tryReceive().getOrNull() ?: break
+            failCtlWork(w, why)
+        }
+    }
+
+    private fun failImgWork(w: ImgWork, why: String) {
+        when (w) {
+            is ImgWork.Flush -> {
+                if (!_events.tryEmit(TransportEvent.FlushDone(w.id, false, 0, 0, why)))
+                    Log.e(name, "FlushDone for swept flush ${w.id} DROPPED (buffer full)")
+            }
+            is ImgWork.Raw -> w.done?.completeExceptionally(LintError(why))
+        }
+    }
+
+    private fun failCtlWork(w: CtlWork, why: String) {
+        when (w) {
+            is CtlWork.Hub -> w.awaitAck?.completeExceptionally(LintError(why))
+            is CtlWork.Lease -> w.written?.completeExceptionally(LintError(why))
+            is CtlWork.Settings -> {}
+        }
+    }
+
+    /** Subclasses call this when the physical link dies out from under a
+     *  session (BLE disconnect): sweeps so nothing waits on acks that will
+     *  never come, and surfaces the loss (round 3 D1). */
+    protected fun onLinkDown(reason: String) {
+        Log.e(name, "link down: $reason")
+        sweepSession("link down: $reason")
+        updateState { it.copy(connected = false) }
+        if (!_events.tryEmit(TransportEvent.Link(false, reason))) {
+            Log.e(name, "Link-down event DROPPED (buffer full)")
+        }
+    }
+
     // ------------------------------------------------------------------ image lane
     private suspend fun imageLane() {
-        for (work in imageQueue) {
-            if (!running) continue
-            try {
-                when (work) {
-                    is ImgWork.Flush -> laneFlush(work)
-                    is ImgWork.Raw -> {
-                        val final = writeImage(work.image)
-                        completeAsync(final, flushId = -1, bytes = work.image.size,
-                            t0 = nowMs(), done = work.done)
+        try {
+            for (work in imageQueue) {
+                if (work.epoch != sessionEpoch.get()) {
+                    failImgWork(work, "stale session work dropped (epoch ${work.epoch}, now ${sessionEpoch.get()})")
+                    continue
+                }
+                if (!running) {
+                    failImgWork(work, "transport not running")
+                    continue
+                }
+                try {
+                    when (work) {
+                        is ImgWork.Flush -> laneFlush(work)
+                        is ImgWork.Raw -> {
+                            val final = writeImage(work.image, work.epoch)
+                            completeAsync(final, flushId = -1, bytes = work.image.size,
+                                t0 = nowMs(), done = work.done)
+                        }
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    failImgWork(work, "image lane cancelled")
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(name, "image lane error", e)
+                    when (work) {
+                        is ImgWork.Flush -> _events.emit(TransportEvent.FlushDone(
+                            work.id, false, 0, 0, e.message ?: e.toString()))
+                        is ImgWork.Raw -> work.done?.completeExceptionally(e)
                     }
                 }
-            } catch (e: Exception) {
-                Log.e(name, "image lane error", e)
-                when (work) {
-                    is ImgWork.Flush -> _events.emit(TransportEvent.FlushDone(
-                        work.id, false, 0, 0, e.message ?: e.toString()))
-                    is ImgWork.Raw -> work.done?.completeExceptionally(e)
-                }
+            }
+        } finally {
+            // the lane is dying (scope cancelled): nothing queued can ever run
+            // — say so to every waiter rather than leave it parked (round 3 D3)
+            while (true) {
+                val w = imageQueue.tryReceive().getOrNull() ?: break
+                failImgWork(w, "image lane terminated")
             }
         }
     }
@@ -402,19 +545,32 @@ abstract class CfwTransportBase(
                 repeat(WINDOW) { window.acquire() }
                 repeat(WINDOW) { window.release() }
             }
+            // §8.2 #6 handled BEFORE encoding (round 3 D2): a flush must never
+            // SPAN the 0xFFFE -> 1 wrap — a mode-7 clear cannot ride inside a
+            // mode-8 batch, and a post-wrap fid issued without one FID001s on
+            // the host (and would f_skip on the glasses). If the fids left
+            // before the wrap cannot cover this flush, clear the firmware's
+            // ring now, restart the sequence, and encode entirely post-wrap.
+            val rects = work.request.ops.count { it is DisplayOp.Delta || it is DisplayOp.StereoPair }
+            if (Geometry.FID_MAX - fids.peek() + 1 < rects) {
+                writeImage(byteArrayOf(7, 0), work.epoch)
+                tracker.resync()
+                fids.restart()
+            }
             val encoded = Emit.encode(work.request, fids, tracker,
                 window = if (work.request.wide) 1 else WINDOW)
-            val final = writeImage(encoded.image)
+            val final = writeImage(encoded.image, work.epoch)
             if (fids.wrapPending) {
-                // §8.2 #6: the deliberate 0xFFFE -> 1 wrap. The mode-7 sub-0
-                // clear resets the FIRMWARE's fid ring and flags; the host
-                // tracker's issued-set resets with it (round 2 #1: without this
-                // every post-wrap fid FID001-failed forever).
-                writeImage(byteArrayOf(7, 0))
-                tracker.wrapReset()
+                // the flush ended EXACTLY on 0xFFFE: the mode-7 sub-0 clear
+                // resets the FIRMWARE's fid ring, flags and lastFid; the host
+                // tracker resyncs with it so the next flush starts fresh at 1
+                writeImage(byteArrayOf(7, 0), work.epoch)
+                tracker.resync()
                 fids.clearWrap()
             }
             completeAsync(final, work.id, encoded.image.size, t0, done = null)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             sessionPenalty = true
             _events.emit(TransportEvent.FlushDone(work.id, false, nowMs() - t0, 0,
@@ -422,19 +578,32 @@ abstract class CfwTransportBase(
         }
     }
 
+    /** The previous flush's completion job (image-lane confined): each
+     *  completion joins it first, so FlushDone events leave in SUBMISSION
+     *  order by construction — acks arrive in wire order, but the completion
+     *  coroutines would otherwise race for a dispatcher thread (round 3: an
+     *  order-sensitive test flaked under load). A failed or swept predecessor
+     *  completes too, so the join can never outlive the session. */
+    private var lastCompletion: kotlinx.coroutines.Job? = null
+
     /** Await the final ack off-lane so the lane pipelines the next flush. */
     private fun completeAsync(
         final: PendingAck?, flushId: Long, bytes: Int, t0: Long,
         done: CompletableDeferred<Unit>?,
     ) {
+        val prev = lastCompletion
         if (final == null) {
-            done?.complete(Unit)
-            if (flushId >= 0) _events.tryEmit(TransportEvent.FlushDone(flushId, true, 0, bytes))
+            lastCompletion = scope.launch {
+                prev?.join()
+                done?.complete(Unit)
+                if (flushId >= 0) _events.emit(TransportEvent.FlushDone(flushId, true, 0, bytes))
+            }
             return
         }
-        scope.launch {
+        lastCompletion = scope.launch {
             try {
-                val ack = final.done.await()
+                prev?.join()          // inside the try: a cancelled join still
+                val ack = final.done.await()   // fails `done` below, never parks it
                 onImageDelivered()
                 val ackMs = nowMs() - t0
                 if (ack.errorCode != null) {
@@ -461,7 +630,7 @@ abstract class CfwTransportBase(
      * slot until its ack arrives — up to WINDOW un-acked messages ride the link.
      * Returns the FINAL fragment's pending ack (flush completion).
      */
-    private suspend fun writeImage(image: ByteArray): PendingAck? {
+    private suspend fun writeImage(image: ByteArray, atEpoch: Long): PendingAck? {
         require(image.isNotEmpty()) { "empty image buffer" }
         lastImageAtMs = nowMs()
         if (sessionPenalty) {
@@ -475,7 +644,15 @@ abstract class CfwTransportBase(
         while (off < image.size) {
             val end = minOf(off + Geometry.MAX_IMAGE_FRAGMENT, image.size)
             window.acquire()
+            if (atEpoch != sessionEpoch.get()) {
+                // the session ended while we waited for a slot (the sweep is
+                // what returned it): never write a stale message into the next
+                // driver's session (round 3 D8)
+                window.release()
+                throw LintError("session ended while waiting for a window slot")
+            }
             updateState { it.copy(inFlight = WINDOW - window.availablePermits) }
+            var registered: Pair<Int, PendingAck>? = null
             try {
                 wire.withLock {
                     val id = nextMsgIdLocked()
@@ -483,6 +660,7 @@ abstract class CfwTransportBase(
                         image.copyOfRange(off, end))
                     val pending = PendingAck(-1, windowed = true)
                     registerPending(id, pending)
+                    registered = id to pending
                     if (end == image.size) finalPending = pending
                     for (p in AaFrame.frame(nextSeqLocked(), EvenHubMsg.SID,
                             EvenHubMsg.FLAG_REQUEST, msg)) {
@@ -490,7 +668,14 @@ abstract class CfwTransportBase(
                     }
                 }
             } catch (e: Exception) {
-                window.release()
+                // The fragment never fully left, so its ack can never arrive:
+                // the entry must go WITH the permit — invariant: map membership
+                // <=> permit held (round 3 D7: a stale entry double-released
+                // the permit a counter cycle later). Release only if we, not a
+                // racing ack, removed it.
+                val r = registered
+                if (r == null || pendingAcks.remove(r.first, r.second)) window.release()
+                updateState { it.copy(inFlight = WINDOW - window.availablePermits) }
                 throw e
             }
             off = end
@@ -499,7 +684,7 @@ abstract class CfwTransportBase(
         return finalPending
     }
 
-    /** msgId cycles mod 250: a WEDGED pending (lost ack) whose id comes around
+    /** msgId cycles 1..249: a WEDGED pending (lost ack) whose id comes around
      *  again must fail LOUDLY and free its window slot, not be silently
      *  overwritten with the slot leaked and the late ack misrouted (review
      *  round 2 #2). Callers hold `wire`. */
@@ -518,8 +703,10 @@ abstract class CfwTransportBase(
         }
     }
 
-    // wire-mutex-confined counter helpers (callers hold `wire`)
-    private fun nextMsgIdLocked(): Int { msgId = (msgId + 1) % 250; return msgId }
+    // wire-mutex-confined counter helpers (callers hold `wire`). msgId never
+    // takes the value 0: it is a 1-byte field that dies past 255 and whether
+    // real firmware accepts 0 is unverified — 1..249 dodges the question.
+    private fun nextMsgIdLocked(): Int { msgId = msgId % 249 + 1; return msgId }
     private fun nextSeqLocked(): Int { aaSeq = (aaSeq + 1) and 0xFF; return aaSeq }
     private fun nextSessionLocked(afterFailure: Boolean): Int {
         session = (session + if (afterFailure) 3 else 1) % 250
@@ -529,64 +716,95 @@ abstract class CfwTransportBase(
 
     // ------------------------------------------------------------------ control lane
     private suspend fun controlLane() {
-        for (work in controlQueue) {
-            try {
-                when (work) {
-                    is CtlWork.Hub -> {
-                        val pending = PendingAck(-1, windowed = false)
-                        wire.withLock {
-                            val id = nextMsgIdLocked()
-                            registerPending(id, pending)
-                            val payload = restampMsgId(work.payload, id)
-                            for (p in AaFrame.frame(nextSeqLocked(), EvenHubMsg.SID,
-                                    EvenHubMsg.FLAG_REQUEST, payload)) {
+        try {
+            for (work in controlQueue) {
+                if (work.epoch != sessionEpoch.get()) {
+                    failCtlWork(work, "stale session control work dropped")
+                    continue
+                }
+                try {
+                    when (work) {
+                        is CtlWork.Hub -> {
+                            val pending = PendingAck(-1, windowed = false)
+                            wire.withLock {
+                                val id = nextMsgIdLocked()
+                                registerPending(id, pending)
+                                val payload = restampMsgId(work.payload, id)
+                                for (p in AaFrame.frame(nextSeqLocked(), EvenHubMsg.SID,
+                                        EvenHubMsg.FLAG_REQUEST, payload)) {
+                                    writeArm(Arm.RIGHT, p)
+                                }
+                            }
+                            // NEVER await the ack inline (round 3 D3): a lost ack
+                            // would park the lane and every lease renewal behind
+                            // it — the one thing this lane exists to prevent. The
+                            // watcher forwards to the caller off-lane, and a swept
+                            // or counter-cycled pending is reported, never thrown
+                            // into the scope (round 3 D5: that crashes Android).
+                            val awaiting = work.awaitAck
+                            scope.launch {
+                                try {
+                                    val ack = pending.done.await()
+                                    if (awaiting != null) awaiting.complete(ack)
+                                    else if (ack.errorCode != null)
+                                        emitFault("control", "ErrorCode=${ack.errorCode}")
+                                } catch (e: Exception) {
+                                    if (awaiting != null) awaiting.completeExceptionally(e)
+                                    else Log.w(name, "control ack never arrived: ${e.message}")
+                                }
+                            }
+                        }
+                        is CtlWork.Settings -> wire.withLock {
+                            val payload = restampMsgId(work.payload, nextMsgIdLocked())
+                            for (p in AaFrame.frame(nextSeqLocked(), SettingsMsg.SID,
+                                    SettingsMsg.FLAG_REQUEST, payload)) {
                                 writeArm(Arm.RIGHT, p)
                             }
                         }
-                        if (work.awaitAck != null) {
-                            work.awaitAck.complete(pending.done.await())
-                        } else {
-                            scope.launch {
-                                val ack = pending.done.await()
-                                if (ack.errorCode != null)
-                                    emitFault("control", "ErrorCode=${ack.errorCode}")
-                            }
-                        }
-                    }
-                    is CtlWork.Settings -> wire.withLock {
-                        val payload = restampMsgId(work.payload, nextMsgIdLocked())
-                        for (p in AaFrame.frame(nextSeqLocked(), SettingsMsg.SID,
-                                SettingsMsg.FLAG_REQUEST, payload)) {
-                            writeArm(Arm.RIGHT, p)
-                        }
-                    }
-                    is CtlWork.Lease -> {
-                        // Fire-and-forget by design (settings_ext.c: MagicRandom 0
-                        // is consumed before the stock decoder discards the field)
-                        // — pure writes, can never wedge behind a stuck ack.
-                        try {
-                            wire.withLock {
-                                for (arm in Arm.entries) {
-                                    val nonce = (nowMs() and 0xFFFF).toInt()
-                                    for (p in AaFrame.frame(nextSeqLocked(), SettingsMsg.SID,
-                                            SettingsMsg.FLAG_REQUEST, SettingsMsg.control(work.op, nonce))) {
-                                        writeArm(arm, p)
+                        is CtlWork.Lease -> {
+                            if (work.op == SettingsMsg.OP_FB_ACQUIRE && !running) {
+                                // a renewal that slipped past stop()'s running=false
+                                // must not re-lease glasses just released (round 3
+                                // D10); the epoch guard above catches the rest
+                                work.written?.complete(Unit)
+                            } else {
+                                // Fire-and-forget by design (settings_ext.c:
+                                // MagicRandom 0 is consumed before the stock
+                                // decoder discards the field) — pure writes, can
+                                // never wedge behind a stuck ack.
+                                try {
+                                    wire.withLock {
+                                        for (arm in Arm.entries) {
+                                            val nonce = (nowMs() and 0xFFFF).toInt()
+                                            for (p in AaFrame.frame(nextSeqLocked(), SettingsMsg.SID,
+                                                    SettingsMsg.FLAG_REQUEST, SettingsMsg.control(work.op, nonce))) {
+                                                writeArm(arm, p)
+                                            }
+                                        }
                                     }
+                                    work.written?.complete(Unit)
+                                } catch (e: Exception) {
+                                    work.written?.completeExceptionally(e)
+                                    throw e
                                 }
+                                if (work.op == SettingsMsg.OP_FB_ACQUIRE)
+                                    setLease(true, "FB lease acquired/renewed (both arms)")
                             }
-                            work.written?.complete(Unit)
-                        } catch (e: Exception) {
-                            work.written?.completeExceptionally(e)
-                            throw e
                         }
-                        if (work.op == SettingsMsg.OP_FB_ACQUIRE)
-                            setLease(true, "FB lease acquired/renewed (both arms)")
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    failCtlWork(work, "control lane cancelled")
+                    throw e
+                } catch (e: Exception) {
+                    Log.e(name, "control lane error", e)
+                    failCtlWork(work, e.message ?: e.toString())
+                    emitFault("control", e.message ?: e.toString())
                 }
-            } catch (e: Exception) {
-                Log.e(name, "control lane error", e)
-                if (work is CtlWork.Hub) work.awaitAck?.completeExceptionally(e)
-                emitFault("control", e.message ?: e.toString())
+            }
+        } finally {
+            while (true) {
+                val w = controlQueue.tryReceive().getOrNull() ?: break
+                failCtlWork(w, "control lane terminated")
             }
         }
     }

@@ -109,6 +109,8 @@ class Notifications(private val text: TextRasterizer) {
 
     val active: Boolean get() = current != null
     val animating: Boolean get() = (current != null && unfurl < 4) || furling
+    /** Mid-furl: the under snapshot is being consumed strip by strip. */
+    val furlingOut: Boolean get() = furling
     val queueDepth: Int get() = queue.size
 
     /** Coalesce by source+thread (§4.5): a new message in the shown thread

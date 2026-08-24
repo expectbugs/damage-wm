@@ -40,6 +40,11 @@ interface ContentProvider {
 
     /** Human state for the status bar ("" = healthy). */
     fun state(): String
+
+    /** The local copy of [id] failed to open: forget it so the next open
+     *  fetches afresh (round 3 R5 — a single mis-sniffed cache entry must not
+     *  stay unopenable forever). No-op where there is no cache. */
+    fun invalidate(id: String) {}
 }
 
 class LocalContent(private val dir: Path) : ContentProvider {
@@ -150,21 +155,32 @@ class ContentHostServer(
                     // typed dispatch on the t discriminator — substring matching
                     // against raw JSON was review round 1's misroute finding
                     when (val t = json.decodeFromString(Probe.serializer(), line).t) {
-                        "library" ->
-                            out.sendJson(json.encodeToString(LibraryMsg.serializer(), LibraryMsg(books = provider.library())))
+                        "library" -> {
+                            // a scan failure answers in-band: dropping the session
+                            // would show on the phone as "PC gone" (round 3)
+                            val books = try {
+                                provider.library()
+                            } catch (e: Exception) {
+                                Log.e("content-host", "library scan failed", e)
+                                out.sendJson(json.encodeToString(ErrMsg.serializer(),
+                                    ErrMsg(detail = "library scan failed: ${e.message}")))
+                                continue
+                            }
+                            out.sendJson(json.encodeToString(LibraryMsg.serializer(), LibraryMsg(books = books)))
+                        }
                         "get" -> {
                             val get = json.decodeFromString(GetMsg.serializer(), line)
-                            // resolve BEFORE the header goes out: a stale-listing
-                            // miss answers cleanly and keeps the session
-                            val path = try {
-                                provider.openBook(get.id)
+                            // resolve AND size BEFORE the header goes out: a
+                            // stale-listing miss answers cleanly, keeps the session
+                            val (path, size) = try {
+                                val p = provider.openBook(get.id)
+                                p to Files.size(p)
                             } catch (e: Exception) {
                                 Log.w("content-host", "get ${get.id} failed: ${e.message}")
                                 out.sendJson(json.encodeToString(ErrMsg.serializer(),
                                     ErrMsg(detail = "book ${get.id}: ${e.message}")))
                                 continue
                             }
-                            val size = Files.size(path)
                             out.sendJson(json.encodeToString(BlobMsg.serializer(), BlobMsg(id = get.id, len = size)))
                             // stream, never buffer. A MID-STREAM failure cannot be
                             // answered in-band (the byte stream is committed) —
@@ -278,7 +294,8 @@ class RemoteContent(
         if (e !is HostRefused) markOffline()   // refusal already set its banner
         val cached = cachedLibrary()
         if (cached.isEmpty()) throw IllegalStateException(
-            "library unavailable: host unreachable (${e.message}) and no cache")
+            if (e is HostRefused) "library unavailable: host refused (${e.message}) and no cache"
+            else "library unavailable: host unreachable (${e.message}) and no cache")
         cached
     }
 
@@ -302,6 +319,13 @@ class RemoteContent(
     private fun cachedExisting(id: String): Path? =
         listOf("epub", "txt").map { cachePath(id, it) }.firstOrNull { Files.exists(it) }
 
+    override fun invalidate(id: String) {
+        for (ext in listOf("epub", "txt")) {
+            if (Files.deleteIfExists(cachePath(id, ext)))
+                Log.w("content", "dropped unopenable cached copy $id.$ext — next open refetches")
+        }
+    }
+
     override fun openBook(id: String): Path {
         val cached = cachedExisting(id)
         if (cached != null) return cached
@@ -309,6 +333,17 @@ class RemoteContent(
         // drop mid-read never disrupts (Adam, stage-1 requirement). Streamed in
         // chunks — a big book must never build a heap-sized array (OOM is an
         // Error and would skip every catch on the reader path).
+        return try {
+            fetchBook(id)
+        } catch (e: java.io.IOException) {
+            // connect refused / stream cut: the host is gone — say so on the
+            // banner, not only in the per-open notice (round 3 R2)
+            markOffline()
+            throw e
+        }
+    }
+
+    private fun fetchBook(id: String): Path {
         return withHost { inp, out ->
             out.sendJson(json.encodeToString(GetMsg.serializer(), GetMsg(id = id)))
             val line = inp.readJson()
@@ -338,9 +373,7 @@ class RemoteContent(
                     throw IllegalStateException("cached ${Files.size(tmp)} B, expected ${blob.len}")
                 // sniff the format (#B3): epubs are zip containers ("PK");
                 // everything else this library serves is plain text
-                val head = Files.newInputStream(tmp).use { s ->
-                    val b = ByteArray(2); val n = s.read(b); if (n == 2) b else ByteArray(0)
-                }
+                val head = Files.newInputStream(tmp).use { it.readNBytes(2) }
                 val ext = if (head.size == 2 && head[0] == 'P'.code.toByte() &&
                     head[1] == 'K'.code.toByte()) "epub" else "txt"
                 val dest = cachePath(id, ext)

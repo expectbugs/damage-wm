@@ -121,12 +121,14 @@ class ShellService : Service() {
             }
         }
 
-        // battery into the top bar's P cell
+        // battery into the top bar's P cell; the host-link banner re-read on
+        // the same tick so "PC Nm" keeps counting (round 3, content R2)
         scope.launch {
             val bm = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
             while (isActive) {
                 val pct = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
                 if (pct in 1..100) sh.phoneBattery = Chrome.Battery(pct)
+                sh.hostState = rc.state()
                 delay(60_000)
             }
         }
@@ -196,6 +198,14 @@ class ShellService : Service() {
             updateNotification(statusLine)
         } else {
             if (destroyed) return
+            // one rebuild at a time (round 3, phone D4): a burst of
+            // disconnects must not tear down the fresh stack it just built.
+            // The flag clears INSIDE the monitor, so a claim that was waiting
+            // on it can never see a stale "in progress".
+            if (!rebuilding.compareAndSet(false, true)) {
+                Log.i("service", "rebuild already in progress — coalesced")
+                return
+            }
             Log.i("service", "PC shell gone — rebuilding the local stack")
             statusLine = "local shell resuming"
             updateNotification(statusLine)
@@ -204,15 +214,25 @@ class ShellService : Service() {
             // makes stop+start atomic against onDestroy's teardown (#B4).
             Thread({
                 synchronized(this@ShellService) {
-                    stopStack()
-                    if (!destroyed) {
-                        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-                        startStack()
+                    try {
+                        stopStack()
+                        if (!destroyed) {
+                            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+                            startStack()
+                        }
+                    } catch (e: Exception) {
+                        Log.e("service", "stack rebuild failed", e)
+                        statusLine = "REBUILD FAILED: ${e.message}"
+                        urgentNotification("service", statusLine)
+                    } finally {
+                        rebuilding.set(false)
                     }
                 }
             }, "damage-stack-rebuild").start()
         }
     }
+
+    private val rebuilding = java.util.concurrent.atomic.AtomicBoolean(false)
 
     fun postGesture(type: Int) {
         shell?.postGesture(type)
@@ -225,7 +245,9 @@ class ShellService : Service() {
         // continuously (2 s debounce), so the async stop loses at most the last
         // moments — an ANR would lose the process mid-write instead.
         destroyed = true
-        Thread({ stopStack() }, "damage-shutdown").start()
+        Thread({
+            try { stopStack() } catch (e: Exception) { Log.e("service", "shutdown failed", e) }
+        }, "damage-shutdown").start()
         super.onDestroy()
     }
 

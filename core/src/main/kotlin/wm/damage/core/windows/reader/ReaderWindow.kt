@@ -141,6 +141,7 @@ class ReaderWindow(
         Level_.BOOK -> {
             rememberPosition()
             level = Level_.LIBRARY
+            services?.setOperation("idle")
             true
         }
         Level_.LIBRARY -> {
@@ -162,7 +163,9 @@ class ReaderWindow(
 
     override fun onActivate(ctx: ShellServices) {
         services = ctx
-        if (library.isEmpty()) refreshLibrary()
+        // always re-scan on activation (round 3 R2): the scan is what keeps
+        // the host-link banner truthful, and the shelf stays up while it runs
+        refreshLibrary()
     }
 
     override fun onFontScaleChanged(scale: Double) {
@@ -176,18 +179,22 @@ class ReaderWindow(
         if (services?.docContentWidth() != b.width) relayoutOpenBook()
     }
 
+    private var layoutGen = 0
+
     private fun relayoutOpenBook() {
         val b = book ?: return
         rememberPosition()
         val keep = offsets[b.meta.id] ?: 0
+        val gen = ++layoutGen
         bg.launch(Dispatchers.IO) {
             try {
                 val re = layoutBook(b.meta, b.book)
                 services?.runOnShell {
-                    // identity guard (#B8): a late completion must not clobber a
-                    // book the user has since switched to, and of two racing
-                    // relayouts of the SAME book the newer one wins
-                    if (book !== b) return@runOnShell
+                    // identity guard (#B8): a late completion must not replace a
+                    // book the user has since switched to; and of two racing
+                    // relayouts of the SAME book only the NEWEST request applies
+                    // (round 3 R1: first-completion-wins kept the stale wrap)
+                    if (book !== b || gen != layoutGen) return@runOnShell
                     book = re
                     docModel.topLine = re.lineAtOffset(keep)
                     services?.requestRender(this@ReaderWindow)
@@ -201,8 +208,9 @@ class ReaderWindow(
     // ------------------------------------------------------------------ library
     private fun refreshLibrary() {
         libraryState = "loading"
+        val keep = library          // a failed re-scan keeps the shelf we have
         bg.launch(Dispatchers.IO) {
-            var lib: List<BookMeta> = emptyList()
+            var lib: List<BookMeta> = keep
             var state: String
             try {
                 lib = content.library()
@@ -253,7 +261,12 @@ class ReaderWindow(
                 services?.setOperation("laying out")
                 val loaded = layoutBook(meta, Epub.load(path))
                 services?.runOnShell {
-                    if (openingId != meta.id) return@runOnShell   // user backed out — cancelled
+                    if (openingId != meta.id) {
+                        // user backed out — cancelled; the op cell must not keep
+                        // narrating a load that no longer matters (round 3 R3)
+                        services?.setOperation("idle")
+                        return@runOnShell
+                    }
                     openingId = null
                     book = loaded
                     docModel.topLine = loaded.lineAtOffset(offsets[meta.id] ?: 0)
@@ -263,6 +276,11 @@ class ReaderWindow(
                 }
             } catch (e: Exception) {
                 Log.e("reader", "open ${meta.title} failed", e)
+                // a cached copy that will not open is dropped so the next
+                // attempt refetches (round 3 R5); a no-op for local files
+                try { content.invalidate(meta.id) } catch (i: Exception) {
+                    Log.w("reader", "cache invalidate failed: ${i.message}")
+                }
                 services?.notifyInternal("reader", "could not open ${meta.title}: ${e.message}")
                 services?.runOnShell {
                     if (openingId == meta.id) openingId = null
@@ -363,6 +381,7 @@ class ReaderWindow(
             "Library" -> {
                 rememberPosition()
                 level = Level_.LIBRARY
+                services?.setOperation("idle")
             }
         }
     }

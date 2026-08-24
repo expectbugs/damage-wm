@@ -7,6 +7,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
@@ -169,7 +171,15 @@ class Shell(
     fun postGesture(type: Int, source: Int = EvenHubMsg.SRC_RING) =
         post(Msg.In(type, source))
 
-    suspend fun start() {
+    /** start/stop are serialized (round 3, phone D1): a stop arriving while
+     *  start is still choreographing the display would otherwise save state
+     *  that was never loaded, and leave two drivers on one transport. */
+    private val lifecycle = Mutex()
+    private var stateLoaded = false
+
+    suspend fun start() = lifecycle.withLock { startLocked() }
+
+    private suspend fun startLocked() {
         running = true
         settingsWindow = SettingsWindow(text, { settings }, { applySettings(it) })
         register(settingsWindow)
@@ -177,6 +187,7 @@ class Shell(
 
         // restore persisted state (§9.1: survives WM restart) BEFORE the loop
         persistence.load()
+        stateLoaded = true
         settings = ShellSettings.fromJson(persistence.get("shell.settings"))
         layout = layoutFor(settings)
         for (w in windows) persistence.get("window.${w.id}")?.let {
@@ -208,30 +219,43 @@ class Shell(
             throw e
         }
 
-        // initial surface — mode AND window restore (§9.1 rule 1). A SILENT
-        // restore must not smuggle in an activated window underneath the clock
-        // (review round 2 #A8): silent has no focused window by definition.
-        current = if (restoredMode == Mode.SILENT.name) null
-        else windows.firstOrNull { it.id == restoredId }
-        if (current != null) {
-            mode = Mode.WINDOW
-            recency.remove(current)
-            recency.add(0, current!!)
-            current!!.onActivate(services)
-        }
-        if (restoredMode == Mode.SILENT.name) mode = Mode.SILENT
-        composeFullSurface()
-        comp.requestKeyframe()
-        if (notifications.showNextIfIdle()) {
-            if (mode == Mode.SILENT) scheduleSilentDismiss() else scheduleGrace()
-        }
+        try {
+            // initial surface — mode AND window restore (§9.1 rule 1). A SILENT
+            // restore must not carry an activated window underneath the clock
+            // (review round 2 #A8): silent has no focused window by definition.
+            current = if (restoredMode == Mode.SILENT.name) null
+            else windows.firstOrNull { it.id == restoredId }
+            if (current != null) {
+                mode = Mode.WINDOW
+                recency.remove(current)
+                recency.add(0, current!!)
+                current!!.onActivate(services)
+            }
+            if (restoredMode == Mode.SILENT.name) mode = Mode.SILENT
+            composeFullSurface()
+            comp.requestKeyframe()
+            if (notifications.showNextIfIdle()) {
+                if (mode == Mode.SILENT) scheduleSilentDismiss() else scheduleGrace()
+                updatePlanes()   // the restored box enters the plane map now (round 3 S3)
+            }
 
-        scope.launch { loop() }
-        loopLaunched = true
-        scheduleMinuteTick()
-        scope.launch { while (isActive && running) { delay(5_000); post(Msg.IdleTick) } }
-        scheduleRest()
-        post(Msg.Pump)
+            scope.launch { loop() }
+            loopLaunched = true
+            scheduleMinuteTick()
+            scope.launch { while (isActive && running) { delay(5_000); post(Msg.IdleTick) } }
+            scheduleRest()
+            post(Msg.Pump)
+        } catch (e: Exception) {
+            // the display is up but the shell could not finish assembling
+            // itself (a window's activation or first paint refused): leave
+            // nothing running or leased behind (round 3 S4)
+            running = false
+            try { transport.stop() } catch (s: Exception) {
+                Log.e("shell", "transport stop after a failed start", s)
+            }
+            journal.close()
+            throw e
+        }
     }
 
     /** Orderly shutdown THROUGH the loop, so the final save cannot race a
@@ -239,11 +263,13 @@ class Shell(
      *  If the loop never launched (start() threw first) there is nothing to
      *  post to — awaiting the Shutdown message would hang forever (round 2
      *  #B1); clean up directly instead. */
-    suspend fun stop() {
+    suspend fun stop() = lifecycle.withLock { stopLocked() }
+
+    private suspend fun stopLocked() {
         if (!running) return
         if (!loopLaunched) {
             running = false
-            saveAll()
+            if (stateLoaded) saveAll()   // never write defaults over a state never read
             transport.stop()
             journal.close()
             return
@@ -423,10 +449,18 @@ class Shell(
      *  means the box is not currently painted over a captured base — nothing
      *  to lift. */
     private fun liftNotificationBox() {
-        if (!notifications.active || notifications.animating) return
+        // an UNFURLING box is lifted like a shown one (round 3 S1) — only a
+        // furl owns its snapshot strip by strip and must not be disturbed
+        if (!notifications.active || notifications.furlingOut) return
         val lifted = notifications.restoreUnderFinished(comp.composed) ?: return
         comp.damage(lifted)
+        boxLifted = true
     }
+
+    /** Set by a lift, cleared once the box is painted again: a slide that
+     *  nets to zero before the pump gets room would otherwise leave the box
+     *  lifted with nothing to repaint it (round 3 S2). */
+    private var boxLifted = false
 
     private fun tapFocused() {
         if (mode == Mode.WINDOW && current === settingsWindow && settingsWindow.onTapAdjust()) {
@@ -492,7 +526,7 @@ class Shell(
 
     private fun enterSilent() {
         mode = Mode.SILENT
-        snapSlides()
+        settleSlidesForOverlay()
         slides = emptyList()
         // an on-screen box goes back to the queue UNREAD; silent shows its own
         // smaller form, one at a time, auto-dismissing (§1.5/§4.5)
@@ -518,7 +552,7 @@ class Shell(
 
     // ------------------------------------------------------------------ switcher
     private fun openSwitcher() {
-        snapSlides()
+        settleSlidesForOverlay()
         switcher.openWith(if (mode == Mode.WINDOW) current else null, recency)
         previewPainted = null
         updatePlanes()
@@ -652,16 +686,9 @@ class Shell(
         if (mode == Mode.SILENT) return                  // §4.5 rule 4
         if (switcher.open) { scheduleGrace(); return }   // never steal the wheel's gestures
         if (notifications.active && !notifications.focused) {
-            val n = notifications.current
-            val oldPlane = shownBoxPlane
             notifications.takeFocus()
-            updatePlanes()
-            // the box stepped FORWARD (§4.5): its old shifted render leaves
-            // ghost columns on each lens — queue the seam pairs (#A7)
-            if (n != null && settings.depth != 0 && shownBoxPlane != oldPlane) {
-                comp.seamCleanup(notifications.fullRect(n, layout, silent = false), oldPlane)
-            }
-            paintNotification()
+            updatePlanes()        // the box steps FORWARD (§4.5); the plane-map
+            paintNotification()   // diff re-renders it and cleans its old seams
         }
     }
 
@@ -873,15 +900,10 @@ class Shell(
                     else -> d                                                // arrives with content
                 }
                 planes.add(Compositor.PlaneRegion(box, plane))
-                shownBoxPlane = plane
             }
         }
-        comp.planes = planes
+        comp.planes = planes   // a changed map re-renders + seam-cleans itself
     }
-
-    /** The plane the on-screen notification box was last assigned — the dOld
-     *  for seam cleanup when it transitions (round 2 #A7). */
-    private var shownBoxPlane = 0
 
     // ------------------------------------------------------------------ slides
     private fun snapSlides() {
@@ -1014,9 +1036,8 @@ class Shell(
             }
             if (notifications.consumeFurlFinished()) {
                 // the old box is gone: put back what it covered BEFORE any next
-                // box paints (queue-advance included)
-                val oldPlane = shownBoxPlane
-                var seamRect: Rect? = null
+                // box paints (queue-advance included); the plane-map diff in
+                // updatePlanes re-renders its region and cleans its old seams
                 if (mode == Mode.SILENT) {
                     notifications.invalidateUnder()
                     val c = wallClock()
@@ -1024,17 +1045,9 @@ class Shell(
                     comp.damageAll()
                 } else {
                     val restored = notifications.restoreUnderFinished(comp.composed)
-                    if (restored != null) { comp.damage(restored); seamRect = restored }
-                    else composeContent()
+                    if (restored != null) comp.damage(restored) else composeContent()
                 }
                 updatePlanes()
-                // the furled box's region returns to the surrounding plane:
-                // clean the ghost columns its shifted render left (#A7). The
-                // composeContent fallback repaints the whole content area,
-                // which covers every lens position on its own.
-                if (seamRect != null && settings.depth != 0) {
-                    comp.seamCleanup(seamRect, oldPlane)
-                }
             }
             if (notifications.current != null) {
                 if (!more && !notifications.focused && mode != Mode.SILENT) scheduleGrace()
@@ -1044,9 +1057,11 @@ class Shell(
                 }
                 paintNotification()
             }
+            boxLifted = false
             animated = true
-        } else if (animated && notifications.active) {
+        } else if ((animated || boxLifted) && notifications.active) {
             paintNotification()   // overlays stay on top of slide frames
+            boxLifted = false
         }
 
         // 4. chrome rides along with content, or flushes alone on the idle tick

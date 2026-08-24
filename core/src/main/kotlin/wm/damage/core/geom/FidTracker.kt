@@ -28,11 +28,14 @@ class FidTracker {
         return emptyList()
     }
 
-    /** The deliberate 0xFFFE -> 1 wrap, paired with the mode-7 sub-0 clear that
-     *  resets the FIRMWARE's fid ring: the host's issued-set resets with it, or
-     *  every post-wrap fid would FID001 forever (review round 2 #1). */
-    fun wrapReset() {
+    /** Call after ANY mode-7 sub-0 clear: it resets the FIRMWARE's fid ring,
+     *  flags AND lastFid, so the host resets its issued-set and its gap
+     *  baseline with it — the next fid establishes a fresh sequence (review
+     *  round 2 #1, round 3 D2). The shadow stays seeded; sub-0 does not
+     *  touch pixels. */
+    fun resync() {
         issued.clear()
+        last = null
     }
 
     /** Validate one mode-3 delta fid about to go on the wire. */
@@ -90,6 +93,15 @@ class FidAllocator(start: Int = Geometry.FID_MIN) {
     }
 
     fun clearWrap() {
+        wrapPending = false
+    }
+
+    /** Restart at FID_MIN after an out-of-band mode-7 clear — used when a
+     *  flush would otherwise SPAN the 0xFFFE wrap (a mode-7 clear cannot ride
+     *  inside a mode-8 batch, so the whole flush re-encodes post-wrap; review
+     *  round 3 D2). Pair with FidTracker.resync(). */
+    fun restart() {
+        next = Geometry.FID_MIN
         wrapPending = false
     }
 }
