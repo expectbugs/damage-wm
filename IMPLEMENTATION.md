@@ -146,16 +146,21 @@ of them are load-bearing and easy to break by accident:
   frame is the transparent base every shift may spill over — §3.3's insets;
   each region vacates its nominal area to black, the seam; region pieces
   render at their shift far to near, the nearest wins), diffs shadow against
-  truth on the 4×2 damage grid, and emits whatever closes the gap: nominal
-  deltas at their disparity, black stereo pairs for seams. Every planned op
-  is applied to the shadows as it is planned, so its effect on the OTHER lens
-  (a far piece spilling under a nearer one) is seen and repaired in the same
-  flush, in later-wins order. What the 16-fid ring cannot carry stays dirty
-  for the next flush. Plane changes, seam cleanup, keyframe follow-ups and
-  reclaims are not special cases — they are differences between shadow and
-  truth. `LensOracleTest` pins it: after every flush the belief equals the
-  firmware model's lens panels, and at rest each lens equals an independently
-  written truth, across depth 8/12/16 and every shell transition.
+  truth on the 4×2 damage grid, merges the differences toward the pipelined
+  rect budget (within a piece, then across pieces of one disparity — §5.1,
+  §8.2's "1–3 rects"), and emits whatever closes the gap: nominal deltas at
+  their disparity, black stereo pairs for seams. Every planned op is applied
+  to the shadows as it is planned, so its effect on the OTHER lens (a far
+  piece spilling under a nearer one) is seen and repaired in the same flush,
+  in later-wins order. What the 16-fid ring cannot carry stays dirty for the
+  next flush. A lost flush marks the per-lens cells it touched UNKNOWN —
+  transmitted again from the truth — because no byte snapshot can say what
+  the glass holds once other flushes have landed around it. Plane changes,
+  seam cleanup, keyframe follow-ups and reclaims are not special cases —
+  they are differences between shadow and truth. `LensOracleTest` pins it:
+  after every flush the belief equals the firmware model's lens panels, and
+  at rest each lens equals an independently written truth, across depth
+  8/12/16 and every shell transition; `Round5Test` adds the lost-flush case.
 - **Transport session lifecycle.** Queued work carries a session epoch;
   `stop()`, a failed `start()` and `onLinkDown()` bump it and SWEEP: pending
   acks fail, window permits return, both queues drain loudly, a start parked
@@ -174,7 +179,7 @@ of them are load-bearing and easy to break by accident:
 
 ## Verification
 
-- `./gradlew :core:test` — 38 unit/integration tests: RLE parity against the
+- `./gradlew :core:test` — 41 unit/integration tests: RLE parity against the
   Python reference implementation, CRC vectors, the geometry/fid rule fixtures
   shared with `tools/lint.py --selftest`, full pipeline round trips through
   the sim (stereo divergence per lens, mode-8 scroll batches, duplicate-fid
