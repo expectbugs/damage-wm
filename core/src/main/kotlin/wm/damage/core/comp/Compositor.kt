@@ -86,6 +86,11 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     var epoch: Long = 0
         private set
 
+    /** The whole batch must fit the firmware's bmp_max (Geometry.MODE8_MAX)
+     *  with the batch header and a margin for the emitter's framing. A var so
+     *  a test can lower it and drive the byte-refusal path deterministically. */
+    internal var batchMax: Int = Geometry.MODE8_MAX - 1024
+
     /** True until a keyframe is ASSEMBLED; set again by rollback or request.
      *  Assembly-time clearing is what prevents duplicate keyframes piling up
      *  while one is in flight, and lets a request DURING flight stand. */
@@ -278,6 +283,9 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         else normalize(hints.map { widen(it) })
 
         var fids = 0
+        // the batch's byte budget (round 7): every sub-message counts toward
+        // the firmware's bmp_max, not only against its own 16-bit length
+        var bytes = ops.sumOf { (it as? DisplayOp.Keyframe)?.payload?.size ?: 0 } + BATCH_HEADER
         var dirtyLeft = false
         if (bareKeyframe) {
             dirtyLeft = true
@@ -290,7 +298,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
                 val dirtyL = dirtyCells(true, area)
                 val dirtyR = dirtyCells(false, area)
                 if (dirtyL.isEmpty() && dirtyR.isEmpty()) break
-                if (fids >= budget) { dirtyLeft = true; break }
+                if (fids >= budget || bytes >= batchMax) { dirtyLeft = true; break }
                 // the first pass partitions toward the PIPELINED budget (§8.2 —
                 // "1–3 rects") unless this flush continues budget-limited work,
                 // which stays wide until clean; repairs in later passes may
@@ -301,7 +309,10 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
                 var exhausted = false
                 for (p in planned) {
                     if (fids >= budget) { exhausted = true; break }
-                    fids += emit(p, ops, touched, budget - fids)
+                    val before = ops.size
+                    fids += emit(p, ops, touched, budget - fids, batchMax - bytes)
+                    for (i in before until ops.size) bytes += sizeOf(ops[i])
+                    if (ops.size == before) exhausted = true   // refused for bytes: it waits
                 }
                 if (exhausted) { dirtyLeft = true; break }
             }
@@ -316,7 +327,16 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             Log.i("comp", "flush carries $fids fids; more dirt remains (${if (keyframe) "keyframe follow-up" else "budget"})")
         }
 
-        if (ops.isEmpty()) return null
+        if (ops.isEmpty()) {
+            if (dirtyLeft) {
+                // dirt that no op could carry even into an EMPTY batch would
+                // otherwise sit pending forever: say so, and drop it rather
+                // than stall the pump in silence
+                Log.e("comp", "dirt remains that no op can carry (batch cap $batchMax) — dropped")
+                residual = null
+            }
+            return null
+        }
         val wide = keyframe || dirtyLeft || fids > rectBudget
         return Assembled(ops, epoch, touched, copies, hints, keyframe = keyframe, wide = wide)
     }
@@ -331,17 +351,25 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     fun rollback(a: Assembled) {
         for (t in a.touched) {
             val unknown = if (t.left) unknownL else unknownR
-            markUnknown(unknown, t.rect)
-            var moved = listOf(t.rect)
+            // Where are the pixels this flush failed to update NOW? In place
+            // (a copy reads its source, it does not clear it) and wherever
+            // every later copy carried them. The frontier is COALESCED after
+            // each copy (round 7: accumulating and re-walking it doubled per
+            // copy — a scrolled band reached an OutOfMemoryError in ~20).
+            var frontier: List<Rect> = listOf(t.rect)
             for (c in appliedCopies) {
                 if (c.left != t.left || c.epoch <= a.epoch) continue
-                val next = ArrayList<Rect>()
-                for (r in moved) {
+                val carried = ArrayList<Rect>()
+                for (r in frontier) {
                     val inSrc = r.intersect(c.src) ?: continue
                     val m = inSrc.translate(c.dst.x - c.src.x, c.dst.y - c.src.y).clip()
-                    if (m.w > 0 && m.h > 0) { markUnknown(unknown, m); next.add(m); pendingDamage.add(widen(m)) }
+                    if (m.w > 0 && m.h > 0) carried.add(m)
                 }
-                moved = moved + next
+                if (carried.isNotEmpty()) frontier = normalize(frontier + carried)
+            }
+            for (r in frontier) {
+                markUnknown(unknown, r)
+                if (r != t.rect) pendingDamage.add(widen(r))
             }
         }
         for (h in a.hints) pendingDamage.add(h)
@@ -688,37 +716,56 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      *  priced), split a delta whose payload would not fit a mode-8
      *  sub-message (round 6), paint it into both shadows, clear the unknown
      *  marks it covers. Returns the fids consumed (0 when [fidsLeft] is 0). */
-    private fun emit(p: Planned, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int): Int = when (p) {
-        is Planned.Delta -> emitDelta(p.rect, p.d, ops, touched, fidsLeft)
+    private fun emit(p: Planned, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int = when (p) {
+        is Planned.Delta -> emitDelta(p.rect, p.d, ops, touched, fidsLeft, bytesLeft)
         is Planned.Black -> {
-            if (fidsLeft <= 0) 0 else {
+            val payload = black(p.l.w, p.l.h)
+            if (fidsLeft <= 0 || payload.size + SUB_HEADER > bytesLeft) 0 else {
                 shadowL.fillRect(p.l, 0)
                 shadowR.fillRect(p.r, 0)
                 markKnown(unknownL, p.l); markKnown(unknownR, p.r)
                 touched.add(Touched(true, p.l)); touched.add(Touched(false, p.r))
-                ops.add(DisplayOp.StereoPair(p.l, p.r, black(p.l.w, p.l.h)))
+                ops.add(DisplayOp.StereoPair(p.l, p.r, payload))
                 1
             }
         }
     }
 
-    private fun emitDelta(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int): Int {
+    private fun sizeOf(op: DisplayOp): Int = SUB_HEADER + when (op) {
+        is DisplayOp.Keyframe -> op.payload.size
+        is DisplayOp.Delta -> op.payload.size
+        is DisplayOp.StereoPair -> op.payload.size
+        is DisplayOp.Copy -> 16
+    }
+
+    private fun emitDelta(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int {
         if (fidsLeft <= 0) return 0
         val payload = compress(rect)
-        if (payload.size > MAX_SUB) {
-            // halve along the longer side until every part fits the 16-bit
-            // sub-message length; parts past the budget stay dirty
+        val overSub = payload.size > MAX_SUB
+        val overBatch = payload.size + SUB_HEADER > bytesLeft
+        if (overSub || overBatch) {
+            // too big for a sub-message, or for what is left of this batch:
+            // halve along the longer side and ship what fits — the rest stays
+            // dirty. A batch too full to hold even a quarter-sized part is
+            // simply full (round 7: refusing an intact op that fits nowhere in
+            // the remaining bytes would have starved it forever).
+            val splittable = rect.h >= 2 * CH || rect.w >= 2 * CW
+            if (!splittable) {
+                if (overSub) throw LintError("BUD002 a ${rect.w}x${rect.h} delta compresses to ${payload.size} B, past the sub-message cap $MAX_SUB")
+                return 0
+            }
+            if (!overSub && bytesLeft < MIN_SPLIT_BYTES) return 0
             val (a, b) = if (rect.h >= 2 * CH && rect.h >= rect.w / 2) {
                 val h1 = Geometry.snapY(rect.h / 2)
                 Rect(rect.x, rect.y, rect.w, h1) to Rect(rect.x, rect.y + h1, rect.w, rect.h - h1)
-            } else if (rect.w >= 2 * CW) {
+            } else {
                 val w1 = Geometry.snapX(rect.w / 2)
                 Rect(rect.x, rect.y, w1, rect.h) to Rect(rect.x + w1, rect.y, rect.w - w1, rect.h)
-            } else {
-                throw LintError("BUD002 a ${rect.w}x${rect.h} delta compresses to ${payload.size} B, past the sub-message cap $MAX_SUB")
             }
-            val used = emitDelta(a, d, ops, touched, fidsLeft)
-            return used + emitDelta(b, d, ops, touched, fidsLeft - used)
+            val before = ops.size
+            val used = emitDelta(a, d, ops, touched, fidsLeft, bytesLeft)
+            val spent = (before until ops.size).sumOf { sizeOf(ops[it]) }
+            return used + emitDelta(b, d, ops, touched, fidsLeft - used, bytesLeft - spent)
         }
         val l = rect.translate(-d, 0).clip()
         val r = rect.translate(d, 0).clip()
@@ -845,6 +892,10 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         private const val MAX_ITERATIONS = 6
         /** zlib_glue.c: a mode-8 sub-message is prefixed by rd16 — 65,535 B. */
         private const val MAX_SUB = 0xFFFF
+        private const val BATCH_HEADER = 118
+        /** Below this much room, an op that does not fit waits for the next
+         *  flush instead of being split into fragments. */
+        private const val MIN_SPLIT_BYTES = 4096
         /** mode-3 sub-message header: mode + box (4) + fid (2) + len16 (2) ~ 15 B. */
         private const val SUB_HEADER = 15
         private const val COARSE_MAX = 24

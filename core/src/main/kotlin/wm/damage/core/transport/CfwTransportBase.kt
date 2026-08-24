@@ -298,7 +298,6 @@ abstract class CfwTransportBase(
         check(!started) { "transport already started — a second driver must stop() first" }
         val epoch = sessionEpoch.incrementAndGet()
         started = true
-        running = true
         // the gate may be aborted by a sweep from the moment the session
         // begins (a link death DURING connect, round 5 F2) — drain any stale
         // residue first, then arm the abort path for the whole start
@@ -306,6 +305,10 @@ abstract class CfwTransportBase(
         startInProgress = true
         try {
             connectLink()
+            // `running` only once a link exists (round 8): the maintenance
+            // loops would otherwise queue keepalives and renewals into a link
+            // still being scanned for, each a loud fault and a stale pending
+            running = true
             updateState { it.copy(connected = true) }
             _events.emit(TransportEvent.Link(true, "$name link up"))
 
@@ -534,8 +537,11 @@ abstract class CfwTransportBase(
     private fun failCtlWork(w: CtlWork, why: String) {
         when (w) {
             is CtlWork.Hub -> w.awaitAck?.completeExceptionally(LintError(why))
+                ?: Log.w(name, "control message dropped: $why")
             is CtlWork.Lease -> w.written?.completeExceptionally(LintError(why))
+                ?: Log.w(name, "lease op ${w.op} dropped: $why")
             is CtlWork.Settings -> w.failed?.complete(why)
+                ?: Log.w(name, "settings write dropped: $why")
         }
     }
 
@@ -832,14 +838,24 @@ abstract class CfwTransportBase(
                     when (work) {
                         is CtlWork.Hub -> {
                             val pending = PendingAck(-1, windowed = false)
-                            wire.withLock {
-                                val id = nextMsgIdLocked()
-                                registerPending(id, pending)
-                                val payload = restampMsgId(work.payload, id)
-                                for (p in AaFrame.frame(nextSeqLocked(), EvenHubMsg.SID,
-                                        EvenHubMsg.FLAG_REQUEST, payload)) {
-                                    writeArm(Arm.RIGHT, p)
+                            var registeredId = -1
+                            try {
+                                wire.withLock {
+                                    val id = nextMsgIdLocked()
+                                    registerPending(id, pending)
+                                    registeredId = id
+                                    val payload = restampMsgId(work.payload, id)
+                                    for (p in AaFrame.frame(nextSeqLocked(), EvenHubMsg.SID,
+                                            EvenHubMsg.FLAG_REQUEST, payload)) {
+                                        writeArm(Arm.RIGHT, p)
+                                    }
                                 }
+                            } catch (e: Exception) {
+                                // a message that never fully left has no ack to
+                                // wait for: its entry must not linger to resurface
+                                // as a spurious lost-ack fault a cycle later
+                                if (registeredId >= 0) pendingAcks.remove(registeredId, pending)
+                                throw e
                             }
                             // NEVER await the ack inline (round 3 D3): a lost ack
                             // would park the lane and every lease renewal behind
