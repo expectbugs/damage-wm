@@ -1447,7 +1447,7 @@ which open decision changes if the answer flips. If none does, it is not a block
   2026-08-17 — this *reverses* an earlier inferred rule; see §7 and `DESIGN.md` §3).
 
 **Added 2026-08-17 — hard-won tuning from Faceclaw's damage tracker** (`BleImageOptimizer.java`,
-the closest existing analogue to what Damage will do). These are results, not preferences:
+the closest existing analogue to what Damage does). These are results, not preferences:
 
 - 🔑 **Deflate level 6, not 9 and not 1.** His comment: level 9 (BEST_COMPRESSION) costs
   **18–109 ms per frame** on the BLE worker; level 1 (BEST_SPEED) **inflated typical payloads from
@@ -1533,7 +1533,7 @@ was yes — **"subject to GPL."** So:
 
 ### 🔴 DECIDED 2026-08-20 — clean room, and it is no longer hypothetical
 
-**Damage will contain no `faceclaw` or `g2flash` code.** Protocol knowledge only; the design does
+**Damage contains no `faceclaw` or `g2flash` code, and never will.** Protocol knowledge only; the design does
 not need the implementation. An off-the-cuff public comment saying Damage would use *"some borrowed
 code from FaceClaw"* is **retracted**.
 

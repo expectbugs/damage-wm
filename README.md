@@ -6,9 +6,12 @@ access. The PC composes complete scenes with real fonts and arbitrary layout; th
 a dumb framebuffer.
 
 **The first stage is built (2026-08-24)** — the Kotlin shell core, the byte-exact glass
-simulator, the desktop program and the phone APK, with Reader + Main as the first app layer.
-[`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run; the research and design below remain
-the ground truth it was built against. The real glasses stay on stock firmware until flash day.
+simulator, the desktop program and the phone APK, with Reader + Main as the first app layer —
+and hardened through eight rounds of independent review against the simulator (the compositor
+now reasons per lens; every stereo op is checked against the firmware model by
+`LensOracleTest`). [`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run; the research and
+design below remain the ground truth it was built against. The real glasses stay on stock
+firmware until flash day; the BLE transport is banked and has never touched hardware.
 
 ## Start here
 
@@ -33,20 +36,25 @@ The design is shaped by three facts about this display, and most of it follows f
 - **RLE runs horizontally.** So wide-and-short compresses better than tall-and-narrow, a vertical
   drum foreshortens the cheap way, and horizontal rules cost almost nothing while vertical bars do.
 
-## Tooling
+## Building and verifying
 
 ```
-tools/lint.py                # build gate: 20 rules (SYM/GEO/BUD/FID)
-tools/lint.py --selftest     # proves every rule FIRES, and valid geometry stays silent
-python3 design/render_shots.py   # renders every surface at true 1x, priced through the
-                                 # firmware's own RLE. Output in design/shots/
+./gradlew :core:test                                  # 47 tests, incl. the per-lens oracle
+./gradlew :desktop:run --args="--selfcheck"           # the 25-check whole-stack gate
+./gradlew :desktop:run --args="--snapshot DIR"        # lens-truth PNGs of every surface
+./gradlew :desktop:run --args="--epub-check"          # parse every book in ~/books
+./gradlew :desktop:run                                # 1x preview + content host
+./gradlew :phone:assembleDebug                        # the APK
+tools/lint.py                # design gate: 20 rules (SYM/GEO/BUD/FID); --selftest proves each fires
+python3 design/render_shots.py   # design renders at true 1x, priced through the firmware's RLE
 python3 research/verify_cfw.py   # rebuilds the CFW offline and checks every pinned hash
 ```
 
 The linter exists because **this hardware reports its failures as silence** — an unaligned box is
 rejected without a word, a duplicate frame id is skipped, a stale delta composites onto the wrong
-base. `tools/geometry.py` holds the rules as a library the compositor will call on every emit, so
-the build gate and the runtime assertions cannot drift apart.
+base. `tools/geometry.py` holds the rules as a library; `core`'s `Geometry.kt` mirrors them 1:1
+(same rule IDs, pinned to the same fixtures by `GeometryTest`) and the compositor checks them on
+every emit, so the design gate and the runtime assertions cannot drift apart.
 
 ## Not included
 

@@ -50,16 +50,31 @@ proves the image is reproducible from sources we hold and carries no Thumb-bit d
 
 ## Project status and the order of work
 
-**Nothing is built yet.** Adam's stated methodology, to be followed in order:
+**The first stage is BUILT (2026-08-24, on Adam's explicit go-ahead) and hardened through eight
+review rounds.** Read `IMPLEMENTATION.md` for what runs and how. The shell core, the byte-exact
+simulator, the desktop program and the phone APK exist; Reader + Main are the app layer. The real
+glasses are untouched (stock 2.2.2.20) and `BleTransport` is banked until flash day.
+
+Adam's stated methodology still governs **the app layer**, which comes next:
 
 > Heavy research → full documentation → clean repo → the main plan → a couple hundred ridiculous
 > feature-creep scope explosions → heavy refinery to bring it back to reality → passes for
 > consistency and adherence to the research/documentation → a final plan of the actual
 > implementation via real code → **then** slowly, carefully, start executing.
 
-Bank research and documentation **before** the scope explosion. "Feature creep is my RELIGION" —
-the explosion phase is deliberate and wanted; the refinery phase is what keeps it shippable.
-**Do not skip ahead to code.**
+"Feature creep is my RELIGION" — the explosion phase is deliberate and wanted; the refinery phase
+is what keeps it shippable. Do the explosion for new windows on paper (`CAPABILITIES.md`,
+`DESIGN.md` §0/§4.6) before coding them.
+
+**After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
+(47 tests, including the per-lens oracle), `desktop --selfcheck` (25 checks),
+`desktop --snapshot DIR` (look at the lens renders), `desktop --epub-check ~/books`,
+`python3 tools/lint.py`, `./gradlew :phone:assembleDebug`. `IMPLEMENTATION.md` → "Review
+hardening" lists the mechanisms that are load-bearing and easy to break by accident — the
+compositor's per-lens truth/shadow model, the transport's session-epoch sweep, the shell's
+start/stop mutex. Do not re-introduce nominal-only seam guessing in the compositor: a pixel
+simulation against the firmware model is the only judge of stereo output, and `LensOracleTest`,
+`Round6Test`, `Round7Test` encode what earlier reviews caught.
 
 ---
 

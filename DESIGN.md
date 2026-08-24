@@ -1374,6 +1374,22 @@ All adopted 2026-08-17.
 18. **Texture-cache readiness now.** Content-hash every rect and make the hash the cache key, so
     adopting Babcock's cache is a transport swap rather than a rewrite.
 
+**Implementation status (2026-08-24, `core/…/comp/Compositor.kt`, after eight review rounds).**
+Rules 2, 3, 4, 6, 7, 8, 11, 13, 14, 15 and 17 are implemented as written. Rule 1 is implemented
+as a merge toward the rect budget followed by a *priced* pass (neighbours merge when the
+compressed union is cheaper than the parts). Rules 9 and 12 were superseded by one mechanism the
+reviews forced: the compositor keeps an expected shadow **per lens** and renders the per-lens
+**truth** of the nominal frame under the plane map (regions vacate to black — the seam; pieces
+render at their shift, far to near, nearest wins; the 16 px insets are the transparent shift
+budget of §3.3), then emits whatever makes shadow equal truth. Damage is still computed against
+what was *sent*, but a lost flush no longer "rolls back" to a snapshot — it marks the per-lens
+cells it touched **unknown**, because other flushes land around it and no snapshot can say what
+the glass holds. Rule 16 is partial: a lease loss requests a keyframe; reconnect itself is still
+host-driven. Rules 5 (speculative pre-compression), 10 (cross-window deltas from the current
+screen) and 18 (content-hash cache keys) are **not built yet** — the seam is designed to take
+them. `LensOracleTest` pins the per-lens model against the firmware simulator; see
+`IMPLEMENTATION.md` → "Review hardening".
+
 ---
 
 ## 6. Motion — first-class
@@ -2029,8 +2045,8 @@ rows. This inverts the phone-first assumption and is the cheaper path.
 | 8 | **Type legibility ON GLASS** — the assignments are locked and priced (§Type), but no render can answer whether they read at real angular size | measured / unproven | eyes on glass |
 | 9 | 🆕 **The safe area** (§2.2b) — how much of the panel is actually visible on Adam's face | **U** | first-light ramp; the layout is written relative to it so only the value changes |
 | 10 | **Per-window typefaces for windows not yet designed** — Files, Calendar, Music, SMS, Timers, Scout, Notices inherit Clear Sans until their app earns an override | design | app-layer phase |
-| 11 | 🆕 **The shell runtime** (§10.2) — must run on Android *and* desktop. Kotlin/JVM or TypeScript; **not Python** | design | before line one of the compositor |
-| 12 | 🆕 **The transport ↔ shell protocol** — the seam every configuration depends on, and the one thing that cannot be refactored away later | design | before the compositor |
+| 11 | ✅ **The shell runtime** (§10.2) — **RESOLVED 2026-08-24: Kotlin/JVM**, one `:core` library shared by the desktop program and the Android APK (`IMPLEMENTATION.md`) | decided | built |
+| 12 | ✅ **The transport ↔ shell protocol** — **RESOLVED 2026-08-24:** `wm.damage.core.transport.Transport` (`FlushRequest` of nominal ops → `TransportEvent`), also serialized over TCP with single-driver takeover (`IMPLEMENTATION.md`) | decided | built |
 | 13 | 🆕 **Hat bridge power budget** — 1260 mAh running WiFi 6 + BLE for a workday (§10.6) | **U** | bench measurement |
 | 14 | 🆕 **Does dual-band actually lift throughput?** If it does, it isolates a cause of the ~10× shortfall | **U** | build the hat |
 | 15 | 🆕 **Cross-platform BLE parity** — macOS cannot set connection parameters at all (§10.7) | **U** | per-platform test |

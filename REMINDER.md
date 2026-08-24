@@ -30,11 +30,14 @@ shell, copy-on-open book caching, PC-takeover seam, **banked** BLE transport), a
 Main app layer. Everything targets the CFW contract; the real glasses remain untouched on 2.2.2.20.
 See `IMPLEMENTATION.md`. The repo is under git.
 
-**Hardened through five review rounds the same day** (`IMPLEMENTATION.md` → "Review hardening"):
-the compositor's per-lens ordering + plane-map diffing, the transport's session-epoch sweep, the
-shell's start/stop mutex and notification lift, the content path's reachability rules. The
-battery (`:core:test`, `--selfcheck`, `--snapshot`, `--epub-check`, `tools/lint.py`,
-`:phone:assembleDebug`) is green at HEAD — keep it that way after any change.
+**Hardened through eight review rounds the same day** (`IMPLEMENTATION.md` → "Review hardening",
+~70 real defects): the compositor's per-lens truth/shadow model (rewritten twice; pinned by
+`LensOracleTest`, `Round6Test`, `Round7Test`), the transport's session-epoch sweep and fid
+discipline, the shell's start/stop mutex and notification lift, the content path's reachability
+rules. The battery (`:core:test`, `--selfcheck`, `--snapshot`, `--epub-check`, `tools/lint.py`,
+`:phone:assembleDebug`) is green at HEAD — keep it that way after any change. Reviews that only
+checked exactness missed a livelock and cubic-time merging; measure convergence, bytes and wall
+time on real content (`design/shots/`) too.
 
 ## 🚀 Next
 
