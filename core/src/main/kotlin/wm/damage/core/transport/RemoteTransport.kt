@@ -140,8 +140,14 @@ class RemoteTransportClient(
      *  logged as such, not as an error (round 3 D9). */
     @Volatile private var closing = false
 
+    /** Each start() is a numbered session; a reader thread left over from an
+     *  earlier session reports its EOF into THAT session only, never into a
+     *  newer one's state or start rendezvous (round 4 D3). */
+    private val session = AtomicLong(0)
+
     override suspend fun start(warmupFrame: ByteArray) {
         closing = false
+        val mySession = session.incrementAndGet()
         // a failed earlier attempt leaves its link-down reason in the channel;
         // consuming it here would misreport THIS attempt (round 3 D9)
         while (started.tryReceive().isSuccess) { /* drain residue */ }
@@ -163,9 +169,9 @@ class RemoteTransportClient(
                 try {
                     while (true) route(inp.readCtl())
                 } catch (e: EOFException) {
-                    down("transport server closed")
+                    down(mySession, "transport server closed")
                 } catch (e: Exception) {
-                    down("transport link error: ${e.message}")
+                    down(mySession, "transport link error: ${e.message}")
                 }
             }, "remote-transport-reader").start()
 
@@ -181,7 +187,11 @@ class RemoteTransportClient(
         }
     }
 
-    private fun down(reason: String) {
+    private fun down(fromSession: Long, reason: String) {
+        if (fromSession != session.get()) {
+            Log.i("remote-transport", "reader of session $fromSession ended ($reason) — a newer session is live")
+            return
+        }
         if (closing) Log.i("remote-transport", "$reason (expected: closing)")
         else Log.e("remote-transport", reason)
         _state.value = _state.value.copy(connected = false, started = false, leaseHeld = false)
@@ -259,6 +269,7 @@ class RemoteTransportClient(
 
     override suspend fun stop() {
         closing = true
+        session.incrementAndGet()   // the reader's EOF belongs to the old session
         try { out?.send(Ctl(t = "stop")) } catch (e: Exception) { /* closing anyway */ }
         sock?.close()
         _state.value = _state.value.copy(connected = false, started = false)
@@ -358,6 +369,7 @@ class RemoteTransportServer(
                         try {
                             out.send(Ctl(t = "state", state = st.toWire()))
                         } catch (e: java.io.IOException) {
+                            Log.w("transport-server", "state forward failed — closing session: ${e.message}")
                             sock.close()
                         }
                     }

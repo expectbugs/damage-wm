@@ -40,8 +40,12 @@ import wm.damage.core.wire.SettingsMsg
  *  - TWO worker lanes. The IMAGE lane owns fids and MapSessionId and writes
  *    flushes strictly in submission order (fid order == wire order by
  *    construction). The CONTROL lane carries lease renewal, keepalive and the
- *    carrier refresh — it never touches the ack window, so a wedged ack stream
- *    can stall pixels but can never cost the lease.
+ *    carrier refresh — it never touches the ack window, so a stalled ACK
+ *    stream can freeze pixels but cannot cost the lease. (A stalled WRITE is
+ *    different: [wire] is held per message across writeArm, so a GATT write
+ *    that never returns blocks renewals too — the 90 s fail-open is the
+ *    backstop there; nothing in software can reach a link that will not
+ *    take a byte.)
  *  - [wire] is a mutex held per MESSAGE write (all AA packets of one EvenHub
  *    message): the two lanes may interleave between messages — legal, each
  *    message reassembles independently — but never inside one. msgId and the
@@ -120,6 +124,8 @@ abstract class CfwTransportBase(
     }
 
     @Volatile protected var lastImageAtMs = 0L
+    @Volatile private var lastImageAckAtMs = 0L
+    @Volatile private var stallReported = false
     @Volatile protected var running = false
     @Volatile private var started = false
     /** Lanes and maintenance loops are launched exactly ONCE and survive
@@ -193,6 +199,8 @@ abstract class CfwTransportBase(
                     }
                     if (pending.windowed) {
                         window.release()
+                        lastImageAckAtMs = nowMs()
+                        stallReported = false
                         updateState { it.copy(inFlight = WINDOW - window.availablePermits) }
                     }
                     if (ack.errorCode != null && !pending.done.isCompleted) {
@@ -255,7 +263,9 @@ abstract class CfwTransportBase(
     }
 
     protected fun emitFlags(flags: Map<String, Boolean>) {
-        if (flags.any { it.value }) _events.tryEmit(TransportEvent.DiagFlags(flags))
+        if (flags.any { it.value } && !_events.tryEmit(TransportEvent.DiagFlags(flags))) {
+            Log.e(name, "DiagFlags event DROPPED (buffer full): $flags")
+        }
     }
 
     protected fun setLease(held: Boolean, detail: String) {
@@ -266,7 +276,9 @@ abstract class CfwTransportBase(
                 changed = true
             }
         }
-        if (changed) _events.tryEmit(TransportEvent.Lease(held, detail))
+        if (changed && !_events.tryEmit(TransportEvent.Lease(held, detail))) {
+            Log.e(name, "Lease event DROPPED (buffer full): held=$held $detail")
+        }
     }
 
     // ------------------------------------------------------------------ lifecycle
@@ -299,6 +311,12 @@ abstract class CfwTransportBase(
                 capabilityChannel.receive()
             } finally {
                 awaitingCapability = false
+            }
+            if (cap.startsWith(SWEPT)) {
+                // the session ended (link death, stop) while the gate waited:
+                // the sweep answered it so this start fails LOUDLY instead of
+                // parking forever (round 4 D1)
+                throw LintError("capability gate aborted — ${cap.removePrefix(SWEPT)}")
             }
             val missing = SettingsMsg.missingCaps(cap)
             if (cap.isEmpty() || missing.isNotEmpty()) {
@@ -368,6 +386,17 @@ abstract class CfwTransportBase(
                 delay(if (instant) 50 else 4_000)
                 if (running && (nowMs() - lastImageAtMs > 4_000 || instant)) {
                     controlQueue.trySend(CtlWork.Hub(sessionEpoch.get(), EvenHubMsg.keepalive(0), null))
+                }
+                // Stall REPORT (round 4 D5) — a diagnostic, not a timeout:
+                // nothing is cancelled or retried. A lost image ack with the
+                // link otherwise healthy leaves the window full forever and the
+                // screen frozen while every indicator reads fine; say so.
+                if (running && !instant && !stallReported && window.availablePermits == 0 &&
+                    lastImageAckAtMs != 0L && nowMs() - lastImageAckAtMs > STALL_REPORT_MS) {
+                    stallReported = true
+                    emitFault("stall", "window full with no image ack for " +
+                        "${(nowMs() - lastImageAckAtMs) / 1000} s — a fragment ack was lost; " +
+                        "the msgId cycle cannot recover it without new writes")
                 }
             }
         }
@@ -448,6 +477,8 @@ abstract class CfwTransportBase(
      *  permit — invariant: map membership <=> permit held), then drain both
      *  queues, completing everything exceptionally. LOUD by construction. */
     private fun sweepSession(why: String) {
+        // a start() parked on the capability gate is a waiter too (round 4 D1)
+        if (awaitingCapability) capabilityChannel.trySend(SWEPT + why)
         for (id in pendingAcks.keys.toList()) {
             val p = pendingAcks.remove(id) ?: continue
             if (p.windowed) window.release()
@@ -487,8 +518,15 @@ abstract class CfwTransportBase(
      *  never come, and surfaces the loss (round 3 D1). */
     protected fun onLinkDown(reason: String) {
         Log.e(name, "link down: $reason")
+        // the session is over: clear the latches like stop() does, or the
+        // maintenance loops keep writing into a dead link and the next
+        // start() is refused as "already started" (round 4 D2). The lease
+        // cannot be released through a dead link — the fail-open is the
+        // backstop, and the shell is told so.
+        running = false
+        started = false
         sweepSession("link down: $reason")
-        updateState { it.copy(connected = false) }
+        updateState { it.copy(connected = false, started = false, leaseHeld = false) }
         if (!_events.tryEmit(TransportEvent.Link(false, reason))) {
             Log.e(name, "Link-down event DROPPED (buffer full)")
         }
@@ -838,5 +876,12 @@ abstract class CfwTransportBase(
     companion object {
         /** Faceclaw ships WINDOW_SIZE = 3 on exactly the CFW path (§8.1). */
         const val WINDOW = 3
+
+        /** Sentinel the sweep pushes into the capability rendezvous. */
+        private const val SWEPT = " swept: "
+
+        /** Reporting threshold for the stall diagnostic — well past any
+         *  measured ack (176 ms median, 7–13 KB/s); reports, never acts. */
+        private const val STALL_REPORT_MS = 10_000L
     }
 }

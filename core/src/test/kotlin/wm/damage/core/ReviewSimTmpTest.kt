@@ -82,13 +82,23 @@ class ReviewSimTmpTest {
         return fids
     }
 
-    /** Ground truth: every pixel takes the disparity of the LAST region containing it; paint far
-     *  to near (nearest last) at its shift; black where nothing renders. */
-    private fun truth(c: Gray8, planes: List<PlaneRegion>): Pair<Gray8, Gray8> {
+    /** Ground truth. Every pixel takes the disparity of the LAST region containing it; regions
+     *  paint far to near (nearest last) at their shift; black where nothing renders. With
+     *  [transparent] the plane-0 REMAINDER (pixels in no region) is painted first at nominal and
+     *  does not occlude — DESIGN.md §3.3's "the inset is the shift budget" reading. */
+    private fun truth(c: Gray8, planes: List<PlaneRegion>, transparent: Boolean): Pair<Gray8, Gray8> {
         val disp = IntArray(W * H)
-        for (p in planes) for (y in p.rect.y until p.rect.bottom) for (x in p.rect.x until p.rect.right) disp[y * W + x] = p.disparity
+        val inRegion = BooleanArray(W * H)
+        for (p in planes) for (y in p.rect.y until p.rect.bottom) for (x in p.rect.x until p.rect.right) {
+            disp[y * W + x] = p.disparity; inRegion[y * W + x] = true
+        }
         val L = Gray8(W, H); val R = Gray8(W, H)
-        for (d in disp.toSet().sortedDescending()) for (y in 0 until H) for (x in 0 until W) if (disp[y * W + x] == d) {
+        if (transparent) for (y in 0 until H) for (x in 0 until W) if (!inRegion[y * W + x]) {
+            val v = Pack.level(c[x, y]) * 17; L[x, y] = v; R[x, y] = v
+        }
+        for (d in disp.toSet().sortedDescending()) for (y in 0 until H) for (x in 0 until W) {
+            val i = y * W + x
+            if (disp[i] != d || (transparent && !inRegion[i])) continue
             val v = Pack.level(c[x, y]) * 17
             L[x - d, y] = v
             R[x + d, y] = v
@@ -129,14 +139,24 @@ class ReviewSimTmpTest {
     }
 
     private fun check(g: Glass, comp: Compositor, planes: List<PlaneRegion>, label: String): Boolean {
-        val (tl, tr) = truth(comp.composed, planes)
-        val dl = diff(g.L, tl); val dr = diff(g.R, tr)
-        if (dl.isEmpty() && dr.isEmpty()) { log("  OK   $label"); return true }
-        log("  FAIL $label")
-        for (s in dl.take(10)) log("       L $s")
-        if (dl.size > 10) log("       L ... ${dl.size} bands total")
-        for (s in dr.take(10)) log("       R $s")
-        if (dr.size > 10) log("       R ... ${dr.size} bands total")
+        val (ol, orr) = truth(comp.composed, planes, transparent = false)
+        val (tl, tr) = truth(comp.composed, planes, transparent = true)
+        val dol = diff(g.L, ol); val dor = diff(g.R, orr)
+        val dtl = diff(g.L, tl); val dtr = diff(g.R, tr)
+        val opaqueOk = dol.isEmpty() && dor.isEmpty()
+        val transOk = dtl.isEmpty() && dtr.isEmpty()
+        if (opaqueOk || transOk) {
+            log("  OK   $label" + (if (!opaqueOk) "  [fails OPAQUE-remainder truth only: L${dol.size}/R${dor.size} clusters]" else "") +
+                (if (!transOk) "  [fails TRANSPARENT-remainder truth only: L${dtl.size}/R${dtr.size} clusters]" else ""))
+            if (!opaqueOk) { for (x in dol.take(4)) log("       opaque L $x"); for (x in dor.take(4)) log("       opaque R $x") }
+            if (!transOk) { for (x in dtl.take(4)) log("       transp L $x"); for (x in dtr.take(4)) log("       transp R $x") }
+            return true
+        }
+        log("  FAIL(both truths) $label")
+        for (x in dol.take(8)) log("       opaque L $x"); if (dol.size > 8) log("       opaque L ... ${dol.size}")
+        for (x in dor.take(8)) log("       opaque R $x"); if (dor.size > 8) log("       opaque R ... ${dor.size}")
+        for (x in dtl.take(8)) log("       transp L $x"); if (dtl.size > 8) log("       transp L ... ${dtl.size}")
+        for (x in dtr.take(8)) log("       transp R $x"); if (dtr.size > 8) log("       transp R ... ${dtr.size}")
         return false
     }
 
@@ -167,6 +187,14 @@ class ReviewSimTmpTest {
     }
 
     private fun restore(c: Gray8, base: Gray8, r: Rect) = c.blit(base, r, r.x, r.y)
+
+    /** The shell's real surface shape: everything random, but the 16-px insets beside the content
+     *  band are BLACK (composeFullSurface fills BG; content is inset). */
+    private fun fillBase(c: Gray8, seed: Long) {
+        randomize(c, full, seed)
+        c.fillRect(Rect(0, 34, 16, 416), 0)
+        c.fillRect(Rect(624, 34, 16, 416), 0)
+    }
 
     private fun PR(r: Rect, d: Int) = PlaneRegion(r, d)
 
@@ -201,7 +229,7 @@ class ReviewSimTmpTest {
         // ---------------------------------------------------------------- 1. keyframes
         log("\n===== PART 1: KEYFRAME per-lens exactness =====")
         for (d in listOf(8, 12, 16)) for ((name, m) in maps(d)) {
-            val comp = Compositor(); randomize(comp.composed, full, 1)
+            val comp = Compositor(); fillBase(comp.composed, 1)
             comp.planes = m; comp.requestKeyframe()
             val g = Glass()
             log("KEYFRAME d=$d $name")
@@ -212,7 +240,7 @@ class ReviewSimTmpTest {
         log("\n===== PART 2: PLANE TRANSITIONS =====")
         fun transition(name: String, d: Int, oldMap: List<PlaneRegion>, newMap: List<PlaneRegion>,
                        planesFirst: Boolean = true, mutate: (Compositor, Gray8) -> Unit) {
-            val comp = Compositor(); randomize(comp.composed, full, 2)
+            val comp = Compositor(); fillBase(comp.composed, 2)
             val base = comp.composed.copy()
             comp.planes = oldMap; comp.requestKeyframe()
             val g = Glass()
@@ -248,7 +276,7 @@ class ReviewSimTmpTest {
         // chained lifecycle at d=8: arrive -> focus -> furl, checking accumulated state
         run {
             val d = 8
-            val comp = Compositor(); randomize(comp.composed, full, 9)
+            val comp = Compositor(); fillBase(comp.composed, 9)
             val base = comp.composed.copy()
             comp.planes = map(d, "list"); comp.requestKeyframe()
             val g = Glass()
@@ -272,7 +300,7 @@ class ReviewSimTmpTest {
         log("\n===== PART 3: DAMAGE FLUSHES after an exact keyframe =====")
         for (d in listOf(8, 16)) for (name in listOf("list", "list+box@0", "switcher", "doc+box@0", "list+emerg@-4")) {
             val m = map(d, name)
-            val comp = Compositor(); randomize(comp.composed, full, 20)
+            val comp = Compositor(); fillBase(comp.composed, 20)
             comp.planes = m; comp.requestKeyframe()
             val g = Glass()
             drain(g, comp, m, "dmg-$name-kf")
@@ -301,7 +329,7 @@ class ReviewSimTmpTest {
         for (band in listOf("below" to bandBelow, "above" to bandAbove)) {
             val d = 8
             val m = map(d, "list+box@d")
-            val comp = Compositor(); randomize(comp.composed, full, 30)
+            val comp = Compositor(); fillBase(comp.composed, 30)
             comp.planes = m; comp.requestKeyframe()
             val g = Glass()
             val a1 = comp.assembleFlush(Geometry.rectBudget(3))!!
@@ -327,7 +355,7 @@ class ReviewSimTmpTest {
             // damage arriving while leftovers drain, inside a piece whose explicit delta is still queued
             val d = 8
             val m = map(d, "list+box@d")
-            val comp = Compositor(); randomize(comp.composed, full, 40)
+            val comp = Compositor(); fillBase(comp.composed, 40)
             comp.planes = m; comp.requestKeyframe()
             val g = Glass()
             val a1 = comp.assembleFlush(Geometry.rectBudget(3))!!
@@ -344,7 +372,7 @@ class ReviewSimTmpTest {
         run {
             val d = 8
             val m = map(d, "list+box@d")
-            val comp = Compositor(); randomize(comp.composed, full, 50)
+            val comp = Compositor(); fillBase(comp.composed, 50)
             comp.planes = m; comp.requestKeyframe()
             val g = Glass()
             val f1 = comp.assembleFlush(Geometry.rectBudget(3))!!
@@ -372,7 +400,7 @@ class ReviewSimTmpTest {
             // single failure of the leftover flush; content changed inside one of its pieces before rollback
             val d = 8
             val m = map(d, "list+box@d")
-            val comp = Compositor(); randomize(comp.composed, full, 60)
+            val comp = Compositor(); fillBase(comp.composed, 60)
             comp.planes = m; comp.requestKeyframe()
             val g = Glass()
             val f1 = comp.assembleFlush(Geometry.rectBudget(3))!!
@@ -389,7 +417,7 @@ class ReviewSimTmpTest {
             // rollback of a damage flush that carried copies
             val d = 8
             val m = map(d, "list")
-            val comp = Compositor(); randomize(comp.composed, full, 70)
+            val comp = Compositor(); fillBase(comp.composed, 70)
             comp.planes = m; comp.requestKeyframe()
             val g = Glass()
             drain(g, comp, m, "cp0")
@@ -410,7 +438,7 @@ class ReviewSimTmpTest {
         log("\n===== PART 6: BUDGET / DEFERRAL =====")
         run {
             val m0 = map(8, "list+box@0"); val m1 = map(16, "list+box@0")
-            val comp = Compositor(); randomize(comp.composed, full, 80)
+            val comp = Compositor(); fillBase(comp.composed, 80)
             comp.planes = m0; comp.requestKeyframe()
             val g = Glass()
             drain(g, comp, m0, "bd0")
@@ -423,7 +451,7 @@ class ReviewSimTmpTest {
         run {
             // small pipelined budget (window 3 => 5) with damage spanning many planes
             val m = map(8, "switcher+box@0")
-            val comp = Compositor(); randomize(comp.composed, full, 90)
+            val comp = Compositor(); fillBase(comp.composed, 90)
             comp.planes = m; comp.requestKeyframe()
             val g = Glass()
             drain(g, comp, m, "sb0")
@@ -435,7 +463,7 @@ class ReviewSimTmpTest {
         run {
             // many explicit ops queued (seam pairs) + 2-piece damage: does it escalate to a keyframe?
             val m0 = map(8, "switcher+box@0"); val m1 = map(16, "switcher+box@0")
-            val comp = Compositor(); randomize(comp.composed, full, 100)
+            val comp = Compositor(); fillBase(comp.composed, 100)
             comp.planes = m0; comp.requestKeyframe()
             val g = Glass()
             drain(g, comp, m0, "es0")
@@ -444,6 +472,97 @@ class ReviewSimTmpTest {
             randomize(comp.composed, Rect(16, 400, 40, 20), 102); comp.damage(Rect(16, 400, 40, 20))
             log("depth 8->16 on switcher+box@0 + two small damages")
             drain(g, comp, m1, "es", verbose = true, checkEach = true)
+        }
+
+        // ---------------------------------------------------------------- 7. extra
+        log("\n===== PART 7: ROLLBACK AFTER A PLANE CHANGE / 28-LEFTOVER DEFERRAL / REACHABLE FULL-CONTENT DAMAGE =====")
+        run {
+            // F1 ok; F2 (leftovers) in flight and FAILS; before its failure arrives the box takes focus
+            // (plane change + repaint) and F4 goes out. Then rollback(F2) re-queues F2's ops.
+            val m0 = map(8, "list+box@d"); val m1 = map(8, "list+box@0")
+            val comp = Compositor(); fillBase(comp.composed, 110)
+            comp.planes = m0; comp.requestKeyframe()
+            val g = Glass()
+            val f1 = comp.assembleFlush(Geometry.rectBudget(3))!!; apply(g, f1, "r1")
+            val f2 = comp.assembleFlush(Geometry.rectBudget(3))!!
+            log("rollback-after-focus: F2 = " + f2.ops.joinToString(" ") { describe(it) })
+            comp.planes = m1; randomize(comp.composed, box, 111); comp.damage(box)
+            val f4 = comp.assembleFlush(Geometry.rectBudget(3))!!; apply(g, f4, "r4")
+            log("  F4 = " + f4.ops.joinToString(" ") { describe(it) })
+            comp.rollback(f2)
+            drain(g, comp, m1, "r5", verbose = true)
+            check(g, comp, m1, "F2 lost after the focus step's flush went out")
+        }
+        run {
+            // same, but F2's failure arrives BEFORE the focus step's flush is assembled (wide serialization)
+            val m0 = map(8, "list+box@d"); val m1 = map(8, "list+box@0")
+            val comp = Compositor(); fillBase(comp.composed, 120)
+            comp.planes = m0; comp.requestKeyframe()
+            val g = Glass()
+            val f1 = comp.assembleFlush(Geometry.rectBudget(3))!!; apply(g, f1, "q1")
+            val f2 = comp.assembleFlush(Geometry.rectBudget(3))!!
+            comp.planes = m1; randomize(comp.composed, box, 121); comp.damage(box)
+            comp.rollback(f2)
+            drain(g, comp, m1, "q3", verbose = true)
+            check(g, comp, m1, "F2 lost, rollback before the focus step's flush")
+        }
+        run {
+            // F2 lost; meanwhile the box FURLS (region removed) — stale box@8 ops re-queued
+            val m0 = map(8, "list+box@d"); val m1 = map(8, "list")
+            val comp = Compositor(); fillBase(comp.composed, 130)
+            val base = comp.composed.copy()
+            comp.planes = m0; comp.requestKeyframe()
+            val g = Glass()
+            val f1 = comp.assembleFlush(Geometry.rectBudget(3))!!; apply(g, f1, "u1")
+            val f2 = comp.assembleFlush(Geometry.rectBudget(3))!!
+            restore(comp.composed, base, box); comp.damage(box); comp.planes = m1
+            val f4 = comp.assembleFlush(Geometry.rectBudget(3))!!; apply(g, f4, "u4")
+            comp.rollback(f2)
+            drain(g, comp, m1, "u5", verbose = true)
+            check(g, comp, m1, "F2 lost after a furl-finish flush went out")
+        }
+        run {
+            // 28 leftovers: damage must defer behind two full explicit flushes and still land
+            val m = map(8, "switcher+box@d")
+            val comp = Compositor(); fillBase(comp.composed, 140)
+            comp.planes = m; comp.requestKeyframe()
+            val g = Glass()
+            val f1 = comp.assembleFlush(Geometry.rectBudget(3))!!; apply(g, f1, "d1")
+            randomize(comp.composed, Rect(16, 60, 100, 20), 141); comp.damage(Rect(16, 60, 100, 20))
+            log("28-leftover deferral: damage (16,60 100x20) queued behind ${f1.explicit.size} + 28 explicit")
+            drain(g, comp, m, "d2", verbose = true, checkEach = true)
+        }
+        run {
+            // reachable: switcher open + box arrived, then settlePreview repaints all of content
+            val m = map(8, "switcher+box@d")
+            val comp = Compositor(); fillBase(comp.composed, 150)
+            comp.planes = m; comp.requestKeyframe()
+            val g = Glass()
+            drain(g, comp, m, "p0")
+            check(g, comp, m, "switcher+box@d keyframe")
+            randomize(comp.composed, content, 151); comp.damage(content)
+            randomize(comp.composed, panel, 152); comp.damage(panel)
+            randomize(comp.composed, box, 153); comp.damage(box)
+            log("switcher+box@d: content + panel + box damage at budget 5")
+            drain(g, comp, m, "p1", verbose = true, checkEach = true)
+        }
+        run {
+            // keyframe payload cap: full-panel incompressible content under a plane map
+            val comp = Compositor()
+            val rnd = java.util.Random(7)
+            for (i in comp.composed.pix.indices) comp.composed.pix[i] = (rnd.nextInt(16) * 17).toByte()
+            comp.planes = map(8, "list"); comp.requestKeyframe()
+            val a = comp.assembleFlush(Geometry.rectBudget(3))!!
+            val kf = a.ops.filterIsInstance<DisplayOp.Keyframe>().first()
+            log("keyframe cap: noise keyframe payload = ${kf.payload.size} B; ops in flush = ${a.ops.size}; " +
+                "len16 cap 65535, MODE8_MAX ${Geometry.MODE8_MAX}")
+            try { Emit.encode(FlushRequest(a.ops, a.epoch, "cap", a.wide), FidAllocator(), FidTracker(), 1); log("  emitted OK") }
+            catch (e: Exception) { log("  EMIT: ${e.message}") }
+            // and a bare keyframe of the same content (empty plane map)
+            val comp2 = Compositor(); comp.composed.pix.copyInto(comp2.composed.pix); comp2.requestKeyframe()
+            val b = comp2.assembleFlush(Geometry.rectBudget(3))!!
+            try { Emit.encode(FlushRequest(b.ops, b.epoch, "cap2", b.wide), FidAllocator(), FidTracker(), 1); log("  bare keyframe (${b.ops.size} ops) emitted OK") }
+            catch (e: Exception) { log("  bare keyframe EMIT: ${e.message}") }
         }
 
         File("/tmp/claude-1000/-home-user-damagewm/6fd3c0e6-76a7-45d6-9a1e-90a7608b69ac/scratchpad/review-sim.txt").writeText(out.toString())

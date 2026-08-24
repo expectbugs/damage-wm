@@ -94,6 +94,7 @@ class Shell(
     private var previewPainted: String? = null
     @Volatile private var running = false
     @Volatile private var loopLaunched = false
+    private var collectorLaunched = false
 
     /** Host-link status line for the status bar (set by the content client). */
     @Volatile var hostState: String = ""
@@ -180,9 +181,15 @@ class Shell(
     suspend fun start() = lifecycle.withLock { startLocked() }
 
     private suspend fun startLocked() {
+        check(!running) { "shell already started" }
         running = true
-        settingsWindow = SettingsWindow(text, { settings }, { applySettings(it) })
-        register(settingsWindow)
+        // registration happens ONCE per instance: a retried start after a
+        // refused transport must not add a second Settings row or a second
+        // event collector (round 4, shell #2)
+        if (!::settingsWindow.isInitialized) {
+            settingsWindow = SettingsWindow(text, { settings }, { applySettings(it) })
+            register(settingsWindow)
+        }
         for (w in windows) w.onRegistered(services)
 
         // restore persisted state (§9.1: survives WM restart) BEFORE the loop
@@ -204,8 +211,11 @@ class Shell(
 
         // UNDISPATCHED: the collector subscribes BEFORE transport.start() can
         // emit, or early events (capability, lease) would vanish silently.
-        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
-            transport.events.collect { post(Msg.Trans(it)) }
+        if (!collectorLaunched) {
+            collectorLaunched = true
+            scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                transport.events.collect { post(Msg.Trans(it)) }
+            }
         }
 
         // start the display: capability gate + carrier + lease + warmup splash
@@ -276,7 +286,21 @@ class Shell(
         }
         val done = CompletableDeferred<Unit>()
         post(Msg.Shutdown(done))
-        done.await()
+        // the loop completes `done`; if the scope that runs the loop has been
+        // cancelled out from under us, its job's completion is the other way
+        // out — never park a caller forever (round 4)
+        val job = scope.coroutineContext[kotlinx.coroutines.Job]
+        if (job == null) {
+            done.await()
+        } else {
+            kotlinx.coroutines.selects.select<Unit> {
+                done.onAwait { }
+                job.onJoin {
+                    Log.e("shell", "shell scope ended before the orderly shutdown ran — final save skipped")
+                    running = false
+                }
+            }
+        }
         transport.stop()
         journal.close()
     }

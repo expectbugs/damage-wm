@@ -38,6 +38,13 @@ class FidTracker {
         last = null
     }
 
+    /** An encode failed AFTER taking fids [from]..: the glasses never saw
+     *  them. Forget them and restore the gap baseline (round 4). */
+    fun rewind(lastBefore: Int?, from: Int) {
+        issued.removeIf { it >= from && it <= Geometry.FID_MAX }
+        last = lastBefore
+    }
+
     /** Validate one mode-3 delta fid about to go on the wire. */
     fun delta(fid: Int): List<String> {
         val out = ArrayList<String>(2)
@@ -93,6 +100,15 @@ class FidAllocator(start: Int = Geometry.FID_MIN) {
     }
 
     fun clearWrap() {
+        wrapPending = false
+    }
+
+    /** Hand back fids taken by an encode that then failed: the sequence
+     *  resumes at [to]. Valid because a flush never spans the wrap (the
+     *  transport pre-clears), so no wrap can have happened in between. */
+    fun rewind(to: Int) {
+        require(to in Geometry.FID_MIN..Geometry.FID_MAX) { "fid rewind target $to out of range" }
+        next = to
         wrapPending = false
     }
 

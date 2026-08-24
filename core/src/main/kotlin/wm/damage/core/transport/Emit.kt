@@ -22,9 +22,32 @@ object Emit {
      *  (in order), validating every silent-failure rule on the way out. */
     fun encode(flush: FlushRequest, fids: FidAllocator, tracker: FidTracker, window: Int): Encoded {
         if (flush.ops.isEmpty()) throw LintError("empty flush")
+        // BUD001 is decidable BEFORE any fid is consumed — decide it here
+        val rects = flush.ops.count { it is DisplayOp.Delta || it is DisplayOp.StereoPair }
+        if (rects > Geometry.rectBudget(window))
+            throw LintError(
+                "BUD001 $rects mode-3 rects with a $window-deep pipeline exceeds " +
+                    "${Geometry.rectBudget(window)} — a retransmit would age out of the " +
+                    "duplicate ring and be RE-APPLIED",
+            )
+        // Anything that throws AFTER fids are taken (BUD002, a tracker rule)
+        // must hand them back: the glasses never saw them, and the next good
+        // delta would otherwise present a gap → f_skip → a spurious panic
+        // keyframe (round 4).
+        val firstFid = fids.peek()
+        val lastBefore = tracker.last
+        try {
+            return encodeInner(flush, fids, tracker)
+        } catch (e: Exception) {
+            tracker.rewind(lastBefore, firstFid)
+            fids.rewind(firstFid)
+            throw e
+        }
+    }
+
+    private fun encodeInner(flush: FlushRequest, fids: FidAllocator, tracker: FidTracker): Encoded {
         val subs = ArrayList<ByteArray>(flush.ops.size)
         val consumed = ArrayList<Int>()
-        var deltaRects = 0
 
         for (op in flush.ops) {
             when (op) {
@@ -33,7 +56,6 @@ object Emit {
                     subs += CfwModes.keyframe(op.payload)
                 }
                 is DisplayOp.Delta -> {
-                    deltaRects++
                     val fid = fids.take()
                     consumed += fid
                     val errs = tracker.delta(fid)
@@ -55,7 +77,6 @@ object Emit {
                     }
                 }
                 is DisplayOp.StereoPair -> {
-                    deltaRects++
                     val fid = fids.take()
                     consumed += fid
                     val errs = tracker.delta(fid)
@@ -64,14 +85,6 @@ object Emit {
                 }
             }
         }
-
-        // BUD001 at the real boundary: mode-3 rects x window <= fid ring.
-        if (deltaRects > Geometry.rectBudget(window))
-            throw LintError(
-                "BUD001 $deltaRects mode-3 rects with a $window-deep pipeline exceeds " +
-                    "${Geometry.rectBudget(window)} — a retransmit would age out of the " +
-                    "duplicate ring and be RE-APPLIED",
-            )
 
         // A lone keyframe goes bare (no mode-8 wrapper); everything else batches.
         val image = if (subs.size == 1 && flush.ops[0] is DisplayOp.Keyframe) subs[0]
