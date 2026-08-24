@@ -252,7 +252,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             // run to bmp_max. A keyframe past the batch cap ships alone and
             // its follow-ups wait one flush (round 6: bundling it looped in
             // failure forever).
-            if (payload.size > MAX_SUB) {
+            if (payload.size + 1 > MAX_SUB) {      // + the mode byte the len16 counts
                 bareKeyframe = true
                 if (payload.size > Geometry.MODE8_MAX)
                     Log.e("comp", "keyframe ${payload.size} B exceeds even the bare cap ${Geometry.MODE8_MAX} — the transport will refuse it loudly")
@@ -285,7 +285,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         var fids = 0
         // the batch's byte budget (round 7): every sub-message counts toward
         // the firmware's bmp_max, not only against its own 16-bit length
-        var bytes = ops.sumOf { (it as? DisplayOp.Keyframe)?.payload?.size ?: 0 } + BATCH_HEADER
+        var bytes = ops.sumOf { sizeOf(it) } + BATCH_HEADER
         var dirtyLeft = false
         if (bareKeyframe) {
             dirtyLeft = true
@@ -731,17 +731,21 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         }
     }
 
+    /** Conservative wire size of a sub-message (the real headers are smaller:
+     *  keyframe 1 B, plain delta 7 B, stereo 11 B, stereo copy 33 B). */
     private fun sizeOf(op: DisplayOp): Int = SUB_HEADER + when (op) {
         is DisplayOp.Keyframe -> op.payload.size
         is DisplayOp.Delta -> op.payload.size
         is DisplayOp.StereoPair -> op.payload.size
-        is DisplayOp.Copy -> 16
+        is DisplayOp.Copy -> 35
     }
 
     private fun emitDelta(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int {
         if (fidsLeft <= 0) return 0
         val payload = compress(rect)
-        val overSub = payload.size > MAX_SUB
+        // the 16-bit length covers the sub-message HEADER too: 7 B for a plain
+        // delta, 11 B for a stereo one (round 8)
+        val overSub = payload.size + (if (d == 0) 7 else 11) > MAX_SUB
         val overBatch = payload.size + SUB_HEADER > bytesLeft
         if (overSub || overBatch) {
             // too big for a sub-message, or for what is left of this batch:
