@@ -88,6 +88,11 @@ class Shell(
     /** Host-link status line for the status bar (set by the content client). */
     @Volatile var hostState: String = ""
 
+    /** §9.3: the phone is the out-of-band error channel — urgent internal
+     *  notices also fire this hook (the APK raises a real phone notification;
+     *  the desktop logs). The display cannot alert about its own failure. */
+    @Volatile var onUrgent: ((source: String, body: String) -> Unit)? = null
+
     private val inflightFlushes = HashMap<Long, Compositor.Assembled>()
     /** FlushDone can beat the submitted-record message into the loop (the
      *  transport completes asynchronously); park it here until the record
@@ -117,6 +122,7 @@ class Shell(
         override fun setOperation(op: String) { opText = op; post(Msg.Pump) }
         override fun notifyInternal(source: String, body: String, urgent: Boolean) {
             if (!settings.notifyDamage && !urgent) return
+            if (urgent) onUrgent?.invoke(source, body)
             val c = wallClock()
             post(Msg.Notice(Notifications.Notice("DAMAGE · $source", source, body, c.hhmm, urgent)))
         }

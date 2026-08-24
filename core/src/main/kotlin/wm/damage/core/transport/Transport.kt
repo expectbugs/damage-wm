@@ -70,6 +70,12 @@ sealed class DisplayOp {
 
     /** Mode-9 rect copy, nominal coords; [disparity] shifts both rects per lens. */
     data class Copy(val src: Rect, val dst: Rect, val disparity: Int = 0) : DisplayOp()
+
+    /** A stereo delta with EXPLICIT per-lens boxes (same size, §3.2) — used for
+     *  the vacated-strip cleanup a stereo region needs after a keyframe: the
+     *  left lens clears the region's right inner strip while the right lens
+     *  clears the left one, which box±d cannot express. */
+    data class StereoPair(val left: Rect, val right: Rect, val payload: ByteArray) : DisplayOp()
 }
 
 /** kind: DELTA rides the pipeline; KEYFRAME also rebaselines fid discipline. */

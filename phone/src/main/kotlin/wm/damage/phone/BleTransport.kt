@@ -1,0 +1,165 @@
+package wm.damage.phone
+
+import android.annotation.SuppressLint
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothGatt
+import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothManager
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
+import android.content.Context
+import java.util.UUID
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import no.nordicsemi.android.ble.BleManager
+import no.nordicsemi.android.ble.ktx.suspend
+import wm.damage.core.transport.CfwTransportBase
+import wm.damage.core.util.Log
+
+/**
+ * ⚠ BANKED UNTIL FLASH DAY — the CFW BLE transport. The protocol brain is
+ * [CfwTransportBase], the exact code the sim transport runs through the
+ * selfcheck daily; this file adds only the GATT glue. It has NEVER touched
+ * hardware: the glasses still run stock 2.2.2.20 and stay on G2CC until Adam
+ * flashes the CFW. Two guards protect a mistaken activation:
+ *   - the Settings target defaults to SIM, and
+ *   - the base's capability gate refuses any firmware that does not answer
+ *     with an EVENCFW string (stock never does) — it reads settings, then
+ *     refuses to paint.
+ *
+ * Wire lineage: UUIDs + AA framing from G2CC ble/G2Constants.kt +
+ * docs/G2_BLE_PROTOCOL.md (Adam's own capture-derived spec); the arm split and
+ * window discipline from overview.md §2/§8.1. First-light checklist items
+ * (two-arm capture, per-notch scroll, rect budget) live in REMINDER.md.
+ */
+@SuppressLint("MissingPermission")   // callers gate on runtime permissions first
+class BleTransport(
+    private val context: Context,
+    scope: CoroutineScope,
+) : CfwTransportBase(scope, "ble") {
+
+    // UUID base from G2CC G2Constants (survived the 2026-06 firmware drift:
+    // service 5450 holds chars 5401 write / 5402 notify)
+    private fun uuid(suffix: Int): UUID =
+        UUID.fromString("00002760-08c2-11e1-9073-0e8ac72e%04x".format(suffix))
+
+    private val serviceUuid = uuid(0x5450)
+    private val writeUuid = uuid(0x5401)
+    private val notifyUuid = uuid(0x5402)
+
+    private inner class ArmManager(private val arm: Arm) : BleManager(context) {
+        var write: BluetoothGattCharacteristic? = null
+        var notify: BluetoothGattCharacteristic? = null
+
+        override fun isRequiredServiceSupported(gatt: BluetoothGatt): Boolean {
+            val svc = gatt.getService(serviceUuid) ?: return false
+            write = svc.getCharacteristic(writeUuid)
+            notify = svc.getCharacteristic(notifyUuid)
+            return write != null && notify != null
+        }
+
+        override fun initialize() {
+            setNotificationCallback(notify).with { _, data ->
+                data.value?.let { onNotifyPacket(arm, it) }
+            }
+            beginAtomicRequestQueue()
+                .add(requestMtu(247))
+                .add(enableNotifications(notify))
+                .enqueue()
+        }
+
+        override fun onServicesInvalidated() {
+            write = null
+            notify = null
+        }
+
+        suspend fun writePacket(bytes: ByteArray) {
+            val c = write ?: throw IllegalStateException("$arm write characteristic gone")
+            // Write-without-response, one AA packet per write — G2CC's proven
+            // path. Nordic serializes its own queue; the base serializes
+            // messages above it.
+            writeCharacteristic(c, bytes, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+                .suspend()
+        }
+
+        /** readRssi() is protected in BleManager; surface it for the link cell. */
+        suspend fun rssi(): Int = readRssi().suspend()
+    }
+
+    private val managers = mapOf(Arm.LEFT to ArmManager(Arm.LEFT), Arm.RIGHT to ArmManager(Arm.RIGHT))
+
+    override suspend fun connectLink() {
+        val (left, right) = scanForPair()
+        Log.i("ble", "connecting L=${left.address} R=${right.address}")
+        managers.getValue(Arm.LEFT).connect(left).retry(3, 300).useAutoConnect(false).suspend()
+        managers.getValue(Arm.RIGHT).connect(right).retry(3, 300).useAutoConnect(false).suspend()
+        Log.i("ble", "both arms connected; MTU negotiated")
+        // RSSI for the status-bar link cell, from the RIGHT (command) arm
+        scope.launch {
+            while (running) {
+                delay(10_000)
+                try {
+                    val rssi = managers.getValue(Arm.RIGHT).rssi()
+                    _state.value = _state.value.copy(rssiDbm = rssi)
+                } catch (e: Exception) {
+                    Log.w("ble", "rssi read failed: ${e.message}")
+                }
+            }
+        }
+    }
+
+    override suspend fun disconnectLink() {
+        for (m in managers.values) {
+            try {
+                m.disconnect().suspend()
+            } catch (e: Exception) {
+                Log.w("ble", "disconnect: ${e.message}")
+            }
+        }
+    }
+
+    override suspend fun writeArm(arm: Arm, packet: ByteArray) {
+        managers.getValue(arm).writePacket(packet)
+    }
+
+    /** Find both lenses by advertised name — "Even G2_XX_L_YYYY" / "_R_"
+     *  (G2CC G2Constants: the pair advertises as two devices). No timeout:
+     *  scanning continues until both arms are seen; the user cancels by
+     *  toggling the target back to SIM. */
+    private suspend fun scanForPair(): Pair<BluetoothDevice, BluetoothDevice> {
+        val bt = (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+            ?: throw IllegalStateException("no bluetooth adapter")
+        if (!bt.isEnabled) throw IllegalStateException("bluetooth is off")
+        val scanner = bt.bluetoothLeScanner ?: throw IllegalStateException("no LE scanner")
+        val done = CompletableDeferred<Pair<BluetoothDevice, BluetoothDevice>>()
+        var left: BluetoothDevice? = null
+        var right: BluetoothDevice? = null
+        val cb = object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: ScanResult) {
+                val name = result.device.name ?: return
+                if (!name.startsWith("Even G2")) return
+                if ("_L_" in name && left == null) left = result.device
+                if ("_R_" in name && right == null) right = result.device
+                val l = left
+                val r = right
+                if (l != null && r != null && !done.isCompleted) done.complete(l to r)
+            }
+
+            override fun onScanFailed(errorCode: Int) {
+                if (!done.isCompleted) done.completeExceptionally(
+                    IllegalStateException("BLE scan failed: $errorCode"))
+            }
+        }
+        Log.i("ble", "scanning for the G2 pair (phone-side recovery if stuck: toggle Bluetooth)")
+        scanner.startScan(null, ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), cb)
+        try {
+            return done.await()
+        } finally {
+            scanner.stopScan(cb)
+        }
+    }
+}

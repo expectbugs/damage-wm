@@ -1,0 +1,11 @@
+Bundled typefaces — the locked DESIGN.md §Type assignments — and their licences:
+
+  Clear Sans  (ClearSans-*.ttf)      — Apache License 2.0 (Intel Corporation)
+  Fira Sans   (FiraSans-*.otf)       — SIL Open Font License 1.1 (Mozilla Foundation / bBox Type)
+  Alegreya    (Alegreya-*.otf)       — SIL Open Font License 1.1 (Juan Pablo del Peral / Huerta Tipografica)
+  JetBrains Mono (JetBrainsMono-*.ttf) — SIL Open Font License 1.1 (JetBrains)
+
+All four licences permit redistribution in this form. Full licence texts:
+  https://www.apache.org/licenses/LICENSE-2.0
+  https://openfontlicense.org/open-font-license-official-text/
+Before any public release, vendor the full texts here (personal build note).

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The mode-8 batch glyph: one frame, several dirty rects, one flush. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp" android:height="48dp"
+    android:viewportWidth="48" android:viewportHeight="48">
+    <path android:fillColor="#0B1F10" android:pathData="M0,0h48v48h-48z" />
+    <path android:fillColor="#37D067" android:pathData="M6,10h36v4h-36z" />
+    <path android:fillColor="#1E7A3C" android:pathData="M6,18h16v6h-16z" />
+    <path android:fillColor="#37D067" android:pathData="M26,18h16v14h-16z" />
+    <path android:fillColor="#1E7A3C" android:pathData="M6,28h16v10h-16z" />
+    <path android:fillColor="#37D067" android:pathData="M6,42h36v2h-36z" />
+</vector>

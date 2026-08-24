@@ -36,6 +36,8 @@ fun main(args: Array<String>) {
     when {
         "--selfcheck" in args -> SelfCheck.run(cfg)
         "--epub-check" in args -> epubCheck(cfg)
+        "--snapshot" in args -> Snapshot.run(cfg,
+            Path.of(args.getOrNull(args.indexOf("--snapshot") + 1) ?: "snapshots"))
         "--host-only" in args -> runBlocking { hostOnly(cfg) }
         args.contains("--remote") -> runShell(cfg, remoteHost = args[args.indexOf("--remote") + 1])
         else -> runShell(cfg, remoteHost = null)

@@ -188,6 +188,10 @@ class RemoteTransportClient(
                 blobLen += op.payload.size
             }
             is DisplayOp.Copy -> ops.add(WireOp("c", src = op.src.wire(), dst = op.dst.wire(), disp = op.disparity))
+            is DisplayOp.StereoPair -> {
+                ops.add(WireOp("sp", src = op.left.wire(), dst = op.right.wire(), len = op.payload.size))
+                blobLen += op.payload.size
+            }
         }
         val blob = ByteArray(blobLen)
         var off = 0
@@ -195,6 +199,7 @@ class RemoteTransportClient(
             val p = when (op) {
                 is DisplayOp.Keyframe -> op.payload
                 is DisplayOp.Delta -> op.payload
+                is DisplayOp.StereoPair -> op.payload
                 else -> null
             } ?: continue
             p.copyInto(blob, off)
@@ -308,6 +313,11 @@ class RemoteTransportServer(
                                         off += w.len
                                     }
                                     "c" -> ops.add(DisplayOp.Copy(w.src.rect(), w.dst.rect(), w.disp))
+                                    "sp" -> {
+                                        ops.add(DisplayOp.StereoPair(w.src.rect(), w.dst.rect(),
+                                            blob!!.copyOfRange(off, off + w.len)))
+                                        off += w.len
+                                    }
                                 }
                             }
                             val clientId = c.id

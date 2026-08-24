@@ -25,6 +25,8 @@ class Journal(path: Path?) : AutoCloseable {
                 is DisplayOp.Delta ->
                     """{"op":"delta","box":"${op.box}","bytes":${op.payload.size},"d":${op.disparity}}"""
                 is DisplayOp.Copy -> """{"op":"copy","src":"${op.src}","dst":"${op.dst}","d":${op.disparity}}"""
+                is DisplayOp.StereoPair ->
+                    """{"op":"stereopair","l":"${op.left}","r":"${op.right}","bytes":${op.payload.size}}"""
             }
         }
         write("""{"t":${System.currentTimeMillis()},"ev":"submit","id":$id,"epoch":${a.epoch},"label":${json(label)},"ops":[$ops]}""")

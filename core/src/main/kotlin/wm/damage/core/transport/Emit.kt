@@ -54,6 +54,14 @@ object Emit {
                         CfwModes.copyStereo(sl, dl, sr, dr)
                     }
                 }
+                is DisplayOp.StereoPair -> {
+                    deltaRects++
+                    val fid = fids.take()
+                    consumed += fid
+                    val errs = tracker.delta(fid)
+                    if (errs.isNotEmpty()) throw LintError(errs.joinToString("; "))
+                    subs += CfwModes.deltaStereo(op.left, op.right, op.payload, fid)
+                }
             }
         }
 

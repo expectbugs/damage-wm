@@ -21,6 +21,14 @@ class ContentKit(private val comp: Compositor) {
     private var lastThumbY = -1
     fun paintRail(g: Gray8, l: Layout, frac: Double, span: Int): Rect? {
         val track = l.rail
+        if (span >= track.h) {
+            // everything fits: nothing to scroll, so no rail at all (ink is
+            // opacity and cost on this panel — §4.2)
+            if (lastThumbY == -2) return null
+            lastThumbY = -2
+            g.fillRect(track, Level.BG)
+            return Rect(track.x, track.y, track.w, track.h)
+        }
         val thumbSpan = span.coerceIn(16, track.h)
         val ty = track.y + ((track.h - thumbSpan) * frac.coerceIn(0.0, 1.0)).toInt()
         if (lastThumbY >= 0 && kotlin.math.abs(ty - lastThumbY) < 2) return null

@@ -191,10 +191,29 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         val ops = ArrayList<DisplayOp>(2)
         ops.add(DisplayOp.Keyframe(compress(full)))
         // A mode-6 keyframe has no stereo form: it seeds both lenses identically
-        // at the nominal position. Stereo regions then need one stereo delta in
-        // the SAME atomic batch so no flat frame is ever presented.
+        // at the nominal position. Each stereo region then needs, in the SAME
+        // atomic batch: (a) its stereo delta, and (b) the vacated-strip cleanup —
+        // the shifted repaint leaves a d-wide ghost of nominal content at the
+        // region's inner edge on each lens (left lens at the right edge, right
+        // lens at the left), which the snapshot harness caught as doubled rails.
         for (p in planes) if (p.disparity != 0) {
-            ops.add(DisplayOp.Delta(p.rect.alignOut(), compress(p.rect.alignOut()), p.disparity))
+            val r = p.rect.alignOut()
+            ops.add(DisplayOp.Delta(r, compress(r), p.disparity))
+            val d = kotlin.math.abs(p.disparity)
+            if (d > 0) {
+                val strip = Gray8(d, r.h)
+                val black = Zl.encodeCfw(Pack.rect(strip, Rect(0, 0, d, r.h)))
+                val lGhost: Rect
+                val rGhost: Rect
+                if (p.disparity > 0) {      // far: L drew at x-d, ghost at its right
+                    lGhost = Rect(r.right - d, r.y, d, r.h)
+                    rGhost = Rect(r.x, r.y, d, r.h)
+                } else {                    // crossed: mirrored
+                    lGhost = Rect(r.x, r.y, d, r.h)
+                    rGhost = Rect(r.right - d, r.y, d, r.h)
+                }
+                ops.add(DisplayOp.StereoPair(lGhost, rGhost, black))
+            }
         }
         val undo = listOf(full to snapshot(sent, full))
         sent.blit(composed, full, 0, 0)
