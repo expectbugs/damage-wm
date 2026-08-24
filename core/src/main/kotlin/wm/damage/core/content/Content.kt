@@ -209,7 +209,13 @@ class RemoteContent(
     private val onState: (String) -> Unit = {},
 ) : ContentProvider {
     @Volatile private var offlineSince: Long = 0
+    /** Set when the host is REACHABLE but said no (bad token, wrong proto) —
+     *  which must never wear the "PC gone" costume (review round 2 #B7). */
+    @Volatile private var refusedState: String? = null
     private val libCache: Path get() = cacheDir.resolve("library.json")
+
+    /** The host answered with an in-band err frame: reachable, refusing. */
+    private class HostRefused(detail: String) : IllegalStateException(detail)
 
     private fun <T> withHost(block: (DataInputStream, DataOutputStream) -> T): T {
         val sock = Socket(host, port)
@@ -217,7 +223,14 @@ class RemoteContent(
             val inp = DataInputStream(it.getInputStream().buffered())
             val out = DataOutputStream(it.getOutputStream().buffered())
             out.sendJson(json.encodeToString(Hello.serializer(), Hello(token = token)))
-            val r = block(inp, out)
+            val r = try {
+                block(inp, out)
+            } catch (e: HostRefused) {
+                offlineSince = 0
+                refusedState = "PC: ${e.message}"
+                onState(refusedState!!)
+                throw e
+            }
             markOnline()
             r
         }
@@ -226,11 +239,13 @@ class RemoteContent(
     private fun markOnline() {
         if (offlineSince != 0L) Log.i("content", "host $host back")
         offlineSince = 0
+        refusedState = null
         onState("")
     }
 
     private fun markOffline() {
         if (offlineSince == 0L) offlineSince = System.currentTimeMillis()
+        refusedState = null
         val mins = (System.currentTimeMillis() - offlineSince) / 60_000
         onState("PC ${if (mins < 1) "gone" else "${mins}m"}")
     }
@@ -241,20 +256,26 @@ class RemoteContent(
             val line = inp.readJson()
             if (json.decodeFromString(Probe.serializer(), line).t == "err") {
                 val err = json.decodeFromString(ErrMsg.serializer(), line)
-                throw IllegalStateException("host refused: ${err.detail}")
+                throw HostRefused(err.detail)
             }
             val lib = json.decodeFromString(LibraryMsg.serializer(), line)
             Files.createDirectories(cacheDir)
-            val tmp = libCache.resolveSibling("library.json.tmp")
-            Files.writeString(tmp, json.encodeToString(LibraryMsg.serializer(), lib))
-            Files.move(tmp, libCache, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            // unique tmp (#B6): two concurrent refreshes must not interleave
+            // writes into one file and then move a torn listing into place
+            val tmp = libCache.resolveSibling("library.json.${System.nanoTime()}.tmp")
+            try {
+                Files.writeString(tmp, json.encodeToString(LibraryMsg.serializer(), lib))
+                Files.move(tmp, libCache, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            } finally {
+                Files.deleteIfExists(tmp)
+            }
             lib.books
         }
     } catch (e: Exception) {
         // NO SILENT FAILURES: the fallback is deliberate, but it must be LOUD —
         // a wrong token looked identical to "PC off" in review round 1
         Log.e("content", "host library failed (${e.message}) — using the cache")
-        markOffline()
+        if (e !is HostRefused) markOffline()   // refusal already set its banner
         val cached = cachedLibrary()
         if (cached.isEmpty()) throw IllegalStateException(
             "library unavailable: host unreachable (${e.message}) and no cache")
@@ -271,13 +292,19 @@ class RemoteContent(
         emptyList()
     }
 
-    fun isCached(id: String): Boolean = Files.exists(cachePath(id))
+    fun isCached(id: String): Boolean = cachedExisting(id) != null
 
-    private fun cachePath(id: String): Path = cacheDir.resolve("books").resolve("$id.book")
+    /** The cache keeps the REAL extension (#B3): the reader dispatches epub vs
+     *  txt on it, and a `.book` suffix would send zip bytes down the text path. */
+    private fun cachePath(id: String, ext: String): Path =
+        cacheDir.resolve("books").resolve("$id.$ext")
+
+    private fun cachedExisting(id: String): Path? =
+        listOf("epub", "txt").map { cachePath(id, it) }.firstOrNull { Files.exists(it) }
 
     override fun openBook(id: String): Path {
-        val cached = cachePath(id)
-        if (Files.exists(cached)) return cached
+        val cached = cachedExisting(id)
+        if (cached != null) return cached
         // copy-on-open: fetch the whole book to LOCAL STORAGE first, so a PC
         // drop mid-read never disrupts (Adam, stage-1 requirement). Streamed in
         // chunks — a big book must never build a heap-sized array (OOM is an
@@ -291,10 +318,11 @@ class RemoteContent(
             }
             val blob = json.decodeFromString(BlobMsg.serializer(), line)
             require(blob.len in 1..(64L shl 20)) { "book size ${blob.len} out of sane range" }
-            Files.createDirectories(cached.parent)
+            val booksDir = cacheDir.resolve("books")
+            Files.createDirectories(booksDir)
             // unique tmp: concurrent opens of the same id must not interleave
             // into one file and poison the cache permanently
-            val tmp = cached.resolveSibling("$id.${System.nanoTime()}.tmp")
+            val tmp = booksDir.resolve("$id.${System.nanoTime()}.tmp")
             try {
                 Files.newOutputStream(tmp).use { o ->
                     val buf = ByteArray(64 * 1024)
@@ -308,16 +336,26 @@ class RemoteContent(
                 }
                 if (Files.size(tmp) != blob.len)
                     throw IllegalStateException("cached ${Files.size(tmp)} B, expected ${blob.len}")
-                Files.move(tmp, cached, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                // sniff the format (#B3): epubs are zip containers ("PK");
+                // everything else this library serves is plain text
+                val head = Files.newInputStream(tmp).use { s ->
+                    val b = ByteArray(2); val n = s.read(b); if (n == 2) b else ByteArray(0)
+                }
+                val ext = if (head.size == 2 && head[0] == 'P'.code.toByte() &&
+                    head[1] == 'K'.code.toByte()) "epub" else "txt"
+                val dest = cachePath(id, ext)
+                Files.move(tmp, dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                Log.i("content", "cached book $id (${blob.len} B, .$ext)")
+                dest
             } finally {
                 Files.deleteIfExists(tmp)
             }
-            Log.i("content", "cached book $id (${blob.len} B)")
-            cached
         }
     }
 
-    override fun state(): String =
-        if (offlineSince == 0L) ""
+    override fun state(): String {
+        refusedState?.let { return it }
+        return if (offlineSince == 0L) ""
         else "PC ${((System.currentTimeMillis() - offlineSince) / 60_000).coerceAtLeast(0)}m"
+    }
 }

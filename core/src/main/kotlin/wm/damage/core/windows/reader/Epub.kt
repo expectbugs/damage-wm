@@ -88,7 +88,10 @@ object Epub {
         } else ZipFile(path.toFile()).use { zip ->
             val container = zip.getEntry("META-INF/container.xml")
                 ?.let { zip.getInputStream(it).readBytes().toString(Charsets.UTF_8) }
-            val opfPath = container?.let { Regex("""full-path="([^"]+)"""").find(it)?.groupValues?.get(1) }
+            // attr() handles both quote styles — the double-quote-only regex
+            // here silently fell back to the filename on single-quoted
+            // container.xml files (review round 2 #B12)
+            val opfPath = container?.let { attr(it, "full-path") }
             val opf = opfPath?.let { p -> zip.getEntry(p)?.let { zip.getInputStream(it).readBytes().toString(Charsets.UTF_8) } }
             val title = opf?.let { xmlText(it, "dc:title") } ?: path.fileName.toString().removeSuffix(".epub")
             val author = opf?.let { xmlText(it, "dc:creator") } ?: ""
@@ -179,7 +182,7 @@ object Epub {
 
     private val warnedEntities = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
-    fun unescape(s: String): String = Regex("""&(#x?[0-9a-fA-F]+|\w+);""").replace(s) { m ->
+    fun unescape(s: String): String = Regex("""&(#[xX]?[0-9a-fA-F]+|\w+);""").replace(s) { m ->
         val body = m.groupValues[1]
         when {
             body.startsWith("#x") || body.startsWith("#X") ->

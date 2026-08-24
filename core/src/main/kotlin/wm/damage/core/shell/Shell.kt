@@ -91,6 +91,7 @@ class Shell(
     private var saveGen = 0
     private var previewPainted: String? = null
     @Volatile private var running = false
+    @Volatile private var loopLaunched = false
 
     /** Host-link status line for the status bar (set by the content client). */
     @Volatile var hostState: String = ""
@@ -197,10 +198,21 @@ class Shell(
         }
 
         // start the display: capability gate + carrier + lease + warmup splash
-        transport.start(splashFrame())
+        try {
+            transport.start(splashFrame())
+        } catch (e: Exception) {
+            // refuse-to-start (capability gate, link failure): leave the shell
+            // stopped, not half-running with no loop (review round 2 #B1)
+            running = false
+            journal.close()
+            throw e
+        }
 
-        // initial surface — mode AND window restore (§9.1 rule 1)
-        current = windows.firstOrNull { it.id == restoredId }
+        // initial surface — mode AND window restore (§9.1 rule 1). A SILENT
+        // restore must not smuggle in an activated window underneath the clock
+        // (review round 2 #A8): silent has no focused window by definition.
+        current = if (restoredMode == Mode.SILENT.name) null
+        else windows.firstOrNull { it.id == restoredId }
         if (current != null) {
             mode = Mode.WINDOW
             recency.remove(current)
@@ -215,6 +227,7 @@ class Shell(
         }
 
         scope.launch { loop() }
+        loopLaunched = true
         scheduleMinuteTick()
         scope.launch { while (isActive && running) { delay(5_000); post(Msg.IdleTick) } }
         scheduleRest()
@@ -222,9 +235,19 @@ class Shell(
     }
 
     /** Orderly shutdown THROUGH the loop, so the final save cannot race a
-     *  concurrent SaveTick (review round 1) and no state mutates cross-thread. */
+     *  concurrent SaveTick (review round 1) and no state mutates cross-thread.
+     *  If the loop never launched (start() threw first) there is nothing to
+     *  post to — awaiting the Shutdown message would hang forever (round 2
+     *  #B1); clean up directly instead. */
     suspend fun stop() {
         if (!running) return
+        if (!loopLaunched) {
+            running = false
+            saveAll()
+            transport.stop()
+            journal.close()
+            return
+        }
         val done = CompletableDeferred<Unit>()
         post(Msg.Shutdown(done))
         done.await()
@@ -373,6 +396,7 @@ class Shell(
                 val n = v.rowCount()
                 if (n <= 1) return
                 v.model.cursor = (v.model.cursor + delta).mod(n)
+                liftNotificationBox()
                 startListSlide(delta)
             }
             is WindowView.DocView -> {
@@ -382,12 +406,26 @@ class Shell(
                 val top = (old + delta).coerceIn(0, maxTop)
                 if (top == old) return
                 v.model.topLine = top
+                liftNotificationBox()
                 startDocSlide(v, (top - old) * v.lineHeight)
             }
             is WindowView.CanvasView -> {}
             null -> {}
         }
         scheduleSave()
+    }
+
+    /** A fully-shown notification box floats ON the sliding band: putting the
+     *  under snapshot back FIRST means the slide's blit-shift cannot smear box
+     *  pixels through the band, and the furl cannot later restore pre-scroll
+     *  content (review round 2 #A4). The box repaints on top after the step
+     *  (pump step 3), re-capturing the freshly slid content. A null snapshot
+     *  means the box is not currently painted over a captured base — nothing
+     *  to lift. */
+    private fun liftNotificationBox() {
+        if (!notifications.active || notifications.animating) return
+        val lifted = notifications.restoreUnderFinished(comp.composed) ?: return
+        comp.damage(lifted)
     }
 
     private fun tapFocused() {
@@ -525,8 +563,12 @@ class Shell(
         val key = sel.window?.id ?: "@main"
         if (previewPainted == key) return
         previewPainted = key
+        notifications.invalidateUnder()     // preview repaints beneath the box
         paintContentOf(sel.window)          // no lifecycle hooks — render only
         paintSwitcherFrame()
+        // the box (grace holds while the wheel is open) goes back on top with
+        // a fresh capture of the previewed content (review round 2 #A5)
+        if (notifications.active) paintNotification()
     }
 
     // ------------------------------------------------------------------ notices
@@ -536,10 +578,14 @@ class Shell(
             return
         }
         if (mode == Mode.SILENT) {
+            val shown = notifications.current
             notifications.post(n, layout)
-            if (notifications.showNextIfIdle() || notifications.active) {
-                paintNotification()
-                scheduleSilentDismiss()
+            notifications.showNextIfIdle()
+            if (notifications.active) {
+                paintNotification()      // repaint covers the queue badge too
+                // a notice QUEUING behind the shown box must not reset its 5 s
+                // clock — only a new or replaced box does (review round 2 #A9)
+                if (notifications.current !== shown) scheduleSilentDismiss()
             }
             return
         }
@@ -549,6 +595,9 @@ class Shell(
             // changed — repaint content under the union, then the new box
             composeContent()
         } else {
+            // a box beginning its unfurl over a mid-flight slide would capture
+            // a moving base — motion yields to the overlay (§6.3, round 2 #A4)
+            settleSlidesForOverlay()
             if (notifications.active && !notifications.focused) scheduleGrace()
             updatePlanes()
             paintNotification()
@@ -570,9 +619,21 @@ class Shell(
     }
 
     private fun dismissNotice(markRead: Boolean) {
-        notifications.dismiss(markRead)
+        settleSlidesForOverlay()      // the furl restores from a snapshot:
+        notifications.dismiss(markRead)                    // settle the base
         scheduleSave()
         // the furl animation runs via pump, restoring from the under snapshot
+    }
+
+    /** An overlay animation (unfurl/furl) is about to own the frame while a
+     *  slide is mid-flight: lift the painted box off the band, snap the bands
+     *  to target, and let the overlay recapture a settled base (§6.3). Lifting
+     *  FIRST matters — snapping over a painted box would bake box pixels into
+     *  the band while the stale snapshot kept restoring pre-snap rows. */
+    private fun settleSlidesForOverlay() {
+        if (slides.none { it.active }) return
+        liftNotificationBox()
+        snapSlides()
     }
 
     /** Paint the current box; captures the under-content first so the furl can
@@ -591,8 +652,15 @@ class Shell(
         if (mode == Mode.SILENT) return                  // §4.5 rule 4
         if (switcher.open) { scheduleGrace(); return }   // never steal the wheel's gestures
         if (notifications.active && !notifications.focused) {
+            val n = notifications.current
+            val oldPlane = shownBoxPlane
             notifications.takeFocus()
             updatePlanes()
+            // the box stepped FORWARD (§4.5): its old shifted render leaves
+            // ghost columns on each lens — queue the seam pairs (#A7)
+            if (n != null && settings.depth != 0 && shownBoxPlane != oldPlane) {
+                comp.seamCleanup(notifications.fullRect(n, layout, silent = false), oldPlane)
+            }
             paintNotification()
         }
     }
@@ -805,10 +873,15 @@ class Shell(
                     else -> d                                                // arrives with content
                 }
                 planes.add(Compositor.PlaneRegion(box, plane))
+                shownBoxPlane = plane
             }
         }
         comp.planes = planes
     }
+
+    /** The plane the on-screen notification box was last assigned — the dOld
+     *  for seam cleanup when it transitions (round 2 #A7). */
+    private var shownBoxPlane = 0
 
     // ------------------------------------------------------------------ slides
     private fun snapSlides() {
@@ -907,7 +980,9 @@ class Shell(
 
         var animated = false
 
-        // 1. slides move the content UNDER everything
+        // 1. slides move the content UNDER everything — lifting a floating
+        //    notification box out of the band first (#A4; step 3 repaints it)
+        if (slides.any { it.active }) liftNotificationBox()
         for (s in slides) if (s.active) { s.step(comp.composed); animated = true }
 
         // 2. switcher spin, painted OVER the slid content
@@ -940,6 +1015,8 @@ class Shell(
             if (notifications.consumeFurlFinished()) {
                 // the old box is gone: put back what it covered BEFORE any next
                 // box paints (queue-advance included)
+                val oldPlane = shownBoxPlane
+                var seamRect: Rect? = null
                 if (mode == Mode.SILENT) {
                     notifications.invalidateUnder()
                     val c = wallClock()
@@ -947,9 +1024,17 @@ class Shell(
                     comp.damageAll()
                 } else {
                     val restored = notifications.restoreUnderFinished(comp.composed)
-                    if (restored != null) comp.damage(restored) else composeContent()
+                    if (restored != null) { comp.damage(restored); seamRect = restored }
+                    else composeContent()
                 }
                 updatePlanes()
+                // the furled box's region returns to the surrounding plane:
+                // clean the ghost columns its shifted render left (#A7). The
+                // composeContent fallback repaints the whole content area,
+                // which covers every lens position on its own.
+                if (seamRect != null && settings.depth != 0) {
+                    comp.seamCleanup(seamRect, oldPlane)
+                }
             }
             if (notifications.current != null) {
                 if (!more && !notifications.focused && mode != Mode.SILENT) scheduleGrace()

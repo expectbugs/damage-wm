@@ -140,31 +140,38 @@ class RemoteTransportClient(
     override suspend fun start(warmupFrame: ByteArray) {
         val s = Socket(host, port)
         sock = s
-        val inp = DataInputStream(s.getInputStream().buffered())
-        val o = DataOutputStream(s.getOutputStream().buffered())
-        out = o
-        o.send(Ctl(t = "hello", token = token))
-        val (resp, _) = inp.readCtl()
-        when (resp.t) {
-            "grant" -> {}
-            "busy" -> throw IllegalStateException("transport at $host is driven by ${resp.detail}")
-            else -> throw IllegalStateException("unexpected ${resp.t} from $host")
-        }
-        // reader thread: no timeouts; EOF/IOException = link down, surfaced loudly
-        Thread({
-            try {
-                while (true) route(inp.readCtl())
-            } catch (e: EOFException) {
-                down("transport server closed")
-            } catch (e: Exception) {
-                down("transport link error: ${e.message}")
+        try {
+            val inp = DataInputStream(s.getInputStream().buffered())
+            val o = DataOutputStream(s.getOutputStream().buffered())
+            out = o
+            o.send(Ctl(t = "hello", token = token))
+            val (resp, _) = inp.readCtl()
+            when (resp.t) {
+                "grant" -> {}
+                "busy" -> throw IllegalStateException("transport at $host is driven by ${resp.detail}")
+                else -> throw IllegalStateException("unexpected ${resp.t} from $host")
             }
-        }, "remote-transport-reader").start()
+            // reader thread: no timeouts; EOF/IOException = link down, loud
+            Thread({
+                try {
+                    while (true) route(inp.readCtl())
+                } catch (e: EOFException) {
+                    down("transport server closed")
+                } catch (e: Exception) {
+                    down("transport link error: ${e.message}")
+                }
+            }, "remote-transport-reader").start()
 
-        o.send(Ctl(t = "start", warmupLen = warmupFrame.size), warmupFrame)
-        val err = started.receive()
-        if (err != null) throw IllegalStateException("remote transport start failed: $err")
-        _state.value = _state.value.copy(connected = true, started = true)
+            o.send(Ctl(t = "start", warmupLen = warmupFrame.size), warmupFrame)
+            val err = started.receive()
+            if (err != null) throw IllegalStateException("remote transport start failed: $err")
+            _state.value = _state.value.copy(connected = true, started = true)
+        } catch (e: Exception) {
+            // a refused/failed claim must not leak the socket or leave a
+            // half-open session holding the server's driver slot (round 2 #B5)
+            try { s.close() } catch (c: Exception) { /* closing */ }
+            throw e
+        }
     }
 
     private fun down(reason: String) {
@@ -172,8 +179,17 @@ class RemoteTransportClient(
         _state.value = _state.value.copy(connected = false, started = false, leaseHeld = false)
         // a caller parked in start() must get the answer, not a silent hang
         started.trySend(reason)
-        if (!_events.tryEmit(TransportEvent.Link(false, reason))) {
-            Log.e("remote-transport", "Link-down event DROPPED (buffer full)")
+        emit(TransportEvent.Link(false, reason), "Link-down")
+    }
+
+    /** NO SILENT FAILURES: every dropped event is named (round 2 #B13) — a
+     *  full buffer here means the shell loop is wedged, which is exactly when
+     *  silence would be most misleading. */
+    private fun emit(ev: TransportEvent, what: String) {
+        if (!_events.tryEmit(ev)) {
+            Log.e("remote-transport", "$what event DROPPED (buffer full)" +
+                if (ev is TransportEvent.FlushDone)
+                    " — the shell will see flush ${ev.id} as forever in flight" else "")
         }
     }
 
@@ -182,16 +198,14 @@ class RemoteTransportClient(
         when (c.t) {
             "started" -> started.trySend(null)
             "startfail" -> started.trySend(c.detail)
-            "done" -> if (!_events.tryEmit(TransportEvent.FlushDone(c.id, c.ok, c.ackMs, c.bytes, c.error))) {
-                Log.e("remote-transport", "FlushDone ${c.id} DROPPED (buffer full) — the shell will " +
-                    "see this flush as forever in flight")
-            }
-            "input" -> _events.tryEmit(TransportEvent.Input(c.evType, c.evSource))
-            "lease" -> _events.tryEmit(TransportEvent.Lease(c.held, c.detail))
-            "link" -> _events.tryEmit(TransportEvent.Link(c.connected, c.detail))
-            "flags" -> _events.tryEmit(TransportEvent.DiagFlags(c.flags))
-            "fault" -> _events.tryEmit(TransportEvent.Fault(c.detail.substringBefore(':'),
-                c.detail.substringAfter(':', "")))
+            "done" -> emit(TransportEvent.FlushDone(c.id, c.ok, c.ackMs, c.bytes, c.error),
+                "FlushDone ${c.id}")
+            "input" -> emit(TransportEvent.Input(c.evType, c.evSource), "Input")
+            "lease" -> emit(TransportEvent.Lease(c.held, c.detail), "Lease")
+            "link" -> emit(TransportEvent.Link(c.connected, c.detail), "Link")
+            "flags" -> emit(TransportEvent.DiagFlags(c.flags), "DiagFlags")
+            "fault" -> emit(TransportEvent.Fault(c.detail.substringBefore(':'),
+                c.detail.substringAfter(':', "")), "Fault")
             "state" -> c.state?.let { _state.value = it.toState() }
             else -> Log.w("remote-transport", "unknown control ${c.t}")
         }
@@ -281,9 +295,12 @@ class RemoteTransportServer(
         val out = DataOutputStream(sock.getOutputStream().buffered())
         var holdsSlot = false
         var innerStarted = false
-        // innerId -> clientId, registered BEFORE submit so a completion can
-        // never race past its listener (review round 1)
-        val idMap = ConcurrentHashMap<Long, Long>()
+        // innerId rendezvous (round 2 #B9): the inner id is known only AFTER
+        // submit returns, so the submitter and the completion collector race to
+        // putIfAbsent — whoever arrives FIRST deposits (Long clientId, or the
+        // FlushDone event); the second arrival sees the deposit, removes it and
+        // sends. Atomic, no retry loop, no window to leak a completion.
+        val rendezvous = ConcurrentHashMap<Long, Any>()
         var fwd: kotlinx.coroutines.Job? = null
         try {
             val (hello, _) = inp.readCtl()
@@ -311,26 +328,13 @@ class RemoteTransportServer(
                     inner.events.collect { ev ->
                         try {
                             if (ev is TransportEvent.FlushDone) {
-                                var clientId = idMap.remove(ev.id)
-                                if (clientId == null) {
-                                    // the completion can beat the serve thread's
-                                    // idMap.put by a hair on an instant transport:
-                                    // give the mapping a moment to appear
-                                    repeat(50) {
-                                        if (clientId == null) {
-                                            kotlinx.coroutines.delay(2)
-                                            clientId = idMap.remove(ev.id)
-                                        }
-                                    }
-                                }
-                                val cid = clientId
-                                if (cid != null) {
-                                    out.send(Ctl(t = "done", id = cid, ok = ev.ok,
+                                val prev = rendezvous.putIfAbsent(ev.id, ev)
+                                if (prev is Long) {
+                                    rendezvous.remove(ev.id)
+                                    out.send(Ctl(t = "done", id = prev, ok = ev.ok,
                                         ackMs = ev.ackMs, bytes = ev.bytes, error = ev.error))
-                                } else {
-                                    Log.e("transport-server", "FlushDone ${ev.id} had no client mapping — " +
-                                        "the remote shell will see that flush as lost")
                                 }
+                                // prev == null: deposited; the submitter completes
                             } else {
                                 forward(out, ev)
                             }
@@ -404,12 +408,16 @@ class RemoteTransportServer(
                         if (!bad) {
                             val clientId = c.id
                             try {
-                                // register FIRST: the inner id is known only after
-                                // submit, so park under a sentinel, then move
                                 val innerId = runBlocking {
                                     inner.submit(FlushRequest(ops, c.epoch, c.label, c.wide))
                                 }
-                                idMap[innerId] = clientId
+                                val prev = rendezvous.putIfAbsent(innerId, clientId)
+                                if (prev is TransportEvent.FlushDone) {
+                                    // the completion beat us here: it deposited
+                                    rendezvous.remove(innerId)
+                                    out.send(Ctl(t = "done", id = clientId, ok = prev.ok,
+                                        ackMs = prev.ackMs, bytes = prev.bytes, error = prev.error))
+                                }
                             } catch (e: Exception) {
                                 out.send(Ctl(t = "done", id = clientId, ok = false,
                                     error = e.message ?: e.toString()))

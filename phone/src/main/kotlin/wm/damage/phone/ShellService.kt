@@ -145,8 +145,15 @@ class ShellService : Service() {
         }
     }
 
+    /** True once onDestroy has run — a mid-flight rebuild must not resurrect
+     *  the stack on a destroyed service (review round 2 #B4). */
+    @Volatile private var destroyed = false
+
     /** Tear the whole stack down in order — server first (no new claims), then
-     *  the shell (saves state), then the scope. Safe to call from any thread. */
+     *  the shell (saves state), then the scope. Synchronized: the shutdown
+     *  thread, the rebuild thread and a takeover claim can all reach for the
+     *  stack at once (#B4). */
+    @Synchronized
     private fun stopStack() {
         seamServer?.close()
         seamServer = null
@@ -175,26 +182,34 @@ class ShellService : Service() {
         if (driving) {
             Log.i("service", "PC shell claimed the transport — local shell yielding")
             statusLine = "PC shell driving"
-            val sh = shell
-            shell = null
-            if (sh != null) {
-                try {
-                    runBlocking { sh.stop() }
-                } catch (e: Exception) {
-                    Log.e("service", "local shell stop on takeover failed", e)
+            synchronized(this) {
+                val sh = shell
+                shell = null
+                if (sh != null) {
+                    try {
+                        runBlocking { sh.stop() }
+                    } catch (e: Exception) {
+                        Log.e("service", "local shell stop on takeover failed", e)
+                    }
                 }
             }
             updateNotification(statusLine)
         } else {
+            if (destroyed) return
             Log.i("service", "PC shell gone — rebuilding the local stack")
             statusLine = "local shell resuming"
             updateNotification(statusLine)
             // full rebuild: fresh scope, transport, sim, shell AND seam server —
-            // partial reuse left the old server on a cancelled scope
+            // partial reuse left the old server on a cancelled scope. The lock
+            // makes stop+start atomic against onDestroy's teardown (#B4).
             Thread({
-                stopStack()
-                scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-                startStack()
+                synchronized(this@ShellService) {
+                    stopStack()
+                    if (!destroyed) {
+                        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+                        startStack()
+                    }
+                }
             }, "damage-stack-rebuild").start()
         }
     }
@@ -209,6 +224,7 @@ class ShellService : Service() {
         // NEVER block the main thread on transport teardown (ANR): state saves
         // continuously (2 s debounce), so the async stop loses at most the last
         // moments — an ANR would lose the process mid-write instead.
+        destroyed = true
         Thread({ stopStack() }, "damage-shutdown").start()
         super.onDestroy()
     }

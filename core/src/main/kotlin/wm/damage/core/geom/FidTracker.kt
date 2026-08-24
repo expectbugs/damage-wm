@@ -28,6 +28,13 @@ class FidTracker {
         return emptyList()
     }
 
+    /** The deliberate 0xFFFE -> 1 wrap, paired with the mode-7 sub-0 clear that
+     *  resets the FIRMWARE's fid ring: the host's issued-set resets with it, or
+     *  every post-wrap fid would FID001 forever (review round 2 #1). */
+    fun wrapReset() {
+        issued.clear()
+    }
+
     /** Validate one mode-3 delta fid about to go on the wire. */
     fun delta(fid: Int): List<String> {
         val out = ArrayList<String>(2)

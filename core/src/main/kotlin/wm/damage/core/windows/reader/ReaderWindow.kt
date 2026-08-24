@@ -184,6 +184,10 @@ class ReaderWindow(
             try {
                 val re = layoutBook(b.meta, b.book)
                 services?.runOnShell {
+                    // identity guard (#B8): a late completion must not clobber a
+                    // book the user has since switched to, and of two racing
+                    // relayouts of the SAME book the newer one wins
+                    if (book !== b) return@runOnShell
                     book = re
                     docModel.topLine = re.lineAtOffset(keep)
                     services?.requestRender(this@ReaderWindow)
@@ -281,10 +285,17 @@ class ReaderWindow(
         var paraStart = 0
         for (para in b.text.split("\n\n")) {
             val heading = para.length < 60 && para == para.uppercase() && para.any { it.isLetter() }
-            var consumed = 0
+            // Walk the source as the wrapped lines consume it. A soft break eats
+            // one ' ' (or one '\n' at a sub-paragraph boundary); a HARD break
+            // inside an oversize word eats nothing — the old `+1 per line` drifted
+            // past the paragraph end on hard breaks and broke the monotonicity
+            // the binary search depends on (review round 2 #B10).
+            var pos = 0
             for (l in Wrap.wrap(para, if (heading) fBodyB else fBody, text, width)) {
-                lines.add(Loaded.Line(l, paraStart + consumed, heading))
-                consumed += l.length + 1          // the collapsed space/break
+                while (pos < para.length && !para.startsWith(l, pos) &&
+                    (para[pos] == ' ' || para[pos] == '\n')) pos++
+                lines.add(Loaded.Line(l, paraStart + minOf(pos, para.length), heading))
+                pos += l.length
             }
             lines.add(Loaded.Line("", paraStart + para.length, false))
             paraStart += para.length + 2          // the "\n\n" separator
@@ -385,21 +396,26 @@ class ReaderWindow(
                     val lib = content.library()
                     val meta = lib.firstOrNull { it.id == id } ?: return@launch
                     val loaded = layoutBook(meta, Epub.load(content.openBook(id)))
-                    services?.runOnShell {
+                    // apply-only-if-idle (#B8): a slow restore must never yank
+                    // the user out of something they started doing meanwhile
+                    fun apply() {
+                        if (level != Level_.LIBRARY || openingId != null || book != null) {
+                            Log.i("reader", "restore of $id superseded by user activity — dropped")
+                            return
+                        }
                         library = lib
                         libraryState = "ok"
                         book = loaded
                         docModel.topLine = loaded.lineAtOffset(offsets[id] ?: 0)
                         level = if (lvl == "ACTIONS") Level_.ACTIONS else Level_.BOOK
+                    }
+                    services?.runOnShell {
+                        apply()
                         services?.requestRender(this@ReaderWindow)
                     } ?: run {
                         // services not attached yet (restore precedes activation):
                         // apply directly — the shell loop has not started reading
-                        library = lib
-                        libraryState = "ok"
-                        book = loaded
-                        docModel.topLine = loaded.lineAtOffset(offsets[id] ?: 0)
-                        level = if (lvl == "ACTIONS") Level_.ACTIONS else Level_.BOOK
+                        apply()
                     }
                 } catch (e: Exception) {
                     Log.e("reader", "restore of book $id failed — starting at the library", e)
