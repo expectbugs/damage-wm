@@ -55,6 +55,12 @@ class BleTransport(
         var write: BluetoothGattCharacteristic? = null
         var notify: BluetoothGattCharacteristic? = null
 
+        /** True between this arm's connect completing and its link ending —
+         *  a disconnect callback that arrives while it is false belongs to a
+         *  connection we no longer count on (a late report from an earlier
+         *  one) and must not sweep a session that is being set up (round 6). */
+        @Volatile var linkUp = false
+
         init {
             // An UNEXPECTED disconnect (link loss, the peer ending it, a
             // supervision timeout) must sweep the session: every in-flight ack
@@ -68,6 +74,11 @@ class BleTransport(
                 override fun onDeviceReady(device: BluetoothDevice) {}
                 override fun onDeviceDisconnecting(device: BluetoothDevice) {}
                 override fun onDeviceDisconnected(device: BluetoothDevice, reason: Int) {
+                    if (!linkUp) {
+                        Log.i("ble", "$arm disconnect report for a connection not in use (${reasonName(reason)})")
+                        return
+                    }
+                    linkUp = false
                     if (!running) return
                     onLinkDown("$arm disconnected: ${reasonName(reason)}")
                 }
@@ -132,7 +143,9 @@ class BleTransport(
         val (left, right) = scanForPair()
         Log.i("ble", "connecting L=${left.address} R=${right.address}")
         managers.getValue(Arm.LEFT).connect(left).retry(3, 300).useAutoConnect(false).suspend()
+        managers.getValue(Arm.LEFT).linkUp = true
         managers.getValue(Arm.RIGHT).connect(right).retry(3, 300).useAutoConnect(false).suspend()
+        managers.getValue(Arm.RIGHT).linkUp = true
         Log.i("ble", "both arms connected; MTU negotiated")
         // RSSI for the status-bar link cell, from the RIGHT (command) arm
         scope.launch {
@@ -150,6 +163,7 @@ class BleTransport(
 
     override suspend fun disconnectLink() {
         for (m in managers.values) {
+            m.linkUp = false
             try {
                 m.disconnect().suspend()
             } catch (e: Exception) {

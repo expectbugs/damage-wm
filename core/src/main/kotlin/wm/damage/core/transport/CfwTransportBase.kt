@@ -606,6 +606,7 @@ abstract class CfwTransportBase(
         var firstFid = fids.peek()
         var lastBefore = tracker.last
         var seededBefore = tracker.seeded
+        var encodeReached = false
         var flushWritten = false
         try {
             if (work.request.wide) {
@@ -634,6 +635,7 @@ abstract class CfwTransportBase(
                 fids.restart()
             }
             firstFid = fids.peek(); lastBefore = tracker.last; seededBefore = tracker.seeded
+            encodeReached = true
             val encoded = Emit.encode(work.request, fids, tracker,
                 window = if (work.request.wide) 1 else WINDOW)
             val final = writeImage(encoded.image, work.epoch)
@@ -650,8 +652,12 @@ abstract class CfwTransportBase(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (!flushWritten) {
-                // the encode may have consumed fids the glasses never saw
+            if (encodeReached && !flushWritten) {
+                // the encode may have consumed fids the glasses never saw. A
+                // throw BEFORE the encode (a failed wrap clear) touched no fid
+                // and must leave wrapPending standing for the next retry
+                // (round 6): rewinding would drop it and the next delta would
+                // present the wrong baseline in silence.
                 tracker.rewind(lastBefore, firstFid, seededBefore)
                 fids.rewind(firstFid)
             }
