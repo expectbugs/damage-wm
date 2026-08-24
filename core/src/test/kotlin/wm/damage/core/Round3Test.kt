@@ -92,16 +92,22 @@ class Round3Test {
         val l = Layout()
         comp.composed.fillRect(l.content, 6 * 17)
         val box = Rect(l.notificationMax.x, l.notificationMax.y, l.notificationMax.w, 104)
+        // the shell's busiest map, plus a row of small forward islands so the
+        // per-lens work provably exceeds one wide flush (seam + reclaim per
+        // island edge) — the residual path must carry the rest
+        val islands = (0 until 8).map { i ->
+            Compositor.PlaneRegion(Rect(l.content.x + 16 + i * 72, l.content.y + 40, 40, 20), 0)
+        }
         comp.planes = listOf(
             Compositor.PlaneRegion(l.content, 8),
             Compositor.PlaneRegion(l.lens, 0),
             Compositor.PlaneRegion(l.switcherPanel, 8),
             Compositor.PlaneRegion(Rect(l.switcherPanel.x, l.switcherPanel.y + 44, l.switcherPanel.w, 88), 0),
             Compositor.PlaneRegion(box, 8),
-        )
+        ) + islands
         comp.requestKeyframe()
         var flushes = 0
-        var explicitTotal = 0
+        var fidTotal = 0
         var sawKeyframe = false
         while (comp.hasPending || comp.needsKeyframe) {
             val a = assertNotNull(comp.assembleFlush(Geometry.rectBudget(3)), "pending work assembled to nothing")
@@ -110,12 +116,12 @@ class Round3Test {
             val fids = fidCount(a.ops)
             assertTrue(fids <= Geometry.CFW_FID_RING, "flush $flushes carries $fids fids (> ring)")
             assertTrue(a.wide, "keyframe follow-up flush $flushes must run wide")
-            explicitTotal += a.explicit.size
+            fidTotal += fids
             assertTrue(flushes < 10, "keyframe did not drain")
         }
         assertTrue(sawKeyframe)
         assertTrue(flushes >= 2, "this map was chosen to overflow one flush (got $flushes)")
-        assertTrue(explicitTotal > Geometry.CFW_FID_RING, "plan should exceed the ring, was $explicitTotal")
+        assertTrue(fidTotal > Geometry.CFW_FID_RING, "the per-lens work should exceed the ring, was $fidTotal")
     }
 
     /** C2: a region whose PLANE changes re-renders even though not one nominal

@@ -17,55 +17,52 @@ import wm.damage.core.util.Log
  *   §5.1  price damage partitions by actually compressing them
  *   §5.2  mode 9 is a general primitive — declared translations become copies
  *   §5.4  occlusion is handled by paint order (later ops win in a mode-8 batch)
- *   §5.6  hash before send — a rect whose bytes did not change is dropped
- *   §5.12 two shadows: damage is computed against what was SENT, advancing on
+ *   §5.6  hash before send — nothing whose bytes did not change is sent
+ *   §5.12 shadows: damage is computed against what was SENT, advancing on
  *         send and rolling back on failure — copies included
  *   §5.13 backpressure coalescing — pending damage merges, never queues
  *   §5.14 damage epochs
  *
- * Stereo: coordinates are NOMINAL; a plane map assigns each region a disparity
- * and a flush splits damage at plane boundaries so a stereo region is never
- * partially updated with a non-stereo delta (§3.4). Per-lens correctness
- * (review round 3) rests on three rules:
- *
- *   ORDER    within a batch, later ops win — so black parallax SEAMS go first
- *            (the background nothing else covers), then stereo deltas FAR to
- *            NEAR (a nearer region's shifted edge legitimately overlaps a
- *            farther one's), then plane-0 repaints, then crossed (near) planes.
- *            A keyframe seeds both lenses at nominal and then follows exactly
- *            that order for every non-flat piece of the plane PARTITION.
- *   BUDGET   every explicit per-lens op costs a fid; the firmware's ring holds
- *            16. Explicit work is queued and drained at most a budget per WIDE
- *            flush, so a keyframe of any plane map completes in a few flushes
- *            instead of failing forever.
- *   PLANES   a plane-map change re-renders the changed regions even when not
- *            one nominal byte moved (the diff cannot see disparity), and queues
- *            seam cleanup for the ghost columns their OLD shifted renders left.
+ * Stereo (review round 4 rewrite): the compositor reasons PER LENS. It keeps
+ * an expected shadow of what each lens shows, renders the per-lens TRUTH of
+ * the nominal frame under the plane map (each region vacates its nominal
+ * area, its pieces render at their shift far to near, the nearest wins, the
+ * 16 px insets are the transparent shift budget of §3.3), and emits whatever
+ * ops make shadow == truth — nominal deltas at their disparity, black stereo
+ * pairs where the truth is a parallax seam. Each planned op is applied to the
+ * shadows as it is planned, so an op's effect on the OTHER lens (a far piece
+ * spilling under a nearer one) is seen and repaired in the same flush, in
+ * later-wins order. Whatever the fid budget cannot carry stays dirty and
+ * goes out next flush. Plane changes, seam cleanup, keyframe follow-ups and
+ * reclaims are no longer special cases — they are just differences between
+ * shadow and truth.
  *
  * Threading: confined to the shell loop — rollback arrives via a loop message,
  * never a transport thread.
  */
 class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.PANEL_H) {
 
-    /** The frame being composed (what the user should see next). */
+    /** The frame being composed (what the user should see next), NOMINAL. */
     val composed = Gray8(width, height)
 
-    /** What the glasses' shadow holds (nominal space) — the diff base (§5.12). */
-    private val sent = Gray8(width, height)
+    /** What each lens is believed to show (the diff base, §5.12). */
+    private val shadowL = Gray8(width, height)
+    private val shadowR = Gray8(width, height)
 
+    /** Per-lens truth of `composed` under `planes`, and per-pixel owners. */
+    private val truthL = Gray8(width, height)
+    private val truthR = Gray8(width, height)
+    private val ownerL = ShortArray(width * height)
+    private val ownerR = ShortArray(width * height)
+    private class Piece(val rect: Rect, val d: Int)
+    private var pieces: List<Piece> = emptyList()
+
+    /** Nominal-space HINTS of where the truth may have changed. */
     private val pendingDamage = ArrayList<Rect>()
     private val pendingCopies = ArrayList<PlannedCopy>()
+    /** Dirt a budget-limited flush left behind (nominal-space bbox). */
+    private var residual: Rect? = null
 
-    /** Explicit per-lens ops that bypass the nominal diff: seam-cleanup pairs,
-     *  and the stereo repaints + plane-0 reclaims a keyframe could not fit in
-     *  one flush. Drained IN ORDER, at most one fid budget per (wide) flush,
-     *  ahead of the damage partition (round 3 C1/C6). */
-    private val explicitOps = ArrayList<DisplayOp>()
-
-    /** Damage sent even when its nominal bytes equal `sent`: a region whose
-     *  PLANE changed re-renders at the new shift although no pixel of
-     *  `composed` moved — the diff cannot see disparity (round 3 C2). */
-    private val forcedDamage = ArrayList<Rect>()
     var epoch: Long = 0
         private set
 
@@ -77,8 +74,10 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
 
     data class PlannedCopy(val src: Rect, val dst: Rect)
 
-    /** Ordered plane regions, top-most last: a damage rect takes the disparity
-     *  of the LAST region containing it. Default: everything at plane 0. */
+    /** Ordered plane regions, top-most last: a nominal pixel belongs to the
+     *  LAST region containing it. Regions vacate their nominal area (a seam is
+     *  black) and render at their shift; the remainder is the transparent
+     *  plane-0 base every shift may spill over (§3.3). */
     data class PlaneRegion(val rect: Rect, val disparity: Int)
 
     var planes: List<PlaneRegion> = emptyList()
@@ -92,36 +91,20 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             if (value == field) return
             val old = field
             field = value
-            onPlanesChanged(old, value)
+            // every region that entered, left or moved re-renders somewhere
+            // else per lens: hint their areas, the truth diff does the rest
+            val oldSet = old.toSet()
+            val newSet = value.toSet()
+            for (p in old) if (p !in newSet) hint(p.rect)
+            for (p in value) if (p !in oldSet) hint(p.rect)
         }
 
-    private fun disparityAt(r: Rect): Int = disparityIn(planes, r)
-
-    private fun disparityIn(map: List<PlaneRegion>, r: Rect): Int {
-        for (p in map.asReversed()) if (p.rect.contains(r)) return p.disparity
+    private fun disparityAt(r: Rect): Int {
+        for (p in planes.asReversed()) if (p.rect.contains(r)) return p.disparity
         return 0
     }
 
-    /**
-     * The plane map changed. Every region in the symmetric difference — added,
-     * removed, or re-planed — re-renders at its new shift (forced past the
-     * hash filter: its nominal bytes are typically unchanged), and the ghost
-     * columns its OLD shifted render left on each lens are queued for seam
-     * cleanup. This is THE transition mechanism: notification focus-step and
-     * furl, switcher open/close, the live depth preview — one rule for all
-     * (review round 3 C2, and the round-2 #A7 cases it subsumes).
-     */
-    private fun onPlanesChanged(old: List<PlaneRegion>, new: List<PlaneRegion>) {
-        val oldSet = old.toSet()
-        val newSet = new.toSet()
-        val changed = (old.filter { it !in newSet } + new.filter { it !in oldSet })
-            .map { it.rect }.distinct()
-        for (r in changed) {
-            forcedDamage.add(r.alignOut())
-            seamCleanup(r, old)
-        }
-        if (changed.isNotEmpty()) epoch++
-    }
+    private fun inRegion(r: Rect): Boolean = planes.any { it.rect.contains(r) }
 
     /** Split [r] so every piece lies wholly inside one plane region (or none). */
     private fun splitByPlanes(r: Rect): List<Rect> {
@@ -143,13 +126,16 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     }
 
     // ------------------------------------------------------------------ input
-    /** Mark a nominal-space rect as needing transmission. */
+    /** Mark a nominal-space rect as possibly changed. */
     fun damage(r: Rect) {
         if (r.w <= 0 || r.h <= 0) return
-        val a = r.alignOut()
-        if (a.w <= 0 || a.h <= 0) return
-        pendingDamage.add(a)
+        hint(r)
         epoch++
+    }
+
+    private fun hint(r: Rect) {
+        val a = r.alignOut()
+        if (a.w > 0 && a.h > 0) pendingDamage.add(a)
     }
 
     fun damageAll() = damage(Rect(0, 0, width, height))
@@ -182,82 +168,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     }
 
     val hasPending: Boolean get() =
-        pendingDamage.isNotEmpty() || pendingCopies.isNotEmpty() ||
-            explicitOps.isNotEmpty() || forcedDamage.isNotEmpty()
-
-    /**
-     * A region is transitioning planes: it was last painted under [old] and
-     * re-renders under the CURRENT map. Per lens, the old shifted render leaves
-     * ghost columns of width |dOld - dNew| that the new render does not cover —
-     * and no nominal rect maps onto them, because they sit ON the parallax
-     * seam, whose correct content is black (§3.4). Queue explicit black stereo
-     * pairs (review round 2 #A7: expanding the damage rect cannot fix this —
-     * the expansion's side slivers render at the surrounding plane's own shift
-     * and still miss the seam columns).
-     *
-     * The rect is split into horizontal bands wherever a plane-region boundary
-     * of EITHER map crosses it, and each band takes its own old and new
-     * disparity — so a box straddling the forward lens strip does not paint
-     * black over live lens pixels, and a content-plane change does not clean
-     * a lens band that never moved.
-     */
-    private fun seamCleanup(r: Rect, old: List<PlaneRegion>) {
-        val a = r.alignOut()
-        if (a.w <= 0 || a.h <= 0) return
-        val cuts = sortedSetOf(a.y, a.bottom)
-        for (p in planes + old) {
-            if (p.rect.y in (a.y + 1) until a.bottom) cuts.add(p.rect.y)
-            if (p.rect.bottom in (a.y + 1) until a.bottom) cuts.add(p.rect.bottom)
-        }
-        val ys = cuts.toIntArray()
-        var queuedAny = false
-        for (i in 0 until ys.size - 1) {
-            val band = Rect(a.x, ys[i], a.w, ys[i + 1] - ys[i])
-            if (band.h <= 0) continue
-            val dOld = disparityIn(old, band)
-            val dNew = disparityAt(band)
-            if (dNew == dOld) continue
-            val w = minOf(kotlin.math.abs(dOld - dNew), band.w)
-            // For dOld > dNew the L render moved right (was x-dOld, now x-dNew):
-            // its ghost is the leading edge of the OLD L box; R is mirrored.
-            val (lg, rg) = if (dOld > dNew)
-                Rect(band.x - dOld, band.y, w, band.h) to
-                    Rect(band.right + dOld - w, band.y, w, band.h)
-            else
-                Rect(band.right - dOld - w, band.y, w, band.h) to
-                    Rect(band.x + dOld, band.y, w, band.h)
-            if (lg.x < 0 || lg.right > width || rg.x < 0 || rg.right > width) {
-                // a strip would fall off-panel (never expected for the centred
-                // shell surfaces) — repaint everything instead, loudly correct
-                Log.w("comp", "seamCleanup strip off-panel for $band " +
-                    "dOld=$dOld dNew=$dNew — keyframing")
-                requestKeyframe()
-                return
-            }
-            explicitOps.add(DisplayOp.StereoPair(lg, rg, black(w, band.h)))
-            queuedAny = true
-        }
-        if (queuedAny) epoch++
-    }
-
-    private fun black(w: Int, h: Int): ByteArray =
-        Zl.encodeCfw(Pack.rect(Gray8(w, h), Rect(0, 0, w, h)))
-
-    /** The two inner ghost strips a stereo piece leaves after a NOMINAL seed
-     *  (keyframe): for d>0 the L render moved left, leaving stale nominal
-     *  pixels at the piece's right edge on L; R mirrored. Emitted BEFORE the
-     *  stereo deltas, so anything that legitimately renders there (a same- or
-     *  farther-plane neighbour's shifted content) paints over the black. */
-    private fun innerSeamPair(piece: Rect, d: Int): DisplayOp.StereoPair {
-        val w = minOf(kotlin.math.abs(d), piece.w)
-        val l = if (d > 0) Rect(piece.right - w, piece.y, w, piece.h) else Rect(piece.x, piece.y, w, piece.h)
-        val r = if (d > 0) Rect(piece.x, piece.y, w, piece.h) else Rect(piece.right - w, piece.y, w, piece.h)
-        return DisplayOp.StereoPair(l, r, black(w, piece.h))
-    }
-
-    /** Far to near: positive (uncrossed, far) first, largest shift first; then
-     *  plane 0; then crossed (near) planes, nearest last (§3.4: nearer wins). */
-    private fun <T> farToNear(items: List<T>, d: (T) -> Int): List<T> = items.sortedByDescending { d(it) }
+        pendingDamage.isNotEmpty() || pendingCopies.isNotEmpty() || residual != null
 
     fun requestKeyframe() {
         needsKeyframe = true
@@ -269,190 +180,358 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      * Assemble everything pending into one atomic op list (§4's whole thesis:
      * the ack floor is per MESSAGE, so all damage ships in ONE mode-8 batch).
      * Returns null when nothing actually changed. [rectBudget] is the mode-3
-     * budget for the current pipeline depth (§8.2).
+     * budget for the current pipeline depth (§8.2); a flush that needs more
+     * runs WIDE (window drained, 16 fids), and anything past even that stays
+     * dirty for the next flush.
      */
     fun assembleFlush(rectBudget: Int): Assembled? {
-        if (needsKeyframe) return assembleKeyframe()
-        if (!hasPending) return null
+        val keyframe = needsKeyframe
+        val ops = ArrayList<DisplayOp>()
+        val undo = ArrayList<Undo>()
+        val full = Rect(0, 0, width, height)
 
         val copies = ArrayList(pendingCopies)
         pendingCopies.clear()
-
-        // Explicit per-lens work (seams, keyframe remainders) is transient and
-        // runs WIDE: depth 1, the full 16-fid budget, drained in order.
-        val wideBudget = Geometry.rectBudget(1)
-        val taken: List<DisplayOp> = ArrayList(explicitOps.subList(0, minOf(wideBudget, explicitOps.size)))
-        repeat(taken.size) { explicitOps.removeAt(0) }
-        var wide = taken.isNotEmpty()
-        val partBudget = (if (wide) wideBudget else rectBudget) - taken.size
-
-        // Snapshot the copy destinations BEFORE replaying, so a failed flush can
-        // roll the diff base back (§5.12 — review round 1: without this, a lost
-        // scroll flush left `sent` permanently ahead and hash-before-send then
-        // suppressed the repair forever).
-        val undo = ArrayList<Pair<Rect, ByteArray>>(copies.size + 4)
-        for (c in copies) undo.add(c.dst to snapshot(sent, c.dst))
-
-        // Replay copies on `sent` so the hash-before-send diff below is honest.
-        for (c in copies) {
-            val tmp = Gray8(c.src.w, c.src.h)
-            tmp.blit(sent, c.src, 0, 0)
-            sent.blit(tmp, Rect(0, 0, c.src.w, c.src.h), c.dst.x, c.dst.y)
-        }
-
-        // Merge overlapping damage, drop unchanged rects (§5.6) — except where
-        // a FORCED rect (plane change) overlaps: those bytes match by
-        // construction and must go out anyway.
-        val forced = normalize(forcedDamage)
-        forcedDamage.clear()
-        var rects = normalize(pendingDamage + forced)
+        val hints = ArrayList(pendingDamage)
         pendingDamage.clear()
-        rects = rects.filter { r -> forced.any { it.overlaps(r) } || !composed.regionEquals(sent, r) }
-        if (rects.isNotEmpty() && partBudget <= 0) {
-            // no fid left after the explicit work: the damage waits one flush
-            // (composed and sent are untouched for it, so nothing is lost)
-            pendingDamage.addAll(rects)
-            forcedDamage.addAll(forced)
-            rects = emptyList()
-        }
-        if (rects.isEmpty() && copies.isEmpty() && taken.isEmpty()) {
-            // nothing changed after all — the copy snapshots are moot
-            return null
-        }
+        residual?.let { hints.add(it) }
+        residual = null
 
-        val ops = ArrayList<DisplayOp>(copies.size + rects.size + taken.size)
-        for (c in copies) ops.add(DisplayOp.Copy(c.src, c.dst, disparityAt(c.dst)))
-        ops.addAll(taken)   // seams and explicit repaints FIRST — later ops win
-
-        val damageOps = ArrayList<DisplayOp.Delta>(rects.size)
-        if (rects.isNotEmpty()) {
-            // Partition, split at plane boundaries (a stereo region is never
-            // partially updated with a non-stereo delta, §3.4). Splitting can
-            // push the count past the budget; §8.2 #4's answer is a WIDE flush
-            // (window drained, depth 1). Groups merged within one plane can
-            // geometrically span another plane, so merge and re-split until
-            // stable — with a keyframe as the honest last resort.
-            var parts = mergeToBudget(rects, partBudget).flatMap { splitByPlanes(it) }
-            if (parts.size > partBudget) {
-                val bboxParts = splitByPlanes(rects.reduce(Rect::union).alignOut())
-                if (bboxParts.size < parts.size) parts = bboxParts
+        if (keyframe) {
+            needsKeyframe = false
+            // the mode-6 seeds BOTH lenses at nominal; everything stereo is
+            // then a difference between that and the truth
+            undo.add(Undo(true, full, snapshot(shadowL, full)))
+            undo.add(Undo(false, full, snapshot(shadowR, full)))
+            System.arraycopy(composed.pix, 0, shadowL.pix, 0, composed.pix.size)
+            System.arraycopy(composed.pix, 0, shadowR.pix, 0, composed.pix.size)
+            ops.add(DisplayOp.Keyframe(compress(full)))
+        } else {
+            if (hints.isEmpty() && copies.isEmpty()) return null
+            // Replay declared copies on the shadows per lens, undo-snapshotted
+            // (§5.12 — a lost scroll flush must roll the diff base back).
+            for (c in copies) {
+                val d = disparityAt(c.dst)
+                val (sl, dl) = c.src.translate(-d, 0) to c.dst.translate(-d, 0)
+                val (sr, dr) = c.src.translate(d, 0) to c.dst.translate(d, 0)
+                undo.add(Undo(true, dl.clip(), snapshot(shadowL, dl.clip())))
+                undo.add(Undo(false, dr.clip(), snapshot(shadowR, dr.clip())))
+                copyWithin(shadowL, sl, dl)
+                copyWithin(shadowR, sr, dr)
+                ops.add(DisplayOp.Copy(c.src, c.dst, d))
+                hints.add(c.src); hints.add(c.dst)
             }
-            if (parts.size > partBudget) wide = true
-            var attempts = 0
-            while (parts.size + taken.size > Geometry.CFW_FID_RING && attempts < 3) {
-                val groups = parts.groupBy { disparityAt(it) }
-                val per = maxOf(1, (Geometry.CFW_FID_RING - taken.size) / maxOf(1, groups.size))
-                parts = groups.flatMap { (_, group) -> mergeToBudget(group, per) }
-                    .flatMap { splitByPlanes(it) }
-                attempts++
-                wide = true
-            }
-            if (parts.size + taken.size > Geometry.CFW_FID_RING) {
-                // pathological plane/damage interaction: a keyframe repaints
-                // everything correctly in one wide flush
-                Log.w("comp", "damage partition would need ${parts.size} rects — keyframing instead")
-                pendingDamage.clear()
-                needsKeyframe = true
-                return assembleKeyframe()
-            }
-            val direct = parts.map { it to compress(it) }
-            val bbox = parts.reduce(Rect::union).alignOut()
-            val bboxPieces = splitByPlanes(bbox).map { it to compress(it) }
-            val directCost = direct.sumOf { it.second.size + 15 }
-            val bboxCost = bboxPieces.sumOf { it.second.size + 15 }
-            val chosen = if (bboxCost < directCost && bboxPieces.size <= maxOf(partBudget, direct.size)) bboxPieces else direct
-            // far to near (§3.4): a nearer region's shifted edge legitimately
-            // overlaps a farther one's, and later ops win
-            for ((r, payload) in farToNear(chosen) { disparityAt(it.first) })
-                damageOps.add(DisplayOp.Delta(r, payload, disparityAt(r)))
         }
-        ops.addAll(damageOps)
 
-        // Advance the sent shadow optimistically (§5.12); rollback() undoes.
-        // Only the DAMAGE deltas move it: explicit ops are per-lens repaints of
-        // nominal content the shadow already holds.
-        val touched = damageOps.map { it.box }
-        for (r in touched) undo.add(r to snapshot(sent, r))
-        for (r in touched) sent.blit(composed, r, r.x, r.y)
+        // The area the diff scans: every hint, widened by the maximum shift
+        // so a lens-space consequence of a nominal change is inside it.
+        val area: List<Rect> = if (keyframe) listOf(full)
+        else normalize(hints.map { widen(it) })
 
-        return Assembled(ops, epoch, undo, copies, wide = wide, explicit = taken)
+        renderTruth()
+        val budget = Geometry.rectBudget(1)     // the wide budget; pipelined checked below
+        var fids = 0
+        var iterations = 0
+        var dirtyLeft = false
+        while (iterations < MAX_ITERATIONS) {
+            iterations++
+            val dirtyL = dirtyCells(true, area)
+            val dirtyR = dirtyCells(false, area)
+            if (dirtyL.isEmpty() && dirtyR.isEmpty()) break
+            val planned = planOps(dirtyL, dirtyR)
+            if (planned.isEmpty()) break
+            var exhausted = false
+            for (op in planned) {
+                if (fids >= budget) { exhausted = true; break }
+                applyToShadows(op, undo)
+                ops.add(op)
+                fids++
+            }
+            if (exhausted) { dirtyLeft = true; break }
+        }
+        if (!dirtyLeft && iterations >= MAX_ITERATIONS &&
+            (dirtyCells(true, area).isNotEmpty() || dirtyCells(false, area).isNotEmpty())) {
+            dirtyLeft = true
+        }
+        if (dirtyLeft) {
+            // whatever did not fit stays dirty: the next flush picks it up
+            residual = area.reduce(Rect::union)
+            Log.i("comp", "flush carries $fids fids; more dirt remains (${if (keyframe) "keyframe follow-up" else "budget"})")
+        }
+
+        if (ops.isEmpty()) return null
+        val wide = keyframe || dirtyLeft || fids > rectBudget
+        return Assembled(ops, epoch, undo, copies, hints, keyframe = keyframe, wide = wide)
     }
 
-    /**
-     * Cold start / divergence / resize: one mode-6 nominal keyframe (seeds BOTH
-     * lenses at nominal) followed by the per-lens plan for every non-flat piece
-     * of the plane PARTITION (review round 1: emitting whole regions repainted
-     * nested plane-0 areas at the wrong depth), in later-wins order:
-     *
-     *   1. black seam pairs at every stereo piece's inner ghost strips — the
-     *      background; anything that legitimately renders there (a same- or
-     *      farther-plane neighbour's shifted content) paints over it
-     *   2. far planes, farthest first
-     *   3. plane-0 pieces beside a far piece, taking back the |d| columns its
-     *      shifted render spilled over them (the nominal seed painted them
-     *      FIRST) — §3.4: the nearer plane wins
-     *   4. crossed (near) planes, nearest last
-     *
-     * Round 3 C1: the plan can exceed the 16-fid ring for a busy plane map;
-     * what does not fit this WIDE flush is queued as explicit work and drains
-     * over the following flushes, in the same order.
-     */
-    private fun assembleKeyframe(): Assembled {
-        pendingDamage.clear()
-        forcedDamage.clear()
-        pendingCopies.clear()
-        explicitOps.clear()       // the keyframe's own plan supersedes them
-        needsKeyframe = false
-        val full = Rect(0, 0, width, height)
-
-        val pieces = splitByPlanes(full)
-        val far = farToNear(pieces.filter { disparityAt(it) > 0 }) { disparityAt(it) }
-        val near = farToNear(pieces.filter { disparityAt(it) < 0 }) { disparityAt(it) }
-        val plan = ArrayList<DisplayOp>()
-        for (piece in far + near) plan.add(innerSeamPair(piece, disparityAt(piece)))
-        for (piece in far) plan.add(DisplayOp.Delta(piece, compress(piece), disparityAt(piece)))
-        for (piece in pieces) {
-            if (disparityAt(piece) != 0) continue
-            val besideFar = far.any { s ->
-                s.y < piece.bottom && piece.y < s.bottom && (s.right == piece.x || piece.right == s.x)
-            }
-            if (besideFar) plan.add(DisplayOp.Delta(piece, compress(piece), 0))
-        }
-        for (piece in near) plan.add(DisplayOp.Delta(piece, compress(piece), disparityAt(piece)))
-
-        val budget = Geometry.rectBudget(1)     // the mode-6 itself costs no fid
-        val now = plan.take(budget)
-        explicitOps.addAll(plan.drop(budget))
-        if (explicitOps.isNotEmpty()) {
-            Log.i("comp", "keyframe plan is ${plan.size} per-lens ops — " +
-                "${explicitOps.size} queued for the following flushes")
-        }
-
-        val ops = ArrayList<DisplayOp>(1 + now.size)
-        ops.add(DisplayOp.Keyframe(compress(full)))
-        ops.addAll(now)
-        val undo = listOf(full to snapshot(sent, full))
-        sent.blit(composed, full, 0, 0)
-        return Assembled(ops, epoch, undo, emptyList(), keyframe = true, wide = true, explicit = now)
-    }
-
-    /** The flush [a] was rejected or lost: restore the diff base — copies AND
-     *  deltas — and re-damage every affected region, so the NEXT flush
-     *  recomputes with fresh fids (§8.2 rule 1 — never retransmit). */
+    /** The flush [a] was rejected or lost: restore the per-lens diff base and
+     *  re-hint every affected region, so the NEXT flush recomputes with fresh
+     *  fids (§8.2 rule 1 — never retransmit). */
     fun rollback(a: Assembled) {
-        for ((r, bytes) in a.undo.asReversed()) restore(sent, r, bytes)
-        for ((r, _) in a.undo) pendingDamage.add(r)
-        for (c in a.copies) {
-            pendingDamage.add(c.src)
-            pendingDamage.add(c.dst)
+        for (u in a.undo.asReversed()) restore(if (u.left) shadowL else shadowR, u.rect, u.bytes)
+        for (h in a.hints) pendingDamage.add(h)
+        for (c in a.copies) { pendingDamage.add(c.src); pendingDamage.add(c.dst) }
+        for (op in a.ops) when (op) {
+            is DisplayOp.Delta -> pendingDamage.add(op.box)
+            is DisplayOp.StereoPair -> { pendingDamage.add(widen(op.left)); pendingDamage.add(widen(op.right)) }
+            else -> {}
         }
-        explicitOps.addAll(0, a.explicit)   // the per-lens work is still owed
         if (a.keyframe) needsKeyframe = true
         epoch++
     }
 
+    /** What the compositor believes a lens shows — test/selfcheck oracle
+     *  against the simulator's own panels. */
+    internal fun expectedLens(left: Boolean): Gray8 = if (left) shadowL else shadowR
+
+    // ------------------------------------------------------------------ truth
+    /** Render the per-lens truth of `composed` under the plane map. */
+    private fun renderTruth() {
+        System.arraycopy(composed.pix, 0, truthL.pix, 0, composed.pix.size)
+        System.arraycopy(composed.pix, 0, truthR.pix, 0, composed.pix.size)
+        java.util.Arrays.fill(ownerL, OWNER_REMAINDER)
+        java.util.Arrays.fill(ownerR, OWNER_REMAINDER)
+        val full = Rect(0, 0, width, height)
+        // every region vacates its nominal area: what nothing re-covers is seam
+        for (p in planes) {
+            truthL.fillRect(p.rect, 0); truthR.fillRect(p.rect, 0)
+            fillOwner(ownerL, p.rect, OWNER_SEAM); fillOwner(ownerR, p.rect, OWNER_SEAM)
+        }
+        val all = splitByPlanes(full).filter { inRegion(it) }.map { Piece(it, disparityAt(it)) }
+        pieces = all.sortedByDescending { it.d }          // far first, nearest last
+        for ((i, piece) in pieces.withIndex()) {
+            paintShifted(truthL, ownerL, piece.rect, -piece.d, i.toShort())
+            paintShifted(truthR, ownerR, piece.rect, piece.d, i.toShort())
+        }
+    }
+
+    private fun paintShifted(dst: Gray8, owner: ShortArray, r: Rect, dx: Int, id: Short) {
+        val x0 = maxOf(0, r.x + dx); val x1 = minOf(width, r.right + dx)
+        if (x1 <= x0) return
+        for (y in r.y until r.bottom) {
+            val srcOff = y * width + (x0 - dx)
+            val dstOff = y * width + x0
+            System.arraycopy(composed.pix, srcOff, dst.pix, dstOff, x1 - x0)
+            java.util.Arrays.fill(owner, dstOff, dstOff + (x1 - x0), id)
+        }
+    }
+
+    private fun fillOwner(owner: ShortArray, r: Rect, id: Short) {
+        for (y in r.y until r.bottom) java.util.Arrays.fill(owner, y * width + r.x, y * width + r.right, id)
+    }
+
+    // ------------------------------------------------------------------ diff
+    /** Dirty grid cells (4x2, the damage grid) of one lens within [area]:
+     *  cell index -> owner of its truth (uniform per cell by construction of
+     *  aligned regions; the first differing pixel decides otherwise). */
+    private fun dirtyCells(left: Boolean, area: List<Rect>): HashMap<Int, Short> {
+        val shadow = if (left) shadowL else shadowR
+        val truth = if (left) truthL else truthR
+        val owner = if (left) ownerL else ownerR
+        val out = HashMap<Int, Short>()
+        for (a in area) {
+            val cx0 = a.x / CW; val cx1 = (a.right + CW - 1) / CW
+            val cy0 = a.y / CH; val cy1 = (a.bottom + CH - 1) / CH
+            for (cy in cy0 until cy1) for (cx in cx0 until cx1) {
+                val idx = cy * cellsW + cx
+                if (out.containsKey(idx)) continue
+                val px = cx * CW; val py = cy * CH
+                var diff = false
+                var own: Short = OWNER_REMAINDER
+                loop@ for (y in py until py + CH) {
+                    val off = y * width + px
+                    for (x in 0 until CW) {
+                        if (shadow.pix[off + x] != truth.pix[off + x]) {
+                            diff = true; own = owner[off + x]; break@loop
+                        }
+                    }
+                }
+                if (diff) out[idx] = own
+            }
+        }
+        return out
+    }
+
+    /** Turn dirty cells into ops, later-wins ordered: the remainder base
+     *  first, far pieces, plane-0 regions, near pieces, then seam blacks. */
+    private fun planOps(dirtyL: Map<Int, Short>, dirtyR: Map<Int, Short>): List<DisplayOp> {
+        val deltas = LinkedHashMap<Pair<Rect, Int>, DisplayOp.Delta>()
+        val blacksL = ArrayList<Rect>()
+        val blacksR = ArrayList<Rect>()
+        for (left in booleanArrayOf(true, false)) {
+            val dirty = if (left) dirtyL else dirtyR
+            val byOwner = HashMap<Short, ArrayList<Int>>()
+            for ((idx, own) in dirty) byOwner.getOrPut(own) { ArrayList() }.add(idx)
+            for ((own, cells) in byOwner) {
+                val rects = rectsOf(cells)
+                when {
+                    own == OWNER_SEAM -> (if (left) blacksL else blacksR).addAll(rects)
+                    own == OWNER_REMAINDER -> for (r in rects) {
+                        deltas.getOrPut(r to 0) { DisplayOp.Delta(r, compress(r), 0) }
+                    }
+                    else -> {
+                        val piece = pieces[own.toInt()]
+                        val shift = if (left) piece.d else -piece.d
+                        for (r in rects) {
+                            val nominal = r.translate(shift, 0).intersect(piece.rect) ?: continue
+                            deltas.getOrPut(nominal to piece.d) { DisplayOp.Delta(nominal, compress(nominal), piece.d) }
+                        }
+                    }
+                }
+            }
+        }
+        val out = ArrayList<DisplayOp>(deltas.size + blacksL.size + blacksR.size)
+        // remainder (transparent base) first, then far -> near
+        out.addAll(deltas.values.sortedWith(compareBy({ if (it.disparity == 0 && !inRegion(it.box)) 0 else 1 }, { -it.disparity })))
+        out.addAll(pairBlacks(blacksL, blacksR))
+        return out
+    }
+
+    /** Black seam rects come in mirrored L/R pairs almost always; pair equal
+     *  sizes, and give a leftover a same-size box the other lens shows black
+     *  in both truth and shadow (a no-op there) — failing that, the same box,
+     *  which the next iteration repairs on the other lens. */
+    private fun pairBlacks(l: List<Rect>, r: List<Rect>): List<DisplayOp.StereoPair> {
+        val out = ArrayList<DisplayOp.StereoPair>()
+        val restL = ArrayDeque(l)
+        val restR = ArrayList(r)
+        while (restL.isNotEmpty()) {
+            val a = restL.removeFirst()
+            val exact = restR.indexOfFirst { it.w == a.w && it.h == a.h && it.y == a.y }
+            val bi = if (exact >= 0) exact else restR.indexOfFirst { it.h == a.h && it.y == a.y }
+            if (bi >= 0) {
+                val b = restR.removeAt(bi)
+                if (b.w == a.w) {
+                    out.add(DisplayOp.StereoPair(a, b, black(a.w, a.h)))
+                } else {
+                    // same rows, different widths: pair the common width, requeue the rest
+                    val w = minOf(a.w, b.w)
+                    out.add(DisplayOp.StereoPair(Rect(a.x, a.y, w, a.h), Rect(b.x, b.y, w, b.h), black(w, a.h)))
+                    if (a.w > w) restL.addFirst(Rect(a.x + w, a.y, a.w - w, a.h))
+                    if (b.w > w) restR.add(Rect(b.x + w, b.y, b.w - w, b.h))
+                }
+                continue
+            }
+            val partner = noOpBlackBox(false, a) ?: a
+            out.add(DisplayOp.StereoPair(a, partner, black(a.w, a.h)))
+        }
+        for (b in restR) {
+            val partner = noOpBlackBox(true, b) ?: b
+            out.add(DisplayOp.StereoPair(partner, b, black(b.w, b.h)))
+        }
+        return out
+    }
+
+    /** A box of [like]'s size on the given lens where truth AND shadow are
+     *  already black — painting black there changes nothing. */
+    private fun noOpBlackBox(left: Boolean, like: Rect): Rect? {
+        val truth = if (left) truthL else truthR
+        val shadow = if (left) shadowL else shadowR
+        var x = 0
+        while (x + like.w <= width) {
+            val c = Rect(x, like.y, like.w, like.h)
+            if (isBlack(truth, c) && isBlack(shadow, c)) return c
+            x += Geometry.X_STEP
+        }
+        return null
+    }
+
+    private fun isBlack(g: Gray8, r: Rect): Boolean {
+        for (y in r.y until r.bottom) {
+            val off = y * width
+            for (x in r.x until r.right) if (g.pix[off + x] != 0.toByte()) return false
+        }
+        return true
+    }
+
+    /** Greedy row-run rectangles over a set of grid cells. */
+    private fun rectsOf(cells: List<Int>): List<Rect> {
+        val set = HashSet(cells)
+        val used = HashSet<Int>()
+        val out = ArrayList<Rect>()
+        for (idx in cells.sorted()) {
+            if (idx in used) continue
+            val cy = idx / cellsW; val cx = idx % cellsW
+            var run = 0
+            while (cx + run < cellsW && (idx + run) in set && (idx + run) !in used) run++
+            var rows = 1
+            while (true) {
+                val base = (cy + rows) * cellsW + cx
+                if (cy + rows >= cellsH) break
+                var ok = true
+                for (k in 0 until run) if (!((base + k) in set) || (base + k) in used) { ok = false; break }
+                if (!ok) break
+                rows++
+            }
+            for (ry in 0 until rows) for (k in 0 until run) used.add((cy + ry) * cellsW + cx + k)
+            out.add(Rect(cx * CW, cy * CH, run * CW, rows * CH))
+        }
+        return out
+    }
+
+    // ------------------------------------------------------------------ shadows
+    private fun applyToShadows(op: DisplayOp, undo: ArrayList<Undo>) {
+        when (op) {
+            is DisplayOp.Delta -> {
+                val l = op.box.translate(-op.disparity, 0).clip()
+                val r = op.box.translate(op.disparity, 0).clip()
+                undo.add(Undo(true, l, snapshot(shadowL, l)))
+                undo.add(Undo(false, r, snapshot(shadowR, r)))
+                paintNominal(shadowL, op.box, -op.disparity)
+                paintNominal(shadowR, op.box, op.disparity)
+            }
+            is DisplayOp.StereoPair -> {
+                undo.add(Undo(true, op.left, snapshot(shadowL, op.left)))
+                undo.add(Undo(false, op.right, snapshot(shadowR, op.right)))
+                shadowL.fillRect(op.left, 0)
+                shadowR.fillRect(op.right, 0)
+            }
+            else -> throw IllegalStateException("planned op of kind $op")
+        }
+    }
+
+    private fun paintNominal(dst: Gray8, r: Rect, dx: Int) {
+        val x0 = maxOf(0, r.x + dx); val x1 = minOf(width, r.right + dx)
+        if (x1 <= x0) return
+        for (y in r.y until r.bottom) {
+            System.arraycopy(composed.pix, y * width + (x0 - dx), dst.pix, y * width + x0, x1 - x0)
+        }
+    }
+
+    private fun copyWithin(g: Gray8, src: Rect, dst: Rect) {
+        val tmp = ByteArray(src.w * src.h)
+        var o = 0
+        for (y in src.y until src.bottom) {
+            val x0 = maxOf(0, src.x); val x1 = minOf(width, src.right)
+            if (y < 0 || y >= height || x1 <= x0) { o += src.w; continue }
+            System.arraycopy(g.pix, y * width + x0, tmp, o + (x0 - src.x), x1 - x0)
+            o += src.w
+        }
+        o = 0
+        for (y in dst.y until dst.bottom) {
+            val x0 = maxOf(0, dst.x); val x1 = minOf(width, dst.right)
+            if (y >= 0 && y < height && x1 > x0) {
+                System.arraycopy(tmp, o + (x0 - dst.x), g.pix, y * width + x0, x1 - x0)
+            }
+            o += dst.w
+        }
+    }
+
+    private fun Rect.clip(): Rect {
+        val nx = maxOf(0, x); val ny = maxOf(0, y)
+        val nr = minOf(width, right); val nb = minOf(height, bottom)
+        return Rect(nx, ny, maxOf(0, nr - nx), maxOf(0, nb - ny))
+    }
+
+    /** Widen a nominal rect by the maximum shift on both sides (clipped). */
+    private fun widen(r: Rect): Rect =
+        Rect(r.x - MAX_SHIFT, r.y, r.w + 2 * MAX_SHIFT, r.h).clip().alignOut()
+
     // ------------------------------------------------------------------ helpers
     private fun compress(r: Rect): ByteArray = Zl.encodeCfw(Pack.rect(composed, r))
+
+    private fun black(w: Int, h: Int): ByteArray =
+        Zl.encodeCfw(Pack.rect(Gray8(w, h), Rect(0, 0, w, h)))
 
     private fun normalize(rects: List<Rect>): List<Rect> {
         val out = ArrayList<Rect>()
@@ -476,27 +555,11 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         return out
     }
 
-    /** Adjacent-on-the-grid rects merge too — aligned rects that touch share
-     *  run structure. */
     private fun touches(a: Rect, b: Rect): Boolean =
         !(a.right < b.x || b.right < a.x || a.bottom < b.y || b.bottom < a.y)
 
-    private fun mergeToBudget(rects: List<Rect>, budget: Int): List<Rect> {
-        val out = rects.toMutableList()
-        while (out.size > budget) {
-            var bi = 0; var bj = 1; var best = Long.MAX_VALUE
-            for (i in out.indices) for (j in i + 1 until out.size) {
-                val grow = out[i].union(out[j]).area.toLong() - out[i].area - out[j].area
-                if (grow < best) { best = grow; bi = i; bj = j }
-            }
-            val u = out[bi].union(out[bj])
-            out.removeAt(bj); out.removeAt(bi)
-            out.add(u)
-        }
-        return out
-    }
-
     private fun snapshot(s: Gray8, r: Rect): ByteArray {
+        if (r.w <= 0 || r.h <= 0) return ByteArray(0)
         val out = ByteArray(r.w * r.h)
         var o = 0
         for (y in r.y until r.bottom) {
@@ -507,6 +570,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     }
 
     private fun restore(s: Gray8, r: Rect, bytes: ByteArray) {
+        if (r.w <= 0 || r.h <= 0) return
         var o = 0
         for (y in r.y until r.bottom) {
             System.arraycopy(bytes, o, s.pix, y * s.w + r.x, r.w)
@@ -514,16 +578,31 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         }
     }
 
+    class Undo(val left: Boolean, val rect: Rect, val bytes: ByteArray)
+
     data class Assembled(
         val ops: List<DisplayOp>,
         val epoch: Long,
-        val undo: List<Pair<Rect, ByteArray>>,
+        val undo: List<Undo>,
         val copies: List<PlannedCopy>,
+        /** The nominal hints this flush consumed — re-hinted on rollback. */
+        val hints: List<Rect>,
         val keyframe: Boolean = false,
-        /** Rects past the pipelined budget (or a keyframe): the transport runs
-         *  this flush with the window drained (depth 1) — §8.2 #4. */
+        /** Needs the window drained (depth 1): a keyframe, a budget-limited
+         *  flush, or more rects than the pipelined budget — §8.2 #4. */
         val wide: Boolean = false,
-        /** Explicit per-lens ops riding this flush — re-queued on rollback. */
-        val explicit: List<DisplayOp> = emptyList(),
     )
+
+    private val cellsW = width / CW
+    private val cellsH = height / CH
+
+    companion object {
+        private const val CW = Geometry.X_STEP
+        private const val CH = Geometry.Y_STEP
+        /** The largest shift on the ladder (§3.3 — the whole inset). */
+        private const val MAX_SHIFT = 16
+        private const val MAX_ITERATIONS = 6
+        private const val OWNER_REMAINDER: Short = -1
+        private const val OWNER_SEAM: Short = -2
+    }
 }
