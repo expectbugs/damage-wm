@@ -816,6 +816,22 @@ class Shell(
             setStatus("flush failed")
             Log.e("shell", "flush ${ev.id} FAILED: ${ev.error}")
             if (a != null) comp.rollback(a)
+            // a KEYFRAME that fails three times in a row cannot be helped by
+            // another keyframe (the frame itself is undisplayable — past the
+            // firmware's caps): halt until the content changes, with ONE loud
+            // notice, instead of a failure loop that storms the phone (round 6)
+            keyframeFailStreak = if (a?.keyframe == true) keyframeFailStreak + 1 else 0
+            if (keyframeFailStreak >= 3) {
+                haltedEpoch = comp.epoch
+                keyframeFailStreak = 0
+                flushFailStreak = 0
+                setStatus("HALT undisplayable")
+                journal.note("halt", "keyframe failed repeatedly (${ev.error}) — waiting for content to change")
+                services.notifyInternal("compositor",
+                    "this frame cannot be displayed (${ev.error}) — the display resumes when the content changes",
+                    urgent = true)
+                return
+            }
             if (++flushFailStreak >= 3) {
                 // three consecutive failures: stop re-partitioning the same
                 // damage and reset with a keyframe, loudly
@@ -828,8 +844,14 @@ class Shell(
             }
         } else {
             flushFailStreak = 0
+            keyframeFailStreak = 0
         }
     }
+
+    private var keyframeFailStreak = 0
+    /** Set when the current frame proved undisplayable: assembly pauses until
+     *  the compositor epoch moves (any damage or plane change). */
+    private var haltedEpoch: Long? = null
 
     // ------------------------------------------------------------------ compose
     private fun layoutFor(s: ShellSettings): Layout =
@@ -1101,6 +1123,11 @@ class Shell(
         }
 
         // 5. the one atomic flush per frame — the project's thesis
+        if (haltedEpoch != null) {
+            if (haltedEpoch == comp.epoch) return       // undisplayable frame, unchanged
+            haltedEpoch = null
+            setStatus("ok")
+        }
         if (comp.hasPending || comp.needsKeyframe) {
             val assembled = try {
                 comp.assembleFlush(Geometry.rectBudget(st.window))

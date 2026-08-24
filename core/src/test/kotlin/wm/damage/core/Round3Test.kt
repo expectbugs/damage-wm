@@ -157,8 +157,13 @@ class Round3Test {
         assertTrue(deltas.any { it.disparity == 12 }, "content must re-render at the new disparity: $deltas")
         assertTrue(deltas.none { it.disparity == 8 }, "nothing may still render at the old disparity")
         assertTrue(pairs.isNotEmpty(), "the old render's ghost columns need seam cleanup")
-        // the content plane's outer strips (4 px = |12-8|) on each lens
-        assertTrue(pairs.all { it.left.w == 4 && it.right.w == 4 }, "seam width must be |dOld-dNew|: $pairs")
+        // the stale columns [612,616) on L / [24,28) on R lie inside a black
+        // pair (the whole seam strip is painted; black over black is a no-op)
+        assertTrue(pairs.any { it.left.x <= 612 && it.left.right >= 616 && it.left.y <= 34 },
+            "left ghost columns not cleaned: $pairs")
+        assertTrue(pairs.any { it.right.x <= 24 && it.right.right >= 28 && it.right.y <= 34 },
+            "right ghost columns not cleaned: $pairs")
+        assertTrue(pairs.all { it.left.w <= 16 && it.right.w <= 16 }, "a seam strip wider than the shift budget: $pairs")
     }
 
     /** Phone D1: a stop() that arrives while start() is still choreographing
