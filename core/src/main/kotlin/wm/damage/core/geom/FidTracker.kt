@@ -38,11 +38,13 @@ class FidTracker {
         last = null
     }
 
-    /** An encode failed AFTER taking fids [from]..: the glasses never saw
-     *  them. Forget them and restore the gap baseline (round 4). */
-    fun rewind(lastBefore: Int?, from: Int) {
+    /** An encode or its write failed AFTER taking fids [from]..: the glasses
+     *  never saw them. Forget them and restore the gap baseline and the
+     *  seeded flag (round 4/5). */
+    fun rewind(lastBefore: Int?, from: Int, seededBefore: Boolean = seeded) {
         issued.removeIf { it >= from && it <= Geometry.FID_MAX }
         last = lastBefore
+        seeded = seededBefore
     }
 
     /** Validate one mode-3 delta fid about to go on the wire. */

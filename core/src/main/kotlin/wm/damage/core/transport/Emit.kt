@@ -36,10 +36,11 @@ object Emit {
         // keyframe (round 4).
         val firstFid = fids.peek()
         val lastBefore = tracker.last
+        val seededBefore = tracker.seeded
         try {
             return encodeInner(flush, fids, tracker)
         } catch (e: Exception) {
-            tracker.rewind(lastBefore, firstFid)
+            tracker.rewind(lastBefore, firstFid, seededBefore)
             fids.rewind(firstFid)
             throw e
         }

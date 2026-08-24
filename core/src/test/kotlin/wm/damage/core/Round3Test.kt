@@ -92,11 +92,13 @@ class Round3Test {
         val l = Layout()
         comp.composed.fillRect(l.content, 6 * 17)
         val box = Rect(l.notificationMax.x, l.notificationMax.y, l.notificationMax.w, 104)
-        // the shell's busiest map, plus a row of small forward islands so the
-        // per-lens work provably exceeds one wide flush (seam + reclaim per
-        // island edge) — the residual path must carry the rest
-        val islands = (0 until 8).map { i ->
-            Compositor.PlaneRegion(Rect(l.content.x + 16 + i * 72, l.content.y + 40, 40, 20), 0)
+        // the shell's busiest map, plus rows of small islands at DIFFERENT
+        // depths: deltas only merge within one disparity and every far island
+        // owes its own seam pair, so the per-lens work provably exceeds one
+        // wide flush — the residual path must carry the rest
+        val islands = (0 until 14).map { i ->
+            val d = intArrayOf(4, 12, 16, 0)[i % 4]
+            Compositor.PlaneRegion(Rect(l.content.x + 24 + (i % 7) * 80, l.content.y + 40 + (i / 7) * 60, 40, 20), d)
         }
         comp.planes = listOf(
             Compositor.PlaneRegion(l.content, 8),
@@ -115,7 +117,10 @@ class Round3Test {
             if (a.ops.any { it is DisplayOp.Keyframe }) sawKeyframe = true
             val fids = fidCount(a.ops)
             assertTrue(fids <= Geometry.CFW_FID_RING, "flush $flushes carries $fids fids (> ring)")
-            assertTrue(a.wide, "keyframe follow-up flush $flushes must run wide")
+            // wide exactly when the window must drain: a keyframe, leftover
+            // dirt, or more rects than the pipelined budget (§8.2 #4)
+            assertTrue(a.wide || fids <= Geometry.rectBudget(3),
+                "flush $flushes carries $fids fids past the pipelined budget but is not wide")
             fidTotal += fids
             assertTrue(flushes < 10, "keyframe did not drain")
         }

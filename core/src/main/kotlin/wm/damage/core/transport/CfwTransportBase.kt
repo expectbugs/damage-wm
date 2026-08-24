@@ -89,6 +89,11 @@ abstract class CfwTransportBase(
     private sealed class ImgWork(val epoch: Long) {
         class Flush(epoch: Long, val id: Long, val request: FlushRequest) : ImgWork(epoch)
         class Raw(epoch: Long, val image: ByteArray, val done: CompletableDeferred<Unit>?) : ImgWork(epoch)
+        /** Mode-7 sub-0: clears the firmware's flags, fid ring AND fid
+         *  baseline — so the host's tracker and allocator resync with it
+         *  (round 5 F1: a bare raw clear left them a full sequence ahead and
+         *  the next delta manufactured the f_skip it was meant to clear). */
+        class ClearDiag(epoch: Long) : ImgWork(epoch)
     }
 
     private sealed class CtlWork(val epoch: Long) {
@@ -142,6 +147,10 @@ abstract class CfwTransportBase(
      *  arriving at any other time must not poison the CONFLATED rendezvous
      *  for a future gate (round 3 observation: uncorrelated capability). */
     @Volatile private var awaitingCapability = false
+
+    /** True from session entry until start() returns or fails: the sweep's
+     *  gate-abort sentinel is owed for that whole span (round 5 F2). */
+    @Volatile private var startInProgress = false
 
     private class PendingAck(val flushId: Long, val windowed: Boolean) {
         val done = CompletableDeferred<EvenHubMsg.Ack>()
@@ -287,6 +296,11 @@ abstract class CfwTransportBase(
         val epoch = sessionEpoch.incrementAndGet()
         started = true
         running = true
+        // the gate may be aborted by a sweep from the moment the session
+        // begins (a link death DURING connect, round 5 F2) — drain any stale
+        // residue first, then arm the abort path for the whole start
+        capabilityChannel.tryReceive()
+        startInProgress = true
         try {
             connectLink()
             updateState { it.copy(connected = true) }
@@ -301,10 +315,8 @@ abstract class CfwTransportBase(
 
             // 1. Capability gate (§9.2b): field 100 rides the settings READ
             //    response itself — no timeout needed by construction; an ABSENT
-            //    field is a loud refusal (see onNotifyPacket). Drain any stale
-            //    residue first (a swept prior gate leaves a poison ""), then
-            //    open the gate window.
-            capabilityChannel.tryReceive()
+            //    field is a loud refusal (see onNotifyPacket). The rendezvous
+            //    was drained at session entry; open the gate window now.
             awaitingCapability = true
             val cap = try {
                 controlQueue.trySend(CtlWork.Settings(epoch, SettingsMsg.settingsQuery(0)))
@@ -346,7 +358,9 @@ abstract class CfwTransportBase(
             warmupDone.await()
 
             updateState { it.copy(started = true, leaseHeld = true) }
+            startInProgress = false
         } catch (e: Exception) {
+            startInProgress = false
             // Roll back COMPLETELY (round 3 D4): a failed start must not leave
             // the lease renewing with no driver, or the instance refusing every
             // retry with "already started". Best-effort release in case the
@@ -426,7 +440,7 @@ abstract class CfwTransportBase(
     }
 
     override suspend fun clearDiagFlags() {
-        imageQueue.trySend(ImgWork.Raw(sessionEpoch.get(), byteArrayOf(7, 0), null))
+        imageQueue.trySend(ImgWork.ClearDiag(sessionEpoch.get()))
     }
 
     override suspend fun stop() {
@@ -477,8 +491,10 @@ abstract class CfwTransportBase(
      *  permit — invariant: map membership <=> permit held), then drain both
      *  queues, completing everything exceptionally. LOUD by construction. */
     private fun sweepSession(why: String) {
-        // a start() parked on the capability gate is a waiter too (round 4 D1)
-        if (awaitingCapability) capabilityChannel.trySend(SWEPT + why)
+        // a start() that is, or is about to be, parked on the capability gate
+        // is a waiter too (round 4 D1, round 5 F2): the sentinel waits in the
+        // CONFLATED rendezvous for it
+        if (startInProgress) capabilityChannel.trySend(SWEPT + why)
         for (id in pendingAcks.keys.toList()) {
             val p = pendingAcks.remove(id) ?: continue
             if (p.windowed) window.release()
@@ -502,6 +518,7 @@ abstract class CfwTransportBase(
                     Log.e(name, "FlushDone for swept flush ${w.id} DROPPED (buffer full)")
             }
             is ImgWork.Raw -> w.done?.completeExceptionally(LintError(why))
+            is ImgWork.ClearDiag -> Log.w(name, "diag clear dropped: $why")
         }
     }
 
@@ -525,6 +542,7 @@ abstract class CfwTransportBase(
         // backstop, and the shell is told so.
         running = false
         started = false
+        sessionEpoch.incrementAndGet()     // the session is over: queued work is stale
         sweepSession("link down: $reason")
         updateState { it.copy(connected = false, started = false, leaseHeld = false) }
         if (!_events.tryEmit(TransportEvent.Link(false, reason))) {
@@ -552,6 +570,11 @@ abstract class CfwTransportBase(
                             completeAsync(final, flushId = -1, bytes = work.image.size,
                                 t0 = nowMs(), done = work.done)
                         }
+                        is ImgWork.ClearDiag -> {
+                            writeImage(byteArrayOf(7, 0), work.epoch)
+                            tracker.resync()
+                            fids.restart()
+                        }
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     failImgWork(work, "image lane cancelled")
@@ -562,6 +585,7 @@ abstract class CfwTransportBase(
                         is ImgWork.Flush -> _events.emit(TransportEvent.FlushDone(
                             work.id, false, 0, 0, e.message ?: e.toString()))
                         is ImgWork.Raw -> work.done?.completeExceptionally(e)
+                        is ImgWork.ClearDiag -> emitFault("diag", "clear failed: ${e.message}")
                     }
                 }
             }
@@ -577,11 +601,25 @@ abstract class CfwTransportBase(
 
     private suspend fun laneFlush(work: ImgWork.Flush) {
         val t0 = nowMs()
+        // state to hand back if the WRITE fails after the encode consumed fids
+        // (round 5 F3): the glasses never saw them
+        var firstFid = fids.peek()
+        var lastBefore = tracker.last
+        var seededBefore = tracker.seeded
+        var flushWritten = false
         try {
             if (work.request.wide) {
                 // §8.2 #4: a wide flush drains the pipeline and runs at depth 1.
                 repeat(WINDOW) { window.acquire() }
                 repeat(WINDOW) { window.release() }
+            }
+            if (fids.wrapPending) {
+                // a previous flush ended on 0xFFFE and its clear did not reach
+                // the wire: the firmware still holds the old baseline — clear
+                // before anything else goes out
+                writeImage(byteArrayOf(7, 0), work.epoch)
+                tracker.resync()
+                fids.clearWrap()
             }
             // §8.2 #6 handled BEFORE encoding (round 3 D2): a flush must never
             // SPAN the 0xFFFE -> 1 wrap — a mode-7 clear cannot ride inside a
@@ -595,9 +633,11 @@ abstract class CfwTransportBase(
                 tracker.resync()
                 fids.restart()
             }
+            firstFid = fids.peek(); lastBefore = tracker.last; seededBefore = tracker.seeded
             val encoded = Emit.encode(work.request, fids, tracker,
                 window = if (work.request.wide) 1 else WINDOW)
             val final = writeImage(encoded.image, work.epoch)
+            flushWritten = true
             if (fids.wrapPending) {
                 // the flush ended EXACTLY on 0xFFFE: the mode-7 sub-0 clear
                 // resets the FIRMWARE's fid ring, flags and lastFid; the host
@@ -610,6 +650,11 @@ abstract class CfwTransportBase(
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
+            if (!flushWritten) {
+                // the encode may have consumed fids the glasses never saw
+                tracker.rewind(lastBefore, firstFid, seededBefore)
+                fids.rewind(firstFid)
+            }
             sessionPenalty = true
             _events.emit(TransportEvent.FlushDone(work.id, false, nowMs() - t0, 0,
                 e.message ?: e.toString()))
