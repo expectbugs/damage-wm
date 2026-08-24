@@ -140,18 +140,22 @@ agents per subsystem, every candidate verified by trace or pixel simulation
 before a fix) found and fixed ~50 real defects. The mechanisms that came out
 of them are load-bearing and easy to break by accident:
 
-- **Compositor per-lens model.** Ops in a mode-8 batch apply in order, later
-  wins. A keyframe therefore emits: the nominal mode-6 seed, then black
-  parallax-SEAM pairs at every stereo piece's inner ghost strips, then stereo
-  deltas FAR→NEAR, then plane-0 pieces beside a far piece (reclaiming the
-  |d| columns its shifted render spilled over them), then crossed planes.
-  Explicit per-lens ops live in a queue drained at most 16 fids per WIDE
-  flush, so any plane map's keyframe completes over a few flushes instead of
-  failing forever. **The `planes` setter diffs the map**: regions in the
-  symmetric difference are force-rendered (the nominal hash diff cannot see
-  disparity) and their old ghost columns get per-band seam cleanup. That one
-  rule is every plane transition — notification focus-step and furl, the
-  switcher centre band, the live depth preview.
+- **Compositor per-lens model.** The compositor reasons per lens, not in
+  nominal rects. It keeps an expected shadow of what each lens shows, renders
+  the per-lens TRUTH of the nominal frame under the plane map (the nominal
+  frame is the transparent base every shift may spill over — §3.3's insets;
+  each region vacates its nominal area to black, the seam; region pieces
+  render at their shift far to near, the nearest wins), diffs shadow against
+  truth on the 4×2 damage grid, and emits whatever closes the gap: nominal
+  deltas at their disparity, black stereo pairs for seams. Every planned op
+  is applied to the shadows as it is planned, so its effect on the OTHER lens
+  (a far piece spilling under a nearer one) is seen and repaired in the same
+  flush, in later-wins order. What the 16-fid ring cannot carry stays dirty
+  for the next flush. Plane changes, seam cleanup, keyframe follow-ups and
+  reclaims are not special cases — they are differences between shadow and
+  truth. `LensOracleTest` pins it: after every flush the belief equals the
+  firmware model's lens panels, and at rest each lens equals an independently
+  written truth, across depth 8/12/16 and every shell transition.
 - **Transport session lifecycle.** Queued work carries a session epoch;
   `stop()`, a failed `start()` and `onLinkDown()` bump it and SWEEP: pending
   acks fail, window permits return, both queues drain loudly, a start parked
