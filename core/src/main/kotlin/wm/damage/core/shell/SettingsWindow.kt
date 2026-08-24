@@ -34,6 +34,9 @@ class SettingsWindow(
     private val model = ListModel()
     private var adjusting: Entry? = null
     private var revertTo: ShellSettings? = null
+    /** Size relayouts + keyframes (~1.1 s), so it is the one setting that must
+     *  NOT apply per notch (§4.2): staged while adjusting, applied on tap. */
+    private var stagedSize: Pair<Int, VPos>? = null
 
     private inner class Entry(
         val name: String,
@@ -46,11 +49,11 @@ class SettingsWindow(
             if (s.brightnessAuto) s.copy(brightnessAuto = false)
             else s.copy(brightness = (s.brightness + d * 5).coerceIn(0, 100))
         }),
-        Entry("Size", { "${get().heightMode} · ${get().vpos.name.lowercase()}" }, { s, d ->
-            if (d > 0 && s.heightMode == 288) s.copy(heightMode = 480)
-            else if (d < 0 && s.heightMode == 480) s.copy(heightMode = 288)
-            else s.copy(vpos = VPos.entries[(s.vpos.ordinal + d).mod(VPos.entries.size)])
-        }),
+        Entry("Size", {
+            val st = stagedSize
+            if (st != null) "${st.first} · ${st.second.name.lowercase()} (tap applies)"
+            else "${get().heightMode} · ${get().vpos.name.lowercase()}"
+        }, null),
         Entry("Depth", { "d=${get().depth}" }, { s, d ->
             // the 4 px ladder: 0/4/8/12/16 (§3.2)
             s.copy(depth = ((s.depth / 4 + d).coerceIn(0, 4)) * 4)
@@ -86,25 +89,40 @@ class SettingsWindow(
         paintLens = { g, r, i -> paintLens(g, r, i) },
         onCommit = { i ->
             val e = entries[i]
-            if (e.step != null) {
+            if (e.step != null || e.name == "Size") {
                 adjusting = e
                 revertTo = get()
+                if (e.name == "Size") stagedSize = get().heightMode to get().vpos
             }
         },
     )
 
-    /** While adjusting, scroll steps the live value; the shell routes scroll
-     *  here first. Returns true when consumed. */
+    /** While adjusting, scroll steps the live value (Size only STAGES — §4.2:
+     *  it previews on settle, not per notch). Returns true when consumed. */
     fun onScrollAdjust(delta: Int): Boolean {
         val e = adjusting ?: return false
+        if (e.name == "Size") {
+            val (h, v) = stagedSize ?: (get().heightMode to get().vpos)
+            stagedSize = when {
+                delta > 0 && h == 288 -> 480 to v
+                delta < 0 && h == 480 -> 288 to v
+                else -> h to VPos.entries[(v.ordinal + delta).mod(VPos.entries.size)]
+            }
+            return true
+        }
         val step = e.step ?: return false
         apply(step(get(), delta))
         return true
     }
 
-    /** Tap while adjusting = keep. Returns true when consumed. */
+    /** Tap while adjusting = keep (Size applies its staged value NOW — the one
+     *  ~1.1 s relayout, on settle as designed). Returns true when consumed. */
     fun onTapAdjust(): Boolean {
-        if (adjusting == null) return false
+        val e = adjusting ?: return false
+        if (e.name == "Size") {
+            stagedSize?.let { (h, v) -> apply(get().copy(heightMode = h, vpos = v)) }
+            stagedSize = null
+        }
         adjusting = null
         revertTo = null
         return true
@@ -114,12 +132,15 @@ class SettingsWindow(
         val r = revertTo
         if (adjusting != null) {
             adjusting = null
+            stagedSize = null
             if (r != null) apply(r)      // double-tap reverts the live preview
             revertTo = null
             return true
         }
         return false
     }
+
+    override fun levelDepth(): Int = if (adjusting != null) 2 else 1
 
     val isAdjusting: Boolean get() = adjusting != null
 

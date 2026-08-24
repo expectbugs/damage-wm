@@ -1,6 +1,7 @@
 package wm.damage.core.comp
 
 import wm.damage.core.geom.Geometry
+import wm.damage.core.geom.LintError
 import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.Pack
@@ -18,13 +19,19 @@ import wm.damage.core.util.Log
  *   §5.4  occlusion is handled by paint order (later ops win in a mode-8 batch)
  *   §5.6  hash before send — a rect whose bytes did not change is dropped
  *   §5.12 two shadows: damage is computed against what was SENT, advancing on
- *         send and rolling back on failure
+ *         send and rolling back on failure — copies included
  *   §5.13 backpressure coalescing — pending damage merges, never queues
  *   §5.14 damage epochs
  *
  * Stereo: coordinates are NOMINAL; a plane map assigns each region a disparity
  * and a flush splits damage at plane boundaries so a stereo region is never
- * partially updated with a non-stereo delta (§3.4).
+ * partially updated with a non-stereo delta (§3.4). Keyframes emit the plane
+ * PARTITION (not per-region rects) plus parallax-seam cleanup strips, because a
+ * mode-6 keyframe has no stereo form and seeds both lenses at nominal.
+ *
+ * Threading: confined to the shell loop. Every mutator asserts nothing here is
+ * called concurrently — rollback arrives via a loop message, never a transport
+ * thread.
  */
 class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.PANEL_H) {
 
@@ -39,7 +46,9 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     var epoch: Long = 0
         private set
 
-    /** True until the first keyframe reaches the glasses (or after divergence). */
+    /** True until a keyframe is ASSEMBLED; set again by rollback or request.
+     *  Assembly-time clearing is what prevents duplicate keyframes piling up
+     *  while one is in flight, and lets a request DURING flight stand. */
     var needsKeyframe = true
         private set
 
@@ -50,6 +59,15 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     data class PlaneRegion(val rect: Rect, val disparity: Int)
 
     var planes: List<PlaneRegion> = emptyList()
+        set(value) {
+            for (p in value) {
+                val errs = Geometry.checkRect(p.rect, "plane region") +
+                    if (p.disparity % Geometry.X_STEP != 0)
+                        listOf("GEO006 plane disparity ${p.disparity} off the 4 px ladder") else emptyList()
+                if (errs.isNotEmpty()) throw LintError(errs.joinToString("; "))
+            }
+            field = value
+        }
 
     private fun disparityAt(r: Rect): Int {
         for (p in planes.asReversed()) if (p.rect.contains(r)) return p.disparity
@@ -64,7 +82,6 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             for (piece in pieces) {
                 val inter = piece.intersect(p.rect)
                 if (inter == null || inter == piece) { next.add(piece); continue }
-                // split into the intersection plus up to 4 aligned remainders
                 next.add(inter)
                 if (piece.y < inter.y) next.add(Rect(piece.x, piece.y, piece.w, inter.y - piece.y))
                 if (inter.bottom < piece.bottom) next.add(Rect(piece.x, inter.bottom, piece.w, piece.bottom - inter.bottom))
@@ -89,16 +106,27 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     fun damageAll() = damage(Rect(0, 0, width, height))
 
     /**
-     * Declare a translation (§5.2/§5.3): [region] content moved so that the
-     * pixels now at [dst] came from [src] (same size). The caller has ALREADY
-     * repainted `composed`; this records the cheap transmission path. The sent
-     * shadow is updated at flush time by replaying the copy.
+     * Declare a translation (§5.2/§5.3): pixels now at [dst] came from [src]
+     * (same size). The caller has ALREADY repainted `composed`; this records
+     * the cheap transmission path. Damage already pending inside [src] moves
+     * with the content — otherwise a damage-then-shift frame would transmit
+     * the wrong rows and lose the change entirely.
      */
     fun declareShift(src: Rect, dst: Rect) {
         if (src.w != dst.w || src.h != dst.h) {
             Log.e("comp", "declareShift size mismatch $src -> $dst — falling back to damage")
             damage(src.union(dst))
             return
+        }
+        val dx = dst.x - src.x
+        val dy = dst.y - src.y
+        for (i in pendingDamage.indices) {
+            val d = pendingDamage[i]
+            if (src.contains(d)) {
+                pendingDamage[i] = d.translate(dx, dy)
+            } else if (d.overlaps(src)) {
+                pendingDamage[i] = d.union(d.translate(dx, dy)).alignOut()
+            }
         }
         pendingCopies.add(PlannedCopy(src, dst))
         epoch++
@@ -125,8 +153,14 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         val copies = ArrayList(pendingCopies)
         pendingCopies.clear()
 
-        // Copies invalidate the diff base for their destination: replay them on
-        // `sent` so the subsequent hash-before-send diff is honest.
+        // Snapshot the copy destinations BEFORE replaying, so a failed flush can
+        // roll the diff base back (§5.12 — review round 1: without this, a lost
+        // scroll flush left `sent` permanently ahead and hash-before-send then
+        // suppressed the repair forever).
+        val undo = ArrayList<Pair<Rect, ByteArray>>(copies.size + 4)
+        for (c in copies) undo.add(c.dst to snapshot(sent, c.dst))
+
+        // Replay copies on `sent` so the hash-before-send diff below is honest.
         for (c in copies) {
             val tmp = Gray8(c.src.w, c.src.h)
             tmp.blit(sent, c.src, 0, 0)
@@ -137,35 +171,44 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         var rects = normalize(pendingDamage)
         pendingDamage.clear()
         rects = rects.filter { !composed.regionEquals(sent, it) }
-        if (rects.isEmpty() && copies.isEmpty()) return null
+        if (rects.isEmpty() && copies.isEmpty()) {
+            // nothing changed after all — the copy snapshots are moot
+            return null
+        }
 
-        // Partition pricing (§5.1): candidates are the merged set (merged down
-        // to the budget) and the single bounding box; the real deflate decides.
         val ops = ArrayList<DisplayOp>(copies.size + rects.size)
         for (c in copies) ops.add(DisplayOp.Copy(c.src, c.dst, disparityAt(c.dst)))
 
         var wide = false
         if (rects.isNotEmpty()) {
-            // Partition candidates, split at plane boundaries (a stereo region is
-            // never partially updated with a non-stereo delta, §3.4). Splitting
-            // can push the count past the budget; §8.2 #4's answer is to trade
-            // pipeline depth for rects — the transport runs a WIDE flush with the
-            // window drained — rather than merging across planes, which is
-            // impossible, or failing, which was the first selfcheck's bug.
+            // Partition, split at plane boundaries (a stereo region is never
+            // partially updated with a non-stereo delta, §3.4). Splitting can
+            // push the count past the budget; §8.2 #4's answer is a WIDE flush
+            // (window drained, depth 1). Groups merged within one plane can
+            // geometrically span another plane, so merge and re-split until
+            // stable — with a keyframe as the honest last resort.
             var parts = mergeToBudget(rects, rectBudget).flatMap { splitByPlanes(it) }
             if (parts.size > rectBudget) {
                 val bboxParts = splitByPlanes(rects.reduce(Rect::union).alignOut())
                 if (bboxParts.size < parts.size) parts = bboxParts
             }
             if (parts.size > rectBudget) wide = true
-            if (parts.size > Geometry.CFW_FID_RING) {
-                // even at window 1 the fid ring bounds one flush: merge within
-                // each plane group (cross-plane merges are illegal) until the
-                // total fits
+            var attempts = 0
+            while (parts.size > Geometry.CFW_FID_RING && attempts < 3) {
                 val groups = parts.groupBy { disparityAt(it) }
                 val per = maxOf(1, Geometry.CFW_FID_RING / groups.size)
                 parts = groups.flatMap { (_, group) -> mergeToBudget(group, per) }
+                    .flatMap { splitByPlanes(it) }
+                attempts++
                 wide = true
+            }
+            if (parts.size > Geometry.CFW_FID_RING) {
+                // pathological plane/damage interaction: a keyframe repaints
+                // everything correctly in one wide flush
+                Log.w("comp", "damage partition would need ${parts.size} rects — keyframing instead")
+                pendingDamage.clear()
+                needsKeyframe = true
+                return assembleKeyframe()
             }
             val direct = parts.map { it to compress(it) }
             val bbox = parts.reduce(Rect::union).alignOut()
@@ -178,60 +221,82 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
 
         // Advance the sent shadow optimistically (§5.12); rollback() undoes.
         val touched = ops.mapNotNull { (it as? DisplayOp.Delta)?.box }
-        val undo = touched.map { it to snapshot(sent, it) }
+        for (r in touched) undo.add(r to snapshot(sent, r))
         for (r in touched) sent.blit(composed, r, r.x, r.y)
 
         return Assembled(ops, epoch, undo, copies, wide = wide)
     }
 
+    /**
+     * Cold start / divergence / resize: one mode-6 nominal keyframe plus, in
+     * the SAME atomic batch, a stereo delta for every non-zero piece of the
+     * plane PARTITION (review round 1: emitting whole regions repainted nested
+     * plane-0 areas at the wrong depth), plus black parallax-seam strips at
+     * stereo piece edges not continued by an equal-disparity neighbour.
+     */
     private fun assembleKeyframe(): Assembled {
         pendingDamage.clear()
         pendingCopies.clear()
+        needsKeyframe = false
         val full = Rect(0, 0, width, height)
-        val ops = ArrayList<DisplayOp>(2)
+        val ops = ArrayList<DisplayOp>(4)
         ops.add(DisplayOp.Keyframe(compress(full)))
-        // A mode-6 keyframe has no stereo form: it seeds both lenses identically
-        // at the nominal position. Each stereo region then needs, in the SAME
-        // atomic batch: (a) its stereo delta, and (b) the vacated-strip cleanup —
-        // the shifted repaint leaves a d-wide ghost of nominal content at the
-        // region's inner edge on each lens (left lens at the right edge, right
-        // lens at the left), which the snapshot harness caught as doubled rails.
-        for (p in planes) if (p.disparity != 0) {
-            val r = p.rect.alignOut()
-            ops.add(DisplayOp.Delta(r, compress(r), p.disparity))
-            val d = kotlin.math.abs(p.disparity)
-            if (d > 0) {
-                val strip = Gray8(d, r.h)
-                val black = Zl.encodeCfw(Pack.rect(strip, Rect(0, 0, d, r.h)))
-                val lGhost: Rect
-                val rGhost: Rect
-                if (p.disparity > 0) {      // far: L drew at x-d, ghost at its right
-                    lGhost = Rect(r.right - d, r.y, d, r.h)
-                    rGhost = Rect(r.x, r.y, d, r.h)
-                } else {                    // crossed: mirrored
-                    lGhost = Rect(r.x, r.y, d, r.h)
-                    rGhost = Rect(r.right - d, r.y, d, r.h)
-                }
-                ops.add(DisplayOp.StereoPair(lGhost, rGhost, black))
+
+        val pieces = splitByPlanes(full)
+        val stereo = pieces.filter { disparityAt(it) != 0 }
+        for (piece in stereo) {
+            ops.add(DisplayOp.Delta(piece, compress(piece), disparityAt(piece)))
+        }
+        for (piece in stereo) {
+            val d = disparityAt(piece)
+            val mag = kotlin.math.abs(d)
+            // seam strips: skip an edge continued by a piece at the SAME
+            // disparity (their lens coverage abuts with no gap — a black strip
+            // there would erase valid shifted content)
+            val rightCont = pieces.any {
+                it.x == piece.right && disparityAt(it) == d &&
+                    it.y < piece.bottom && piece.y < it.bottom
+            }
+            val leftCont = pieces.any {
+                it.right == piece.x && disparityAt(it) == d &&
+                    it.y < piece.bottom && piece.y < it.bottom
+            }
+            val black = Zl.encodeCfw(Pack.rect(Gray8(mag, piece.h), Rect(0, 0, mag, piece.h)))
+            if (!rightCont) {
+                val (l, r) = if (d > 0)
+                    Rect(piece.right - mag, piece.y, mag, piece.h) to Rect(piece.right, piece.y, mag, piece.h)
+                else
+                    Rect(piece.right, piece.y, mag, piece.h) to Rect(piece.right - mag, piece.y, mag, piece.h)
+                if (inPanel(l) && inPanel(r)) ops.add(DisplayOp.StereoPair(l, r, black))
+            }
+            if (!leftCont) {
+                val (l, r) = if (d > 0)
+                    Rect(piece.x - mag, piece.y, mag, piece.h) to Rect(piece.x, piece.y, mag, piece.h)
+                else
+                    Rect(piece.x, piece.y, mag, piece.h) to Rect(piece.x - mag, piece.y, mag, piece.h)
+                if (inPanel(l) && inPanel(r)) ops.add(DisplayOp.StereoPair(l, r, black))
             }
         }
         val undo = listOf(full to snapshot(sent, full))
         sent.blit(composed, full, 0, 0)
-        return Assembled(ops, epoch, undo, emptyList(), keyframe = true)
+        return Assembled(ops, epoch, undo, emptyList(), keyframe = true, wide = true)
     }
 
-    /** The flush [a] was rejected or lost: restore the diff base and re-damage,
-     *  so the NEXT flush recomputes with fresh fids (§8.2 rule 1 — never
-     *  retransmit). */
+    private fun inPanel(r: Rect): Boolean =
+        r.x >= 0 && r.y >= 0 && r.right <= width && r.bottom <= height
+
+    /** The flush [a] was rejected or lost: restore the diff base — copies AND
+     *  deltas — and re-damage every affected region, so the NEXT flush
+     *  recomputes with fresh fids (§8.2 rule 1 — never retransmit). */
     fun rollback(a: Assembled) {
-        for ((r, bytes) in a.undo) restore(sent, r, bytes)
+        for ((r, bytes) in a.undo.asReversed()) restore(sent, r, bytes)
         for ((r, _) in a.undo) pendingDamage.add(r)
+        for (c in a.copies) {
+            pendingDamage.add(c.src)
+            pendingDamage.add(c.dst)
+        }
         if (a.keyframe) needsKeyframe = true
         epoch++
-    }
-
-    fun keyframeDelivered(a: Assembled) {
-        if (a.keyframe) needsKeyframe = false
     }
 
     // ------------------------------------------------------------------ helpers
@@ -259,15 +324,14 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         return out
     }
 
-    /** Adjacent-on-the-grid rects merge too — a 1 px gap between aligned rects
-     *  cannot exist (alignment is 4/2), so touching means same run region. */
+    /** Adjacent-on-the-grid rects merge too — aligned rects that touch share
+     *  run structure. */
     private fun touches(a: Rect, b: Rect): Boolean =
         !(a.right < b.x || b.right < a.x || a.bottom < b.y || b.bottom < a.y)
 
     private fun mergeToBudget(rects: List<Rect>, budget: Int): List<Rect> {
         val out = rects.toMutableList()
         while (out.size > budget) {
-            // merge the pair whose union grows least
             var bi = 0; var bj = 1; var best = Long.MAX_VALUE
             for (i in out.indices) for (j in i + 1 until out.size) {
                 val grow = out[i].union(out[j]).area.toLong() - out[i].area - out[j].area
@@ -304,7 +368,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         val undo: List<Pair<Rect, ByteArray>>,
         val copies: List<PlannedCopy>,
         val keyframe: Boolean = false,
-        /** More mode-3 rects than the pipelined budget: the transport must run
+        /** Rects past the pipelined budget (or a keyframe): the transport runs
          *  this flush with the window drained (depth 1) — §8.2 #4. */
         val wide: Boolean = false,
     )

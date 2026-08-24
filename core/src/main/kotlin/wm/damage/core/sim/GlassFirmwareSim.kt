@@ -96,6 +96,7 @@ class GlassFirmwareSim() {
     private fun nextSeq(): Int { glassSeq = (glassSeq + 1) and 0xFF; return glassSeq }
 
     /** Host wrote [packet] to [arm]'s write characteristic. */
+    @Synchronized
     fun write(arm: Arm, packet: ByteArray, now: Long) {
         val frame = reassemblers.getValue(arm).offer(packet) ?: return
         when (frame.sid) {
@@ -107,6 +108,7 @@ class GlassFirmwareSim() {
 
     /** Advance modeled time: lease expiry fails OPEN — stock LVGL repaints over us
      *  (settings_ext.c). The shadow survives; the PANEL is what stock clobbers. */
+    @Synchronized
     fun tick(now: Long) {
         for (arm in Arm.entries) {
             val c = ctx(arm)
@@ -120,6 +122,7 @@ class GlassFirmwareSim() {
         }
     }
 
+    @Synchronized
     fun leaseHeld(arm: Arm, now: Long): Boolean = ctx(arm).leaseDeadline > now
 
     // ------------------------------------------------------------------ EvenHub
@@ -239,7 +242,8 @@ class GlassFirmwareSim() {
     }
 
     private fun ack(cmd: Int, msgId: Int, error: Long?) {
-        val payload = Pb.cat(Pb.v(1, cmd + 1), Pb.v(2, msgId))
+        val ackType = if (cmd == EvenHubMsg.CMD_KEEPALIVE) cmd else cmd + 1
+        val payload = Pb.cat(Pb.v(1, ackType), Pb.v(2, msgId))
         // Acks return on the RIGHT arm regardless of which arm was written
         // (overview.md §7: "the ack returns on R either way").
         diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), EvenHubMsg.SID, EvenHubMsg.FLAG_ACK,
@@ -294,8 +298,11 @@ class GlassFirmwareSim() {
                 val fid = (src[fidOff].toInt() and 0xFF) or ((src[fidOff + 1].toInt() and 0xFF) shl 8)
                 if (!c.seeded) diag.event("decode", "$arm mode-3 delta on an UNSEEDED shadow (no keyframe)")
                 if (cfwDiag(c, hasFid = true, fid = fid)) {
+                    // zlib_glue.c returns 0 (success) on a dup skip: standalone,
+                    // no present happens; inside a mode-8 batch the REMAINING
+                    // subs still apply — the sim must not abort the batch.
                     diag.event("fid", "$arm fid $fid duplicate in ring — delta SILENTLY SKIPPED")
-                    return false
+                    return true
                 }
                 val packed = try {
                     Zl.decodeCfw(src.copyOfRange(zOff, src.size), w * h)
@@ -471,17 +478,26 @@ class GlassFirmwareSim() {
     }
 
     // ------------------------------------------------------------------ input
-    /** Inject a gesture as the glasses would report it (e0-01 Sys_ItemEvent).
-     *  Events surface on the RIGHT arm — Left is silent on async events. */
+    /** Inject a gesture as the glasses would REALLY report it (e0-01): scroll
+     *  notches ride Text_ItemEvents on the capture container (they carry no
+     *  source byte — G2_BLE_PROTOCOL.md §6.6); everything else rides
+     *  Sys_ItemEvents with an EventSource. RIGHT arm — Left is silent. */
+    @Synchronized
     fun injectGesture(eventType: Int, source: Int = EvenHubMsg.SRC_RING) {
-        val sys = Pb.cat(Pb.v(1, eventType), Pb.v(2, source))
-        val dev = Pb.l(3, sys)
+        val dev = if (eventType == EvenHubMsg.EV_SCROLL_TOP || eventType == EvenHubMsg.EV_SCROLL_BOTTOM) {
+            val text = Pb.cat(Pb.v(1, EvenHubMsg.TEXT_CONTAINER_ID),
+                Pb.s(2, EvenHubMsg.TEXT_CONTAINER_NAME), Pb.v(3, eventType))
+            Pb.l(2, text)
+        } else {
+            Pb.l(3, Pb.cat(Pb.v(1, eventType), Pb.v(2, source)))
+        }
         val payload = Pb.cat(Pb.v(1, 2), Pb.l(13, dev))
         diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), EvenHubMsg.SID, EvenHubMsg.FLAG_EVENT,
             payload, AaFrame.TYPE_RESPONSE).single())
     }
 
     /** Sticky diagnostic flags for [arm] — the mode-7 overlay's content. */
+    @Synchronized
     fun flags(arm: Arm): Map<String, Boolean> {
         val c = ctx(arm)
         return mapOf("f_dup" to c.fDup, "f_skip" to c.fSkip, "f_reorder" to c.fReorder)

@@ -49,6 +49,59 @@ class Notifications(private val text: TextRasterizer) {
     var scroll = 0
         private set
 
+    /** What sat under the box, captured before its first paint — the furl
+     *  restores from this per frame ("restore the content beneath", §4.5).
+     *  Invalidated when the content under the box repaints. */
+    private var under: Gray8? = null
+    private var underRect: Rect? = null
+
+    /** Capture the under-content from [g] for [box] if not yet captured. Call
+     *  BEFORE the first paint of a new box. */
+    fun captureUnder(g: Gray8, box: Rect) {
+        if (underRect == box && under != null) return
+        val u = Gray8(box.w, box.h)
+        u.blit(g, box, 0, 0)
+        under = u
+        underRect = box
+    }
+
+    /** The content beneath changed (composeContent while a box is up): the
+     *  snapshot no longer restores truthfully. */
+    fun invalidateUnder() {
+        under = null
+        underRect = null
+    }
+
+    /** Restore the under-content region [r] (panel coords) into [g]; false if
+     *  no valid snapshot covers it. */
+    fun restoreUnder(g: Gray8, r: Rect): Boolean {
+        val u = under ?: return false
+        val ur = underRect ?: return false
+        if (!ur.contains(r)) return false
+        g.blit(u, Rect(r.x - ur.x, r.y - ur.y, r.w, r.h), r.x, r.y)
+        return true
+    }
+
+    /** The furl finished: restore the whole covered region and clear the
+     *  snapshot. Returns the restored rect for damage, or null when the
+     *  snapshot was invalidated (caller repaints instead). */
+    fun restoreUnderFinished(g: Gray8): Rect? {
+        val u = under
+        val ur = underRect
+        invalidateUnder()
+        if (u == null || ur == null) return null
+        g.blit(u, Rect(0, 0, ur.w, ur.h), ur.x, ur.y)
+        return ur
+    }
+
+    /** Persistence support (§9.1): the queue's contents, and re-adding them at
+     *  boot (before the shell loop starts). */
+    fun queued(): List<Notice> = queue.toList()
+
+    fun enqueueRestored(n: Notice) {
+        queue.addLast(n)
+    }
+
     private val fSmall = FontSpec(Face.SYSTEM, 13, bold = true)
     private val fTiny = FontSpec(Face.SYSTEM, 12, bold = true)
     private val fBody = FontSpec(Face.SYSTEM, 17)
@@ -59,17 +112,37 @@ class Notifications(private val text: TextRasterizer) {
     val queueDepth: Int get() = queue.size
 
     /** Coalesce by source+thread (§4.5): a new message in the shown thread
-     *  replaces the body; in a queued thread it replaces that entry. */
-    fun post(n: Notice): Boolean {
+     *  replaces the body; in a queued thread it replaces that entry. Returns
+     *  the box rect the replaced current occupied (for union damage) or null.
+     *  A FURLING current is mid-dismissal: replacing it would silently drop the
+     *  notice when the furl completes (review round 1) — queue instead. */
+    fun post(n: Notice, l: Layout): Rect? {
         val cur = current
-        if (cur != null && cur.source == n.source && cur.thread == n.thread) {
+        if (cur != null && !furling && cur.source == n.source && cur.thread == n.thread) {
+            val oldRect = fullRect(cur, l, silent = false)
             current = n
-            return true
+            scroll = 0
+            return oldRect
         }
         val i = queue.indexOfFirst { it.source == n.source && it.thread == n.thread }
         if (i >= 0) queue[i] = n else queue.addLast(n)
         if (current == null) show()
-        return true
+        return null
+    }
+
+    /** Show the next queued box if nothing is current (leaving silent mode,
+     *  or after a requeue). */
+    fun showNextIfIdle(): Boolean = if (current == null) show() else false
+
+    /** Entering silent mode: put the current box back at the queue's head,
+     *  unread, with no animation — silent shows its own smaller form (§1.5). */
+    fun requeueCurrent() {
+        val n = current ?: return
+        current = null
+        furling = false
+        unfurl = 0
+        invalidateUnder()
+        queue.addFirst(n)
     }
 
     private fun show(): Boolean {
@@ -87,10 +160,38 @@ class Notifications(private val text: TextRasterizer) {
         if (current != null && unfurl >= 4) focused = true
     }
 
-    fun stepUnfurl(): Boolean {
+    /** One animation frame. Returns the strip to restore-from-under when a
+     *  furl step vacated one (panel coords), via [lastVacated]. */
+    var lastVacated: Rect? = null
+        private set
+
+    /** Set when a furl just completed — the shell restores the old box's
+     *  under-content (restoreUnderFinished) BEFORE painting whatever is next. */
+    var furlFinished = false
+        private set
+
+    fun consumeFurlFinished(): Boolean {
+        val f = furlFinished
+        furlFinished = false
+        return f
+    }
+
+    fun stepUnfurl(l: Layout, silent: Boolean): Boolean {
+        lastVacated = null
         if (furling) {
+            val before = boxRect(l, silent)
             unfurl--
-            if (unfurl <= 0) { furling = false; current = null; return show() }
+            if (unfurl <= 0) {
+                furling = false
+                current = null
+                furlFinished = true      // the under snapshot stays valid for the
+                show()                   // shell's restore, queue-advance included
+                return current != null
+            }
+            val after = boxRect(l, silent)
+            if (before != null && after != null && before.h > after.h) {
+                lastVacated = Rect(before.x, after.bottom, before.w, before.bottom - after.bottom)
+            }
             return true
         }
         if (unfurl < 4) { unfurl++; return unfurl < 4 }

@@ -185,13 +185,28 @@ class Chrome(private val text: TextRasterizer) {
     // --- status bar ---------------------------------------------------------------
     private fun paintOp(g: Gray8, l: Layout, s: State) {
         g.fillRect(l.opCell, Level.BG)
-        draw(g, l.opCell.x + 8, l.opCell.y + 6, s.op, Level.BODY, fChrome)
+        drawCellFit(g, l.opCell, s.op, Level.BODY, fChrome)
     }
 
     private fun paintStatus(g: Gray8, l: Layout, s: State) {
         g.fillRect(l.statusCell, Level.BG)
         val txt = if (s.inputEcho.isEmpty()) s.status else "${s.status} · ${s.inputEcho}"
-        draw(g, l.statusCell.x + 8, l.statusCell.y + 6, txt, Level.DIM, fChrome)
+        drawCellFit(g, l.statusCell, txt, Level.DIM, fChrome)
+    }
+
+    /** Status strings carry exception text of arbitrary length; drawing raw
+     *  would overrun the cell OUTSIDE its damage rect (silent divergence).
+     *  Fit + the drawn continuation mark — the journal holds the full text. */
+    private fun drawCellFit(g: Gray8, cell: Rect, txt: String, lv: Int, f: FontSpec) {
+        val maxW = cell.w - 16 - 12
+        if (text.measure(txt, f) <= maxW) {
+            draw(g, cell.x + 8, cell.y + 6, txt, lv, f)
+            return
+        }
+        var n = txt.length
+        while (n > 0 && text.measure(txt.take(n), f) > maxW) n--
+        draw(g, cell.x + 8, cell.y + 6, txt.take(n), lv, f)
+        Icons.tri(g, cell.right - 12, cell.y + 11, 9, Level.REST)
     }
 
     private fun paintThru(g: Gray8, l: Layout, s: State) {

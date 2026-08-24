@@ -12,10 +12,10 @@ import wm.damage.core.gfx.Gray8
  *
  * Model: the band's TARGET content is what the models already say (cursor /
  * topLine updated immediately — optimistic, §5.11); [offsetPx] is how far the
- * band currently sits from that target. Each frame shifts toward zero and
- * paints the strip that became correct, via [paintTargetSlice]. When offset
- * reaches zero the band equals a direct repaint of the target state — which is
- * exactly what SlideEquivalenceTest asserts.
+ * band currently sits from that target: content[Y] = target[Y - offset]. Each
+ * frame shifts toward zero and paints the strip that entered, via
+ * [paintTargetSlice]. When the offset reaches zero the band equals a direct
+ * repaint of the target state — SlideEquivalenceTest asserts exactly that.
  */
 class Slide(
     private val comp: Compositor,
@@ -36,11 +36,26 @@ class Slide(
 
     val active: Boolean get() = offsetPx != 0
 
+    /** Finish instantly: paint the target state and damage the region — used
+     *  when an overlay is about to paint on top (§6.3: motion yields). */
+    fun snap(g: Gray8) {
+        if (offsetPx == 0) return
+        offsetPx = 0
+        paintFull(g)
+    }
+
     /** Advance one frame on the composed surface [g]. Ease-out: half the
-     *  remaining distance, floor 8 px, always even. True while more remains. */
+     *  remaining distance, floor 8 px, always even. A backlog past the region
+     *  height jump-cuts (there is nothing meaningful left to slide). True
+     *  while more remains. */
     fun step(g: Gray8): Boolean {
         if (offsetPx == 0) return false
         val mag = kotlin.math.abs(offsetPx)
+        if (mag >= region.h) {          // jump-cut: the whole band is new content
+            offsetPx = 0
+            paintFull(g)
+            return false
+        }
         var s = maxOf(8, (mag / 2 + 1) / 2 * 2)
         if (s > mag) s = mag
         val down = offsetPx > 0            // content still needs to move UP by s
@@ -65,8 +80,7 @@ class Slide(
 
         // While an offset o remains, the band shows target content displaced by
         // o: content[Y] = target[Y - o]. The strip that just entered at the
-        // incoming edge therefore shows target rows at (stripY - o) — the
-        // incoming row arriving edge-first, which is the slide illusion.
+        // incoming edge shows target rows at (stripY - o).
         val stripY: Int = if (down) region.h - s else 0
         val r = Rect(region.x, region.y + stripY, region.w, s)
         val tmp = Gray8(region.w, s)
@@ -76,13 +90,18 @@ class Slide(
 
         if (offsetPx == 0) {
             // settle: repaint the whole band from target state so any rounding
-            // or mid-retarget artifact cannot survive the animation
-            val full = Gray8(region.w, region.h)
-            paintTargetSlice(full, 0, region.h)
-            g.blit(full, Rect(0, 0, region.w, region.h), region.x, region.y)
-            comp.damage(region)
+            // or mid-retarget artifact cannot survive; hash-before-send drops
+            // the unchanged parts, so this costs nothing extra on the wire
+            paintFull(g)
             return false
         }
         return true
+    }
+
+    private fun paintFull(g: Gray8) {
+        val full = Gray8(region.w, region.h)
+        paintTargetSlice(full, 0, region.h)
+        g.blit(full, Rect(0, 0, region.w, region.h), region.x, region.y)
+        comp.damage(region)
     }
 }

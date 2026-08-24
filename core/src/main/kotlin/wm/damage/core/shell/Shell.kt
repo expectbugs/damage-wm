@@ -2,13 +2,19 @@ package wm.damage.core.shell
 
 import java.nio.file.Path
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import wm.damage.core.comp.Compositor
@@ -28,6 +34,7 @@ import wm.damage.core.transport.FlushRequest
 import wm.damage.core.transport.Transport
 import wm.damage.core.transport.TransportEvent
 import wm.damage.core.util.Log
+import wm.damage.core.wire.EvenHubMsg
 
 /**
  * The window manager itself: input grammar (§1), the back stack, focus, the
@@ -36,9 +43,11 @@ import wm.damage.core.util.Log
  * identically on the desktop and inside the APK (§10.1).
  *
  * Threading: a single event loop (one coroutine on [scope]); everything enters
- * through [post]. Scheduled UI transitions (grace periods, idle ticks, the
- * minute clock) are exactly that — scheduled UI state changes, which NO
- * TIMEOUTS explicitly permits; no operation is ever time-bounded.
+ * through [post] — including background completions, via
+ * [ShellServices.runOnShell]. Compositor state is loop-confined; transport
+ * completions arrive as messages. Scheduled UI transitions (grace periods,
+ * idle ticks, the minute clock) are exactly that — scheduled UI state changes,
+ * which NO TIMEOUTS explicitly permits; no operation is ever time-bounded.
  */
 class Shell(
     private val text: TextRasterizer,
@@ -65,15 +74,13 @@ class Shell(
     private val windows = ArrayList<DamageWindow>()
     private val recency = ArrayList<DamageWindow>()          // most recent first
     private lateinit var settingsWindow: SettingsWindow
-    private val main = MainSurface(text, { mainRows() }, { commitWindow(it) })
+    private val main = MainSurface(text, { mainRows() }, { commitWindow(it) }, { settings.presence })
 
     private enum class Mode { MAIN, WINDOW, SILENT }
     private var mode = Mode.MAIN
     private var current: DamageWindow? = null
 
-    // slides for the active list/doc view (above+below band, or the doc region)
     private var slides: List<Slide> = emptyList()
-    private var pendingListRepaint = false
 
     private var inputEcho = ""
     private var opText = "idle"
@@ -89,16 +96,13 @@ class Shell(
     @Volatile var hostState: String = ""
 
     /** §9.3: the phone is the out-of-band error channel — urgent internal
-     *  notices also fire this hook (the APK raises a real phone notification;
-     *  the desktop logs). The display cannot alert about its own failure. */
+     *  notices also fire this hook (the APK raises a real phone notification). */
     @Volatile var onUrgent: ((source: String, body: String) -> Unit)? = null
 
     private val inflightFlushes = HashMap<Long, Compositor.Assembled>()
-    /** FlushDone can beat the submitted-record message into the loop (the
-     *  transport completes asynchronously); park it here until the record
-     *  arrives. Single-threaded access (the loop). */
-    private val earlyDone = HashMap<Long, TransportEvent.FlushDone>()
     private var flushFailStreak = 0
+    private var chromeDirty = true
+    private var chromeIdleFlush = false
     private val msgs = Channel<Msg>(Channel.UNLIMITED)
     private val queued = java.util.concurrent.atomic.AtomicInteger(0)
 
@@ -113,19 +117,28 @@ class Shell(
         data class SaveTick(val gen: Int) : Msg()
         data class Notice(val n: Notifications.Notice) : Msg()
         data class Invalidate(val windowId: String?) : Msg()
-        data class FlushSubmitted(val id: Long, val a: Compositor.Assembled, val label: String) : Msg()
+        data class Run(val action: () -> Unit) : Msg()
+        data class Shutdown(val done: CompletableDeferred<Unit>) : Msg()
         object Pump : Msg()
     }
 
     val services: ShellServices = object : ShellServices {
         override fun requestRender(window: DamageWindow) { post(Msg.Invalidate(window.id)) }
-        override fun setOperation(op: String) { opText = op; post(Msg.Pump) }
+
+        override fun setOperation(op: String) {
+            post(Msg.Run { if (opText != op) { opText = op; chromeDirty = true } })
+        }
+
         override fun notifyInternal(source: String, body: String, urgent: Boolean) {
-            if (!settings.notifyDamage && !urgent) return
             if (urgent) onUrgent?.invoke(source, body)
             val c = wallClock()
-            post(Msg.Notice(Notifications.Notice("DAMAGE · $source", source, body, c.hhmm, urgent)))
+            post(Msg.Notice(Notifications.Notice("DAMAGE · $source", source, body, c.hhmm,
+                emergency = false)))
         }
+
+        override fun runOnShell(action: () -> Unit) = post(Msg.Run(action))
+
+        override fun docContentWidth(): Int = layout.contentInner.w - 32
     }
 
     private fun post(m: Msg) {
@@ -133,30 +146,35 @@ class Shell(
         msgs.trySend(m)
     }
 
+    private fun setStatus(s: String) {
+        if (statusText != s) {
+            statusText = s
+            chromeDirty = true
+        }
+    }
+
     // ------------------------------------------------------------------ set-up
     fun register(w: DamageWindow) {
         windows.add(w)
     }
 
-    private fun mainRows(): List<DamageWindow> {
-        // Settings is the LAST entry (§4.2: one scroll up from the top lands on it)
-        val ordered = windows.filter { it !== settingsWindow } + settingsWindow
-        return ordered
-    }
+    private fun mainRows(): List<DamageWindow> =
+        windows.filter { it !== settingsWindow } + settingsWindow
 
     /** External notice entry (content client, phone bridge, tests). */
     fun postNotice(n: Notifications.Notice) = post(Msg.Notice(n))
 
     /** External input entry (keyboard harness, touch harness, remote shell). */
-    fun postGesture(type: Int, source: Int = wm.damage.core.wire.EvenHubMsg.SRC_RING) =
+    fun postGesture(type: Int, source: Int = EvenHubMsg.SRC_RING) =
         post(Msg.In(type, source))
 
     suspend fun start() {
         running = true
         settingsWindow = SettingsWindow(text, { settings }, { applySettings(it) })
         register(settingsWindow)
+        for (w in windows) w.onRegistered(services)
 
-        // restore persisted state (§9.1: survives WM restart)
+        // restore persisted state (§9.1: survives WM restart) BEFORE the loop
         persistence.load()
         settings = ShellSettings.fromJson(persistence.get("shell.settings"))
         layout = layoutFor(settings)
@@ -167,6 +185,10 @@ class Shell(
         }
         val shellState = persistence.get("shell.state")
         val restoredId = shellState?.get("current")?.jsonPrimitive?.contentOrNull
+        val restoredMode = shellState?.get("mode")?.jsonPrimitive?.contentOrNull
+        main.model.cursor = shellState?.get("mainCursor")?.jsonPrimitive?.contentOrNull
+            ?.toIntOrNull() ?: 0
+        restoreNotices(shellState)
 
         // UNDISPATCHED: the collector subscribes BEFORE transport.start() can
         // emit, or early events (capability, lease) would vanish silently.
@@ -177,16 +199,20 @@ class Shell(
         // start the display: capability gate + carrier + lease + warmup splash
         transport.start(splashFrame())
 
-        // initial surface
-        current = windows.firstOrNull { it.id == restoredId && it !== settingsWindow }
+        // initial surface — mode AND window restore (§9.1 rule 1)
+        current = windows.firstOrNull { it.id == restoredId }
         if (current != null) {
             mode = Mode.WINDOW
             recency.remove(current)
             recency.add(0, current!!)
             current!!.onActivate(services)
         }
+        if (restoredMode == Mode.SILENT.name) mode = Mode.SILENT
         composeFullSurface()
         comp.requestKeyframe()
+        if (notifications.showNextIfIdle()) {
+            if (mode == Mode.SILENT) scheduleSilentDismiss() else scheduleGrace()
+        }
 
         scope.launch { loop() }
         scheduleMinuteTick()
@@ -195,9 +221,13 @@ class Shell(
         post(Msg.Pump)
     }
 
+    /** Orderly shutdown THROUGH the loop, so the final save cannot race a
+     *  concurrent SaveTick (review round 1) and no state mutates cross-thread. */
     suspend fun stop() {
-        running = false
-        saveAll()
+        if (!running) return
+        val done = CompletableDeferred<Unit>()
+        post(Msg.Shutdown(done))
+        done.await()
         transport.stop()
         journal.close()
     }
@@ -205,45 +235,30 @@ class Shell(
     // ------------------------------------------------------------------ loop
     private suspend fun loop() {
         for (m in msgs) {
-            if (!running) break
+            if (!running && m !is Msg.Shutdown) { queued.decrementAndGet(); continue }
             try {
                 when (m) {
-                    is Msg.In -> handleInput(m.type)
+                    is Msg.In -> handleInput(m.type, m.source)
                     is Msg.Trans -> handleTransport(m.ev)
                     Msg.MinuteTick -> handleMinute()
-                    Msg.IdleTick -> handleIdle()
+                    Msg.IdleTick -> {
+                        chromeDirty = true
+                        chromeIdleFlush = true      // §8.3: chrome-only changes flush HERE
+                    }
                     is Msg.RestTick -> if (m.gen == restGen && mode == Mode.MAIN && !main.resting) {
                         main.resting = true
-                        if (settings.presence >= 0) composeContent()
+                        composeContent()
                     }
-                    is Msg.GraceTick -> if (m.gen == graceGen && notifications.active && !notifications.focused) {
-                        notifications.takeFocus()
-                        updatePlanes()
-                        paintNotification()
-                    }
-                    is Msg.SilentTick -> if (m.gen == silentDismissGen && mode == Mode.SILENT &&
-                        notifications.active
-                    ) {
-                        // silent-mode boxes auto-dismiss after 5 s and STAY UNREAD
-                        // (§4.5 — deliberate divergence from G2CC's mark-at-display)
-                        notifications.dropSilent()
-                        val c = wallClock()
-                        SilentMode.paintAll(comp.composed, layout, c.hh, c.mm)
-                        comp.damageAll()
-                        if (notifications.active) {
-                            paintNotification()
-                            val gen = ++silentDismissGen
-                            scope.launch { delay(5_000); if (running) post(Msg.SilentTick(gen)) }
-                        }
-                    }
+                    is Msg.GraceTick -> handleGrace(m.gen)
+                    is Msg.SilentTick -> handleSilentTick(m.gen)
                     is Msg.SaveTick -> if (m.gen == saveGen) saveAll()
                     is Msg.Notice -> handleNotice(m.n)
                     is Msg.Invalidate -> if (mode != Mode.SILENT) composeContent()
-                    is Msg.FlushSubmitted -> {
-                        journal.flushSubmitted(m.id, m.a, m.label)
-                        val early = earlyDone.remove(m.id)
-                        if (early != null) completeFlush(early, m.a)
-                        else inflightFlushes[m.id] = m.a
+                    is Msg.Run -> m.action()
+                    is Msg.Shutdown -> {
+                        running = false
+                        saveAll()
+                        m.done.complete(Unit)
                     }
                     Msg.Pump -> {}
                 }
@@ -252,84 +267,105 @@ class Shell(
                 // journal, and the log — and the loop keeps serving input.
                 Log.e("shell", "loop error handling $m", e)
                 journal.note("error", e.toString())
-                statusText = "ERROR ${e.message ?: e::class.simpleName}"
+                setStatus("ERROR ${e.message ?: e::class.simpleName}")
             }
             try {
-                pump()
+                if (running) pump()
             } catch (e: Exception) {
                 Log.e("shell", "pump error", e)
                 journal.note("pump-error", e.toString())
-                statusText = "ERROR ${e.message ?: e::class.simpleName}"
+                setStatus("ERROR ${e.message ?: e::class.simpleName}")
             }
             queued.decrementAndGet()
+            if (!running && m is Msg.Shutdown) break
         }
     }
 
     // ------------------------------------------------------------------ input
-    private fun handleInput(type: Int) {
-        val e = wm.damage.core.wire.EvenHubMsg
-        inputEcho = when (type) {
-            e.EV_CLICK -> "tap"
-            e.EV_DOUBLE_CLICK -> "double"
-            e.EV_SCROLL_TOP -> "up"
-            e.EV_SCROLL_BOTTOM -> "down"
-            e.EV_RING_LONG_PRESS -> "hold"
-            e.EV_RING_LONG_PRESS_RELEASE -> "release"
+    private fun handleInput(type: Int, source: Int) {
+        // §1: the R1 ring is the ONLY input device — a temple brush must not
+        // select or scroll. Text-region scroll events carry no source and
+        // arrive as SRC_RING from the transport (G2_BLE_PROTOCOL.md §6.6).
+        if (source != EvenHubMsg.SRC_RING) {
+            Log.d("shell", "non-ring gesture $type from source $source ignored (§1)")
+            return
+        }
+        val newEcho = when (type) {
+            EvenHubMsg.EV_CLICK -> "tap"
+            EvenHubMsg.EV_DOUBLE_CLICK -> "double"
+            EvenHubMsg.EV_SCROLL_TOP -> "up"
+            EvenHubMsg.EV_SCROLL_BOTTOM -> "down"
+            EvenHubMsg.EV_RING_LONG_PRESS -> "hold"
+            EvenHubMsg.EV_RING_LONG_PRESS_RELEASE -> "release"
             else -> "ev$type"
+        }
+        if (newEcho != inputEcho) {
+            inputEcho = newEcho          // input echo rides the next flush (§9.2)
+            chromeDirty = true
         }
         // input restarts the grace and the rest transition (§4.5, §4.2)
         restGen++
         scheduleRest()
-        if (main.resting) { main.resting = false; if (mode == Mode.MAIN) composeContent() }
-        if (notifications.active && !notifications.focused) scheduleGrace()
+        if (main.resting) {
+            main.resting = false
+            if (mode == Mode.MAIN) composeContent()
+        }
+        if (notifications.active && !notifications.focused && mode != Mode.SILENT) scheduleGrace()
 
-        // SILENT: everything swallowed except double-tap (§1.5)
+        // SILENT: everything swallowed except double-tap (§1.5 — the gloves fix)
         if (mode == Mode.SILENT) {
-            if (type == e.EV_DOUBLE_CLICK) exitSilent()
+            if (type == EvenHubMsg.EV_DOUBLE_CLICK) exitSilent()
             return
         }
         // Notification holds focus: its own gesture table (§4.5)
         if (notifications.active && notifications.focused) {
-            when (type) {
-                e.EV_CLICK -> {
-                    val n = notifications.current
-                    if (n != null && n.emergency) dismissNotice(markRead = true)
-                    else if (n?.appId != null) {
-                        dismissNotice(markRead = true)
-                        windows.firstOrNull { it.id == n.appId }?.let { commitWindow(it) }
-                    } else dismissNotice(markRead = true)
-                }
-                e.EV_DOUBLE_CLICK -> dismissNotice(markRead = true)
-                e.EV_RING_LONG_PRESS -> dismissNotice(markRead = false)
-                e.EV_SCROLL_TOP -> { notifications.scrollBody(-1, layout); paintNotification() }
-                e.EV_SCROLL_BOTTOM -> { notifications.scrollBody(1, layout); paintNotification() }
-            }
+            handleNotificationGesture(type)
             return
         }
         // Switcher open: §1.3 grammar
         if (switcher.open) {
             when (type) {
-                e.EV_SCROLL_TOP -> { switcher.scroll(-1); paintSwitcherFrame() }
-                e.EV_SCROLL_BOTTOM -> { switcher.scroll(1); paintSwitcherFrame() }
-                e.EV_CLICK -> commitSwitcher()
-                e.EV_RING_LONG_PRESS, e.EV_DOUBLE_CLICK -> cancelSwitcher()
+                EvenHubMsg.EV_SCROLL_TOP -> { switcher.scroll(-1); paintSwitcherFrame() }
+                EvenHubMsg.EV_SCROLL_BOTTOM -> { switcher.scroll(1); paintSwitcherFrame() }
+                EvenHubMsg.EV_CLICK -> commitSwitcher()
+                EvenHubMsg.EV_RING_LONG_PRESS, EvenHubMsg.EV_DOUBLE_CLICK -> cancelSwitcher()
             }
             return
         }
         when (type) {
-            e.EV_RING_LONG_PRESS -> openSwitcher()
-            e.EV_SCROLL_TOP -> scrollFocused(-1)
-            e.EV_SCROLL_BOTTOM -> scrollFocused(1)
-            e.EV_CLICK -> tapFocused()
-            e.EV_DOUBLE_CLICK -> backFocused()
-            e.EV_RING_LONG_PRESS_RELEASE -> {}      // banked, unused (§1.2)
+            EvenHubMsg.EV_RING_LONG_PRESS -> openSwitcher()
+            EvenHubMsg.EV_SCROLL_TOP -> scrollFocused(-1)
+            EvenHubMsg.EV_SCROLL_BOTTOM -> scrollFocused(1)
+            EvenHubMsg.EV_CLICK -> tapFocused()
+            EvenHubMsg.EV_DOUBLE_CLICK -> backFocused()
+            EvenHubMsg.EV_RING_LONG_PRESS_RELEASE -> {}      // banked, unused (§1.2)
+        }
+    }
+
+    private fun handleNotificationGesture(type: Int) {
+        when (type) {
+            EvenHubMsg.EV_CLICK -> {
+                val n = notifications.current
+                if (n != null && !n.emergency && n.appId != null) {
+                    dismissNotice(markRead = true)
+                    windows.firstOrNull { it.id == n.appId }?.let { commitWindow(it) }
+                } else {
+                    // emergencies and app-less notices: tap = dismiss (§4.5 —
+                    // "there's no app to switch to for those")
+                    dismissNotice(markRead = true)
+                }
+            }
+            EvenHubMsg.EV_DOUBLE_CLICK -> dismissNotice(markRead = true)
+            EvenHubMsg.EV_RING_LONG_PRESS -> dismissNotice(markRead = false)
+            EvenHubMsg.EV_SCROLL_TOP -> { notifications.scrollBody(-1, layout); paintNotification() }
+            EvenHubMsg.EV_SCROLL_BOTTOM -> { notifications.scrollBody(1, layout); paintNotification() }
         }
     }
 
     private fun scrollFocused(delta: Int) {
         if (mode == Mode.WINDOW && current === settingsWindow && settingsWindow.onScrollAdjust(delta)) {
-            applySettings(settings)          // repaint with live value
             composeContent()
+            scheduleSave()
             return
         }
         when (val v = focusedView()) {
@@ -394,7 +430,14 @@ class Shell(
 
     // ------------------------------------------------------------------ modes
     private fun commitWindow(w: DamageWindow) {
-        if (w === current && mode == Mode.WINDOW) return
+        if (switcher.open) {
+            switcher.close()
+            previewPainted = null
+        }
+        if (w === current && mode == Mode.WINDOW) {
+            composeContent()      // e.g. committing the switcher to the current
+            return                // window must still erase the panel
+        }
         current?.onDeactivate()
         current = w
         mode = Mode.WINDOW
@@ -411,21 +454,35 @@ class Shell(
 
     private fun enterSilent() {
         mode = Mode.SILENT
+        snapSlides()
+        slides = emptyList()
+        // an on-screen box goes back to the queue UNREAD; silent shows its own
+        // smaller form, one at a time, auto-dismissing (§1.5/§4.5)
+        notifications.requeueCurrent()
         val c = wallClock()
         SilentMode.paintAll(comp.composed, layout, c.hh, c.mm)
         comp.planes = emptyList()
         comp.damageAll()
+        if (notifications.showNextIfIdle()) {
+            paintNotification()
+            scheduleSilentDismiss()
+        }
+        scheduleSave()
     }
 
     private fun exitSilent() {
         mode = Mode.MAIN
         main.resting = false
         composeFullSurface()
+        if (notifications.active && !notifications.focused) scheduleGrace()
+        scheduleSave()
     }
 
     // ------------------------------------------------------------------ switcher
     private fun openSwitcher() {
+        snapSlides()
         switcher.openWith(if (mode == Mode.WINDOW) current else null, recency)
+        previewPainted = null
         updatePlanes()
         paintSwitcherFrame()
     }
@@ -434,15 +491,17 @@ class Shell(
         val sel = switcher.selected() ?: return cancelSwitcher()
         val target = sel.window
         switcher.close()
+        previewPainted = null
         if (target == null) {
             current?.onDeactivate()
             current = null
             mode = Mode.MAIN
-            composeContent()      // §4.3: commit repaints the panel region — the
-        } else {                  // preview already painted the rest
+            composeContent()      // §4.3: the preview already painted the rest;
+        } else {                  // this erases the panel region
             commitWindow(target)
         }
         updatePlanes()
+        scheduleSave()
     }
 
     private fun cancelSwitcher() {
@@ -455,7 +514,7 @@ class Shell(
     private fun paintSwitcherFrame() {
         val panel = switcher.paint(comp.composed, layout)
         comp.damage(panel)
-        syncChromeForPreview()
+        chromeDirty = true        // the top bar previews too, snapping (§4.3)
     }
 
     /** Live preview (§4.3): the window BEHIND the panel becomes the selected
@@ -470,38 +529,86 @@ class Shell(
         paintSwitcherFrame()
     }
 
-    private fun syncChromeForPreview() {
-        // the top bar previews too, snapping rather than animating (§4.3)
-        chromeDirty = true
-    }
-
     // ------------------------------------------------------------------ notices
     private fun handleNotice(n: Notifications.Notice) {
-        if (mode == Mode.SILENT) {
-            notifications.post(n)
-            paintNotification()
-            val gen = ++silentDismissGen
-            scope.launch { delay(5_000); post(Msg.SilentTick(gen)) }
+        if (!noticeAllowed(n)) {
+            Log.i("shell", "notification from '${n.source}' filtered by settings (§4.5)")
             return
         }
-        val hadFocusableBox = notifications.active
-        notifications.post(n)
-        if (!hadFocusableBox) {
-            updatePlanes()
-            scheduleGrace()
+        if (mode == Mode.SILENT) {
+            notifications.post(n, layout)
+            if (notifications.showNextIfIdle() || notifications.active) {
+                paintNotification()
+                scheduleSilentDismiss()
+            }
+            return
         }
-        paintNotification()
+        val replacedRect = notifications.post(n, layout)
+        if (replacedRect != null) {
+            // same-thread coalesce replaced the visible box: its size may have
+            // changed — repaint content under the union, then the new box
+            composeContent()
+        } else {
+            if (notifications.active && !notifications.focused) scheduleGrace()
+            updatePlanes()
+            paintNotification()
+        }
+    }
+
+    /** §4.5: the source filter is load-bearing, not hygiene — every allowed
+     *  notification interrupts, so the filter is what buys the box its focus. */
+    private fun noticeAllowed(n: Notifications.Notice): Boolean {
+        if (n.emergency) return true
+        val kind = n.source.substringBefore('·').trim().uppercase()
+        return when (kind) {
+            "SMS", "MMS" -> settings.notifySms
+            "MAIL" -> settings.notifyMail
+            "MUSIC" -> settings.notifyMusic
+            "DAMAGE" -> settings.notifyDamage
+            else -> true
+        }
     }
 
     private fun dismissNotice(markRead: Boolean) {
         notifications.dismiss(markRead)
-        // the furl animation runs via pump; planes update when it completes
+        scheduleSave()
+        // the furl animation runs via pump, restoring from the under snapshot
     }
 
+    /** Paint the current box; captures the under-content first so the furl can
+     *  restore it strip by strip (§4.5 "furl in reverse ... then restore"). */
     private fun paintNotification() {
         val n = notifications.current ?: return
-        val box = notifications.paint(comp.composed, layout, silent = mode == Mode.SILENT)
+        val silent = mode == Mode.SILENT
+        val full = notifications.fullRect(n, layout, silent)
+        notifications.captureUnder(comp.composed, full)
+        val box = notifications.paint(comp.composed, layout, silent)
         if (box != null) comp.damage(box)
+    }
+
+    private fun handleGrace(gen: Int) {
+        if (gen != graceGen) return
+        if (mode == Mode.SILENT) return                  // §4.5 rule 4
+        if (switcher.open) { scheduleGrace(); return }   // never steal the wheel's gestures
+        if (notifications.active && !notifications.focused) {
+            notifications.takeFocus()
+            updatePlanes()
+            paintNotification()
+        }
+    }
+
+    private fun handleSilentTick(gen: Int) {
+        if (gen != silentDismissGen || mode != Mode.SILENT || !notifications.active) return
+        // silent boxes auto-dismiss after 5 s and STAY UNREAD (§4.5 —
+        // deliberate divergence from G2CC's mark-at-display)
+        notifications.dropSilent()
+        val c = wallClock()
+        SilentMode.paintAll(comp.composed, layout, c.hh, c.mm)
+        comp.damageAll()
+        if (notifications.active) {
+            paintNotification()
+            scheduleSilentDismiss()
+        }
     }
 
     // ------------------------------------------------------------------ ticks
@@ -510,17 +617,11 @@ class Shell(
         if (mode == Mode.SILENT) {
             val c = wallClock()
             SilentMode.paintClock(comp.composed, layout, c.hh, c.mm)
-            comp.damage(SilentMode.clockRect(layout))
+            comp.damage(SilentMode.clockRect(layout))    // the 60-per-hour flush
         } else {
-            chromeDirty = true
+            chromeDirty = true                           // rides or waits for idle
         }
     }
-
-    private fun handleIdle() {
-        chromeDirty = true      // chrome-only changes flush on the idle tick (§8.3)
-    }
-
-    private var chromeDirty = true
 
     private fun scheduleMinuteTick() {
         scope.launch {
@@ -540,6 +641,11 @@ class Shell(
         scope.launch { delay(2_500); if (running) post(Msg.GraceTick(gen)) }
     }
 
+    private fun scheduleSilentDismiss() {
+        val gen = ++silentDismissGen
+        scope.launch { delay(5_000); if (running) post(Msg.SilentTick(gen)) }
+    }
+
     private fun scheduleSave() {
         val gen = ++saveGen
         scope.launch { delay(2_000); if (running) post(Msg.SaveTick(gen)) }
@@ -548,37 +654,29 @@ class Shell(
     // ------------------------------------------------------------------ transport
     private fun handleTransport(ev: TransportEvent) {
         when (ev) {
-            is TransportEvent.Input -> handleInput(ev.type)
-            is TransportEvent.FlushDone -> {
-                val a = inflightFlushes.remove(ev.id)
-                if (a == null && ev.id >= 0) {
-                    // completion outran the FlushSubmitted record — park it
-                    earlyDone[ev.id] = ev
-                } else {
-                    completeFlush(ev, a)
-                }
-            }
+            is TransportEvent.Input -> handleInput(ev.type, ev.source)
+            is TransportEvent.FlushDone -> completeFlush(ev)
             is TransportEvent.Lease -> {
                 if (!ev.held) {
                     // fail-open fired: stock repainted; a keyframe is required on
                     // reacquire (§5.16) and the failure is surfaced loudly
-                    statusText = "LEASE LOST"
+                    setStatus("LEASE LOST")
                     services.notifyInternal("lease", "framebuffer lease lost — ${ev.detail}", urgent = true)
                     comp.requestKeyframe()
                 } else if (statusText == "LEASE LOST") {
-                    statusText = "ok"
+                    setStatus("ok")
                 }
                 chromeDirty = true
             }
             is TransportEvent.Link -> {
-                statusText = if (ev.connected) "ok" else "LINK DOWN"
+                setStatus(if (ev.connected) "ok" else "LINK DOWN")
                 chromeDirty = true
             }
             is TransportEvent.DiagFlags -> {
                 val setFlags = ev.flags.filterValues { it }.keys
                 if (setFlags.isNotEmpty()) {
                     // any sticky flag is a HARD error: panic keyframe (§9.2b)
-                    statusText = "PANIC ${setFlags.joinToString("/")}"
+                    setStatus("PANIC ${setFlags.joinToString("/")}")
                     journal.note("panic", setFlags.joinToString())
                     services.notifyInternal("diag", "divergence flags: $setFlags — keyframing", urgent = true)
                     comp.requestKeyframe()
@@ -586,22 +684,23 @@ class Shell(
                 }
             }
             is TransportEvent.Fault -> {
-                statusText = "${ev.what}!"
+                setStatus("${ev.what}!")
                 journal.note("fault", "${ev.what}: ${ev.detail}")
             }
         }
     }
 
-    private fun completeFlush(ev: TransportEvent.FlushDone, a: Compositor.Assembled?) {
+    private fun completeFlush(ev: TransportEvent.FlushDone) {
+        val a = inflightFlushes.remove(ev.id)
         journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)
         if (!ev.ok) {
-            statusText = "flush failed"
+            setStatus("flush failed")
             Log.e("shell", "flush ${ev.id} FAILED: ${ev.error}")
             if (a != null) comp.rollback(a)
             if (++flushFailStreak >= 3) {
                 // three consecutive failures: stop re-partitioning the same
                 // damage and reset with a keyframe, loudly
-                statusText = "PANIC resync"
+                setStatus("PANIC resync")
                 journal.note("panic", "flush failure streak — keyframing")
                 services.notifyInternal("compositor",
                     "repeated flush failures (${ev.error}) — keyframe resync", urgent = true)
@@ -610,7 +709,6 @@ class Shell(
             }
         } else {
             flushFailStreak = 0
-            if (a != null) comp.keyframeDelivered(a)
         }
     }
 
@@ -623,12 +721,14 @@ class Shell(
         val relayout = s.heightMode != settings.heightMode || s.vpos != settings.vpos
         val rescale = s.fontScale != settings.fontScale
         settings = s
-        if (rescale) for (w in windows) w.onFontScaleChanged(s.fontScale)
         persistence.put("shell.settings", s.toJson())
+        if (rescale) for (w in windows) w.onFontScaleChanged(s.fontScale)
         if (relayout) {
             layout = layoutFor(s)
             chrome.invalidate()
             kit.resetRail()
+            slides = emptyList()
+            for (w in windows) w.onLayoutChanged()
             comp.composed.clear(0)
             composeFullSurface()
             comp.requestKeyframe()   // a size change re-lays out the whole shell (§4.2)
@@ -658,10 +758,11 @@ class Shell(
     private fun composeContent() {
         if (mode == Mode.SILENT) return
         slides = emptyList()
+        notifications.invalidateUnder()   // the content beneath is repainting
         paintContentOf(if (mode == Mode.WINDOW) current else null)
         if (switcher.open) paintSwitcherFrame()
-        if (notifications.active) paintNotification()
         updatePlanes()
+        if (notifications.active) paintNotification()
         chromeDirty = true
     }
 
@@ -686,8 +787,7 @@ class Shell(
         val planes = ArrayList<Compositor.PlaneRegion>()
         if (d != 0 && mode != Mode.SILENT) {
             planes.add(Compositor.PlaneRegion(layout.content, d))          // content parks far
-            val v = focusedView()
-            if (v is WindowView.ListView) {
+            if (focusedView() is WindowView.ListView) {
                 planes.add(Compositor.PlaneRegion(layout.lens, 0))          // lens comes forward
             }
             if (switcher.open) {
@@ -711,6 +811,10 @@ class Shell(
     }
 
     // ------------------------------------------------------------------ slides
+    private fun snapSlides() {
+        for (s in slides) s.snap(comp.composed)
+    }
+
     private fun startListSlide(delta: Int) {
         val bandAbove = Rect(layout.content.x, layout.content.y + Layout.CONTENT_PAD,
             layout.content.w - Layout.RAIL_W, layout.rowsAbove * Layout.ROW_H)
@@ -729,11 +833,13 @@ class Shell(
             comp.composed.fillRect(layout.lens, Level.BG)
             comp.composed.fillRect(layout.lens.x, layout.lens.y, layout.lens.w - Layout.RAIL_W, 2, Level.DIM)
             comp.composed.fillRect(layout.lens.x, layout.lens.bottom - 2, layout.lens.w - Layout.RAIL_W, 2, Level.DIM)
-            v.paintLens(comp.composed, Rect(layout.lens.x, layout.lens.y, layout.lens.w - Layout.RAIL_W, layout.lens.h), v.model.cursor)
+            v.paintLens(comp.composed, Rect(layout.lens.x, layout.lens.y,
+                layout.lens.w - Layout.RAIL_W, layout.lens.h), v.model.cursor)
             comp.damage(layout.lens)
             val n = v.rowCount()
-            kit.paintRail(comp.composed, layout, if (n > 1) v.model.cursor.toDouble() / (n - 1) else 0.0,
-                (layout.content.h * (layout.rowsAbove + layout.rowsBelow + 1) / maxOf(1, n)))
+            kit.paintRail(comp.composed, layout,
+                if (n > 1) v.model.cursor.toDouble() / (n - 1) else 0.0,
+                layout.content.h * (layout.rowsAbove + layout.rowsBelow + 1) / maxOf(1, n))
                 ?.let { comp.damage(it) }
         }
     }
@@ -742,10 +848,10 @@ class Shell(
     private fun paintListSlice(g: Gray8, y0: Int, h: Int, above: Boolean) {
         val v = focusedView() as? WindowView.ListView ?: return
         val n = v.rowCount()
+        g.fillRect(0, 0, g.w, g.h, Level.BG)
         if (n == 0) return
         val slots = layout.rowsAbove + layout.rowsBelow + 1
         val c = v.model.cursor
-        g.fillRect(0, 0, g.w, g.h, Level.BG)
         val bandSlots = if (above) layout.rowsAbove else layout.rowsBelow
         var slot = Math.floorDiv(y0, Layout.ROW_H)
         while (slot * Layout.ROW_H < y0 + h) {
@@ -791,87 +897,118 @@ class Shell(
     }
 
     // ------------------------------------------------------------------ pump
-    /** After every message: advance animations, ride chrome along, flush. */
+    /** After every message: animations first (slides under, overlays over),
+     *  chrome rides along, then the one atomic flush; preview settles last. */
     private suspend fun pump() {
         if (!running || !transport.state.value.started) return
         val st = transport.state.value
         val room = st.inFlight < st.window
         if (!room) return         // FlushDone re-pumps; §5.13 coalescing happens here
 
-        // 1. animations first (they are already-committed motion)
         var animated = false
-        if (switcher.open && switcher.spinning) {
-            switcher.stepSpin()
-            paintSwitcherFrame()
-            animated = true
+
+        // 1. slides move the content UNDER everything
+        for (s in slides) if (s.active) { s.step(comp.composed); animated = true }
+
+        // 2. switcher spin, painted OVER the slid content
+        if (switcher.open) {
+            if (switcher.spinning) {
+                switcher.stepSpin()
+                animated = true
+            }
+            if (animated) paintSwitcherFrame()
         }
+
+        // 3. notification unfurl/furl, always on top; the furl restores the
+        //    content beneath from the under snapshot, strip by strip
         if (notifications.animating) {
+            val silent = mode == Mode.SILENT
             val n0 = notifications.current
-            val more = notifications.stepUnfurl()
-            if (notifications.current == null) {
-                // furl finished with an empty queue: restore what was beneath
-                updatePlanes()
+            if (n0 != null) {
+                val full = notifications.fullRect(n0, layout, silent)
+                notifications.captureUnder(comp.composed, full)
+            }
+            val more = notifications.stepUnfurl(layout, silent)
+            notifications.lastVacated?.let { strip ->
+                if (!notifications.restoreUnder(comp.composed, strip)) {
+                    // snapshot invalidated (content repainted beneath): repaint
+                    // the whole surface under it once, loudly correct
+                    composeContent()
+                }
+                comp.damage(strip)
+            }
+            if (notifications.consumeFurlFinished()) {
+                // the old box is gone: put back what it covered BEFORE any next
+                // box paints (queue-advance included)
                 if (mode == Mode.SILENT) {
+                    notifications.invalidateUnder()
                     val c = wallClock()
                     SilentMode.paintAll(comp.composed, layout, c.hh, c.mm)
                     comp.damageAll()
-                } else composeContent()
-            } else {
+                } else {
+                    val restored = notifications.restoreUnderFinished(comp.composed)
+                    if (restored != null) comp.damage(restored) else composeContent()
+                }
+                updatePlanes()
+            }
+            if (notifications.current != null) {
                 if (!more && !notifications.focused && mode != Mode.SILENT) scheduleGrace()
-                if (notifications.current !== n0) updatePlanes()
+                if (notifications.current !== n0) {
+                    updatePlanes()
+                    if (mode == Mode.SILENT) scheduleSilentDismiss()
+                }
                 paintNotification()
             }
             animated = true
+        } else if (animated && notifications.active) {
+            paintNotification()   // overlays stay on top of slide frames
         }
-        for (s in slides) if (s.active) { s.step(comp.composed); animated = true }
 
-        // 2. chrome rides along whenever anything else is flushing, and alone
-        //    on the idle tick (§8.3)
-        if (chromeDirty && (comp.hasPending || animated || mode != Mode.SILENT)) {
-            if (mode != Mode.SILENT) {
-                // One rect per BAR, never one per cell (§2.4 rule 2): union the
-                // dirty cells of each bar before damaging.
-                val cells = chrome.sync(comp.composed, layout, chromeState())
-                val top = cells.filter { it.y < layout.topDivider.bottom }
-                val bottom = cells.filter { it.y >= layout.bottomDivider.y }
-                if (top.isNotEmpty()) comp.damage(top.reduce(wm.damage.core.geom.Rect::union))
-                if (bottom.isNotEmpty()) comp.damage(bottom.reduce(wm.damage.core.geom.Rect::union))
-            }
+        // 4. chrome rides along with content, or flushes alone on the idle tick
+        if (chromeDirty && mode != Mode.SILENT && (comp.hasPending || animated || chromeIdleFlush)) {
+            // One rect per BAR, never one per cell (§2.4 rule 2)
+            val cells = chrome.sync(comp.composed, layout, chromeState())
+            val top = cells.filter { it.y < layout.topDivider.bottom }
+            val bottom = cells.filter { it.y >= layout.bottomDivider.y }
+            if (top.isNotEmpty()) comp.damage(top.reduce(Rect::union))
+            if (bottom.isNotEmpty()) comp.damage(bottom.reduce(Rect::union))
             chromeDirty = false
+            chromeIdleFlush = false
         }
 
-        // 3. the one atomic flush
+        // 5. the one atomic flush per frame — the project's thesis
         if (comp.hasPending || comp.needsKeyframe) {
-            val budget = Geometry.rectBudget(st.window)
             val assembled = try {
-                comp.assembleFlush(budget)
+                comp.assembleFlush(Geometry.rectBudget(st.window))
             } catch (e: Exception) {
                 Log.e("shell", "flush assembly failed", e)
                 journal.note("assemble-error", e.toString())
-                statusText = "ASSEMBLE ${e.message}"
+                setStatus("ASSEMBLE ${e.message}")
                 null
             }
             if (assembled != null) {
                 val label = "$mode${if (switcher.open) "+switcher" else ""}"
-                pendingSubmits.incrementAndGet()
-                scope.launch {
-                    try {
-                        val id = transport.submit(FlushRequest(assembled.ops, assembled.epoch, label,
-                            wide = assembled.wide || assembled.keyframe))
-                        post(Msg.FlushSubmitted(id, assembled, label))
-                        post(Msg.Pump)     // keep animations advancing
-                    } catch (e: Exception) {
-                        Log.e("shell", "submit failed", e)
-                        comp.rollback(assembled)
-                        post(Msg.Pump)
-                    } finally {
-                        pendingSubmits.decrementAndGet()
-                    }
+                try {
+                    val id = transport.submit(FlushRequest(assembled.ops, assembled.epoch, label,
+                        wide = assembled.wide))
+                    inflightFlushes[id] = assembled
+                    journal.flushSubmitted(id, assembled, label)
+                } catch (e: Exception) {
+                    Log.e("shell", "submit failed", e)
+                    journal.note("submit-error", e.toString())
+                    setStatus("SUBMIT ${e.message}")
+                    comp.rollback(assembled)
                 }
             }
         } else if (!animated) {
-            // 4. nothing pending: the lowest-priority work — preview settle
+            // 6. nothing pending: the lowest-priority work — preview settle
             settlePreview()
+        }
+
+        // animations continue on the next completion or message; make sure one
+        // arrives even in instant-transport tests
+        if (animated || slides.any { it.active } || switcher.spinning || notifications.animating) {
+            post(Msg.Pump)
         }
     }
 
@@ -898,7 +1035,8 @@ class Shell(
         val context = when {
             previewTarget != null -> "preview"
             mode == Mode.WINDOW -> current?.title() ?: ""
-            else -> "${rows.size} windows" + (rows.count { it.dirty }.takeIf { it > 0 }?.let { " · $it unread" } ?: "")
+            else -> "${rows.size} windows" +
+                (rows.count { it.dirty }.takeIf { it > 0 }?.let { " · $it unread" } ?: "")
         }
         return Chrome.State(
             windowName = name,
@@ -930,13 +1068,10 @@ class Shell(
 
     @Volatile var phoneBattery: Chrome.Battery? = null
 
-    private val pendingSubmits = java.util.concurrent.atomic.AtomicInteger(0)
-
     /** True when nothing is pending anywhere — test/selfcheck introspection. */
     fun isQuiescent(): Boolean =
-        queued.get() == 0 && pendingSubmits.get() == 0 &&
-            !comp.hasPending && !comp.needsKeyframe && inflightFlushes.isEmpty() &&
-            earlyDone.isEmpty() && !notifications.animating &&
+        queued.get() == 0 && !comp.hasPending && !comp.needsKeyframe &&
+            inflightFlushes.isEmpty() && !notifications.animating &&
             slides.none { it.active } && !switcher.spinning
 
     // ------------------------------------------------------------------ misc
@@ -956,6 +1091,9 @@ class Shell(
         persistence.put("shell.settings", settings.toJson())
         persistence.put("shell.state", buildJsonObject {
             put("current", current?.id ?: "")
+            put("mode", mode.name)
+            put("mainCursor", main.model.cursor.toString())
+            put("notices", saveNotices())
         })
         for (w in windows) {
             try {
@@ -965,6 +1103,43 @@ class Shell(
             }
         }
         persistence.save()
+    }
+
+    /** Unread notifications the user could still see must survive a restart
+     *  (§9.1) — current box first, then the queue. */
+    private fun saveNotices(): JsonArray = buildJsonArray {
+        val all = ArrayList<Notifications.Notice>()
+        notifications.current?.let { all.add(it) }
+        all.addAll(notifications.queued())
+        for (n in all) add(buildJsonObject {
+            put("source", n.source)
+            put("thread", n.thread)
+            put("body", n.body)
+            put("time", n.timeHHMM)
+            put("emergency", n.emergency)
+            put("appId", n.appId ?: "")
+            put("read", n.read)
+        })
+    }
+
+    private fun restoreNotices(shellState: JsonObject?) {
+        val arr = shellState?.get("notices") as? JsonArray ?: return
+        for (e in arr) {
+            try {
+                val o = e.jsonObject
+                if (o["read"]?.jsonPrimitive?.booleanOrNull == true) continue
+                notifications.enqueueRestored(Notifications.Notice(
+                    source = o["source"]?.jsonPrimitive?.contentOrNull ?: continue,
+                    thread = o["thread"]?.jsonPrimitive?.contentOrNull ?: "",
+                    body = o["body"]?.jsonPrimitive?.contentOrNull ?: "",
+                    timeHHMM = o["time"]?.jsonPrimitive?.contentOrNull ?: "",
+                    emergency = o["emergency"]?.jsonPrimitive?.booleanOrNull ?: false,
+                    appId = o["appId"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() },
+                ))
+            } catch (ex: Exception) {
+                Log.w("shell", "unreadable persisted notice skipped: ${ex.message}")
+            }
+        }
     }
 
     companion object {

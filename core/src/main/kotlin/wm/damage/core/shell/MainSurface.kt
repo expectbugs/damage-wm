@@ -24,6 +24,8 @@ class MainSurface(
     private val text: TextRasterizer,
     private val windows: () -> List<DamageWindow>,
     private val onCommit: (DamageWindow) -> Unit,
+    /** §4.2 Settings "Presence": 0 = rows away entirely at rest, 1 = dim names. */
+    private val presence: () -> Int = { 1 },
 ) {
     val model = ListModel()
     var resting = false
@@ -45,8 +47,9 @@ class MainSurface(
     private fun paintRow(g: Gray8, index: Int, r: Rect, dim: Boolean) {
         val w = windows().getOrNull(index) ?: return
         if (dim && resting) {
-            // resting: dim names only, no icons, no summaries (§4.2)
-            draw(g, r.x + 40, r.y + 7, w.name.uppercase(), Level.REST, fSmall)
+            // resting (§4.2): presence 1 keeps dim names; presence 0 drops the
+            // rows entirely — the ink-floor knob actually doing something
+            if (presence() >= 1) draw(g, r.x + 40, r.y + 7, w.name.uppercase(), Level.REST, fSmall)
             return
         }
         Icons.draw(g, r.x + 12, r.y + 6, 20, 20, w.icon, Level.DIM)
@@ -66,11 +69,22 @@ class MainSurface(
         val s = w.summary()
         Icons.draw(g, r.x + 12, r.y + 10, 24, 24, w.icon, Level.HEAD)
         draw(g, r.x + 44, r.y + 8, w.name.uppercase(), Level.HEAD, fRowB)
-        // right-aligned first line, full-width second line — the two 32 px lines
+        // right-aligned first line, bounded so it can never overrun the name
+        // (an unbounded draw was a silent-overlap finding); overflow gets the
+        // drawn mark — the lens is the reveal, the mark says "more exists"
+        val nameEnd = r.x + 44 + text.measure(w.name.uppercase(), fRowB) + 16
+        val l1Max = r.right - 16 - nameEnd
         val l1 = s.line
-        drawRight(g, r.right - 16, r.y + 8, l1, Level.BODY, fRow)
+        if (text.measure(l1, fRow) <= l1Max) {
+            drawRight(g, r.right - 16, r.y + 8, l1, Level.BODY, fRow)
+        } else {
+            drawFit(g, nameEnd, r.y + 8, l1, Level.BODY, fRow, l1Max - 16)
+            Icons.tri(g, r.right - 14, r.y + 13, 11, Level.DIM)
+        }
         if (s.detail.isNotEmpty()) {
-            drawFit(g, r.x + 44, r.y + 34, s.detail, Level.BODY, fRow, r.right - 60 - (if (s.progress != null) 200 else 0))
+            val dMax = r.right - 60 - (if (s.progress != null) 200 else 0)
+            drawFit(g, r.x + 44, r.y + 34, s.detail, Level.BODY, fRow, dMax)
+            if (text.measure(s.detail, fRow) > dMax) Icons.tri(g, r.x + 44 + dMax + 4, r.y + 39, 11, Level.DIM)
         }
         if (s.progress != null) Icons.blocks(g, r.right - 212, r.y + 40, 196, 8, s.progress)
     }

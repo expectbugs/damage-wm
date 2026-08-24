@@ -6,7 +6,6 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -33,9 +32,11 @@ import wm.damage.core.util.Log
  * Alegreya per the locked §Type table, endless scroll) -> actions (list, the
  * §4.6 wrap-to-end pattern: tap in the document descends to actions).
  *
- * Persistence stores the reading position as a CHARACTER OFFSET, not a line
- * number, so it survives font-scale and width changes (§9.1: restore everything
- * the user could see or was doing — mode included).
+ * Threading: IO/layout work runs on [bg]; every STATE MUTATION it produces is
+ * applied through [ShellServices.runOnShell], so the loop never observes a torn
+ * book/topLine/level combination (review round 1). Reading positions are
+ * per-book CHARACTER offsets — monotonic by construction, so restore lands on
+ * the right line — and survive book switches, font rescales and restarts (§9.1).
  */
 class ReaderWindow(
     private val text: TextRasterizer,
@@ -53,12 +54,12 @@ class ReaderWindow(
     private var library: List<BookMeta> = emptyList()
     private var libraryState = "loading"
     private var book: Loaded? = null
-    /** Reading position per book id, as CHARACTER offsets — remembered across
-     *  book switches and restarts alike (§9.1). */
+    /** Reading position per book id, as CHARACTER offsets (§9.1). */
     private val offsets = HashMap<String, Int>()
     private var bookmarkOffset = -1
     private var openingId: String? = null
     private var services: ShellServices? = null
+    private var wrappedWidth = 0
 
     /** Reader content face: Alegreya (locked). Line height 24 px — even (§2.4 r7). */
     private val fBody = FontSpec(Face.READER, 17)
@@ -72,31 +73,39 @@ class ReaderWindow(
         val book: Epub.Book,
         val lines: List<Line>,
         val linesPerPage: Int,
+        val width: Int,
     ) {
         data class Line(val text: String, val offset: Int, val heading: Boolean)
 
         val pages: Int get() = maxOf(1, (lines.size + linesPerPage - 1) / linesPerPage)
-        fun pageOf(line: Int): Int = line / linesPerPage + 1
+        fun pageOf(line: Int): Int = line.coerceIn(0, lines.size - 1) / linesPerPage + 1
         fun lineAtOffset(off: Int): Int {
-            val i = lines.binarySearch { it.offset.compareTo(off) }
-            return if (i >= 0) i else (-i - 2).coerceIn(0, lines.size - 1)
+            // offsets are monotonic non-decreasing by construction (layoutBook)
+            var lo = 0
+            var hi = lines.size - 1
+            while (lo < hi) {
+                val mid = (lo + hi + 1) / 2
+                if (lines[mid].offset <= off) lo = mid else hi = mid - 1
+            }
+            return lo
         }
     }
 
     // ------------------------------------------------------------------ contract
     override fun view(): WindowView = when (level) {
-        Level_.LIBRARY -> WindowView.ListView(libModel, { libraryRows().size },
-            ::paintLibRow, ::paintLibLens, ::commitLibrary)
+        Level_.LIBRARY -> libView()
         Level_.BOOK -> {
             val b = book
-            if (b == null) {
-                WindowView.ListView(libModel, { libraryRows().size }, ::paintLibRow, ::paintLibLens, ::commitLibrary)
-            } else WindowView.DocView(docModel, { b.lines.size }, lineH,
+            if (b == null) libView()
+            else WindowView.DocView(docModel, { b.lines.size }, lineH,
                 { g, i, r -> paintBookLine(g, b, i, r) }, { level = Level_.ACTIONS })
         }
         Level_.ACTIONS -> WindowView.ListView(actModel, { actions().size },
             ::paintActRow, ::paintActLens, ::commitAction)
     }
+
+    private fun libView() = WindowView.ListView(libModel, { library.size },
+        ::paintLibRow, ::paintLibLens, ::commitLibrary)
 
     override fun title(): String = when (level) {
         Level_.LIBRARY -> "library"
@@ -117,7 +126,7 @@ class ReaderWindow(
         return Summary(
             "${b.meta.title} · p.$page/${b.pages} · ${(pct * 100).toInt()}%",
             detail = if (b.book.author.isEmpty()) b.meta.title else b.book.author,
-            progress = pct,
+            progress = pct.coerceIn(0.0, 1.0),
         )
     }
 
@@ -134,12 +143,21 @@ class ReaderWindow(
             level = Level_.LIBRARY
             true
         }
-        Level_.LIBRARY -> false
+        Level_.LIBRARY -> {
+            // backing out of the library also cancels an in-flight open: the
+            // completion must not yank the user back into a book they left
+            openingId = null
+            false
+        }
     }
 
     private fun rememberPosition() {
         val b = book ?: return
         offsets[b.meta.id] = b.lines[docModel.topLine.coerceIn(0, b.lines.size - 1)].offset
+    }
+
+    override fun onRegistered(ctx: ShellServices) {
+        services = ctx
     }
 
     override fun onActivate(ctx: ShellServices) {
@@ -148,63 +166,81 @@ class ReaderWindow(
     }
 
     override fun onFontScaleChanged(scale: Double) {
-        // Re-wrap the open book at the new scale, preserving the reading
-        // position by character offset — clipped overlong lines would violate
-        // NO TRUNCATION otherwise.
+        relayoutOpenBook()
+    }
+
+    override fun onLayoutChanged() {
+        // safe rect / height mode changed: the wrap width changed with it —
+        // stale wraps would overrun the line rects (NO TRUNCATION, §2.2b)
+        val b = book ?: return
+        if (services?.docContentWidth() != b.width) relayoutOpenBook()
+    }
+
+    private fun relayoutOpenBook() {
         val b = book ?: return
         rememberPosition()
-        val keep = b.lines[docModel.topLine.coerceIn(0, b.lines.size - 1)].offset
+        val keep = offsets[b.meta.id] ?: 0
         bg.launch(Dispatchers.IO) {
             try {
                 val re = layoutBook(b.meta, b.book)
-                book = re
-                docModel.topLine = re.lineAtOffset(keep)
+                services?.runOnShell {
+                    book = re
+                    docModel.topLine = re.lineAtOffset(keep)
+                    services?.requestRender(this@ReaderWindow)
+                }
             } catch (e: Exception) {
-                Log.e("reader", "re-layout after font change failed", e)
+                Log.e("reader", "re-layout failed", e)
             }
-            services?.requestRender(this@ReaderWindow)
         }
     }
 
     // ------------------------------------------------------------------ library
-    private fun libraryRows(): List<BookMeta> = library
-
     private fun refreshLibrary() {
         libraryState = "loading"
         bg.launch(Dispatchers.IO) {
+            var lib: List<BookMeta> = emptyList()
+            var state: String
             try {
-                val lib = content.library()
-                library = lib
-                libraryState = if (lib.isEmpty()) "no books found" else "ok"
+                lib = content.library()
+                state = if (lib.isEmpty()) "no books found" else "ok"
             } catch (e: Exception) {
                 Log.e("reader", "library scan failed", e)
-                libraryState = "library error: ${e.message}"
+                state = "library error: ${e.message}"
             }
-            services?.requestRender(this@ReaderWindow)
+            services?.runOnShell {
+                library = lib
+                libraryState = state
+                services?.requestRender(this@ReaderWindow)
+            }
         }
     }
 
     private fun paintLibRow(g: Gray8, i: Int, r: Rect, dim: Boolean) {
         val b = library.getOrNull(i) ?: return
-        drawFit(g, r.x + 32, r.y + 5, b.title, Level.BODY, fRow, r.w - 200)
-        val kb = "${b.bytes / 1024}K"
-        drawRight(g, r.right - 24, r.y + 8, kb, Level.DIM, fSmall)
-        if (text.measure(b.title, fRow) > r.w - 200) Icons.tri(g, r.right - 12, r.y + 11, 11, Level.DIM)
+        val maxW = r.w - 200
+        drawFit(g, r.x + 32, r.y + 5, b.title, Level.BODY, fRow, maxW)
+        drawRight(g, r.right - 24, r.y + 8, "${b.bytes / 1024}K", Level.DIM, fSmall)
+        if (text.measure(b.title, fRow) > maxW) Icons.tri(g, r.right - 12, r.y + 11, 11, Level.DIM)
     }
 
     private fun paintLibLens(g: Gray8, r: Rect, i: Int) {
         val b = library.getOrNull(i) ?: return
         Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.READER, Level.HEAD)
-        drawFit(g, r.x + 44, r.y + 6, b.title, Level.HEAD, FontSpec(Face.SYSTEM, 18, bold = true), r.w - 60)
+        val fB = FontSpec(Face.SYSTEM, 18, bold = true)
+        val titleMax = r.w - 60
+        drawFit(g, r.x + 44, r.y + 6, b.title, Level.HEAD, fB, titleMax)
+        if (text.measure(b.title, fB) > titleMax) Icons.tri(g, r.right - 12, r.y + 11, 11, Level.DIM)
         val sub = listOf(b.author, "${b.bytes / 1024} KB")
             .filter { it.isNotEmpty() }.joinToString(" · ")
-        drawFit(g, r.x + 44, r.y + 34, if (openingId == b.id) "opening..." else sub, Level.BODY, fRow, r.w - 60)
+        val line2 = if (openingId == b.id) "opening..." else sub
+        drawFit(g, r.x + 44, r.y + 34, line2, Level.BODY, fRow, r.w - 60)
     }
 
     private fun commitLibrary(i: Int) {
         val meta = library.getOrNull(i) ?: return
         if (openingId != null) return
         openingId = meta.id
+        rememberPosition()
         services?.setOperation("fetching book")
         bg.launch(Dispatchers.IO) {
             try {
@@ -212,39 +248,50 @@ class ReaderWindow(
                 val path = content.openBook(meta.id)
                 services?.setOperation("laying out")
                 val loaded = layoutBook(meta, Epub.load(path))
-                rememberPosition()               // the book being left, if any
-                book = loaded
-                docModel.topLine = loaded.lineAtOffset(offsets[meta.id] ?: 0)
-                level = Level_.BOOK
-                services?.setOperation("reading")
+                services?.runOnShell {
+                    if (openingId != meta.id) return@runOnShell   // user backed out — cancelled
+                    openingId = null
+                    book = loaded
+                    docModel.topLine = loaded.lineAtOffset(offsets[meta.id] ?: 0)
+                    level = Level_.BOOK
+                    services?.setOperation("reading")
+                    services?.requestRender(this@ReaderWindow)
+                }
             } catch (e: Exception) {
                 Log.e("reader", "open ${meta.title} failed", e)
                 services?.notifyInternal("reader", "could not open ${meta.title}: ${e.message}")
-                services?.setOperation("idle")
-            } finally {
-                openingId = null
-                services?.requestRender(this@ReaderWindow)
+                services?.runOnShell {
+                    if (openingId == meta.id) openingId = null
+                    services?.setOperation("idle")
+                    services?.requestRender(this@ReaderWindow)
+                }
             }
         }
     }
 
-    /** Wrap the whole book once per (width, scale) — a few seconds for a long
-     *  novel, done off the shell loop with the op cell narrating. */
+    /**
+     * Wrap the whole book once per (width, scale) — off the shell loop, with
+     * the op cell narrating. Line offsets advance CUMULATIVELY so they are
+     * monotonic (binary-search-safe); an indexOf-based mapping drifted on
+     * repeated prefixes (review round 1).
+     */
     private fun layoutBook(meta: BookMeta, b: Epub.Book): Loaded {
-        val width = 640 - 2 * 16 - 12 - 32     // content minus rail minus margins
+        val width = (services?.docContentWidth() ?: 560).coerceAtLeast(120)
         val lines = ArrayList<Loaded.Line>(b.text.length / 40)
-        var offset = 0
+        var paraStart = 0
         for (para in b.text.split("\n\n")) {
             val heading = para.length < 60 && para == para.uppercase() && para.any { it.isLetter() }
+            var consumed = 0
             for (l in Wrap.wrap(para, if (heading) fBodyB else fBody, text, width)) {
-                lines.add(Loaded.Line(l, offset + para.indexOf(l.take(12)).coerceAtLeast(0), heading))
+                lines.add(Loaded.Line(l, paraStart + consumed, heading))
+                consumed += l.length + 1          // the collapsed space/break
             }
-            lines.add(Loaded.Line("", offset + para.length, false))
-            offset += para.length + 2
+            lines.add(Loaded.Line("", paraStart + para.length, false))
+            paraStart += para.length + 2          // the "\n\n" separator
         }
         if (lines.isNotEmpty() && lines.last().text.isEmpty()) lines.removeAt(lines.size - 1)
         val perPage = maxOf(1, (416 - 32) / lineH)
-        return Loaded(meta, b, lines, perPage)
+        return Loaded(meta, b, lines, perPage, width)
     }
 
     private fun paintBookLine(g: Gray8, b: Loaded, i: Int, r: Rect) {
@@ -272,14 +319,14 @@ class ReaderWindow(
     private fun paintActRow(g: Gray8, i: Int, r: Rect, dim: Boolean) {
         val (name, detail) = actions()[i]
         text.draw(g, (r.x + 32) / 4 * 4, (r.y + 7) / 2 * 2, name, fSmall, Level.DIM)
-        text.draw(g, (r.x + 240) / 4 * 4, (r.y + 5) / 2 * 2, detail, fRow, Level.BODY)
+        drawFit(g, r.x + 240, r.y + 5, detail, Level.BODY, fRow, r.right - 24 - (r.x + 240))
     }
 
     private fun paintActLens(g: Gray8, r: Rect, i: Int) {
         val (name, detail) = actions()[i]
         Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.READER, Level.HEAD)
         text.draw(g, (r.x + 44) / 4 * 4, (r.y + 8) / 2 * 2, name, FontSpec(Face.SYSTEM, 18, bold = true), Level.HEAD)
-        text.draw(g, (r.x + 44) / 4 * 4, (r.y + 34) / 2 * 2, detail, fRow, Level.BODY)
+        drawFit(g, r.x + 44, r.y + 34, detail, Level.BODY, fRow, r.w - 60)
     }
 
     private fun commitAction(i: Int) {
@@ -302,7 +349,10 @@ class ReaderWindow(
                 if (bookmarkOffset >= 0) docModel.topLine = b.lineAtOffset(bookmarkOffset)
                 level = Level_.BOOK
             }
-            "Library" -> level = Level_.LIBRARY
+            "Library" -> {
+                rememberPosition()
+                level = Level_.LIBRARY
+            }
         }
     }
 
@@ -311,6 +361,7 @@ class ReaderWindow(
         rememberPosition()
         put("level", level.name)
         put("libCursor", libModel.cursor)
+        put("actCursor", actModel.cursor)
         put("bookId", book?.meta?.id ?: "")
         put("bookmark", bookmarkOffset)
         put("offsets", buildJsonObject { for ((k, v) in offsets) put(k, v) })
@@ -318,24 +369,38 @@ class ReaderWindow(
 
     override fun restoreState(state: JsonObject) {
         libModel.cursor = state["libCursor"]?.jsonPrimitive?.intOrNull ?: 0
+        actModel.cursor = state["actCursor"]?.jsonPrimitive?.intOrNull ?: 0
         bookmarkOffset = state["bookmark"]?.jsonPrimitive?.intOrNull ?: -1
         (state["offsets"] as? JsonObject)?.let { o ->
             for ((k, v) in o) v.jsonPrimitive.intOrNull?.let { offsets[k] = it }
         }
         val id = state["bookId"]?.jsonPrimitive?.contentOrNull
         val lvl = state["level"]?.jsonPrimitive?.contentOrNull
-        // Restoring MODE, not just position (§9.1): reopen the book we were in.
+        // Restoring MODE, not just position (§9.1): reopen the book we were in,
+        // at the exact LEVEL we were in (ACTIONS included — losing the level is
+        // the Tmux failure class §9.1 #1 names).
         if (!id.isNullOrEmpty() && (lvl == "BOOK" || lvl == "ACTIONS")) {
             bg.launch(Dispatchers.IO) {
                 try {
-                    val meta = content.library().firstOrNull { it.id == id } ?: return@launch
-                    library = content.library()
-                    libraryState = "ok"
+                    val lib = content.library()
+                    val meta = lib.firstOrNull { it.id == id } ?: return@launch
                     val loaded = layoutBook(meta, Epub.load(content.openBook(id)))
-                    book = loaded
-                    docModel.topLine = loaded.lineAtOffset(offsets[id] ?: 0)
-                    level = Level_.BOOK
-                    services?.requestRender(this@ReaderWindow)
+                    services?.runOnShell {
+                        library = lib
+                        libraryState = "ok"
+                        book = loaded
+                        docModel.topLine = loaded.lineAtOffset(offsets[id] ?: 0)
+                        level = if (lvl == "ACTIONS") Level_.ACTIONS else Level_.BOOK
+                        services?.requestRender(this@ReaderWindow)
+                    } ?: run {
+                        // services not attached yet (restore precedes activation):
+                        // apply directly — the shell loop has not started reading
+                        library = lib
+                        libraryState = "ok"
+                        book = loaded
+                        docModel.topLine = loaded.lineAtOffset(offsets[id] ?: 0)
+                        level = if (lvl == "ACTIONS") Level_.ACTIONS else Level_.BOOK
+                    }
                 } catch (e: Exception) {
                     Log.e("reader", "restore of book $id failed — starting at the library", e)
                 }

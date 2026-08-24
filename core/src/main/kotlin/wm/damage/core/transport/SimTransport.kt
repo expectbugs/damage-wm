@@ -58,10 +58,10 @@ class SimTransport(
         sim.write(simArm(arm), packet, clock())
     }
 
-    /** Model the ack round trip after each image completes, then surface the
-     *  sim's sticky diagnostic flags — programmatic access the hardware only
-     *  offers visually (mode-7 overlay) or via the untested logger sid. */
-    override suspend fun afterImageDelivered() {
+    /** Model the ack round trip per image message, then surface the sim's
+     *  sticky diagnostic flags — programmatic access the hardware only offers
+     *  visually (mode-7 overlay) or via the untested logger sid. */
+    override suspend fun onImageDelivered() {
         if (!timing.instant) delay(timing.ackMs)
         val l = sim.flags(GlassFirmwareSim.Arm.LEFT)
         val r = sim.flags(GlassFirmwareSim.Arm.RIGHT)

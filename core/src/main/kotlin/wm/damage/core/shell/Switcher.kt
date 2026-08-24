@@ -56,8 +56,15 @@ class Switcher(private val text: TextRasterizer) {
         for (w in recency) if (w !== current) list.add(Entry(w, w.name, w.icon, w.dirty))
         entries = list
         origin = current
-        // cursor starts on the most recent INACTIVE window when one exists (§1.3)
-        cursor = if (list.size > 2) 2 else list.size - 1
+        // cursor starts on the most recent INACTIVE window when one exists
+        // (§1.3: long-press then tap = ALT+TAB). With no current window (opened
+        // from MAIN) the most recent inactive sits at index 1, not 2 — review
+        // round 1 caught the fixed offset landing on the SECOND-most-recent.
+        cursor = when {
+            current != null && list.size > 2 -> 2
+            current == null && list.size > 1 -> 1
+            else -> list.size - 1
+        }
         spinPos = cursor.toDouble()
         spinFrom = spinPos
         spinFrame = 4
@@ -125,14 +132,20 @@ class Switcher(private val text: TextRasterizer) {
 
         // above neighbour: half height, dim
         if (n > 1) paintSmall(g, p, entryAt(-1), p.y + 4, dimLv)
-        // centre: full size, full brightness, plane 0
+        // centre: full size, full brightness, plane 0. Names must stay inside
+        // the fixed panel rect — pixels past it would sit outside the damage
+        // rect (silent divergence); overflow gets the drawn continuation mark
+        // (marquee is the §4.3 upgrade path).
         val ce = entryAt(if (frac > 0.5) 1 else 0)
         val iconY = bandTop + 4
         Icons.draw(g, p.x + (p.w - 56) / 2, iconY, 56, 56, ce.icon, Level.HEAD)
-        val tw = text.measure(ce.name, fBig)
+        val maxW = p.w - 32
+        val name = fitText(ce.name, fBig, maxW)
+        val tw = text.measure(name, fBig)
         val lx = p.x + (p.w - tw) / 2
-        text.draw(g, lx / 4 * 4, (iconY + 60) / 2 * 2, ce.name, fBig, Level.HOT)
-        if (ce.dirty) g.fillRect(lx + tw + 8, iconY + 66, 4, 10, Level.HOT)
+        text.draw(g, lx / 4 * 4, (iconY + 60) / 2 * 2, name, fBig, Level.HOT)
+        if (name != ce.name) Icons.tri(g, p.right - 14, iconY + 64, 11, Level.DIM)
+        if (ce.dirty) g.fillRect((lx + tw + 8).coerceAtMost(p.right - 8), iconY + 66, 4, 10, Level.HOT)
         // below neighbour
         if (n > 2) paintSmall(g, p, entryAt(1), p.bottom - 24, dimLv)
         return p
@@ -140,7 +153,16 @@ class Switcher(private val text: TextRasterizer) {
 
     private fun paintSmall(g: Gray8, p: Rect, e: Entry, y: Int, lv: Int) {
         Icons.draw(g, p.x + 44, y / 2 * 2, 40, 20, e.icon, lv)
-        text.draw(g, (p.x + 96) / 4 * 4, y / 2 * 2, e.name, fBody, lv)
-        if (e.dirty) g.fillRect(p.x + 96 + text.measure(e.name, fBody) + 6, y + 4, 3, 8, lv)
+        val name = fitText(e.name, fBody, p.right - (p.x + 96) - 12)
+        text.draw(g, (p.x + 96) / 4 * 4, y / 2 * 2, name, fBody, lv)
+        if (e.dirty) g.fillRect((p.x + 96 + text.measure(name, fBody) + 6).coerceAtMost(p.right - 6),
+            y + 4, 3, 8, lv)
+    }
+
+    private fun fitText(s: String, f: wm.damage.core.text.FontSpec, maxW: Int): String {
+        if (text.measure(s, f) <= maxW) return s
+        var n = s.length
+        while (n > 0 && text.measure(s.take(n), f) > maxW) n--
+        return s.take(n)
     }
 }

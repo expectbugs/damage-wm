@@ -38,10 +38,18 @@ abstract class DamageWindow(val id: String, val name: String, val icon: IconKind
     abstract fun saveState(): JsonObject
     abstract fun restoreState(state: JsonObject)
 
+    /** Called once at shell start for EVERY registered window, before any
+     *  restore — the services handle for background completions. */
+    open fun onRegistered(ctx: ShellServices) {}
+
     /** Lifecycle. Preview is a RENDER, never an ACTIVATION (§4.3 rule 1):
      *  activate() runs ONLY on commit — never while the switcher previews. */
     open fun onActivate(ctx: ShellServices) {}
     open fun onDeactivate() {}
+
+    /** The shell layout changed (size mode / safe rect): re-derive any cached
+     *  wraps — stale widths would overrun line rects (§2.2b, NO TRUNCATION). */
+    open fun onLayoutChanged() {}
 
     /** Back one level inside the window; false = already at root (the shell
      *  then pops to Main). */
@@ -107,4 +115,14 @@ interface ShellServices {
     fun requestRender(window: DamageWindow)
     fun setOperation(op: String)
     fun notifyInternal(source: String, body: String, urgent: Boolean = false)
+
+    /** Run [action] ON THE SHELL LOOP. Background work (IO, layout) computes
+     *  off-loop, then applies its state mutations here — windows' view-facing
+     *  fields are read by the loop every frame, and mutating them from an IO
+     *  coroutine was review round 1's biggest reader race. */
+    fun runOnShell(action: () -> Unit)
+
+    /** The current document content width in px (safe-rect relative, §2.2b) —
+     *  windows must wrap against THIS, never a hardcoded 640-derived number. */
+    fun docContentWidth(): Int
 }
