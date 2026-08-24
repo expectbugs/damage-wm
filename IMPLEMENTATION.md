@@ -133,11 +133,11 @@ local shell yielding and resuming automatically.
   content-addressed at the emit boundary in spirit — adopting the cache is a
   transport-level change by design (§5.18).
 
-## Review hardening (rounds 2–5, 2026-08-24)
+## Review hardening (rounds 2–8, 2026-08-24)
 
-After the first build, five rounds of independent review (fresh reviewer
-agents per subsystem, every candidate verified by trace or pixel simulation
-before a fix) found and fixed ~50 real defects. The mechanisms that came out
+After the first build, seven rounds of independent review (fresh reviewer
+agents per subsystem, every candidate verified by trace, timing or pixel
+simulation before a fix) found and fixed ~70 real defects. The mechanisms that came out
 of them are load-bearing and easy to break by accident:
 
 - **Compositor per-lens model.** The compositor reasons per lens, not in
