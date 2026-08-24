@@ -116,11 +116,23 @@ class Chrome(private val text: TextRasterizer) {
      *  substitution is visible on the glass and logged once per string. */
     private fun dynamic(str: String, f: FontSpec): String {
         if (str.isEmpty() || text.covers(str, f)) return str
+        val bad = LinkedHashSet<String>()
         val fixed = buildString(str.length) {
-            for (c in str) append(if (text.covers(c.toString(), f)) c else '?')
+            var i = 0
+            while (i < str.length) {
+                // whole code points: a surrogate pair is one glyph, never two
+                val cp = str.codePointAt(i)
+                val s = String(Character.toChars(cp))
+                if (text.covers(s, f)) append(s) else { append('?'); bad.add(s) }
+                i += Character.charCount(cp)
+            }
         }
-        if (warned.add(str)) {
-            wm.damage.core.util.Log.w("chrome", "'$str' has glyphs the ${f.face} face cannot draw — shown as '$fixed'")
+        // dedupe on the OFFENDING characters, not the formatted string — a
+        // book title with one such glyph would otherwise log (and grow the
+        // set) on every page turn (round 5)
+        if (warned.add(bad.joinToString(""))) {
+            wm.damage.core.util.Log.w("chrome", "glyphs the ${f.face} face cannot draw: $bad — " +
+                "shown as '?' (first seen in '$str')")
         }
         return fixed
     }

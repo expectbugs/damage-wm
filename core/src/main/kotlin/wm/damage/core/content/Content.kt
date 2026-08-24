@@ -178,7 +178,8 @@ class ContentHostServer(
                             // cleanly in-band and keeps the session (round 4 #5)
                             val (stream, size) = try {
                                 val p = provider.openBook(get.id)
-                                Files.newInputStream(p) to Files.size(p)
+                                val size = Files.size(p)          // size BEFORE open: nothing to leak
+                                Files.newInputStream(p) to size
                             } catch (e: Exception) {
                                 Log.w("content-host", "get ${get.id} failed: ${e.message}")
                                 out.sendJson(json.encodeToString(ErrMsg.serializer(),
@@ -272,14 +273,21 @@ class RemoteContent(
             markOnline(attempt)
             return r
         } catch (e: HostRefused) {
-            offlineSince = 0
-            val banner = "PC refused"
-            refusedState = banner
-            onState(banner)
+            if (attempt >= lastSuccess.get()) {     // a stale refusal must not clobber a newer success
+                offlineSince = 0
+                val banner = "PC refused"
+                refusedState = banner
+                onState(banner)
+            }
             onNotice("PC refused the request: ${e.message}")
             throw e
         } catch (e: IOException) {
             markOffline(attempt)
+            throw e
+        } catch (e: Exception) {
+            // the host answered (a per-book error, a local cache failure after a
+            // complete exchange): it is reachable, say so (round 5 #5)
+            markOnline(attempt)
             throw e
         }
     }
@@ -415,15 +423,19 @@ class RemoteContent(
                     left -= n
                 }
             }
-            if (Files.size(tmp) != blob.len)
-                throw IllegalStateException("cached ${Files.size(tmp)} B, expected ${blob.len}")
-            val ext = extFromListing(id) ?: sniffExt(tmp)
+            val got = disk { Files.size(tmp) }
+            if (got != blob.len) throw IllegalStateException("cached $got B, expected ${blob.len}")
+            val ext = extFromListing(id) ?: disk { sniffExt(tmp) }
             val dest = cachePath(id, ext)
             disk { Files.move(tmp, dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING) }
             Log.i("content", "cached book $id (${blob.len} B, .$ext)")
             dest
         } finally {
-            Files.deleteIfExists(tmp)
+            try {
+                Files.deleteIfExists(tmp)
+            } catch (e: IOException) {
+                Log.w("content", "temp file $tmp not removed: ${e.message}")
+            }
         }
     }
 

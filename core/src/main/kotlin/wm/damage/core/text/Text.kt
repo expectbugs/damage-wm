@@ -62,12 +62,18 @@ enum class Face(val family: String, val role: String) {
  *  anything else is a drawn shape (icons, triangles, blocks). SYM001 at runtime. */
 object DrawnStrings {
     fun check(text: String, r: TextRasterizer, font: FontSpec) {
-        for (ch in text) {
-            val cp = ch.code
+        var i = 0
+        while (i < text.length) {
+            // whole code points: a surrogate pair is one glyph, and asking the
+            // rasterizer about a lone surrogate would refuse a glyph a face
+            // can actually draw (round 5)
+            val cp = text.codePointAt(i)
+            i += Character.charCount(cp)
             if (cp in 0x20..0x7E || cp in 0xA0..0xFF) continue
-            if (!r.covers(ch.toString(), font))
+            val s = String(Character.toChars(cp))
+            if (!r.covers(s, font))
                 throw LintError(
-                    "SYM001 '${ch}' U+%04X reached a text draw and ${font.face.family} cannot render it — ".format(cp) +
+                    "SYM001 '$s' U+%04X reached a text draw and ${font.face.family} cannot render it — ".format(cp) +
                         "draw it as a shape; only plain text goes through the font (DESIGN.md §Type)",
                 )
         }
