@@ -1,0 +1,11 @@
+#!/bin/bash
+# Damage launcher — builds once, then runs the fat jar directly (JDK 17 pin).
+set -e
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+JAR="$DIR/desktop/build/libs/damage.jar"
+JAVA=/opt/openjdk-bin-17.0.19_p10/bin/java
+if [ ! -f "$JAR" ] || [ -n "$DAMAGE_REBUILD" ]; then
+    echo "building damage.jar..."
+    (cd "$DIR" && ./gradlew :desktop:fatJar -q)
+fi
+exec "$JAVA" -jar "$JAR" "$@"

@@ -5,14 +5,17 @@ custom firmware (`g2flash`) that replaces the vendor's container model with dire
 access. The PC composes complete scenes with real fonts and arbitrary layout; the glasses are
 a dumb framebuffer.
 
-**Nothing is built yet.** This repository is the research, the shell design, and the tooling that
-came out of both — banked before implementation starts.
+**The first stage is built (2026-08-24)** — the Kotlin shell core, the byte-exact glass
+simulator, the desktop program and the phone APK, with Reader + Main as the first app layer.
+[`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run; the research and design below remain
+the ground truth it was built against. The real glasses stay on stock firmware until flash day.
 
 ## Start here
 
 | | |
 |---|---|
 | **[`REMINDER.md`](REMINDER.md)** | orientation — project state, what is next, and the first-light checklist |
+| [`IMPLEMENTATION.md`](IMPLEMENTATION.md) | the built first stage: modules, the transport seam, how to run and verify |
 | [`overview.md`](overview.md) | the research record: hardware facts, the CFW display-mode contract, measured numbers, the ecosystem, open unknowns |
 | [`CLAIMS.md`](CLAIMS.md) | every load-bearing claim graded *vendor-authoritative / measured / corroborated / inferred / single-source / unknown*, and what cannot be resolved before flashing |
 | [`CAPABILITIES.md`](CAPABILITIES.md) | what the hardware can actually do, graded |
