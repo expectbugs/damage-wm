@@ -1,7 +1,8 @@
 # Where we are, and what to do next
 
-**Updated 2026-08-18.** This is the orientation file. Read it first, then `overview.md` (facts),
-`CLAIMS.md` (how well we know them), `CLAUDE.md` (rules), `DESIGN.md` (the shell).
+**Updated 2026-08-24.** This is the orientation file. Read it first, then `overview.md` (facts),
+`CLAIMS.md` (how well we know them), `CLAUDE.md` (rules), `DESIGN.md` (the shell), and
+**`IMPLEMENTATION.md` (the first built stage — what runs today and how).**
 
 ---
 
@@ -19,26 +20,24 @@
 | **The build gate** | **`tools/lint.py` + `tools/geometry.py`** — 20 rules, `--selftest` passes, repo exits 0 |
 | **The renderer** | **`design/render_shots.py`** — every surface at true 1× 640×480, priced through the firmware's own RLE |
 
+## ✅ Built 2026-08-24 — the first stage runs (Adam's explicit go-ahead)
+
+Open items 11–12 are DECIDED AND CODED: **Kotlin/JVM** shell (one `:core` for desktop + APK) and
+the transport↔shell seam as a protocol (in-process, and serialized over TCP with single-driver
+takeover). What exists: the shell core + compositor, the **byte-exact glass simulator**, the
+desktop program (1x preview, selfcheck, snapshots, content host), the **phone APK** (on-screen
+shell, copy-on-open book caching, PC-takeover seam, **banked** BLE transport), and the Reader +
+Main app layer. Everything targets the CFW contract; the real glasses remain untouched on 2.2.2.20.
+See `IMPLEMENTATION.md`. The repo is under git.
+
 ## 🚀 Next
 
-Two candidates, and they are independent:
+**(a) The feature-creep scope explosion — for the APP layer.** The shell exists; Reader is its
+first tenant. Start from **`CAPABILITIES.md`** for what the hardware allows and **`DESIGN.md` §0 /
+§4.6** for what the shell provides and what is ruled out — then explosion → refinery →
+consistency → more windows.
 
-**(a) The feature-creep scope explosion — for the APP layer.** The shell is designed; what the windows
-actually *do* is not.
-
-**(b) The transport ↔ shell protocol and the runtime choice** (`DESIGN.md` §10.2, and open items 11–12 in §11). These are
-the two decisions that **cannot be refactored away later**, and everything else hangs off them. If
-implementation is anywhere on the horizon, do this first.
-
-On (a): Start from **`CAPABILITIES.md`** for what the hardware allows and
-**`DESIGN.md` §0 / §4.6** for what the shell already provides and what is ruled out.
-
-Then, per Adam's stated order: *explosion → heavy refinery → consistency passes → a final plan of
-the actual implementation → then, slowly, code.*
-
-⚠ **`/home/user/damagewm` is NOT a git repository.** ~5,100 lines of documentation and tooling with
-no version control, and "clean repo" is a step in the stated methodology that has not happened.
-Worth doing before the app-layer explosion multiplies the page count.
+**(b) First light** — flash day, then the checklist below against the real pair.
 
 ---
 
