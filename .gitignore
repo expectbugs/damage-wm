@@ -21,3 +21,10 @@ venv/
 # the only ground truth for stock firmware 2.2.2 (absent from the public archive), so they
 # are irreplaceable once the glasses are flashed. Back them up somewhere private.
 captures/
+
+# Gradle / build
+.gradle/
+build/
+*/build/
+local.properties
+damage-secrets.properties

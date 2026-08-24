@@ -1,0 +1,35 @@
+# Pinned to the exact versions G2CC builds with on this box (all cached in
+# ~/.gradle) — known-good with JDK 17 + Gradle 8.10.2 + /opt/android-sdk (35).
+[versions]
+agp = "8.7.2"
+kotlin = "2.0.21"
+coroutines = "1.9.0"
+serialization = "1.7.3"
+lifecycle = "2.8.7"
+activity = "1.9.3"
+core = "1.15.0"
+appcompat = "1.7.0"
+material = "1.12.0"
+nordic-ble = "2.7.5"
+junit = "4.13.2"
+
+[libraries]
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "core" }
+androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
+androidx-activity = { module = "androidx.activity:activity-ktx", version.ref = "activity" }
+androidx-lifecycle-service = { module = "androidx.lifecycle:lifecycle-service", version.ref = "lifecycle" }
+material = { module = "com.google.android.material:material", version.ref = "material" }
+# Nordic Android-BLE-Library — same driver G2CC ships on; the transport is banked
+# until flash day but is built against the library now.
+nordic-ble = { module = "no.nordicsemi.android:ble", version.ref = "nordic-ble" }
+nordic-ble-ktx = { module = "no.nordicsemi.android:ble-ktx", version.ref = "nordic-ble" }
+junit = { module = "junit:junit", version.ref = "junit" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+android-application = { id = "com.android.application", version.ref = "agp" }
