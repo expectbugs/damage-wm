@@ -4,7 +4,7 @@ package wm.damage.core.geom
  * Damage geometry and budget rules — the Kotlin twin of `tools/geometry.py`
  * (DESIGN.md §2.1, §8.2, §9.2b). Same rule IDs, same semantics: the Python file
  * gates the repo statically, this one gates the compositor at runtime on every
- * emit. `GeometryParityTest` pins both to the same fixture set so they cannot
+ * emit. `GeometryTest` pins both to the same fixture set so they cannot
  * drift apart silently.
  *
  * Every check exists because the hardware reports the failure as SILENCE: an

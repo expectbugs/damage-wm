@@ -1068,6 +1068,9 @@ class Shell(
 
     @Volatile var phoneBattery: Chrome.Battery? = null
 
+    /** The active window's id, or null at Main/silent — test introspection. */
+    fun currentWindowId(): String? = if (mode == Mode.WINDOW) current?.id else null
+
     /** True when nothing is pending anywhere — test/selfcheck introspection. */
     fun isQuiescent(): Boolean =
         queued.get() == 0 && !comp.hasPending && !comp.needsKeyframe &&

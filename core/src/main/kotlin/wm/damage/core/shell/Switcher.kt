@@ -61,10 +61,11 @@ class Switcher(private val text: TextRasterizer) {
         // from MAIN) the most recent inactive sits at index 1, not 2 — review
         // round 1 caught the fixed offset landing on the SECOND-most-recent.
         cursor = when {
-            current != null && list.size > 2 -> 2
-            current == null && list.size > 1 -> 1
-            else -> list.size - 1
-        }
+            current != null && list.size > 2 -> 2      // most recent inactive
+            current == null && list.size > 1 -> 1      // from MAIN: most recent
+            current != null -> 0                        // only Main to go to —
+            else -> 0                                   // landing on yourself is
+        }                                               // a dead commit
         spinPos = cursor.toDouble()
         spinFrom = spinPos
         spinFrame = 4

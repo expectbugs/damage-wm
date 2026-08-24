@@ -82,6 +82,7 @@ object Wrap {
         val out = ArrayList<String>()
         for (paragraph in text.split('\n')) {
             if (paragraph.isEmpty()) { out.add(""); continue }
+            val paraStart = out.size
             var line = StringBuilder()
             for (word in paragraph.split(' ')) {
                 var w = word
@@ -107,7 +108,9 @@ object Wrap {
                     if (w.isEmpty()) break
                 }
             }
-            out.add(line.toString())
+            // a hard-broken final word leaves `line` empty — adding it would
+            // fabricate a blank line the source does not contain
+            if (line.isNotEmpty() || out.size == paraStart) out.add(line.toString())
         }
         // trim the trailing empty line a final \n produces
         if (out.size > 1 && out.last().isEmpty() && text.endsWith('\n')) out.removeAt(out.size - 1)

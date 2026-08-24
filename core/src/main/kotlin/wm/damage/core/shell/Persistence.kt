@@ -12,7 +12,7 @@ import wm.damage.core.util.Log
  * Full persistence, WM-owned and enforced — DESIGN.md §9.1, Adam's strongest
  * stated requirement. Windows declare state blobs; the SHELL saves and restores
  * them — not per-app opt-in — and the store survives WM restart (disk-backed,
- * atomic replace). §9.1 #4's regression gate lives in ShellPersistenceTest:
+ * atomic replace). §9.1 #4's regression gate lives in ShellPersistenceGateTest:
  * switch away, switch back, assert the composed frame is byte-identical.
  */
 class Persistence(private val file: Path) {

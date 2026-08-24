@@ -10,7 +10,8 @@ package wm.damage.core.geom
  * Cell geometry is DESIGN.md §2.3, with the status bar rebalanced for the
  * compass tape per §4.5b: op 160 · status 132 · thru 128 · tape 100 · link 120.
  * Every x/w is a multiple of 4 and every y/h a multiple of 2 by construction —
- * `LayoutTest` asserts it for a sweep of safe rects, not just the default.
+ * `GeometryTest.layoutTilesAndAlignsAcrossSafeRects` asserts it for a sweep
+ * of safe rects, not just the default.
  */
 data class Layout(val safe: Rect = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H)) {
 
