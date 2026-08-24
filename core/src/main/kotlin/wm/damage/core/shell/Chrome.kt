@@ -107,6 +107,41 @@ class Chrome(private val text: TextRasterizer) {
         text.draw(g, Geometry.snapX(x), Geometry.snapY(y), str, f, lv)
     }
 
+    /** DYNAMIC strings — exception text, host banners, window titles, book
+     *  metadata — arrive from outside the locked glyph set. They are drawn
+     *  with every uncoverable character replaced by '?' rather than refused:
+     *  the SYM001 check throwing INSIDE chrome.sync would abort the pump
+     *  before any flush, and the error status that reports it is itself
+     *  chrome — a display that cannot paint its own error (round 4). The
+     *  substitution is visible on the glass and logged once per string. */
+    private fun dynamic(str: String, f: FontSpec): String {
+        if (str.isEmpty() || text.covers(str, f)) return str
+        val fixed = buildString(str.length) {
+            for (c in str) append(if (text.covers(c.toString(), f)) c else '?')
+        }
+        if (warned.add(str)) {
+            wm.damage.core.util.Log.w("chrome", "'$str' has glyphs the ${f.face} face cannot draw — shown as '$fixed'")
+        }
+        return fixed
+    }
+
+    private val warned = HashSet<String>()
+
+    /** Fit a dynamic string into [maxW] px starting at ([x],[y]); a cut gets
+     *  the drawn continuation mark at [triX] (§2.4 rule 3 — never a silent
+     *  clip at the panel edge). */
+    private fun drawFit(g: Gray8, x: Int, y: Int, maxW: Int, str: String, lv: Int, f: FontSpec, triX: Int) {
+        val s = dynamic(str, f)
+        if (text.measure(s, f) <= maxW) {
+            draw(g, x, y, s, lv, f)
+            return
+        }
+        var n = s.length
+        while (n > 0 && text.measure(s.take(n), f) > maxW) n--
+        draw(g, x, y, s.take(n), lv, f)
+        Icons.tri(g, triX, y + 5, 9, Level.REST)
+    }
+
     private fun drawRight(g: Gray8, xRight: Int, y: Int, str: String, lv: Int, f: FontSpec) {
         val w = text.measure(str, f)
         draw(g, xRight - w, y, str, lv, f)
@@ -117,10 +152,11 @@ class Chrome(private val text: TextRasterizer) {
         g.fillRect(l.titleCell, Level.BG)
         Icons.draw(g, l.titleCell.x + 8, l.titleCell.y + 6, 20, 20, s.windowIcon, Level.HEAD)
         val nx = l.titleCell.x + 36
-        draw(g, nx, l.titleCell.y + 6, s.windowName, Level.HEAD, fChromeB)
-        val nameW = text.measure(s.windowName, fChromeB)
+        val name = dynamic(s.windowName, fChromeB)
+        draw(g, nx, l.titleCell.y + 6, name, Level.HEAD, fChromeB)
+        val nameW = text.measure(name, fChromeB)
         if (s.context.isNotEmpty()) {
-            val ctx = "· ${s.context}"
+            val ctx = "· ${dynamic(s.context, fChrome)}"
             val cx = nx + nameW + 8
             val fit = ctx.length.downTo(1).firstOrNull { n ->
                 text.measure(ctx.take(n), fChrome) <= l.titleCell.right - 16 - cx
@@ -198,15 +234,7 @@ class Chrome(private val text: TextRasterizer) {
      *  would overrun the cell OUTSIDE its damage rect (silent divergence).
      *  Fit + the drawn continuation mark — the journal holds the full text. */
     private fun drawCellFit(g: Gray8, cell: Rect, txt: String, lv: Int, f: FontSpec) {
-        val maxW = cell.w - 16 - 12
-        if (text.measure(txt, f) <= maxW) {
-            draw(g, cell.x + 8, cell.y + 6, txt, lv, f)
-            return
-        }
-        var n = txt.length
-        while (n > 0 && text.measure(txt.take(n), f) > maxW) n--
-        draw(g, cell.x + 8, cell.y + 6, txt.take(n), lv, f)
-        Icons.tri(g, cell.right - 12, cell.y + 11, 9, Level.REST)
+        drawFit(g, cell.x + 8, cell.y + 6, cell.w - 16 - 12, txt, lv, f, cell.right - 12)
     }
 
     private fun paintThru(g: Gray8, l: Layout, s: State) {
@@ -252,7 +280,12 @@ class Chrome(private val text: TextRasterizer) {
         if (s.hostState.isEmpty()) {
             g.fillRect(l.linkCell.x + 6, l.linkCell.y + 12, 4, 4, Level.REST)  // healthy: one dim mark
         } else {
-            draw(g, l.linkCell.x + 6, l.linkCell.y + 6, s.hostState, Level.MID, fTel)
+            // the host banner shares the cell with the BLE bars (right 44 px)
+            // and the poor-signal dBm: fit into what is left, never overdraw
+            val right = if (poor) l.linkCell.right - 48 - text.measure("${s.linkDbm}", fTel) - 4
+                        else l.linkCell.right - 48
+            drawFit(g, l.linkCell.x + 6, l.linkCell.y + 6, right - 12 - (l.linkCell.x + 6),
+                s.hostState, Level.MID, fTel, right - 10)
         }
     }
 }

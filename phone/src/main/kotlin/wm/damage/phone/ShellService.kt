@@ -102,6 +102,7 @@ class ShellService : Service() {
         val rc = RemoteContent(
             prefs.host, prefs.contentPort, prefs.token, dataDir.resolve("bookcache"),
             onState = { st -> sh.hostState = st },
+            onNotice = { detail -> sh.services.notifyInternal("content", detail) },
         )
         sh.register(ReaderWindow(text, rc, scope))
         sh.onUrgent = { source, body -> urgentNotification(source, body) }

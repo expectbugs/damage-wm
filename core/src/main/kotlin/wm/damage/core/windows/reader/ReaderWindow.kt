@@ -74,6 +74,8 @@ class ReaderWindow(
         val lines: List<Line>,
         val linesPerPage: Int,
         val width: Int,
+        /** The font scale the wrap was measured at (round 4 #10). */
+        val scale: Double,
     ) {
         data class Line(val text: String, val offset: Int, val heading: Boolean)
 
@@ -168,7 +170,10 @@ class ReaderWindow(
         refreshLibrary()
     }
 
+    private var fontScale = 1.0
+
     override fun onFontScaleChanged(scale: Double) {
+        fontScale = scale
         relayoutOpenBook()
     }
 
@@ -177,6 +182,14 @@ class ReaderWindow(
         // stale wraps would overrun the line rects (NO TRUNCATION, §2.2b)
         val b = book ?: return
         if (services?.docContentWidth() != b.width) relayoutOpenBook()
+    }
+
+    /** A layout that just landed was measured for an older width or scale
+     *  (the setting moved while it was wrapping): re-wrap once more rather
+     *  than draw lines that overrun their rects (round 4 #10). */
+    private fun ensureCurrentLayout() {
+        val b = book ?: return
+        if (b.width != (services?.docContentWidth() ?: b.width) || b.scale != fontScale) relayoutOpenBook()
     }
 
     private var layoutGen = 0
@@ -197,6 +210,7 @@ class ReaderWindow(
                     if (book !== b || gen != layoutGen) return@runOnShell
                     book = re
                     docModel.topLine = re.lineAtOffset(keep)
+                    ensureCurrentLayout()
                     services?.requestRender(this@ReaderWindow)
                 }
             } catch (e: Exception) {
@@ -262,9 +276,11 @@ class ReaderWindow(
                 val loaded = layoutBook(meta, Epub.load(path))
                 services?.runOnShell {
                     if (openingId != meta.id) {
-                        // user backed out — cancelled; the op cell must not keep
-                        // narrating a load that no longer matters (round 3 R3)
-                        services?.setOperation("idle")
+                        // user backed out — cancelled. The op cell must not keep
+                        // narrating a load that no longer matters (round 3 R3),
+                        // but only if nothing NEWER is loading or reading
+                        // (round 4 #9)
+                        if (openingId == null && level == Level_.LIBRARY) services?.setOperation("idle")
                         return@runOnShell
                     }
                     openingId = null
@@ -272,19 +288,26 @@ class ReaderWindow(
                     docModel.topLine = loaded.lineAtOffset(offsets[meta.id] ?: 0)
                     level = Level_.BOOK
                     services?.setOperation("reading")
+                    ensureCurrentLayout()
                     services?.requestRender(this@ReaderWindow)
                 }
             } catch (e: Exception) {
                 Log.e("reader", "open ${meta.title} failed", e)
-                // a cached copy that will not open is dropped so the next
-                // attempt refetches (round 3 R5); a no-op for local files
-                try { content.invalidate(meta.id) } catch (i: Exception) {
-                    Log.w("reader", "cache invalidate failed: ${i.message}")
+                // a cached copy whose BYTES cannot be read (a cut or damaged
+                // file) is dropped so the next attempt refetches (round 3 R5);
+                // a deterministic parse failure is kept — refetching the same
+                // bytes cannot change the outcome (round 4 #2)
+                if (e is java.io.IOException) {
+                    try { content.invalidate(meta.id) } catch (i: Exception) {
+                        Log.w("reader", "cache invalidate failed: ${i.message}")
+                    }
                 }
-                services?.notifyInternal("reader", "could not open ${meta.title}: ${e.message}")
                 services?.runOnShell {
-                    if (openingId == meta.id) openingId = null
-                    services?.setOperation("idle")
+                    if (openingId == meta.id) {
+                        openingId = null
+                        services?.setOperation("idle")
+                        services?.notifyInternal("reader", "could not open ${meta.title}: ${e.message}")
+                    }   // else: the user already abandoned this open — logged above
                     services?.requestRender(this@ReaderWindow)
                 }
             }
@@ -299,6 +322,7 @@ class ReaderWindow(
      */
     private fun layoutBook(meta: BookMeta, b: Epub.Book): Loaded {
         val width = (services?.docContentWidth() ?: 560).coerceAtLeast(120)
+        val scale = fontScale
         val lines = ArrayList<Loaded.Line>(b.text.length / 40)
         var paraStart = 0
         for (para in b.text.split("\n\n")) {
@@ -320,7 +344,7 @@ class ReaderWindow(
         }
         if (lines.isNotEmpty() && lines.last().text.isEmpty()) lines.removeAt(lines.size - 1)
         val perPage = maxOf(1, (416 - 32) / lineH)
-        return Loaded(meta, b, lines, perPage, width)
+        return Loaded(meta, b, lines, perPage, width, scale)
     }
 
     private fun paintBookLine(g: Gray8, b: Loaded, i: Int, r: Rect) {
@@ -413,7 +437,10 @@ class ReaderWindow(
             bg.launch(Dispatchers.IO) {
                 try {
                     val lib = content.library()
-                    val meta = lib.firstOrNull { it.id == id } ?: return@launch
+                    val meta = lib.firstOrNull { it.id == id } ?: run {
+                        Log.w("reader", "restore: book $id is no longer in the library — starting at the shelf")
+                        return@launch
+                    }
                     val loaded = layoutBook(meta, Epub.load(content.openBook(id)))
                     // apply-only-if-idle (#B8): a slow restore must never yank
                     // the user out of something they started doing meanwhile
@@ -427,6 +454,8 @@ class ReaderWindow(
                         book = loaded
                         docModel.topLine = loaded.lineAtOffset(offsets[id] ?: 0)
                         level = if (lvl == "ACTIONS") Level_.ACTIONS else Level_.BOOK
+                        services?.setOperation("reading")
+                        ensureCurrentLayout()
                     }
                     services?.runOnShell {
                         apply()

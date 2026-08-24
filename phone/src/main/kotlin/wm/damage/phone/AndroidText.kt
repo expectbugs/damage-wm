@@ -24,8 +24,10 @@ class AndroidText(
     private val contentScaleProvider: () -> Double = { 1.0 },
 ) : TextRasterizer {
 
-    private val faces = HashMap<Pair<Face, Boolean>, Typeface>()
-    private val scale = HashMap<Face, Double>()
+    // concurrent: the reader lays books out on an IO thread while the shell
+    // loop draws chrome (round 4 — two threads inserting the same new key)
+    private val faces = java.util.concurrent.ConcurrentHashMap<Pair<Face, Boolean>, Typeface>()
+    private val scale = java.util.concurrent.ConcurrentHashMap<Face, Double>()
 
     init {
         val am = context.assets
@@ -62,7 +64,7 @@ class AndroidText(
         return bounds.height() / 100.0
     }
 
-    private val paintsFull = HashMap<FontSpec, Paint>()
+    private val paintsFull = java.util.concurrent.ConcurrentHashMap<FontSpec, Paint>()
 
     private fun paint(spec: FontSpec): Paint {
         val contentScale = if (spec.face == Face.SYSTEM) 1.0 else contentScaleProvider()

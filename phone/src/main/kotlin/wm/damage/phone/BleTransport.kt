@@ -16,6 +16,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import no.nordicsemi.android.ble.BleManager
 import no.nordicsemi.android.ble.ktx.suspend
+import no.nordicsemi.android.ble.observer.ConnectionObserver
 import wm.damage.core.transport.CfwTransportBase
 import wm.damage.core.util.Log
 
@@ -53,6 +54,25 @@ class BleTransport(
     private inner class ArmManager(private val arm: Arm) : BleManager(context) {
         var write: BluetoothGattCharacteristic? = null
         var notify: BluetoothGattCharacteristic? = null
+
+        init {
+            // An UNEXPECTED disconnect (link loss, the peer ending it, a
+            // supervision timeout) must sweep the session: every in-flight ack
+            // is lost, the window permits would stay taken and the next start
+            // would park forever (review round 3 D1). Our own disconnectLink()
+            // runs after running=false and is not a link-down.
+            setConnectionObserver(object : ConnectionObserver {
+                override fun onDeviceConnecting(device: BluetoothDevice) {}
+                override fun onDeviceConnected(device: BluetoothDevice) {}
+                override fun onDeviceFailedToConnect(device: BluetoothDevice, reason: Int) {}
+                override fun onDeviceReady(device: BluetoothDevice) {}
+                override fun onDeviceDisconnecting(device: BluetoothDevice) {}
+                override fun onDeviceDisconnected(device: BluetoothDevice, reason: Int) {
+                    if (!running) return
+                    onLinkDown("$arm disconnected: ${reasonName(reason)}")
+                }
+            })
+        }
 
         override fun isRequiredServiceSupported(gatt: BluetoothGatt): Boolean {
             val svc = gatt.getService(serviceUuid) ?: return false
@@ -96,6 +116,17 @@ class BleTransport(
     }
 
     private val managers = mapOf(Arm.LEFT to ArmManager(Arm.LEFT), Arm.RIGHT to ArmManager(Arm.RIGHT))
+
+    private fun reasonName(reason: Int): String = when (reason) {
+        ConnectionObserver.REASON_SUCCESS -> "clean"
+        ConnectionObserver.REASON_TERMINATE_LOCAL_HOST -> "terminated by phone"
+        ConnectionObserver.REASON_TERMINATE_PEER_USER -> "terminated by glasses"
+        ConnectionObserver.REASON_LINK_LOSS -> "link loss"
+        ConnectionObserver.REASON_NOT_SUPPORTED -> "not supported"
+        ConnectionObserver.REASON_CANCELLED -> "cancelled"
+        ConnectionObserver.REASON_TIMEOUT -> "supervision timeout"
+        else -> "reason $reason"
+    }
 
     override suspend fun connectLink() {
         val (left, right) = scanForPair()

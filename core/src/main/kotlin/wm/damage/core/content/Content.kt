@@ -2,11 +2,13 @@ package wm.damage.core.content
 
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.io.IOException
 import java.net.ServerSocket
 import java.net.Socket
 import java.nio.file.Files
 import java.nio.file.Path
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import wm.damage.core.util.Log
@@ -41,9 +43,10 @@ interface ContentProvider {
     /** Human state for the status bar ("" = healthy). */
     fun state(): String
 
-    /** The local copy of [id] failed to open: forget it so the next open
-     *  fetches afresh (round 3 R5 — a single mis-sniffed cache entry must not
-     *  stay unopenable forever). No-op where there is no cache. */
+    /** The local copy of [id] could not be READ (a cut or damaged file):
+     *  forget it so the next open fetches afresh (round 3 R5). Callers pass
+     *  only failures a refetch can fix — a deterministic parse failure is
+     *  not one (round 4). No-op where there is no cache. */
     fun invalidate(id: String) {}
 }
 
@@ -170,23 +173,26 @@ class ContentHostServer(
                         }
                         "get" -> {
                             val get = json.decodeFromString(GetMsg.serializer(), line)
-                            // resolve AND size BEFORE the header goes out: a
-                            // stale-listing miss answers cleanly, keeps the session
-                            val (path, size) = try {
+                            // resolve, size AND open BEFORE the header goes out: a
+                            // stale-listing miss or an unreadable file answers
+                            // cleanly in-band and keeps the session (round 4 #5)
+                            val (stream, size) = try {
                                 val p = provider.openBook(get.id)
-                                p to Files.size(p)
+                                Files.newInputStream(p) to Files.size(p)
                             } catch (e: Exception) {
                                 Log.w("content-host", "get ${get.id} failed: ${e.message}")
                                 out.sendJson(json.encodeToString(ErrMsg.serializer(),
                                     ErrMsg(detail = "book ${get.id}: ${e.message}")))
                                 continue
                             }
-                            out.sendJson(json.encodeToString(BlobMsg.serializer(), BlobMsg(id = get.id, len = size)))
-                            // stream, never buffer. A MID-STREAM failure cannot be
-                            // answered in-band (the byte stream is committed) —
-                            // the throw closes the session, which the client sees
-                            // as a short read, loudly.
-                            Files.newInputStream(path).use { it.copyTo(out, 64 * 1024) }
+                            stream.use { s ->
+                                out.sendJson(json.encodeToString(BlobMsg.serializer(), BlobMsg(id = get.id, len = size)))
+                                // stream, never buffer. A MID-STREAM failure cannot
+                                // be answered in-band (the byte stream is committed)
+                                // — the throw closes the session, which the client
+                                // sees as a short read, loudly.
+                                s.copyTo(out, 64 * 1024)
+                            }
                             out.flush()
                         }
                         else -> {
@@ -215,83 +221,114 @@ class ContentHostServer(
  * The phone/remote side. library() prefers the live host and falls back to the
  * cached listing; openBook() copies the book into [cacheDir] the first time it
  * is opened, then always reads the local copy.
+ *
+ * Reachability is decided INSIDE [withHost] and nowhere else (round 4): a
+ * connect/stream failure marks the host gone, an in-band refusal marks it
+ * refusing, a success marks it back — and a failure from an OLDER attempt
+ * that lands after a newer success is ignored. Local disk failures are never
+ * the host's fault and never touch the banner.
  */
 class RemoteContent(
     private val host: String,
     private val port: Int,
     private val token: String,
     private val cacheDir: Path,
-    /** Called when host reachability changes, with a status-bar string. */
+    /** Called when host reachability changes, with a SHORT status-bar string
+     *  ("" healthy · "PC gone" / "PC 4m" · "PC refused"). */
     private val onState: (String) -> Unit = {},
+    /** Called with the human detail behind a state change — the notification
+     *  box has room for it, the link cell does not (round 4 #1). */
+    private val onNotice: (String) -> Unit = {},
 ) : ContentProvider {
     @Volatile private var offlineSince: Long = 0
-    /** Set when the host is REACHABLE but said no (bad token, wrong proto) —
-     *  which must never wear the "PC gone" costume (review round 2 #B7). */
+    /** Set when the host is REACHABLE but said no (bad token, wrong proto,
+     *  a scan failure on its side) — never the "PC gone" banner (#B7). */
     @Volatile private var refusedState: String? = null
+    private val attempts = AtomicLong(0)
+    /** The newest attempt that SUCCEEDED: an older attempt failing later must
+     *  not re-mark the host offline (round 4 #3). */
+    private val lastSuccess = AtomicLong(0)
     private val libCache: Path get() = cacheDir.resolve("library.json")
 
     /** The host answered with an in-band err frame: reachable, refusing. */
     private class HostRefused(detail: String) : IllegalStateException(detail)
 
+    /** A LOCAL disk failure inside a host exchange — not the host's fault, so
+     *  it must not be mistaken for an IOException from the link (round 4 #4). */
+    private class CacheWriteFailed(cause: IOException) :
+        IllegalStateException("cache write failed: ${cause.message}", cause)
+
+    private inline fun <T> disk(op: () -> T): T = try { op() } catch (e: IOException) { throw CacheWriteFailed(e) }
+
     private fun <T> withHost(block: (DataInputStream, DataOutputStream) -> T): T {
-        val sock = Socket(host, port)
-        return sock.use {
-            val inp = DataInputStream(it.getInputStream().buffered())
-            val out = DataOutputStream(it.getOutputStream().buffered())
-            out.sendJson(json.encodeToString(Hello.serializer(), Hello(token = token)))
-            val r = try {
+        val attempt = attempts.incrementAndGet()
+        try {
+            val r = Socket(host, port).use { sock ->
+                val inp = DataInputStream(sock.getInputStream().buffered())
+                val out = DataOutputStream(sock.getOutputStream().buffered())
+                out.sendJson(json.encodeToString(Hello.serializer(), Hello(token = token)))
                 block(inp, out)
-            } catch (e: HostRefused) {
-                offlineSince = 0
-                refusedState = "PC: ${e.message}"
-                onState(refusedState!!)
-                throw e
             }
-            markOnline()
-            r
+            markOnline(attempt)
+            return r
+        } catch (e: HostRefused) {
+            offlineSince = 0
+            val banner = "PC refused"
+            refusedState = banner
+            onState(banner)
+            onNotice("PC refused the request: ${e.message}")
+            throw e
+        } catch (e: IOException) {
+            markOffline(attempt)
+            throw e
         }
     }
 
-    private fun markOnline() {
+    private fun markOnline(attempt: Long) {
+        lastSuccess.updateAndGet { maxOf(it, attempt) }
         if (offlineSince != 0L) Log.i("content", "host $host back")
         offlineSince = 0
         refusedState = null
         onState("")
     }
 
-    private fun markOffline() {
+    private fun markOffline(attempt: Long) {
+        if (attempt < lastSuccess.get()) {
+            Log.i("content", "stale failure from attempt $attempt ignored — the host has answered since")
+            return
+        }
         if (offlineSince == 0L) offlineSince = System.currentTimeMillis()
         refusedState = null
+        onState(banner())
+    }
+
+    private fun banner(): String {
         val mins = (System.currentTimeMillis() - offlineSince) / 60_000
-        onState("PC ${if (mins < 1) "gone" else "${mins}m"}")
+        return "PC ${if (mins < 1) "gone" else "${mins}m"}"
     }
 
     override fun library(): List<BookMeta> = try {
-        withHost { inp, out ->
+        val lib = withHost { inp, out ->
             out.sendJson("""{"t":"library"}""")
             val line = inp.readJson()
             if (json.decodeFromString(Probe.serializer(), line).t == "err") {
                 val err = json.decodeFromString(ErrMsg.serializer(), line)
                 throw HostRefused(err.detail)
             }
-            val lib = json.decodeFromString(LibraryMsg.serializer(), line)
-            Files.createDirectories(cacheDir)
-            // unique tmp (#B6): two concurrent refreshes must not interleave
-            // writes into one file and then move a torn listing into place
-            val tmp = libCache.resolveSibling("library.json.${System.nanoTime()}.tmp")
-            try {
-                Files.writeString(tmp, json.encodeToString(LibraryMsg.serializer(), lib))
-                Files.move(tmp, libCache, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-            } finally {
-                Files.deleteIfExists(tmp)
-            }
-            lib.books
+            json.decodeFromString(LibraryMsg.serializer(), line)
         }
+        // the cache write happens OUTSIDE the exchange: a full phone must not
+        // read as "PC gone", and the fresh listing is used regardless
+        try {
+            writeLibraryCache(lib)
+        } catch (e: IOException) {
+            Log.e("content", "library cache write failed (${e.message}) — listing kept in memory only")
+        }
+        lib.books
     } catch (e: Exception) {
         // NO SILENT FAILURES: the fallback is deliberate, but it must be LOUD —
         // a wrong token looked identical to "PC off" in review round 1
         Log.e("content", "host library failed (${e.message}) — using the cache")
-        if (e !is HostRefused) markOffline()   // refusal already set its banner
         val cached = cachedLibrary()
         if (cached.isEmpty()) throw IllegalStateException(
             if (e is HostRefused) "library unavailable: host refused (${e.message}) and no cache"
@@ -299,7 +336,20 @@ class RemoteContent(
         cached
     }
 
-    /** Offline view: the cached listing, with books we hold marked available. */
+    private fun writeLibraryCache(lib: LibraryMsg) {
+        Files.createDirectories(cacheDir)
+        // unique tmp (#B6): two concurrent refreshes must not interleave
+        // writes into one file and then move a torn listing into place
+        val tmp = libCache.resolveSibling("library.json.${System.nanoTime()}.tmp")
+        try {
+            Files.writeString(tmp, json.encodeToString(LibraryMsg.serializer(), lib))
+            Files.move(tmp, libCache, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        } finally {
+            Files.deleteIfExists(tmp)
+        }
+    }
+
+    /** Offline view: the cached listing. */
     fun cachedLibrary(): List<BookMeta> = try {
         if (Files.exists(libCache)) {
             json.decodeFromString(LibraryMsg.serializer(), Files.readString(libCache)).books
@@ -322,73 +372,79 @@ class RemoteContent(
     override fun invalidate(id: String) {
         for (ext in listOf("epub", "txt")) {
             if (Files.deleteIfExists(cachePath(id, ext)))
-                Log.w("content", "dropped unopenable cached copy $id.$ext — next open refetches")
+                Log.w("content", "dropped unreadable cached copy $id.$ext — next open refetches")
         }
     }
 
-    override fun openBook(id: String): Path {
-        val cached = cachedExisting(id)
-        if (cached != null) return cached
-        // copy-on-open: fetch the whole book to LOCAL STORAGE first, so a PC
-        // drop mid-read never disrupts (Adam, stage-1 requirement). Streamed in
-        // chunks — a big book must never build a heap-sized array (OOM is an
-        // Error and would skip every catch on the reader path).
-        return try {
-            fetchBook(id)
-        } catch (e: java.io.IOException) {
-            // connect refused / stream cut: the host is gone — say so on the
-            // banner, not only in the per-open notice (round 3 R2)
-            markOffline()
-            throw e
-        }
-    }
+    /** The extension the PC serves the book under, from the cached listing —
+     *  authoritative, unlike a byte sniff (round 4 #2: a text file beginning
+     *  "PK" would otherwise be cached as an epub forever). */
+    private fun extFromListing(id: String): String? =
+        cachedLibrary().firstOrNull { it.id == id }?.file
+            ?.substringAfterLast('.', "")?.lowercase()
+            ?.takeIf { it == "epub" || it == "txt" }
 
-    private fun fetchBook(id: String): Path {
-        return withHost { inp, out ->
-            out.sendJson(json.encodeToString(GetMsg.serializer(), GetMsg(id = id)))
-            val line = inp.readJson()
-            if (json.decodeFromString(Probe.serializer(), line).t == "err") {
-                val err = json.decodeFromString(ErrMsg.serializer(), line)
-                throw IllegalStateException(err.detail)
-            }
-            val blob = json.decodeFromString(BlobMsg.serializer(), line)
-            require(blob.len in 1..(64L shl 20)) { "book size ${blob.len} out of sane range" }
-            val booksDir = cacheDir.resolve("books")
-            Files.createDirectories(booksDir)
-            // unique tmp: concurrent opens of the same id must not interleave
-            // into one file and poison the cache permanently
-            val tmp = booksDir.resolve("$id.${System.nanoTime()}.tmp")
-            try {
-                Files.newOutputStream(tmp).use { o ->
-                    val buf = ByteArray(64 * 1024)
-                    var left = blob.len
-                    while (left > 0) {
-                        val n = inp.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
-                        if (n < 0) throw java.io.EOFException("book stream ended ${left} B early")
-                        o.write(buf, 0, n)
-                        left -= n
-                    }
+    override fun openBook(id: String): Path = cachedExisting(id) ?: fetchBook(id)
+
+    // copy-on-open: fetch the whole book to LOCAL STORAGE first, so a PC drop
+    // mid-read never disrupts (Adam, stage-1 requirement). Streamed in chunks
+    // — a big book must never build a heap-sized array (OOM is an Error and
+    // would skip every catch on the reader path).
+    private fun fetchBook(id: String): Path = withHost { inp, out ->
+        out.sendJson(json.encodeToString(GetMsg.serializer(), GetMsg(id = id)))
+        val line = inp.readJson()
+        if (json.decodeFromString(Probe.serializer(), line).t == "err") {
+            val err = json.decodeFromString(ErrMsg.serializer(), line)
+            throw IllegalStateException(err.detail)      // per-book, not a host state
+        }
+        val blob = json.decodeFromString(BlobMsg.serializer(), line)
+        require(blob.len in 1..(64L shl 20)) { "book size ${blob.len} out of sane range" }
+        val booksDir = cacheDir.resolve("books")
+        disk { Files.createDirectories(booksDir) }
+        // unique tmp: concurrent opens of the same id must not interleave
+        // into one file and poison the cache permanently
+        val tmp = booksDir.resolve("$id.${System.nanoTime()}.tmp")
+        try {
+            disk { Files.newOutputStream(tmp) }.use { o ->
+                val buf = ByteArray(64 * 1024)
+                var left = blob.len
+                while (left > 0) {
+                    val n = inp.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
+                    if (n < 0) throw java.io.EOFException("book stream ended ${left} B early")
+                    disk { o.write(buf, 0, n) }
+                    left -= n
                 }
-                if (Files.size(tmp) != blob.len)
-                    throw IllegalStateException("cached ${Files.size(tmp)} B, expected ${blob.len}")
-                // sniff the format (#B3): epubs are zip containers ("PK");
-                // everything else this library serves is plain text
-                val head = Files.newInputStream(tmp).use { it.readNBytes(2) }
-                val ext = if (head.size == 2 && head[0] == 'P'.code.toByte() &&
-                    head[1] == 'K'.code.toByte()) "epub" else "txt"
-                val dest = cachePath(id, ext)
-                Files.move(tmp, dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-                Log.i("content", "cached book $id (${blob.len} B, .$ext)")
-                dest
-            } finally {
-                Files.deleteIfExists(tmp)
+            }
+            if (Files.size(tmp) != blob.len)
+                throw IllegalStateException("cached ${Files.size(tmp)} B, expected ${blob.len}")
+            val ext = extFromListing(id) ?: sniffExt(tmp)
+            val dest = cachePath(id, ext)
+            disk { Files.move(tmp, dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING) }
+            Log.i("content", "cached book $id (${blob.len} B, .$ext)")
+            dest
+        } finally {
+            Files.deleteIfExists(tmp)
+        }
+    }
+
+    /** Fallback when the listing does not know the book: epubs are zip
+     *  containers ("PK"); everything else this library serves is text. A
+     *  plain 2-byte read — readNBytes(int) is API 33, the APK's floor is 31. */
+    private fun sniffExt(p: Path): String {
+        val head = ByteArray(2)
+        var got = 0
+        Files.newInputStream(p).use { s ->
+            while (got < 2) {
+                val n = s.read(head, got, 2 - got)
+                if (n < 0) break
+                got += n
             }
         }
+        return if (got == 2 && head[0] == 'P'.code.toByte() && head[1] == 'K'.code.toByte()) "epub" else "txt"
     }
 
     override fun state(): String {
         refusedState?.let { return it }
-        return if (offlineSince == 0L) ""
-        else "PC ${((System.currentTimeMillis() - offlineSince) / 60_000).coerceAtLeast(0)}m"
+        return if (offlineSince == 0L) "" else banner()
     }
 }

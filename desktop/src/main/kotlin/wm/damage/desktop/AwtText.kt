@@ -23,9 +23,11 @@ class AwtText(private val contentScaleProvider: () -> Double = { 1.0 }) : TextRa
 
     private data class Key(val face: Face, val bold: Boolean, val italic: Boolean, val px: Int)
 
-    private val base = HashMap<Pair<Face, Boolean>, Font>()
-    private val scale = HashMap<Face, Double>()
-    private val derived = HashMap<Key, Font>()
+    // concurrent: the reader lays books out on an IO thread while the shell
+    // loop draws chrome (round 4 — two threads inserting the same new key)
+    private val base = java.util.concurrent.ConcurrentHashMap<Pair<Face, Boolean>, Font>()
+    private val scale = java.util.concurrent.ConcurrentHashMap<Face, Double>()
+    private val derived = java.util.concurrent.ConcurrentHashMap<Key, Font>()
     private val frc = FontRenderContext(null, true, true)
 
     init {
