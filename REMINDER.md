@@ -30,6 +30,12 @@ shell, copy-on-open book caching, PC-takeover seam, **banked** BLE transport), a
 Main app layer. Everything targets the CFW contract; the real glasses remain untouched on 2.2.2.20.
 See `IMPLEMENTATION.md`. The repo is under git.
 
+**Hardened through five review rounds the same day** (`IMPLEMENTATION.md` → "Review hardening"):
+the compositor's per-lens ordering + plane-map diffing, the transport's session-epoch sweep, the
+shell's start/stop mutex and notification lift, the content path's reachability rules. The
+battery (`:core:test`, `--selfcheck`, `--snapshot`, `--epub-check`, `tools/lint.py`,
+`:phone:assembleDebug`) is green at HEAD — keep it that way after any change.
+
 ## 🚀 Next
 
 **(a) The feature-creep scope explosion — for the APP layer.** The shell exists; Reader is its
@@ -68,6 +74,9 @@ Everything below is blocked on being on hardware. Scattered across `DESIGN.md` �
 | 9 | **Whether a normal Android app can see WEA/CMAS alerts** (Pixel 10a) | `DESIGN.md` §4.5 promises emergency alerts; unverified |
 | 10 | **Connected RSSI** — obtainable at all, and from which link | the status bar's link cell |
 | 11 | **Transport** — PC-direct BLE vs phone-bridged | decides where the BLE stack lives; PC-direct only ever works at the desk |
+| 12 | **Link-death behaviour** — pull the glasses out of range mid-session | the transport sweeps and shows LINK DOWN; reconnect needs a host-driven stop/start (the APK does not auto-rebuild on it yet) — decide whether it should |
+| 13 | **Settings-frame timing** — does the real CFW ever send a sid-0x09 frame outside the capability query? | the gate only listens while querying; a stray frame is logged, not acted on |
+| 14 | **The stall report** — force a lost image ack (RF shielding) | must show as a `stall!` fault in the status bar with the link otherwise healthy |
 
 **Start BTSnoop BEFORE connecting** on any recapture — handle 65's connection setup is the one gap
 in the existing corpus.
@@ -97,6 +106,9 @@ in the existing corpus.
 
 ## Open design questions (not hardware-blocked)
 
+- **A notification box while the switcher wheel is open** — today the box repaints ON TOP of the
+  wheel (consistent and loud; the grace holds, so gestures stay with the wheel). `DESIGN.md`
+  §4.3/§4.5 do not say whether the box should instead wait behind the wheel or requeue.
 - **Where system-state detail lives** — orphaned when the long-press info popup became the switcher.
   Live telemetry is in the status bar; the deeper view wants to be a window, i.e. app-layer work.
 - **Per-window typeface for the windows not yet designed** — Files, Calendar, Music, SMS, Timers,

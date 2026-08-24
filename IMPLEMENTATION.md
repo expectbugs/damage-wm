@@ -85,7 +85,7 @@ development environment; also serves ~/books to the phone):
 
 ```
 ./gradlew :desktop:run                        # preview window + content host
-./gradlew :desktop:run --args="--selfcheck"   # the 24-check scripted gate
+./gradlew :desktop:run --args="--selfcheck"   # the 25-check scripted gate
 ./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"  # parse every book in ~/books
 ./gradlew :desktop:run --args="--host-only"   # content host alone
@@ -133,13 +133,51 @@ local shell yielding and resuming automatically.
   content-addressed at the emit boundary in spirit — adopting the cache is a
   transport-level change by design (§5.18).
 
+## Review hardening (rounds 2–5, 2026-08-24)
+
+After the first build, five rounds of independent review (fresh reviewer
+agents per subsystem, every candidate verified by trace or pixel simulation
+before a fix) found and fixed ~50 real defects. The mechanisms that came out
+of them are load-bearing and easy to break by accident:
+
+- **Compositor per-lens model.** Ops in a mode-8 batch apply in order, later
+  wins. A keyframe therefore emits: the nominal mode-6 seed, then black
+  parallax-SEAM pairs at every stereo piece's inner ghost strips, then stereo
+  deltas FAR→NEAR, then plane-0 pieces beside a far piece (reclaiming the
+  |d| columns its shifted render spilled over them), then crossed planes.
+  Explicit per-lens ops live in a queue drained at most 16 fids per WIDE
+  flush, so any plane map's keyframe completes over a few flushes instead of
+  failing forever. **The `planes` setter diffs the map**: regions in the
+  symmetric difference are force-rendered (the nominal hash diff cannot see
+  disparity) and their old ghost columns get per-band seam cleanup. That one
+  rule is every plane transition — notification focus-step and furl, the
+  switcher centre band, the live depth preview.
+- **Transport session lifecycle.** Queued work carries a session epoch;
+  `stop()`, a failed `start()` and `onLinkDown()` bump it and SWEEP: pending
+  acks fail, window permits return, both queues drain loudly, a start parked
+  on the capability gate is answered with a sentinel and refuses. A flush
+  never spans the 0xFFFE→1 fid wrap (pre-clear + restart); a failed encode
+  hands its fids back; completions leave in submission order; msgId cycles
+  1..249. The window-full-no-ack stall is REPORTED as a fault, never acted on.
+- **Shell.** start/stop serialize on a mutex (a stop during start waits and
+  never saves defaults over unread state). A notification box is LIFTED
+  (its under-snapshot restored) before any slide steps beneath it and
+  repainted after. Every dynamic chrome string is sanitised to the locked
+  glyph set and fitted with the continuation mark.
+- **Content.** Host reachability is decided in one place
+  (`RemoteContent.withHost`) with attempt ordering; local disk failures never
+  read as "PC gone"; the cache keeps the listing's real extension.
+
 ## Verification
 
-- `./gradlew :core:test` — 24 unit/integration tests: RLE parity against the
+- `./gradlew :core:test` — 38 unit/integration tests: RLE parity against the
   Python reference implementation, CRC vectors, the geometry/fid rule fixtures
-  shared with `tools/lint.py --selftest`, and full pipeline round trips through
+  shared with `tools/lint.py --selftest`, full pipeline round trips through
   the sim (stereo divergence per lens, mode-8 scroll batches, duplicate-fid
-  skip, msgId-255 silence, lease expiry, warmup drop, out-of-order aborts).
+  skip, msgId-255 silence, lease expiry, warmup drop, out-of-order aborts),
+  the shell behaviour/persistence gates, and `Round3Test` (a fid wrap inside
+  a flush, a busy plane map's keyframe within the fid ring, a plane change
+  with no pixel change, stop-during-start, same-instance transport restart).
 - `--selfcheck` — the whole stack scripted end to end with real fonts,
   asserting ink budgets, input grammar, persistence byte-behaviour, and zero
   faults/failed flushes/sticky flags.
