@@ -140,12 +140,24 @@ class BleTransport(
     }
 
     override suspend fun connectLink() {
+        // a previous session that ended in a link death may have left the
+        // surviving arm's linkUp standing (round 7 D2): this session counts
+        // only the connections it makes itself
+        for (m in managers.values) m.linkUp = false
         val (left, right) = scanForPair()
         Log.i("ble", "connecting L=${left.address} R=${right.address}")
-        managers.getValue(Arm.LEFT).connect(left).retry(3, 300).useAutoConnect(false).suspend()
-        managers.getValue(Arm.LEFT).linkUp = true
-        managers.getValue(Arm.RIGHT).connect(right).retry(3, 300).useAutoConnect(false).suspend()
-        managers.getValue(Arm.RIGHT).linkUp = true
+        for ((arm, dev) in listOf(Arm.LEFT to left, Arm.RIGHT to right)) {
+            val m = managers.getValue(arm)
+            m.connect(dev).retry(3, 300).useAutoConnect(false).suspend()
+            m.linkUp = true
+            // a drop in the gap between the connect resolving and the mark
+            // would be reported as "not in use" and lost (round 7 D3): look
+            // once, loudly
+            if (!m.isConnected) {
+                m.linkUp = false
+                throw IllegalStateException("$arm dropped right after connecting")
+            }
+        }
         Log.i("ble", "both arms connected; MTU negotiated")
         // RSSI for the status-bar link cell, from the RIGHT (command) arm
         scope.launch {

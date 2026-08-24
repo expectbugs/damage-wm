@@ -98,7 +98,10 @@ abstract class CfwTransportBase(
 
     private sealed class CtlWork(val epoch: Long) {
         class Hub(epoch: Long, val payload: ByteArray, val awaitAck: CompletableDeferred<EvenHubMsg.Ack>?) : CtlWork(epoch)
-        class Settings(epoch: Long, val payload: ByteArray) : CtlWork(epoch)
+        /** [failed] completes with the reason if the write never goes out —
+         *  a gate waiting for this query's answer must not park forever on a
+         *  write failure that ends no link (round 7 D1). */
+        class Settings(epoch: Long, val payload: ByteArray, val failed: CompletableDeferred<String>? = null) : CtlWork(epoch)
         class Lease(epoch: Long, val op: Int, val written: CompletableDeferred<Unit>? = null) : CtlWork(epoch)
     }
 
@@ -319,8 +322,14 @@ abstract class CfwTransportBase(
             //    was drained at session entry; open the gate window now.
             awaitingCapability = true
             val cap = try {
-                controlQueue.trySend(CtlWork.Settings(epoch, SettingsMsg.settingsQuery(0)))
-                capabilityChannel.receive()
+                val queryFailed = CompletableDeferred<String>()
+                controlQueue.trySend(CtlWork.Settings(epoch, SettingsMsg.settingsQuery(0), queryFailed))
+                // the answer, the sweep's sentinel, or the query's own write
+                // failing — every way the gate can end is a completion here
+                kotlinx.coroutines.selects.select<String> {
+                    capabilityChannel.onReceive { it }
+                    queryFailed.onAwait { reason -> SWEPT + "capability query not written: $reason" }
+                }
             } finally {
                 awaitingCapability = false
             }
@@ -526,7 +535,7 @@ abstract class CfwTransportBase(
         when (w) {
             is CtlWork.Hub -> w.awaitAck?.completeExceptionally(LintError(why))
             is CtlWork.Lease -> w.written?.completeExceptionally(LintError(why))
-            is CtlWork.Settings -> {}
+            is CtlWork.Settings -> w.failed?.complete(why)
         }
     }
 
@@ -640,6 +649,9 @@ abstract class CfwTransportBase(
                 window = if (work.request.wide) 1 else WINDOW)
             val final = writeImage(encoded.image, work.epoch)
             flushWritten = true
+            // the flush is on the wire: its completion is its own, whatever
+            // happens to the wrap clear below (round 7 D4)
+            completeAsync(final, work.id, encoded.image.size, t0, done = null)
             if (fids.wrapPending) {
                 // the flush ended EXACTLY on 0xFFFE: the mode-7 sub-0 clear
                 // resets the FIRMWARE's fid ring, flags and lastFid; the host
@@ -648,11 +660,16 @@ abstract class CfwTransportBase(
                 tracker.resync()
                 fids.clearWrap()
             }
-            completeAsync(final, work.id, encoded.image.size, t0, done = null)
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
-            if (encodeReached && !flushWritten) {
+            if (flushWritten) {
+                // only the post-write wrap clear can fail here; the flush
+                // itself landed. wrapPending stands, the next flush retries.
+                emitFault("wrap", "fid wrap clear not written: ${e.message} — retried before the next flush")
+                return
+            }
+            if (encodeReached) {
                 // the encode may have consumed fids the glasses never saw. A
                 // throw BEFORE the encode (a failed wrap clear) touched no fid
                 // and must leave wrapPending standing for the next retry
@@ -843,12 +860,17 @@ abstract class CfwTransportBase(
                                 }
                             }
                         }
-                        is CtlWork.Settings -> wire.withLock {
-                            val payload = restampMsgId(work.payload, nextMsgIdLocked())
-                            for (p in AaFrame.frame(nextSeqLocked(), SettingsMsg.SID,
-                                    SettingsMsg.FLAG_REQUEST, payload)) {
-                                writeArm(Arm.RIGHT, p)
+                        is CtlWork.Settings -> try {
+                            wire.withLock {
+                                val payload = restampMsgId(work.payload, nextMsgIdLocked())
+                                for (p in AaFrame.frame(nextSeqLocked(), SettingsMsg.SID,
+                                        SettingsMsg.FLAG_REQUEST, payload)) {
+                                    writeArm(Arm.RIGHT, p)
+                                }
                             }
+                        } catch (e: Exception) {
+                            work.failed?.complete(e.message ?: e.toString())
+                            throw e
                         }
                         is CtlWork.Lease -> {
                             if (work.op == SettingsMsg.OP_FB_ACQUIRE && !running) {
