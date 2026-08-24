@@ -96,11 +96,15 @@ object Wrap {
                         line = StringBuilder()
                         continue
                     }
-                    // single word wider than the line: hard-break it
-                    var cut = w.length - 1
+                    // single word wider than the line: hard-break it. cut floors
+                    // at 1 so progress is GUARANTEED — a glyph wider than the
+                    // whole line ships oversize rather than spinning forever
+                    // (review round 1 traced an infinite loop at cut == 0)
+                    var cut = w.length
                     while (cut > 1 && r.measure(w.substring(0, cut), font) > width) cut--
                     out.add(w.substring(0, cut))
                     w = w.substring(cut)
+                    if (w.isEmpty()) break
                 }
             }
             out.add(line.toString())

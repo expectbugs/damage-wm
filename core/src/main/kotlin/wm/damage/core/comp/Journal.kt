@@ -14,7 +14,7 @@ import wm.damage.core.util.Log
  */
 class Journal(path: Path?) : AutoCloseable {
     private val out: Writer? = path?.let {
-        Files.createDirectories(it.parent)
+        it.parent?.let { p -> Files.createDirectories(p) }
         Files.newBufferedWriter(it, StandardOpenOption.CREATE, StandardOpenOption.APPEND)
     }
 
@@ -41,8 +41,24 @@ class Journal(path: Path?) : AutoCloseable {
         write("""{"t":${System.currentTimeMillis()},"ev":"note","kind":${json(kind)},"detail":${json(detail)}}""")
     }
 
-    private fun json(s: String): String =
-        "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\""
+    /** RFC 8259: ALL C0 controls must be escaped — exception messages carry
+     *  \r and \t, and one bad line would break the replay tooling exactly at
+     *  the failure record it exists to explain. */
+    private fun json(s: String): String {
+        val b = StringBuilder(s.length + 2)
+        b.append('"')
+        for (ch in s) when {
+            ch == '\\' -> b.append("\\\\")
+            ch == '"' -> b.append("\\\"")
+            ch == '\n' -> b.append("\\n")
+            ch == '\r' -> b.append("\\r")
+            ch == '\t' -> b.append("\\t")
+            ch.code < 0x20 -> b.append("\\u%04x".format(ch.code))
+            else -> b.append(ch)
+        }
+        b.append('"')
+        return b.toString()
+    }
 
     @Synchronized
     private fun write(line: String) {

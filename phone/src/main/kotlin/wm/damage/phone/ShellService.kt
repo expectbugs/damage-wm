@@ -10,7 +10,6 @@ import android.os.BatteryManager
 import android.os.Binder
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import java.nio.file.Path
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -38,10 +37,12 @@ import wm.damage.core.windows.reader.ReaderWindow
  *
  * Also runs the transport SEAM SERVER, so a PC-resident shell can claim this
  * phone's transport ("both able to take over"): while a remote shell drives,
- * the local shell yields the glasses; when it disconnects the local shell
- * resumes. Until flash day the transport is the byte-exact sim, displayed by
- * LensView; the banked BLE transport switches in via Settings when the glasses
- * actually run the CFW.
+ * the local shell yields the glasses — the claim callback BLOCKS on that stop,
+ * so the remote's start cannot race it — and when the remote disconnects the
+ * whole stack rebuilds cleanly (server included; a leaked server on a dead
+ * scope was review round 1's takeover wedge). Until flash day the transport is
+ * the byte-exact sim, displayed by LensView; the banked BLE transport switches
+ * in via Settings once the glasses run the CFW.
  */
 class ShellService : Service() {
 
@@ -52,13 +53,16 @@ class ShellService : Service() {
     private val binder = LocalBinder()
     private var scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /** Bumps every time the stack rebuilds — the activity re-attaches its
+     *  LensView when this changes (a stale view held the DEAD sim before). */
+    @Volatile var stackGeneration = 0
+        private set
     var sim: GlassFirmwareSim? = null
         private set
     var shell: Shell? = null
         private set
     private var transport: Transport? = null
     private var seamServer: RemoteTransportServer? = null
-    private var content: RemoteContent? = null
     @Volatile var remoteDriving = false
         private set
     @Volatile var statusLine: String = "starting"
@@ -75,7 +79,6 @@ class ShellService : Service() {
     private fun startStack() {
         val prefs = Prefs(this)
         val dataDir = filesDir.toPath()
-        val cacheBooks = dataDir.resolve("bookcache")
 
         val s = GlassFirmwareSim()
         sim = s
@@ -97,12 +100,13 @@ class ShellService : Service() {
         shell = sh
 
         val rc = RemoteContent(
-            prefs.host, prefs.contentPort, prefs.token, cacheBooks,
+            prefs.host, prefs.contentPort, prefs.token, dataDir.resolve("bookcache"),
             onState = { st -> sh.hostState = st },
         )
-        content = rc
         sh.register(ReaderWindow(text, rc, scope))
         sh.onUrgent = { source, body -> urgentNotification(source, body) }
+
+        stackGeneration++
 
         scope.launch {
             try {
@@ -141,34 +145,58 @@ class ShellService : Service() {
         }
     }
 
-    /** A remote (PC) shell claimed or released our transport. Yield the local
-     *  shell while it drives — state is saved so the takeover loses nothing —
-     *  and take back over when it goes. */
-    private fun onRemoteDriver(driving: Boolean) {
-        remoteDriving = driving
-        val sh = shell ?: return
-        scope.launch {
-            if (driving) {
-                Log.i("service", "PC shell claimed the transport — local shell yielding")
-                statusLine = "PC shell driving"
-                sh.stop()
-                shell = null
-                updateNotification(statusLine)
-            } else {
-                Log.i("service", "PC shell gone — local shell taking back over")
-                statusLine = "local shell resuming"
-                updateNotification(statusLine)
-                restartLocalShell()
+    /** Tear the whole stack down in order — server first (no new claims), then
+     *  the shell (saves state), then the scope. Safe to call from any thread. */
+    private fun stopStack() {
+        seamServer?.close()
+        seamServer = null
+        val sh = shell
+        shell = null
+        if (sh != null) {
+            try {
+                runBlocking { sh.stop() }
+            } catch (e: Exception) {
+                Log.e("service", "shell stop failed", e)
             }
         }
+        scope.cancel()
+        transport = null
+        sim = null
     }
 
-    private suspend fun restartLocalShell() {
-        // the transport was stopped by the remote driver's session; rebuild the
-        // local stack cleanly (fresh transport session, restored persistence)
-        scope.cancel()
-        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        startStack()
+    /**
+     * A remote (PC) shell claimed or released our transport. Called on the seam
+     * server's session thread and deliberately BLOCKING: the server does not
+     * process the remote's "start" until the local shell has fully stopped, so
+     * the two drivers can never overlap on the transport.
+     */
+    private fun onRemoteDriver(driving: Boolean) {
+        remoteDriving = driving
+        if (driving) {
+            Log.i("service", "PC shell claimed the transport — local shell yielding")
+            statusLine = "PC shell driving"
+            val sh = shell
+            shell = null
+            if (sh != null) {
+                try {
+                    runBlocking { sh.stop() }
+                } catch (e: Exception) {
+                    Log.e("service", "local shell stop on takeover failed", e)
+                }
+            }
+            updateNotification(statusLine)
+        } else {
+            Log.i("service", "PC shell gone — rebuilding the local stack")
+            statusLine = "local shell resuming"
+            updateNotification(statusLine)
+            // full rebuild: fresh scope, transport, sim, shell AND seam server —
+            // partial reuse left the old server on a cancelled scope
+            Thread({
+                stopStack()
+                scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+                startStack()
+            }, "damage-stack-rebuild").start()
+        }
     }
 
     fun postGesture(type: Int) {
@@ -178,20 +206,15 @@ class ShellService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
 
     override fun onDestroy() {
-        runBlocking {
-            try {
-                shell?.stop()
-            } catch (e: Exception) {
-                Log.e("service", "stop failed", e)
-            }
-        }
-        seamServer?.close()
-        scope.cancel()
+        // NEVER block the main thread on transport teardown (ANR): state saves
+        // continuously (2 s debounce), so the async stop loses at most the last
+        // moments — an ANR would lose the process mid-write instead.
+        Thread({ stopStack() }, "damage-shutdown").start()
         super.onDestroy()
     }
 
     // ------------------------------------------------------------------ notices
-    private fun channel(): String {
+    private fun channels(): NotificationManager {
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL, "Damage", NotificationManager.IMPORTANCE_LOW),
@@ -199,26 +222,27 @@ class ShellService : Service() {
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_URGENT, "Damage errors", NotificationManager.IMPORTANCE_HIGH),
         )
-        return CHANNEL
+        return nm
     }
 
-    private fun buildNotification(text: String): Notification =
-        NotificationCompat.Builder(this, channel())
+    private fun buildNotification(text: String): Notification {
+        channels()
+        return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_damage)
             .setContentTitle("Damage")
             .setContentText(text)
             .setOngoing(true)
             .build()
+    }
 
     private fun updateNotification(text: String) {
-        getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification(text))
+        channels().notify(NOTIF_ID, buildNotification(text))
     }
 
     /** §9.3: serious display-path errors become PHONE notifications — the only
      *  alert path that works when the display itself is broken. */
     private fun urgentNotification(source: String, body: String) {
-        channel()
-        getSystemService(NotificationManager::class.java).notify(
+        channels().notify(
             (System.currentTimeMillis() and 0xFFFF).toInt(),
             NotificationCompat.Builder(this, CHANNEL_URGENT)
                 .setSmallIcon(R.drawable.ic_damage)

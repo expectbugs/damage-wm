@@ -26,7 +26,6 @@ class AndroidText(
 
     private val faces = HashMap<Pair<Face, Boolean>, Typeface>()
     private val scale = HashMap<Face, Double>()
-    private val paints = HashMap<Triple<Face, Boolean, Int>, Paint>()
 
     init {
         val am = context.assets
@@ -63,14 +62,20 @@ class AndroidText(
         return bounds.height() / 100.0
     }
 
+    private val paintsFull = HashMap<FontSpec, Paint>()
+
     private fun paint(spec: FontSpec): Paint {
         val contentScale = if (spec.face == Face.SYSTEM) 1.0 else contentScaleProvider()
         val px = Math.round(spec.sizePx * scale.getValue(spec.face) * contentScale).toInt().coerceAtLeast(7)
-        return paints.getOrPut(Triple(spec.face, spec.bold, px)) {
+        val key = spec.copy(sizePx = px)
+        return paintsFull.getOrPut(key) {
             Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
                 typeface = faces.getValue(spec.face to spec.bold)
                 textSize = px.toFloat()
                 color = 0xFFFFFFFF.toInt()
+                // no italic asset variants are bundled: synthesize the slant so
+                // desktop and phone render the same spec the same way
+                if (spec.italic) textSkewX = -0.25f
             }
         }
     }
@@ -93,11 +98,14 @@ class AndroidText(
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ALPHA_8)
         val c = Canvas(bmp)
         c.drawText(text, 0f, (-fm.ascent).toFloat(), p)
-        val pixels = ByteArray(w * h)
+        // ALPHA_8 bitmaps may pad rows (getRowBytes >= width) — indexing by
+        // width alone skews or crashes on padded devices (review round 1)
+        val rowBytes = bmp.rowBytes
+        val pixels = ByteArray(rowBytes * h)
         bmp.copyPixelsToBuffer(java.nio.ByteBuffer.wrap(pixels))
         bmp.recycle()
         for (yy in 0 until h) {
-            val row = yy * w
+            val row = yy * rowBytes
             for (xx in 0 until w) {
                 val cov = pixels[row + xx].toInt() and 0xFF
                 if (cov > 0) surface.blend(x + xx, y + yy, level, cov)

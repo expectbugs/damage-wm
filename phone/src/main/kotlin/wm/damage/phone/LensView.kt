@@ -71,14 +71,22 @@ class LensView(
         }
     })
 
+    private val listener = object : GlassFirmwareSim.SimDiag {
+        override fun event(kind: String, detail: String) {}
+        override fun notify(arm: GlassFirmwareSim.Arm, packet: ByteArray) {}
+        override fun panelChanged(a: GlassFirmwareSim.Arm) {
+            if (a == arm) postInvalidateOnAnimation()
+        }
+    }
+
     init {
-        sim.attachListener(object : GlassFirmwareSim.SimDiag {
-            override fun event(kind: String, detail: String) {}
-            override fun notify(arm: GlassFirmwareSim.Arm, packet: ByteArray) {}
-            override fun panelChanged(a: GlassFirmwareSim.Arm) {
-                if (a == arm) postInvalidateOnAnimation()
-            }
-        })
+        sim.attachListener(listener)
+    }
+
+    /** Unhook from the sim — a rebuilt stack replaces this view, and the old
+     *  sim's listener list must not keep it (and its Activity) alive. */
+    fun detach() {
+        sim.detachListener(listener)
     }
 
     fun toggleArm() {

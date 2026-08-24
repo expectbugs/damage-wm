@@ -33,6 +33,9 @@ class Preview(
         preferredSize = Dimension(Geometry.PANEL_W, Geometry.PANEL_H)
         background = Color.BLACK
         isFocusable = true
+        // Swing consumes Tab for focus traversal before KeyListeners see it;
+        // without this the advertised lens toggle is dead (review round 1)
+        setFocusTraversalKeysEnabled(false)
         sim.attachListener(object : GlassFirmwareSim.SimDiag {
             override fun event(kind: String, detail: String) {}
             override fun notify(arm: GlassFirmwareSim.Arm, packet: ByteArray) {}

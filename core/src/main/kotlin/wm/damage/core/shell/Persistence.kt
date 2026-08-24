@@ -46,13 +46,19 @@ class Persistence(private val file: Path) {
         loaded[key] = state
     }
 
-    /** Atomic write: temp file + move, so a crash never half-writes the store. */
+    /** Atomic write: temp file + move, so a crash never half-writes the store.
+     *  Synchronized + unique tmp: two savers must never interleave one file. */
+    @Synchronized
     fun save() {
         try {
-            Files.createDirectories(file.parent)
-            val tmp = file.resolveSibling(file.fileName.toString() + ".tmp")
+            file.parent?.let { Files.createDirectories(it) }
+            val tmp = file.resolveSibling(file.fileName.toString() + ".${System.nanoTime()}.tmp")
             Files.writeString(tmp, json.encodeToString(JsonObject.serializer(), JsonObject(loaded)))
-            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+            try {
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+            } finally {
+                Files.deleteIfExists(tmp)
+            }
         } catch (e: Exception) {
             Log.e("persist", "state save FAILED — state will not survive restart", e)
         }

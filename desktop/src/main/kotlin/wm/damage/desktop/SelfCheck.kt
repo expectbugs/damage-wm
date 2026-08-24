@@ -43,6 +43,8 @@ object SelfCheck {
         } catch (e: Throwable) {
             e.printStackTrace()
             failures.add("selfcheck crashed: $e")
+        } finally {
+            tmp.toFile().deleteRecursively()
         }
         println()
         if (failures.isEmpty()) {

@@ -53,11 +53,21 @@ data class ShellSettings(
 
     fun toJson(): JsonObject = Json.encodeToJsonElement(serializer(), this).jsonObject
 
+    /** Persisted files can rot or be hand-edited: every ranged field clamps
+     *  back into its legal domain instead of flowing raw toward the wire. */
+    fun clamped(): ShellSettings = copy(
+        brightness = brightness.coerceIn(0, 100),
+        heightMode = if (heightMode < (288 + 480) / 2) 288 else 480,
+        depth = ((depth / 4).coerceIn(0, 4)) * 4,
+        presence = presence.coerceIn(0, 1),
+        fontScale = if (fontScale < 0.925) 0.85 else 1.0,
+    )
+
     companion object {
         fun fromJson(o: JsonObject?): ShellSettings =
             if (o == null) ShellSettings()
             else try {
-                Json { ignoreUnknownKeys = true }.decodeFromJsonElement(serializer(), o)
+                Json { ignoreUnknownKeys = true }.decodeFromJsonElement(serializer(), o).clamped()
             } catch (e: Exception) {
                 wm.damage.core.util.Log.e("settings", "unreadable settings — defaults", e)
                 ShellSettings()

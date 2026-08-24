@@ -1,10 +1,12 @@
 package wm.damage.phone
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.IBinder
 import android.view.Gravity
@@ -14,25 +16,42 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import wm.damage.core.wire.EvenHubMsg
 
 /**
  * The phone UI: the lens preview IS the app. A thin control strip on top —
  * long-press-release injection, lens toggle, status — everything else is the
  * shell itself, driven by touch (LensView maps touch to the ring grammar).
+ *
+ * Runtime permissions are requested up front: POST_NOTIFICATIONS carries the
+ * §9.3 out-of-band error channel (silently dead without the grant), and the
+ * Bluetooth pair is what lets the banked GLASSES target ever come alive.
+ * The service starts after the request resolves either way — the sim target
+ * needs none of them.
  */
 class MainActivity : ComponentActivity() {
 
     private var service: ShellService? = null
     private var lens: LensView? = null
+    private var lensGeneration = -1
     private lateinit var root: FrameLayout
     private lateinit var status: TextView
+    private var polling = false
+
+    private val permissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
+            val denied = grants.filterValues { !it }.keys
+            if (denied.isNotEmpty()) {
+                status.text = "denied: ${denied.joinToString { it.substringAfterLast('.') }} — " +
+                    "error notifications/BLE limited"
+            }
+            startShellService()
+        }
 
     private val conn = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-            val svc = (binder as ShellService.LocalBinder).service
-            service = svc
-            attachLens(svc)
+            service = (binder as ShellService.LocalBinder).service
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -58,21 +77,36 @@ class MainActivity : ComponentActivity() {
         root.addView(bar, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
         setContentView(root)
 
+        val wanted = listOf(
+            Manifest.permission.POST_NOTIFICATIONS,
+            Manifest.permission.BLUETOOTH_SCAN,
+            Manifest.permission.BLUETOOTH_CONNECT,
+        ).filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        if (wanted.isEmpty()) startShellService() else permissionLauncher.launch(wanted.toTypedArray())
+    }
+
+    private fun startShellService() {
         startForegroundService(Intent(this, ShellService::class.java))
         bindService(Intent(this, ShellService::class.java), conn, Context.BIND_AUTO_CREATE)
+        if (!polling) {
+            polling = true
+            status.postDelayed(poller, 1000)
+        }
+    }
 
-        // keep the status line honest
-        status.postDelayed(object : Runnable {
-            override fun run() {
-                val svc = service
-                if (svc != null) {
-                    val driving = if (svc.remoteDriving) " · PC DRIVING" else ""
-                    status.text = "${svc.statusLine}$driving"
-                    if (svc.shell != null && lens == null) attachLens(svc)
-                }
-                status.postDelayed(this, 1000)
+    private val poller = object : Runnable {
+        override fun run() {
+            if (!polling) return
+            val svc = service
+            if (svc != null) {
+                val driving = if (svc.remoteDriving) " · PC DRIVING" else ""
+                status.text = "${svc.statusLine}$driving"
+                // re-attach when the service rebuilt its stack (new sim): the
+                // old view would render the DEAD sim forever otherwise
+                if (svc.sim != null && svc.stackGeneration != lensGeneration) attachLens(svc)
             }
-        }, 1000)
+            status.postDelayed(this, 1000)
+        }
     }
 
     private fun smallButton(label: String, onClick: () -> Unit): View =
@@ -83,15 +117,22 @@ class MainActivity : ComponentActivity() {
 
     private fun attachLens(svc: ShellService) {
         val s = svc.sim ?: return
-        if (lens != null) return
+        lens?.let {
+            it.detach()
+            root.removeView(it)
+        }
         val v = LensView(this, s) { svc.postGesture(it) }
         lens = v
+        lensGeneration = svc.stackGeneration
         root.addView(v, 0, FrameLayout.LayoutParams(-1, -1))
     }
 
     override fun onDestroy() {
         // the SERVICE keeps running (the shell must not die with the activity);
-        // only the binding goes
+        // only the binding, the poller, and the sim listener go
+        polling = false
+        status.removeCallbacks(poller)
+        lens?.detach()
         try { unbindService(conn) } catch (e: IllegalArgumentException) { /* not bound */ }
         super.onDestroy()
     }

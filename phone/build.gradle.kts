@@ -25,7 +25,10 @@ android {
 
     defaultConfig {
         applicationId = "wm.damage.phone"
-        minSdk = 29
+        // 31+: the modern BLE permission model only — the legacy
+        // BLUETOOTH/ACCESS_FINE_LOCATION pair is deliberately not carried
+        // (the target device is a Pixel 10a)
+        minSdk = 31
         targetSdk = 35
         // Bump BOTH on every build Adam installs (monotonic versionCode makes a
         // stale Downloads-folder APK refuse to install over a newer one).

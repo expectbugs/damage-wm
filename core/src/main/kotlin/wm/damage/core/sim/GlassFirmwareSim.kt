@@ -41,6 +41,8 @@ class GlassFirmwareSim() {
 
     fun attachListener(l: SimDiag) { listeners.add(l) }
 
+    fun detachListener(l: SimDiag) { listeners.remove(l) }
+
     private val diag = object : SimDiag {
         override fun event(kind: String, detail: String) { for (l in listeners) l.event(kind, detail) }
         override fun notify(arm: Arm, packet: ByteArray) { for (l in listeners) l.notify(arm, packet) }

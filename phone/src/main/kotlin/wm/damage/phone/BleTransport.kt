@@ -65,9 +65,15 @@ class BleTransport(
             setNotificationCallback(notify).with { _, data ->
                 data.value?.let { onNotifyPacket(arm, it) }
             }
+            // Every step observed: a failed MTU request or CCCD write would
+            // otherwise leave notifications dead and the capability gate
+            // waiting in total silence (review round 1).
             beginAtomicRequestQueue()
-                .add(requestMtu(247))
-                .add(enableNotifications(notify))
+                .add(requestMtu(247)
+                    .fail { _, status -> emitFault("ble", "$arm MTU request failed: $status") })
+                .add(enableNotifications(notify)
+                    .fail { _, status -> emitFault("ble", "$arm notification enable FAILED: $status — acks will never arrive") })
+                .done { Log.i("ble", "$arm initialized (MTU + notifications)") }
                 .enqueue()
         }
 
@@ -103,7 +109,7 @@ class BleTransport(
                 delay(10_000)
                 try {
                     val rssi = managers.getValue(Arm.RIGHT).rssi()
-                    _state.value = _state.value.copy(rssiDbm = rssi)
+                    updateState { it.copy(rssiDbm = rssi) }
                 } catch (e: Exception) {
                     Log.w("ble", "rssi read failed: ${e.message}")
                 }
@@ -139,7 +145,9 @@ class BleTransport(
         var right: BluetoothDevice? = null
         val cb = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
-                val name = result.device.name ?: return
+                // the ADVERTISED name: device.name needs BLUETOOTH_CONNECT and a
+                // cached bond; scanRecord.deviceName rides the advertisement
+                val name = result.scanRecord?.deviceName ?: result.device.name ?: return
                 if (!name.startsWith("Even G2")) return
                 if ("_L_" in name && left == null) left = result.device
                 if ("_R_" in name && right == null) right = result.device

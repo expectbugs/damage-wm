@@ -1,6 +1,7 @@
 package wm.damage.core.transport
 
 import java.io.DataInputStream
+import java.util.concurrent.ConcurrentHashMap
 import java.io.DataOutputStream
 import java.io.EOFException
 import java.net.ServerSocket
@@ -90,14 +91,27 @@ private fun DataOutputStream.send(c: Ctl, blob: ByteArray? = null) {
     }
 }
 
+private const val MAX_OP_PAYLOAD = 200_000       // > MODE8_MAX, < anything absurd
+private const val MAX_BLOB = 4 shl 20
+
 private fun DataInputStream.readCtl(): Pair<Ctl, ByteArray?> {
     val n = readInt()
     require(n in 1..(1 shl 20)) { "control frame length $n out of range" }
     val b = ByteArray(n)
     readFully(b)
     val c = json.decodeFromString(Ctl.serializer(), b.toString(Charsets.UTF_8))
-    val blobLen = c.ops.sumOf { it.len } + c.warmupLen
-    val blob = if (blobLen > 0) ByteArray(blobLen).also { readFully(it) } else null
+    // peer-declared lengths are VALIDATED before any allocation: a buggy peer
+    // must produce a loud session error, never an OOM (an Error would skip the
+    // reader thread's catch and kill the link in silence)
+    var blobLen = 0L
+    for (op in c.ops) {
+        require(op.len in 0..MAX_OP_PAYLOAD) { "op payload ${op.len} out of range" }
+        blobLen += op.len
+    }
+    require(c.warmupLen in 0..MAX_OP_PAYLOAD) { "warmup length ${c.warmupLen} out of range" }
+    blobLen += c.warmupLen
+    require(blobLen <= MAX_BLOB) { "blob total $blobLen exceeds $MAX_BLOB" }
+    val blob = if (blobLen > 0) ByteArray(blobLen.toInt()).also { readFully(it) } else null
     return c to blob
 }
 
@@ -156,7 +170,11 @@ class RemoteTransportClient(
     private fun down(reason: String) {
         Log.e("remote-transport", reason)
         _state.value = _state.value.copy(connected = false, started = false, leaseHeld = false)
-        _events.tryEmit(TransportEvent.Link(false, reason))
+        // a caller parked in start() must get the answer, not a silent hang
+        started.trySend(reason)
+        if (!_events.tryEmit(TransportEvent.Link(false, reason))) {
+            Log.e("remote-transport", "Link-down event DROPPED (buffer full)")
+        }
     }
 
     private fun route(msg: Pair<Ctl, ByteArray?>) {
@@ -164,7 +182,10 @@ class RemoteTransportClient(
         when (c.t) {
             "started" -> started.trySend(null)
             "startfail" -> started.trySend(c.detail)
-            "done" -> _events.tryEmit(TransportEvent.FlushDone(c.id, c.ok, c.ackMs, c.bytes, c.error))
+            "done" -> if (!_events.tryEmit(TransportEvent.FlushDone(c.id, c.ok, c.ackMs, c.bytes, c.error))) {
+                Log.e("remote-transport", "FlushDone ${c.id} DROPPED (buffer full) — the shell will " +
+                    "see this flush as forever in flight")
+            }
             "input" -> _events.tryEmit(TransportEvent.Input(c.evType, c.evSource))
             "lease" -> _events.tryEmit(TransportEvent.Lease(c.held, c.detail))
             "link" -> _events.tryEmit(TransportEvent.Link(c.connected, c.detail))
@@ -258,105 +279,175 @@ class RemoteTransportServer(
     private fun serve(sock: Socket) {
         val inp = DataInputStream(sock.getInputStream().buffered())
         val out = DataOutputStream(sock.getOutputStream().buffered())
+        var holdsSlot = false
+        var innerStarted = false
+        // innerId -> clientId, registered BEFORE submit so a completion can
+        // never race past its listener (review round 1)
+        val idMap = ConcurrentHashMap<Long, Long>()
+        var fwd: kotlinx.coroutines.Job? = null
         try {
             val (hello, _) = inp.readCtl()
             if (hello.t != "hello" || hello.token != token) {
                 out.send(Ctl(t = "busy", detail = "bad token"))
-                sock.close()
                 return
             }
             synchronized(this) {
                 if (driver != null) {
                     out.send(Ctl(t = "busy", detail = driver!!.inetAddress.toString()))
-                    sock.close()
                     return
                 }
                 driver = sock
+                holdsSlot = true
             }
             out.send(Ctl(t = "grant"))
             Log.i("transport-server", "remote shell ${sock.inetAddress} claimed the transport")
             onRemoteDriver(true)
 
-            // forward inner transport events + state while this driver holds it
-            val fwd = scope.launch {
-                launch { inner.events.collect { ev -> forward(out, ev) } }
-                launch { inner.state.collect { st -> out.send(Ctl(t = "state", state = st.toWire())) } }
-            }
-            try {
-                while (running) {
-                    val (c, blob) = inp.readCtl()
-                    when (c.t) {
-                        "start" -> {
-                            val warmup = blob ?: ByteArray(0)
-                            scope.launch {
-                                try {
-                                    inner.start(warmup)
-                                    out.send(Ctl(t = "started"))
-                                } catch (e: Exception) {
-                                    Log.e("transport-server", "inner start failed", e)
-                                    out.send(Ctl(t = "startfail", detail = e.message ?: e.toString()))
-                                }
-                            }
-                        }
-                        "flush" -> {
-                            val ops = ArrayList<DisplayOp>(c.ops.size)
-                            var off = 0
-                            for (w in c.ops) {
-                                when (w.k) {
-                                    "kf" -> {
-                                        ops.add(DisplayOp.Keyframe(blob!!.copyOfRange(off, off + w.len)))
-                                        off += w.len
-                                    }
-                                    "d" -> {
-                                        ops.add(DisplayOp.Delta(w.box.rect(),
-                                            blob!!.copyOfRange(off, off + w.len), w.disp))
-                                        off += w.len
-                                    }
-                                    "c" -> ops.add(DisplayOp.Copy(w.src.rect(), w.dst.rect(), w.disp))
-                                    "sp" -> {
-                                        ops.add(DisplayOp.StereoPair(w.src.rect(), w.dst.rect(),
-                                            blob!!.copyOfRange(off, off + w.len)))
-                                        off += w.len
-                                    }
-                                }
-                            }
-                            val clientId = c.id
-                            scope.launch {
-                                try {
-                                    val innerId = inner.submit(FlushRequest(ops, c.epoch, c.label, c.wide))
-                                    // map inner completion to the client's id
-                                    inner.events.collect { ev ->
-                                        if (ev is TransportEvent.FlushDone && ev.id == innerId) {
-                                            out.send(Ctl(t = "done", id = clientId, ok = ev.ok,
-                                                ackMs = ev.ackMs, bytes = ev.bytes, error = ev.error))
-                                            throw kotlinx.coroutines.CancellationException("delivered")
+            // ONE forwarding job per session: events (with the id-mapped done
+            // router), then state. Send failures tear the session down rather
+            // than throwing into the shared scope.
+            fwd = scope.launch {
+                launch {
+                    inner.events.collect { ev ->
+                        try {
+                            if (ev is TransportEvent.FlushDone) {
+                                var clientId = idMap.remove(ev.id)
+                                if (clientId == null) {
+                                    // the completion can beat the serve thread's
+                                    // idMap.put by a hair on an instant transport:
+                                    // give the mapping a moment to appear
+                                    repeat(50) {
+                                        if (clientId == null) {
+                                            kotlinx.coroutines.delay(2)
+                                            clientId = idMap.remove(ev.id)
                                         }
                                     }
-                                } catch (e: kotlinx.coroutines.CancellationException) {
-                                    // delivered
-                                } catch (e: Exception) {
-                                    out.send(Ctl(t = "done", id = clientId, ok = false, error = e.message))
                                 }
+                                val cid = clientId
+                                if (cid != null) {
+                                    out.send(Ctl(t = "done", id = cid, ok = ev.ok,
+                                        ackMs = ev.ackMs, bytes = ev.bytes, error = ev.error))
+                                } else {
+                                    Log.e("transport-server", "FlushDone ${ev.id} had no client mapping — " +
+                                        "the remote shell will see that flush as lost")
+                                }
+                            } else {
+                                forward(out, ev)
                             }
-                        }
-                        "cleardiag" -> scope.launch { inner.clearDiagFlags() }
-                        "stop" -> {
-                            runBlocking { inner.stop() }
-                            break
+                        } catch (e: java.io.IOException) {
+                            Log.w("transport-server", "event forward failed — closing session: ${e.message}")
+                            sock.close()
                         }
                     }
                 }
-            } finally {
-                fwd.cancel()
+                launch {
+                    inner.state.collect { st ->
+                        try {
+                            out.send(Ctl(t = "state", state = st.toWire()))
+                        } catch (e: java.io.IOException) {
+                            sock.close()
+                        }
+                    }
+                }
+            }
+            while (running) {
+                val (c, blob) = inp.readCtl()
+                when (c.t) {
+                    "start" -> {
+                        if (innerStarted) {
+                            out.send(Ctl(t = "startfail", detail = "transport already started"))
+                        } else {
+                            val warmup = blob ?: ByteArray(0)
+                            try {
+                                runBlocking { inner.start(warmup) }
+                                innerStarted = true
+                                out.send(Ctl(t = "started"))
+                            } catch (e: Exception) {
+                                Log.e("transport-server", "inner start failed", e)
+                                out.send(Ctl(t = "startfail", detail = e.message ?: e.toString()))
+                            }
+                        }
+                    }
+                    "flush" -> {
+                        val ops = ArrayList<DisplayOp>(c.ops.size)
+                        var off = 0
+                        var bad = false
+                        for (w in c.ops) {
+                            when (w.k) {
+                                "kf" -> {
+                                    ops.add(DisplayOp.Keyframe(blob!!.copyOfRange(off, off + w.len)))
+                                    off += w.len
+                                }
+                                "d" -> {
+                                    ops.add(DisplayOp.Delta(w.box.rect(),
+                                        blob!!.copyOfRange(off, off + w.len), w.disp))
+                                    off += w.len
+                                }
+                                "c" -> ops.add(DisplayOp.Copy(w.src.rect(), w.dst.rect(), w.disp))
+                                "sp" -> {
+                                    ops.add(DisplayOp.StereoPair(w.src.rect(), w.dst.rect(),
+                                        blob!!.copyOfRange(off, off + w.len)))
+                                    off += w.len
+                                }
+                                else -> {
+                                    // an unknown kind desynchronizes the payload
+                                    // offsets — every later op would carry the
+                                    // WRONG bytes; reject the whole flush loudly
+                                    Log.e("transport-server", "unknown op kind '${w.k}' — flush ${c.id} rejected")
+                                    out.send(Ctl(t = "done", id = c.id, ok = false,
+                                        error = "unknown op kind '${w.k}' (version skew?)"))
+                                    bad = true
+                                }
+                            }
+                            if (bad) break
+                        }
+                        if (!bad) {
+                            val clientId = c.id
+                            try {
+                                // register FIRST: the inner id is known only after
+                                // submit, so park under a sentinel, then move
+                                val innerId = runBlocking {
+                                    inner.submit(FlushRequest(ops, c.epoch, c.label, c.wide))
+                                }
+                                idMap[innerId] = clientId
+                            } catch (e: Exception) {
+                                out.send(Ctl(t = "done", id = clientId, ok = false,
+                                    error = e.message ?: e.toString()))
+                            }
+                        }
+                    }
+                    "cleardiag" -> scope.launch {
+                        try { inner.clearDiagFlags() } catch (e: Exception) {
+                            Log.w("transport-server", "cleardiag: ${e.message}")
+                        }
+                    }
+                    "stop" -> {
+                        runBlocking { inner.stop() }
+                        innerStarted = false
+                        break
+                    }
+                    else -> Log.w("transport-server", "unknown control '${c.t}' ignored")
+                }
             }
         } catch (e: EOFException) {
             Log.i("transport-server", "remote shell ${sock.inetAddress} disconnected")
         } catch (e: Exception) {
             Log.w("transport-server", "driver session error: ${e.message}")
         } finally {
+            fwd?.cancel()
             synchronized(this) { if (driver === sock) driver = null }
             try { sock.close() } catch (e: Exception) { /* closed */ }
-            onRemoteDriver(false)
+            // only a connection that actually HELD the driver slot may signal
+            // the local shell to take back over — a rejected stranger must not
+            // trigger a dual-driver fight (review round 1)
+            if (holdsSlot) {
+                if (innerStarted) {
+                    try { runBlocking { inner.stop() } } catch (e: Exception) {
+                        Log.w("transport-server", "inner stop after driver loss: ${e.message}")
+                    }
+                }
+                onRemoteDriver(false)
+            }
         }
     }
 

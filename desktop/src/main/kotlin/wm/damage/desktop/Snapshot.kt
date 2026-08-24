@@ -26,10 +26,22 @@ import wm.damage.core.windows.reader.ReaderWindow
  * true-1x rule applies: no upscaling, same green mapping as design/shots.
  */
 object Snapshot {
+    private val failures = ArrayList<String>()
+
     fun run(cfg: Config, outDir: Path): Nothing {
         Files.createDirectories(outDir)
-        runBlocking { script(cfg, outDir) }
+        try {
+            runBlocking { script(cfg, outDir) }
+        } catch (e: Throwable) {
+            e.printStackTrace()
+            failures.add("snapshot run crashed: $e")
+        }
         println("snapshots in $outDir")
+        if (failures.isNotEmpty()) {
+            println("snapshot: ${failures.size} FAILURE(S):")
+            for (f in failures) println("  - $f")
+            kotlin.system.exitProcess(1)
+        }
         kotlin.system.exitProcess(0)
     }
 
@@ -96,17 +108,20 @@ object Snapshot {
 
         shell.stop()
         scope.cancel()
+        tmp.toFile().deleteRecursively()
     }
 
     private suspend fun settle(shell: Shell) {
         val t0 = System.currentTimeMillis()
         while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 15_000) delay(20)
+        if (!shell.isQuiescent()) failures.add("shell did not settle — snapshots may show mid-states")
         delay(50)
     }
 
     private suspend fun waitFor(cond: () -> Boolean) {
         val t0 = System.currentTimeMillis()
         while (!cond() && System.currentTimeMillis() - t0 < 30_000) delay(25)
+        if (!cond()) failures.add("a wait condition never became true — snapshots are of the WRONG state")
     }
 
     private fun save(sim: GlassFirmwareSim, dir: Path, name: String) {

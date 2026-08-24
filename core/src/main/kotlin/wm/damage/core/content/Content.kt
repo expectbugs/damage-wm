@@ -75,7 +75,9 @@ class LocalContent(private val dir: Path) : ContentProvider {
 }
 
 // ------------------------------------------------------------------ protocol
-private val json = Json { ignoreUnknownKeys = true }
+private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+@Serializable private data class Probe(val t: String = "")
 
 @Serializable private data class Hello(val t: String = "hello", val token: String, val proto: Int = 1)
 @Serializable private data class LibraryMsg(val t: String = "library", val books: List<BookMeta>)
@@ -106,6 +108,7 @@ class ContentHostServer(
 ) : AutoCloseable {
     @Volatile private var server: ServerSocket? = null
     @Volatile private var running = false
+    private val clients = java.util.concurrent.ConcurrentHashMap.newKeySet<Socket>()
 
     fun start() {
         running = true
@@ -118,9 +121,12 @@ class ContentHostServer(
                     if (running) Log.e("content-host", "accept failed", e)
                     break
                 }
-                Thread({ serve(client) }, "content-client-${client.inetAddress}").start()
+                clients.add(client)
+                Thread({
+                    try { serve(client) } finally { clients.remove(client) }
+                }, "content-client-${client.inetAddress}").apply { isDaemon = true }.start()
             }
-        }, "content-host").start()
+        }, "content-host").apply { isDaemon = true }.start()
     }
 
     private fun serve(sock: Socket) {
@@ -134,18 +140,42 @@ class ContentHostServer(
                     Log.w("content-host", "rejected ${sock.inetAddress}: bad token")
                     return
                 }
+                if (hello.proto != 1) {
+                    out.sendJson(json.encodeToString(ErrMsg.serializer(),
+                        ErrMsg(detail = "protocol ${hello.proto} unsupported (host speaks 1)")))
+                    return
+                }
                 while (running) {
                     val line = inp.readJson()
-                    when {
-                        "\"library\"" in line || "\"t\":\"library\"" in line ->
+                    // typed dispatch on the t discriminator — substring matching
+                    // against raw JSON was review round 1's misroute finding
+                    when (val t = json.decodeFromString(Probe.serializer(), line).t) {
+                        "library" ->
                             out.sendJson(json.encodeToString(LibraryMsg.serializer(), LibraryMsg(books = provider.library())))
-                        else -> {
+                        "get" -> {
                             val get = json.decodeFromString(GetMsg.serializer(), line)
-                            val path = provider.openBook(get.id)
-                            val bytes = Files.readAllBytes(path)
-                            out.sendJson(json.encodeToString(BlobMsg.serializer(), BlobMsg(id = get.id, len = bytes.size.toLong())))
-                            out.write(bytes)
+                            // resolve BEFORE the header goes out: a stale-listing
+                            // miss answers cleanly and keeps the session
+                            val path = try {
+                                provider.openBook(get.id)
+                            } catch (e: Exception) {
+                                Log.w("content-host", "get ${get.id} failed: ${e.message}")
+                                out.sendJson(json.encodeToString(ErrMsg.serializer(),
+                                    ErrMsg(detail = "book ${get.id}: ${e.message}")))
+                                continue
+                            }
+                            val size = Files.size(path)
+                            out.sendJson(json.encodeToString(BlobMsg.serializer(), BlobMsg(id = get.id, len = size)))
+                            // stream, never buffer. A MID-STREAM failure cannot be
+                            // answered in-band (the byte stream is committed) —
+                            // the throw closes the session, which the client sees
+                            // as a short read, loudly.
+                            Files.newInputStream(path).use { it.copyTo(out, 64 * 1024) }
                             out.flush()
+                        }
+                        else -> {
+                            Log.w("content-host", "unknown request t='$t' — closing session")
+                            return
                         }
                     }
                 }
@@ -160,6 +190,8 @@ class ContentHostServer(
     override fun close() {
         running = false
         server?.close()
+        for (c in clients) try { c.close() } catch (e: Exception) { /* closing */ }
+        clients.clear()
     }
 }
 
@@ -206,14 +238,27 @@ class RemoteContent(
     override fun library(): List<BookMeta> = try {
         withHost { inp, out ->
             out.sendJson("""{"t":"library"}""")
-            val lib = json.decodeFromString(LibraryMsg.serializer(), inp.readJson())
+            val line = inp.readJson()
+            if (json.decodeFromString(Probe.serializer(), line).t == "err") {
+                val err = json.decodeFromString(ErrMsg.serializer(), line)
+                throw IllegalStateException("host refused: ${err.detail}")
+            }
+            val lib = json.decodeFromString(LibraryMsg.serializer(), line)
             Files.createDirectories(cacheDir)
-            Files.writeString(libCache, json.encodeToString(LibraryMsg.serializer(), lib))
+            val tmp = libCache.resolveSibling("library.json.tmp")
+            Files.writeString(tmp, json.encodeToString(LibraryMsg.serializer(), lib))
+            Files.move(tmp, libCache, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
             lib.books
         }
     } catch (e: Exception) {
+        // NO SILENT FAILURES: the fallback is deliberate, but it must be LOUD —
+        // a wrong token looked identical to "PC off" in review round 1
+        Log.e("content", "host library failed (${e.message}) — using the cache")
         markOffline()
-        cachedLibrary()
+        val cached = cachedLibrary()
+        if (cached.isEmpty()) throw IllegalStateException(
+            "library unavailable: host unreachable (${e.message}) and no cache")
+        cached
     }
 
     /** Offline view: the cached listing, with books we hold marked available. */
@@ -233,18 +278,40 @@ class RemoteContent(
     override fun openBook(id: String): Path {
         val cached = cachePath(id)
         if (Files.exists(cached)) return cached
-        // copy-on-open: fetch the whole book to local storage FIRST, so a PC
-        // drop mid-read never disrupts (Adam, stage-1 requirement)
+        // copy-on-open: fetch the whole book to LOCAL STORAGE first, so a PC
+        // drop mid-read never disrupts (Adam, stage-1 requirement). Streamed in
+        // chunks — a big book must never build a heap-sized array (OOM is an
+        // Error and would skip every catch on the reader path).
         return withHost { inp, out ->
             out.sendJson(json.encodeToString(GetMsg.serializer(), GetMsg(id = id)))
-            val blob = json.decodeFromString(BlobMsg.serializer(), inp.readJson())
-            require(blob.len in 1..(512L shl 20)) { "book size ${blob.len} out of range" }
-            val bytes = ByteArray(blob.len.toInt())
-            inp.readFully(bytes)
+            val line = inp.readJson()
+            if (json.decodeFromString(Probe.serializer(), line).t == "err") {
+                val err = json.decodeFromString(ErrMsg.serializer(), line)
+                throw IllegalStateException(err.detail)
+            }
+            val blob = json.decodeFromString(BlobMsg.serializer(), line)
+            require(blob.len in 1..(64L shl 20)) { "book size ${blob.len} out of sane range" }
             Files.createDirectories(cached.parent)
-            val tmp = cached.resolveSibling("$id.tmp")
-            Files.write(tmp, bytes)
-            Files.move(tmp, cached, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            // unique tmp: concurrent opens of the same id must not interleave
+            // into one file and poison the cache permanently
+            val tmp = cached.resolveSibling("$id.${System.nanoTime()}.tmp")
+            try {
+                Files.newOutputStream(tmp).use { o ->
+                    val buf = ByteArray(64 * 1024)
+                    var left = blob.len
+                    while (left > 0) {
+                        val n = inp.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
+                        if (n < 0) throw java.io.EOFException("book stream ended ${left} B early")
+                        o.write(buf, 0, n)
+                        left -= n
+                    }
+                }
+                if (Files.size(tmp) != blob.len)
+                    throw IllegalStateException("cached ${Files.size(tmp)} B, expected ${blob.len}")
+                Files.move(tmp, cached, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            } finally {
+                Files.deleteIfExists(tmp)
+            }
             Log.i("content", "cached book $id (${blob.len} B)")
             cached
         }
