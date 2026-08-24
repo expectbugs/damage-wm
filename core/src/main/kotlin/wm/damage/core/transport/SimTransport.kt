@@ -213,12 +213,15 @@ class SimTransport(
     override suspend fun submit(flush: FlushRequest): Long {
         check(_state.value.started) { "submit before start()" }
         val id = ++flushCounter
-        window.acquire()
+        // A wide flush (rects past the pipelined budget) drains the window and
+        // runs at depth 1 — §8.2 #4: trade depth for rects on demand.
+        val permits = if (flush.wide) 3 else 1
+        repeat(permits) { window.acquire() }
         _state.value = _state.value.copy(inFlight = 3 - window.availablePermits)
         scope.launch {
             val t0 = clock()
             try {
-                val encoded = Emit.encode(flush, fids, tracker, window = 3)
+                val encoded = Emit.encode(flush, fids, tracker, window = if (flush.wide) 1 else 3)
                 sendImage(EvenHubMsg.IMG_CONTAINER_ID, encoded.image)
                 if (!timing.instant) delay(timing.ackMs)
                 val ackMs = clock() - t0
@@ -236,7 +239,7 @@ class SimTransport(
                 _events.emit(TransportEvent.FlushDone(id, false, clock() - t0, 0,
                     e.message ?: e.toString()))
             } finally {
-                window.release()
+                repeat(permits) { window.release() }
                 _state.value = _state.value.copy(inFlight = 3 - window.availablePermits)
             }
         }

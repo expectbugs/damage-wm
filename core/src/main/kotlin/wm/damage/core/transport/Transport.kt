@@ -77,6 +77,8 @@ data class FlushRequest(
     val ops: List<DisplayOp>,
     val epoch: Long,
     val label: String = "",
+    /** Rects exceed the pipelined budget: run with the window drained (§8.2 #4). */
+    val wide: Boolean = false,
 )
 
 sealed class TransportEvent {
