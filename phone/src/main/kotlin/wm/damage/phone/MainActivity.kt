@@ -12,6 +12,7 @@ import android.os.IBinder
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import androidx.appcompat.app.AlertDialog
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -20,9 +21,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import wm.damage.core.wire.EvenHubMsg
 
 /**
- * The phone UI: the lens preview IS the app. A thin control strip on top —
- * long-press-release injection, lens toggle, status — everything else is the
- * shell itself, driven by touch (LensView maps touch to the ring grammar).
+ * The phone UI: the lens replica IS the app. A thin control strip on top —
+ * the display target (sim / glasses, confirm on tap), lens toggle, the
+ * long-press-release injection, status — everything else is the shell itself,
+ * driven by touch (LensView maps touch to the ring grammar and the service
+ * injects it through the transport, so it reaches a PC shell too).
  *
  * Runtime permissions are requested up front: POST_NOTIFICATIONS carries the
  * §9.3 out-of-band error channel (silently dead without the grant), and the
@@ -37,6 +40,7 @@ class MainActivity : ComponentActivity() {
     private var lensGeneration = -1
     private lateinit var root: FrameLayout
     private lateinit var status: TextView
+    private lateinit var targetButton: Button
     private var polling = false
 
     private val permissionLauncher =
@@ -68,9 +72,14 @@ class MainActivity : ComponentActivity() {
             textSize = 12f
             text = "starting the shell service..."
         }
+        targetButton = Button(this).apply {
+            text = "target: ${Prefs(this@MainActivity).target.name.lowercase()}"
+            setOnClickListener { confirmTargetSwitch() }
+        }
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(status, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(targetButton)
             addView(smallButton("lens") { lens?.toggleArm() })
             addView(smallButton("rel") { service?.postGesture(EvenHubMsg.EV_RING_LONG_PRESS_RELEASE) })
         }
@@ -101,12 +110,26 @@ class MainActivity : ComponentActivity() {
             if (svc != null) {
                 val driving = if (svc.remoteDriving) " · PC DRIVING" else ""
                 status.text = "${svc.statusLine}$driving"
-                // re-attach when the service rebuilt its stack (new sim): the
-                // old view would render the DEAD sim forever otherwise
-                if (svc.sim != null && svc.stackGeneration != lensGeneration) attachLens(svc)
+                targetButton.text = "target: ${Prefs(this@MainActivity).target.name.lowercase()}"
+                // re-attach when the service rebuilt its stack (new mirror): the
+                // old view would render a stale mirror forever otherwise
+                if (svc.mirror != null && svc.stackGeneration != lensGeneration) attachLens(svc)
             }
             status.postDelayed(this, 1000)
         }
+    }
+
+    /** Switch the display target with a confirmation — GLASSES restarts the
+     *  stack onto the real BLE path (refused loudly on non-CFW firmware). */
+    private fun confirmTargetSwitch() {
+        val svc = service ?: return
+        val next = if (Prefs(this).target == Prefs.Target.GLASSES) Prefs.Target.SIM else Prefs.Target.GLASSES
+        AlertDialog.Builder(this)
+            .setTitle("Display target")
+            .setMessage("Switch the display target to ${next.name.lowercase()}? The shell restarts on it.")
+            .setPositiveButton("switch") { _, _ -> svc.switchTarget(next) }
+            .setNegativeButton("keep", null)
+            .show()
     }
 
     private fun smallButton(label: String, onClick: () -> Unit): View =
@@ -116,12 +139,12 @@ class MainActivity : ComponentActivity() {
         }
 
     private fun attachLens(svc: ShellService) {
-        val s = svc.sim ?: return
+        val m = svc.mirror ?: return
         lens?.let {
             it.detach()
             root.removeView(it)
         }
-        val v = LensView(this, s) { svc.postGesture(it) }
+        val v = LensView(this, m, svc.runningTarget.name.lowercase()) { svc.postGesture(it) }
         lens = v
         lensGeneration = svc.stackGeneration
         root.addView(v, 0, FrameLayout.LayoutParams(-1, -1))

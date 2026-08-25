@@ -1,7 +1,6 @@
 package wm.damage.phone
 
 import android.annotation.SuppressLint
-import wm.damage.core.transport.Arm
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -12,23 +11,28 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import wm.damage.core.geom.Geometry
-import wm.damage.core.sim.GlassFirmwareSim
+import wm.damage.core.transport.Arm
+import wm.damage.core.transport.LensPanels
 import wm.damage.core.wire.EvenHubMsg
 
 /**
- * The on-phone lens preview + touch ring. Renders the sim's LEFT panel with the
- * green micro-LED mapping. The phone screen is high-DPI, so the 640x480 frame
- * scales by an INTEGER factor to fit — labeled on screen, because scaled
- * previews flatter type and only the 1x desktop view or glass itself judges
- * legibility (DESIGN.md §Type).
+ * The on-phone lens replica + touch ring. Renders one lens of the transport's
+ * MIRROR (HANDOFF.md §8.2) with the green micro-LED mapping — the firmware
+ * model fed the exact bytes the transport wrote, whether the driver is the
+ * phone's own shell or a PC shell over the seam. The phone screen is
+ * high-DPI, so the 640x480 frame scales by an INTEGER factor to fit — labeled
+ * on screen, because scaled previews flatter type and only the 1x desktop view
+ * or glass itself judges legibility (DESIGN.md §Type).
  *
- * Touch = the ring: tap / double-tap / long-press map 1:1; a vertical fling or
- * drag past one row-height is a scroll notch per step.
+ * Touch = the ring: tap / double-tap / long-press map 1:1; a vertical drag
+ * past one row-height is a scroll notch per step.
  */
 @SuppressLint("ViewConstructor")
 class LensView(
     context: Context,
-    private val sim: GlassFirmwareSim,
+    private val panels: LensPanels,
+    /** What the mirror stands for, for the on-screen label ("sim", "glasses"). */
+    private val caption: String,
     private val onGesture: (Int) -> Unit,
 ) : View(context) {
 
@@ -39,7 +43,6 @@ class LensView(
         color = Color.rgb(60, 160, 90)
         textSize = 24f
     }
-    @Volatile private var scaleShown = 1
     @Volatile private var arm = Arm.LEFT
 
     private var accumulatedDrag = 0f
@@ -72,22 +75,16 @@ class LensView(
         }
     })
 
-    private val listener = object : GlassFirmwareSim.SimDiag {
-        override fun event(kind: String, detail: String) {}
-        override fun notify(arm: Arm, packet: ByteArray) {}
-        override fun panelChanged(a: Arm) {
-            if (a == arm) postInvalidateOnAnimation()
-        }
-    }
+    private val listener = LensPanels.LensListener { a -> if (a == arm) postInvalidateOnAnimation() }
 
     init {
-        sim.attachListener(listener)
+        panels.addListener(listener)
     }
 
-    /** Unhook from the sim — a rebuilt stack replaces this view, and the old
-     *  sim's listener list must not keep it (and its Activity) alive. */
+    /** Unhook from the mirror — a rebuilt stack replaces this view, and the
+     *  old mirror's listener list must not keep it (and its Activity) alive. */
     fun detach() {
-        sim.detachListener(listener)
+        panels.removeListener(listener)
     }
 
     fun toggleArm() {
@@ -103,11 +100,11 @@ class LensView(
     }
 
     override fun onDraw(canvas: Canvas) {
-        val ctx = if (arm == Arm.LEFT) sim.left else sim.right
-        val stride = ctx.stride
+        val panel = panels.panel(arm)
+        val stride = panels.stride
         for (y in 0 until Geometry.PANEL_H) {
             for (x in 0 until Geometry.PANEL_W) {
-                val b = ctx.panel[y * stride + (x shr 1)].toInt() and 0xFF
+                val b = panel[y * stride + (x shr 1)].toInt() and 0xFF
                 val n = if (x and 1 == 0) b shr 4 else b and 0x0F
                 val v = n * 17
                 rowBuf[x] = Color.rgb((v * 0.16).toInt(), minOf(255, (v * 1.05).toInt()), (v * 0.34).toInt())
@@ -117,7 +114,6 @@ class LensView(
         val sx = maxOf(1, width / Geometry.PANEL_W)
         val sy = maxOf(1, height / Geometry.PANEL_H)
         val s = minOf(sx, sy)
-        scaleShown = s
         matrix.reset()
         matrix.postScale(s.toFloat(), s.toFloat())
         matrix.postTranslate(
@@ -126,7 +122,8 @@ class LensView(
         )
         canvas.drawColor(Color.BLACK)
         canvas.drawBitmap(img, matrix, null)
-        canvas.drawText("${arm.name} lens · sim · preview x$s (not for legibility calls)",
+        val exact = if (panels.exact) "" else " · lags"
+        canvas.drawText("${arm.name} lens · $caption$exact · preview x$s (not for legibility calls)",
             16f, height - 16f, label)
     }
 }

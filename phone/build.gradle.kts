@@ -39,6 +39,7 @@ android {
         buildConfigField("String", "SERVER_HOST", "\"${secrets.getProperty("serverHost", "100.107.139.121")}\"")
         buildConfigField("int", "CONTENT_PORT", secrets.getProperty("contentPort", "7401"))
         buildConfigField("int", "TRANSPORT_PORT", secrets.getProperty("transportPort", "7402"))
+        buildConfigField("int", "REPLICA_PORT", secrets.getProperty("replicaPort", "7403"))
     }
 
     // ONE canonical signing identity, pinned, with NO exists() fallback: a

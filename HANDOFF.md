@@ -426,11 +426,11 @@ checked here, and one commit `§8 <id>: <what>`.
 - [x] F8 battery green; commit
 
 **A — the phone drives real glasses**
-- [ ] A1 `BleTransport` glue rebuilt per §8.2 (RIGHT then LEFT, retry, MTU check, priority, notify enable surfaced, settle, RSSI, disconnect → `onLinkDown`, cached addresses)
-- [ ] A2 `ShellService` on the keeper; claim pauses / release resumes; terminal → SIM fallback with a persistent notification
-- [ ] A3 target switch: strip button + Settings row + `Prefs`; stack restart on switch
-- [ ] A4 `LensView` draws `transport.mirror`, both lenses, touch via `injectInput`
-- [ ] A5 battery green + APK builds; commit
+- [x] A1 `BleTransport` glue rebuilt per §8.2 (RIGHT then LEFT, retry, MTU check, priority, notify enable surfaced, settle, RSSI, disconnect → `onLinkDown`, cached addresses)
+- [x] A2 `ShellService` on the keeper; claim pauses / release resumes; terminal → SIM fallback with a persistent notification
+- [x] A3 target switch: strip button + Settings row + `Prefs`; stack restart on switch
+- [x] A4 `LensView` draws `transport.mirror`, both lenses, touch via `injectInput`
+- [x] A5 battery green + APK builds; commit
 
 **B — the seam carries the mirror**
 - [ ] B1 seam `panel` messages through one ordered sender coroutine (events, state, panels); `RemoteMirror` on the client
@@ -489,6 +489,7 @@ checked here, and one commit `§8 <id>: <what>`.
 
 - 2026-08-25 — §8 written; Adam's decisions recorded.
 - F1 done (b031568): plan committed, phone 0.2 (code 2), REVIEW.md.
+- A1–A5 done: `BleTransport` rebuilt (RIGHT then LEFT, retry 10×500, MTU 512 checked ≥245, priority HIGH, notify enable surfaced, cached addresses, RSSI poll); `ShellService` on `ShellKeeper` (claim pauses / release resumes; capability refusal → SIM fallback + persistent notification); target switch (strip button with confirm + Settings host row + `Prefs`); `LensView` draws `transport.mirror`, touch via `injectInput`; `Prefs.replicaPort`/`BuildConfig.REPLICA_PORT` (7403); APK builds. Note for review: a takeover still stops and restarts the transport (lease release + reconnect + keyframe) — the session model, not a defect.
 - F8 done: battery green (58 core tests, selfcheck 26 checks, snapshots, epub 57/57, lint 0, APK).
 - F7 done: `HostSetting` rows in `SettingsWindow` (stage on scroll, apply on tap, revert on double-tap), `Shell.hostSettings`.
 - F6 done: a notice arriving while the wheel is open is queued unshown (`Notifications.post(show=false)`); a shown box requeues unread on open (`abandonFurl` for a mid-furl box); `showNextIfIdle` + grace on commit/cancel.

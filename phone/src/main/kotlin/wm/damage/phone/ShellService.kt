@@ -20,9 +20,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import wm.damage.core.content.RemoteContent
 import wm.damage.core.shell.Chrome
+import wm.damage.core.shell.HostSetting
 import wm.damage.core.shell.Persistence
 import wm.damage.core.shell.Shell
+import wm.damage.core.shell.ShellKeeper
 import wm.damage.core.sim.GlassFirmwareSim
+import wm.damage.core.transport.LensPanels
 import wm.damage.core.transport.RemoteTransportServer
 import wm.damage.core.transport.SimTransport
 import wm.damage.core.transport.Transport
@@ -35,14 +38,20 @@ import wm.damage.core.windows.reader.ReaderWindow
  * foreground service (the G2CC v0.7 lesson: backgrounded processes lose BLE
  * and network liveness, and the FB lease fails OPEN).
  *
- * Also runs the transport SEAM SERVER, so a PC-resident shell can claim this
- * phone's transport ("both able to take over"): while a remote shell drives,
- * the local shell yields the glasses — the claim callback BLOCKS on that stop,
- * so the remote's start cannot race it — and when the remote disconnects the
- * whole stack rebuilds cleanly (server included; a leaked server on a dead
- * scope was review round 1's takeover wedge). Until flash day the transport is
- * the byte-exact sim, displayed by LensView; the banked BLE transport switches
- * in via Settings once the glasses run the CFW.
+ * The finishing build (HANDOFF.md §8.2 "Phone"):
+ *  - the shell runs under a [ShellKeeper]: a link end restarts the session,
+ *    forever, with no timeouts; a capability refusal (not the CFW) is terminal
+ *    for the GLASSES target — the stack falls back to the simulator so the
+ *    on-screen replica keeps working, and a persistent notification says so;
+ *  - the transport SEAM SERVER lets a PC shell claim this transport ("both
+ *    able to take over"): a claim PAUSES the keeper (blocking, so the remote
+ *    start cannot overlap the local shell's stop) and a release RESUMES it;
+ *  - the on-screen replica draws the transport's [mirror] — exact for both
+ *    targets, and correct while a PC drives; touch enters through
+ *    [Transport.injectInput] so it reaches whichever shell drives;
+ *  - the display target (SIM / GLASSES) is switchable from the control strip
+ *    and from a Settings row, persisted in [Prefs]; the default stays SIM
+ *    until Adam flips it after flashing.
  */
 class ShellService : Service() {
 
@@ -54,18 +63,27 @@ class ShellService : Service() {
     private var scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /** Bumps every time the stack rebuilds — the activity re-attaches its
-     *  LensView when this changes (a stale view held the DEAD sim before). */
+     *  LensView when this changes (a stale view held a dead mirror before). */
     @Volatile var stackGeneration = 0
         private set
-    var sim: GlassFirmwareSim? = null
+
+    /** What the phone screen draws: the running transport's mirror. */
+    @Volatile var mirror: LensPanels? = null
         private set
-    var shell: Shell? = null
+    @Volatile var transport: Transport? = null
         private set
-    private var transport: Transport? = null
+    @Volatile var shell: Shell? = null
+        private set
+    private var keeper: ShellKeeper? = null
     private var seamServer: RemoteTransportServer? = null
     @Volatile var remoteDriving = false
         private set
     @Volatile var statusLine: String = "starting"
+        private set
+
+    /** The target the running stack was built for (may be SIM after a
+     *  terminal refusal even though Prefs still say GLASSES). */
+    @Volatile var runningTarget: Prefs.Target = Prefs.Target.SIM
         private set
 
     override fun onBind(intent: Intent?): IBinder = binder
@@ -73,24 +91,26 @@ class ShellService : Service() {
     override fun onCreate() {
         super.onCreate()
         startForeground(NOTIF_ID, buildNotification("Damage shell starting"))
-        startStack()
+        startStack(Prefs(this).target)
     }
 
-    private fun startStack() {
+    private fun startStack(target: Prefs.Target) {
         val prefs = Prefs(this)
         val dataDir = filesDir.toPath()
+        runningTarget = target
 
-        val s = GlassFirmwareSim()
-        sim = s
-        val t: Transport = if (prefs.target == Prefs.Target.GLASSES) {
-            // The banked path. The capability gate inside the transport refuses
-            // firmware without the EVENCFW string, so even a mistaken toggle
-            // against stock glasses reads settings and refuses to paint.
-            BleTransport(this, scope)
+        val t: Transport = if (target == Prefs.Target.GLASSES) {
+            // The capability gate inside the transport refuses firmware without
+            // the EVENCFW string, so even a mistaken switch against stock
+            // glasses reads settings and refuses to paint.
+            BleTransport(this, scope,
+                cachedAddresses = { prefs.leftAddress to prefs.rightAddress },
+                rememberAddresses = { l, r -> prefs.rememberPair(l, r) })
         } else {
-            SimTransport(s, scope)
+            SimTransport(GlassFirmwareSim(), scope)
         }
         transport = t
+        mirror = t.mirror
 
         var shellRef: Shell? = null
         val text = AndroidText(this) { shellRef?.settings?.fontScale ?: 1.0 }
@@ -106,24 +126,25 @@ class ShellService : Service() {
         )
         sh.register(ReaderWindow(text, rc, scope))
         sh.onUrgent = { source, body -> urgentNotification(source, body) }
+        sh.hostSettings = listOf(
+            HostSetting("Target", listOf("sim", "glasses"),
+                current = { if (prefs.target == Prefs.Target.GLASSES) "glasses" else "sim" },
+                apply = { v -> switchTarget(if (v == "glasses") Prefs.Target.GLASSES else Prefs.Target.SIM) }),
+        )
 
+        val name = target.name.lowercase()
+        val k = ShellKeeper(sh, t, scope,
+            onStatus = { s ->
+                statusLine = "$s · $name"
+                updateNotification(statusLine)
+            },
+            onTerminal = { reason -> onTerminal(target, reason) })
+        keeper = k
         stackGeneration++
-
-        scope.launch {
-            try {
-                sh.start()
-                statusLine = "shell up (${if (prefs.target == Prefs.Target.GLASSES) "GLASSES" else "sim"})"
-                updateNotification(statusLine)
-            } catch (e: Exception) {
-                Log.e("service", "shell start failed", e)
-                statusLine = "START FAILED: ${e.message}"
-                urgentNotification("shell", statusLine)
-                updateNotification(statusLine)
-            }
-        }
+        k.start()
 
         // battery into the top bar's P cell; the host-link banner re-read on
-        // the same tick so "PC Nm" keeps counting (round 3, content R2)
+        // the same tick so "PC Nm" keeps counting
         scope.launch {
             val bm = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
             while (isActive) {
@@ -149,94 +170,121 @@ class ShellService : Service() {
     }
 
     /** True once onDestroy has run — a mid-flight rebuild must not resurrect
-     *  the stack on a destroyed service (review round 2 #B4). */
+     *  the stack on a destroyed service. */
     @Volatile private var destroyed = false
+    private val rebuilding = java.util.concurrent.atomic.AtomicBoolean(false)
 
     /** Tear the whole stack down in order — server first (no new claims), then
-     *  the shell (saves state), then the scope. Synchronized: the shutdown
-     *  thread, the rebuild thread and a takeover claim can all reach for the
-     *  stack at once (#B4). */
+     *  the keeper (stops the shell, saves state), then the scope. Synchronized:
+     *  the shutdown thread, a rebuild and a takeover claim can all reach for
+     *  the stack at once. */
     @Synchronized
     private fun stopStack() {
         seamServer?.close()
         seamServer = null
-        val sh = shell
+        val k = keeper
+        keeper = null
         shell = null
-        if (sh != null) {
+        if (k != null) {
             try {
-                runBlocking { sh.stop() }
+                runBlocking { k.stop() }
             } catch (e: Exception) {
-                Log.e("service", "shell stop failed", e)
+                Log.e("service", "keeper stop failed", e)
             }
         }
         scope.cancel()
         transport = null
-        sim = null
+        mirror = null
+    }
+
+    /** Rebuild the stack on [target] on a worker thread, one rebuild at a time. */
+    private fun rebuild(target: Prefs.Target, why: String) {
+        if (destroyed) return
+        if (!rebuilding.compareAndSet(false, true)) {
+            Log.i("service", "rebuild already in progress — $why coalesced")
+            return
+        }
+        statusLine = "rebuilding ($why)"
+        updateNotification(statusLine)
+        Thread({
+            synchronized(this@ShellService) {
+                try {
+                    stopStack()
+                    if (!destroyed) {
+                        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+                        startStack(target)
+                    }
+                } catch (e: Exception) {
+                    Log.e("service", "stack rebuild failed", e)
+                    statusLine = "REBUILD FAILED: ${e.message}"
+                    urgentNotification("service", statusLine)
+                } finally {
+                    rebuilding.set(false)
+                }
+            }
+        }, "damage-stack-rebuild").start()
+    }
+
+    /** The display target changed (strip button or Settings row): persist and
+     *  rebuild. Called on the shell loop or the UI thread — never blocks. */
+    fun switchTarget(target: Prefs.Target) {
+        Prefs(this).setTargetGlasses(target == Prefs.Target.GLASSES)
+        if (target == runningTarget && keeper?.state != ShellKeeper.State.TERMINAL) {
+            Log.i("service", "target ${target.name} already running")
+            return
+        }
+        rebuild(target, "target → ${target.name.lowercase()}")
+    }
+
+    /** The keeper gave up on this transport: for GLASSES that means the
+     *  firmware refused the display (not the CFW). Fall back to the simulator
+     *  so the phone screen keeps working, and say so persistently. */
+    private fun onTerminal(target: Prefs.Target, reason: String) {
+        statusLine = "${target.name.lowercase()} refused: $reason"
+        updateNotification(statusLine)
+        if (target == Prefs.Target.GLASSES) {
+            urgentNotification("glasses",
+                "The glasses refused the display: $reason. Showing the simulator instead; " +
+                    "the Target setting still says glasses — restart the app after the firmware is right.")
+            rebuild(Prefs.Target.SIM, "fallback after refusal")
+        } else {
+            urgentNotification("shell", "the simulator target ended: $reason")
+        }
     }
 
     /**
      * A remote (PC) shell claimed or released our transport. Called on the seam
-     * server's session thread and deliberately BLOCKING: the server does not
-     * process the remote's "start" until the local shell has fully stopped, so
-     * the two drivers can never overlap on the transport.
+     * server's session thread and deliberately BLOCKING on the claim: the
+     * server does not process the remote's "start" until the local shell has
+     * fully stopped, so the two drivers can never overlap on the transport.
      */
     private fun onRemoteDriver(driving: Boolean) {
         remoteDriving = driving
+        val k = keeper
         if (driving) {
             Log.i("service", "PC shell claimed the transport — local shell yielding")
-            statusLine = "PC shell driving"
-            synchronized(this) {
-                val sh = shell
-                shell = null
-                if (sh != null) {
-                    try {
-                        runBlocking { sh.stop() }
-                    } catch (e: Exception) {
-                        Log.e("service", "local shell stop on takeover failed", e)
-                    }
+            if (k != null) {
+                try {
+                    runBlocking { k.pause("PC shell driving") }
+                } catch (e: Exception) {
+                    Log.e("service", "local shell pause on takeover failed", e)
                 }
             }
+            statusLine = "PC shell driving"
             updateNotification(statusLine)
         } else {
             if (destroyed) return
-            // one rebuild at a time (round 3, phone D4): a burst of
-            // disconnects must not tear down the fresh stack it just built.
-            // The flag clears INSIDE the monitor, so a claim that was waiting
-            // on it can never see a stale "in progress".
-            if (!rebuilding.compareAndSet(false, true)) {
-                Log.i("service", "rebuild already in progress — coalesced")
-                return
-            }
-            Log.i("service", "PC shell gone — rebuilding the local stack")
+            Log.i("service", "PC shell gone — local shell resuming")
             statusLine = "local shell resuming"
             updateNotification(statusLine)
-            // full rebuild: fresh scope, transport, sim, shell AND seam server —
-            // partial reuse left the old server on a cancelled scope. The lock
-            // makes stop+start atomic against onDestroy's teardown (#B4).
-            Thread({
-                synchronized(this@ShellService) {
-                    try {
-                        stopStack()
-                        if (!destroyed) {
-                            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-                            startStack()
-                        }
-                    } catch (e: Exception) {
-                        Log.e("service", "stack rebuild failed", e)
-                        statusLine = "REBUILD FAILED: ${e.message}"
-                        urgentNotification("service", statusLine)
-                    } finally {
-                        rebuilding.set(false)
-                    }
-                }
-            }, "damage-stack-rebuild").start()
+            k?.resume()
         }
     }
 
-    private val rebuilding = java.util.concurrent.atomic.AtomicBoolean(false)
-
+    /** A gesture from the phone screen enters through the transport so it
+     *  reaches whichever shell drives (the PC's during a takeover). */
     fun postGesture(type: Int) {
-        shell?.postGesture(type)
+        transport?.injectInput(type) ?: Log.w("service", "gesture $type with no transport")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
@@ -310,13 +358,22 @@ class Prefs(context: Context) {
     val token: String get() = p.getString("token", BuildConfig.DAMAGE_TOKEN)!!
     val contentPort: Int get() = p.getInt("contentPort", BuildConfig.CONTENT_PORT)
     val transportPort: Int get() = p.getInt("transportPort", BuildConfig.TRANSPORT_PORT)
+    val replicaPort: Int get() = p.getInt("replicaPort", BuildConfig.REPLICA_PORT)
 
-    /** SIM until flash day. The GLASSES target is the banked BLE path. */
+    /** SIM until flash day. GLASSES is the real BLE path. */
     val target: Target
         get() = if (p.getBoolean("targetGlasses", false)) Target.GLASSES else Target.SIM
 
     /** Serve the transport seam so a PC shell can take over. Default on. */
     val seamServer: Boolean get() = p.getBoolean("seamServer", true)
+
+    /** The pair's addresses from the last successful connect: the scanner
+     *  accepts them next to the advertised-name match. */
+    val leftAddress: String? get() = p.getString("leftAddr", null)
+    val rightAddress: String? get() = p.getString("rightAddr", null)
+
+    fun rememberPair(left: String, right: String) =
+        p.edit().putString("leftAddr", left).putString("rightAddr", right).apply()
 
     fun setTargetGlasses(on: Boolean) = p.edit().putBoolean("targetGlasses", on).apply()
     fun set(key: String, value: String) = p.edit().putString(key, value).apply()
