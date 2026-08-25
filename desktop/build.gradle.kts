@@ -11,6 +11,11 @@ kotlin {
 dependencies {
     implementation(project(":core"))
     implementation(libs.kotlinx.coroutines.core)
+    // PC-direct BLE: BlueZ over D-Bus (Linux only; §10.7 defers macOS/Windows)
+    implementation(libs.bluez.dbus)
+    implementation(libs.dbus.java.core)
+    runtimeOnly(libs.dbus.java.unixsocket)
+    runtimeOnly(libs.slf4j.simple)
     testImplementation(kotlin("test"))
     testImplementation(libs.junit)
 }

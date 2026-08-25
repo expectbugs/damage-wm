@@ -438,10 +438,10 @@ checked here, and one commit `§8 <id>: <what>`.
 - [x] B3 battery green; commit
 
 **C — PC-direct BLE**
-- [ ] C1 dependencies in `desktop/build.gradle.kts` (+ fat jar); licences noted in `IMPLEMENTATION.md`
-- [ ] C2 `BlueZTransport` per §8.2 behind a small `BlueZLink` seam so the glue is unit-testable with a fake
-- [ ] C3 tests over the fake (connect order, MTU refusal, notify routing, disconnect → link down); adapter enumeration run once on beardos (no discovery)
-- [ ] C4 battery green; commit
+- [x] C1 dependencies in `desktop/build.gradle.kts` (+ fat jar); licences noted in `IMPLEMENTATION.md`
+- [x] C2 `BlueZTransport` per §8.2 behind a small `BlueZLink` seam so the glue is unit-testable with a fake
+- [x] C3 tests over the fake (connect order, MTU refusal, notify routing, disconnect → link down); adapter enumeration run once on beardos (no discovery)
+- [x] C4 battery green; commit
 
 **D — replicas**
 - [ ] D1 desktop Preview per §8.2 (mouse, side-by-side, status strip, mirror source)
@@ -489,6 +489,7 @@ checked here, and one commit `§8 <id>: <what>`.
 
 - 2026-08-25 — §8 written; Adam's decisions recorded.
 - F1 done (b031568): plan committed, phone 0.2 (code 2), REVIEW.md.
+- C1–C4 done: `BlueZLink` seam + `BlueZDbus` (bluez-dbus 0.3.5 / dbus-java 5.2.0 / native unix-socket transport / slf4j-simple; raw `Device1.Connect` so a refusal keeps its reason; MTU via `Properties.Get`; notifications via `PropertiesChanged(Value)`), `BlueZTransport` (RIGHT then LEFT, MTU ≥ 245 checked, cached addresses, `Connected=false` → link down), `BlueZTransportTest` (4 tests over a fake link whose far end is the firmware model), `--ble-info`. **Measured on beardos, no discovery:** the JVM reaches bluetoothd on the system bus; hci0 C4:BD:E5:2E:C9:75 powered; two previously known devices listed. The radio path itself remains unexercised until first light.
 - B1–B3 done: seam `panel` messages (arm, y0, rows + packed rows) through ONE ordered outbox with events/state/done; full panels on session start; `RemoteMirror` applies them; `SeamMirrorTest` (equality after every flush, panel-before-done, far-end input). Core 59 tests green, desktop compiles.
 - A1–A5 done: `BleTransport` rebuilt (RIGHT then LEFT, retry 10×500, MTU 512 checked ≥245, priority HIGH, notify enable surfaced, cached addresses, RSSI poll); `ShellService` on `ShellKeeper` (claim pauses / release resumes; capability refusal → SIM fallback + persistent notification); target switch (strip button with confirm + Settings host row + `Prefs`); `LensView` draws `transport.mirror`, touch via `injectInput`; `Prefs.replicaPort`/`BuildConfig.REPLICA_PORT` (7403); APK builds. Note for review: a takeover still stops and restarts the transport (lease release + reconnect + keyframe) — the session model, not a defect.
 - F8 done: battery green (58 core tests, selfcheck 26 checks, snapshots, epub 57/57, lint 0, APK).

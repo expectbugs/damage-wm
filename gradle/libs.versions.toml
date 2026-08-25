@@ -12,6 +12,10 @@ appcompat = "1.7.0"
 material = "1.12.0"
 nordic-ble = "2.7.5"
 junit = "4.13.2"
+# PC-direct BLE over BlueZ's D-Bus API (HANDOFF.md §8.2): both MIT.
+bluez-dbus = "0.3.5"
+dbus-java = "5.2.0"
+slf4j = "2.0.18"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -27,6 +31,12 @@ material = { module = "com.google.android.material:material", version.ref = "mat
 nordic-ble = { module = "no.nordicsemi.android:ble", version.ref = "nordic-ble" }
 nordic-ble-ktx = { module = "no.nordicsemi.android:ble-ktx", version.ref = "nordic-ble" }
 junit = { module = "junit:junit", version.ref = "junit" }
+# bluez-dbus (MIT) wraps org.bluez over dbus-java (MIT); the JDK-16+ native
+# unix-socket transport needs no JNI. slf4j-simple carries the libraries' logs.
+bluez-dbus = { module = "com.github.hypfvieh:bluez-dbus", version.ref = "bluez-dbus" }
+dbus-java-core = { module = "com.github.hypfvieh:dbus-java-core", version.ref = "dbus-java" }
+dbus-java-unixsocket = { module = "com.github.hypfvieh:dbus-java-transport-native-unixsocket", version.ref = "dbus-java" }
+slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

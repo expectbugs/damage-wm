@@ -38,6 +38,7 @@ fun main(args: Array<String>) {
         "--epub-check" in args -> epubCheck(cfg)
         "--snapshot" in args -> Snapshot.run(cfg,
             Path.of(args.getOrNull(args.indexOf("--snapshot") + 1) ?: "snapshots"))
+        "--ble-info" in args -> bleInfo()
         "--host-only" in args -> runBlocking { hostOnly(cfg) }
         args.contains("--remote") -> runShell(cfg, remoteHost = args[args.indexOf("--remote") + 1])
         else -> runShell(cfg, remoteHost = null)
@@ -103,6 +104,25 @@ private fun epubCheck(cfg: Config) {
         }
     }
     kotlin.system.exitProcess(if (bad > 0) 1 else 0)
+}
+
+/** Adapter enumeration only — a D-Bus read, no discovery, no connection: the
+ *  one BlueZ check that is allowed before first light (HANDOFF.md §8.1 #2). */
+private fun bleInfo() {
+    try {
+        val link = BlueZDbus()
+        val a = link.adapter()
+        println("BlueZ adapter ${a.name} ${a.address} powered=${a.powered} (${a.path})")
+        val known = link.peers()
+        println("${known.size} device(s) already known to BlueZ (no discovery was run):")
+        for (p in known) println("  ${p.address}  '${p.name}'  connected=${p.connected}")
+        link.close()
+        kotlin.system.exitProcess(0)
+    } catch (e: Exception) {
+        println("BlueZ not usable: ${e.message}")
+        e.printStackTrace()
+        kotlin.system.exitProcess(1)
+    }
 }
 
 private suspend fun hostOnly(cfg: Config) {
