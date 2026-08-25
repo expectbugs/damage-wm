@@ -100,6 +100,9 @@ class Shell(
     /** Host-link status line for the status bar (set by the content client). */
     @Volatile var hostState: String = ""
 
+    /** Rows the host appends to Settings (the display target); set before start. */
+    @Volatile var hostSettings: List<HostSetting> = emptyList()
+
     /** §9.3: the phone is the out-of-band error channel — urgent internal
      *  notices also fire this hook (the APK raises a real phone notification). */
     @Volatile var onUrgent: ((source: String, body: String) -> Unit)? = null
@@ -188,7 +191,7 @@ class Shell(
         // refused transport must not add a second Settings row or a second
         // event collector (round 4, shell #2)
         if (!::settingsWindow.isInitialized) {
-            settingsWindow = SettingsWindow(text, { settings }, { applySettings(it) })
+            settingsWindow = SettingsWindow(text, { settings }, { applySettings(it) }, { hostSettings })
             register(settingsWindow)
         }
         for (w in windows) w.onRegistered(services)
@@ -578,6 +581,19 @@ class Shell(
     // ------------------------------------------------------------------ switcher
     private fun openSwitcher() {
         settleSlidesForOverlay()
+        // decision 6 (HANDOFF.md §8.1): the wheel owns the screen. A box on
+        // screen goes back to the queue unread, unshown until the wheel closes;
+        // a box mid-furl finishes at once and stays dismissed.
+        if (notifications.active) {
+            if (notifications.furlingOut) {
+                notifications.restoreUnderFinished(comp.composed)?.let { comp.damage(it) }
+                notifications.abandonFurl()
+            } else {
+                liftNotificationBox()
+                notifications.requeueCurrent()
+            }
+            boxLifted = false
+        }
         switcher.openWith(if (mode == Mode.WINDOW) current else null, recency)
         previewPainted = null
         updatePlanes()
@@ -589,6 +605,7 @@ class Shell(
         val target = sel.window
         switcher.close()
         previewPainted = null
+        val shown = notifications.showNextIfIdle()   // a box that waited behind the wheel
         if (target == null) {
             current?.onDeactivate()
             current = null
@@ -598,14 +615,17 @@ class Shell(
             commitWindow(target)
         }
         updatePlanes()
+        if (shown) scheduleGrace()
         scheduleSave()
     }
 
     private fun cancelSwitcher() {
         switcher.close()
         previewPainted = null
+        val shown = notifications.showNextIfIdle()   // a box that waited behind the wheel
         updatePlanes()
         composeContent()          // restore what we came from (the expensive path)
+        if (shown) scheduleGrace()
     }
 
     private fun paintSwitcherFrame() {
@@ -646,6 +666,11 @@ class Shell(
                 // clock — only a new or replaced box does (review round 2 #A9)
                 if (notifications.current !== shown) scheduleSilentDismiss()
             }
+            return
+        }
+        if (switcher.open) {
+            // decision 6: wait behind the wheel — queued unshown until it closes
+            notifications.post(n, layout, show = false)
             return
         }
         val replacedRect = notifications.post(n, layout)
@@ -857,19 +882,23 @@ class Shell(
     @Volatile var lastDivergence: String? = null
         private set
 
-    /** How many disagreements were reported this session. */
+    /** How many disagreement episodes were reported this session. */
     @Volatile var divergencesReported = 0
         private set
-    private var divergenceEpoch = -1L
 
     /**
      * HANDOFF.md §8.2 "Divergence check": at rest — nothing in flight, nothing
      * pending, no keyframe owed — the compositor's belief about each lens must
      * equal the transport's mirror (the firmware model fed our exact bytes).
      * A disagreement means the compositor and the model disagree about what
-     * our own traffic produced: reported once per compositor epoch (status,
-     * journal, urgent notice) and answered with one keyframe, which reseeds
-     * both. Only exact (local) mirrors are read; a seam-fed mirror lags.
+     * our own traffic produced: reported once per EPISODE — on the transition
+     * from agreement to disagreement (status, journal, urgent notice) — and
+     * answered with one keyframe, which reseeds both. A disagreement that
+     * survives its keyframe is left standing (the report stays visible) until
+     * agreement returns; keyframing again would only repeat it. The belief is
+     * compared through the emitter's quantiser (Pack.level): the shadow keeps
+     * 8-bit levels, the glass holds nibbles. Only exact (local) mirrors are
+     * read; a seam-fed mirror lags.
      */
     private fun checkMirrorAgreement() {
         val m = transport.mirror
@@ -886,23 +915,27 @@ class Shell(
                 val row = y * stride
                 for (x in 0 until comp.width) {
                     val b = panel[row + (x shr 1)].toInt() and 0xFF
-                    val v = (if (x and 1 == 0) b shr 4 else b and 0x0F) * 17
+                    val n = if (x and 1 == 0) b shr 4 else b and 0x0F
                     val e = belief[x, y]
-                    if (e != v) {
+                    if (Pack.level(e) != n) {
                         diffs++
-                        if (first == null) first = "($x,$y) belief $e mirror $v"
+                        if (first == null) first = "($x,$y) belief $e (level ${Pack.level(e)}) mirror level $n"
                     }
                 }
             }
             if (diffs > 0 && report == null) report = "$arm: $diffs px differ, first at $first"
         }
         if (report == null) {
+            if (lastDivergence != null) {
+                journal.note("divergence", "agreement restored")
+                if (statusText == "DIVERGE") setStatus("ok")
+            }
             lastDivergence = null
             return
         }
+        val newEpisode = lastDivergence == null
         lastDivergence = report
-        if (divergenceEpoch == comp.epoch) return      // already reported for this frame
-        divergenceEpoch = comp.epoch
+        if (!newEpisode) return          // still the same episode: one report, one keyframe
         divergencesReported++
         setStatus("DIVERGE")
         journal.note("divergence", report)
@@ -1281,6 +1314,21 @@ class Shell(
 
     /** The active window's id, or null at Main/silent — test introspection. */
     fun currentWindowId(): String? = if (mode == Mode.WINDOW) current?.id else null
+
+    /** Which quiescence conditions are unmet — for a failed settle's message
+     *  and the replica status line. Empty = quiescent. */
+    fun quiescenceReport(): String = buildString {
+        if (queued.get() != 0) append("queued=${queued.get()} ")
+        if (comp.hasPending) append("pending ")
+        if (comp.needsKeyframe) append("keyframe ")
+        if (inflightFlushes.isNotEmpty()) append("inflight=${inflightFlushes.size} ")
+        if (notifications.animating) append("notice-anim ")
+        if (slides.any { it.active }) append("slides ")
+        if (switcher.spinning) append("spin ")
+        if (haltedEpoch != null) append("halted ")
+        lastDivergence?.let { append("diverge[$it] ") }
+        append("reports=$divergencesReported status='$statusText'")
+    }
 
     /** True when nothing is pending anywhere — test/selfcheck introspection. */
     fun isQuiescent(): Boolean =

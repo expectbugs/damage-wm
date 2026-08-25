@@ -52,8 +52,8 @@ class DivergenceTest {
             val belief = shell.comp.expectedLens(true)
             for (y in 0 until 480) for (x in 0 until 640) {
                 val b = sim.left.panel[y * stride + (x shr 1)].toInt() and 0xFF
-                val v = (if (x and 1 == 0) b shr 4 else b and 0x0F) * 17
-                assertEquals(belief[x, y], v, "belief != mirror at ($x,$y) after the repair")
+                val n = if (x and 1 == 0) b shr 4 else b and 0x0F
+                assertEquals(wm.damage.core.gfx.Pack.level(belief[x, y]), n, "belief != mirror at ($x,$y) after the repair")
             }
             shell.stop()
         } finally {

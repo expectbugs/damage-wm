@@ -118,7 +118,9 @@ class Notifications(private val text: TextRasterizer) {
      *  the box rect the replaced current occupied (for union damage) or null.
      *  A FURLING current is mid-dismissal: replacing it would silently drop the
      *  notice when the furl completes (review round 1) — queue instead. */
-    fun post(n: Notice, l: Layout): Rect? {
+    /** [show] = false queues only (a notice arriving while the switcher wheel
+     *  is open waits behind it — HANDOFF.md §8.1 decision 6). */
+    fun post(n: Notice, l: Layout, show: Boolean = true): Rect? {
         val cur = current
         if (cur != null && !furling && cur.source == n.source && cur.thread == n.thread) {
             val oldRect = fullRect(cur, l, silent = false)
@@ -128,8 +130,19 @@ class Notifications(private val text: TextRasterizer) {
         }
         val i = queue.indexOfFirst { it.source == n.source && it.thread == n.thread }
         if (i >= 0) queue[i] = n else queue.addLast(n)
-        if (current == null) show()
+        if (show && current == null) show()
         return null
+    }
+
+    /** A furl interrupted by the switcher wheel: the box being dismissed is
+     *  dropped as dismissed (never requeued); the next box stays queued until
+     *  the wheel closes. The caller restores the under-content first. */
+    fun abandonFurl() {
+        if (!furling) return
+        current = null
+        furling = false
+        unfurl = 0
+        invalidateUnder()
     }
 
     /** Show the next queued box if nothing is current (leaving silent mode,

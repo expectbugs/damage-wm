@@ -25,6 +25,9 @@ class SettingsWindow(
     private val text: TextRasterizer,
     private val get: () -> ShellSettings,
     private val apply: (ShellSettings) -> Unit,
+    /** Rows the HOST adds after the §4.2 table (HANDOFF.md §8.2): the display
+     *  target on the phone and the desktop. Read on every render. */
+    private val host: () -> List<HostSetting> = { emptyList() },
 ) : DamageWindow("settings", "Settings", IconKind.SETTINGS) {
 
     private val fRow = FontSpec(Face.SYSTEM, 18)
@@ -37,11 +40,15 @@ class SettingsWindow(
     /** Size relayouts + keyframes (~1.1 s), so it is the one setting that must
      *  NOT apply per notch (§4.2): staged while adjusting, applied on tap. */
     private var stagedSize: Pair<Int, VPos>? = null
+    /** A host row stages its choice while adjusting and applies on tap, like
+     *  Size: applying may restart the whole stack. */
+    private var stagedHost: String? = null
 
     private inner class Entry(
         val name: String,
         val value: () -> String,
         val step: ((ShellSettings, Int) -> ShellSettings)?,
+        val hostRow: HostSetting? = null,
     )
 
     private val entries: List<Entry> = listOf(
@@ -82,17 +89,27 @@ class SettingsWindow(
 
     private fun onOff(b: Boolean) = if (b) "on" else "off"
 
+    /** The §4.2 rows followed by the host's rows. */
+    private val allEntries: List<Entry>
+        get() = entries + host().map { h ->
+            Entry(h.name, {
+                val st = stagedHost
+                if (st != null && adjusting?.hostRow === h) "$st (tap applies)" else h.current()
+            }, null, hostRow = h)
+        }
+
     override fun view(): WindowView = WindowView.ListView(
         model,
-        rowCount = { entries.size },
+        rowCount = { allEntries.size },
         paintRow = { g, i, r, _ -> paintRow(g, i, r) },
         paintLens = { g, r, i -> paintLens(g, r, i) },
         onCommit = { i ->
-            val e = entries[i]
-            if (e.step != null || e.name == "Size") {
+            val e = allEntries[i]
+            if (e.step != null || e.name == "Size" || e.hostRow != null) {
                 adjusting = e
                 revertTo = get()
                 if (e.name == "Size") stagedSize = get().heightMode to get().vpos
+                e.hostRow?.let { stagedHost = it.current() }
             }
         },
     )
@@ -101,6 +118,13 @@ class SettingsWindow(
      *  it previews on settle, not per notch). Returns true when consumed. */
     fun onScrollAdjust(delta: Int): Boolean {
         val e = adjusting ?: return false
+        e.hostRow?.let { h ->
+            val opts = h.options
+            if (opts.isEmpty()) return true
+            val i = opts.indexOf(stagedHost ?: h.current()).coerceAtLeast(0)
+            stagedHost = opts[(i + delta).mod(opts.size)]
+            return true
+        }
         if (e.name == "Size") {
             val (h, v) = stagedSize ?: (get().heightMode to get().vpos)
             stagedSize = when {
@@ -119,6 +143,14 @@ class SettingsWindow(
      *  ~1.1 s relayout, on settle as designed). Returns true when consumed. */
     fun onTapAdjust(): Boolean {
         val e = adjusting ?: return false
+        e.hostRow?.let { h ->
+            val choice = stagedHost
+            stagedHost = null
+            adjusting = null
+            revertTo = null
+            if (choice != null && choice != h.current()) h.apply(choice)
+            return true
+        }
         if (e.name == "Size") {
             stagedSize?.let { (h, v) -> apply(get().copy(heightMode = h, vpos = v)) }
             stagedSize = null
@@ -133,6 +165,7 @@ class SettingsWindow(
         if (adjusting != null) {
             adjusting = null
             stagedSize = null
+            stagedHost = null
             if (r != null) apply(r)      // double-tap reverts the live preview
             revertTo = null
             return true
@@ -145,13 +178,13 @@ class SettingsWindow(
     val isAdjusting: Boolean get() = adjusting != null
 
     private fun paintRow(g: Gray8, i: Int, r: Rect) {
-        val e = entries[i]
+        val e = allEntries[i]
         text.draw(g, r.x + 40, (r.y + 7) / 2 * 2, e.name, fSmall, Level.DIM)
         text.draw(g, r.x + 280, (r.y + 5) / 2 * 2, e.value(), fRow, Level.BODY)
     }
 
     private fun paintLens(g: Gray8, r: Rect, i: Int) {
-        val e = entries[i]
+        val e = allEntries[i]
         Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.SETTINGS, Level.HEAD)
         text.draw(g, r.x + 44, (r.y + 8) / 2 * 2, e.name, fRowB, Level.HEAD)
         val v = e.value()
@@ -169,3 +202,16 @@ class SettingsWindow(
         model.cursor = state["cursor"]?.jsonPrimitive?.int ?: 0
     }
 }
+
+/**
+ * A Settings row the host supplies (HANDOFF.md §8.2 "Host-supplied Settings
+ * rows"): [options] cycle while adjusting, the choice is staged, and [apply]
+ * runs on the tap that keeps it — ON THE SHELL LOOP, so a host whose apply
+ * restarts the stack must hand the work to its own thread and return.
+ */
+data class HostSetting(
+    val name: String,
+    val options: List<String>,
+    val current: () -> String,
+    val apply: (String) -> Unit,
+)
