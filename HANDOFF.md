@@ -231,7 +231,7 @@ convergence, bytes and time on real content, not only exactness.
   wrong three times. Every stereo op is judged by `LensOracleTest` against the sim.
 - A flush never spans the 0xFFFE→1 fid wrap; a mode-7 clear resets the firmware's baseline, so
   the host tracker/allocator resync with it; msgId cycles 1..249 (0 and 250+ avoided).
-- Session lifecycle: `stop()`, a failed `start()` and `onLinkDown()` bump the epoch and sweep
+- Session lifecycle: `stop()` and `onLinkDown()` bump the epoch and sweep (a failed `start()` sweeps without bumping)
   (fail every waiter loudly, restore permits, drain queues, abort a parked capability gate).
   Nothing may wait on a dead session — NO TIMEOUTS is only acceptable because of this.
 - A lost flush marks per-lens cells UNKNOWN; never "restore a snapshot" — other flushes land
@@ -361,6 +361,27 @@ candidate is disabled the keeper goes terminal. The desktop's default mode is `a
 transport with `phoneHost` from `~/.damage/config.json`, default `aphone`); `--transport
 sim|ble|remote` select one path explicitly; `sim` is the development environment.
 
+**Amendments from review round 1 (2026-08-25).** (1) The arbitration decides by ENGAGEMENT,
+not speed: `Transport.engaged` is true for the seam client from the server's grant (the phone
+has yielded its shell) until its start completes or fails; a lower-ranked path holds off
+entirely while a higher-ranked one is engaged and otherwise only gives it a head start — so the
+phone path wins by construction when the phone is reachable. Known limit: a reachable phone that
+cannot itself see the glasses keeps the radio waiting (the status says so). (2) The seam server
+runs the inner start as a job and keeps reading; a driver that leaves mid-start is seen and its
+attempt cancelled. Every rollback/stop path in the base and both glues runs under
+`NonCancellable`, so a cancelled attempt always disconnects. (3) A capability refusal is a typed
+`CapabilityRefused`; only that is terminal for the keeper / disabling for the arbitration
+(`PathTransport` throws it when every path is disabled). (4) Hardware transports derive
+`leaseHeld` from their mirror (the model's fail-open) on the maintenance tick; the initial lease
+write is awaited; maintenance traffic waits for `started`. (5) `LinkState.detail` narrates
+what a transport is doing (scanning / connecting / prelude / capability / carrier / lease /
+warmup) and travels over the seam; every status line shows it. (6) The seam streams panels as
+per-arm marks built at send time and deflated, so a slow link carries the latest content with
+bounded memory; the replica server does the same. (7) The phone scans FILTERED on the remembered
+pair (addresses + names) so a pocket-time loss recovers with the screen off; unfiltered only for
+a pair never seen. (8) The phone installs a `Log` sink (logcat + rate-limited urgent
+notifications for errors). See `REVIEW.md` for every finding and its verdict.
+
 **Phone.** `ShellService` keeps its transport (sim or BLE per target) under a `ShellKeeper`;
 the seam server's claim pauses the keeper and the release resumes it (the existing rebuild
 stays for the release path). `BleTransport` glue: RIGHT then LEFT, `retry(10, 500)`, MTU 512
@@ -489,6 +510,7 @@ checked here, and one commit `§8 <id>: <what>`.
 
 - 2026-08-25 — §8 written; Adam's decisions recorded.
 - F1 done (b031568): plan committed, phone 0.2 (code 2), REVIEW.md.
+- H1/H2 round 1 done: six reviewers, 64 candidates verified (`REVIEW.md`): 58 confirmed and fixed, 2 design calls taken (e9 kept, f6 decided), 2 accepted (d8 safe, f8 test-only), 1 already fixed (f4 by a4), 1 doc. Core 69 tests + desktop 8 green; battery running; round 2 next on the changed areas.
 - E4 + DOC1–DOC4 done: battery green (core 63, desktop 4, selfcheck 28, snapshots, epub, lint 0, APK, fat jar); REMINDER.md (finishing-build summary, flash-day runbook, first-light items 15–17, decision 6 closed), IMPLEMENTATION.md ("The finishing build" section, commands, configurations, verification counts), README.md, CLAUDE.md (status, battery incl. `:desktop:test`, no-radio rule, beardos BLE reachable), DESIGN.md (§4.3 decision 6 note, §5 attach points for rules 5/10/18 and rule 16, §11 items 4 and 7).
 - E1–E3 done: `PathTransport` (concurrent attempts, priority = a 1.5 s head start per rank, failed attempts retried with backoff while the race is open, capability refusal disables a path, a stable mirror proxy, events/state forwarded from the winner); the seam client's connect is interruptible (NIO channel + `runInterruptible`); desktop `auto` is the default (`remote:<phoneHost>` then `ble`; BLE absent → phone only, loudly); `PathTransportTest` (first path wins + loser cancelled + submit/mirror/input through the winner + re-race after stop; refusal disables + a failed attempt is retried). The desktop's keeper + status strip existed since D1.
 - D4 done: battery green (core 61 tests, desktop 4, selfcheck 28 checks incl. the replica page + token gate, snapshots, epub 57/57, lint 0, APK); the page's script passes `node --check`.

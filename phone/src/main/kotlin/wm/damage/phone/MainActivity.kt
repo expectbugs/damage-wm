@@ -109,7 +109,7 @@ class MainActivity : ComponentActivity() {
             val svc = service
             if (svc != null) {
                 val driving = if (svc.remoteDriving) " · PC DRIVING" else ""
-                status.text = "${svc.statusLine}$driving"
+                status.text = "${svc.displayStatus()}$driving"
                 targetButton.text = "target: ${Prefs(this@MainActivity).target.name.lowercase()}"
                 // re-attach when the service rebuilt its stack (new mirror): the
                 // old view would render a stale mirror forever otherwise

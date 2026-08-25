@@ -60,6 +60,8 @@ class GlassFirmwareSim() : LensPanels {
     override val exact: Boolean get() = true
     override val stride: Int get() = left.stride
     override fun panel(arm: Arm): ByteArray = ctx(arm).panel
+    @Synchronized
+    override fun snapshot(arm: Arm): ByteArray = ctx(arm).panel.copyOf()
     override fun addListener(l: LensPanels.LensListener) { lensListeners.add(l) }
     override fun removeListener(l: LensPanels.LensListener) { lensListeners.remove(l) }
 
@@ -151,6 +153,19 @@ class GlassFirmwareSim() : LensPanels {
 
     @Synchronized
     fun leaseHeld(arm: Arm, now: Long): Boolean = ctx(arm).leaseDeadline > now
+
+    /** The BLE link ended: per-connection state goes — the EvenHub page (G2CC
+     *  observed the slot ending with a lens drop), the prelude, a half-received
+     *  image. Leases (time-based) and broken sessions (firmware RAM) persist:
+     *  which is which on real hardware is graded U. */
+    @Synchronized
+    fun linkReset() {
+        layoutCreated = false
+        warmupPending = false
+        preludeSeen = false
+        img = null
+        diag.event("launch", "link reset: page and prelude state cleared")
+    }
 
     // ------------------------------------------------------------------ EvenHub
     private fun evenHub(arm: Arm, payload: ByteArray, now: Long) {

@@ -24,6 +24,11 @@ interface LensPanels {
      *  holding it across frames and never write into it. */
     fun panel(arm: Arm): ByteArray
 
+    /** A consistent copy of [arm]'s panel, taken under the mirror's own lock —
+     *  for readers that compare or raise alarms (a torn read of the live
+     *  buffer is fine for a replica, not for the divergence check). */
+    fun snapshot(arm: Arm): ByteArray
+
     fun addListener(l: LensListener)
     fun removeListener(l: LensListener)
 

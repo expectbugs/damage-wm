@@ -92,8 +92,38 @@ class ShellService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // NO SILENT FAILURES needs a sink on this platform: everything reaches
+        // logcat, and errors reach the person (§9.3), rate-limited per tag so
+        // a repeating error is one notification, not a stream
+        Log.addSink { level, tag, message ->
+            val prio = when (level) {
+                Log.Level.DEBUG -> android.util.Log.DEBUG
+                Log.Level.INFO -> android.util.Log.INFO
+                Log.Level.WARN -> android.util.Log.WARN
+                Log.Level.ERROR -> android.util.Log.ERROR
+            }
+            android.util.Log.println(prio, "damage/$tag", message)
+            if (level == Log.Level.ERROR) {
+                val now = System.currentTimeMillis()
+                val last = errorShownAt[tag] ?: 0L
+                if (now - last > ERROR_NOTICE_GAP_MS) {
+                    errorShownAt[tag] = now
+                    urgentNotification(tag, message)
+                }
+            }
+        }
         startForeground(NOTIF_ID, buildNotification("Damage shell starting"))
         startStack(Prefs(this).target)
+    }
+
+    private val errorShownAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /** The status the screen and the notification show: the keeper's last
+     *  transition plus what the transport is doing right now ("scanning for
+     *  the remembered pair", "connecting RIGHT", ...). */
+    fun displayStatus(): String {
+        val d = transport?.state?.value?.detail?.takeIf { it.isNotEmpty() }
+        return if (d == null) statusLine else "$statusLine · $d"
     }
 
     private fun startStack(target: Prefs.Target) {
@@ -106,8 +136,8 @@ class ShellService : Service() {
             // the EVENCFW string, so even a mistaken switch against stock
             // glasses reads settings and refuses to paint.
             BleTransport(this, scope,
-                cachedAddresses = { prefs.leftAddress to prefs.rightAddress },
-                rememberAddresses = { l, r -> prefs.rememberPair(l, r) })
+                remembered = { BleTransport.Remembered(prefs.leftAddress, prefs.leftName, prefs.rightAddress, prefs.rightName) },
+                remember = { r -> prefs.rememberPair(r) })
         } else {
             SimTransport(GlassFirmwareSim(), scope)
         }
@@ -144,6 +174,16 @@ class ShellService : Service() {
         keeper = k
         stackGeneration++
         k.start()
+
+        // the notification follows the transport's detail line
+        scope.launch {
+            var shown = ""
+            while (isActive) {
+                delay(2_000)
+                val s = displayStatus()
+                if (s != shown) { shown = s; updateNotification(s) }
+            }
+        }
 
         // battery into the top bar's P cell; the host-link banner re-read on
         // the same tick so "PC Nm" keeps counting
@@ -198,19 +238,21 @@ class ShellService : Service() {
             connected = st?.connected ?: false, started = st?.started ?: false, leaseHeld = st?.leaseHeld ?: false,
             ackMs = st?.ackMsEma?.toInt() ?: 0, bytesPerSec = st?.bytesPerSecEma?.toInt() ?: 0,
             driver = if (remoteDriving) "PC shell over the seam" else "phone shell",
-            note = shell?.lastDivergence?.let { "DIVERGE: $it" } ?: statusLine,
+            note = shell?.lastDivergence?.let { "DIVERGE: $it" } ?: displayStatus(),
         )
     }
 
     @Synchronized
     private fun stopStack() {
+        // the keeper and shell are taken out FIRST: a seam session ending
+        // under the server's close must not resume a keeper being stopped
+        val k = keeper
+        keeper = null
+        shell = null
         replica?.close()
         replica = null
         seamServer?.close()
         seamServer = null
-        val k = keeper
-        keeper = null
-        shell = null
         if (k != null) {
             try {
                 runBlocking { k.stop() }
@@ -224,10 +266,16 @@ class ShellService : Service() {
     }
 
     /** Rebuild the stack on [target] on a worker thread, one rebuild at a time. */
+    /** A switch requested while a rebuild runs: applied when it finishes. */
+    private val queuedTarget = java.util.concurrent.atomic.AtomicReference<Prefs.Target?>(null)
+
     private fun rebuild(target: Prefs.Target, why: String) {
         if (destroyed) return
         if (!rebuilding.compareAndSet(false, true)) {
-            Log.i("service", "rebuild already in progress — $why coalesced")
+            queuedTarget.set(target)
+            Log.w("service", "rebuild already in progress — $why queued behind it")
+            statusLine = "rebuilding… ($why queued)"
+            updateNotification(statusLine)
             return
         }
         statusLine = "rebuilding ($why)"
@@ -248,6 +296,9 @@ class ShellService : Service() {
                     rebuilding.set(false)
                 }
             }
+            // a switch that arrived meanwhile — for a target other than the
+            // one now running — is applied now, not dropped
+            queuedTarget.getAndSet(null)?.let { q -> if (q != runningTarget) rebuild(q, "queued switch") }
         }, "damage-stack-rebuild").start()
     }
 
@@ -371,6 +422,7 @@ class ShellService : Service() {
         private const val NOTIF_ID = 1
         private const val CHANNEL = "damage"
         private const val CHANNEL_URGENT = "damage-urgent"
+        private const val ERROR_NOTICE_GAP_MS = 10_000L
     }
 }
 
@@ -393,13 +445,17 @@ class Prefs(context: Context) {
     /** Serve the transport seam so a PC shell can take over. Default on. */
     val seamServer: Boolean get() = p.getBoolean("seamServer", true)
 
-    /** The pair's addresses from the last successful connect: the scanner
-     *  accepts them next to the advertised-name match. */
+    /** The pair's addresses and advertised names from the last successful
+     *  connect: the scan filter (works with the screen off), and accepted
+     *  next to the advertised-name match. */
     val leftAddress: String? get() = p.getString("leftAddr", null)
     val rightAddress: String? get() = p.getString("rightAddr", null)
+    val leftName: String? get() = p.getString("leftName", null)
+    val rightName: String? get() = p.getString("rightName", null)
 
-    fun rememberPair(left: String, right: String) =
-        p.edit().putString("leftAddr", left).putString("rightAddr", right).apply()
+    fun rememberPair(r: BleTransport.Remembered) = p.edit()
+        .putString("leftAddr", r.leftAddress).putString("rightAddr", r.rightAddress)
+        .putString("leftName", r.leftName).putString("rightName", r.rightName).apply()
 
     fun setTargetGlasses(on: Boolean) = p.edit().putBoolean("targetGlasses", on).apply()
     fun set(key: String, value: String) = p.edit().putString(key, value).apply()

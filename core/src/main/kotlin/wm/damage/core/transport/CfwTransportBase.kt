@@ -4,6 +4,8 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -87,9 +89,13 @@ abstract class CfwTransportBase(
         if (teeMirror) {
             this.mirrorSim.attachListener(object : GlassFirmwareSim.SimDiag {
                 override fun event(kind: String, detail: String) {
-                    if (kind in setOf("decode", "fid", "session", "msgid", "compressmode", "abort", "image"))
-                        emitFault("mirror/$kind", detail)
-                    else Log.d(name, "mirror/$kind: $detail")
+                    when (kind) {
+                        "decode", "fid", "session", "msgid", "compressmode", "abort", "image" ->
+                            emitFault("mirror/$kind", detail)      // the model predicting a silent rejection
+                        "lease", "warmup", "launch", "transport", "proto" ->
+                            Log.i(name, "mirror/$kind: $detail")   // first-light narration, visible
+                        else -> Log.d(name, "mirror/$kind: $detail")
+                    }
                 }
                 override fun notify(arm: Arm, packet: ByteArray) {}   // the model's acks are not the glasses'
                 override fun panelChanged(arm: Arm) {}
@@ -196,6 +202,10 @@ abstract class CfwTransportBase(
      *  gate-abort sentinel is owed for that whole span (round 5 F2). */
     @Volatile private var startInProgress = false
 
+    /** This session asked for the FB lease (start() step 3): only then does a
+     *  rollback release it. */
+    @Volatile private var leaseRequested = false
+
     private class PendingAck(val flushId: Long, val windowed: Boolean) {
         val done = CompletableDeferred<EvenHubMsg.Ack>()
     }
@@ -274,17 +284,23 @@ abstract class CfwTransportBase(
                     emitFault("abort", "e0-02 reassembly abort from glasses")
             }
             LaunchMsg.SID -> {
-                if (LaunchMsg.isEvent(frame.flag)) {
-                    Log.d(name, "sid-0x01 event ignored")
-                    return
-                }
+                val hex = frame.payload.joinToString("") { "%02x".format(it) }
                 if (!awaitingPrelude) {
-                    Log.d(name, "sid-0x01 response outside the prelude wait ignored")
+                    Log.i(name, "sid-0x01 frame outside the prelude wait (flag 0x%02x): %s".format(frame.flag, hex))
                     return
                 }
                 val id = LaunchMsg.msgIdOf(frame.payload)
+                if (LaunchMsg.isEvent(frame.flag)) {
+                    // the reference resolves acks only on non-event flags; a
+                    // matching id under an event flag would mean the flag
+                    // assumption (graded U) is wrong — say so at first light
+                    Log.w(name, "sid-0x01 EVENT frame during the prelude wait (flag 0x%02x, msgId %s, pending %d): %s"
+                        .format(frame.flag, id, preludeMsgId, hex))
+                    return
+                }
                 if (id == preludeMsgId) preludeChannel.trySend("ok")
-                else Log.w(name, "sid-0x01 response for msgId $id while waiting for $preludeMsgId — ignored")
+                else Log.w(name, "sid-0x01 response for msgId $id while waiting for $preludeMsgId — ignored (flag 0x%02x): %s"
+                    .format(frame.flag, hex))
             }
             SettingsMsg.SID -> {
                 if (!awaitingCapability) {
@@ -365,6 +381,9 @@ abstract class CfwTransportBase(
         // residue first, then arm the abort path for the whole start
         capabilityChannel.tryReceive()
         preludeChannel.tryReceive()
+        preludeMsgId = -1
+        lastImageAtMs = nowMs()        // the keepalive counts from THIS session
+        leaseRequested = false
         startInProgress = true
         try {
             connectLink()
@@ -388,6 +407,7 @@ abstract class CfwTransportBase(
             //    the settings query. Same gate shape as the capability query:
             //    the ack, the session-end marker, or the write failing — every
             //    way it can end is a completion here; nothing is time-bounded.
+            updateState { it.copy(detail = "connect prelude") }
             if (!instant) delay(PRELUDE_SETTLE_MS)
             awaitingPrelude = true
             val pre = try {
@@ -408,6 +428,7 @@ abstract class CfwTransportBase(
             //    response itself — no timeout needed by construction; an ABSENT
             //    field is a loud refusal (see onNotifyPacket). The rendezvous
             //    was drained at session entry; open the gate window now.
+            updateState { it.copy(detail = "capability query") }
             awaitingCapability = true
             val cap = try {
                 val queryFailed = CompletableDeferred<String>()
@@ -422,10 +443,11 @@ abstract class CfwTransportBase(
                 awaitingCapability = false
             }
             if (cap.startsWith(SWEPT)) {
-                // the session ended (link death, stop) while the gate waited:
-                // the sweep answered it so this start fails LOUDLY instead of
-                // parking forever (round 4 D1)
-                throw LintError("capability gate aborted — ${cap.removePrefix(SWEPT)}")
+                // the session ended (link loss, stop) while the gate waited: the
+                // session-end clear answered it so this start fails LOUDLY
+                // instead of parking forever (round 4 D1). Not a refusal — the
+                // firmware never answered — so it is retried like a link loss.
+                throw LintError("capability query ended early — ${cap.removePrefix(SWEPT)}")
             }
             val missing = SettingsMsg.missingCaps(cap)
             if (cap.isEmpty() || missing.isNotEmpty()) {
@@ -433,48 +455,63 @@ abstract class CfwTransportBase(
                     "capability gate FAILED: no EVENCFW string — this is NOT the CFW; refusing to paint"
                 else "capability gate FAILED: '$cap' missing $missing — refusing to paint"
                 _events.emit(TransportEvent.Fault("capability", msg))
-                throw LintError(msg)
+                throw CapabilityRefused(msg)
             }
             updateState { it.copy(capability = cap) }
 
             // 2. Carrier CREATE — image container + the full-screen dummy text
             //    container that is the event antenna (overview.md §4.1).
+            updateState { it.copy(detail = "carrier create") }
             val createAck = CompletableDeferred<EvenHubMsg.Ack>()
             controlQueue.trySend(CtlWork.Hub(epoch, EvenHubMsg.carrierCreate(0), createAck))
             val created = createAck.await()
             if (created.errorCode != null)
                 throw LintError("carrier CREATE rejected: ErrorCode=${created.errorCode}")
 
-            // 3. FB lease, BOTH arms (display_copy_hook runs per lens).
-            controlQueue.trySend(CtlWork.Lease(epoch, SettingsMsg.OP_FB_ACQUIRE))
+            // 3. FB lease, BOTH arms (display_copy_hook runs per lens). The
+            //    write is awaited: a lease that never reached the wire would
+            //    otherwise read as held while the glasses fail open (review
+            //    round 1, a4).
+            updateState { it.copy(detail = "framebuffer lease") }
+            val leaseWritten = CompletableDeferred<Unit>()
+            leaseRequested = true
+            controlQueue.trySend(CtlWork.Lease(epoch, SettingsMsg.OP_FB_ACQUIRE, leaseWritten))
+            leaseWritten.await()
 
             // 4. The sacrificial warmup frame — the firmware silently drops the
             //    first burst after CREATE (§5.17: make it the splash).
+            updateState { it.copy(detail = "warmup frame") }
             val warmupDone = CompletableDeferred<Unit>()
             imageQueue.trySend(ImgWork.Raw(epoch, warmupFrame, warmupDone))
             warmupDone.await()
 
-            updateState { it.copy(started = true, leaseHeld = true) }
+            updateState { it.copy(started = true, leaseHeld = true, detail = "") }
             startInProgress = false
         } catch (e: Exception) {
             startInProgress = false
             // Roll back COMPLETELY (round 3 D4): a failed start must not leave
             // the lease renewing with no driver, or the instance refusing every
-            // retry with "already started". Best-effort release in case the
-            // lease was acquired before the failure — the 90 s fail-open is
-            // the backstop if this write cannot go out.
+            // retry with "already started". The rollback runs even when this
+            // coroutine was CANCELLED (a lost arbitration, a keeper pause):
+            // the links must not outlive the attempt (review round 1, a2).
+            // The lease is released only if this session asked for it — a
+            // release from a session that never held it would take another
+            // driver's lease away.
             running = false
             started = false
-            sweepSession("start failed: ${e.message}")
-            if (workersLaunched) {
-                controlQueue.trySend(CtlWork.Lease(epoch, SettingsMsg.OP_FB_RELEASE))
+            withContext(NonCancellable) {
+                sweepSession("start failed: ${e.message}")
+                if (workersLaunched && leaseRequested) {
+                    controlQueue.trySend(CtlWork.Lease(epoch, SettingsMsg.OP_FB_RELEASE))
+                }
+                try {
+                    disconnectLink()
+                } catch (d: Exception) {
+                    Log.w(name, "disconnect after failed start: ${d.message}")
+                }
+                if (teeMirror) mirrorSim.linkReset()
+                updateState { it.copy(connected = false, started = false, leaseHeld = false, detail = "") }
             }
-            try {
-                disconnectLink()
-            } catch (d: Exception) {
-                Log.w(name, "disconnect after failed start: ${d.message}")
-            }
-            updateState { it.copy(connected = false, started = false, leaseHeld = false) }
             throw e
         }
     }
@@ -486,16 +523,19 @@ abstract class CfwTransportBase(
      *  enqueue on the CONTROL lane, which never blocks on the ack window — a
      *  stalled flush cannot cost the lease. */
     private fun launchMaintenance() {
+        // The three enqueuing loops run only once start() has completed:
+        // nothing may reach the wire before the connect prelude (review
+        // round 1, a3); start() enqueues the first lease itself.
         scope.launch {
             while (isActive) {
                 delay(if (instant) 50 else SettingsMsg.LEASE_RENEW_MS)
-                if (running) controlQueue.trySend(CtlWork.Lease(sessionEpoch.get(), SettingsMsg.OP_FB_ACQUIRE))
+                if (_state.value.started) controlQueue.trySend(CtlWork.Lease(sessionEpoch.get(), SettingsMsg.OP_FB_ACQUIRE))
             }
         }
         scope.launch {
             while (isActive) {
                 delay(if (instant) 50 else 4_000)
-                if (running && (nowMs() - lastImageAtMs > 4_000 || instant)) {
+                if (_state.value.started && (nowMs() - lastImageAtMs > 4_000 || instant)) {
                     controlQueue.trySend(CtlWork.Hub(sessionEpoch.get(), EvenHubMsg.keepalive(0), null))
                 }
                 // Stall REPORT (round 4 D5) — a diagnostic, not a timeout:
@@ -514,13 +554,24 @@ abstract class CfwTransportBase(
         scope.launch {
             while (isActive) {
                 delay(if (instant) 50 else 30_000)
-                if (running) controlQueue.trySend(CtlWork.Hub(sessionEpoch.get(), EvenHubMsg.carrierTextUpgrade(0), null))
+                if (_state.value.started) controlQueue.trySend(CtlWork.Hub(sessionEpoch.get(), EvenHubMsg.carrierTextUpgrade(0), null))
             }
         }
         scope.launch {
             while (isActive) {
                 delay(if (instant) 20 else 1_000)
-                if (teeMirror) mirrorSim.tick(nowMs())
+                if (teeMirror) {
+                    val now = nowMs()
+                    mirrorSim.tick(now)
+                    // the model is the one thing that knows when the lease
+                    // would have failed open: derive the lease state from it,
+                    // as the sim transport does (review round 1, a4)
+                    if (_state.value.started) {
+                        val held = mirrorSim.leaseHeld(Arm.LEFT, now) && mirrorSim.leaseHeld(Arm.RIGHT, now)
+                        if (!held) setLease(false, "lease expired in the model — renewals did not reach the wire (fail-open)")
+                        else setLease(true, "lease held (model)")
+                    }
+                }
                 if (running) onMaintenanceTick()
             }
         }
@@ -550,6 +601,7 @@ abstract class CfwTransportBase(
         // that a dead link will never return would otherwise deadlock this
         // stop and every future start on the same instance.
         sweepSession("$name stopped")
+        withContext(NonCancellable) {
         if (workersLaunched) {
             // AWAIT the release actually reaching the wire — a fixed sleep lost
             // it behind a mid-flight keyframe's wire-mutex hold (round 2 #6),
@@ -580,6 +632,8 @@ abstract class CfwTransportBase(
             disconnectLink()
         } catch (e: Exception) {
             Log.w(name, "disconnect: ${e.message}")
+        }
+        if (teeMirror) mirrorSim.linkReset()
         }
         updateState { it.copy(started = false, leaseHeld = false, connected = false) }
         _events.emit(TransportEvent.Link(false, "$name stopped"))
@@ -650,6 +704,7 @@ abstract class CfwTransportBase(
         started = false
         sessionEpoch.incrementAndGet()     // the session is over: queued work is stale
         sweepSession("link down: $reason")
+        if (teeMirror) mirrorSim.linkReset()
         updateState { it.copy(connected = false, started = false, leaseHeld = false) }
         if (!_events.tryEmit(TransportEvent.Link(false, reason))) {
             Log.e(name, "Link-down event DROPPED (buffer full)")
@@ -1072,7 +1127,7 @@ abstract class CfwTransportBase(
 
         /** Marker the session-end clear pushes into the capability and prelude
          *  rendezvous (a leading NUL: no real answer can start with it). */
-        private const val SWEPT = " swept: "
+        private const val SWEPT = "\u0000swept: "
 
         /** The reference settles this long after both arms are up before the
          *  prelude (faceclaw sleepDuringConnectSettling(800)) — pacing, not a

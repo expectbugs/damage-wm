@@ -13,6 +13,8 @@ import java.security.MessageDigest
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -38,15 +40,19 @@ import wm.damage.core.wire.EvenHubMsg
  *   server → client text     {"t":"status", ...}
  *   client → server text     {"t":"input","ev":"tap|double|up|down|hold|release"}
  *
- * Fragmented WebSocket messages are not accepted (the page never sends them);
- * a client that does gets a loud close. One sender thread per client keeps
- * panel frames and status in order.
+ * Per client, one sender thread builds each panel frame AT SEND TIME from
+ * the live mirror against what that client last received, so a slow viewer
+ * gets the latest content rather than every intermediate frame (memory per
+ * client is bounded); a fresh or re-attached client gets both full panels.
+ * The status is coalesced the same way. Fragmented WebSocket messages are
+ * not accepted (the page never sends them); a client that does gets a loud
+ * close.
  */
 class ReplicaServer(
     private val port: Int,
     private val token: String,
     /** The mirror to stream — a provider, because the host may rebuild its
-     *  stack (and mirror) under a running page. */
+     *  stack (and mirror) under a running page. Re-checked every second. */
     private val panels: () -> LensPanels?,
     private val status: () -> Status,
     private val onInput: (Int) -> Unit,
@@ -85,12 +91,13 @@ class ReplicaServer(
             }
         }, "replica-server").apply { isDaemon = true }.start()
         Thread({
-            // status once a second to every client; a client whose socket is
-            // gone shows up as a send failure and is dropped loudly
+            // once a second: follow the mirror provider (a rebuilt stack) and
+            // send the status; a client whose socket is gone shows up as a
+            // send failure on its own sender and is dropped loudly
             while (running) {
                 try { Thread.sleep(1000) } catch (e: InterruptedException) { break }
                 val st = status()
-                for (c in clients) c.sendStatus(st)
+                for (c in clients) { c.attach(); c.sendStatus(st) }
             }
         }, "replica-status").apply { isDaemon = true }.start()
     }
@@ -105,8 +112,9 @@ class ReplicaServer(
             val query = queryOf(target)
             if (method != "GET") { reply(out, 405, "text/plain", "GET only"); return }
             if (query["token"] != token) {
-                Log.w("replica", "rejected ${sock.inetAddress}: bad or missing token on $path")
-                reply(out, 403, "text/plain", "token required: open the page from the desktop's printed link"); return
+                if (path != "/favicon.ico")
+                    Log.w("replica", "rejected ${sock.inetAddress}: bad or missing token on $path")
+                reply(out, 403, "text/plain", "token required: open the page from the program's printed link"); return
             }
             when (path) {
                 "/", "/index.html" -> reply(out, 200, "text/html; charset=utf-8", page())
@@ -190,18 +198,33 @@ class ReplicaServer(
 
     /** One connected page. */
     private inner class Client(private val sock: Socket, private val inp: DataInputStream, private val out: OutputStream) {
-        private val queue = LinkedBlockingQueue<ByteArray>()
+        /** Work for the sender: an Arm (a panel to rebuild and send), STATUS, or END. */
+        private val queue = LinkedBlockingQueue<Any>()
         private val stride = (Geometry.PANEL_W + 1) / 2
         private val lastSent = mapOf(Arm.LEFT to ByteArray(stride * Geometry.PANEL_H), Arm.RIGHT to ByteArray(stride * Geometry.PANEL_H))
+        /** A panel token is queued at most once per arm until the sender takes it. */
+        private val dirtyQueued = mapOf(Arm.LEFT to AtomicBoolean(false), Arm.RIGHT to AtomicBoolean(false))
+        private val fullNext = mapOf(Arm.LEFT to AtomicBoolean(true), Arm.RIGHT to AtomicBoolean(true))
+        private val pendingStatus = AtomicReference<Status?>(null)
+        private val statusQueued = AtomicBoolean(false)
         @Volatile private var open = true
-        private var source: LensPanels? = null
-        private val listener = LensPanels.LensListener { arm -> pushPanel(arm) }
+        @Volatile private var source: LensPanels? = null
+        private val listener = LensPanels.LensListener { arm -> markDirty(arm) }
         private val sender = Thread({
             try {
                 while (open) {
-                    val f = queue.take()
-                    if (f.isEmpty()) break
-                    synchronized(out) { out.write(f); out.flush() }
+                    when (val w = queue.take()) {
+                        END -> break
+                        STATUS -> {
+                            statusQueued.set(false)
+                            pendingStatus.getAndSet(null)?.let { write(frame(OP_TEXT, statusJson(it))) }
+                        }
+                        is Arm -> {
+                            dirtyQueued.getValue(w).set(false)
+                            buildPanel(w)?.let { write(frame(OP_BINARY, it)) }
+                        }
+                        is ByteArray -> write(w)          // a pre-framed control frame (pong)
+                    }
                 }
             } catch (e: Exception) {
                 if (open) Log.w("replica", "send to ${sock.inetAddress} failed: ${e.message}")
@@ -209,6 +232,10 @@ class ReplicaServer(
                 try { sock.close() } catch (c: Exception) { /* closing */ }
             }
         }, "replica-sender").apply { isDaemon = true }
+
+        private fun write(f: ByteArray) {
+            synchronized(out) { out.write(f); out.flush() }
+        }
 
         fun run() {
             sender.start()
@@ -219,62 +246,81 @@ class ReplicaServer(
                 when (f.opcode) {
                     OP_TEXT -> handleText(String(f.payload, Charsets.UTF_8))
                     OP_PING -> queue.put(frame(OP_PONG, f.payload))
-                    OP_CLOSE -> { queue.put(frame(OP_CLOSE, ByteArray(0))); break }
+                    OP_CLOSE -> {
+                        // echo the close synchronously so the browser sees a clean 1000
+                        try { write(frame(OP_CLOSE, f.payload.copyOfRange(0, minOf(2, f.payload.size)))) } catch (e: Exception) { /* closing */ }
+                        break
+                    }
                     OP_PONG, OP_BINARY -> {}
                     else -> { Log.w("replica", "unsupported frame opcode ${f.opcode} — closing"); break }
                 }
-                attach()   // the host may have rebuilt its mirror meanwhile
             }
         }
 
-        /** Follow the provider: (re)subscribe when the mirror object changes,
-         *  and send both full panels on every (re)subscription. */
-        private fun attach() {
+        /** Follow the provider: (re)subscribe when the mirror object changes
+         *  and send both FULL panels on every (re)subscription — a fresh
+         *  client, a reconnect or a host rebuild must never keep stale rows. */
+        @Synchronized
+        fun attach() {
             val p = panels()
             if (p === source) return
             source?.removeListener(listener)
             source = p
             if (p != null) {
                 p.addListener(listener)
-                for (arm in Arm.entries) { java.util.Arrays.fill(lastSent.getValue(arm), 0); pushPanel(arm) }
+                for (arm in Arm.entries) { fullNext.getValue(arm).set(true); markDirty(arm) }
             }
         }
 
-        private fun pushPanel(arm: Arm) {
-            val p = source ?: return
+        private fun markDirty(arm: Arm) {
+            if (!open) return
+            if (dirtyQueued.getValue(arm).compareAndSet(false, true)) queue.put(arm)
+        }
+
+        /** The frame for [arm] as of NOW: the changed row range against what
+         *  this client last received (the whole panel after an attach). The
+         *  bytes recorded as sent are exactly the bytes queued. */
+        private fun buildPanel(arm: Arm): ByteArray? {
+            val p = source ?: return null
             val now = p.panel(arm)
             val last = lastSent.getValue(arm)
             synchronized(last) {
                 var first = -1
                 var lastRow = -1
-                for (y in 0 until Geometry.PANEL_H) {
-                    val o = y * stride
-                    var same = true
-                    for (i in 0 until stride) if (now[o + i] != last[o + i]) { same = false; break }
-                    if (!same) { if (first < 0) first = y; lastRow = y }
+                if (fullNext.getValue(arm).getAndSet(false)) {
+                    first = 0; lastRow = Geometry.PANEL_H - 1
+                } else {
+                    for (y in 0 until Geometry.PANEL_H) {
+                        val o = y * stride
+                        var same = true
+                        for (i in 0 until stride) if (now[o + i] != last[o + i]) { same = false; break }
+                        if (!same) { if (first < 0) first = y; lastRow = y }
+                    }
                 }
-                if (first < 0) return
+                if (first < 0) return null
                 val rows = lastRow - first + 1
                 val body = ByteArray(5 + rows * stride)
                 body[0] = (if (arm == Arm.LEFT) 0 else 1).toByte()
                 body[1] = (first and 0xFF).toByte(); body[2] = (first shr 8).toByte()
                 body[3] = (rows and 0xFF).toByte(); body[4] = (rows shr 8).toByte()
                 System.arraycopy(now, first * stride, body, 5, rows * stride)
-                System.arraycopy(now, first * stride, last, first * stride, rows * stride)
-                queue.put(frame(OP_BINARY, body))
+                System.arraycopy(body, 5, last, first * stride, rows * stride)
+                return body
             }
         }
 
         fun sendStatus(st: Status) {
             if (!open) return
-            val o = buildJsonObject {
-                put("t", "status"); put("transport", st.transport); put("connected", st.connected)
-                put("started", st.started); put("lease", st.leaseHeld); put("ackMs", st.ackMs)
-                put("bps", st.bytesPerSec); put("driver", st.driver); put("note", st.note)
-                put("clients", clients.size)
-            }
-            queue.put(frame(OP_TEXT, o.toString().toByteArray(Charsets.UTF_8)))
+            pendingStatus.set(st)
+            if (statusQueued.compareAndSet(false, true)) queue.put(STATUS)
         }
+
+        private fun statusJson(st: Status): ByteArray = buildJsonObject {
+            put("t", "status"); put("transport", st.transport); put("connected", st.connected)
+            put("started", st.started); put("lease", st.leaseHeld); put("ackMs", st.ackMs)
+            put("bps", st.bytesPerSec); put("driver", st.driver); put("note", st.note)
+            put("clients", clients.size)
+        }.toString().toByteArray(Charsets.UTF_8)
 
         private fun handleText(s: String) {
             val o = try { json.parseToJsonElement(s).jsonObject } catch (e: Exception) {
@@ -293,9 +339,11 @@ class ReplicaServer(
 
         fun close() {
             open = false
-            source?.removeListener(listener)
-            source = null
-            queue.offer(ByteArray(0))
+            synchronized(this) {
+                source?.removeListener(listener)
+                source = null
+            }
+            queue.offer(END)
             try { sock.close() } catch (e: Exception) { /* closed */ }
         }
     }
@@ -337,6 +385,8 @@ class ReplicaServer(
         const val OP_PONG = 10
         private const val MAX_CLIENT_FRAME = 64 * 1024L
         private const val WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+        private val STATUS = Any()
+        private val END = Any()
 
         /** RFC 6455 §4.2.2: base64(SHA-1(key + GUID)). */
         fun acceptKey(key: String): String {

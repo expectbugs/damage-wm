@@ -6,14 +6,15 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import java.util.UUID
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import no.nordicsemi.android.ble.BleManager
 import no.nordicsemi.android.ble.ktx.suspend
 import no.nordicsemi.android.ble.observer.ConnectionObserver
@@ -28,7 +29,10 @@ import wm.damage.core.util.Log
  * sources: G2CC's driver, which runs on real glasses daily (stock firmware),
  * and the CFW reference's connect sequence:
  *
- *   scan by advertised name ("Even G2_.._L_.." / "_R_") or a cached address
+ *   scan — FILTERED on the remembered pair (address and advertised name)
+ *     whenever a pair is remembered, because Android suspends unfiltered
+ *     scans while the screen is off (a pocket-time link loss would otherwise
+ *     wait for the screen); unfiltered by name only for a pair never seen
  *   → connect RIGHT then LEFT (retry(10, 500), no autoConnect — the session
  *     keeper owns reconnects)
  *   → per arm in initialize(): MTU 512 requested and the negotiated value
@@ -49,11 +53,19 @@ import wm.damage.core.util.Log
 class BleTransport(
     private val context: Context,
     scope: CoroutineScope,
-    /** Remembered pair addresses (Prefs): accepted by the scanner next to the
-     *  name match, and updated after every successful connect. */
-    private val cachedAddresses: () -> Pair<String?, String?> = { null to null },
-    private val rememberAddresses: (left: String, right: String) -> Unit = { _, _ -> },
+    /** The remembered pair (Prefs): addresses and advertised names from the
+     *  last successful connect — the scan filter, and accepted next to the
+     *  name match. */
+    private val remembered: () -> Remembered = { Remembered() },
+    private val remember: (Remembered) -> Unit = { },
 ) : CfwTransportBase(scope, "ble") {
+
+    data class Remembered(
+        val leftAddress: String? = null, val leftName: String? = null,
+        val rightAddress: String? = null, val rightName: String? = null,
+    ) {
+        val complete: Boolean get() = leftAddress != null && rightAddress != null
+    }
 
     private fun uuid(suffix: Int): UUID =
         UUID.fromString("00002760-08c2-11e1-9073-0e8ac72e%04x".format(suffix))
@@ -75,6 +87,17 @@ class BleTransport(
         /** The negotiated MTU, from the request's callback; -1 until known. */
         @Volatile var negotiatedMtu = -1
         @Volatile var initFailure: String? = null
+
+        /** The manager's own view of the MTU (23 until negotiated). */
+        val currentMtu: Int get() = mtu
+
+        /** Non-blocking RSSI read for the link cell; the result lands in the state. */
+        fun pollRssi() {
+            readRssi()
+                .with { _, rssi -> updateState { it.copy(rssiDbm = rssi) } }
+                .fail { _, status -> Log.w("ble", "$arm rssi read status $status") }
+                .enqueue()
+        }
 
         init {
             setConnectionObserver(object : ConnectionObserver {
@@ -149,7 +172,6 @@ class BleTransport(
                 .suspend()
         }
 
-        suspend fun rssi(): Int = readRssi().suspend()
     }
 
     private val managers = mapOf(Arm.LEFT to ArmManager(Arm.LEFT), Arm.RIGHT to ArmManager(Arm.RIGHT))
@@ -168,8 +190,16 @@ class BleTransport(
     override suspend fun connectLink() {
         // a previous session that ended in a link loss may have left the
         // surviving arm's linkUp standing: this session counts only the
-        // connections it makes itself
-        for (m in managers.values) m.linkUp = false
+        // connections it makes itself. A GATT connection left up by an
+        // earlier attempt (a cancelled start) is ended first, or the scan
+        // would wait for lenses that are connected to us.
+        for ((arm, m) in managers) {
+            m.linkUp = false
+            if (m.isConnected) {
+                Log.w("ble", "$arm still connected from an earlier attempt — ending it first")
+                try { m.disconnect().suspend() } catch (e: Exception) { Log.w("ble", "$arm disconnect: ${e.message}") }
+            }
+        }
         val (left, right) = scanForPair()
         Log.i("ble", "connecting R=${right.address} then L=${left.address}")
         // RIGHT first, then LEFT — the CFW reference's order (control + events
@@ -178,12 +208,18 @@ class BleTransport(
             val m = managers.getValue(arm)
             m.negotiatedMtu = -1
             m.initFailure = null
+            updateState { it.copy(detail = "connecting ${arm.name}") }
             m.connect(dev).retry(CONNECT_RETRIES, CONNECT_RETRY_MS).useAutoConnect(false).suspend()
             m.initFailure?.let { throw IllegalStateException(it) }
-            if (m.negotiatedMtu in 0 until MIN_MTU) {
+            if (m.negotiatedMtu < 0) {
+                // the request reported nothing: the manager's own value decides
+                // (23 until negotiated — a loud refusal, never an assumption)
+                m.negotiatedMtu = m.currentMtu
+                Log.w("ble", "$arm MTU request gave no callback — manager reports ${m.negotiatedMtu}")
+            }
+            if (m.negotiatedMtu < MIN_MTU) {
                 throw IllegalStateException("$arm MTU ${m.negotiatedMtu} < $MIN_MTU: a 242 B AA packet would not fit")
             }
-            if (m.negotiatedMtu < 0) Log.w("ble", "$arm MTU unknown (no callback) — proceeding on the request's default")
             m.linkUp = true
             // a drop in the gap between the connect resolving and the mark
             // would be reported as "not in use" and lost: look once, loudly
@@ -192,24 +228,22 @@ class BleTransport(
                 throw IllegalStateException("$arm dropped right after connecting")
             }
         }
-        rememberAddresses(left.address, right.address)
-        Log.i("ble", "both arms connected")
-        // RSSI for the status-bar link cell, from the RIGHT (command) arm
-        scope.launch {
-            while (running) {
-                delay(RSSI_POLL_MS)
-                if (!running) break
-                try {
-                    val rssi = managers.getValue(Arm.RIGHT).rssi()
-                    updateState { it.copy(rssiDbm = rssi) }
-                } catch (e: Exception) {
-                    Log.w("ble", "rssi read failed: ${e.message}")
-                }
-            }
+        // a drop of the first arm while the second was connecting is reported
+        // before `running` is set (the observer ignores it then): look once
+        for ((arm, m) in managers) if (!m.isConnected) {
+            m.linkUp = false
+            throw IllegalStateException("$arm dropped while the pair was being connected")
         }
+        remember(Remembered(left.address, scanNames[Arm.LEFT], right.address, scanNames[Arm.RIGHT]))
+        updateState { it.copy(detail = "") }
+        Log.i("ble", "both arms connected")
     }
 
-    override suspend fun disconnectLink() {
+    /** Runs even from a cancelled coroutine (the base's rollback after a lost
+     *  arbitration or a keeper pause): the GATT links must not outlive the
+     *  attempt — a cancelled continuation would otherwise drop the disconnect
+     *  request before it was enqueued (review round 1, b2). */
+    override suspend fun disconnectLink(): Unit = withContext(NonCancellable) {
         for (m in managers.values) {
             m.linkUp = false
             try {
@@ -219,6 +253,19 @@ class BleTransport(
             }
         }
     }
+
+    private var ticks = 0
+
+    /** RSSI for the status-bar link cell every 10th tick, from the RIGHT
+     *  (command) arm — bound to the session like every other maintenance. */
+    override fun onMaintenanceTick() {
+        if (++ticks % RSSI_EVERY_TICKS != 0) return
+        val m = managers.getValue(Arm.RIGHT)
+        if (m.linkUp) m.pollRssi()
+    }
+
+    /** The advertised names seen for each arm during the last scan. */
+    private val scanNames = java.util.concurrent.ConcurrentHashMap<Arm, String>()
 
     override suspend fun writeArm(arm: Arm, packet: ByteArray) {
         managers.getValue(arm).writePacket(packet)
@@ -234,10 +281,25 @@ class BleTransport(
             ?: throw IllegalStateException("no bluetooth adapter")
         if (!bt.isEnabled) throw IllegalStateException("bluetooth is off")
         val scanner = bt.bluetoothLeScanner ?: throw IllegalStateException("no LE scanner")
-        val (cachedL, cachedR) = cachedAddresses()
+        val known = remembered()
+        val cachedL = known.leftAddress
+        val cachedR = known.rightAddress
+        // FILTERED on a remembered pair: the one kind of scan Android keeps
+        // running with the screen off (a pocket-time loss recovers on its own)
+        val filters = ArrayList<ScanFilter>()
+        if (known.complete) {
+            for (addr in listOfNotNull(cachedL, cachedR)) {
+                try { filters += ScanFilter.Builder().setDeviceAddress(addr).build() } catch (e: IllegalArgumentException) {
+                    Log.w("ble", "remembered address '$addr' is not a filterable address: ${e.message}")
+                }
+            }
+            for (n in listOfNotNull(known.leftName, known.rightName)) filters += ScanFilter.Builder().setDeviceName(n).build()
+        }
+        updateState { it.copy(detail = if (filters.isEmpty()) "scanning for the pair (first time: needs the screen on)" else "scanning for the remembered pair") }
         val done = CompletableDeferred<Pair<BluetoothDevice, BluetoothDevice>>()
         var left: BluetoothDevice? = null
         var right: BluetoothDevice? = null
+        scanNames.clear()
         val cb = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
                 // the ADVERTISED name: device.name needs BLUETOOTH_CONNECT and a
@@ -246,8 +308,8 @@ class BleTransport(
                 val addr = result.device.address
                 val isLeft = (name.startsWith(NAME_PREFIX) && LEFT_INFIX in name) || addr.equals(cachedL, true)
                 val isRight = (name.startsWith(NAME_PREFIX) && RIGHT_INFIX in name) || addr.equals(cachedR, true)
-                if (isLeft && left == null) { left = result.device; Log.i("ble", "found L '$name' $addr") }
-                if (isRight && right == null) { right = result.device; Log.i("ble", "found R '$name' $addr") }
+                if (isLeft && left == null) { left = result.device; if (name.isNotEmpty()) scanNames[Arm.LEFT] = name; Log.i("ble", "found L '$name' $addr") }
+                if (isRight && right == null) { right = result.device; if (name.isNotEmpty()) scanNames[Arm.RIGHT] = name; Log.i("ble", "found R '$name' $addr") }
                 val l = left
                 val r = right
                 if (l != null && r != null && !done.isCompleted) done.complete(l to r)
@@ -259,7 +321,7 @@ class BleTransport(
             }
         }
         Log.i("ble", "scanning for the G2 pair (phone-side recovery if it stays invisible: toggle Bluetooth)")
-        scanner.startScan(null, ScanSettings.Builder()
+        scanner.startScan(if (filters.isEmpty()) null else filters, ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), cb)
         try {
             return done.await()
@@ -284,6 +346,6 @@ class BleTransport(
         const val CONNECT_RETRIES = 10
         const val CONNECT_RETRY_MS = 500
 
-        const val RSSI_POLL_MS = 10_000L
+        const val RSSI_EVERY_TICKS = 10
     }
 }

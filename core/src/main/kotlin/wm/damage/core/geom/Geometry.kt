@@ -143,7 +143,7 @@ object Geometry {
 }
 
 /** Raised loudly. Never caught-and-logged — that is the failure mode this project bans. */
-class LintError(message: String) : RuntimeException(message)
+open class LintError(message: String) : RuntimeException(message)
 
 /** An axis-aligned box in panel coordinates. Immutable. */
 data class Rect(val x: Int, val y: Int, val w: Int, val h: Int) {

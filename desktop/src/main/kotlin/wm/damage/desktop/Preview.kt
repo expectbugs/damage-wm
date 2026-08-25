@@ -9,10 +9,12 @@ import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
 import java.awt.event.MouseEvent
 import java.awt.event.MouseWheelEvent
+import java.awt.event.WindowAdapter
+import java.awt.event.WindowEvent
 import java.awt.image.BufferedImage
 import javax.swing.JFrame
-import javax.swing.JLabel
 import javax.swing.JPanel
+import javax.swing.JTextArea
 import javax.swing.SwingUtilities
 import javax.swing.Timer
 import wm.damage.core.geom.Geometry
@@ -33,7 +35,10 @@ import wm.damage.core.transport.LensPanels
  * release · Tab lens toggle · B both lenses side by side.
  *
  * The status strip sits UNDER the panel, outside the 640x480 image, so the
- * true-1x rule holds for the pixels that matter.
+ * true-1x rule holds for the pixels that matter; it wraps rather than cuts
+ * (NO TRUNCATION — it is where a fault text is shown). A held key is one
+ * gesture: the ring has no auto-repeat. Closing the window stops the stack
+ * (state saved, lease released) before the process ends.
  */
 class Preview(
     private val panels: () -> LensPanels?,
@@ -47,7 +52,13 @@ class Preview(
     private val imgR = BufferedImage(Geometry.PANEL_W, Geometry.PANEL_H, BufferedImage.TYPE_INT_RGB)
     private var source: LensPanels? = null
     private val listener = LensPanels.LensListener { a -> SwingUtilities.invokeLater { refresh(a) } }
-    private val strip = JLabel(" ")
+    private val strip = JTextArea(" ").apply {
+        isEditable = false
+        lineWrap = true
+        wrapStyleWord = true
+        isFocusable = false
+    }
+    private val keysDown = HashSet<Int>()
 
     init {
         background = Color.BLACK
@@ -55,7 +66,9 @@ class Preview(
         setFocusTraversalKeysEnabled(false)   // Tab is ours
         updateSize()
         addKeyListener(object : KeyAdapter() {
+            override fun keyReleased(e: KeyEvent) { keysDown.remove(e.keyCode) }
             override fun keyPressed(e: KeyEvent) {
+                if (!keysDown.add(e.keyCode)) return     // auto-repeat: one gesture per press
                 when (e.keyCode) {
                     KeyEvent.VK_UP -> onGesture(wm.damage.core.wire.EvenHubMsg.EV_SCROLL_TOP)
                     KeyEvent.VK_DOWN -> onGesture(wm.damage.core.wire.EvenHubMsg.EV_SCROLL_BOTTOM)
@@ -98,7 +111,12 @@ class Preview(
         // refresh the strip
         Timer(500) {
             attach()
-            strip.text = " ${status()}"
+            val s = " ${status()}"
+            if (strip.text != s) {
+                val before = strip.preferredSize.height
+                strip.text = s
+                if (strip.preferredSize.height != before) topFrame()?.pack()
+            }
         }.start()
         attach()
     }
@@ -162,17 +180,26 @@ class Preview(
         const val HOLD_MS = 600
         const val GAP = 16
 
-        fun show(panels: () -> LensPanels?, onGesture: (Int) -> Unit, status: () -> String): Preview {
+        fun show(panels: () -> LensPanels?, onGesture: (Int) -> Unit, status: () -> String,
+                 onClose: () -> Unit = {}): Preview {
             val p = Preview(panels, onGesture, status)
             SwingUtilities.invokeLater {
                 val f = JFrame(p.title())
-                f.defaultCloseOperation = JFrame.EXIT_ON_CLOSE
+                f.defaultCloseOperation = JFrame.DO_NOTHING_ON_CLOSE
+                f.addWindowListener(object : WindowAdapter() {
+                    override fun windowClosing(e: WindowEvent) {
+                        p.strip.text = " stopping — saving state and releasing the display"
+                        Thread({ onClose() }, "damage-close").start()
+                    }
+                })
                 f.contentPane.background = Color.BLACK
                 f.contentPane.layout = BorderLayout()
                 f.contentPane.add(p, BorderLayout.CENTER)
                 p.strip.foreground = Color(76, 178, 100)
                 p.strip.background = Color.BLACK
                 p.strip.isOpaque = true
+                p.strip.columns = 1
+                p.strip.preferredSize = java.awt.Dimension(Geometry.PANEL_W, 40)
                 f.contentPane.add(p.strip, BorderLayout.SOUTH)
                 f.isResizable = false
                 f.pack()

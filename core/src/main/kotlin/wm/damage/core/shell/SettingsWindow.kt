@@ -178,13 +178,13 @@ class SettingsWindow(
     val isAdjusting: Boolean get() = adjusting != null
 
     private fun paintRow(g: Gray8, i: Int, r: Rect) {
-        val e = allEntries[i]
+        val e = allEntries.getOrNull(i) ?: return   // the host list can shrink between restarts
         text.draw(g, r.x + 40, (r.y + 7) / 2 * 2, e.name, fSmall, Level.DIM)
         text.draw(g, r.x + 280, (r.y + 5) / 2 * 2, e.value(), fRow, Level.BODY)
     }
 
     private fun paintLens(g: Gray8, r: Rect, i: Int) {
-        val e = allEntries[i]
+        val e = allEntries.getOrNull(i) ?: return
         Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.SETTINGS, Level.HEAD)
         text.draw(g, r.x + 44, (r.y + 8) / 2 * 2, e.name, fRowB, Level.HEAD)
         val v = e.value()
@@ -199,7 +199,8 @@ class SettingsWindow(
     override fun saveState(): JsonObject = buildJsonObject { put("cursor", model.cursor) }
 
     override fun restoreState(state: JsonObject) {
-        model.cursor = state["cursor"]?.jsonPrimitive?.int ?: 0
+        val n = allEntries.size
+        model.cursor = (state["cursor"]?.jsonPrimitive?.int ?: 0).coerceIn(0, maxOf(0, n - 1))
     }
 }
 

@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Damage replica</title>
+<link rel="icon" href="data:,">
 <style>
   body { margin: 0; background: #000; color: #4cb264; font: 13px/1.4 system-ui, sans-serif; }
   #wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px; }
@@ -42,7 +43,7 @@
   const ctxs = { 0: canvases[0].getContext('2d'), 1: canvases[1].getContext('2d') };
   const images = { 0: ctxs[0].createImageData(W, H), 1: ctxs[1].createImageData(W, H) };
   const connEl = document.getElementById('conn'), statusEl = document.getElementById('status'), faultEl = document.getElementById('fault');
-  let shown = 0, both = false, scale = 1, ws = null, backoff = 1000, closedByUs = false;
+  let shown = 0, both = false, scale = 1, ws = null, backoff = 1000;
 
   // green micro-LED mapping, the same as the desktop preview and design/render_shots.py
   const green = new Array(16).fill(0).map((_, n) => { const v = n * 17; return [Math.floor(v * 0.16), Math.min(255, Math.floor(v * 1.05)), Math.floor(v * 0.34)]; });
@@ -74,18 +75,20 @@
   }
 
   function connect() {
-    closedByUs = false;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`);
     ws.binaryType = 'arraybuffer';
-    ws.onopen = () => { connEl.textContent = 'online'; connEl.className = 'ok'; backoff = 1000; setFault(''); };
+    ws.onopen = () => {
+      connEl.textContent = 'online'; connEl.className = 'ok'; backoff = 1000; setFault('');
+      // the server sends both full panels first; until they land, nothing stale shows
+      for (const c of [ctxs[0], ctxs[1]]) { c.fillStyle = '#000'; c.fillRect(0, 0, W, H); }
+    };
     ws.onmessage = (ev) => {
       if (ev.data instanceof ArrayBuffer) { applyPanel(ev.data); return; }
       let m; try { m = JSON.parse(ev.data); } catch (e) { setFault('malformed status frame'); return; }
       if (m.t === 'status') showStatus(m);
     };
     ws.onclose = () => {
-      if (closedByUs) return;
       connEl.textContent = `reconnecting in ${(backoff / 1000).toFixed(0)} s`; connEl.className = 'warn';
       setTimeout(() => { backoff = Math.min(30000, backoff * 1.5); connect(); }, backoff);
     };
@@ -102,9 +105,19 @@
   for (const c of [canvases[0], canvases[1]]) {
     c.addEventListener('wheel', (e) => {
       e.preventDefault();
-      wheelAccum = Math.max(-300, Math.min(300, wheelAccum + e.deltaY));
-      while (wheelAccum >= 100) { wheelAccum -= 100; send('down'); }
-      while (wheelAccum <= -100) { wheelAccum += 100; send('up'); }
+      // one ring notch per wheel notch, whatever the browser reports: line
+      // mode (Firefox) counts lines, page mode counts pages, pixel mode is a
+      // notch when a single event is a notch-sized step (≥ 40 px: 53 on
+      // Linux Chrome, 100 on Windows) and accumulates only trackpad-sized deltas
+      let notches = 0;
+      if (e.deltaMode === 1) { wheelAccum += e.deltaY / 3; }
+      else if (e.deltaMode === 2) { wheelAccum += Math.sign(e.deltaY); }
+      else if (Math.abs(e.deltaY) >= 40) { notches = Math.sign(e.deltaY); wheelAccum = 0; }
+      else { wheelAccum = Math.max(-3, Math.min(3, wheelAccum + e.deltaY / 40)); }
+      while (wheelAccum >= 1) { wheelAccum -= 1; notches += 1; }
+      while (wheelAccum <= -1) { wheelAccum += 1; notches -= 1; }
+      while (notches > 0) { notches--; send('down'); }
+      while (notches < 0) { notches++; send('up'); }
     }, { passive: false });
     c.addEventListener('contextmenu', (e) => { e.preventDefault(); send('double'); });
     c.addEventListener('mousedown', (e) => {
@@ -121,6 +134,7 @@
     c.addEventListener('mouseleave', () => { clearTimeout(holdTimer); if (holding) { holding = false; send('release'); } });
   }
   window.addEventListener('keydown', (e) => {
+    if (e.repeat) return;   // the ring has no auto-repeat: a held key is one gesture
     const map = { ArrowUp: 'up', ArrowDown: 'down', Enter: 'tap', Backspace: 'double', Escape: 'double', ' ': 'hold', r: 'release' };
     const ev = map[e.key];
     if (ev) { e.preventDefault(); send(ev); }

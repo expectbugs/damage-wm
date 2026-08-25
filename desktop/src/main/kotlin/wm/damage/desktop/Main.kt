@@ -230,8 +230,9 @@ class DesktopStack(
     fun statusLine(): String {
         val st = transport.state.value
         val link = if (!st.connected) "no link" else if (st.leaseHeld) "link + lease" else "link, no lease"
+        val doing = st.detail.takeIf { it.isNotEmpty() }?.let { " · $it" } ?: ""
         val div = shell.lastDivergence?.let { " · DIVERGE $it" } ?: ""
-        return "${st.transportName} · $link · ${st.ackMsEma.toInt()} ms · ${(st.bytesPerSecEma / 1000).toInt()} K/s · " +
+        return "${st.transportName}$doing · $link · ${st.ackMsEma.toInt()} ms · ${(st.bytesPerSecEma / 1000).toInt()} K/s · " +
             "${keeper.state.name.lowercase()}: ${keeper.lastReason}$div"
     }
 
@@ -241,10 +242,13 @@ class DesktopStack(
 }
 
 private fun runShell(cfg: Config, mode: String, remoteHost: String?): Unit = runBlocking {
-    var stack: DesktopStack? = null
-    var shellRef: Shell? = null
-    val text = AwtText { shellRef?.settings?.fontScale ?: 1.0 }
+    // the current stack: written by the switch thread, read by the EDT, the
+    // replica's threads and every client — a reference with visibility
+    val stackRef = java.util.concurrent.atomic.AtomicReference<DesktopStack?>(null)
+    fun stack() = stackRef.get()
+    val text = AwtText { stack()?.shell?.settings?.fontScale ?: 1.0 }
     val keeperStatus = java.util.concurrent.atomic.AtomicReference("starting")
+    val switchNote = java.util.concurrent.atomic.AtomicReference("")
     val switching = java.util.concurrent.atomic.AtomicBoolean(false)
 
     // The PC always serves its library so a phone shell can feed from it.
@@ -257,19 +261,22 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?): Unit = run
 
     lateinit var build: (String) -> DesktopStack
     fun switchTo(next: String) {
-        if (next == stack?.mode) return
+        if (next == stack()?.mode) return
         if (!switching.compareAndSet(false, true)) return
         Log.i("damage", "switching the transport to $next")
         Thread({
             try {
-                runBlocking { stack?.stop() }
+                // build the new stack FIRST: a mode this machine cannot build
+                // (no BlueZ, say) must leave the running one driving
                 val s = build(next)
-                stack = s
-                shellRef = s.shell
+                val old = stackRef.get()
+                runBlocking { old?.stop() }
+                stackRef.set(s)
+                switchNote.set("")
                 s.start()
             } catch (e: Exception) {
-                Log.e("damage", "switch to $next failed", e)
-                keeperStatus.set("switch to $next failed: ${e.message}")
+                Log.e("damage", "switch to $next failed — the current transport keeps driving", e)
+                switchNote.set("switch to $next failed: ${e.message}")
             } finally {
                 switching.set(false)
             }
@@ -278,23 +285,36 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?): Unit = run
     build = { m -> DesktopStack(cfg, m, remoteHost, text, onStatus = { keeperStatus.set(it) }, onSwitch = { switchTo(it) }) }
 
     val first = build(mode)
-    stack = first
-    shellRef = first.shell
-
-    // the 1x preview with mouse, on whatever the current stack mirrors
-    Preview.show({ stack?.transport?.mirror }, { t -> stack?.transport?.injectInput(t) }) {
-        stack?.statusLine() ?: keeperStatus.get()
+    stackRef.set(first)
+    // an orderly end — the window's close button, Ctrl-C, a kill: the shell
+    // saves its state and the transport releases the display
+    val ending = java.util.concurrent.atomic.AtomicBoolean(false)
+    fun endOrderly() {
+        if (!ending.compareAndSet(false, true)) return
+        try { runBlocking { stack()?.stop() } } catch (e: Exception) { Log.w("damage", "stop at exit: ${e.message}") }
     }
+    Runtime.getRuntime().addShutdownHook(Thread({ endOrderly() }, "damage-shutdown"))
+
+    fun note(): String = listOfNotNull(
+        switchNote.get().ifEmpty { null },
+        stack()?.shell?.lastDivergence?.let { "DIVERGE $it" },
+    ).joinToString(" · ")
+    // the 1x preview with mouse, on whatever the current stack mirrors
+    Preview.show({ stack()?.transport?.mirror }, { t -> stack()?.transport?.injectInput(t) }, {
+        val base = stack()?.statusLine() ?: keeperStatus.get()
+        val n = switchNote.get()
+        if (n.isEmpty()) base else "$n · $base"
+    }, onClose = { endOrderly(); kotlin.system.exitProcess(0) })
     // the browser replica on the tailnet
-    val replica = ReplicaServer(cfg.replicaPort, cfg.token, { stack?.transport?.mirror }, {
-        val st = stack?.transport?.state?.value
+    val replica = ReplicaServer(cfg.replicaPort, cfg.token, { stack()?.transport?.mirror }, {
+        val st = stack()?.transport?.state?.value
         ReplicaServer.Status(
             transport = st?.transportName ?: "none",
             connected = st?.connected ?: false, started = st?.started ?: false, leaseHeld = st?.leaseHeld ?: false,
             ackMs = st?.ackMsEma?.toInt() ?: 0, bytesPerSec = st?.bytesPerSecEma?.toInt() ?: 0,
-            driver = "PC shell (${stack?.mode ?: mode})", note = stack?.shell?.lastDivergence?.let { "DIVERGE $it" } ?: keeperStatus.get(),
+            driver = "PC shell (${stack()?.mode ?: mode})", note = note().ifEmpty { keeperStatus.get() },
         )
-    }) { t -> stack?.transport?.injectInput(t) }
+    }) { t -> stack()?.transport?.injectInput(t) }
     try {
         replica.start()
     } catch (e: Exception) {

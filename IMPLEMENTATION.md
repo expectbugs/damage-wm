@@ -231,7 +231,7 @@ of them are load-bearing and easy to break by accident:
   (three failed keyframes) halts the pump with one notice until the content
   changes.
 - **Transport session lifecycle.** Queued work carries a session epoch;
-  `stop()`, a failed `start()` and `onLinkDown()` bump it and SWEEP: pending
+  `stop()` and `onLinkDown()` bump it and SWEEP (a failed `start()` sweeps without bumping): pending
   acks fail, window permits return, both queues drain loudly, a start parked
   on the capability gate is answered with a sentinel and refuses. A flush
   never spans the 0xFFFE→1 fid wrap (pre-clear + restart); a failed encode

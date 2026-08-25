@@ -161,7 +161,11 @@ class Notifications(private val text: TextRasterizer) {
     }
 
     private fun show(): Boolean {
-        val n = queue.removeFirstOrNull() ?: run { clearingRun = false; return false }
+        // a queued notice marked read meanwhile (its app was entered, §4.5) is
+        // not shown as new — the next unread one is
+        var n = queue.removeFirstOrNull()
+        while (n != null && n.read) n = queue.removeFirstOrNull()
+        if (n == null) { clearingRun = false; return false }
         current = n
         scroll = 0
         unfurl = 0

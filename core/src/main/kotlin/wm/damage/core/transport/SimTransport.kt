@@ -48,7 +48,9 @@ class SimTransport(
         // the sim is always in range; nothing to negotiate
     }
 
-    override suspend fun disconnectLink() {}
+    override suspend fun disconnectLink() {
+        sim.linkReset()        // a new session sends a new prelude and CREATE
+    }
 
     override suspend fun writeArm(arm: Arm, packet: ByteArray) {
         if (!timing.instant) {

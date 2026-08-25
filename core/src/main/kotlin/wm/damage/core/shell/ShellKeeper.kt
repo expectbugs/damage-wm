@@ -2,11 +2,14 @@ package wm.damage.core.shell
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import wm.damage.core.transport.CapabilityRefused
 import wm.damage.core.transport.Transport
 import wm.damage.core.transport.TransportEvent
 import wm.damage.core.util.Log
@@ -50,11 +53,13 @@ class ShellKeeper(
         private set
 
     private val lock = Mutex()
-    private var loop: Job? = null
+    @Volatile private var loop: Job? = null
     private var watcher: Job? = null
     @Volatile private var wanted = false          // the host wants the shell driving
     @Volatile private var paused = false
     @Volatile private var capabilityRefused = false
+    /** Set around the keeper's OWN stops: their `Link(false)` is not a loss. */
+    @Volatile private var selfStopping = false
     /** Bumped on every link end so the loop restarts exactly once per loss. */
     @Volatile private var linkLosses = 0
 
@@ -72,7 +77,7 @@ class ShellKeeper(
             watcher = scope.launch {
                 transport.events.collect { ev ->
                     when (ev) {
-                        is TransportEvent.Link -> if (!ev.connected && !paused) {
+                        is TransportEvent.Link -> if (!ev.connected && !paused && !selfStopping) {
                             linkLosses++
                             status("link ended: ${ev.detail}")
                             kick()
@@ -88,6 +93,20 @@ class ShellKeeper(
         kick()
     }
 
+    /** The keeper's own stop of the shell: never interrupted midway (a
+     *  cancelled stop would leave the shell stopped and the transport started
+     *  for good — round 1, d5) and never counted as a link loss. */
+    private suspend fun stopShell(why: String) {
+        selfStopping = true
+        try {
+            withContext(NonCancellable) {
+                try { shell.stop() } catch (e: Exception) { Log.w("keeper", "$why: ${e.message}") }
+            }
+        } finally {
+            selfStopping = false
+        }
+    }
+
     /** Stop keeping the shell up and stop the shell. */
     suspend fun stop() {
         wanted = false
@@ -95,7 +114,7 @@ class ShellKeeper(
         loop = null
         lock.withLock {
             state = State.STOPPED
-            try { shell.stop() } catch (e: Exception) { Log.w("keeper", "stop: ${e.message}") }
+            stopShell("stop")
         }
         status("stopped")
     }
@@ -107,19 +126,23 @@ class ShellKeeper(
         loop = null
         lock.withLock {
             state = State.PAUSED
-            try { shell.stop() } catch (e: Exception) { Log.w("keeper", "pause stop: ${e.message}") }
+            stopShell("pause")
         }
         status("paused: $reason")
     }
 
     fun resume() {
         if (!wanted) return
-        paused = false
-        status("resuming")
-        kick()
+        synchronized(this) {
+            paused = false
+            status("resuming")
+            kick()
+        }
     }
 
-    /** Ensure exactly one loop runs. */
+    /** Ensure exactly one loop runs — serialised: a resume and the watcher's
+     *  kick can arrive together (round 1, b4). */
+    @Synchronized
     private fun kick() {
         if (!wanted || paused) return
         if (loop?.isActive == true) return
@@ -142,9 +165,12 @@ class ShellKeeper(
                 try {
                     shell.start()
                     true
+                } catch (e: CapabilityRefused) {
+                    // the firmware answered and is not the CFW: no retry can change that
+                    capabilityRefused = true
+                    status("start refused: ${e.message}")
+                    false
                 } catch (e: Exception) {
-                    // a refusal is not a link problem: the message names the gate
-                    if (e.message?.contains("capability gate") == true) capabilityRefused = true
                     status("start failed: ${e.message}")
                     false
                 }
@@ -158,7 +184,7 @@ class ShellKeeper(
                 if (!wanted || paused) return
                 lock.withLock {
                     state = State.WAITING
-                    try { shell.stop() } catch (e: Exception) { Log.w("keeper", "stop after link end: ${e.message}") }
+                    stopShell("stop after link end")
                 }
             }
             if (capabilityRefused) continue

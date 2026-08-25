@@ -6,6 +6,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -19,6 +20,7 @@ import wm.damage.core.gfx.Pack
 import wm.damage.core.gfx.Zl
 import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.transport.Arm
+import wm.damage.core.transport.CapabilityRefused
 import wm.damage.core.transport.DisplayOp
 import wm.damage.core.transport.FlushRequest
 import wm.damage.core.transport.LensPanels
@@ -34,10 +36,13 @@ import wm.damage.core.wire.EvenHubMsg
  *  a capability refusal disables a path for good. */
 class PathTransportTest {
 
-    /** A path whose start never completes until it is cancelled. */
+    /** A path whose start never completes until it is cancelled; [engagedFlag]
+     *  models a seam attempt that was granted (the phone yielded). */
     private class Stall(val label: String) : Transport {
         @Volatile var cancelled = false
         @Volatile var starts = 0
+        @Volatile var engagedFlag = false
+        override val engaged: Boolean get() = engagedFlag
         override val events = MutableSharedFlow<TransportEvent>()
         override val state = MutableStateFlow(LinkState(transportName = label))
         override val mirror: LensPanels = GlassFirmwareSim()
@@ -128,6 +133,39 @@ class PathTransportTest {
             path.start(warmup())
             assertEquals("flaky", path.activeName)
             assertEquals(1, refusing.starts, "a disabled path is not tried again")
+            path.stop()
+
+            // every path refused: start() fails with the refusal itself, so the
+            // keeper goes terminal instead of retrying forever
+            val allStock = PathTransport(listOf(
+                PathTransport.Candidate("stock", Counting(SimTransport(GlassFirmwareSim().apply { capabilityString = "not-a-cfw" }, scope, SimTransport.Timing(instant = true))))),
+                scope, headStartMs = 0, retryMs = 50)
+            val r = runCatching { allStock.start(warmup()) }
+            assertTrue(r.exceptionOrNull() is CapabilityRefused, "got ${r.exceptionOrNull()}")
+            val again = runCatching { allStock.start(warmup()) }
+            assertTrue(again.exceptionOrNull() is CapabilityRefused, "nothing left to try is still a refusal")
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun aLowerRankHoldsOffWhileAHigherRankIsEngaged(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val phone = Stall("remote:phone").apply { engagedFlag = true }   // granted: the phone yielded
+            val sim = GlassFirmwareSim()
+            val ble = Counting(SimTransport(sim, scope, SimTransport.Timing(instant = true)))
+            val path = PathTransport(listOf(PathTransport.Candidate("remote:phone", phone), PathTransport.Candidate("ble", ble)),
+                scope, headStartMs = 0)
+            val starting = async { path.start(warmup()) }
+            delay(1500)
+            assertEquals(0, ble.starts, "the radio holds off while the phone path is engaged")
+            assertTrue(!starting.isCompleted)
+            phone.engagedFlag = false                                          // the phone attempt let go
+            starting.await()
+            assertEquals("ble", path.activeName, "once the higher rank is no longer engaged, the radio goes")
+            assertTrue(phone.cancelled)
             path.stop()
         } finally {
             scope.cancel()

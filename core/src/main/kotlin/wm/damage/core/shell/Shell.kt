@@ -605,17 +605,23 @@ class Shell(
         val target = sel.window
         switcher.close()
         previewPainted = null
-        val shown = notifications.showNextIfIdle()   // a box that waited behind the wheel
         if (target == null) {
             current?.onDeactivate()
             current = null
             mode = Mode.MAIN
             composeContent()      // §4.3: the preview already painted the rest;
         } else {                  // this erases the panel region
-            commitWindow(target)
+            commitWindow(target)  // marks that app's notices read (§4.5) BEFORE
+        }                         // the queue is shown: a box for the app just
+        // entered is not shown as new (round 1, f6)
+        val shown = notifications.showNextIfIdle()   // a box that waited behind the wheel
+        if (shown) {
+            updatePlanes()
+            paintNotification()
+            scheduleGrace()
+        } else {
+            updatePlanes()
         }
-        updatePlanes()
-        if (shown) scheduleGrace()
         scheduleSave()
     }
 
@@ -886,6 +892,13 @@ class Shell(
     @Volatile var divergencesReported = 0
         private set
 
+    /** Episodes in a row without a settled stretch of agreement between them:
+     *  after [DIVERGE_EPISODES_MAX] the report stays sticky and no further
+     *  keyframes or notices are issued until agreement holds for
+     *  [DIVERGE_QUIET_CHECKS] checks (round 1, f2 — no storms). */
+    private var divergenceRun = 0
+    private var agreeingChecks = 0
+
     /**
      * HANDOFF.md §8.2 "Divergence check": at rest — nothing in flight, nothing
      * pending, no keyframe owed — the compositor's belief about each lens must
@@ -895,10 +908,14 @@ class Shell(
      * from agreement to disagreement (status, journal, urgent notice) — and
      * answered with one keyframe, which reseeds both. A disagreement that
      * survives its keyframe is left standing (the report stays visible) until
-     * agreement returns; keyframing again would only repeat it. The belief is
-     * compared through the emitter's quantiser (Pack.level): the shadow keeps
-     * 8-bit levels, the glass holds nibbles. Only exact (local) mirrors are
-     * read; a seam-fed mirror lags.
+     * agreement returns; keyframing again would only repeat it. Episodes that
+     * keep recurring stop issuing notices and keyframes after a few (the
+     * report stays sticky) until agreement has held for a while. The belief
+     * is compared through the emitter's quantiser (Pack.level): the shadow
+     * keeps 8-bit levels, the glass holds nibbles. The mirror is read as a
+     * SNAPSHOT under its own lock (a torn read of the live buffer would raise
+     * a false alarm). Only exact (local) mirrors are read; a seam-fed mirror
+     * lags.
      */
     private fun checkMirrorAgreement() {
         val m = transport.mirror
@@ -908,39 +925,74 @@ class Shell(
         var report: String? = null
         for (arm in Arm.entries) {
             val belief = comp.expectedLens(arm == Arm.LEFT)
-            val panel = m.panel(arm)
-            var diffs = 0
-            var first: String? = null
-            for (y in 0 until comp.height) {
-                val row = y * stride
-                for (x in 0 until comp.width) {
-                    val b = panel[row + (x shr 1)].toInt() and 0xFF
-                    val n = if (x and 1 == 0) b shr 4 else b and 0x0F
-                    val e = belief[x, y]
-                    if (Pack.level(e) != n) {
-                        diffs++
-                        if (first == null) first = "($x,$y) belief $e (level ${Pack.level(e)}) mirror level $n"
-                    }
-                }
+            val panel = m.snapshot(arm)
+            val first = firstDisagreement(belief, panel, stride) ?: continue
+            if (report == null) {
+                val diffs = countDisagreements(belief, panel, stride)
+                report = "$arm: $diffs px differ, first at (${first.first},${first.second}) belief " +
+                    "${belief[first.first, first.second]} (level ${LEVEL[belief[first.first, first.second]]}) mirror level ${nibble(panel, stride, first.first, first.second)}"
             }
-            if (diffs > 0 && report == null) report = "$arm: $diffs px differ, first at $first"
         }
         if (report == null) {
             if (lastDivergence != null) {
                 journal.note("divergence", "agreement restored")
-                if (statusText == "DIVERGE") setStatus("ok")
+                if (statusText.startsWith("DIVERGE")) setStatus("ok")
             }
             lastDivergence = null
+            if (++agreeingChecks >= DIVERGE_QUIET_CHECKS) divergenceRun = 0
             return
         }
+        agreeingChecks = 0
         val newEpisode = lastDivergence == null
         lastDivergence = report
         if (!newEpisode) return          // still the same episode: one report, one keyframe
         divergencesReported++
+        divergenceRun++
+        journal.note("divergence", "episode $divergenceRun: $report")
+        if (divergenceRun > DIVERGE_EPISODES_MAX) {
+            // recurring: the report stays on the status bar; no more keyframes
+            // or notices until agreement has held for a while
+            setStatus("DIVERGE x$divergenceRun")
+            return
+        }
         setStatus("DIVERGE")
-        journal.note("divergence", report)
-        services.notifyInternal("mirror", "belief and mirror disagree — $report — keyframing", urgent = true)
+        services.notifyInternal("mirror", "belief and mirror disagree — $report — keyframing" +
+            (if (divergenceRun == DIVERGE_EPISODES_MAX) " (last notice: further episodes stay on the status bar)" else ""),
+            urgent = true)
         comp.requestKeyframe()
+    }
+
+    private fun nibble(panel: ByteArray, stride: Int, x: Int, y: Int): Int {
+        val b = panel[y * stride + (x shr 1)].toInt() and 0xFF
+        return if (x and 1 == 0) b shr 4 else b and 0x0F
+    }
+
+    /** The first pixel whose quantised belief differs from the panel, or null
+     *  — a cheap early-out scan (a lookup table replaces the per-pixel divide). */
+    private fun firstDisagreement(belief: Gray8, panel: ByteArray, stride: Int): Pair<Int, Int>? {
+        val w = comp.width
+        for (y in 0 until comp.height) {
+            val row = y * stride
+            var x = 0
+            while (x < w) {
+                val b = panel[row + (x shr 1)].toInt() and 0xFF
+                if (LEVEL[belief[x, y]] != (b shr 4)) return x to y
+                if (LEVEL[belief[x + 1, y]] != (b and 0x0F)) return (x + 1) to y
+                x += 2
+            }
+        }
+        return null
+    }
+
+    private fun countDisagreements(belief: Gray8, panel: ByteArray, stride: Int): Int {
+        var diffs = 0
+        for (y in 0 until comp.height) {
+            val row = y * stride
+            for (x in 0 until comp.width) {
+                if (LEVEL[belief[x, y]] != nibble(panel, stride, x, y)) diffs++
+            }
+        }
+        return diffs
     }
     /** Set when the current frame proved undisplayable: assembly pauses until
      *  the compositor epoch moves (any damage or plane change). */
@@ -1405,6 +1457,11 @@ class Shell(
     }
 
     companion object {
+        /** Pack.level for every 8-bit value — the emitter's quantiser, tabled. */
+        private val LEVEL = IntArray(256) { Pack.level(it) }
+        const val DIVERGE_EPISODES_MAX = 3
+        const val DIVERGE_QUIET_CHECKS = 10
+
         fun systemClock(): LocalClock {
             val now = java.time.LocalTime.now()
             val h12 = if (now.hour % 12 == 0) 12 else now.hour % 12

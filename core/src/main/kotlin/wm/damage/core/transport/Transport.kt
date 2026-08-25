@@ -64,7 +64,18 @@ interface Transport {
 
     /** Release the lease and stop. The screen returns to stock. */
     suspend fun stop()
+
+    /** True while a start() in progress has COMMITTED the far end — for the
+     *  seam client, from the server's grant (the phone has yielded its shell)
+     *  until the start completes or fails. The arbitration lets an engaged
+     *  higher-priority path finish before a lower one tries. */
+    val engaged: Boolean get() = false
 }
+
+/** The firmware answered and is not the CFW (or lacks a required capability):
+ *  a refusal no retry can change. The session keeper goes terminal on it and
+ *  the arbitration disables the path; every other start failure is retried. */
+class CapabilityRefused(message: String) : wm.damage.core.geom.LintError(message)
 
 /** One display operation inside a flush. Order matters: mode-8 sub-messages
  *  apply to the shadow in order, later ops win. */
@@ -134,4 +145,7 @@ data class LinkState(
     val capability: String? = null,
     val rssiDbm: Int? = null,
     val transportName: String = "none",
+    /** What the transport is doing right now, for status lines: "scanning for
+     *  the pair", "connecting RIGHT", "connect prelude", "" once driving. */
+    val detail: String = "",
 )
