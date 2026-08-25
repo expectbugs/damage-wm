@@ -29,6 +29,16 @@ interface Transport {
     /** Link + lease + pipeline state, updated continuously. */
     val state: StateFlow<LinkState>
 
+    /** What the glasses are believed to hold, per lens — every replica draws
+     *  this (HANDOFF.md §8.2). Exact for local transports (the bytes written
+     *  are applied to a firmware model synchronously); a seam-fed mirror lags. */
+    val mirror: LensPanels
+
+    /** A gesture from a replica (mouse, touch, browser page) enters HERE, as a
+     *  ring event on [events], so it reaches whichever shell drives this
+     *  transport — a phone touch during a PC takeover included. */
+    fun injectInput(type: Int)
+
     /**
      * Bring the display up: capability gate (EVENCFW string must carry
      * img640/directfb/fbguard/imgz/rle — refuse loudly otherwise), carrier

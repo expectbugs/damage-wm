@@ -1,6 +1,7 @@
 package wm.damage.desktop
 
 import java.awt.Color
+import wm.damage.core.transport.Arm
 import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.event.KeyAdapter
@@ -26,7 +27,7 @@ class Preview(
     private val onGesture: (Int) -> Unit,
 ) : JPanel() {
 
-    private var arm = GlassFirmwareSim.Arm.LEFT
+    private var arm = Arm.LEFT
     private val img = BufferedImage(Geometry.PANEL_W, Geometry.PANEL_H, BufferedImage.TYPE_INT_RGB)
 
     init {
@@ -38,8 +39,8 @@ class Preview(
         setFocusTraversalKeysEnabled(false)
         sim.attachListener(object : GlassFirmwareSim.SimDiag {
             override fun event(kind: String, detail: String) {}
-            override fun notify(arm: GlassFirmwareSim.Arm, packet: ByteArray) {}
-            override fun panelChanged(arm: GlassFirmwareSim.Arm) {
+            override fun notify(arm: Arm, packet: ByteArray) {}
+            override fun panelChanged(arm: Arm) {
                 SwingUtilities.invokeLater { refresh() }
             }
         })
@@ -53,13 +54,13 @@ class Preview(
                     KeyEvent.VK_SPACE -> onGesture(EvenHubMsg.EV_RING_LONG_PRESS)
                     KeyEvent.VK_R -> onGesture(EvenHubMsg.EV_RING_LONG_PRESS_RELEASE)
                     KeyEvent.VK_TAB -> {
-                        arm = if (arm == GlassFirmwareSim.Arm.LEFT) GlassFirmwareSim.Arm.RIGHT
-                        else GlassFirmwareSim.Arm.LEFT
+                        arm = if (arm == Arm.LEFT) Arm.RIGHT
+                        else Arm.LEFT
                         topFrame()?.title = title()
                         refresh()
                     }
-                    KeyEvent.VK_F -> println("sim flags L=${sim.flags(GlassFirmwareSim.Arm.LEFT)} " +
-                        "R=${sim.flags(GlassFirmwareSim.Arm.RIGHT)}")
+                    KeyEvent.VK_F -> println("sim flags L=${sim.flags(Arm.LEFT)} " +
+                        "R=${sim.flags(Arm.RIGHT)}")
                 }
             }
         })
@@ -71,7 +72,7 @@ class Preview(
     private fun title() = "Damage — ${arm.name} lens · sim · 1x (Tab switches lens)"
 
     private fun refresh() {
-        val ctx = if (arm == GlassFirmwareSim.Arm.LEFT) sim.left else sim.right
+        val ctx = if (arm == Arm.LEFT) sim.left else sim.right
         val stride = ctx.stride
         for (y in 0 until Geometry.PANEL_H) {
             for (x in 0 until Geometry.PANEL_W) {

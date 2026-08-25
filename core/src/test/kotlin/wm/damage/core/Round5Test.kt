@@ -1,6 +1,7 @@
 package wm.damage.core
 
 import kotlin.test.Test
+import wm.damage.core.transport.Arm
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -56,7 +57,7 @@ class Round5Test {
             repeat(3) { i -> t.submit(FlushRequest(listOf(DisplayOp.Delta(Rect(100 + 48 * i, 200, 40, 20), p)), 10L + i)) }
             waitFor { synchronized(done) { done.size } >= 8 }
             assertTrue(synchronized(done) { done.all { it.ok } }, "a flush failed: ${done.filter { !it.ok }}")
-            for (arm in GlassFirmwareSim.Arm.entries) {
+            for (arm in Arm.entries) {
                 assertTrue(sim.flags(arm).none { it.value }, "sticky flags on $arm after clearDiagFlags: ${sim.flags(arm)}")
             }
             assertTrue(synchronized(flags) { flags.none { f -> f.any { it.value } } }, "DiagFlags raised: $flags")

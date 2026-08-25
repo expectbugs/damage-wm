@@ -1,6 +1,7 @@
 package wm.damage.core
 
 import java.nio.file.Files
+import wm.damage.core.transport.Arm
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -74,7 +75,7 @@ class Round3Test {
             assertEquals(4, all.size, "not every flush completed: $all")
             assertTrue(all.all { it.ok }, "a flush failed after the fid wrap: ${all.filter { !it.ok }}")
             assertEquals(emptyList(), synchronized(faults) { faults.toList() })
-            for (arm in GlassFirmwareSim.Arm.entries) {
+            for (arm in Arm.entries) {
                 assertTrue(sim.flags(arm).none { it.value }, "sticky flags on $arm after the wrap: ${sim.flags(arm)}")
             }
             t.stop()

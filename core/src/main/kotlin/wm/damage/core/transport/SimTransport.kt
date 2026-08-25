@@ -16,7 +16,7 @@ class SimTransport(
     scope: CoroutineScope,
     private val timing: Timing = Timing(),
     private val clock: () -> Long = System::currentTimeMillis,
-) : CfwTransportBase(scope, "sim") {
+) : CfwTransportBase(scope, "sim", mirrorSim = sim) {
 
     data class Timing(
         val ackMs: Long = 176,
@@ -36,11 +36,11 @@ class SimTransport(
                     emitFault(kind, detail)
             }
 
-            override fun notify(arm: GlassFirmwareSim.Arm, packet: ByteArray) {
-                onNotifyPacket(if (arm == GlassFirmwareSim.Arm.LEFT) Arm.LEFT else Arm.RIGHT, packet)
+            override fun notify(arm: Arm, packet: ByteArray) {
+                onNotifyPacket(arm, packet)
             }
 
-            override fun panelChanged(arm: GlassFirmwareSim.Arm) {}
+            override fun panelChanged(arm: Arm) {}
         })
     }
 
@@ -55,7 +55,7 @@ class SimTransport(
             val ms = (packet.size / timing.bytesPerSec * 1000).toLong()
             if (ms > 0) delay(ms)
         }
-        sim.write(simArm(arm), packet, clock())
+        sim.write(arm, packet, clock())
     }
 
     /** Model the ack round trip per image message, then surface the sim's
@@ -63,16 +63,16 @@ class SimTransport(
      *  visually (mode-7 overlay) or via the untested logger sid. */
     override suspend fun onImageDelivered() {
         if (!timing.instant) delay(timing.ackMs)
-        val l = sim.flags(GlassFirmwareSim.Arm.LEFT)
-        val r = sim.flags(GlassFirmwareSim.Arm.RIGHT)
+        val l = sim.flags(Arm.LEFT)
+        val r = sim.flags(Arm.RIGHT)
         emitFlags((l.keys + r.keys).associateWith { (l[it] ?: false) || (r[it] ?: false) })
     }
 
     /** Drive the sim's clock (lease fail-open) and mirror lease state. */
     override fun onMaintenanceTick() {
         sim.tick(clock())
-        val held = sim.leaseHeld(GlassFirmwareSim.Arm.LEFT, clock()) &&
-            sim.leaseHeld(GlassFirmwareSim.Arm.RIGHT, clock())
+        val held = sim.leaseHeld(Arm.LEFT, clock()) &&
+            sim.leaseHeld(Arm.RIGHT, clock())
         if (!held && state.value.started) {
             setLease(false, "lease LOST — stock repaints (fail-open)")
         } else if (held) {
@@ -80,5 +80,4 @@ class SimTransport(
         }
     }
 
-    private fun simArm(a: Arm) = if (a == Arm.LEFT) GlassFirmwareSim.Arm.LEFT else GlassFirmwareSim.Arm.RIGHT
 }

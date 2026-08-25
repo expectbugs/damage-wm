@@ -19,6 +19,7 @@ import wm.damage.core.geom.FidAllocator
 import wm.damage.core.geom.FidTracker
 import wm.damage.core.geom.Geometry
 import wm.damage.core.geom.LintError
+import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.util.Log
 import wm.damage.core.wire.AaFrame
 import wm.damage.core.wire.EvenHubMsg
@@ -60,13 +61,49 @@ import wm.damage.core.wire.SettingsMsg
  * Reference arm split (overview.md §2, graded strong-not-proven — verify with
  * a two-arm capture at first light): bulk pixels -> LEFT, control -> RIGHT;
  * events and acks arrive on RIGHT.
+ *
+ * The mirror (HANDOFF.md §8.2): [mirrorSim] is a firmware model fed the exact
+ * packets this transport writes — AFTER each write succeeds, so a failed write
+ * leaves it untouched — and is what every replica draws. A subclass that IS a
+ * firmware model (the sim transport) passes its own sim in and nothing is
+ * teed; a hardware transport passes null and gets a private mirror. The
+ * mirror's own notifications are discarded; a decode/fid/session event it
+ * reports is the model predicting that the firmware would reject or skip our
+ * bytes in silence, so it is surfaced as a `mirror/<kind>` fault.
  */
 abstract class CfwTransportBase(
     protected val scope: CoroutineScope,
     private val name: String,
+    mirrorSim: GlassFirmwareSim? = null,
 ) : Transport {
 
-    enum class Arm { LEFT, RIGHT }
+    /** The firmware model behind [mirror]. */
+    protected val mirrorSim: GlassFirmwareSim = mirrorSim ?: GlassFirmwareSim()
+    private val teeMirror = mirrorSim == null
+    override val mirror: LensPanels get() = this.mirrorSim
+
+    init {
+        if (teeMirror) {
+            this.mirrorSim.attachListener(object : GlassFirmwareSim.SimDiag {
+                override fun event(kind: String, detail: String) {
+                    if (kind in setOf("decode", "fid", "session", "msgid", "compressmode", "abort", "image"))
+                        emitFault("mirror/$kind", detail)
+                    else Log.d(name, "mirror/$kind: $detail")
+                }
+                override fun notify(arm: Arm, packet: ByteArray) {}   // the model's acks are not the glasses'
+                override fun panelChanged(arm: Arm) {}
+            })
+        }
+    }
+
+    /** Write one AA packet and, once it went out, apply it to the mirror. Every
+     *  packet this transport sends passes through here. */
+    private suspend fun writePacket(arm: Arm, packet: ByteArray) {
+        writeArm(arm, packet)
+        if (teeMirror) mirrorSim.write(arm, packet, nowMs())
+    }
+
+    override fun injectInput(type: Int) = emitInput(type, EvenHubMsg.SRC_RING)
 
     protected val _events = MutableSharedFlow<TransportEvent>(extraBufferCapacity = 1024)
     override val events = _events.asSharedFlow()
@@ -435,6 +472,7 @@ abstract class CfwTransportBase(
         scope.launch {
             while (isActive) {
                 delay(if (instant) 20 else 1_000)
+                if (teeMirror) mirrorSim.tick(nowMs())
                 if (running) onMaintenanceTick()
             }
         }
@@ -776,7 +814,7 @@ abstract class CfwTransportBase(
                     if (end == image.size) finalPending = pending
                     for (p in AaFrame.frame(nextSeqLocked(), EvenHubMsg.SID,
                             EvenHubMsg.FLAG_REQUEST, msg)) {
-                        writeArm(Arm.LEFT, p)
+                        writePacket(Arm.LEFT, p)
                     }
                 }
             } catch (e: Exception) {
@@ -847,7 +885,7 @@ abstract class CfwTransportBase(
                                     val payload = restampMsgId(work.payload, id)
                                     for (p in AaFrame.frame(nextSeqLocked(), EvenHubMsg.SID,
                                             EvenHubMsg.FLAG_REQUEST, payload)) {
-                                        writeArm(Arm.RIGHT, p)
+                                        writePacket(Arm.RIGHT, p)
                                     }
                                 }
                             } catch (e: Exception) {
@@ -881,7 +919,7 @@ abstract class CfwTransportBase(
                                 val payload = restampMsgId(work.payload, nextMsgIdLocked())
                                 for (p in AaFrame.frame(nextSeqLocked(), SettingsMsg.SID,
                                         SettingsMsg.FLAG_REQUEST, payload)) {
-                                    writeArm(Arm.RIGHT, p)
+                                    writePacket(Arm.RIGHT, p)
                                 }
                             }
                         } catch (e: Exception) {
@@ -905,7 +943,7 @@ abstract class CfwTransportBase(
                                             val nonce = (nowMs() and 0xFFFF).toInt()
                                             for (p in AaFrame.frame(nextSeqLocked(), SettingsMsg.SID,
                                                     SettingsMsg.FLAG_REQUEST, SettingsMsg.control(work.op, nonce))) {
-                                                writeArm(arm, p)
+                                                writePacket(arm, p)
                                             }
                                         }
                                     }

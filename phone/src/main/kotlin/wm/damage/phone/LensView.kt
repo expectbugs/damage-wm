@@ -1,6 +1,7 @@
 package wm.damage.phone
 
 import android.annotation.SuppressLint
+import wm.damage.core.transport.Arm
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -39,7 +40,7 @@ class LensView(
         textSize = 24f
     }
     @Volatile private var scaleShown = 1
-    @Volatile private var arm = GlassFirmwareSim.Arm.LEFT
+    @Volatile private var arm = Arm.LEFT
 
     private var accumulatedDrag = 0f
 
@@ -73,8 +74,8 @@ class LensView(
 
     private val listener = object : GlassFirmwareSim.SimDiag {
         override fun event(kind: String, detail: String) {}
-        override fun notify(arm: GlassFirmwareSim.Arm, packet: ByteArray) {}
-        override fun panelChanged(a: GlassFirmwareSim.Arm) {
+        override fun notify(arm: Arm, packet: ByteArray) {}
+        override fun panelChanged(a: Arm) {
             if (a == arm) postInvalidateOnAnimation()
         }
     }
@@ -90,7 +91,7 @@ class LensView(
     }
 
     fun toggleArm() {
-        arm = if (arm == GlassFirmwareSim.Arm.LEFT) GlassFirmwareSim.Arm.RIGHT else GlassFirmwareSim.Arm.LEFT
+        arm = if (arm == Arm.LEFT) Arm.RIGHT else Arm.LEFT
         postInvalidateOnAnimation()
     }
 
@@ -102,7 +103,7 @@ class LensView(
     }
 
     override fun onDraw(canvas: Canvas) {
-        val ctx = if (arm == GlassFirmwareSim.Arm.LEFT) sim.left else sim.right
+        val ctx = if (arm == Arm.LEFT) sim.left else sim.right
         val stride = ctx.stride
         for (y in 0 until Geometry.PANEL_H) {
             for (x in 0 until Geometry.PANEL_W) {

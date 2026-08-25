@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 import no.nordicsemi.android.ble.BleManager
 import no.nordicsemi.android.ble.ktx.suspend
 import no.nordicsemi.android.ble.observer.ConnectionObserver
+import wm.damage.core.transport.Arm
 import wm.damage.core.transport.CfwTransportBase
 import wm.damage.core.util.Log
 

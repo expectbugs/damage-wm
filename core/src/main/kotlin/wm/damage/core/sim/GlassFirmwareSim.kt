@@ -2,6 +2,8 @@ package wm.damage.core.sim
 
 import wm.damage.core.geom.Geometry
 import wm.damage.core.gfx.Zl
+import wm.damage.core.transport.Arm
+import wm.damage.core.transport.LensPanels
 import wm.damage.core.wire.AaFrame
 import wm.damage.core.wire.EvenHubMsg
 import wm.damage.core.wire.Pb
@@ -22,9 +24,7 @@ import wm.damage.core.wire.SettingsMsg
  * models the PAIR (both arms — the firmware propagates image traffic cross-lens,
  * overview.md §2), with per-lens shadow and diagnostic context.
  */
-class GlassFirmwareSim() {
-
-    enum class Arm { LEFT, RIGHT }
+class GlassFirmwareSim() : LensPanels {
 
     interface SimDiag {
         /** A modeled silent failure or notable event — the sim making the hardware's silence visible. */
@@ -43,11 +43,24 @@ class GlassFirmwareSim() {
 
     fun detachListener(l: SimDiag) { listeners.remove(l) }
 
+    private val lensListeners = java.util.concurrent.CopyOnWriteArrayList<LensPanels.LensListener>()
+
     private val diag = object : SimDiag {
         override fun event(kind: String, detail: String) { for (l in listeners) l.event(kind, detail) }
         override fun notify(arm: Arm, packet: ByteArray) { for (l in listeners) l.notify(arm, packet) }
-        override fun panelChanged(arm: Arm) { for (l in listeners) l.panelChanged(arm) }
+        override fun panelChanged(arm: Arm) {
+            for (l in listeners) l.panelChanged(arm)
+            for (l in lensListeners) l.panelChanged(arm)
+        }
     }
+
+    // ------------------------------------------------------------------ LensPanels
+    /** The sim IS a local, exact mirror: every replica can draw it directly. */
+    override val exact: Boolean get() = true
+    override val stride: Int get() = left.stride
+    override fun panel(arm: Arm): ByteArray = ctx(arm).panel
+    override fun addListener(l: LensPanels.LensListener) { lensListeners.add(l) }
+    override fun removeListener(l: LensPanels.LensListener) { lensListeners.remove(l) }
 
     /** Per-lens firmware context: shadow + cfw_diag state (zlib_glue.c cfw_ctx). */
     class LensCtx {

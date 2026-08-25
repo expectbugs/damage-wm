@@ -17,8 +17,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import wm.damage.core.geom.Geometry
 import wm.damage.core.geom.Rect
 import wm.damage.core.util.Log
+import wm.damage.core.wire.EvenHubMsg
 
 /**
  * The transport <-> shell seam, serialized (DESIGN.md §10.1: "the seams between
@@ -131,6 +133,12 @@ class RemoteTransportClient(
     override val events = _events.asSharedFlow()
     private val _state = MutableStateFlow(LinkState(transportName = "remote:$host"))
     override val state = _state.asStateFlow()
+
+    /** The far end's mirror as streamed over the seam — display-only (lags). */
+    override val mirror: RemoteMirror = RemoteMirror()
+
+    override fun injectInput(type: Int) =
+        emit(TransportEvent.Input(type, EvenHubMsg.SRC_RING), "Input")
 
     private var sock: Socket? = null
     private var out: DataOutputStream? = null
@@ -497,5 +505,32 @@ class RemoteTransportServer(
         running = false
         server?.close()
         driver?.close()
+    }
+}
+
+/**
+ * The client side of the mirror stream: packed per-lens panels the seam
+ * server sends as row-range updates. Never exact (it lags the far end), so the
+ * shell's divergence check ignores it; every replica on this side draws it.
+ */
+class RemoteMirror : LensPanels {
+    override val exact: Boolean get() = false
+    override val stride: Int = (Geometry.PANEL_W + 1) / 2
+    private val panels = mapOf(
+        Arm.LEFT to ByteArray(stride * Geometry.PANEL_H),
+        Arm.RIGHT to ByteArray(stride * Geometry.PANEL_H),
+    )
+    private val listeners = java.util.concurrent.CopyOnWriteArrayList<LensPanels.LensListener>()
+
+    override fun panel(arm: Arm): ByteArray = panels.getValue(arm)
+    override fun addListener(l: LensPanels.LensListener) { listeners.add(l) }
+    override fun removeListener(l: LensPanels.LensListener) { listeners.remove(l) }
+
+    /** Apply a row-range update: [rows] whole packed rows starting at [y0]. */
+    fun apply(arm: Arm, y0: Int, rows: Int, packed: ByteArray, off: Int = 0) {
+        require(y0 >= 0 && rows >= 0 && y0 + rows <= Geometry.PANEL_H) { "panel rows $y0+$rows out of range" }
+        require(off + rows * stride <= packed.size) { "panel update short: ${packed.size - off} B for $rows rows" }
+        System.arraycopy(packed, off, panels.getValue(arm), y0 * stride, rows * stride)
+        for (l in listeners) l.panelChanged(arm)
     }
 }

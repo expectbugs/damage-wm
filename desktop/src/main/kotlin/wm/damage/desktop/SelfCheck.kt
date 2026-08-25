@@ -1,6 +1,7 @@
 package wm.damage.desktop
 
 import java.nio.file.Files
+import wm.damage.core.transport.Arm
 import java.nio.file.Path
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -199,7 +200,7 @@ object SelfCheck {
 
         check("no failed flushes anywhere", flushFails == 0)
         check("no transport faults (decode/fid/session)", faults == 0)
-        val flags = sim.flags(GlassFirmwareSim.Arm.LEFT).filterValues { it }
+        val flags = sim.flags(Arm.LEFT).filterValues { it }
         check("no sticky diagnostic flags (were $flags)", flags.isEmpty())
         scope.cancel()
     }

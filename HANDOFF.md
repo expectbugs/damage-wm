@@ -416,8 +416,8 @@ rule holds.
 checked here, and one commit `§8 <id>: <what>`.
 
 **F — foundations (core)**
-- [ ] F1 phone `versionCode`/`versionName` bumped; `REVIEW.md` created for the review phase
-- [ ] F2 `LensPanels` + `Transport.mirror` + the `CfwTransportBase` tee; SimTransport mirror = its sim; `Transport.injectInput`; test: a tee'd transport's mirror equals an independent sim fed the same bytes
+- [x] F1 phone `versionCode`/`versionName` bumped; `REVIEW.md` created for the review phase
+- [x] F2 `LensPanels` + `Transport.mirror` + the `CfwTransportBase` tee; SimTransport mirror = its sim; `Transport.injectInput`; test: a tee'd transport's mirror equals an independent sim fed the same bytes
 - [ ] F3 prelude: `LaunchMsg`, the start-time handshake, the sim's ack, a sweep answers a parked prelude; test in `SimRoundTripTest`; selfcheck asserts it
 - [ ] F4 divergence check in `Shell`; test with a forced mismatch (write into the sim's panel between flushes)
 - [ ] F5 `ShellKeeper` in core; test: a link death restarts the session, a capability refusal goes terminal
@@ -487,5 +487,6 @@ checked here, and one commit `§8 <id>: <what>`.
 
 ### 8.5 Progress log
 
-- 2026-08-25 — §8 written; Adam's decisions recorded; build not yet started (waiting for
-  automatic context compaction to be enabled).
+- 2026-08-25 — §8 written; Adam's decisions recorded.
+- F1 done (b031568): plan committed, phone 0.2 (code 2), REVIEW.md.
+- F2 done: shared `transport.Arm`, `LensPanels`, `Transport.mirror` + `injectInput`, the base's tee (after a successful write; mirror faults as `mirror/<kind>`), `RemoteMirror` stub, `MirrorTeeTest`.

@@ -1,6 +1,7 @@
 package wm.damage.core
 
 import kotlin.test.Test
+import wm.damage.core.transport.Arm
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -37,8 +38,8 @@ class SimRoundTripTest {
         init {
             sim.attachListener(object : GlassFirmwareSim.SimDiag {
                 override fun event(kind: String, detail: String) { events.add(kind to detail) }
-                override fun notify(arm: GlassFirmwareSim.Arm, packet: ByteArray) { notifies.add(packet) }
-                override fun panelChanged(arm: GlassFirmwareSim.Arm) {}
+                override fun notify(arm: Arm, packet: ByteArray) { notifies.add(packet) }
+                override fun panelChanged(arm: Arm) {}
             })
         }
 
@@ -46,7 +47,7 @@ class SimRoundTripTest {
             write(EvenHubMsg.carrierCreate(++msgId))
         }
 
-        fun write(payload: ByteArray, arm: GlassFirmwareSim.Arm = GlassFirmwareSim.Arm.RIGHT) {
+        fun write(payload: ByteArray, arm: Arm = Arm.RIGHT) {
             for (p in AaFrame.frame(++seq and 0xFF, EvenHubMsg.SID, EvenHubMsg.FLAG_REQUEST, payload)) {
                 sim.write(arm, p, 0)
             }
@@ -57,12 +58,12 @@ class SimRoundTripTest {
             val chunks = image.toList().chunked(Geometry.MAX_IMAGE_FRAGMENT)
             for ((i, c) in chunks.withIndex()) {
                 write(EvenHubMsg.imageFragment(++msgId % 250, s, image.size, i, c.toByteArray()),
-                    GlassFirmwareSim.Arm.LEFT)
+                    Arm.LEFT)
             }
         }
 
         fun lease(now: Long) {
-            for (arm in GlassFirmwareSim.Arm.entries) {
+            for (arm in Arm.entries) {
                 for (p in AaFrame.frame(++seq and 0xFF, SettingsMsg.SID, SettingsMsg.FLAG_REQUEST,
                         SettingsMsg.fbAcquire(1))) {
                     sim.write(arm, p, now)
@@ -111,7 +112,7 @@ class SimRoundTripTest {
         assertContentEquals(Pack.rect(composed, Rect(0, 0, 640, 480)), h.sim.left.shadow)
         assertContentEquals(Pack.rect(composed, Rect(0, 0, 640, 480)), h.sim.right.shadow)
         assertEquals(listOf(1), delta.fids)
-        assertFalse(h.sim.flags(GlassFirmwareSim.Arm.LEFT).values.any { it }, "no sticky flags")
+        assertFalse(h.sim.flags(Arm.LEFT).values.any { it }, "no sticky flags")
     }
 
     @Test
@@ -206,7 +207,7 @@ class SimRoundTripTest {
         h.sendImage(wm.damage.core.wire.CfwModes.delta(box, p, 7))
         h.sendImage(wm.damage.core.wire.CfwModes.delta(box, wm.damage.core.gfx.Zl.encodeCfw(
             Pack.rect(Gray8(8, 2).also { it.clear(0) }, Rect(0, 0, 8, 2))), 7))
-        assertTrue(h.sim.flags(GlassFirmwareSim.Arm.LEFT).getValue("f_dup"))
+        assertTrue(h.sim.flags(Arm.LEFT).getValue("f_dup"))
         // the second delta was SKIPPED: pixels still at 15
         assertEquals(0xFF, h.sim.left.shadow[0].toInt() and 0xFF)
         assertTrue(h.events.any { it.first == "fid" && "SKIPPED" in it.second })
@@ -236,9 +237,9 @@ class SimRoundTripTest {
         val composed = frame(5 * 17)
         val fids = FidAllocator(); val tracker = FidTracker()
         h.sendImage(Emit.encode(FlushRequest(listOf(keyframeOp(composed)), 1L), fids, tracker, 3).image)
-        assertTrue(h.sim.leaseHeld(GlassFirmwareSim.Arm.LEFT, 1000))
+        assertTrue(h.sim.leaseHeld(Arm.LEFT, 1000))
         h.sim.tick(91_000)
-        assertFalse(h.sim.leaseHeld(GlassFirmwareSim.Arm.LEFT, 91_000))
+        assertFalse(h.sim.leaseHeld(Arm.LEFT, 91_000))
         assertTrue(h.events.any { it.first == "lease" && "EXPIRED" in it.second })
     }
 
@@ -259,10 +260,10 @@ class SimRoundTripTest {
         h.create()
         h.sendImage(byteArrayOf(6, 0, 0))
         // fragment 1 without fragment 0
-        h.write(EvenHubMsg.imageFragment(40, 99, 8000, 1, ByteArray(100)), GlassFirmwareSim.Arm.LEFT)
+        h.write(EvenHubMsg.imageFragment(40, 99, 8000, 1, ByteArray(100)), Arm.LEFT)
         assertTrue(h.events.any { it.first == "image" && "abort" in it.second })
         // and the session (and its neighbours) are now stuck — the g2-kit trap
-        h.write(EvenHubMsg.imageFragment(41, 100, 100, 0, ByteArray(100)), GlassFirmwareSim.Arm.LEFT)
+        h.write(EvenHubMsg.imageFragment(41, 100, 100, 0, ByteArray(100)), Arm.LEFT)
         assertTrue(h.events.any { it.first == "session" })
     }
 }
