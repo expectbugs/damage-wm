@@ -419,7 +419,7 @@ checked here, and one commit `§8 <id>: <what>`.
 - [x] F1 phone `versionCode`/`versionName` bumped; `REVIEW.md` created for the review phase
 - [x] F2 `LensPanels` + `Transport.mirror` + the `CfwTransportBase` tee; SimTransport mirror = its sim; `Transport.injectInput`; test: a tee'd transport's mirror equals an independent sim fed the same bytes
 - [x] F3 prelude: `LaunchMsg`, the start-time handshake, the sim's ack, a sweep answers a parked prelude; test in `SimRoundTripTest`; selfcheck asserts it
-- [ ] F4 divergence check in `Shell`; test with a forced mismatch (write into the sim's panel between flushes)
+- [x] F4 divergence check in `Shell`; test with a forced mismatch (write into the sim's panel between flushes)
 - [ ] F5 `ShellKeeper` in core; test: a link death restarts the session, a capability refusal goes terminal
 - [ ] F6 notification waits behind the wheel (decision 6); `ShellBehaviorTest` case
 - [ ] F7 host-supplied Settings rows; test that the row appears and applies
@@ -489,5 +489,6 @@ checked here, and one commit `§8 <id>: <what>`.
 
 - 2026-08-25 — §8 written; Adam's decisions recorded.
 - F1 done (b031568): plan committed, phone 0.2 (code 2), REVIEW.md.
+- F4 done: `Shell.checkMirrorAgreement()` at rest (status DIVERGE, journal, urgent notice, one keyframe per epoch; `lastDivergence`, `divergencesReported`), `DivergenceTest`.
 - F3 done: `LaunchMsg` (sid 0x01), the base's prelude gate (800 ms settle, ack on msgId, session-end marker), the sim's strict model (`preludeSeen`/`preludeAcks`), `PreludeTest`, harness + selfcheck updated.
 - F2 done: shared `transport.Arm`, `LensPanels`, `Transport.mirror` + `injectInput`, the base's tee (after a successful write; mirror faults as `mirror/<kind>`), `RemoteMirror` stub, `MirrorTeeTest`.

@@ -32,6 +32,7 @@ import wm.damage.core.gfx.Zl
 import wm.damage.core.text.Face
 import wm.damage.core.text.FontSpec
 import wm.damage.core.text.TextRasterizer
+import wm.damage.core.transport.Arm
 import wm.damage.core.transport.FlushRequest
 import wm.damage.core.transport.Transport
 import wm.damage.core.transport.TransportEvent
@@ -845,10 +846,69 @@ class Shell(
         } else {
             flushFailStreak = 0
             keyframeFailStreak = 0
+            checkMirrorAgreement()
         }
     }
 
     private var keyframeFailStreak = 0
+
+    /** The last belief/mirror disagreement reported (hosts and tests read it;
+     *  null = none, or agreement restored after a keyframe). */
+    @Volatile var lastDivergence: String? = null
+        private set
+
+    /** How many disagreements were reported this session. */
+    @Volatile var divergencesReported = 0
+        private set
+    private var divergenceEpoch = -1L
+
+    /**
+     * HANDOFF.md §8.2 "Divergence check": at rest — nothing in flight, nothing
+     * pending, no keyframe owed — the compositor's belief about each lens must
+     * equal the transport's mirror (the firmware model fed our exact bytes).
+     * A disagreement means the compositor and the model disagree about what
+     * our own traffic produced: reported once per compositor epoch (status,
+     * journal, urgent notice) and answered with one keyframe, which reseeds
+     * both. Only exact (local) mirrors are read; a seam-fed mirror lags.
+     */
+    private fun checkMirrorAgreement() {
+        val m = transport.mirror
+        if (!m.exact) return
+        if (inflightFlushes.isNotEmpty() || comp.hasPending || comp.needsKeyframe) return
+        val stride = m.stride
+        var report: String? = null
+        for (arm in Arm.entries) {
+            val belief = comp.expectedLens(arm == Arm.LEFT)
+            val panel = m.panel(arm)
+            var diffs = 0
+            var first: String? = null
+            for (y in 0 until comp.height) {
+                val row = y * stride
+                for (x in 0 until comp.width) {
+                    val b = panel[row + (x shr 1)].toInt() and 0xFF
+                    val v = (if (x and 1 == 0) b shr 4 else b and 0x0F) * 17
+                    val e = belief[x, y]
+                    if (e != v) {
+                        diffs++
+                        if (first == null) first = "($x,$y) belief $e mirror $v"
+                    }
+                }
+            }
+            if (diffs > 0 && report == null) report = "$arm: $diffs px differ, first at $first"
+        }
+        if (report == null) {
+            lastDivergence = null
+            return
+        }
+        lastDivergence = report
+        if (divergenceEpoch == comp.epoch) return      // already reported for this frame
+        divergenceEpoch = comp.epoch
+        divergencesReported++
+        setStatus("DIVERGE")
+        journal.note("divergence", report)
+        services.notifyInternal("mirror", "belief and mirror disagree — $report — keyframing", urgent = true)
+        comp.requestKeyframe()
+    }
     /** Set when the current frame proved undisplayable: assembly pauses until
      *  the compositor epoch moves (any damage or plane change). */
     private var haltedEpoch: Long? = null
