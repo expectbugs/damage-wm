@@ -1,8 +1,10 @@
 # Where we are, and what to do next
 
-**Updated 2026-08-24.** This is the orientation file. Read it first, then `overview.md` (facts),
-`CLAIMS.md` (how well we know them), `CLAUDE.md` (rules), `DESIGN.md` (the shell), and
-**`IMPLEMENTATION.md` (the first built stage — what runs today and how).**
+**Updated 2026-08-25.** 📍 **A finishing build is queued — start at `HANDOFF.md`**: the gap list
+(no PC BLE, no target switch in the phone UI, replica dark on real glasses, BLE glue never run),
+the G2CC study plan, Adam's decisions for it, and the ordered work plan. Then this file, then
+`overview.md` (facts), `CLAIMS.md` (how well we know them), `CLAUDE.md` (rules), `DESIGN.md`
+(the shell), and **`IMPLEMENTATION.md` (the first built stage — what runs today and how).**
 
 ---
 
