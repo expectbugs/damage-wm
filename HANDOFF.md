@@ -1,7 +1,8 @@
 # HANDOFF — from the first build to the finishing build
 
-**Written 2026-08-25 for a fresh session.** Read this first, then the reading list in §3, in
-order, before touching code. Everything below is verified against the repo at `main`
+**Written 2026-08-25 for a fresh session.** 📍 **The build is in progress — go to §8 first**
+(decisions, fixed design, checklist, resume protocol, progress log). Read the rest, then the
+reading list in §3, only as §8 points you to it. Everything below is verified against the repo at `main`
 (`a138de7`, pushed to `origin`); "modeled" and "measured" are marked where it matters.
 
 ## 0. The target of the next build, in Adam's words
@@ -260,3 +261,231 @@ python3 research/verify_cfw.py                         # before any flashing con
 APK: `phone/build/outputs/apk/debug/phone-debug.apk` · secrets: `damage-secrets.properties`
 (gitignored, never display) · config: `~/.damage/config.json` · git: `main` on
 `https://github.com/expectbugs/damage-wm` · G2CC (read-only): `/home/user/G2CC`.
+
+
+## 8. The finishing build — decisions, design, checklist, resume protocol (2026-08-25)
+
+**This section is the working state of the build.** It is written so that a session whose
+context has been compacted or lost can resume from here alone: §8.1 holds Adam's decisions
+(verbatim where it matters), §8.2 the design of every new piece (fixed, not to be re-derived),
+§8.3 the checklist (checked the moment an item is done, committed with the item id), §8.4 the
+resume protocol, §8.5 the progress log. Wording stays neutral engineering prose everywhere —
+prose, comments, commit messages, reviewer prompts.
+
+### 8.1 Decisions (Adam, 2026-08-25, answering the seven pre-build questions)
+
+1. **Connect prelude:** adopt the CFW reference's single **sid-0x01 app-launch** prelude (own
+   implementation, protocol fact cited to faceclaw) and keep the 7-packet sid-0x80 sequence out
+   entirely. Study finding behind it: faceclaw connects RIGHT then LEFT, requests MTU 512 and
+   high connection priority, enables 5402 notifications, settles ~800 ms, sends ONE sid-0x01
+   request `{f1=2, f2=<msgId>, f4={f3={f2={f2={f1=0,f2=0}}}}}` and waits for the ack (a sid-0x01
+   non-notify frame echoing f2), then the FB lease and the settings/capability query. G2CC's
+   `AuthSequence` (sid 0x80) is the official app's stock prelude and is not used on the CFW.
+2. **No radio use on beardos during the build** — not even a listen-only scan. BlueZ is
+   validated by adapter enumeration (a D-Bus read) and by a fake D-Bus layer under the glue.
+3. + 5. **Driver arbitration — the configuration contract, in Adam's words:** *"The default
+   will be phone app + Home PC over internet to phone, if internet to phone is lost fall back
+   to phone app only, if phone app is not up fall back to Home PC over BLE directly. Once
+   running, system should always be trying to find a way to connect and drive the glasses
+   with robust aggressive reconnect for any method that falls off (keep checking to see if
+   Home PC to phone app to glasses or just Home PC over BLE to glasses is possible, stay
+   fallen back to phone app only until it is, and switch to Home PC driving it as soon as
+   that option is available again). Home PC is always the best case to constantly be trying
+   for as it is the most powerful and capable implementation, phone-app-only is the weakest
+   implementation and last resort, but one of those should ALWAYS be running."*
+   Reading adopted for the build (§8.2 "Arbitration"): **who drives** = the PC shell whenever
+   it can reach the glasses by any path, else the phone shell; **PC path order** = the phone's
+   transport over the seam first, PC-direct BLE when the phone is not reachable; **a working
+   path is held until it drops** (no proactive handover from a working PC path — a handover
+   would blank the display and can fail); every link reconnects aggressively with no timeouts.
+4. **Browser replica** served by both the desktop program and the phone, port 7403, token-gated
+   like the seam.
+6. **A notification arriving while the switcher wheel is open waits behind the wheel** — it is
+   queued unshown and unfurls (with its normal grace) when the wheel closes; a box already on
+   screen when the wheel opens goes back to the queue unread and returns after.
+7. **Permissive third-party dependencies (MIT) are acceptable** for PC-direct BLE. The
+   clean-room rule is about GPL code.
+
+Standing decisions from §0 still hold: both PC paths, both replicas, Damage replaces G2CC, no
+glasses contact of any kind before Adam flashes; phone target defaults to SIM until he flips it.
+
+### 8.2 Design of the new pieces (fixed — do not re-derive after a compaction)
+
+**Mirror (`LensPanels`).** `core/transport/LensPanels.kt`: `interface LensPanels { val exact:
+Boolean; fun stride(): Int; fun panel(arm: Arm): ByteArray /* packed 4bpp, live buffer */; fun
+addListener((Arm) -> Unit); fun removeListener(...) }`. `GlassFirmwareSim` implements it
+(`exact = true`; `panelChanged` feeds the listeners). `Transport` gains `val mirror:
+LensPanels`. `CfwTransportBase(scope, name, mirror: GlassFirmwareSim?)` tees every packet it
+writes into `mirror.write(arm, packet, nowMs())` (the mirror's own notifications are discarded;
+its `decode`/`fid`/`session` diag events surface as `Fault("mirror", …)` — the model predicting a
+silent rejection; the mirror's clock is driven from the maintenance tick). `SimTransport`'s
+mirror is its sim (no tee). `RemoteTransportClient.mirror` is a `RemoteMirror` (`exact =
+false`) fed by seam `panel` messages. Every replica draws `transport.mirror`.
+
+**Input injection.** `Transport.injectInput(type: Int)` emits `TransportEvent.Input(type,
+SRC_RING)` into the transport's own event flow, so a gesture from a replica reaches whichever
+shell currently drives (phone touch during a PC takeover included). `RemoteTransportClient`
+emits locally. Hosts route replica gestures through it instead of `shell.postGesture`.
+
+**Prelude.** `core/wire/LaunchMsg.kt`: `SID = 0x01`, `prelude(msgId)` builds the payload above.
+`CfwTransportBase.start()`: after `connectLink()` and an 800 ms settle, write the prelude on the
+RIGHT arm through the control lane and wait for its ack (`onNotifyPacket`: a sid-0x01 frame
+whose flag is not an event and whose f2 equals the pending msgId completes it; a sweep answers
+it with the sentinel like the capability gate). `GlassFirmwareSim` models it: a sid-0x01 request
+is acked on RIGHT with `{f1=2, f2=msgId}`. Selfcheck asserts the prelude was acked.
+
+**Divergence check.** In `Shell.completeFlush`, after a successful `FlushDone` with nothing
+in flight and `transport.mirror.exact`, compare `comp.expectedLens(L/R)` (values n·17) with the
+mirror panels (nibble·17). On the first mismatch per compositor epoch: status `DIVERGE`, journal
+note with the first differing pixel and the count, one urgent notice, one `requestKeyframe()`.
+Skipped while a flush is in flight or after a failed flush until the next clean one.
+
+**Session keeper.** `core/shell/ShellKeeper.kt` — the one reconnect loop both hosts use:
+`start()` runs `shell.start()`; on `Link(false)` or a failed start it saves (stop) and restarts
+after a 2 s pause, forever, event-driven (scans have no timeout); a `Fault("capability")` or a
+start failure naming the capability gate is TERMINAL for that transport: the loop stops, an
+urgent notice is raised, `onTerminal` fires (the phone falls back to the SIM target so the
+on-screen replica keeps working, and says so in the status line). `pause(reason)`/`resume()` for
+takeovers. Every transition reaches the status bar op cell ("reconnecting", "scanning",
+"LINK DOWN") and the host status callback.
+
+**Arbitration (`PathTransport`).** `core/transport/PathTransport.kt`: a `Transport` whose
+`start()` races its candidates (priority order: `remote:phone` seam client, then `ble`) — all
+attempts run concurrently; the first to complete `start()` wins, the others are cancelled
+(cancellation of a `CfwTransportBase.start()` sweeps and disconnects; the seam client connects
+through an interruptible NIO channel so an unreachable phone never blocks the BLE attempt).
+Events/state/mirror delegate to the winner; `transportName` says which path. A winner's
+`Link(false)` propagates and the keeper restarts `start()` → a new race, phone first. A
+candidate that fails at the capability gate is disabled for the process lifetime; when every
+candidate is disabled the keeper goes terminal. The desktop's default mode is `auto` (this
+transport with `phoneHost` from `~/.damage/config.json`, default `aphone`); `--transport
+sim|ble|remote` select one path explicitly; `sim` is the development environment.
+
+**Phone.** `ShellService` keeps its transport (sim or BLE per target) under a `ShellKeeper`;
+the seam server's claim pauses the keeper and the release resumes it (the existing rebuild
+stays for the release path). `BleTransport` glue: RIGHT then LEFT, `retry(10, 500)`, MTU 512
+requested and the negotiated value checked ≥ 245, `CONNECTION_PRIORITY_HIGH`, notification
+enable with failure surfaced, `useAutoConnect(false)` (the keeper owns reconnect), RSSI poll on
+RIGHT, unexpected disconnect → `onLinkDown`, cached pair addresses accepted by the scanner next
+to the name match. Target switch: a control-strip button (confirm on tap) and a Settings row
+supplied by the host (see below); switching restarts the stack; `Prefs` persists it.
+`LensView` and the phone's replica page draw `transport.mirror`; touch goes through
+`injectInput`. Phone `versionCode`/`versionName` bump on every build Adam installs.
+
+**Host-supplied Settings rows.** `Shell.hostSettings: List<HostSetting(name, value: () ->
+String, options: List<String>, apply: (String) -> Unit)>` appended to the Settings list after
+the §4.2 rows. Phone: `Target: sim / glasses`. Desktop: `Target: auto / sim / ble / remote`.
+Applying restarts the stack through the host.
+
+**PC-direct BLE (`desktop/BlueZTransport.kt`).** `bluez-dbus 0.3.5` (MIT) + `dbus-java-core
+5.2.0` + `dbus-java-transport-native-unixsocket 5.2.0` + an slf4j binding. System bus;
+default adapter; LE discovery filter; devices matched by advertised name (`Even G2` + `_L_`/`_R_`)
+or cached address; connect RIGHT then LEFT; wait for `ServicesResolved` (property change, no
+timeout); service `…5450`, chars `…5401` (write) / `…5402` (notify); `StartNotify`; the
+characteristic `MTU` property checked ≥ 245 (loud refusal otherwise); writes =
+`WriteValue(type=command)`; `Connected=false` → `onLinkDown`; RSSI from the device property when
+BlueZ reports it (only while advertising — say "n/a" otherwise). Verified without radio use:
+adapter enumeration on beardos + unit tests over a fake of the four D-Bus calls the glue makes.
+
+**Replica page (`core/replica/ReplicaServer.kt`).** Dependency-free HTTP/1.1 + WebSocket
+(RFC 6455) server: `GET /?token=…` serves one self-contained page; `GET /ws` upgrades; the
+first client frame is `{"t":"auth","token":…}`. Server → client: binary panel frames
+`[arm u8][y0 u16][rows u16][rows·stride bytes]` for dirty row-ranges (diffed against what that
+client last received; a fresh client gets both full panels), and JSON `{"t":"status", link,
+lease, driver, transport, ackMs, bps, faults[]}`. Client → server: `{"t":"input","ev":
+"tap"|"double"|"up"|"down"|"hold"|"release"}` → `transport.injectInput`. Page: two 640×480
+canvases (toggle / side-by-side, `image-rendering: pixelated`, no upscaling by default), the
+same mouse mapping as the desktop (wheel notch with accumulation, left = tap, right =
+double-tap, press-and-hold = long-press then release; no browser `dblclick` — it fires `click`
+first), keyboard as the desktop, a status line, reconnect with backoff. Served by the desktop
+and by the phone on `replicaPort` (7403).
+
+**Desktop preview.** Draws any transport's mirror; mouse as above (hold ≥ 600 ms — the ring's
+own threshold is unmeasured); Tab = lens toggle, B = side by side; a status strip under the
+1× panel (path, link, lease, ack ms, B/s, last fault) — outside the 640×480 image so the true-1×
+rule holds.
+
+**Notification vs wheel (decision 6).** `Shell.handleNotice` queues while `switcher.open`;
+`openSwitcher` requeues a shown box unread; `commitSwitcher`/`cancelSwitcher` call
+`showNextIfIdle()` and schedule the grace.
+
+### 8.3 Checklist
+
+"battery" = `:core:test` · `--selfcheck` · `--snapshot DIR` (look at the PNGs) · `--epub-check`
+· `tools/lint.py` · `:phone:assembleDebug`. Each item ends with the tree compiling, the item
+checked here, and one commit `§8 <id>: <what>`.
+
+**F — foundations (core)**
+- [ ] F1 phone `versionCode`/`versionName` bumped; `REVIEW.md` created for the review phase
+- [ ] F2 `LensPanels` + `Transport.mirror` + the `CfwTransportBase` tee; SimTransport mirror = its sim; `Transport.injectInput`; test: a tee'd transport's mirror equals an independent sim fed the same bytes
+- [ ] F3 prelude: `LaunchMsg`, the start-time handshake, the sim's ack, a sweep answers a parked prelude; test in `SimRoundTripTest`; selfcheck asserts it
+- [ ] F4 divergence check in `Shell`; test with a forced mismatch (write into the sim's panel between flushes)
+- [ ] F5 `ShellKeeper` in core; test: a link death restarts the session, a capability refusal goes terminal
+- [ ] F6 notification waits behind the wheel (decision 6); `ShellBehaviorTest` case
+- [ ] F7 host-supplied Settings rows; test that the row appears and applies
+- [ ] F8 battery green; commit
+
+**A — the phone drives real glasses**
+- [ ] A1 `BleTransport` glue rebuilt per §8.2 (RIGHT then LEFT, retry, MTU check, priority, notify enable surfaced, settle, RSSI, disconnect → `onLinkDown`, cached addresses)
+- [ ] A2 `ShellService` on the keeper; claim pauses / release resumes; terminal → SIM fallback with a persistent notification
+- [ ] A3 target switch: strip button + Settings row + `Prefs`; stack restart on switch
+- [ ] A4 `LensView` draws `transport.mirror`, both lenses, touch via `injectInput`
+- [ ] A5 battery green + APK builds; commit
+
+**B — the seam carries the mirror**
+- [ ] B1 seam `panel` messages through one ordered sender coroutine (events, state, panels); `RemoteMirror` on the client
+- [ ] B2 test: loopback seam round trip — client mirror == server mirror after flushes; ordering panel-before-done
+- [ ] B3 battery green; commit
+
+**C — PC-direct BLE**
+- [ ] C1 dependencies in `desktop/build.gradle.kts` (+ fat jar); licences noted in `IMPLEMENTATION.md`
+- [ ] C2 `BlueZTransport` per §8.2 behind a small `BlueZLink` seam so the glue is unit-testable with a fake
+- [ ] C3 tests over the fake (connect order, MTU refusal, notify routing, disconnect → link down); adapter enumeration run once on beardos (no discovery)
+- [ ] C4 battery green; commit
+
+**D — replicas**
+- [ ] D1 desktop Preview per §8.2 (mouse, side-by-side, status strip, mirror source)
+- [ ] D2 `ReplicaServer` + page in core; served by the desktop; unit tests for the WS handshake key and frame codec; selfcheck opens a loopback WS client and receives a panel frame
+- [ ] D3 phone serves the page (`replicaPort` in `Prefs`/BuildConfig)
+- [ ] D4 battery green; commit
+
+**E — arbitration**
+- [ ] E1 `PathTransport` in core; test: a race where the first candidate stalls and the second wins, the stalled attempt is cancelled cleanly; a capability refusal disables a candidate
+- [ ] E2 desktop `auto` default, `--transport sim|ble|remote`, `phoneHost` in config; `bin/damage` unchanged
+- [ ] E3 desktop on the keeper: link death → new race; status strip narrates
+- [ ] E4 battery green; commit
+
+**F/G — docs**
+- [ ] DOC1 `REMINDER.md` flash-day runbook (one screen) + the first-light items each path adds
+- [ ] DOC2 `IMPLEMENTATION.md`, `README.md`, `CLAUDE.md` current (configurations, transports, replicas, target switch, keeper, arbitration, licences)
+- [ ] DOC3 note where §5 rules 5/10/18 attach; `DESIGN.md` §4.3/§4.5 record decision 6
+- [ ] DOC4 commit
+
+**H — review rounds**
+- [ ] H1 fresh reviewer agents per subsystem (transport base + prelude, BLE glue, BlueZ glue, mirror + seam, replica server + page, shell changes, phone service, arbitration + keeper), each told to verify every candidate with a concrete trace, timing or sim run; findings logged in `REVIEW.md` with verdicts
+- [ ] H2 every finding re-verified by the builder before a fix; fixes; repeat until a round is clean
+- [ ] H3 final battery; memory + handoff updated; commit
+
+### 8.4 Resume protocol (after a compaction or a fresh session)
+
+1. Read this §8 top to bottom, then `IMPLEMENTATION.md`, then the `CLAUDE.md` rules. Do not
+   re-read the whole research corpus; §8.2 is the design and §8.1 the decisions.
+2. `git status` and `git log --oneline -15`: the last `§8 <id>` commit is the last finished item.
+   The checklist and the git log must agree; where they disagree, trust git + the battery and
+   fix the checklist.
+3. If the working tree is dirty, `git diff` shows an item in progress. Finish it if it is
+   small and its intent is clear from §8.2 and the diff; otherwise `git stash` it, note that in
+   §8.5, and redo the item from the design.
+4. Run `./gradlew :core:test` (and `:desktop:compileKotlin :phone:assembleDebug` if the item
+   touched those). Green before continuing.
+5. Continue at the first unchecked item. One item at a time; check it off and commit the moment
+   it is done; append one line to §8.5.
+6. New decisions made mid-build (anything a resumed session could re-derive differently) go
+   into §8.2 immediately, not only into code comments.
+7. In the review phase, every finding goes into `REVIEW.md` as it is found (candidate →
+   verification → verdict → fix commit), so a compaction cannot lose an unverified finding.
+
+### 8.5 Progress log
+
+- 2026-08-25 — §8 written; Adam's decisions recorded; build not yet started (waiting for
+  automatic context compaction to be enabled).
