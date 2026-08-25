@@ -6,6 +6,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import wm.damage.core.transport.Arm
@@ -96,8 +97,22 @@ class BlueZTransport(
             if (peer.path in droppedDuringConnect)
                 throw IllegalStateException("$arm disconnected while the pair was being connected")
         }
+        // a drop of the FIRST arm while the second was being set up was only
+        // recorded (running is not yet true): both arms are checked once more
+        if (droppedDuringConnect.isNotEmpty()) {
+            val arms = droppedDuringConnect.mapNotNull { p -> synchronized(deviceToArm) { deviceToArm[p] } }
+            throw IllegalStateException("${arms.joinToString()} disconnected while the pair was being connected")
+        }
         rememberAddresses(left.address, right.address)
         Log.i("ble", "both arms connected")
+    }
+
+    /** Release the D-Bus signal handler this transport registered. The bus
+     *  connection is process-wide and stays; without this, every rebuilt
+     *  stack would leave a handler (and everything it references) behind. */
+    fun close() {
+        try { link.close() } catch (e: Exception) { Log.w("ble", "close: ${e.message}") }
+        listening = false
     }
 
     /** Poll the device's link state until services are resolved; a link that
@@ -162,12 +177,15 @@ class BlueZTransport(
     }
 
     /** RSSI for the link cell every 10th tick, from the RIGHT (command) arm —
-     *  on the maintenance coroutine, bound to the session like everything else. */
+     *  read on the IO context like every other link call, so a bus that stops
+     *  answering cannot hold the maintenance coroutine. */
     override fun onMaintenanceTick() {
         if (++ticks % RSSI_EVERY_TICKS != 0) return
         val p = devicePath[Arm.RIGHT] ?: return
-        val r = try { link.rssi(p) } catch (e: Exception) { null }
-        updateState { it.copy(rssiDbm = r) }
+        scope.launch {
+            val r = try { io { link.rssi(p) } } catch (e: Exception) { null }
+            updateState { it.copy(rssiDbm = r) }
+        }
     }
 
     companion object {

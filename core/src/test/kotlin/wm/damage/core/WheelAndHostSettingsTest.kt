@@ -93,6 +93,34 @@ class WheelAndHostSettingsTest {
     }
 
     @Test
+    fun aNoticeForTheAppTheWheelCommitsToIsNotShownAsNew(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-wheel3")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val r = Rig(scope, tmp)
+            r.shell.start(); settle(r.shell)
+            // visit Settings once so it is the most recent inactive window the wheel opens on
+            r.shell.postGesture(EvenHubMsg.EV_SCROLL_TOP); settle(r.shell)
+            r.shell.postGesture(EvenHubMsg.EV_CLICK); settle(r.shell)
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK); settle(r.shell)
+            assertEquals(null, r.shell.currentWindowId())
+            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)     // the wheel opens; cursor on Settings
+            settle(r.shell)
+            r.shell.postNotice(Notifications.Notice("DAMAGE · settings", "t3", "a notice about settings", "12:00", appId = "settings"))
+            settle(r.shell)
+            assertEquals(1, r.shell.notifications.queued().size, "queued behind the wheel")
+            r.shell.postGesture(EvenHubMsg.EV_CLICK)               // commit to Settings: its notices are read
+            settle(r.shell)
+            assertEquals("settings", r.shell.currentWindowId())
+            assertFalse(r.shell.notifications.active, "a notice for the app just entered is not shown as new (§4.5, round 1 f6)")
+            assertTrue(r.shell.notifications.queued().isEmpty(), "and it does not linger in the queue")
+            r.shell.stop()
+        } finally {
+            scope.cancel(); tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
     fun aHostRowStagesOnScrollAndAppliesOnTap(): Unit = runBlocking {
         val tmp = Files.createTempDirectory("damage-host")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

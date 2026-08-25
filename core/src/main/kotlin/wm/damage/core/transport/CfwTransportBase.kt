@@ -634,9 +634,10 @@ abstract class CfwTransportBase(
             Log.w(name, "disconnect: ${e.message}")
         }
         if (teeMirror) mirrorSim.linkReset()
+        updateState { it.copy(started = false, leaseHeld = false, connected = false, detail = "") }
+        if (!_events.tryEmit(TransportEvent.Link(false, "$name stopped")))
+            Log.e(name, "Link(false) after stop DROPPED (buffer full)")
         }
-        updateState { it.copy(started = false, leaseHeld = false, connected = false) }
-        _events.emit(TransportEvent.Link(false, "$name stopped"))
     }
 
     /** End-of-session sweep: fail every in-flight ack (releasing its window

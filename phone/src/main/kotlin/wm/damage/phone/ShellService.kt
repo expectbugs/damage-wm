@@ -95,7 +95,7 @@ class ShellService : Service() {
         // NO SILENT FAILURES needs a sink on this platform: everything reaches
         // logcat, and errors reach the person (§9.3), rate-limited per tag so
         // a repeating error is one notification, not a stream
-        Log.addSink { level, tag, message ->
+        val sink = Log.Sink { level, tag, message ->
             val prio = when (level) {
                 Log.Level.DEBUG -> android.util.Log.DEBUG
                 Log.Level.INFO -> android.util.Log.INFO
@@ -112,11 +112,15 @@ class ShellService : Service() {
                 }
             }
         }
+        logSink?.let { Log.removeSink(it) }   // a service recreated in the same process: one sink, not two
+        logSink = sink
+        Log.addSink(sink)
         startForeground(NOTIF_ID, buildNotification("Damage shell starting"))
         startStack(Prefs(this).target)
     }
 
     private val errorShownAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private var logSink: Log.Sink? = null
 
     /** The status the screen and the notification show: the keeper's last
      *  transition plus what the transport is doing right now ("scanning for
@@ -203,8 +207,7 @@ class ShellService : Service() {
             rs.start()
             replica = rs
         } catch (e: Exception) {
-            Log.e("service", "browser replica failed to start", e)
-            urgentNotification("replica", "browser replica: ${e.message}")
+            Log.e("replica", "browser replica failed to start: ${e.message}")   // the sink raises the notice
         }
 
         // the transport seam server: a PC shell can claim this transport
@@ -215,8 +218,7 @@ class ShellService : Service() {
                 server.start()
                 seamServer = server
             } catch (e: Exception) {
-                Log.e("service", "transport seam server failed to start", e)
-                urgentNotification("seam", "transport server: ${e.message}")
+                Log.e("seam", "transport server failed to start: ${e.message}")   // the sink raises the notice
             }
         }
     }
@@ -289,9 +291,8 @@ class ShellService : Service() {
                         startStack(target)
                     }
                 } catch (e: Exception) {
-                    Log.e("service", "stack rebuild failed", e)
                     statusLine = "REBUILD FAILED: ${e.message}"
-                    urgentNotification("service", statusLine)
+                    Log.e("service", statusLine)   // the sink raises the notice
                 } finally {
                     rebuilding.set(false)
                 }
@@ -371,6 +372,8 @@ class ShellService : Service() {
         // continuously (2 s debounce), so the async stop loses at most the last
         // moments — an ANR would lose the process mid-write instead.
         destroyed = true
+        logSink?.let { Log.removeSink(it) }
+        logSink = null
         Thread({
             try { stopStack() } catch (e: Exception) { Log.e("service", "shutdown failed", e) }
         }, "damage-shutdown").start()

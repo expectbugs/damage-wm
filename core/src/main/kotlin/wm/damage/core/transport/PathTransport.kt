@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.withContext
 import wm.damage.core.geom.Geometry
 import wm.damage.core.util.Log
@@ -63,6 +64,9 @@ class PathTransport(
 
     class Candidate(val name: String, val transport: Transport)
 
+    /** The candidate paths, for a host that must release their resources. */
+    val paths: List<Candidate> get() = candidates
+
     private val _events = MutableSharedFlow<TransportEvent>(extraBufferCapacity = 1024)
     override val events = _events.asSharedFlow()
     private val _state = MutableStateFlow(LinkState(transportName = "auto"))
@@ -85,14 +89,20 @@ class PathTransport(
         if (!_events.tryEmit(ev)) Log.e("path", "event DROPPED (buffer full): $ev")
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     override suspend fun start(warmupFrame: ByteArray) {
         check(active == null) { "path transport already started" }
         val live = candidates.filter { it.name !in disabled }
         if (live.isEmpty())
             throw CapabilityRefused("every transport path was refused at the capability gate (${disabled.joinToString()}) — nothing left to try")
         updateState { it.copy(connected = false, started = false, leaseHeld = false, transportName = "auto: searching") }
-        val winner = coroutineScope {
-            val result = CompletableDeferred<Candidate>()
+        // the winner is recorded the moment it completes: if this start() is
+        // cancelled while the losers are still rolling back (coroutineScope
+        // waits for them and then discards the value), the completed winner
+        // must not be left driving with nobody tracking it (round 2, a2-1)
+        val result = CompletableDeferred<Candidate>()
+        val winner = try {
+            coroutineScope {
             val attempts = live.mapIndexed { i, c ->
                 launch {
                     var pause = retryMs
@@ -152,6 +162,16 @@ class PathTransport(
             } finally {
                 attempts.forEach { it.cancel() }
             }
+            }
+        } catch (e: Exception) {
+            val completed = if (result.isCompleted && !result.isCancelled) runCatching { result.getCompleted() }.getOrNull() else null
+            if (completed != null) {
+                Log.w("path", "start() ended (${e.message}) after ${completed.name} had completed — stopping it")
+                withContext(NonCancellable) {
+                    try { completed.transport.stop() } catch (s: Exception) { Log.w("path", "${completed.name} stop: ${s.message}") }
+                }
+            }
+            throw e
         }
         active = winner
         Log.i("path", "driving via ${winner.name}")

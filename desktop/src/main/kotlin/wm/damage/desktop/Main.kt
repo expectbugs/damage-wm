@@ -225,6 +225,9 @@ class DesktopStack(
     suspend fun stop() {
         keeper.stop()
         scope.cancel()
+        // the BlueZ glue holds a handler on the process-wide bus: release it
+        val all = (transport as? PathTransport)?.paths?.map { it.transport } ?: listOf(transport)
+        for (t in all) (t as? BlueZTransport)?.close()
     }
 
     fun statusLine(): String {
@@ -270,7 +273,12 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?): Unit = run
                 // (no BlueZ, say) must leave the running one driving
                 val s = build(next)
                 val old = stackRef.get()
-                runBlocking { old?.stop() }
+                try {
+                    runBlocking { old?.stop() }
+                } catch (e: Exception) {
+                    // the old stack's stop failing must not leave the NEW one unstarted
+                    Log.e("damage", "the ${old?.mode} stack did not stop cleanly: ${e.message}", e)
+                }
                 stackRef.set(s)
                 switchNote.set("")
                 s.start()
@@ -289,9 +297,14 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?): Unit = run
     // an orderly end — the window's close button, Ctrl-C, a kill: the shell
     // saves its state and the transport releases the display
     val ending = java.util.concurrent.atomic.AtomicBoolean(false)
+    val ended = java.util.concurrent.CountDownLatch(1)
     fun endOrderly() {
-        if (!ending.compareAndSet(false, true)) return
+        if (!ending.compareAndSet(false, true)) {
+            ended.await()           // a second close / a signal during the stop waits for it
+            return
+        }
         try { runBlocking { stack()?.stop() } } catch (e: Exception) { Log.w("damage", "stop at exit: ${e.message}") }
+        finally { ended.countDown() }
     }
     Runtime.getRuntime().addShutdownHook(Thread({ endOrderly() }, "damage-shutdown"))
 

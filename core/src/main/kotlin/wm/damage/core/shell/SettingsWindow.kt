@@ -178,7 +178,9 @@ class SettingsWindow(
     val isAdjusting: Boolean get() = adjusting != null
 
     private fun paintRow(g: Gray8, i: Int, r: Rect) {
-        val e = allEntries.getOrNull(i) ?: return   // the host list can shrink between restarts
+        val e = allEntries.getOrNull(i) ?: run {
+            wm.damage.core.util.Log.w("settings", "row $i beyond ${allEntries.size} entries — blank row"); return
+        }
         text.draw(g, r.x + 40, (r.y + 7) / 2 * 2, e.name, fSmall, Level.DIM)
         text.draw(g, r.x + 280, (r.y + 5) / 2 * 2, e.value(), fRow, Level.BODY)
     }

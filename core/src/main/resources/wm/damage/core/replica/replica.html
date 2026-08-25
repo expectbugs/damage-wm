@@ -32,7 +32,7 @@
     <button id="lens">lens: LEFT</button>
     <button id="both">both</button>
     <button id="scale">1×</button>
-    <span id="help">wheel = scroll · click = tap · right-click = double-tap · hold = long-press · keys ↑↓ Enter Backspace Space · scaled views are not for legibility calls</span>
+    <span id="help">wheel = scroll · click = tap · right-click = double-tap · hold = long-press (release on let-go) · keys ↑↓ Enter Backspace Space (hold) R (release) Tab (lens) B (both) · scaled views are not for legibility calls</span>
   </div>
 </div>
 <script>
@@ -101,7 +101,7 @@
   }
 
   // ---- mouse: wheel notches accumulate; hold = long-press; right = double-tap
-  let wheelAccum = 0, holdTimer = null, holding = false;
+  let wheelAccum = 0, holdTimer = null, holding = false, lastBigNotchAt = 0;
   for (const c of [canvases[0], canvases[1]]) {
     c.addEventListener('wheel', (e) => {
       e.preventDefault();
@@ -112,8 +112,14 @@
       let notches = 0;
       if (e.deltaMode === 1) { wheelAccum += e.deltaY / 3; }
       else if (e.deltaMode === 2) { wheelAccum += Math.sign(e.deltaY); }
-      else if (Math.abs(e.deltaY) >= 40) { notches = Math.sign(e.deltaY); wheelAccum = 0; }
-      else { wheelAccum = Math.max(-3, Math.min(3, wheelAccum + e.deltaY / 40)); }
+      else if (Math.abs(e.deltaY) >= 40) {
+        // a notch-sized step: one notch, at most one per 40 ms — a trackpad
+        // flick reports such steps at 60–120 Hz, which no ring could produce
+        const now = performance.now();
+        if (now - lastBigNotchAt >= 40) { notches = Math.sign(e.deltaY); lastBigNotchAt = now; }
+        wheelAccum = 0;
+      }
+      else { wheelAccum += e.deltaY / 40; }
       while (wheelAccum >= 1) { wheelAccum -= 1; notches += 1; }
       while (wheelAccum <= -1) { wheelAccum += 1; notches -= 1; }
       while (notches > 0) { notches--; send('down'); }
@@ -152,9 +158,10 @@
   }
   function toggleLens() { shown = 1 - shown; layout(); }
   function toggleBoth() { both = !both; layout(); }
-  document.getElementById('lens').onclick = toggleLens;
-  document.getElementById('both').onclick = toggleBoth;
-  document.getElementById('scale').onclick = () => { scale = scale === 1 ? 2 : 1; layout(); };
+  // a clicked button gives focus back at once, so Space/Enter stay ring gestures
+  document.getElementById('lens').onclick = (e) => { toggleLens(); e.currentTarget.blur(); };
+  document.getElementById('both').onclick = (e) => { toggleBoth(); e.currentTarget.blur(); };
+  document.getElementById('scale').onclick = (e) => { scale = scale === 1 ? 2 : 1; layout(); e.currentTarget.blur(); };
   layout();
   if (!token) { connEl.textContent = 'no token in the URL — open the link the program printed'; connEl.className = 'bad'; }
   else connect();

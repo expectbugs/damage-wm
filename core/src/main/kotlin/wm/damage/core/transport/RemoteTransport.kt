@@ -190,10 +190,20 @@ class RemoteTransportClient(
      *  transport's own (round 1, d11). */
     private val pendingSubmits = ConcurrentHashMap<Long, Long>()
     @Volatile private var stallReported = false
-    private var stallWatch: Job? = null
+    @Volatile private var stallWatch: Job? = null
 
-    private var sock: Socket? = null
-    private var out: DataOutputStream? = null
+    @Volatile private var sock: Socket? = null
+    @Volatile private var out: DataOutputStream? = null
+
+    /** The seam-side equivalent of the base's session sweep: every flush
+     *  still outstanding is answered as failed, loudly, so the shell rolls
+     *  back its cells and its in-flight bookkeeping empties (round 2, b2-1). */
+    private fun failOutstanding(why: String) {
+        for (id in pendingSubmits.keys.toList()) {
+            if (pendingSubmits.remove(id) != null)
+                emit(TransportEvent.FlushDone(id, false, 0, 0, why), "FlushDone $id")
+        }
+    }
     private val nextId = AtomicLong(1)
     private val started = Channel<String?>(1)
     /** A deliberate stop(): the reader's resulting link-down is expected and
@@ -287,6 +297,7 @@ class RemoteTransportClient(
         else Log.e("remote-transport", reason)
         stallWatch?.cancel()
         updateState { it.copy(connected = false, started = false, leaseHeld = false) }
+        failOutstanding("seam link ended: $reason")
         // a caller parked in start() must get the answer, not a silent hang
         started.trySend(reason)
         emit(TransportEvent.Link(false, reason), "Link-down")
@@ -385,6 +396,7 @@ class RemoteTransportClient(
         try { out?.send(Ctl(t = "stop")) } catch (e: Exception) { /* closing anyway */ }
         sock?.close()
         updateState { it.copy(connected = false, started = false) }
+        failOutstanding("remote transport stopped")
     }
 
     companion object {
@@ -523,8 +535,13 @@ class RemoteTransportServer(
                             is Out.Msg -> out.send(o.ctl, o.blob)
                             is Out.Panel -> buildPanel(o.arm)?.let { (c, blob) -> out.send(c, blob) }
                         }
-                    } catch (e: java.io.IOException) {
-                        Log.w("transport-server", "send failed — closing session: ${e.message}")
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // an IOException is the link ending; anything else is a
+                        // defect — either way the session ends here, never in
+                        // the host's scope (round 2, b2-4)
+                        Log.e("transport-server", "sender ended — closing session: ${e.message}")
                         sock.close()
                     }
                 }

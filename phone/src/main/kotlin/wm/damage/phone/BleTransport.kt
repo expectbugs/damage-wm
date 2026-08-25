@@ -11,6 +11,7 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
@@ -145,10 +146,13 @@ class BleTransport(
             // Every step observed: a failed MTU request or CCCD write would
             // otherwise leave notifications dead and the capability gate
             // waiting in silence. Order per the CFW reference: priority, MTU,
-            // notifications.
+            // notifications. The priority request is best-effort and stands
+            // ALONE: inside the atomic queue a failure would cancel the MTU
+            // and notification requests behind it (Nordic 2.7.5 cancelQueue).
+            requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+                .fail { _, status -> Log.w("ble", "$arm connection priority request status $status (continuing)") }
+                .enqueue()
             beginAtomicRequestQueue()
-                .add(requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
-                    .fail { _, status -> Log.w("ble", "$arm connection priority request status $status (continuing)") })
                 .add(requestMtu(REQUESTED_MTU)
                     .with { _, mtu -> negotiatedMtu = mtu; Log.i("ble", "$arm MTU negotiated $mtu") }
                     .fail { _, status -> initFailure = "$arm MTU request failed: status $status" })
@@ -197,7 +201,9 @@ class BleTransport(
             m.linkUp = false
             if (m.isConnected) {
                 Log.w("ble", "$arm still connected from an earlier attempt — ending it first")
-                try { m.disconnect().suspend() } catch (e: Exception) { Log.w("ble", "$arm disconnect: ${e.message}") }
+                try { m.disconnect().suspend() }
+                catch (e: CancellationException) { throw e }
+                catch (e: Exception) { Log.w("ble", "$arm disconnect: ${e.message}") }
             }
         }
         val (left, right) = scanForPair()

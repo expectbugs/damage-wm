@@ -245,9 +245,12 @@ class Notifications(private val text: TextRasterizer) {
 
     /** Marks all queued+current notices of [appId] read (activation auto-read,
      *  §4.5 — preview must NOT call this). */
+    /** Activating an app marks its notices read (§4.5): the shown box stays
+     *  (read), the queued ones LEAVE the queue — `show()` would skip them
+     *  anyway, and the badge and the persisted queue must not count them. */
     fun markAppRead(appId: String) {
         current?.let { if (it.appId == appId) it.read = true }
-        for (n in queue) if (n.appId == appId) n.read = true
+        queue.removeAll { it.appId == appId }
     }
 
     // ------------------------------------------------------------------ paint

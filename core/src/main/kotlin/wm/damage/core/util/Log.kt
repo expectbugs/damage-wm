@@ -25,6 +25,8 @@ object Log {
 
     fun addSink(s: Sink) { sinks.add(s) }
 
+    fun removeSink(s: Sink) { sinks.remove(s) }
+
     fun replaceSinks(s: Sink) { sinks.clear(); sinks.add(s) }
 
     fun d(tag: String, msg: String) = emit(Level.DEBUG, tag, msg)

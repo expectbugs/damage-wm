@@ -1,5 +1,6 @@
 package wm.damage.core.shell
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -58,10 +59,10 @@ class ShellKeeper(
     @Volatile private var wanted = false          // the host wants the shell driving
     @Volatile private var paused = false
     @Volatile private var capabilityRefused = false
-    /** Set around the keeper's OWN stops: their `Link(false)` is not a loss. */
+    /** Set around the keeper's OWN stops: their `Link(false)` is not narrated
+     *  as a loss (best effort — the event is delivered later; the RESTART
+     *  decision never depends on events, only on the transport's state). */
     @Volatile private var selfStopping = false
-    /** Bumped on every link end so the loop restarts exactly once per loss. */
-    @Volatile private var linkLosses = 0
 
     private fun status(s: String) {
         lastReason = s
@@ -77,10 +78,11 @@ class ShellKeeper(
             watcher = scope.launch {
                 transport.events.collect { ev ->
                     when (ev) {
-                        is TransportEvent.Link -> if (!ev.connected && !paused && !selfStopping) {
-                            linkLosses++
+                        // narration only: the running loop polls the transport's
+                        // `started` and restarts on its own (round 2, a2-3 — an
+                        // event count could not tell a self-stop from a loss)
+                        is TransportEvent.Link -> if (!ev.connected && wanted && !paused && !selfStopping) {
                             status("link ended: ${ev.detail}")
-                            kick()
                         }
                         is TransportEvent.Fault -> if (ev.what == "capability") {
                             capabilityRefused = true
@@ -158,13 +160,14 @@ class ShellKeeper(
                 return
             }
             attempts++
-            val seen = linkLosses
             state = State.STARTING
             status(if (attempts == 1) "starting" else "reconnecting (attempt $attempts)")
             val ok = lock.withLock {
                 try {
                     shell.start()
                     true
+                } catch (e: CancellationException) {
+                    throw e             // a pause/stop: unwind, no narration of a failure
                 } catch (e: CapabilityRefused) {
                     // the firmware answered and is not the CFW: no retry can change that
                     capabilityRefused = true
@@ -178,9 +181,10 @@ class ShellKeeper(
             if (ok) {
                 state = State.RUNNING
                 status("driving via ${transport.state.value.transportName}")
-                // stay here until the link ends (the watcher bumps linkLosses)
-                while (scope.isActive && wanted && !paused && linkLosses == seen &&
-                    transport.state.value.started) delay(250)
+                // stay here until the link ends: the transport's `started`
+                // goes false on a link loss (and only the keeper can set it
+                // true again)
+                while (scope.isActive && wanted && !paused && transport.state.value.started) delay(250)
                 if (!wanted || paused) return
                 lock.withLock {
                     state = State.WAITING

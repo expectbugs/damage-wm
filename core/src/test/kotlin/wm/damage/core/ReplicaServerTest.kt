@@ -109,8 +109,8 @@ class ReplicaServerTest {
 
             WsClient(port, "tok").use { c ->
                 assertEquals("s3pPLMBiTxaQ9kYGzzhZRbK+xOo=", c.accept)
-                // two full panels first (blank → nothing to send until something is painted),
-                // so paint through the pipeline and expect the changed rows
+                // both full panels arrive on attach; then paint through the
+                // pipeline and expect frames covering the changed rows
                 val comp = Compositor()
                 val l = Layout()
                 comp.composed.fillRect(l.lens, 12 * 17)

@@ -212,6 +212,12 @@ class Shell(
         main.model.cursor = shellState?.get("mainCursor")?.jsonPrimitive?.contentOrNull
             ?.toIntOrNull() ?: 0
         restoreNotices(shellState)
+        // divergence bookkeeping is per session: a restarted shell reports its
+        // first disagreement afresh, and a stale report does not linger on the
+        // hosts' status lines (round 2, d2-3)
+        lastDivergence = null
+        divergenceRun = 0
+        agreeingChecks = 0
 
         // UNDISPATCHED: the collector subscribes BEFORE transport.start() can
         // emit, or early events (capability, lease) would vanish silently.
@@ -424,7 +430,10 @@ class Shell(
             EvenHubMsg.EV_CLICK -> {
                 val n = notifications.current
                 if (n != null && !n.emergency && n.appId != null) {
-                    dismissNotice(markRead = true)
+                    // opening the app is not clearing the queue: the next box
+                    // keeps its grace (§4.5 rule 1), so the tap meant for the
+                    // app just entered does not land on it (round 2, d2-10)
+                    dismissNotice(markRead = true, clearing = false)
                     windows.firstOrNull { it.id == n.appId }?.let { commitWindow(it) }
                 } else {
                     // emergencies and app-less notices: tap = dismiss (§4.5 —
@@ -708,9 +717,9 @@ class Shell(
         }
     }
 
-    private fun dismissNotice(markRead: Boolean) {
+    private fun dismissNotice(markRead: Boolean, clearing: Boolean = true) {
         settleSlidesForOverlay()      // the furl restores from a snapshot:
-        notifications.dismiss(markRead)                    // settle the base
+        notifications.dismiss(markRead, clearing)          // settle the base
         scheduleSave()
         // the furl animation runs via pump, restoring from the under snapshot
     }

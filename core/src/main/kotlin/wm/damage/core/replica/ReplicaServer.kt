@@ -251,7 +251,8 @@ class ReplicaServer(
                         try { write(frame(OP_CLOSE, f.payload.copyOfRange(0, minOf(2, f.payload.size)))) } catch (e: Exception) { /* closing */ }
                         break
                     }
-                    OP_PONG, OP_BINARY -> {}
+                    OP_PONG -> {}
+                    OP_BINARY -> Log.w("replica", "binary frame (${f.payload.size} B) from ${sock.inetAddress} ignored — the page sends text only")
                     else -> { Log.w("replica", "unsupported frame opcode ${f.opcode} — closing"); break }
                 }
             }
@@ -262,6 +263,7 @@ class ReplicaServer(
          *  client, a reconnect or a host rebuild must never keep stale rows. */
         @Synchronized
         fun attach() {
+            if (!open) return          // the status thread may still hold a closed client
             val p = panels()
             if (p === source) return
             source?.removeListener(listener)

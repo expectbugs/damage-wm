@@ -4,6 +4,8 @@ import java.awt.BorderLayout
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.Graphics
+import java.awt.event.FocusAdapter
+import java.awt.event.FocusEvent
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.awt.event.MouseAdapter
@@ -52,19 +54,32 @@ class Preview(
     private val imgR = BufferedImage(Geometry.PANEL_W, Geometry.PANEL_H, BufferedImage.TYPE_INT_RGB)
     private var source: LensPanels? = null
     private val listener = LensPanels.LensListener { a -> SwingUtilities.invokeLater { refresh(a) } }
-    private val strip = JTextArea(" ").apply {
+    /** Width pinned to the panel, height whatever the wrapped text needs —
+     *  the frame re-packs when that height changes (NO TRUNCATION). */
+    private val strip = object : JTextArea(" ") {
+        override fun getPreferredSize(): Dimension = Dimension(Geometry.PANEL_W, super.getPreferredSize().height)
+    }.apply {
         isEditable = false
         lineWrap = true
         wrapStyleWord = true
         isFocusable = false
     }
     private val keysDown = HashSet<Int>()
+    /** Set once a close is in progress: the strip keeps its closing text and
+     *  a second close click waits instead of starting another stop. */
+    @Volatile var closing = false
+        private set
 
     init {
         background = Color.BLACK
         isFocusable = true
         setFocusTraversalKeysEnabled(false)   // Tab is ours
         updateSize()
+        // a key held across a focus change never reports its release here:
+        // forget every key on focus loss, or its next press would be dropped
+        addFocusListener(object : FocusAdapter() {
+            override fun focusLost(e: FocusEvent) { keysDown.clear() }
+        })
         addKeyListener(object : KeyAdapter() {
             override fun keyReleased(e: KeyEvent) { keysDown.remove(e.keyCode) }
             override fun keyPressed(e: KeyEvent) {
@@ -111,12 +126,12 @@ class Preview(
         // refresh the strip
         Timer(500) {
             attach()
+            if (closing) return@Timer
             val s = " ${status()}"
-            if (strip.text != s) {
-                val before = strip.preferredSize.height
-                strip.text = s
-                if (strip.preferredSize.height != before) topFrame()?.pack()
-            }
+            if (strip.text != s) strip.text = s
+            // the wrapped text's height is known once the strip is laid out at
+            // the panel's width: grow the frame to fit it
+            if (strip.preferredSize.height != strip.height) topFrame()?.pack()
         }.start()
         attach()
     }
@@ -188,7 +203,9 @@ class Preview(
                 f.defaultCloseOperation = JFrame.DO_NOTHING_ON_CLOSE
                 f.addWindowListener(object : WindowAdapter() {
                     override fun windowClosing(e: WindowEvent) {
-                        p.strip.text = " stopping — saving state and releasing the display"
+                        if (p.closing) return          // one orderly stop; a second click waits on it
+                        p.closing = true
+                        p.strip.text = " stopping — saving state and releasing the display (this can take a few seconds on BLE)"
                         Thread({ onClose() }, "damage-close").start()
                     }
                 })
@@ -198,8 +215,6 @@ class Preview(
                 p.strip.foreground = Color(76, 178, 100)
                 p.strip.background = Color.BLACK
                 p.strip.isOpaque = true
-                p.strip.columns = 1
-                p.strip.preferredSize = java.awt.Dimension(Geometry.PANEL_W, 40)
                 f.contentPane.add(p.strip, BorderLayout.SOUTH)
                 f.isResizable = false
                 f.pack()

@@ -109,3 +109,57 @@ arbitration's decision rule and the seam server's start were the two design-leve
 design calls taken, two accepted as-is, one already fixed by a sibling fix, one documentation
 inconsistency corrected. Tests added: BlueZ (4 new), PathTransport (2 new), the seam and shell
 tests re-run green. Round 2 follows on the areas that changed.
+
+## Round 2 (2026-08-25, after commit 82dd814)
+
+Four fresh reviewers on the areas round 1 changed, each pointed at `git diff 926b267..82dd814`
+for their files so regressions introduced by the fixes get the same scrutiny: (a2) transport
+base + keeper + arbitration interplay, (b2) seam client/server + replica server + page,
+(c2) both radio glues against the library sources, (d2) shell + settings + preview + main.
+
+### R2.d2 — shell, settings, preview, main (10 candidates)
+
+- **R2.d2-1 CONFIRMED** — the strip's fixed `preferredSize` made the re-pack condition unreachable (text past two lines cut — a NO TRUNCATION regression of R1.e7). Fix: the strip pins only its width (`getPreferredSize` override); the frame re-packs when the wrapped height differs from the laid-out height.
+- **R2.d2-2 CONFIRMED** — a second close click (or a signal during the stop) ended the process before the orderly stop completed. Fix: a latch — a second `endOrderly` waits for the first; the window ignores a second close while one is in progress and says the stop can take a few seconds.
+- **R2.d2-3 CONFIRMED** — divergence bookkeeping survived a shell restart (a new session's first disagreement unreported; a stale report on the hosts' lines). Fix: reset at `start()`.
+- **R2.d2-4 CONFIRMED** — a key held across a focus change stayed "down". Fix: `focusLost` clears the pressed set.
+- **R2.d2-5 CONFIRMED (low)** — the "stopping" text was replaced by the 500 ms refresh. Fix: a `closing` flag.
+- **R2.d2-6 CONFIRMED** — read notices stayed in the queue (badge and persisted count included them). Fix: `markAppRead` removes the app's queued notices.
+- **R2.d2-7 CONFIRMED (low)** — a failing old stop left the new stack unstarted. Fix: the old stop is caught separately; the new stack starts regardless.
+- **R2.d2-8** — tests added: a notice for the app the wheel commits to is not shown as new; recurring divergence episodes stop keyframing after three (`DIVERGE x4` sticky).
+- **R2.d2-9 CONFIRMED (very low)** — the blank-row guard now logs.
+- **R2.d2-10 DESIGN CALL, taken** — tapping a box to open its app counted as "actively clearing", so the next box appeared focused without its grace. Decision: opening is not clearing (`dismiss(clearing = false)` on that path); §4.5 rule 1 applies.
+
+### R2.a2 — base, keeper, arbitration interplay (4 candidates)
+
+- **R2.a2-1 CONFIRMED** — a race winner could be left started and untracked when `start()` was cancelled while the losers finished their non-cancellable rollbacks (`coroutineScope` waits for the children and then discards the value). Fix: the result deferred lives outside the scope; if `start()` ends by exception after a candidate completed, that candidate is stopped under `NonCancellable` before the exception propagates.
+- **R2.a2-2 CONFIRMED** — the keeper's start catch swallowed `CancellationException` (wrong narration and a `WAITING` state racing `PAUSED`). Fix: cancellation passes through.
+- **R2.a2-3 CONFIRMED** — a transient `selfStopping` flag could not mask an asynchronously delivered `Link(false)`; the event count could restart a resumed session spuriously. Fix: the restart decision no longer depends on events at all — the running loop polls the transport's `started` (only the keeper can set it true again); the watcher narrates only, gated on `wanted`.
+- **R2.a2-4 CONFIRMED (latent)** — `stop()`'s final `Link(false)` used the suspending `emit` outside the non-cancellable block. Fix: inside it, `tryEmit` with a loud drop.
+- Clean: the lease derivation cannot fire spuriously (the awaited initial ACQUIRE precedes `started`); renewal timing; the prelude gate; the other two race legs; keeper monitor re-entrancy; no timeouts.
+
+### R2.b2 — seam client/server, replica server, page (8 candidates)
+
+- **R2.b2-1 CONFIRMED** — a seam link loss (or stop) never failed the outstanding flushes: the shell kept stale in-flight entries for the rest of the process, never rolled those cells back, and the divergence check stayed disabled (`inflightFlushes` never empty). Fix: `failOutstanding()` — every pending submit is answered `FlushDone(ok=false)` on link loss and on stop, the seam-side equivalent of the base's session sweep.
+- **R2.b2-2 CONFIRMED** — `attach()` after `close()` could re-subscribe a closed client's listener (a leak per occurrence). Fix: `attach()` returns when the client is closed.
+- **R2.b2-3 CONFIRMED (low)** — `stallWatch`/`sock`/`out` shared without visibility. Fix: `@Volatile`.
+- **R2.b2-4 CONFIRMED (hardening)** — the server's sender caught only `IOException`; another exception would reach the host's scope (on Android, the process). Fix: cancellation rethrown, anything else ends the session loudly.
+- **R2.b2-5 CONFIRMED** — a dead accumulator clamp; large-delta trackpad events produced unbounded bursts. Fix: at most one notch per 40 ms from the notch-sized branch.
+- **R2.b2-6 CONFIRMED (low)** — strip buttons kept focus; the help line omitted R/Tab/B. Fix: buttons blur after a click; help line complete.
+- **R2.b2-7** — two comments described the previous implementation (the round-1 torn-read argument in this file and a test comment). Corrected: the seam's diff now runs on the sender against the live buffer, and is safe because `buildPanel` clears the mark before reading and a present that overlaps the read fires the listener after its copy, queuing a new mark that re-diffs against exactly the bytes sent.
+- **R2.b2-8 CONFIRMED (very low)** — a binary frame from the page was dropped without a line. Fix: logged.
+- Clean: ordering (panel mark before done, on the sim and tee paths), `markQueued`/`fullNext`, the start job and driver-loss path, the stall watcher's shape, the deflate bound (measured: worst overhead 56 B against +1024), replica locking.
+
+### R2.c2 — both radio glues (8 candidates, verified against the library, bluetoothd and AOSP sources)
+
+- **R2.c2-1 CONFIRMED** — the desktop glue lacked the post-loop both-arms check the phone got in round 1 (a RIGHT drop during LEFT's setup was only recorded). Fix: `droppedDuringConnect` is checked after the loop, naming the arm.
+- **R2.c2-2 CONFIRMED** — the D-Bus signal handler (and the stack it references) leaked on every target switch: `BlueZDbus.close()` had no runtime caller. Fix: `BlueZTransport.close()`; `DesktopStack.stop()` closes every BlueZ transport, including the arbitration's candidates (`PathTransport.paths`).
+- **R2.c2-3 CONFIRMED (low)** — the phone's pre-disconnect caught `CancellationException`. Fix: rethrown.
+- **R2.c2-4 CONFIRMED** — the phone's `Log` sink was added on every `onCreate` with no removal (a recreated service doubled error notifications). Fix: `Log.removeSink`; one sink per service, removed on destroy.
+- **R2.c2-5 CONFIRMED (low, bytecode-verified)** — the priority request inside Nordic's atomic queue would cancel the MTU and notification requests on failure, producing a confusing MTU refusal. Fix: the priority request stands alone; MTU + notifications stay atomic.
+- **R2.c2-6 CONFIRMED (low)** — the desktop RSSI read ran on the maintenance coroutine outside the IO context. Fix: launched on the scope through `io {}`.
+- **R2.c2-7 CONFIRMED (low)** — a single failure could raise two urgent notifications (direct + via the sink). Fix: those paths log once; the sink raises the notice, rate-limited per tag.
+- **R2.c2-8 (test quality)** — `ourOwnDisconnectIsNotALinkLoss` passed through the `running` guard only. Extended: a stranger's `Connected=false` while running is ignored (the arm map is the filter).
+- Clean: dbus-java unwrapping of `Get` results, the indefinite reply wait, the raw handles the glue calls, cancellation/rollback under `NonCancellable`, the `seenNow` arbitration cases, Android's scan-filter/address contracts, Nordic's `getMtu`/off-thread `enqueue`.
+
+**Round 2 summary.** 30 candidates across four reports: 26 confirmed and fixed (the largest: a race winner that could be leaked when `start()` was cancelled during the losers' rollbacks; outstanding seam flushes never failed on a link loss; the strip's re-pack unreachable; the desktop glue's missing both-arms check and handler leak), two design calls taken (d2-10, and f6's follow-through), one test-quality item addressed, one comment corrected. Core 73 tests + desktop 8 green. Round 3: a compact pass on the round-2 diff.

@@ -62,6 +62,38 @@ class DivergenceTest {
         }
     }
 
+    @Test
+    fun recurringEpisodesStopKeyframingAfterThree(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-diverge2")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val sim = GlassFirmwareSim()
+            val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+            val clock = Shell.LocalClock(12, 0, "12:00", "PM")
+            val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("s.json")), null, scope) { clock }
+            shell.start(); settle(shell)
+            val stride = sim.left.stride
+            var inSettings = false
+            for (episode in 1..4) {
+                // alter the model's LEFT shadow in the battery cell (never repainted), then flush
+                for (y in 6 until 26) java.util.Arrays.fill(sim.left.shadow, y * stride + 200, y * stride + 260, (0x11 * episode).toByte())
+                shell.postGesture(if (inSettings) EvenHubMsg.EV_DOUBLE_CLICK else EvenHubMsg.EV_CLICK)
+                inSettings = !inSettings
+                settle(shell)
+                assertEquals(episode, shell.divergencesReported, "episode $episode reported")
+                if (episode <= Shell.DIVERGE_EPISODES_MAX) {
+                    assertEquals(null, shell.lastDivergence, "episode $episode: a keyframe restored agreement")
+                } else {
+                    assertTrue(shell.lastDivergence != null, "episode $episode: no keyframe any more — the report stays")
+                    assertTrue(shell.quiescenceReport().contains("DIVERGE x4"), "the status is sticky: ${shell.quiescenceReport()}")
+                }
+            }
+            shell.stop()
+        } finally {
+            scope.cancel(); tmp.toFile().deleteRecursively()
+        }
+    }
+
     private suspend fun settle(shell: Shell) {
         val t0 = System.currentTimeMillis()
         while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 10_000) delay(10)

@@ -216,6 +216,10 @@ class BlueZTransportTest {
                 t.events.collect { if (it is TransportEvent.Link) synchronized(links) { links.add(it) } }
             }
             t.start(warmup())
+            // a report for a device that is not one of our arms, while running: ignored
+            fake.listener!!.invoke(BlueZLink.Event.Connected("/org/bluez/hci0/dev_other", false))
+            delay(200)
+            assertTrue(t.state.value.started, "a stranger's disconnect is not our link loss")
             t.stop()
             delay(200)
             assertFalse(synchronized(links) { links.any { it.detail.contains("Connected=false") } },
