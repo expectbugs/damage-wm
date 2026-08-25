@@ -50,10 +50,13 @@ proves the image is reproducible from sources we hold and carries no Thumb-bit d
 
 ## Project status and the order of work
 
-**The first stage is BUILT (2026-08-24, on Adam's explicit go-ahead) and hardened through eight
-review rounds.** Read `IMPLEMENTATION.md` for what runs and how. The shell core, the byte-exact
-simulator, the desktop program and the phone APK exist; Reader + Main are the app layer. The real
-glasses are untouched (stock 2.2.2.20) and `BleTransport` is banked until flash day.
+**The first stage is BUILT (2026-08-24) and the finishing build landed 2026-08-25** (`HANDOFF.md`
+§8 is its record: decisions, fixed design, checklist, log). Read `IMPLEMENTATION.md` for what
+runs and how. The shell core, the byte-exact simulator, the desktop program (auto / sim / ble /
+remote), the phone APK (sim / glasses target), the mirror-based replicas (window, phone, browser),
+the session keeper and the path arbitration exist; Reader + Main are the app layer. The real
+glasses are untouched (stock 2.2.2.20); **neither radio path has run on hardware** — first light
+follows `REMINDER.md`'s runbook after Adam flashes.
 
 Adam's stated methodology still governs **the app layer**, which comes next:
 
@@ -67,9 +70,11 @@ is what keeps it shippable. Do the explosion for new windows on paper (`CAPABILI
 `DESIGN.md` §0/§4.6) before coding them.
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(47 tests, including the per-lens oracle), `desktop --selfcheck` (25 checks),
-`desktop --snapshot DIR` (look at the lens renders), `desktop --epub-check ~/books`,
-`python3 tools/lint.py`, `./gradlew :phone:assembleDebug`. `IMPLEMENTATION.md` → "Review
+(63 tests, including the per-lens oracle), `./gradlew :desktop:test` (the BlueZ glue over a
+fake link), `desktop --selfcheck` (28 checks), `desktop --snapshot DIR` (look at the lens
+renders), `desktop --epub-check ~/books`, `python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.
+**No radio use before Adam flashes** (his decision 2026-08-25): the only BlueZ check allowed is
+`desktop --ble-info` (adapter enumeration, no discovery). `IMPLEMENTATION.md` → "Review
 hardening" lists the mechanisms that are load-bearing and easy to break by accident — the
 compositor's per-lens truth/shadow model, the transport's session-epoch sweep, the shell's
 start/stop mutex. Do not re-introduce nominal-only seam guessing in the compositor: a pixel
@@ -300,9 +305,10 @@ that don't fit raise loudly, never silently mangle.
   `overview.md` §5.1 has the capture analysis and what it rules out.
 - Adam's phone is a **Pixel 10a**; the PC is **beardos** (Gentoo, OpenRC, Portage — see the global
   CLAUDE.md; never `systemctl`, never `apt`). Node 24, Python 3.13 via project venvs only.
-- **Whether beardos has a usable BLE radio for `bleak` is unconfirmed** — the alternatives are
-  DroidBridge (an Android GATT-over-WebSocket forwarder, public availability unconfirmed) or the
-  SybilSight webflasher's Web Bluetooth path. Resolve this before planning a flash.
+- **beardos's radio is reachable from the JVM** (2026-08-25, `--ble-info`): BlueZ 5.86, hci0
+  powered, the system bus admits the user; PC-direct BLE runs on `bluez-dbus` + `dbus-java` (both
+  MIT) — see `desktop/BlueZLink.kt`. Whether the G2 pair connects and negotiates as modeled is a
+  first-light item; the flash itself still goes through `g2flash.py` on the phone/webflasher path.
 
 ## Testing safety
 

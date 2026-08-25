@@ -41,6 +41,27 @@ rules. The battery (`:core:test`, `--selfcheck`, `--snapshot`, `--epub-check`, `
 checked exactness missed a livelock and cubic-time merging; measure convergence, bytes and wall
 time on real content (`design/shots/`) too.
 
+## ✅ The finishing build (2026-08-25) — "flash + install and it works"
+
+`HANDOFF.md` §8 is the record (decisions, design, checklist, log). What now exists, all verified
+against the simulator and the fake links, none of it on a radio yet:
+
+- **The phone drives real glasses** once its Target is switched to *glasses* (strip button or the
+  Settings row): the BLE glue follows G2CC's proven driver and the CFW reference's connect
+  sequence (RIGHT then LEFT, MTU 512 checked, the sid-0x01 prelude, then lease + capability +
+  carrier + warmup). A session keeper restarts the session after every link end, forever, with no
+  timeouts; a non-CFW firmware is refused and the phone falls back to the simulator with a
+  persistent notification.
+- **The PC drives by whichever path works** (`auto`, the default): the phone's transport over the
+  seam first, PC-direct BLE over BlueZ otherwise, every path retried while the search is open, a
+  working path held until it ends. The phone's own shell yields while the PC drives and resumes
+  when it leaves.
+- **The replica is exact everywhere**: every transport owns a mirror (the firmware model fed the
+  bytes it wrote); the desktop window (mouse = ring), the phone screen (touch) and the browser page
+  (`http://<host>:7403/?token=…`, served by both the desktop and the phone) all draw it, and input
+  from any of them reaches whichever shell drives. The shell compares its belief with the mirror at
+  rest and reports any disagreement.
+
 ## 🚀 Next
 
 **(a) The feature-creep scope explosion — for the APP layer.** The shell exists; Reader is its
@@ -48,7 +69,33 @@ first tenant. Start from **`CAPABILITIES.md`** for what the hardware allows and 
 §4.6** for what the shell provides and what is ruled out — then explosion → refinery →
 consistency → more windows.
 
-**(b) First light** — flash day, then the checklist below against the real pair.
+**(b) First light** — flash day: the runbook and then the checklist below against the real pair.
+
+---
+
+## 🟢 Flash-day runbook (one screen)
+
+1. `python3 research/verify_cfw.py` — offline proof of the image. **Say out loud: leaving 2.2.2 is
+   irreversible** (it is not in the public archive).
+2. Phone: enable HCI snoop (**Enabled**, not filtered), toggle Bluetooth off/on, keep BTSnoop
+   running for the whole day (`btsnoop-capture-gotcha`).
+3. `g2flash.py --stop-before flash` — the full dry run, writes nothing. Then, and only then, the
+   real flash, on Adam's explicit go.
+4. PC: `./gradlew :desktop:run --args="--selfcheck"` still green; `--ble-info` shows hci0 powered.
+5. Phone: install `phone/build/outputs/apk/debug/phone-debug.apk`, open it, tap **target: sim** →
+   switch to **glasses**. Expected: status line walks through *starting → scanning → driving via
+   ble*; the phone screen shows the splash, then Main. Anything else is a fault line in the
+   status bar and a phone notification — read it before touching anything.
+6. Leave the **Diag overlay ON** (Settings) for the whole first session: any sticky flag is a
+   hard error. `DIVERGE` in the status bar means the compositor and the firmware model disagree
+   about our own bytes — suspect the model before the design.
+7. PC, at the desk: `./gradlew :desktop:run` (auto). Expected: the strip says *driving via
+   remote:aphone* within seconds (the phone yields; its screen keeps showing the mirror). Kill
+   the desktop program: the phone resumes on its own. Put the phone away / stop its app: the
+   desktop's strip goes to *scanning* and then *driving via ble* — PC-direct.
+8. Browser: open the printed replica link from any machine on the tailnet; wheel/click/hold.
+9. Then the measurements below, in order; write each number into `overview.md` §5 with a
+   "measured on CFW" mark.
 
 ---
 
@@ -79,9 +126,12 @@ Everything below is blocked on being on hardware. Scattered across `DESIGN.md` �
 | 9 | **Whether a normal Android app can see WEA/CMAS alerts** (Pixel 10a) | `DESIGN.md` §4.5 promises emergency alerts; unverified |
 | 10 | **Connected RSSI** — obtainable at all, and from which link | the status bar's link cell |
 | 11 | **Transport** — PC-direct BLE vs phone-bridged | decides where the BLE stack lives; PC-direct only ever works at the desk |
-| 12 | **Link-death behaviour** — pull the glasses out of range mid-session | the transport sweeps and shows LINK DOWN; reconnect needs a host-driven stop/start (the APK does not auto-rebuild on it yet) — decide whether it should |
+| 12 | **Link-death behaviour** — pull the glasses out of range mid-session | the session ends (LINK DOWN), the keeper restarts it after 2 s and scans until the pair is back; the mirror should show the splash then the restored surface |
 | 13 | **Settings-frame timing** — does the real CFW ever send a sid-0x09 frame outside the capability query? | the gate only listens while querying; a stray frame is logged, not acted on |
 | 14 | **The stall report** — force a lost image ack (RF shielding) | must show as a `stall!` fault in the status bar with the link otherwise healthy |
+| 15 | **The sid-0x01 connect prelude** — graded U: does the CFW require it before CREATE? | the transport sends it (the reference does); the model treats it as required. If the real firmware answers differently, `LaunchMsg` says where to change it |
+| 16 | **PC-direct BLE over BlueZ** — the MTU the characteristic reports, notification delivery, write-without-response pacing | first exercise of `BlueZDbus`; the four fake-link tests say what is expected |
+| 17 | **Takeover and fallback** — PC appears → it drives via the phone; PC gone → the phone resumes; phone gone at the desk → PC-direct BLE | every transition narrated in the status strip / phone status line and the browser page |
 
 **Start BTSnoop BEFORE connecting** on any recapture — handle 65's connection setup is the one gap
 in the existing corpus.
@@ -111,9 +161,9 @@ in the existing corpus.
 
 ## Open design questions (not hardware-blocked)
 
-- **A notification box while the switcher wheel is open** — today the box repaints ON TOP of the
-  wheel (consistent and loud; the grace holds, so gestures stay with the wheel). `DESIGN.md`
-  §4.3/§4.5 do not say whether the box should instead wait behind the wheel or requeue.
+- ~~A notification box while the switcher wheel is open~~ — **decided 2026-08-25: it waits behind the
+  wheel** (queued unshown; a shown box goes back to the queue unread) and unfurls after the wheel
+  closes. Built (`HANDOFF.md` §8.1 decision 6).
 - **Where system-state detail lives** — orphaned when the long-press info popup became the switcher.
   Live telemetry is in the status bar; the deeper view wants to be a window, i.e. app-layer work.
 - **Per-window typeface for the windows not yet designed** — Files, Calendar, Music, SMS, Timers,

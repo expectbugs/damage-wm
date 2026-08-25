@@ -450,16 +450,16 @@ checked here, and one commit `§8 <id>: <what>`.
 - [x] D4 battery green; commit
 
 **E — arbitration**
-- [ ] E1 `PathTransport` in core; test: a race where the first candidate stalls and the second wins, the stalled attempt is cancelled cleanly; a capability refusal disables a candidate
-- [ ] E2 desktop `auto` default, `--transport sim|ble|remote`, `phoneHost` in config; `bin/damage` unchanged
-- [ ] E3 desktop on the keeper: link death → new race; status strip narrates
-- [ ] E4 battery green; commit
+- [x] E1 `PathTransport` in core; test: a race where the first candidate stalls and the second wins, the stalled attempt is cancelled cleanly; a capability refusal disables a candidate
+- [x] E2 desktop `auto` default, `--transport sim|ble|remote`, `phoneHost` in config; `bin/damage` unchanged
+- [x] E3 desktop on the keeper: link death → new race; status strip narrates
+- [x] E4 battery green; commit
 
 **F/G — docs**
-- [ ] DOC1 `REMINDER.md` flash-day runbook (one screen) + the first-light items each path adds
-- [ ] DOC2 `IMPLEMENTATION.md`, `README.md`, `CLAUDE.md` current (configurations, transports, replicas, target switch, keeper, arbitration, licences)
-- [ ] DOC3 note where §5 rules 5/10/18 attach; `DESIGN.md` §4.3/§4.5 record decision 6
-- [ ] DOC4 commit
+- [x] DOC1 `REMINDER.md` flash-day runbook (one screen) + the first-light items each path adds
+- [x] DOC2 `IMPLEMENTATION.md`, `README.md`, `CLAUDE.md` current (configurations, transports, replicas, target switch, keeper, arbitration, licences)
+- [x] DOC3 note where §5 rules 5/10/18 attach; `DESIGN.md` §4.3/§4.5 record decision 6
+- [x] DOC4 commit
 
 **H — review rounds**
 - [ ] H1 fresh reviewer agents per subsystem (transport base + prelude, BLE glue, BlueZ glue, mirror + seam, replica server + page, shell changes, phone service, arbitration + keeper), each told to verify every candidate with a concrete trace, timing or sim run; findings logged in `REVIEW.md` with verdicts
@@ -489,6 +489,8 @@ checked here, and one commit `§8 <id>: <what>`.
 
 - 2026-08-25 — §8 written; Adam's decisions recorded.
 - F1 done (b031568): plan committed, phone 0.2 (code 2), REVIEW.md.
+- E4 + DOC1–DOC4 done: battery green (core 63, desktop 4, selfcheck 28, snapshots, epub, lint 0, APK, fat jar); REMINDER.md (finishing-build summary, flash-day runbook, first-light items 15–17, decision 6 closed), IMPLEMENTATION.md ("The finishing build" section, commands, configurations, verification counts), README.md, CLAUDE.md (status, battery incl. `:desktop:test`, no-radio rule, beardos BLE reachable), DESIGN.md (§4.3 decision 6 note, §5 attach points for rules 5/10/18 and rule 16, §11 items 4 and 7).
+- E1–E3 done: `PathTransport` (concurrent attempts, priority = a 1.5 s head start per rank, failed attempts retried with backoff while the race is open, capability refusal disables a path, a stable mirror proxy, events/state forwarded from the winner); the seam client's connect is interruptible (NIO channel + `runInterruptible`); desktop `auto` is the default (`remote:<phoneHost>` then `ble`; BLE absent → phone only, loudly); `PathTransportTest` (first path wins + loser cancelled + submit/mirror/input through the winner + re-race after stop; refusal disables + a failed attempt is retried). The desktop's keeper + status strip existed since D1.
 - D4 done: battery green (core 61 tests, desktop 4, selfcheck 28 checks incl. the replica page + token gate, snapshots, epub 57/57, lint 0, APK); the page's script passes `node --check`.
 - D1–D3 done: `Preview` draws any mirror through a provider (wheel notch, left tap, right double-tap, hold ≥600 ms → long-press then release, middle/Tab lens, B both, status strip under the 1× image); `ReplicaServer` (HTTP + RFC 6455, token-gated, per-client dirty-row panel frames + 1 Hz status, input frames) with `replica.html` (two 640×480 canvases, pixelated, 1×/2× toggle labeled, same mouse/keyboard mapping, reconnect with backoff); `ReplicaServerTest` (RFC accept key, 403/200, panel frames after a flush, inputs); the desktop rebuilt around `DesktopStack` (sim | ble | remote, `ShellKeeper`, `Target` host row switches by rebuilding the stack, replica on `replicaPort` 7403, `Config.phoneHost` default `aphone`, cached pair addresses in the config); the phone serves the page on `Prefs.replicaPort`.
 - C1–C4 done: `BlueZLink` seam + `BlueZDbus` (bluez-dbus 0.3.5 / dbus-java 5.2.0 / native unix-socket transport / slf4j-simple; raw `Device1.Connect` so a refusal keeps its reason; MTU via `Properties.Get`; notifications via `PropertiesChanged(Value)`), `BlueZTransport` (RIGHT then LEFT, MTU ≥ 245 checked, cached addresses, `Connected=false` → link down), `BlueZTransportTest` (4 tests over a fake link whose far end is the firmware model), `--ble-info`. **Measured on beardos, no discovery:** the JVM reaches bluetoothd on the system bus; hci0 C4:BD:E5:2E:C9:75 powered; two previously known devices listed. The radio path itself remains unexercised until first light.

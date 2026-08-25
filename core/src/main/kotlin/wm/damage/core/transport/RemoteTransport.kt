@@ -8,8 +8,11 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ClosedSendChannelException
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -175,7 +178,13 @@ class RemoteTransportClient(
         // a failed earlier attempt leaves its link-down reason in the channel;
         // consuming it here would misreport THIS attempt (round 3 D9)
         while (started.tryReceive().isSuccess) { /* drain residue */ }
-        val s = Socket(host, port)
+        // an INTERRUPTIBLE connect: a cancelled start() (a lost race in the
+        // auto transport, a keeper pause) closes the channel instead of
+        // leaving a thread parked in the OS connect to a silent peer
+        val ch = withContext(Dispatchers.IO) {
+            runInterruptible { java.nio.channels.SocketChannel.open(java.net.InetSocketAddress(host, port)) }
+        }
+        val s = ch.socket()
         sock = s
         try {
             val inp = DataInputStream(s.getInputStream().buffered())

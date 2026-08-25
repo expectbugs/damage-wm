@@ -824,6 +824,11 @@ resolves behind the drum.
 notifications get their own bespoke surface; deeper system detail is a window, i.e. app-layer work.
 Live telemetry stays in the status bar (§4.4). Tracked as open item #5.
 
+**Notifications while the wheel is open (decided 2026-08-25).** A notice that arrives while the
+switcher is open waits behind the wheel — queued, unshown — and unfurls with its normal grace when
+the wheel closes; a box already on screen when the wheel opens goes back to the queue unread and
+returns after. The wheel owns the screen; nothing repaints over it.
+
 ### 4.4 Status bar
 
 | cell | shows |
@@ -1389,6 +1394,15 @@ host-driven. Rules 5 (speculative pre-compression), 10 (cross-window deltas from
 screen) and 18 (content-hash cache keys) are **not built yet** — the seam is designed to take
 them. `LensOracleTest` pins the per-lens model against the firmware simulator; see
 `IMPLEMENTATION.md` → "Review hardening".
+
+**Finishing build (2026-08-25).** Rule 16's reconnect is now the session keeper's: a link end
+restarts the session (a keyframe follows, since the lease cannot survive the gap). The three
+unbuilt rules attach at named seams: rule 5 (speculative pre-compression) inside
+`Compositor.assembleFlush`'s payload compression, where a cache keyed by (rect, content hash)
+would be consulted first; rule 10 (cross-window deltas) in `Shell.commitWindow`, which today
+repaints the content area — the compositor's per-lens diff already sends only what changed, so
+the rule reduces to composing the target's frame before the switch; rule 18 (content-hash cache
+keys) at `Emit.encode`, the single place every payload passes through.
 
 ---
 
@@ -2038,10 +2052,10 @@ rows. This inverts the phone-first assumption and is the cheaper path.
 | 1 | **Per-notch scroll** — the whole focus model rests on it | **C** ⚠ | first light |
 | 2 | **Comfortable disparity `d`**; whether stock FAR already spends budget | **U** | calibration ramp |
 | 3 | **Frame-id discipline** (§8.2) — derived from reading the decoder, never observed | **I** | first light |
-| 4 | **Link signal** — source, which link, dBm vs % | **U** | phone bridge |
+| 4 | **Link signal** — source, which link, dBm vs % | **U** | the phone reads RSSI on the RIGHT arm every 10 s; BlueZ exposes RSSI only while a device advertises, so the PC-direct cell shows bars without a numeral. Values unmeasured |
 | 5 | **Where system-state detail lives** — orphaned when the info popup was removed | design | app-layer phase |
 | 6 | **Can a normal Android app see WEA/CMAS emergency alerts?** Must be tested before it is promised (§4.5) | **U** | Pixel 10a test |
-| 7 | **Transport** — PC-direct BLE vs phone-bridged | **U** | see below |
+| 7 | ✅ **Transport** — **RESOLVED 2026-08-25: both, arbitrated** — the PC drives through the phone's transport when the seam is reachable and PC-direct BLE otherwise, retrying every path; the phone's own shell is the last resort (`HANDOFF.md` §8.1) | decided | built, unexercised on hardware |
 | 8 | **Type legibility ON GLASS** — the assignments are locked and priced (§Type), but no render can answer whether they read at real angular size | measured / unproven | eyes on glass |
 | 9 | 🆕 **The safe area** (§2.2b) — how much of the panel is actually visible on Adam's face | **U** | first-light ramp; the layout is written relative to it so only the value changes |
 | 10 | **Per-window typefaces for windows not yet designed** — Files, Calendar, Music, SMS, Timers, Scout, Notices inherit Clear Sans until their app earns an override | design | app-layer phase |

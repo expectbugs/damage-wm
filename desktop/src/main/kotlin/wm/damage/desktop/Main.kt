@@ -19,6 +19,7 @@ import wm.damage.core.shell.Shell
 import wm.damage.core.shell.ShellKeeper
 import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.transport.LensPanels
+import wm.damage.core.transport.PathTransport
 import wm.damage.core.transport.RemoteTransportClient
 import wm.damage.core.transport.SimTransport
 import wm.damage.core.transport.Transport
@@ -28,11 +29,15 @@ import wm.damage.core.windows.reader.ReaderWindow
 /**
  * The PC program. Modes (`--transport`):
  *
+ *   auto     THE DEFAULT (HANDOFF.md §8.1 decision 3/5): the PC shell drives
+ *            the glasses by whichever path works — the phone's transport over
+ *            the seam first, PC-direct BLE otherwise — and keeps trying every
+ *            path until one does; a working path is held until it ends
  *   sim      the byte-exact firmware model in-process — the development
- *            environment (DESIGN.md §10.8), and the default until `auto` lands
- *   ble      PC-direct BLE over BlueZ (laptop-direct with real glasses)
- *   remote   the shell here, the transport on the phone (`--remote HOST`
- *            or `phoneHost` in the config) — the "app + home PC" placement
+ *            environment (DESIGN.md §10.8)
+ *   ble      PC-direct BLE over BlueZ only (laptop-direct with real glasses)
+ *   remote   the phone's transport over the seam only (`--remote HOST` or
+ *            `phoneHost` in the config) — the "app + home PC" placement
  *
  * Whatever the mode: the 1x preview draws the transport's mirror with mouse
  * input, the browser replica is served on `replicaPort`, the content host
@@ -53,11 +58,11 @@ fun main(args: Array<String>) {
         else -> {
             val remoteHost = if ("--remote" in args) args.getOrNull(args.indexOf("--remote") + 1) else null
             val mode = when {
-                "--transport" in args -> args.getOrNull(args.indexOf("--transport") + 1) ?: "sim"
+                "--transport" in args -> args.getOrNull(args.indexOf("--transport") + 1) ?: "auto"
                 remoteHost != null -> "remote"
                 "--sim" in args -> "sim"
                 "--ble" in args -> "ble"
-                else -> "sim"
+                else -> "auto"
             }
             runShell(cfg, mode, remoteHost)
         }
@@ -174,13 +179,30 @@ class DesktopStack(
     private val onSwitch: (String) -> Unit,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private fun ble(): Transport = BlueZTransport(BlueZDbus(), scope,
+        cachedAddresses = { Config.load().let { it.leftAddress.ifEmpty { null } to it.rightAddress.ifEmpty { null } } },
+        rememberAddresses = { l, r -> Config.store(Config.load().copy(leftAddress = l, rightAddress = r)) })
+
+    private fun remote(): Transport =
+        RemoteTransportClient(remoteHost ?: cfg.phoneHost, cfg.transportPort, cfg.token, scope)
+
     val transport: Transport = when (mode) {
         "sim" -> SimTransport(GlassFirmwareSim(), scope)
-        "ble" -> BlueZTransport(BlueZDbus(), scope,
-            cachedAddresses = { Config.load().let { it.leftAddress.ifEmpty { null } to it.rightAddress.ifEmpty { null } } },
-            rememberAddresses = { l, r -> Config.store(Config.load().copy(leftAddress = l, rightAddress = r)) })
-        "remote" -> RemoteTransportClient(remoteHost ?: cfg.phoneHost, cfg.transportPort, cfg.token, scope)
-        else -> throw IllegalArgumentException("unknown transport mode '$mode' (sim | ble | remote)")
+        "ble" -> ble()
+        "remote" -> remote()
+        "auto" -> {
+            val phoneName = "remote:${remoteHost ?: cfg.phoneHost}"
+            val paths = ArrayList<PathTransport.Candidate>()
+            paths += PathTransport.Candidate(phoneName, remote())
+            try {
+                paths += PathTransport.Candidate("ble", ble())
+            } catch (e: Exception) {
+                // no BlueZ on this machine: the phone path is the only one, said loudly
+                Log.e("damage", "PC-direct BLE unavailable (${e.message}) — auto mode keeps only $phoneName")
+            }
+            PathTransport(paths, scope)
+        }
+        else -> throw IllegalArgumentException("unknown transport mode '$mode' (auto | sim | ble | remote)")
     }
     val shell: Shell
     val keeper: ShellKeeper
@@ -214,7 +236,7 @@ class DesktopStack(
     }
 
     companion object {
-        val MODES = listOf("sim", "ble", "remote")
+        val MODES = listOf("auto", "sim", "ble", "remote")
     }
 }
 

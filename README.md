@@ -5,13 +5,15 @@ custom firmware (`g2flash`) that replaces the vendor's container model with dire
 access. The PC composes complete scenes with real fonts and arbitrary layout; the glasses are
 a dumb framebuffer.
 
-**The first stage is built (2026-08-24)** — the Kotlin shell core, the byte-exact glass
-simulator, the desktop program and the phone APK, with Reader + Main as the first app layer —
-and hardened through eight rounds of independent review against the simulator (the compositor
-now reasons per lens; every stereo op is checked against the firmware model by
-`LensOracleTest`). [`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run; the research and
-design below remain the ground truth it was built against. The real glasses stay on stock
-firmware until flash day; the BLE transport is banked and has never touched hardware.
+**Built 2026-08-24/25** — the Kotlin shell core, the byte-exact glass simulator, the desktop
+program and the phone APK with Reader + Main as the first app layer, hardened through rounds of
+independent review against the simulator; then the finishing build: the phone's BLE path on the
+proven driver, PC-direct BLE over BlueZ, an arbitration that keeps the PC driving by whichever
+path works, an exact replica in the desktop window (mouse), on the phone (touch) and in any
+browser, and a session keeper that reconnects without timeouts.
+[`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run; `HANDOFF.md` §8 is the build record;
+the research and design below remain the ground truth. The real glasses stay on stock firmware
+until flash day; neither radio path has run on hardware yet.
 
 ## Start here
 
