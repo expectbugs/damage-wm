@@ -75,7 +75,7 @@ class ShellService : Service() {
         private set
     @Volatile var shell: Shell? = null
         private set
-    private var keeper: ShellKeeper? = null
+    @Volatile private var keeper: ShellKeeper? = null     // read by isRunning() off the rebuild thread
     private var seamServer: RemoteTransportServer? = null
     private var replica: ReplicaServer? = null
     @Volatile var remoteDriving = false
@@ -109,15 +109,22 @@ class ShellService : Service() {
                 // different error under the same tag still shows (round 3,
                 // b3-4); entries older than the gap are dropped and a tag gets
                 // at most ERROR_NOTICES_PER_TAG notices per gap — a burst of
-                // distinct texts (paths, ids) stays in logcat (round 4, R4-6)
+                // distinct texts (paths, ids) stays in logcat (round 4, R4-6).
+                // Only notices actually shown count toward the cap, so a
+                // sustained burst frees a slot as each shown one ages out and
+                // a new error is never hidden for the burst's whole length
+                // (round 5, R5-5)
                 val key = tag + "|" + message.replace(Regex("[0-9]+"), "#")
                 val now = System.currentTimeMillis()
-                errorShownAt.entries.removeIf { now - it.value > ERROR_NOTICE_GAP_MS }
-                if (errorShownAt.putIfAbsent(key, now) == null) {
-                    val perTag = errorShownAt.keys.count { it.startsWith("$tag|") }
-                    if (perTag <= ERROR_NOTICES_PER_TAG) urgentNotification(tag, message)
-                    else android.util.Log.w("damage/service",
-                        "error notices for '$tag' capped at $ERROR_NOTICES_PER_TAG per ${ERROR_NOTICE_GAP_MS / 1000} s — the rest are in logcat")
+                errorsSeen.entries.removeIf { now - it.value.at > ERROR_NOTICE_GAP_MS }
+                if (!errorsSeen.containsKey(key)) {
+                    val shownForTag = errorsSeen.entries.count { it.key.startsWith("$tag|") && it.value.notified }
+                    val notify = shownForTag < ERROR_NOTICES_PER_TAG
+                    if (errorsSeen.putIfAbsent(key, ErrorSeen(now, notify)) == null) {
+                        if (notify) urgentNotification(tag, message)
+                        else android.util.Log.w("damage/service",
+                            "error notices for '$tag' capped at $ERROR_NOTICES_PER_TAG per ${ERROR_NOTICE_GAP_MS / 1000} s — the rest are in logcat")
+                    }
                 }
             }
         }
@@ -127,7 +134,9 @@ class ShellService : Service() {
         startStack(Prefs(this).target)
     }
 
-    private val errorShownAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    /** An error text seen within the gap: when, and whether it raised a notice. */
+    private class ErrorSeen(val at: Long, val notified: Boolean)
+    private val errorsSeen = java.util.concurrent.ConcurrentHashMap<String, ErrorSeen>()
     private var logSink: Log.Sink? = null
 
     /** The status the screen and the notification show: the keeper's last

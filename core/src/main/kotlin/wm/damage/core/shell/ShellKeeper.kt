@@ -83,8 +83,11 @@ class ShellKeeper(
                         // `started`, restarts on its own and narrates the end
                         // from there (round 2, a2-3 — an event count could not
                         // tell a self-stop from a loss; round 4, R4-1 — a gate
-                        // on this watcher's timing could miss a genuine end)
-                        is TransportEvent.Link -> if (!ev.connected) lastLinkEnd = ev.detail
+                        // on this watcher's timing could miss a genuine end).
+                        // Recorded only while driving: the reason of an end
+                        // seen during an attempt is that attempt's failure,
+                        // never the next session's (round 5, R5-3)
+                        is TransportEvent.Link -> if (!ev.connected && state == State.RUNNING) lastLinkEnd = ev.detail
                         is TransportEvent.Fault -> if (ev.what == "capability") {
                             capabilityRefused = true
                         }
@@ -139,8 +142,8 @@ class ShellKeeper(
         }
     }
 
-    /** Ensure exactly one loop runs — serialised: a resume and the watcher's
-     *  kick can arrive together (round 1, b4). */
+    /** Ensure exactly one loop runs — serialised: a resume and a start() can
+     *  arrive together (round 1, b4). */
     @Synchronized
     private fun kick() {
         if (!wanted || paused) return

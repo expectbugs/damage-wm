@@ -212,7 +212,8 @@ class RemoteTransportClient(
 
     /** Each start() is a numbered session; a reader thread left over from an
      *  earlier session reports its EOF into THAT session only, never into a
-     *  newer one's state or start rendezvous (round 4 D3). */
+     *  newer one's state or start rendezvous (round 4 D3), and the frames it
+     *  still routes are ignored the same way (review round 4, R4-2). */
     private val session = AtomicLong(0)
 
     override suspend fun start(warmupFrame: ByteArray) {

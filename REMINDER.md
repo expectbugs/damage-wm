@@ -1,6 +1,6 @@
 # Where we are, and what to do next
 
-**Updated 2026-08-25.** 📍 **The finishing build is in progress — start at `HANDOFF.md` §8** (decisions, design, checklist, resume protocol): the gap list
+**Updated 2026-08-25.** 📍 **The finishing build is COMPLETE (2026-08-25, five review rounds, battery green) — `HANDOFF.md` §8 is its record** (decisions, design, checklist, resume protocol): the gap list
 (no PC BLE, no target switch in the phone UI, replica dark on real glasses, BLE glue never run),
 the G2CC study plan, Adam's decisions for it, and the ordered work plan. Then this file, then
 `overview.md` (facts), `CLAIMS.md` (how well we know them), `CLAUDE.md` (rules), `DESIGN.md`
@@ -32,7 +32,7 @@ shell, copy-on-open book caching, PC-takeover seam, **banked** BLE transport), a
 Main app layer. Everything targets the CFW contract; the real glasses remain untouched on 2.2.2.20.
 See `IMPLEMENTATION.md`. The repo is under git.
 
-**Hardened through eight review rounds the same day** (`IMPLEMENTATION.md` → "Review hardening",
+**Hardened through eight review rounds the same day, then five more in the finishing build** (2026-08-25, `REVIEW.md`) (`IMPLEMENTATION.md` → "Review hardening",
 ~70 real defects): the compositor's per-lens truth/shadow model (rewritten twice; pinned by
 `LensOracleTest`, `Round6Test`, `Round7Test`), the transport's session-epoch sweep and fid
 discipline, the shell's start/stop mutex and notification lift, the content path's reachability

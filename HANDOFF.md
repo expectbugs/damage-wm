@@ -1,7 +1,8 @@
 # HANDOFF — from the first build to the finishing build
 
-**Written 2026-08-25 for a fresh session.** 📍 **The build is in progress — go to §8 first**
-(decisions, fixed design, checklist, resume protocol, progress log). Read the rest, then the
+**Written 2026-08-25 for a fresh session.** ✅ **The finishing build is COMPLETE (2026-08-25, five
+review rounds, battery green) — §8 is its record** (decisions, fixed design, checklist, resume
+protocol, progress log); what comes next is in `REMINDER.md`. Read the rest, then the
 reading list in §3, only as §8 points you to it. Everything below is verified against the repo at `main`
 (`a138de7`, pushed to `origin`); "modeled" and "measured" are marked where it matters.
 
@@ -342,7 +343,8 @@ Skipped while a flush is in flight or after a failed flush until the next clean 
 
 **Session keeper.** `core/shell/ShellKeeper.kt` — the one reconnect loop both hosts use:
 `start()` runs `shell.start()`; when the transport's `started` goes false (polled every 250 ms —
-pacing, not a timeout; `Link(false)` events narrate only, see amendment 9) or a start fails it
+pacing, not a timeout; the loop narrates the link end from that same poll with the reason the
+last `Link(false)` carried, see amendment 9) or a start fails it
 saves (stop) and restarts after a 2 s pause, forever (scans have no timeout); a `Fault("capability")` or a
 start failure naming the capability gate is TERMINAL for that transport: the loop stops, an
 urgent notice is raised, `onTerminal` fires (the phone falls back to the SIM target so the
@@ -498,9 +500,9 @@ checked here, and one commit `§8 <id>: <what>`.
 - [x] DOC4 commit
 
 **H — review rounds**
-- [ ] H1 fresh reviewer agents per subsystem (transport base + prelude, BLE glue, BlueZ glue, mirror + seam, replica server + page, shell changes, phone service, arbitration + keeper), each told to verify every candidate with a concrete trace, timing or sim run; findings logged in `REVIEW.md` with verdicts
-- [ ] H2 every finding re-verified by the builder before a fix; fixes; repeat until a round is clean
-- [ ] H3 final battery; memory + handoff updated; commit
+- [x] H1 fresh reviewer agents per subsystem (transport base + prelude, BLE glue, BlueZ glue, mirror + seam, replica server + page, shell changes, phone service, arbitration + keeper), each told to verify every candidate with a concrete trace, timing or sim run; findings logged in `REVIEW.md` with verdicts
+- [x] H2 every finding re-verified by the builder before a fix; fixes; repeat until a round is clean (five rounds; round 5 clean on the code — `REVIEW.md`)
+- [x] H3 final battery; memory + handoff updated; commit (2026-08-25 05:15 CDT — the finishing build is complete)
 
 ### 8.4 Resume protocol (after a compaction or a fresh session)
 
@@ -526,6 +528,7 @@ checked here, and one commit `§8 <id>: <what>`.
 - 2026-08-25 — §8 written; Adam's decisions recorded.
 - F1 done (b031568): plan committed, phone 0.2 (code 2), REVIEW.md.
 - H review round 2 committed (66ed069); round 3 launched (two compact reviewers on the round-2 diff).
+- H review round 5 done — CLEAN on the code (7 candidates: one stale doc sentence, two comment tidies, four builder's-choice items; taken: the link-end reason is recorded only while driving, `@Volatile keeper`, the error-notice cap counts only shown notices). Review loop closed: 124 candidates over five rounds, 104 fixed. **H3 done: final battery green on the final state** (core 70 tests, desktop 9, phone compiles, selfcheck 28, 10 snapshots, epub 57/57, lint 0, APK + fat jar). §8.3 fully checked; memory updated; final commit. The finishing build is complete; the glasses remain untouched (stock 2.2.2.20); next is Adam's flash + the `REMINDER.md` runbook.
 - H review round 4 done: 8 candidates on the round-3 diff, 6 fixed (`REVIEW.md` R4.*): the keeper narrates the link end from its own loop (deterministic; the STARTING-phase overlaps retired), the seam client ignores frames from a superseded session, the page leaves modifier chords to the browser and never keeps a wheel step it did not send, the phone's queued switch and `switchTarget` share one `isRunning`, the error limiter prunes and caps per tag; one coverage note accepted. Core 70 + desktop 9 green; battery running; round 5 (final compact pass on the round-4 diff) running in parallel.
 - H review round 3 done: 15 candidates, 12 fixed, four regression tests added (`REVIEW.md` R3.*); the seam answers each flush once, the keeper narrates by state, one RSSI read in flight, the closing text re-packs, the divergence count resets, the phone's sink outlives the stop, the page's wheel gate covers every branch. Core 70 tests + desktop 9, selfcheck 28, snapshots, epub 57/57, lint 0, APK, fat jar — green. Doc counts corrected (70/9). Round 4 (one compact reviewer on the round-3 diff) next, then H3.
 - H review round 2 done: 30 candidates, 26 fixed (`REVIEW.md` R2.*) — the strip re-pack, a second close waiting on the first, divergence state per session, read notices leaving the queue, the winner-never-leaked race guard, the keeper deciding restarts from the transport's state, outstanding flushes failed on a seam loss, the desktop glue's both-arms check and `close()`, one log sink per service; two tests added. Core 73 tests + desktop 8 green; battery running; commit next, then round 3 on the round-2 diff.
