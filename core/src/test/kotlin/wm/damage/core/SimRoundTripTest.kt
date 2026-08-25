@@ -19,6 +19,7 @@ import wm.damage.core.transport.Emit
 import wm.damage.core.transport.FlushRequest
 import wm.damage.core.wire.AaFrame
 import wm.damage.core.wire.EvenHubMsg
+import wm.damage.core.wire.LaunchMsg
 import wm.damage.core.wire.SettingsMsg
 
 /**
@@ -43,7 +44,21 @@ class SimRoundTripTest {
             })
         }
 
+        /** The connect prelude, then the carrier CREATE — the order every
+         *  working implementation uses (LaunchMsg). */
         fun create() {
+            prelude()
+            createWithoutPrelude()
+        }
+
+        fun prelude() {
+            for (p in AaFrame.frame(++seq and 0xFF, LaunchMsg.SID, LaunchMsg.FLAG_REQUEST,
+                    LaunchMsg.prelude(++msgId))) {
+                sim.write(Arm.RIGHT, p, 0)
+            }
+        }
+
+        fun createWithoutPrelude() {
             write(EvenHubMsg.carrierCreate(++msgId))
         }
 
@@ -113,6 +128,20 @@ class SimRoundTripTest {
         assertContentEquals(Pack.rect(composed, Rect(0, 0, 640, 480)), h.sim.right.shadow)
         assertEquals(listOf(1), delta.fids)
         assertFalse(h.sim.flags(Arm.LEFT).values.any { it }, "no sticky flags")
+    }
+
+    @Test
+    fun createWithoutThePreludeNeverActivatesThePage() {
+        val h = Harness()
+        h.createWithoutPrelude()
+        h.lease(0)
+        h.sendImage(byteArrayOf(6, 0, 0))              // would be the warmup
+        val composed = frame(); composed.fillRect(0, 0, 640, 480, 9 * 17)
+        h.sendImage(Emit.encode(FlushRequest(listOf(keyframeOp(composed)), 1L),
+            FidAllocator(), FidTracker(), 3).image)
+        assertFalse(h.sim.layoutCreated, "no prelude: the page stays inactive")
+        assertTrue(h.sim.left.panel.all { it.toInt() == 0 }, "no prelude: nothing paints")
+        assertTrue(h.events.any { it.first == "launch" }, "the model reports the missing prelude")
     }
 
     @Test

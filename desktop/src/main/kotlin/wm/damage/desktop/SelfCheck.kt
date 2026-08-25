@@ -96,6 +96,7 @@ object SelfCheck {
         shell.start()
         settle(shell, "boot")
         check("shell boots and reaches quiescence", shell.isQuiescent())
+        check("connect prelude acked by the firmware model", sim.preludeAcks >= 1)
         check("capability gate passed (started)", transport.state.value.started)
         check("FB lease held after start", transport.state.value.leaseHeld)
         check("keyframe delivered (left shadow seeded)", sim.left.seeded)

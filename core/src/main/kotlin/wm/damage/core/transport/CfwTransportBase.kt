@@ -23,6 +23,7 @@ import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.util.Log
 import wm.damage.core.wire.AaFrame
 import wm.damage.core.wire.EvenHubMsg
+import wm.damage.core.wire.LaunchMsg
 import wm.damage.core.wire.Pb
 import wm.damage.core.wire.SettingsMsg
 
@@ -140,6 +141,9 @@ abstract class CfwTransportBase(
          *  write failure that ends no link (round 7 D1). */
         class Settings(epoch: Long, val payload: ByteArray, val failed: CompletableDeferred<String>? = null) : CtlWork(epoch)
         class Lease(epoch: Long, val op: Int, val written: CompletableDeferred<Unit>? = null) : CtlWork(epoch)
+        /** The sid-0x01 connect prelude (LaunchMsg); [failed] completes with the
+         *  reason if the write never goes out, like [Settings]. */
+        class Launch(epoch: Long, val failed: CompletableDeferred<String>? = null) : CtlWork(epoch)
     }
 
     private val imageQueue = Channel<ImgWork>(Channel.UNLIMITED)
@@ -200,6 +204,14 @@ abstract class CfwTransportBase(
     private val pendingAcks = ConcurrentHashMap<Int, PendingAck>()
 
     private val capabilityChannel = Channel<String>(Channel.CONFLATED)
+
+    /** The prelude rendezvous: the ack ("ok"), or the session-end marker. Only
+     *  open while [awaitingPrelude]; [preludeMsgId] is stamped by the control
+     *  lane under the wire mutex BEFORE the request is written, so the ack can
+     *  never arrive before the id it must match is known. */
+    private val preludeChannel = Channel<String>(Channel.CONFLATED)
+    @Volatile private var awaitingPrelude = false
+    @Volatile private var preludeMsgId = -1
     private val reassemblers = mapOf(
         Arm.LEFT to AaFrame.Reassembler { Log.w(name, "L: $it") },
         Arm.RIGHT to AaFrame.Reassembler { Log.w(name, "R: $it") },
@@ -260,6 +272,19 @@ abstract class CfwTransportBase(
                 EvenHubMsg.FLAG_EVENT -> routeEvent(frame.payload)
                 EvenHubMsg.FLAG_ABORT ->
                     emitFault("abort", "e0-02 reassembly abort from glasses")
+            }
+            LaunchMsg.SID -> {
+                if (LaunchMsg.isEvent(frame.flag)) {
+                    Log.d(name, "sid-0x01 event ignored")
+                    return
+                }
+                if (!awaitingPrelude) {
+                    Log.d(name, "sid-0x01 response outside the prelude wait ignored")
+                    return
+                }
+                val id = LaunchMsg.msgIdOf(frame.payload)
+                if (id == preludeMsgId) preludeChannel.trySend("ok")
+                else Log.w(name, "sid-0x01 response for msgId $id while waiting for $preludeMsgId — ignored")
             }
             SettingsMsg.SID -> {
                 if (!awaitingCapability) {
@@ -339,6 +364,7 @@ abstract class CfwTransportBase(
         // begins (a link death DURING connect, round 5 F2) — drain any stale
         // residue first, then arm the abort path for the whole start
         capabilityChannel.tryReceive()
+        preludeChannel.tryReceive()
         startInProgress = true
         try {
             connectLink()
@@ -354,6 +380,28 @@ abstract class CfwTransportBase(
                 scope.launch { imageLane() }
                 scope.launch { controlLane() }
                 launchMaintenance()
+            }
+
+            // 0. Connect prelude (HANDOFF.md §8.2, LaunchMsg): the CFW reference
+            //    settles ~800 ms after both arms are up, sends one sid-0x01
+            //    app-launch request and waits for its ack before the lease and
+            //    the settings query. Same gate shape as the capability query:
+            //    the ack, the session-end marker, or the write failing — every
+            //    way it can end is a completion here; nothing is time-bounded.
+            if (!instant) delay(PRELUDE_SETTLE_MS)
+            awaitingPrelude = true
+            val pre = try {
+                val writeFailed = CompletableDeferred<String>()
+                controlQueue.trySend(CtlWork.Launch(epoch, writeFailed))
+                kotlinx.coroutines.selects.select<String> {
+                    preludeChannel.onReceive { it }
+                    writeFailed.onAwait { reason -> SWEPT + "prelude not written: $reason" }
+                }
+            } finally {
+                awaitingPrelude = false
+            }
+            if (pre.startsWith(SWEPT)) {
+                throw LintError("connect prelude ended early — ${pre.removePrefix(SWEPT)}")
             }
 
             // 1. Capability gate (§9.2b): field 100 rides the settings READ
@@ -544,7 +592,10 @@ abstract class CfwTransportBase(
         // a start() that is, or is about to be, parked on the capability gate
         // is a waiter too (round 4 D1, round 5 F2): the sentinel waits in the
         // CONFLATED rendezvous for it
-        if (startInProgress) capabilityChannel.trySend(SWEPT + why)
+        if (startInProgress) {
+            capabilityChannel.trySend(SWEPT + why)
+            preludeChannel.trySend(SWEPT + why)
+        }
         for (id in pendingAcks.keys.toList()) {
             val p = pendingAcks.remove(id) ?: continue
             if (p.windowed) window.release()
@@ -580,6 +631,8 @@ abstract class CfwTransportBase(
                 ?: Log.w(name, "lease op ${w.op} dropped: $why")
             is CtlWork.Settings -> w.failed?.complete(why)
                 ?: Log.w(name, "settings write dropped: $why")
+            is CtlWork.Launch -> w.failed?.complete(why)
+                ?: Log.w(name, "prelude write dropped: $why")
         }
     }
 
@@ -926,6 +979,19 @@ abstract class CfwTransportBase(
                             work.failed?.complete(e.message ?: e.toString())
                             throw e
                         }
+                        is CtlWork.Launch -> try {
+                            wire.withLock {
+                                val id = nextMsgIdLocked()
+                                preludeMsgId = id          // known before the bytes leave
+                                for (p in AaFrame.frame(nextSeqLocked(), LaunchMsg.SID,
+                                        LaunchMsg.FLAG_REQUEST, LaunchMsg.prelude(id))) {
+                                    writePacket(Arm.RIGHT, p)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            work.failed?.complete(e.message ?: e.toString())
+                            throw e
+                        }
                         is CtlWork.Lease -> {
                             if (work.op == SettingsMsg.OP_FB_ACQUIRE && !running) {
                                 // a renewal that slipped past stop()'s running=false
@@ -1004,8 +1070,14 @@ abstract class CfwTransportBase(
         /** Faceclaw ships WINDOW_SIZE = 3 on exactly the CFW path (§8.1). */
         const val WINDOW = 3
 
-        /** Sentinel the sweep pushes into the capability rendezvous. */
+        /** Marker the session-end clear pushes into the capability and prelude
+         *  rendezvous (a leading NUL: no real answer can start with it). */
         private const val SWEPT = " swept: "
+
+        /** The reference settles this long after both arms are up before the
+         *  prelude (faceclaw sleepDuringConnectSettling(800)) — pacing, not a
+         *  timeout; skipped when [instant]. */
+        private const val PRELUDE_SETTLE_MS = 800L
 
         /** Reporting threshold for the stall diagnostic — well past any
          *  measured ack (176 ms median, 7–13 KB/s); reports, never acts. */

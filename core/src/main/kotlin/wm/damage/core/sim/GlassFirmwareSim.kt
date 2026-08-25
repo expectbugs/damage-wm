@@ -6,6 +6,7 @@ import wm.damage.core.transport.Arm
 import wm.damage.core.transport.LensPanels
 import wm.damage.core.wire.AaFrame
 import wm.damage.core.wire.EvenHubMsg
+import wm.damage.core.wire.LaunchMsg
 import wm.damage.core.wire.Pb
 import wm.damage.core.wire.SettingsMsg
 
@@ -107,6 +108,16 @@ class GlassFirmwareSim() : LensPanels {
     var capabilityString =
         "EVENCFW/8 img576 img640 imgz rle wakelease directfb fbguard wearnotify compass10"
 
+    /** The connect prelude (LaunchMsg) has been received this connection. Modeled
+     *  STRICT (graded U — see LaunchMsg): a CREATE with no prelude is acked but
+     *  the page never becomes active, so images are never painted. */
+    var preludeSeen = false
+        private set
+
+    /** How many preludes were acked — tests and the selfcheck assert >= 1. */
+    var preludeAcks = 0
+        private set
+
     private var glassSeq = 0
     private fun nextSeq(): Int { glassSeq = (glassSeq + 1) and 0xFF; return glassSeq }
 
@@ -117,6 +128,7 @@ class GlassFirmwareSim() : LensPanels {
         when (frame.sid) {
             EvenHubMsg.SID -> evenHub(arm, frame.payload, now)
             SettingsMsg.SID -> settings(arm, frame.payload, now)
+            LaunchMsg.SID -> launch(frame.payload)
             else -> diag.event("sid", "unmodeled sid 0x${frame.sid.toString(16)} — ignored")
         }
     }
@@ -156,6 +168,12 @@ class GlassFirmwareSim() : LensPanels {
         val msgId = msgIdRaw.toInt()
         when (cmd) {
             EvenHubMsg.CMD_CREATE -> {
+                if (!preludeSeen) {
+                    diag.event("launch", "CREATE with no connect prelude — acked, but the page never " +
+                        "becomes active (modeled strict; the firmware's requirement is unverified)")
+                    ack(cmd, msgId, null)
+                    return
+                }
                 layoutCreated = true
                 warmupPending = true      // the first image burst after CREATE is silently dropped
                 img = null
@@ -453,6 +471,26 @@ class GlassFirmwareSim() : LensPanels {
         panel.fill(0)
         val stride = (Geometry.PANEL_W + 1) / 2
         for (y in 100 until 110) for (xb in 40 until stride - 40) panel[y * stride + xb] = 0x55
+    }
+
+    // ------------------------------------------------------------------ launch (sid 0x01)
+    /** The connect prelude: acked on RIGHT with the request type and msgId echoed
+     *  (the reference resolves it on (sid, msgId)). */
+    private fun launch(payload: ByteArray) {
+        val fields = try { Pb.fields(payload) } catch (e: IllegalArgumentException) {
+            diag.event("proto", "unparseable 01 payload"); return
+        }
+        val type = (fields.firstOrNull { it.field == 1 }?.varint ?: -1L).toInt()
+        val msgIdRaw = fields.firstOrNull { it.field == 2 }?.varint ?: -1L
+        if (msgIdRaw > 0xFF) {
+            diag.event("msgid", "sid-0x01 msgId $msgIdRaw > 255 — frame SILENTLY dropped")
+            return
+        }
+        preludeSeen = true
+        preludeAcks++
+        diag.event("launch", "connect prelude (type $type, msgId $msgIdRaw) acked")
+        diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), LaunchMsg.SID, LaunchMsg.FLAG_RESPONSE,
+            LaunchMsg.response(type, msgIdRaw.toInt()), AaFrame.TYPE_RESPONSE).single())
     }
 
     // ------------------------------------------------------------------ settings
