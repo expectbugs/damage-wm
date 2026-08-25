@@ -433,9 +433,9 @@ checked here, and one commit `§8 <id>: <what>`.
 - [x] A5 battery green + APK builds; commit
 
 **B — the seam carries the mirror**
-- [ ] B1 seam `panel` messages through one ordered sender coroutine (events, state, panels); `RemoteMirror` on the client
-- [ ] B2 test: loopback seam round trip — client mirror == server mirror after flushes; ordering panel-before-done
-- [ ] B3 battery green; commit
+- [x] B1 seam `panel` messages through one ordered sender coroutine (events, state, panels); `RemoteMirror` on the client
+- [x] B2 test: loopback seam round trip — client mirror == server mirror after flushes; ordering panel-before-done
+- [x] B3 battery green; commit
 
 **C — PC-direct BLE**
 - [ ] C1 dependencies in `desktop/build.gradle.kts` (+ fat jar); licences noted in `IMPLEMENTATION.md`
@@ -489,6 +489,7 @@ checked here, and one commit `§8 <id>: <what>`.
 
 - 2026-08-25 — §8 written; Adam's decisions recorded.
 - F1 done (b031568): plan committed, phone 0.2 (code 2), REVIEW.md.
+- B1–B3 done: seam `panel` messages (arm, y0, rows + packed rows) through ONE ordered outbox with events/state/done; full panels on session start; `RemoteMirror` applies them; `SeamMirrorTest` (equality after every flush, panel-before-done, far-end input). Core 59 tests green, desktop compiles.
 - A1–A5 done: `BleTransport` rebuilt (RIGHT then LEFT, retry 10×500, MTU 512 checked ≥245, priority HIGH, notify enable surfaced, cached addresses, RSSI poll); `ShellService` on `ShellKeeper` (claim pauses / release resumes; capability refusal → SIM fallback + persistent notification); target switch (strip button with confirm + Settings host row + `Prefs`); `LensView` draws `transport.mirror`, touch via `injectInput`; `Prefs.replicaPort`/`BuildConfig.REPLICA_PORT` (7403); APK builds. Note for review: a takeover still stops and restarts the transport (lease release + reconnect + keyframe) — the session model, not a defect.
 - F8 done: battery green (58 core tests, selfcheck 26 checks, snapshots, epub 57/57, lint 0, APK).
 - F7 done: `HostSetting` rows in `SettingsWindow` (stage on scroll, apply on tap, revert on double-tap), `Shell.hostSettings`.

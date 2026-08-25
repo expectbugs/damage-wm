@@ -9,6 +9,7 @@ import java.net.Socket
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ClosedSendChannelException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -33,6 +34,13 @@ import wm.damage.core.wire.EvenHubMsg
  * ONE driver at a time: a second shell gets "busy" (the arbitration Adam's
  * seamless-takeover requirement needs); when the remote driver disconnects the
  * server surfaces it so the local shell can take back over.
+ *
+ * The mirror stream (HANDOFF.md §8.2 "the seam carries the mirror"): the
+ * server watches its transport's mirror and sends every changed row range as
+ * a `panel` message (`arm`, `y0`, `rows`, then rows × stride packed bytes),
+ * through the SAME ordered sender as events and state — so a panel update
+ * always precedes the `done` of the flush that produced it. A fresh session
+ * gets both full panels first. The client applies them to its [RemoteMirror].
  */
 private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
@@ -57,6 +65,11 @@ private data class Ctl(
     val state: WireState? = null,
     val warmupLen: Int = 0,
     val wide: Boolean = false,
+    // panel messages
+    val arm: String = "",
+    val y0: Int = 0,
+    val rows: Int = 0,
+    val blobLen: Int = 0,
 )
 
 @Serializable
@@ -95,6 +108,7 @@ private fun DataOutputStream.send(c: Ctl, blob: ByteArray? = null) {
 
 private const val MAX_OP_PAYLOAD = 200_000       // > MODE8_MAX, < anything absurd
 private const val MAX_BLOB = 4 shl 20
+private const val MAX_PANEL_BLOB = ((Geometry.PANEL_W + 1) / 2) * Geometry.PANEL_H   // one full lens
 
 private fun DataInputStream.readCtl(): Pair<Ctl, ByteArray?> {
     val n = readInt()
@@ -112,6 +126,8 @@ private fun DataInputStream.readCtl(): Pair<Ctl, ByteArray?> {
     }
     require(c.warmupLen in 0..MAX_OP_PAYLOAD) { "warmup length ${c.warmupLen} out of range" }
     blobLen += c.warmupLen
+    require(c.blobLen in 0..MAX_PANEL_BLOB) { "panel blob ${c.blobLen} out of range" }
+    blobLen += c.blobLen
     require(blobLen <= MAX_BLOB) { "blob total $blobLen exceeds $MAX_BLOB" }
     val blob = if (blobLen > 0) ByteArray(blobLen.toInt()).also { readFully(it) } else null
     return c to blob
@@ -220,8 +236,16 @@ class RemoteTransportClient(
     }
 
     private fun route(msg: Pair<Ctl, ByteArray?>) {
-        val (c, _) = msg
+        val (c, blob) = msg
         when (c.t) {
+            "panel" -> {
+                val arm = if (c.arm == "L") Arm.LEFT else Arm.RIGHT
+                if (blob == null || blob.size < c.rows * mirror.stride) {
+                    Log.e("remote-transport", "panel update for ${c.rows} rows arrived with ${blob?.size ?: 0} B — ignored")
+                } else {
+                    mirror.apply(arm, c.y0, c.rows, blob)
+                }
+            }
             "started" -> started.trySend(null)
             "startfail" -> started.trySend(c.detail)
             "done" -> emit(TransportEvent.FlushDone(c.id, c.ok, c.ackMs, c.bytes, c.error),
@@ -330,6 +354,36 @@ class RemoteTransportServer(
         // sends. Atomic, no retry loop, no window to leak a completion.
         val rendezvous = ConcurrentHashMap<Long, Any>()
         var fwd: kotlinx.coroutines.Job? = null
+        // ONE ordered outbox for everything that leaves after the handshake:
+        // events, state, panel updates and done messages — a panel update
+        // queued during a write precedes the done of the flush it belongs to
+        val outbox = Channel<Pair<Ctl, ByteArray?>>(Channel.UNLIMITED)
+        fun post(c: Ctl, blob: ByteArray? = null) {
+            try { outbox.trySend(c to blob) } catch (e: ClosedSendChannelException) { /* session over */ }
+        }
+        val stride = inner.mirror.stride
+        val lastSent = mapOf(Arm.LEFT to ByteArray(stride * Geometry.PANEL_H), Arm.RIGHT to ByteArray(stride * Geometry.PANEL_H))
+        fun pushPanel(arm: Arm) {
+            synchronized(lastSent) {
+                val now = inner.mirror.panel(arm)
+                val last = lastSent.getValue(arm)
+                var first = -1
+                var lastRow = -1
+                for (y in 0 until Geometry.PANEL_H) {
+                    val o = y * stride
+                    var same = true
+                    for (i in 0 until stride) if (now[o + i] != last[o + i]) { same = false; break }
+                    if (!same) { if (first < 0) first = y; lastRow = y }
+                }
+                if (first < 0) return
+                val rows = lastRow - first + 1
+                val blob = now.copyOfRange(first * stride, (first + rows) * stride)
+                System.arraycopy(blob, 0, last, first * stride, blob.size)
+                post(Ctl(t = "panel", arm = if (arm == Arm.LEFT) "L" else "R", y0 = first, rows = rows,
+                    blobLen = blob.size), blob)
+            }
+        }
+        val mirrorListener = LensPanels.LensListener { arm -> pushPanel(arm) }
         try {
             val (hello, _) = inp.readCtl()
             if (hello.t != "hello" || hello.token != token) {
@@ -348,56 +402,56 @@ class RemoteTransportServer(
             Log.i("transport-server", "remote shell ${sock.inetAddress} claimed the transport")
             onRemoteDriver(true)
 
-            // ONE forwarding job per session: events (with the id-mapped done
-            // router), then state. Send failures tear the session down rather
+            // ONE forwarding job per session: the sender drains the outbox in
+            // order; events (with the id-mapped done router), state and panel
+            // updates all post into it. A send failure ends the session rather
             // than throwing into the shared scope.
             fwd = scope.launch {
                 launch {
+                    try {
+                        for ((c, blob) in outbox) out.send(c, blob)
+                    } catch (e: java.io.IOException) {
+                        Log.w("transport-server", "send failed — closing session: ${e.message}")
+                        sock.close()
+                    }
+                }
+                launch {
                     inner.events.collect { ev ->
-                        try {
-                            if (ev is TransportEvent.FlushDone) {
-                                val prev = rendezvous.putIfAbsent(ev.id, ev)
-                                if (prev is Long) {
-                                    rendezvous.remove(ev.id)
-                                    out.send(Ctl(t = "done", id = prev, ok = ev.ok,
-                                        ackMs = ev.ackMs, bytes = ev.bytes, error = ev.error))
-                                }
-                                // prev == null: deposited; the submitter completes
-                            } else {
-                                forward(out, ev)
+                        if (ev is TransportEvent.FlushDone) {
+                            val prev = rendezvous.putIfAbsent(ev.id, ev)
+                            if (prev is Long) {
+                                rendezvous.remove(ev.id)
+                                post(Ctl(t = "done", id = prev, ok = ev.ok,
+                                    ackMs = ev.ackMs, bytes = ev.bytes, error = ev.error))
                             }
-                        } catch (e: java.io.IOException) {
-                            Log.w("transport-server", "event forward failed — closing session: ${e.message}")
-                            sock.close()
+                            // prev == null: deposited; the submitter completes
+                        } else {
+                            toCtl(ev)?.let { post(it) }
                         }
                     }
                 }
                 launch {
-                    inner.state.collect { st ->
-                        try {
-                            out.send(Ctl(t = "state", state = st.toWire()))
-                        } catch (e: java.io.IOException) {
-                            Log.w("transport-server", "state forward failed — closing session: ${e.message}")
-                            sock.close()
-                        }
-                    }
+                    inner.state.collect { st -> post(Ctl(t = "state", state = st.toWire())) }
                 }
             }
+            // the mirror stream: both full panels first, then every change
+            inner.mirror.addListener(mirrorListener)
+            for (arm in Arm.entries) pushPanel(arm)
             while (running) {
                 val (c, blob) = inp.readCtl()
                 when (c.t) {
                     "start" -> {
                         if (innerStarted) {
-                            out.send(Ctl(t = "startfail", detail = "transport already started"))
+                            post(Ctl(t = "startfail", detail = "transport already started"))
                         } else {
                             val warmup = blob ?: ByteArray(0)
                             try {
                                 runBlocking { inner.start(warmup) }
                                 innerStarted = true
-                                out.send(Ctl(t = "started"))
+                                post(Ctl(t = "started"))
                             } catch (e: Exception) {
                                 Log.e("transport-server", "inner start failed", e)
-                                out.send(Ctl(t = "startfail", detail = e.message ?: e.toString()))
+                                post(Ctl(t = "startfail", detail = e.message ?: e.toString()))
                             }
                         }
                     }
@@ -427,7 +481,7 @@ class RemoteTransportServer(
                                     // offsets — every later op would carry the
                                     // WRONG bytes; reject the whole flush loudly
                                     Log.e("transport-server", "unknown op kind '${w.k}' — flush ${c.id} rejected")
-                                    out.send(Ctl(t = "done", id = c.id, ok = false,
+                                    post(Ctl(t = "done", id = c.id, ok = false,
                                         error = "unknown op kind '${w.k}' (version skew?)"))
                                     bad = true
                                 }
@@ -444,11 +498,11 @@ class RemoteTransportServer(
                                 if (prev is TransportEvent.FlushDone) {
                                     // the completion beat us here: it deposited
                                     rendezvous.remove(innerId)
-                                    out.send(Ctl(t = "done", id = clientId, ok = prev.ok,
+                                    post(Ctl(t = "done", id = clientId, ok = prev.ok,
                                         ackMs = prev.ackMs, bytes = prev.bytes, error = prev.error))
                                 }
                             } catch (e: Exception) {
-                                out.send(Ctl(t = "done", id = clientId, ok = false,
+                                post(Ctl(t = "done", id = clientId, ok = false,
                                     error = e.message ?: e.toString()))
                             }
                         }
@@ -471,7 +525,9 @@ class RemoteTransportServer(
         } catch (e: Exception) {
             Log.w("transport-server", "driver session error: ${e.message}")
         } finally {
+            inner.mirror.removeListener(mirrorListener)
             fwd?.cancel()
+            outbox.close()
             try { sock.close() } catch (e: Exception) { /* closed */ }
             // only a connection that actually HELD the driver slot may signal
             // the local shell to take back over — a rejected connection must
@@ -490,15 +546,13 @@ class RemoteTransportServer(
         }
     }
 
-    private fun forward(out: DataOutputStream, ev: TransportEvent) {
-        when (ev) {
-            is TransportEvent.Input -> out.send(Ctl(t = "input", evType = ev.type, evSource = ev.source))
-            is TransportEvent.Lease -> out.send(Ctl(t = "lease", held = ev.held, detail = ev.detail))
-            is TransportEvent.Link -> out.send(Ctl(t = "link", connected = ev.connected, detail = ev.detail))
-            is TransportEvent.DiagFlags -> out.send(Ctl(t = "flags", flags = ev.flags))
-            is TransportEvent.Fault -> out.send(Ctl(t = "fault", detail = "${ev.what}:${ev.detail}"))
-            is TransportEvent.FlushDone -> {} // delivered per-flush with id mapping
-        }
+    private fun toCtl(ev: TransportEvent): Ctl? = when (ev) {
+        is TransportEvent.Input -> Ctl(t = "input", evType = ev.type, evSource = ev.source)
+        is TransportEvent.Lease -> Ctl(t = "lease", held = ev.held, detail = ev.detail)
+        is TransportEvent.Link -> Ctl(t = "link", connected = ev.connected, detail = ev.detail)
+        is TransportEvent.DiagFlags -> Ctl(t = "flags", flags = ev.flags)
+        is TransportEvent.Fault -> Ctl(t = "fault", detail = "${ev.what}:${ev.detail}")
+        is TransportEvent.FlushDone -> null   // delivered per-flush with id mapping
     }
 
     override fun close() {
