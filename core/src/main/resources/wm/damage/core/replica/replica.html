@@ -114,12 +114,20 @@
       // a trackpad reports at 60–120 Hz, which no ring could produce — and
       // the accumulator cannot bank notches that keep scrolling after the
       // finger stops
-      if (e.deltaMode === 1) { wheelAccum += e.deltaY / 3; }
-      else if (e.deltaMode === 2) { wheelAccum += Math.sign(e.deltaY); }
-      else if (Math.abs(e.deltaY) >= 40) { wheelAccum = Math.sign(e.deltaY); }
-      else { wheelAccum += e.deltaY / 40; }
-      wheelAccum = Math.max(-1.5, Math.min(1.5, wheelAccum));
       const now = performance.now();
+      const d = e.deltaMode === 1 ? e.deltaY / 3 : e.deltaMode === 2 ? Math.sign(e.deltaY) : e.deltaY / 40;
+      // a change of direction starts afresh: a residue of the other sign must
+      // not absorb a deliberate single notch
+      if (d !== 0 && wheelAccum !== 0 && Math.sign(d) !== Math.sign(wheelAccum)) wheelAccum = 0;
+      if (e.deltaMode === 0 && Math.abs(e.deltaY) >= 40) {
+        // a notch-sized step is one notch outright — or nothing, inside the
+        // gate; it is never kept for later
+        wheelAccum = 0;
+        if (now - lastNotchAt >= 40) { send(e.deltaY > 0 ? 'down' : 'up'); lastNotchAt = now; }
+        return;
+      }
+      wheelAccum += d;
+      wheelAccum = Math.max(-1.5, Math.min(1.5, wheelAccum));
       if (Math.abs(wheelAccum) >= 1 && now - lastNotchAt >= 40) {
         send(wheelAccum > 0 ? 'down' : 'up');
         wheelAccum -= Math.sign(wheelAccum);
@@ -141,6 +149,7 @@
     c.addEventListener('mouseleave', () => { clearTimeout(holdTimer); if (holding) { holding = false; send('release'); } });
   }
   window.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;   // browser chords (Ctrl+R, Ctrl+B) stay the browser's
     if (e.repeat) return;   // the ring has no auto-repeat: a held key is one gesture
     const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;   // R and r alike
     const map = { ArrowUp: 'up', ArrowDown: 'down', Enter: 'tap', Backspace: 'double', Escape: 'double', ' ': 'hold', r: 'release' };

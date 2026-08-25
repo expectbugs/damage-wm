@@ -8,6 +8,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import wm.damage.core.transport.CapabilityRefused
@@ -23,8 +24,8 @@ import wm.damage.core.util.Log
  *    `started` goes false — polled, 250 ms pacing) or a start fails, the shell
  *    is stopped (state saved) and started again after a short pause, forever.
  *    The pause is pacing between attempts, not a timeout: each attempt waits
- *    as long as the link takes (a scan has no deadline). `Link(false)` events
- *    narrate only.
+ *    as long as the link takes (a scan has no deadline). The loop narrates the
+ *    link end itself, with the reason the last `Link(false)` event carried.
  *  - A **capability refusal** is terminal for this transport: the firmware
  *    answered and is not the CFW, which no retry can change. The loop stops,
  *    [onTerminal] fires, and the host decides what to fall back to.
@@ -60,6 +61,9 @@ class ShellKeeper(
     @Volatile private var wanted = false          // the host wants the shell driving
     @Volatile private var paused = false
     @Volatile private var capabilityRefused = false
+    /** The reason of the last `Link(false)` seen; the loop narrates it when
+     *  its poll sees the session end. */
+    @Volatile private var lastLinkEnd: String? = null
 
     private fun status(s: String) {
         lastReason = s
@@ -75,18 +79,12 @@ class ShellKeeper(
             watcher = scope.launch {
                 transport.events.collect { ev ->
                     when (ev) {
-                        // narration only: the running loop polls the transport's
-                        // `started` and restarts on its own (round 2, a2-3 — an
-                        // event count could not tell a self-stop from a loss).
-                        // The keeper's own stops set WAITING / PAUSED / STOPPED
-                        // under the lock BEFORE they stop the shell, so the link
-                        // end they cause arrives with the state already changed;
-                        // a genuine end arrives while STARTING or RUNNING
-                        // (round 3, a3-3)
-                        is TransportEvent.Link -> if (!ev.connected && wanted && !paused &&
-                            (state == State.RUNNING || state == State.STARTING)) {
-                            status("link ended: ${ev.detail}")
-                        }
+                        // recorded only: the running loop polls the transport's
+                        // `started`, restarts on its own and narrates the end
+                        // from there (round 2, a2-3 — an event count could not
+                        // tell a self-stop from a loss; round 4, R4-1 — a gate
+                        // on this watcher's timing could miss a genuine end)
+                        is TransportEvent.Link -> if (!ev.connected) lastLinkEnd = ev.detail
                         is TransportEvent.Fault -> if (ev.what == "capability") {
                             capabilityRefused = true
                         }
@@ -100,8 +98,8 @@ class ShellKeeper(
 
     /** The keeper's own stop of the shell: never interrupted midway (a
      *  cancelled stop would leave the shell stopped and the transport started
-     *  for good — round 1, d5). Every caller sets the keeper's state first, so
-     *  the transport's resulting link end is not narrated as a loss. */
+     *  for good — round 1, d5). Never narrated as a link end: the loop
+     *  narrates only when its own poll saw the session end. */
     private suspend fun stopShell(why: String) {
         withContext(NonCancellable) {
             try { shell.stop() } catch (e: Exception) { Log.w("keeper", "$why: ${e.message}") }
@@ -160,6 +158,7 @@ class ShellKeeper(
             }
             attempts++
             state = State.STARTING
+            lastLinkEnd = null            // this attempt's end, not an earlier one's
             status(if (attempts == 1) "starting" else "reconnecting (attempt $attempts)")
             val ok = lock.withLock {
                 try {
@@ -187,6 +186,11 @@ class ShellKeeper(
                 // round 3, a3-8; a restart from that is a plain reconnect.)
                 while (scope.isActive && wanted && !paused && transport.state.value.started) delay(250)
                 if (!wanted || paused) return
+                // the session ended under a driving shell: say so HERE, at the
+                // decision, with the reason the event carried (the watcher
+                // usually has it already; one yield lets it catch up)
+                if (lastLinkEnd == null) yield()
+                status("link ended: ${lastLinkEnd ?: "(no reason reported yet)"}")
                 lock.withLock {
                     state = State.WAITING
                     stopShell("stop after link end")

@@ -106,13 +106,18 @@ class ShellService : Service() {
             if (level == Log.Level.ERROR) {
                 // one notice per distinct error per 10 s: keyed on the message
                 // with its numbers removed, so a repeat collapses but a
-                // different error under the same tag still shows (round 3, b3-4)
+                // different error under the same tag still shows (round 3,
+                // b3-4); entries older than the gap are dropped and a tag gets
+                // at most ERROR_NOTICES_PER_TAG notices per gap — a burst of
+                // distinct texts (paths, ids) stays in logcat (round 4, R4-6)
                 val key = tag + "|" + message.replace(Regex("[0-9]+"), "#")
                 val now = System.currentTimeMillis()
-                val last = errorShownAt[key] ?: 0L
-                if (now - last > ERROR_NOTICE_GAP_MS) {
-                    errorShownAt[key] = now
-                    urgentNotification(tag, message)
+                errorShownAt.entries.removeIf { now - it.value > ERROR_NOTICE_GAP_MS }
+                if (errorShownAt.putIfAbsent(key, now) == null) {
+                    val perTag = errorShownAt.keys.count { it.startsWith("$tag|") }
+                    if (perTag <= ERROR_NOTICES_PER_TAG) urgentNotification(tag, message)
+                    else android.util.Log.w("damage/service",
+                        "error notices for '$tag' capped at $ERROR_NOTICES_PER_TAG per ${ERROR_NOTICE_GAP_MS / 1000} s — the rest are in logcat")
                 }
             }
         }
@@ -283,7 +288,7 @@ class ShellService : Service() {
             updateNotification(statusLine)
             // the runner may have finished between our CAS and our set: drain
             // it ourselves in that case, so a queued switch is never lost
-            if (!rebuilding.get()) queuedTarget.getAndSet(null)?.let { q -> if (q != runningTarget) rebuild(q, why) }
+            if (!rebuilding.get()) queuedTarget.getAndSet(null)?.let { q -> if (!isRunning(q)) rebuild(q, why) }
             return
         }
         statusLine = "rebuilding ($why)"
@@ -304,19 +309,25 @@ class ShellService : Service() {
                     rebuilding.set(false)
                 }
             }
-            // a switch that arrived meanwhile — for a target other than the
-            // one now running — is applied now, not dropped
-            queuedTarget.getAndSet(null)?.let { q -> if (q != runningTarget) rebuild(q, "queued switch") }
+            // a switch that arrived meanwhile — for a target that is not up
+            // now (a failed build counts as not up) — is applied, not dropped
+            queuedTarget.getAndSet(null)?.let { q -> if (!isRunning(q)) rebuild(q, "queued switch") }
         }, "damage-stack-rebuild").start()
+    }
+
+    /** Is [target] the stack that is up now? A failed build leaves no keeper
+     *  and a refused transport leaves a terminal one: neither counts, so a
+     *  switch to that target rebuilds it (round 3 b3-2, round 4 R4-5). */
+    private fun isRunning(target: Prefs.Target): Boolean {
+        val k = keeper
+        return target == runningTarget && k != null && k.state != ShellKeeper.State.TERMINAL
     }
 
     /** The display target changed (strip button or Settings row): persist and
      *  rebuild. Called on the shell loop or the UI thread — never blocks. */
     fun switchTarget(target: Prefs.Target) {
         Prefs(this).setTargetGlasses(target == Prefs.Target.GLASSES)
-        val k = keeper
-        // a failed build leaves no keeper: that target is NOT running, rebuild it
-        if (target == runningTarget && k != null && k.state != ShellKeeper.State.TERMINAL) {
+        if (isRunning(target)) {
             Log.i("service", "target ${target.name} already running")
             return
         }
@@ -438,6 +449,8 @@ class ShellService : Service() {
         private const val CHANNEL = "damage"
         private const val CHANNEL_URGENT = "damage-urgent"
         private const val ERROR_NOTICE_GAP_MS = 10_000L
+        /** Distinct error notices one tag may raise per gap; the rest stay in logcat. */
+        private const val ERROR_NOTICES_PER_TAG = 3
     }
 }
 

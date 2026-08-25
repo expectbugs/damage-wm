@@ -383,14 +383,19 @@ pair (addresses + names) so a pocket-time loss recovers with the screen off; unf
 a pair never seen. (8) The phone installs a `Log` sink (logcat + rate-limited urgent
 notifications for errors). See `REVIEW.md` for every finding and its verdict.
 
-**Amendments from review rounds 2–3.** (9) The keeper restarts from the transport's `started`
-(polled every 250 ms — pacing, not a timeout); `Link(false)` events narrate only, and only while
-the keeper is STARTING or RUNNING — its own stops set WAITING / PAUSED / STOPPED under the lock
-before they stop the shell, so the link end they cause is never narrated as a loss. (10) The
+**Amendments from review rounds 2–4.** (9) The keeper restarts from the transport's `started`
+(polled every 250 ms — pacing, not a timeout) and narrates the link end from that same
+decision, with the reason the last `Link(false)` event carried; the watcher only records that
+reason. The keeper's own stops never reach that line (they cancel the loop or leave it), so
+they are never narrated as a loss. (10) The
 seam answers each flush exactly once: on a link end or a stop every outstanding flush is failed
 loudly (`FlushDone(ok=false)`) before the link-down event, and a later `done` for an id no
 longer outstanding is ignored with a line. (11) The desktop glue reads RSSI one request at a
-time; a read the bus has not answered by the next due tick is skipped with a line.
+time; a read the bus has not answered by the next due tick is skipped with a line. (12) The
+seam client ignores every frame a reader from a superseded session still routes (a stale
+state, panel or event after `stop()`). (13) The browser replica leaves modifier chords to the
+browser and never keeps a wheel step it did not send (a gated notch-sized step, or a residue
+of the other direction).
 
 **Phone.** `ShellService` keeps its transport (sim or BLE per target) under a `ShellKeeper`;
 the seam server's claim pauses the keeper and the release resumes it (the existing rebuild
@@ -521,6 +526,7 @@ checked here, and one commit `§8 <id>: <what>`.
 - 2026-08-25 — §8 written; Adam's decisions recorded.
 - F1 done (b031568): plan committed, phone 0.2 (code 2), REVIEW.md.
 - H review round 2 committed (66ed069); round 3 launched (two compact reviewers on the round-2 diff).
+- H review round 4 done: 8 candidates on the round-3 diff, 6 fixed (`REVIEW.md` R4.*): the keeper narrates the link end from its own loop (deterministic; the STARTING-phase overlaps retired), the seam client ignores frames from a superseded session, the page leaves modifier chords to the browser and never keeps a wheel step it did not send, the phone's queued switch and `switchTarget` share one `isRunning`, the error limiter prunes and caps per tag; one coverage note accepted. Core 70 + desktop 9 green; battery running; round 5 (final compact pass on the round-4 diff) running in parallel.
 - H review round 3 done: 15 candidates, 12 fixed, four regression tests added (`REVIEW.md` R3.*); the seam answers each flush once, the keeper narrates by state, one RSSI read in flight, the closing text re-packs, the divergence count resets, the phone's sink outlives the stop, the page's wheel gate covers every branch. Core 70 tests + desktop 9, selfcheck 28, snapshots, epub 57/57, lint 0, APK, fat jar — green. Doc counts corrected (70/9). Round 4 (one compact reviewer on the round-3 diff) next, then H3.
 - H review round 2 done: 30 candidates, 26 fixed (`REVIEW.md` R2.*) — the strip re-pack, a second close waiting on the first, divergence state per session, read notices leaving the queue, the winner-never-leaked race guard, the keeper deciding restarts from the transport's state, outstanding flushes failed on a seam loss, the desktop glue's both-arms check and `close()`, one log sink per service; two tests added. Core 73 tests + desktop 8 green; battery running; commit next, then round 3 on the round-2 diff.
 - H1/H2 round 1 done: six reviewers, 64 candidates verified (`REVIEW.md`): 58 confirmed and fixed, 2 design calls taken (e9 kept, f6 decided), 2 accepted (d8 safe, f8 test-only), 1 already fixed (f4 by a4), 1 doc. Core 69 tests + desktop 8 green; battery running; round 2 next on the changed areas.

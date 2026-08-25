@@ -246,7 +246,7 @@ class RemoteTransportClient(
             // reader thread: no timeouts; EOF/IOException = link down, loud
             Thread({
                 try {
-                    while (true) route(inp.readCtl())
+                    while (true) route(inp.readCtl(), mySession)
                 } catch (e: EOFException) {
                     down(mySession, "transport server closed")
                 } catch (e: Exception) {
@@ -314,8 +314,15 @@ class RemoteTransportClient(
         }
     }
 
-    private fun route(msg: Pair<Ctl, ByteArray?>) {
+    private fun route(msg: Pair<Ctl, ByteArray?>, fromSession: Long) {
         val (c, blob) = msg
+        // a reader left over from an earlier session still routes what its
+        // stream had buffered when stop() closed the socket: a stale state,
+        // panel or event must not reach this session (round 4, R4-2)
+        if (fromSession != session.get()) {
+            Log.i("remote-transport", "${c.t} from session $fromSession ignored — a newer session is live")
+            return
+        }
         when (c.t) {
             "panel" -> {
                 val arm = if (c.arm == "L") Arm.LEFT else Arm.RIGHT
