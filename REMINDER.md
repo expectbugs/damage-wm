@@ -130,7 +130,7 @@ Everything below is blocked on being on hardware. Scattered across `DESIGN.md` �
 | 13 | **Settings-frame timing** — does the real CFW ever send a sid-0x09 frame outside the capability query? | the gate only listens while querying; a stray frame is logged, not acted on |
 | 14 | **The stall report** — force a lost image ack (RF shielding) | must show as a `stall!` fault in the status bar with the link otherwise healthy |
 | 15 | **The sid-0x01 connect prelude** — graded U: does the CFW require it before CREATE? | the transport sends it (the reference does); the model treats it as required. If the real firmware answers differently, `LaunchMsg` says where to change it |
-| 16 | **PC-direct BLE over BlueZ** — the MTU the characteristic reports, notification delivery, write-without-response pacing | first exercise of `BlueZDbus`; the four fake-link tests say what is expected |
+| 16 | **PC-direct BLE over BlueZ** — the MTU the characteristic reports, notification delivery, write-without-response pacing | first exercise of `BlueZDbus`; the nine fake-link tests say what is expected |
 | 17 | **Takeover and fallback** — PC appears → it drives via the phone; PC gone → the phone resumes; phone gone at the desk → PC-direct BLE | every transition narrated in the status strip / phone status line and the browser page |
 
 **Start BTSnoop BEFORE connecting** on any recapture — handle 65's connection setup is the one gap

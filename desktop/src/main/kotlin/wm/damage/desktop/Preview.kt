@@ -126,11 +126,13 @@ class Preview(
         // refresh the strip
         Timer(500) {
             attach()
-            if (closing) return@Timer
-            val s = " ${status()}"
-            if (strip.text != s) strip.text = s
+            if (!closing) {                    // the closing text stays put
+                val s = " ${status()}"
+                if (strip.text != s) strip.text = s
+            }
             // the wrapped text's height is known once the strip is laid out at
-            // the panel's width: grow the frame to fit it
+            // the panel's width: grow the frame to fit it — the closing text
+            // included (round 3, a3-6)
             if (strip.preferredSize.height != strip.height) topFrame()?.pack()
         }.start()
         attach()

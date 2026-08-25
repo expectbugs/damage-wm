@@ -19,11 +19,12 @@ import wm.damage.core.util.Log
  * The one reconnect loop every host uses (HANDOFF.md §8.2 "Session keeper"):
  * keeps a [Shell] driving its [Transport] for as long as the process lives.
  *
- *  - [start] runs `shell.start()`; when the link ends (`Link(false)`) or a
- *    start fails, the shell is stopped (state saved) and started again after a
- *    short pause, forever. The pause is pacing between attempts, not a
- *    timeout: each attempt waits as long as the link takes (a scan has no
- *    deadline).
+ *  - [start] runs `shell.start()`; when the link ends (the transport's
+ *    `started` goes false — polled, 250 ms pacing) or a start fails, the shell
+ *    is stopped (state saved) and started again after a short pause, forever.
+ *    The pause is pacing between attempts, not a timeout: each attempt waits
+ *    as long as the link takes (a scan has no deadline). `Link(false)` events
+ *    narrate only.
  *  - A **capability refusal** is terminal for this transport: the firmware
  *    answered and is not the CFW, which no retry can change. The loop stops,
  *    [onTerminal] fires, and the host decides what to fall back to.
@@ -59,10 +60,6 @@ class ShellKeeper(
     @Volatile private var wanted = false          // the host wants the shell driving
     @Volatile private var paused = false
     @Volatile private var capabilityRefused = false
-    /** Set around the keeper's OWN stops: their `Link(false)` is not narrated
-     *  as a loss (best effort — the event is delivered later; the RESTART
-     *  decision never depends on events, only on the transport's state). */
-    @Volatile private var selfStopping = false
 
     private fun status(s: String) {
         lastReason = s
@@ -80,8 +77,14 @@ class ShellKeeper(
                     when (ev) {
                         // narration only: the running loop polls the transport's
                         // `started` and restarts on its own (round 2, a2-3 — an
-                        // event count could not tell a self-stop from a loss)
-                        is TransportEvent.Link -> if (!ev.connected && wanted && !paused && !selfStopping) {
+                        // event count could not tell a self-stop from a loss).
+                        // The keeper's own stops set WAITING / PAUSED / STOPPED
+                        // under the lock BEFORE they stop the shell, so the link
+                        // end they cause arrives with the state already changed;
+                        // a genuine end arrives while STARTING or RUNNING
+                        // (round 3, a3-3)
+                        is TransportEvent.Link -> if (!ev.connected && wanted && !paused &&
+                            (state == State.RUNNING || state == State.STARTING)) {
                             status("link ended: ${ev.detail}")
                         }
                         is TransportEvent.Fault -> if (ev.what == "capability") {
@@ -97,15 +100,11 @@ class ShellKeeper(
 
     /** The keeper's own stop of the shell: never interrupted midway (a
      *  cancelled stop would leave the shell stopped and the transport started
-     *  for good — round 1, d5) and never counted as a link loss. */
+     *  for good — round 1, d5). Every caller sets the keeper's state first, so
+     *  the transport's resulting link end is not narrated as a loss. */
     private suspend fun stopShell(why: String) {
-        selfStopping = true
-        try {
-            withContext(NonCancellable) {
-                try { shell.stop() } catch (e: Exception) { Log.w("keeper", "$why: ${e.message}") }
-            }
-        } finally {
-            selfStopping = false
+        withContext(NonCancellable) {
+            try { shell.stop() } catch (e: Exception) { Log.w("keeper", "$why: ${e.message}") }
         }
     }
 
@@ -182,8 +181,10 @@ class ShellKeeper(
                 state = State.RUNNING
                 status("driving via ${transport.state.value.transportName}")
                 // stay here until the link ends: the transport's `started`
-                // goes false on a link loss (and only the keeper can set it
-                // true again)
+                // goes false on a link loss and stays false until this loop
+                // starts it again. (Over the seam a forwarded far-end state
+                // could in theory flip it for the length of one message —
+                // round 3, a3-8; a restart from that is a plain reconnect.)
                 while (scope.isActive && wanted && !paused && transport.state.value.started) delay(250)
                 if (!wanted || paused) return
                 lock.withLock {

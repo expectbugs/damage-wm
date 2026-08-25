@@ -7,9 +7,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -54,6 +57,32 @@ class PathTransportTest {
         override suspend fun submit(flush: FlushRequest): Long = error("never drives")
         override suspend fun clearDiagFlags() {}
         override suspend fun stop() {}
+    }
+
+    /** A path whose attempt, once cancelled, takes [rollbackMs] to roll back
+     *  (a disconnect, a socket close) — the window in which the outer start()
+     *  can itself be cancelled by a keeper pause or stop. */
+    private class SlowRollback(val label: String, val rollbackMs: Long) : Transport {
+        @Volatile var rolledBack = false
+        override val events = MutableSharedFlow<TransportEvent>()
+        override val state = MutableStateFlow(LinkState(transportName = label))
+        override val mirror: LensPanels = GlassFirmwareSim()
+        override fun injectInput(type: Int) {}
+        override suspend fun start(warmupFrame: ByteArray) {
+            try { awaitCancellation() } finally {
+                withContext(NonCancellable) { delay(rollbackMs) }
+                rolledBack = true
+            }
+        }
+        override suspend fun submit(flush: FlushRequest): Long = error("never drives")
+        override suspend fun clearDiagFlags() {}
+        override suspend fun stop() {}
+    }
+
+    /** Counts stops. */
+    private class Tracked(val inner: Transport) : Transport by inner {
+        @Volatile var stops = 0
+        override suspend fun stop() { stops++; inner.stop() }
     }
 
     /** Counts starts and fails the first [failFirst] of them. */
@@ -144,6 +173,37 @@ class PathTransportTest {
             assertTrue(r.exceptionOrNull() is CapabilityRefused, "got ${r.exceptionOrNull()}")
             val again = runCatching { allStock.start(warmup()) }
             assertTrue(again.exceptionOrNull() is CapabilityRefused, "nothing left to try is still a refusal")
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /** Round 2, a2-1: the winner completes, the loser's rollback is still
+     *  running when start() itself is cancelled — the winner must be stopped,
+     *  not left driving with nobody tracking it. */
+    @Test
+    fun aStartCancelledWhileALoserRollsBackStopsTheCompletedWinner(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val winner = Tracked(SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true)))
+            val slow = SlowRollback("remote:phone", rollbackMs = 1_000)
+            val path = PathTransport(listOf(PathTransport.Candidate("ble", winner), PathTransport.Candidate("remote:phone", slow)),
+                scope, headStartMs = 0)
+            val starting = scope.launch { path.start(warmup()) }
+            val t0 = System.currentTimeMillis()
+            while (!winner.state.value.started && System.currentTimeMillis() - t0 < 5_000) delay(5)
+            assertTrue(winner.state.value.started, "the sim path completed its start")
+            delay(100)
+            assertTrue(!starting.isCompleted, "start() is still waiting for the loser's rollback")
+            starting.cancelAndJoin()                       // a keeper pause/stop in that window
+            assertTrue(slow.rolledBack, "the loser's rollback ran to its end")
+            assertEquals(1, winner.stops, "the completed winner was stopped, not left driving untracked")
+            assertTrue(!winner.state.value.started)
+            assertEquals(null, path.activeName)
+            // and the path is usable again
+            path.start(warmup())
+            assertEquals("ble", path.activeName)
+            path.stop()
         } finally {
             scope.cancel()
         }

@@ -70,8 +70,8 @@ is what keeps it shippable. Do the explosion for new windows on paper (`CAPABILI
 `DESIGN.md` §0/§4.6) before coding them.
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(63 tests, including the per-lens oracle), `./gradlew :desktop:test` (the BlueZ glue over a
-fake link), `desktop --selfcheck` (28 checks), `desktop --snapshot DIR` (look at the lens
+(70 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
+over a fake link), `desktop --selfcheck` (28 checks), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.
 **No radio use before Adam flashes** (his decision 2026-08-25): the only BlueZ check allowed is
 `desktop --ble-info` (adapter enumeration, no discovery). `IMPLEMENTATION.md` → "Review

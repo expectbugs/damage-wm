@@ -1,5 +1,6 @@
 package wm.damage.desktop
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -47,6 +48,10 @@ class BlueZTransport(
     private val droppedDuringConnect = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     @Volatile private var listening = false
     private var ticks = 0
+    /** One RSSI read at a time: a bus that stops answering must not park one
+     *  IO thread per tick until every other link call waits behind them
+     *  (round 3, a3-4). */
+    private val rssiInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
 
     private suspend fun <T> io(block: () -> T): T = runInterruptible(Dispatchers.IO, block)
 
@@ -182,9 +187,17 @@ class BlueZTransport(
     override fun onMaintenanceTick() {
         if (++ticks % RSSI_EVERY_TICKS != 0) return
         val p = devicePath[Arm.RIGHT] ?: return
+        if (!rssiInFlight.compareAndSet(false, true)) {
+            Log.w("ble", "RSSI read still unanswered after $RSSI_EVERY_TICKS ticks — this one skipped")
+            return
+        }
         scope.launch {
-            val r = try { io { link.rssi(p) } } catch (e: Exception) { null }
-            updateState { it.copy(rssiDbm = r) }
+            try {
+                val r = try { io { link.rssi(p) } } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
+                updateState { it.copy(rssiDbm = r) }
+            } finally {
+                rssiInFlight.set(false)
+            }
         }
     }
 

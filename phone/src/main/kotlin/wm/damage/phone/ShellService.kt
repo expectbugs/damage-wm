@@ -104,17 +104,20 @@ class ShellService : Service() {
             }
             android.util.Log.println(prio, "damage/$tag", message)
             if (level == Log.Level.ERROR) {
+                // one notice per distinct error per 10 s: keyed on the message
+                // with its numbers removed, so a repeat collapses but a
+                // different error under the same tag still shows (round 3, b3-4)
+                val key = tag + "|" + message.replace(Regex("[0-9]+"), "#")
                 val now = System.currentTimeMillis()
-                val last = errorShownAt[tag] ?: 0L
+                val last = errorShownAt[key] ?: 0L
                 if (now - last > ERROR_NOTICE_GAP_MS) {
-                    errorShownAt[tag] = now
+                    errorShownAt[key] = now
                     urgentNotification(tag, message)
                 }
             }
         }
-        logSink?.let { Log.removeSink(it) }   // a service recreated in the same process: one sink, not two
         logSink = sink
-        Log.addSink(sink)
+        Log.addSink(sink)      // removed at the END of this instance's shutdown (onDestroy)
         startForeground(NOTIF_ID, buildNotification("Damage shell starting"))
         startStack(Prefs(this).target)
     }
@@ -207,7 +210,7 @@ class ShellService : Service() {
             rs.start()
             replica = rs
         } catch (e: Exception) {
-            Log.e("replica", "browser replica failed to start: ${e.message}")   // the sink raises the notice
+            Log.e("replica", "browser replica failed to start", e)   // the sink raises the notice
         }
 
         // the transport seam server: a PC shell can claim this transport
@@ -218,7 +221,7 @@ class ShellService : Service() {
                 server.start()
                 seamServer = server
             } catch (e: Exception) {
-                Log.e("seam", "transport server failed to start: ${e.message}")   // the sink raises the notice
+                Log.e("seam", "transport server failed to start", e)   // the sink raises the notice
             }
         }
     }
@@ -278,6 +281,9 @@ class ShellService : Service() {
             Log.w("service", "rebuild already in progress — $why queued behind it")
             statusLine = "rebuilding… ($why queued)"
             updateNotification(statusLine)
+            // the runner may have finished between our CAS and our set: drain
+            // it ourselves in that case, so a queued switch is never lost
+            if (!rebuilding.get()) queuedTarget.getAndSet(null)?.let { q -> if (q != runningTarget) rebuild(q, why) }
             return
         }
         statusLine = "rebuilding ($why)"
@@ -291,8 +297,9 @@ class ShellService : Service() {
                         startStack(target)
                     }
                 } catch (e: Exception) {
-                    statusLine = "REBUILD FAILED: ${e.message}"
+                    statusLine = "REBUILD FAILED: ${e.message ?: e::class.simpleName}"
                     Log.e("service", statusLine)   // the sink raises the notice
+                    updateNotification(statusLine)
                 } finally {
                     rebuilding.set(false)
                 }
@@ -307,7 +314,9 @@ class ShellService : Service() {
      *  rebuild. Called on the shell loop or the UI thread — never blocks. */
     fun switchTarget(target: Prefs.Target) {
         Prefs(this).setTargetGlasses(target == Prefs.Target.GLASSES)
-        if (target == runningTarget && keeper?.state != ShellKeeper.State.TERMINAL) {
+        val k = keeper
+        // a failed build leaves no keeper: that target is NOT running, rebuild it
+        if (target == runningTarget && k != null && k.state != ShellKeeper.State.TERMINAL) {
             Log.i("service", "target ${target.name} already running")
             return
         }
@@ -372,10 +381,13 @@ class ShellService : Service() {
         // continuously (2 s debounce), so the async stop loses at most the last
         // moments — an ANR would lose the process mid-write instead.
         destroyed = true
-        logSink?.let { Log.removeSink(it) }
+        val sink = logSink
         logSink = null
         Thread({
+            // the sink stays for the stop itself: a failure in the final save or
+            // the disconnect must still reach the person (round 3, b3-1)
             try { stopStack() } catch (e: Exception) { Log.e("service", "shutdown failed", e) }
+            finally { sink?.let { Log.removeSink(it) } }
         }, "damage-shutdown").start()
         super.onDestroy()
     }

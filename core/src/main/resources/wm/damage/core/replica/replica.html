@@ -32,7 +32,7 @@
     <button id="lens">lens: LEFT</button>
     <button id="both">both</button>
     <button id="scale">1×</button>
-    <span id="help">wheel = scroll · click = tap · right-click = double-tap · hold = long-press (release on let-go) · keys ↑↓ Enter Backspace Space (hold) R (release) Tab (lens) B (both) · scaled views are not for legibility calls</span>
+    <span id="help">wheel = scroll · click = tap · right-click = double-tap · hold = long-press (release on let-go) · keys ↑↓ Enter Backspace/Esc Space (hold) R (release) Tab (lens) B (both) · scaled views are not for legibility calls</span>
   </div>
 </div>
 <script>
@@ -101,7 +101,7 @@
   }
 
   // ---- mouse: wheel notches accumulate; hold = long-press; right = double-tap
-  let wheelAccum = 0, holdTimer = null, holding = false, lastBigNotchAt = 0;
+  let wheelAccum = 0, holdTimer = null, holding = false, lastNotchAt = 0;
   for (const c of [canvases[0], canvases[1]]) {
     c.addEventListener('wheel', (e) => {
       e.preventDefault();
@@ -109,21 +109,22 @@
       // mode (Firefox) counts lines, page mode counts pages, pixel mode is a
       // notch when a single event is a notch-sized step (≥ 40 px: 53 on
       // Linux Chrome, 100 on Windows) and accumulates only trackpad-sized deltas
-      let notches = 0;
+      // a notch-sized step is one notch outright; smaller (trackpad) deltas
+      // accumulate to one. Every branch emits at most ONE notch per 40 ms —
+      // a trackpad reports at 60–120 Hz, which no ring could produce — and
+      // the accumulator cannot bank notches that keep scrolling after the
+      // finger stops
       if (e.deltaMode === 1) { wheelAccum += e.deltaY / 3; }
       else if (e.deltaMode === 2) { wheelAccum += Math.sign(e.deltaY); }
-      else if (Math.abs(e.deltaY) >= 40) {
-        // a notch-sized step: one notch, at most one per 40 ms — a trackpad
-        // flick reports such steps at 60–120 Hz, which no ring could produce
-        const now = performance.now();
-        if (now - lastBigNotchAt >= 40) { notches = Math.sign(e.deltaY); lastBigNotchAt = now; }
-        wheelAccum = 0;
-      }
+      else if (Math.abs(e.deltaY) >= 40) { wheelAccum = Math.sign(e.deltaY); }
       else { wheelAccum += e.deltaY / 40; }
-      while (wheelAccum >= 1) { wheelAccum -= 1; notches += 1; }
-      while (wheelAccum <= -1) { wheelAccum += 1; notches -= 1; }
-      while (notches > 0) { notches--; send('down'); }
-      while (notches < 0) { notches++; send('up'); }
+      wheelAccum = Math.max(-1.5, Math.min(1.5, wheelAccum));
+      const now = performance.now();
+      if (Math.abs(wheelAccum) >= 1 && now - lastNotchAt >= 40) {
+        send(wheelAccum > 0 ? 'down' : 'up');
+        wheelAccum -= Math.sign(wheelAccum);
+        lastNotchAt = now;
+      }
     }, { passive: false });
     c.addEventListener('contextmenu', (e) => { e.preventDefault(); send('double'); });
     c.addEventListener('mousedown', (e) => {
@@ -141,11 +142,12 @@
   }
   window.addEventListener('keydown', (e) => {
     if (e.repeat) return;   // the ring has no auto-repeat: a held key is one gesture
+    const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;   // R and r alike
     const map = { ArrowUp: 'up', ArrowDown: 'down', Enter: 'tap', Backspace: 'double', Escape: 'double', ' ': 'hold', r: 'release' };
-    const ev = map[e.key];
+    const ev = map[key];
     if (ev) { e.preventDefault(); send(ev); }
-    if (e.key === 'Tab') { e.preventDefault(); toggleLens(); }
-    if (e.key === 'b') toggleBoth();
+    if (key === 'Tab') { e.preventDefault(); toggleLens(); }
+    if (key === 'b') toggleBoth();
   });
 
   function layout() {

@@ -41,6 +41,8 @@ class BlueZTransportTest {
         var advertising = true
         var failCharacteristicsFor: String? = null
         var emitConnectedOnDisconnect = false
+        /** RIGHT reports `Connected=false` while LEFT's connect is in progress. */
+        var dropRightWhileConnectingLeft = false
         var discoveryOn = false
         val connected = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
         @Volatile var listener: ((BlueZLink.Event) -> Unit)? = null
@@ -73,7 +75,13 @@ class BlueZTransportTest {
                 BlueZLink.Peer("/org/bluez/hci0/dev_other", "11:22:33:44:55:66", "Some Speaker", false, false, -80),
             )
         }
-        override fun connect(devicePath: String) { calls.add("connect ${armOf(devicePath)}"); connected.add(devicePath) }
+        override fun connect(devicePath: String) {
+            calls.add("connect ${armOf(devicePath)}"); connected.add(devicePath)
+            if (dropRightWhileConnectingLeft && devicePath == leftPath) {
+                connected.remove(rightPath)
+                listener?.invoke(BlueZLink.Event.Connected(rightPath, false))
+            }
+        }
         override fun disconnect(devicePath: String) {
             calls.add("disconnect ${armOf(devicePath)}")
             connected.remove(devicePath)
@@ -167,6 +175,29 @@ class BlueZTransportTest {
             assertEquals(setOf("disconnect RIGHT", "disconnect LEFT"), fake.connects().drop(3).toSet(),
                 "both arms are released after the failure: ${fake.connects()}")
             assertTrue(fake.connected.isEmpty())
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /** Round 2, c2-1: a drop of the FIRST arm while the second is being set
+     *  up is only recorded (the session is not running yet) — the post-loop
+     *  check must fail the start, naming the arm, and both arms are released. */
+    @Test
+    fun theFirstArmDroppingDuringTheSecondArmsSetupFailsTheStartNamingIt(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val fake = FakeBlueZ().apply { dropRightWhileConnectingLeft = true }
+            val t = BlueZTransport(fake, scope)
+            val r = runCatching { t.start(warmup()) }
+            assertTrue(r.isFailure, "start() must not succeed with RIGHT gone")
+            assertTrue(r.exceptionOrNull()!!.message!!.contains("RIGHT"), "the dropped arm is named: ${r.exceptionOrNull()?.message}")
+            assertEquals(listOf("connect RIGHT", "notify RIGHT", "connect LEFT", "notify LEFT"), fake.connects().take(4),
+                "LEFT's setup ran to its end before the check: ${fake.connects()}")
+            assertEquals(setOf("disconnect RIGHT", "disconnect LEFT"), fake.connects().drop(4).toSet(),
+                "both arms are released: ${fake.connects()}")
+            assertTrue(fake.connected.isEmpty(), "no link is left up")
+            assertFalse(t.state.value.started)
         } finally {
             scope.cancel()
         }

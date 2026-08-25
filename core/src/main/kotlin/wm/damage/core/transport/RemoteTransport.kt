@@ -335,7 +335,14 @@ class RemoteTransportClient(
             "started" -> started.trySend(null)
             "startfail" -> started.trySend(c.detail)
             "done" -> {
-                pendingSubmits.remove(c.id)
+                // answered once: a done still in the socket buffer when stop()
+                // failed the outstanding flushes, or one for an id this side
+                // never issued (version skew), must not reach the shell as a
+                // second completion (round 3, a3-2)
+                if (pendingSubmits.remove(c.id) == null) {
+                    Log.w("remote-transport", "done for flush ${c.id} that is not outstanding (already answered, or unknown) — ignored")
+                    return
+                }
                 stallReported = false
                 emit(TransportEvent.FlushDone(c.id, c.ok, c.ackMs, c.bytes, c.error), "FlushDone ${c.id}")
             }

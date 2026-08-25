@@ -341,8 +341,9 @@ note with the first differing pixel and the count, one urgent notice, one `reque
 Skipped while a flush is in flight or after a failed flush until the next clean one.
 
 **Session keeper.** `core/shell/ShellKeeper.kt` — the one reconnect loop both hosts use:
-`start()` runs `shell.start()`; on `Link(false)` or a failed start it saves (stop) and restarts
-after a 2 s pause, forever, event-driven (scans have no timeout); a `Fault("capability")` or a
+`start()` runs `shell.start()`; when the transport's `started` goes false (polled every 250 ms —
+pacing, not a timeout; `Link(false)` events narrate only, see amendment 9) or a start fails it
+saves (stop) and restarts after a 2 s pause, forever (scans have no timeout); a `Fault("capability")` or a
 start failure naming the capability gate is TERMINAL for that transport: the loop stops, an
 urgent notice is raised, `onTerminal` fires (the phone falls back to the SIM target so the
 on-screen replica keeps working, and says so in the status line). `pause(reason)`/`resume()` for
@@ -381,6 +382,15 @@ bounded memory; the replica server does the same. (7) The phone scans FILTERED o
 pair (addresses + names) so a pocket-time loss recovers with the screen off; unfiltered only for
 a pair never seen. (8) The phone installs a `Log` sink (logcat + rate-limited urgent
 notifications for errors). See `REVIEW.md` for every finding and its verdict.
+
+**Amendments from review rounds 2–3.** (9) The keeper restarts from the transport's `started`
+(polled every 250 ms — pacing, not a timeout); `Link(false)` events narrate only, and only while
+the keeper is STARTING or RUNNING — its own stops set WAITING / PAUSED / STOPPED under the lock
+before they stop the shell, so the link end they cause is never narrated as a loss. (10) The
+seam answers each flush exactly once: on a link end or a stop every outstanding flush is failed
+loudly (`FlushDone(ok=false)`) before the link-down event, and a later `done` for an id no
+longer outstanding is ignored with a line. (11) The desktop glue reads RSSI one request at a
+time; a read the bus has not answered by the next due tick is skipped with a line.
 
 **Phone.** `ShellService` keeps its transport (sim or BLE per target) under a `ShellKeeper`;
 the seam server's claim pauses the keeper and the release resumes it (the existing rebuild
@@ -510,6 +520,8 @@ checked here, and one commit `§8 <id>: <what>`.
 
 - 2026-08-25 — §8 written; Adam's decisions recorded.
 - F1 done (b031568): plan committed, phone 0.2 (code 2), REVIEW.md.
+- H review round 2 committed (66ed069); round 3 launched (two compact reviewers on the round-2 diff).
+- H review round 3 done: 15 candidates, 12 fixed, four regression tests added (`REVIEW.md` R3.*); the seam answers each flush once, the keeper narrates by state, one RSSI read in flight, the closing text re-packs, the divergence count resets, the phone's sink outlives the stop, the page's wheel gate covers every branch. Core 70 tests + desktop 9, selfcheck 28, snapshots, epub 57/57, lint 0, APK, fat jar — green. Doc counts corrected (70/9). Round 4 (one compact reviewer on the round-3 diff) next, then H3.
 - H review round 2 done: 30 candidates, 26 fixed (`REVIEW.md` R2.*) — the strip re-pack, a second close waiting on the first, divergence state per session, read notices leaving the queue, the winner-never-leaked race guard, the keeper deciding restarts from the transport's state, outstanding flushes failed on a seam loss, the desktop glue's both-arms check and `close()`, one log sink per service; two tests added. Core 73 tests + desktop 8 green; battery running; commit next, then round 3 on the round-2 diff.
 - H1/H2 round 1 done: six reviewers, 64 candidates verified (`REVIEW.md`): 58 confirmed and fixed, 2 design calls taken (e9 kept, f6 decided), 2 accepted (d8 safe, f8 test-only), 1 already fixed (f4 by a4), 1 doc. Core 69 tests + desktop 8 green; battery running; round 2 next on the changed areas.
 - E4 + DOC1–DOC4 done: battery green (core 63, desktop 4, selfcheck 28, snapshots, epub, lint 0, APK, fat jar); REMINDER.md (finishing-build summary, flash-day runbook, first-light items 15–17, decision 6 closed), IMPLEMENTATION.md ("The finishing build" section, commands, configurations, verification counts), README.md, CLAUDE.md (status, battery incl. `:desktop:test`, no-radio rule, beardos BLE reachable), DESIGN.md (§4.3 decision 6 note, §5 attach points for rules 5/10/18 and rule 16, §11 items 4 and 7).

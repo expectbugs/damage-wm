@@ -214,8 +214,9 @@ class Shell(
         restoreNotices(shellState)
         // divergence bookkeeping is per session: a restarted shell reports its
         // first disagreement afresh, and a stale report does not linger on the
-        // hosts' status lines (round 2, d2-3)
+        // hosts' status lines (round 2, d2-3; the count too — round 3, a3-7)
         lastDivergence = null
+        divergencesReported = 0
         divergenceRun = 0
         agreeingChecks = 0
 

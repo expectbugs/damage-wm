@@ -147,8 +147,10 @@ class BleTransport(
             // otherwise leave notifications dead and the capability gate
             // waiting in silence. Order per the CFW reference: priority, MTU,
             // notifications. The priority request is best-effort and stands
-            // ALONE: inside the atomic queue a failure would cancel the MTU
-            // and notification requests behind it (Nordic 2.7.5 cancelQueue).
+            // ALONE: inside the atomic queue a failed child ends the queue
+            // (Nordic 2.7.5: the child's failure marks the queue finished and
+            // `hasMore()` stops it), which would drop the MTU and notification
+            // requests behind it.
             requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
                 .fail { _, status -> Log.w("ble", "$arm connection priority request status $status (continuing)") }
                 .enqueue()
@@ -158,7 +160,7 @@ class BleTransport(
                     .fail { _, status -> initFailure = "$arm MTU request failed: status $status" })
                 .add(enableNotifications(notify)
                     .fail { _, status -> initFailure = "$arm notification enable failed: status $status — acks would never arrive" })
-                .done { Log.i("ble", "$arm initialized (priority + MTU + notifications)") }
+                .done { Log.i("ble", "$arm initialized (MTU + notifications)") }
                 .enqueue()
         }
 

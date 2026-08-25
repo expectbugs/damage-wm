@@ -144,7 +144,7 @@ development environment; also serves ~/books to the phone):
 ./gradlew :desktop:run --args="--epub-check"  # parse every book in ~/books
 ./gradlew :desktop:run --args="--host-only"   # content host alone
 ./gradlew :desktop:run --args="--remote HOST" # the phone's transport over the seam only
-./gradlew :desktop:test                       # the BlueZ glue over the fake link
+./gradlew :desktop:test                       # 9 tests: the BlueZ glue over the fake link
 ```
 
 Preview: mouse wheel scroll · left click tap · right click double-tap · press-and-hold
@@ -248,11 +248,12 @@ of them are load-bearing and easy to break by accident:
 
 ## Verification
 
-- `./gradlew :core:test` — 63 unit/integration tests (the finishing build added
+- `./gradlew :core:test` — 70 unit/integration tests (the finishing build added
   `MirrorTeeTest`, `PreludeTest`, `DivergenceTest`, `ShellKeeperTest`,
-  `WheelAndHostSettingsTest`, `SeamMirrorTest`, `ReplicaServerTest`,
-  `PathTransportTest`); `./gradlew :desktop:test` — the BlueZ glue over a fake
-  link (4). The first stage's 47: RLE parity against the
+  `WheelAndHostSettingsTest`, `SeamMirrorTest`, `SeamSessionTest`,
+  `ReplicaServerTest`, `PathTransportTest`, and the review rounds' regression
+  tests inside them); `./gradlew :desktop:test` — the BlueZ glue over a fake
+  link (9). The first stage's 47: RLE parity against the
   Python reference implementation, CRC vectors, the geometry/fid rule fixtures
   shared with `tools/lint.py --selftest`, full pipeline round trips through
   the sim (stereo divergence per lens, mode-8 scroll batches, duplicate-fid
