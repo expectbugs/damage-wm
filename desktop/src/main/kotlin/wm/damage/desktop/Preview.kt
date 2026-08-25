@@ -1,85 +1,144 @@
 package wm.damage.desktop
 
+import java.awt.BorderLayout
 import java.awt.Color
-import wm.damage.core.transport.Arm
 import java.awt.Dimension
 import java.awt.Graphics
 import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
+import java.awt.event.MouseWheelEvent
 import java.awt.image.BufferedImage
 import javax.swing.JFrame
+import javax.swing.JLabel
 import javax.swing.JPanel
 import javax.swing.SwingUtilities
+import javax.swing.Timer
 import wm.damage.core.geom.Geometry
-import wm.damage.core.sim.GlassFirmwareSim
-import wm.damage.core.wire.EvenHubMsg
+import wm.damage.core.transport.Arm
+import wm.damage.core.transport.LensPanels
 
 /**
- * The 1x lens preview — strictly native 640x480, no upscaling: 2x flattered
- * delicate type and misled the design for several passes (DESIGN.md §Type).
- * Green micro-LED simulation matches design/render_shots.py's green().
+ * The 1x lens replica — strictly native 640x480 per lens, no upscaling (a 2x
+ * view flattered delicate type and misled the design; DESIGN.md §Type). Draws
+ * the transport's MIRROR (HANDOFF.md §8.2), whichever transport: sim, BLE, or
+ * the seam-fed mirror in remote mode. Green micro-LED mapping as
+ * design/render_shots.py green().
  *
- * Keyboard = the ring, for the desk: ↑/↓ scroll · Enter tap · Backspace
- * double-tap · Space long-press · Tab toggles lens · F prints sim flags.
+ * Mouse = the ring: wheel notch = scroll (one notch per wheel unit), left
+ * click = tap, right click = double-tap, press-and-hold ≥ 600 ms = long-press
+ * (the ring's own threshold is unmeasured) then release. Keyboard stays:
+ * ↑/↓ scroll · Enter tap · Backspace/Esc double-tap · Space long-press · R
+ * release · Tab lens toggle · B both lenses side by side.
+ *
+ * The status strip sits UNDER the panel, outside the 640x480 image, so the
+ * true-1x rule holds for the pixels that matter.
  */
 class Preview(
-    private val sim: GlassFirmwareSim,
+    private val panels: () -> LensPanels?,
     private val onGesture: (Int) -> Unit,
+    private val status: () -> String,
 ) : JPanel() {
 
     private var arm = Arm.LEFT
-    private val img = BufferedImage(Geometry.PANEL_W, Geometry.PANEL_H, BufferedImage.TYPE_INT_RGB)
+    private var both = false
+    private val imgL = BufferedImage(Geometry.PANEL_W, Geometry.PANEL_H, BufferedImage.TYPE_INT_RGB)
+    private val imgR = BufferedImage(Geometry.PANEL_W, Geometry.PANEL_H, BufferedImage.TYPE_INT_RGB)
+    private var source: LensPanels? = null
+    private val listener = LensPanels.LensListener { a -> SwingUtilities.invokeLater { refresh(a) } }
+    private val strip = JLabel(" ")
 
     init {
-        preferredSize = Dimension(Geometry.PANEL_W, Geometry.PANEL_H)
         background = Color.BLACK
         isFocusable = true
-        // Swing consumes Tab for focus traversal before KeyListeners see it;
-        // without this the advertised lens toggle is dead (review round 1)
-        setFocusTraversalKeysEnabled(false)
-        sim.attachListener(object : GlassFirmwareSim.SimDiag {
-            override fun event(kind: String, detail: String) {}
-            override fun notify(arm: Arm, packet: ByteArray) {}
-            override fun panelChanged(arm: Arm) {
-                SwingUtilities.invokeLater { refresh() }
-            }
-        })
+        setFocusTraversalKeysEnabled(false)   // Tab is ours
+        updateSize()
         addKeyListener(object : KeyAdapter() {
             override fun keyPressed(e: KeyEvent) {
                 when (e.keyCode) {
-                    KeyEvent.VK_UP -> onGesture(EvenHubMsg.EV_SCROLL_TOP)
-                    KeyEvent.VK_DOWN -> onGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
-                    KeyEvent.VK_ENTER -> onGesture(EvenHubMsg.EV_CLICK)
-                    KeyEvent.VK_BACK_SPACE, KeyEvent.VK_ESCAPE -> onGesture(EvenHubMsg.EV_DOUBLE_CLICK)
-                    KeyEvent.VK_SPACE -> onGesture(EvenHubMsg.EV_RING_LONG_PRESS)
-                    KeyEvent.VK_R -> onGesture(EvenHubMsg.EV_RING_LONG_PRESS_RELEASE)
-                    KeyEvent.VK_TAB -> {
-                        arm = if (arm == Arm.LEFT) Arm.RIGHT
-                        else Arm.LEFT
-                        topFrame()?.title = title()
-                        refresh()
-                    }
-                    KeyEvent.VK_F -> println("sim flags L=${sim.flags(Arm.LEFT)} " +
-                        "R=${sim.flags(Arm.RIGHT)}")
+                    KeyEvent.VK_UP -> onGesture(wm.damage.core.wire.EvenHubMsg.EV_SCROLL_TOP)
+                    KeyEvent.VK_DOWN -> onGesture(wm.damage.core.wire.EvenHubMsg.EV_SCROLL_BOTTOM)
+                    KeyEvent.VK_ENTER -> onGesture(wm.damage.core.wire.EvenHubMsg.EV_CLICK)
+                    KeyEvent.VK_BACK_SPACE, KeyEvent.VK_ESCAPE -> onGesture(wm.damage.core.wire.EvenHubMsg.EV_DOUBLE_CLICK)
+                    KeyEvent.VK_SPACE -> onGesture(wm.damage.core.wire.EvenHubMsg.EV_RING_LONG_PRESS)
+                    KeyEvent.VK_R -> onGesture(wm.damage.core.wire.EvenHubMsg.EV_RING_LONG_PRESS_RELEASE)
+                    KeyEvent.VK_TAB -> toggleArm()
+                    KeyEvent.VK_B -> toggleBoth()
                 }
             }
         })
-        refresh()
+        val holdTimer = Timer(HOLD_MS) { holding = true; onGesture(wm.damage.core.wire.EvenHubMsg.EV_RING_LONG_PRESS) }
+        holdTimer.isRepeats = false
+        addMouseListener(object : MouseAdapter() {
+            override fun mousePressed(e: MouseEvent) {
+                requestFocusInWindow()
+                if (SwingUtilities.isLeftMouseButton(e)) { holding = false; holdTimer.restart() }
+            }
+
+            override fun mouseReleased(e: MouseEvent) {
+                when {
+                    SwingUtilities.isLeftMouseButton(e) -> {
+                        holdTimer.stop()
+                        if (holding) { holding = false; onGesture(wm.damage.core.wire.EvenHubMsg.EV_RING_LONG_PRESS_RELEASE) }
+                        else if (e.clickCount <= 1) onGesture(wm.damage.core.wire.EvenHubMsg.EV_CLICK)
+                        // the second click of a double-click is not a second tap
+                    }
+                    SwingUtilities.isRightMouseButton(e) -> onGesture(wm.damage.core.wire.EvenHubMsg.EV_DOUBLE_CLICK)
+                    SwingUtilities.isMiddleMouseButton(e) -> toggleArm()
+                }
+            }
+        })
+        addMouseWheelListener { e: MouseWheelEvent ->
+            wheelAccum += e.preciseWheelRotation
+            while (wheelAccum >= 1.0) { wheelAccum -= 1.0; onGesture(wm.damage.core.wire.EvenHubMsg.EV_SCROLL_BOTTOM) }
+            while (wheelAccum <= -1.0) { wheelAccum += 1.0; onGesture(wm.damage.core.wire.EvenHubMsg.EV_SCROLL_TOP) }
+        }
+        // follow the mirror provider (a rebuilt stack brings a new mirror) and
+        // refresh the strip
+        Timer(500) {
+            attach()
+            strip.text = " ${status()}"
+        }.start()
+        attach()
     }
+
+    private var holding = false
+    private var wheelAccum = 0.0
+
+    private fun attach() {
+        val p = panels()
+        if (p === source) return
+        source?.removeListener(listener)
+        source = p
+        p?.addListener(listener)
+        refresh(Arm.LEFT); refresh(Arm.RIGHT)
+    }
+
+    private fun updateSize() {
+        preferredSize = Dimension(if (both) Geometry.PANEL_W * 2 + GAP else Geometry.PANEL_W, Geometry.PANEL_H)
+        revalidate()
+        topFrame()?.pack()
+        topFrame()?.title = title()
+    }
+
+    private fun toggleArm() { arm = if (arm == Arm.LEFT) Arm.RIGHT else Arm.LEFT; updateSize(); repaint() }
+    private fun toggleBoth() { both = !both; updateSize(); repaint() }
 
     private fun topFrame(): JFrame? = SwingUtilities.getWindowAncestor(this) as? JFrame
 
-    private fun title() = "Damage — ${arm.name} lens · sim · 1x (Tab switches lens)"
+    private fun title() = "Damage — ${if (both) "both lenses" else "${arm.name} lens"} · 1x (Tab lens · B both)"
 
-    private fun refresh() {
-        val ctx = if (arm == Arm.LEFT) sim.left else sim.right
-        val stride = ctx.stride
+    private fun refresh(a: Arm) {
+        val p = source ?: return
+        val panel = p.panel(a)
+        val stride = p.stride
+        val img = if (a == Arm.LEFT) imgL else imgR
         for (y in 0 until Geometry.PANEL_H) {
             for (x in 0 until Geometry.PANEL_W) {
-                val b = ctx.panel[y * stride + (x shr 1)].toInt() and 0xFF
+                val b = panel[y * stride + (x shr 1)].toInt() and 0xFF
                 val n = if (x and 1 == 0) b shr 4 else b and 0x0F
                 val v = n * 17
-                // green micro-LED simulation (render_shots.py green())
                 val r = (v * 0.16).toInt()
                 val g = minOf(255, (v * 1.05).toInt())
                 val bl = (v * 0.34).toInt()
@@ -91,16 +150,30 @@ class Preview(
 
     override fun paintComponent(g: Graphics) {
         super.paintComponent(g)
-        g.drawImage(img, 0, 0, null)
+        if (both) {
+            g.drawImage(imgL, 0, 0, null)
+            g.drawImage(imgR, Geometry.PANEL_W + GAP, 0, null)
+        } else {
+            g.drawImage(if (arm == Arm.LEFT) imgL else imgR, 0, 0, null)
+        }
     }
 
     companion object {
-        fun show(sim: GlassFirmwareSim, onGesture: (Int) -> Unit): Preview {
-            val p = Preview(sim, onGesture)
+        const val HOLD_MS = 600
+        const val GAP = 16
+
+        fun show(panels: () -> LensPanels?, onGesture: (Int) -> Unit, status: () -> String): Preview {
+            val p = Preview(panels, onGesture, status)
             SwingUtilities.invokeLater {
                 val f = JFrame(p.title())
                 f.defaultCloseOperation = JFrame.EXIT_ON_CLOSE
-                f.contentPane.add(p)
+                f.contentPane.background = Color.BLACK
+                f.contentPane.layout = BorderLayout()
+                f.contentPane.add(p, BorderLayout.CENTER)
+                p.strip.foreground = Color(76, 178, 100)
+                p.strip.background = Color.BLACK
+                p.strip.isOpaque = true
+                f.contentPane.add(p.strip, BorderLayout.SOUTH)
                 f.isResizable = false
                 f.pack()
                 f.setLocationByPlatform(true)

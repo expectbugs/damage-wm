@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import wm.damage.core.content.LocalContent
 import wm.damage.core.gfx.Pack
+import wm.damage.core.replica.ReplicaServer
 import wm.damage.core.shell.Persistence
 import wm.damage.core.shell.Shell
 import wm.damage.core.sim.GlassFirmwareSim
@@ -101,6 +102,20 @@ object SelfCheck {
         check("FB lease held after start", transport.state.value.leaseHeld)
         check("keyframe delivered (left shadow seeded)", sim.left.seeded)
         check("panel is not blank after boot", sim.left.panel.any { it.toInt() != 0 })
+
+        // ---- browser replica: the page is served, the token gate holds
+        val rp = java.net.ServerSocket(0).use { it.localPort }
+        val replica = ReplicaServer(rp, "sc-token", { transport.mirror }, { ReplicaServer.Status(transport = "sim") },
+            { shell.postGesture(it) })
+        replica.start()
+        fun http(path: String): String = java.net.Socket("127.0.0.1", rp).use { s ->
+            s.getOutputStream().write("GET $path HTTP/1.1\r\nHost: x\r\n\r\n".toByteArray()); s.getOutputStream().flush()
+            s.getInputStream().bufferedReader().readText()
+        }
+        val page = http("/?token=sc-token")
+        check("browser replica serves the page", page.startsWith("HTTP/1.1 200") && page.contains("Damage replica"))
+        check("browser replica refuses a missing token", http("/").startsWith("HTTP/1.1 403"))
+        replica.close()
 
         // ---- Main: scroll + wrap (one up from the top lands on Settings §4.2)
         val inkActive = Pack.inkFraction(shell.comp.composed)

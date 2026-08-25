@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Damage replica</title>
+<style>
+  body { margin: 0; background: #000; color: #4cb264; font: 13px/1.4 system-ui, sans-serif; }
+  #wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 12px; }
+  #lenses { display: flex; gap: 16px; }
+  canvas { image-rendering: pixelated; image-rendering: crisp-edges; background: #000; outline: 1px solid #143; }
+  .hidden { display: none; }
+  #strip { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; max-width: 1300px; }
+  #strip span { white-space: nowrap; }
+  .ok { color: #4cb264; } .warn { color: #d9b23a; } .bad { color: #e0534d; }
+  button { background: #0b1f10; color: #4cb264; border: 1px solid #245; padding: 4px 10px; cursor: pointer; }
+  button.on { background: #1d4a2a; }
+  #help { color: #2f7a43; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="lenses">
+    <canvas id="L" width="640" height="480"></canvas>
+    <canvas id="R" width="640" height="480" class="hidden"></canvas>
+  </div>
+  <div id="strip">
+    <span id="conn" class="warn">connecting…</span>
+    <span id="status"></span>
+    <span id="fault" class="bad"></span>
+    <button id="lens">lens: LEFT</button>
+    <button id="both">both</button>
+    <button id="scale">1×</button>
+    <span id="help">wheel = scroll · click = tap · right-click = double-tap · hold = long-press · keys ↑↓ Enter Backspace Space · scaled views are not for legibility calls</span>
+  </div>
+</div>
+<script>
+(() => {
+  const W = 640, H = 480, STRIDE = 320;
+  const token = new URLSearchParams(location.search).get('token') || '';
+  const canvases = { 0: document.getElementById('L'), 1: document.getElementById('R') };
+  const ctxs = { 0: canvases[0].getContext('2d'), 1: canvases[1].getContext('2d') };
+  const images = { 0: ctxs[0].createImageData(W, H), 1: ctxs[1].createImageData(W, H) };
+  const connEl = document.getElementById('conn'), statusEl = document.getElementById('status'), faultEl = document.getElementById('fault');
+  let shown = 0, both = false, scale = 1, ws = null, backoff = 1000, closedByUs = false;
+
+  // green micro-LED mapping, the same as the desktop preview and design/render_shots.py
+  const green = new Array(16).fill(0).map((_, n) => { const v = n * 17; return [Math.floor(v * 0.16), Math.min(255, Math.floor(v * 1.05)), Math.floor(v * 0.34)]; });
+
+  function applyPanel(buf) {
+    const dv = new DataView(buf);
+    const arm = dv.getUint8(0), y0 = dv.getUint16(1, true), rows = dv.getUint16(3, true);
+    const bytes = new Uint8Array(buf, 5);
+    if (bytes.length < rows * STRIDE) { setFault(`short panel frame: ${bytes.length} B for ${rows} rows`); return; }
+    const img = images[arm], d = img.data;
+    for (let r = 0; r < rows; r++) {
+      const y = y0 + r;
+      for (let x = 0; x < W; x++) {
+        const b = bytes[r * STRIDE + (x >> 1)];
+        const n = (x & 1) === 0 ? b >> 4 : b & 15;
+        const o = (y * W + x) * 4, g = green[n];
+        d[o] = g[0]; d[o + 1] = g[1]; d[o + 2] = g[2]; d[o + 3] = 255;
+      }
+    }
+    ctxs[arm].putImageData(img, 0, 0, 0, y0, W, rows);
+  }
+
+  function setFault(m) { faultEl.textContent = m; if (m) console.error('[replica] ' + m); }
+
+  function showStatus(s) {
+    const link = s.connected ? (s.lease ? 'link + lease' : 'link, NO lease') : 'NO link';
+    statusEl.textContent = `${s.transport} · ${link} · ${s.ackMs} ms · ${Math.round(s.bps / 1000)} K/s · ${s.driver}` + (s.note ? ` · ${s.note}` : '') + ` · ${s.clients} viewer(s)`;
+    statusEl.className = s.connected && s.lease ? 'ok' : 'warn';
+  }
+
+  function connect() {
+    closedByUs = false;
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = () => { connEl.textContent = 'online'; connEl.className = 'ok'; backoff = 1000; setFault(''); };
+    ws.onmessage = (ev) => {
+      if (ev.data instanceof ArrayBuffer) { applyPanel(ev.data); return; }
+      let m; try { m = JSON.parse(ev.data); } catch (e) { setFault('malformed status frame'); return; }
+      if (m.t === 'status') showStatus(m);
+    };
+    ws.onclose = () => {
+      if (closedByUs) return;
+      connEl.textContent = `reconnecting in ${(backoff / 1000).toFixed(0)} s`; connEl.className = 'warn';
+      setTimeout(() => { backoff = Math.min(30000, backoff * 1.5); connect(); }, backoff);
+    };
+    ws.onerror = () => { /* onclose follows */ };
+  }
+
+  function send(ev) {
+    if (!ws || ws.readyState !== 1) { setFault(`gesture '${ev}' not sent — offline`); return; }
+    ws.send(JSON.stringify({ t: 'input', ev }));
+  }
+
+  // ---- mouse: wheel notches accumulate; hold = long-press; right = double-tap
+  let wheelAccum = 0, holdTimer = null, holding = false;
+  for (const c of [canvases[0], canvases[1]]) {
+    c.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      wheelAccum = Math.max(-300, Math.min(300, wheelAccum + e.deltaY));
+      while (wheelAccum >= 100) { wheelAccum -= 100; send('down'); }
+      while (wheelAccum <= -100) { wheelAccum += 100; send('up'); }
+    }, { passive: false });
+    c.addEventListener('contextmenu', (e) => { e.preventDefault(); send('double'); });
+    c.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      holding = false;
+      holdTimer = setTimeout(() => { holding = true; send('hold'); }, 600);
+    });
+    c.addEventListener('mouseup', (e) => {
+      if (e.button !== 0) return;
+      clearTimeout(holdTimer);
+      if (holding) { holding = false; send('release'); } else if (e.detail <= 1) send('tap');
+      // a browser double-click fires click first: the second click is not a second tap
+    });
+    c.addEventListener('mouseleave', () => { clearTimeout(holdTimer); if (holding) { holding = false; send('release'); } });
+  }
+  window.addEventListener('keydown', (e) => {
+    const map = { ArrowUp: 'up', ArrowDown: 'down', Enter: 'tap', Backspace: 'double', Escape: 'double', ' ': 'hold', r: 'release' };
+    const ev = map[e.key];
+    if (ev) { e.preventDefault(); send(ev); }
+    if (e.key === 'Tab') { e.preventDefault(); toggleLens(); }
+    if (e.key === 'b') toggleBoth();
+  });
+
+  function layout() {
+    canvases[0].classList.toggle('hidden', !(both || shown === 0));
+    canvases[1].classList.toggle('hidden', !(both || shown === 1));
+    for (const c of [canvases[0], canvases[1]]) { c.style.width = (W * scale) + 'px'; c.style.height = (H * scale) + 'px'; }
+    document.getElementById('lens').textContent = 'lens: ' + (shown === 0 ? 'LEFT' : 'RIGHT');
+    document.getElementById('both').classList.toggle('on', both);
+    document.getElementById('scale').textContent = scale + '×';
+  }
+  function toggleLens() { shown = 1 - shown; layout(); }
+  function toggleBoth() { both = !both; layout(); }
+  document.getElementById('lens').onclick = toggleLens;
+  document.getElementById('both').onclick = toggleBoth;
+  document.getElementById('scale').onclick = () => { scale = scale === 1 ? 2 : 1; layout(); };
+  layout();
+  if (!token) { connEl.textContent = 'no token in the URL — open the link the program printed'; connEl.className = 'bad'; }
+  else connect();
+})();
+</script>
+</body>
+</html>

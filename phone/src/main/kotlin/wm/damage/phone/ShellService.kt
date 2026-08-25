@@ -19,6 +19,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import wm.damage.core.content.RemoteContent
+import wm.damage.core.replica.ReplicaServer
 import wm.damage.core.shell.Chrome
 import wm.damage.core.shell.HostSetting
 import wm.damage.core.shell.Persistence
@@ -76,6 +77,7 @@ class ShellService : Service() {
         private set
     private var keeper: ShellKeeper? = null
     private var seamServer: RemoteTransportServer? = null
+    private var replica: ReplicaServer? = null
     @Volatile var remoteDriving = false
         private set
     @Volatile var statusLine: String = "starting"
@@ -155,6 +157,16 @@ class ShellService : Service() {
             }
         }
 
+        // the browser replica: the same mirror, from any browser on the tailnet
+        try {
+            val rs = ReplicaServer(prefs.replicaPort, prefs.token, { mirror }, { replicaStatus() }, { postGesture(it) })
+            rs.start()
+            replica = rs
+        } catch (e: Exception) {
+            Log.e("service", "browser replica failed to start", e)
+            urgentNotification("replica", "browser replica: ${e.message}")
+        }
+
         // the transport seam server: a PC shell can claim this transport
         if (prefs.seamServer) {
             try {
@@ -178,8 +190,22 @@ class ShellService : Service() {
      *  the keeper (stops the shell, saves state), then the scope. Synchronized:
      *  the shutdown thread, a rebuild and a takeover claim can all reach for
      *  the stack at once. */
+    /** The status line the browser replica shows. */
+    private fun replicaStatus(): ReplicaServer.Status {
+        val st = transport?.state?.value
+        return ReplicaServer.Status(
+            transport = st?.transportName ?: "none",
+            connected = st?.connected ?: false, started = st?.started ?: false, leaseHeld = st?.leaseHeld ?: false,
+            ackMs = st?.ackMsEma?.toInt() ?: 0, bytesPerSec = st?.bytesPerSecEma?.toInt() ?: 0,
+            driver = if (remoteDriving) "PC shell over the seam" else "phone shell",
+            note = shell?.lastDivergence?.let { "DIVERGE: $it" } ?: statusLine,
+        )
+    }
+
     @Synchronized
     private fun stopStack() {
+        replica?.close()
+        replica = null
         seamServer?.close()
         seamServer = null
         val k = keeper

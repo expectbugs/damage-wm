@@ -444,10 +444,10 @@ checked here, and one commit `§8 <id>: <what>`.
 - [x] C4 battery green; commit
 
 **D — replicas**
-- [ ] D1 desktop Preview per §8.2 (mouse, side-by-side, status strip, mirror source)
-- [ ] D2 `ReplicaServer` + page in core; served by the desktop; unit tests for the WS handshake key and frame codec; selfcheck opens a loopback WS client and receives a panel frame
-- [ ] D3 phone serves the page (`replicaPort` in `Prefs`/BuildConfig)
-- [ ] D4 battery green; commit
+- [x] D1 desktop Preview per §8.2 (mouse, side-by-side, status strip, mirror source)
+- [x] D2 `ReplicaServer` + page in core; served by the desktop; unit tests for the WS handshake key and frame codec; selfcheck opens a loopback WS client and receives a panel frame
+- [x] D3 phone serves the page (`replicaPort` in `Prefs`/BuildConfig)
+- [x] D4 battery green; commit
 
 **E — arbitration**
 - [ ] E1 `PathTransport` in core; test: a race where the first candidate stalls and the second wins, the stalled attempt is cancelled cleanly; a capability refusal disables a candidate
@@ -489,6 +489,8 @@ checked here, and one commit `§8 <id>: <what>`.
 
 - 2026-08-25 — §8 written; Adam's decisions recorded.
 - F1 done (b031568): plan committed, phone 0.2 (code 2), REVIEW.md.
+- D4 done: battery green (core 61 tests, desktop 4, selfcheck 28 checks incl. the replica page + token gate, snapshots, epub 57/57, lint 0, APK); the page's script passes `node --check`.
+- D1–D3 done: `Preview` draws any mirror through a provider (wheel notch, left tap, right double-tap, hold ≥600 ms → long-press then release, middle/Tab lens, B both, status strip under the 1× image); `ReplicaServer` (HTTP + RFC 6455, token-gated, per-client dirty-row panel frames + 1 Hz status, input frames) with `replica.html` (two 640×480 canvases, pixelated, 1×/2× toggle labeled, same mouse/keyboard mapping, reconnect with backoff); `ReplicaServerTest` (RFC accept key, 403/200, panel frames after a flush, inputs); the desktop rebuilt around `DesktopStack` (sim | ble | remote, `ShellKeeper`, `Target` host row switches by rebuilding the stack, replica on `replicaPort` 7403, `Config.phoneHost` default `aphone`, cached pair addresses in the config); the phone serves the page on `Prefs.replicaPort`.
 - C1–C4 done: `BlueZLink` seam + `BlueZDbus` (bluez-dbus 0.3.5 / dbus-java 5.2.0 / native unix-socket transport / slf4j-simple; raw `Device1.Connect` so a refusal keeps its reason; MTU via `Properties.Get`; notifications via `PropertiesChanged(Value)`), `BlueZTransport` (RIGHT then LEFT, MTU ≥ 245 checked, cached addresses, `Connected=false` → link down), `BlueZTransportTest` (4 tests over a fake link whose far end is the firmware model), `--ble-info`. **Measured on beardos, no discovery:** the JVM reaches bluetoothd on the system bus; hci0 C4:BD:E5:2E:C9:75 powered; two previously known devices listed. The radio path itself remains unexercised until first light.
 - B1–B3 done: seam `panel` messages (arm, y0, rows + packed rows) through ONE ordered outbox with events/state/done; full panels on session start; `RemoteMirror` applies them; `SeamMirrorTest` (equality after every flush, panel-before-done, far-end input). Core 59 tests green, desktop compiles.
 - A1–A5 done: `BleTransport` rebuilt (RIGHT then LEFT, retry 10×500, MTU 512 checked ≥245, priority HIGH, notify enable surfaced, cached addresses, RSSI poll); `ShellService` on `ShellKeeper` (claim pauses / release resumes; capability refusal → SIM fallback + persistent notification); target switch (strip button with confirm + Settings host row + `Prefs`); `LensView` draws `transport.mirror`, touch via `injectInput`; `Prefs.replicaPort`/`BuildConfig.REPLICA_PORT` (7403); APK builds. Note for review: a takeover still stops and restarts the transport (lease release + reconnect + keyframe) — the session model, not a defect.
