@@ -129,6 +129,16 @@ and the item-by-item log; this is the map of what it added.
   scroll, applied on tap, reverted on double-tap; applying rebuilds the stack.
 - **Decision 6**: a notification arriving while the switcher wheel is open waits behind it.
 
+**2026-08-30 — long-press defaults off (`DESIGN.md` §1.2/§1.3 revised).** A bare long-press is a
+no-op everywhere — it is the most common accidental press, all day, gloves worst — and in silent
+mode it does not even arm. The switcher opens by the chord: long-press, then double-tap within
+800 ms of the release (event 9 arms, event 10 refreshes, any other gesture ends it; a mistimed
+chord is plain back; the input echo's "hold" glyph is the armed indicator). The Settings row
+**"Long-press": off / switcher** restores the direct open — which also restores the focused
+notice's dismiss-unread long-press; by default that job belongs to the chord (the wheel parks the
+box unread and returns it on close). `LongPressTest` pins the grammar; whether the real ring
+delivers the release event is first-light item 18.
+
 ## Running it
 
 Desktop (laptop-direct with the sim standing in for glass — §10.8's
@@ -139,7 +149,7 @@ development environment; also serves ~/books to the phone):
 ./gradlew :desktop:run --args="--transport sim"   # the simulator in-process (development)
 ./gradlew :desktop:run --args="--transport ble"   # PC-direct BLE only
 ./gradlew :desktop:run --args="--ble-info"    # adapter enumeration only (no discovery)
-./gradlew :desktop:run --args="--selfcheck"   # the 28-check scripted gate
+./gradlew :desktop:run --args="--selfcheck"   # the 32-check scripted gate
 ./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"  # parse every book in ~/books
 ./gradlew :desktop:run --args="--host-only"   # content host alone
@@ -248,11 +258,11 @@ of them are load-bearing and easy to break by accident:
 
 ## Verification
 
-- `./gradlew :core:test` — 70 unit/integration tests (the finishing build added
+- `./gradlew :core:test` — 75 unit/integration tests (the finishing build added
   `MirrorTeeTest`, `PreludeTest`, `DivergenceTest`, `ShellKeeperTest`,
   `WheelAndHostSettingsTest`, `SeamMirrorTest`, `SeamSessionTest`,
-  `ReplicaServerTest`, `PathTransportTest`, and the review rounds' regression
-  tests inside them); `./gradlew :desktop:test` — the BlueZ glue over a fake
+  `ReplicaServerTest`, `PathTransportTest`, the review rounds' regression
+  tests inside them, and `LongPressTest` — the 2026-08-30 grammar); `./gradlew :desktop:test` — the BlueZ glue over a fake
   link (9). The first stage's 47: RLE parity against the
   Python reference implementation, CRC vectors, the geometry/fid rule fixtures
   shared with `tools/lint.py --selftest`, full pipeline round trips through

@@ -91,6 +91,13 @@ class Shell(
     private var restGen = 0
     private var graceGen = 0
     private var silentDismissGen = 0
+    /** §1.3 chord (long-press OFF): event 9 arms this wall-clock instant,
+     *  event 10 refreshes it, a double-tap inside [chordWindowMs] opens the
+     *  switcher; 0 = not armed. */
+    private var chordArmedAtMs = 0L
+    /** The chord's sequence window — a §4.5-grace-style UI timing, not a
+     *  deadline on any wait. First-light item 18 checks it feels right. */
+    private val chordWindowMs = 800L
     private var saveGen = 0
     private var previewPainted: String? = null
     @Volatile private var running = false
@@ -396,10 +403,45 @@ class Shell(
         }
         if (notifications.active && !notifications.focused && mode != Mode.SILENT) scheduleGrace()
 
-        // SILENT: everything swallowed except double-tap (§1.5 — the gloves fix)
+        // SILENT: everything swallowed except double-tap (§1.5 — the gloves
+        // fix). A long-press never arms the chord here (Adam, 2026-08-30):
+        // gloves-on is exactly where accidental presses are the most common,
+        // and double-tap must always mean wake.
         if (mode == Mode.SILENT) {
+            chordArmedAtMs = 0L
             if (type == EvenHubMsg.EV_DOUBLE_CLICK) exitSilent()
             return
+        }
+        // §1.2/§1.3 revised 2026-08-30: with long-press OFF (the default) a
+        // bare long-press is a no-op everywhere — it only ARMS the chord, the
+        // release refreshes the window, and a double-tap inside it opens the
+        // switcher. The ARMING event is the rare one, so no common gesture is
+        // delayed or re-meant; a mistimed chord degrades to plain back.
+        // Inside the open wheel §1.3's own grammar applies below (long-press
+        // still cancels), so the chord never re-arms from the cancel.
+        if (settings.longPress == ShellSettings.LongPress.OFF && !switcher.open) {
+            when (type) {
+                EvenHubMsg.EV_RING_LONG_PRESS -> {
+                    chordArmedAtMs = System.currentTimeMillis()
+                    return
+                }
+                EvenHubMsg.EV_RING_LONG_PRESS_RELEASE -> {
+                    // the window runs from letting go, when the release arrives
+                    if (chordArmedAtMs != 0L) chordArmedAtMs = System.currentTimeMillis()
+                    return
+                }
+                EvenHubMsg.EV_DOUBLE_CLICK -> {
+                    val armed = chordArmedAtMs != 0L &&
+                        System.currentTimeMillis() - chordArmedAtMs <= chordWindowMs
+                    chordArmedAtMs = 0L
+                    if (armed) {
+                        openSwitcher()
+                        return
+                    }
+                    // not armed: an ordinary double-tap, routed below
+                }
+                else -> chordArmedAtMs = 0L    // any other gesture ends the chord
+            }
         }
         // Notification holds focus: its own gesture table (§4.5)
         if (notifications.active && notifications.focused) {
@@ -417,6 +459,8 @@ class Shell(
             return
         }
         when (type) {
+            // reachable only with long-press ENABLED; the default path to the
+            // wheel is the chord block above (§1.3, 2026-08-30)
             EvenHubMsg.EV_RING_LONG_PRESS -> openSwitcher()
             EvenHubMsg.EV_SCROLL_TOP -> scrollFocused(-1)
             EvenHubMsg.EV_SCROLL_BOTTOM -> scrollFocused(1)
@@ -443,6 +487,9 @@ class Shell(
                 }
             }
             EvenHubMsg.EV_DOUBLE_CLICK -> dismissNotice(markRead = true)
+            // reachable only with long-press ENABLED (§1.2 revised 2026-08-30):
+            // by default the chord block consumed the event, and "park it
+            // unread" is the chord (the wheel requeues the box, decision 6)
             EvenHubMsg.EV_RING_LONG_PRESS -> dismissNotice(markRead = false)
             EvenHubMsg.EV_SCROLL_TOP -> { notifications.scrollBody(-1, layout); paintNotification() }
             EvenHubMsg.EV_SCROLL_BOTTOM -> { notifications.scrollBody(1, layout); paintNotification() }

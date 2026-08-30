@@ -34,6 +34,14 @@ data class ShellSettings(
     /** Head tracking — default OFF (§7.1: "that would get old FAST"). */
     val headTracking: Boolean = false,
 
+    /** Long-press (§1.2, revised 2026-08-30): OFF (the default) = a bare
+     *  long-press is a no-op everywhere — it is the most common accidental
+     *  press by far, all day, gloves worst — and the switcher opens by the
+     *  §1.3 chord (long-press, then double-tap inside the window). SWITCHER =
+     *  the direct open (and a focused notice's dismiss-unread), the
+     *  pre-revision grammar. */
+    val longPress: LongPress = LongPress.OFF,
+
     /** Battery alert mode for the <=20 % pulse (§4.1). */
     val batteryAlert: BatteryAlert = BatteryAlert.ON,
 
@@ -50,6 +58,7 @@ data class ShellSettings(
     val notifyDamage: Boolean = true,
 ) {
     enum class BatteryAlert { OFF, ON, ESCALATING }
+    enum class LongPress { OFF, SWITCHER }
 
     fun toJson(): JsonObject = Json.encodeToJsonElement(serializer(), this).jsonObject
 

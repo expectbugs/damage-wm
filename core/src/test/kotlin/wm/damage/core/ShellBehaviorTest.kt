@@ -224,13 +224,15 @@ class ShellPersistenceGateTest {
 
             // away via the switcher: with [Main, Settings(current)] the cursor
             // opens on Main; tap commits it
-            shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)
+            shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)   // the chord (§1.3, default grammar)
+            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
             settle(shell)
             shell.postGesture(EvenHubMsg.EV_CLICK)
             settle(shell)
             assertEquals(null, shell.currentWindowId(), "switcher commit should have landed on Main")
             // and back: from Main the cursor opens on the most recent inactive
-            shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)
+            shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)   // the chord again
+            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
             settle(shell)
             shell.postGesture(EvenHubMsg.EV_CLICK)
             settle(shell)

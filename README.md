@@ -41,9 +41,9 @@ The design is shaped by three facts about this display, and most of it follows f
 ## Building and verifying
 
 ```
-./gradlew :core:test                                  # 70 tests, incl. the per-lens oracle
+./gradlew :core:test                                  # 75 tests, incl. the per-lens oracle
 ./gradlew :desktop:test                               # 9 tests: the BlueZ glue over a fake link
-./gradlew :desktop:run --args="--selfcheck"           # the 28-check whole-stack gate
+./gradlew :desktop:run --args="--selfcheck"           # the 32-check whole-stack gate
 ./gradlew :desktop:run --args="--snapshot DIR"        # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"          # parse every book in ~/books
 ./gradlew :desktop:run                                # 1x preview + content host

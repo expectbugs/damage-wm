@@ -48,7 +48,8 @@ class WheelAndHostSettingsTest {
             val r = Rig(scope, tmp)
             r.shell.start(); settle(r.shell)
 
-            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)     // the wheel opens
+            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)     // the chord opens the wheel (§1.3)
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
             settle(r.shell)
             r.shell.postNotice(notice("t1"))
             settle(r.shell)
@@ -76,7 +77,8 @@ class WheelAndHostSettingsTest {
             settle(r.shell)
             assertTrue(r.shell.notifications.active)
 
-            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)     // the wheel opens over it
+            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)     // the chord opens the wheel over it
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
             settle(r.shell)
             assertFalse(r.shell.notifications.active, "the box left the screen for the wheel")
             assertEquals(listOf("t2"), r.shell.notifications.queued().map { it.thread })
@@ -104,7 +106,8 @@ class WheelAndHostSettingsTest {
             r.shell.postGesture(EvenHubMsg.EV_CLICK); settle(r.shell)
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK); settle(r.shell)
             assertEquals(null, r.shell.currentWindowId())
-            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)     // the wheel opens; cursor on Settings
+            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)     // the chord opens the wheel; cursor on Settings
+            r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
             settle(r.shell)
             r.shell.postNotice(Notifications.Notice("DAMAGE · settings", "t3", "a notice about settings", "12:00", appId = "settings"))
             settle(r.shell)

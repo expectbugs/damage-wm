@@ -80,7 +80,8 @@ object Snapshot {
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
         settle(shell)
 
-        shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)   // switcher
+        shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)   // the chord opens the switcher (§1.3)
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
         settle(shell)
         save(sim, out, "06-switcher")
         shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)   // cancel

@@ -150,12 +150,22 @@ object SelfCheck {
         settle(shell, "back-to-book")
         check("double-tap returns to the book", reader.levelDepth() == 2)
 
-        // ---- switcher: open, spin, commit to Main
+        // ---- switcher: a bare long-press is a no-op (§1.2 default OFF,
+        // 2026-08-30) — the tap right after it lands in the book, not a wheel
         shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        settle(shell, "bare-long-press")
+        check("a bare long-press does nothing (default off): the tap landed in the book",
+            reader.levelDepth() == 3)
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+        settle(shell, "back-from-actions-2")
+        // the chord (§1.3): long-press then double-tap opens the wheel
+        shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
         settle(shell, "switcher-open")
         shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)
         settle(shell, "switcher-spin")
-        shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)   // cancel restores
+        shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)   // in-wheel long-press still cancels
         settle(shell, "switcher-cancel")
         check("switcher cancel restores the book view", reader.levelDepth() == 2)
 
@@ -167,7 +177,20 @@ object SelfCheck {
         delay(3_000)                                        // the 2.5 s grace
         settle(shell, "grace")
         check("notification takes focus after the grace", shell.notifications.focused)
-        shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)    // dismiss WITHOUT reading
+        shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)    // no-op by default (§4.5, 2026-08-30)
+        settle(shell, "notice-long-press")
+        check("a long-press does not dismiss the focused notice (default off)", shell.notifications.active)
+        delay(1_000)                                        // the chord window expires
+        shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)    // the chord: wheel over the box
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+        settle(shell, "notice-chord")
+        check("the chord parks the box and opens the wheel", !shell.notifications.active)
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)       // cancel the wheel; the box returns
+        settle(shell, "notice-return")
+        awaitTrue("the box returns after the wheel") { shell.notifications.active }
+        delay(3_000)                                        // its grace runs again
+        settle(shell, "notice-regrace")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)       // dismiss (double-tap marks read)
         settle(shell, "dismiss")
         awaitTrue("notification dismisses") { !shell.notifications.active }
 

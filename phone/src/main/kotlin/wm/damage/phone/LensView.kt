@@ -46,6 +46,10 @@ class LensView(
     @Volatile private var arm = Arm.LEFT
 
     private var accumulatedDrag = 0f
+    /** A long-press was reported and the finger is still down: the lift sends
+     *  the release event, so the §1.3 chord window runs from letting go on
+     *  this replica too (2026-08-30). */
+    private var longPressHeld = false
 
     private val gestures = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
@@ -57,6 +61,7 @@ class LensView(
         }
 
         override fun onLongPress(e: MotionEvent) {
+            longPressHeld = true
             onGesture(EvenHubMsg.EV_RING_LONG_PRESS)
         }
 
@@ -96,6 +101,11 @@ class LensView(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) accumulatedDrag = 0f
         gestures.onTouchEvent(event)
+        if ((event.actionMasked == MotionEvent.ACTION_UP ||
+             event.actionMasked == MotionEvent.ACTION_CANCEL) && longPressHeld) {
+            longPressHeld = false
+            onGesture(EvenHubMsg.EV_RING_LONG_PRESS_RELEASE)
+        }
         return true
     }
 

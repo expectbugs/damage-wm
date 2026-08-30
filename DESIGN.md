@@ -34,6 +34,7 @@ Recorded so they are not re-proposed. These are *decisions*, not oversights.
 | ❌ **Scroll acceleration / velocity** | scroll and tap are already hard to distinguish on the ring's small sensor, especially gloved. Every notch is one step, always |
 | ❌ **Wear / unwear differentiation** | not wanted for now. `wearnotify` stays banked, unused |
 | ❌ **Head tracking on by default** | available, **defaults OFF** — his head moves constantly at work (§7.1) |
+| ❌ **Long-press as a live gesture by default** | reversed 2026-08-30: it is the most common accidental press by far, all day, gloves worst — **defaults OFF (a no-op)**; the §1.3 chord opens the switcher; a Settings row restores the direct open |
 | ❌ **Dithering** | halves compression; the 4-bit downsample looks better without it |
 | ❌ **A quit path** | the WM runs always (§1.6) |
 | ❌ **Split view** | deferred — optional stretch feature, not the first design |
@@ -80,9 +81,16 @@ int  ring_release(void *ctx, int code, void *data)
 |---|---|
 | **tap** | select / enter / activate the focused thing |
 | **double-tap** | back one step |
-| **long-press** | **open the window switcher** — and, while it is open, **close it** |
+| **long-press** | ⚪ **nothing, by default** (revised 2026-08-30, below) — it only ARMS the §1.3 chord. Inside the open wheel it still cancels. Settings ("Long-press · switcher") restores the direct open |
 | **scroll** | move the focus cursor within whatever holds focus (including the switcher) |
-| **long-press release** | ⚪ **nothing.** Banked, unused |
+| **long-press release** | refreshes the §1.3 chord window (so it runs from letting go); otherwise nothing |
+
+🔴 **Revised 2026-08-30 (Adam): long-press defaults to a NO-OP, everywhere.** The accidental
+long-press is the most common misfire by far — constant at work, all day, worst with gloves on —
+and it is the documented gloves chain that founded this project (`overview.md` §6). A gesture that
+fires by itself all day cannot carry a live meaning by default. The Settings row **"Long-press":
+off (default) / switcher** restores the direct open for anyone it does not bother; with it off,
+the switcher opens by the §1.3 chord, and the §4.5 focused-notice long-press is a no-op too.
 
 ### 1.3 The switcher — ALT+TAB
 
@@ -91,12 +99,28 @@ ring is *"rife with accidental presses"* and a gesture where letting go commits 
 exactly the wrong shape for that.
 
 ```
-long-press          → switcher opens
+long-press, double-tap → switcher opens — the CHORD (default; "Long-press · switcher" makes long-press alone open it)
 scroll              → spin the wheel, and preview: the window behind the panel becomes the selected one (§4.3)
 tap                 → commit: closes the panel; the window is already there
-long-press again    → cancel / close, and restore the window you came from
+long-press          → cancel / close, and restore the window you came from (live inside the wheel even when off)
 double-tap          → also cancels (it is one step on the back stack, §1.4)
 ```
+
+**Revised again 2026-08-30 — the chord.** With long-press off (§1.2), the wheel opens by
+**long-press, then double-tap immediately after letting go**: `SysEvent 9` arms an **800 ms
+window**, the release (`SysEvent 10`) refreshes it — so the clock runs from letting go — and a
+double-tap inside the window opens the wheel. Any other gesture ends the chord and keeps its own
+meaning. The shape is deliberate: the ARMING event is the rare one, so no common gesture is ever
+delayed or re-meant; a bare accidental long-press does nothing at all; the full accidental chord
+needs an accidental double-tap inside the same 0.8 s — and even that only opens a wheel that
+cancel restores, so §1.7 still holds. A mistimed deliberate chord degrades to plain back
+(recoverable). Feedback is the §9.2 input echo: the "hold" glyph in the status cell IS the armed
+indicator. This is a **sequence window**, the same species as §4.5's grace — nothing is held, so
+§11's retirement of held gestures stands. In **silent mode the long-press never arms** (§1.5):
+gloves-on is where accidental presses are the most common, and double-tap must always mean wake
+there. Whether the real ring delivers `SysEvent 10` reliably (and whether 800 ms is comfortable)
+is first-light item 18 in `REMINDER.md`; if the release never arrives, the window runs from
+event 9 alone.
 
 **Nothing commits on release.** A stray long-press opens a cancellable list and changes nothing.
 
@@ -111,7 +135,7 @@ double-tap          → also cancels (it is one step on the back stack, §1.4)
     …in order of recentness
 ```
 
-⇒ **long-press then tap = switch to the most recent inactive window.** That is ALT+TAB, in two
+⇒ **long-press · double-tap · tap = switch to the most recent inactive window.** That is ALT+TAB, in three
 unambiguous gestures, with an explicit cancel and no timing dependency.
 
 ✅ **This also retires two open items**: the hold-threshold no longer prices the interaction, and
@@ -172,7 +196,8 @@ except double-tap**, which returns to Main.
 
 🔑 **This completes the gloves fix.** `overview.md` §6: glove-induced ring long-press → "End
 Feature?" → app killed, or a second long-press → Firmware Menu → Silent Mode. The dialog no longer
-exists (CFW patch), and in silent mode a stray long-press is swallowed by us. **The chain has no
+exists (CFW patch), and in silent mode a stray long-press is swallowed by us — it does not even
+arm the §1.3 chord (2026-08-30), so double-tap always means wake here. **The chain has no
 first step left.**
 
 ✅ **A G2CC hazard that is structurally impossible here.** `DE_DESIGN.md` records a rule learned
@@ -636,6 +661,7 @@ The last list entry opens the WM's global settings. Scope is the **window manage
 | **Presence** | the resting-state ink floor — one knob for "how much is it in my way" |
 | **Font** | system face and size; per-window content override (§Type — defaults are locked, this is for tuning) |
 | **Head tracking** | default OFF (§7.1) |
+| **Long-press** | **off** (default — §1.2 revised 2026-08-30: a bare long-press is a no-op; the §1.3 chord opens the switcher) / switcher |
 | **Notification sources** | §4.5 |
 | **Battery alert** | off / on / escalating — the ≤ 20 % pulse (§4.1) |
 | **Profiler / diagnostics** | status-bar profiler, mode-7 overlay (§9.2) |
@@ -660,7 +686,7 @@ one setting that cannot preview per notch; it previews on settle.
 Scrolling stays under the 1,936 B the ack floor buys, so it is ack-bound — the list pans at the
 protocol floor, not the bandwidth floor.
 
-### 4.3 Switcher (long-press) — the wheel
+### 4.3 Switcher — the wheel
 
 🔴 **Bespoke, not a generic overlay.** Adam, 2026-08-17: the switcher and the notification surface
 are **designed independently** — their own geometry, motion, content and input handling. They share
@@ -1006,7 +1032,7 @@ glanceable HUD.
 |---|---|
 | **tap** | open it in its source app (Mail, SMS, …) |
 | **double-tap** | dismiss **and mark read** |
-| **long-press** | dismiss **without** marking read |
+| **long-press** | ⚪ nothing by default (§1.2, 2026-08-30); with "Long-press · switcher" set: dismiss **without** marking read |
 | **scroll** | scroll the body (it holds focus, §1.4) |
 
 ✅ **This assignment is accident-optimal, and that matters more here than anywhere.** The most
@@ -1015,12 +1041,17 @@ gloves failure chain and the founding problem of this project (`overview.md` §6
 the **most recoverable outcome**: nothing navigates, nothing is lost, the notification stays unread
 and waiting. Tap is the consequential one and is still non-destructive and undoable by double-tap.
 That is §1.7's misfire-tolerance rule satisfied without having to be applied.
+**Revised 2026-08-30:** with long-press defaulting to a no-op (§1.2), even that recoverable
+outcome no longer fires by accident — a stray long-press leaves the box exactly as it was. "Get
+it off my screen unread" is now the §1.3 chord: opening the wheel parks the box back in the
+queue UNREAD (the decision-6 mechanics), and it returns when the wheel closes.
 
 ⚠ **One real collision: while a notification holds focus, long-press means "dismiss unread", not
 "open the switcher."** Since notifications stay until dismissed, an ignored notification blocks
 ALT+TAB until it is cleared. Modal focus capturing a gesture is normal, and dismiss-then-switch is
 two gestures — but it is a genuine cost of "stays until dismissed", so it is recorded rather than
-buried.
+buried. **2026-08-30: the collision is gone by default** — a bare long-press means nothing in
+both places, and the chord opens the wheel over a focused box (which steps aside unread).
 
 #### 🔑 Focus grace period
 
@@ -1142,7 +1173,7 @@ there would be a dead gesture. Mapping it to dismiss means every gesture does so
 |---|---|
 | **tap** | dismiss + mark read — *same as double-tap* |
 | **double-tap** | dismiss + mark read |
-| **long-press** | dismiss without marking read (unchanged) |
+| **long-press** | nothing by default (§1.2); with long-press enabled: dismiss without marking read |
 
 ⚠ **Easy dismissal is correct here, not a risk.** The grace period already guarantees it cannot be
 hit by an in-flight gesture, and the purpose of surfacing the alert on the glasses is *"to ensure I
@@ -1219,7 +1250,8 @@ Measured after all three plus row icons: **ink 8.7 %, 7,861 B** — still inside
 
 ❌ **Not adopted: a gesture legend.** Faceclaw puts one on every screen (`▲▼ item · launch · ·· row`),
 and it is genuinely smart *there* — because its gestures change per screen. **Ours do not.** Tap,
-double-tap, long-press and scroll mean the same thing in every window; only notifications differ.
+double-tap, long-press (a no-op by default, §1.2) and scroll mean the same thing in every
+window; only notifications differ.
 A legend would teach nothing and cost a permanent row of ink. ⇒ **The uniform grammar buys back the
 screen space Faceclaw spends explaining itself.** That is the payoff for keeping §1.2 rigid.
 
@@ -2064,6 +2096,7 @@ rows. This inverts the phone-first assumption and is the cheaper path.
 | 13 | 🆕 **Hat bridge power budget** — 1260 mAh running WiFi 6 + BLE for a workday (§10.6) | **U** | bench measurement |
 | 14 | 🆕 **Does dual-band actually lift throughput?** If it does, it isolates a cause of the ~10× shortfall | **U** | build the hat |
 | 15 | 🆕 **Cross-platform BLE parity** — macOS cannot set connection parameters at all (§10.7) | **U** | per-platform test |
+| 16 | 🆕 **The switcher chord on the real ring** (§1.3, 2026-08-30) — is `SysEvent 10` (release) delivered reliably, and is the 800 ms window comfortable? | **U** | first light; `REMINDER.md` item 18 |
 
 *(Retired 2026-08-17 by the switcher redesign: "is hold-plus-scroll comfortable?" and "what is the
 long-press hold threshold?" — nothing is held any more, and no interaction is timing-dependent.)*

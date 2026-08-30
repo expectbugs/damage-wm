@@ -132,6 +132,7 @@ Everything below is blocked on being on hardware. Scattered across `DESIGN.md` �
 | 15 | **The sid-0x01 connect prelude** — graded U: does the CFW require it before CREATE? | the transport sends it (the reference does); the model treats it as required. If the real firmware answers differently, `LaunchMsg` says where to change it |
 | 16 | **PC-direct BLE over BlueZ** — the MTU the characteristic reports, notification delivery, write-without-response pacing | first exercise of `BlueZDbus`; the nine fake-link tests say what is expected |
 | 17 | **Takeover and fallback** — PC appears → it drives via the phone; PC gone → the phone resumes; phone gone at the desk → PC-direct BLE | every transition narrated in the status strip / phone status line and the browser page |
+| 18 | **The switcher chord** (§1.3, 2026-08-30) — long-press, then double-tap within 0.8 s of the release: does the ring deliver `SysEvent 10` reliably, and does the window feel right? | the default grammar (a bare long-press is a no-op); if the release never arrives the window runs from event 9 — widen `chordWindowMs` in `Shell.kt` if real holds outrun it |
 
 **Start BTSnoop BEFORE connecting** on any recapture — handle 65's connection setup is the one gap
 in the existing corpus.

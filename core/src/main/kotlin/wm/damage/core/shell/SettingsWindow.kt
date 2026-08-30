@@ -74,6 +74,13 @@ class SettingsWindow(
         Entry("Head tracking", { if (get().headTracking) "on" else "off (default)" }, { s, d ->
             s.copy(headTracking = d > 0)
         }),
+        // §1.2 revised 2026-08-30: off = bare long-press is a no-op and the
+        // §1.3 chord opens the switcher; switcher = the direct open
+        Entry("Long-press", {
+            if (get().longPress == ShellSettings.LongPress.OFF) "off (default)" else "switcher"
+        }, { s, d ->
+            s.copy(longPress = if (d > 0) ShellSettings.LongPress.SWITCHER else ShellSettings.LongPress.OFF)
+        }),
         Entry("Battery alert", { get().batteryAlert.name.lowercase() }, { s, d ->
             s.copy(batteryAlert = ShellSettings.BatteryAlert.entries[
                 (s.batteryAlert.ordinal + d).mod(ShellSettings.BatteryAlert.entries.size)])
