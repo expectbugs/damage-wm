@@ -2,7 +2,7 @@
 
 **Written 2026-08-25 for a fresh session.** ✅ **The finishing build is COMPLETE (2026-08-25, five
 review rounds, battery green) — §8 is its record** (decisions, fixed design, checklist, resume
-protocol, progress log); what comes next is in `REMINDER.md`. Read the rest, then the
+protocol, progress log); what comes next is in `REMINDER.md`. 📍 **Firmware install is IN PROGRESS — paused before any radio use; a fresh context resumes at §9** (2026-08-30). Read the rest, then the
 reading list in §3, only as §8 points you to it. Everything below is verified against the repo at `main`
 (`a138de7`, pushed to `origin`); "modeled" and "measured" are marked where it matters.
 
@@ -548,3 +548,95 @@ checked here, and one commit `§8 <id>: <what>`.
 - F4 done: `Shell.checkMirrorAgreement()` at rest (status DIVERGE, journal, urgent notice, one keyframe per epoch; `lastDivergence`, `divergencesReported`), `DivergenceTest`.
 - F3 done: `LaunchMsg` (sid 0x01), the base's prelude gate (800 ms settle, ack on msgId, session-end marker), the sim's strict model (`preludeSeen`/`preludeAcks`), `PreludeTest`, harness + selfcheck updated.
 - F2 done: shared `transport.Arm`, `LensPanels`, `Transport.mirror` + `injectInput`, the base's tee (after a successful write; mirror faults as `mirror/<kind>`), `RemoteMirror` stub, `MirrorTeeTest`.
+
+---
+
+## 9. Firmware install — resume point (2026-08-30)
+
+**Status: paused before any radio use, at Adam's request. Nothing has been written to the
+glasses. They remain on stock 2.2.2.20.** This section is written so a fresh context resumes the
+install with no re-derivation. Read it top to bottom; do not skip to a command.
+
+### 9.1 The one irreversible fact, stated plainly
+
+Leaving stock **2.2.2** is the single step that cannot be undone. There is no firmware read-back
+path, and 2.2.2 is **not** in the public 19-image archive — every *other* version can be
+re-installed later, but the factory image now on Adam's glasses cannot be recovered once replaced.
+The CFW itself stays revertible to any archived version, and G2CC keeps working against it. Say
+this out loud to Adam before the write step, every time.
+
+### 9.2 What is already done this session (all safe, no radio)
+
+- **Offline image check PASSED** — `python3 research/verify_cfw.py` (exit 0): the CFW image is
+  reproducible from sources we hold, the archived `g2-2.2.6.11.bin` equals the rebuild byte for
+  byte, and there is no Thumb-bit defect. Re-run it at resume; it is free and offline.
+- **Runbook read** — `REMINDER.md` flash-day runbook + the first-light checklist (items 1–18).
+- **Tool read** — `reference/g2flash/g2flash.py`. For this PC the transport is **`g2://local`**,
+  which uses this machine's own radio through `bleak`. Stages, in order:
+  `discover → heartbeat → file_check → flash → done`. `--stop-before flash` runs
+  discover/heartbeat/file_check and writes **no firmware data** (it connects, enables
+  notifications, sends the keepalive and the FILE_CHECK request, reads the acks). The tool has an
+  interactive confirmation prompt (a typed phrase) unless `--my-warranty-is-void` is passed.
+- **Adapter check** — `desktop --ble-info`: hci0 `C4:BD:E5:2E:C9:75` powered, the user is on the
+  system bus. (That address is **beardos's own adapter**, not the glasses.)
+- **venv ready** — `./venv` created; `bleak` imports (`./venv/bin/python -c "from bleak import
+  BleakScanner, BleakClient"` returns ok).
+- **Adam has disconnected the phone from the glasses** so they advertise for a direct PC pairing.
+
+### 9.3 The image to install
+
+`fws/2.2.6.11-105032302d02/g2-2.2.6.11.bin` — the CFW. `verify_cfw.py` confirms it equals
+SybilSight's reproduced output and the archived image. The tool's own `validate_firmware` prints
+`firmware ok: … 5 segments` before the confirmation prompt; that is the go/no-go on the file.
+
+### 9.4 The one item to resolve before connecting — the arm addresses
+
+`g2://local?left=<L>&right=<R>` needs both arm addresses. **They are NOT recorded in our docs.**
+⚠ The two addresses at `overview.md:1164` (`C4:AF:F2:54:38:29`, `C4:60:45:13:B3:36`) are a THIRD
+PARTY's glasses (Danxtream's committed logcat) — **do not use them.** Adam's own addresses come
+from a scan: the arms advertise as `Even G2_<serial>_L_<tail>` / `_R_<tail>`, and the tool matches
+by that name. Get them one of two ways at resume:
+
+- a short scan — `./venv/bin/python -c "import asyncio; from bleak import BleakScanner;
+  print(asyncio.run(BleakScanner.discover(timeout=15, return_adv=True)))"` — and read the two
+  `Even G2_…_L_…` / `_R_…` names and their addresses; or
+- let the tool find them: it scans in `connect()` and matches by side, but the connection string
+  still needs `left=`/`right=`, so the scan above is the way to fill them in.
+
+The arms must be powered and NOT connected to the phone (they are, per 9.2). `addressType=public`
+(a normal Linux MAC).
+
+### 9.5 The exact next steps (only with Adam present and giving the in-the-moment word)
+
+1. `python3 research/verify_cfw.py` — re-run, offline. State the 9.1 fact out loud.
+2. Fill in the two arm addresses (9.4).
+3. **Non-writing dry run** (writes no firmware):
+   `./venv/bin/python reference/g2flash/g2flash.py -c "g2://local?left=<L>&right=<R>&addressType=public" -f fws/2.2.6.11-105032302d02/g2-2.2.6.11.bin --stop-before flash`
+   Expected: `firmware ok: … 5 segments`, both arms found, `discovery: ok`, the FILE_CHECK acked.
+   Read every ack. Anything unexpected stops the procedure — do not proceed to step 5.
+4. Show Adam the dry-run output and get his explicit in-the-moment go for the write.
+5. **The write** — the same command **without** `--stop-before flash` (default `--lens both`). The
+   tool prints the confirmation banner and waits for the typed phrase. Do not pass
+   `--my-warranty-is-void`; let Adam type it. This is the irreversible step.
+6. Do **not** bypass the tool's guards. The hardware-safety facts are already coded into it: the
+   image must fit under MRAM (`validate_firmware` + the size ceiling), and an already-written block
+   must never be re-sent (the OTA path has no dedup and would double-advance). The CFW is +20,127 B
+   and bumps the preamble correctly — `verify_cfw` confirmed it. Let the tool's retry logic handle
+   any per-block re-send; do not hand-retry.
+
+### 9.6 After the install
+
+`REMINDER.md` runbook steps 4–9, then first-light items 1–18. In short: `desktop --selfcheck`
+still green and `--ble-info` still shows hci0 powered; install the APK and switch its Target from
+sim to glasses, watching the status line walk `starting → scanning → driving via ble`; leave the
+Diag overlay ON for the first session (any sticky flag is a hard error); then the PC `auto` path
+(phone-seam first, PC-direct BLE otherwise); then the browser replica; then write each measured
+number into `overview.md` §5 with a "measured on CFW" mark. Item 18 is the new one — whether the
+ring delivers the release event for the switcher chord.
+
+### 9.7 Rules still active
+
+No radio use returns to normal now (the build's no-radio rule was for the build; the install is
+the radio work). Still absolute: the offline check first, the non-writing dry run first, and **no
+write without Adam's explicit in-the-moment word** — not on momentum, not because this section
+says so. Neutral wording throughout. No timeouts, no silent failures.
