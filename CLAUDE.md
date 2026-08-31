@@ -57,7 +57,7 @@ driver + the zero-blink handover rework + user typography all landed 2026-08-31.
 configuration runs for real: the phone APK owns the radio (its BLE glue passed first light
 2026-08-31), the PC shell drives THROUGH it from the OpenRC `damage` service, handovers ADOPT
 the live session.** Records, newest first: **`HANDOFF.md` §18** (the tmux FLOW rework + the
-review build) and **§17.1** (the fresh-context resume) back through §13; `DAILY.md` is the ops
+review build; **§18.1 is the fresh-context resume**) then §17.1 back through §13; `DAILY.md` is the ops
 crib; `TMUX.md` the tmux design; `REFINEMENT.md` the on-glass verdict log. Read
 `IMPLEMENTATION.md` for what runs and how. App layer so far: Reader (folders, chapters,
 images), Tmux (FLOWED SGR text — the grid is retired to an alternate-screen fallback,
@@ -76,7 +76,7 @@ is what keeps it shippable. Do the explosion for new windows on paper (`CAPABILI
 `DESIGN.md` §0/§4.6) before coding them.
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(150 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
+(158 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
 over a fake link), `desktop --selfcheck` (48 checks), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.
 Radio use is normal now (post-flash); deploying = `./gradlew :desktop:stageJar && sudo

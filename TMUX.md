@@ -54,7 +54,8 @@ DocView read as a font switch and is gone). The refinery verdicts that shaped th
 
 Defaults stated, not asked: typed text is always confirm-to-run (literal + Enter — G2CC's
 settled 2026-06-18 semantics); new sessions auto-name `g2-N` from the ring, rename via typed
-text; snippets default to G2CC's slash list; 500 ms capture pacing; 1000-line history;
+text; snippets default to G2CC's slash list; ~~500 ms~~ **1 s capture pacing (the flow
+rework's cadence, Settings → Tmux → Update)**; 1000-line history;
 waiting sessions pinned atop the list; window NAV is non-invasive (viewing a tmux window
 targets `=session:idx` without `select-window` — selecting is an explicit action, same
 class as the resize).

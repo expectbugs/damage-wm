@@ -31,8 +31,9 @@ setup page, grant Bluetooth ×2 + notifications + the battery exemption; (2) �
 bridge app Disconnected (a second central); (3) phone first light with NOTHING on beardos
 holding the pair (`sudo rc-service damage stop`), flip Target → glasses; (4) `sudo rc-service
 damage start` → "PC shell driving". ⚠ Keep the PHONE APK current with the PC (setup page —
-0.7 now): mixed versions still work but old phones tear the session on handover instead of
-adopting it.
+0.9 now, and the phone was OBSERVED running 0.9 on 2026-08-31 night: its `tpace` control
+arrived on the tmux channel): mixed versions still work but old phones tear the session on
+handover instead of adopting it.
 
 ## Ops crib
 

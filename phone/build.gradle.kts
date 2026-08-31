@@ -100,9 +100,9 @@ dependencies {
     implementation(libs.material)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
-    // BLE driver — same library G2CC ships on. The transport is BANKED until
-    // flash day (Settings default keeps it off; the capability gate refuses
-    // stock firmware anyway) but builds against the real API now.
+    // BLE driver — same library G2CC ships on. LIVE on hardware since
+    // 2026-08-31 (the phone owns the radio all day); the capability gate
+    // still refuses any non-CFW firmware.
     implementation(libs.nordic.ble)
     implementation(libs.nordic.ble.ktx)
 }

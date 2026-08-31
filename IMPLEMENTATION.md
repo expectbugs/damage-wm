@@ -44,8 +44,8 @@ shell  ──FlushRequest{ops: Keyframe|Delta|Copy|StereoPair, epoch, wide}─�
 
 Every transport shares `CfwTransportBase` — the full choreography (capability
 gate → carrier CREATE → lease both arms + 45 s renewal → warmup splash → idle
-keepalive → fragmenting ≤3800 B → msgId/session discipline) — so the banked
-BLE path runs the exact protocol brain the sim exercises on every selfcheck.
+keepalive → fragmenting ≤3800 B → msgId/session discipline) — so both live
+BLE paths run the exact protocol brain the sim exercises on every selfcheck.
 
 ## Module map
 
@@ -165,7 +165,7 @@ development environment; also serves ~/books to the phone):
 ./gradlew :desktop:run --args="--transport sim"   # the simulator in-process (development)
 ./gradlew :desktop:run --args="--transport ble"   # PC-direct BLE only
 ./gradlew :desktop:run --args="--ble-info"    # adapter enumeration only (no discovery)
-./gradlew :desktop:run --args="--selfcheck"   # the 32-check scripted gate
+./gradlew :desktop:run --args="--selfcheck"   # the 48-check scripted gate
 ./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"  # parse every book in ~/books
 ./gradlew :desktop:run --args="--host-only"   # content host alone
@@ -289,9 +289,9 @@ none of it has met the radio yet (that is §13.2's runbook, Adam's part):
   the G2CC server's `/setup` page grew a DamageWM box and a `/damage-apk` endpoint (additive
   twin of `/apk` — same Tailscale+token gate, mtime-stamped filename). APK at 3/0.3.
 
-- **The phone's `BleTransport` has still never run on hardware** — only the PC path has. It is
-  written from G2CC's proven driver and verified over the firmware model and a fake link. The
-  phone's target defaults to the sim; the capability gate refuses any firmware without an
+- ~~The phone's `BleTransport` has still never run on hardware~~ — **it passed its own first
+  light later the same day (2026-08-31, first try) and owns the radio all day now.** It is
+  written from G2CC's proven driver; the capability gate refuses any firmware without an
   `EVENCFW` string, so stock glasses cannot be painted even by mistake.
 - Compass, IMU, wear detection: per `DESIGN.md` (§7) — compass cell draws a
   placeholder until the mode-10 feed exists; head tracking defaults OFF.
@@ -317,8 +317,9 @@ no `-C` attach — the G2CC Phase-5 safety shape); `wm.damage.core.windows.tmux`
   the live edge returns to live). Capture pacing defaults to 1 s, Settings → Tmux → Update
   (0.5/1/2/5 s) adjusts it live over the wire (`tpace`) and persists.
 - **`LocalTmuxProvider`** execs `sh -c` scripts — ONE per host per tick (status 2.5 s, capture
-  500 ms pushed on change), so an ssh host (verdict 1: multi-host; slappy ships in the default
-  config, port 80) costs one round trip per tick. Waiting-pattern EDGE alerts (verdict 3: on
+  1 s pushed on change — the Update setting adjusts it live), so an ssh host (verdict 1:
+  multi-host; hosts are opted in via `tmuxHosts` when actually alive — the default is empty
+  since §15) costs one round trip per tick. Waiting-pattern EDGE alerts (verdict 3: on
   for all, per-session mute, GLASS only); `g2-N` auto-naming; literals cross ssh single-quote
   escaped. ssh gets BatchMode+ConnectTimeout=5 on connection ESTABLISHMENT only — the
   equivalent of a refused connect, retried next tick; every loop is pacing, no timeouts.
@@ -474,7 +475,9 @@ of them are load-bearing and easy to break by accident:
 
 ## Verification
 
-- `./gradlew :core:test` — 150 unit/integration tests (2026-08-31 added `TmuxTest` ×16,
+- `./gradlew :core:test` — 158 unit/integration tests (the flow rework added `FlowRenderTest`
+  ×6 plus the pacing/alternate-fallback window tests and the wire-pacing round trip;
+  2026-08-31 added `TmuxTest` ×16,
   `SeamLivenessTest` ×3, `HandoverTest` ×4, `StyleTest` ×5 and the tmux freeze/bleed regressions; the refinement wave added
   `BatteryBrightnessTest`, `EpubChaptersImagesTest`, and the wire-true source-0 injections in
   `LongPressTest`; the finishing build added

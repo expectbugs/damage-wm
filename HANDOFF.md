@@ -1290,7 +1290,7 @@ The §13.2 runbook is unchanged and still the next step — nothing here has met
 4. Ask Adam to sideload when the APK is ready; he flips the Target himself. The phone's own
    radio work needs no extra permission — the flash-era no-radio rule is long retired.
 
-## 14. Tmux on glass — designed, refined and built in one day (2026-08-31)
+## 14. Tmux on glass — designed, refined and built in one day (2026-08-31) ⚠ the GRID here is SUPERSEDED by §18 (flow view)
 
 Adam asked for the Tmux window ("look at the G2CC implementation carefully, but don't copy it
 verbatim… a much better implementation"), answered every up-front question in one refinery pass
@@ -1455,5 +1455,37 @@ Built the same night (TMUX.md top block is the design record):
 
 Battery green: core **158** (6 new `FlowRenderTest` + pacing/fallback window tests + the
 wire-pacing round trip) · desktop 9 · selfcheck 48 · snapshots (09c/09d now show the flow;
-eyeballed) · epub-check · lint 0 · **APK 9/0.9 staged, jar staged**. §17.1 remains the resume
-protocol with this section prepended to the arc.
+eyeballed) · epub-check · lint 0 · **APK 9/0.9 staged, jar staged**.
+
+### 18.1 RESUME PROTOCOL for a fresh context (supersedes §17.1's numbers; its shape stands)
+
+1. Read `CLAUDE.md` (status header current), then this §18, then §17.1 back through §13 for
+   the launch-day arc. `DAILY.md` = ops crib · `TMUX.md` top block = the flow design ·
+   `IMPLEMENTATION.md` = what runs · `REMINDER.md` = the on-glass checklist.
+2. **The state of the world:** the OpenRC service `damage` was RESTARTED onto the flow build
+   (`43f2f15`) at 2026-08-31 18:05 and went straight back to driving through the phone
+   (`driving via remote:aphone`, log `~/.damage/damage.log`). **The phone runs APK 0.9 —
+   OBSERVED, not assumed: its `tpace` control arrived on the tmux channel** (the pre-restart
+   PC process logged it as an unknown control, additively, exactly as designed). Both ends
+   ≥ 0.6, so handovers adopt. Deploys: `./gradlew :desktop:stageJar && sudo rc-service damage
+   restart`; **stop the service before any `:desktop:run`** (one central, one set of ports).
+3. **Versions:** repo HEAD = the doc-freshness sweep on top of `43f2f15` (flow) · `92a98aa`
+   (8/0.8) · `67a1d41` (review fixes). APK staged AND installed: 9/0.9.
+4. Battery at HEAD, all green: core **158** · desktop 9 · selfcheck **48** · snapshots
+   (09c/09d show the flow) · epub-check 380/404 images · lint 0 · APK builds. Run the whole
+   battery after ANY code change (`CLAUDE.md`). One flaky one-off was seen mid-session
+   (a single core-test failure that never reproduced across four reruns on a loaded box) —
+   note it if it recurs.
+5. **Open, in order:** Adam's on-glass verdicts on the FLOW view (wrap feel, default 16-px
+   base size, rule collapse, the 1 s cadence, alternate-screen fallback) and the rest of the
+   night wave (per-app depth, fonts-in-their-own-face); the left-lens seam-residue watch; the
+   ~20 s silent-death window (tighten `SEAM_PING_MS`/`SEAM_QUIET_MS` only if he asks); then
+   the **app-layer scope explosion** (`CAPABILITIES.md`, `DESIGN.md` §0/§4.6) and the
+   icon-quality pass.
+6. Known minor debts, deliberately not taken (reported 2026-08-31): tmux list rows cut long
+   strings without the ▸ continuation mark (reachable content, soft NO-TRUNCATION gap);
+   `LocalTmuxProvider.captureLoop` blocks on the scope dispatcher (statusLoop got the
+   parallel-IO treatment, captures did not — one subscriber in practice).
+7. G2CC coexistence unchanged: its SERVER runs (:7300, serves our APK page); its ANDROID
+   bridge stays Disconnected (second central); never sweep its in-flight FF1 work into a
+   commit.

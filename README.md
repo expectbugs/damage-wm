@@ -5,18 +5,21 @@ custom firmware (`g2flash`) that replaces the vendor's container model with dire
 access. The PC composes complete scenes with real fonts and arbitrary layout; the glasses are
 a dumb framebuffer.
 
-**Live on hardware since 2026-08-30** — the CFW is installed, the PC drives the glasses directly
-over BlueZ, and the shell is in daily use. Built 2026-08-24/25 (the Kotlin shell core, the
-byte-exact glass simulator, the desktop program and the phone APK, hardened through rounds of
-independent review), lit 2026-08-30 (first light: the whole choreography — prelude, capability
-gate, carrier, leases, warmup — worked; ack latency measured), refined 2026-08-31 with the wearer
-in the loop: chrome behind the content plane, per-app height, Reader folders / chapters / in-book
-images / configurable scroll, a categorized Settings tree, a seven-segment silent clock, live
-brightness, wire-fed battery cells, and a measured latency curve (`ms ≈ 60 + bytes/50`) that
-retired the modeled numbers. [`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run;
-`HANDOFF.md` §10–12 are the install / first-light / refinement records; `REFINEMENT.md` is the
-item-by-item log. The phone APK's own BLE path is written and banked but has not yet run on
-hardware — the PC-direct path is the one in daily use.
+**Live on hardware since 2026-08-30, the all-day daily driver since 2026-08-31** — the CFW is
+installed and the DEFAULT configuration runs for real: the phone APK owns the radio (its BLE
+glue passed its own first light), the PC shell drives through it over the transport seam from
+an OpenRC service, handovers ADOPT the live session (a driver change is one repaint, not a
+teardown), and PC-direct BlueZ remains the at-the-desk fallback. Built 2026-08-24/25 (the
+Kotlin shell core, the byte-exact glass simulator, the desktop program and the phone APK,
+hardened through rounds of independent review), lit 2026-08-30, refined 2026-08-31 with the
+wearer in the loop: chrome behind the content plane, per-app height, Reader folders / chapters
+/ in-book images, a categorized Settings tree with global + per-app typography and depth, a
+Tmux window (terminal output as FLOWED text — the cell grid is retired to an alternate-screen
+fallback — with typed text via the replicas and waiting-session alerts), a seven-segment
+silent clock, live brightness, wire-fed battery cells, and a measured latency curve
+(`ms ≈ 60 + bytes/50`) that retired the modeled numbers. [`IMPLEMENTATION.md`](IMPLEMENTATION.md)
+is the how-to-run; `HANDOFF.md` §10–18 are the install / first-light / refinement / launch-day
+records; `DAILY.md` is the ops crib; `REFINEMENT.md` and `TMUX.md` the design logs.
 
 ## Start here
 
@@ -45,13 +48,13 @@ The design is shaped by three facts about this display, and most of it follows f
 ## Building and verifying
 
 ```
-./gradlew :core:test                                  # 121 tests, incl. the per-lens oracle
+./gradlew :core:test                                  # 158 tests, incl. the per-lens oracle
 ./gradlew :desktop:test                               # 9 tests: the BlueZ glue over a fake link
-./gradlew :desktop:run --args="--selfcheck"           # the 32-check whole-stack gate
+./gradlew :desktop:run --args="--selfcheck"           # the 48-check whole-stack gate
 ./gradlew :desktop:run --args="--snapshot DIR"        # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"          # parse every book; chapters + image decode
-./gradlew :desktop:run --args="--transport ble"       # drive the glasses PC-direct (daily use)
-./gradlew :desktop:run                                # auto mode + preview (4x) + content host
+./gradlew :desktop:run --args="--transport ble"       # PC-direct BLE (the at-the-desk fallback)
+./gradlew :desktop:run                                # auto mode (phone seam first) + preview (4x)
 ./gradlew :phone:assembleDebug                        # the APK
 tools/lint.py                # design gate: 20 rules (SYM/GEO/BUD/FID); --selftest proves each fires
 python3 design/render_shots.py   # design renders at true 1x, priced through the firmware's RLE

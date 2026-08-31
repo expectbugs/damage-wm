@@ -1,12 +1,15 @@
 # Where we are, and what to do next
 
-**Updated 2026-08-31 (evening) — the DAILY DRIVER is live: phone APK owns the radio (its own
+**Updated 2026-08-31 (night) — the DAILY DRIVER is live: phone APK owns the radio (its own
 first light passed), the PC shell drives through it from the OpenRC `damage` service,
-handovers adopt the session (zero blinks), Tmux + user typography shipped.**
+handovers adopt the session (zero blinks), Tmux + user typography shipped. Then the night
+wave: a full-codebase deep review (four verified fixes, `67a1d41`) and 🔴 THE TMUX GRID
+RETIRED — the terminal renders as FLOWED text through the per-app typography; the grid
+survives only for alternate-screen TUIs (`HANDOFF.md` §18, TMUX.md top block).**
 
-📍 **Start here, in this order:** `HANDOFF.md` §17 (the fresh-context resume — it chains back
-through §13–16), then `DAILY.md` (the ops crib for the all-day setup), then this file for the
-checklist of what is still unmeasured on glass.
+📍 **Start here, in this order:** `HANDOFF.md` §18 (the night wave + the CURRENT resume
+protocol, §18.1) then §17.1 back through §13, then `DAILY.md` (the ops crib for the all-day
+setup), then this file for the checklist of what is still unmeasured on glass.
 
 **History, if you need it:** `HANDOFF.md` §10 is the firmware install; §10.13 is the ring update;
 §9 is **superseded** by §10 and should not be followed. §8 is the finishing build, whose whole gap
@@ -36,9 +39,10 @@ Open items 11–12 are DECIDED AND CODED: **Kotlin/JVM** shell (one `:core` for 
 the transport↔shell seam as a protocol (in-process, and serialized over TCP with single-driver
 takeover). What exists: the shell core + compositor, the **byte-exact glass simulator**, the
 desktop program (1x preview, selfcheck, snapshots, content host), the **phone APK** (on-screen
-shell, copy-on-open book caching, PC-takeover seam, **banked** BLE transport), and the Reader +
+shell, copy-on-open book caching, PC-takeover seam, then-banked BLE transport), and the Reader +
 Main app layer. Everything targets the CFW contract. *(Written pre-flash — the glasses have run
-the CFW since 2026-08-30 and the PC drives them daily.)*
+the CFW since 2026-08-30, and since 2026-08-31 the PHONE owns the radio all day with the PC
+shell driving through it.)*
 See `IMPLEMENTATION.md`. The repo is under git.
 
 **Hardened through eight review rounds the same day, then five more in the finishing build** (2026-08-25, `REVIEW.md`) (`IMPLEMENTATION.md` → "Review hardening",
@@ -77,9 +81,11 @@ against the simulator and the fake links, none of it on a radio yet:
 the three configurations exercised on hardware the same day — takeover, fallback, PC-only all
 observed working; the §16 handover rework made every transition a repaint). In the queue now:
 
-- **On-glass verdicts for the 2026-08-31 evening wave**: the tmux full-width grid + grid
-  history, the settings typography (fonts previewed in their own faces), per-app depth against
-  global chrome, arrow quick keys — all sim-verified, awaiting his eyes.
+- **On-glass verdicts for the 2026-08-31 night wave**: the tmux FLOW view (wrapped
+  typographic terminal text, rules drawn, tail marker, 1 s updates — Font/size/style are real
+  knobs on the terminal now; the grid remains only for htop-class TUIs), the settings
+  typography (fonts previewed in their own faces), per-app depth against global chrome, arrow
+  quick keys — all sim-verified, awaiting his eyes.
 - **The app-layer scope explosion** (`CAPABILITIES.md` + `DESIGN.md` §0/§4.6) — the next big
   phase, deliberately after the daily driver settled.
 - The **icon-quality pass** Adam queued ("very basic").
@@ -164,7 +170,10 @@ in the existing corpus.
   Live telemetry is in the status bar; the deeper view wants to be a window, i.e. app-layer work.
 - **Per-window typeface for the windows not yet designed** — Files, Calendar, Music, SMS, Timers,
   Scout, Notices all inherit Clear Sans until their app earns an override. Deliberately not invented.
-- **Typed-text input** — G2CC had an `onTypedText` path; unported, and the ring alone cannot type.
+- ~~**Typed-text input**~~ — **built 2026-08-31** (`DamageWindow.onTypedText` +
+  `Transport.injectText`): a line typed on the phone strip, the browser replica or the desktop
+  preview reaches the focused window, which ALWAYS stages a confirm before anything runs (Tmux
+  is the first consumer). The ring itself still cannot type — that part stands.
 
 ---
 

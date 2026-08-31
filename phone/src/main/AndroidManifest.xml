@@ -9,8 +9,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
-    <!-- BLE: banked until flash day, but the permissions ship now so the
-         transport can come alive with a Settings toggle, not a reinstall. -->
+    <!-- BLE: the live radio path since 2026-08-31 — the phone owns the pair
+         all day (Target=glasses); the capability gate refuses non-CFW firmware. -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
