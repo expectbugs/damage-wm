@@ -1,4 +1,17 @@
-# HANDOFF — from the first build to the finishing build
+# HANDOFF — the build record
+
+**Map, newest first. Read §11 before anything else.**
+
+| § | what | status |
+|---|---|---|
+| **11** | **First light, 2026-08-30** — the PC drove the glasses, the ring drove them, ack latency measured, three defects found | **current** |
+| **10** | The firmware install: what changed upstream, the image chosen, the dry-run staircase, the result (§10.11), the ring update (§10.13) | **current** |
+| 9 | The earlier install plan | ⛔ **SUPERSEDED by §10** — written against the older g2flash and the older image. Do not follow it |
+| 8 | The finishing build (2026-08-25) | history; its whole gap list is closed |
+| 0–7 | The first build and its plan | history |
+
+**The work queue is now `REFINEMENT.md`.** `REMINDER.md` holds what is still unmeasured.
+
 
 **Written 2026-08-25 for a fresh session.** ✅ **The finishing build is COMPLETE (2026-08-25, five
 review rounds, battery green) — §8 is its record** (decisions, fixed design, checklist, resume
@@ -551,7 +564,14 @@ checked here, and one commit `§8 <id>: <what>`.
 
 ---
 
-## 9. Firmware install — resume point (2026-08-30)
+## 9. Firmware install — resume point (2026-08-30) ⛔ SUPERSEDED
+
+> **Do not follow this section.** It was written against g2flash `877c8d9` and the archived
+> 2.2.6.11 image. The reference repos moved the same evening and the plan changed with them:
+> a different image, a new authentication step in the flasher, and a staged dry run in place of a
+> single one. **§10 replaces it in full**, and §10.11 records what actually happened. Kept only
+> because §10 refers back to it.
+
 
 **Status: paused before any radio use, at Adam's request. Nothing has been written to the
 glasses. They remain on stock 2.2.2.20.** This section is written so a fresh context resumes the

@@ -187,14 +187,30 @@ local shell yielding and resuming automatically.
 | laptop-direct with the simulator | `:desktop:run --args="--transport sim"` — the development environment |
 | browser replica | `http://<desktop-or-phone>:7403/?token=…` from any machine on the tailnet |
 
+## Confirmed on hardware — first light, 2026-08-30
+
+The glasses run the CFW and the PC has driven them. `HANDOFF.md` §11 is the record.
+
+- **`BlueZTransport` works** — scan by name, RIGHT then LEFT, MTU 247, notifications, write
+  pacing, and **no bonding was needed**. It ran correctly the first time it ever saw a radio.
+- **The whole choreography works**: prelude, capability gate, carrier CREATE, both leases, the
+  warmup drop, then a painting shell.
+- **Input works** over ring → glasses → `e0-01`: scroll, tap and double-tap all arrive.
+- **The session keeper works** — two unplanned link ends, both recovered without help.
+- **Ack latency measured at ~50 ms**, against the modeled 176 ms. ⚠ Idle shell: the floor, not the
+  curve. See `HANDOFF.md` §11.1 before quoting it.
+
+Three defects surfaced within minutes and are fixed: the ack **status enum** read as an error code,
+the journal rewriting a closed stream, and inbound input never being logged. The first is the one
+worth remembering — **the simulator modeled success as an absent field, so no offline test could
+have caught it.** A model that errs toward permissive is worse than no model.
+
 ## Banked, deliberately
 
-- **The radio paths have never run on hardware**: `BleTransport` (phone) and
-  `BlueZTransport` (PC) are written from working drivers and verified over the
-  firmware model and a fake link. The phone's target defaults to the sim; the
-  capability gate refuses any firmware without an `EVENCFW` string, so stock
-  glasses cannot be painted even by mistake. First light follows `REMINDER.md`'s
-  runbook after Adam flashes the CFW.
+- **The phone's `BleTransport` has still never run on hardware** — only the PC path has. It is
+  written from G2CC's proven driver and verified over the firmware model and a fake link. The
+  phone's target defaults to the sim; the capability gate refuses any firmware without an
+  `EVENCFW` string, so stock glasses cannot be painted even by mistake.
 - Compass, IMU, wear detection: per `DESIGN.md` (§7) — compass cell draws a
   placeholder until the mode-10 feed exists; head tracking defaults OFF.
 - ~~Texture caching (Babcock's in-progress firmware work)~~ — **it shipped**, see below.

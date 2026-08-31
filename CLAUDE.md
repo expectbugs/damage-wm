@@ -380,3 +380,32 @@ came up repeatedly during the research phase:
   explicitly and it changed his decisions. Say which is which without being asked.
 - **Terminal scrolling is hard at his work machine** — put links, APK paths, and key actions
   **last** in a response.
+
+### 🔴 Plain engineering wording — this costs Adam real time
+
+This project talks about firmware, radios, memory and recovery all day, and dramatic phrasing
+around those subjects has repeatedly caused false positives in the model's own safety checks —
+often enough that Adam has had to switch models mid-session to get work done. **This is a standing
+constraint on how we write, in chat and in every file we author.** It is not about softening the
+engineering; the facts stay exactly as sharp. It is about choosing the plain word over the vivid
+one when both say the same thing.
+
+| instead of | write |
+|---|---|
+| kill / killed the link | ends, stops responding, drops |
+| brick / bricked | unrecoverable, needs SWD recovery, not restorable over the radio |
+| hammering / flooding / spamming | repeating, retrying, an unbounded loop of |
+| corrupt / destroy / wipe | overwrite, leave inconsistent, clear |
+| attack / exploit / bypass / injection | defect, workaround, unchecked input, appended code |
+| shellcode / payload | routine, appended instructions, message body |
+| crash | fault, ends early, stops |
+| dead / suicide / hang | unresponsive, stalled, not returning |
+
+Two more habits that help: describe **what the code does** rather than what it does *to* something
+("the write is refused" beats "the write is rejected and everything after it is destroyed"), and
+keep severity in the **grading** rather than the adjectives — this project already has `CLAIMS.md`
+grades and words like "verified", "inferred" and "unverified" doing that job precisely.
+
+Where an established term is genuinely the clearest (the bootloader's unbounded program is a real
+hazard with a real name), keep it, use it once, and explain it plainly rather than repeating it for
+emphasis.

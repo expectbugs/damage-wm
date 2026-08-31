@@ -1,10 +1,16 @@
 # Where we are, and what to do next
 
-**Updated 2026-08-25.** 📍 **The finishing build is COMPLETE (2026-08-25, five review rounds, battery green) — `HANDOFF.md` §8 is its record** (decisions, design, checklist, resume protocol): the gap list
-(no PC BLE, no target switch in the phone UI, replica dark on real glasses, BLE glue never run),
-the G2CC study plan, Adam's decisions for it, and the ordered work plan. Then this file, then
-`overview.md` (facts), `CLAIMS.md` (how well we know them), `CLAUDE.md` (rules), `DESIGN.md`
-(the shell), and **`IMPLEMENTATION.md` (the first built stage — what runs today and how).**
+**Updated 2026-08-30 — the glasses run the CFW and the PC has driven them.**
+
+📍 **Start here, in this order:** `HANDOFF.md` §11 (first light — what it proved and the three
+defects it found), then **`REFINEMENT.md`** (the backlog Adam asked for after wearing it), then
+this file for the checklist of what is still unmeasured.
+
+**History, if you need it:** `HANDOFF.md` §10 is the firmware install; §10.13 is the ring update;
+§9 is **superseded** by §10 and should not be followed. §8 is the finishing build, whose whole gap
+list (no PC BLE, no phone target switch, replica dark on real glasses, BLE glue never run) is now
+closed. Then the standing references: `overview.md` (facts), `CLAIMS.md` (how well we know them),
+`CLAUDE.md` (rules), `DESIGN.md` (the shell) and `IMPLEMENTATION.md` (what runs and how).
 
 ---
 
@@ -62,64 +68,33 @@ against the simulator and the fake links, none of it on a radio yet:
   from any of them reaches whichever shell drives. The shell compares its belief with the mirror at
   rest and reports any disagreement.
 
-## 🚀 Next
+## 🚀 Next — refinement
 
-**(a) The feature-creep scope explosion — for the APP layer.** The shell exists; Reader is its
-first tenant. Start from **`CAPABILITIES.md`** for what the hardware allows and **`DESIGN.md` §0 /
-§4.6** for what the shell provides and what is ruled out — then explosion → refinery →
-consistency → more windows.
+**`REFINEMENT.md` is the work queue.** It holds what Adam asked for after using the glasses:
+chrome to the back of the depth ladder, per-app height, Reader folders and a coarser scroll, the
+silent-mode clock, and the switcher defect (already diagnosed — the ring never sends event 9).
 
-**(b) First light** — flash day: the runbook and then the checklist below against the real pair.
+Still wanted from the original plan, now unblocked: **the app-layer scope explosion**, starting
+from `CAPABILITIES.md` for what the hardware allows and `DESIGN.md` §0 / §4.6 for what the shell
+provides and what is ruled out.
 
----
+## ✅ Flash day and first light — DONE 2026-08-30
 
-## 🟢 Flash-day runbook (one screen)
-
-**🔴 Re-planned 2026-08-30 — `HANDOFF.md` §10 supersedes this list where they differ.** The CFW
-repo moved from `877c8d9` to `a5d1c31` (texture cache, builtin fonts, a flasher auth step), so the
-image, the dry run and the risk list all changed. Read §10 before running anything here.
-
-1. `python3 research/verify_cfw.py` — offline proof of the image; it now checks **both** candidate
-   images and their MRAM fit. **Say out loud: leaving 2.2.2 is irreversible** (it is not in the
-   public archive).
-2. Phone: enable HCI snoop (**Enabled**, not filtered), toggle Bluetooth off/on, keep BTSnoop
-   running for the whole day (`btsnoop-capture-gotcha`).
-3. The dry-run **staircase**, not one dry run — `--stop-before heartbeat` (connect + discover,
-   writes nothing at all), then `--stop-before file_check` (adds the new auth exchange), then
-   `--stop-before flash` (adds BEGIN + FILE_CHECK; still zero firmware bytes). ⚠ `--stop-before
-   flash` was never literally inert. Then, and only then, the real flash, on Adam's explicit go.
-4. PC: `./gradlew :desktop:run --args="--selfcheck"` still green; `--ble-info` shows hci0 powered.
-5. Phone: install `phone/build/outputs/apk/debug/phone-debug.apk`, open it, tap **target: sim** →
-   switch to **glasses**. Expected: status line walks through *starting → scanning → driving via
-   ble*; the phone screen shows the splash, then Main. Anything else is a fault line in the
-   status bar and a phone notification — read it before touching anything.
-6. Leave the **Diag overlay ON** (Settings) for the whole first session: any sticky flag is a
-   hard error. `DIVERGE` in the status bar means the compositor and the firmware model disagree
-   about our own bytes — suspect the model before the design.
-7. PC, at the desk: `./gradlew :desktop:run` (auto). Expected: the strip says *driving via
-   remote:aphone* within seconds (the phone yields; its screen keeps showing the mirror). Kill
-   the desktop program: the phone resumes on its own. Put the phone away / stop its app: the
-   desktop's strip goes to *scanning* and then *driving via ble* — PC-direct.
-8. Browser: open the printed replica link from any machine on the tailnet; wheel/click/hold.
-9. Then the measurements below, in order; write each number into `overview.md` §5 with a
-   "measured on CFW" mark.
-
----
+Both are history; the runbook that used to live here has served its purpose and is removed so
+nobody follows it again by mistake. The records are `HANDOFF.md` §10 (install, with the dry-run
+staircase and the two risks it closed) and §11 (first light). `research/verify_cfw.py` still
+passes and is still the right first step before any future firmware work; `research/r1_dfu.py`
+is the ring updater.
 
 ## 🔴 First light — the consolidated checklist
 
 Everything below is blocked on being on hardware. Scattered across `DESIGN.md` §10 and
 `overview.md` §11; gathered here so nothing is lost.
 
-**Do before anything else**
-
-1. **`python3 research/verify_cfw.py`** — free, offline, proves the image. Re-run before *any*
-   flashing conversation.
-2. **The dry-run staircase** (`HANDOFF.md` §10.6): `--stop-before heartbeat`, then `file_check`,
-   then `flash`. Every time. Only the first writes nothing at all.
-3. Say out loud that **leaving firmware 2.2.2 is irreversible** (it is not in the public archive).
-
-**Measure on the first session**
+**Status after 2026-08-30.** Items 6, 12, 13 and 16 are closed — see `HANDOFF.md` §11.2. Item 18
+is closed as *diagnosed but not working*, with the cause identified in §11.4 and the follow-up in
+`REFINEMENT.md` §4. Everything else below is still open, and **every question about how the design
+actually looks on glass is among them.**
 
 | # | what | why it matters |
 |---|---|---|
@@ -128,19 +103,19 @@ Everything below is blocked on being on hardware. Scattered across `DESIGN.md` �
 | 3 | **Comfortable disparity `d`** — ramp 0/4/8/12/16 | and whether stock FAR already spends the budget |
 | 4 | **The rect budget of 5** (graded **I**) | derived from `cfw_diag()`, never observed; failure is silent |
 | 5 | **Two-arm BTSnoop capture** | settles the bulk-to-LEFT / control-to-RIGHT split (graded **I**) |
-| 6 | **CFW ack latency** on the direct-FB path | prices every estimate; a tuning constant, not a gate |
+| ~~6~~ | ✅ **CFW ack latency** — **~50 ms measured** (was modeled 176 ms). ⚠ Idle shell only: the FLOOR, not the curve. Re-measure under a full keyframe before re-pricing `overview.md` §5 | `HANDOFF.md` §11.1 |
 | 7 | **msgId-255 behaviour under CFW** | it kills the link on stock |
 | 8 | **Chrome legibility** at 32/28 px bars, real faces on glass | the one thing renders cannot answer |
 | 9 | **Whether a normal Android app can see WEA/CMAS alerts** (Pixel 10a) | `DESIGN.md` §4.5 promises emergency alerts; unverified |
 | 10 | **Connected RSSI** — obtainable at all, and from which link | the status bar's link cell |
 | 11 | **Transport** — PC-direct BLE vs phone-bridged | decides where the BLE stack lives; PC-direct only ever works at the desk |
-| 12 | **Link-death behaviour** — pull the glasses out of range mid-session | the session ends (LINK DOWN), the keeper restarts it after 2 s and scans until the pair is back; the mirror should show the splash then the restored surface |
-| 13 | **Settings-frame timing** — does the real CFW ever send a sid-0x09 frame outside the capability query? | the gate only listens while querying; a stray frame is logged, not acted on |
+| ~~12~~ | ✅ **Link-death behaviour** — pull the glasses out of range mid-session | the session ends (LINK DOWN), the keeper restarts it after 2 s and scans until the pair is back; the mirror should show the splash then the restored surface |
+| ~~13~~ | ✅ **Settings-frame timing** — the glasses DO send unsolicited sid-0x01 frames (codes 1000/2000); logged and ignored as designed. Original question: — does the real CFW ever send a sid-0x09 frame outside the capability query? | the gate only listens while querying; a stray frame is logged, not acted on |
 | 14 | **The stall report** — force a lost image ack (RF shielding) | must show as a `stall!` fault in the status bar with the link otherwise healthy |
 | 15 | **The sid-0x01 connect prelude** — graded U: does the CFW require it before CREATE? | the transport sends it (the reference does); the model treats it as required. If the real firmware answers differently, `LaunchMsg` says where to change it |
-| 16 | **PC-direct BLE over BlueZ** — the MTU the characteristic reports, notification delivery, write-without-response pacing, **and whether beardos must BOND with the pair first** | first exercise of `BlueZDbus`; the nine fake-link tests say what is expected. The bonding half is open because every capture we hold was taken from an already-bonded phone (`HANDOFF.md` §10.5) — it applies to the flash and to the runtime link alike |
+| ~~16~~ | ✅ **PC-direct BLE over BlueZ** — works, first try, and **no bonding was required**. Original question: — the MTU the characteristic reports, notification delivery, write-without-response pacing, **and whether beardos must BOND with the pair first** | first exercise of `BlueZDbus`; the nine fake-link tests say what is expected. The bonding half is open because every capture we hold was taken from an already-bonded phone (`HANDOFF.md` §10.5) — it applies to the flash and to the runtime link alike |
 | 17 | **Takeover and fallback** — PC appears → it drives via the phone; PC gone → the phone resumes; phone gone at the desk → PC-direct BLE | every transition narrated in the status strip / phone status line and the browser page |
-| 18 | **The switcher chord** (§1.3, 2026-08-30) — long-press, then double-tap within 0.8 s of the release: does the ring deliver `SysEvent 10` reliably, and does the window feel right? | the default grammar (a bare long-press is a no-op); if the release never arrives the window runs from event 9 — widen `chordWindowMs` in `Shell.kt` if real holds outrun it |
+| 18 | ⚠ **The switcher chord — DOES NOT WORK, cause found.** The ring never sends event 9; both routes into the switcher need it (`HANDOFF.md` §11.4, `REFINEMENT.md` §4). Original question: (§1.3, 2026-08-30) — long-press, then double-tap within 0.8 s of the release: does the ring deliver `SysEvent 10` reliably, and does the window feel right? | the default grammar (a bare long-press is a no-op); if the release never arrives the window runs from event 9 — widen `chordWindowMs` in `Shell.kt` if real holds outrun it |
 | 19 | **The texture cache on glass** (new, CFW `a5d1c31`) — upload a small atlas with mode 12, draw it with 13 and 14, and compare the panel against the simulator's prediction pixel for pixel | modes 12/13/14 are modeled byte-exactly but have never run on hardware. This is the gate on adopting cached glyphs for text. ⚠ **Two things not to misdiagnose:** mode 14 adds one overlay rect per glyph against a 16-deep list, so with the diagnostic overlay on, a string over ~16 glyphs shows incomplete outlines — that is the overlay, not a firmware fault. And a failed 64 KiB allocation shows ONLY as the sticky `ALLOC` flag, so leave the overlay on for the first upload |
 | 20 | **What an atlas upload actually costs** — time a 16/32/64 KiB mode-12 upload at the measured link rate, and confirm the cache really survives a lease *renewal* while dying on a lapse | decides atlas size and whether a session can afford a full font. Prices the whole mode-14 trade against item 6's real ack latency |
 | 21 | **Temple-touchpad long-press** — since `a5d1c31` either temple raises `SysEvent 9` too, not just the ring. How often does it fire by accident, in gloves, in a coat pocket? | `DESIGN.md` §1.2's "a bare long-press is a no-op" was decided for the ring alone and now carries a second accidental source. Confirm the default still feels right before anyone proposes relaxing it |

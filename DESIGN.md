@@ -31,7 +31,7 @@ Recorded so they are not re-proposed. These are *decisions*, not oversights.
 | excluded | why |
 |---|---|
 | ❌ **The piezo buzzer, entirely** | Adam, 2026-08-17: *"no tone/buzzer. i do not want my glasses to emit sound."* Mode 5 is never sent. Out-of-band alerting goes to the phone instead (§9.3) |
-| ❌ **Scroll acceleration / velocity** | scroll and tap are already hard to distinguish on the ring's small sensor, especially gloved. Every notch is one step, always |
+| ⚠ ~~❌ **Scroll acceleration / velocity**~~ **RE-OPENED 2026-08-30** | The original reasoning: scroll and tap are hard to distinguish on the ring's small sensor, especially gloved, so every notch is one step, always. **Adam reversed this after using Reader on glass** — one line per notch inside a book is far too little, and he asked for accelerated scrolling "like firmware scroll", with a lines-per-notch setting as the fallback. Two things also changed underneath the original call: ack latency measured at ~50 ms rather than 176 ms, which makes motion much cheaper, and first light showed tap and scroll arriving as cleanly distinguished event types rather than as one ambiguous stream. `REFINEMENT.md` §3b carries the work. **The fallback setting should ship regardless of whether acceleration does.** |
 | ❌ **Wear / unwear differentiation** | not wanted for now. `wearnotify` stays banked, unused |
 | ❌ **Head tracking on by default** | available, **defaults OFF** — his head moves constantly at work (§7.1) |
 | ❌ **Long-press as a live gesture by default** | reversed 2026-08-30: it is the most common accidental press by far, all day, gloves worst — **defaults OFF (a no-op)**; the §1.3 chord opens the switcher; a Settings row restores the direct open |
