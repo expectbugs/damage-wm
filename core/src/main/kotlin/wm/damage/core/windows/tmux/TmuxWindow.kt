@@ -16,13 +16,11 @@ import wm.damage.core.gfx.Level
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.HostSetting
 import wm.damage.core.shell.ListModel
-import wm.damage.core.shell.DocModel
 import wm.damage.core.shell.ShellServices
 import wm.damage.core.shell.WindowView
 import wm.damage.core.text.Face
 import wm.damage.core.text.FontSpec
 import wm.damage.core.text.TextRasterizer
-import wm.damage.core.text.Wrap
 import wm.damage.core.util.Log
 
 /**
@@ -34,9 +32,12 @@ import wm.damage.core.util.Log
  *   LIVE (canvas)    the pane's true grid — JetBrains Mono, SGR -> 16 grays,
  *                    inverted cursor, dimmed context rows above (verdict 5);
  *                    scroll-up enters history, tap descends to keys
- *   HISTORY (doc)    a FROZEN scrollback snapshot (G2CC's lesson: history
- *                    does not shift under the reader), wrapped at reading
- *                    size; double-tap returns to live
+ *   HISTORY (canvas) a FROZEN scrollback snapshot (G2CC's lesson: history
+ *                    does not shift under the reader) rendered through the
+ *                    SAME live fit — same face, size, width, colours (Adam
+ *                    2026-08-31: no font/size switch when scrolling); notches
+ *                    move 5 rows, and the notch that reaches the live edge
+ *                    RETURNS TO LIVE; double-tap returns too
  *   KEYS (list)      the quick dozen (verdict 4) + Snippets/Type/Windows/
  *                    Session…; every send drops back to LIVE to watch it run
  *   plus SNIPPETS, WINDOWS (view any window non-invasively), SESSION_ACTIONS
@@ -62,7 +63,6 @@ class TmuxWindow(
     private val winModel = ListModel()
     private val actModel = ListModel()
     private val confirmModel = ListModel()
-    private val docModel = DocModel()
 
     private val renderer = TermRender(text)
     private var services: ShellServices? = null
@@ -74,10 +74,12 @@ class TmuxWindow(
     private var target: TmuxTarget? = null
     private var frame: PaneFrame? = null
 
-    // ---- history (frozen at entry; raw kept so wraps re-derive) ----
+    // ---- history (frozen at entry; rendered through the LIVE fit — same
+    // face, size and width as the pane, an offset back from the live edge) ----
     private var histRaw: List<String>? = null
-    private var histWrapped: List<String> = emptyList()
     private var histLoading = false
+    private var histOffset = 0
+    private var histMax = 0
 
     // ---- windows level ----
     private var wins: List<TmuxWinInfo> = emptyList()
@@ -185,12 +187,10 @@ class TmuxWindow(
 
     override fun onLayoutChanged() {
         renderer.invalidate()
-        rewrapHistory()
     }
 
     override fun onFontScaleChanged(scale: Double) {
         renderer.invalidate()
-        rewrapHistory()
     }
 
     private fun resubscribe() {
@@ -205,13 +205,10 @@ class TmuxWindow(
             onScroll = { d -> if (d < 0) enterHistory() },   // scroll-up = time; down at live = no-op
             onTap = { level = Level_.KEYS; keysModel.cursor = 0 },
         )
-        Level_.HISTORY -> WindowView.DocView(
-            model = docModel,
-            lineCount = { if (histLoading) 1 else histWrapped.size },
-            lineHeight = histLineHeight(),
-            paintLine = { g, i, r -> paintHistoryLine(g, i, r) },
+        Level_.HISTORY -> WindowView.CanvasView(
+            paint = { g, r -> paintHistory(g, r) },
+            onScroll = { d -> histScroll(d) },
             onTap = { level = Level_.KEYS; keysModel.cursor = 0 },
-            stepLines = { 5 },
         )
         Level_.KEYS -> listView(keysModel, { keysRows().size }, { g, i, r, dim -> paintPlainRow(g, keysRows()[i], i, r, dim) },
             { g, r, i -> paintPlainLens(g, r, keysRows().getOrElse(i) { "" }) }, { i -> keysCommit(i) })
@@ -320,7 +317,7 @@ class TmuxWindow(
         val t = target ?: return
         if (histLoading) return
         histLoading = true
-        docModel.topLine = 0
+        histOffset = HIST_STEP           // one notch into the past
         level = Level_.HISTORY
         services?.requestRender(this)
         busy("capturing scrollback") {
@@ -329,33 +326,39 @@ class TmuxWindow(
                 histLoading = false
                 if (level != Level_.HISTORY) return@onShell   // left while capturing: stay left
                 histRaw = raw
-                rewrapHistory()
                 services?.requestRender(this)
             }
         }
     }
 
-    private fun rewrapHistory() {
-        val raw = histRaw ?: return
-        val width = (services?.docContentWidth() ?: 560) - 8
-        val stripped = raw.joinToString("\n") { Sgr.strip(it).trimEnd() }
-            .trimEnd('\n')
-        histWrapped = Wrap.wrap(stripped, fRead, text, width)
-        // the live edge: open at the newest whole PAGE — the last visible-line
-        // window, derived from the live layout (§2.2b), never a 480 constant
-        val visible = maxOf(1, (services?.docContentHeight() ?: 384) / histLineHeight())
-        docModel.topLine = maxOf(0, histWrapped.size - visible)
+    /** Scroll IS time both ways: up goes older, down toward now — and the
+     *  notch that reaches the live edge RETURNS TO LIVE (the terminal's own
+     *  wheel grammar; the whole reason history is a canvas, not a doc). */
+    private fun histScroll(d: Int) {
+        if (histLoading) return
+        if (d < 0) {
+            histOffset = (histOffset + HIST_STEP).coerceAtMost(maxOf(histMax, HIST_STEP))
+        } else {
+            histOffset -= HIST_STEP
+            if (histOffset <= 0) {
+                histRaw = null
+                histOffset = 0
+                level = Level_.LIVE
+            }
+        }
     }
 
-    private fun histLineHeight(): Int = maxOf(12, text.metrics(fRead).lineHeight)
-
-    private fun paintHistoryLine(g: Gray8, i: Int, r: Rect) {
-        if (histLoading) {
-            drawFit(g, r.x + 8, r.y, "capturing scrollback…", Level.DIM, fRead, r.w - 16)
+    private fun paintHistory(g: Gray8, rect: Rect) {
+        val raw = histRaw
+        val f = frame
+        if (histLoading || raw == null || f == null) {
+            g.fillRect(rect, Level.BG)
+            drawFit(g, rect.x + 16, rect.y + 12, "capturing scrollback…", Level.DIM, fRow, rect.w - 32)
             return
         }
-        val line = histWrapped.getOrNull(i) ?: return
-        drawFit(g, r.x + 8, r.y, sanitizeKeepMono(line), Level.BODY, fRead, r.w - 16)
+        val hv = renderer.renderHistory(g, rect, raw, f.cols, f.rows, histOffset, wantContext)
+        histOffset = hv.offset
+        histMax = hv.maxOffset
     }
 
     // ------------------------------------------------------------------ keys
@@ -542,7 +545,7 @@ class TmuxWindow(
         val base = when (level) {
             Level_.SESSIONS -> "sessions"
             Level_.LIVE -> target?.label ?: "sessions"
-            Level_.HISTORY -> "${target?.label} · history"
+            Level_.HISTORY -> "${target?.label} · history −${histOffset}"
             Level_.KEYS -> "${target?.label} · keys"
             Level_.SNIPPETS -> "snippets"
             Level_.WINDOWS -> "${target?.session} · windows"
@@ -583,7 +586,7 @@ class TmuxWindow(
             level = Level_.SESSIONS
             true
         }
-        Level_.HISTORY -> { histRaw = null; histWrapped = emptyList(); histLoading = false; level = Level_.LIVE; true }
+        Level_.HISTORY -> { histRaw = null; histLoading = false; histOffset = 0; level = Level_.LIVE; true }
         Level_.KEYS -> { level = Level_.LIVE; true }
         Level_.SNIPPETS, Level_.WINDOWS -> { level = Level_.KEYS; true }
         Level_.SESSION_ACTIONS -> { renameArmed = false; level = Level_.KEYS; true }
@@ -713,6 +716,8 @@ class TmuxWindow(
 
     companion object {
         const val HISTORY_LINES = 1000
+        /** Rows per notch in history — matches the Reader's 5-per-notch feel. */
+        const val HIST_STEP = 5
         /** "Fit pane to glass": 64 columns reads at ~9.5 px cells in the 608
          *  content width; 22 rows fit every height mode. Explicit action only
          *  — it resizes the REAL tmux window (TMUX.md verdict 2). */

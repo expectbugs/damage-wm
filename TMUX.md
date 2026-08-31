@@ -4,7 +4,11 @@
 snapshots 09b–09e eyeballed · lint 0 · APK 0.4).** `IMPLEMENTATION.md` → "Tmux" is the record of
 what runs and where; this file stays the design rationale. What only glass can answer (fit-80
 legibility, context rows, key order, alert patterns, ssh feel) is listed there as the on-glass
-items. The refinery verdicts that shaped the build:
+items. First on-glass revision (same day): the grid moved to a FRACTIONAL column pitch (80 columns
+span the full width; integer cells had floored to 560/608 — "narrow and centered"), and
+history now renders THROUGH the live fit — same face, size, width and colours, an offset back
+from the live edge, scroll-down at the edge returning to live (the wrapped reading-size
+DocView read as a font switch and is gone). The refinery verdicts that shaped the build:
 
 1. **Scope = v1 core + typed text via replicas + multi-host (ssh) + session management.**
    Scrollback search stays out (clean to add once typing exists).

@@ -293,9 +293,11 @@ no `-C` attach — the G2CC Phase-5 safety shape); `wm.damage.core.windows.tmux`
 - **`Sgr`** parses `capture-pane -e` into styled cells: 16/256/truecolour by luminance onto the
   16 grays (foregrounds floor at 3 — readable beats faithful), bold/dim/underline/reverse, wide
   glyphs own two columns, unknown escapes counted never eaten. **`TermRender`** draws the grid
-  in JetBrains Mono FIT to the live layout rect (every height mode 288..480), exact cellW
-  columns, a static inverted cursor, dimmed context rows in spare height (verdict 5: on), and
-  a visible tofu box for glyphs the face lacks.
+  in JetBrains Mono FIT to the live layout rect (every height mode 288..480) on a FRACTIONAL
+  column pitch — 80 columns genuinely span the full width (revised after Adam's first on-glass
+  session: integer cells floored 7.6 px to 7 and read "narrow and centered") — with a static
+  inverted cursor, dimmed context rows in spare height (verdict 5: on), and a visible tofu box
+  for glyphs the face lacks.
 - **`LocalTmuxProvider`** execs `sh -c` scripts — ONE per host per tick (status 2.5 s, capture
   500 ms pushed on change), so an ssh host (verdict 1: multi-host; slappy ships in the default
   config, port 80) costs one round trip per tick. Waiting-pattern EDGE alerts (verdict 3: on
@@ -308,8 +310,10 @@ no `-C` attach — the G2CC Phase-5 safety shape); `wm.damage.core.windows.tmux`
   unreachable Ns" as the §10.5 staleness line. Config (quick keys/snippets/patterns) is served
   WITH the session list, so `~/.damage/config.json` on the PC is the one tuning point.
 - **`TmuxWindow`** — the grammar: SESSIONS (waiting pinned, lens shows the tail line) →
-  LIVE (canvas; **scroll-up IS scrollback**, tap descends) → HISTORY (a FROZEN snapshot as a
-  DocView at reading size, opened at the live edge, 5 lines/notch) → KEYS (the dozen, verdict
+  LIVE (canvas; **scroll-up IS scrollback**, tap descends) → HISTORY (a FROZEN snapshot rendered
+  through the SAME live fit — same face/size/width, colours kept, 5 rows/notch, a slim position
+  rail; the notch that reaches the live edge RETURNS TO LIVE — revised same day: the old
+  reading-size DocView read as "a different font at a different size", his words) → KEYS (the dozen, verdict
   4) → SNIPPETS / WINDOWS (viewing a window targets `=s:idx` — never `select-window`, which is
   an explicit Session… action) / SESSION_ACTIONS (mute · Fit pane 64×22 · select · rename ·
   kill-confirm). **Typed text always stages a TYPE_CONFIRM** (run = literal + Enter, the G2CC

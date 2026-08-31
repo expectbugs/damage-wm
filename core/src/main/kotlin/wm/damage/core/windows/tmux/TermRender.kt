@@ -1,5 +1,6 @@
 package wm.damage.core.windows.tmux
 
+import kotlin.math.roundToInt
 import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.Level
@@ -8,50 +9,63 @@ import wm.damage.core.text.FontSpec
 import wm.damage.core.text.TextRasterizer
 
 /**
- * The live-grid renderer (TMUX.md §3.3): styled cells -> JetBrains Mono on the
- * 16-gray panel, FIT to whatever rect the layout gives — height mode runs
- * 288..480 (Adam mid-build), so fit = min(width-fit, height-fit), re-derived
- * whenever the rect or grid changes. Glyphs sit at exact cellW multiples so
- * 80 columns never shear; the mono face makes that alignment functional, not
- * decorative (§Type).
+ * The grid renderer (TMUX.md §3.3, revised 2026-08-31 after Adam's first
+ * on-glass session): styled cells -> JetBrains Mono on the 16-gray panel.
  *
- * Context rows (verdict 5: ON by default) draw dimmed above the live pane
- * with a faint separator; the cursor cell renders inverted, static — a blink
- * would spend two rects a second forever against §6's motion discipline.
+ * Columns sit on a FRACTIONAL pitch — pitchX = rect.w / cols — with every
+ * cell edge rounded per column, so 80 columns genuinely span the full width
+ * (the old integer cell width floored 7.6 px to 7 and left a 48 px gutter:
+ * "narrow and centered", his words). Rounding drifts a glyph at most 1 px
+ * against its neighbour, which mono at these sizes absorbs.
+ *
+ * History renders through the SAME fit as the live pane ([renderHistory]) —
+ * same face, same size, same width, colours kept — just a row offset into
+ * the scrollback. His verdict: no font or size switch when scrolling.
+ *
+ * Context rows (verdict 5: ON) draw dimmed above the live pane with a faint
+ * seam; the cursor cell renders inverted, static — a blink would spend two
+ * rects a second forever against §6's motion discipline.
  */
 class TermRender(private val text: TextRasterizer) {
 
     /** Geometry chosen for one (rect, cols, rows) combination. */
-    data class FitSpec(val sizePx: Int, val cellW: Int, val cellH: Int, val x0: Int, val y0: Int,
-        val cols: Int, val rowsShown: Int, val contextShown: Int)
+    data class FitSpec(val sizePx: Int, val pitchX: Double, val cellH: Int, val x0: Int, val y0: Int,
+        val cols: Int, val rowsShown: Int, val contextShown: Int) {
+        /** The left edge of [col] — every cell boundary rounds independently
+         *  so the grid spans the full pitch with <=1 px local drift. */
+        fun cellX(col: Int): Int = x0 + (col * pitchX).roundToInt()
+    }
+
+    /** What a history paint decided: the fit, the offset actually shown
+     *  (clamped), and how far back the scrollback allows. */
+    data class HistView(val fit: FitSpec, val offset: Int, val maxOffset: Int)
 
     private var fitKey: Long = -1
     private var fitCols = -1
     private var fit: FitSpec? = null
     private val coverCache = HashMap<Long, Boolean>()
 
-    /** Pick the largest MONO size whose grid fits [rect]: [cols] wide and
-     *  [liveRows] high, plus up to [contextRows] more when height is spare
-     *  (context never shrinks the live pane's cells). */
+    /** Pick the largest MONO size whose glyph advance fits the column pitch
+     *  and whose line height fits [liveRows] in the rect; context rows ride
+     *  only in genuinely spare height (they never shrink the live cells). */
     fun fitFor(rect: Rect, cols: Int, liveRows: Int, contextRows: Int): FitSpec {
         val key = (rect.w.toLong() shl 40) or (rect.h.toLong() shl 20) or
             (liveRows.toLong() shl 8) or contextRows.toLong()
         fit?.let { if (key == fitKey && cols == fitCols) return it }
+        val pitchX = rect.w.toDouble() / maxOf(1, cols)
         var size = 29
-        var cellW: Int
         var cellH: Int
         do {
             size--
             val f = FontSpec(Face.MONO, size)
-            cellW = maxOf(1, (text.measure("MMMMMMMMMM", f) + 9) / 10)
-            cellH = maxOf(1, text.metrics(f).lineHeight)
-        } while (size > 5 && (cellW * cols > rect.w || cellH * liveRows > rect.h))
-        // context rows ride only in genuinely spare height (+2 px separator)
+            val advance = text.measure("MMMMMMMMMM", f) / 10.0
+            cellH = maxOf(2, text.metrics(f).lineHeight)
+            if (advance <= pitchX && cellH * liveRows <= rect.h) break
+        } while (size > 5)
         val spare = rect.h - cellH * liveRows
         val ctx = minOf(contextRows, maxOf(0, (spare - 2) / cellH))
-        val gridW = cellW * cols
-        val spec = FitSpec(size, cellW, cellH,
-            x0 = rect.x + maxOf(0, (rect.w - gridW) / 2),
+        val spec = FitSpec(size, pitchX, cellH,
+            x0 = rect.x,
             y0 = rect.y,                     // TOP-aligned: Adam's fit loses the BOTTOM (§12 sizes)
             cols = cols, rowsShown = liveRows, contextShown = ctx)
         fitKey = key
@@ -67,9 +81,9 @@ class TermRender(private val text: TextRasterizer) {
     }
 
     /**
-     * Paint [frame] into [rect] (cleared to BG first — Canvas owns its area).
-     * [wantContext] is the Settings row; the frame's own contextRows bound it
-     * (an alternate-screen pane simply has none — TmuxModel).
+     * Paint the LIVE pane [frame] into [rect] (cleared to BG — Canvas owns its
+     * area). [wantContext] is the Settings row; the frame's own contextRows
+     * bound it (an alternate-screen pane simply has none — TmuxModel).
      */
     fun render(g: Gray8, rect: Rect, frame: PaneFrame, wantContext: Boolean): FitSpec {
         g.fillRect(rect, Level.BG)
@@ -91,7 +105,7 @@ class TermRender(private val text: TextRasterizer) {
             y += spec.cellH
             if (isCtx && r == liveStart - 1) {
                 // the faint seam between the past and the pane
-                g.fillRect(spec.x0, y, spec.cellW * spec.cols, 1, Level.FAINT)
+                g.fillRect(spec.x0, y, spec.cellX(spec.cols) - spec.x0, 1, Level.FAINT)
                 y += 2
             }
         }
@@ -99,17 +113,50 @@ class TermRender(private val text: TextRasterizer) {
         if (frame.cursorVisible && frame.cursorY in 0 until frame.rows) {
             val cy = spec.y0 + (totalCtx * spec.cellH + if (totalCtx > 0) 2 else 0) +
                 frame.cursorY * spec.cellH
-            val cx = spec.x0 + frame.cursorX * spec.cellW
+            val cx = spec.cellX(frame.cursorX)
+            val cw = spec.cellX(frame.cursorX + 1) - cx
             if (frame.cursorX in 0 until spec.cols && cy + spec.cellH <= rect.bottom) {
-                g.fillRect(cx, cy, spec.cellW, spec.cellH, Level.BODY)
+                g.fillRect(cx, cy, cw, spec.cellH, Level.BODY)
                 val row = parsed.rows.getOrNull(liveStart + frame.cursorY)
                 val cp = row?.cp?.getOrNull(frame.cursorX) ?: ' '.code
                 if (cp != ' '.code && cp != Sgr.CONT) {
-                    drawGlyph(g, spec, cx, cy, cp, level = 0, bold = false)
+                    drawGlyph(g, spec, frame.cursorX, cy, cp, level = 0, bold = false)
                 }
             }
         }
         return spec
+    }
+
+    /**
+     * Paint scrollback THROUGH the live fit: the same face/size/width as the
+     * pane, [offset] rows back from the live edge, colours kept, no cursor,
+     * no dimming. A slim rail at the right edge marks the position.
+     */
+    fun renderHistory(g: Gray8, rect: Rect, lines: List<String>, cols: Int, paneRows: Int,
+        offset: Int, wantContext: Boolean): HistView {
+        g.fillRect(rect, Level.BG)
+        val spec = fitFor(rect, cols, paneRows, if (wantContext) CONTEXT_ASK else 0)
+        val capacity = spec.rowsShown + spec.contextShown
+        val maxOffset = maxOf(0, lines.size - capacity)
+        val at = offset.coerceIn(0, maxOffset)
+        val end = lines.size - at
+        val start = maxOf(0, end - capacity)
+        val parsed = Sgr.parse(lines.subList(start, end), cols)
+        var y = spec.y0
+        for (row in parsed.rows) {
+            drawRow(g, spec, row, y, dim = false)
+            y += spec.cellH
+        }
+        // the position rail (Canvas owns its own indication — §4.6): the thumb
+        // spans the visible fraction, top = oldest
+        if (maxOffset > 0) {
+            val track = rect.h - 8
+            val span = maxOf(16, track * capacity / lines.size)
+            val ty = rect.y + 4 + ((track - span) * (maxOffset - at).toDouble() / maxOffset).roundToInt()
+            g.fillRect(rect.right - 6, rect.y + 4, 3, track, Level.FAINT)
+            g.fillRect(rect.right - 6, ty, 3, span, Level.DIM)
+        }
+        return HistView(spec, at, maxOffset)
     }
 
     private fun drawRow(g: Gray8, spec: FitSpec, row: Sgr.Row, y: Int, dim: Boolean) {
@@ -122,7 +169,7 @@ class TermRender(private val text: TextRasterizer) {
             while (e < n && effBg(row, e) == bg) e++
             if (bg > 0) {
                 val lv = if (dim) maxOf(1, bg * 2 / 3) else bg
-                g.fillRect(spec.x0 + c * spec.cellW, y, (e - c) * spec.cellW, spec.cellH, Level.of(lv))
+                g.fillRect(spec.cellX(c), y, spec.cellX(e) - spec.cellX(c), spec.cellH, Level.of(lv))
             }
             c = e
         }
@@ -135,10 +182,10 @@ class TermRender(private val text: TextRasterizer) {
             if (fl and Sgr.BOLD != 0) fg = minOf(15, fg + 2)
             if (fl and Sgr.DIM != 0) fg = maxOf(1, fg - 3)
             if (dim) fg = maxOf(1, fg * 3 / 5)
-            val x = spec.x0 + col * spec.cellW
-            drawGlyph(g, spec, x, y, cp, Level.of(fg), bold = fl and Sgr.BOLD != 0)
+            drawGlyph(g, spec, col, y, cp, Level.of(fg), bold = fl and Sgr.BOLD != 0)
             if (fl and Sgr.UNDERLINE != 0) {
-                g.fillRect(x, y + spec.cellH - 2, spec.cellW * Sgr.width(cp), 1, Level.of(fg))
+                val x = spec.cellX(col)
+                g.fillRect(x, y + spec.cellH - 2, spec.cellX(col + Sgr.width(cp)) - x, 1, Level.of(fg))
             }
         }
     }
@@ -150,15 +197,16 @@ class TermRender(private val text: TextRasterizer) {
     private fun effBg(row: Sgr.Row, c: Int): Int =
         if (row.flags[c].toInt() and Sgr.REVERSE != 0) row.fg[c].toInt() else row.bg[c].toInt()
 
-    private fun drawGlyph(g: Gray8, spec: FitSpec, x: Int, y: Int, cp: Int, level: Int, bold: Boolean) {
+    private fun drawGlyph(g: Gray8, spec: FitSpec, col: Int, y: Int, cp: Int, level: Int, bold: Boolean) {
         val f = FontSpec(Face.MONO, spec.sizePx, bold = bold)
         val s = String(Character.toChars(cp))
         val key = (cp.toLong() shl 1) or (if (bold) 1L else 0L)
         val covered = coverCache.getOrPut(key) { text.covers(s, f) }
+        val x = spec.cellX(col)
         if (!covered) {
             // the visible tofu box — a glyph the face lacks is SHOWN missing,
             // never dropped (the texture-cache table's idiom)
-            val w = spec.cellW * Sgr.width(cp)
+            val w = spec.cellX(col + Sgr.width(cp)) - x
             g.fillRect(x + 1, y + 1, maxOf(1, w - 2), 1, level)
             g.fillRect(x + 1, y + spec.cellH - 3, maxOf(1, w - 2), 1, level)
             g.fillRect(x + 1, y + 1, 1, spec.cellH - 3, level)
@@ -166,5 +214,11 @@ class TermRender(private val text: TextRasterizer) {
             return
         }
         text.draw(g, x, y, s, f, level)
+    }
+
+    companion object {
+        /** Context rows requested from a history fit — matches the provider's
+         *  capture depth so live and history agree on the cell size. */
+        const val CONTEXT_ASK = 12
     }
 }

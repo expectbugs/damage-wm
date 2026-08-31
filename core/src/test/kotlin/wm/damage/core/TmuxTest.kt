@@ -110,7 +110,7 @@ class TermRenderTest {
     fun fitScalesToTheRectAtBothHeightModes() {
         val t = TermRender(MonoFake())
         val tall = t.fitFor(Rect(16, 34, 608, 416), 80, 22, 0)
-        assertTrue(tall.cellW * 80 <= 608, "80 columns fit the width at 480 mode")
+        assertEquals(608, tall.cellX(80) - tall.cellX(0), "80 columns SPAN the full width (fractional pitch)")
         assertTrue(tall.cellH * 22 <= 416, "22 rows fit the height")
         t.invalidate()
         val short = t.fitFor(Rect(16, 34, 608, 224), 80, 22, 0)
@@ -142,7 +142,7 @@ class TermRenderTest {
         assertTrue(ink > 500, "the grid rendered ($ink lit px)")
         // the cursor cell: a solid BODY-level fill at (3, cursorY=2) of the live pane
         val ctxPx = spec.contextShown * spec.cellH + if (spec.contextShown > 0) 2 else 0
-        val cx = spec.x0 + 3 * spec.cellW
+        val cx = spec.cellX(3)
         val cy = spec.y0 + ctxPx + 2 * spec.cellH
         assertEquals(wm.damage.core.gfx.Level.BODY, g[cx, cy].toInt() and 0xFF, "cursor cell inverted")
     }
@@ -414,11 +414,22 @@ class TmuxWindowTest {
         var ink = 0
         for (y in 34 until 450) for (x in 16 until 624) if (g[x, y].toInt() != 0) ink++
         assertTrue(ink > 200, "the live grid painted")
-        // scroll-up = time: the frozen history arrives and opens at the live edge
+        // scroll-up = time: the frozen history arrives, rendered through the
+        // LIVE fit (same face/size/width), one notch into the past
         live.onScroll!!(-1)
-        await { (w.view() as? WindowView.DocView)?.lineCount?.invoke()?.let { it > 1 } == true }
-        val doc = w.view() as WindowView.DocView
-        assertTrue(doc.lineCount() >= 40, "the scrollback wrapped in")
+        assertTrue(w.title().contains("history"))
+        await { runCatching {
+            val hv = w.view() as WindowView.CanvasView
+            val hg = Gray8(640, 480)
+            hv.paint(hg, Rect(16, 34, 608, 416))
+            var hink = 0
+            for (y in 34 until 450) for (x in 16 until 624) if (hg[x, y].toInt() != 0) hink++
+            hink > 200
+        }.getOrDefault(false) }
+        // the notch toward now at the live edge RETURNS TO LIVE seamlessly
+        (w.view() as WindowView.CanvasView).onScroll!!(1)
+        assertEquals("claude", w.title(), "scroll-down at the live edge returns to live")
+        live.onScroll!!(-1)   // re-enter, then back out via double-tap
         assertTrue(w.title().contains("history"))
         assertTrue(w.back(), "back leaves history")
         // tap descends to keys; a quick key sends and drops back to LIVE
