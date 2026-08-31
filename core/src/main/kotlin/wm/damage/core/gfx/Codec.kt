@@ -89,6 +89,75 @@ object Rle {
         return out
     }
 
+    /**
+     * The same tokens over a bare run of 4bpp LEVELS rather than the nibbles of
+     * packed rows. Cached texture images (modes 13/14) carry exactly width*height
+     * pixels with NO pad nibble at the end of an odd-width row — see
+     * g2flash/patches/texture_cache.c cfw_texture_image_at(), which walks tokens
+     * until the pixel count is met and never consults a row stride.
+     */
+    fun encodeLevels(levels: ByteArray): ByteArray {
+        val out = ArrayList<Byte>(levels.size / 2 + 16)
+        var i = 0
+        while (i < levels.size) {
+            val c = levels[i].toInt() and 0x0F
+            if ((levels[i].toInt() and 0xFF) > 15)
+                throw LintError("texture level ${levels[i].toInt() and 0xFF} at $i is not 0..15")
+            var run = 1
+            while (i + run < levels.size && (levels[i + run].toInt() and 0x0F) == c &&
+                (levels[i + run].toInt() and 0xFF) <= 15 && run < 65535
+            ) run++
+            i += run
+            emit(out, c, run)
+        }
+        return out.toByteArray()
+    }
+
+    /** Decode exactly [pixels] levels; the firmware rejects any other count. */
+    fun decodeLevels(rle: ByteArray, pixels: Int): ByteArray {
+        val out = ByteArray(pixels)
+        var n = 0
+        var i = 0
+        while (i < rle.size) {
+            val b = rle[i].toInt() and 0xFF
+            val color = b and 0x0F
+            var cnt = (b shr 4) and 0x0F
+            i += 1
+            if (cnt == 0) {
+                if (i >= rle.size) throw LintError("texture RLE truncated in 8-bit escape")
+                cnt = rle[i].toInt() and 0xFF
+                i += 1
+                if (cnt == 0) {
+                    if (i + 1 >= rle.size) throw LintError("texture RLE truncated in 16-bit escape")
+                    cnt = (rle[i].toInt() and 0xFF) or ((rle[i + 1].toInt() and 0xFF) shl 8)
+                    i += 2
+                    if (cnt == 0) throw LintError("texture RLE zero-length 16-bit run")
+                }
+            }
+            if (n + cnt > pixels)
+                throw LintError("texture RLE decodes past $pixels pixels (at $n, run $cnt)")
+            repeat(cnt) { out[n++] = color.toByte() }
+        }
+        if (n != pixels) throw LintError("texture RLE decoded $n levels, expected $pixels")
+        return out
+    }
+
+    private fun emit(out: ArrayList<Byte>, color: Int, count: Int) {
+        var left = count
+        while (left > 0) {
+            val take = minOf(left, 65535)
+            when {
+                take <= 15 -> out.add(((take shl 4) or color).toByte())
+                take <= 255 -> { out.add(color.toByte()); out.add(take.toByte()) }
+                else -> {
+                    out.add(color.toByte()); out.add(0)
+                    out.add((take and 0xFF).toByte()); out.add(((take shr 8) and 0xFF).toByte())
+                }
+            }
+            left -= take
+        }
+    }
+
     private fun nib(b: ByteArray, i: Int): Int {
         val v = b[i shr 1].toInt() and 0xFF
         return if (i and 1 == 0) (v shr 4) else (v and 0x0F)

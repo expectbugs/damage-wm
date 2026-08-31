@@ -640,3 +640,152 @@ No radio use returns to normal now (the build's no-radio rule was for the build;
 the radio work). Still absolute: the offline check first, the non-writing dry run first, and **no
 write without Adam's explicit in-the-moment word** — not on momentum, not because this section
 says so. Neutral wording throughout. No timeouts, no silent failures.
+
+---
+
+## 10. The CFW moved. Re-planned install (2026-08-30, later the same day)
+
+**Read this instead of §9 where they disagree.** §9 was written against g2flash `877c8d9`. All
+four reference repos were pulled to their latest that evening, and g2flash had moved a long way.
+Nothing has been written to the glasses; they are still stock **2.2.2.20**.
+
+### 10.1 The irreversible fact has not changed
+
+Leaving stock **2.2.2** is the one step that cannot be undone. There is no firmware read-back
+path and 2.2.2 is **not** in the public 19-image archive. Every other version can be re-installed;
+the factory image on Adam's glasses cannot. The CFW itself stays revertible to any archived
+version and G2CC keeps working against it. Say this out loud before the write, every time.
+
+### 10.2 What changed upstream
+
+| repo | was (cloned 2026-08-15) | now | what it means |
+|---|---|---|---|
+| `g2flash` | `877c8d9` | `a5d1c31` | 15 commits: **texture cache**, builtin-font text, mic control, a 2.2.9 fix in the flasher, a CFW-context relocation |
+| `faceclaw` | `6df7e9b` | `c1d70ab` | 0.6.1; EvenHub compat layer, Wear OS app, 2.2.9 security-auth. Phone-resident, not our seam |
+| `evenRealities-openCFW` | `201bb80` | `799b286` | more recovered bootloader source; still an analysis project |
+| `SybilSight-webflasher` | `4329a56` | `77690c9` | ⚠ **removed custom-firmware support**; added 2.2.9.28 recovery. It is no longer a CFW install path |
+
+**The base image did not change.** Both patch sets still pin stock `g2_2.2.6.10.bin`
+(`f4dfb0b4…`), which we hold and which matches byte for byte.
+
+### 10.3 The two candidate images
+
+`research/verify_cfw.py` now builds and checks BOTH, and passes (exit 0).
+
+| | archived 2.2.6.11 (§9's image) | **new g2flash a5d1c31** |
+|---|---|---|
+| sha256 | `10503230…` | `d4054ab1…` |
+| built from | g2flash `877c8d9` + SybilSight's 28 patches | g2flash `a5d1c31`'s 26 patches |
+| size over stock | +20,127 B | +39,174 B |
+| preamble length bumped | yes, matches payload | yes, matches payload |
+| MRAM headroom below the OTA flag | 404 KB | **385 KB** |
+| Thumb-bit audit | clean (14 branches) | clean (19 branches) |
+| capability string | `EVENCFW/8 … compass10` | `EVENCFW/16 … texcache12 teximg13 texstr14 font15 micctl` |
+| Damage's capability gate | passes | **passes** (tested against the real string) |
+
+**Recommended: the new one.** Not only because it is what Adam asked for — it also fixes a real
+latent defect in the archived image. The old CFW anchors its context pointer at `0x20003ffc` on
+the stated assumption that the word is "spare"; a5d1c31's own source says that address is
+**the +0 callback of the BLE-RX lifecycle object, which stock code can BLX through**, and moves
+the anchor into 1 KiB explicitly carved out of the primary TLSF arena (`[0x202a6270,0x202a6670)`,
+arena shrunk to `0x2cc00`). That is the same class of bug as the Thumb-bit HardFault this
+ecosystem already shipped once.
+
+**Argue the other way honestly:** the new image carries roughly twice the injected code and is
+one day old. Most of the new bulk is `texture_cache.c` (514 lines) and `mic_control.c` (446), and
+the author marks the mic path's stock audio entry points as **ABI-inferred and not yet validated
+on hardware** — which is why bringing up the capture hardware sits behind an explicit arm flag.
+We never set that flag, and nothing in Damage touches field 103. Both *known* brick classes
+(unbounded MRAM program, Thumb-bit interworking) check clean on it.
+
+### 10.4 Flasher changes that affect the procedure
+
+Only `7c6d3c1` touched `g2flash.py`, but it changed the shape of a run.
+
+- **New mandatory `authenticate()` before FILE_CHECK**, unconditional, no version gate: sid `0x80`
+  protobuf `08 04 10 <magic> 1a 04 08 01 10 04` on the CTRL channel, requiring the reply to be
+  `08 04 10 <magic>` + exactly `1a 00`.
+  ✅ **Resolved offline against our own captures.** Our stock 2.2.2.20 glasses answer that exact
+  message correctly — four exchanges across `captures/allbutimages.log` and `imagestatus.log`,
+  both arms, 43–92 ms, replies byte-identical to what the tool demands, and the request framing
+  and CRC reproduce from g2flash's own `crc16()`. This step will not block us.
+- **The CTRL heartbeat thread during transfer is gone**, matching the official app's own capture.
+- **New `recover_session()`** on a bare block-ack timeout: disconnect → settle → reconnect →
+  rediscover → re-auth → fresh BEGIN, `--reconnect-attempts` (3) times.
+- `EXPECTED_SEGMENTS` relaxed in a comment only; the live check always accepted 5 **or 6**, and
+  our images have **6**. §9.3's "5 segments" was wrong about the tool's output, harmlessly.
+- Unchanged and verified byte-identical: `validate_firmware`, `check_mainapp_fits_mram`,
+  `recompute_checksums`, `parse_connection_string`, `match_scanned_device`, `confirm_warranty`,
+  the typed phrase, the block NAK/dedup policy, and every flag §9.5 used.
+
+### 10.5 Two residual risks, neither a blocker
+
+1. ⚠ **beardos has never bonded with these glasses.** The captures prove the app-level auth works,
+   but the phone had already bonded and encrypted the link (LE Secure Connections, Rand=0/EDIV=0,
+   16-byte key) before touching GATT — so they **cannot** say whether the lenses *demand*
+   encryption from an unbonded host. The commit message predicts an OS pairing prompt at the start
+   and a second at the halfway mark for the second lens; on Linux that means BlueZ needs a pairing
+   agent, which the tool does not provide. This surfaces during connect/discover, long before any
+   firmware byte. **The dry-run staircase in 10.6 is designed to hit it first.**
+2. ⚠ **`recover_session()` can send a malformed auth.** `auth_frames()` writes the magic as one
+   raw byte, but `_nextseq()` returns 1–255 and `recover_session` calls `authenticate()` *before*
+   `_reset_seq()`. Any magic ≥ 128 makes `10 <magic>` a continued varint that swallows the
+   following `0x1a`, so the request is malformed and every recovery attempt fails. Verified by two
+   independent reads plus capture arithmetic (the firmware itself encodes magics ≥ 128 as proper
+   multi-byte varints, so it understands them — the tool just cannot emit them).
+   - It only fires on a **bare ack timeout during the real transfer**; a `--stop-before flash` run
+     never gets the counter past ~3.
+   - It **aborts, it does not corrupt** — and an aborted transfer leaves the prior firmware.
+   - Fix if Adam wants it: swap two lines so `_reset_seq()` runs before `authenticate()` in
+     `recover_session`. **His call — do not edit the flashing tool without his word.** Worth
+     reporting upstream either way.
+
+### 10.6 The dry-run staircase (replaces §9.5 steps 3–4)
+
+`--stop-before heartbeat` is now the last stage that writes **nothing at all**; `--stop-before
+flash` was never literally inert (it always sent BEGIN + FILE_CHECK) and now also sends the auth.
+So climb it one rung at a time and read every ack:
+
+```
+CONN="g2://local?left=<L>&right=<R>&addressType=public"
+IMG=<the chosen image>
+./venv/bin/python reference/g2flash/g2flash.py -c "$CONN" -f "$IMG" --stop-before heartbeat
+./venv/bin/python reference/g2flash/g2flash.py -c "$CONN" -f "$IMG" --stop-before file_check
+./venv/bin/python reference/g2flash/g2flash.py -c "$CONN" -f "$IMG" --stop-before flash
+```
+
+1. **`heartbeat`** — connect + GATT discovery, zero writes. Proves beardos can reach both arms and
+   the characteristics resolve. **This is where an unbonded-pairing problem shows up.**
+2. **`file_check`** — adds the auth exchange only. Proves risk 10.5.1 empty on real hardware.
+3. **`flash`** — adds BEGIN + FILE_CHECK. Still **zero firmware bytes**; the gate is intact.
+
+Anything unexpected at any rung stops the procedure. Then show Adam the output and get his
+explicit in-the-moment word before the write.
+
+### 10.7 The arm addresses (unchanged from §9.4)
+
+Still not recorded anywhere; `parse_connection_string` is byte-identical and still requires both
+`left=` and `right=` regardless of `--lens`. Get them from a scan — the arms advertise as
+`Even G2_<serial>_L_<tail>` / `_R_<tail>`. ⚠ The two addresses at `overview.md:1164` are a THIRD
+PARTY's glasses; do not use them.
+
+### 10.8 The write
+
+Same command without `--stop-before`, default `--lens both`. Let the tool print its banner and let
+**Adam** type the phrase; do not pass `--my-warranty-is-void`. Do not hand-retry a block — the OTA
+path has no dedup and a resend double-advances the offset.
+
+### 10.9 Damage-side state at this point
+
+The core already speaks the new firmware: modes 11/12/13/14 encode
+(`wire/CfwModes.kt`, `wire/TextureCache.kt`), the simulator models them byte-exactly, the
+capability gate is tested against the real `EVENCFW/16` string, and the whole battery is green
+(109 tests, selfcheck all-pass, lint 0, APK builds). **Mode 15 is deliberately not implemented**
+and the model refuses it: its glyphs come from the firmware's own font, so no offline model can
+predict its pixels and the per-lens oracle would stop being exact.
+
+**Not yet adopted, on purpose:** the compositor still emits pixel deltas only. Turning text into
+mode-14 cached-glyph draws changes the emit strategy and the whole cost model, and it should be
+priced against **measured** ack latency on the CFW path rather than the modeled 176 ms we have
+now — which is one flash away. Mode 11 in `stop()` is held back for the same build: its value is
+freeing the cache, and `stop()` is a five-round-hardened path not worth disturbing for nothing.

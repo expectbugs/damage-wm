@@ -75,12 +75,19 @@ consistency → more windows.
 
 ## 🟢 Flash-day runbook (one screen)
 
-1. `python3 research/verify_cfw.py` — offline proof of the image. **Say out loud: leaving 2.2.2 is
-   irreversible** (it is not in the public archive).
+**🔴 Re-planned 2026-08-30 — `HANDOFF.md` §10 supersedes this list where they differ.** The CFW
+repo moved from `877c8d9` to `a5d1c31` (texture cache, builtin fonts, a flasher auth step), so the
+image, the dry run and the risk list all changed. Read §10 before running anything here.
+
+1. `python3 research/verify_cfw.py` — offline proof of the image; it now checks **both** candidate
+   images and their MRAM fit. **Say out loud: leaving 2.2.2 is irreversible** (it is not in the
+   public archive).
 2. Phone: enable HCI snoop (**Enabled**, not filtered), toggle Bluetooth off/on, keep BTSnoop
    running for the whole day (`btsnoop-capture-gotcha`).
-3. `g2flash.py --stop-before flash` — the full dry run, writes nothing. Then, and only then, the
-   real flash, on Adam's explicit go.
+3. The dry-run **staircase**, not one dry run — `--stop-before heartbeat` (connect + discover,
+   writes nothing at all), then `--stop-before file_check` (adds the new auth exchange), then
+   `--stop-before flash` (adds BEGIN + FILE_CHECK; still zero firmware bytes). ⚠ `--stop-before
+   flash` was never literally inert. Then, and only then, the real flash, on Adam's explicit go.
 4. PC: `./gradlew :desktop:run --args="--selfcheck"` still green; `--ble-info` shows hci0 powered.
 5. Phone: install `phone/build/outputs/apk/debug/phone-debug.apk`, open it, tap **target: sim** →
    switch to **glasses**. Expected: status line walks through *starting → scanning → driving via
@@ -108,7 +115,8 @@ Everything below is blocked on being on hardware. Scattered across `DESIGN.md` �
 
 1. **`python3 research/verify_cfw.py`** — free, offline, proves the image. Re-run before *any*
    flashing conversation.
-2. **`g2flash.py --stop-before flash`** — full dry run, writes nothing. Every time.
+2. **The dry-run staircase** (`HANDOFF.md` §10.6): `--stop-before heartbeat`, then `file_check`,
+   then `flash`. Every time. Only the first writes nothing at all.
 3. Say out loud that **leaving firmware 2.2.2 is irreversible** (it is not in the public archive).
 
 **Measure on the first session**
@@ -133,6 +141,9 @@ Everything below is blocked on being on hardware. Scattered across `DESIGN.md` �
 | 16 | **PC-direct BLE over BlueZ** — the MTU the characteristic reports, notification delivery, write-without-response pacing | first exercise of `BlueZDbus`; the nine fake-link tests say what is expected |
 | 17 | **Takeover and fallback** — PC appears → it drives via the phone; PC gone → the phone resumes; phone gone at the desk → PC-direct BLE | every transition narrated in the status strip / phone status line and the browser page |
 | 18 | **The switcher chord** (§1.3, 2026-08-30) — long-press, then double-tap within 0.8 s of the release: does the ring deliver `SysEvent 10` reliably, and does the window feel right? | the default grammar (a bare long-press is a no-op); if the release never arrives the window runs from event 9 — widen `chordWindowMs` in `Shell.kt` if real holds outrun it |
+| 19 | **The texture cache on glass** (new, CFW `a5d1c31`) — upload a small atlas with mode 12, draw it with 13 and 14, and compare the panel against the simulator's prediction pixel for pixel | modes 12/13/14 are modeled byte-exactly but have never run on hardware. This is the gate on adopting cached glyphs for text |
+| 20 | **What an atlas upload actually costs** — time a 16/32/64 KiB mode-12 upload at the measured link rate, and confirm the cache really survives a lease *renewal* while dying on a lapse | decides atlas size and whether a session can afford a full font. Prices the whole mode-14 trade against item 6's real ack latency |
+| 21 | **Temple-touchpad long-press** — since `a5d1c31` either temple raises `SysEvent 9` too, not just the ring. How often does it fire by accident, in gloves, in a coat pocket? | `DESIGN.md` §1.2's "a bare long-press is a no-op" was decided for the ring alone and now carries a second accidental source. Confirm the default still feels right before anyone proposes relaxing it |
 
 **Start BTSnoop BEFORE connecting** on any recapture — handle 65's connection setup is the one gap
 in the existing corpus.

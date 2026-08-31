@@ -5,6 +5,7 @@ import wm.damage.core.gfx.Zl
 import wm.damage.core.transport.Arm
 import wm.damage.core.transport.LensPanels
 import wm.damage.core.wire.AaFrame
+import wm.damage.core.wire.CfwModes
 import wm.damage.core.wire.EvenHubMsg
 import wm.damage.core.wire.LaunchMsg
 import wm.damage.core.wire.Pb
@@ -82,6 +83,10 @@ class GlassFirmwareSim() : LensPanels {
         val panel = ByteArray(stride * Geometry.PANEL_H)
         var leaseDeadline = 0L      // 0 = no lease; fail-open
         var seeded = false          // a mode-6 keyframe has landed
+        /** The 64 KiB texture cache: null until the first mode-12 write allocates
+         *  and zeroes it, dropped again when the lease ends or mode 11 runs
+         *  (texture_cache.c cfw_texture_cache_update / cfw_texture_cache_release). */
+        var textureCache: ByteArray? = null
     }
 
     val left = LensCtx()
@@ -107,8 +112,12 @@ class GlassFirmwareSim() : LensPanels {
     }
     private var img: ImgSession? = null
     private val brokenSessions = HashSet<Int>()
-    var capabilityString =
-        "EVENCFW/8 img576 img640 imgz rle wakelease directfb fbguard wearnotify compass10"
+    /** What g2flash a5d1c31 advertises, read out of the built image's rodata
+     *  (`strings fws/... | grep EVENCFW`). The a5d1c31 set dropped `img576` and
+     *  `compass10` and added the texture-cache/font/cleanup tokens; the version
+     *  went 8 -> 16. Damage's REQUIRED_CAPS are all still present. */
+    var capabilityString = "EVENCFW/16 img640 imgz rle wakelease directfb fbguard " +
+        "wearnotify cleanup11 texcache12 teximg13 texstr14 font15 micctl"
 
     /** The connect prelude (LaunchMsg) has been received this connection. Modeled
      *  STRICT (graded U — see LaunchMsg): a CREATE with no prelude is acked but
@@ -143,9 +152,13 @@ class GlassFirmwareSim() : LensPanels {
             val c = ctx(arm)
             if (c.leaseDeadline != 0L && now >= c.leaseDeadline) {
                 c.leaseDeadline = 0
+                // The texture cache is lease-scoped: the firmware frees it when the
+                // lease ends, so a resumed session must upload its atlas again.
+                c.textureCache = null
                 // Stock repaint: the panel no longer shows our frame.
                 stockPattern(c.panel)
-                diag.event("lease", "$arm FB lease EXPIRED — stock repainted over us (fail-open)")
+                diag.event("lease", "$arm FB lease EXPIRED — stock repainted over us " +
+                    "(fail-open); texture cache freed")
                 diag.panelChanged(arm)
             }
         }
@@ -402,7 +415,7 @@ class GlassFirmwareSim() : LensPanels {
                         diag.event("decode", "$arm mode-8 bad seglen"); return false
                     }
                     val subMode = src[pos].toInt() and 0x7F
-                    if (subMode != 3 && subMode != 6 && subMode != 9) {
+                    if (subMode !in CfwModes.BATCH_SUBMODES) {
                         diag.event("decode", "$arm mode-8 sub-mode $subMode rejected"); return false
                     }
                     if (!dispatchImage(arm, src.copyOfRange(pos, pos + segLen), now, present = false)) {
@@ -425,11 +438,229 @@ class GlassFirmwareSim() : LensPanels {
                 }
                 true
             }
+            11 -> {
+                // cfw_cleanup_session(): hands the screen back. direct_lease_deadline
+                // goes to 0 (so the repaint guard fails OPEN and stock takes over),
+                // the texture cache is freed, snapshots are dropped, the overlay hides.
+                c.leaseDeadline = 0
+                c.textureCache = null
+                stockPattern(c.panel)
+                diag.event("cleanup", "$arm mode-11 session cleanup: FB lease released, " +
+                    "texture cache freed, stock repaints")
+                diag.panelChanged(arm)
+                true
+            }
+            12 -> {
+                // The firmware validates the WHOLE entry list before writing a byte,
+                // so a malformed update leaves the cache untouched.
+                var pos = 1
+                var hasData = false
+                while (pos < src.size) {
+                    if (src.size - pos < 4) {
+                        diag.event("decode", "$arm mode-12 entry header truncated — whole update rejected")
+                        return false
+                    }
+                    val off = rd16at(src, pos)
+                    val len = rd16at(src, pos + 2)
+                    pos += 4
+                    if (len > src.size - pos || off + len > CfwModes.TEXTURE_CACHE_SIZE) {
+                        diag.event("decode", "$arm mode-12 entry [$off,${off + len}) len $len " +
+                            "out of range — whole update rejected in silence")
+                        return false
+                    }
+                    if (len > 0) hasData = true
+                    pos += len
+                }
+                if (!hasData) return true                    // firmware returns 0, writes nothing
+                if (!leaseHeldAt(c, now)) {
+                    diag.event("decode", "$arm mode-12 with NO framebuffer lease — rejected " +
+                        "(the cache is lease-scoped)")
+                    return false
+                }
+                val cache = c.textureCache ?: ByteArray(CfwModes.TEXTURE_CACHE_SIZE).also {
+                    c.textureCache = it
+                    diag.event("texture", "$arm texture cache allocated and zeroed " +
+                        "(${CfwModes.TEXTURE_CACHE_SIZE} B)")
+                }
+                pos = 1
+                while (pos < src.size) {
+                    val off = rd16at(src, pos)
+                    val len = rd16at(src, pos + 2)
+                    pos += 4
+                    src.copyInto(cache, off, pos, pos + len)
+                    pos += len
+                }
+                true
+            }
+            13, 14 -> {
+                if (!leaseHeldAt(c, now)) {
+                    diag.event("decode", "$arm mode-${modeByte and 0x7F} with NO framebuffer " +
+                        "lease — rejected in silence")
+                    return false
+                }
+                val ok = if ((modeByte and 0x7F) == 13) drawCachedImage(arm, c, src)
+                else drawCachedText(arm, c, src)
+                if (!ok) return false
+                if (present) present(arm, now)
+                true
+            }
+            15 -> {
+                // Legal firmware feature; Damage never emits it. Mode 15 renders with
+                // the stock LVGL 20 px font chain that lives inside the firmware, so
+                // this model cannot predict its pixels — and a belief the model cannot
+                // reproduce would quietly break the per-lens oracle. Loud, not silent.
+                diag.event("decode", "$arm mode-15 (builtin-font text) is not modeled: its " +
+                    "glyphs come from the firmware's own font, so no offline model can " +
+                    "know the resulting pixels. Damage does not emit mode 15 by design.")
+                false
+            }
             else -> {
                 diag.event("decode", "$arm unmodeled mode ${modeByte and 0x7F} — BMP fallback would run")
                 false
             }
         }
+    }
+
+    private fun leaseHeldAt(c: LensCtx, now: Long) = c.leaseDeadline > now
+
+    private fun rd16at(b: ByteArray, i: Int) =
+        (b[i].toInt() and 0xFF) or ((b[i + 1].toInt() and 0xFF) shl 8)
+
+    /** texture_cache.c cfw_texture_image_at: [w:u8][h:u8][RLE of exactly w*h pixels]. */
+    private class CachedImage(val w: Int, val h: Int, val levels: ByteArray)
+
+    private fun imageAt(arm: Arm, c: LensCtx, offset: Int, what: String): CachedImage? {
+        val cache = c.textureCache ?: run {
+            diag.event("decode", "$arm $what: no texture cache has been written"); return null
+        }
+        if (offset < 0 || offset > CfwModes.TEXTURE_CACHE_SIZE - 2) {
+            diag.event("decode", "$arm $what: offset $offset out of the cache"); return null
+        }
+        val w = cache[offset].toInt() and 0xFF
+        val h = cache[offset + 1].toInt() and 0xFF
+        if (w == 0 || h == 0) {
+            diag.event("decode", "$arm $what: cache offset $offset holds no image " +
+                "(${w}x$h) — rejected in silence")
+            return null
+        }
+        val avail = CfwModes.TEXTURE_CACHE_SIZE - offset - 2
+        val levels = try {
+            decodeCachedRle(cache, offset + 2, avail, w * h)
+        } catch (e: Exception) {
+            diag.event("decode", "$arm $what: malformed RLE at $offset (${e.message})")
+            return null
+        }
+        return CachedImage(w, h, levels)
+    }
+
+    /** The firmware's scanner: walk tokens until exactly [pixels] are produced,
+     *  never reading past the cache, rejecting zero counts and overruns. */
+    private fun decodeCachedRle(cache: ByteArray, start: Int, avail: Int, pixels: Int): ByteArray {
+        val out = ByteArray(pixels)
+        var n = 0
+        var pos = 0
+        while (n < pixels) {
+            if (pos >= avail) throw IllegalStateException("ran out of cache")
+            val op = cache[start + pos].toInt() and 0xFF
+            val color = op and 0x0F
+            var cnt = op shr 4
+            var used = 1
+            if (cnt == 0) {
+                if (pos + 1 >= avail) throw IllegalStateException("truncated 8-bit escape")
+                cnt = cache[start + pos + 1].toInt() and 0xFF
+                used = 2
+                if (cnt == 0) {
+                    if (pos + 3 >= avail) throw IllegalStateException("truncated 16-bit escape")
+                    cnt = (cache[start + pos + 2].toInt() and 0xFF) or
+                        ((cache[start + pos + 3].toInt() and 0xFF) shl 8)
+                    used = 4
+                    if (cnt == 0) throw IllegalStateException("zero-length run")
+                }
+            }
+            if (cnt > pixels - n) throw IllegalStateException("run $cnt overruns $pixels pixels")
+            repeat(cnt) { out[n++] = color.toByte() }
+            pos += used
+        }
+        return out
+    }
+
+    /** cfw_texture_make_lut: lut[i] = (source * top) / 15, source reversed if INVERSE. */
+    private fun makeLut(options: Int): IntArray {
+        val top = options and 0x0F
+        return IntArray(16) { i ->
+            val source = if (options and CfwModes.OPT_INVERSE != 0) 15 - i else i
+            (source * top) / 15
+        }
+    }
+
+    /** cfw_texture_render: clip to the panel; transparency tests the ORIGINAL
+     *  source level, before the LUT, so colour 0 is skipped even for an inverse ramp. */
+    private fun renderCached(c: LensCtx, img: CachedImage, x0: Int, y0: Int, options: Int) {
+        val lut = makeLut(options)
+        val transparent = options and CfwModes.OPT_TRANSPARENT != 0
+        for (p in img.levels.indices) {
+            val color = img.levels[p].toInt() and 0x0F
+            if (transparent && color == 0) continue
+            val x = x0 + p % img.w
+            val y = y0 + p / img.w
+            if (x < 0 || y < 0 || x >= Geometry.PANEL_W || y >= Geometry.PANEL_H) continue
+            val idx = y * c.stride + (x shr 1)
+            val b = c.shadow[idx].toInt() and 0xFF
+            c.shadow[idx] = (if (x and 1 == 1) (b and 0xF0) or lut[color]
+            else (b and 0x0F) or (lut[color] shl 4)).toByte()
+        }
+    }
+
+    /** Mode 13: [13][off16][x16][y16][opt8] — payload after the mode byte is exactly 7. */
+    private fun drawCachedImage(arm: Arm, c: LensCtx, src: ByteArray): Boolean {
+        if (src.size != 8) {
+            diag.event("decode", "$arm mode-13 is ${src.size} B; the firmware wants exactly 8")
+            return false
+        }
+        val img = imageAt(arm, c, rd16at(src, 1), "mode-13") ?: return false
+        renderCached(c, img, rd16at(src, 3), rd16at(src, 5), src[7].toInt() and 0xFF)
+        return true
+    }
+
+    /** Mode 14: [14][font16][x16][y16][opt8][len8][bytes]. Every character is
+     *  validated before ANY glyph is drawn, so one bad byte drops the whole line. */
+    private fun drawCachedText(arm: Arm, c: LensCtx, src: ByteArray): Boolean {
+        if (src.size < 9) { diag.event("decode", "$arm mode-14 too short"); return false }
+        val fontOffset = rd16at(src, 1)
+        val strLen = src[8].toInt() and 0xFF
+        if (src.size != 9 + strLen) {
+            diag.event("decode", "$arm mode-14 length ${src.size} != ${9 + strLen} for its " +
+                "declared string length")
+            return false
+        }
+        if (fontOffset > CfwModes.TEXTURE_CACHE_SIZE - CfwModes.FONT_TABLE_BYTES) {
+            diag.event("decode", "$arm mode-14 font table at $fontOffset does not fit"); return false
+        }
+        val cache = c.textureCache ?: run {
+            diag.event("decode", "$arm mode-14: no texture cache has been written"); return false
+        }
+        val options = src[7].toInt() and 0xFF
+        val glyphs = ArrayList<Pair<Int, CachedImage?>>(strLen)
+        for (i in 0 until strLen) {
+            val ch = src[9 + i].toInt() and 0xFF
+            if (ch in 1..31) { glyphs += ch to null; continue }
+            if (ch < 32 || ch > 127) {
+                diag.event("decode", "$arm mode-14 byte $ch at $i is neither an x adjust " +
+                    "(1..31) nor a glyph (32..127) — the WHOLE string is rejected")
+                return false
+            }
+            val off = rd16at(cache, fontOffset + (ch - 32) * 2)
+            val img = imageAt(arm, c, off, "mode-14 glyph ${ch.toChar()}") ?: return false
+            glyphs += ch to img
+        }
+        var x = rd16at(src, 3)
+        val y = rd16at(src, 5)
+        for ((ch, img) in glyphs) {
+            if (img == null) { x += ch - 11; continue }
+            renderCached(c, img, x, y, options)
+            x += img.w
+        }
+        return true
     }
 
     /** zlib_glue.c cfw_diag(), verbatim semantics. Returns true = duplicate, skip. */
@@ -461,6 +692,28 @@ class GlassFirmwareSim() : LensPanels {
             diag.event("lease", "$arm present WITHOUT a live FB lease — stock will repaint over this")
         }
         diag.panelChanged(arm)
+    }
+
+    // ------------------------------------------------- direct seams for tests
+    // Unit-testing the mode dispatcher means handing it a message and reading the
+    // resulting pixels. Everything else still goes the long way round through
+    // write() and the reassembler; these three exist so a decode test does not
+    // have to build a whole EvenHub image session to exercise one mode byte.
+
+    /** Grant [arm] a framebuffer lease expiring at [deadline] (modeled clock). */
+    @Synchronized
+    fun forceLease(arm: Arm, deadline: Long) { ctx(arm).leaseDeadline = deadline }
+
+    /** Dispatch one reassembled image message as the deferred worker would. */
+    @Synchronized
+    fun dispatchForTest(arm: Arm, src: ByteArray, now: Long): Boolean =
+        dispatchImage(arm, src, now)
+
+    /** Paint the whole shadow one 4bpp [level] — a known background to draw onto. */
+    @Synchronized
+    fun fillShadowForTest(arm: Arm, level: Int) {
+        require(level in 0..15) { "level $level" }
+        ctx(arm).shadow.fill(((level shl 4) or level).toByte())
     }
 
     private fun rectCopy4bpp(shadow: ByteArray, stride: Int, sL: Int, sT: Int, dL: Int, dT: Int, w: Int, h: Int) {
@@ -549,15 +802,23 @@ class GlassFirmwareSim() : LensPanels {
     /** Inject a gesture as the glasses would REALLY report it (e0-01): scroll
      *  notches ride Text_ItemEvents on the capture container (they carry no
      *  source byte — G2_BLE_PROTOCOL.md §6.6); everything else rides
-     *  Sys_ItemEvents with an EventSource. RIGHT arm — Left is silent. */
+     *  Sys_ItemEvents. RIGHT arm — Left is silent.
+     *
+     *  The EventSource field is emitted only for CLICK and DOUBLE_CLICK, because
+     *  that is the only case the stock sender writes it (see
+     *  `EvenHubMsg.reportsSource`). Modeling a source on long-press would let code
+     *  depend on a field that is absent on glass — precisely the kind of silent
+     *  sim-only truth this model exists to refuse. */
     @Synchronized
     fun injectGesture(eventType: Int, source: Int = EvenHubMsg.SRC_RING) {
         val dev = if (eventType == EvenHubMsg.EV_SCROLL_TOP || eventType == EvenHubMsg.EV_SCROLL_BOTTOM) {
             val text = Pb.cat(Pb.v(1, EvenHubMsg.TEXT_CONTAINER_ID),
                 Pb.s(2, EvenHubMsg.TEXT_CONTAINER_NAME), Pb.v(3, eventType))
             Pb.l(2, text)
-        } else {
+        } else if (EvenHubMsg.reportsSource(eventType)) {
             Pb.l(3, Pb.cat(Pb.v(1, eventType), Pb.v(2, source)))
+        } else {
+            Pb.l(3, Pb.v(1, eventType))
         }
         val payload = Pb.cat(Pb.v(1, 2), Pb.l(13, dev))
         diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), EvenHubMsg.SID, EvenHubMsg.FLAG_EVENT,

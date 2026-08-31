@@ -197,9 +197,49 @@ local shell yielding and resuming automatically.
   runbook after Adam flashes the CFW.
 - Compass, IMU, wear detection: per `DESIGN.md` (§7) — compass cell draws a
   placeholder until the mode-10 feed exists; head tracking defaults OFF.
-- Texture caching (Babcock's in-progress firmware work): rects are already
-  content-addressed at the emit boundary in spirit — adopting the cache is a
-  transport-level change by design (§5.18).
+- ~~Texture caching (Babcock's in-progress firmware work)~~ — **it shipped**, see below.
+
+## The texture cache (2026-08-30, CFW `a5d1c31`)
+
+The firmware grew a **64 KiB lease-scoped texture cache** and three draw modes. The wire and
+model layers are built and green; the compositor has not adopted them yet, deliberately.
+
+**Built:**
+
+- `wire/CfwModes.kt` — `cleanup()` (11), `cacheUpdate()` (12), `drawImage()` (13),
+  `drawCachedText()` (14), plus `options()` and `xAdjust()`. Every builder refuses what the
+  firmware would reject in silence: mode 13's exact 7-byte payload, mode 14's `8 + strlen`, byte 0
+  and bytes > 127 in a string, writes past the 64 KiB end, an adjust outside −10…+20.
+  `batch()` now accepts sub-modes 3/6/9/13/14/15.
+- `wire/TextureCache.kt` — atlas layout: image encoding (`[w][h][RLE of exactly w*h pixels]`, no
+  row pad), a deduplicating offset allocator, 96-entry font tables, and chunked mode-12 messages.
+  Two invariants worth keeping: **offsets 0–1 stay zero** so an unfilled table entry points at a
+  guaranteed-rejected image, and **every table entry is filled** (unmapped characters get a
+  visible tofu box) because the firmware validates a whole string before drawing any of it — one
+  unmapped character would otherwise drop the entire line.
+- `gfx/Codec.kt` — `Rle.encodeLevels`/`decodeLevels`, the same token alphabet over a bare pixel
+  run. The packed-row `Rle.encode`/`decode` are untouched, so `RleParityTest`'s pinning still holds.
+- `sim/GlassFirmwareSim.kt` — modes 11/12/13/14 modeled byte-exactly: the lazily allocated cache,
+  the lease gate, whole-list validation before any write, the LUT with its integer truncation,
+  transparency tested pre-LUT, per-glyph advance by image width. Mode 15 is **refused loudly**.
+  The cache is dropped on lease expiry and on mode 11.
+- `TextureCacheTest` — 25 tests.
+
+**Two corrections that came out of reading the new source, both already applied:**
+
+- 🔴 The sim used to attach an `EventSource` to long-press events. The firmware never does: the
+  stock sender writes that field only for `EventType` 0 and 3, verified at instruction level. The
+  model now omits it (`EvenHubMsg.reportsSource`), so nothing can come to depend on a field that
+  is absent on glass.
+- The capability gate now runs against the real `EVENCFW/16` string. `img576` and `compass10`
+  vanished from it while their features live on, so `REQUIRED_CAPS` stays at the five that matter
+  and version checks go through `SettingsMsg.contractVersion`.
+
+**Not adopted yet, on purpose.** The compositor still emits pixel deltas only. Turning text into
+mode-14 draws changes the emit strategy and the entire cost model, and it wants **measured** CFW
+ack latency to price it rather than the modeled 176 ms — one flash away. Mode 11 in `stop()` is
+held for the same build: its value is freeing the cache, and `stop()` is a five-round-hardened
+path not worth disturbing for nothing.
 
 ## Review hardening (rounds 2–8, 2026-08-24)
 

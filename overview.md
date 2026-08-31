@@ -341,22 +341,73 @@ ambiguous ACK timeout restarts the whole component rather than replaying a block
 
 ## 4. The CFW display-mode contract (**the most important technical artifact here**)
 
-Source: `g2flash` `patches/zlib_glue.c` header comment. Dispatch is on the image's own leading
-bytes: `'BM'` = BMP, otherwise a small u8 mode. Custom modes **3/6/8/9 operate on the full
-640×480 physical image** (packed 4bpp shadow); they bypass LVGL, serialize on the stock display
-semaphore, and `display_copy_hook` copies straight into the physical framebuffer before panel
-refresh.
+Source: `g2flash` `patches/zlib_glue.c` header comment (and, for modes 12–15,
+`patches/texture_cache.c`). Dispatch is on the image's own leading bytes: `'BM'` = BMP, otherwise
+a small u8 mode. Custom modes **3/6/8/9/13/14/15 operate on the full 640×480 physical image**
+(packed 4bpp shadow); they bypass LVGL, serialize on the stock display semaphore, and
+`display_copy_hook` copies straight into the physical framebuffer before panel refresh.
+
+**⚠ Updated 2026-08-30 for g2flash `a5d1c31`** (was `877c8d9`). Modes 3/6/8/9 are **unchanged** —
+the update is purely additive — but mode 8's accepted sub-mode set grew and modes 11–15 are new.
 
 | mode | payload | meaning |
 |---|---|---|
 | **6** | `[6][zlib(rle)]` | keyframe: seeds the persistent 640×480 shadow, then direct FB refresh |
-| **3** | `[3][l/4][t/2][w/4][h/2][fid16][zlib(rle)]` | **dirty-rect delta** onto the shadow + refresh. **Requires a prior mode 6** |
+| **3** | `[3][l/4][t/2][w/4][h/2][fid16][zlib(rle)]` | **dirty-rect delta** onto the shadow + refresh. **Requires a prior mode 6.** The only mode that burns a `fid` |
 | **9** | `[9][srcrect][dstrect]` | **rect-copy INSIDE the shadow** (uint16 coords). "Pairs with a delta (usually via mode 8) to scroll." **Moves pixels on-device, transmits none** |
-| **8** | `[8][count][len16][submsg]…` | **multiple ops in ONE atomic message** — "e.g. scroll = rect-copy + delta". No nesting. For shadow ops 3/6/9 |
+| **8** | `[8][count][len16][submsg]…` | **multiple ops in ONE atomic message** — "e.g. scroll = rect-copy + delta". No nesting. Sub-modes **3/6/9/13/14/15** (was 3/6/9) |
 | **7** | `[7][sub]` | diagnostic overlay control: 0 = clear sticky flags, 1 = hide, 2 = show. Hidden by default |
 | **5** | sub-dispatch on `src[1]` | kind 4 = buzzer tone sequencer (≤48 steps) |
 | **10** | `[10][0\|1]` | compass/heading BLE forwarding. **No collision in practice — see below** |
+| 🆕 **11** | `[11]` | **session cleanup** before disconnect: releases the FB lease and direct-FB ownership, frees the texture cache, stops CFW timers/buzzer/compass, drops snapshots, hides the overlay. Extra bytes ignored |
+| 🆕 **12** | `[12]([off16][len16][data])…` | **write the texture cache.** The whole entry list is validated before a single byte lands |
+| 🆕 **13** | `[13][off16][x16][y16][opt8]` | **draw a cached image.** Payload after the mode byte must be **exactly 7 bytes** |
+| 🆕 **14** | `[14][font16][x16][y16][opt8][len8][bytes]` | **draw cached glyphs** through a 96-entry offset table |
+| 🆕 **15** | `[15][x16][y16][opt8][len8][UTF-8]` | draw with the firmware's own 20 px font + pair kerning. ❌ **Damage never emits this** — see below |
 | `'B'` | BMP | `load_bmp_fast`, direct 4bpp-nibble→8bpp (`nibble*17`) expand |
+
+### 🆕 The texture cache (modes 11–15, g2flash `a5d1c31`, 2026-08-30)
+
+The thing Babcock said he was building has landed. A **64 KiB, lease-scoped, phone-owned** cache,
+allocated and zeroed from firmware heap 13 on the first mode-12 write.
+
+**A cached image is `[width:u8][height:u8][4bpp RLE]` covering exactly `width*height` pixels —
+with NO pad nibble**, unlike modes 3/6, whose RLE runs over packed rows including the odd-row pad.
+Same token alphabet, different pixel stream. Max 255×255 per image. The scanner walks tokens until
+the pixel count is met, so an image carries no explicit byte length.
+
+**A "font" is just a table of 96 little-endian uint16 offsets** for characters 32…127, each
+pointing at a cached image. Several fonts can share one cache and share glyphs. Mode 14 advances x
+by each glyph's **image width** and applies **no kerning of its own**; string bytes **1…31** are
+inline x adjustments of `b - 11`, i.e. **−10…+20 px**, which is the only fit channel available.
+Byte 0 and bytes > 127 make the firmware reject the **whole string**, and it validates every
+character before drawing any of them.
+
+**The options byte** (modes 13/14/15): low nibble = top output colour; `lut[i] = (i * top) / 15`;
+bit 4 (`0x10`) makes source colour 0 transparent, tested on the **original** level before the LUT;
+bit 5 (`0x20`) reverses the ramp (`source = 15 - i`).
+
+**Lifetime:** the cache is freed on lease expiry, on FB_RELEASE, on a *fresh* acquire after a
+lapse, and on mode 11 — but **kept across a renewal**. So an atlas is uploaded once per lease.
+Modes 12/13/14/15 all hard-require an active FB lease.
+
+**Why this matters to Damage:** it converts text and chrome from per-frame pixel payload into
+per-frame *references*. A line of cached glyphs costs `9 + len` bytes on the wire regardless of how
+much ink it puts on the panel, and it rides inside the same single mode-8 flush as the pixel
+deltas. Since only mode 3 burns a fid, cached draws are also free of the 16-deep duplicate ring
+that caps deltas at ~6 per batch.
+
+**❌ Mode 15 is deliberately unused.** Its glyphs come from an LVGL font chain that lives inside
+the firmware, so no offline model can predict the pixels it produces — and the compositor's
+per-lens belief, the thing `LensOracleTest` pins, would stop being exact. Modes 13/14 draw from a
+cache *we* wrote, so the model reproduces them bit for bit. The simulator refuses mode 15 loudly
+rather than guessing. (It would also be the wrong typeface: `DESIGN.md` locks four faces and the
+stock 20 px font is none of them.)
+
+**The capability string changed shape too** — `EVENCFW/8 img576 img640 imgz rle wakelease directfb
+fbguard wearnotify compass10` became `EVENCFW/16 img640 imgz rle wakelease directfb fbguard
+wearnotify cleanup11 texcache12 teximg13 texstr14 font15 micctl`. ⚠ `img576` and `compass10` were
+deleted **purely to fit under 127 bytes**; both features still work. Never gate on them.
 
 **Mode-3 addressing is QUANTIZED** — this answers old unknown #6. `left`/`width` are ×4 and
 `top`/`height` are ×2, each a **single byte**, so: left ∈ 0…636 step 4, top ∈ 0…478 step 2, and
@@ -384,6 +435,12 @@ collide with a still-remembered fid — which the firmware **silently skips**, n
 table). The reference implementation runs **6 rects per batch** to keep several batches of history
 inside the ring. Treat 6 as the known-good working value and 16 as the hard ceiling on
 *outstanding fid history*, not on rects per message.
+
+⚠ **The budget prices mode-3 deltas ONLY.** Verified in `debug.c`: `cfw_diag()` is called from
+exactly two places in `zlib_glue.c` — the mode-6 keyframe (to rebaseline, `has_fid = 0`) and the
+mode-3 delta. Modes 9/13/14/15 never touch the ring. So a batch may carry six deltas *plus* as
+many rect-copies and cached draws as fit under `bmp_max`, and the cached-draw modes are the way to
+add content to a flush once the delta budget is spent.
 
 Two more Faceclaw thresholds worth inheriting: `MULTI_RECT_MIN_PAYLOAD = 900` (don't bother
 splitting when the single bounding box already compresses below this) and the rule that multi-rect

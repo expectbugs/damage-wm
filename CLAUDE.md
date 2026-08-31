@@ -135,8 +135,17 @@ The global "verify before execute" applies. Project-specific extensions:
 
 - **NEVER guess a CFW display mode byte, rect encoding, or batch layout.** Read
   `g2flash/patches/zlib_glue.c` — its header comment is the authoritative mode contract. Modes
-  3/6/8/9 and the high-bit "lenses differ" flag all have exact semantics. Guessing here produces
-  garbage on the lens, silently.
+  3/5/6/7/8/9/10/11/12/13/14/15 and the high-bit "lenses differ" flag all have exact semantics.
+  Guessing here produces garbage on the lens, silently. The texture-cache modes (12–15) have a
+  second authoritative file, `patches/texture_cache.c`.
+- 🔴 **NEVER gate a feature on a capability token that could be dropped for space.** a5d1c31
+  deleted `img576` and `compass10` from the advertised string purely to get it back under 127
+  bytes — **both features are still fully implemented**. A gate demanding either would refuse a
+  firmware that supports them. Require only the five in `SettingsMsg.REQUIRED_CAPS`; check
+  `EVENCFW/<n>` for anything version-shaped. And parse field 100's length as a real **varint**:
+  the firmware wrote it as a bare byte until a5d1c31 and shipped one build whose whole settings
+  response failed to decode because the string passed 127 bytes. Field 100 is also **no longer
+  last** — field 104 (mic read-back) now trails every sid-0x09 READ response.
 - 🔑 **The CFW path always sends `CompressMode = 0`.** Confirmed by the CFW author 2026-08-17:
   g2flash/faceclaw "signals its own compression method with CompressMode=0 and some header bytes in
   the data field" — those header bytes are the mode byte (3/6/8/9). Nonzero CompressMode is Even's
@@ -250,12 +259,26 @@ that don't fit raise loudly, never silently mangle.
   spends the depth allowance on pixels. Know which trade you are making.
 - **There is no off-panel scratch space.** Pre-render-off-panel-then-flip-in and save-under-via-
   mode-9 are both dead — nowhere to hide. Overlays repaint the covered region with mode 3.
-  The real answer is **texture caching**, which Babcock is building into the firmware protocol
-  ("multiple screens' worth of available or reclaimable memory"). Design so it can be adopted later.
+- 🆕 **The texture cache LANDED (g2flash a5d1c31, 2026-08-30).** It is no longer future work.
+  A **lease-scoped 64 KiB** phone-owned cache: **mode 12** writes it, **mode 13** draws a cached
+  image, **mode 14** draws a string through a 96-entry glyph table, **mode 11** tears the session
+  down. A cached image is `[w:u8][h:u8][4bpp RLE of exactly w*h pixels]` — **no row pad nibble**,
+  unlike modes 3/6. Read `patches/texture_cache.c`; `core/.../wire/TextureCache.kt` holds our
+  layout and `CfwModes` the encoders.
+  - **The cache dies with the lease** — freed on expiry, on FB_RELEASE, on a fresh acquire after a
+    lapse, and on mode 11; kept across a *renewal*. Upload the atlas once per lease, not per frame.
+  - ❌ **Never emit mode 15** (draw with the firmware's own 20 px font). Its pixels come from an
+    LVGL font chain inside the firmware, so no offline model can predict them and the per-lens
+    oracle stops being exact. Modes 13/14 draw from a cache *we* wrote, so the model reproduces
+    them bit for bit. The simulator refuses mode 15 loudly on purpose.
 - **Damage tracking with a single mode-8 flush per frame** is the architecture. Accumulate dirty
-  rects across all windows; emit one atomic batch. **Cap the batch at ~6 rects**, not 16: every
-  mode-3 sub-message burns a `fid`, the firmware's duplicate-fid ring is 16 deep, and a collision
-  is **silently skipped**, not rejected. Keep `fid` in `[1,0xFFFE]`, +1 per delta.
+  rects across all windows; emit one atomic batch. **Cap the batch at ~6 mode-3 rects**, not 16:
+  a mode-3 sub-message burns a `fid`, the firmware's duplicate-fid ring is 16 deep, and a
+  collision is **silently skipped**, not rejected. Keep `fid` in `[1,0xFFFE]`, +1 per delta.
+  ⚠ **Only mode 3 burns a fid** — modes 6/9/13/14 do not touch the ring, so the ~6 cap prices
+  *deltas only*; cached draws ride the same batch for free. A mode-8 batch accepts sub-modes
+  **3/6/9/13/14/15** as of a5d1c31 (was 3/6/9). The `CFW_RECT_MAX = 16` rect list is diagnostic
+  only — it feeds the debug overlay's outlines, not the panel push, which is always full-screen.
 - **The carrier layout is image container + a full-screen dummy TEXT container** (`content=" "`,
   `isEventCapture=true`). g2flash's README says "a single image container" — that is incomplete;
   image-only layouts ack but never paint. That dummy widget is also why the framebuffer lease
@@ -263,6 +286,11 @@ that don't fit raise loudly, never silently mangle.
 - **Hold the direct-framebuffer lease or lose the screen.** sid 0x09 field 101 op 5 (FB_ACQUIRE),
   **both arms**, renew every 45 s against a 90 s expiry. It fails OPEN: stop renewing and stock
   LVGL silently repaints over us. This is correctness, not optimization.
+  🆕 **As of a5d1c31 the lease gates far more than repainting.** `cfw_fb_lease_active()` is now
+  the CFW's general "Faceclaw owns this session" predicate: without it you also lose **modes
+  12/13/14/15**, you lose **long-press forwarding** (events 9/10), and the stock **"End this
+  feature?" quit dialog comes back**. The 45 s renewal is *our* policy — the firmware defines
+  only the 90 s deadline.
 - **A mode-3 delta requires a prior mode-6 keyframe.** Track that state; never emit a delta
   against an unseeded shadow. ⚠ **The compositing base is not free either** — the display driver
   has been observed handing back a buffer *two frames back*, so deltas composited onto a stale
@@ -278,7 +306,17 @@ that don't fit raise loudly, never silently mangle.
 - **Anti-alias text** across the 16 gray levels. Do not ship a 1-bit-looking font; that was the
   stock firmware's limitation, not ours.
 - **Damage must provide its own quit path** — the CFW removes the stock "End this feature?"
-  dialog, which was the only stock way out of an app.
+  dialog, which was the only stock way out of an app. ⚠ **Conditional since a5d1c31:** the dialog
+  is suppressed only while the FB lease is held. Lose the lease and it returns — which is a
+  safety net, not a substitute for our own quit.
+- 🔴 **A long-press is UNATTRIBUTED — never build grammar on its source.** Since a5d1c31 either
+  temple touchpad raises event 9 as well as the ring, and `Sys_ItemEvent.EventSource` is **absent**
+  for event types 9 and 10: the stock sender writes that field only inside a branch gated on
+  `EventType == 0 || EventType == 3`, and the message struct is memset to 0, so proto3 omits it.
+  Verified at instruction level on our pinned 2.2.6.10 base and on 2.2.4.34 — it has never worked,
+  and Faceclaw's own decoder hides it by calling every unattributed press "ring". The only
+  discrimination available is which arm's link the notify arrived on. `DESIGN.md` §1.2's "a bare
+  long-press is a no-op" is what keeps the extra accidental source harmless — do not weaken it.
 - **Depth (stereo):** horizontal offsets only, never vertical; never different *content* per eye;
   small magnitudes. Adam sets display distance to **far** on purpose so the HUD is ignorable at
   work and while driving. 🔴 **Layer order (Adam direct, 2026-08-17): main content sits as far

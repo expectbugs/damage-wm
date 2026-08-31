@@ -166,9 +166,29 @@ object EvenHubMsg {
     const val EV_RING_LONG_PRESS = 9
     const val EV_RING_LONG_PRESS_RELEASE = 10
 
+    /** EventSource (Sys_ItemEvent field 2).
+     *
+     *  🔴 **Only event types 0 (CLICK) and 3 (DOUBLE_CLICK) ever carry one.** The
+     *  stock sender FUN_004da16a writes `EventSource` inside a branch gated on
+     *  `EventType == 0 || EventType == 3`; the whole message struct is memset to 0
+     *  on entry, so for the CFW's long-press events 9 and 10 the field stays 0 and
+     *  proto3 omits it from the encoding entirely. Verified at instruction level
+     *  against our pinned 2.2.6.10 base and against 2.2.4.34 — it has never
+     *  worked, and it did not change when g2flash a5d1c31 stopped filtering
+     *  long-press by source (`patches/gesture_fwd.c`, commit 0754874).
+     *
+     *  So: a long-press is UNATTRIBUTED. Since a5d1c31 it can come from the ring
+     *  OR either temple touchpad, and nothing on the wire says which. Do not build
+     *  grammar on the source of events 9/10 — `DESIGN.md` §1.2's "a bare
+     *  long-press is a no-op" is what makes the extra accidental source harmless.
+     *  The only discrimination available is which arm's link the notify arrived on. */
+    const val SRC_NONE = 0
     const val SRC_GLASSES_R = 1
     const val SRC_RING = 2
     const val SRC_GLASSES_L = 3
+
+    /** Whether the firmware reports a source for [eventType] at all. */
+    fun reportsSource(eventType: Int) = eventType == EV_CLICK || eventType == EV_DOUBLE_CLICK
 
     fun parseEvent(payload: ByteArray): Event? = try {
         val dev = Pb.bytesField(payload, 13) ?: return null
