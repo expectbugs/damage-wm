@@ -289,6 +289,243 @@ class TextureCacheTest {
             "mode 15 draws with the firmware's own font; no offline model can predict it")
     }
 
+    // ------------------------------------------- the lease lifecycle, driven for real
+    // Review round 1 found two defects here that no test could see, because every
+    // model test set the deadline directly with forceLease instead of sending the
+    // firmware the acquire/release it actually reacts to. These drive `settings()`.
+
+    private fun lease(sim: GlassFirmwareSim, arm: Arm, op: Int, now: Long) =
+        sim.write(arm, wm.damage.core.wire.AaFrame.frame(
+            1, SettingsMsg.SID, SettingsMsg.FLAG_REQUEST,
+            SettingsMsg.control(op, 1), wm.damage.core.wire.AaFrame.TYPE_COMMAND).single(), now)
+
+    private fun uploadAtlas(sim: GlassFirmwareSim, arm: Arm, now: Long): Int {
+        val b = TextureCache.Builder()
+        val off = b.add(TextureCache.Image(2, 2, byteArrayOf(1, 1, 1, 1)))
+        for (m in b.messages()) assertTrue(sim.dispatchForTest(arm, m, now), "cache write")
+        return off
+    }
+
+    @Test
+    fun releasingTheLeaseFreesTheCacheAsTheFirmwareDoes() {
+        val sim = GlassFirmwareSim()
+        lease(sim, Arm.LEFT, SettingsMsg.OP_FB_ACQUIRE, 0L)
+        val off = uploadAtlas(sim, Arm.LEFT, 100L)
+        assertTrue(sim.dispatchForTest(Arm.LEFT, CfwModes.drawImage(off, 0, 0, 15), 200L))
+
+        lease(sim, Arm.LEFT, SettingsMsg.OP_FB_RELEASE, 300L)
+        lease(sim, Arm.LEFT, SettingsMsg.OP_FB_ACQUIRE, 400L)
+        assertFalse(
+            sim.dispatchForTest(Arm.LEFT, CfwModes.drawImage(off, 0, 0, 15), 500L),
+            "FB_RELEASE frees the cache; the atlas must be uploaded again after re-acquiring",
+        )
+    }
+
+    @Test
+    fun aFreshAcquireAfterALapseFreesTheCacheButARenewalKeepsIt() {
+        val sim = GlassFirmwareSim()
+        lease(sim, Arm.LEFT, SettingsMsg.OP_FB_ACQUIRE, 0L)
+        val off = uploadAtlas(sim, Arm.LEFT, 100L)
+
+        // A renewal inside the 90 s window keeps the atlas.
+        lease(sim, Arm.LEFT, SettingsMsg.OP_FB_ACQUIRE, SettingsMsg.LEASE_RENEW_MS)
+        assertTrue(
+            sim.dispatchForTest(Arm.LEFT, CfwModes.drawImage(off, 0, 0, 15),
+                SettingsMsg.LEASE_RENEW_MS + 1),
+            "a renewal of a live lease keeps the cache",
+        )
+
+        // Past the deadline, the next acquire is FRESH and drops it — the reconnect case.
+        val late = SettingsMsg.LEASE_RENEW_MS + SettingsMsg.LEASE_EXPIRY_MS + 1
+        lease(sim, Arm.LEFT, SettingsMsg.OP_FB_ACQUIRE, late)
+        assertFalse(
+            sim.dispatchForTest(Arm.LEFT, CfwModes.drawImage(off, 0, 0, 15), late + 1),
+            "a fresh lease after a lapse frees the cache",
+        )
+    }
+
+    @Test
+    fun noticingALapseFreesTheCacheEvenWithoutATick() {
+        // cfw_fb_lease_active() releases on the call that detects expiry; the model
+        // must not depend on tick() having run first.
+        val sim = GlassFirmwareSim()
+        lease(sim, Arm.LEFT, SettingsMsg.OP_FB_ACQUIRE, 0L)
+        val off = uploadAtlas(sim, Arm.LEFT, 100L)
+        assertFalse(
+            sim.dispatchForTest(Arm.LEFT, CfwModes.drawImage(off, 0, 0, 15),
+                SettingsMsg.LEASE_EXPIRY_MS + 1),
+            "the draw itself must notice the lapse",
+        )
+    }
+
+    // -------------------------------------------------- malformed cache and edges
+    @Test
+    fun aCachedImageThatUnderRunsItsPixelCountIsRejected() {
+        val sim = leased(GlassFirmwareSim())
+        // [w=2][h=2] claims 4 pixels; one run of 1 supplies one.
+        val bad = CfwModes.cacheUpdate(listOf(
+            CfwModes.CacheWrite(TextureCache.GUARD, byteArrayOf(2, 2, 0x11))))
+        assertTrue(sim.dispatchForTest(Arm.LEFT, bad, 1_000L), "the write itself is well-formed")
+        assertFalse(
+            sim.dispatchForTest(Arm.LEFT, CfwModes.drawImage(TextureCache.GUARD, 0, 0, 15), 1_000L),
+            "an RLE stream that does not fill w*h is rejected",
+        )
+    }
+
+    @Test
+    fun aGlyphStraddlingTheEndOfTheCacheIsRejected() {
+        val sim = leased(GlassFirmwareSim())
+        // A header at the very last two bytes leaves no room for a single token.
+        val at = CfwModes.TEXTURE_CACHE_SIZE - 2
+        val write = CfwModes.cacheUpdate(listOf(CfwModes.CacheWrite(at, byteArrayOf(1, 1))))
+        assertTrue(sim.dispatchForTest(Arm.LEFT, write, 1_000L))
+        assertFailsWith<LintError>("the builder refuses the offset too") {
+            CfwModes.drawImage(at, 0, 0, 15)
+        }
+        // And the model refuses it when hand-built, which is what the glass does.
+        val handBuilt = byteArrayOf(13,
+            (at and 0xFF).toByte(), ((at shr 8) and 0xFF).toByte(), 0, 0, 0, 0, 15)
+        assertFalse(sim.dispatchForTest(Arm.LEFT, handBuilt, 1_000L),
+            "a header at the last two bytes leaves no room for a single RLE token")
+    }
+
+    @Test
+    fun aPartlyOffPanelDrawClipsInsteadOfWrappingOrFailing() {
+        val sim = leased(GlassFirmwareSim())
+        val b = TextureCache.Builder()
+        val off = b.add(TextureCache.Image(4, 4, ByteArray(16) { 15 }))
+        for (m in b.messages()) sim.dispatchForTest(Arm.LEFT, m, 1_000L)
+        sim.fillShadowForTest(Arm.LEFT, 0)
+        assertTrue(sim.dispatchForTest(Arm.LEFT,
+            CfwModes.drawImage(off, Geometry.PANEL_W - 2, Geometry.PANEL_H - 2, 15), 1_000L))
+        val stride = (Geometry.PANEL_W + 1) / 2
+        val p = sim.snapshot(Arm.LEFT)
+        val last = (Geometry.PANEL_H - 1) * stride + ((Geometry.PANEL_W - 1) shr 1)
+        assertEquals(15, p[last].toInt() and 0x0F, "the visible corner drew")
+        // The two clipped columns must not have wrapped onto the next row.
+        assertEquals(0, p[(Geometry.PANEL_H - 1) * stride].toInt() and 0xFF, "no wrap to x=0")
+    }
+
+    @Test
+    fun aLeadingNegativeAdjustClipsTheFirstGlyphRatherThanWrapping() {
+        val sim = leased(GlassFirmwareSim())
+        val b = TextureCache.Builder()
+        val bar = TextureCache.Image(4, 2, ByteArray(8) { 15 })
+        val font = b.addFont(mapOf('A' to bar), TextureCache.Image(1, 1, byteArrayOf(1)))
+        for (m in b.messages()) sim.dispatchForTest(Arm.LEFT, m, 1_000L)
+        sim.fillShadowForTest(Arm.LEFT, 0)
+        val text = byteArrayOf(CfwModes.xAdjust(-10), 'A'.code.toByte())
+        assertTrue(sim.dispatchForTest(Arm.LEFT,
+            CfwModes.drawCachedText(font.tableOffset, 0, 0, 15, text), 1_000L))
+        val p = sim.snapshot(Arm.LEFT)
+        assertEquals(0, p[0].toInt() and 0xFF, "x went negative; nothing wrapped to the row start")
+    }
+
+    @Test
+    fun aRejectedCacheUpdateLeavesTheCacheByteIdentical() {
+        val sim = leased(GlassFirmwareSim())
+        val off = uploadAtlas(sim, Arm.LEFT, 1_000L)
+        // Two entries. The FIRST would zero the width/height of the image we just
+        // uploaded; the SECOND runs off the end of the cache. The firmware validates
+        // the whole list before writing anything, so the first must never land.
+        val bad = byteArrayOf(
+            12,
+            (off and 0xFF).toByte(), ((off shr 8) and 0xFF).toByte(), 2, 0, 0, 0,
+            0xFF.toByte(), 0xFF.toByte(), 4, 0, 1, 2, 3, 4,
+        )
+        assertFalse(sim.dispatchForTest(Arm.LEFT, bad, 1_000L), "the whole update is rejected")
+        assertTrue(sim.dispatchForTest(Arm.LEFT, CfwModes.drawImage(off, 0, 0, 15), 1_000L),
+            "the first entry's bytes never landed, so the original atlas is intact")
+    }
+
+    @Test
+    fun theModelRejectsAModeFourteenStringByteTheBuilderWouldNeverEmit() {
+        val sim = leased(GlassFirmwareSim())
+        val b = TextureCache.Builder()
+        val font = b.addFont(mapOf('A' to TextureCache.Image(2, 2, ByteArray(4) { 9 })),
+            TextureCache.Image(1, 1, byteArrayOf(1)))
+        for (m in b.messages()) sim.dispatchForTest(Arm.LEFT, m, 1_000L)
+        // Hand-built: [14][font16][x16][y16][opt][len][ 'A', 0xC8 ]
+        val msg = byteArrayOf(14,
+            (font.tableOffset and 0xFF).toByte(), ((font.tableOffset shr 8) and 0xFF).toByte(),
+            0, 0, 0, 0, 15, 2, 'A'.code.toByte(), 0xC8.toByte())
+        assertFalse(sim.dispatchForTest(Arm.LEFT, msg, 1_000L),
+            "a byte above 127 drops the whole string, not just that character")
+    }
+
+    @Test
+    fun aBatchOfCachedDrawsRunsThroughTheModelAndPresentsOnce() {
+        val sim = leased(GlassFirmwareSim())
+        val b = TextureCache.Builder()
+        val dot = TextureCache.Image(2, 2, ByteArray(4) { 15 })
+        val off = b.add(dot)
+        for (m in b.messages()) sim.dispatchForTest(Arm.LEFT, m, 1_000L)
+        sim.fillShadowForTest(Arm.LEFT, 0)
+        val batch = CfwModes.batch(listOf(
+            CfwModes.drawImage(off, 0, 0, 15),
+            CfwModes.drawImage(off, 10, 0, 15),
+        ))
+        assertTrue(sim.dispatchForTest(Arm.LEFT, batch, 1_000L))
+        val p = sim.snapshot(Arm.LEFT)
+        assertEquals(15, (p[0].toInt() and 0xFF) shr 4, "first cached draw landed")
+        assertEquals(15, (p[5].toInt() and 0xFF) shr 4, "second cached draw landed in the same flush")
+    }
+
+    // ---------------------------------------------------------------- the layout
+    @Test
+    fun layoutPutsAKernBeforeTheGlyphItAppliesTo() {
+        val b = TextureCache.Builder()
+        val two = TextureCache.Image(2, 2, ByteArray(4) { 15 })
+        val font = b.addFont(mapOf('A' to two, 'B' to two), TextureCache.Image(1, 1, byteArrayOf(1)))
+        val bytes = TextureCache.layout("AB", font) { l, r -> if (l == 'A' && r == 'B') 2 else 0 }
+        assertContentEquals(
+            byteArrayOf('A'.code.toByte(), CfwModes.xAdjust(2), 'B'.code.toByte()),
+            bytes,
+            "the adjust lands between the pair, where the firmware applies it",
+        )
+        assertEquals(6, font.measure("AB") { l, r -> if (l == 'A' && r == 'B') 2 else 0 })
+    }
+
+    @Test
+    fun layoutTakesItsAdvanceFromTheAtlasNotFromTheCaller() {
+        val b = TextureCache.Builder()
+        val font = b.addFont(
+            mapOf('A' to TextureCache.Image(3, 2, ByteArray(6) { 15 }),
+                'B' to TextureCache.Image(5, 2, ByteArray(10) { 15 })),
+            TextureCache.Image(1, 1, byteArrayOf(1)))
+        assertEquals(3, font.width('A'))
+        assertEquals(5, font.width('B'))
+        assertEquals(8, font.measure("AB"), "advance is the cached image width, nothing else")
+        // An unmapped character still measures, because it draws the tofu box.
+        assertEquals(1, font.width('~'))
+    }
+
+    @Test
+    fun layoutAndTheModelAgreeOnWhereGlyphsLand() {
+        // The encoder and the firmware model are written from the same C but by
+        // different hands here; make them agree on a real string.
+        val sim = leased(GlassFirmwareSim())
+        val b = TextureCache.Builder()
+        val a = TextureCache.Image(3, 1, byteArrayOf(15, 15, 15))
+        val c = TextureCache.Image(2, 1, byteArrayOf(15, 15))
+        val font = b.addFont(mapOf('A' to a, 'B' to c), TextureCache.Image(1, 1, byteArrayOf(1)))
+        for (m in b.messages()) sim.dispatchForTest(Arm.LEFT, m, 1_000L)
+        sim.fillShadowForTest(Arm.LEFT, 0)
+        val kern = { l: Char, r: Char -> if (l == 'A' && r == 'B') -1 else 0 }
+        val bytes = TextureCache.layout("AB", font, kern)
+        assertTrue(sim.dispatchForTest(Arm.LEFT,
+            CfwModes.drawCachedText(font.tableOffset, 0, 0, 15, bytes), 1_000L))
+        val p = sim.snapshot(Arm.LEFT)
+        fun px(x: Int): Int {
+            val v = p[x shr 1].toInt() and 0xFF
+            return if (x and 1 == 0) v shr 4 else v and 0x0F
+        }
+        // A at 0..2, kern -1 pulls B to 2..3 — B overlaps A's last column.
+        for (x in 0..3) assertEquals(15, px(x), "pixel $x")
+        assertEquals(0, px(4), "the line ends where measure() says it does")
+        assertEquals(4, font.measure("AB", kern))
+    }
+
     // ---------------------------------------------------------- the capabilities
     @Test
     fun theNewFirmwareStillSatisfiesTheStartupGate() {

@@ -63,8 +63,37 @@ object TextureCache {
         }
     }
 
-    /** A 96-entry offset table placed in the cache, addressed by mode 14. */
-    class Font(val tableOffset: Int, val glyphOffsets: IntArray)
+    /**
+     * A 96-entry offset table placed in the cache, addressed by mode 14.
+     *
+     * [glyphWidths] is the authority on advance: mode 14 moves the pen by each
+     * glyph's cached image WIDTH and nothing else, so the widths recorded here when
+     * the atlas was packed are exactly what the firmware will do. Nothing should
+     * ever supply a width from outside the atlas — a metric advance that disagrees
+     * with the image would misplace every glyph after it, silently.
+     */
+    class Font(val tableOffset: Int, val glyphOffsets: IntArray, val glyphWidths: IntArray) {
+        /** The pen advance for [ch], in pixels. */
+        fun width(ch: Char): Int {
+            val i = ch.code - FIRST_CHAR
+            if (i !in glyphOffsets.indices)
+                throw LintError("U+%04X is outside a cached font's %d..%d range"
+                    .format(ch.code, FIRST_CHAR, LAST_CHAR))
+            return glyphWidths[i]
+        }
+
+        /** The width of [text] as mode 14 will actually lay it out, kerning included. */
+        fun measure(text: String, kern: (Char, Char) -> Int = { _, _ -> 0 }): Int {
+            var w = 0
+            var prev: Char? = null
+            for (ch in text) {
+                prev?.let { w += kern(it, ch) }
+                w += width(ch)
+                prev = ch
+            }
+            return w
+        }
+    }
 
     /**
      * Packs images and font tables into one cache image, then emits the mode-12
@@ -100,10 +129,12 @@ object TextureCache {
          */
         fun addFont(glyphs: Map<Char, Image>, tofu: Image): Font {
             val offsets = IntArray(CfwModes.FONT_TABLE_CHARS)
+            val widths = IntArray(CfwModes.FONT_TABLE_CHARS)
             val tofuOffset = add(tofu)
             for (c in FIRST_CHAR..LAST_CHAR) {
                 val g = glyphs[c.toChar()]
                 offsets[c - FIRST_CHAR] = if (g != null) add(g) else tofuOffset
+                widths[c - FIRST_CHAR] = (g ?: tofu).w
             }
             val table = ByteArray(CfwModes.FONT_TABLE_BYTES)
             for (i in offsets.indices) {
@@ -115,7 +146,7 @@ object TextureCache {
                 throw LintError("no room for a ${table.size} B font table: $off B of " +
                     "${CfwModes.TEXTURE_CACHE_SIZE} used")
             bytes.write(table)
-            return Font(off, offsets)
+            return Font(off, offsets, widths)
         }
 
         /** The packed cache contents, guard included. */
@@ -150,30 +181,40 @@ object TextureCache {
     }
 
     /**
-     * Encode [text] as mode-14 string bytes for [font], inserting inline x-adjust
-     * bytes where a character needs to sit somewhere other than the previous
-     * glyph's width. Mode 14 advances x by the cached image's WIDTH and applies no
-     * kerning of its own, so this is where letter fit is expressed.
+     * Encode [text] as mode-14 string bytes for [font].
      *
-     * [advance] gives the intended pen advance for each character; the difference
-     * against the glyph's image width becomes an adjust byte (-10..+20). A
-     * character the font cannot place accurately raises rather than drifting.
+     * **Glyph images are advance-width boxes.** Mode 14 moves the pen by the cached
+     * image's width and by nothing else, so the way to express side bearings is to
+     * rasterize each glyph into an image as wide as its advance, with the bearings
+     * as blank columns inside it. Blank columns are one RLE run each and, with the
+     * transparent option set, paint nothing — so they are very nearly free, and they
+     * keep the pen exactly where the type designer put it.
+     *
+     * That leaves the inline adjust bytes free for their real job: **kerning**.
+     * [kern] gives the pair adjustment for (left, right) in pixels, which the
+     * firmware limits to −10…+20. An adjustment lands *before* the right-hand glyph,
+     * which is where the firmware applies it (`texture_cache.c`: an adjust byte
+     * moves x, then the next glyph draws at the new x).
      */
-    fun layout(text: String, font: Font, widthOf: (Char) -> Int, advance: (Char) -> Int): ByteArray {
+    fun layout(text: String, font: Font, kern: (Char, Char) -> Int = { _, _ -> 0 }): ByteArray {
         val out = java.io.ByteArrayOutputStream()
+        var prev: Char? = null
         for (ch in text) {
             val c = ch.code
             if (c < FIRST_CHAR || c > LAST_CHAR)
                 throw LintError("mode-14 cannot draw U+%04X ('%s'): a cached font covers only %d..%d"
                     .format(c, ch, FIRST_CHAR, LAST_CHAR))
-            val dx = advance(ch) - widthOf(ch)
-            if (dx != 0) out.write(CfwModes.xAdjust(dx).toInt())
+            prev?.let { p ->
+                val dx = kern(p, ch)
+                if (dx != 0) out.write(CfwModes.xAdjust(dx).toInt())
+            }
             out.write(c)
+            prev = ch
         }
         val bytes = out.toByteArray()
         if (bytes.size > 0xFF)
             throw LintError("mode-14 string for \"$text\" needs ${bytes.size} B with its " +
-                "adjustments, past the u8 length — split the line")
+                "kerning, past the u8 length — split the line")
         return bytes
     }
 }

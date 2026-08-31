@@ -227,3 +227,112 @@ One compact reviewer on the round-4 diff (`git diff 61e3bb8`). **Clean on the co
 - Clean (traces in the report): `stop()`/`pause()`/`resume()`/restart/genuine loss — exactly one "link ended" per genuine loss, none for a keeper stop; `lastLinkEnd` placement; `yield()` bounded like the existing `delay(250)`; `ShellKeeperTest` deterministic; the seam session predicate on both paths (frames and EOF), current-session `started`/`startfail` always heard, no concurrent start/stop reachable; the five wheel sequences (one notch each way, the coalesced event then a reversal, the gated second notch dropped not banked, the trackpad flick, the horizontal-only event); the chord return; `isRunning` interleavings; the limiter's concurrency (`removeIf` on a `ConcurrentHashMap`, `putIfAbsent`, no recursion through the platform logger); REVIEW/HANDOFF prose matches the code.
 
 **Review loop closed.** Five rounds: 64 + 30 + 15 + 8 + 7 = 124 candidates; 58 + 26 + 12 + 6 + 2 = 104 confirmed and fixed, 5 design calls taken, 6 accepted as theoretical or test-only with the trace recorded, the rest doc/comment corrections and coverage notes; five regression tests added in rounds 2–3. Round 5 found no defect in the code; the finishing build's review phase ends here.
+
+---
+
+# Review log — the texture-cache adoption (2026-08-30, CFW `a5d1c31`)
+
+One round, two fresh reviewers reading the C source against the new Kotlin: one on the wire
+encoders (`CfwModes`, `TextureCache`, `Codec`), one on the firmware model and the tests. 14
+candidates, **12 taken**. Two reviewers independently found the same top two defects, which is
+what gave them their weight.
+
+### T1.1 sim/lease — FB_RELEASE did not free the texture cache  🔴 CONFIRMED, fixed
+- candidate: `settings_ext.c:258-262` releases the cache on `FACECLAW_OP_FB_RELEASE`; the model
+  only zeroed the deadline. Reached on Damage's own `stop()`/`start()` cycle
+  (`CfwTransportBase.kt:613` releases, `:478` re-acquires), and the mirror tees every packet, so
+  it is the live belief and not only a test fixture.
+- verification: read both call sites; the model's only two release points were `tick()` and mode
+  11, and `tick()` is guarded on a non-zero deadline that the release had just cleared.
+- verdict: CONFIRMED, and in the dangerous direction — the model would paint a glyph the firmware
+  had silently rejected.
+- fix: the release branch frees the cache.
+
+### T1.2 sim/lease — a FRESH acquire after a lapse did not free it either  🔴 CONFIRMED, fixed
+- candidate: `settings_ext.c:249-257` — "a fresh lease must earn preservation with a newly
+  presented direct frame; a renewal keeps the current one." The model re-armed the deadline
+  unconditionally. The reconnect-after-90 s case: mode 3/6 keep painting while every cached draw
+  silently vanishes, so the failure is *partial and mode-selective*, the worst shape.
+- verdict: CONFIRMED.
+- fix: a fresh acquire (no lease, or one already lapsed) frees the cache; a renewal keeps it.
+
+### T1.3 sim/lease — noticing a lapse is itself a release point  CONFIRMED, fixed
+- candidate: `cfw_fb_lease_active()` frees on the call that detects expiry, so a model that only
+  frees in `tick()` keeps an atlas the firmware dropped whenever time advances by message
+  timestamps instead.
+- fix: one `fbLeaseActive(arm, now)` helper mirroring the C, used by modes 12/13/14 and by both
+  settings ops; `leaseHeld` delegates to it. The deadline is deliberately left standing so
+  `tick()` still models stock's repaint exactly once.
+
+### T1.4 tests — the `forceLease` seam made T1.1–T1.3 untestable by construction  CONFIRMED, fixed
+- candidate: every model test set the deadline directly, which encodes *renewal* semantics for
+  what callers meant as *acquire*; nothing ever drove `settings()` with a real acquire/release.
+- fix: three tests that send the firmware genuine lease control messages
+  (`releasingTheLeaseFreesTheCache…`, `aFreshAcquireAfterALapse…`, `noticingALapse…`).
+
+### T1.5 wire/TextureCache — `layout()` emitted the x-adjust before the wrong glyph  CONFIRMED, fixed
+- candidate: `texture_cache.c:325-339` applies an adjust and *then* draws, so a trailing advance
+  correction emitted before its character displaces the whole string right — and contradicted the
+  hand-built expectation in our own test. `layout()` had no callers, which is why it was green.
+- fix: rewritten (see T1.6).
+
+### T1.6 wire/TextureCache — `layout()` ignored its font and trusted a caller's width  CONFIRMED, fixed
+- candidate: mode 14's advance *is* the cached image width (`texture_cache.c:338`), but `Font`
+  stored only offsets and `layout()` took `widthOf`/`advance` lambdas that could disagree with the
+  atlas. A caller passing metric advances against ink-box images misplaces every glyph, silently.
+- fix: the design was wrong, not just the code. `Font` now carries `glyphWidths` from the atlas and
+  offers `width()`/`measure()`; `layout(text, font, kern)` takes no widths at all. Glyph images are
+  documented as **advance-width boxes** — bake side bearings in as blank columns, which cost one
+  RLE run each and, transparent, paint nothing — leaving the inline adjust bytes for kerning,
+  which is where the firmware actually applies them.
+
+### T1.7 sim — a mode-15 sub-message reported a firmware rejection  CONFIRMED, fixed
+- candidate: the batch gate admits 15 (correctly — the firmware accepts it), then the mode-15
+  handler fails and the batch reports "sub FAILED", which misdescribes hardware that would have
+  drawn it.
+- fix: the batch loop names mode 15 explicitly and says the MODEL stopped, not the firmware.
+
+### T1.8 sim — the settings READ response omitted field 104  CONFIRMED, fixed
+- candidate: `settings_ext.c:365-366` appends the 21-byte mic read-back to every response. We had
+  just written a warning that field 100 is no longer last, but the model — the only thing that
+  could catch such a parser — did not produce the trailing field.
+- fix: modeled for shape (`micStatusBody()`), plus `SettingsMsg.MIC_STATUS_FIELD`.
+
+### T1.9 sim — `imageAt` caught `Exception`  CONFIRMED, fixed
+- candidate: a model indexing defect would come back dressed as a firmware rejection — the
+  opposite of LOUD AND PROUD. Narrowed to `IllegalStateException`.
+
+### T1.10 sim — `cfwDiag` never set `diagSeen`  CONFIRMED (pre-existing, inert), fixed
+- `debug.c:79` sets it on entry, before the `has_fid` branch. Overlay-only, but a modeled field
+  that could never hold the firmware's value. One line.
+
+### T1.11 wire — `cacheUpdate()` had no total-message bound  CONFIRMED, fixed
+- candidate: a message past the reassembly ceiling is DROPPED with only a sticky `f_snap_of` to
+  show for it. Every other path here is bounded. Now bounded to `MODE8_MAX`.
+
+### T1.12 wire — draws whose origin is already off-panel were accepted  CONFIRMED, fixed
+- candidate: the firmware clips them away entirely and still charges a message and an ack. Partial
+  right/bottom clipping stays legal; an origin past the panel now raises.
+
+### T1.13 sim — no warning for a cached draw onto an unseeded shadow  TAKEN
+- The firmware imposes no keyframe requirement on 13/14, but `present_shadow` pushes the whole
+  panel, and on glass the shadow is the container's display buffer A holding whatever was there
+  before — where the model starts at zeroes. It would look right in the sim and wrong on glass.
+  The model now says so.
+
+### T1.14 INFO, recorded not fixed — mode 14 burns one overlay rect per glyph
+- `texture_cache.c:337` calls `cfw_texture_add_rect` per glyph against `CFW_RECT_MAX = 16`
+  (`debug.c:100`), which drops silently past 16. Harmless to the pixels — `present_shadow` queues a
+  full-panel refresh regardless — but with the diagnostic overlay on at first light, any string
+  over ~16 glyphs makes the region outlines incomplete. **Do not diagnose that as a firmware
+  fault.** Recorded in `REMINDER.md`'s first-light notes rather than worked around.
+
+**Clean, verified rather than assumed:** every mode 12/13/14 field offset, width and LE order; mode
+13's exact-8-byte total and mode 14's `8 + strlen`; the `[w][h][RLE]` format with no row pad; the
+escape forms including zero-count rejection; the LUT's integer truncation and the pre-LUT
+transparency test; nibble packing (even x = high nibble); validate-all-before-draw-any; the
+duplicate-fid skip still returning success so it cannot abort a batch; `MODE8_MAX` still equal to
+`bmp_max`; the untouched packed-row `Rle.encode`/`decode`; and no Byte sign-extension defect
+anywhere in the new code.
+
+Battery after the round: **122 tests**, selfcheck all-pass, lint 0, epub 57/57, APK builds.

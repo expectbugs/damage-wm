@@ -194,6 +194,12 @@ object CfwModes {
                 throw LintError("mode-12 write of ${w.data.size} B exceeds the u16 length field")
             total += 4 + w.data.size
         }
+        // A reassembled image message larger than the firmware's snapshot capacity is
+        // DROPPED with only a sticky f_snap_of flag to show for it (zlib_glue.c
+        // cfw_snapshot). Every other path here is bounded; bound this one too.
+        if (total > Geometry.MODE8_MAX)
+            throw LintError("mode-12 message of $total B exceeds the ${Geometry.MODE8_MAX} B " +
+                "reassembly ceiling — split it (TextureCache.Builder.messages() does)")
         val out = ByteArray(total)
         out[0] = 12
         var o = 1
@@ -268,9 +274,17 @@ object CfwModes {
                 "$TEXTURE_CACHE_SIZE B texture cache")
     }
 
+    /** The firmware clips a cached draw against the panel and accepts an origin that
+     *  puts every pixel off-screen — it costs a message and an ack and paints nothing.
+     *  Partial clipping off the right or bottom edge is legitimate and stays allowed;
+     *  an origin that is already past the panel is a caller bug. */
     private fun checkDrawXY(x: Int, y: Int, what: String) {
         if (x !in 0..0xFFFF || y !in 0..0xFFFF)
             throw LintError("$what draw at ($x,$y) is outside the u16 coordinate fields")
+        if (x >= Geometry.PANEL_W || y >= Geometry.PANEL_H)
+            throw LintError("$what draw origin ($x,$y) starts outside the " +
+                "${Geometry.PANEL_W}x${Geometry.PANEL_H} panel; every pixel would clip away " +
+                "and the message would cost an ack for nothing")
     }
 
     private fun checkOptions(o: Int, what: String) {

@@ -691,12 +691,18 @@ the anchor into 1 KiB explicitly carved out of the primary TLSF arena (`[0x202a6
 arena shrunk to `0x2cc00`). That is the same class of bug as the Thumb-bit HardFault this
 ecosystem already shipped once.
 
-**Argue the other way honestly:** the new image carries roughly twice the injected code and is
-one day old. Most of the new bulk is `texture_cache.c` (514 lines) and `mic_control.c` (446), and
-the author marks the mic path's stock audio entry points as **ABI-inferred and not yet validated
-on hardware** — which is why bringing up the capture hardware sits behind an explicit arm flag.
-We never set that flag, and nothing in Damage touches field 103. Both *known* brick classes
-(unbounded MRAM program, Thumb-bit interworking) check clean on it.
+✅ **And it is not an unreleased HEAD build — it is what Faceclaw ships.** `faceclaw`'s
+`app/g2/firmware/cfw-patches.ts` (auto-generated from g2flash's patch JSON) pins
+`baseSha256 f4dfb0b4…` → `outputSha256 d4054ab1…` across the same **26 patches**: byte-identical to
+the image `verify_cfw.py` builds here. So the candidate is the firmware **Faceclaw 0.6.1 installs
+on its users' glasses**, not something only we would be running.
+
+**Argue the other way honestly:** the new image carries roughly twice the injected code and the
+release is days old. Most of the new bulk is `texture_cache.c` (514 lines) and `mic_control.c`
+(446), and the author marks the mic path's stock audio entry points as **ABI-inferred and not yet
+validated on hardware** — which is why bringing up the capture hardware sits behind an explicit
+arm flag. We never set that flag, and nothing in Damage touches field 103. Both *known* brick
+classes (unbounded MRAM program, Thumb-bit interworking) check clean on it.
 
 ### 10.4 Flasher changes that affect the procedure
 
@@ -720,7 +726,9 @@ Only `7c6d3c1` touched `g2flash.py`, but it changed the shape of a run.
 
 ### 10.5 Two residual risks, neither a blocker
 
-1. ⚠ **beardos has never bonded with these glasses.** The captures prove the app-level auth works,
+1. ⚠ **beardos has never bonded with these glasses** — confirmed 2026-08-30 by `--ble-info`:
+   hci0 `C4:BD:E5:2E:C9:75` is powered and BlueZ knows exactly two devices, a controller and a
+   pair of earbuds. No G2. The captures prove the app-level auth works,
    but the phone had already bonded and encrypted the link (LE Secure Connections, Rand=0/EDIV=0,
    16-byte key) before touching GATT — so they **cannot** say whether the lenses *demand*
    encryption from an unbonded host. The commit message predicts an OS pairing prompt at the start

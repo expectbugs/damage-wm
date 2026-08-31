@@ -164,8 +164,10 @@ class GlassFirmwareSim() : LensPanels {
         }
     }
 
+    /** The firmware's own lease predicate. NOTE this is not a pure query: like
+     *  `cfw_fb_lease_active()`, noticing a lapse releases the texture cache. */
     @Synchronized
-    fun leaseHeld(arm: Arm, now: Long): Boolean = ctx(arm).leaseDeadline > now
+    fun leaseHeld(arm: Arm, now: Long): Boolean = fbLeaseActive(arm, now)
 
     /** The BLE link ended: per-connection state goes — the EvenHub page (G2CC
      *  observed the slot ending with a lens drop), the prelude, a half-received
@@ -418,6 +420,15 @@ class GlassFirmwareSim() : LensPanels {
                     if (subMode !in CfwModes.BATCH_SUBMODES) {
                         diag.event("decode", "$arm mode-8 sub-mode $subMode rejected"); return false
                     }
+                    if (subMode == 15) {
+                        // The firmware WOULD accept and draw this. The model stops here
+                        // because it cannot know the pixels — say which of the two this
+                        // is, so nobody reads it as a hardware rejection at first light.
+                        diag.event("decode", "$arm mode-8 sub $i is mode 15: the firmware " +
+                            "would draw it, but this MODEL cannot predict its pixels, so " +
+                            "the batch stops here. Damage does not emit mode 15 by design.")
+                        return false
+                    }
                     if (!dispatchImage(arm, src.copyOfRange(pos, pos + segLen), now, present = false)) {
                         diag.event("decode", "$arm mode-8 sub $i FAILED — whole batch aborted")
                         return false
@@ -472,7 +483,7 @@ class GlassFirmwareSim() : LensPanels {
                     pos += len
                 }
                 if (!hasData) return true                    // firmware returns 0, writes nothing
-                if (!leaseHeldAt(c, now)) {
+                if (!fbLeaseActive(arm, now)) {
                     diag.event("decode", "$arm mode-12 with NO framebuffer lease — rejected " +
                         "(the cache is lease-scoped)")
                     return false
@@ -493,11 +504,18 @@ class GlassFirmwareSim() : LensPanels {
                 true
             }
             13, 14 -> {
-                if (!leaseHeldAt(c, now)) {
+                if (!fbLeaseActive(arm, now)) {
                     diag.event("decode", "$arm mode-${modeByte and 0x7F} with NO framebuffer " +
                         "lease — rejected in silence")
                     return false
                 }
+                // The firmware imposes no keyframe requirement here, but a cached draw
+                // onto an unseeded shadow is still a design error: present_shadow pushes
+                // the WHOLE panel, and on glass the shadow is the container's display
+                // buffer A holding whatever was there before, not the zeroes we start at.
+                if (!c.seeded) diag.event("decode", "$arm mode-${modeByte and 0x7F} onto an " +
+                    "UNSEEDED shadow (no keyframe) — the model shows black around it, " +
+                    "the glass shows stale buffer content")
                 val ok = if ((modeByte and 0x7F) == 13) drawCachedImage(arm, c, src)
                 else drawCachedText(arm, c, src)
                 if (!ok) return false
@@ -521,7 +539,36 @@ class GlassFirmwareSim() : LensPanels {
         }
     }
 
-    private fun leaseHeldAt(c: LensCtx, now: Long) = c.leaseDeadline > now
+    /**
+     * `settings_ext.c cfw_fb_lease_active()` — the ONE predicate the firmware uses
+     * for modes 12–15, for long-press forwarding and for suppressing the stock quit
+     * dialog. Detecting a lapse is itself a release point in the C, so the texture
+     * cache goes with it here too, lazily, on whatever call notices first.
+     *
+     * The deadline is deliberately left standing so `tick()` can still model stock's
+     * repaint over us exactly once; the C's `direct_lease_deadline = 0` there is
+     * about its own bookkeeping, not about what the wearer sees.
+     */
+    private fun fbLeaseActive(arm: Arm, now: Long): Boolean {
+        val c = ctx(arm)
+        if (c.leaseDeadline == 0L || now >= c.leaseDeadline) {
+            if (c.textureCache != null) {
+                c.textureCache = null
+                diag.event("texture", "$arm texture cache freed: the FB lease has lapsed")
+            }
+            return false
+        }
+        return true
+    }
+
+    /** The 21-byte mic-configuration read-back (`mic_control.c mic_append_status`).
+     *  Modeled for its SHAPE only — it trails every sid-0x09 read response, so a
+     *  parser that assumes the capability field is last must fail here, not on glass. */
+    private fun micStatusBody(): ByteArray {
+        val b = ByteArray(21)
+        b[0] = 'M'.code.toByte(); b[1] = 'C'.code.toByte(); b[2] = 1
+        return b
+    }
 
     private fun rd16at(b: ByteArray, i: Int) =
         (b[i].toInt() and 0xFF) or ((b[i + 1].toInt() and 0xFF) shl 8)
@@ -544,9 +591,11 @@ class GlassFirmwareSim() : LensPanels {
             return null
         }
         val avail = CfwModes.TEXTURE_CACHE_SIZE - offset - 2
+        // Catch only what the decoder raises for malformed CACHE CONTENT. A model
+        // defect must not come back dressed as a firmware rejection.
         val levels = try {
             decodeCachedRle(cache, offset + 2, avail, w * h)
-        } catch (e: Exception) {
+        } catch (e: IllegalStateException) {
             diag.event("decode", "$arm $what: malformed RLE at $offset (${e.message})")
             return null
         }
@@ -665,6 +714,7 @@ class GlassFirmwareSim() : LensPanels {
 
     /** zlib_glue.c cfw_diag(), verbatim semantics. Returns true = duplicate, skip. */
     private fun cfwDiag(c: LensCtx, hasFid: Boolean, fid: Int): Boolean {
+        c.diagSeen = true            // debug.c sets this on entry, before the has_fid branch
         if (!hasFid) { c.fidResync = true; return false }
         for (f in c.recentFids) if (f == fid) { c.fDup = true; return true }
         if (!c.fidResync) {
@@ -772,13 +822,26 @@ class GlassFirmwareSim() : LensPanels {
         ) {
             when (control[3].toInt()) {
                 SettingsMsg.OP_FB_ACQUIRE -> {
-                    ctx(arm).leaseDeadline = now + SettingsMsg.LEASE_EXPIRY_MS
+                    // settings_ext.c: "A fresh lease must earn preservation with a
+                    // newly presented direct frame; a renewal keeps the current one."
+                    // A FRESH acquire — no lease, or one already lapsed — releases the
+                    // texture cache; a renewal of a live lease keeps it.
+                    val c = ctx(arm)
+                    if (!fbLeaseActive(arm, now)) {
+                        if (c.textureCache != null)
+                            diag.event("texture", "$arm fresh FB lease after a lapse — " +
+                                "texture cache freed; the atlas must be uploaded again")
+                        c.textureCache = null
+                    }
+                    c.leaseDeadline = now + SettingsMsg.LEASE_EXPIRY_MS
                     diag.event("lease", "$arm FB lease acquired/renewed (90 s)")
                 }
                 SettingsMsg.OP_FB_RELEASE -> {
                     ctx(arm).leaseDeadline = 0
+                    ctx(arm).textureCache = null          // settings_ext.c releases it here
                     stockPattern(ctx(arm).panel)
-                    diag.event("lease", "$arm FB lease released — stock repaints")
+                    diag.event("lease", "$arm FB lease released — stock repaints, " +
+                        "texture cache freed")
                     diag.panelChanged(arm)
                 }
                 else -> diag.event("lease", "$arm control op ${control[3]} (unmodeled)")
@@ -788,10 +851,14 @@ class GlassFirmwareSim() : LensPanels {
         val cmdId = (Pb.varintField(payload, 1) ?: 0L).toInt()
         if (cmdId == 2) {
             // Settings READ -> response carrying the capability string in field 100.
+            // Field 104 (the 21-byte mic read-back) trails it on every response since
+            // a5d1c31 — modeled so a parser that assumes field 100 is last fails HERE
+            // rather than on glass. Contents are inert for us; only the shape matters.
             val msgId = (Pb.varintField(payload, 2) ?: 0L).toInt()
             val resp = Pb.cat(
                 Pb.v(1, 2), Pb.v(2, msgId),
                 Pb.l(SettingsMsg.CAPABILITY_FIELD, capabilityString.toByteArray(Charsets.UTF_8)),
+                Pb.l(SettingsMsg.MIC_STATUS_FIELD, micStatusBody()),
             )
             diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), SettingsMsg.SID,
                 SettingsMsg.FLAG_RESPONSE, resp, AaFrame.TYPE_RESPONSE).single())

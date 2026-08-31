@@ -128,11 +128,11 @@ Everything here backs a decision in [`DESIGN.md`](DESIGN.md).
 
 | claim | grade | basis |
 |---|---|---|
-| **Only mode-3 deltas consume a `fid`** — mode 9 rect-copies are free against the ring | **V** | `zlib_glue.c`: the sole `cfw_diag()` call sites are the mode-6 keyframe and the mode-3 delta |
+| **Only mode-3 deltas consume a `fid`** — mode 9 rect-copies **and the cached draws 13/14/15** are free against the ring | **V** | `zlib_glue.c`: the sole `cfw_diag()` call sites are the mode-6 keyframe and the mode-3 delta. Re-checked against `a5d1c31`; still exactly two |
 | **Only an EXACT hit in the 16-deep ring is skipped.** A stale fid that has aged out is flagged and then **APPLIED** | **V** | `cfw_diag()` body — the ring is a short-window filter, not a safety net |
 | `f_skip` fires on any forward gap > 1; `f_reorder` on any backward step | **V** | same |
 | The fid wrap `0xFFFE → 1` computes `d = 3` in uint16 ⇒ trips **`f_skip`**, once per 65 k rects | **V** | same, arithmetic checked |
-| **Mode 8 accepts only shadow ops 3/6/9** — the buzzer cannot ride in a batch | **V** | `zlib_glue.c` mode-8 branch, explicit comment |
+| ~~**Mode 8 accepts only shadow ops 3/6/9**~~ → **3/6/9/13/14/15** as of CFW `a5d1c31` | **V** | `zlib_glue.c` mode-8 branch. The buzzer (5) still cannot ride in a batch; the cached draws now can |
 | Mode-8 size cap = `118 + 320×480` = **153,718 B** | **V** | `bmp_max` in source; matches `tools/geometry.py` |
 | **No `inflateSetDictionary`** ⇒ every rect in a batch gets its own zlib stream, so splitting always loses cross-rect sharing | **V** | only `inflateInit2(strm, 15, …)` is imported |
 | mode-3 stereo: boxes size-checked equal, `box_off = (FW_SIDE()==2) ? 1 : 5`, +4 B | **V** | source |
@@ -146,6 +146,24 @@ Everything here backs a decision in [`DESIGN.md`](DESIGN.md).
 | A vertical icon rail costs **+7.4 %** on every frame vs a horizontal strip | **M** | rendered both; a 40 px vertical strip adds run boundaries to all 416 content rows against the top bar's 32 |
 | A 640×288 band is **0.63×** the bytes of 640×480, and shows 4 dashboard rows against 11 | **M** | rendered both, with and without simulated occlusion |
 | Usable panel extent under real optical occlusion | **U** | fit-dependent and personal; unknowable before first light. `DESIGN.md` §2.2b makes it a calibrated setting rather than a guess |
+
+### The texture cache (added 2026-08-30, CFW `a5d1c31`)
+
+| claim | grade | basis |
+|---|---|---|
+| The cache is **64 KiB**, lazily allocated and zeroed on the first non-empty mode-12 write, from firmware heap 13 | **V** | `texture_cache.h` `CFW_TEXTURE_CACHE_SIZE`; `cfw_texture_cache_update`; `malloc.h` `FW_HEAP_13_DESCRIPTOR` |
+| A cached image is `[w:u8][h:u8][RLE of exactly w*h pixels]` with **no row pad nibble** — unlike modes 3/6 | **V** | `cfw_texture_image_at` walks tokens to the pixel count and never consults a stride |
+| Modes **12/13/14/15 all require an active FB lease** and return −1 without one | **V** | `cfw_fb_lease_active()` guard at each of the four entry points |
+| The cache is freed on lease **expiry**, on **FB_RELEASE**, on a **fresh acquire after a lapse**, and on **mode 11** — but survives a **renewal** | **V** | the four `cfw_texture_cache_release` call sites in `settings_ext.c` + `zlib_glue.c` |
+| Mode 14 advances x by each glyph's **image width**, applies **no kerning**, and string bytes 1..31 adjust x by `b − 11` (−10..+20) | **V** | `cfw_texture_draw_string` |
+| Mode 14 validates **every** character before drawing **any** — one unmapped char drops the whole line | **V** | the two-pass structure of `cfw_texture_draw_string` |
+| Options: `lut[i] = (i × top) / 15`; bit 4 = source-0 transparent tested **pre-LUT**; bit 5 reverses the ramp | **V** | `cfw_texture_make_lut` + `cfw_texture_render` |
+| `img576` and `compass10` left the capability string **for space only**; both features still work | **V** | commit `f8d5093` message; the 576 carrier patches and mode-10 compass are still in the patch set and in `zlib_glue.c` |
+| **`Sys_ItemEvent.EventSource` is absent for event types 9 and 10** — a long-press is unattributed | **V** | the stock sender writes that field only inside a branch gated on `EventType ∈ {0,3}`, and the struct is memset to 0. Disassembled at instruction level on our pinned 2.2.6.10 base **and** on 2.2.4.34 — it has never worked |
+| Since `a5d1c31` **either temple touchpad** raises event 9, not just the ring | **V** | `gesture_fwd.c` dropped its `EVT_SRC == SRC_RING` gate |
+| Stock **2.2.2.20 answers** g2flash's new AUTHENTICATION request with exactly the `1a 00` reply it demands | **M** | four exchanges in `captures/allbutimages.log` + `imagestatus.log`, both arms, 43–92 ms; request framing and CRC reproduce from g2flash's own `crc16()` |
+| The glasses **require** an encrypted/bonded link before GATT | **U** ⚠ | every capture we hold was taken from an already-bonded phone (LE Secure Connections, Rand=0/EDIV=0), so the unbonded case is simply not in the data. beardos has never bonded with the pair |
+| What a mode-12 atlas upload costs, and whether 13/14 render as modeled on glass | **U** | modeled byte-exactly, never run on hardware. First-light items 19–20 |
 
 ## Deployment topology (added 2026-08-20 — `DESIGN.md` §10)
 

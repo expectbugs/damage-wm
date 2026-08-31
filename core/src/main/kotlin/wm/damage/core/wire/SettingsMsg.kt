@@ -40,6 +40,12 @@ object SettingsMsg {
     const val EVENT_FIELD = 102
     const val CAPABILITY_FIELD = 100
 
+    /** Microphone control (phone -> glasses) and its read-back (glasses -> phone).
+     *  Damage uses neither, but 104 trails EVERY sid-0x09 read response since
+     *  a5d1c31, so anything parsing that response has to expect it. */
+    const val MIC_CONTROL_FIELD = 103
+    const val MIC_STATUS_FIELD = 104
+
     const val OP_WAKE_ACQUIRE = 1
     const val OP_WAKE_RELEASE = 2
     const val OP_FB_ACQUIRE = 5
