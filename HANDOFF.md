@@ -893,3 +893,53 @@ The install is done; **first light is not**. Nothing has driven the display yet.
 `REMINDER.md`'s runbook from step 5 and the first-light checklist, and the very first thing to
 confirm is that the capability gate sees `EVENCFW/16` — **not** the version string, which reads
 `2.2.6.10` on this build and is indistinguishable from stock.
+
+### 10.13 ✅ The R1 ring updated too — 2026-08-30
+
+Adam's call, and the evidence supported it: R1 release **2.2.4.0003**'s own note reads *"Update both
+Even G2 and R1 to 2.2.4 to prevent Bluetooth issues."* His ring was on **2.2.0.0014**, below that
+line. Before today the glasses were on 2.2.2.20, also below it, so the pair was consistently
+un-updated and worked. Moving the glasses to a 2.2.6.10 base put the pair **straddling that line
+for the first time** — untested by anyone. That is what justified acting rather than waiting.
+
+**Target: 2.2.6.0009**, not the newest. The glasses run a 2.2.6.10 base and 2.2.6.0009 is the ring
+firmware Even shipped alongside that generation; going to 2.2.8.0002 (or the 2.2.9.0003 SybilSight
+pins, which we do not hold) would only re-create a mismatch pointing the other way.
+
+**No declared dependency exists either way.** Every R1 package declares exactly one requirement,
+`minAppVersion` — the **Even phone app**, not glasses firmware. Hardware version 52 and SoftDevice
+id 256 are constant across all eleven archived releases, and `applicationVersion` is **3 on every
+one of them**, so there is no rollback counter: a downgrade back to 2.2.0.0014 should be accepted,
+and we hold that image exactly. The ring was never in the irreversible position the glasses were.
+
+**Result:** 646,408 B in 158 objects, **zero retries, zero CRC mismatches**, exit 0. The ring
+rebooted into its application and re-advertises as `EVEN R1_35F0B8` on its original address —
+which is itself the confirmation: an invalid image would have left the bootloader advertising
+`B210_DFU_35F0B9` instead of jumping to the app.
+
+**The tool is ours** — `research/r1_dfu.py`, our own implementation of standard Nordic Secure DFU.
+The R1-specific facts (buttonless entry on `8ec90003`, PRN = 12, the 400 ms first-object settle,
+the bounded object rewrite) were read from SybilSight's `r1Dfu.js`, which is **MIT**, so the
+GPL clean-room rule does not apply here — but no code was copied regardless. It has three stages:
+`verify` (offline hashes only), `probe` (connect, confirm the DFU service and buttonless
+characteristic, write nothing) and `flash`.
+
+**Two things worth keeping from the run:**
+
+- 🔴 **The bootloader names itself `B210_DFU_<suffix+1>`, not `R1 DFU_…`,** and sits at
+  **MAC + 1** (`DB:D9:68:35:F0:B9`). Match it by service UUID `0000fe59` plus a `DFU` substring;
+  a fixed-name match would fail.
+- **A defect caught before it could bite:** bleak 3.0.2 has **no `set_disconnected_callback`** — it
+  is a constructor argument. The first draft called it on the line immediately *after* writing the
+  enter-bootloader byte, so it would have failed with the ring already rebooting and the tool gone.
+  Verify the library surface before a write, not after.
+
+**⚠ A correction to something said during the run.** The ring was reported as having "dropped to
+−83 dBm from −62". That −62 was the **left lens**, not the ring; the ring's application-mode RSSI
+was never measured before the flash, so there is no baseline and nothing dropped. It reads −83 both
+as a bootloader and as an application, which is simply where it is.
+
+**Not yet verified:** the running version string. The ring's own link (GATT `0x0015`/`0x0017`, a
+separate non-AA protocol, only partially decoded in `G2CC/docs/G2_BLE_PROTOCOL.md` §11) carries it,
+and we have not implemented that query. The bootloader accepting a *signed* 2.2.6.0009 init packet
+and then jumping to the application is strong evidence, but it is not a version read.
