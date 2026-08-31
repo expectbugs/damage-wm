@@ -181,6 +181,13 @@ and falls back to the cache when the PC is unreachable. It also serves the
 transport seam on :7402 so `--remote` from the PC can take over its display,
 local shell yielding and resuming automatically.
 
+**The all-day daily driver (2026-08-31, `DAILY.md`):** `--no-preview` runs any mode headless
+(no Swing/X — set before AWT loads); `:desktop:stageJar` copies the fat jar to the STABLE
+`~/.damage/damage.jar`; the OpenRC service `/etc/init.d/damage` (supervise-daemon, `default`
+runlevel, user `user`) runs it in `auto` forever. Deploy = `stageJar` + `rc-service damage
+restart`; stop the service before any `:desktop:run` dev session (one central, one set of
+ports). `DAILY.md` is the ops crib and the one-time phone sequencing.
+
 ## Configurations wired today
 
 | configuration | how |

@@ -59,6 +59,14 @@ class LocalTmuxProvider(
     }
 
     private val hostStates = ConcurrentHashMap<String, HostState>()
+
+    /** Hosts with a poll already in flight — a slow host is SKIPPED next tick
+     *  rather than piling execs behind itself. Declared BEFORE the init block
+     *  that launches the loops: the coroutine can run before the constructor
+     *  finishes, and a later-declared field would still be null there (found
+     *  by the headless smoke run, 2026-08-31). */
+    private val polling = ConcurrentHashMap.newKeySet<String>()
+
     private val waitRegexes = cfg.waitPatterns.mapNotNull {
         try { Regex(it) } catch (e: Exception) { Log.e("tmux", "bad wait pattern '$it': ${e.message}"); null }
     }
@@ -155,7 +163,18 @@ class LocalTmuxProvider(
     // ------------------------------------------------------------ the loops
     private suspend fun statusLoop() {
         while (scope.isActive && running) {
-            for (h in hosts) pollHost(h)      // sequential: one exec per host per tick
+            // hosts poll in PARALLEL on IO and the push never waits for them:
+            // a down ssh host's 5 s connect refusal must not delay the local
+            // session list, so each tick pushes the last-known picture and
+            // the polls land into the next one
+            for (h in hosts) if (polling.add(h.name)) {
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try { pollHost(h) } finally { polling.remove(h.name) }
+                }
+            }
+            // a short settle so a healthy local poll (~10 ms) lands in THIS
+            // tick's push; a slow host simply lands in a later one
+            delay(minOf(300, statusPacingMs / 4))
             val merged = mergedSessions()
             val line = stateLine()
             for (l in listeners) {

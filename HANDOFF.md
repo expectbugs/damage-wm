@@ -1312,3 +1312,20 @@ excluding search (wants typing first) and the mic (much later).
 - **The §13.2 phone-radio runbook is UNCHANGED and still next** — nothing here touched the
   radio. When the phone drives, Tmux needs the desktop (or `--host-only`) up on beardos: the
   provider rides the content host. PC-shell modes exec tmux directly.
+
+## 15. The daily driver prepped (2026-08-31) — `DAILY.md`
+
+Adam: *"prep whatever needs to be prepped for me to run the G2 all day from my phone, powered
+by this PC, using the APK, the same way I do with G2CC."* That is §10.1 row 1 under the §8.1
+arbitration, and it now has an ops shape: `--no-preview` headless mode, the staged
+`~/.damage/damage.jar` (`:desktop:stageJar` — a broken tree never changes the daily driver),
+and the OpenRC service **`damage`** (supervise-daemon, enabled at `default`, installed and
+deliberately LEFT STOPPED until the phone's §13.2 first light — the one-central rule).
+`DAILY.md` holds the moving parts, the ordered one-time setup (including 🔴 *disconnect the
+G2CC bridge app* — it boots itself and would fight for the pair), and the ops crib. Two
+defects found by the prep's own smoke run, both fixed: the tmux provider's `polling` field was
+declared after the init block that races it, and a down ssh host's 5 s connect refusal used to
+delay every other host's status serially (polls are parallel + skip-if-in-flight now; the
+slappy default was withdrawn — hosts are opted in when actually alive). Battery green: core
+140 · desktop 9 · selfcheck 48 · lint 0. The §13.2 hardware pass remains the open step and
+DAILY.md step 3 is exactly it.

@@ -37,3 +37,12 @@ tasks.register<Jar>("fatJar") {
     dependsOn(configurations.runtimeClasspath)
     from({ configurations.runtimeClasspath.get().filter { it.name.endsWith("jar") }.map { zipTree(it) } })
 }
+
+// Stage the jar at the STABLE path the OpenRC service runs (DAILY.md): builds
+// land in build/libs and get copied here deliberately, so a half-broken tree
+// never changes what the daily driver boots.
+tasks.register<Copy>("stageJar") {
+    dependsOn("fatJar")
+    from(layout.buildDirectory.file("libs/damage.jar"))
+    into(File(System.getProperty("user.home"), ".damage"))
+}

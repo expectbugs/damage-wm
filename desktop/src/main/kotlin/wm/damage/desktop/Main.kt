@@ -45,8 +45,15 @@ import wm.damage.core.windows.reader.ReaderWindow
  * link end. Other entry points:
  *
  *   --selfcheck · --snapshot DIR · --epub-check · --host-only · --ble-info
+ *
+ * `--no-preview` runs any transport mode headless (no Swing, no X) — the
+ * all-day OpenRC service mode (DAILY.md); views are the replicas.
  */
 fun main(args: Array<String>) {
+    // --no-preview: the all-day service mode (DAILY.md) — no Swing window, no
+    // X needed; the phone screen and the browser replica are the views. Set
+    // BEFORE any AWT class loads so the JVM commits to headless.
+    if ("--no-preview" in args) System.setProperty("java.awt.headless", "true")
     val cfg = Config.load()
     when {
         "--selfcheck" in args -> SelfCheck.run(cfg)
@@ -64,7 +71,7 @@ fun main(args: Array<String>) {
                 "--ble" in args -> "ble"
                 else -> "auto"
             }
-            runShell(cfg, mode, remoteHost)
+            runShell(cfg, mode, remoteHost, preview = "--no-preview" !in args)
         }
     }
 }
@@ -82,11 +89,13 @@ data class Config(
     /** The pair's addresses from the last successful PC-direct connect. */
     val leftAddress: String = "",
     val rightAddress: String = "",
-    /** Tmux (TMUX.md): ssh hosts the provider fans out to beyond this machine
-     *  — slappy ships as the default (verdict 1; sshd on 80, global CLAUDE.md).
-     *  A host without tmux simply contributes zero sessions. */
-    val tmuxHosts: List<wm.damage.core.windows.tmux.TmuxHostCfg> = listOf(
-        wm.damage.core.windows.tmux.TmuxHostCfg("slappy", ssh = "slappy", sshPort = 80)),
+    /** Tmux (TMUX.md verdict 1): ssh hosts the provider fans out to beyond
+     *  this machine, e.g. {"name":"slappy","ssh":"slappy","sshPort":80}.
+     *  Default EMPTY: a configured-but-down host shows in the staleness line
+     *  every tick by design (no silent failures), so hosts are opted in when
+     *  they are actually alive — slappy was 12 days offline when this shipped.
+     *  A listed host without tmux simply contributes zero sessions. */
+    val tmuxHosts: List<wm.damage.core.windows.tmux.TmuxHostCfg> = listOf(),
     /** Empty = the TmuxConfig defaults (the dozen keys · G2CC's slash
      *  snippets · the Claude-tuned wait patterns). Served to the phone with
      *  the session list, so this file is the ONE place to tune them. */
@@ -295,7 +304,7 @@ class DesktopStack(
     }
 }
 
-private fun runShell(cfg: Config, mode: String, remoteHost: String?): Unit = runBlocking {
+private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Boolean = true): Unit = runBlocking {
     // the current stack: written by the switch thread, read by the EDT, the
     // replica's threads and every client — a reference with visibility
     val stackRef = java.util.concurrent.atomic.AtomicReference<DesktopStack?>(null)
@@ -372,12 +381,17 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?): Unit = run
         stack()?.shell?.lastDivergence?.let { "DIVERGE $it" },
     ).joinToString(" · ")
     // the 1x preview with mouse, on whatever the current stack mirrors
-    Preview.show({ stack()?.transport?.mirror }, { t -> stack()?.transport?.injectInput(t) }, {
-        val base = stack()?.statusLine() ?: keeperStatus.get()
-        val n = switchNote.get()
-        if (n.isEmpty()) base else "$n · $base"
-    }, onClose = { endOrderly(); kotlin.system.exitProcess(0) },
-        onText = { line -> stack()?.transport?.injectText(line) })
+    if (preview) {
+        Preview.show({ stack()?.transport?.mirror }, { t -> stack()?.transport?.injectInput(t) }, {
+            val base = stack()?.statusLine() ?: keeperStatus.get()
+            val n = switchNote.get()
+            if (n.isEmpty()) base else "$n · $base"
+        }, onClose = { endOrderly(); kotlin.system.exitProcess(0) },
+            onText = { line -> stack()?.transport?.injectText(line) })
+    } else {
+        Log.i("damage", "running WITHOUT the preview window (--no-preview): the phone screen and " +
+            "the browser replica are the views; stop with SIGTERM (the shutdown hook saves state)")
+    }
     // the browser replica on the tailnet
     val replica = ReplicaServer(cfg.replicaPort, cfg.token, { stack()?.transport?.mirror }, {
         val st = stack()?.transport?.state?.value
