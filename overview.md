@@ -1354,10 +1354,24 @@ workday.** The spec has a hybrid power policy and no measured budget.
 
 ## 11. Open unknowns — resolve these before/while building
 
-1. ⚪ **CFW ack latency on the direct-framebuffer path.** Every number in §5 is priced with 176 ms
-   from stock 2.2.2 captures. *Re-graded 2026-08-17 — this was previously marked 🔴 "the single
-   most load-bearing unmeasured value," and that was wrong.* **It is a tuning constant, not a
-   design input.** Apply the decision-relevance test:
+1. ✅ **CFW ack latency on the direct-framebuffer path — MEASURED 2026-08-30, first light: ~50 ms.**
+   The shell's own `ackMsEma` cell read a steady **50 ms** while driving the real pair PC-direct,
+   against the **176 ms** from stock 2.2.2 captures that priced every number in §5. That is roughly
+   **3.5× better than the whole project was designed against**, and it moves in the direction that
+   makes everything cheaper.
+
+   ⚠ **Do not go re-pricing §5 with 50 ms yet.** The measurement is an exponential moving average
+   taken over a *mostly idle shell* — clock ticks and small chrome cells, the light-payload end of
+   the range. Ack latency may well grow with payload size, and nobody has yet measured it under a
+   full keyframe or a heavy scroll. What it establishes is that the floor is far lower than
+   assumed; the curve is still unmeasured. Re-measure under real content before any number in §5
+   is rewritten.
+
+   The original text, kept because its reasoning still holds and explains why this never gated
+   anything: every number in §5 is priced with 176 ms from stock 2.2.2 captures. *Re-graded
+   2026-08-17 — this was previously marked 🔴 "the single most load-bearing unmeasured value," and
+   that was wrong.* **It is a tuning constant, not a design input.** Apply the decision-relevance
+   test:
    - *Flash or not* — unchanged across any plausible value. The CFW removes every named cause of
      G2CC's 6.1 s screen (§1); the margin is large enough that refining the input changes nothing.
    - *Damage tracking + one mode-8 flush per frame* — **latency-monotonic.** Higher ack latency

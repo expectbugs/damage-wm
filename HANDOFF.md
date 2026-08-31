@@ -943,3 +943,102 @@ as a bootloader and as an application, which is simply where it is.
 separate non-AA protocol, only partially decoded in `G2CC/docs/G2_BLE_PROTOCOL.md` §11) carries it,
 and we have not implemented that query. The bootloader accepting a *signed* 2.2.6.0009 init packet
 and then jumping to the application is strong evidence, but it is not a version read.
+
+---
+
+## 11. FIRST LIGHT — 2026-08-30
+
+**The PC drove the glasses.** Scan, both arms, MTU 247, prelude acked, capability gate passed,
+carrier created, leases held, warmup dropped as expected, `driving via ble`, and the shell painted
+Main with its chrome. Then the ring drove it. Everything below happened within about an hour of
+the flash finishing.
+
+### 11.1 🎉 The measurement that matters — CFW ack latency ≈ 50 ms
+
+The shell's own `ackMsEma` cell read a steady **50 ms** while driving PC-direct, against the
+**176 ms** measured on stock 2.2.2 that priced *every estimate in the project*. Roughly **3.5×
+better than the design assumed**, and in the direction that makes everything cheaper.
+
+⚠ **Recorded, not yet acted on.** It is an EMA over a *mostly idle shell* — clock ticks and small
+chrome cells, the light-payload end. Latency may grow with payload and nobody has measured it under
+a full keyframe or a heavy scroll. It establishes the **floor**, not the **curve**. `overview.md`
+§11 item 1 and `CLAIMS.md` both carry that caveat; do not re-price §5 until it is measured under
+real content.
+
+### 11.2 Items closed on hardware
+
+| # | item | result |
+|---|---|---|
+| 6 | CFW ack latency | **~50 ms** (see 11.1) |
+| 12 | link-death behaviour | closed by accident: two unplanned LEFT drops, keeper restarted and resumed both times unaided |
+| 16 | PC-direct BLE over BlueZ | **works** — scan by name, RIGHT then LEFT, MTU 247, notifications, write pacing. First exercise of `BlueZDbus`, passed first try |
+| 13 | stray sid-0x0x frames | the glasses **do** send unsolicited sid-0x01 frames (codes 1000 / 2000). Logged and ignored exactly as designed |
+| 18 | the switcher chord | **partly, and it needs re-thinking** — see 11.4 |
+| — | ring → glasses → `e0-01` | **works.** `SCROLL_UP`, `SCROLL_DOWN`, `TAP`, `DOUBLE_TAP` all arrive; taps carry a real source byte (2 = ring). This hop is invisible to every capture we own and had never been observed by anyone here |
+
+### 11.3 🔴 Three defects, all ours, all found in minutes
+
+1. **The ack status enum.** `ImgResCmd` field 8 is a **status**, not an error code: its success
+   value differs per operation (0 create, **4 image raw data**, 6 rebuild, 8 text, 10 shutdown,
+   12 heartbeat, 13 audio). The transport read "non-zero means error" and so refused the glasses'
+   own success ack, failing every session start against a perfect link. **Nothing offline could
+   catch it: the simulator modeled success as an ABSENT field 8.** Fixed both sides; `AckStatusTest`
+   pins them together.
+2. **The journal flood.** A keeper restart wrote into the stream a previous `stop()` had closed,
+   failing and logging *every line* — burying the log at exactly the moment it existed to explain.
+   It now reopens in append mode (journalling across a reconnect is when it is most useful) and an
+   unrecoverable failure is reported **once**. Repeating an unrecoverable error per line is not
+   "loud and proud"; it is a denial of service against reading the errors that matter.
+3. **Input was unobservable.** No inbound gesture was ever logged, so when input did not work there
+   was no way to distinguish "arriving and mishandled" from "never arriving" — two completely
+   different causes. Every gesture now logs by name. **An input path you cannot observe is a silent
+   failure even when every component in it is loud.**
+
+### 11.4 🔴 Event 10 is "a touch ended", not "a long press ended"
+
+`LONG_PRESS_RELEASE` (event 10) fires after **almost every swipe**, interleaved with the scroll
+stream. Event **9 never fired once** in a whole session of normal use.
+
+This does not break the current grammar — §1.3's chord has event **9** arm the window and event 10
+merely refresh it, so stray 10s cannot arm anything. But the chord was designed believing 10 meant
+what its name says, and it does not. **Re-validate the chord against this behaviour before anyone
+builds on it**, and treat the name in `gesture_fwd.c` as describing the hook site, not the
+semantics. First-light item 18 stays open with this note attached.
+
+### 11.5 The ring — cause, effect, and the lesson
+
+After the ring DFU the ring **stopped driving the glasses entirely**, including the stock offline
+menu, which ruled Damage out as the cause. The glasses fired a "Ring Disconnected" notification
+with a beep; the ring sat advertising, connected to nothing. **Those notifications also took the
+display** — Adam saw both lenses go dark, then the notice, then the display return, which matches
+our two LEFT disconnects at flush 126 and 145 exactly. One fault, two symptoms.
+
+**Cause: the DFU almost certainly cleared the ring's bond with the glasses.** A charger power-cycle
+did nothing. **Opening the Even app fixed it** — the vendor path re-registers the ring (the `91-20`
+message that tells the glasses the ring's MAC), and input has worked since.
+
+🔴 **The lesson, recorded because the risk analysis missed it.** The ring update was defensible on
+the evidence and the firmware was reversible — we hold 2.2.0.0014 and there is no rollback counter.
+**But "reversible firmware" is not "reversible outcome": the bond is separate state, and reverting
+the image would not have restored it.** Any future DFU on a *paired* device must count re-pairing
+as part of the cost, and must confirm a re-pairing path exists before starting.
+
+Also worth keeping: **the Even app did not revert the CFW.** We reached `driving via ble` straight
+afterwards, so the capability gate still saw `EVENCFW`. That was a real risk and it did not bite —
+but it was luck rather than design, and Faceclaw remains the safer app for this pair.
+
+### 11.6 Smaller observations
+
+- `le-connection-abort-by-local` on the RIGHT arm when the Even app still held it. The keeper got
+  in on attempt 2. Expect it whenever another central has the pair.
+- The status bar reads correctly on glass: `idle` → `ok` → `NK/s · 50ms` → compass placeholder →
+  link indicator at 4 bars (connected + lease held). G/R/P battery cells are blank for want of data.
+- Main showed **"library loading"** and may never have finished; whether the content host delivered
+  the book list is unconfirmed and is the next thing to check.
+
+### 11.7 Still open
+
+Legibility on real glass (item 8), the safe area (item 1), per-notch scroll (item 2), comfortable
+disparity (item 3), the rect budget (item 4), the two-arm capture (item 5), msgId-255 under CFW
+(item 7), and the texture cache on glass (items 19–20). **None of the display-quality questions
+have been answered** — the session proved the pipe works, not that the design reads well.

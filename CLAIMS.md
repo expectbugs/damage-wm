@@ -44,6 +44,7 @@ they meant — including ours.
 | **No `LE_Conn_Update` is ever issued for handle 65 (R lens)** | **M** | capture; 64 and 66 both get explicit ones |
 | Cause of the ~10× shortfall | **U** | HCI can't separate stack / app cadence / BT-WiFi coexistence |
 | Image ack latency median 176 ms | **M** | capture, stock 2.2.2 only |
+| **CFW ack latency ~50 ms on the direct-framebuffer path** | **M** ⚠ | first light 2026-08-30, the shell's own `ackMsEma` while driving the real pair PC-direct. **Measured on a mostly-idle shell** (clock ticks, small chrome cells) — the light-payload end. It establishes the floor is ~3.5x lower than the 176 ms everything was priced with; it does NOT establish the curve under a full keyframe. Re-measure under real content before re-pricing `overview.md` §5 |
 | msgId (`MagicRandom`, pb field 2) is effectively 1 byte | **C** | our hardware finding + g2-kit, independently |
 | ~1000 B wall applies to **layout frames only** | **M** | largest layout frame observed = 401 B; image chunks are 4096 B / 18 fragments |
 
