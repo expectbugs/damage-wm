@@ -581,7 +581,9 @@ class ReaderWindow(
         }
         if (lines.isNotEmpty() && lines.last().text.isEmpty() && lines.last().img < 0)
             lines.removeAt(lines.size - 1)
-        val perPage = maxOf(1, (416 - 32) / lineH)
+        // page numbers count against the LIVE content height (§2.2b: nothing
+        // hardcodes a 480-derived number) — 384 is only the no-services default
+        val perPage = maxOf(1, (services?.docContentHeight() ?: 384) / lineH)
         return Loaded(meta, b, lines, perPage, width, scale, imgs)
     }
 

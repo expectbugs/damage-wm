@@ -74,10 +74,15 @@ class TermRender(private val text: TextRasterizer) {
         return spec
     }
 
-    /** The rect or size mode changed (Shell.onLayoutChanged): forget the fit. */
+    /** The rect, size mode or typography changed (Shell routes both through
+     *  onLayoutChanged/onFontScaleChanged): forget the fit AND the coverage
+     *  cache — a per-app font override (Style.kt) swaps the face under
+     *  Face.MONO, and stale coverage would draw tofu boxes for glyphs the new
+     *  face has (or glyphs for ones it lacks). */
     fun invalidate() {
         fitKey = -1
         fit = null
+        coverCache.clear()
     }
 
     /**
@@ -114,13 +119,17 @@ class TermRender(private val text: TextRasterizer) {
                 y += 2
             }
         }
-        // the cursor cell, inverted, only when the live pane is on show
+        // the cursor cell, inverted, only when the live pane is on show. The
+        // guard carries the SAME +2 margin as the row loop above: with 0-1 px
+        // of slack the bottom row is dropped, and a cursor drawn there anyway
+        // would sit on a blank row and bleed its glyph's AA onto the divider —
+        // the exact defect the row guard exists for (2026-08-31).
         if (frame.cursorVisible && frame.cursorY in 0 until frame.rows) {
             val cy = spec.y0 + (totalCtx * spec.cellH + if (totalCtx > 0) 2 else 0) +
                 frame.cursorY * spec.cellH
             val cx = spec.cellX(frame.cursorX)
             val cw = spec.cellX(frame.cursorX + 1) - cx
-            if (frame.cursorX in 0 until spec.cols && cy + spec.cellH <= rect.bottom) {
+            if (frame.cursorX in 0 until spec.cols && cy + spec.cellH + 2 <= rect.bottom) {
                 g.fillRect(cx, cy, cw, spec.cellH, Level.BODY)
                 val row = parsed.rows.getOrNull(liveStart + frame.cursorY)
                 val cp = row?.cp?.getOrNull(frame.cursorX) ?: ' '.code

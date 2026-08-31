@@ -30,8 +30,9 @@ import wm.damage.core.util.Log
  * call rather than after the whole sequence; an arm is registered the moment
  * its connect returns, so the rollback disconnects it whatever fails next.
  *
- * ⚠ Never run on a radio during the build (decision 2): the real link is
- * exercised at first light; here the glue is verified over a fake link.
+ * LIVE on hardware since first light 2026-08-30 (HANDOFF.md §11): this glue
+ * drove the real pair PC-direct the first time it saw a radio and daily since.
+ * The unit tests still verify it over a fake link (BlueZTransportTest).
  */
 class BlueZTransport(
     private val link: BlueZLink,

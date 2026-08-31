@@ -44,7 +44,10 @@ data class FontSpec(val face: Face, val sizePx: Int, val bold: Boolean = false, 
 
 /**
  * The locked typeface assignments — DESIGN.md §Type, decided 2026-08-18 from
- * the 1x comparison sheets. The system face is NOT negotiable per window.
+ * the 1x comparison sheets. These are the DEFAULTS: since 2026-08-31 (Adam's
+ * recorded reversal of "the system face is not negotiable") Settings can remap
+ * chrome+Main globally and each app's content per app, via Style.kt transforms
+ * — always choosing from these four loaded faces.
  */
 enum class Face(val family: String, val role: String) {
     /** Clear Sans — all chrome, everywhere, plus Main. Cheapest and lowest-ink

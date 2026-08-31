@@ -64,11 +64,12 @@ interface Transport {
     suspend fun start(warmupFrame: ByteArray)
 
     /**
-     * Submit one atomic flush (one mode-8 batch, or a bare keyframe). Suspends
-     * until the transport accepts it into the in-flight window — that
-     * suspension is the backpressure signal §5.13's coalescing rides on.
-     * Completion (ack + measured latency, or failure) arrives as
-     * [TransportEvent.FlushDone] carrying the returned id.
+     * Submit one atomic flush (one mode-8 batch, or a bare keyframe). Enqueues
+     * in call order and returns at once; the backpressure signal §5.13's
+     * coalescing rides on is [LinkState.inFlight] against [LinkState.window],
+     * which the shell's pump gates a submit on (the fragment window inside the
+     * transport backs it). Completion (ack + measured latency, or failure)
+     * arrives as [TransportEvent.FlushDone] carrying the returned id.
      */
     suspend fun submit(flush: FlushRequest): Long
 

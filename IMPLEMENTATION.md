@@ -31,9 +31,11 @@ shell  ──FlushRequest{ops: Keyframe|Delta|Copy|StereoPair, epoch, wide}─�
   compression is the shell's job (§10.1).
 - **Fids are stamped by the transport at EMIT time** (§8.2 #5), via the shared
   `Emit` encoder every implementation uses.
-- `submit()` suspending until a window slot frees IS the backpressure signal
-  §5.13's coalescing rides on. A `wide` flush drains the window and runs at
-  depth 1 — §8.2 #4's rects-for-depth trade.
+- `submit()` enqueues in call order and returns; the backpressure signal
+  §5.13's coalescing rides on is `LinkState.inFlight` against `window`, which
+  the shell's pump gates on (the fragment window inside the transport backs
+  it). A `wide` flush drains the window and runs at depth 1 — §8.2 #4's
+  rects-for-depth trade.
 - The same interface serializes over TCP (`RemoteTransportClient/Server`,
   length-prefixed JSON + binary): the shell can live on the PC while the
   transport lives on the phone, or the reverse. The server admits ONE driver;

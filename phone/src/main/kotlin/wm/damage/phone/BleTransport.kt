@@ -49,9 +49,11 @@ import wm.damage.core.util.Log
  *   → the base settles ~800 ms and runs the sid-0x01 prelude, capability
  *     gate, carrier CREATE, FB lease on both arms, warmup
  *
- * ⚠ Never run on hardware yet: the glasses stay on stock 2.2.2.20 until Adam
- * flashes. Two guards: the target defaults to SIM, and the base's capability
- * gate refuses any firmware that does not answer with an EVENCFW string.
+ * LIVE on hardware since 2026-08-31 (HANDOFF.md §13.3b/DAILY.md: phone first
+ * light passed on the first try; this glue owns the radio all day now). The
+ * guard that still matters: the base's capability gate refuses any firmware
+ * that does not answer with an EVENCFW string, so a mistaken switch against
+ * stock glasses reads settings and refuses to paint.
  *
  * Wire lineage: UUIDs from G2CC ble/G2Constants.kt + docs/G2_BLE_PROTOCOL.md
  * §1.3 (post-drift: service 5450 holds chars 5401 write / 5402 notify); the

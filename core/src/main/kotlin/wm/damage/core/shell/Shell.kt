@@ -102,6 +102,13 @@ class Shell(
     private var inputEcho = ""
     private var opText = "idle"
     private var statusText = "ok"
+    /** Stamps the minute/idle maintenance loops to ONE shell session. The
+     *  keeper stops and restarts this shell all day (WiFi edges, handovers);
+     *  a loop that only checked `running` would come back from its sleep to
+     *  find the NEXT session running and keep going — every restart added a
+     *  loop, accumulating wakeups forever on the all-day driver. A stale
+     *  generation exits instead. */
+    @Volatile private var tickGen = 0
     private var restGen = 0
     private var graceGen = 0
     private var silentDismissGen = 0
@@ -314,8 +321,14 @@ class Shell(
 
             scope.launch { loop() }
             loopLaunched = true
-            scheduleMinuteTick()
-            scope.launch { while (isActive && running) { delay(5_000); post(Msg.IdleTick) } }
+            val gen = ++tickGen
+            scheduleMinuteTick(gen)
+            scope.launch {
+                while (isActive && running && gen == tickGen) {
+                    delay(5_000)
+                    if (running && gen == tickGen) post(Msg.IdleTick)
+                }
+            }
             scheduleRest()
             post(Msg.Pump)
         } catch (e: Exception) {
@@ -955,7 +968,6 @@ class Shell(
 
     // ------------------------------------------------------------------ ticks
     private fun handleMinute() {
-        scheduleMinuteTick()
         if (mode == Mode.SILENT) {
             val c = wallClock()
             SilentMode.paintClock(comp.composed, layout, c.hh, c.mm)
@@ -965,11 +977,16 @@ class Shell(
         }
     }
 
-    private fun scheduleMinuteTick() {
+    /** One loop per session (not a self-rescheduling chain — see [tickGen]):
+     *  fire on each minute boundary, then step 1 s past it so the next wait is
+     *  a full minute even when the timer wakes a hair early. */
+    private fun scheduleMinuteTick(gen: Int) {
         scope.launch {
-            val ms = 60_000 - (System.currentTimeMillis() % 60_000)
-            delay(ms)
-            if (running) post(Msg.MinuteTick)
+            while (isActive && running && gen == tickGen) {
+                delay(60_000 - (System.currentTimeMillis() % 60_000))
+                if (running && gen == tickGen) post(Msg.MinuteTick)
+                delay(1_000)
+            }
         }
     }
 
