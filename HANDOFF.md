@@ -797,3 +797,60 @@ mode-14 cached-glyph draws changes the emit strategy and the whole cost model, a
 priced against **measured** ack latency on the CFW path rather than the modeled 176 ms we have
 now — which is one flash away. Mode 11 in `stop()` is held back for the same build: its value is
 freeing the cache, and `stop()` is a five-round-hardened path not worth disturbing for nothing.
+
+### 10.10 Dry-run results — 2026-08-30, on the real pair, nothing written
+
+Adam's decisions: install the **new** image (the one Faceclaw ships), and **patch**
+`recover_session()` first. Both done. The glasses were powered and disconnected from the phone.
+
+**The tool patch.** One line added in `reference/g2flash/g2flash.py`, in `recover_session`:
+a `_reset_seq()` *before* `authenticate(tp)`, so recovery reproduces the initial connect's
+deterministic `magic == 1`. Without it the magic is whatever the block counter has reached, and
+`auth_frames()` writes it as ONE RAW BYTE — a value ≥ 128 is a continued varint that swallows the
+following `0x1a`. The three retries would not have saved it: a failed attempt raises inside
+`authenticate` *before* the existing reset two lines below, so the retries use **consecutive**
+magics (200, 201, 202) and fail together. Roughly a coin flip per recovery event.
+Proven offline before use (`scratchpad/authcheck.py`): magics 128–255 fail to parse, magic 1
+produces a request identical to the captured one but for its magic, and the framed packet is
+`aa21010c01018000080410011a0408011004cc56` — matching what the capture analysis predicted.
+`git -C reference/g2flash diff` shows the change; `git checkout` reverts it. It touches no
+firmware byte, so image provenance is unaffected. **Report upstream to Babcock.**
+
+**The image.** Staged at `fws/2.2.6.10-cfw-d4054ab1/g2-cfw-a5d1c31.bin` (with its patch JSON
+beside it), rebuilt from our local stock base by `apply_patches.py` and hash-matched to
+`d4054ab1…`. `verify_cfw.py` exit 0. ⚠ **It reports firmware version `2.2.6.10`, not `2.2.6.11`** —
+the `.11` in the archived image was SybilSight's three version-string patches, which g2flash's own
+build does not carry. So after the install the version string is indistinguishable from stock
+2.2.6.10; **CFW detection must go through the `EVENCFW/` capability string**, which is what
+Damage's gate already does. Do not read the version and conclude the flash failed.
+
+**Arm addresses (Adam's own pair, serial 32), found by a passive scan:**
+`left = D8:AE:E7:C1:FA:4D`, `right = E4:87:77:65:CD:50`, both `public`, RSSI −62 / −67 dBm.
+
+**The staircase, all three rungs, both arms:**
+
+| rung | result |
+|---|---|
+| `--stop-before heartbeat` | `discovery: ok` on both. Zero writes |
+| `--stop-before file_check` | `authentication: ok` on both; reply `pb=080410011a00` — exactly the strict `08 04 10 <magic>` + `1a 00` the tool demands |
+| `--stop-before flash` | `begin ack 0 (SUCCESS)` and `FILE_CHECK acked` for component 0 on both. Zero firmware bytes |
+
+🔴 **Two risks from §10.5 are now CLOSED, on hardware:**
+
+1. **The unbonded-host question is answered.** beardos has never bonded with this pair, and it
+   connected, discovered, wrote to the CTRL characteristic and got a valid authenticated reply
+   from both arms. No OS pairing prompt, no encryption demand, no ATT insufficient-authentication
+   error. The commit message's predicted pairing prompts did not appear.
+2. **The auth exchange works on stock 2.2.2.20** — previously inferred from captures, now measured.
+
+**Operational notes from the runs.** The typed-phrase prompt fires **before** the transport is
+created, so `--stop-before` does not exempt it; the dry runs used `--my-warranty-is-void` and every
+command run by the assistant carried a `--stop-before`, so none of them could write. The write
+itself was handed to Adam to run, keeping the typed phrase as a real human gate. Harmless
+`[BLE disconnected unexpectedly]` lines appear as the previous lens's client closes; discovery
+succeeded straight after both times.
+
+**What is still unknown** is only the data phase itself: ~4.2 MB per lens over a link whose OTA
+throughput we have never measured (our 7–13 KB/s is the EvenHub image path, not c0/c1). If a bare
+block-ack timeout occurs, the patched recovery path now has a deterministic magic. `main` catches
+per lens and continues to the other, then prints `FAILED lenses: [...]`; re-run with `--lens <side>`.
