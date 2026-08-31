@@ -78,9 +78,6 @@ class SettingsWindow(
         Entry("Presence", { if (get().presence == 0) "away at rest" else "dim at rest" }, { s, d ->
             s.copy(presence = (s.presence + d).coerceIn(0, 1))
         }),
-        Entry("Font size", { "${(get().fontScale * 100).toInt()}%" }, { s, d ->
-            s.copy(fontScale = if (d > 0) 1.0 else 0.85)
-        }),
         Entry("Head tracking", { if (get().headTracking) "on" else "off (default)" }, { s, d ->
             s.copy(headTracking = d > 0)
         }),
@@ -110,6 +107,15 @@ class SettingsWindow(
         val st = stagedHost
         if (st != null && adjusting?.hostRow === h) "$st (tap applies)" else h.current()
     }, null, hostRow = h)
+
+    /** The option a host row is SHOWING (staged while adjusting, else the
+     *  current one) — what [HostSetting.optionFont] previews. */
+    private fun shownOption(e: Entry): String? = e.hostRow?.let { h ->
+        if (adjusting?.hostRow === h) stagedHost ?: h.current() else h.current()
+    }
+
+    private fun valueFont(e: Entry): FontSpec =
+        e.hostRow?.optionFont?.let { of -> shownOption(e)?.let(of) } ?: fRow
 
     /** The directories (2026-08-31): Global = the §4.2 rows + the host's
      *  rows, then one per app that contributes rows. */
@@ -248,7 +254,7 @@ class SettingsWindow(
             wm.damage.core.util.Log.w("settings", "row $i beyond ${entriesAt().size} entries — blank row"); return
         }
         text.draw(g, r.x + 40, (r.y + 7) / 2 * 2, e.name, fSmall, Level.DIM)
-        text.draw(g, r.x + 280, (r.y + 5) / 2 * 2, e.value(), fRow, Level.BODY)
+        text.draw(g, r.x + 280, (r.y + 5) / 2 * 2, e.value(), valueFont(e), Level.BODY)
     }
 
     private fun paintLens(g: Gray8, r: Rect, i: Int) {
@@ -256,7 +262,8 @@ class SettingsWindow(
         Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.SETTINGS, Level.HEAD)
         text.draw(g, r.x + 44, (r.y + 8) / 2 * 2, e.name, fRowB, Level.HEAD)
         val v = e.value()
-        text.draw(g, r.right - 16 - text.measure(v, fRow), (r.y + 8) / 2 * 2, v, fRow, Level.BODY)
+        val vf = valueFont(e)
+        text.draw(g, r.right - 16 - text.measure(v, vf), (r.y + 8) / 2 * 2, v, vf, Level.BODY)
         val hint = if (adjusting != null) "scroll adjusts live · tap keeps · double-tap reverts"
         else "tap to adjust"
         text.draw(g, r.x + 44, (r.y + 34) / 2 * 2, hint, FontSpec(Face.SYSTEM, 14), Level.DIM)
@@ -292,7 +299,11 @@ data class HostSetting(
     val options: () -> List<String>,
     val current: () -> String,
     val apply: (String) -> Unit,
+    /** Font rows (2026-08-31): the spec an OPTION previews in — "each option
+     *  displayed using that option's font" (Adam). Return raw=true specs so
+     *  the live transforms cannot restyle the candidate. Null = row font. */
+    val optionFont: ((String) -> FontSpec?)? = null,
 ) {
     constructor(name: String, options: List<String>, current: () -> String, apply: (String) -> Unit) :
-        this(name, { options }, current, apply)
+        this(name, { options }, current, apply, null)
 }

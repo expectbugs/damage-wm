@@ -1,10 +1,12 @@
 # Where we are, and what to do next
 
-**Updated 2026-08-30 — the glasses run the CFW and the PC has driven them.**
+**Updated 2026-08-31 (evening) — the DAILY DRIVER is live: phone APK owns the radio (its own
+first light passed), the PC shell drives through it from the OpenRC `damage` service,
+handovers adopt the session (zero blinks), Tmux + user typography shipped.**
 
-📍 **Start here, in this order:** `HANDOFF.md` §11 (first light — what it proved and the three
-defects it found), then **`REFINEMENT.md`** (the backlog Adam asked for after wearing it), then
-this file for the checklist of what is still unmeasured.
+📍 **Start here, in this order:** `HANDOFF.md` §17 (the fresh-context resume — it chains back
+through §13–16), then `DAILY.md` (the ops crib for the all-day setup), then this file for the
+checklist of what is still unmeasured on glass.
 
 **History, if you need it:** `HANDOFF.md` §10 is the firmware install; §10.13 is the ring update;
 §9 is **superseded** by §10 and should not be followed. §8 is the finishing build, whose whole gap
@@ -69,21 +71,21 @@ against the simulator and the fake links, none of it on a radio yet:
   from any of them reaches whichever shell drives. The shell compares its belief with the mirror at
   rest and reports any disagreement.
 
-## 🚀 Next — PERFECT THE APK (`HANDOFF.md` §13)
+## 🚀 Next
 
-**Adam's next mission (2026-08-31):** the phone must do everything the PC does, in every
-`DESIGN.md` §10 configuration — app+PC over the seam, app alone, PC-only — with the §8.1
-arbitration contract honored on real hardware. §13 holds the verified current state, the order
-of work (sideload → phone-target first light → the three configurations → parity audit), the
-traps (one central at a time; the eaten-gate class), and the resume protocol. The phone's
-`BleTransport` glue is the one unproven layer; everything above it is shared, hardware-proven
-core.
+**The §13 APK mission is DONE** (2026-08-31: phone first light, the daily-driver config live,
+the three configurations exercised on hardware the same day — takeover, fallback, PC-only all
+observed working; the §16 handover rework made every transition a repaint). In the queue now:
 
-**Behind it in the queue:** the whole 2026-08-30 refinement backlog SHIPPED 2026-08-31
-(`HANDOFF.md` §12 — chrome depth, per-app height, folders/chapters/images, scroll, the digital
-clock, Settings directories, brightness/battery, the switcher fix, the measured latency curve
-`ms ≈ 60 + bytes/50`). Then: **the app-layer scope explosion** (`CAPABILITIES.md` + `DESIGN.md`
-§0/§4.6), and the **icon-quality pass** Adam queued ("very basic").
+- **On-glass verdicts for the 2026-08-31 evening wave**: the tmux full-width grid + grid
+  history, the settings typography (fonts previewed in their own faces), per-app depth against
+  global chrome, arrow quick keys — all sim-verified, awaiting his eyes.
+- **The app-layer scope explosion** (`CAPABILITIES.md` + `DESIGN.md` §0/§4.6) — the next big
+  phase, deliberately after the daily driver settled.
+- The **icon-quality pass** Adam queued ("very basic").
+- Watch-items from today: the left-lens seam residue (one-shot early-burst tear — recurs? then
+  harden session start), the ~20 s silent-death freeze window (tighten heartbeat constants if
+  it feels long in practice).
 
 ## ✅ Flash day and first light — DONE 2026-08-30
 
@@ -121,7 +123,7 @@ actually looks on glass is among them.**
 | 14 | **The stall report** — force a lost image ack (RF shielding) | must show as a `stall!` fault in the status bar with the link otherwise healthy |
 | 15 | **The sid-0x01 connect prelude** — graded U: does the CFW require it before CREATE? | the transport sends it (the reference does); the model treats it as required. If the real firmware answers differently, `LaunchMsg` says where to change it |
 | ~~16~~ | ✅ **PC-direct BLE over BlueZ** — works, first try, and **no bonding was required**. Original question: — the MTU the characteristic reports, notification delivery, write-without-response pacing, **and whether beardos must BOND with the pair first** | first exercise of `BlueZDbus`; the nine fake-link tests say what is expected. The bonding half is open because every capture we hold was taken from an already-bonded phone (`HANDOFF.md` §10.5) — it applies to the flash and to the runtime link alike |
-| 17 | **Takeover and fallback** — PC appears → it drives via the phone; PC gone → the phone resumes; phone gone at the desk → PC-direct BLE | every transition narrated in the status strip / phone status line and the browser page |
+| ~~17~~ | ✅ **Takeover and fallback — LIVE on hardware 2026-08-31** (phone first light + the daily driver): PC claims via the seam, phone resumes on loss (measured 21 s silent-death detection), PC-direct at the desk; since §16 every transition ADOPTS the session (no teardown) | done — `DAILY.md` |
 | 18 | 🔴→✅ **The switcher — real cause FOUND AND FIXED 2026-08-31: our own §1 source filter.** Events 9/10 are unattributed (source 0, `EventSource` absent by firmware design) and the shell's ring-only check (source ≠ 2 → drop) discarded every real long-press before the grammar ran — both routes dead since first light while `LongPressTest` passed on its flattering ring-source default. Fixed: 9/10 bypass the source check; the suite injects them with source 0. The hardware half is also settled: five deliberate ~1 s holds produced five clean event-9s (accidental brushes end early — their event-10s mean "a touch ended"). **Awaiting Adam's on-glass confirmation of both routes** (`REFINEMENT.md` §4) | the grammar's premise (the arming event is rare in normal use) is OBSERVED: zero 9s across a day of use, five on demand |
 | 19 | **The texture cache on glass** (new, CFW `a5d1c31`) — upload a small atlas with mode 12, draw it with 13 and 14, and compare the panel against the simulator's prediction pixel for pixel | modes 12/13/14 are modeled byte-exactly but have never run on hardware. This is the gate on adopting cached glyphs for text. ⚠ **Two things not to misdiagnose:** mode 14 adds one overlay rect per glyph against a 16-deep list, so with the diagnostic overlay on, a string over ~16 glyphs shows incomplete outlines — that is the overlay, not a firmware fault. And a failed 64 KiB allocation shows ONLY as the sticky `ALLOC` flag, so leave the overlay on for the first upload |
 | 20 | **What an atlas upload actually costs** — time a 16/32/64 KiB mode-12 upload at the measured link rate, and confirm the cache really survives a lease *renewal* while dying on a lapse | decides atlas size and whether a session can afford a full font. Prices the whole mode-14 trade against item 6's real ack latency |

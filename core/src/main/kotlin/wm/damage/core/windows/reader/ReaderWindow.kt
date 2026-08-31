@@ -49,6 +49,10 @@ class ReaderWindow(
     private val images: wm.damage.core.gfx.ImageDecoder? = null,
 ) : DamageWindow("reader", "Reader", IconKind.READER) {
 
+    /** Every measure/draw goes through the per-app style (Style.kt) — wrap
+     *  and render agree by construction. */
+    private val tx = styledText(text)
+
     private enum class Level_ { LIBRARY, CHAPTERS, BOOK, ACTIONS }
 
     private var level = Level_.LIBRARY
@@ -430,7 +434,7 @@ class ReaderWindow(
         val maxW = r.w - 200
         drawFit(g, r.x + 32, r.y + 5, b.title, Level.BODY, fRow, maxW)
         drawRight(g, r.right - 24, r.y + 8, "${b.bytes / 1024}K", Level.DIM, fSmall)
-        if (text.measure(b.title, fRow) > maxW) Icons.tri(g, r.right - 12, r.y + 11, 11, Level.DIM)
+        if (tx.measure(b.title, fRow) > maxW) Icons.tri(g, r.right - 12, r.y + 11, 11, Level.DIM)
     }
 
     private fun paintLibLens(g: Gray8, r: Rect, i: Int) {
@@ -447,7 +451,7 @@ class ReaderWindow(
         Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.READER, Level.HEAD)
         val titleMax = r.w - 60
         drawFit(g, r.x + 44, r.y + 6, b.title, Level.HEAD, fB, titleMax)
-        if (text.measure(b.title, fB) > titleMax) Icons.tri(g, r.right - 12, r.y + 11, 11, Level.DIM)
+        if (tx.measure(b.title, fB) > titleMax) Icons.tri(g, r.right - 12, r.y + 11, 11, Level.DIM)
         val sub = listOf(b.author, "${b.bytes / 1024} KB")
             .filter { it.isNotEmpty() }.joinToString(" · ")
         val line2 = if (openingId == b.id) "opening..." else sub
@@ -539,7 +543,7 @@ class ReaderWindow(
         // per-line buffers — LOUDLY refuse the layout instead of chopping
         // glyphs on glass. Checked for both weights at the current scale.
         for (f in listOf(fBody, fBodyB)) {
-            val m = text.metrics(f)
+            val m = tx.metrics(f)
             if (m.ascent + m.descent > lineH) throw wm.damage.core.geom.LintError(
                 "Reader line box $lineH px cannot hold ${f.face} ascent ${m.ascent} + descent ${m.descent} — " +
                     "descenders would be chopped (grow lineH or shrink the face)")
@@ -566,7 +570,7 @@ class ReaderWindow(
             // past the paragraph end on hard breaks and broke the monotonicity
             // the binary search depends on (review round 2 #B10).
             var pos = 0
-            for (l in Wrap.wrap(para, if (heading) fBodyB else fBody, text, width)) {
+            for (l in Wrap.wrap(para, if (heading) fBodyB else fBody, tx, width)) {
                 while (pos < para.length && !para.startsWith(l, pos) &&
                     (para[pos] == ' ' || para[pos] == '\n')) pos++
                 lines.add(Loaded.Line(l, paraStart + minOf(pos, para.length), heading))
@@ -652,9 +656,9 @@ class ReaderWindow(
         // baseline from the REAL metrics, centred in the box (2026-08-31 —
         // the hardcoded +2 assumed the glyphs fit, which is exactly what
         // chopped the descenders when they did not)
-        val m = text.metrics(f)
+        val m = tx.metrics(f)
         val off = ((lineH - (m.ascent + m.descent)) / 2).coerceAtLeast(0)
-        text.draw(g, (r.x + 16) / 4 * 4, (r.y + off) / 2 * 2, line.text, f, lv)
+        tx.draw(g, (r.x + 16) / 4 * 4, (r.y + off) / 2 * 2, line.text, f, lv)
     }
 
     // ------------------------------------------------------------------ actions
@@ -674,14 +678,14 @@ class ReaderWindow(
 
     private fun paintActRow(g: Gray8, i: Int, r: Rect, dim: Boolean) {
         val (name, detail) = actions()[i]
-        text.draw(g, (r.x + 32) / 4 * 4, (r.y + 7) / 2 * 2, name, fSmall, Level.DIM)
+        tx.draw(g, (r.x + 32) / 4 * 4, (r.y + 7) / 2 * 2, name, fSmall, Level.DIM)
         drawFit(g, r.x + 240, r.y + 5, detail, Level.BODY, fRow, r.right - 24 - (r.x + 240))
     }
 
     private fun paintActLens(g: Gray8, r: Rect, i: Int) {
         val (name, detail) = actions()[i]
         Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.READER, Level.HEAD)
-        text.draw(g, (r.x + 44) / 4 * 4, (r.y + 8) / 2 * 2, name, FontSpec(Face.SYSTEM, 18, bold = true), Level.HEAD)
+        tx.draw(g, (r.x + 44) / 4 * 4, (r.y + 8) / 2 * 2, name, FontSpec(Face.SYSTEM, 18, bold = true), Level.HEAD)
         drawFit(g, r.x + 44, r.y + 34, detail, Level.BODY, fRow, r.w - 60)
     }
 
@@ -796,15 +800,15 @@ class ReaderWindow(
     // ------------------------------------------------------------------ helpers
     private fun drawFit(g: Gray8, x: Int, y: Int, s: String, lv: Int, f: FontSpec, maxW: Int) {
         var str = s
-        if (text.measure(str, f) > maxW) {
+        if (tx.measure(str, f) > maxW) {
             var n = str.length
-            while (n > 0 && text.measure(str.take(n), f) > maxW) n--
+            while (n > 0 && tx.measure(str.take(n), f) > maxW) n--
             str = str.take(n)
         }
-        text.draw(g, x / 4 * 4, y / 2 * 2, str, f, lv)
+        tx.draw(g, x / 4 * 4, y / 2 * 2, str, f, lv)
     }
 
     private fun drawRight(g: Gray8, xRight: Int, y: Int, s: String, lv: Int, f: FontSpec) {
-        text.draw(g, (xRight - text.measure(s, f)) / 4 * 4, y / 2 * 2, s, f, lv)
+        tx.draw(g, (xRight - tx.measure(s, f)) / 4 * 4, y / 2 * 2, s, f, lv)
     }
 }

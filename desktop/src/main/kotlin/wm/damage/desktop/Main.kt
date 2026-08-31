@@ -309,7 +309,9 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     // replica's threads and every client — a reference with visibility
     val stackRef = java.util.concurrent.atomic.AtomicReference<DesktopStack?>(null)
     fun stack() = stackRef.get()
-    val text = AwtText { stack()?.shell?.settings?.fontScale ?: 1.0 }
+    // content scaling moved INTO the style transforms (Style.kt, 2026-08-31)
+    // — the adapter must not scale a second time
+    val text = AwtText()
     val keeperStatus = java.util.concurrent.atomic.AtomicReference("starting")
     val switchNote = java.util.concurrent.atomic.AtomicReference("")
     val switching = java.util.concurrent.atomic.AtomicBoolean(false)

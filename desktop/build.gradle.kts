@@ -1,3 +1,6 @@
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
@@ -40,9 +43,18 @@ tasks.register<Jar>("fatJar") {
 
 // Stage the jar at the STABLE path the OpenRC service runs (DAILY.md): builds
 // land in build/libs and get copied here deliberately, so a half-broken tree
-// never changes what the daily driver boots.
-tasks.register<Copy>("stageJar") {
+// never changes what the daily driver boots. Staged via a temp file + ATOMIC
+// move: an in-place truncation broke the RUNNING service's lazy class loads
+// (its shutdown hook threw NoClassDefFoundError, 2026-08-31) — a new inode
+// leaves the live process its old jar until restart.
+tasks.register("stageJar") {
     dependsOn("fatJar")
-    from(layout.buildDirectory.file("libs/damage.jar"))
-    into(File(System.getProperty("user.home"), ".damage"))
+    val src = layout.buildDirectory.file("libs/damage.jar")
+    doLast {
+        val dst = File(System.getProperty("user.home"), ".damage/damage.jar").toPath()
+        val tmp = dst.resolveSibling("damage.jar.staging")
+        Files.createDirectories(dst.parent)
+        Files.copy(src.get().asFile.toPath(), tmp, StandardCopyOption.REPLACE_EXISTING)
+        Files.move(tmp, dst, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+    }
 }

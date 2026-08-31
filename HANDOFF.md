@@ -1359,3 +1359,59 @@ Damage now has the same decoupling, built and deployed the same evening:
   snapshots · lint 0. Also this evening: tmux quick keys grew Left/Right (his ask); the tmux
   grid went fractional-pitch full-width with history-through-the-live-fit (§15's on-glass
   fixes). APK **6/0.6** staged; the PC service runs the rework now.
+
+## 17. User typography + per-app depth, and the CURRENT RESUME POINT (2026-08-31, late)
+
+**The last feature of launch day** (Adam: global font/size/style previewed in each option's own
+font, per-app font/size/style, per-app depth against global-depth chrome): built as ONE
+mechanism — `core/text/Style.kt`'s `StyleTransform` rewriting every `FontSpec` at the
+rasterizer seam. Chrome + Main draw through the shell's global transform (a recorded REVERSAL
+of §Type's fixed-system-face lock — see DESIGN.md §0/§Type/§3.1 amendments); each window draws
+through its per-app transform (`DamageWindow.styleTransform` → `styledText()`; Reader, Tmux and
+TermRender are routed). `HostSetting.optionFont` + `FontSpec.raw` carry the preview-in-its-own-
+face behaviour; adapter-level content scaling is retired (the transforms own scale now —
+double-scaling was the hazard). Per-app depth (default 8) drives the focused app's content
+plane in `updatePlanes`; bars + Main stay on the global depth. Defaults verified
+render-neutral (snapshot pixel-compare below the clock). `StyleTest` ×5. Also: `stageJar` now
+stages via temp + ATOMIC move (an in-place truncation broke the running service's lazy class
+loads — six NoClassDefFoundError shutdowns in the log were that, not a code defect).
+
+### 17.1 RESUME PROTOCOL for a fresh context (supersedes §13.4)
+
+1. Read `CLAUDE.md` (status header is current), then this §17 back through §13 for the day's
+   arc: §13 the APK mission (runbook DONE) · §14 Tmux · §15 the daily driver + on-glass tmux
+   fixes · §16 the session-outlives-the-driver handovers · §17 typography/depth. `DAILY.md` is
+   the ops crib; `TMUX.md` the tmux design; `IMPLEMENTATION.md` what runs.
+2. **The state of the world:** the OpenRC service `damage` runs the PC shell headless in auto
+   and is probably DRIVING through the phone right now (`rc-service damage status`, log
+   `~/.damage/damage.log`). The phone runs the APK with Target=glasses and owns the radio.
+   Deploys: `./gradlew :desktop:stageJar && sudo rc-service damage restart` (adopt makes it
+   blink-free once the phone APK ≥ 0.6). **Stop the service before any `:desktop:run`.**
+3. **Versions:** APK staged = 7 / 0.7 (setup page `/damage-apk`); Adam last INSTALLED 0.4 —
+   confirm what his phone runs before reasoning about mixed-version behaviour (old phones tear
+   on handover instead of adopting; everything still recovers).
+4. Battery at HEAD, all green: core **150** · desktop 9 · selfcheck **48** · snapshots (15
+   scenes; the clock/telemetry differ run-to-run, bodies are stable) · epub-check · lint 0 ·
+   APK builds. Run the whole battery after ANY change (`CLAUDE.md`).
+5. **Open on-glass items:** his verdicts on the evening wave (tmux full-width grid + grid
+   history + arrows, fonts-in-their-own-face, per-app depth); the left-lens seam residue
+   (one-shot early-burst tear — if it recurs after a handover, harden session start with a
+   post-adopt seam re-black); the ~20 s silent-death freeze (tighten `SEAM_PING_MS`/
+   `SEAM_QUIET_MS` if he asks). Then the app-layer scope explosion (`CAPABILITIES.md`,
+   `DESIGN.md` §0/§4.6) and the icon-quality pass.
+6. G2CC coexistence: its SERVER runs (music etc., :7300, serves our APK page); its ANDROID
+   bridge stays Disconnected (second central). The G2CC repo carries someone's in-flight FF1
+   work — never sweep it into a commit (our two setup-page files went in as dbbab11).
+
+### 17.2 Two live tmux defects from Adam's evening use, fixed the same hour
+
+1. **Garbage on/below the status bar after scrolling history to the bottom**: the bottom row's
+   glyph AA bled 1–2 px past `rect.bottom` onto the divider — pixels nothing owns, shipped by
+   the next chrome repaint and then lingering. Both render paths now carry a hard bottom-row
+   guard (a partial bottom row is dropped, never bled).
+2. **Tmux "frozen — can't scroll, switching still works"**: a FAILED history capture (a
+   connectivity blip) stranded `histLoading=true` forever, and every scroll early-returns on
+   that flag. The failure path now clears it and falls back to LIVE with the notice; a
+   regression test pins it. Related: a (re)subscriber now always gets its first frame within a
+   tick — the push-on-change cache is cleared per subscribe, so a re-activated window can't sit
+   on "capturing…" until the pane happens to change.

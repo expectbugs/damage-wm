@@ -36,8 +36,11 @@ interface TextRasterizer {
 
 data class FontMetrics(val ascent: Int, val descent: Int, val lineHeight: Int)
 
-/** A face role + pixel size + weight. Roles map to concrete files per platform. */
-data class FontSpec(val face: Face, val sizePx: Int, val bold: Boolean = false, val italic: Boolean = false)
+/** A face role + pixel size + weight. Roles map to concrete files per platform.
+ *  [raw] = exempt from every [StyleTransform] — the Settings previews that
+ *  must show a CANDIDATE font exactly as chosen (Style.kt, 2026-08-31). */
+data class FontSpec(val face: Face, val sizePx: Int, val bold: Boolean = false, val italic: Boolean = false,
+    val raw: Boolean = false)
 
 /**
  * The locked typeface assignments — DESIGN.md §Type, decided 2026-08-18 from

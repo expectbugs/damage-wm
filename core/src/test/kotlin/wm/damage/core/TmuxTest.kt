@@ -337,13 +337,17 @@ private class FakeProvider : TmuxProvider {
     val subscribed = java.util.concurrent.CopyOnWriteArrayList<TmuxTarget?>()
     val sent = java.util.concurrent.CopyOnWriteArrayList<String>()
     var histAnswer = (1..40).map { "history line $it" }
+    @Volatile var histFails = false
 
     override fun addListener(l: TmuxProvider.Listener) { listeners.add(l) }
     override fun removeListener(l: TmuxProvider.Listener) { listeners.remove(l) }
     override fun subscribe(l: TmuxProvider.Listener, target: TmuxTarget?) { subscribed.add(target) }
     override fun sendKeys(target: TmuxTarget, keys: List<String>) { sent.add("keys:${target.label}:${keys.joinToString("+")}") }
     override fun sendLiteral(target: TmuxTarget, text: String) { sent.add("lit:${target.label}:$text") }
-    override fun history(target: TmuxTarget, lines: Int): List<String> = histAnswer
+    override fun history(target: TmuxTarget, lines: Int): List<String> {
+        if (histFails) throw IllegalStateException("PC unreachable 12s")
+        return histAnswer
+    }
     override fun windows(target: TmuxTarget): List<TmuxWinInfo> =
         listOf(TmuxWinInfo(0, "zsh", true, false), TmuxWinInfo(1, "claude", false, true))
     override fun newSession(host: String): String { sent.add("new:$host"); return "g2-1" }
@@ -492,6 +496,24 @@ class TmuxWindowTest {
         (w.view() as WindowView.ListView).onCommit(0)
         await { p.sent.any { it.startsWith("kill:claude") } }
         assertEquals("sessions", w.title(), "back at sessions after the kill")
+    }
+
+    @Test
+    fun aFailedHistoryCaptureNeverStrandsTheWindow() {
+        // the 2026-08-31 freeze: histLoading stayed true after a failed
+        // capture, and every later scroll early-returned on it — the window
+        // looked dead until a restart
+        val (w, p, _) = build()
+        p.pushStatus(session("claude"))
+        (w.view() as WindowView.ListView).onCommit(0)
+        p.pushFrame(TmuxTarget("local", "claude"), frame())
+        p.histFails = true
+        (w.view() as WindowView.CanvasView).onScroll!!(-1)
+        await { w.title().startsWith("claude") && w.title().contains("failed") }
+        // and the window is NOT stranded: the next scroll-up works
+        p.histFails = false
+        (w.view() as WindowView.CanvasView).onScroll!!(-1)
+        await { w.title().contains("history") }
     }
 
     @Test

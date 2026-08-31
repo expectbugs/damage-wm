@@ -32,6 +32,7 @@ Recorded so they are not re-proposed. These are *decisions*, not oversights.
 |---|---|
 | ❌ **The piezo buzzer, entirely** | Adam, 2026-08-17: *"no tone/buzzer. i do not want my glasses to emit sound."* Mode 5 is never sent. Out-of-band alerting goes to the phone instead (§9.3) |
 | ⚠ ~~❌ **Scroll acceleration / velocity**~~ **RE-OPENED 2026-08-30 · ✅ SHIPPED 2026-08-31** | The original reasoning: scroll and tap are hard to distinguish on the ring's small sensor, especially gloved, so every notch is one step, always. **Adam reversed this after using Reader on glass** — one line per notch inside a book is far too little, and he asked for accelerated scrolling "like firmware scroll", with a lines-per-notch setting as the fallback. Two things also changed underneath the original call: ack latency measured at ~50 ms rather than 176 ms, which makes motion much cheaper, and first light showed tap and scroll arriving as cleanly distinguished event types rather than as one ambiguous stream. **Shipped 2026-08-31: a per-notch step setting (1–8 lines) plus a direction-gated ramp — notches ≤250 ms apart multiply the step up to 6×. Verdict the same day, on glass: the ramp is too uneven — "lets just default the scrolling to 5 lines per notch - configurable." So the DEFAULT is 5 lines/notch with acceleration OFF; both configurable in the Settings window's Reader category. Lists stay strictly one item per notch: acceleration over selections would overshoot them.** |
+| ⚠ ~~❌ **User-settable chrome/app typography**~~ **REVERSED 2026-08-31 · ✅ SHIPPED** | §Type locked "the system face is not negotiable per window" and one fixed chrome face. **Adam reversed it**: Settings → Global now sets font/size/style for chrome + Main, and every app category sets font/size/style for that app's content — each option previewed in its own face. The §Type MEASUREMENTS still stand (they price the choices); only the lock moved from "decided once" to "his to change at runtime". `core/text/Style.kt`; defaults render byte-identically |
 | ❌ **Wear / unwear differentiation** | not wanted for now. `wearnotify` stays banked, unused |
 | ❌ **Head tracking on by default** | available, **defaults OFF** — his head moves constantly at work (§7.1) |
 | ❌ **Long-press as a live gesture by default** | reversed 2026-08-30: it is the most common accidental press by far, all day, gloves worst — **defaults OFF (a no-op)**; the §1.3 chord opens the switcher; a Settings row restores the direct open |
@@ -374,6 +375,11 @@ for him specifically, not just in principle.
 ## 3. Depth
 
 ### 3.1 Layer order
+
+> ⚠ **Amended 2026-08-31 (Adam):** the bars and Main keep the GLOBAL depth setting, but the
+> focused APP's content plane uses a per-app depth (Settings → <app> → Depth, default 8 on the
+> 0/4/8/12/16 ladder) — app content pops forward of, or parks behind, the chrome. The ladder,
+> the horizontal-only rule and the forward-for-focus language below are unchanged.
 
 🔴 **Adam, 2026-08-17, correcting an inference we had recorded as his preference:**
 
@@ -1957,8 +1963,10 @@ surface, and `mixed-fonts.png` shows four windows each in a face chosen for its 
 for "designed for a cockpit display", and it is worth revisiting for any surface that becomes
 digit-heavy.)*
 
-⚠ **The system face is not negotiable per window.** §4.1: the bars are the constant frame. Only
-**content** varies, and only from the sturdy-at-1× list.
+⚠ ~~**The system face is not negotiable per window.**~~ **REVERSED 2026-08-31 by Adam** (see
+§0): chrome + Main follow Settings → Global (font/size/style), and each app can override its
+content's font/size/style — all choices drawn from the four LOADED faces below, previewed in
+their own face. The table above remains the DEFAULT assignment and the measured price list.
 
 **Cost across surfaces** (x-height normalised): Clear Sans is consistently the cheapest — on the
 mail list it is **8,555 B against Fira's 9,491 B, ~10 % less** — while Nunito is consistently the

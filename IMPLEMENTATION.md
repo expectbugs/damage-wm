@@ -1,12 +1,13 @@
 # Damage — implementation notes
 
 **First stage built 2026-08-24; finishing build 2026-08-25 (`HANDOFF.md` §8); LIVE ON HARDWARE
-since first light 2026-08-30 (§11); the refinement wave landed 2026-08-31 (§12).** The shell
-core, the byte-exact glass simulator, the desktop program, and the phone APK — Reader, Main and
+since first light 2026-08-30 (§11); the refinement wave landed 2026-08-31 (§12); the DAILY
+DRIVER went live 2026-08-31 (§13.3b–§17, `DAILY.md`): the phone APK passed its own first light
+and owns the radio all day, the PC shell drives THROUGH it over the seam from the OpenRC
+`damage` service, and handovers adopt the live session (zero teardowns).** The shell core, the
+byte-exact glass simulator, the desktop program, and the phone APK — Reader, Tmux, Main and
 Settings at the app layer, the full shell underneath, everything on the **CFW display contract**
-(modes 3/6/8/9 + the 11–15 texture-cache wire layer, the FB lease, the capability gate). The
-desktop drives the real pair PC-direct over BlueZ daily; the phone APK's own BLE glue is written
-and banked but has not yet run on hardware.
+(modes 3/6/8/9 + the 11–15 texture-cache wire layer, the FB lease, the capability gate).
 
 ## The two locked decisions
 
@@ -75,8 +76,9 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
 desktop/    AWT rasterizer · Swing lens preview (integer-scaled, default 4x;
             keyboard + mouse = ring) · CLI
 phone/      Android app: foreground ShellService, on-screen lens view (touch =
-            ring), AndroidText (bundled OFL/Apache fonts), banked BleTransport,
-            transport seam server, §9.3 urgent phone notifications
+            ring), AndroidText (bundled OFL/Apache fonts), BleTransport (LIVE
+            on hardware since 2026-08-31), transport seam server, wakelock +
+            Doze exemption + BootReceiver, §9.3 urgent phone notifications
 ```
 
 ## The finishing build (2026-08-25)
@@ -346,6 +348,25 @@ glass" action is the escape hatch), context-rows verdict, quick-key order, alert
 against real Claude sessions, ssh-host latency feel. The pixel path is the architecture;
 texture-cache glyphs stay a later optimization behind first-light items 19–20.
 
+## User typography + per-app depth (2026-08-31 evening, Adam's ask — a §Type reversal)
+
+Settings grew user-directed type (`core/text/Style.kt`): **Global → Font / Font size / Font
+style** restyle CHROME AND MAIN (a recorded reversal of §Type's "the system face is not
+negotiable" — his call), and **every app category gets Font / Font size / Font style / Depth**
+rows. Each candidate option previews IN ITS OWN font while cycling (`HostSetting.optionFont`
+returning `raw=true` specs the transforms cannot restyle). One mechanism carries all of it: a
+`StyleTransform` rewrites every `FontSpec` at the rasterizer seam — the shell's chrome surfaces
+draw through a `StyledText` wrapper with the global transform (SYSTEM-face swap + scale +
+style force), and every window routes its measuring/drawing through its own per-app transform
+(`DamageWindow.styleTransform` → the `styledText()` chokepoint; Reader and Tmux — including
+`TermRender` — go through it), so wrap and render agree by construction. Content scaling MOVED
+here from the platform adapters (their `contentScaleProvider` is retired to 1.0 — double-scaling
+was the hazard). **Depth**: the focused app's content plane uses its own depth (default 8, the
+0/4/8/12/16 ladder) while the bars and Main stay on the global setting — app content pops
+forward of (or parks behind) the chrome. At every default the whole feature is render-neutral
+(snapshot-verified byte-identical below the clock). `StyleTest` ×5 pins the transform edges,
+clamps and the raw bypass.
+
 ## The texture cache (2026-08-30, CFW `a5d1c31`)
 
 The firmware grew a **64 KiB lease-scoped texture cache** and three draw modes. The wire and
@@ -445,8 +466,8 @@ of them are load-bearing and easy to break by accident:
 
 ## Verification
 
-- `./gradlew :core:test` — 140 unit/integration tests (the Tmux build added `TmuxTest` — 16
-  across SGR/renderer/provider/wire/window — and `SeamLivenessTest` ×3; the refinement wave added
+- `./gradlew :core:test` — 150 unit/integration tests (2026-08-31 added `TmuxTest` ×16,
+  `SeamLivenessTest` ×3, `HandoverTest` ×4, `StyleTest` ×5 and the tmux freeze/bleed regressions; the refinement wave added
   `BatteryBrightnessTest`, `EpubChaptersImagesTest`, and the wire-true source-0 injections in
   `LongPressTest`; the finishing build added
   `MirrorTeeTest`, `PreludeTest`, `DivergenceTest`, `ShellKeeperTest`,

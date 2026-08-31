@@ -23,21 +23,16 @@ crib for it.
 - Phone app down at the desk → the PC falls to **PC-direct BLE**.
 - Reboot either machine → both sides restart themselves and re-arbitrate.
 
-## One-time setup, in this order (the one-central rule matters)
+## One-time setup — ✅ COMPLETED 2026-08-31 (kept for a re-pair or a fresh phone)
 
-1. **Sideload v0.4** from the setup page; grant Bluetooth ×2, notifications, and the battery
-   exemption when asked.
-2. 🔴 **Disconnect the G2CC bridge app** (its harness → Disconnect) and leave it disconnected —
-   it auto-starts on boot and would fight Damage for the pair as a second central. Its
-   persisted mode keeps it down across reboots; the G2CC *server* keeps running untouched.
-3. **Phone first light** (`HANDOFF.md` §13.2 — this is still the pending mission step): make
-   sure NOTHING on beardos holds the pair — `sudo rc-service damage stop` and no
-   `:desktop:run` — then flip **Target → glasses** on the phone strip and watch it walk
-   scanning → … → driving. Wear it a bit on the phone shell alone.
-4. **Start the PC side:** `sudo rc-service damage start`. Within seconds the phone's status
-   line should say **"PC shell driving"** — the takeover over the seam. That is the all-day
-   state.
-5. From then on: nothing. Both ends recover themselves.
+Done that day: v0.4 sideloaded + all grants, phone first light passed on the first try, the
+service started and claimed over the seam. If it ever needs redoing: (1) sideload from the
+setup page, grant Bluetooth ×2 + notifications + the battery exemption; (2) 🔴 keep the G2CC
+bridge app Disconnected (a second central); (3) phone first light with NOTHING on beardos
+holding the pair (`sudo rc-service damage stop`), flip Target → glasses; (4) `sudo rc-service
+damage start` → "PC shell driving". ⚠ Keep the PHONE APK current with the PC (setup page —
+0.7 now): mixed versions still work but old phones tear the session on handover instead of
+adopting it.
 
 ## Ops crib
 

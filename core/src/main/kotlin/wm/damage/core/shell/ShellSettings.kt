@@ -30,8 +30,25 @@ data class ShellSettings(
      *  1 = dim names stay. */
     val presence: Int = 1,
 
-    /** Content scale: 1.0 or the measured ~20 % saver 0.85 (§Type). */
+    /** Global text scale on the [SCALES] ladder — since 2026-08-31 it scales
+     *  CHROME AND MAIN too, not just content (Adam's ask; per-app scale
+     *  overrides it for that app's content). */
     val fontScale: Double = 1.0,
+
+    /** The global face for chrome + Main, by Faces label (2026-08-31 — a
+     *  recorded REVERSAL of §Type's "the system face is not negotiable":
+     *  Adam asked for it, previewed in each candidate's own face). */
+    val fontFace: String = "Clear Sans",
+
+    /** Global style force for chrome + Main: "default" keeps the design's own
+     *  weights (HEAD accents stay bold); regular/bold/italic FORCE that style
+     *  everywhere chrome draws. */
+    val fontStyle: String = "default",
+
+    /** Per-app typography + depth, keyed by window id (2026-08-31): face,
+     *  scale and style default to the app's own design; depth defaults to 8
+     *  so app content pops FORWARD of the global-depth chrome. */
+    val appStyles: Map<String, AppStyle> = emptyMap(),
 
     /** Head tracking — default OFF (§7.1: "that would get old FAST"). */
     val headTracking: Boolean = false,
@@ -62,6 +79,28 @@ data class ShellSettings(
     enum class BatteryAlert { OFF, ON, ESCALATING }
     enum class LongPress { OFF, SWITCHER }
 
+    /** One app's typography + depth overrides ("default" = the app's own
+     *  design; scale 0.0 = follow the global scale). */
+    @Serializable
+    data class AppStyle(
+        val face: String = "default",
+        val scale: Double = 0.0,
+        val style: String = "default",
+        val depth: Int = 8,
+    ) {
+        fun clamped(): AppStyle = copy(
+            face = if (face == "default" || wm.damage.core.text.Faces.byLabel(face) != null) face else "default",
+            scale = if (scale == 0.0) 0.0 else SCALES.minByOrNull { kotlin.math.abs(it - scale) } ?: 0.0,
+            style = if (style in STYLES) style else "default",
+            depth = ((depth / 4).coerceIn(0, 4)) * 4,
+        )
+    }
+
+    fun appStyle(id: String): AppStyle = appStyles[id] ?: AppStyle()
+
+    fun withAppStyle(id: String, f: (AppStyle) -> AppStyle): ShellSettings =
+        copy(appStyles = appStyles + (id to f(appStyle(id)).clamped()))
+
     fun toJson(): JsonObject = Json.encodeToJsonElement(serializer(), this).jsonObject
 
     /** Persisted files can rot or be hand-edited: every ranged field clamps
@@ -71,13 +110,23 @@ data class ShellSettings(
         heightMode = HEIGHTS.minByOrNull { kotlin.math.abs(it - heightMode) } ?: 480,
         depth = ((depth / 4).coerceIn(0, 4)) * 4,
         presence = presence.coerceIn(0, 1),
-        fontScale = if (fontScale < 0.925) 0.85 else 1.0,
+        fontScale = SCALES.minByOrNull { kotlin.math.abs(it - fontScale) } ?: 1.0,
+        fontFace = if (wm.damage.core.text.Faces.byLabel(fontFace) != null) fontFace else "Clear Sans",
+        fontStyle = if (fontStyle in STYLES) fontStyle else "default",
+        appStyles = appStyles.mapValues { it.value.clamped() },
     )
 
     companion object {
         /** The four sizes (2026-08-31): 288 smallest → 480 largest, 64 px
          *  steps, all on the ×2 grid, all tall enough for the chrome. */
         val HEIGHTS = listOf(288, 352, 416, 480)
+
+        /** The text-scale ladder (2026-08-31; 0.85 is the measured §Type
+         *  ~20 % byte saver, the upper steps are legibility). */
+        val SCALES = listOf(0.85, 1.0, 1.15, 1.3)
+
+        /** Style forces; "default" (per-app only) keeps the app's own flags. */
+        val STYLES = listOf("default", "regular", "bold", "italic")
         fun fromJson(o: JsonObject?): ShellSettings =
             if (o == null) ShellSettings()
             else try {

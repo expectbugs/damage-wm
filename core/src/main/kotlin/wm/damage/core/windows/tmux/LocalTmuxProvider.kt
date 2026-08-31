@@ -90,7 +90,14 @@ class LocalTmuxProvider(
     }
 
     override fun subscribe(l: TmuxProvider.Listener, target: TmuxTarget?) {
-        if (target == null) subs.remove(l) else subs[l] = target
+        if (target == null) subs.remove(l) else {
+            subs[l] = target
+            // force the next capture to PUSH even when the pane is unchanged:
+            // a (re)subscriber (window re-activated, seam client reattached)
+            // has no frame yet, and push-on-change alone would leave it on
+            // "capturing…" until the pane happened to change (2026-08-31)
+            lastRaw.remove(target)
+        }
     }
 
     // ------------------------------------------------------------ one-shots
@@ -251,9 +258,11 @@ class LocalTmuxProvider(
         return bad.joinToString(" · ")
     }
 
+    /** Last pushed capture per target — an unchanged pane pushes nothing;
+     *  subscribe() clears an entry to force the joiner its first frame. */
+    private val lastRaw = ConcurrentHashMap<TmuxTarget, String>()
+
     private suspend fun captureLoop() {
-        // last pushed capture per target, so an unchanged pane pushes nothing
-        val lastRaw = HashMap<TmuxTarget, String>()
         while (scope.isActive && running) {
             val wanted = subs.entries.groupBy({ it.value }, { it.key })
             lastRaw.keys.retainAll(wanted.keys)

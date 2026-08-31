@@ -29,6 +29,18 @@ abstract class DamageWindow(val id: String, val name: String, val icon: IconKind
     /** Wants attention: the top divider's ticks + switcher dirty tick (§4.1). */
     var dirty: Boolean = false
 
+    /** The per-app typography override (Style.kt, 2026-08-31), SET BY THE
+     *  SHELL from Settings → <app> → Font/Font size/Font style. Windows route
+     *  EVERY FontSpec they measure or draw with through this — their local
+     *  draw helpers are the natural chokepoint — so wrap and render always
+     *  agree. Defaults to the identity (the app's own design). */
+    var styleTransform: (wm.damage.core.text.FontSpec) -> wm.damage.core.text.FontSpec = { it }
+
+    /** A rasterizer view through THIS window's live [styleTransform] — the
+     *  one chokepoint a window routes its measuring and drawing through. */
+    protected fun styledText(base: wm.damage.core.text.TextRasterizer): wm.damage.core.text.TextRasterizer =
+        wm.damage.core.text.StyledText(base) { styleTransform(it) }
+
     /** What this window needs to be fully functional (§10.5). The shell marks
      *  it unavailable/stale in Main when a need is unmet, and says so. */
     open val needs: Set<Need> = emptySet()

@@ -64,7 +64,9 @@ class TmuxWindow(
     private val actModel = ListModel()
     private val confirmModel = ListModel()
 
-    private val renderer = TermRender(text)
+    /** Every measure/draw goes through the per-app style (Style.kt). */
+    private val tx = styledText(text)
+    private val renderer = TermRender(tx)
     private var services: ShellServices? = null
 
     // ---- provider-pushed state (mutated on the shell loop only) ----
@@ -321,12 +323,24 @@ class TmuxWindow(
         level = Level_.HISTORY
         services?.requestRender(this)
         busy("capturing scrollback") {
-            val raw = provider.history(t, HISTORY_LINES)
-            onShell {
-                histLoading = false
-                if (level != Level_.HISTORY) return@onShell   // left while capturing: stay left
-                histRaw = raw
-                services?.requestRender(this)
+            try {
+                val raw = provider.history(t, HISTORY_LINES)
+                onShell {
+                    histLoading = false
+                    if (level != Level_.HISTORY) return@onShell   // left while capturing: stay left
+                    histRaw = raw
+                    services?.requestRender(this)
+                }
+            } catch (e: Exception) {
+                // a failed capture must NOT strand histLoading=true — that froze
+                // the whole window (every scroll early-returns on the flag) until
+                // a restart, exactly what Adam hit after a connectivity blip
+                // (2026-08-31). Fall back to LIVE; busy() shows the notice.
+                onShell {
+                    histLoading = false
+                    if (level == Level_.HISTORY) level = Level_.LIVE
+                }
+                throw e
             }
         }
     }
@@ -686,7 +700,7 @@ class TmuxWindow(
         for (ch in s) {
             append(when {
                 ch.code in 0x20..0x7E -> ch
-                text.covers(ch.toString(), fRead) -> ch
+                tx.covers(ch.toString(), fRead) -> ch
                 else -> '·'
             })
         }
@@ -694,16 +708,16 @@ class TmuxWindow(
 
     private fun drawFit(g: Gray8, x: Int, y: Int, s: String, lv: Int, f: FontSpec, maxW: Int) {
         var str = s
-        if (text.measure(str, f) > maxW) {
+        if (tx.measure(str, f) > maxW) {
             var n = str.length
-            while (n > 0 && text.measure(str.take(n), f) > maxW) n--
+            while (n > 0 && tx.measure(str.take(n), f) > maxW) n--
             str = str.take(n)
         }
-        text.draw(g, x / 4 * 4, y / 2 * 2, str, f, lv)
+        tx.draw(g, x / 4 * 4, y / 2 * 2, str, f, lv)
     }
 
     private fun drawRight(g: Gray8, xRight: Int, y: Int, s: String, lv: Int, f: FontSpec) {
-        text.draw(g, (xRight - text.measure(s, f)) / 4 * 4, y / 2 * 2, s, f, lv)
+        tx.draw(g, (xRight - tx.measure(s, f)) / 4 * 4, y / 2 * 2, s, f, lv)
     }
 
     private fun paintPlainRow(g: Gray8, label: String, @Suppress("UNUSED_PARAMETER") i: Int, r: Rect, dim: Boolean) {

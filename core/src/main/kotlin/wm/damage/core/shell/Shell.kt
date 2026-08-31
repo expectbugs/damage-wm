@@ -69,15 +69,29 @@ class Shell(
         private set
     val comp = Compositor()
     private val kit = ContentKit(comp)
-    private val chrome = Chrome(text)
+
+    /** Chrome + Main + the shell overlays draw through the GLOBAL style
+     *  (Style.kt, 2026-08-31 — Adam's reversal of the fixed-system-face
+     *  rule): face swap for SYSTEM specs, the global scale, the global style
+     *  force. Windows carry their own per-app transform instead. */
+    private val chromeText = wm.damage.core.text.StyledText(text) { spec ->
+        wm.damage.core.text.StyleTransform(
+            face = wm.damage.core.text.Faces.byLabel(settings.fontFace),
+            systemOnly = true,
+            scale = settings.fontScale,
+            bold = when (settings.fontStyle) { "bold" -> true; "regular", "italic" -> false; else -> null },
+            italic = when (settings.fontStyle) { "italic" -> true; "regular", "bold" -> false; else -> null },
+        ).apply(spec)
+    }
+    private val chrome = Chrome(chromeText)
     private val journal = Journal(journalPath)
-    val notifications = Notifications(text)
-    private val switcher = Switcher(text)
+    val notifications = Notifications(chromeText)
+    private val switcher = Switcher(chromeText)
 
     private val windows = ArrayList<DamageWindow>()
     private val recency = ArrayList<DamageWindow>()          // most recent first
     private lateinit var settingsWindow: SettingsWindow
-    private val main = MainSurface(text, { mainRows() }, { commitWindow(it) }, { settings.presence })
+    private val main = MainSurface(chromeText, { mainRows() }, { commitWindow(it) }, { settings.presence })
 
     private enum class Mode { MAIN, WINDOW, SILENT }
     private var mode = Mode.MAIN
@@ -200,10 +214,18 @@ class Shell(
         // refused transport must not add a second Settings row or a second
         // event collector (round 4, shell #2)
         if (!::settingsWindow.isInitialized) {
-            settingsWindow = SettingsWindow(text, { settings }, { applySettings(it) }, { hostSettings },
-                // per-app categories (2026-08-31): every registered window
-                // that contributes rows gets one, in registration order
-                { windows.mapNotNull { w -> w.appSettings().takeIf { it.isNotEmpty() }?.let { w.name to it } } })
+            settingsWindow = SettingsWindow(chromeText, { settings }, { applySettings(it) },
+                // the shell's own global font rows lead the host's rows
+                { globalFontRows + hostSettings },
+                // per-app categories (2026-08-31): every registered window gets
+                // one — its own rows plus the shell's font/size/style/depth
+                // rows (Settings itself renders the global style, so it
+                // contributes only its own rows — none)
+                { windows.mapNotNull { w ->
+                    val rows = w.appSettings() +
+                        (if (w === settingsWindow) emptyList() else styleRowsFor(w.id))
+                    rows.takeIf { it.isNotEmpty() }?.let { w.name to it }
+                } })
             register(settingsWindow)
         }
         for (w in windows) w.onRegistered(services)
@@ -213,6 +235,7 @@ class Shell(
         stateLoaded = true
         settings = ShellSettings.fromJson(persistence.get("shell.settings"))
         layout = layoutFor(settings)
+        refreshStyles()   // every window draws through its per-app transform (Style.kt)
         for (w in windows) persistence.get("window.${w.id}")?.let {
             try { w.restoreState(it) } catch (e: Exception) {
                 Log.e("shell", "restore of ${w.id} failed — window starts fresh", e)
@@ -1208,21 +1231,123 @@ class Shell(
         return true
     }
 
+    // ---------------------------------------------------- typography (Style.kt)
+    /** The per-app transform windows draw through — face/scale/style from
+     *  Settings → <app>, over the global scale. */
+    private fun appTransform(id: String): wm.damage.core.text.StyleTransform {
+        val a = settings.appStyle(id)
+        return wm.damage.core.text.StyleTransform(
+            face = if (a.face == "default") null else wm.damage.core.text.Faces.byLabel(a.face),
+            systemOnly = false,
+            scale = if (a.scale == 0.0) settings.fontScale else a.scale,
+            bold = when (a.style) { "bold" -> true; "regular", "italic" -> false; else -> null },
+            italic = when (a.style) { "italic" -> true; "regular", "bold" -> false; else -> null },
+        )
+    }
+
+    private fun refreshStyles() {
+        for (w in windows) w.styleTransform = { spec -> appTransform(w.id).apply(spec) }
+    }
+
+    private fun effScale(id: String): Double =
+        settings.appStyle(id).scale.takeIf { it != 0.0 } ?: settings.fontScale
+
+    /** Content depth for the FOCUSED app (default 8 — in front of the
+     *  global-depth chrome); Main and the bars stay on the global setting
+     *  (Adam, 2026-08-31). */
+    private fun appDepth(w: DamageWindow): Int = settings.appStyle(w.id).depth
+
+    private val fontSizeLabels = ShellSettings.SCALES.associateBy { "${(it * 100).toInt()}%" }
+
+    /** The Global category's font rows (staged like Size — a face change is a
+     *  full relayout, not a per-notch step), each option previewed in ITS OWN
+     *  font (raw specs — the transforms must not restyle a candidate). */
+    private val globalFontRows: List<HostSetting> by lazy {
+        listOf(
+            HostSetting("Font", { wm.damage.core.text.Faces.LABELS },
+                { settings.fontFace },
+                { v -> applySettings(settings.copy(fontFace = v)) },
+                optionFont = { opt -> wm.damage.core.text.Faces.byLabel(opt)
+                    ?.let { wm.damage.core.text.FontSpec(it, 18, raw = true) } }),
+            HostSetting("Font size", { fontSizeLabels.keys.toList() },
+                { "${(settings.fontScale * 100).toInt()}%" },
+                { v -> fontSizeLabels[v]?.let { applySettings(settings.copy(fontScale = it)) } },
+                optionFont = { opt -> fontSizeLabels[opt]?.let {
+                    wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM,
+                        maxOf(6, Math.round(18 * it).toInt()), raw = true) } }),
+            HostSetting("Font style", { ShellSettings.STYLES },
+                { settings.fontStyle },
+                { v -> applySettings(settings.copy(fontStyle = v)) },
+                optionFont = { opt -> wm.damage.core.text.FontSpec(
+                    wm.damage.core.text.Face.SYSTEM, 18,
+                    bold = opt == "bold", italic = opt == "italic", raw = true) }),
+        )
+    }
+
+    /** Settings → <app>: font/size/style + depth rows, one STABLE set per
+     *  window id (the Settings window matches staged rows by identity). */
+    private val appStyleRows = HashMap<String, List<HostSetting>>()
+    private fun styleRowsFor(id: String): List<HostSetting> = appStyleRows.getOrPut(id) {
+        listOf(
+            HostSetting("Font", { listOf("default") + wm.damage.core.text.Faces.LABELS },
+                { settings.appStyle(id).face },
+                { v -> applySettings(settings.withAppStyle(id) { it.copy(face = v) }) },
+                optionFont = { opt -> wm.damage.core.text.Faces.byLabel(opt)
+                    ?.let { wm.damage.core.text.FontSpec(it, 18, raw = true) } }),
+            HostSetting("Font size", { listOf("default") + fontSizeLabels.keys },
+                { settings.appStyle(id).scale.takeIf { it != 0.0 }?.let { "${(it * 100).toInt()}%" } ?: "default" },
+                { v -> applySettings(settings.withAppStyle(id) {
+                    it.copy(scale = fontSizeLabels[v] ?: 0.0) }) },
+                optionFont = { opt -> fontSizeLabels[opt]?.let {
+                    wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM,
+                        maxOf(6, Math.round(18 * it).toInt()), raw = true) } }),
+            HostSetting("Font style", { ShellSettings.STYLES },
+                { settings.appStyle(id).style },
+                { v -> applySettings(settings.withAppStyle(id) { it.copy(style = v) }) },
+                optionFont = { opt -> wm.damage.core.text.FontSpec(
+                    wm.damage.core.text.Face.SYSTEM, 18,
+                    bold = opt == "bold", italic = opt == "italic", raw = true) }),
+            HostSetting("Depth", { listOf("0", "4", "8", "12", "16") },
+                { "${settings.appStyle(id).depth}" },
+                { v -> applySettings(settings.withAppStyle(id) {
+                    it.copy(depth = v.toIntOrNull() ?: 8) }) }),
+        )
+    }
+
     private fun applySettings(s: ShellSettings) {
         val relayout = s.heightMode != settings.heightMode
-        val rescale = s.fontScale != settings.fontScale
+        // any typography change — global face/scale/style or an app's —
+        // re-derives every wrap and repaints whole (the §Type reversal)
+        val restyle = s.fontScale != settings.fontScale || s.fontFace != settings.fontFace ||
+            s.fontStyle != settings.fontStyle ||
+            s.appStyles.any { (id, a) ->
+                val o = settings.appStyle(id)
+                a.face != o.face || a.scale != o.scale || a.style != o.style
+            }
+        val redepth = s.appStyles.any { (id, a) -> a.depth != settings.appStyle(id).depth }
         // §4.2's live preview, made real for Brightness (2026-08-31): every
         // step pushes the sid-0x09 write, so the panel changes as you scroll
         val rebright = s.brightness != settings.brightness || s.brightnessAuto != settings.brightnessAuto
         settings = s
         if (rebright) transport.setBrightness(s.brightnessAuto, s.brightness)
         persistence.put("shell.settings", s.toJson())
-        if (rescale) for (w in windows) w.onFontScaleChanged(s.fontScale)
+        if (restyle) {
+            refreshStyles()
+            for (w in windows) {
+                w.onFontScaleChanged(effScale(w.id))
+                w.onLayoutChanged()
+            }
+            comp.composed.clear(0)
+            composeFullSurface()
+            comp.requestKeyframe()
+            scheduleSave()
+            return
+        }
         // a global size change under a window that pins its own height changes
         // nothing visible — syncLayout says so and the cheap path runs instead
         if (!relayout || !syncLayout()) {
             updatePlanes()
-            composeContent()
+            if (redepth) composeFullSurface() else composeContent()
         }
         scheduleSave()
     }
@@ -1286,7 +1411,10 @@ class Shell(
             planes.add(Compositor.PlaneRegion(
                 Rect(layout.statusBar.x, layout.bottomDivider.y, layout.statusBar.w,
                     Layout.DIV_H + Layout.STATUS_H), cd))
-            planes.add(Compositor.PlaneRegion(layout.content, d))          // content parks far
+            // content: the FOCUSED app's own depth (default 8 — in front of
+            // the global-depth chrome, Adam 2026-08-31); Main = the global d
+            val contentD = (if (mode == Mode.WINDOW) current?.let { appDepth(it) } else null) ?: d
+            planes.add(Compositor.PlaneRegion(layout.content, contentD))
             // The wheel owns the depth story while it is open (§4.3, corrected
             // 2026-08-31): the window behind it is a PREVIEW, so its lens row
             // is not the focus — and this full-content-width plane-0 band runs

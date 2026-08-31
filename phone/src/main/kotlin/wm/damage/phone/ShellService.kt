@@ -201,7 +201,8 @@ class ShellService : Service() {
         mirror = t.mirror
 
         var shellRef: Shell? = null
-        val text = AndroidText(this) { shellRef?.settings?.fontScale ?: 1.0 }
+        // content scaling moved INTO the style transforms (Style.kt, 2026-08-31)
+        val text = AndroidText(this)
         val persistence = Persistence(dataDir.resolve("state.json"))
         val sh = Shell(text, t, persistence, dataDir.resolve("journal.jsonl"), scope)
         shellRef = sh

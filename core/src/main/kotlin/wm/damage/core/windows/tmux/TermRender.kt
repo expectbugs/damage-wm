@@ -101,6 +101,11 @@ class TermRender(private val text: TextRasterizer) {
         for (r in maxOf(0, firstRow) until frame.lines.size) {
             val isCtx = r < liveStart
             val row = parsed.rows.getOrNull(r) ?: continue
+            // HARD bottom guard: a glyph's AA can bleed a px or two past its
+            // line box, and pixels past rect.bottom land on the DIVIDER and
+            // linger (nothing owns them) — Adam saw exactly that as garbage
+            // on the status bar (2026-08-31). Better a dropped bottom row.
+            if (y + spec.cellH + 2 > rect.bottom) break
             drawRow(g, spec, row, y, dim = isCtx)
             y += spec.cellH
             if (isCtx && r == liveStart - 1) {
@@ -144,6 +149,7 @@ class TermRender(private val text: TextRasterizer) {
         val parsed = Sgr.parse(lines.subList(start, end), cols)
         var y = spec.y0
         for (row in parsed.rows) {
+            if (y + spec.cellH + 2 > rect.bottom) break   // the same divider-bleed guard
             drawRow(g, spec, row, y, dim = false)
             y += spec.cellH
         }
