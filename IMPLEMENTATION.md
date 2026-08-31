@@ -303,14 +303,19 @@ The first app-layer window past Reader, and the first CANVAS window. The glasses
 viewer/controller of the REAL tmux server via discrete commands (`=session:` exact targeting,
 no `-C` attach — the G2CC Phase-5 safety shape); `wm.damage.core.windows.tmux`:
 
-- **`Sgr`** parses `capture-pane -e` into styled cells: 16/256/truecolour by luminance onto the
-  16 grays (foregrounds floor at 3 — readable beats faithful), bold/dim/underline/reverse, wide
-  glyphs own two columns, unknown escapes counted never eaten. **`TermRender`** draws the grid
-  in JetBrains Mono FIT to the live layout rect (every height mode 288..480) on a FRACTIONAL
-  column pitch — 80 columns genuinely span the full width (revised after Adam's first on-glass
-  session: integer cells floored 7.6 px to 7 and read "narrow and centered") — with a static
-  inverted cursor, dimmed context rows in spare height (verdict 5: on), and a visible tofu box
-  for glyphs the face lacks.
+- **`Sgr`** parses `capture-pane -e` into styled cells AND styled runs: 16/256/truecolour by
+  luminance onto the 16 grays (foregrounds floor at 3 — readable beats faithful),
+  bold/dim/underline/reverse, unknown escapes counted never eaten. 🔴 **The GRID is RETIRED
+  (2026-08-31 evening, Adam: "it's just text ... kill the grid entirely"): `FlowRender` is the
+  view** — the provider captures NORMAL panes with `-J` (logical lines), flow wraps them at the
+  content width through the per-app font/size/style (all three now really apply — on the grid,
+  Font size compensated to zero by construction), rule lines collapse to drawn rules, a small
+  tail marker stands in for the cursor, the tail anchors terminal-style. **`TermRender` (the
+  grid, fractional pitch, inverted cursor, context rows) survives only as the alternate-screen
+  fallback** — `#{alternate_on}` panes capture row-exact and render through it. History is the
+  SAME flow over the frozen deep capture (5 display lines/notch, position rail, scroll-down at
+  the live edge returns to live). Capture pacing defaults to 1 s, Settings → Tmux → Update
+  (0.5/1/2/5 s) adjusts it live over the wire (`tpace`) and persists.
 - **`LocalTmuxProvider`** execs `sh -c` scripts — ONE per host per tick (status 2.5 s, capture
   500 ms pushed on change), so an ssh host (verdict 1: multi-host; slappy ships in the default
   config, port 80) costs one round trip per tick. Waiting-pattern EDGE alerts (verdict 3: on
@@ -345,10 +350,11 @@ no `-C` attach — the G2CC Phase-5 safety shape); `wm.damage.core.windows.tmux`
   drift: the fixed two-double-tap walk back to Main broke silently when the shelf grew folders
   — the walk now ascends deterministically and the waits are labeled.
 
-**Hardware-blocked (the on-glass items):** fit-80 legibility at 7.6 px cells (the "Fit pane to
-glass" action is the escape hatch), context-rows verdict, quick-key order, alert-pattern tuning
-against real Claude sessions, ssh-host latency feel. The pixel path is the architecture;
-texture-cache glyphs stay a later optimization behind first-light items 19–20.
+**Hardware-blocked (the on-glass items):** the flow view's default size/wrap feel (the grid
+retirement removed the fit-80/7.6 px question outright — Font size is a real knob now),
+quick-key order, alert-pattern tuning against real Claude sessions, ssh-host latency feel.
+The pixel path is the architecture; texture-cache glyphs stay a later optimization behind
+first-light items 19–20.
 
 ## User typography + per-app depth (2026-08-31 evening, Adam's ask — a §Type reversal)
 

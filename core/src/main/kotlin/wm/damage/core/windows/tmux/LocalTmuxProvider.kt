@@ -30,7 +30,10 @@ class LocalTmuxProvider(
     private val scope: CoroutineScope,
     private val exec: TmuxExec = ProcessExec(),
     private val statusPacingMs: Long = 2_500,
-    private val capturePacingMs: Long = 500,
+    /** Default 1 s since the flow rework (2026-08-31): the terminal is text,
+     *  it just needs to be current — pushes still happen only on change.
+     *  Settings → Tmux → Update adjusts it live via [setCapturePacing]. */
+    private val capturePacingMs: Long = 1_000,
     /** Context rows asked from every capture (`-S -n`); tmux clamps to what
      *  exists and an alternate-screen pane has none (TmuxModel.PaneFrame). */
     private val contextRows: Int = 12,
@@ -89,6 +92,17 @@ class LocalTmuxProvider(
         subs.remove(l)
     }
 
+    /** Live capture pacing; clamped so a bad setting can neither spin nor
+     *  stall the loop into uselessness. Readable for the wire test. */
+    @Volatile private var capturePace = capturePacingMs.coerceIn(250, 30_000)
+    val capturePacing: Long get() = capturePace
+
+    override fun setCapturePacing(ms: Long) {
+        val v = ms.coerceIn(250, 30_000)
+        if (v != capturePace) Log.i("tmux", "capture pacing -> $v ms")
+        capturePace = v
+    }
+
     override fun subscribe(l: TmuxProvider.Listener, target: TmuxTarget?) {
         if (target == null) subs.remove(l) else {
             subs[l] = target
@@ -112,7 +126,9 @@ class LocalTmuxProvider(
     }
 
     override fun history(target: TmuxTarget, lines: Int): List<String> =
-        run(target.host, "tmux capture-pane -p -e -S -${lines.coerceIn(1, 100_000)} -t ${shq(target.t)}")
+        // -J: logical lines for the flow view (scrollback is normal-screen
+        // content; the flow renderer wraps it at the display's own width)
+        run(target.host, "tmux capture-pane -p -e -J -S -${lines.coerceIn(1, 100_000)} -t ${shq(target.t)}")
             .split('\n').dropLastWhile { it.isEmpty() }
 
     override fun windows(target: TmuxTarget): List<TmuxWinInfo> =
@@ -282,15 +298,21 @@ class LocalTmuxProvider(
                 val frame = parseCapture(out) ?: continue
                 for (l in who) try { l.frame(target, frame) } catch (e: Exception) { Log.e("tmux", "frame listener", e) }
             }
-            delay(capturePacingMs)
+            delay(capturePace)
         }
     }
 
-    /** Pane geometry/cursor line first, then the escaped capture. */
+    /** Pane geometry/cursor line first, then the escaped capture. A NORMAL
+     *  pane captures with `-J` (joined logical lines — the flow renderer
+     *  wraps them its own way); an ALTERNATE-screen pane captures row-exact
+     *  for the grid fallback. The branch runs remotely inside the one script,
+     *  so an ssh host still costs a single round trip. */
     private fun captureScript(t: TmuxTarget): String =
         "tmux display-message -p -t ${shq(t.t)} " +
             "'#{pane_width}\t#{pane_height}\t#{cursor_x}\t#{cursor_y}\t#{cursor_flag}\t#{alternate_on}' && " +
-            "tmux capture-pane -p -e -S -$contextRows -t ${shq(t.t)}"
+            "if [ \"\$(tmux display-message -p -t ${shq(t.t)} '#{?alternate_on,1,0}')\" = 1 ]; then " +
+            "tmux capture-pane -p -e -S -$contextRows -t ${shq(t.t)}; else " +
+            "tmux capture-pane -p -e -J -S -$contextRows -t ${shq(t.t)}; fi"
 
     private fun parseCapture(out: String): PaneFrame? {
         val nl = out.indexOf('\n')

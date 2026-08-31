@@ -21,6 +21,7 @@ import wm.damage.core.shell.WindowView
 import wm.damage.core.text.FontMetrics
 import wm.damage.core.text.FontSpec
 import wm.damage.core.text.TextRasterizer
+import wm.damage.core.windows.tmux.FlowRender
 import wm.damage.core.windows.tmux.LocalTmuxProvider
 import wm.damage.core.windows.tmux.PaneFrame
 import wm.damage.core.windows.tmux.RemoteTmuxProvider
@@ -160,6 +161,114 @@ class TermRenderTest {
             if (g[x, y].toInt() != 0) topInk++
         }
         assertTrue(topInk > 0, "line 0 renders at pane row 0, not shifted by phantom blanks")
+    }
+}
+
+// ------------------------------------------------------------------ flow
+/** MonoFake plus a record of every draw — wrap/coverage assertions read it. */
+private class RecFake : TextRasterizer {
+    val drawn = java.util.concurrent.CopyOnWriteArrayList<Pair<String, FontSpec>>()
+    fun advance(f: FontSpec) = maxOf(1, f.sizePx * 6 / 10)
+    override fun measure(text: String, font: FontSpec): Int = text.length * advance(font)
+    override fun metrics(font: FontSpec) = FontMetrics(
+        font.sizePx, maxOf(1, font.sizePx * 3 / 10), maxOf(2, font.sizePx * 13 / 10))
+    override fun draw(surface: Gray8, x: Int, y: Int, text: String, font: FontSpec, level: Int) {
+        drawn.add(text to font)
+        val a = advance(font)
+        for ((i, ch) in text.withIndex()) {
+            if (ch != ' ') surface.fillRect(x + i * a, y + 1, maxOf(1, a - 1), maxOf(1, font.sizePx - 2), level)
+        }
+    }
+    override fun covers(text: String, font: FontSpec) = true
+}
+
+class FlowRenderTest {
+
+    private fun frame(lines: List<String>) =
+        PaneFrame(lines, 80, 22, cursorX = 0, cursorY = 0,
+            cursorVisible = false, alternate = false, capturedAtMs = 0)
+
+    @Test
+    fun parseRunsSplitsOnStyleAndCountsSkips() {
+        var skipped = 0
+        val runs = Sgr.parseRuns("${E}]0;title\u0007plain ${E}[1mbold${E}[0m tail") { skipped++ }
+        assertEquals(1, skipped, "the OSC was counted, not silently eaten")
+        assertEquals(listOf("plain ", "bold", " tail"), runs.map { it.text })
+        assertTrue(runs[1].flags and Sgr.BOLD != 0)
+        assertEquals(0, runs[0].flags)
+        assertEquals(Sgr.FG_DEFAULT, runs[2].fg, "reset restores the reading level")
+    }
+
+    @Test
+    fun wrapKeepsEveryCharacterAndPreservesIndentation() {
+        val rec = RecFake()
+        val fr = FlowRender(rec)
+        val long = "    indented " + "word ".repeat(40).trim()
+        fr.renderTail(Gray8(640, 480), Rect(16, 34, 320, 416), frame(listOf(long)))
+        val texts = rec.drawn.map { it.first }
+        assertTrue(texts.size > 1, "the long line wrapped into ${texts.size} pieces")
+        assertEquals(long.replace(" ", ""), texts.joinToString("").replace(" ", ""),
+            "NO TRUNCATION: every character survived the wrap")
+        assertTrue(texts.first().startsWith("    indented"),
+            "terminal indentation is preserved verbatim: '${texts.first()}'")
+    }
+
+    @Test
+    fun ruleLinesCollapseToDrawnRules() {
+        val rec = RecFake()
+        val fr = FlowRender(rec)
+        val g = Gray8(640, 480)
+        fr.renderTail(g, Rect(16, 34, 608, 416), frame(listOf("above", "─".repeat(40), "below")))
+        assertTrue(rec.drawn.none { "─" in it.first }, "no glyphs drawn for the rule line")
+        // the rule slot carries a DIM fill spanning the flow width
+        val dim = wm.damage.core.gfx.Level.DIM
+        var ruleRow = -1
+        for (y in 34 until 450) if (g[100, y].toInt() and 0xFF == dim && g[500, y].toInt() and 0xFF == dim) { ruleRow = y; break }
+        assertTrue(ruleRow > 0, "a drawn rule spans the width where the ─ line was")
+    }
+
+    @Test
+    fun fontSizeActuallyChangesTheFlowOutput() {
+        // THE regression that started the rework: on the grid, a Font-size
+        // change compensated to zero. In flow it must change the pixels.
+        val fake = MonoFake()
+        fun render(scale: Double): Gray8 {
+            val fr = FlowRender(wm.damage.core.text.StyledText(fake) {
+                wm.damage.core.text.StyleTransform(scale = scale).apply(it)
+            })
+            val g = Gray8(640, 480)
+            fr.renderTail(g, Rect(16, 34, 608, 416), frame(List(10) { "row $it text" }))
+            return g
+        }
+        val a = render(1.0)
+        val b = render(1.15)
+        assertTrue(a.pix.indices.any { a.pix[it] != b.pix[it] },
+            "Font size CHANGES the terminal text (the grid could not)")
+    }
+
+    @Test
+    fun tailShowsTheNewestLinesBottomMost() {
+        val rec = RecFake()
+        val fr = FlowRender(rec)
+        // far more lines than fit: the TAIL must be what renders
+        fr.renderTail(Gray8(640, 480), Rect(16, 34, 608, 416), frame(List(200) { "line $it" }))
+        val texts = rec.drawn.map { it.first }
+        assertTrue(texts.contains("line 199"), "the newest line is shown")
+        assertFalse(texts.contains("line 0"), "the oldest overflowed off the top")
+    }
+
+    @Test
+    fun historyOffsetsClampAndTheRailAppears() {
+        val rec = RecFake()
+        val fr = FlowRender(rec)
+        val g = Gray8(640, 480)
+        val lines = List(120) { "history $it" }
+        val hv = fr.renderHistory(g, Rect(16, 34, 608, 416), lines, offset = 10_000)
+        assertTrue(hv.offset == hv.maxOffset && hv.maxOffset > 0, "offset clamps to the oldest view")
+        assertTrue(rec.drawn.any { it.first.startsWith("history 0") }, "the oldest lines show at max offset")
+        var rail = 0
+        for (y in 34 until 450) if (g[16 + 608 - 6, y].toInt() != 0) rail++
+        assertTrue(rail > 0, "the position rail is drawn")
     }
 }
 
@@ -322,6 +431,11 @@ class TmuxNetTest {
             exec.failKill = true
             val err = runCatching { remote.killSession(TmuxTarget("local", "claude")) }.exceptionOrNull()
             assertTrue(err != null && "can't find session" in "${err.message}", "$err")
+            // capture pacing crosses the wire to the host's provider (tpace)
+            remote.setCapturePacing(2_000)
+            val t1 = System.currentTimeMillis()
+            while (local.capturePacing != 2_000L && System.currentTimeMillis() - t1 < 5_000) delay(10)
+            assertEquals(2_000L, local.capturePacing, "the Update setting reaches the host's poll loop")
         } finally {
             remote.close()
             host.close()
@@ -355,6 +469,7 @@ private class FakeProvider : TmuxProvider {
     override fun renameSession(target: TmuxTarget, newName: String) { sent.add("ren:${target.label}:$newName") }
     override fun selectWindow(target: TmuxTarget, idx: Int) { sent.add("sel:${target.label}:$idx") }
     override fun resizeWindow(target: TmuxTarget, cols: Int, rows: Int) { sent.add("fit:${target.label}:${cols}x$rows") }
+    override fun setCapturePacing(ms: Long) { sent.add("pace:$ms") }
     override fun close() {}
 
     fun pushStatus(vararg s: TmuxSessionInfo) {
@@ -496,6 +611,40 @@ class TmuxWindowTest {
         (w.view() as WindowView.ListView).onCommit(0)
         await { p.sent.any { it.startsWith("kill:claude") } }
         assertEquals("sessions", w.title(), "back at sessions after the kill")
+    }
+
+    @Test
+    fun alternateScreenFramesFallBackToTheGrid() {
+        // flow pads 16 px — column 0 never inks the pad; the GRID (the
+        // alternate-screen fallback) draws column 0 at the rect edge
+        val (w, p, _) = build()
+        p.pushStatus(session("claude"))
+        (w.view() as WindowView.ListView).onCommit(0)
+        fun inkInPad(alternate: Boolean): Int {
+            p.pushFrame(TmuxTarget("local", "claude"),
+                PaneFrame(List(22) { "Xrow $it" }, 80, 22, 0, 0, true, alternate, 0))
+            val g = Gray8(640, 480)
+            (w.view() as WindowView.CanvasView).paint(g, Rect(16, 34, 608, 416))
+            var ink = 0
+            for (y in 34 until 450) for (x in 16 until 30) if (g[x, y].toInt() != 0) ink++
+            return ink
+        }
+        assertEquals(0, inkInPad(alternate = false), "flow keeps its 16 px pad clear")
+        assertTrue(inkInPad(alternate = true) > 0, "an alternate-screen TUI renders through the grid")
+    }
+
+    @Test
+    fun updatePacingRowAppliesToTheProviderAndPersists() {
+        val (w, p, _) = build()
+        val row = w.appSettings().first { it.name == "Update" }
+        assertEquals("1 s", row.current(), "the flow rework's default cadence")
+        row.apply("2 s")
+        assertTrue(p.sent.contains("pace:2000"), "the choice reaches the provider")
+        val blob = w.saveState()
+        val (w2, p2, _) = build()
+        w2.restoreState(blob)
+        assertTrue(p2.sent.contains("pace:2000"), "restore re-asserts the chosen pacing on the host")
+        assertEquals("2 s", w2.appSettings().first { it.name == "Update" }.current())
     }
 
     @Test

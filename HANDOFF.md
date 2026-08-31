@@ -1415,3 +1415,45 @@ loads — six NoClassDefFoundError shutdowns in the log were that, not a code de
    regression test pins it. Related: a (re)subscriber now always gets its first frame within a
    tick — the push-on-change cache is cleared per subscribe, so a re-activated window can't sit
    on "capturing…" until the pane happens to change.
+
+## 18. The tmux grid is retired — the FLOW view (2026-08-31, night) + the review build
+
+Two moves after §17, in order:
+
+**The deep review + fix pass** (`67a1d41`): a full-codebase review found and fixed four
+verified defects — the TermRender cursor missing the §17.2 bottom-row guard (an orphan
+inverted cell whose glyph AA could still reach the divider), the Shell's minute/idle
+maintenance loops surviving keeper restarts and accumulating one live loop per reconnect
+forever, TermRender's glyph-coverage cache going stale across a per-app font swap, and the
+AA reassembler throwing on a malformed final fragment in the notify callback — plus five
+stale doc claims. APK bumped 8/0.8, both artifacts staged.
+
+**The grid retirement.** Adam tested the §17 typography against the tmux grid and called it:
+*"With a grid, font changes are subtle, because the spacing is kept identical … The whole
+unpleasant way it looks is entirely because of the grid. Lets kill the grid entirely."*
+Probes had already proven the mechanism (measured, fake AND real fonts): face/style reached
+the grid (~40–50 k px differ) but **Font size compensated to exactly zero** — `fitFor` picks
+the size whose TRANSFORMED metrics fit the fixed pitch, so any scale lands on the same
+physical glyphs. His decisions: kill the grid, keep it only as the alternate-screen fallback,
+stay JBM as the default face, capture at 1 s configurable.
+
+Built the same night (TMUX.md top block is the design record):
+
+- `FlowRender` + `Sgr.parseRuns`: normal panes captured with `-J` (logical lines), wrapped at
+  the content width through the per-app transform — font/size/style all real now — SGR as
+  styled runs, rule lines drawn as rules, a tail cursor marker, terminal tail anchoring, the
+  §17.2 bleed guard baked into the line count.
+- `TermRender` survives solely for `#{alternate_on}` panes (htop/vim), captured row-exact by
+  the same one-script branch; history is the SAME flow over the frozen capture (5 display
+  lines/notch, rail, edge-returns-to-live — grammar unchanged).
+- Pacing: provider default 1 s (was 500 ms), `setCapturePacing` on the provider seam, `tpace`
+  on the wire (additive; old hosts log-and-ignore), Settings → Tmux → Update (0.5/1/2/5 s),
+  persisted and re-asserted on restore and reconnect.
+- Retired: the fit-80/7.6 px on-glass item; "Fit pane to glass" stays but only matters for
+  alternate-screen TUIs. Cost stated plainly: column alignment survives only for lines that
+  fit unwrapped.
+
+Battery green: core **158** (6 new `FlowRenderTest` + pacing/fallback window tests + the
+wire-pacing round trip) · desktop 9 · selfcheck 48 · snapshots (09c/09d now show the flow;
+eyeballed) · epub-check · lint 0 · **APK 9/0.9 staged, jar staged**. §17.1 remains the resume
+protocol with this section prepended to the arc.

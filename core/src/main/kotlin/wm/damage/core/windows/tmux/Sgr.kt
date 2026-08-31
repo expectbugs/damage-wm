@@ -104,6 +104,44 @@ object Sgr {
         return Parsed(rows, skipped, combining)
     }
 
+    /** One styled span of a logical line — the FLOW model (2026-08-31, the
+     *  grid retirement): [fg]/[bg] are already-mapped 0..15 levels, [flags]
+     *  the BOLD/DIM/UNDERLINE/REVERSE set. Wide glyphs and combining marks
+     *  stay in [text] — flow has no columns, the rasterizer lays them out. */
+    class Run(val text: String, val fg: Int, val bg: Int, val flags: Int)
+
+    /** Parse one captured line into styled runs (same state machine as the
+     *  cell parser; unknown escapes are skipped and COUNTED via [onSkip]). */
+    fun parseRuns(line: String, onSkip: () -> Unit = {}): List<Run> {
+        val out = ArrayList<Run>(4)
+        val sb = StringBuilder()
+        val st = State()
+        var fg = st.fg
+        var bg = st.bg
+        var fl = st.flags
+        fun flush() {
+            if (sb.isNotEmpty()) {
+                out.add(Run(sb.toString(), fg, bg, fl))
+                sb.setLength(0)
+            }
+        }
+        var i = 0
+        while (i < line.length) {
+            if (line[i] == ESC) {
+                i = skipOrApplyEscape(line, i, st, onSkip)
+                if (st.fg != fg || st.bg != bg || st.flags != fl) {
+                    flush()
+                    fg = st.fg; bg = st.bg; fl = st.flags
+                }
+                continue
+            }
+            sb.append(line[i])
+            i++
+        }
+        flush()
+        return out
+    }
+
     /** Strip every escape from [line] — the history/reading path wants plain
      *  text through the ordinary wrap machinery. */
     fun strip(line: String): String {

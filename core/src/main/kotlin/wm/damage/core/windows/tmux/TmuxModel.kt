@@ -50,10 +50,14 @@ data class TmuxTarget(val host: String, val session: String, val window: Int = -
 }
 
 /** One captured pane state. [lines] keep their SGR escapes (`capture-pane -e`)
- *  — parsing happens where rendering happens. The capture asks for a few rows
- *  of history above the visible pane (`-S -ctx`); [rows] is the pane height,
- *  so `lines.size - rows` (>= 0) is how many context rows arrived — tmux
- *  clamps at what exists, and an alternate-screen pane simply has none. */
+ *  — parsing happens where rendering happens.
+ *
+ *  Since the flow rework (2026-08-31): for a NORMAL pane the capture joins
+ *  tmux's wrapped rows (`-J`), so [lines] are LOGICAL lines whose tail is the
+ *  pane's current bottom — the flow renderer wraps them its own way. For an
+ *  ALTERNATE-screen pane ([alternate]) the capture stays row-exact and the
+ *  grid fallback renders it; there `lines.size - rows` (>= 0) is the context
+ *  row count as before. Wire-compatible both ways — lines are just strings. */
 @Serializable
 data class PaneFrame(
     val lines: List<String>,
@@ -129,9 +133,15 @@ interface TmuxProvider : AutoCloseable {
     fun addListener(l: Listener)
     fun removeListener(l: Listener)
 
-    /** Watch [target]'s pane (500 ms pacing, pushed on change); null stops
+    /** Watch [target]'s pane (capture pacing, pushed on change); null stops
      *  this listener's watch. One target per listener. */
     fun subscribe(l: Listener, target: TmuxTarget?)
+
+    /** Capture pacing in ms (2026-08-31, the flow rework: 1 s default —
+     *  "we just need it to update often enough to be useful"). Settings →
+     *  Tmux → Update drives this; the remote provider forwards it to the
+     *  host. Default: providers that poll nothing ignore it. */
+    fun setCapturePacing(ms: Long) {}
 
     /** Send tmux KEY NAMES to the target's pane. Keys reach ONE explicitly
      *  chosen target only (the G2CC rule, kept verbatim). */

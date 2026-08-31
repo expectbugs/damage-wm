@@ -80,6 +80,7 @@ class ScriptedTmux : TmuxProvider {
         return "g2-1"
     }
 
+    override fun setCapturePacing(ms: Long) { sent.add("pace:$ms") }
     override fun killSession(target: TmuxTarget) { sent.add("kill:${target.label}") }
     override fun renameSession(target: TmuxTarget, newName: String) { sent.add("ren:$newName") }
     override fun selectWindow(target: TmuxTarget, idx: Int) { sent.add("sel:$idx") }

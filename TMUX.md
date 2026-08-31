@@ -1,12 +1,38 @@
 # Tmux on glass — design + plan (2026-08-31)
 
-**Status: BUILT, same day, one pass — battery green (core 140 · desktop 9 · selfcheck 48 ·
-snapshots 09b–09e eyeballed · lint 0 · APK 0.4).** `IMPLEMENTATION.md` → "Tmux" is the record of
-what runs and where; this file stays the design rationale. What only glass can answer (fit-80
-legibility, context rows, key order, alert patterns, ssh feel) is listed there as the on-glass
-items. First on-glass revision (same day): the grid moved to a FRACTIONAL column pitch (80 columns
+**Status: BUILT, same day, one pass; REWORKED THE SAME EVENING — 🔴 THE GRID IS RETIRED
+(verdict 2 and the fractional-pitch revision below are SUPERSEDED).** Adam, after testing the
+per-app font settings against the grid: *"With a grid, font changes are subtle, because the
+spacing is kept identical … The whole unpleasant way it looks is entirely because of the grid.
+Lets kill the grid entirely, and embrace our ability to present the terminal better. We don't
+need a terminal to be entirely live, it's just text."* The FLOW view replaced it:
+
+- **Terminal output renders as TEXT** (`FlowRender`): the provider captures with `-J` so tmux's
+  wrap points dissolve into LOGICAL lines; we wrap them at our width through the per-app
+  font/size/style — **all three settings now do exactly what they say** (on the grid, Font size
+  provably compensated to zero: the fit inverted the scale). Default face stays JBM.
+- SGR becomes styled RUNS (bold/dim/underline/reverse, colours → levels); rule lines (`───`,
+  `---`, `===`) collapse into DRAWN rules; the cursor is a small tail marker; the tail is
+  anchored terminal-style (newest at the bottom once full).
+- **The grid (`TermRender`) survives ONLY as the alternate-screen fallback** — when
+  `#{alternate_on}` says a full-screen TUI (htop, vim) owns the pane, flowed text would lie.
+  Context rows and the fit machinery now matter only there.
+- **History IS the flow**: same face/size/wrap as live, frozen (never yanks), 5 display lines
+  per notch, scroll-down at the live edge returns to live — the grammar is unchanged.
+- **Capture pacing: 1 s default, configurable** (Settings → Tmux → Update, 0.5/1/2/5 s; the
+  choice rides the wire to the host's poll loop and persists) — pushes still happen only on
+  change, so an idle session costs zero radio either way.
+- Retired with the grid: the fit-80-legibility open item (~7.6 px cells no longer exist) and
+  the "Fit pane to glass" MOTIVE (the display no longer cares about pane width; the explicit
+  resize action remains, mattering only for alternate-screen TUIs and attached PC clients).
+- What alignment cost: columns line up only when a line fits unwrapped — tables and aligned
+  diffs wrap at larger sizes. Chosen with eyes open; the glance→tap→y loop is text.
+
+`IMPLEMENTATION.md` → "Tmux" is the record of what runs and where; this file stays the design
+rationale. The original build below is kept as history. First on-glass revision (before the
+flow rework, now superseded with it): the grid moved to a FRACTIONAL column pitch (80 columns
 span the full width; integer cells had floored to 560/608 — "narrow and centered"), and
-history now renders THROUGH the live fit — same face, size, width and colours, an offset back
+history rendered THROUGH the live fit — same face, size, width and colours, an offset back
 from the live edge, scroll-down at the edge returning to live (the wrapped reading-size
 DocView read as a font switch and is gone). The refinery verdicts that shaped the build:
 

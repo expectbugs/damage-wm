@@ -56,11 +56,13 @@ never the version), first light 2026-08-30, the refinement wave + the Tmux windo
 driver + the zero-blink handover rework + user typography all landed 2026-08-31. **The default
 configuration runs for real: the phone APK owns the radio (its BLE glue passed first light
 2026-08-31), the PC shell drives THROUGH it from the OpenRC `damage` service, handovers ADOPT
-the live session.** Records, newest first: **`HANDOFF.md` §17** (the fresh-context resume) back
-through §13; `DAILY.md` is the ops crib; `TMUX.md` the tmux design; `REFINEMENT.md` the on-glass
-verdict log. Read `IMPLEMENTATION.md` for what runs and how. App layer so far: Reader (folders,
-chapters, images), Tmux (live SGR grid, history, keys, typed text), Main, Settings (directories;
-global + per-app font/size/style, per-app depth).
+the live session.** Records, newest first: **`HANDOFF.md` §18** (the tmux FLOW rework + the
+review build) and **§17.1** (the fresh-context resume) back through §13; `DAILY.md` is the ops
+crib; `TMUX.md` the tmux design; `REFINEMENT.md` the on-glass verdict log. Read
+`IMPLEMENTATION.md` for what runs and how. App layer so far: Reader (folders, chapters,
+images), Tmux (FLOWED SGR text — the grid is retired to an alternate-screen fallback,
+2026-08-31 — history, keys, typed text, 1 s configurable updates), Main, Settings
+(directories; global + per-app font/size/style, per-app depth).
 
 Adam's stated methodology still governs **the app layer**, where the scope explosion is next:
 

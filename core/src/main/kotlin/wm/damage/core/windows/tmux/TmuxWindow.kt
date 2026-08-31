@@ -29,15 +29,20 @@ import wm.damage.core.util.Log
  *
  *   SESSIONS (list)  every host's sessions, waiting-first; wrap-to-end rows
  *                    create a session per host (auto-named g2-N)
- *   LIVE (canvas)    the pane's true grid — JetBrains Mono, SGR -> 16 grays,
- *                    inverted cursor, dimmed context rows above (verdict 5);
- *                    scroll-up enters history, tap descends to keys
+ *   LIVE (canvas)    the pane as FLOWED TEXT (2026-08-31, the grid
+ *                    retirement — Adam: "it's just text ... embrace our
+ *                    ability to present the terminal better"): logical lines
+ *                    (`-J`), wrapped at our width through the per-app
+ *                    font/size/style, SGR -> levels, rule lines drawn as
+ *                    rules, a tail cursor marker; the GRID (TermRender)
+ *                    survives only for alternate-screen TUIs. Scroll-up
+ *                    enters history, tap descends to keys
  *   HISTORY (canvas) a FROZEN scrollback snapshot (G2CC's lesson: history
- *                    does not shift under the reader) rendered through the
- *                    SAME live fit — same face, size, width, colours (Adam
- *                    2026-08-31: no font/size switch when scrolling); notches
- *                    move 5 rows, and the notch that reaches the live edge
- *                    RETURNS TO LIVE; double-tap returns too
+ *                    does not shift under the reader) through the SAME flow —
+ *                    same face, size, width, colours (Adam 2026-08-31: no
+ *                    font/size switch when scrolling); notches move 5 display
+ *                    lines, and the notch that reaches the live edge RETURNS
+ *                    TO LIVE; double-tap returns too
  *   KEYS (list)      the quick dozen (verdict 4) + Snippets/Type/Windows/
  *                    Session…; every send drops back to LIVE to watch it run
  *   plus SNIPPETS, WINDOWS (view any window non-invasively), SESSION_ACTIONS
@@ -66,6 +71,10 @@ class TmuxWindow(
 
     /** Every measure/draw goes through the per-app style (Style.kt). */
     private val tx = styledText(text)
+    /** The FLOW view (2026-08-31, the grid retirement): normal panes render
+     *  as wrapped typographic text; [renderer] (the grid) survives only as
+     *  the alternate-screen fallback — a full-screen TUI needs its lattice. */
+    private val flow = FlowRender(tx)
     private val renderer = TermRender(tx)
     private var services: ShellServices? = null
 
@@ -95,9 +104,12 @@ class TmuxWindow(
     private var renameArmed = false
 
     // ---- settings (the Settings window's Tmux category — verdict 6) ----
-    private var wantContext = true            // verdict 5: on by default
+    private var wantContext = true            // grid fallback only since the flow rework
     private var alertsOn = true               // verdict 3: on for all + mute
     private var heightPref: Int? = 480        // TMUX.md §3.3: 480 is the design point
+    /** Capture pacing (2026-08-31, "1 s configurable"): pushed to the provider
+     *  on apply and on restore, so the host polls at the chosen cadence. */
+    private var paceMs = 1_000L
     private val muted = LinkedHashSet<String>()   // "host/session"
 
     /** One-shot failure/notice text riding the title (G2CC D3). */
@@ -189,10 +201,12 @@ class TmuxWindow(
 
     override fun onLayoutChanged() {
         renderer.invalidate()
+        flow.invalidate()
     }
 
     override fun onFontScaleChanged(scale: Double) {
         renderer.invalidate()
+        flow.invalidate()
     }
 
     private fun resubscribe() {
@@ -307,9 +321,12 @@ class TmuxWindow(
             }
             return
         }
-        renderer.render(g, rect, f, wantContext)
+        // FLOW for normal panes (the terminal is text); the GRID only when a
+        // full-screen TUI owns the pane and flowed text would lie about it
+        if (f.alternate) renderer.render(g, rect, f, wantContext)
+        else flow.renderTail(g, rect, f)
         if (provState.isNotEmpty()) {
-            // the staleness surface (§10.5): the grid stays, the trouble is SAID
+            // the staleness surface (§10.5): the view stays, the trouble is SAID
             drawFit(g, rect.x + 16, rect.bottom - 20, provState, Level.HOT, fSmall, rect.w - 32)
         }
     }
@@ -364,13 +381,14 @@ class TmuxWindow(
 
     private fun paintHistory(g: Gray8, rect: Rect) {
         val raw = histRaw
-        val f = frame
-        if (histLoading || raw == null || f == null) {
-            g.fillRect(rect, Level.BG)
+        g.fillRect(rect, Level.BG)
+        if (histLoading || raw == null) {
             drawFit(g, rect.x + 16, rect.y + 12, "capturing scrollback…", Level.DIM, fRow, rect.w - 32)
             return
         }
-        val hv = renderer.renderHistory(g, rect, raw, f.cols, f.rows, histOffset, wantContext)
+        // history IS the flow (scrollback is normal-screen text even when the
+        // live pane runs a TUI): same face, size and wrap as the live view
+        val hv = flow.renderHistory(g, rect, raw, histOffset)
         histOffset = hv.offset
         histMax = hv.maxOffset
     }
@@ -611,6 +629,9 @@ class TmuxWindow(
     // ------------------------------------------------------------------ settings
     private val settingsRows: List<HostSetting> by lazy {
         listOf(
+            HostSetting("Update", PACES.keys.toList(),
+                { PACES.entries.firstOrNull { it.value == paceMs }?.key ?: "1 s" },
+                { v -> paceMs = PACES[v] ?: 1_000L; provider.setCapturePacing(paceMs) }),
             HostSetting("Context rows", listOf("on", "off"),
                 { if (wantContext) "on" else "off" },
                 { wantContext = it == "on"; renderer.invalidate() }),
@@ -635,6 +656,7 @@ class TmuxWindow(
         }
         put("context", wantContext)
         put("alerts", alertsOn)
+        put("paceMs", paceMs)
         heightPref?.let { put("height", it) }
         putJsonArray("muted") { muted.forEach { add(JsonPrimitive(it)) } }
     }
@@ -642,6 +664,9 @@ class TmuxWindow(
     override fun restoreState(state: JsonObject) {
         wantContext = (state["context"] as? JsonPrimitive)?.content != "false"
         alertsOn = (state["alerts"] as? JsonPrimitive)?.content != "false"
+        paceMs = ((state["paceMs"] as? JsonPrimitive)?.content?.toLongOrNull() ?: 1_000L)
+            .coerceIn(250, 30_000)
+        provider.setCapturePacing(paceMs)     // the host polls at the chosen cadence
         heightPref = (state["height"] as? JsonPrimitive)?.content?.toIntOrNull()
         muted.clear()
         (state["muted"] as? kotlinx.serialization.json.JsonArray)?.forEach {
@@ -730,8 +755,12 @@ class TmuxWindow(
 
     companion object {
         const val HISTORY_LINES = 1000
-        /** Rows per notch in history — matches the Reader's 5-per-notch feel. */
+        /** Display lines per notch in history — the Reader's 5-per-notch feel. */
         const val HIST_STEP = 5
+
+        /** Settings → Tmux → Update: capture pacing choices (default 1 s —
+         *  the flow rework's cadence; pushes still happen only on change). */
+        val PACES = linkedMapOf("0.5 s" to 500L, "1 s" to 1_000L, "2 s" to 2_000L, "5 s" to 5_000L)
         /** "Fit pane to glass": 64 columns reads at ~9.5 px cells in the 608
          *  content width; 22 rows fit every height mode. Explicit action only
          *  — it resizes the REAL tmux window (TMUX.md verdict 2). */

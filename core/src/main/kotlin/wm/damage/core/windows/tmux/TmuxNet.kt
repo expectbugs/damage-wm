@@ -51,6 +51,9 @@ private data class TWire(
     val session: TmuxSessionInfo? = null,
     val outLines: List<String> = emptyList(),
     val wins: List<TmuxWinInfo> = emptyList(),
+    /** t="tpace": the driver's capture pacing (2026-08-31, the flow rework).
+     *  Additive: an old host logs the unknown control and keeps its default. */
+    val paceMs: Long = 0,
 )
 
 private fun DataOutputStream.sendWire(w: TWire) {
@@ -115,6 +118,7 @@ object TmuxNet {
                 val w = inp.readWire()
                 when (w.t) {
                     "tsub" -> provider.subscribe(listener, w.target)
+                    "tpace" -> provider.setCapturePacing(w.paceMs)
                     "treq" -> {
                         val res = try {
                             when (w.op) {
@@ -170,6 +174,7 @@ class RemoteTmuxProvider(
 
     private val listeners = ConcurrentHashMap.newKeySet<TmuxProvider.Listener>()
     @Volatile private var wantedTarget: TmuxTarget? = null
+    @Volatile private var wantedPace: Long? = null
     @Volatile private var out: DataOutputStream? = null
     @Volatile private var running = true
     @Volatile private var lastStatus: List<TmuxSessionInfo> = emptyList()
@@ -196,7 +201,9 @@ class RemoteTmuxProvider(
                     out = o
                     offlineSince = 0
                     setState("")
-                    // re-assert the subscription a reconnect interrupted
+                    // re-assert what a reconnect interrupted: the subscription
+                    // and any non-default capture pacing
+                    wantedPace?.let { o.sendWire(TWire(t = "tpace", paceMs = it)) }
                     wantedTarget?.let { o.sendWire(TWire(t = "tsub", target = it)) }
                     while (true) route(inp.readWire())
                 }
@@ -278,6 +285,15 @@ class RemoteTmuxProvider(
             out?.sendWire(TWire(t = "tsub", target = target))
         } catch (e: Exception) {
             Log.w("tmux-remote", "subscribe not sent (reconnect will re-assert): ${e.message}")
+        }
+    }
+
+    override fun setCapturePacing(ms: Long) {
+        wantedPace = ms
+        try {
+            out?.sendWire(TWire(t = "tpace", paceMs = ms))
+        } catch (e: Exception) {
+            Log.w("tmux-remote", "pacing not sent (reconnect will re-assert): ${e.message}")
         }
     }
 
