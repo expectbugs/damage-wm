@@ -124,18 +124,32 @@ private fun epubCheck(cfg: Config) {
     val lib = LocalContent(Path.of(cfg.booksDir)).library()
     println("${lib.size} books in ${cfg.booksDir}")
     var bad = 0
+    var imgTotal = 0
+    var imgDecoded = 0
+    val dec = AwtImages()
     for (b in lib) {
         try {
             val t0 = System.currentTimeMillis()
             val book = wm.damage.core.windows.reader.Epub.load(Path.of(b.file))
+            // decode every referenced image with the real decoder (2026-08-31):
+            // an undecodable one shows as a placeholder, not a failure — but say so
+            var ok = 0
+            for ((_, bytes) in book.images) if (dec.decode(bytes) != null) ok++
+            imgTotal += book.images.size
+            imgDecoded += ok
+            val imgNote = if (book.images.isEmpty()) ""
+                else " · ${ok}/${book.images.size} images" +
+                    (if (ok < book.images.size) " (rest undecodable — placeholders)" else "")
             println("  OK   ${b.title} — ${book.text.length / 1024}K chars, " +
+                "${book.chapters.size} chapters, " +
                 "${System.currentTimeMillis() - t0}ms" +
-                (if (book.author.isNotEmpty()) " · ${book.author}" else ""))
+                (if (book.author.isNotEmpty()) " · ${book.author}" else "") + imgNote)
         } catch (e: Exception) {
             bad++
             println("  FAIL ${b.file}: ${e.message}")
         }
     }
+    if (imgTotal > 0) println("images across the shelf: $imgDecoded/$imgTotal decode")
     kotlin.system.exitProcess(if (bad > 0) 1 else 0)
 }
 
@@ -212,7 +226,7 @@ class DesktopStack(
         val persistence = Persistence(dataDir.resolve("state.json"))
         shell = Shell(text, transport, persistence, dataDir.resolve("journal.jsonl"), scope)
         val content = LocalContent(Path.of(cfg.booksDir))
-        shell.register(ReaderWindow(text, content, scope))
+        shell.register(ReaderWindow(text, content, scope, AwtImages()))
         shell.hostSettings = listOf(
             HostSetting("Target", MODES, current = { mode }, apply = { v -> onSwitch(v) }),
         )

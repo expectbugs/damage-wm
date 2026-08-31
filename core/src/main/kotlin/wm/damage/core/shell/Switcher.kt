@@ -127,6 +127,15 @@ class Switcher(private val text: TextRasterizer) {
         val dimLv = Level.of(4)
         fun entryAt(k: Int) = entries[(centerIdx + k).mod(n)]
 
+        // The wheel's frame (2026-08-31 — Adam: with rules only around the
+        // centre "it doesn't really look like a wheel"): four horizontal
+        // rules. The OUTER pair sits fixed at the panel edges, one tier
+        // dimmer, framing the upper and lower slots — dimmer edges support
+        // the curving-away read (§4.3). The INNER pair brackets the centre
+        // and slides with the spin. Horizontal rules only: one run each, the
+        // shell's cheap structure (§4.5's vertical-bar cost applies here too).
+        g.fillRect(p.x, p.y, p.w, 2, Level.FAINT)
+        g.fillRect(p.x, p.bottom - 2, p.w, 2, Level.FAINT)
         // rules between bands — they move with the spin, inside the fixed rect
         g.fillRect(p.x, bandTop, p.w, 2, Level.DIM)
         g.fillRect(p.x, bandBot, p.w, 2, Level.DIM)

@@ -24,23 +24,29 @@ import wm.damage.core.transport.Arm
 import wm.damage.core.transport.LensPanels
 
 /**
- * The 1x lens replica — strictly native 640x480 per lens, no upscaling (a 2x
- * view flattered delicate type and misled the design; DESIGN.md §Type). Draws
- * the transport's MIRROR (HANDOFF.md §8.2), whichever transport: sim, BLE, or
- * the seam-fed mirror in remote mode. Green micro-LED mapping as
- * design/render_shots.py green().
+ * The lens replica window. Draws the transport's MIRROR (HANDOFF.md §8.2),
+ * whichever transport: sim, BLE, or the seam-fed mirror in remote mode. Green
+ * micro-LED mapping as design/render_shots.py green().
+ *
+ * INTEGER-SCALED, default 4x (Adam, 2026-08-31: the window "should be way
+ * bigger, like four times its current size at least"). Scaling is strictly
+ * nearest-neighbour — every device pixel is a crisp NxN block, never smoothed —
+ * so the view stays honest about pixel structure. The design-judgment rule
+ * ("only render at true 1x"; DESIGN.md §Type) still governs design/render_shots.py
+ * and legibility calls, which belong to 1x renders or glass: press `-` down to
+ * 1x for those. `-`/`=` adjust the scale; it auto-clamps to what fits the screen
+ * (both-lens mode at 4x is wider than a 4K display, so it drops until it fits).
  *
  * Mouse = the ring: wheel notch = scroll (one notch per wheel unit), left
  * click = tap, right click = double-tap, press-and-hold ≥ 600 ms = long-press
  * (the ring's own threshold is unmeasured) then release. Keyboard stays:
  * ↑/↓ scroll · Enter tap · Backspace/Esc double-tap · Space long-press · R
- * release · Tab lens toggle · B both lenses side by side.
+ * release · Tab lens toggle · B both lenses side by side · -/= scale.
  *
- * The status strip sits UNDER the panel, outside the 640x480 image, so the
- * true-1x rule holds for the pixels that matter; it wraps rather than cuts
- * (NO TRUNCATION — it is where a fault text is shown). A held key is one
- * gesture: the ring has no auto-repeat. Closing the window stops the stack
- * (state saved, lease released) before the process ends.
+ * The status strip sits UNDER the panel, outside the lens image; it wraps
+ * rather than cuts (NO TRUNCATION — it is where a fault text is shown). A held
+ * key is one gesture: the ring has no auto-repeat. Closing the window stops
+ * the stack (state saved, lease released) before the process ends.
  */
 class Preview(
     private val panels: () -> LensPanels?,
@@ -50,14 +56,17 @@ class Preview(
 
     private var arm = Arm.LEFT
     private var both = false
+    /** The chosen magnification; what is actually drawn is [effScale], which
+     *  clamps this to what fits the screen at the current layout. */
+    private var scale = DEFAULT_SCALE
     private val imgL = BufferedImage(Geometry.PANEL_W, Geometry.PANEL_H, BufferedImage.TYPE_INT_RGB)
     private val imgR = BufferedImage(Geometry.PANEL_W, Geometry.PANEL_H, BufferedImage.TYPE_INT_RGB)
     private var source: LensPanels? = null
     private val listener = LensPanels.LensListener { a -> SwingUtilities.invokeLater { refresh(a) } }
-    /** Width pinned to the panel, height whatever the wrapped text needs —
+    /** Width pinned to the scaled panel, height whatever the wrapped text needs —
      *  the frame re-packs when that height changes (NO TRUNCATION). */
     private val strip = object : JTextArea(" ") {
-        override fun getPreferredSize(): Dimension = Dimension(Geometry.PANEL_W, super.getPreferredSize().height)
+        override fun getPreferredSize(): Dimension = Dimension(scaledW(), super.getPreferredSize().height)
     }.apply {
         isEditable = false
         lineWrap = true
@@ -93,6 +102,8 @@ class Preview(
                     KeyEvent.VK_R -> onGesture(wm.damage.core.wire.EvenHubMsg.EV_RING_LONG_PRESS_RELEASE)
                     KeyEvent.VK_TAB -> toggleArm()
                     KeyEvent.VK_B -> toggleBoth()
+                    KeyEvent.VK_MINUS -> setScale(scale - 1)
+                    KeyEvent.VK_EQUALS, KeyEvent.VK_PLUS -> setScale(scale + 1)
                 }
             }
         })
@@ -150,8 +161,30 @@ class Preview(
         refresh(Arm.LEFT); refresh(Arm.RIGHT)
     }
 
-    private fun updateSize() {
-        preferredSize = Dimension(if (both) Geometry.PANEL_W * 2 + GAP else Geometry.PANEL_W, Geometry.PANEL_H)
+    /** Unscaled width of the lens area at the current layout. */
+    private fun baseW() = if (both) Geometry.PANEL_W * 2 + GAP else Geometry.PANEL_W
+
+    fun scaledW() = baseW() * effScale()
+
+    /** The scale actually drawn: the chosen one, stepped down until the window
+     *  fits this screen (both-lens 4x is wider than a 4K display). The choice
+     *  itself is kept, so leaving both-lens mode restores it. */
+    private fun effScale(): Int {
+        val gc = topFrame()?.graphicsConfiguration ?: return scale
+        val b = gc.bounds
+        val ins = java.awt.Toolkit.getDefaultToolkit().getScreenInsets(gc)
+        val availW = b.width - ins.left - ins.right
+        // ~100 px allowance for the title bar and the status strip under the panel
+        val availH = b.height - ins.top - ins.bottom - 100
+        var s = scale
+        while (s > 1 && (baseW() * s > availW || Geometry.PANEL_H * s > availH)) s--
+        return s
+    }
+
+    private fun setScale(v: Int) { scale = v.coerceIn(1, MAX_SCALE); updateSize(); repaint() }
+
+    fun updateSize() {
+        preferredSize = Dimension(scaledW(), Geometry.PANEL_H * effScale())
         revalidate()
         topFrame()?.pack()
         topFrame()?.title = title()
@@ -162,7 +195,11 @@ class Preview(
 
     private fun topFrame(): JFrame? = SwingUtilities.getWindowAncestor(this) as? JFrame
 
-    private fun title() = "Damage — ${if (both) "both lenses" else "${arm.name} lens"} · 1x (Tab lens · B both)"
+    private fun title(): String {
+        val eff = effScale()
+        val fit = if (eff != scale) " (fit — chosen ${scale}x)" else ""
+        return "Damage — ${if (both) "both lenses" else "${arm.name} lens"} · ${eff}x$fit (Tab lens · B both · -/= size)"
+    }
 
     private fun refresh(a: Arm) {
         val p = source ?: return
@@ -185,17 +222,27 @@ class Preview(
 
     override fun paintComponent(g: Graphics) {
         super.paintComponent(g)
+        // nearest-neighbour, explicitly: device pixels stay crisp NxN blocks,
+        // never smoothed into something the panel would not show
+        (g as java.awt.Graphics2D).setRenderingHint(
+            java.awt.RenderingHints.KEY_INTERPOLATION,
+            java.awt.RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR)
+        val s = effScale()
+        val w = Geometry.PANEL_W * s
+        val h = Geometry.PANEL_H * s
         if (both) {
-            g.drawImage(imgL, 0, 0, null)
-            g.drawImage(imgR, Geometry.PANEL_W + GAP, 0, null)
+            g.drawImage(imgL, 0, 0, w, h, null)
+            g.drawImage(imgR, (Geometry.PANEL_W + GAP) * s, 0, w, h, null)
         } else {
-            g.drawImage(if (arm == Arm.LEFT) imgL else imgR, 0, 0, null)
+            g.drawImage(if (arm == Arm.LEFT) imgL else imgR, 0, 0, w, h, null)
         }
     }
 
     companion object {
         const val HOLD_MS = 600
         const val GAP = 16
+        const val DEFAULT_SCALE = 4
+        const val MAX_SCALE = 8
 
         fun show(panels: () -> LensPanels?, onGesture: (Int) -> Unit, status: () -> String,
                  onClose: () -> Unit = {}): Preview {
@@ -220,6 +267,7 @@ class Preview(
                 f.contentPane.add(p.strip, BorderLayout.SOUTH)
                 f.isResizable = false
                 f.pack()
+                p.updateSize()   // the frame exists now: clamp the scale to this screen and re-pack
                 f.setLocationByPlatform(true)
                 f.isVisible = true
                 p.requestFocusInWindow()

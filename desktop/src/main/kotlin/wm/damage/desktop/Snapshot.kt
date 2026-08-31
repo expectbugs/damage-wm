@@ -53,7 +53,7 @@ object Snapshot {
         val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
         val text = AwtText()
         val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), null, scope)
-        val reader = ReaderWindow(text, LocalContent(books), scope)
+        val reader = ReaderWindow(text, LocalContent(books), scope, AwtImages())
         shell.register(reader)
         shell.start()
         settle(shell)
@@ -65,8 +65,23 @@ object Snapshot {
         settle(shell)
         save(sim, out, "02-reader-library")
 
-        shell.postGesture(EvenHubMsg.EV_CLICK)          // open the first book
-        waitFor { reader.levelDepth() >= 2 }
+        // Open the focused row. Since 2026-08-31 that row can be a FOLDER
+        // (they sort first) and a first open lands on the CHAPTER PICKER —
+        // walk both, deterministically, by what the title says.
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        settle(shell)
+        if (reader.title().startsWith("library")) {     // it was a folder: open its first book
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+            settle(shell)
+        }
+        waitFor { !reader.title().startsWith("library") && reader.title() != "opening" }
+        settle(shell)
+        if (reader.title().endsWith("chapters")) {      // the first-open picker: from the beginning
+            save(sim, out, "03b-reader-chapters")
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+            settle(shell)
+        }
+        waitFor { reader.title().contains("p.") }
         settle(shell)
         save(sim, out, "03-reader-book")
 

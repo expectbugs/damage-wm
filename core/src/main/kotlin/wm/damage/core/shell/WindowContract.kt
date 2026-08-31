@@ -33,6 +33,20 @@ abstract class DamageWindow(val id: String, val name: String, val icon: IconKind
      *  it unavailable/stale in Main when a need is unmet, and says so. */
     open val needs: Set<Need> = emptySet()
 
+    /** §2 per-app height (REFINEMENT.md, 2026-08-31): the height mode this
+     *  window prefers (e.g. 480 for Reader), or null to follow the global
+     *  Size setting. Applied when the window takes FOCUS — commit, never a
+     *  switcher preview (§4.3 rule 1) — at the cost of one keyframe. */
+    open val preferredHeight: Int? get() = null
+
+    /** Rows this window contributes to the Settings window under its own
+     *  category (Adam, 2026-08-31: Settings organized by category — Global,
+     *  then one per app). Same contract as host rows: options cycle while
+     *  adjusting, the choice is staged, [HostSetting.apply] runs on the tap
+     *  that keeps it, on the shell loop. Return STABLE instances — the
+     *  Settings window matches its staged row by identity. */
+    open fun appSettings(): List<HostSetting> = emptyList()
+
     /** Full persistence (§9.1): EVERYTHING the user could see or was doing —
      *  mode, offsets, cursor, open level. The WM owns calling these. */
     abstract fun saveState(): JsonObject
@@ -96,6 +110,14 @@ sealed interface WindowView {
         val paintLine: (g: Gray8, line: Int, rect: Rect) -> Unit,
         /** Tap descends to the window's actions level (§4.6). */
         val onTap: () -> Unit,
+        /** Lines moved per ring notch — the window's setting (REFINEMENT.md
+         *  §3b, 2026-08-31: one line per notch was far too little in a book;
+         *  coarse steps are the design because cost is ack-dominated). */
+        val stepLines: () -> Int = { 1 },
+        /** Firmware-style scroll acceleration (§0's reversal, 2026-08-30):
+         *  fast successive notches in one direction multiply the step. The
+         *  ramp itself lives in the shell (Shell.docAccelFactor). */
+        val accel: () -> Boolean = { false },
     ) : WindowView
 
     /** The window owns everything, including damage. Not used by stage 1. */

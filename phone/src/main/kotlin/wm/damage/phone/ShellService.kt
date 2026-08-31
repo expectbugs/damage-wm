@@ -177,7 +177,7 @@ class ShellService : Service() {
             onState = { st -> sh.hostState = st },
             onNotice = { detail -> sh.services.notifyInternal("content", detail) },
         )
-        sh.register(ReaderWindow(text, rc, scope))
+        sh.register(ReaderWindow(text, rc, scope, AndroidImages()))
         sh.onUrgent = { source, body -> urgentNotification(source, body) }
         sh.hostSettings = listOf(
             HostSetting("Target", listOf("sim", "glasses"),

@@ -39,6 +39,12 @@ interface Transport {
      *  transport — a phone touch during a PC takeover included. */
     fun injectInput(type: Int)
 
+    /** Push the panel-brightness setting to the glasses (2026-08-31): a
+     *  sid-0x09 write on the control lane, fire-and-forget — the firmware
+     *  restores its own value across reboots, so the shell re-pushes on every
+     *  session start. Default: ignored (a transport with no panel). */
+    fun setBrightness(auto: Boolean, level: Int) {}
+
     /**
      * Bring the display up: capability gate (EVENCFW string must carry
      * img640/directfb/fbguard/imgz/rle — refuse loudly otherwise), carrier
@@ -128,6 +134,16 @@ sealed class TransportEvent {
     /** CFW sticky diagnostic flags observed (f_dup/f_skip/f_reorder/f_snap_of).
      *  Any true flag is a hard error during bring-up (§9.2). */
     data class DiagFlags(val flags: Map<String, Boolean>) : TransportEvent()
+
+    /** Device battery telemetry read off the wire (2026-08-31): glasses from
+     *  the sid-0x09 device-info response (field 4.12/4.13), ring from a
+     *  sid-0x91 relay when the glasses forward one. Null = unreported in this
+     *  event; consumers keep their last value. */
+    data class Battery(
+        val glassesPct: Int? = null,
+        val glassesCharging: Boolean? = null,
+        val ringPct: Int? = null,
+    ) : TransportEvent()
 
     /** A transport-layer problem worth surfacing (decode failure, e0-02 abort,
      *  session bump, capability mismatch). Never swallowed. */

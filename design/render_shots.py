@@ -15,7 +15,10 @@ W, H = 640, 480
 TOP_H, DIV = 32, 2
 CX, CY, CW, CH = 16, 34, 608, 416
 DIV2_Y, ST_Y, ST_H = 450, 452, 28
-TITLE_W, BATT_X, CLK_X = 384, 384, 560              # ribbon retired 2026-08-18
+# Bars inset to the content extent since 2026-08-31 (REFINEMENT.md §1): chrome
+# sits behind the content plane and needs the same 16 px stereo-shift budget.
+BAR_X, BAR_R = 16, 624                              # bar extent (x16, w608)
+TITLE_W, BATT_X, CLK_X = 368, 368, 544              # ribbon retired 2026-08-18
 LENS_Y, LENS_H, ROW_H, PAD = 210, 64, 32, 16
 RAIL_X, RAIL_W = 612, 12
 
@@ -252,9 +255,9 @@ def chrome(d, title, win, win_ic, *, pos_frac=0.4, depth=2, dirty=(), op="idle",
            batt=(("g", 87), ("r", 18), ("p", 62)), flash=0, nwin=13, at=5,
            dirty_at=(1, 9)):
     # --- top bar: [icon] WINDOW · document | batteries | clock -------------------
-    icon(d, 8, 6, 20, 20, win_ic, HEAD)
-    text(d, (36, 7), win, HEAD, f_chromeb)
-    wx = 36 + d.textlength(win, f_chromeb) + 8
+    icon(d, BAR_X + 8, 6, 20, 20, win_ic, HEAD)
+    text(d, (BAR_X + 36, 7), win, HEAD, f_chromeb)
+    wx = BAR_X + 36 + d.textlength(win, f_chromeb) + 8
     if title: text(d, (wx, 7), "· " + title, DIM, f_chrome)
     if wx + d.textlength("· " + title, f_chrome) > TITLE_W - 12:
         tri(d, TITLE_W - 12, 12, 9, DIM)                               # drawn continuation
@@ -266,27 +269,27 @@ def chrome(d, title, win, win_ic, *, pos_frac=0.4, depth=2, dirty=(), op="idle",
     text(d, (CLK_X + 4, 6), "12:59", HEAD, f_chromeb)
     text(d, (CLK_X + 52, 9), "PM", DIM, f_tiny)
     # --- top divider = window position + attention marks (the ribbon's whole job) ---
-    d.rectangle([0, TOP_H, W, TOP_H + DIV - 1], fill=L(1))
-    slot = W / nwin
+    d.rectangle([BAR_X, TOP_H, BAR_R - 1, TOP_H + DIV - 1], fill=L(1))
+    slot = (BAR_R - BAR_X) / nwin
     for k in dirty_at:
-        d.rectangle([int(k * slot) + 4, TOP_H, int(k * slot) + 16, TOP_H + DIV - 1], fill=L(6))
-    d.rectangle([int(at * slot), TOP_H, int((at + 1) * slot) - 2, TOP_H + DIV - 1], fill=HEAD)
+        d.rectangle([BAR_X + int(k * slot) + 4, TOP_H, BAR_X + int(k * slot) + 16, TOP_H + DIV - 1], fill=L(6))
+    d.rectangle([BAR_X + int(at * slot), TOP_H, BAR_X + int((at + 1) * slot) - 2, TOP_H + DIV - 1], fill=HEAD)
     # --- bottom divider = back-stack depth ---
-    d.rectangle([0, DIV2_Y, W, DIV2_Y + DIV - 1], fill=L(1))
+    d.rectangle([BAR_X, DIV2_Y, BAR_R - 1, DIV2_Y + DIV - 1], fill=L(1))
     for i in range(depth):
-        d.rectangle([16 + i * 26, DIV2_Y, 16 + i * 26 + 18, DIV2_Y + DIV - 1], fill=HEAD)
-    # --- status bar ---
-    text(d, (8, ST_Y + 7), op, BODY, f_chrome)          # op   160
-    text(d, (168, ST_Y + 7), status, DIM, f_chrome)     # stat 132
-    text(d, (300, ST_Y + 9), thru, DIM, f_tel)          # thru 128
-    compass_tape(d, 420, ST_Y, 100, comp)               # tape 100
+        d.rectangle([BAR_X + 16 + i * 26, DIV2_Y, BAR_X + 16 + i * 26 + 18, DIV2_Y + DIV - 1], fill=HEAD)
+    # --- status bar (op 128 · stat 132 · thru 128 · tape 100 · link 120 on the 608 bar) ---
+    text(d, (BAR_X + 8, ST_Y + 7), op, BODY, f_chrome)          # op   x16  w128
+    text(d, (152, ST_Y + 7), status, DIM, f_chrome)             # stat x144 w132
+    text(d, (284, ST_Y + 9), thru, DIM, f_tel)                  # thru x276 w128
+    compass_tape(d, 404, ST_Y, 100, comp)                       # tape x404 w100
     poor = link <= -75
-    for i in range(4):                                   # signal bars
+    for i in range(4):                                   # signal bars, right edge of the link cell
         h_ = 4 + i * 4
         on = (link + 95) / 40 * 4 > i
-        bx = 596 + i * 8
+        bx = BAR_R - 44 + i * 8
         d.rectangle([bx, ST_Y + 20 - h_, bx + 5, ST_Y + 20], fill=(HOT if poor else BODY) if on else L(1))
-    if poor: rtext(d, (592, ST_Y + 9), f"{link}", HOT, f_tel)
+    if poor: rtext(d, (BAR_R - 48, ST_Y + 9), f"{link}", HOT, f_tel)
 
 def rail(d, frac, span):
     d.rectangle([RAIL_X + 4, CY, RAIL_X + 7, CY + CH - 1], fill=L(1))
@@ -437,25 +440,68 @@ def window_doc_screen():
     rail(d, 0.68, 60)
     return im
 
-def analog_clock(d, cx, cy, r, hh, mm, *, dot=L(3), hand=L(7)):
-    """Dots and hands only — no bezel. A circle outline breaks the RLE run on every
-    row; twelve dots do not. The stylish choice is again the cheap one."""
+SEG7 = [0b1111110, 0b0110000, 0b1101101, 0b1111001, 0b0110011,
+        0b1011011, 0b1011111, 0b1110000, 0b1111111, 0b1111011]   # A..G = bit6..bit0
+
+def seven_seg_clock(d, x0, y0, hh, mm):
+    """§1.5 third revision (Adam 2026-08-31): drawn LED-style seven-segment
+    digits, 12-hour, no leading zero — tapered hex segments, softened edge
+    rows, corner gaps. 138x44 from (x0,y0). Keep in lockstep with core
+    Icons.sevenSegClock()."""
+    w, t = 26, 6
+    def hseg(x, y, ln):
+        for r in range(t):
+            inset = abs(2 * r - (t - 1)) // 2
+            d.rectangle([x + inset, y + r, x + ln - inset - 1, y + r],
+                        fill=L(6) if r in (0, t - 1) else L(9))
+    def vseg(x, y, ln):
+        for c in range(t):
+            inset = abs(2 * c - (t - 1)) // 2
+            d.rectangle([x + c, y + inset, x + c, y + ln - inset - 1],
+                        fill=L(6) if c in (0, t - 1) else L(9))
+    def digit(x, n):
+        m = SEG7[n]
+        if m & 0b1000000: hseg(x + 4, y0, w - 8)              # A
+        if m & 0b0100000: vseg(x + w - t, y0 + 7, 12)         # B
+        if m & 0b0010000: vseg(x + w - t, y0 + 26, 12)        # C
+        if m & 0b0001000: hseg(x + 4, y0 + 38, w - 8)         # D
+        if m & 0b0000100: vseg(x, y0 + 26, 12)                # E
+        if m & 0b0000010: vseg(x, y0 + 7, 12)                 # F
+        if m & 0b0000001: hseg(x + 4, y0 + 19, w - 8)         # G
+    h12 = ((hh + 11) % 12) + 1
+    if h12 >= 10: digit(x0, 1)
+    digit(x0 + 32, h12 % 10)
+    d.rectangle([x0 + 67, y0 + 12, x0 + 72, y0 + 17], fill=L(9))
+    d.rectangle([x0 + 67, y0 + 28, x0 + 72, y0 + 33], fill=L(9))
+    digit(x0 + 80, mm // 10)
+    digit(x0 + 112, mm % 10)
+
+def analog_clock(d, cx, cy, r, hh, mm):
+    """Redrawn 2026-08-31 (REFINEMENT.md §5 — "too basic for the size"): radial
+    ticks at 12/3/6/9, small dots between, tapered two-segment hands with
+    counterweight tails, a hub with a bright pin. Still NO bezel ring (a circle
+    outline breaks the RLE run on every row) and NO second hand, ever (Adam
+    2026-08-18); the minute hand SNAPS once a minute — 60 flushes/hour. Keep in
+    lockstep with core Icons.analogClock()."""
     import math
     for i in range(12):
         a = math.radians(i * 30 - 90)
-        px_, py_ = cx + r * math.cos(a), cy + r * math.sin(a)
-        sz = 2 if i % 3 else 3                                  # 12/3/6/9 slightly larger
-        lv = dot if i % 3 else L(5)
-        d.rectangle([px_ - sz, py_ - sz, px_ + sz, py_ + sz], fill=lv)
-    def hand_line(frac, length, width, lv):
+        if i % 3 == 0:                                          # cardinal: radial tick
+            d.line([cx + (r - 8) * math.cos(a), cy + (r - 8) * math.sin(a),
+                    cx + r * math.cos(a), cy + r * math.sin(a)], fill=L(6), width=3)
+        else:
+            px_, py_ = cx + r * math.cos(a), cy + r * math.sin(a)
+            d.rectangle([px_ - 1, py_ - 1, px_ + 1, py_ + 1], fill=L(3))
+    def hand(frac, length, w_near, w_far, tail):
         a = math.radians(frac * 360 - 90)
-        d.line([cx, cy, cx + length * math.cos(a), cy + length * math.sin(a)],
-               fill=lv, width=width)
-    hand_line(((hh % 12) + mm / 60) / 12, r * 0.52, 5, hand)     # hour
-    hand_line(mm / 60, r * 0.80, 3, hand)                        # minute
-    # No second hand, ever (Adam 2026-08-18). The minute hand SNAPS once a minute:
-    # 60 flushes/hour, the cheapest possible "alive", and deep idle stays intact.
-    d.rectangle([cx - 2, cy - 2, cx + 2, cy + 2], fill=hand)
+        mx, my = cx + length * 0.55 * math.cos(a), cy + length * 0.55 * math.sin(a)
+        d.line([cx, cy, mx, my], fill=L(8), width=w_near)
+        d.line([mx, my, cx + length * math.cos(a), cy + length * math.sin(a)], fill=L(8), width=w_far)
+        d.line([cx, cy, cx - tail * math.cos(a), cy - tail * math.sin(a)], fill=L(8), width=w_near)
+    hand(((hh % 12) + mm / 60) / 12, r * 0.55, 5, 3, r * 0.16)   # hour: short, wide
+    hand(mm / 60, r * 0.86, 3, 2, r * 0.20)                      # minute: long, slim
+    d.rectangle([cx - 3, cy - 3, cx + 3, cy + 3], fill=L(4))     # hub plate
+    d.rectangle([cx - 1, cy - 1, cx + 1, cy + 1], fill=L(9))     # pin
 
 def window_term_screen():
     im, d = new()
@@ -476,7 +522,7 @@ def window_term_screen():
 
 def silent_screen(notif=False):
     im, d = new()
-    analog_clock(d, 576, 88, 34, 12, 59)              # top-right, 80x80 box
+    seven_seg_clock(d, W - 144 + 4, 2, 12, 59)        # digital, flush top-right (§1.5 rev 3)
     if notif:
         bx, by, bw, bh = 220, 214, 200, 56
         text(d, (bx + 8, by + 3), "SMS · MOM", L(8), f_small)

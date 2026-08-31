@@ -1,8 +1,12 @@
 # Damage — a framebuffer window manager for the Even Realities G2
 
-**Status: research phase CLOSED 2026-08-17. Nothing built yet. Next stage: the feature-creep
-scope explosion** — start from [`CAPABILITIES.md`](CAPABILITIES.md), which is the inventory of
-what the hardware can actually do, written for exactly that purpose.
+**Status (2026-08-31): BUILT, FLASHED, LIVE.** The research phase this file records closed
+2026-08-17; the shell was built 2026-08-24/25, the CFW installed 2026-08-30 (`HANDOFF.md` §10),
+first light the same day (§11), and the first refinement wave 2026-08-31 (§12). This file remains
+**the fact record** — read it with [`CLAIMS.md`](CLAIMS.md) for grades — and the app-layer
+**scope explosion** is the next phase, starting from [`CAPABILITIES.md`](CAPABILITIES.md).
+⚠ Facts below marked "our firmware is 2.2.2.20" are historical: **the pair now runs the CFW**
+(g2flash `a5d1c31`, reporting `2.2.6.10`; detect by `EVENCFW/`, never the version).
 
 What closed the phase: both BTSnoop captures recovered and re-decoded against Even's own 27
 protobuf schemas; the CFW image verified reproducible offline byte-for-byte; Faceclaw's window
@@ -151,7 +155,7 @@ Measured from Adam's own BTSnoop captures of his own glasses. Canonical source:
 | AA packet payload | ~**232 B** per fragment; median inter-fragment gap **~14 ms** |
 | **Effective throughput** | ⚠ **7–13 KB/s measured end-to-end** (corrected 2026-08-17). The old **~16.6 KB/s** was 232 B ÷ 14 ms median gap — the *fast mode* of a trimodal distribution. See §5.1 |
 | Image app-chunk | **≤ 4096 B** per `f1=3`; inter-chunk gap ~190–300 ms (official app) |
-| **Image-push ack latency** | **median 176 ms** (range 117–180) — the dominant cost term |
+| **Image-push ack latency** | **median 176 ms** (range 117–180) on stock — the dominant cost term. 🆕 **CFW direct-FB path measured 2026-08-31: `ms ≈ 60 + bytes/50` (§5.2)** |
 | Framing | AA envelope; **CRC-16/CCITT-FALSE** over the *entire reassembled* payload, final packet only |
 | msgId | **1 byte** — the glasses stop acking at 255 (~223 acked ops), then silence |
 | Multi-packet wall | ⚠ **LAYOUT FRAMES ONLY** — see the correction directly below. **Does not apply to image data.** |
@@ -160,8 +164,9 @@ Measured from Adam's own BTSnoop captures of his own glasses. Canonical source:
 | ⚠ IMU | **NOT out of scope after all** — EvenHub has `Cmd 19/20`, `IMU_CtrlCmd{IMUReportEn, reportFrq}`, `IMU_Report_Data{double x,y,z}`, `OsEventTypeList.IMU_DATA_REPORT=8`. From Even's own schema (§9.1). Untested on our firmware |
 | Physical | **the glasses have no power switch.** Case is the only power control |
 
-**Our firmware:** glasses report **`2.2.2.20`** (`f5`/`f6` of the `09-20` type-2 response,
-8-char field — `docs/G2_BLE_PROTOCOL.md:458`). Ring reports **`2.2.0.0014`**.
+**Our firmware — HISTORICAL (superseded 2026-08-30):** the captures in this section were taken
+on stock **`2.2.2.20`** (ring `2.2.0.0014`). The pair now runs the CFW (g2flash `a5d1c31`,
+reporting `2.2.6.10`) and the ring `2.2.6.0009` — `HANDOFF.md` §10/§10.13.
 
 ### 🔴🔴 THE CANVAS IS 640×480, NOT 576×288 (2026-08-17, from the CFW author)
 
@@ -607,6 +612,12 @@ closed as an option**, and the "pick a branch or merge them ourselves" item is r
 *(corrected 2026-08-17 — was `/16571`; see §5.1. Numbers below the correction line use 11000.)*
 (our measured throughput + our measured ack latency, both from stock 2.2.2 captures).
 
+🆕 **Superseded for the CFW direct-framebuffer path (measured 2026-08-31, §5.2):**
+`ms ≈ 60 + bytes / 50` — a ~60 ms floor and ~50–75 KB/s of transfer, both measured from
+1,488 journalled flushes on the real pair, PC-direct. **Every stock-formula table below is
+now conservative by roughly 3–5× on the CFW path.** The old formula still describes the
+stock-app path and stays for that reason.
+
 ### What G2CC's design costs today (the baseline we're beating)
 
 G2CC tiles are 240×111 (content pane 480×222, 2×2). Packed 4bpp = **13,438 B/tile** = 4 chunks
@@ -708,6 +719,32 @@ is **not** a physical-layer or connection-interval ceiling — it is above that,
 path. That narrows the hunt this section describes and is the first new evidence on it since the
 capture analysis. It says nothing about **ack latency**, which is still the modeled 176 ms and
 still the number that prices the display design (§11 #1).
+
+### 🆕 5.2 The direct-framebuffer path measured on hardware (2026-08-31)
+
+**Measured on Adam's pair, CFW `a5d1c31`, PC-direct over BlueZ**, from the shell's own journal:
+every successful flush records its wire bytes and its submit→ack time (fragmentation included).
+n = 1,488 across the first-light and first-refinement sessions.
+
+| flush size | n | median submit→ack |
+|---|---:|---:|
+| < 400 B (chrome cells, clock ticks) | 899 | **60 ms** (p10 41, min 33) |
+| 400 B – 2 KB (scroll steps, boxes) | 410 | **83 ms** |
+| 2 – 6 KB (content repaints, Main keyframe ~4.2 KB) | 132 | **138 ms** |
+| 6 – 15 KB (dense window paints) | 46 | **201 ms** |
+| 24.6 KB (the heaviest stereo paint seen) | 1 | 540 ms |
+
+⇒ **`ms ≈ 60 + bytes/50`** (a ~60 ms floor + ~50–75 KB/s of transfer). Against the stock-path
+model (`176 + bytes/11`) the floor is ~3× lower and the transfer term ~4–7× faster. A dense
+full-screen 640×480 keyframe (~10 KB) lands in ~200–270 ms ⇒ **~4 fps sustained full-frame**;
+the heaviest frame observed (24.6 KB) ⇒ ~2 fps. That answers "how fast is full-screen imagery"
+(REFINEMENT.md §6) at the honest level: 2–4 fps for dense frames, faster for sparse ones, and
+small-damage batches ride the 60 ms floor.
+
+⚠ **Scope:** one host (beardos, BlueZ, otherwise idle), PC-direct — the phone-bridged path is
+unmeasured and may differ; and this does **not** retire the 7–13 KB/s row above, which is the
+stock EvenHub path on stock firmware. The ~10× shortfall question (§5.1) is about that path;
+this section says the CFW path on this host clears at least ~50 KB/s of it.
 
 ### Four hypotheses tested and REFUTED
 

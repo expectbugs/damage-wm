@@ -114,6 +114,47 @@ object SettingsMsg {
         Pb.l(4, Pb.v(1, 1)),
     )
 
+    /** Device-info READ, the BARE form G2CC's hijack session live-confirmed
+     *  (`08 02 10 <msgId>` — docs/G2_BLE_PROTOCOL.md §10): it draws the 45 B
+     *  response whose f4 block carries battery=12/charging=13. The CFW
+     *  (2026-08-31, on glass) answers [settingsQuery]'s f4-sub-request form
+     *  WITHOUT the device-info block, so the battery poll must use this one;
+     *  the capability string (field 100) rides every READ response either way. */
+    fun deviceInfoQuery(msgId: Int): ByteArray = Pb.cat(
+        Pb.v(1, 2),
+        Pb.v(2, msgId),
+    )
+
+    /** Panel-brightness WRITE — faceclaw g2protocol/BleProtocol.java:321
+     *  buildSetBrightness (exercised): {f1=1 (write), f2=msgId, f3 =
+     *  DeviceReceiveInfoFromAPP{ f1 = brightness{ f1=auto(0/1)[, f2=level] }}}.
+     *  Level is the firmware's own 0–100 scale (nonlinear — faceclaw: ~30 is
+     *  dim-but-readable indoors, ~60 bright outdoors); the level field is
+     *  omitted entirely when auto, exactly as the reference sends it. */
+    fun brightnessWrite(msgId: Int, auto: Boolean, level: Int): ByteArray = Pb.cat(
+        Pb.v(1, 1),
+        Pb.v(2, msgId),
+        Pb.l(3, Pb.l(1,
+            if (auto) Pb.v(1, 1)
+            else Pb.cat(Pb.v(1, 0), Pb.v(2, level.coerceIn(0, 100))))),
+    )
+
+    /** Glasses battery + charging from a settings READ response: the nested
+     *  device-info message (payload field 4) carries battery=12, charging=13 —
+     *  G2CC docs/G2_BLE_PROTOCOL.md §10 ("09-00 f12=<battery%>",
+     *  capture-confirmed, hardware-correlated 73→71%) and the vendor schema
+     *  (g2-kit gen/g2_setting_pb.ts DeviceReceiveRequestFromAPP 12/13).
+     *  Null when the response carries no device-info block. */
+    fun parseBattery(payload: ByteArray): Pair<Int, Boolean>? {
+        return try {
+            val info = Pb.bytesField(payload, 4) ?: return null
+            val pct = Pb.varintField(info, 12)?.toInt() ?: return null
+            pct.coerceIn(0, 100) to (Pb.varintField(info, 13) == 1L)
+        } catch (e: IllegalArgumentException) {
+            null
+        }
+    }
+
     /** Extract the capability string from a settings response payload, or null. */
     fun parseCapability(payload: ByteArray): String? = try {
         Pb.bytesField(payload, CAPABILITY_FIELD)?.toString(Charsets.UTF_8)
@@ -126,5 +167,24 @@ object SettingsMsg {
     fun missingCaps(capability: String): List<String> {
         val tokens = caps(capability)
         return REQUIRED_CAPS.filter { it !in tokens }
+    }
+}
+
+/**
+ * sid 0x91 — the ring data relay (UX_RING_DATA_RELAY_ID = 145, vendor schema
+ * g2-kit gen/ring_pb.ts; overview.md §9.1): RingDataPackage{commandId=1,
+ * magicRandom=2, event=3, rawData=4}, RingRawData{battery=1, chargeStates=2,
+ * hr=3, …}. Damage only READS relayed frames (ring battery for the chrome);
+ * it never requests — whether the glasses push RingRawData unprompted is an
+ * open probe (CAPABILITIES.md §3, graded V-schema / U-on-our-wire).
+ */
+object RingMsg {
+    const val SID = 0x91
+
+    /** Ring battery percent from a relayed RingDataPackage, or null. */
+    fun parseBattery(payload: ByteArray): Int? = try {
+        Pb.bytesField(payload, 4)?.let { raw -> Pb.varintField(raw, 1)?.toInt()?.coerceIn(0, 100) }
+    } catch (e: IllegalArgumentException) {
+        null
     }
 }

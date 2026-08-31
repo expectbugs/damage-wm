@@ -196,6 +196,10 @@ class PathTransport(
         active?.transport?.clearDiagFlags()
     }
 
+    override fun setBrightness(auto: Boolean, level: Int) {
+        active?.transport?.setBrightness(auto, level)
+    }
+
     override suspend fun stop() {
         val a = active
         active = null

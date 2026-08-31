@@ -44,7 +44,7 @@ they meant — including ours.
 | **No `LE_Conn_Update` is ever issued for handle 65 (R lens)** | **M** | capture; 64 and 66 both get explicit ones |
 | Cause of the ~10× shortfall | **U** | HCI can't separate stack / app cadence / BT-WiFi coexistence |
 | Image ack latency median 176 ms | **M** | capture, stock 2.2.2 only |
-| **CFW ack latency ~50 ms on the direct-framebuffer path** | **M** ⚠ | first light 2026-08-30, the shell's own `ackMsEma` while driving the real pair PC-direct. **Measured on a mostly-idle shell** (clock ticks, small chrome cells) — the light-payload end. It establishes the floor is ~3.5x lower than the 176 ms everything was priced with; it does NOT establish the curve under a full keyframe. Re-measure under real content before re-pricing `overview.md` §5 |
+| **CFW ack latency — the CURVE: `ms ≈ 60 + bytes/50`** | **M** | 2026-08-31, n=1,488 journalled flushes on the real pair PC-direct (`overview.md` §5.2): floor median 60 ms (min 33), transfer ~50–75 KB/s, dense full-frame 2–4 fps. Supersedes the 2026-08-30 ~50 ms floor-only EMA. Scope: one host (beardos/BlueZ); the phone-bridged path is unmeasured |
 | msgId (`MagicRandom`, pb field 2) is effectively 1 byte | **C** | our hardware finding + g2-kit, independently |
 | ~1000 B wall applies to **layout frames only** | **M** | largest layout frame observed = 401 B; image chunks are 4096 B / 18 fragments |
 
@@ -93,7 +93,7 @@ they meant — including ours.
 | Keepalive self-sustains under image traffic | **V** | `FW_KEEPALIVE_RESET()` on every image message |
 | Stale-compositing-base hazard (buffer two frames back) | **S** | Faceclaw comment; says fixed by the snapshot FIFO, but the flag comment is stale |
 | Bulk pixels → LEFT arm, control → RIGHT | **I** ⚠ | inferred from Faceclaw's code (5 call sites, `sendImagesToLeft=true`); **no capture** |
-| CFW ack latency / msgId-255 under CFW / mode-8 limits in practice | **U** | hardware-blocked |
+| ~~CFW ack latency~~ (measured — see the transport table) · msgId-255 under CFW · mode-8 limits in practice | **U** (the last two) | msgId-255 and the real batch limits remain unprobed |
 
 ## Input
 
@@ -103,7 +103,7 @@ they meant — including ours.
 | Input source byte `0x2034dc30`: 0/1 = L/R temple, 4 = ring | **V** | `gesture_fwd.c` |
 | `EventSourceType` (protobuf) 1=GLASSES_R, 2=RING, 3=GLASSES_L | **V** | vendor schema — ⚠ **different numbering from the firmware source byte above; do not conflate** |
 | G2CC saw scroll only at content boundaries, `fullBleed` text mode only | **M** | our own `WINDOW_API.md` §3.4 — the firmware widget owned the scroll |
-| **Per-notch scroll is available under the CFW carrier layout** | **C** | the capture container holds one space so it can never scroll internally ⇒ every notch is a boundary; Faceclaw consumes scroll as per-notch deltas (`file-browser.ts:274`, `launcher-app.ts:206`) and drives **pinball flippers** with it |
+| **Per-notch scroll works under the CFW carrier layout** | **M** | in daily use since 2026-08-30: every ring notch arrives as its own SCROLL event and drives the shell (was C, from Faceclaw's code). Still open: whether the ring coalesces very fast spins, and its event-rate ceiling |
 | Per-notch scroll comes from dropping firmware containers, **not from the CFW** | **I** | `gesture_fwd.c` does not touch scroll; it follows from the layout |
 | Ring's own BLE link carries decodable gestures (`0x04` SWIPE_UP / `0x05` SWIPE_DOWN, + 32-bit tick) | **C** | `FaceclawRingEventDecoder.java`, two frame shapes |
 | ~~Ring link is "battery/firmware/sensors only; navigation input does NOT come over it"~~ | ❌ | **withdrawn** — `G2_BLE_PROTOCOL.md` §11 is wrong or incomplete; Faceclaw decodes gestures from it |
@@ -166,6 +166,17 @@ Everything here backs a decision in [`DESIGN.md`](DESIGN.md).
 | The glasses **require** an encrypted/bonded link before GATT | **U** ⚠ | every capture we hold was taken from an already-bonded phone (LE Secure Connections, Rand=0/EDIV=0), so the unbonded case is simply not in the data. beardos has never bonded with the pair |
 | What a mode-12 atlas upload costs, and whether 13/14 render as modeled on glass | **U** | modeled byte-exactly, never run on hardware. First-light items 19–20 |
 
+### Measured during the refinement wave (2026-08-31, on the real pair)
+
+| claim | grade | basis |
+|---|---|---|
+| The CFW answers the f4-sub-request settings READ **without** the device-info block; the BARE `08 02 10 <msgId>` form returns it (battery f4.12 / charging f4.13) | **M** | the battery cell stayed empty until the poll switched to G2CC §10's live-confirmed bare form; glasses then reported 79 % |
+| The glasses send **unsolicited 09-01 device-info updates** on the CFW too | **M** | the first battery reading arrived before our first poll fired |
+| faceclaw's brightness write (`f3={f1={auto[,level]}}`, sid 0x09) works on the CFW | **M** | pushed per Settings step + per session start; the panel follows |
+| A start-choreography request that lands during the firmware's teardown of a PREVIOUS session can be **eaten** (capability query and carrier CREATE both observed) | **M** | three parked starts; both gates now RE-ASK on a 2 s pacing tick and each has rescued a start since |
+| `Sys_ItemEvent` events 9/10 arrive with **source 0** on the wire (EventSource absent) | **M** | run logs; the shell's ring-only filter had discarded them — the switcher was unreachable until 9/10 bypassed it |
+| A deliberate ~1 s hold raises event 9 from ring AND temple; accidental brushes end early (their event-10s mean "a touch ended") | **M** | five deliberate holds → five 9+10 pairs; zero 9s across a full day of ordinary use |
+
 ## Deployment topology (added 2026-08-20 — `DESIGN.md` §10)
 
 | claim | grade | basis |
@@ -190,12 +201,12 @@ Everything here backs a decision in [`DESIGN.md`](DESIGN.md).
 2. **The arm split (bulk → LEFT)** — inferred from someone else's code, not observed. It decides whether a flush is one message or two. **Verify with a two-arm capture at first light.**
 3. **Container name cap** — 14 vs 16, and our own data supports neither.
 4. **Width headroom = depth budget** — author's prose only; it constrains layout if true.
-4b. **Per-notch scroll** — graded C from Faceclaw's code, never seen on our wire. **§12's
-   "fixed cursor + panning list" decision depends on it entirely** and falls with it.
+4b. ~~**Per-notch scroll**~~ — **resolved 2026-08-30/31: works, in daily use** (the fixed-cursor
+   design it carried is live). Only the fast-spin coalescing question remains.
 5. **"No firmware read-back path"** — the vendor's own service enum contains a file-export service we have never probed. If it works, the one irreversible thing about this project stops being irreversible.
 6. 🆕 **The rect budget of 5** (`DESIGN.md` §8.2) — graded **I**, derived from reading `cfw_diag()`, never observed. It governs how much damage fits in one flush, and being wrong is *silent*: a retransmitted batch whose fids have aged out gets re-applied instead of skipped. The mitigation that does not depend on the number being right is **never putting the same fid on the wire twice**; verify the budget itself at first light.
 
-## What cannot be resolved before flashing
+## What cannot be resolved before flashing *(historical — the flash happened 2026-08-30; of the list below, ack latency is measured, the arm split runs daily but unproven-optimal, and msgId-255 / batch limits / stale-base remain unprobed)*
 
 CFW ack latency · msgId-255 under CFW · real mode-8 batch limits · stale-compositing-base behaviour ·
 whether the arm split is right · whether 2.2.2 → CFW actually takes.

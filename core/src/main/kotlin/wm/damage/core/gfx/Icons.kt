@@ -54,22 +54,80 @@ object Icons {
     /** The silent-mode analog clock (§1.5): dots and hands only, NO bezel (a
      *  circle outline breaks the RLE run on every row; twelve dots do not) and
      *  NO second hand, ever. The minute hand snaps once a minute. */
+    /** Seven-segment digital clock (REFINEMENT.md §5, second revision — Adam
+     *  2026-08-31: "forget analog, make it good-looking digital numbers").
+     *  Classic LED-clock digits, DRAWN (never typed: the locked faces stay
+     *  four): tapered hexagonal segments with softened edge rows and corner
+     *  gaps, 12-hour, no leading zero. Horizontal segments are single long
+     *  runs, so the RLE cost stays tiny. Extent: 138x44 from (x0,y0). Keep in
+     *  lockstep with design/render_shots.py seven_seg_clock(). */
+    fun sevenSegClock(s: Gray8, x0: Int, y0: Int, hh: Int, mm: Int) {
+        // bit order A B C D E F G, bit 6 .. bit 0
+        val segs = intArrayOf(
+            0b1111110, 0b0110000, 0b1101101, 0b1111001, 0b0110011,
+            0b1011011, 0b1011111, 0b1110000, 0b1111111, 0b1111011,
+        )
+        val w = 26; val t = 6
+        fun hseg(x: Int, y: Int, len: Int) {
+            for (r in 0 until t) {
+                val inset = kotlin.math.abs(2 * r - (t - 1)) / 2
+                s.fillRect(x + inset, y + r, len - 2 * inset, 1,
+                    Level.of(if (r == 0 || r == t - 1) 6 else 9))
+            }
+        }
+        fun vseg(x: Int, y: Int, len: Int) {
+            for (c in 0 until t) {
+                val inset = kotlin.math.abs(2 * c - (t - 1)) / 2
+                s.fillRect(x + c, y + inset, 1, len - 2 * inset,
+                    Level.of(if (c == 0 || c == t - 1) 6 else 9))
+            }
+        }
+        fun digit(x: Int, d: Int) {
+            val m = segs[d]
+            if (m and 0b1000000 != 0) hseg(x + 4, y0, w - 8)              // A
+            if (m and 0b0100000 != 0) vseg(x + w - t, y0 + 7, 12)         // B
+            if (m and 0b0010000 != 0) vseg(x + w - t, y0 + 26, 12)        // C
+            if (m and 0b0001000 != 0) hseg(x + 4, y0 + 38, w - 8)         // D
+            if (m and 0b0000100 != 0) vseg(x, y0 + 26, 12)                // E
+            if (m and 0b0000010 != 0) vseg(x, y0 + 7, 12)                 // F
+            if (m and 0b0000001 != 0) hseg(x + 4, y0 + 19, w - 8)         // G
+        }
+        val h12 = ((hh + 11) % 12) + 1
+        if (h12 >= 10) digit(x0, 1)
+        digit(x0 + 32, h12 % 10)
+        s.fillRect(x0 + 67, y0 + 12, 6, 6, Level.of(9))
+        s.fillRect(x0 + 67, y0 + 28, 6, 6, Level.of(9))
+        digit(x0 + 80, mm / 10)
+        digit(x0 + 112, mm % 10)
+    }
+
+    /** The earlier analog face (ticks, tapered hands, hub) — UNUSED since the
+     *  2026-08-31 digital revision; kept in case analog returns as a setting. */
     fun analogClock(s: Gray8, cx: Int, cy: Int, r: Int, hh: Int, mm: Int) {
         for (i in 0 until 12) {
             val a = Math.toRadians(i * 30.0 - 90)
-            val px = (cx + r * cos(a)).toInt()
-            val py = (cy + r * sin(a)).toInt()
-            val sz = if (i % 3 == 0) 3 else 2
-            val lv = if (i % 3 == 0) Level.of(5) else Level.DIM
-            s.fillRect(px - sz, py - sz, 2 * sz + 1, 2 * sz + 1, lv)
+            if (i % 3 == 0) {
+                // cardinal: a radial tick — axis-aligned, so one run per row
+                s.line((cx + (r - 8) * cos(a)).toInt(), (cy + (r - 8) * sin(a)).toInt(),
+                    (cx + r * cos(a)).toInt(), (cy + r * sin(a)).toInt(), Level.of(6), 3)
+            } else {
+                val px = (cx + r * cos(a)).toInt()
+                val py = (cy + r * sin(a)).toInt()
+                s.fillRect(px - 1, py - 1, 3, 3, Level.DIM)
+            }
         }
-        fun hand(frac: Double, length: Double, width: Int) {
+        fun hand(frac: Double, length: Double, wNear: Int, wFar: Int, tail: Double) {
             val a = Math.toRadians(frac * 360 - 90)
-            s.line(cx, cy, (cx + length * cos(a)).toInt(), (cy + length * sin(a)).toInt(), Level.of(7), width)
+            val mx = (cx + length * 0.55 * cos(a)).toInt()
+            val my = (cy + length * 0.55 * sin(a)).toInt()
+            s.line(cx, cy, mx, my, Level.of(8), wNear)
+            s.line(mx, my, (cx + length * cos(a)).toInt(), (cy + length * sin(a)).toInt(), Level.of(8), wFar)
+            s.line(cx, cy, (cx - tail * cos(a)).toInt(), (cy - tail * sin(a)).toInt(), Level.of(8), wNear)
         }
-        hand(((hh % 12) + mm / 60.0) / 12.0, r * 0.52, 5)
-        hand(mm / 60.0, r * 0.80, 3)
-        s.fillRect(cx - 2, cy - 2, 5, 5, Level.of(7))
+        hand(((hh % 12) + mm / 60.0) / 12.0, r * 0.55, 5, 3, r * 0.16)   // hour: short, wide
+        hand(mm / 60.0, r * 0.86, 3, 2, r * 0.20)                        // minute: long, slim
+        s.fillRect(cx - 3, cy - 3, 7, 7, Level.of(4))                    // hub plate
+        s.fillRect(cx - 1, cy - 1, 3, 3, Level.of(9))                    // pin
     }
 
     /** One icon of the shared set (§4.5b), box (x, y, w, h). */

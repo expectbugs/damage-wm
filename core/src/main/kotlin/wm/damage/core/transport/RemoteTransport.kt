@@ -84,6 +84,14 @@ private data class Ctl(
     val rows: Int = 0,
     val blobLen: Int = 0,
     val rawLen: Int = 0,
+    // brightness (t="brightness", driver -> server) and battery telemetry
+    // (t="batt", server -> driver) — 2026-08-31. Additive: an older peer's
+    // decoder ignores unknown keys and unknown t values are logged, not fatal.
+    val auto: Boolean = false,
+    val level: Int = 0,
+    val gPct: Int? = null,
+    val gChg: Boolean? = null,
+    val rPct: Int? = null,
 )
 
 @Serializable
@@ -174,6 +182,18 @@ class RemoteTransportClient(
 
     override fun injectInput(type: Int) =
         emit(TransportEvent.Input(type, EvenHubMsg.SRC_RING), "Input")
+
+    /** The write must reach the glasses through the far end's transport. */
+    override fun setBrightness(auto: Boolean, level: Int) {
+        val o = out ?: return
+        scope.launch {
+            try {
+                o.send(Ctl(t = "brightness", auto = auto, level = level))
+            } catch (e: Exception) {
+                Log.w("remote-transport", "brightness over the seam not sent: ${e.message}")
+            }
+        }
+    }
 
     /** From the server's grant (the phone yielded its shell for us) until
      *  start() completes or fails: the arbitration holds the radio off. */
@@ -355,6 +375,7 @@ class RemoteTransportClient(
                 emit(TransportEvent.FlushDone(c.id, c.ok, c.ackMs, c.bytes, c.error), "FlushDone ${c.id}")
             }
             "input" -> emit(TransportEvent.Input(c.evType, c.evSource), "Input")
+            "batt" -> emit(TransportEvent.Battery(c.gPct, c.gChg, c.rPct), "Battery")
             "lease" -> emit(TransportEvent.Lease(c.held, c.detail), "Lease")
             "link" -> emit(TransportEvent.Link(c.connected, c.detail), "Link")
             "flags" -> emit(TransportEvent.DiagFlags(c.flags), "DiagFlags")
@@ -664,6 +685,7 @@ class RemoteTransportServer(
                             Log.w("transport-server", "cleardiag: ${e.message}")
                         }
                     }
+                    "brightness" -> inner.setBrightness(c.auto, c.level)
                     "stop" -> {
                         runBlocking { startJob?.cancelAndJoin() }
                         if (innerStarted.getAndSet(false)) runBlocking { inner.stop() }
@@ -707,6 +729,7 @@ class RemoteTransportServer(
         is TransportEvent.Link -> Ctl(t = "link", connected = ev.connected, detail = ev.detail)
         is TransportEvent.DiagFlags -> Ctl(t = "flags", flags = ev.flags)
         is TransportEvent.Fault -> Ctl(t = "fault", detail = "${ev.what}:${ev.detail}")
+        is TransportEvent.Battery -> Ctl(t = "batt", gPct = ev.glassesPct, gChg = ev.glassesCharging, rPct = ev.ringPct)
         is TransportEvent.FlushDone -> null   // delivered per-flush with id mapping
     }
 

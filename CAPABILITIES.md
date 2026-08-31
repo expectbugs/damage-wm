@@ -6,8 +6,9 @@ do. Everything below is one place, with **how you reach it on the wire** and **h
 (grades from [`CLAIMS.md`](CLAIMS.md): **V**endor-authoritative · **M**easured · **C**orroborated ·
 **I**nferred · **S**ingle-source ⚠ · **U**nknown).
 
-Assumes the CFW (`g2flash` / SybilSight 2.2.6.11) and the direct-framebuffer path. Written
-2026-08-17 at the close of the research phase.
+Assumes the CFW and the direct-framebuffer path — which, since 2026-08-30, is what the glasses
+actually run (g2flash `a5d1c31`, reporting `2.2.6.10`). Written 2026-08-17 at the close of the
+research phase; grades touched 2026-08-31 where the refinement wave measured things.
 
 **Explode against the ✅ and 🟡 rows. Treat ⚠ and ❓ as ideas that need a probe first.**
 
@@ -35,7 +36,7 @@ Assumes the CFW (`g2flash` / SybilSight 2.2.6.11) and the direct-framebuffer pat
 | **Unbounded scroll** | mode 8 { mode 9 shift + mode 3 fill } | ✅ V |
 | **Per-lens stereo shift** | high bit of mode byte · same pixels, different box per eye | ✅ V |
 | Anti-aliased text at 16 levels | host-side rasterisation; cheaper than we modelled | ✅ M |
-| **Texture cache — multiple screens of on-device memory** | in development by the CFW author, ~1 week out | 🟡 S |
+| **Texture cache — 64 KiB, lease-scoped** | ✅ LANDED (CFW `a5d1c31`, modes 11–15): wire + byte-exact model built, compositor adoption deliberately pending the on-glass check (first-light items 19–20) | ✅ V |
 | Diagnostic overlay (`f_reorder`/`f_skip`/`f_dup`/`f_snap_of`) | mode 7 sub 2 | ✅ V |
 | Off-panel scratch / save-under | ❌ **does not exist** — the full 640×480 is visible | ❌ |
 
@@ -49,7 +50,7 @@ FB lease must be renewed every 45 s or stock LVGL repaints over you.
 | capability | how | grade |
 |---|---|---|
 | Tap / double-tap / long-press / long-press-release | EvenHub `Sys_ItemEvent`; CFW adds SysEvent 9/10 for ring long-press | ✅ V |
-| **Per-notch scroll** | every notch delivered (the 1-space capture container can't scroll internally) | 🟡 C |
+| **Per-notch scroll** | every notch delivered — **in daily use since 2026-08-30**; fast-spin coalescing still unprobed | ✅ M |
 | **Per-source discrimination** (L temple / R temple / ring) | firmware source byte `0x2034dc30`; protobuf `EventSourceType` | ✅ V |
 | **Direct ring gestures, bypassing the glasses** | ring's own BLE link · `0x04` SWIPE_UP / `0x05` SWIPE_DOWN + **32-bit tick** ⇒ velocity possible | 🟡 C |
 | Both-temple long-press → stock Silent Mode | unpatched by anyone — **keep as the hardware escape hatch** | ✅ M |
@@ -66,14 +67,14 @@ FB lease must be renewed every 45 s or stock LVGL repaints over you.
 | **Piezo buzzer** — presets, notes, **arbitrary 1–20000 Hz tones, and 48-step sequences** | mode 5 kinds 0–4 · the only audio output on a device with no speaker | ✅ V |
 | **Ring biometrics**: hr, spo2, hrv, temp, steps, kcal, battery — all with timestamps | `RingDataPackage.RingRawData` on sid 0x91 relay | 🟡 V |
 | Ambient light / auto-brightness, head-up angle, anti-shake | sid 0x80 `DeviceInfo` · sid 0x09 settings | 🟡 V |
-| Glasses battery / charging / case SoC / lid / in-case | sid 0x09 field 12–13; sid 0x81 `GlassesCaseInfo` | ✅ M |
+| Glasses battery / charging / case SoC / lid / in-case | sid 0x09 f4.12–13 (⚠ the BARE `08 02 10 xx` READ — the f4-sub-request form returns no device-info on the CFW, measured 2026-08-31); sid 0x81 `GlassesCaseInfo`. **In daily use: the chrome G cell** | ✅ M (CFW) |
 | Glasses microphone | ⚠ disconnects >25 s; audio is on service `6450` | ⚠ S |
 
 ## 4. System / plumbing
 
 | capability | how | grade |
 |---|---|---|
-| Settings: brightness, silent mode, head-up, wear, lens x/y, dominant hand, units | sid 0x09 `G2SettingPackage` | ✅ V |
+| Settings: brightness, silent mode, head-up, wear, lens x/y, dominant hand, units | sid 0x09 `G2SettingPackage` — **brightness write exercised on our own wire 2026-08-31** (faceclaw's form; the panel follows live) | ✅ M (brightness) / V |
 | **Gesture remapping** (`APP_Send_Gesture_Control{screenOn, operationType, apptype}`) | sid 0x09 — possibly relevant to the gloves problem *without* CFW | ❓ V |
 | **On-device logger over BLE** — `logStr` streamed to host, file list/delete | sid 0x0F `logger.proto` · **would make CFW decompress failures visible** | 🟡 V |
 | **File export from device** (`EXPORT_START/DATA/RESULT_CHECK`) | sid 198/199 · **never probed. If it works, "no firmware read-back" stops being true** | ❓ V |
@@ -109,5 +110,6 @@ it can be adopted without rework.
 the project's own rule) and the **file-export service** (attacks the one genuinely irreversible
 thing about this project). Both are cheap probes and neither has been touched.
 
-**Most likely to be wrong:** per-notch scroll and the arm split, both graded from someone else's
-code rather than our wire. §12's fixed-cursor design falls if the first one does.
+**Most likely to be wrong** *(updated 2026-08-31)*: ~~per-notch scroll~~ (resolved — works, daily
+use) and the arm split, which runs daily but is still unproven as the *optimal* split (the
+two-arm capture has never been taken).

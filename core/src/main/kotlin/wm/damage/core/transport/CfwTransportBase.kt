@@ -27,6 +27,7 @@ import wm.damage.core.wire.AaFrame
 import wm.damage.core.wire.EvenHubMsg
 import wm.damage.core.wire.LaunchMsg
 import wm.damage.core.wire.Pb
+import wm.damage.core.wire.RingMsg
 import wm.damage.core.wire.SettingsMsg
 
 /**
@@ -111,6 +112,15 @@ abstract class CfwTransportBase(
     }
 
     override fun injectInput(type: Int) = emitInput(type, EvenHubMsg.SRC_RING)
+
+    /** Panel brightness (2026-08-31): a sid-0x09 write on the control lane,
+     *  fire-and-forget like the lease (msgId 0; the firmware's ack is not
+     *  awaited — a lost write is corrected by the next push or session start). */
+    override fun setBrightness(auto: Boolean, level: Int) {
+        if (!_state.value.started) return
+        Log.i(name, "brightness -> ${if (auto) "auto" else "$level"}")
+        controlQueue.trySend(CtlWork.Settings(sessionEpoch.get(), SettingsMsg.brightnessWrite(0, auto, level)))
+    }
 
     protected val _events = MutableSharedFlow<TransportEvent>(extraBufferCapacity = 1024)
     override val events = _events.asSharedFlow()
@@ -303,6 +313,12 @@ abstract class CfwTransportBase(
                     .format(frame.flag, hex))
             }
             SettingsMsg.SID -> {
+                // Battery rides EVERY device-info response (payload f4.12/13 —
+                // G2CC §10, capture-confirmed), the capability-gate answer and
+                // the periodic poll alike: parse it before any gate check.
+                SettingsMsg.parseBattery(frame.payload)?.let { (pct, chg) ->
+                    emitBattery(glassesPct = pct, glassesCharging = chg)
+                }
                 if (!awaitingCapability) {
                     Log.d(name, "settings frame outside the capability gate ignored")
                     return
@@ -317,6 +333,35 @@ abstract class CfwTransportBase(
                     capabilityChannel.trySend("")
                 }
             }
+            RingMsg.SID -> {
+                // The ring data relay. Whether the glasses push RingRawData
+                // unprompted is an open probe (CAPABILITIES.md §3) — read what
+                // arrives, log what does not parse, request nothing.
+                val pct = RingMsg.parseBattery(frame.payload)
+                if (pct != null) emitBattery(ringPct = pct)
+                else Log.i(name, "sid-0x91 ring relay without rawData battery: " +
+                    frame.payload.take(24).joinToString("") { "%02x".format(it) })
+            }
+        }
+    }
+
+    private var lastLoggedGlassesPct = -1
+    private var lastLoggedRingPct = -1
+
+    private fun emitBattery(glassesPct: Int? = null, glassesCharging: Boolean? = null, ringPct: Int? = null) {
+        // log CHANGES (the 60 s poll would otherwise repeat one line forever):
+        // the first-light lesson — a telemetry path you cannot observe in the
+        // log is undiagnosable when the cell stays blank
+        if (glassesPct != null && glassesPct != lastLoggedGlassesPct) {
+            lastLoggedGlassesPct = glassesPct
+            Log.i(name, "battery: glasses $glassesPct%${if (glassesCharging == true) " (charging)" else ""}")
+        }
+        if (ringPct != null && ringPct != lastLoggedRingPct) {
+            lastLoggedRingPct = ringPct
+            Log.i(name, "battery: ring $ringPct% (sid-0x91 relay)")
+        }
+        if (!_events.tryEmit(TransportEvent.Battery(glassesPct, glassesCharging, ringPct))) {
+            Log.w(name, "battery event dropped (buffer full): g=$glassesPct r=$ringPct")
         }
     }
 
@@ -439,11 +484,31 @@ abstract class CfwTransportBase(
             val cap = try {
                 val queryFailed = CompletableDeferred<String>()
                 controlQueue.trySend(CtlWork.Settings(epoch, SettingsMsg.settingsQuery(0), queryFailed))
-                // the answer, the sweep's sentinel, or the query's own write
-                // failing — every way the gate can end is a completion here
-                kotlinx.coroutines.selects.select<String> {
-                    capabilityChannel.onReceive { it }
-                    queryFailed.onAwait { reason -> SWEPT + "capability query not written: $reason" }
+                // Seen live 2026-08-31 (HANDOFF.md §12): a query that lands
+                // while the firmware is still settling a PREVIOUS session's
+                // context (its SYSTEM_EXIT / sid-0x01 status chatter) can be
+                // eaten — three successive starts parked here. The READ is
+                // idempotent, so RE-ASK on a pacing tick until an answer or
+                // the sweep arrives. Pacing, not a timeout (the keeper's
+                // 250 ms poll is the precedent): the gate never gives up on
+                // its own, it just repeats the question.
+                val reask = scope.launch {
+                    while (true) {
+                        delay(CAPABILITY_REASK_MS)
+                        if (!awaitingCapability) break
+                        Log.i(name, "capability query unanswered after ${CAPABILITY_REASK_MS} ms — asking again")
+                        controlQueue.trySend(CtlWork.Settings(epoch, SettingsMsg.settingsQuery(0), CompletableDeferred()))
+                    }
+                }
+                try {
+                    // the answer, the sweep's sentinel, or the query's own write
+                    // failing — every way the gate can end is a completion here
+                    kotlinx.coroutines.selects.select<String> {
+                        capabilityChannel.onReceive { it }
+                        queryFailed.onAwait { reason -> SWEPT + "capability query not written: $reason" }
+                    }
+                } finally {
+                    reask.cancel()
                 }
             } finally {
                 awaitingCapability = false
@@ -470,7 +535,27 @@ abstract class CfwTransportBase(
             updateState { it.copy(detail = "carrier create") }
             val createAck = CompletableDeferred<EvenHubMsg.Ack>()
             controlQueue.trySend(CtlWork.Hub(epoch, EvenHubMsg.carrierCreate(0), createAck))
-            val created = createAck.await()
+            // Same eaten-message class as the capability gate (HANDOFF.md §12,
+            // seen live one gate further down): a CREATE that lands in the
+            // firmware's previous-session teardown is never answered. RE-SEND
+            // on the same pacing tick. A duplicate CREATE before the warmup is
+            // safe — it recreates the empty carrier, and the sacrificial
+            // warmup follows the LAST create either way. The same deferred
+            // rides every send: whichever ack arrives first completes it, and
+            // the sweep fails it on a session end, so the loop always ends.
+            val createReask = scope.launch {
+                while (true) {
+                    delay(CAPABILITY_REASK_MS)
+                    if (createAck.isCompleted) break
+                    Log.i(name, "carrier CREATE unacked after ${CAPABILITY_REASK_MS} ms — sending again")
+                    controlQueue.trySend(CtlWork.Hub(epoch, EvenHubMsg.carrierCreate(0), createAck))
+                }
+            }
+            val created = try {
+                createAck.await()
+            } finally {
+                createReask.cancel()
+            }
             if (created.errorCode != null)
                 throw LintError("carrier CREATE rejected: ${created.statusText} (${created.errorCode})")
 
@@ -561,6 +646,21 @@ abstract class CfwTransportBase(
             while (isActive) {
                 delay(if (instant) 50 else 30_000)
                 if (_state.value.started) controlQueue.trySend(CtlWork.Hub(sessionEpoch.get(), EvenHubMsg.carrierTextUpgrade(0), null))
+            }
+        }
+        scope.launch {
+            // Battery poll (2026-08-31): the BARE device-info READ (G2CC §10's
+            // live-confirmed form — the f4-sub-request form comes back without
+            // the device-info block on the real CFW). First ask ~5 s after
+            // start, then once a minute; onNotifyPacket parses f4.12/13 from
+            // every sid-0x09 response, unsolicited 09-01 updates included.
+            var first = true
+            while (isActive) {
+                delay(if (instant) 60 else if (first) 5_000 else 60_000)
+                if (_state.value.started) {
+                    first = false
+                    controlQueue.trySend(CtlWork.Settings(sessionEpoch.get(), SettingsMsg.deviceInfoQuery(0)))
+                }
             }
         }
         scope.launch {
@@ -1140,6 +1240,10 @@ abstract class CfwTransportBase(
          *  prelude (faceclaw sleepDuringConnectSettling(800)) — pacing, not a
          *  timeout; skipped when [instant]. */
         private const val PRELUDE_SETTLE_MS = 800L
+        /** Re-ask pacing for the capability gate (2026-08-31): the firmware
+         *  can eat a settings READ sent while it settles a previous session's
+         *  context. Pacing, not a timeout — the gate never exits on time. */
+        private const val CAPABILITY_REASK_MS = 2_000L
 
         /** Reporting threshold for the stall diagnostic — well past any
          *  measured ack (176 ms median, 7–13 KB/s); reports, never acts. */

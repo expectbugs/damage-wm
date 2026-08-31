@@ -1,10 +1,11 @@
 # HANDOFF — the build record
 
-**Map, newest first. Read §11 before anything else.**
+**Map, newest first. Read §12, then §11.**
 
 | § | what | status |
 |---|---|---|
-| **11** | **First light, 2026-08-30** — the PC drove the glasses, the ring drove them, ack latency measured, three defects found | **current** |
+| **12** | **The refinement batch, 2026-08-31** — the whole `REFINEMENT.md` queue built and driven live; the latency curve measured | **current** |
+| **11** | **First light, 2026-08-30** — the PC drove the glasses, the ring drove them, ack latency measured, three defects found | current |
 | **10** | The firmware install: what changed upstream, the image chosen, the dry-run staircase, the result (§10.11), the ring update (§10.13) | **current** |
 | 9 | The earlier install plan | ⛔ **SUPERSEDED by §10** — written against the older g2flash and the older image. Do not follow it |
 | 8 | The finishing build (2026-08-25) | history; its whole gap list is closed |
@@ -1062,3 +1063,105 @@ Legibility on real glass (item 8), the safe area (item 1), per-notch scroll (ite
 disparity (item 3), the rect budget (item 4), the two-arm capture (item 5), msgId-255 under CFW
 (item 7), and the texture cache on glass (items 19–20). **None of the display-quality questions
 have been answered** — the session proved the pipe works, not that the design reads well.
+
+---
+
+## 12. The refinement batch — 2026-08-31, same-day live deploys
+
+Adam wore the glasses while the whole `REFINEMENT.md` queue was built, verified and deployed in
+two batches (plus a third for the clock revision), each behind a full green battery. The desktop
+drove the pair PC-direct throughout; he used every change within minutes of it landing.
+
+**What shipped** (details in `REFINEMENT.md`'s status block and the revised `DESIGN.md` sections):
+
+- **§9 first: the desktop preview at 4×** (integer nearest-neighbour, `-`/`=`, screen-clamped).
+- **§1 chrome depth:** bars inset to the content extent (x 16–624 — a full-width rect cannot
+  stereo-shift) and pushed to plane −2 at `min(d+4, 16)`. `DESIGN.md` §2.2/§2.3/§3.1 revised;
+  the §2.3 table, `GeometryTest`, `render_shots.py` and the lint gate all moved together.
+- **§3b scroll:** `DocView.stepLines/accel` + a shell-side direction-gated ramp (notches ≤250 ms
+  apart multiply the step to 6×; 250–500 ms holds; a pause or reversal resets). Reader actions:
+  "Scroll step" (1–8, default 3) and "Scroll acceleration" (default on). Lists stay 1/notch.
+- **§3a folders:** `BookMeta.folder` (additive, old peers/caches decode), folder rows + counts,
+  descend on tap / ascend on back, per-folder cursor rest, state persisted.
+- **§2 per-app height:** `DamageWindow.preferredHeight`, applied on focus COMMIT (never a
+  switcher preview — §4.3 rule 1), via the same size-change path as Settings (`syncLayout`).
+  Reader prefers the full panel, with a "Height" action row to hand back to the global setting.
+- **§5 clock:** moved top-left + analog redraw — then **reversed by Adam the same session**: now
+  top-RIGHT flush, **digital**, quality rendering (the batch-3 change). Analog kept unused.
+- **§6 measured** — `overview.md` §5.2: from 1,488 journalled flushes, `ms ≈ 60 + bytes/50`
+  (floor median 60 ms, min 33; transfer ~50–75 KB/s; dense full-frame 2–4 fps). The stock-path
+  formula stays for the stock path only.
+
+**Also recorded:** Main-row icons are "very basic" per Adam and want an eventual quality pass
+(future backlog). The §4 switcher/event-9 temple experiment was still pending when this section
+was written — one temple hold while a session runs, watch the log for event 9 vs 10.
+
+**A fourth hardware-found defect, found and fixed during the deploys.** Three successive session
+starts parked at the **capability gate**: the settings READ was sent once and waited forever,
+and a query that lands while the firmware is still settling a *previous* session's context (its
+`SYSTEM_EXIT` event and sid-0x01 status chatter, codes 1016/2006, arrive right then) is simply
+never answered. The first two restarts of the day survived by timing luck; the next three did
+not — and a parked gate holds the links, so the lease from the dead session expires and stock
+repaints while the new session waits on a question the firmware never heard. **Fix:** the gate
+now RE-ASKS on a 2 s pacing tick until an answer or the sweep arrives (`CfwTransportBase`,
+`CAPABILITY_REASK_MS`) — pacing like the keeper's 250 ms poll, not a timeout; the gate still
+never gives up on its own. Verified live: the very next start logged one
+`capability query unanswered after 2000 ms — asking again` and walked straight through to
+`driving via ble`. ⚠ No offline regression test pins this yet — the simulator always answers the
+first query, so the eaten-query case needs a fake link that drops it; noted as follow-up. The
+deeper cause (sessions ending with no FB_RELEASE / mode-11 cleanup, leaving the firmware a
+context to tear down at our next arrival) is the standing argument for adopting **mode 11 in
+`stop()`**, which `IMPLEMENTATION.md` holds for a deliberate build.
+
+**The same class, one gate further down, later the same day:** with the capability re-ask in
+place, the next start parked at the **carrier CREATE** — its query got through first try, and
+the CREATE's ack was the message the teardown chatter ate instead. Whichever single-send await
+is in flight when the firmware resets its context is the one that parks. The CREATE now re-sends
+on the same 2 s pacing tick (safe pre-warmup: a duplicate CREATE recreates the empty carrier,
+and the sacrificial warmup follows the last one either way; the same deferred rides every send).
+The prelude has survived 8/8 starts and the lease/warmup awaits complete on write/ack paths that
+kept working — left alone deliberately; if either ever shows the same park, same treatment.
+**Also recorded:** the settings-by-category ask (Global + one per app) and the scroll verdict
+(ramp too uneven on glass → default 5 lines/notch, acceleration off, both configurable) landed
+in this same batch; the event-9 experiment result lives in `REFINEMENT.md` §4.
+
+**Defect #6 — the biggest of the day: the switcher was unreachable because of OUR §1 source
+filter.** Events 9/10 arrive with `EventSource` ABSENT (source 0) by firmware design — the fact
+was documented in `CLAUDE.md` all along ("a long-press is UNATTRIBUTED") — and
+`Shell.handleInput`'s ring-only check (source ≠ 2 → drop) discarded every real long-press before
+the grammar ran. Both switcher routes were dead since first light. **`LongPressTest` passed the
+entire time because `postGesture` defaults to the ring source** — the harness fed the grammar an
+attribution the wire never carries. Fixed: events 9/10 bypass the source check (§1.2's
+bare-long-press no-op is what keeps the temple harmless, exactly as the rule said); the suite
+now injects 9/10 with source 0; a bare release no longer overwrites the input echo (it follows
+almost every swipe). Lesson, same family as the ack-status enum: **a test default that
+"helpfully" supplies what the wire omits is a model erring permissive — inject what the firmware
+actually sends, byte for byte.**
+
+**Same batch, from Adam's next round of use:** Size is now four TOP-aligned heights
+(288/352/416/480; vpos retired — his fit occludes the bottom, never the top), per-app shadows of
+global settings default to **"global"** with explicit overrides (Reader's Size row is the first),
+and the Settings categories became **directories** (tap in, double-tap out) after inline headers
+proved too slow to scroll past.
+
+**The Reader batch (REFINEMENT.md §11), same day:** descenders fixed at the root (the 24 px line
+box could not hold the normalised 20 px Alegreya's 28 rows; box → 30 px, metrics-derived
+baseline, a loud fit guard — face and size untouched), Reset progress (Settings → Reader, via
+the now-supplier `HostSetting.options`), the first-open **chapter picker** (chapters = spine
+boundaries titled from the book's own nav; row 0 = "From the beginning"; **double-tap always
+backsteps** — Adam's explicit caveat), a "Chapters" action row, and **ebook images rendered in
+place** (token paragraphs + an `ImageDecoder` seam (AWT/BitmapFactory), box-sampled to the
+column, 16-level quantized, no dithering, whole-line strips riding all existing machinery;
+404 images on the real shelf, 380 decode, covers render through the full pipeline).
+`EpubChaptersImagesTest` + the extended `--epub-check` pin it; the snapshot harness now walks
+folders and the picker.
+
+**And the last two dead ends of the day, both "wired to nothing" (REFINEMENT.md §10):**
+brightness now transmits (faceclaw's exercised sid-0x09 write; pushed per Settings step, per
+session start, and across the seam) and the glasses-battery cell fills (the BARE device-info
+READ G2CC live-confirmed — ⚠ the f4-sub-request form returns NO device-info block on the real
+CFW — polled 5 s + 60 s, plus unsolicited 09-01 updates; f4.12/13 → `TransportEvent.Battery`).
+Verified on glass the same hour: brightness lands, **glasses 79 %** read from the real pair.
+Ring relay decode is wired but passive (whether the glasses push RingRawData is an open probe);
+phone battery remains phone-path-only. `BatteryBrightnessTest` pins both round trips through the
+sim, which now models f4.12/13 and the brightness write.

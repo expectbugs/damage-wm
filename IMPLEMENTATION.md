@@ -1,13 +1,12 @@
 # Damage — implementation notes
 
-**First stage built 2026-08-24; the finishing build landed 2026-08-25 (see "The finishing
-build" below and `HANDOFF.md` §8).** The first executable stage of the plan: the shell core, the
-byte-exact glass simulator, the desktop program, and the phone APK — Reader and
-Main only at the app layer, the full shell underneath, everything targeting the
-**CFW display contract** (modes 3/6/8/9, the FB lease, the capability gate).
-Nothing here touches the real glasses: they stay on stock 2.2.2.20 and G2CC
-until flash day, and the two decisions that could not wait (`DESIGN.md` §11
-items 11–12) are now made and coded.
+**First stage built 2026-08-24; finishing build 2026-08-25 (`HANDOFF.md` §8); LIVE ON HARDWARE
+since first light 2026-08-30 (§11); the refinement wave landed 2026-08-31 (§12).** The shell
+core, the byte-exact glass simulator, the desktop program, and the phone APK — Reader, Main and
+Settings at the app layer, the full shell underneath, everything on the **CFW display contract**
+(modes 3/6/8/9 + the 11–15 texture-cache wire layer, the FB lease, the capability gate). The
+desktop drives the real pair PC-direct over BlueZ daily; the phone APK's own BLE glue is written
+and banked but has not yet run on hardware.
 
 ## The two locked decisions
 
@@ -73,7 +72,8 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
             wm.damage.core.windows.reader  Reader + EPUB extraction
             wm.damage.core.content    library providers: local dir, TCP host,
                                       remote client with copy-on-open caching
-desktop/    AWT rasterizer · Swing 1x lens preview (keyboard = ring) · CLI
+desktop/    AWT rasterizer · Swing lens preview (integer-scaled, default 4x;
+            keyboard + mouse = ring) · CLI
 phone/      Android app: foreground ShellService, on-screen lens view (touch =
             ring), AndroidText (bundled OFL/Apache fonts), banked BleTransport,
             transport seam server, §9.3 urgent phone notifications
@@ -120,7 +120,10 @@ and the item-by-item log; this is the map of what it added.
   panels through one ordered outbox with events and state, so a panel update precedes the
   `done` of its flush; `RemoteTransportClient.mirror` applies them (display-only, `exact=false`).
 - **The replicas**: the desktop `Preview` (mouse = ring: wheel notch, left tap, right double-tap,
-  hold ≥ 600 ms long-press then release; Tab lens, B both; a status strip under the 1× image);
+  hold ≥ 600 ms long-press then release; Tab lens, B both; a status strip under the lens image;
+  **integer-scaled, default 4×** since 2026-08-31 — Adam asked for "at least four times" the 1×
+  window; nearest-neighbour only, `-`/`=` adjust, auto-clamped to the screen. Legibility judgment
+  still belongs to true-1× renders or glass — `design/render_shots.py` stays 1×);
   the browser page (`replica/ReplicaServer.kt` — dependency-free HTTP + RFC 6455, token-gated,
   per-client dirty-row panel frames + 1 Hz status; `replica.html` — two 640×480 canvases,
   pixelated, the same mouse/keyboard mapping, reconnect with backoff). Served by the desktop
@@ -158,7 +161,8 @@ development environment; also serves ~/books to the phone):
 ```
 
 Preview: mouse wheel scroll · left click tap · right click double-tap · press-and-hold
-long-press (release on let-go) · keys ↑/↓ Enter Backspace Space R · Tab lens · B both.
+long-press (release on let-go) · keys ↑/↓ Enter Backspace Space R · Tab lens · B both ·
+-/= window scale (integer nearest-neighbour, default 4×, clamped to the screen).
 The browser replica link is printed at start (`http://<host>:7403/?token=…`). Config in `~/.damage/config.json` (books dir, ports, token —
 token is generated on first run and must match `damage-secrets.properties`
 before building the APK).
@@ -204,6 +208,37 @@ Three defects surfaced within minutes and are fixed: the ack **status enum** rea
 the journal rewriting a closed stream, and inbound input never being logged. The first is the one
 worth remembering — **the simulator modeled success as an absent field, so no offline test could
 have caught it.** A model that errs toward permissive is worse than no model.
+
+## The refinement wave (2026-08-31) — `HANDOFF.md` §12 is the full record
+
+The whole `REFINEMENT.md` queue plus everything Adam asked for while wearing it, built and
+deployed live the same day. The shape of what changed, by seam:
+
+- **Geometry/depth:** bars inset to the content extent (x 16–624) and pushed behind the content
+  plane (`Shell.updatePlanes`, chrome at `min(d+4,16)`); the wheel owns the depth story while
+  open; **Size = four TOP-aligned heights 288/352/416/480, vpos retired** (his fit loses the
+  bottom, never the top); per-app height via `DamageWindow.preferredHeight` → `Shell.syncLayout`
+  on focus commit, with **"global" as every per-app shadow's default**.
+- **Input:** 🔴 the switcher fix — events 9/10 are unattributed (source 0) and now bypass the §1
+  ring-only source check; `LongPressTest` injects them with the wire-true source. Document scroll:
+  `DocView.stepLines` (default 5) + the direction-gated ramp (default OFF after his on-glass
+  verdict), both in Settings.
+- **Settings:** three levels — categories are DIRECTORIES (Global + one per app via
+  `DamageWindow.appSettings()`; `HostSetting.options` is a supplier now).
+- **Reader:** folders (`BookMeta.folder`), the first-open **chapter picker** (row 0 "From the
+  beginning"; double-tap always backsteps) + a Chapters action, **ebook images in place**
+  (`ImageDecoder` seam — AWT/BitmapFactory; token paragraphs; box-sample → 16 levels, no
+  dithering; whole-line strips), descenders fixed (line box 30, metrics baseline, loud fit
+  guard), Reset progress.
+- **Telemetry/panel:** brightness transmits (faceclaw's sid-0x09 write; per Settings step + per
+  session start + over the seam); glasses battery fills the chrome G cell (the BARE device-info
+  READ + unsolicited 09-01 updates → `TransportEvent.Battery`); ring relay decode wired, passive.
+- **Transport hardening:** the capability query and the carrier CREATE **re-ask on a 2 s pacing
+  tick** — the firmware eats requests that land during its teardown of a previous session; both
+  re-asks have rescued live starts.
+- **Silent clock:** a drawn seven-segment readout flush top-right (`Icons.sevenSegClock`,
+  mirrored in `render_shots.py`). **Preview:** 4× integer nearest-neighbour.
+- **Measured:** the latency curve `overview.md` §5.2 — `ms ≈ 60 + bytes/50` PC-direct.
 
 ## Banked, deliberately
 
@@ -314,7 +349,9 @@ of them are load-bearing and easy to break by accident:
 
 ## Verification
 
-- `./gradlew :core:test` — 75 unit/integration tests (the finishing build added
+- `./gradlew :core:test` — 121 unit/integration tests (the refinement wave added
+  `BatteryBrightnessTest`, `EpubChaptersImagesTest`, and the wire-true source-0 injections in
+  `LongPressTest`; the finishing build added
   `MirrorTeeTest`, `PreludeTest`, `DivergenceTest`, `ShellKeeperTest`,
   `WheelAndHostSettingsTest`, `SeamMirrorTest`, `SeamSessionTest`,
   `ReplicaServerTest`, `PathTransportTest`, the review rounds' regression

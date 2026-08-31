@@ -6,7 +6,6 @@ import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import wm.damage.core.geom.Rect
-import wm.damage.core.geom.VPos
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.IconKind
 import wm.damage.core.gfx.Icons
@@ -17,9 +16,13 @@ import wm.damage.core.text.TextRasterizer
 
 /**
  * ⚙ Settings — Main's last list entry, scope = the window manager (§4.2).
- * Two levels: the settings list, and an ADJUST level where scrolling a value
- * previews LIVE ("you cannot pick a comfortable disparity from a number, you
- * pick it by looking"): tap keeps, double-tap reverts.
+ * Three levels since 2026-08-31 (Adam: categories must be DIRECTORIES, "it
+ * takes way way too long to scroll through 50 different things"):
+ * the CATEGORY list ("Global", then one per app contributing rows via
+ * [DamageWindow.appSettings]) → that category's rows → the ADJUST level
+ * where scrolling a value previews LIVE ("you cannot pick a comfortable
+ * disparity from a number, you pick it by looking"): tap keeps, double-tap
+ * reverts, and double-tap climbs back out level by level.
  */
 class SettingsWindow(
     private val text: TextRasterizer,
@@ -28,18 +31,24 @@ class SettingsWindow(
     /** Rows the HOST adds after the §4.2 table (HANDOFF.md §8.2): the display
      *  target on the phone and the desktop. Read on every render. */
     private val host: () -> List<HostSetting> = { emptyList() },
+    /** Per-app categories: (window name, its rows), read on every render. */
+    private val apps: () -> List<Pair<String, List<HostSetting>>> = { emptyList() },
 ) : DamageWindow("settings", "Settings", IconKind.SETTINGS) {
 
     private val fRow = FontSpec(Face.SYSTEM, 18)
     private val fRowB = FontSpec(Face.SYSTEM, 18, bold = true)
     private val fSmall = FontSpec(Face.SYSTEM, 13, bold = true)
 
+    private val catModel = ListModel()
     private val model = ListModel()
+    /** Which category is open: −1 = the category list. */
+    private var openCat = -1
     private var adjusting: Entry? = null
     private var revertTo: ShellSettings? = null
-    /** Size relayouts + keyframes (~1.1 s), so it is the one setting that must
-     *  NOT apply per notch (§4.2): staged while adjusting, applied on tap. */
-    private var stagedSize: Pair<Int, VPos>? = null
+    /** Size relayouts + keyframes, so it is the one setting that must NOT
+     *  apply per notch (§4.2): staged while adjusting, applied on tap.
+     *  Heights only since 2026-08-31 — always TOP-aligned, vpos retired. */
+    private var stagedSize: Int? = null
     /** A host row stages its choice while adjusting and applies on tap, like
      *  Size: applying may restart the whole stack. */
     private var stagedHost: String? = null
@@ -51,6 +60,8 @@ class SettingsWindow(
         val hostRow: HostSetting? = null,
     )
 
+    private inner class Cat(val name: String, val entries: List<Entry>)
+
     private val entries: List<Entry> = listOf(
         Entry("Brightness", { if (get().brightnessAuto) "auto" else "${get().brightness}%" }, { s, d ->
             if (s.brightnessAuto) s.copy(brightnessAuto = false)
@@ -58,8 +69,7 @@ class SettingsWindow(
         }),
         Entry("Size", {
             val st = stagedSize
-            if (st != null) "${st.first} · ${st.second.name.lowercase()} (tap applies)"
-            else "${get().heightMode} · ${get().vpos.name.lowercase()}"
+            if (st != null) "$st (tap applies)" else "${get().heightMode}"
         }, null),
         Entry("Depth", { "d=${get().depth}" }, { s, d ->
             // the 4 px ladder: 0/4/8/12/16 (§3.2)
@@ -96,49 +106,76 @@ class SettingsWindow(
 
     private fun onOff(b: Boolean) = if (b) "on" else "off"
 
-    /** The §4.2 rows followed by the host's rows. */
-    private val allEntries: List<Entry>
-        get() = entries + host().map { h ->
-            Entry(h.name, {
-                val st = stagedHost
-                if (st != null && adjusting?.hostRow === h) "$st (tap applies)" else h.current()
-            }, null, hostRow = h)
-        }
+    private fun hostEntry(h: HostSetting) = Entry(h.name, {
+        val st = stagedHost
+        if (st != null && adjusting?.hostRow === h) "$st (tap applies)" else h.current()
+    }, null, hostRow = h)
 
-    override fun view(): WindowView = WindowView.ListView(
-        model,
-        rowCount = { allEntries.size },
-        paintRow = { g, i, r, _ -> paintRow(g, i, r) },
-        paintLens = { g, r, i -> paintLens(g, r, i) },
-        onCommit = { i ->
-            val e = allEntries[i]
-            if (e.step != null || e.name == "Size" || e.hostRow != null) {
-                adjusting = e
-                revertTo = get()
-                if (e.name == "Size") stagedSize = get().heightMode to get().vpos
-                e.hostRow?.let { stagedHost = it.current() }
-            }
-        },
-    )
+    /** The directories (2026-08-31): Global = the §4.2 rows + the host's
+     *  rows, then one per app that contributes rows. */
+    private fun cats(): List<Cat> {
+        val out = ArrayList<Cat>()
+        out.add(Cat("Global", entries + host().map(::hostEntry)))
+        for ((app, rows) in apps()) out.add(Cat(app, rows.map(::hostEntry)))
+        return out
+    }
+
+    /** The open category's rows; an out-of-range [openCat] (an app gone since
+     *  the state was saved) drops back to the category list. */
+    private fun entriesAt(): List<Entry> {
+        val cs = cats()
+        if (openCat >= cs.size) openCat = -1
+        return if (openCat < 0) emptyList() else cs[openCat].entries
+    }
+
+    override fun view(): WindowView {
+        entriesAt()                       // clamps a stale openCat first
+        if (openCat < 0) return WindowView.ListView(
+            catModel,
+            rowCount = { cats().size },
+            paintRow = { g, i, r, _ -> paintCatRow(g, i, r) },
+            paintLens = { g, r, i -> paintCatLens(g, r, i) },
+            onCommit = { i ->
+                openCat = i
+                model.cursor = 0          // cursor rest on entry (§1.7)
+            },
+        )
+        return WindowView.ListView(
+            model,
+            rowCount = { entriesAt().size },
+            paintRow = { g, i, r, _ -> paintRow(g, i, r) },
+            paintLens = { g, r, i -> paintLens(g, r, i) },
+            onCommit = { i ->
+                val e = entriesAt().getOrNull(i) ?: return@ListView
+                if (e.step != null || e.name == "Size" || e.hostRow != null) {
+                    adjusting = e
+                    revertTo = get()
+                    if (e.name == "Size" && e.hostRow == null) stagedSize = get().heightMode
+                    e.hostRow?.let { stagedHost = it.current() }
+                }
+            },
+        )
+    }
+
+    override fun title(): String =
+        if (openCat < 0) "" else cats().getOrNull(openCat)?.name?.lowercase() ?: ""
 
     /** While adjusting, scroll steps the live value (Size only STAGES — §4.2:
      *  it previews on settle, not per notch). Returns true when consumed. */
     fun onScrollAdjust(delta: Int): Boolean {
         val e = adjusting ?: return false
         e.hostRow?.let { h ->
-            val opts = h.options
+            val opts = h.options()
             if (opts.isEmpty()) return true
             val i = opts.indexOf(stagedHost ?: h.current()).coerceAtLeast(0)
             stagedHost = opts[(i + delta).mod(opts.size)]
             return true
         }
         if (e.name == "Size") {
-            val (h, v) = stagedSize ?: (get().heightMode to get().vpos)
-            stagedSize = when {
-                delta > 0 && h == 288 -> 480 to v
-                delta < 0 && h == 480 -> 288 to v
-                else -> h to VPos.entries[(v.ordinal + delta).mod(VPos.entries.size)]
-            }
+            // the four TOP-aligned heights (2026-08-31): scroll walks the list
+            val h = stagedSize ?: get().heightMode
+            val i = ShellSettings.HEIGHTS.indexOf(h).coerceAtLeast(0)
+            stagedSize = ShellSettings.HEIGHTS[(i + delta).coerceIn(0, ShellSettings.HEIGHTS.size - 1)]
             return true
         }
         val step = e.step ?: return false
@@ -159,7 +196,7 @@ class SettingsWindow(
             return true
         }
         if (e.name == "Size") {
-            stagedSize?.let { (h, v) -> apply(get().copy(heightMode = h, vpos = v)) }
+            stagedSize?.let { h -> apply(get().copy(heightMode = h)) }
             stagedSize = null
         }
         adjusting = null
@@ -177,23 +214,45 @@ class SettingsWindow(
             revertTo = null
             return true
         }
+        if (openCat >= 0) {
+            openCat = -1                 // climb out of the directory; the
+            return true                  // category cursor stays where it was
+        }
         return false
     }
 
-    override fun levelDepth(): Int = if (adjusting != null) 2 else 1
+    override fun levelDepth(): Int = 1 + (if (openCat >= 0) 1 else 0) + (if (adjusting != null) 1 else 0)
 
     val isAdjusting: Boolean get() = adjusting != null
 
+    private fun paintCatRow(g: Gray8, i: Int, r: Rect) {
+        val c = cats().getOrNull(i) ?: return
+        text.draw(g, r.x + 40, (r.y + 5) / 2 * 2, c.name, fRow, Level.BODY)
+        drawRight(g, r.right - 24, (r.y + 8) / 2 * 2, "${c.entries.size}", fSmall, Level.DIM)
+    }
+
+    private fun paintCatLens(g: Gray8, r: Rect, i: Int) {
+        val c = cats().getOrNull(i) ?: return
+        Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.SETTINGS, Level.HEAD)
+        text.draw(g, r.x + 44, (r.y + 8) / 2 * 2, c.name, fRowB, Level.HEAD)
+        text.draw(g, r.x + 44, (r.y + 34) / 2 * 2,
+            "${c.entries.size} settings · tap to open", FontSpec(Face.SYSTEM, 14), Level.DIM)
+    }
+
+    private fun drawRight(g: Gray8, xRight: Int, y: Int, s: String, f: FontSpec, lv: Int) {
+        text.draw(g, (xRight - text.measure(s, f)) / 4 * 4, y, s, f, lv)
+    }
+
     private fun paintRow(g: Gray8, i: Int, r: Rect) {
-        val e = allEntries.getOrNull(i) ?: run {
-            wm.damage.core.util.Log.w("settings", "row $i beyond ${allEntries.size} entries — blank row"); return
+        val e = entriesAt().getOrNull(i) ?: run {
+            wm.damage.core.util.Log.w("settings", "row $i beyond ${entriesAt().size} entries — blank row"); return
         }
         text.draw(g, r.x + 40, (r.y + 7) / 2 * 2, e.name, fSmall, Level.DIM)
         text.draw(g, r.x + 280, (r.y + 5) / 2 * 2, e.value(), fRow, Level.BODY)
     }
 
     private fun paintLens(g: Gray8, r: Rect, i: Int) {
-        val e = allEntries.getOrNull(i) ?: return
+        val e = entriesAt().getOrNull(i) ?: return
         Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.SETTINGS, Level.HEAD)
         text.draw(g, r.x + 44, (r.y + 8) / 2 * 2, e.name, fRowB, Level.HEAD)
         val v = e.value()
@@ -203,12 +262,19 @@ class SettingsWindow(
         text.draw(g, r.x + 44, (r.y + 34) / 2 * 2, hint, FontSpec(Face.SYSTEM, 14), Level.DIM)
     }
 
-    override fun summary() = Summary("brightness · size · depth · presence")
+    override fun summary() = Summary("global · reader · …")
 
-    override fun saveState(): JsonObject = buildJsonObject { put("cursor", model.cursor) }
+    override fun saveState(): JsonObject = buildJsonObject {
+        put("catCursor", catModel.cursor)
+        put("openCat", openCat)
+        put("cursor", model.cursor)
+    }
 
     override fun restoreState(state: JsonObject) {
-        val n = allEntries.size
+        val cs = cats()
+        catModel.cursor = (state["catCursor"]?.jsonPrimitive?.int ?: 0).coerceIn(0, maxOf(0, cs.size - 1))
+        openCat = (state["openCat"]?.jsonPrimitive?.int ?: -1).coerceIn(-1, cs.size - 1)
+        val n = entriesAt().size
         model.cursor = (state["cursor"]?.jsonPrimitive?.int ?: 0).coerceIn(0, maxOf(0, n - 1))
     }
 }
@@ -221,7 +287,12 @@ class SettingsWindow(
  */
 data class HostSetting(
     val name: String,
-    val options: List<String>,
+    /** A SUPPLIER since 2026-08-31: rows like Reader's "Reset progress" have
+     *  options that only exist at adjust time (the opened books). */
+    val options: () -> List<String>,
     val current: () -> String,
     val apply: (String) -> Unit,
-)
+) {
+    constructor(name: String, options: List<String>, current: () -> String, apply: (String) -> Unit) :
+        this(name, { options }, current, apply)
+}

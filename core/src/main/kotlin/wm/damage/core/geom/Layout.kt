@@ -35,10 +35,15 @@ data class Layout(val safe: Rect = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H
     }
 
     // --- bars ------------------------------------------------------------------
-    val topBar = Rect(safe.x, safe.y, safe.w, TOP_H)
-    val topDivider = Rect(safe.x, safe.y + TOP_H, safe.w, DIV_H)
-    val statusBar = Rect(safe.x, safe.bottom - STATUS_H, safe.w, STATUS_H)
-    val bottomDivider = Rect(safe.x, statusBar.y - DIV_H, safe.w, DIV_H)
+    // Bars are inset to the content extent (§2.2 revised 2026-08-31 —
+    // REFINEMENT.md §1): chrome now sits BEHIND the content plane, and a
+    // stereo shift needs the same 16 px side budget the content has. A
+    // full-width rect cannot shift at all without leaving the panel. The
+    // strips beside the bars are shift gutters, level 0, like §3.3's.
+    val topBar = Rect(safe.x + CONTENT_INSET_X, safe.y, safe.w - 2 * CONTENT_INSET_X, TOP_H)
+    val topDivider = Rect(topBar.x, safe.y + TOP_H, topBar.w, DIV_H)
+    val statusBar = Rect(safe.x + CONTENT_INSET_X, safe.bottom - STATUS_H, safe.w - 2 * CONTENT_INSET_X, STATUS_H)
+    val bottomDivider = Rect(statusBar.x, statusBar.y - DIV_H, statusBar.w, DIV_H)
 
     /** §2.3 top-bar cells (Title 384 / batteries 176 / clock 80 at full width),
      *  scaled by tiling the same proportions onto the safe width, grid-snapped. */
@@ -89,15 +94,15 @@ data class Layout(val safe: Rect = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H
         // Top bar cells: clock fixed 80, batteries fixed 176, title takes the rest.
         val clockW = 80
         val battW = 176
-        val titleW = Geometry.snapX(safe.w - clockW - battW)
+        val titleW = Geometry.snapX(topBar.w - clockW - battW)
         titleCell = Rect(topBar.x, topBar.y, titleW, TOP_H)
         batteryCell = Rect(topBar.x + titleW, topBar.y, battW, TOP_H)
-        clockCell = Rect(topBar.x + titleW + battW, topBar.y, safe.w - titleW - battW, TOP_H)
+        clockCell = Rect(topBar.x + titleW + battW, topBar.y, topBar.w - titleW - battW, TOP_H)
 
         // Status bar cells (§4.5b): fixed pitches at full width; at a narrower safe
         // width the op cell absorbs the difference (it is the marquee-friendly one).
         val fixed = 132 + 128 + 100 + 120
-        val opW = Geometry.snapX(safe.w - fixed)
+        val opW = Geometry.snapX(statusBar.w - fixed)
         if (opW < 40) throw LintError("safe rect too narrow for the status bar cells")
         var x = statusBar.x
         opCell = Rect(x, statusBar.y, opW, STATUS_H); x += opW

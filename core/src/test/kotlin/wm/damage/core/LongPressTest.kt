@@ -26,6 +26,13 @@ import wm.damage.core.wire.EvenHubMsg
  * (armed by event 9, refreshed by the release, ended by any other gesture);
  * a stale chord's double-tap is plain back; the "Long-press · switcher"
  * setting restores the direct open.
+ *
+ * 🔴 Every event-9/10 here is injected with SOURCE 0 — the wire truth:
+ * `Sys_ItemEvent.EventSource` is ABSENT for those types by firmware design.
+ * The first version of this suite used postGesture's SRC_RING default, so it
+ * passed while the shell's §1 source filter discarded every REAL long-press
+ * and the switcher was unreachable on glass (found live 2026-08-31,
+ * HANDOFF.md §12). Do not "tidy" these back to the default.
  */
 class LongPressTest {
 
@@ -64,7 +71,7 @@ class LongPressTest {
             settle(r.shell)
             assertTrue(r.shell.notifications.focused, "the box took focus after the grace")
 
-            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS) // the old dismiss-unread: now nothing
+            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS, 0) // the old dismiss-unread: now nothing
             settle(r.shell)
             assertTrue(r.shell.notifications.active, "a bare long-press leaves the box exactly as it was")
             assertTrue(r.shell.notifications.focused)
@@ -92,7 +99,7 @@ class LongPressTest {
             delay(3_000); settle(r.shell)
             assertTrue(r.shell.notifications.focused)
 
-            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS) // arm
+            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS, 0) // arm
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)    // the chord: wheel over the box
             settle(r.shell)
             assertFalse(r.shell.notifications.active, "the box stepped aside for the wheel")
@@ -117,7 +124,7 @@ class LongPressTest {
             r.shell.start(); settle(r.shell)
             visitSettings(r.shell)
 
-            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS) // armed…
+            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS, 0) // armed…
             settle(r.shell)
             delay(1_000)                                       // …and expired (window is 800 ms)
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)    // plain back: Main -> silent (§1.4)
@@ -130,7 +137,7 @@ class LongPressTest {
 
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)    // wake
             settle(r.shell)
-            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS) // a fresh chord still works
+            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS, 0) // a fresh chord still works
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
             settle(r.shell)
             r.shell.postGesture(EvenHubMsg.EV_CLICK)
@@ -151,10 +158,10 @@ class LongPressTest {
             r.shell.start(); settle(r.shell)
             visitSettings(r.shell)
 
-            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)          // arm at t=0 (held)
+            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS, 0)          // arm at t=0 (held)
             settle(r.shell)
             delay(600)
-            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS_RELEASE)  // let go at ~600: refresh
+            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS_RELEASE, 0)  // let go at ~600: refresh
             settle(r.shell)
             delay(600)                                                  // 1.2 s after 9, 0.6 s after 10
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)             // inside the refreshed window
@@ -182,7 +189,7 @@ class LongPressTest {
             r.shell.start(); settle(r.shell)
             visitSettings(r.shell)
 
-            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS) // direct open, no chord needed
+            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS, 0) // direct open, no chord needed
             settle(r.shell)
             r.shell.postGesture(EvenHubMsg.EV_CLICK)
             settle(r.shell)
@@ -194,7 +201,7 @@ class LongPressTest {
             settle(r.shell)
             delay(3_000); settle(r.shell)
             assertTrue(r.shell.notifications.focused)
-            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS) // the pre-revision §4.5 gesture
+            r.shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS, 0) // the pre-revision §4.5 gesture
             settle(r.shell)
             assertFalse(r.shell.notifications.active, "long-press dismisses the focused notice when enabled")
             r.shell.stop()

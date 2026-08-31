@@ -12,7 +12,32 @@ import wm.damage.core.util.Log
  * file that cannot be parsed at all raises loudly rather than opening empty.
  */
 object Epub {
-    data class Book(val title: String, val author: String, val text: String)
+    /** A chapter = one spine document that contributed text (2026-08-31): its
+     *  CHARACTER offset into [Book.text] — the same monotonic offsets the
+     *  reading positions use — and a title from the EPUB's own nav/toc,
+     *  falling back to the document's first heading-ish line, then a number. */
+    data class Chapter(val title: String, val offset: Int)
+
+    data class Book(
+        val title: String,
+        val author: String,
+        val text: String,
+        val chapters: List<Chapter> = emptyList(),
+        /** Raw bytes of every image the spine references (2026-08-31), keyed
+         *  by resolved zip path — the [IMG_TOKEN] placeholders in [text] name
+         *  these keys. Decoded lazily at layout via the ImageDecoder seam. */
+        val images: Map<String, ByteArray> = emptyMap(),
+    )
+
+    /** An image placeholder is its own paragraph: `IMG:<zip path>`.
+     *  The control character cannot occur in book text and survives normalize() untouched. */
+    const val IMG_TOKEN = '\u0001'
+    fun imagePath(para: String): String? =
+        if (para.length > 6 && para[0] == IMG_TOKEN && para.endsWith(IMG_TOKEN) &&
+            para.startsWith("${IMG_TOKEN}IMG:")) para.substring(5, para.length - 1) else null
+
+    /** Per-image raw-byte cap — over it, the image shows as a placeholder. */
+    const val IMG_MAX_BYTES = 8 shl 20
 
     fun isEpub(p: Path): Boolean = p.fileName.toString().lowercase().endsWith(".epub")
 
@@ -61,24 +86,140 @@ object Epub {
                 .mapNotNull { attr(it.value, "idref") }.toList()
             if (spine.isEmpty()) throw IllegalArgumentException("$path: OPF has an empty spine")
 
-            val sb = StringBuilder()
+            // Per-document normalize so each contribution's CHARACTER OFFSET in
+            // the final text is exact (chapters + reading positions share that
+            // coordinate space); joining normalized parts with "\n\n" yields
+            // the same text the old whole-book normalize produced.
+            fun readBytes(name: String): ByteArray? {
+                val e = zip.getEntry(name) ?: zip.getEntry(name.removePrefix("/")) ?: return null
+                return zip.getInputStream(e).readBytes()
+            }
+
+            val images = HashMap<String, ByteArray>()
+            val parts = ArrayList<Pair<String, String>>()      // resolved path -> text
             var missing = 0
             for (idref in spine) {
                 val href = items[idref]
                 if (href == null) { missing++; continue }   // counted, not silent
-                val doc = readByHref(::read, opfDir, href)
+                val norm = resolvePath(opfDir, unescape(href).substringBefore('#'))
+                val doc = read(urlDecode(norm)) ?: read(norm)
                 if (doc == null) { missing++; continue }
-                val t = htmlToText(doc)
-                if (t.isNotBlank()) {
-                    if (sb.isNotEmpty()) sb.append("\n\n")
-                    sb.append(t)
-                }
+                // image references become token paragraphs BEFORE the tag
+                // strip (2026-08-31); their bytes are read while the zip is open
+                val withImages = extractImages(doc, norm.substringBeforeLast('/', ""), ::readBytes, images, path)
+                val t = normalize(htmlToText(withImages))
+                if (t.isNotBlank()) parts.add(norm to t)
             }
             if (missing > 0) Log.w("epub", "$path: $missing of ${spine.size} spine documents " +
                 "could not be read — that text is MISSING from the book")
-            if (sb.isBlank()) throw IllegalArgumentException("$path: spine extracted no text")
-            return Book(title.trim(), author.trim(), normalize(sb.toString()))
+            if (parts.isEmpty()) throw IllegalArgumentException("$path: spine extracted no text")
+
+            val tocTitles = tocTitles(::read, opf, opfDir)
+            val sb = StringBuilder()
+            val chapters = ArrayList<Chapter>()
+            for ((docPath, t) in parts) {
+                if (sb.isNotEmpty()) sb.append("\n\n")
+                chapters.add(Chapter(
+                    tocTitles[docPath] ?: fallbackTitle(t, chapters.size + 1), sb.length))
+                sb.append(t)
+            }
+            if (images.isNotEmpty()) {
+                val total = images.values.sumOf { it.size }
+                Log.i("epub", "$path: ${images.size} image(s), ${total / 1024} KB raw")
+            }
+            return Book(title.trim(), author.trim(), sb.toString(), chapters, images)
         }
+    }
+
+    /** Replace `<img src>` / SVG `<image (xlink:)href>` with [IMG_TOKEN]
+     *  paragraphs and collect the referenced bytes (per-image cap, data: URIs
+     *  skipped — both loudly). Hrefs resolve against the DOCUMENT's own
+     *  directory, not the OPF's. */
+    private fun extractImages(
+        html: String,
+        docDir: String,
+        readBytes: (String) -> ByteArray?,
+        sink: MutableMap<String, ByteArray>,
+        bookPath: Path,
+    ): String = Regex("""<(?:img|(?:\w+:)?image)\b[^>]*>""", RegexOption.IGNORE_CASE).replace(html) { m ->
+        val tag = m.value
+        val src = attr(tag, "src") ?: attr(tag, "xlink:href") ?: attr(tag, "href")
+        when {
+            src == null -> " "
+            src.startsWith("data:") -> {
+                Log.w("epub", "$bookPath: inline data: image skipped (unsupported)"); " "
+            }
+            else -> {
+                val p = resolvePath(docDir, unescape(src).substringBefore('#'))
+                if (p !in sink) {
+                    val b = readBytes(urlDecode(p)) ?: readBytes(p)
+                    when {
+                        b == null -> Log.w("epub", "$bookPath: image '$p' is not in the archive")
+                        b.size > IMG_MAX_BYTES -> Log.w("epub",
+                            "$bookPath: image '$p' is ${b.size / 1024} KB — over the cap, placeholder shown")
+                        else -> sink[p] = b
+                    }
+                }
+                "\n\n${IMG_TOKEN}IMG:$p$IMG_TOKEN\n\n"
+            }
+        }
+    }
+
+    /** Titles from the book's own navigation: EPUB2 NCX (navLabel text +
+     *  content src) and EPUB3 nav (properties="nav", its anchors), keyed by
+     *  the target document's resolved path. First label per document wins. */
+    private fun tocTitles(read: (String) -> String?, opf: String, opfDir: String): Map<String, String> {
+        val out = HashMap<String, String>()
+        val tocs = Regex("""<(?:\w+:)?item\b[^>]*>""").findAll(opf).mapNotNull { m ->
+            val tag = m.value
+            val href = attr(tag, "href") ?: return@mapNotNull null
+            val mt = attr(tag, "media-type") ?: ""
+            val props = attr(tag, "properties") ?: ""
+            when {
+                "dtbncx" in mt || href.lowercase().substringBefore('#').endsWith(".ncx") -> "ncx" to href
+                "nav" in props.split(' ') -> "nav" to href
+                else -> null
+            }
+        }.toList()
+        for ((kind, href) in tocs) {
+            val tocPath = resolvePath(opfDir, unescape(href).substringBefore('#'))
+            val tocDir = tocPath.substringBeforeLast('/', "")
+            val doc = read(urlDecode(tocPath)) ?: read(tocPath) ?: continue
+            if (kind == "ncx") {
+                // navLabel text precedes its content src in every navPoint:
+                // walk both in order, pairing each src with the last label
+                var label: String? = null
+                for (m in Regex("""<text[^>]*>([^<]*)</text>|<content\b[^>]*>""",
+                        RegexOption.IGNORE_CASE).findAll(doc)) {
+                    if (m.value.startsWith("<text", ignoreCase = true)) {
+                        label = unescape(m.groupValues[1]).trim().takeIf { it.isNotEmpty() }
+                    } else {
+                        val src = attr(m.value, "src") ?: continue
+                        val target = resolvePath(tocDir, unescape(src).substringBefore('#'))
+                        label?.let { out.putIfAbsent(target, it) }
+                    }
+                }
+            } else {
+                for (a in Regex("""<a\b[^>]*>([\s\S]*?)</a>""", RegexOption.IGNORE_CASE).findAll(doc)) {
+                    val h = attr(a.value.substringBefore('>') + ">", "href") ?: continue
+                    val label = unescape(Regex("<[^>]+>").replace(a.groupValues[1], " "))
+                        .trim().replace(Regex("\\s+"), " ")
+                    if (label.isEmpty()) continue
+                    out.putIfAbsent(resolvePath(tocDir, unescape(h).substringBefore('#')), label)
+                }
+            }
+        }
+        return out
+    }
+
+    /** A chapter title when the toc names none: the document's first line when
+     *  it reads as a heading, else a plain number. Image-token lines never
+     *  title a chapter (a cover-only document would otherwise show its raw
+     *  token in the picker — seen in the first snapshot run). */
+    private fun fallbackTitle(text: String, n: Int): String {
+        val first = text.lineSequence()
+            .firstOrNull { it.isNotBlank() && imagePath(it.trim()) == null }?.trim() ?: ""
+        return if (first.length in 1..60 && first.any { it.isLetter() }) first else "Chapter $n"
     }
 
     /** Just the metadata, cheaply (library scan). */
@@ -118,19 +259,19 @@ object Epub {
         s
     }
 
-    /** Resolve a manifest href against the OPF directory: strip fragments,
-     *  unescape entities, normalize ../ segments, try decoded and raw names. */
-    private fun readByHref(read: (String) -> String?, opfDir: String, hrefRaw: String): String? {
-        val href = unescape(hrefRaw).substringBefore('#')
-        val joined = if (opfDir.isEmpty()) href else "$opfDir/$href"
+    /** Resolve an href against a base directory: normalize ./ and ../
+     *  segments into a canonical zip path. Callers strip fragments and
+     *  unescape entities first, and try both the URL-decoded and raw names
+     *  when reading (real EPUBs disagree about %20). */
+    fun resolvePath(baseDir: String, href: String): String {
+        val joined = if (baseDir.isEmpty()) href else "$baseDir/$href"
         val parts = ArrayList<String>()
         for (seg in joined.split('/')) when (seg) {
             "", "." -> {}
             ".." -> if (parts.isNotEmpty()) parts.removeAt(parts.size - 1)
             else -> parts.add(seg)
         }
-        val norm = parts.joinToString("/")
-        return read(urlDecode(norm)) ?: read(norm)
+        return parts.joinToString("/")
     }
 
     /** XHTML -> text: scripts/styles dropped, block elements become paragraph

@@ -5,21 +5,25 @@ custom firmware (`g2flash`) that replaces the vendor's container model with dire
 access. The PC composes complete scenes with real fonts and arbitrary layout; the glasses are
 a dumb framebuffer.
 
-**Built 2026-08-24/25** — the Kotlin shell core, the byte-exact glass simulator, the desktop
-program and the phone APK with Reader + Main as the first app layer, hardened through rounds of
-independent review against the simulator; then the finishing build: the phone's BLE path on the
-proven driver, PC-direct BLE over BlueZ, an arbitration that keeps the PC driving by whichever
-path works, an exact replica in the desktop window (mouse), on the phone (touch) and in any
-browser, and a session keeper that reconnects without timeouts.
-[`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run; `HANDOFF.md` §8 is the build record;
-the research and design below remain the ground truth. The real glasses stay on stock firmware
-until flash day; neither radio path has run on hardware yet.
+**Live on hardware since 2026-08-30** — the CFW is installed, the PC drives the glasses directly
+over BlueZ, and the shell is in daily use. Built 2026-08-24/25 (the Kotlin shell core, the
+byte-exact glass simulator, the desktop program and the phone APK, hardened through rounds of
+independent review), lit 2026-08-30 (first light: the whole choreography — prelude, capability
+gate, carrier, leases, warmup — worked; ack latency measured), refined 2026-08-31 with the wearer
+in the loop: chrome behind the content plane, per-app height, Reader folders / chapters / in-book
+images / configurable scroll, a categorized Settings tree, a seven-segment silent clock, live
+brightness, wire-fed battery cells, and a measured latency curve (`ms ≈ 60 + bytes/50`) that
+retired the modeled numbers. [`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run;
+`HANDOFF.md` §10–12 are the install / first-light / refinement records; `REFINEMENT.md` is the
+item-by-item log. The phone APK's own BLE path is written and banked but has not yet run on
+hardware — the PC-direct path is the one in daily use.
 
 ## Start here
 
 | | |
 |---|---|
-| **[`REMINDER.md`](REMINDER.md)** | orientation — project state, what is next, and the first-light checklist |
+| **[`REMINDER.md`](REMINDER.md)** | orientation — project state, what is next, and what is still unmeasured |
+| [`REFINEMENT.md`](REFINEMENT.md) | the post-first-light refinement log: every ask, its analysis, and what shipped |
 | [`IMPLEMENTATION.md`](IMPLEMENTATION.md) | the built first stage: modules, the transport seam, how to run and verify |
 | [`overview.md`](overview.md) | the research record: hardware facts, the CFW display-mode contract, measured numbers, the ecosystem, open unknowns |
 | [`CLAIMS.md`](CLAIMS.md) | every load-bearing claim graded *vendor-authoritative / measured / corroborated / inferred / single-source / unknown*, and what cannot be resolved before flashing |
@@ -41,12 +45,13 @@ The design is shaped by three facts about this display, and most of it follows f
 ## Building and verifying
 
 ```
-./gradlew :core:test                                  # 75 tests, incl. the per-lens oracle
+./gradlew :core:test                                  # 121 tests, incl. the per-lens oracle
 ./gradlew :desktop:test                               # 9 tests: the BlueZ glue over a fake link
 ./gradlew :desktop:run --args="--selfcheck"           # the 32-check whole-stack gate
 ./gradlew :desktop:run --args="--snapshot DIR"        # lens-truth PNGs of every surface
-./gradlew :desktop:run --args="--epub-check"          # parse every book in ~/books
-./gradlew :desktop:run                                # 1x preview + content host
+./gradlew :desktop:run --args="--epub-check"          # parse every book; chapters + image decode
+./gradlew :desktop:run --args="--transport ble"       # drive the glasses PC-direct (daily use)
+./gradlew :desktop:run                                # auto mode + preview (4x) + content host
 ./gradlew :phone:assembleDebug                        # the APK
 tools/lint.py                # design gate: 20 rules (SYM/GEO/BUD/FID); --selftest proves each fires
 python3 design/render_shots.py   # design renders at true 1x, priced through the firmware's RLE

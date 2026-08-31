@@ -80,7 +80,7 @@ object SelfCheck {
         val text = AwtText()
         val persistence = Persistence(tmp.resolve("state.json"))
         val shell = Shell(text, transport, persistence, tmp.resolve("journal.jsonl"), scope)
-        val reader = ReaderWindow(text, LocalContent(books), scope)
+        val reader = ReaderWindow(text, LocalContent(books), scope, AwtImages())
         shell.register(reader)
 
         var flushFails = 0
@@ -225,7 +225,7 @@ object SelfCheck {
         val sim2 = GlassFirmwareSim()
         val transport2 = SimTransport(sim2, scope2, SimTransport.Timing(instant = true))
         val shell2 = Shell(text, transport2, persistence2, null, scope2)
-        val reader2 = ReaderWindow(text, LocalContent(books), scope2)
+        val reader2 = ReaderWindow(text, LocalContent(books), scope2, AwtImages())
         shell2.register(reader2)
         shell2.start()
         settle(shell2, "restart")

@@ -139,6 +139,8 @@ class WheelAndHostSettingsTest {
             r.shell.postGesture(EvenHubMsg.EV_CLICK)          // enter Settings
             settle(r.shell)
             assertEquals("settings", r.shell.currentWindowId())
+            r.shell.postGesture(EvenHubMsg.EV_CLICK)          // open the Global DIRECTORY (2026-08-31)
+            settle(r.shell)
             r.shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)     // wrap to the last row: the host row
             settle(r.shell)
             r.shell.postGesture(EvenHubMsg.EV_CLICK)          // adjust

@@ -50,15 +50,19 @@ proves the image is reproducible from sources we hold and carries no Thumb-bit d
 
 ## Project status and the order of work
 
-**The first stage is BUILT (2026-08-24) and the finishing build landed 2026-08-25** (`HANDOFF.md`
-§8 is its record: decisions, fixed design, checklist, log). Read `IMPLEMENTATION.md` for what
-runs and how. The shell core, the byte-exact simulator, the desktop program (auto / sim / ble /
-remote), the phone APK (sim / glasses target), the mirror-based replicas (window, phone, browser),
-the session keeper and the path arbitration exist; Reader + Main are the app layer. The real
-glasses are untouched (stock 2.2.2.20); **neither radio path has run on hardware** — first light
-follows `REMINDER.md`'s runbook after Adam flashes.
+**The system is LIVE and in daily use** (as of 2026-08-31): the CFW is installed (g2flash
+`a5d1c31`, reports `2.2.6.10` — detect by the `EVENCFW/` capability string, never the version),
+first light happened 2026-08-30, and the whole first refinement wave shipped 2026-08-31 with Adam
+wearing the glasses between deploys. Records, newest first: **`HANDOFF.md` §12** (the refinement
+wave), §11 (first light), §10 (the install); `REFINEMENT.md` is the item-by-item log with his
+verdicts. Read `IMPLEMENTATION.md` for what runs and how. What exists and runs on hardware: the
+shell core, the byte-exact simulator, the desktop program (auto / sim / ble / remote) driving the
+pair PC-direct over BlueZ, the phone APK (sim / glasses target — its BLE glue is still
+unexercised on hardware), the mirror replicas (window at 4×, phone, browser), the session keeper,
+the path arbitration, and the app layer so far: Reader (folders, chapters, images, per-app
+height, scroll settings) + Main + Settings (directories: Global + per-app).
 
-Adam's stated methodology still governs **the app layer**, which comes next:
+Adam's stated methodology still governs **the app layer**, where the scope explosion is next:
 
 > Heavy research → full documentation → clean repo → the main plan → a couple hundred ridiculous
 > feature-creep scope explosions → heavy refinery to bring it back to reality → passes for
@@ -70,11 +74,12 @@ is what keeps it shippable. Do the explosion for new windows on paper (`CAPABILI
 `DESIGN.md` §0/§4.6) before coding them.
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(75 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
+(121 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
 over a fake link), `desktop --selfcheck` (32 checks), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.
-**No radio use before Adam flashes** (his decision 2026-08-25): the only BlueZ check allowed is
-`desktop --ble-info` (adapter enumeration, no discovery). `IMPLEMENTATION.md` → "Review
+Radio use is normal now (post-flash); deploying = stop the desktop JVM and relaunch
+`--transport ble` — the keeper and the start-gate re-asks make restarts routine, and the lease
+fails open to stock for the seconds in between. `IMPLEMENTATION.md` → "Review
 hardening" lists the mechanisms that are load-bearing and easy to break by accident — the
 compositor's per-lens truth/shadow model, the transport's session-epoch sweep, the shell's
 start/stop mutex. Do not re-introduce nominal-only seam guessing in the compositor: a pixel
@@ -112,8 +117,9 @@ it on disk and does not touch it.
 - **Read from it freely** — it holds our authoritative BLE reverse engineering, the pre-pivot
   rasterizer, 20+ window implementations, and the render scripts. See `overview.md` §10.
 - **Never edit, refactor, or "fix" anything in it** as part of Damage work.
-- G2CC remains the fallback if Damage stalls. Its glasses run firmware **2.2.2.20**; flashing
-  anything changes that permanently (see below).
+- G2CC remains the historical fallback, but note (2026-08-31): **the glasses now run the CFW**
+  and Damage drives them daily — G2CC's stock-firmware display path no longer applies to this
+  pair. Stock 2.2.2.20 is gone and is not in the public archive; that door closed 2026-08-30.
 
 ## Permission and irreversibility
 
@@ -191,8 +197,10 @@ The simulator shows ~6 image containers where hardware holds 4, and has no BLE b
 
 - **Never cite a performance number without knowing whether it came from hardware.**
 - Our own numbers in `overview.md` §5 are labeled **measured** vs **modeled** — preserve that
-  distinction when quoting them. In particular, the **176 ms ack latency prices every estimate we
-  have and is unverified for the CFW direct-framebuffer path.**
+  distinction when quoting them. The CFW direct-framebuffer path is now MEASURED
+  (`overview.md` §5.2, 2026-08-31, n=1,488 flushes): **`ms ≈ 60 + bytes/50`** — the old
+  `176 + bytes/11` formula describes the stock path only, and every table still priced with it
+  is conservative by ~3–5× on the CFW.
 
 ## The Three Absolute Rules
 
@@ -334,9 +342,9 @@ that don't fit raise loudly, never silently mangle.
   ⚠ **But "drive Right" is wrong for CFW image traffic.** Faceclaw hardcodes
   `sendImagesToLeft = true` and sends **every** image message to the LEFT arm, keeping Right for
   heartbeat/settings/shutdown/audio/IMU. The firmware propagates cross-lens, so either arm may
-  receive. Reference split: **bulk pixels → LEFT, control + events → RIGHT.** Graded *strong, not
-  proven* (read from his code, not our capture) — **verify with a two-arm capture at first light.**
-  See `overview.md` §2.
+  receive. Reference split: **bulk pixels → LEFT, control + events → RIGHT.** Damage runs this
+  split on hardware daily (it works), but it remains *strong, not proven* as the OPTIMAL split —
+  the confirming two-arm capture has still not been taken. See `overview.md` §2.
 - **BLE:** MTU 247, **1M PHY only** (2M is rejected), ~232 B per AA fragment, **7–13 KB/s measured
   end-to-end** (corrected 2026-08-17 — the old ~16.6 figure took only the fast mode of a trimodal
   gap distribution). ⚠ That is **~10× under the 1 Mbit spec and the cause is not yet known** —

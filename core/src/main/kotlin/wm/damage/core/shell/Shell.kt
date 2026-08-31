@@ -198,7 +198,10 @@ class Shell(
         // refused transport must not add a second Settings row or a second
         // event collector (round 4, shell #2)
         if (!::settingsWindow.isInitialized) {
-            settingsWindow = SettingsWindow(text, { settings }, { applySettings(it) }, { hostSettings })
+            settingsWindow = SettingsWindow(text, { settings }, { applySettings(it) }, { hostSettings },
+                // per-app categories (2026-08-31): every registered window
+                // that contributes rows gets one, in registration order
+                { windows.mapNotNull { w -> w.appSettings().takeIf { it.isNotEmpty() }?.let { w.name to it } } })
             register(settingsWindow)
         }
         for (w in windows) w.onRegistered(services)
@@ -246,6 +249,11 @@ class Shell(
             journal.close()
             throw e
         }
+        // the firmware restores ITS OWN brightness across reboots: push the
+        // configured value once per session so the setting always wins
+        // (faceclaw pushes force=true on a fresh connection for the same
+        // reason). Fire-and-forget on the control lane.
+        transport.setBrightness(settings.brightnessAuto, settings.brightness)
 
         try {
             // initial surface — mode AND window restore (§9.1 rule 1). A SILENT
@@ -260,6 +268,7 @@ class Shell(
                 current!!.onActivate(services)
             }
             if (restoredMode == Mode.SILENT.name) mode = Mode.SILENT
+            syncLayout()   // §2: a restored window brings its preferred height
             composeFullSurface()
             comp.requestKeyframe()
             if (notifications.showNextIfIdle()) {
@@ -344,7 +353,7 @@ class Shell(
                     is Msg.SilentTick -> handleSilentTick(m.gen)
                     is Msg.SaveTick -> if (m.gen == saveGen) saveAll()
                     is Msg.Notice -> handleNotice(m.n)
-                    is Msg.Invalidate -> if (mode != Mode.SILENT) composeContent()
+                    is Msg.Invalidate -> if (mode != Mode.SILENT) { syncLayout(); composeContent() }
                     is Msg.Run -> m.action()
                     is Msg.Shutdown -> {
                         running = false
@@ -377,8 +386,19 @@ class Shell(
         // §1: the R1 ring is the ONLY input device — a temple brush must not
         // select or scroll. Text-region scroll events carry no source and
         // arrive as SRC_RING from the transport (G2_BLE_PROTOCOL.md §6.6).
-        if (source != EvenHubMsg.SRC_RING) {
-            Log.d("shell", "non-ring gesture $type from source $source ignored (§1)")
+        // 🔴 EXCEPT events 9/10: `Sys_ItemEvent.EventSource` is ABSENT for
+        // them by firmware design (verified at instruction level — CLAUDE.md
+        // "a long-press is UNATTRIBUTED"), so they always arrive source 0 and
+        // this filter was discarding every real long-press: the switcher was
+        // unreachable by either route while LongPressTest passed, because the
+        // test harness injected them with the flattering SRC_RING default
+        // (found live 2026-08-31 — Adam: "I have yet to see the switcher at
+        // all"). The bare-long-press-is-a-no-op default (§1.2) is what keeps
+        // the temple, the second unattributed source, harmless here.
+        val unattributed = type == EvenHubMsg.EV_RING_LONG_PRESS ||
+            type == EvenHubMsg.EV_RING_LONG_PRESS_RELEASE
+        if (!unattributed && source != EvenHubMsg.SRC_RING) {
+            Log.i("shell", "non-ring gesture $type from source $source ignored (§1)")
             return
         }
         val newEcho = when (type) {
@@ -387,7 +407,11 @@ class Shell(
             EvenHubMsg.EV_SCROLL_TOP -> "up"
             EvenHubMsg.EV_SCROLL_BOTTOM -> "down"
             EvenHubMsg.EV_RING_LONG_PRESS -> "hold"
-            EvenHubMsg.EV_RING_LONG_PRESS_RELEASE -> "release"
+            // a bare release means "a touch ended" and follows almost every
+            // swipe (HANDOFF.md §11.4): echoing it would permanently overwrite
+            // the last real gesture, so it echoes only when a chord is armed
+            EvenHubMsg.EV_RING_LONG_PRESS_RELEASE ->
+                if (chordArmedAtMs != 0L) "release" else inputEcho
             else -> "ev$type"
         }
         if (newEcho != inputEcho) {
@@ -514,7 +538,8 @@ class Shell(
                 val lines = kit.visibleLines(layout, v)
                 val maxTop = maxOf(0, v.lineCount() - lines)
                 val old = v.model.topLine
-                val top = (old + delta).coerceIn(0, maxTop)
+                val step = v.stepLines().coerceAtLeast(1) * docAccelFactor(v, delta)
+                val top = (old + delta * step).coerceIn(0, maxTop)
                 if (top == old) return
                 v.model.topLine = top
                 liftNotificationBox()
@@ -524,6 +549,30 @@ class Shell(
             null -> {}
         }
         scheduleSave()
+    }
+
+    // §3b acceleration (2026-08-31, reversing §0's earlier exclusion after
+    // Adam read a book on glass): fast successive notches in ONE direction
+    // ramp a multiplier — ≤250 ms apart raises it (to 6), 250–500 ms holds
+    // it, a longer pause or a direction change resets it. Time is an input
+    // here, not a bound: nothing waits and nothing is abandoned, so the
+    // NO-TIMEOUTS rule is untouched.
+    private var docNotchMs = 0L
+    private var docNotchDir = 0
+    private var docNotchMult = 1
+    private fun docAccelFactor(v: WindowView.DocView, dir: Int): Int {
+        if (!v.accel()) return 1
+        val now = System.currentTimeMillis()
+        val gap = now - docNotchMs
+        docNotchMult = when {
+            dir != docNotchDir -> 1
+            gap <= 250 -> minOf(docNotchMult + 1, 6)
+            gap > 500 -> 1
+            else -> docNotchMult
+        }
+        docNotchMs = now
+        docNotchDir = dir
+        return docNotchMult
     }
 
     /** A fully-shown notification box floats ON the sliding band: putting the
@@ -570,6 +619,7 @@ class Shell(
                     w.onDeactivate()
                     mode = Mode.MAIN
                     current = null
+                    syncLayout()  // §2: back to the global height with Main
                 }
                 composeContent()
             }
@@ -605,6 +655,7 @@ class Shell(
         // activation auto-marks that app's notifications read (§4.5) — commit
         // only; preview never does this
         notifications.markAppRead(w.id)
+        syncLayout()              // §2: the window's preferred height, on FOCUS
         composeContent()
         scheduleSave()
     }
@@ -630,6 +681,7 @@ class Shell(
     private fun exitSilent() {
         mode = Mode.MAIN
         main.resting = false
+        syncLayout()              // §2: silent kept the old window's layout
         composeFullSurface()
         if (notifications.active && !notifications.focused) scheduleGrace()
         scheduleSave()
@@ -666,6 +718,7 @@ class Shell(
             current?.onDeactivate()
             current = null
             mode = Mode.MAIN
+            syncLayout()          // §2: back to the global height with Main
             composeContent()      // §4.3: the preview already painted the rest;
         } else {                  // this erases the panel region
             commitWindow(target)  // marks that app's notices read (§4.5) BEFORE
@@ -864,6 +917,13 @@ class Shell(
         when (ev) {
             is TransportEvent.Input -> handleInput(ev.type, ev.source)
             is TransportEvent.FlushDone -> completeFlush(ev)
+            is TransportEvent.Battery -> {
+                // chrome never justifies its own flush (§8.3): the new value
+                // rides the next content flush or the idle chrome tick
+                ev.glassesPct?.let { glassesBattery = Chrome.Battery(it) }
+                ev.ringPct?.let { ringBattery = Chrome.Battery(it) }
+                chromeDirty = true
+            }
             is TransportEvent.Lease -> {
                 if (!ev.held) {
                     // fail-open fired: stock repainted; a keyframe is required on
@@ -1056,26 +1116,52 @@ class Shell(
     private var haltedEpoch: Long? = null
 
     // ------------------------------------------------------------------ compose
+    // Always TOP-aligned since 2026-08-31 (Adam: the top is always visible;
+    // the bottom is what occlusion takes) — the vertical-position setting is
+    // retired and every reduced band sits at the top of the panel.
     private fun layoutFor(s: ShellSettings): Layout =
         if (s.heightMode >= Geometry.PANEL_H) Layout()
-        else Layout().withHeightMode(s.heightMode, s.vpos)
+        else Layout().withHeightMode(s.heightMode, wm.damage.core.geom.VPos.TOP)
+
+    /** §2 per-app height (REFINEMENT.md, 2026-08-31): the layout the shell
+     *  should be in RIGHT NOW — the focused window's preferred height when it
+     *  declares one, else the global Size setting. */
+    private fun effectiveLayout(): Layout {
+        val h = (if (mode == Mode.WINDOW) current?.preferredHeight else null) ?: settings.heightMode
+        return if (h >= Geometry.PANEL_H) Layout()
+        else Layout().withHeightMode(h, wm.damage.core.geom.VPos.TOP)
+    }
+
+    /** Swap to [effectiveLayout] if it differs: the full §4.2 size-change
+     *  path (re-wrap, resurface, keyframe). Called on every focus commit and
+     *  on Invalidate; cheap when nothing changed. Returns true on a swap. */
+    private fun syncLayout(): Boolean {
+        val want = effectiveLayout()
+        if (want == layout) return false
+        layout = want
+        chrome.invalidate()
+        kit.resetRail()
+        slides = emptyList()
+        for (w in windows) w.onLayoutChanged()
+        comp.composed.clear(0)
+        composeFullSurface()
+        comp.requestKeyframe()   // a height change re-lays out the whole shell (§4.2)
+        return true
+    }
 
     private fun applySettings(s: ShellSettings) {
-        val relayout = s.heightMode != settings.heightMode || s.vpos != settings.vpos
+        val relayout = s.heightMode != settings.heightMode
         val rescale = s.fontScale != settings.fontScale
+        // §4.2's live preview, made real for Brightness (2026-08-31): every
+        // step pushes the sid-0x09 write, so the panel changes as you scroll
+        val rebright = s.brightness != settings.brightness || s.brightnessAuto != settings.brightnessAuto
         settings = s
+        if (rebright) transport.setBrightness(s.brightnessAuto, s.brightness)
         persistence.put("shell.settings", s.toJson())
         if (rescale) for (w in windows) w.onFontScaleChanged(s.fontScale)
-        if (relayout) {
-            layout = layoutFor(s)
-            chrome.invalidate()
-            kit.resetRail()
-            slides = emptyList()
-            for (w in windows) w.onLayoutChanged()
-            comp.composed.clear(0)
-            composeFullSurface()
-            comp.requestKeyframe()   // a size change re-lays out the whole shell (§4.2)
-        } else {
+        // a global size change under a window that pins its own height changes
+        // nothing visible — syncLayout says so and the cheap path runs instead
+        if (!relayout || !syncLayout()) {
             updatePlanes()
             composeContent()
         }
@@ -1129,8 +1215,25 @@ class Shell(
         val d = settings.depth
         val planes = ArrayList<Compositor.PlaneRegion>()
         if (d != 0 && mode != Mode.SILENT) {
+            // Chrome sits at the BACK of the ladder (§3.1 revised 2026-08-31,
+            // REFINEMENT.md §1 — Adam: the bars "as far back as depth allows",
+            // behind the content plane, never sharing the selection's plane):
+            // one ladder step behind content, capped at the 16 px the bar
+            // inset can shift. Both bands carry bar + divider as one region.
+            val cd = minOf(d + 4, Layout.CONTENT_INSET_X)
+            planes.add(Compositor.PlaneRegion(
+                Rect(layout.topBar.x, layout.topBar.y, layout.topBar.w,
+                    Layout.TOP_H + Layout.DIV_H), cd))
+            planes.add(Compositor.PlaneRegion(
+                Rect(layout.statusBar.x, layout.bottomDivider.y, layout.statusBar.w,
+                    Layout.DIV_H + Layout.STATUS_H), cd))
             planes.add(Compositor.PlaneRegion(layout.content, d))          // content parks far
-            if (focusedView() is WindowView.ListView) {
+            // The wheel owns the depth story while it is open (§4.3, corrected
+            // 2026-08-31): the window behind it is a PREVIEW, so its lens row
+            // is not the focus — and this full-content-width plane-0 band runs
+            // through the wheel's rows, which dragged the whole width forward,
+            // background included (Adam's report).
+            if (!switcher.open && focusedView() is WindowView.ListView) {
                 planes.add(Compositor.PlaneRegion(layout.lens, 0))          // lens comes forward
             }
             if (switcher.open) {
@@ -1397,8 +1500,8 @@ class Shell(
             context = context,
             clock = c.hhmm,
             clockAmPm = c.amPm,
-            glasses = null,           // real batteries arrive with the phone bridge
-            ring = null,
+            glasses = glassesBattery, // sid-0x09 device-info response, f4.12 (2026-08-31)
+            ring = ringBattery,       // sid-0x91 relay, when the glasses forward one
             phone = phoneBattery,
             windowCount = rows.size,
             windowAt = at,
@@ -1420,6 +1523,12 @@ class Shell(
     }
 
     @Volatile var phoneBattery: Chrome.Battery? = null
+
+    /** Wire-fed batteries (2026-08-31): glasses from the settings READ
+     *  response (start + the 60 s poll), ring from a sid-0x91 relay. Blank
+     *  until the wire reports — never invented. */
+    private var glassesBattery: Chrome.Battery? = null
+    private var ringBattery: Chrome.Battery? = null
 
     /** The active window's id, or null at Main/silent — test introspection. */
     fun currentWindowId(): String? = if (mode == Mode.WINDOW) current?.id else null

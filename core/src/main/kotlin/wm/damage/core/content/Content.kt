@@ -31,7 +31,14 @@ import wm.damage.core.windows.reader.Epub
  * cloudflared path (§10.6).
  */
 @Serializable
-data class BookMeta(val id: String, val title: String, val author: String, val bytes: Long, val file: String)
+data class BookMeta(
+    val id: String, val title: String, val author: String, val bytes: Long, val file: String,
+    /** Library folder, relative, '/'-separated, "" = root (REFINEMENT.md §3a,
+     *  2026-08-31: folders are folders — a series in a subfolder stays a
+     *  category, not a flood into the main list). Additive with a default so
+     *  an older cached listing or an older peer still decodes. */
+    val folder: String = "",
+)
 
 interface ContentProvider {
     /** List the library. Throws on hard failure (callers surface it). */
@@ -59,7 +66,9 @@ class LocalContent(private val dir: Path) : ContentProvider {
                 val n = p.fileName?.toString()?.lowercase() ?: continue
                 if (!Files.isRegularFile(p) || (!n.endsWith(".epub") && !n.endsWith(".txt"))) continue
                 val (title, author) = Epub.meta(p)
-                out.add(BookMeta(idFor(p), title, author, Files.size(p), p.toString()))
+                val folder = (p.parent?.let { dir.relativize(it).toString() } ?: "")
+                    .replace(java.io.File.separatorChar, '/')
+                out.add(BookMeta(idFor(p), title, author, Files.size(p), p.toString(), folder))
             }
         }
         return out.sortedBy { it.title.lowercase() }

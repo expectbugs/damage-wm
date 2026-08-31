@@ -4,7 +4,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
-import wm.damage.core.geom.VPos
 
 /**
  * The WM's global settings — DESIGN.md §4.2's table. Scope is the window
@@ -16,9 +15,12 @@ data class ShellSettings(
     val brightness: Int = 60,
     val brightnessAuto: Boolean = true,
 
-    /** Height mode (§4.2 "Size"): 480 full or 288 band, plus vertical position. */
+    /** Height mode (§4.2 "Size", revised 2026-08-31): one of [HEIGHTS] —
+     *  288 / 352 / 416 / 480 — and always TOP-aligned. Adam: the top is
+     *  always visible; it is the BOTTOM that goes under occlusion when the
+     *  glasses ride high, so the vertical-position setting was useless and
+     *  is retired (an old persisted "vpos" key is ignored). */
     val heightMode: Int = 480,
-    val vpos: VPos = VPos.CENTRE,
 
     /** Content disparity d on the 4 px ladder (§3): content parks far at +d;
      *  0 disables stereo entirely (calibrate at first light). */
@@ -66,13 +68,16 @@ data class ShellSettings(
      *  back into its legal domain instead of flowing raw toward the wire. */
     fun clamped(): ShellSettings = copy(
         brightness = brightness.coerceIn(0, 100),
-        heightMode = if (heightMode < (288 + 480) / 2) 288 else 480,
+        heightMode = HEIGHTS.minByOrNull { kotlin.math.abs(it - heightMode) } ?: 480,
         depth = ((depth / 4).coerceIn(0, 4)) * 4,
         presence = presence.coerceIn(0, 1),
         fontScale = if (fontScale < 0.925) 0.85 else 1.0,
     )
 
     companion object {
+        /** The four sizes (2026-08-31): 288 smallest → 480 largest, 64 px
+         *  steps, all on the ×2 grid, all tall enough for the chrome. */
+        val HEIGHTS = listOf(288, 352, 416, 480)
         fun fromJson(o: JsonObject?): ShellSettings =
             if (o == null) ShellSettings()
             else try {

@@ -116,6 +116,12 @@ class GlassFirmwareSim() : LensPanels {
      *  (`strings fws/... | grep EVENCFW`). The a5d1c31 set dropped `img576` and
      *  `compass10` and added the texture-cache/font/cleanup tokens; the version
      *  went 8 -> 16. Damage's REQUIRED_CAPS are all still present. */
+    /** Modeled glasses battery (f4.12 of the settings READ response) and the
+     *  last brightness write accepted (null level = auto). */
+    var batteryPct = 87
+    var brightnessAuto = true
+    var brightnessLevel: Int? = null
+
     var capabilityString = "EVENCFW/16 img640 imgz rle wakelease directfb fbguard " +
         "wearnotify cleanup11 texcache12 teximg13 texstr14 font15 micctl"
 
@@ -861,14 +867,31 @@ class GlassFirmwareSim() : LensPanels {
             // Field 104 (the 21-byte mic read-back) trails it on every response since
             // a5d1c31 — modeled so a parser that assumes field 100 is last fails HERE
             // rather than on glass. Contents are inert for us; only the shape matters.
+            // Field 4 is the stock device-info block; battery=12 / charging=13
+            // (G2CC docs/G2_BLE_PROTOCOL.md §10, capture-confirmed) — modeled so
+            // the chrome's battery path is exercised offline.
             val msgId = (Pb.varintField(payload, 2) ?: 0L).toInt()
             val resp = Pb.cat(
                 Pb.v(1, 2), Pb.v(2, msgId),
+                Pb.l(4, Pb.cat(Pb.v(12, batteryPct), Pb.v(13, 0))),
                 Pb.l(SettingsMsg.CAPABILITY_FIELD, capabilityString.toByteArray(Charsets.UTF_8)),
                 Pb.l(SettingsMsg.MIC_STATUS_FIELD, micStatusBody()),
             )
             diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), SettingsMsg.SID,
                 SettingsMsg.FLAG_RESPONSE, resp, AaFrame.TYPE_RESPONSE).single())
+        } else if (cmdId == 1) {
+            // Settings WRITE. The only one Damage sends is brightness — f3 =
+            // DeviceReceiveInfoFromAPP{f1 = brightness{f1=auto[, f2=level]}}
+            // (faceclaw BleProtocol.buildSetBrightness). Stored for tests.
+            val info = Pb.bytesField(payload, 3)
+            val bri = info?.let { Pb.bytesField(it, 1) }
+            if (bri != null) {
+                brightnessAuto = Pb.varintField(bri, 1) == 1L
+                brightnessLevel = if (brightnessAuto) null else (Pb.varintField(bri, 2) ?: 0L).toInt()
+                diag.event("settings", "brightness -> ${if (brightnessAuto) "auto" else "$brightnessLevel"}")
+            } else {
+                diag.event("settings", "unmodeled settings write: ${payload.take(16).joinToString("") { "%02x".format(it) }}")
+            }
         }
     }
 

@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -18,6 +19,7 @@ import wm.damage.core.gfx.Icons
 import wm.damage.core.gfx.Level
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.DocModel
+import wm.damage.core.shell.HostSetting
 import wm.damage.core.shell.ListModel
 import wm.damage.core.shell.ShellServices
 import wm.damage.core.shell.WindowView
@@ -42,17 +44,94 @@ class ReaderWindow(
     private val text: TextRasterizer,
     private val content: ContentProvider,
     private val bg: CoroutineScope,
+    /** Platform image decoding (2026-08-31, ebook images) — null (tests, a
+     *  host without one) degrades every image to a visible placeholder line. */
+    private val images: wm.damage.core.gfx.ImageDecoder? = null,
 ) : DamageWindow("reader", "Reader", IconKind.READER) {
 
-    private enum class Level_ { LIBRARY, BOOK, ACTIONS }
+    private enum class Level_ { LIBRARY, CHAPTERS, BOOK, ACTIONS }
 
     private var level = Level_.LIBRARY
     private val libModel = ListModel()
     private val docModel = DocModel()
     private val actModel = ListModel()
+    private val chapModel = ListModel()
+    /** Where the chapter picker returns on back: false = it was the first-open
+     *  picker (back cancels the open, to the library); true = it was opened
+     *  from the actions level (back resumes the page). Double-tap ALWAYS
+     *  backsteps — Adam, 2026-08-31: "start from the beginning" is row 0 of
+     *  the list, never a gesture meaning. */
+    private var chaptersReturnToBook = false
 
     private var library: List<BookMeta> = emptyList()
     private var libraryState = "loading"
+    /** Current library folder ("" = shelf root) — folders are folders
+     *  (REFINEMENT.md §3a, 2026-08-31): a folder is a row, tap descends,
+     *  double-tap ascends. */
+    private var folder = ""
+    /** Lines per ring notch inside a book (REFINEMENT.md §3b). Default 5 and
+     *  acceleration OFF since 2026-08-31: Adam tried the ramp on glass and
+     *  called it too uneven — "lets just default the scrolling to 5 lines per
+     *  notch - configurable". Both live in the Settings window's Reader
+     *  category now (appSettings), not in the book's actions level. */
+    private var scrollLines = 5
+    private var scrollAccel = false
+
+    /** §2 per-app height (revised 2026-08-31): null = "global" — the default
+     *  for every per-app shadow of a global setting (Adam: "one of the
+     *  per-app options (the default) should be 'use global setting'") — or
+     *  one of ShellSettings.HEIGHTS to override it for Reader only. Adam's
+     *  own state is migrated to 480 (he reads full-panel). */
+    private var heightPref: Int? = null
+    override val preferredHeight: Int? get() = heightPref
+
+    /** The Settings window's "Reader" category (Adam, 2026-08-31: Settings
+     *  organized by category — Global, then one per app). STABLE instances:
+     *  the Settings window matches its staged row by identity. */
+    private val settingsRows: List<HostSetting> by lazy {
+        listOf(
+            HostSetting("Scroll step", (1..8).map { "$it line${if (it == 1) "" else "s"}" },
+                { "$scrollLines line${if (scrollLines == 1) "" else "s"}" },
+                { scrollLines = it.takeWhile { c -> c.isDigit() }.toIntOrNull()?.coerceIn(1, 8) ?: 5 }),
+            HostSetting("Scroll accel", listOf("off", "on"),
+                { if (scrollAccel) "on" else "off" }, { scrollAccel = it == "on" }),
+            HostSetting("Size", listOf("global") + wm.damage.core.shell.ShellSettings.HEIGHTS.map { "$it" },
+                { heightPref?.toString() ?: "global" },
+                { heightPref = it.toIntOrNull() }),   // "global" parses to null
+            // Reset progress (2026-08-31): scroll through the books that hold
+            // a saved position, tap to clear that one — the standard adjust
+            // grammar (double-tap cancels). Options are computed at adjust
+            // time, which is what the supplier form of HostSetting exists for.
+            HostSetting("Reset progress", { listOf("cancel") + trackedTitles() },
+                { "${offsets.size} book${if (offsets.size == 1) "" else "s"} tracked" },
+                { choice -> if (choice != "cancel") resetProgress(choice) }),
+        )
+    }
+
+    /** Titles of books with a saved reading position (id shown when a tracked
+     *  book has left the library — resettable either way). */
+    private fun trackedTitles(): List<String> =
+        offsets.keys.map { id -> library.firstOrNull { it.id == id }?.title ?: id }.sorted()
+
+    private fun resetProgress(title: String) {
+        val id = library.firstOrNull { it.title == title }?.id
+            ?: offsets.keys.firstOrNull { it == title }   // the id-shown fallback row
+            ?: run { Log.w("reader", "reset progress: no tracked book called '$title'"); return }
+        offsets.remove(id)
+        // resetting the OPEN book also closes it: saveState's rememberPosition
+        // would re-track it on the next save, and a reset book should count as
+        // a first open again (the chapter picker included)
+        if (book?.meta?.id == id) {
+            bookmarkOffset = -1
+            book = null
+            docModel.topLine = 0
+            level = Level_.LIBRARY
+            services?.requestRender(this)
+        }
+        Log.i("reader", "progress reset for '$title'")
+    }
+
+    override fun appSettings(): List<HostSetting> = settingsRows
     private var book: Loaded? = null
     /** Reading position per book id, as CHARACTER offsets (§9.1). */
     private val offsets = HashMap<String, Int>()
@@ -61,12 +140,17 @@ class ReaderWindow(
     private var services: ShellServices? = null
     private var wrappedWidth = 0
 
-    /** Reader content face: Alegreya (locked). Line height 24 px — even (§2.4 r7). */
+    /** Reader content face: Alegreya (locked). Line height 30 px — even (§2.4
+     *  r7). ⚠ Was 24, which CHOPPED DESCENDERS (2026-08-31): Alegreya's
+     *  x-height normalisation lands the em at ~20 px, whose ascent+descent is
+     *  28 rows — five more than a 24 px box drawn 2 px down could hold, and
+     *  the scroll path renders each line into a buffer exactly one box tall.
+     *  The face and size stay exactly as they were; only the box grew. */
     private val fBody = FontSpec(Face.READER, 17)
     private val fBodyB = FontSpec(Face.READER, 17, bold = true)
     private val fSmall = FontSpec(Face.SYSTEM, 13, bold = true)
     private val fRow = FontSpec(Face.SYSTEM, 18)
-    private val lineH = 24
+    private val lineH = 30
 
     private class Loaded(
         val meta: BookMeta,
@@ -76,8 +160,15 @@ class ReaderWindow(
         val width: Int,
         /** The font scale the wrap was measured at (round 4 #10). */
         val scale: Double,
+        /** Decoded, scaled, 16-level-quantized ebook images (2026-08-31),
+         *  each padded to whole line boxes so image LINES blit exact strips. */
+        val imgs: List<Gray8> = emptyList(),
     ) {
-        data class Line(val text: String, val offset: Int, val heading: Boolean)
+        data class Line(
+            val text: String, val offset: Int, val heading: Boolean,
+            /** ≥0: this line is strip [imgRow] of [Loaded.imgs][img]. */
+            val img: Int = -1, val imgRow: Int = 0,
+        )
 
         val pages: Int get() = maxOf(1, (lines.size + linesPerPage - 1) / linesPerPage)
         fun pageOf(line: Int): Int = line.coerceIn(0, lines.size - 1) / linesPerPage + 1
@@ -96,21 +187,79 @@ class ReaderWindow(
     // ------------------------------------------------------------------ contract
     override fun view(): WindowView = when (level) {
         Level_.LIBRARY -> libView()
+        Level_.CHAPTERS -> {
+            if (book == null) libView()
+            else WindowView.ListView(chapModel, { chapterRows().size },
+                ::paintChapRow, ::paintChapLens, ::commitChapter)
+        }
         Level_.BOOK -> {
             val b = book
             if (b == null) libView()
             else WindowView.DocView(docModel, { b.lines.size }, lineH,
-                { g, i, r -> paintBookLine(g, b, i, r) }, { level = Level_.ACTIONS })
+                { g, i, r -> paintBookLine(g, b, i, r) }, { level = Level_.ACTIONS },
+                { scrollLines }, { scrollAccel })
         }
         Level_.ACTIONS -> WindowView.ListView(actModel, { actions().size },
             ::paintActRow, ::paintActLens, ::commitAction)
     }
 
-    private fun libView() = WindowView.ListView(libModel, { library.size },
+    /** Row 0 = "From the beginning", then the book's chapters (§ the toc). */
+    private fun chapterRows(): List<String> {
+        val b = book ?: return emptyList()
+        return listOf("From the beginning") + b.book.chapters.map { it.title }
+    }
+
+    private fun commitChapter(i: Int) {
+        val b = book ?: run { level = Level_.LIBRARY; return }
+        docModel.topLine =
+            if (i == 0) 0
+            else b.lineAtOffset(b.book.chapters.getOrNull(i - 1)?.offset ?: 0)
+        level = Level_.BOOK
+        services?.setOperation("reading")
+    }
+
+    private fun paintChapRow(g: Gray8, i: Int, r: Rect, dim: Boolean) {
+        val rows = chapterRows()
+        val name = rows.getOrNull(i) ?: return
+        drawFit(g, r.x + 32, r.y + 5, name, Level.BODY, fRow, r.w - 120)
+        if (i > 0) drawRight(g, r.right - 24, r.y + 8, "$i", Level.DIM, fSmall)
+    }
+
+    private fun paintChapLens(g: Gray8, r: Rect, i: Int) {
+        val name = chapterRows().getOrNull(i) ?: return
+        Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.READER, Level.HEAD)
+        drawFit(g, r.x + 44, r.y + 6, name, Level.HEAD, FontSpec(Face.SYSTEM, 18, bold = true), r.w - 60)
+        drawFit(g, r.x + 44, r.y + 34, "tap to start here", Level.BODY, fRow, r.w - 60)
+    }
+
+    private fun libView() = WindowView.ListView(libModel,
+        { shelf().let { it.folders.size + it.books.size } },
         ::paintLibRow, ::paintLibLens, ::commitLibrary)
 
+    /** The current folder's view: subfolders first (sorted), then the books
+     *  directly in it. O(library) per call — cheap at library scale. */
+    private data class Shelf(val folders: List<String>, val books: List<BookMeta>)
+
+    private fun shelf(): Shelf {
+        val prefix = if (folder.isEmpty()) "" else "$folder/"
+        val subs = sortedSetOf<String>()
+        val books = ArrayList<BookMeta>()
+        for (b in library) {
+            if (b.folder == folder) { books.add(b); continue }
+            if (b.folder.startsWith(prefix)) subs.add(b.folder.removePrefix(prefix).substringBefore('/'))
+        }
+        return Shelf(subs.toList(), books)
+    }
+
+    /** Books anywhere under [sub] (for the folder row's count). */
+    private fun countUnder(sub: String): Int {
+        val full = if (folder.isEmpty()) sub else "$folder/$sub"
+        return library.count { it.folder == full || it.folder.startsWith("$full/") }
+    }
+
     override fun title(): String = when (level) {
-        Level_.LIBRARY -> "library"
+        Level_.LIBRARY -> if (folder.isEmpty()) "library" else "library · $folder"
+        Level_.CHAPTERS -> book?.let { "${it.meta.title} · chapters" } ?: "opening"
         else -> book?.let { "${it.meta.title} · p.${it.pageOf(docModel.topLine)} of ${it.pages}" } ?: "opening"
     }
 
@@ -132,14 +281,31 @@ class ReaderWindow(
         )
     }
 
+    private fun folderDepth(): Int = if (folder.isEmpty()) 0 else folder.count { it == '/' } + 1
+
     override fun levelDepth(): Int = when (level) {
-        Level_.LIBRARY -> 1
-        Level_.BOOK -> 2
-        Level_.ACTIONS -> 3
+        Level_.LIBRARY -> 1 + folderDepth()
+        Level_.CHAPTERS -> 2 + folderDepth()
+        Level_.BOOK -> 2 + folderDepth()
+        Level_.ACTIONS -> 3 + folderDepth()
     }
 
     override fun back(): Boolean = when (level) {
         Level_.ACTIONS -> { level = Level_.BOOK; true }
+        Level_.CHAPTERS -> {
+            // double-tap always backsteps (Adam, 2026-08-31): from the
+            // first-open picker it cancels the open back to the shelf; from
+            // the actions route it resumes the page unchanged
+            if (chaptersReturnToBook) {
+                level = Level_.BOOK
+            } else {
+                book = null
+                openingId = null
+                level = Level_.LIBRARY
+                services?.setOperation("idle")
+            }
+            true
+        }
         Level_.BOOK -> {
             rememberPosition()
             level = Level_.LIBRARY
@@ -147,15 +313,25 @@ class ReaderWindow(
             true
         }
         Level_.LIBRARY -> {
-            // backing out of the library also cancels an in-flight open: the
-            // completion must not yank the user back into a book they left
-            openingId = null
-            false
+            if (folder.isNotEmpty()) {
+                // ascend one folder; cursor rests on a harmless cell (§1.7)
+                folder = folder.substringBeforeLast('/', "")
+                libModel.cursor = 0
+                true
+            } else {
+                // backing out of the library also cancels an in-flight open: the
+                // completion must not yank the user back into a book they left
+                openingId = null
+                false
+            }
         }
     }
 
     private fun rememberPosition() {
         val b = book ?: return
+        // no position exists while the first-open picker is up: recording one
+        // would mark the book opened and skip the picker after a restart
+        if (level == Level_.CHAPTERS && !chaptersReturnToBook) return
         offsets[b.meta.id] = b.lines[docModel.topLine.coerceIn(0, b.lines.size - 1)].offset
     }
 
@@ -242,7 +418,15 @@ class ReaderWindow(
     }
 
     private fun paintLibRow(g: Gray8, i: Int, r: Rect, dim: Boolean) {
-        val b = library.getOrNull(i) ?: return
+        val s = shelf()
+        if (i < s.folders.size) {
+            val name = s.folders[i]
+            Icons.draw(g, r.x + 4, r.y + 7, 18, 18, IconKind.FILES, Level.DIM)
+            drawFit(g, r.x + 32, r.y + 5, name, Level.BODY, fRow, r.w - 200)
+            drawRight(g, r.right - 24, r.y + 8, "${countUnder(name)}", Level.DIM, fSmall)
+            return
+        }
+        val b = s.books.getOrNull(i - s.folders.size) ?: return
         val maxW = r.w - 200
         drawFit(g, r.x + 32, r.y + 5, b.title, Level.BODY, fRow, maxW)
         drawRight(g, r.right - 24, r.y + 8, "${b.bytes / 1024}K", Level.DIM, fSmall)
@@ -250,9 +434,17 @@ class ReaderWindow(
     }
 
     private fun paintLibLens(g: Gray8, r: Rect, i: Int) {
-        val b = library.getOrNull(i) ?: return
-        Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.READER, Level.HEAD)
+        val s = shelf()
         val fB = FontSpec(Face.SYSTEM, 18, bold = true)
+        if (i < s.folders.size) {
+            val name = s.folders[i]
+            Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.FILES, Level.HEAD)
+            drawFit(g, r.x + 44, r.y + 6, name, Level.HEAD, fB, r.w - 60)
+            drawFit(g, r.x + 44, r.y + 34, "${countUnder(name)} books · tap to open", Level.BODY, fRow, r.w - 60)
+            return
+        }
+        val b = s.books.getOrNull(i - s.folders.size) ?: return
+        Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.READER, Level.HEAD)
         val titleMax = r.w - 60
         drawFit(g, r.x + 44, r.y + 6, b.title, Level.HEAD, fB, titleMax)
         if (text.measure(b.title, fB) > titleMax) Icons.tri(g, r.right - 12, r.y + 11, 11, Level.DIM)
@@ -263,7 +455,15 @@ class ReaderWindow(
     }
 
     private fun commitLibrary(i: Int) {
-        val meta = library.getOrNull(i) ?: return
+        val s = shelf()
+        if (i < s.folders.size) {
+            val name = s.folders[i]
+            folder = if (folder.isEmpty()) name else "$folder/$name"
+            libModel.cursor = 0            // cursor rest discipline (§1.7)
+            services?.requestRender(this)
+            return
+        }
+        val meta = s.books.getOrNull(i - s.folders.size) ?: return
         if (openingId != null) return
         openingId = meta.id
         rememberPosition()
@@ -285,9 +485,20 @@ class ReaderWindow(
                     }
                     openingId = null
                     book = loaded
-                    docModel.topLine = loaded.lineAtOffset(offsets[meta.id] ?: 0)
-                    level = Level_.BOOK
-                    services?.setOperation("reading")
+                    val saved = offsets[meta.id]
+                    docModel.topLine = loaded.lineAtOffset(saved ?: 0)
+                    // FIRST open of a book with real chapters: pick where to
+                    // start (2026-08-31). Row 0 is "From the beginning";
+                    // double-tap backs out to the shelf, never a shortcut.
+                    if (saved == null && loaded.book.chapters.size >= 2) {
+                        level = Level_.CHAPTERS
+                        chaptersReturnToBook = false
+                        chapModel.cursor = 0
+                        services?.setOperation("pick a chapter")
+                    } else {
+                        level = Level_.BOOK
+                        services?.setOperation("reading")
+                    }
                     ensureCurrentLayout()
                     services?.requestRender(this@ReaderWindow)
                 }
@@ -323,9 +534,31 @@ class ReaderWindow(
     private fun layoutBook(meta: BookMeta, b: Epub.Book): Loaded {
         val width = (services?.docContentWidth() ?: 560).coerceAtLeast(120)
         val scale = fontScale
+        // The descender guard (2026-08-31): a document face whose vertical
+        // extent exceeds its line box gets clipped by the scroll path's
+        // per-line buffers — LOUDLY refuse the layout instead of chopping
+        // glyphs on glass. Checked for both weights at the current scale.
+        for (f in listOf(fBody, fBodyB)) {
+            val m = text.metrics(f)
+            if (m.ascent + m.descent > lineH) throw wm.damage.core.geom.LintError(
+                "Reader line box $lineH px cannot hold ${f.face} ascent ${m.ascent} + descent ${m.descent} — " +
+                    "descenders would be chopped (grow lineH or shrink the face)")
+        }
         val lines = ArrayList<Loaded.Line>(b.text.length / 40)
+        val imgs = ArrayList<Gray8>()
         var paraStart = 0
         for (para in b.text.split("\n\n")) {
+            // an image paragraph (2026-08-31): becomes whole-line strips so
+            // scrolling, slides, damage and character offsets all just work
+            val imgPath = Epub.imagePath(para)
+            if (imgPath != null) {
+                if (!layoutImage(b, imgPath, paraStart, width, lines, imgs)) {
+                    lines.add(Loaded.Line("[image: ${imgPath.substringAfterLast('/')}]", paraStart, false))
+                }
+                lines.add(Loaded.Line("", paraStart + para.length, false))
+                paraStart += para.length + 2
+                continue
+            }
             val heading = para.length < 60 && para == para.uppercase() && para.any { it.isLetter() }
             // Walk the source as the wrapped lines consume it. A soft break eats
             // one ' ' (or one '\n' at a sub-paragraph boundary); a HARD break
@@ -342,17 +575,86 @@ class ReaderWindow(
             lines.add(Loaded.Line("", paraStart + para.length, false))
             paraStart += para.length + 2          // the "\n\n" separator
         }
-        if (lines.isNotEmpty() && lines.last().text.isEmpty()) lines.removeAt(lines.size - 1)
+        if (lines.isNotEmpty() && lines.last().text.isEmpty() && lines.last().img < 0)
+            lines.removeAt(lines.size - 1)
         val perPage = maxOf(1, (416 - 32) / lineH)
-        return Loaded(meta, b, lines, perPage, width, scale)
+        return Loaded(meta, b, lines, perPage, width, scale, imgs)
+    }
+
+    private var warnedNoDecoder = false
+
+    /** Decode, grayscale, downscale to the text column, quantize to the 16
+     *  levels (NO dithering — the standing rule) and pad to whole line boxes.
+     *  False = no image (the caller adds a visible placeholder line). */
+    private fun layoutImage(
+        b: Epub.Book, zipPath: String, offset: Int, width: Int,
+        lines: MutableList<Loaded.Line>, imgs: MutableList<Gray8>,
+    ): Boolean {
+        val dec = images ?: run {
+            if (!warnedNoDecoder) {
+                warnedNoDecoder = true
+                Log.w("reader", "no image decoder on this host — ebook images shown as placeholders")
+            }
+            return false
+        }
+        val bytes = b.images[zipPath] ?: return false      // Epub logged why
+        val d = dec.decode(bytes) ?: run {
+            Log.w("reader", "image '$zipPath' did not decode — placeholder shown")
+            return false
+        }
+        if (d.w <= 0 || d.h <= 0) return false
+        val maxW = ((width - 32).coerceAtLeast(16) / 4) * 4
+        val maxH = 832                                     // ~2 full-height screens
+        val s = minOf(1.0, maxW.toDouble() / d.w, maxH.toDouble() / d.h)
+        val w = (((d.w * s).toInt()).coerceAtLeast(4) / 4) * 4
+        val hInk = (((d.h * s).toInt()).coerceAtLeast(2) / 2) * 2
+        val rows = (hInk + lineH - 1) / lineH
+        val g8 = Gray8(w, rows * lineH)                    // pad rows stay level 0
+        boxSample(d, g8, w, hInk)
+        imgs.add(g8)
+        val idx = imgs.size - 1
+        for (r in 0 until rows) lines.add(Loaded.Line("", offset, false, img = idx, imgRow = r))
+        return true
+    }
+
+    /** Box-average downscale + luminance is already gray at the seam; each
+     *  output pixel lands ON a 16-level value so the compositor's diff sees
+     *  stable pixels. */
+    private fun boxSample(d: wm.damage.core.gfx.ImageDecoder.Decoded, out: Gray8, w: Int, h: Int) {
+        for (y in 0 until h) {
+            val sy0 = y * d.h / h
+            val sy1 = maxOf(sy0 + 1, (y + 1) * d.h / h)
+            for (x in 0 until w) {
+                val sx0 = x * d.w / w
+                val sx1 = maxOf(sx0 + 1, (x + 1) * d.w / w)
+                var sum = 0
+                var n = 0
+                for (sy in sy0 until sy1) for (sx in sx0 until sx1) {
+                    sum += d.gray[sy * d.w + sx].toInt() and 0xFF
+                    n++
+                }
+                out[x, y] = ((sum / n + 8) / 17).coerceAtMost(15) * 17
+            }
+        }
     }
 
     private fun paintBookLine(g: Gray8, b: Loaded, i: Int, r: Rect) {
         val line = b.lines.getOrNull(i) ?: return
+        if (line.img >= 0) {
+            val im = b.imgs.getOrNull(line.img) ?: return
+            val x = ((r.x + (r.w - im.w).coerceAtLeast(0) / 2) / 4) * 4
+            g.blit(im, Rect(0, line.imgRow * lineH, im.w, lineH), x, r.y)
+            return
+        }
         if (line.text.isEmpty()) return
         val f = if (line.heading) fBodyB else fBody
         val lv = if (line.heading) Level.HEAD else Level.BODY
-        text.draw(g, (r.x + 16) / 4 * 4, (r.y + 2) / 2 * 2, line.text, f, lv)
+        // baseline from the REAL metrics, centred in the box (2026-08-31 —
+        // the hardcoded +2 assumed the glyphs fit, which is exactly what
+        // chopped the descenders when they did not)
+        val m = text.metrics(f)
+        val off = ((lineH - (m.ascent + m.descent)) / 2).coerceAtLeast(0)
+        text.draw(g, (r.x + 16) / 4 * 4, (r.y + off) / 2 * 2, line.text, f, lv)
     }
 
     // ------------------------------------------------------------------ actions
@@ -361,6 +663,7 @@ class ReaderWindow(
         val pct = (docModel.topLine * 100 / maxOf(1, b.lines.size - 1))
         return listOf(
             "Resume" to "back to the page",
+            "Chapters" to "${b.book.chapters.size}",
             "Jump forward" to "+10%",
             "Jump back" to "-10%",
             "Bookmark here" to "p.${b.pageOf(docModel.topLine)} · $pct%",
@@ -386,6 +689,11 @@ class ReaderWindow(
         val b = book ?: run { level = Level_.LIBRARY; return }
         when (actions()[i].first) {
             "Resume" -> level = Level_.BOOK
+            "Chapters" -> {
+                level = Level_.CHAPTERS
+                chaptersReturnToBook = true   // back resumes the page
+                chapModel.cursor = 0
+            }
             "Jump forward" -> {
                 docModel.topLine = (docModel.topLine + b.lines.size / 10).coerceAtMost(b.lines.size - 1)
                 level = Level_.BOOK
@@ -418,6 +726,10 @@ class ReaderWindow(
         put("actCursor", actModel.cursor)
         put("bookId", book?.meta?.id ?: "")
         put("bookmark", bookmarkOffset)
+        put("folder", folder)
+        put("scrollLines", scrollLines)
+        put("scrollAccel", scrollAccel)
+        put("heightPref", heightPref ?: 0)   // 0 = global
         put("offsets", buildJsonObject { for ((k, v) in offsets) put(k, v) })
     }
 
@@ -425,6 +737,15 @@ class ReaderWindow(
         libModel.cursor = state["libCursor"]?.jsonPrimitive?.intOrNull ?: 0
         actModel.cursor = state["actCursor"]?.jsonPrimitive?.intOrNull ?: 0
         bookmarkOffset = state["bookmark"]?.jsonPrimitive?.intOrNull ?: -1
+        folder = state["folder"]?.jsonPrimitive?.contentOrNull ?: ""
+        scrollLines = (state["scrollLines"]?.jsonPrimitive?.intOrNull ?: 5).coerceIn(1, 8)
+        scrollAccel = state["scrollAccel"]?.jsonPrimitive?.booleanOrNull ?: false
+        heightPref = when (val h = state["heightPref"]?.jsonPrimitive?.intOrNull) {
+            null -> // legacy key from the same-day earlier shape: true meant full panel
+                if (state["fullHeight"]?.jsonPrimitive?.booleanOrNull == true) 480 else null
+            0 -> null
+            else -> wm.damage.core.shell.ShellSettings.HEIGHTS.minByOrNull { kotlin.math.abs(it - h) }
+        }
         (state["offsets"] as? JsonObject)?.let { o ->
             for ((k, v) in o) v.jsonPrimitive.intOrNull?.let { offsets[k] = it }
         }

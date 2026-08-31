@@ -105,18 +105,21 @@ class GeometryTest {
 
     @Test
     fun defaultLayoutMatchesDesignTable() {
+        // §2.3 revised 2026-08-31 (REFINEMENT.md §1): bars inset to x 16-624
+        // so chrome can sit behind the content plane with the full 16 px
+        // stereo-shift budget.
         val l = Layout()
-        assertEquals(Rect(0, 0, 384, 32), l.titleCell)
-        assertEquals(Rect(384, 0, 176, 32), l.batteryCell)
-        assertEquals(Rect(560, 0, 80, 32), l.clockCell)
+        assertEquals(Rect(16, 0, 352, 32), l.titleCell)
+        assertEquals(Rect(368, 0, 176, 32), l.batteryCell)
+        assertEquals(Rect(544, 0, 80, 32), l.clockCell)
         assertEquals(Rect(16, 34, 608, 416), l.content)
-        assertEquals(Rect(0, 450, 640, 2), l.bottomDivider)
-        assertEquals(Rect(0, 452, 640, 28), l.statusBar)
+        assertEquals(Rect(16, 450, 608, 2), l.bottomDivider)
+        assertEquals(Rect(16, 452, 608, 28), l.statusBar)
         assertEquals(Rect(16, 210, 608, 64), l.lens)          // §4.2: y 210, h 64
         assertEquals(Rect(200, 154, 240, 176), l.switcherPanel) // §4.3
         assertEquals(Rect(196, 190, 248, 104), l.notificationMax) // §4.5
-        // §4.5b rebalanced status cells
-        assertEquals(160, l.opCell.w)
-        assertEquals(Rect(420, 452, 100, 28), l.tapeCell)
+        // §4.5b rebalanced status cells on the 608 px bar
+        assertEquals(128, l.opCell.w)
+        assertEquals(Rect(404, 452, 100, 28), l.tapeCell)
     }
 }

@@ -31,7 +31,7 @@ Recorded so they are not re-proposed. These are *decisions*, not oversights.
 | excluded | why |
 |---|---|
 | ❌ **The piezo buzzer, entirely** | Adam, 2026-08-17: *"no tone/buzzer. i do not want my glasses to emit sound."* Mode 5 is never sent. Out-of-band alerting goes to the phone instead (§9.3) |
-| ⚠ ~~❌ **Scroll acceleration / velocity**~~ **RE-OPENED 2026-08-30** | The original reasoning: scroll and tap are hard to distinguish on the ring's small sensor, especially gloved, so every notch is one step, always. **Adam reversed this after using Reader on glass** — one line per notch inside a book is far too little, and he asked for accelerated scrolling "like firmware scroll", with a lines-per-notch setting as the fallback. Two things also changed underneath the original call: ack latency measured at ~50 ms rather than 176 ms, which makes motion much cheaper, and first light showed tap and scroll arriving as cleanly distinguished event types rather than as one ambiguous stream. `REFINEMENT.md` §3b carries the work. **The fallback setting should ship regardless of whether acceleration does.** |
+| ⚠ ~~❌ **Scroll acceleration / velocity**~~ **RE-OPENED 2026-08-30 · ✅ SHIPPED 2026-08-31** | The original reasoning: scroll and tap are hard to distinguish on the ring's small sensor, especially gloved, so every notch is one step, always. **Adam reversed this after using Reader on glass** — one line per notch inside a book is far too little, and he asked for accelerated scrolling "like firmware scroll", with a lines-per-notch setting as the fallback. Two things also changed underneath the original call: ack latency measured at ~50 ms rather than 176 ms, which makes motion much cheaper, and first light showed tap and scroll arriving as cleanly distinguished event types rather than as one ambiguous stream. **Shipped 2026-08-31: a per-notch step setting (1–8 lines) plus a direction-gated ramp — notches ≤250 ms apart multiply the step up to 6×. Verdict the same day, on glass: the ramp is too uneven — "lets just default the scrolling to 5 lines per notch - configurable." So the DEFAULT is 5 lines/notch with acceleration OFF; both configurable in the Settings window's Reader category. Lists stay strictly one item per notch: acceleration over selections would overshoot them.** |
 | ❌ **Wear / unwear differentiation** | not wanted for now. `wearnotify` stays banked, unused |
 | ❌ **Head tracking on by default** | available, **defaults OFF** — his head moves constantly at work (§7.1) |
 | ❌ **Long-press as a live gesture by default** | reversed 2026-08-30: it is the most common accidental press by far, all day, gloves worst — **defaults OFF (a no-op)**; the §1.3 chord opens the switcher; a Settings row restores the direct open |
@@ -59,6 +59,16 @@ int  ring_release(void *ctx, int code, void *data)
                               { if (EVT_SRC == SRC_RING) { ...ET_REL... } ... }
 ```
 > *"A touchpad long-press in EvenHub now does nothing (dialog removed, no forward)."*
+
+🔴 **The ring-only rule's mechanics, corrected 2026-08-31 (HANDOFF.md §12).** "Ring only" is
+enforced by source byte for the attributed gestures (tap / double-tap / scroll carry
+`EventSource = 2`) — but **events 9/10 are UNATTRIBUTED by firmware design** (`EventSource` is
+absent for them; they decode as source 0) and MUST bypass that check. The first implementation
+filtered them out with everything else, which made the switcher unreachable by both routes for
+two days while `LongPressTest` passed — its harness injected 9/10 with the flattering ring
+source. The suite now injects them with source 0, the wire truth. What keeps the temple (the
+second unattributed source since `a5d1c31`) harmless is §1.2's bare-long-press-is-a-no-op
+default, not the source filter.
 
 ### 1.1 The five events
 
@@ -161,23 +171,28 @@ is on top, whichever kind it was.
 
 Everything hidden but the clock.
 
-#### 🔑 The clock is a small dim analog face in the top-right corner
+#### 🔑 The clock is a small SEVEN-SEGMENT DIGITAL readout, flush top-right
 
-Adam, 2026-08-18, on the first draft's large centred digital clock: *"way too huge and centered and
-bold for a mode specifically made to be completely out-of-the-way."* Correct — the whole point of
-silent mode is absence.
+**Third revision, Adam 2026-08-31 (mid-session, wearing it):** *"move the silent mode clock back
+to the top right … all the way up and all the way right, and forget analog, make it good-looking
+digital numbers … something quality."* History, so nobody re-litigates it: 2026-08-18 he rejected
+a large centred digital clock (*"way too huge and centered and bold"*) for a small dim analog
+face top-right; 2026-08-30 he asked for top-left and better; 2026-08-31 on glass he settled it —
+**digital, top-right, flush to the corner, quality.** The 2026-08-18 objection was to *huge and
+centered*, not to digits.
 
-**`80×80` at `x 536, y 48`. Hour and minute hands only — NO second hand, ever** (Adam,
-2026-08-18). The minute hand **snaps** once a minute; the 4-frame glide proposed in an earlier draft
-is dropped too. **60 flushes/hour**, the cheapest possible "alive", and deep idle (§5.15) stays
-completely intact.
+**`144×48` at the safe rect's top-right corner** (box edges touch it; digits 2–4 px inside).
+Classic LED-clock **seven-segment digits, drawn, never typed** — the locked faces stay four —
+with tapered hexagonal segments, softened edge rows, corner gaps, 12-hour, no leading zero.
+Horizontal segments are single long RLE runs, so the whole readout prices like a few short
+lines. **Minutes only — it repaints once a minute, 60 flushes/hour**, and deep idle (§5.15)
+stays completely intact. (The analog face survives unused in `Icons.analogClock` in case it
+returns as a setting.)
 
-Twelve dots plus the two hands, **no bezel ring**: a circle
-outline breaks the RLE run on every single row, while twelve dots do not. *"Just the hands and dots
-so it's mostly transparent, but stylish"* is, once again, also the cheap option.
-
-**Measured: 0.2 % ink, 178 B, 192 ms** — a whole silent-mode frame is 18 ms of transfer plus the ack
-floor. Compare the 1.6 % / 1,165 B the centred digital clock cost.
+**Measured: 0.5 % ink, 174 B, 192 ms (stock-formula pricing)** — the seven-segment readout costs
+FEWER bytes than the analog face did (174 vs 178 B): angled hands were RLE-expensive, horizontal
+segments are runs. Compare the 1.6 % / 1,165 B the 2026-08-18 *centred* digital clock cost — the
+objection then was huge-and-centered, and this one is 144×48 in a corner.
 
 ⚠ **On a sweeping second hand.** Bytes are not the constraint — the constraint is that a 1 Hz update
 runs the radio continuously and contradicts deep idle (§5.15), on a device whose **only power
@@ -244,23 +259,29 @@ Mode-3 boxes encode as `[left/4][top/2][width/4][height/2]`, one byte each (`zli
 
 ### 2.2 The layout
 
+🔴 **Revised 2026-08-31 (REFINEMENT.md §1): the bars are inset to the content extent, x 16–624.**
+Chrome now sits BEHIND the content plane (§3.1), and a stereo shift needs the same 16 px side
+budget the content has — a full-width rect cannot shift at all without leaving the panel. The
+16 px strips beside the bars are shift gutters, level 0, exactly like §3.3's.
+
 ```
-        0                                  296              560   640
-      ┌───────────────────────────────────┬─────────────────┬──────┐
-  0   │  ▣ WINDOW · document              │    Battery      │Clock │  32
-      │               296                 │       264       │  80  │
- 32   ├──────────┴───────────┴──────────┴──────┴──────┴──────┤   2   divider
- 34   │ ░░░░ │                                        │ ░░░░ │
-      │      │          content   608 × 416           │      │ 416   content
-      │  16  │             x 16 – 624                 │  16  │
-450   ├────────────┬──────────┬──────────┬────┬───────────────┤   2   divider
-452   │  Cur Op    │  status  │ ↑ B/s·ack│ ✱  │  link signal  │  28   status bar
-      │    200     │   152    │   128    │ 40 │      120      │
-480   └────────────┴──────────┴──────────┴────┴───────────────┘
+        0  16                              368              544  624  640
+      ┌─┬───────────────────────────────────┬─────────────────┬─────┬─┐
+  0   │░│  ▣ WINDOW · document              │    Battery      │Clock│░│  32
+      │░│               352                 │       176       │  80 │░│
+ 32   │░├───────────────────────────────────┴─────────────────┴─────┤░│   2   divider
+ 34   │░│                                                           │░│
+      │░│            content   608 × 416   (x 16 – 624)             │░│ 416   content
+      │░│                                                           │░│
+450   │░├──────────┬─────────┬──────────┬─────────┬─────────────────┤░│   2   divider
+452   │░│  Cur Op  │  status │ ↑ B/s·ack│ tape ✱  │   link signal   │░│  28   status bar
+      │░│   128    │   132   │   128    │   100   │       120       │░│
+480   └─┴──────────┴─────────┴──────────┴─────────┴─────────────────┴─┘
+         ░ = the 16 px stereo-shift gutters, level 0, both sides (§3.3)
 ```
 
-`32 + 2 + 416 + 2 + 28 = 480` ✅ — **the content area (16–624) centres on x = 320**, the same axis
-as the switcher wheel and Main's lens.
+`32 + 2 + 416 + 2 + 28 = 480` ✅ — **bars and content share the extent 16–624 and centre on
+x = 320**, the same axis as the switcher wheel and Main's lens.
 
 ### 🔴 2.2b Express this layout RELATIVE to a calibrated safe rect, not absolute
 
@@ -275,8 +296,9 @@ Designing for the worst case surrenders FoV we may not need to; designing for th
 UI that does not work at the desk it is meant for. **So make it a calibration, exactly like
 disparity (§3.4):** a first-light ramp draws a border and shrinks it until it is fully visible, and
 that safe rect is stored as a setting. `640×480` and Faceclaw's `640×288` then stop being two
-designs and become two values of one parameter — and the vertical-position setting falls out for
-free.
+designs and become two values of one parameter. *(A vertical-position setting once fell out of
+this too — retired 2026-08-31: Adam's fit always shows the top and loses the bottom, so every
+reduced band is TOP-aligned; see §4.2 Size and §2.5.)*
 
 ⚠ **Cheap now, expensive to retrofit.** It means no hardcoded `34` / `210` / `450` anywhere: the
 bars, the lens and the content band are all positioned *from the safe rect*. Adopt the discipline
@@ -290,21 +312,24 @@ right to lose. That is §2.5, demonstrated rather than asserted.
 
 ### 2.3 Cell table
 
+*(Revised 2026-08-31: bars inset to x 16–624 — REFINEMENT.md §1 — and the status-bar split is
+§4.5b's tape rebalance on the 608 px bar.)*
+
 | zone | cell | x | w | y | h |
 |---|---|---|---|---|---|
-| top bar | Title — `▣ WINDOW · document` | 0 | 384 | 0 | 32 |
-| | Battery ×3, 58 px pitch, 30 px body | 384 | 176 | 0 | 32 |
-| | Clock | 560 | 80 | 0 | 32 |
-| divider | | 0 | 640 | 32 | 2 |
+| top bar | Title — `▣ WINDOW · document` | 16 | 352 | 0 | 32 |
+| | Battery ×3, 58 px pitch, 30 px body | 368 | 176 | 0 | 32 |
+| | Clock | 544 | 80 | 0 | 32 |
+| divider | | 16 | 608 | 32 | 2 |
 | content | (nominal, ±d for depth) | 16 | 608 | 34 | 416 |
-| divider | | 0 | 640 | 450 | 2 |
-| status bar | Current operation | 0 | 200 | 452 | 28 |
-| | Status | 200 | 152 | 452 | 28 |
-| | Throughput ↑ · ack ms | 352 | 128 | 452 | 28 |
-| | **Compass ✱** | 480 | 40 | 452 | 28 |
-| | Link signal | 520 | 120 | 452 | 28 |
+| divider | | 16 | 608 | 450 | 2 |
+| status bar | Current operation | 16 | 128 | 452 | 28 |
+| | Status | 144 | 132 | 452 | 28 |
+| | Throughput ↑ · ack ms | 276 | 128 | 452 | 28 |
+| | **Compass tape** | 404 | 100 | 452 | 28 |
+| | Link signal | 504 | 120 | 452 | 28 |
 
-Every value divides: x/w by 4, y/h by 2. ✅
+Every value divides: x/w by 4, y/h by 2. ✅ Both bars tile 16 → 624. ✅
 
 *(Optional variant: merging Current operation + Status into one 352 px marquee cell is cleaner and
 handles long messages better under NO TRUNCATION. Kept separate by default, as specified.)*
@@ -339,6 +364,11 @@ depending how the glasses sit on your face."* Nothing load-bearing goes in the o
 status bar is the most at-risk element here and its contents are telemetry, which is the right
 thing to lose.
 
+🔑 **Adam's own fit, measured by wearing it (2026-08-31): the TOP is always visible; it is the
+BOTTOM that goes under occlusion when the glasses ride high.** That is why every reduced band is
+top-aligned (§4.2 Size) and why the status bar being the sacrificial edge is the right ordering
+for him specifically, not just in principle.
+
 ---
 
 ## 3. Depth
@@ -350,11 +380,17 @@ thing to lose.
 > "the main window as far back as depth comfortably allows, and notifications and the like to pop
 > over it in front of it."
 
+🔴 **Revised 2026-08-31 (REFINEMENT.md §1), after wearing it:** chrome was sharing plane 0 with
+the selection and read as competing for attention. Adam: the bars belong **"as far back as depth
+allows"** — behind the content plane, never with the selection. Chrome joins the back; the
+direction of the ladder is unchanged.
+
 | plane | contents | disparity |
 |---|---|---|
 | **+1** (nearest, crossed) | critical modals only — *off by default* | −4 / −8 |
-| **0** (screen plane) | **chrome** and **popups / notifications / switcher overlay** | 0 |
-| **−1** (far) | **main content**, parked permanently | +8 … +16 |
+| **0** (screen plane) | **popups / notifications / switcher overlay**, the focused lens | 0 |
+| **−1** (far) | **main content**, parked permanently | +d (8 … 16) |
+| **−2** (farthest) | **chrome** — both bars and their dividers | d + 4, capped at 16 (the bar inset) |
 
 **Depth is a z-order *signal*, not decoration** — the eye reads the layering pre-attentively, so
 you know something popped before you read it. **Modal depth = modal state**: a confirm dialog one
@@ -535,7 +571,7 @@ surface exceeds its budget. Starting targets, to calibrate on the first real ren
 | notification box | ≤ 25% | **5.2%** ✅ |
 | emergency banner | ≤ 25% | **6.7%** ✅ |
 | switcher | ≤ 25% | **5.3%** ✅ |
-| silent mode | ≤ 2% | **0.2%** ✅ |
+| silent mode | ≤ 2% | **0.5%** ✅ *(digital readout, 2026-08-31; was 0.2% analog)* |
 | window, list mode | ≤ 15% | **8.3%** ✅ |
 | window, document mode | ≤ 25% | **7.9%** ✅ |
 
@@ -651,12 +687,22 @@ notification focus grace (§4.5) — scheduler priority, not a timer.
 
 #### ⚙ Settings — inside Main, as Adam asked
 
-The last list entry opens the WM's global settings. Scope is the **window manager**, not any app.
+The last list entry opens the WM's global settings. **Organized as DIRECTORIES since 2026-08-31**
+(Adam, same day, after inline headers proved too slow: *"the categories should be DIRECTORIES …
+it takes way way too long to scroll through 50 different things"*): the top level lists the
+categories — **Global** (the table below + the host's display-target rows), then **one per app**
+contributing rows through `DamageWindow.appSettings()` (Reader: Scroll step · Scroll accel ·
+Size) — tap descends into a category, double-tap climbs out, exactly the §4.6 level pattern.
+
+🔑 **The global/override pattern** (Adam, 2026-08-31): any per-app shadow of a global setting
+offers **"global" as its DEFAULT option** plus the global setting's own values; a non-global
+choice overrides the global for that app only. Reader's Size row is the first instance
+(global / 288 / 352 / 416 / 480, applied on focus per §2's per-app height).
 
 | setting | notes |
 |---|---|
 | **Brightness** | the panel's own, sid 0x09 — distinct from our 16-level content ramp |
-| **Size** | height mode 480 / 288, plus vertical position (top/upper/centre/lower/bottom) — Faceclaw's model. Directly serves ignorability |
+| **Size** | **four heights — 288 / 352 / 416 / 480 — always TOP-aligned** (revised 2026-08-31, Adam: *"I can always see the top, it's the lower areas that get cut off if I wear the glasses too high"* — so the vertical-position setting was useless and is retired). Per-app shadows follow the global/override pattern below |
 | **Depth** | the disparity calibration ramp, 0/4/8/12/16 (§3.4) |
 | **Presence** | the resting-state ink floor — one knob for "how much is it in my way" |
 | **Font** | system face and size; per-window content override (§Type — defaults are locked, this is for tuning) |
@@ -780,6 +826,16 @@ instead of reading as strain.
 
 - **Centre band at plane 0; the two neighbour bands at −1**, matching the content depth behind
   them — so the drum visibly curves back *into* the scene.
+- 🔴 **The wheel owns the depth story while open (corrected 2026-08-31, on glass).** The window
+  behind it is a preview, so the shell must NOT keep lifting that window's lens band to plane 0 —
+  the band spans the full content width and runs through the wheel's rows, so it dragged the
+  entire width forward, background included (Adam's report). While the wheel is open, the only
+  plane-0 region is the wheel's centre band.
+- **The frame is four horizontal rules (2026-08-31):** a fixed one-tier-dimmer pair at the panel's
+  top and bottom edges framing the upper and lower slots (dim edges support the curving-away
+  read), and the brighter sliding pair bracketing the centre. Without the outer pair the drum read
+  as one highlighted row, not a wheel. Horizontal rules only — one run each; a vertical border
+  would split every panel row per frame (§4.5's cost).
 - Costs 3 rects instead of 1 (+4 B each for the stereo box pair, ~30 B of extra framing). Well
   inside budget, negligible bytes, and the bands are contiguous so the pixel count is unchanged.
 - 🟡 **Stretch:** interpolate an item's disparity as it rotates forward. The ladder is quantised to
@@ -1584,6 +1640,9 @@ Default idle tick **5 s**. A live 1 Hz telemetry mode is a debugging tool, not a
 ### 8.4 Modeled costs
 
 ⚠ **All modeled**, area-scaled from the 576×288 measurements via `ms ≈ bytes/11000 × 1000 + 176`.
+🆕 **The real CFW path is measured (2026-08-31, `overview.md` §5.2): `ms ≈ 60 + bytes/50`** —
+every row below is conservative by roughly 3–5× on hardware. Kept as the modeled baseline the
+design was proven against; quote §5.2 for anything current.
 
 | | bytes | ms |
 |---|---|---|
@@ -2081,7 +2140,7 @@ rows. This inverts the phone-first assumption and is the cheaper path.
 
 | # | item | grade | resolves |
 |---|---|---|---|
-| 1 | **Per-notch scroll** — the whole focus model rests on it | **C** ⚠ | first light |
+| 1 | ✅ **Per-notch scroll** — **works, daily use since 2026-08-30** (was C ⚠); only fast-spin coalescing unprobed | **M** | done |
 | 2 | **Comfortable disparity `d`**; whether stock FAR already spends budget | **U** | calibration ramp |
 | 3 | **Frame-id discipline** (§8.2) — derived from reading the decoder, never observed | **I** | first light |
 | 4 | **Link signal** — source, which link, dBm vs % | **U** | the phone reads RSSI on the RIGHT arm every 10 s; BlueZ exposes RSSI only while a device advertises, so the PC-direct cell shows bars without a numeral. Values unmeasured |
@@ -2096,7 +2155,7 @@ rows. This inverts the phone-first assumption and is the cheaper path.
 | 13 | 🆕 **Hat bridge power budget** — 1260 mAh running WiFi 6 + BLE for a workday (§10.6) | **U** | bench measurement |
 | 14 | 🆕 **Does dual-band actually lift throughput?** If it does, it isolates a cause of the ~10× shortfall | **U** | build the hat |
 | 15 | 🆕 **Cross-platform BLE parity** — macOS cannot set connection parameters at all (§10.7) | **U** | per-platform test |
-| 16 | 🆕 **The switcher chord on the real ring** (§1.3, 2026-08-30) — is `SysEvent 10` (release) delivered reliably, and is the 800 ms window comfortable? | **U** | first light; `REMINDER.md` item 18 |
+| 16 | ✅ **The switcher chord — RESOLVED 2026-08-31, and the fault was OURS**: events 9/10 arrive unattributed (source 0) and the shell's §1 ring-only filter discarded them; both routes work since the fix (Adam: "it all works"). Event 10 fires on every touch-end; a deliberate ~1 s hold raises event 9 from either source | **M** | done; the §1 grammar note records the mechanics |
 
 *(Retired 2026-08-17 by the switcher redesign: "is hold-plus-scroll comfortable?" and "what is the
 long-press hold threshold?" — nothing is held any more, and no interaction is timing-dependent.)*

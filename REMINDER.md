@@ -35,7 +35,8 @@ the transport↔shell seam as a protocol (in-process, and serialized over TCP wi
 takeover). What exists: the shell core + compositor, the **byte-exact glass simulator**, the
 desktop program (1x preview, selfcheck, snapshots, content host), the **phone APK** (on-screen
 shell, copy-on-open book caching, PC-takeover seam, **banked** BLE transport), and the Reader +
-Main app layer. Everything targets the CFW contract; the real glasses remain untouched on 2.2.2.20.
+Main app layer. Everything targets the CFW contract. *(Written pre-flash — the glasses have run
+the CFW since 2026-08-30 and the PC drives them daily.)*
 See `IMPLEMENTATION.md`. The repo is under git.
 
 **Hardened through eight review rounds the same day, then five more in the finishing build** (2026-08-25, `REVIEW.md`) (`IMPLEMENTATION.md` → "Review hardening",
@@ -70,13 +71,15 @@ against the simulator and the fake links, none of it on a radio yet:
 
 ## 🚀 Next — refinement
 
-**`REFINEMENT.md` is the work queue.** It holds what Adam asked for after using the glasses:
-chrome to the back of the depth ladder, per-app height, Reader folders and a coarser scroll, the
-silent-mode clock, and the switcher defect (already diagnosed — the ring never sends event 9).
+**`REFINEMENT.md` is the work queue — and its whole 2026-08-30 backlog SHIPPED 2026-08-31**
+(`HANDOFF.md` §12): chrome depth, per-app height, folders, scroll step + acceleration, the clock
+(revised to digital top-right on Adam's mid-session call), the 4× preview, and the measured
+latency curve. Still open from it: the §4 event-9 temple experiment, and Adam's verdicts on glass.
 
 Still wanted from the original plan, now unblocked: **the app-layer scope explosion**, starting
 from `CAPABILITIES.md` for what the hardware allows and `DESIGN.md` §0 / §4.6 for what the shell
-provides and what is ruled out.
+provides and what is ruled out. Also queued by Adam 2026-08-31: **a quality pass on the icon set**
+(the current ones are "very basic").
 
 ## ✅ Flash day and first light — DONE 2026-08-30
 
@@ -99,11 +102,11 @@ actually looks on glass is among them.**
 | # | what | why it matters |
 |---|---|---|
 | 1 | **Safe area** — draw a border, shrink until fully visible, store it | `DESIGN.md` §2.2b: 480 vs 288 is a *calibrated setting*, not a design choice |
-| 2 | **Per-notch scroll** (graded **C**) | the entire focus model and the fixed-cursor list rest on it |
+| 2 | ⚠ **Per-notch scroll — WORKING in daily use** (2026-08-30/31: every notch arrives as its own SCROLL event and drives the shell). Still open: whether the ring coalesces very fast spins, and its event-rate ceiling | the focus model rests on it; now observed, not just read from Faceclaw |
 | 3 | **Comfortable disparity `d`** — ramp 0/4/8/12/16 | and whether stock FAR already spends the budget |
 | 4 | **The rect budget of 5** (graded **I**) | derived from `cfw_diag()`, never observed; failure is silent |
 | 5 | **Two-arm BTSnoop capture** | settles the bulk-to-LEFT / control-to-RIGHT split (graded **I**) |
-| ~~6~~ | ✅ **CFW ack latency** — **~50 ms measured** (was modeled 176 ms). ⚠ Idle shell only: the FLOOR, not the curve. Re-measure under a full keyframe before re-pricing `overview.md` §5 | `HANDOFF.md` §11.1 |
+| ~~6~~ | ✅ **CFW ack latency — the whole CURVE measured 2026-08-31**: `ms ≈ 60 + bytes/50` from 1,488 journalled flushes (floor median 60 ms, min 33; ~50–75 KB/s transfer; dense full-frame 2–4 fps). `overview.md` §5.2 | `HANDOFF.md` §12 |
 | 7 | **msgId-255 behaviour under CFW** | it kills the link on stock |
 | 8 | **Chrome legibility** at 32/28 px bars, real faces on glass | the one thing renders cannot answer |
 | 9 | **Whether a normal Android app can see WEA/CMAS alerts** (Pixel 10a) | `DESIGN.md` §4.5 promises emergency alerts; unverified |
@@ -115,7 +118,7 @@ actually looks on glass is among them.**
 | 15 | **The sid-0x01 connect prelude** — graded U: does the CFW require it before CREATE? | the transport sends it (the reference does); the model treats it as required. If the real firmware answers differently, `LaunchMsg` says where to change it |
 | ~~16~~ | ✅ **PC-direct BLE over BlueZ** — works, first try, and **no bonding was required**. Original question: — the MTU the characteristic reports, notification delivery, write-without-response pacing, **and whether beardos must BOND with the pair first** | first exercise of `BlueZDbus`; the nine fake-link tests say what is expected. The bonding half is open because every capture we hold was taken from an already-bonded phone (`HANDOFF.md` §10.5) — it applies to the flash and to the runtime link alike |
 | 17 | **Takeover and fallback** — PC appears → it drives via the phone; PC gone → the phone resumes; phone gone at the desk → PC-direct BLE | every transition narrated in the status strip / phone status line and the browser page |
-| 18 | ⚠ **The switcher chord — DOES NOT WORK, cause found.** The ring never sends event 9; both routes into the switcher need it (`HANDOFF.md` §11.4, `REFINEMENT.md` §4). Original question: (§1.3, 2026-08-30) — long-press, then double-tap within 0.8 s of the release: does the ring deliver `SysEvent 10` reliably, and does the window feel right? | the default grammar (a bare long-press is a no-op); if the release never arrives the window runs from event 9 — widen `chordWindowMs` in `Shell.kt` if real holds outrun it |
+| 18 | 🔴→✅ **The switcher — real cause FOUND AND FIXED 2026-08-31: our own §1 source filter.** Events 9/10 are unattributed (source 0, `EventSource` absent by firmware design) and the shell's ring-only check (source ≠ 2 → drop) discarded every real long-press before the grammar ran — both routes dead since first light while `LongPressTest` passed on its flattering ring-source default. Fixed: 9/10 bypass the source check; the suite injects them with source 0. The hardware half is also settled: five deliberate ~1 s holds produced five clean event-9s (accidental brushes end early — their event-10s mean "a touch ended"). **Awaiting Adam's on-glass confirmation of both routes** (`REFINEMENT.md` §4) | the grammar's premise (the arming event is rare in normal use) is OBSERVED: zero 9s across a day of use, five on demand |
 | 19 | **The texture cache on glass** (new, CFW `a5d1c31`) — upload a small atlas with mode 12, draw it with 13 and 14, and compare the panel against the simulator's prediction pixel for pixel | modes 12/13/14 are modeled byte-exactly but have never run on hardware. This is the gate on adopting cached glyphs for text. ⚠ **Two things not to misdiagnose:** mode 14 adds one overlay rect per glyph against a 16-deep list, so with the diagnostic overlay on, a string over ~16 glyphs shows incomplete outlines — that is the overlay, not a firmware fault. And a failed 64 KiB allocation shows ONLY as the sticky `ALLOC` flag, so leave the overlay on for the first upload |
 | 20 | **What an atlas upload actually costs** — time a 16/32/64 KiB mode-12 upload at the measured link rate, and confirm the cache really survives a lease *renewal* while dying on a lapse | decides atlas size and whether a session can afford a full font. Prices the whole mode-14 trade against item 6's real ack latency |
 | 21 | **Temple-touchpad long-press** — since `a5d1c31` either temple raises `SysEvent 9` too, not just the ring. How often does it fire by accident, in gloves, in a coat pocket? | `DESIGN.md` §1.2's "a bare long-press is a no-op" was decided for the ring alone and now carries a second accidental source. Confirm the default still feels right before anyone proposes relaxing it |

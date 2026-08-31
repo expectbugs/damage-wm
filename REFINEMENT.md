@@ -1,5 +1,17 @@
 # Refinement — the backlog after first light (2026-08-30)
 
+> **Status 2026-08-31 — the queue is BUILT and live** (battery green at every step, deployed to
+> the glasses the same hour): **§1** chrome to the back of the ladder (bars inset to x 16–624,
+> plane −2 at d+4 capped 16 — `DESIGN.md` §2.2/§2.3/§3.1 revised). **§2** per-app height
+> (`DamageWindow.preferredHeight`, applied on focus commit, never preview; Reader defaults to the
+> full panel with a "Height" action row). **§3a** folders (BookMeta.folder, additive; folder rows
+> + descend/ascend in Reader). **§3b** scroll (per-notch step 1–8 default 3, direction-gated
+> acceleration ≤250 ms → up to 6×, both in Reader's actions; `DESIGN.md` §0 reversal recorded).
+> **§5** clock repositioned + redrawn — then **superseded same day**: Adam asked for **top-RIGHT,
+> digital, quality** (in progress below). **§6** measured — `overview.md` §5.2: `ms ≈ 60 +
+> bytes/50`, dense full-frame ≈ 2–4 fps. **§4** awaits the one-hold temple experiment.
+> **§9** the 4× PC preview shipped first.
+
 **Read `HANDOFF.md` §11 first** for what first light established, then this. The flash, the
 install and first light are all behind us; `REMINDER.md` §"Next" points here.
 
@@ -93,6 +105,23 @@ no at 176 ms. Re-price before deciding.
 **Fallback that should ship regardless:** the lines-per-notch setting. It is small, it is certain,
 and it makes the book readable today.
 
+### ✅ Outcome (2026-08-31, on glass)
+
+Both shipped; Adam tried the ramp and ruled: *"It's too jank for smooth scrolling, which is ok,
+lets just default the scrolling to 5 lines per notch - configurable."* So: **default 5
+lines/notch, acceleration defaults OFF** (the code and its setting stay for anyone who wants the
+ramp back). Exactly the §3b fallback prediction — the setting is the daily driver. Both rows
+live in the **Settings window's Reader category** (his same-day ask, below), not in the book's
+actions level.
+
+### 🆕 Settings by category (asked + built 2026-08-31)
+
+*"Organize the settings window by category. One category called Global for general/global
+settings, then one additional category per app (which right now is just Reader so far)."*
+Built: header landmarks ("GLOBAL", "READER") over the list; apps contribute rows via
+`DamageWindow.appSettings()` (the `HostSetting` contract); Reader contributes Scroll step /
+Scroll accel / Height. Headers are non-interactive rest cells.
+
 ---
 
 ## 4. The switcher cannot be reached — diagnosed
@@ -129,17 +158,59 @@ and costs nothing.
 Adam's own weighting: *"That's not a huge deal though."* Treat it as a real defect with a low
 priority, not as urgent.
 
+### ✅ The experiment ran (2026-08-31) — and event 9 WORKS on deliberate holds
+
+Adam held a temple pad twice and long-pressed the ring "a few times": **five clean
+`LONG_PRESS (type 9)` events arrived, each with its release** — the count only adds up if the
+ring fired too (events 9/10 are unattributed by design, so the log cannot name the source; the
+arithmetic can). Against yesterday's zero-event-9 session, the surviving explanations:
+
+1. **A qualifying hold was simply never made on 2026-08-30** — the stock threshold wants a real
+   ~1 s hold, and accidental presses are brushes that end early (hence the constant event-10s,
+   which mean "a touch ended"). Today he held deliberately, primed by the instruction.
+2. The ring's re-registration (the §11.5 Even-app fix) had not fully settled during yesterday's
+   session.
+
+Neither is proven; what IS established: **the arming event arrives when a hold is deliberate,
+from either source, and the chord grammar's premise holds** (the arming event is rare in normal
+use — zero across a whole day of it).
+
+### 🔴 RESOLVED (2026-08-31, later): the real cause was OURS — the §1 source filter
+
+Adam kept trying and *"have yet to see the switcher at all"*, either mode. Cause, found in
+`Shell.handleInput`: the ring-only rule discarded every gesture whose source ≠ 2 (ring) — and
+**events 9/10 always arrive source 0, because `EventSource` is absent for them by firmware
+design.** Every real long-press was thrown away before the grammar ran; the transport's log
+(which shows them arriving) is what exposed the split. `LongPressTest` passed the whole time
+because its harness injected 9/10 with the default ring source — the suite now injects them with
+**source 0, the wire truth**, and events 9/10 bypass the source check (the bare-long-press
+no-op default is what keeps the temple harmless, as `CLAUDE.md` always said).
+
+✅ **CONFIRMED on glass, 2026-08-31: "it all works!"** — both routes. Two polish items from the
+same session, both fixed (`DESIGN.md` §4.3): the wheel no longer drags the full screen width
+forward (the underlying list's full-width lens band stayed in the plane map at 0 while the wheel
+was open — suppressed now; the wheel's centre band is the only forward region), and the drum
+gained its outer frame (a dimmer fixed rule pair at the panel's top and bottom edges — with rules
+only around the centre it read as a highlighted row, not a wheel).
+
 ---
 
-## 5. The silent-mode analog clock
+## 5. The silent-mode clock
 
-**Asked for:** the graphic is **too basic for the size it occupies** — at that size it should look
-considerably better. And it should sit **as far to the top and left as possible**.
+**Asked for (2026-08-30):** the graphic is **too basic for the size it occupies** — at that size it
+should look considerably better. And it should sit **as far to the top and left as possible**.
 
-Both are `DESIGN.md` §4 work. The position change is straightforward. The quality change is a real
-piece of design: it is the surface with the largest single graphic and the smallest ink budget
-(measured at 0.2% in `design/render_shots.py`), so there is a lot of room to spend before it costs
-anything.
+**Built 2026-08-31 (first pass):** moved to the safe rect's top-left and redrawn (radial ticks,
+tapered hands with tails, hub with pin).
+
+🔄 **Superseded the same day, Adam mid-session:** *"move the silent mode clock back to the top
+right … all the way up and all the way right, and forget analog, make it good-looking digital
+numbers … something quality, not like the very basic icons currently used on the main app."*
+So: **top-right, flush to the corner, digital, quality rendering.** (The analog drawing stays in
+`Icons.analogClock`, unused, in case it ever returns as an option.)
+
+📌 **Recorded for later, from the same message:** the Main-row **icons are "very basic" and will
+eventually be upgraded** — an icon-quality pass is future backlog, not this batch.
 
 **Re-render at true 1× and look at it** — `design/render_shots.py`, never at 2×, which flattered
 delicate work and misled several earlier passes.
@@ -179,3 +250,76 @@ it is a content-path defect and §3a will touch the same code.
 4. **§6 full-screen timing** — cheap, and it unblocks re-pricing everything.
 5. **§4 the event-9 experiment** — one hold on a temple pad, then decide.
 6. **§2 per-app height** — the biggest contract change; do it once the rest has settled.
+
+---
+
+## 11. The Reader batch — asked + built 2026-08-31 (descenders · reset · chapters · images)
+
+Four asks in one message, all shipped behind a green battery:
+
+**Descenders no longer chop.** Root cause, measured: Alegreya's x-height normalisation lands the
+em at 20 px whose ascent+descent is 28 rows — five more than the 24 px line box held — and the
+scroll path renders each line into a buffer exactly one box tall, so every scrolled line clipped.
+Fix: the face and size he praised stay EXACTLY as they were; the line box grew to 30 px, the
+baseline now comes from the real metrics, and a loud layout-time guard refuses any document face
+that does not fit its box. Verified through the scroll path in the lens-truth snapshots.
+
+**Reset progress** — Settings → Reader → "Reset progress": scroll the tracked books, tap resets
+one (double-tap cancels, as everywhere). Resetting the OPEN book also closes it, so it counts as
+a first open again (the chapter picker included). Enabler: `HostSetting.options` became a
+supplier (dynamic options), with a compat constructor so every fixed-list row is untouched.
+
+**Chapter picker.** `Epub.Book` now carries chapters — spine-document boundaries in the same
+character space as reading positions, titled from the book's own NCX/EPUB3 nav, falling back to
+the document's first heading (never an image token — caught in the first snapshot run), then
+"Chapter N". First open of a book with ≥2 chapters lands on the picker; **row 0 is "From the
+beginning" and double-tap ALWAYS backsteps** (Adam's caveat: no gesture ever means "start over").
+A "Chapters" action row jumps there any time (back from that route resumes the page).
+
+**Ebook images render in place.** `<img>`/SVG references become token paragraphs with bytes
+captured from the archive (per-image 8 MB cap, data: URIs skipped, all loud); an `ImageDecoder`
+seam (AWT / BitmapFactory — core stays platform-free) decodes at layout; images are box-sampled
+to the text column, quantized straight onto the 16 levels (NO dithering), padded to whole line
+boxes and laid as ordinary lines — so scrolling, slides, damage and offsets need zero new
+machinery. No decoder / undecodable → a visible `[image: name]` line. **Measured on the real
+shelf: 404 images across the 57 books, 380 decode** (the rest are placeholder-with-log formats);
+the Frankenstein cover renders through the full pipeline in `03-reader-book`. Pinned by
+`EpubChaptersImagesTest`; `--epub-check` now reports chapters and image decode per book.
+
+---
+
+## 10. Brightness and the battery cells — asked + fixed 2026-08-31
+
+*"The brightness setting and battery displays don't work."* Both were wired to nothing.
+
+**Brightness** now transmits: `SettingsMsg.brightnessWrite` (faceclaw's exercised
+`buildSetBrightness` form — sid 0x09, f3={f1={auto[,level]}}; the firmware's own nonlinear 0–100
+scale), pushed on every Settings step (§4.2's live preview, real now), once per session start
+(the firmware restores its own value otherwise), and across the seam
+(`Ctl t="brightness"`). Verified on glass: the configured value logs and lands.
+
+**Glasses battery** now fills: the BARE device-info READ (`08 02 10 <msgId>` — G2CC §10's
+live-confirmed form; ⚠ the f4-sub-request form comes back WITHOUT the device-info block on the
+real CFW) polled at start+5 s then per minute, plus every unsolicited 09-01 update, parsed
+(f4: battery=12, charging=13) → `TransportEvent.Battery` → the chrome G cell. Verified on glass:
+**79 % read from the real pair**, arriving via an unsolicited update before the first poll even
+fired. Battery changes log (the first-light observability rule).
+
+**Ring battery**: the sid-0x91 relay decode is wired (RingDataPackage.f4.battery, vendor schema)
+but whether the glasses forward RingRawData unprompted is an **open probe** — the R cell fills
+if a relay ever arrives, and an undecodable 0x91 frame logs its head for the next session.
+**Phone battery**: only meaningful on the phone path; blank PC-direct, honest.
+
+---
+
+## 9. The PC preview window — asked 2026-08-31, ✅ DONE same day
+
+**Asked for:** the desktop window showing what the glasses see *"should be way bigger, like four
+times its current size at least."*
+
+Done: `desktop/Preview.kt` now draws integer-scaled, **default 4×** (640×480 → 2560×1920),
+strictly nearest-neighbour so every device pixel stays a crisp block — bigger, not smoothed.
+`-`/`=` adjust 1×–8×; the scale auto-clamps to what fits the screen (both-lens 4× is wider than
+4K, so that layout steps down and says so in the title). This deliberately supersedes the
+preview's old strictly-1× rule, which was about *design judgment* — that rule still governs
+`design/render_shots.py` and legibility calls, which stay at true 1× or on glass.
