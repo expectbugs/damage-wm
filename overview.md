@@ -689,6 +689,26 @@ makes it worth chasing when latency wasn't.
 Measured end-to-end across multi-fragment bursts: **7–13 KB/s**; best instantaneous 240 B / 13 ms
 ≈ 18.5 KB/s. The old 16.6 KB/s figure took only the fast mode and is ~30–50 % rosy.
 
+### 🆕 A second measurement, from the flash itself (2026-08-30) — **the radio is not the wall**
+
+Installing the CFW moved **4,339,457 B per lens in 171 s**, twice, with **zero block resends** in
+all twelve component transfers. That is **~25 KB/s effective goodput**, ack round trips and
+FILE_CHECK/END overhead included; the main image alone ran 3,562,570 B across 870 blocks in 134 s
+(**~26 KB/s**). The two lenses agreed to within a second on every component.
+
+⚠ **Do not restate this as "throughput is 25 KB/s."** It is a different path in three ways at once:
+the OTA characteristic (`c0`/`c1`, 4096 B blocks) rather than the EvenHub image path, PC-direct
+over BlueZ rather than phone-to-glasses through the official app, and a host that was doing
+nothing else. It is **not** a like-for-like correction of the 7–13 KB/s figure and does not retire
+it.
+
+What it *does* establish is a lower bound the radio can sustain: **~2× the EvenHub band, on the
+same hardware, in the same room**. So whatever costs us the missing 10×, at least half of the gap
+is **not** a physical-layer or connection-interval ceiling — it is above that, in the message
+path. That narrows the hunt this section describes and is the first new evidence on it since the
+capture analysis. It says nothing about **ack latency**, which is still the modeled 176 ms and
+still the number that prices the display design (§11 #1).
+
 ### Four hypotheses tested and REFUTED
 
 - ❌ **One write per connection event** — 60 gaps at 0–1 ms prove multiple packets per event happen.

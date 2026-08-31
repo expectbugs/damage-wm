@@ -854,3 +854,42 @@ succeeded straight after both times.
 throughput we have never measured (our 7–13 KB/s is the EvenHub image path, not c0/c1). If a bare
 block-ack timeout occurs, the patched recovery path now has a deterministic magic. `main` catches
 per lens and continues to the other, then prints `FAILED lenses: [...]`; re-run with `--lens <side>`.
+
+### 10.11 ✅ THE INSTALL IS DONE — 2026-08-30
+
+Adam gave the word to run it. Both lenses, all six components, **exit 0, zero block resends
+anywhere**, no retries, no reconnects, no failure markers in the log
+(`scratchpad/flash.log`). **The glasses are no longer on stock 2.2.2.20.** That is the
+irreversible step, and it is behind us.
+
+| component | bytes | left | right | resends |
+|---|---:|---:|---:|---:|
+| `firmware/codec.bin` | 326,092 | 14.9 s | 15.1 s | 0 |
+| `firmware/ble_em9305.bin` | 211,948 | 9.4 s | 9.5 s | 0 |
+| `firmware/touch.bin` | 34,464 | 1.5 s | 1.5 s | 0 |
+| `firmware/box.bin` | 55,784 | 2.5 s | 2.5 s | 0 |
+| `ota/s200_bootloader.bin` | 148,599 | 6.6 s | 6.6 s | 0 |
+| `ota/s200_firmware_ota.bin` | 3,562,570 | 134.9 s | 134.3 s | 0 (870 blocks) |
+| **total** | **4,339,457** | **171 s** | **171 s** | **0** |
+
+Every `END verify` returned **status 8 (UPDATING)**, which is in the tool's `END_OK = {0, 8, 9}` —
+a clean pass, not a warning. Both lenses agreed to within a second on every component.
+
+**Post-install liveness, immediately after:** a passive scan found both arms advertising again —
+`Even G2_32_L_C1FA4D` at −61 dBm and `Even G2_32_R_65CD50` at −59 dBm, *better* than the −62/−67
+before the flash. They rebooted. `desktop --selfcheck` still ALL CHECKS PASS; `--ble-info` now
+lists both arms (and the R1 ring) as known to BlueZ, all disconnected.
+
+**The patched recovery path never fired** — zero timeouts meant `recover_session()` was never
+entered. The patch was still the right call; it just did not get tested by this run.
+
+**New measured number** — see `overview.md` §5.1: ~25 KB/s effective goodput on the OTA path,
+PC-direct. Recorded there with the caveats that keep it from being misread as a correction to the
+7–13 KB/s EvenHub-path figure.
+
+### 10.12 What is still ahead
+
+The install is done; **first light is not**. Nothing has driven the display yet. Next is
+`REMINDER.md`'s runbook from step 5 and the first-light checklist, and the very first thing to
+confirm is that the capability gate sees `EVENCFW/16` — **not** the version string, which reads
+`2.2.6.10` on this build and is indistinguishable from stock.
