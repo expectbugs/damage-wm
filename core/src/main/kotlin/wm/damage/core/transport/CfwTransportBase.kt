@@ -275,7 +275,7 @@ abstract class CfwTransportBase(
                         updateState { it.copy(inFlight = WINDOW - window.availablePermits) }
                     }
                     if (ack.errorCode != null && !pending.done.isCompleted) {
-                        emitFault("imgres", "ErrorCode=${ack.errorCode} on msgId ${ack.msgId}")
+                        emitFault("imgres", "${ack.statusText} (${ack.errorCode}) on msgId ${ack.msgId}")
                     }
                     pending.done.complete(ack)
                 }
@@ -341,6 +341,12 @@ abstract class CfwTransportBase(
     }
 
     private fun emitInput(type: Int, source: Int) {
+        // Log every inbound gesture. At first light (2026-08-30) input did not work
+        // and NOTHING in the log could say whether events were arriving and being
+        // mishandled or never arriving at all — the two have completely different
+        // causes and we could not tell them apart. An input path you cannot observe
+        // is a silent failure even when every individual component is loud.
+        Log.i(name, "input: ${EvenHubMsg.eventName(type)} (type $type, source $source)")
         if (!_events.tryEmit(TransportEvent.Input(type, source))) {
             Log.e(name, "input event buffer overflow — a gesture was DROPPED")
         }
@@ -466,7 +472,7 @@ abstract class CfwTransportBase(
             controlQueue.trySend(CtlWork.Hub(epoch, EvenHubMsg.carrierCreate(0), createAck))
             val created = createAck.await()
             if (created.errorCode != null)
-                throw LintError("carrier CREATE rejected: ErrorCode=${created.errorCode}")
+                throw LintError("carrier CREATE rejected: ${created.statusText} (${created.errorCode})")
 
             // 3. FB lease, BOTH arms (display_copy_hook runs per lens). The
             //    write is awaited: a lease that never reached the wire would
@@ -867,9 +873,9 @@ abstract class CfwTransportBase(
                 val ackMs = nowMs() - t0
                 if (ack.errorCode != null) {
                     sessionPenalty = true
-                    done?.completeExceptionally(LintError("ImgResCmd.ErrorCode=${ack.errorCode}"))
+                    done?.completeExceptionally(LintError("ImgResCmd ${ack.statusText} (${ack.errorCode})"))
                     if (flushId >= 0) _events.emit(TransportEvent.FlushDone(flushId, false, ackMs,
-                        bytes, "ImgResCmd.ErrorCode=${ack.errorCode} — damage recomputes with a fresh fid"))
+                        bytes, "ImgResCmd ${ack.statusText} (${ack.errorCode}) — damage recomputes with a fresh fid"))
                 } else {
                     updateEma(ackMs, bytes)
                     done?.complete(Unit)
@@ -1016,7 +1022,7 @@ abstract class CfwTransportBase(
                                     val ack = pending.done.await()
                                     if (awaiting != null) awaiting.complete(ack)
                                     else if (ack.errorCode != null)
-                                        emitFault("control", "ErrorCode=${ack.errorCode}")
+                                        emitFault("control", "${ack.statusText} (${ack.errorCode})")
                                 } catch (e: Exception) {
                                     if (awaiting != null) awaiting.completeExceptionally(e)
                                     else Log.w(name, "control ack never arrived: ${e.message}")

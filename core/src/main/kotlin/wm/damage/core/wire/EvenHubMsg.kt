@@ -126,21 +126,73 @@ object EvenHubMsg {
     fun keepalive(msgId: Int): ByteArray = wrap(CMD_KEEPALIVE, msgId, 14, ByteArray(0))
 
     // ------------------------------------------------------------------ parsing
-    /** e0-00 ack: f1 = request Cmd + 1, f2 echoes msgId. ImgResCmd failures ride
-     *  field 8 (ErrorCode) — overview.md §9.2: read it or fail silently. */
-    data class Ack(val ackType: Int, val msgId: Int, val errorCode: Long?)
+    /**
+     * `EvenHub_ErrorCode_List` — Even's own enum, decoded from the vendor
+     * `FileDescriptorProto` embedded in `g2-kit/ble/gen/EvenHub_pb.ts`.
+     *
+     * 🔴 **This is a STATUS enum, not an error code.** Its success value is
+     * different for every operation: 0 for a page CREATE, **4 for image raw
+     * data**, 6 for a rebuild, 8 for text, 10 for shutdown, 12 for a heartbeat,
+     * 13 for audio control. Only the odd-numbered members and 1/2/3/14 are
+     * failures. Treating "non-zero" as an error refuses the glasses' own
+     * success ack — which is exactly what happened at first light on
+     * 2026-08-30: the pair acked our warmup image with 4 and the transport
+     * called it a failed start, over and over, while the link itself was
+     * perfect. The simulator had modeled success as an ABSENT field 8, so
+     * nothing offline could catch it.
+     */
+    val STATUS_NAMES = mapOf(
+        0L to "CREATE_PAGE_SUCCESS",
+        1L to "CREATE_INVALID_CONTAINER",
+        2L to "CREATE_OVERSIZE_RESPONSE_CONTAINER",
+        3L to "CREATE_OUTOFMEMORY_CONTAINER",
+        4L to "UPGRADE_IMAGE_RAW_DATA_SUCCESS",
+        5L to "UPGRADE_IMAGE_RAW_DATA_FAILED",
+        6L to "REBUILD_PAGE_SUCCESS",
+        7L to "REBUILD_PAGE_FAILED",
+        8L to "UPGRADE_TEXT_DATA_SUCCESS",
+        9L to "UPGRADE_TEXT_DATA_FAILED",
+        10L to "UPGRADE_SHUTDOWN_SUCCESS",
+        11L to "UPGRADE_SHUTDOWN_FAILED",
+        12L to "UPGRADE_HEARTBEAT_PACKET_SUCCESS",
+        13L to "AUDIO_CTR_SUCCESS",
+        14L to "AUDIO_CTR_FAILED",
+    )
+
+    val STATUS_SUCCESS = setOf(0L, 4L, 6L, 8L, 10L, 12L, 13L)
+
+    /** The success status the firmware returns for a given request Cmd. */
+    fun successStatusFor(cmd: Int): Long = when (cmd) {
+        CMD_CREATE -> 0L
+        CMD_IMAGE -> 4L
+        CMD_REBUILD -> 6L
+        CMD_TEXT_UPGRADE -> 8L
+        CMD_SHUTDOWN -> 10L
+        CMD_KEEPALIVE -> 12L
+        else -> 0L
+    }
+
+    fun statusName(code: Long): String = STATUS_NAMES[code] ?: "unknown status $code"
+
+    /** e0-00 ack: f1 = request Cmd + 1, f2 echoes msgId. [errorCode] is the status
+     *  when it denotes a FAILURE, and null when the operation succeeded; [status]
+     *  keeps the raw value either way so a log can name it. */
+    data class Ack(val ackType: Int, val msgId: Int, val errorCode: Long?, val status: Long? = null) {
+        val statusText: String get() = status?.let { statusName(it) } ?: "no status field"
+    }
 
     fun parseAck(payload: ByteArray): Ack? = try {
         val f = Pb.fields(payload)
         val t = f.firstOrNull { it.field == 1 && it.varint != null }?.varint ?: return null
         val id = f.firstOrNull { it.field == 2 && it.varint != null }?.varint ?: -1
-        // Image acks carry ImgResCmd in the wrapper; ErrorCode is its field 8.
-        var err: Long? = null
+        // Image acks carry ImgResCmd in the wrapper; the status is its field 8.
+        var status: Long? = null
         for (sub in f) if (sub.bytes != null) {
             val e = Pb.varintField(sub.bytes, 8)
-            if (e != null && e != 0L) err = e
+            if (e != null) status = e
         }
-        Ack(t.toInt(), id.toInt(), err)
+        val err = status?.takeIf { it !in STATUS_SUCCESS }
+        Ack(t.toInt(), id.toInt(), err, status)
     } catch (e: IllegalArgumentException) {
         null
     }
@@ -189,6 +241,21 @@ object EvenHubMsg {
 
     /** Whether the firmware reports a source for [eventType] at all. */
     fun reportsSource(eventType: Int) = eventType == EV_CLICK || eventType == EV_DOUBLE_CLICK
+
+    /** A gesture's name, for logs that a human reads while wearing the glasses. */
+    fun eventName(type: Int): String = when (type) {
+        EV_CLICK -> "TAP"
+        EV_SCROLL_TOP -> "SCROLL_UP"
+        EV_SCROLL_BOTTOM -> "SCROLL_DOWN"
+        EV_DOUBLE_CLICK -> "DOUBLE_TAP"
+        EV_FOREGROUND_ENTER -> "FOREGROUND_ENTER"
+        EV_FOREGROUND_EXIT -> "FOREGROUND_EXIT"
+        EV_SYSTEM_EXIT -> "SYSTEM_EXIT"
+        EV_IMU_REPORT -> "IMU"
+        EV_RING_LONG_PRESS -> "LONG_PRESS"
+        EV_RING_LONG_PRESS_RELEASE -> "LONG_PRESS_RELEASE"
+        else -> "event $type"
+    }
 
     fun parseEvent(payload: ByteArray): Event? = try {
         val dev = Pb.bytesField(payload, 13) ?: return null

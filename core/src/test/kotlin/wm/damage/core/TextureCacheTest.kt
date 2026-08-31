@@ -574,3 +574,88 @@ class TextureCacheTest {
             wm.damage.core.wire.EvenHubMsg.EV_CLICK))
     }
 }
+
+/**
+ * The EvenHub ack status field, pinned to Even's own enum. First light on
+ * 2026-08-30 found the transport treating a SUCCESS status as a failure: the
+ * glasses ack an image with 4 (`UPGRADE_IMAGE_RAW_DATA_SUCCESS`) and the
+ * "non-zero means error" reading refused every session start. The simulator had
+ * modeled success as an ABSENT field 8, so no offline test could see it.
+ */
+class AckStatusTest {
+
+    private fun ackPayload(ackType: Int, msgId: Int, status: Long?): ByteArray =
+        wm.damage.core.wire.Pb.cat(
+            wm.damage.core.wire.Pb.v(1, ackType),
+            wm.damage.core.wire.Pb.v(2, msgId),
+            *(if (status == null) emptyArray()
+              else arrayOf(wm.damage.core.wire.Pb.l(5, wm.damage.core.wire.Pb.v(8, status.toInt())))),
+        )
+
+    @Test
+    fun theImageSuccessStatusIsFourAndIsNotAFailure() {
+        val ack = wm.damage.core.wire.EvenHubMsg.parseAck(ackPayload(4, 7, 4L))!!
+        assertEquals(4L, ack.status)
+        assertEquals(null, ack.errorCode, "status 4 is UPGRADE_IMAGE_RAW_DATA_SUCCESS")
+        assertEquals("UPGRADE_IMAGE_RAW_DATA_SUCCESS", ack.statusText)
+    }
+
+    @Test
+    fun everyOperationsSuccessStatusReadsAsSuccess() {
+        for (code in wm.damage.core.wire.EvenHubMsg.STATUS_SUCCESS) {
+            val ack = wm.damage.core.wire.EvenHubMsg.parseAck(ackPayload(1, 1, code))!!
+            assertEquals(null, ack.errorCode, "status $code (${ack.statusText}) is a success")
+        }
+    }
+
+    @Test
+    fun theFailureStatusesStillReadAsFailures() {
+        for (code in listOf(1L, 2L, 3L, 5L, 7L, 9L, 11L, 14L)) {
+            val ack = wm.damage.core.wire.EvenHubMsg.parseAck(ackPayload(1, 1, code))!!
+            assertEquals(code, ack.errorCode, "status $code must still fail")
+            assertFalse(ack.statusText.startsWith("unknown"), "status $code should be named")
+        }
+    }
+
+    @Test
+    fun anUnknownStatusIsTreatedAsAFailureAndSaysSo() {
+        val ack = wm.damage.core.wire.EvenHubMsg.parseAck(ackPayload(1, 1, 99L))!!
+        assertEquals(99L, ack.errorCode, "an unrecognised status is not assumed benign")
+        assertEquals("unknown status 99", ack.statusText)
+    }
+
+    @Test
+    fun theSuccessStatusMatchesTheOperationTheFirmwareIsAcking() {
+        val m = wm.damage.core.wire.EvenHubMsg
+        assertEquals(0L, m.successStatusFor(m.CMD_CREATE))
+        assertEquals(4L, m.successStatusFor(m.CMD_IMAGE))
+        assertEquals(6L, m.successStatusFor(m.CMD_REBUILD))
+        assertEquals(8L, m.successStatusFor(m.CMD_TEXT_UPGRADE))
+        assertEquals(10L, m.successStatusFor(m.CMD_SHUTDOWN))
+        assertEquals(12L, m.successStatusFor(m.CMD_KEEPALIVE))
+    }
+
+    @Test
+    fun theModelNowSendsAStatusOnEverySuccessLikeTheGlassesDo() {
+        // Guards the regression directly: if the sim ever goes back to omitting
+        // field 8 on success, a transport that mishandles it passes offline again.
+        val sim = GlassFirmwareSim()
+        val seen = ArrayList<wm.damage.core.wire.EvenHubMsg.Ack>()
+        sim.attachListener(object : GlassFirmwareSim.SimDiag {
+            override fun event(kind: String, detail: String) {}
+            override fun panelChanged(arm: Arm) {}
+            override fun notify(arm: Arm, packet: ByteArray) {
+                val f = wm.damage.core.wire.AaFrame.Reassembler {}.offer(packet) ?: return
+                if (f.sid == wm.damage.core.wire.EvenHubMsg.SID)
+                    wm.damage.core.wire.EvenHubMsg.parseAck(f.payload)?.let { seen += it }
+            }
+        })
+        sim.write(Arm.RIGHT, wm.damage.core.wire.AaFrame.frame(
+            1, wm.damage.core.wire.EvenHubMsg.SID, 0x20,
+            wm.damage.core.wire.EvenHubMsg.keepalive(3),
+            wm.damage.core.wire.AaFrame.TYPE_COMMAND).single(), 0L)
+        val acks = seen.filter { it.status != null }
+        assertTrue(acks.isNotEmpty(), "the model must carry a status field like the firmware")
+        assertTrue(acks.all { it.errorCode == null }, "and a success must not read as a failure")
+    }
+}

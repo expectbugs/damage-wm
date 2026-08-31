@@ -292,12 +292,13 @@ class GlassFirmwareSim() : LensPanels {
     }
 
     private fun errorAck(msgId: Int, session: Int, total: Int, fragIdx: Int) {
-        // ImgResCmd with ErrorCode (field 8) = APP_REQUEST_UPGRADE_IMAGE_RAW_DATA_FAILED
-        // — the failure shape seen in our own captures (overview.md §9.2).
+        // ImgResCmd with status (field 8) = APP_REQUEST_UPGRADE_IMAGE_RAW_DATA_FAILED
+        // (5) — the failure shape seen in our own captures (overview.md §9.2).
+        // It used to send 1, which is a CREATE failure and not reachable here.
         val res = Pb.cat(
             Pb.v(1, EvenHubMsg.IMG_CONTAINER_ID),
             Pb.v(3, session), Pb.v(4, total), Pb.v(6, fragIdx),
-            Pb.v(8, 1),
+            Pb.v(8, 5),
         )
         val payload = Pb.cat(Pb.v(1, EvenHubMsg.CMD_IMAGE + 1), Pb.v(2, msgId), Pb.l(5, res))
         diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), EvenHubMsg.SID, EvenHubMsg.FLAG_ACK,
@@ -306,7 +307,13 @@ class GlassFirmwareSim() : LensPanels {
 
     private fun ack(cmd: Int, msgId: Int, error: Long?) {
         val ackType = if (cmd == EvenHubMsg.CMD_KEEPALIVE) cmd else cmd + 1
-        val payload = Pb.cat(Pb.v(1, ackType), Pb.v(2, msgId))
+        // The real firmware ALWAYS carries a status in field 8, and its success
+        // value differs per operation (4 for image raw data, 0 for a page create,
+        // …). This model used to omit the field entirely on success, which is why
+        // nothing offline caught the transport treating a non-zero status as a
+        // failure — first light, 2026-08-30. Send what the glasses send.
+        val status = error ?: EvenHubMsg.successStatusFor(cmd)
+        val payload = Pb.cat(Pb.v(1, ackType), Pb.v(2, msgId), Pb.l(5, Pb.v(8, status)))
         // Acks return on the RIGHT arm regardless of which arm was written
         // (overview.md §7: "the ack returns on R either way").
         diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), EvenHubMsg.SID, EvenHubMsg.FLAG_ACK,

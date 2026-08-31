@@ -12,8 +12,11 @@ import wm.damage.core.util.Log
  * bytes, fids and ack latency, one JSON object per line — replayable into the
  * simulator, and how you debug something you cannot attach a debugger to.
  */
-class Journal(path: Path?) : AutoCloseable {
-    private val out: Writer? = path?.let {
+class Journal(private val path: Path?) : AutoCloseable {
+    private var out: Writer? = open()
+    private var dead = false
+
+    private fun open(): Writer? = path?.let {
         it.parent?.let { p -> Files.createDirectories(p) }
         Files.newBufferedWriter(it, StandardOpenOption.CREATE, StandardOpenOption.APPEND)
     }
@@ -62,17 +65,37 @@ class Journal(path: Path?) : AutoCloseable {
 
     @Synchronized
     private fun write(line: String) {
-        val o = out ?: return
+        if (path == null || dead) return
         try {
+            // The keeper restarts sessions forever, and a restart used to write into
+            // the stream a previous stop() had closed -- which failed on EVERY line
+            // and logged EVERY time, flooding the log at exactly the moment the
+            // journal existed to explain (first light, 2026-08-30). Reopen instead:
+            // the file is opened APPEND, so journaling simply continues across a
+            // reconnect, which is when it is most worth having.
+            val o = out ?: open()?.also { out = it } ?: return
             o.write(line)
             o.write("\n")
             o.flush()
         } catch (e: java.io.IOException) {
-            Log.e("journal", "write failed", e)
+            // Loud, and once. Repeating an unrecoverable failure per line is not
+            // "loud and proud", it is a denial of service against the operator's
+            // ability to read the errors that matter.
+            dead = true
+            out = null
+            Log.e("journal", "write failed; JOURNALLING IS OFF for the rest of this run", e)
         }
     }
 
+    /** Closes the underlying stream. The journal stays usable: the next write
+     *  reopens it in append mode, so a session restart keeps journalling. */
+    @Synchronized
     override fun close() {
-        out?.close()
+        try {
+            out?.close()
+        } catch (e: java.io.IOException) {
+            Log.w("journal", "close failed: ${e.message}")
+        }
+        out = null
     }
 }
