@@ -117,11 +117,15 @@ private fun DataInputStream.readJson(maxLen: Int = 4 shl 20): String {
     return b.toString(Charsets.UTF_8)
 }
 
-/** Serves the library over TCP. One thread per connection; token required. */
+/** Serves the library over TCP. One thread per connection; token required.
+ *  When a [tmux] provider is present, a connection that sends `{"t":"tmux"}`
+ *  after the hello becomes a persistent tmux channel (TmuxNet.serve) — same
+ *  port, same token, zero extra phone config (TMUX.md §3.1). */
 class ContentHostServer(
     private val provider: LocalContent,
     private val port: Int,
     private val token: String,
+    private val tmux: wm.damage.core.windows.tmux.TmuxProvider? = null,
 ) : AutoCloseable {
     @Volatile private var server: ServerSocket? = null
     @Volatile private var running = false
@@ -167,6 +171,18 @@ class ContentHostServer(
                     // typed dispatch on the t discriminator — substring matching
                     // against raw JSON was review round 1's misroute finding
                     when (val t = json.decodeFromString(Probe.serializer(), line).t) {
+                        "tmux" -> {
+                            val tp = tmux
+                            if (tp == null) {
+                                out.sendJson(json.encodeToString(ErrMsg.serializer(),
+                                    ErrMsg(detail = "this host serves no tmux channel")))
+                                continue
+                            }
+                            // the connection belongs to the tmux channel now;
+                            // serve() blocks until the driver leaves
+                            wm.damage.core.windows.tmux.TmuxNet.serve(sock, inp, out, tp)
+                            return
+                        }
                         "library" -> {
                             // a scan failure answers in-band: dropping the session
                             // would show on the phone as "PC gone" (round 3)

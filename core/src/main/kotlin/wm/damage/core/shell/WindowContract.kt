@@ -77,6 +77,14 @@ abstract class DamageWindow(val id: String, val name: String, val icon: IconKind
      *  cached text layout, or overlong lines would clip — NO TRUNCATION. */
     open fun onFontScaleChanged(scale: Double) {}
 
+    /** A typed LINE arrived from a replica (phone strip, browser page,
+     *  desktop preview — Transport.injectText). Return true if this window
+     *  ACCEPTED it (staged behind its own confirm — text must never run
+     *  without one); false lets the shell refuse loudly instead of a typed
+     *  line vanishing (the G2CC F10 lesson: an invisible pending state
+     *  ambushes later). Only the FOCUSED window is offered text. */
+    open fun onTypedText(line: String): Boolean = false
+
     data class Summary(
         val line: String,
         val detail: String = "",
@@ -120,8 +128,15 @@ sealed interface WindowView {
         val accel: () -> Boolean = { false },
     ) : WindowView
 
-    /** The window owns everything, including damage. Not used by stage 1. */
-    class CanvasView(val paint: (g: Gray8, rect: Rect) -> Unit) : WindowView
+    /** The window owns everything, including damage (Tmux's live grid is the
+     *  first user). Input hooks are optional: a canvas without [onScroll] or
+     *  [onTap] simply ignores that gesture, and double-tap stays the shell's
+     *  back — the §1 grammar is not negotiable per window. */
+    class CanvasView(
+        val paint: (g: Gray8, rect: Rect) -> Unit,
+        val onScroll: ((delta: Int) -> Unit)? = null,
+        val onTap: (() -> Unit)? = null,
+    ) : WindowView
 }
 
 class ListModel {

@@ -1,6 +1,32 @@
-# Tmux on glass — design + plan (PROPOSAL, 2026-08-31)
+# Tmux on glass — design + plan (2026-08-31)
 
-**Status: awaiting Adam's refinery pass. No code exists.** This is the §4.6 app-layer design for
+**Status: refinery PASSED same day — Adam's verdicts, all locked, build in one pass:**
+
+1. **Scope = v1 core + typed text via replicas + multi-host (ssh) + session management.**
+   Scrollback search stays out (clean to add once typing exists).
+2. **Grid: fit + the explicit "Fit pane to glass" resize action.** No zoom setting.
+   ⚠ Fit is computed against the LIVE layout rect — height mode runs 288/352/416/480
+   (Adam mid-build: "resolution can be as low as 288px height or as high as 480px"), so
+   fit = min(width-fit, height-fit), re-derived in `onLayoutChanged`, context rows only
+   when spare height exists. 480 is the design point (`preferredHeight`), 288 must work.
+3. **Alerts: on for all sessions + per-session mute. GLASS ONLY** — no phone fallback.
+4. **Quick keys: the proposed dozen** (Enter y n 1 2 3 Esc Ctrl-C Up Down Tab q + Snippets…),
+   config-overridable.
+5. **Context rows: ON by default.**
+6. **Every tmux setting lives in the Settings window's Tmux category** (`appSettings()` —
+   Adam mid-build: "keep the settings inside the Tmux category of the settings window,
+   same with all apps"). Per-session state (mute, viewed window) stays in the session's
+   actions level — the Reader per-book precedent.
+
+Defaults stated, not asked: typed text is always confirm-to-run (literal + Enter — G2CC's
+settled 2026-06-18 semantics); new sessions auto-name `g2-N` from the ring, rename via typed
+text; snippets default to G2CC's slash list; 500 ms capture pacing; 1000-line history;
+waiting sessions pinned atop the list; window NAV is non-invasive (viewing a tmux window
+targets `=session:idx` without `select-window` — selecting is an explicit action, same
+class as the resize).
+
+**The original proposal below stands as written except where the verdicts above override
+it (§5's grades are superseded by verdict 1; §7's questions are answered).** This is the §4.6 app-layer design for
 the Tmux window: the G2CC study, what dies with the old constraints, the Damage-native design,
 costs priced against the MEASURED curve, the scope explosion, and a recommended v1 cut.
 

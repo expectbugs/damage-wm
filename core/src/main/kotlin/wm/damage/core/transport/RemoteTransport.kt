@@ -199,6 +199,8 @@ class RemoteTransportClient(
     override fun injectInput(type: Int) =
         emit(TransportEvent.Input(type, EvenHubMsg.SRC_RING), "Input")
 
+    override fun injectText(line: String) = emit(TransportEvent.Text(line), "Text")
+
     /** The write must reach the glasses through the far end's transport. */
     override fun setBrightness(auto: Boolean, level: Int) {
         val o = out ?: return
@@ -430,6 +432,7 @@ class RemoteTransportClient(
             }
             "ping" -> peerSpeaksLiveness = true   // receive time already recorded
             "input" -> emit(TransportEvent.Input(c.evType, c.evSource), "Input")
+            "typed" -> emit(TransportEvent.Text(c.detail), "Text")
             "batt" -> emit(TransportEvent.Battery(c.gPct, c.gChg, c.rPct), "Battery")
             "lease" -> emit(TransportEvent.Lease(c.held, c.detail), "Lease")
             "link" -> emit(TransportEvent.Link(c.connected, c.detail), "Link")
@@ -808,6 +811,7 @@ class RemoteTransportServer(
 
     private fun toCtl(ev: TransportEvent): Ctl? = when (ev) {
         is TransportEvent.Input -> Ctl(t = "input", evType = ev.type, evSource = ev.source)
+        is TransportEvent.Text -> Ctl(t = "typed", detail = ev.line)
         is TransportEvent.Lease -> Ctl(t = "lease", held = ev.held, detail = ev.detail)
         is TransportEvent.Link -> Ctl(t = "link", connected = ev.connected, detail = ev.detail)
         is TransportEvent.DiagFlags -> Ctl(t = "flags", flags = ev.flags)

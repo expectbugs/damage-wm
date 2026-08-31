@@ -113,6 +113,12 @@ abstract class CfwTransportBase(
 
     override fun injectInput(type: Int) = emitInput(type, EvenHubMsg.SRC_RING)
 
+    override fun injectText(line: String) {
+        if (!_events.tryEmit(TransportEvent.Text(line))) {
+            Log.e(name, "typed-text event buffer overflow — a line was DROPPED")
+        }
+    }
+
     /** Panel brightness (2026-08-31): a sid-0x09 write on the control lane,
      *  fire-and-forget like the lease (msgId 0; the firmware's ack is not
      *  awaited — a lost write is corrected by the next push or session start). */

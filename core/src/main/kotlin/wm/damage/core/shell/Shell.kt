@@ -382,6 +382,35 @@ class Shell(
     }
 
     // ------------------------------------------------------------------ input
+    /** A typed line from a replica (Transport.injectText). Offered to the
+     *  FOCUSED window only; a window that accepts stages it behind its own
+     *  confirm. Anything else is refused LOUDLY — a typed line must never
+     *  vanish or park invisibly (the G2CC F10 lesson). */
+    private fun handleTypedText(line: String) {
+        val trimmed = line.trim()
+        if (trimmed.isEmpty()) return
+        val w = if (mode == Mode.WINDOW && !switcher.open) current else null
+        val accepted = try {
+            w?.onTypedText(trimmed) ?: false
+        } catch (e: Exception) {
+            Log.e("shell", "typed-text handler of ${w?.id} failed", e)
+            false
+        }
+        if (!accepted) {
+            val where = when {
+                mode == Mode.SILENT -> "the shell is in silent mode"
+                switcher.open -> "the switcher is open"
+                w == null -> "no window is focused"
+                else -> "${w.name} does not accept typed text"
+            }
+            services.notifyInternal("type",
+                "typed line not delivered — $where (focus a window that types, like Tmux)")
+            return
+        }
+        composeContent()
+        scheduleSave()
+    }
+
     private fun handleInput(type: Int, source: Int) {
         // §1: the R1 ring is the ONLY input device — a temple brush must not
         // select or scroll. Text-region scroll events carry no source and
@@ -545,7 +574,12 @@ class Shell(
                 liftNotificationBox()
                 startDocSlide(v, (top - old) * v.lineHeight)
             }
-            is WindowView.CanvasView -> {}
+            is WindowView.CanvasView -> {
+                val h = v.onScroll ?: return
+                liftNotificationBox()
+                h(delta)
+                composeContent()
+            }
             null -> {}
         }
         scheduleSave()
@@ -605,6 +639,7 @@ class Shell(
         when (val v = focusedView()) {
             is WindowView.ListView -> v.onCommit(v.model.cursor)
             is WindowView.DocView -> v.onTap()
+            is WindowView.CanvasView -> v.onTap?.invoke()
             else -> {}
         }
         composeContent()
@@ -916,6 +951,7 @@ class Shell(
     private fun handleTransport(ev: TransportEvent) {
         when (ev) {
             is TransportEvent.Input -> handleInput(ev.type, ev.source)
+            is TransportEvent.Text -> handleTypedText(ev.line)
             is TransportEvent.FlushDone -> completeFlush(ev)
             is TransportEvent.Battery -> {
                 // chrome never justifies its own flush (§8.3): the new value

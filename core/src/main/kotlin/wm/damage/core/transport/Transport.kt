@@ -39,6 +39,14 @@ interface Transport {
      *  transport — a phone touch during a PC takeover included. */
     fun injectInput(type: Int)
 
+    /** A typed LINE from a replica (phone strip, browser page, desktop
+     *  preview) — the ring cannot type (TMUX.md verdict 1; the REMINDER.md
+     *  open item, ported). Arrives as [TransportEvent.Text] on [events], so it
+     *  reaches whichever shell drives; the focused window decides whether it
+     *  accepts text (DamageWindow.onTypedText) and ALWAYS stages a confirm
+     *  before anything runs. Default: refused loudly by the shell's router. */
+    fun injectText(line: String) {}
+
     /** Push the panel-brightness setting to the glasses (2026-08-31): a
      *  sid-0x09 write on the control lane, fire-and-forget — the firmware
      *  restores its own value across reboots, so the shell re-pushes on every
@@ -117,6 +125,9 @@ data class FlushRequest(
 sealed class TransportEvent {
     /** A ring/temple gesture, already decoded. type = EvenHubMsg.EV_*, source = SRC_*. */
     data class Input(val type: Int, val source: Int) : TransportEvent()
+
+    /** A typed line from a replica ([Transport.injectText]). */
+    data class Text(val line: String) : TransportEvent()
 
     /** A submitted flush completed. [ok]=false carries the loud reason. */
     data class FlushDone(

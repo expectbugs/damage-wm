@@ -85,6 +85,11 @@ class PathTransport(
             Log.e("path", "input event buffer overflow — a gesture was DROPPED")
     }
 
+    override fun injectText(line: String) {
+        if (!_events.tryEmit(TransportEvent.Text(line)))
+            Log.e("path", "typed-text event buffer overflow — a line was DROPPED")
+    }
+
     private fun emit(ev: TransportEvent) {
         if (!_events.tryEmit(ev)) Log.e("path", "event DROPPED (buffer full): $ev")
     }
