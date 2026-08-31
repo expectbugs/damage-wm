@@ -240,7 +240,34 @@ deployed live the same day. The shape of what changed, by seam:
   mirrored in `render_shots.py`). **Preview:** 4× integer nearest-neighbour.
 - **Measured:** the latency curve `overview.md` §5.2 — `ms ≈ 60 + bytes/50` PC-direct.
 
-## Banked, deliberately
+## The APK-mission prep (2026-08-31, HANDOFF.md §13 — before any phone-radio test)
+
+What "the phone as the default driver" needs beyond shared core, mined from the G2CC Android app
+(the heavily-tested reference) and from the seam's failure model. All built and battery-green;
+none of it has met the radio yet (that is §13.2's runbook, Adam's part):
+
+- **The seam heartbeat** (`RemoteTransport.kt`, both ends): each side sends a bare `ping` every
+  5 s; a side that has SEEN its peer speak the protocol treats 20 s of total silence as the link
+  ending — loudly, into the existing hardened teardown, so a silent path death (Tailscale, the
+  common case away from home) hands the glasses back to the phone shell in seconds instead of
+  TCP retransmission's many minutes. A peer that never pings keeps the old TCP-event-only
+  behaviour, so version skew cannot false-trip it. `SeamLivenessTest` (3 tests, raw-socket fake
+  peers that go quiet WITHOUT closing) pins both directions and the skew guard.
+- **The pocket-liveness trio** (each a G2CC factory finding): a PARTIAL_WAKE_LOCK while a
+  GLASSES stack runs (the FGS type stops process-kill, NOT Doze CPU throttling — G2CC measured
+  delay() ticks gapping 13–28 s on a 10 s cadence; our lease renews every 45 s against the 90 s
+  fail-open), the battery-optimization exemption (asked once at first run; its absence stays in
+  the status line; a boot-time revocation raises a re-grant notification), and a `BootReceiver`
+  (BOOT_COMPLETED + MY_PACKAGE_REPLACED → auto-start, only when Target=GLASSES and the exemption
+  holds) so the default path survives reboots and sideload updates.
+- **Scan hardening** (`BleTransport.scanForPair`): Bluetooth turning off mid-scan does not
+  reliably reach `onScanFailed` — the await would park forever (G2CC's "scanning forever"
+  class), and toggling phone BT is the documented at-work recovery, so a BT-state receiver now
+  fails the scan loudly and the keeper rides the ON edge back in. A still-hunting scan is also
+  re-issued every 20 min, under Android's ~30-min silent downgrade to opportunistic.
+- **Distribution**: `./gradlew :phone:stageApk` stages the debug APK to `~/.damage/damage-wm.apk`;
+  the G2CC server's `/setup` page grew a DamageWM box and a `/damage-apk` endpoint (additive
+  twin of `/apk` — same Tailscale+token gate, mtime-stamped filename). APK at 3/0.3.
 
 - **The phone's `BleTransport` has still never run on hardware** — only the PC path has. It is
   written from G2CC's proven driver and verified over the firmware model and a fake link. The

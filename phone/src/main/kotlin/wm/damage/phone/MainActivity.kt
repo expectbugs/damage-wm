@@ -7,8 +7,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.os.IBinder
+import android.os.PowerManager
+import android.provider.Settings
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
@@ -50,8 +53,31 @@ class MainActivity : ComponentActivity() {
                 status.text = "denied: ${denied.joinToString { it.substringAfterLast('.') }} — " +
                     "error notifications/BLE limited"
             }
+            maybeRequestDozeExemption()
             startShellService()
         }
+
+    private fun dozeExempt(): Boolean =
+        getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName) == true
+
+    /** One-time battery-optimization exemption ask (the G2CC pattern —
+     *  setup/BatteryOptimization.kt): without the exemption Doze can stop
+     *  even the foreground service, and the FB lease fails open. Asked once;
+     *  a decline stays visible in the status line, and the boot receiver
+     *  re-prompts if the grant is later revoked. */
+    @SuppressLint("BatteryLife")
+    private fun maybeRequestDozeExemption() {
+        if (dozeExempt()) return
+        val prefs = Prefs(this)
+        if (prefs.dozeAsked) return
+        prefs.setDozeAsked()
+        try {
+            startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                Uri.parse("package:$packageName")))
+        } catch (e: Exception) {
+            status.text = "battery-exemption dialog unavailable: ${e.message} — grant it in Settings"
+        }
+    }
 
     private val conn = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
@@ -91,7 +117,10 @@ class MainActivity : ComponentActivity() {
             Manifest.permission.BLUETOOTH_SCAN,
             Manifest.permission.BLUETOOTH_CONNECT,
         ).filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
-        if (wanted.isEmpty()) startShellService() else permissionLauncher.launch(wanted.toTypedArray())
+        if (wanted.isEmpty()) {
+            maybeRequestDozeExemption()
+            startShellService()
+        } else permissionLauncher.launch(wanted.toTypedArray())
     }
 
     private fun startShellService() {
@@ -109,7 +138,8 @@ class MainActivity : ComponentActivity() {
             val svc = service
             if (svc != null) {
                 val driving = if (svc.remoteDriving) " · PC DRIVING" else ""
-                status.text = "${svc.displayStatus()}$driving"
+                val doze = if (!dozeExempt()) " · no Doze exemption (renewals may stall)" else ""
+                status.text = "${svc.displayStatus()}$driving$doze"
                 targetButton.text = "target: ${Prefs(this@MainActivity).target.name.lowercase()}"
                 // re-attach when the service rebuilt its stack (new mirror): the
                 // old view would render a stale mirror forever otherwise

@@ -1,6 +1,7 @@
 package wm.damage.phone
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCharacteristic
@@ -9,12 +10,18 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import no.nordicsemi.android.ble.BleManager
 import no.nordicsemi.android.ble.ktx.suspend
@@ -305,6 +312,23 @@ class BleTransport(
         }
         updateState { it.copy(detail = if (filters.isEmpty()) "scanning for the pair (first time: needs the screen on)" else "scanning for the remembered pair") }
         val done = CompletableDeferred<Pair<BluetoothDevice, BluetoothDevice>>()
+        // Bluetooth turning OFF mid-scan does NOT reliably reach onScanFailed
+        // — the scan just goes dead and the await would park forever (G2CC's
+        // "scanning forever" class, their ConnectionService BT-state receiver).
+        // Toggling phone Bluetooth is also the documented at-work recovery
+        // for a stale ACL, so this path WILL be exercised: fail the scan
+        // loudly and the keeper's retry loop rides the ON edge back in.
+        val offReceiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, i: Intent?) {
+                if (i?.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
+                val st = i.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)
+                if (st == BluetoothAdapter.STATE_TURNING_OFF || st == BluetoothAdapter.STATE_OFF) {
+                    if (!done.isCompleted) done.completeExceptionally(
+                        IllegalStateException("bluetooth turned off during the scan"))
+                }
+            }
+        }
+        context.registerReceiver(offReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
         var left: BluetoothDevice? = null
         var right: BluetoothDevice? = null
         scanNames.clear()
@@ -329,12 +353,34 @@ class BleTransport(
             }
         }
         Log.i("ble", "scanning for the G2 pair (phone-side recovery if it stays invisible: toggle Bluetooth)")
-        scanner.startScan(if (filters.isEmpty()) null else filters, ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), cb)
+        val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
+        val filterList = if (filters.isEmpty()) null else filters
+        scanner.startScan(filterList, settings, cb)
+        // Android quiets a scan that runs past ~30 min (downgraded to
+        // opportunistic, silently) — a pair left in its case would then never
+        // be found until the app restarted. Re-issue the same scan on a
+        // pacing tick, the CfwTransportBase re-ask idiom: pacing between
+        // attempts, not a bound on the wait, which stays endless.
+        val pacer = scope.launch {
+            while (isActive && !done.isCompleted) {
+                delay(SCAN_REISSUE_MS)
+                if (done.isCompleted) break
+                Log.i("ble", "scan re-issued (Android quiets a scan after ~30 min)")
+                try {
+                    scanner.stopScan(cb)
+                    scanner.startScan(filterList, settings, cb)
+                } catch (e: Exception) {
+                    if (!done.isCompleted) done.completeExceptionally(
+                        IllegalStateException("scan re-issue failed: ${e.message}"))
+                }
+            }
+        }
         try {
             return done.await()
         } finally {
-            scanner.stopScan(cb)
+            pacer.cancel()
+            try { context.unregisterReceiver(offReceiver) } catch (e: Exception) { Log.w("ble", "state receiver: ${e.message}") }
+            try { scanner.stopScan(cb) } catch (e: Exception) { Log.w("ble", "stopScan: ${e.message}") }
         }
     }
 
@@ -355,5 +401,10 @@ class BleTransport(
         const val CONNECT_RETRY_MS = 500
 
         const val RSSI_EVERY_TICKS = 10
+
+        /** Re-issue a still-hunting scan on this pacing — under the ~30 min
+         *  point where Android silently downgrades a long scan, and far under
+         *  the 5-starts-per-30-s throttle. */
+        const val SCAN_REISSUE_MS = 20L * 60 * 1000
     }
 }

@@ -163,6 +163,20 @@ private fun DataInputStream.readCtl(): Pair<Ctl, ByteArray?> {
 private fun List<Int>.rect(): Rect = Rect(this[0], this[1], this[2], this[3])
 private fun Rect.wire(): List<Int> = listOf(x, y, w, h)
 
+/** Seam liveness pacing (2026-08-31, the APK mission): both ends send a bare
+ *  `ping` control on this cadence. Any received frame counts as liveness; a
+ *  side enforces quiet ONLY against a peer it has seen speak the protocol (at
+ *  least one `ping` received), so a version-skewed peer degrades to the old
+ *  TCP-event-only behaviour instead of being disconnected by mistake. Without
+ *  this, a silent path death (the common case over Tailscale — the PC's home
+ *  internet drops while the phone is out) surfaces only when TCP
+ *  retransmission gives up, many minutes later, and Adam's arbitration
+ *  contract ("one of them must ALWAYS be driving") sits driverless for all of
+ *  it. Pacing, not a timeout: no work is bounded — a peer is only required to
+ *  keep saying it is there. */
+const val SEAM_PING_MS = 5_000L
+const val SEAM_QUIET_MS = 20_000L
+
 // ================================================================== client
 /** The shell side of the seam — a [Transport] whose real implementation is on
  *  the other end of a socket. */
@@ -171,6 +185,8 @@ class RemoteTransportClient(
     private val port: Int,
     private val token: String,
     private val scope: CoroutineScope,
+    private val pingMs: Long = SEAM_PING_MS,
+    private val quietMs: Long = SEAM_QUIET_MS,
 ) : Transport {
     private val _events = MutableSharedFlow<TransportEvent>(extraBufferCapacity = 256)
     override val events = _events.asSharedFlow()
@@ -211,6 +227,12 @@ class RemoteTransportClient(
     private val pendingSubmits = ConcurrentHashMap<Long, Long>()
     @Volatile private var stallReported = false
     @Volatile private var stallWatch: Job? = null
+
+    /** When the reader last received ANY frame, and whether this peer has ever
+     *  sent a `ping` (the liveness protocol gate — see [SEAM_PING_MS]). */
+    @Volatile private var lastRecvMs = 0L
+    @Volatile private var peerSpeaksLiveness = false
+    @Volatile private var pinger: Job? = null
 
     @Volatile private var sock: Socket? = null
     @Volatile private var out: DataOutputStream? = null
@@ -265,9 +287,15 @@ class RemoteTransportClient(
                 else -> throw IllegalStateException("unexpected ${resp.t} from $host")
             }
             // reader thread: no timeouts; EOF/IOException = link down, loud
+            lastRecvMs = System.currentTimeMillis()
+            peerSpeaksLiveness = false
             Thread({
                 try {
-                    while (true) route(inp.readCtl(), mySession)
+                    while (true) {
+                        val frame = inp.readCtl()
+                        lastRecvMs = System.currentTimeMillis()
+                        route(frame, mySession)
+                    }
                 } catch (e: EOFException) {
                     down(mySession, "transport server closed")
                 } catch (e: Exception) {
@@ -287,13 +315,38 @@ class RemoteTransportClient(
             stallWatch?.cancel()
             stallWatch = scope.launch {
                 while (isActive) {
-                    delay(2_000)
+                    delay(minOf(2_000, pingMs))
                     val now = System.currentTimeMillis()
+                    // the seam went quiet: the peer spoke liveness and then said
+                    // nothing (frames or pings) for quietMs — a silent path
+                    // death. End the session HERE, attributed, then close the
+                    // socket so the parked reader unwinds into the dead session.
+                    if (peerSpeaksLiveness && now - lastRecvMs > quietMs) {
+                        down(mySession, "seam quiet for ${(now - lastRecvMs) / 1000} s — " +
+                            "no frames or pings from $host (silent path death)")
+                        session.incrementAndGet()      // the reader's exception belongs to the dead session
+                        try { sock?.close() } catch (e: Exception) { /* closing */ }
+                        return@launch
+                    }
                     val oldest = pendingSubmits.values.minOrNull() ?: continue
                     if (!stallReported && now - oldest > STALL_REPORT_MS) {
                         stallReported = true
                         emit(TransportEvent.Fault("stall", "no done from $host for ${(now - oldest) / 1000} s with " +
                             "${pendingSubmits.size} flush(es) outstanding — the seam or the phone's link is not answering"), "Fault")
+                    }
+                }
+            }
+            pinger?.cancel()
+            pinger = scope.launch {
+                while (isActive) {
+                    delay(pingMs)
+                    try {
+                        o.send(Ctl(t = "ping"))
+                    } catch (e: Exception) {
+                        // the reader surfaces the broken link with its reason;
+                        // this loop just stops asking
+                        Log.w("remote-transport", "ping not sent (${e.message}) — the reader will report the link")
+                        return@launch
                     }
                 }
             }
@@ -317,6 +370,7 @@ class RemoteTransportClient(
         if (closing) Log.i("remote-transport", "$reason (expected: closing)")
         else Log.e("remote-transport", reason)
         stallWatch?.cancel()
+        pinger?.cancel()
         updateState { it.copy(connected = false, started = false, leaseHeld = false) }
         failOutstanding("seam link ended: $reason")
         // a caller parked in start() must get the answer, not a silent hang
@@ -374,6 +428,7 @@ class RemoteTransportClient(
                 stallReported = false
                 emit(TransportEvent.FlushDone(c.id, c.ok, c.ackMs, c.bytes, c.error), "FlushDone ${c.id}")
             }
+            "ping" -> peerSpeaksLiveness = true   // receive time already recorded
             "input" -> emit(TransportEvent.Input(c.evType, c.evSource), "Input")
             "batt" -> emit(TransportEvent.Battery(c.gPct, c.gChg, c.rPct), "Battery")
             "lease" -> emit(TransportEvent.Lease(c.held, c.detail), "Lease")
@@ -429,6 +484,7 @@ class RemoteTransportClient(
         closing = true
         session.incrementAndGet()   // the reader's EOF belongs to the old session
         stallWatch?.cancel()
+        pinger?.cancel()
         try { out?.send(Ctl(t = "stop")) } catch (e: Exception) { /* closing anyway */ }
         sock?.close()
         updateState { it.copy(connected = false, started = false) }
@@ -453,6 +509,8 @@ class RemoteTransportServer(
     private val token: String,
     private val scope: CoroutineScope,
     private val onRemoteDriver: (Boolean) -> Unit = {},
+    private val pingMs: Long = SEAM_PING_MS,
+    private val quietMs: Long = SEAM_QUIET_MS,
 ) : AutoCloseable {
     @Volatile private var server: ServerSocket? = null
     @Volatile private var running = false
@@ -542,6 +600,10 @@ class RemoteTransportServer(
             }
         }
         val mirrorListener = LensPanels.LensListener { arm -> markPanel(arm) }
+        // liveness (see SEAM_PING_MS): when this driver last sent ANY frame,
+        // and whether it has ever sent a `ping` (only then is quiet enforced)
+        val lastRecv = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
+        val peerPings = java.util.concurrent.atomic.AtomicBoolean(false)
         try {
             val (hello, _) = inp.readCtl()
             if (hello.t != "hello" || hello.token != token) {
@@ -559,6 +621,7 @@ class RemoteTransportServer(
             out.send(Ctl(t = "grant"))
             Log.i("transport-server", "remote shell ${sock.inetAddress} claimed the transport")
             onRemoteDriver(true)
+            lastRecv.set(System.currentTimeMillis())
 
             // ONE forwarding job per session: the sender drains the outbox in
             // order; events (with the id-mapped done router), state and panel
@@ -599,13 +662,33 @@ class RemoteTransportServer(
                 launch {
                     inner.state.collect { st -> post(Ctl(t = "state", state = st.toWire())) }
                 }
+                launch {
+                    // the liveness ticker: say we are here, and end a session
+                    // whose driver spoke liveness and then went silent — the
+                    // close lands in the reader's catch, so the standard
+                    // teardown (inner stop + onRemoteDriver(false)) hands the
+                    // glasses back to the local shell within seconds
+                    while (isActive) {
+                        delay(pingMs)
+                        post(Ctl(t = "ping"))
+                        val quiet = System.currentTimeMillis() - lastRecv.get()
+                        if (peerPings.get() && quiet > quietMs) {
+                            Log.e("transport-server", "driver ${sock.inetAddress} quiet for ${quiet / 1000} s " +
+                                "(silent path death) — ending the session so the local shell can drive")
+                            try { sock.close() } catch (e: Exception) { /* closing */ }
+                            return@launch
+                        }
+                    }
+                }
             }
             // the mirror stream: both full panels first, then every change
             inner.mirror.addListener(mirrorListener)
             for (arm in Arm.entries) markPanel(arm)
             while (running) {
                 val (c, blob) = inp.readCtl()
+                lastRecv.set(System.currentTimeMillis())
                 when (c.t) {
+                    "ping" -> peerPings.set(true)   // receive time recorded above
                     "start" -> {
                         if (innerStarted.get() || startJob?.isActive == true) {
                             post(Ctl(t = "startfail", detail = "transport already started"))

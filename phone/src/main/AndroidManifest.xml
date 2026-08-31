@@ -14,6 +14,19 @@
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- The pocket-liveness trio (2026-08-31, the APK mission — each one a
+         G2CC factory finding, android/ manifest + ConnectionService):
+         1) PARTIAL_WAKE_LOCK while a GLASSES stack runs: the FGS type stops
+            process-kill but NOT Doze CPU throttling — G2CC measured delay()
+            ticks gapping 13-28 s on a 10 s cadence without it, and our FB
+            lease renews every 45 s against a 90 s fail-open expiry;
+         2) the battery-optimization exemption (user-granted; MainActivity
+            asks once): without it Doze can stop even a foreground service;
+         3) boot/update auto-start so the default path — the phone driving
+            the glasses — survives a reboot and a sideload update. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
         android:label="Damage"
@@ -36,5 +49,20 @@
             android:name=".ShellService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <!-- Boot/update auto-start (the G2CC BootReceiver pattern): the phone
+             is the default driver of the glasses, so a reboot or a sideload
+             update must not leave the pair undriven until the app is opened.
+             Gated inside the receiver on Target=GLASSES and the battery-opt
+             exemption; connectedDevice-type FGS is allowed from
+             BOOT_COMPLETED. -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

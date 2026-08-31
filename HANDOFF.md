@@ -1250,6 +1250,34 @@ claim/yield and replica plumbing for ALL of this **already exist and are sim/fak
 - After ANY code change: the full battery (`CLAUDE.md` — 121 core / 9 desktop / selfcheck 32 /
   snapshots eyeballed / epub-check / lint 0 / APK), plus on-device checks for phone changes.
 
+### 13.3b Progress (2026-08-31, later): the pre-radio hardening is DONE and the APK is staged
+
+Adam re-stated the mission's shape in his own words — *"Most of my usage of the G2 will be PC to
+Phone then Phone to G2. That should be the default path, with the Phone APK driving the glasses
+and supplemented by the PC. If the PC connection drops, the phone should gracefully fall back to
+running the glasses on its own."* — which is §10.1 row 1 + the §8.1 contract, already the built
+arbitration. What was added before any phone-radio test, mined from the G2CC Android app (the
+heavily-tested reference) and the seam's failure model (`IMPLEMENTATION.md` → "The APK-mission
+prep" for the details):
+
+1. **The seam heartbeat** — a silent path death of the PC link (the Tailscale case his default
+   usage lives on) now hands the glasses back to the phone shell in ~20 s, not TCP
+   retransmission's minutes. Additive `ping` control, enforced only against a peer that has
+   spoken it (skew-safe), 3 new tests (`SeamLivenessTest`).
+2. **The pocket-liveness trio** on the phone — PARTIAL_WAKE_LOCK for GLASSES stacks, the
+   battery-exemption ask, boot/update auto-start (Target=GLASSES + exemption-gated). Doze was
+   the one thing that could stall the 45 s lease renewals in a pocket.
+3. **Scan hardening** — BT-off-mid-scan fails loudly (the at-work BT-toggle recovery would have
+   stranded the old scan forever), and a long hunt re-issues under Android's 30-min downgrade.
+4. **Distribution** — `./gradlew :phone:stageApk` → `~/.damage/damage-wm.apk`; the G2CC `/setup`
+   page (his ask: same page as the G2CC APK) grew a DamageWM box + `/damage-apk` endpoint,
+   deployed and verified serving byte-identical bytes. **APK now 3 / 0.3.**
+
+Battery green after all of it: core **124**, desktop 9, selfcheck 32, snapshots eyeballed,
+epub-check 380/404 images, lint 0, APK built. New first-run grants on the phone: the two
+Bluetooth prompts + notifications as before, **plus the battery-exemption dialog (asked once)**.
+The §13.2 runbook is unchanged and still the next step — nothing here has met the radio.
+
 ### 13.4 Resume protocol (fresh context)
 
 1. Read this §13, then §12, then `IMPLEMENTATION.md` (the wave summary + "Review hardening"),

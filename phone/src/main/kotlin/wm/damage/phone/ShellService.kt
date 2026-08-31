@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.BatteryManager
 import android.os.Binder
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -147,10 +148,41 @@ class ShellService : Service() {
         return if (d == null) statusLine else "$statusLine · $d"
     }
 
+    /** PARTIAL_WAKE_LOCK while a GLASSES stack runs (whoever the driver is —
+     *  the lease renewal is OURS even when a PC shell drives over the seam).
+     *  The FGS type stops process-kill but NOT Doze CPU throttling: G2CC
+     *  measured delay() ticks gapping 13-28 s on a 10 s cadence without one
+     *  (their ConnectionService, the factory finding), and the FB lease
+     *  renews every 45 s against a 90 s fail-open expiry — a throttled
+     *  renewal loop hands the screen back to stock LVGL in a pocket. */
+    private var wakeLock: PowerManager.WakeLock? = null
+
+    private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
+        try {
+            wakeLock = getSystemService(PowerManager::class.java)
+                ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "damage:transport")
+                ?.apply { setReferenceCounted(false); acquire() }
+            Log.i("service", "wake lock acquired (glasses stack): held=${wakeLock?.isHeld}")
+        } catch (e: Exception) {
+            Log.e("service", "wake lock acquire failed — Doze may throttle the lease renewals", e)
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            wakeLock?.let { if (it.isHeld) it.release() }
+        } catch (e: Exception) {
+            Log.w("service", "wake lock release: ${e.message}")
+        }
+        wakeLock = null
+    }
+
     private fun startStack(target: Prefs.Target) {
         val prefs = Prefs(this)
         val dataDir = filesDir.toPath()
         runningTarget = target
+        if (target == Prefs.Target.GLASSES) acquireWakeLock()
 
         val t: Transport = if (target == Prefs.Target.GLASSES) {
             // The capability gate inside the transport refuses firmware without
@@ -282,6 +314,7 @@ class ShellService : Service() {
         scope.cancel()
         transport = null
         mirror = null
+        releaseWakeLock()
     }
 
     /** Rebuild the stack on [target] on a worker thread, one rebuild at a time. */
@@ -496,4 +529,9 @@ class Prefs(context: Context) {
 
     fun setTargetGlasses(on: Boolean) = p.edit().putBoolean("targetGlasses", on).apply()
     fun set(key: String, value: String) = p.edit().putString(key, value).apply()
+
+    /** The battery-exemption dialog was shown once; never nag again — the
+     *  missing grant stays visible in the status line instead. */
+    val dozeAsked: Boolean get() = p.getBoolean("dozeAsked", false)
+    fun setDozeAsked() = p.edit().putBoolean("dozeAsked", true).apply()
 }

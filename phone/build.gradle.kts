@@ -32,8 +32,8 @@ android {
         targetSdk = 35
         // Bump BOTH on every build Adam installs (monotonic versionCode makes a
         // stale Downloads-folder APK refuse to install over a newer one).
-        versionCode = 2
-        versionName = "0.2"
+        versionCode = 3
+        versionName = "0.3"
 
         buildConfigField("String", "DAMAGE_TOKEN", "\"${secrets.getProperty("token", "")}\"")
         buildConfigField("String", "SERVER_HOST", "\"${secrets.getProperty("serverHost", "100.107.139.121")}\"")
@@ -78,6 +78,17 @@ android {
     sourceSets {
         getByName("main") { java.srcDirs("src/main/kotlin") }
     }
+}
+
+// Stage the built APK where the G2CC /setup page's /damage-apk endpoint serves
+// it from (2026-08-31, Adam's ask: the Damage APK on the same setup page as
+// the G2CC one). The endpoint stamps the download filename from this file's
+// mtime, so restaging is all a new build needs.
+tasks.register<Copy>("stageApk") {
+    dependsOn("assembleDebug")
+    from(layout.buildDirectory.file("outputs/apk/debug/phone-debug.apk"))
+    into(File(System.getProperty("user.home"), ".damage"))
+    rename { "damage-wm.apk" }
 }
 
 dependencies {
