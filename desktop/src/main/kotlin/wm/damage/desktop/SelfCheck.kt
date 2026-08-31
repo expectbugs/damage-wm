@@ -82,6 +82,9 @@ object SelfCheck {
         val shell = Shell(text, transport, persistence, tmp.resolve("journal.jsonl"), scope)
         val reader = ReaderWindow(text, LocalContent(books), scope, AwtImages())
         shell.register(reader)
+        val tmuxScripted = ScriptedTmux()
+        val tmuxWin = wm.damage.core.windows.tmux.TmuxWindow(text, tmuxScripted, scope)
+        shell.register(tmuxWin)
 
         var flushFails = 0
         scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
@@ -208,6 +211,58 @@ object SelfCheck {
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)       // silent -> Main
         settle(shell, "wake")
 
+        // ---- Tmux (TMUX.md): sessions -> live grid -> history -> keys ->
+        // typed-text confirm -> alert, all against the scripted provider
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)      // Main cursor: Reader -> Tmux
+        settle(shell, "main-to-tmux-row")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        settle(shell, "tmux-sessions")
+        check("tmux opens at the sessions list", tmuxWin.title() == "sessions")
+        check("tmux summary shows the sessions", tmuxWin.summary().line.contains("2 session"))
+        shell.postGesture(EvenHubMsg.EV_CLICK)              // open 'claude'
+        settle(shell, "tmux-live")
+        check("opening a session subscribes and shows the live grid",
+            tmuxWin.title() == "claude" && tmuxScripted.sent.any { it == "sub:claude" })
+        val inkTmux = Pack.inkFraction(shell.comp.composed)
+        check("the live grid painted within the canvas ink note (was ${"%.1f".format(inkTmux * 100)}%)",
+            inkTmux in 0.005..0.30)
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)         // scroll-up IS scrollback
+        awaitTrue("history captures and wraps in") { tmuxWin.title().contains("history") }
+        settle(shell, "tmux-history")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)       // history -> live
+        settle(shell, "tmux-history-back")
+        check("double-tap returns history to the live grid", tmuxWin.title() == "claude")
+        shell.postGesture(EvenHubMsg.EV_CLICK)              // live -> keys
+        settle(shell, "tmux-keys")
+        check("tap descends to the keys level", tmuxWin.title().contains("keys"))
+        shell.postGesture(EvenHubMsg.EV_CLICK)              // send Enter (cursor at row 0)
+        awaitTrue("the quick key reached the session") { tmuxScripted.sent.contains("keys:claude:Enter") }
+        settle(shell, "tmux-key-sent")
+        check("sending a key drops back to the live view", tmuxWin.title() == "claude")
+        transport.injectText("echo staged")                 // the replica typed-text path
+        awaitTrue("typed text stages a confirm") { tmuxWin.title().contains("confirm") }
+        check("nothing ran before the confirm", tmuxScripted.sent.none { it.startsWith("lit:") })
+        shell.postGesture(EvenHubMsg.EV_CLICK)              // Run
+        awaitTrue("the confirmed line ran literal + Enter") {
+            tmuxScripted.sent.contains("lit:claude:echo staged") &&
+                tmuxScripted.sent.count { it == "keys:claude:Enter" } == 2
+        }
+        settle(shell, "tmux-typed-ran")
+        tmuxScripted.pushAlert()                            // 'claude' wants input
+        awaitTrue("a tmux alert raises the notification box") { shell.notifications.active }
+        check("the alert marks the window dirty", tmuxWin.dirty)
+        delay(3_000)                                        // its grace
+        settle(shell, "tmux-alert-grace")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)       // dismiss the alert box
+        awaitTrue("the alert dismisses") { !shell.notifications.active }
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)       // live -> sessions
+        settle(shell, "tmux-to-sessions")
+        check("leaving the live grid unsubscribes", tmuxScripted.sent.last() == "sub:null")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)       // sessions -> Main
+        settle(shell, "tmux-to-main")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)         // Main cursor back to Reader
+        settle(shell, "main-to-reader-row")
+
         // ---- persistence round trip: leave a BOOK open, restart, land back in it
         shell.postGesture(EvenHubMsg.EV_CLICK)              // back into reader (library)
         awaitTrue("reader reopens") { shell.isQuiescent() }
@@ -227,6 +282,7 @@ object SelfCheck {
         val shell2 = Shell(text, transport2, persistence2, null, scope2)
         val reader2 = ReaderWindow(text, LocalContent(books), scope2, AwtImages())
         shell2.register(reader2)
+        shell2.register(wm.damage.core.windows.tmux.TmuxWindow(text, ScriptedTmux(), scope2))
         shell2.start()
         settle(shell2, "restart")
         awaitTrue("restored reader reopens its book (mode, not just position §9.1)") {

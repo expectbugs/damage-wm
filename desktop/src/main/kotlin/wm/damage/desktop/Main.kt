@@ -82,7 +82,26 @@ data class Config(
     /** The pair's addresses from the last successful PC-direct connect. */
     val leftAddress: String = "",
     val rightAddress: String = "",
+    /** Tmux (TMUX.md): ssh hosts the provider fans out to beyond this machine
+     *  — slappy ships as the default (verdict 1; sshd on 80, global CLAUDE.md).
+     *  A host without tmux simply contributes zero sessions. */
+    val tmuxHosts: List<wm.damage.core.windows.tmux.TmuxHostCfg> = listOf(
+        wm.damage.core.windows.tmux.TmuxHostCfg("slappy", ssh = "slappy", sshPort = 80)),
+    /** Empty = the TmuxConfig defaults (the dozen keys · G2CC's slash
+     *  snippets · the Claude-tuned wait patterns). Served to the phone with
+     *  the session list, so this file is the ONE place to tune them. */
+    val tmuxQuickKeys: List<String> = listOf(),
+    val tmuxSnippets: List<String> = listOf(),
+    val tmuxWaitPatterns: List<String> = listOf(),
 ) {
+    fun tmuxHostList(): List<wm.damage.core.windows.tmux.TmuxHostCfg> =
+        listOf(wm.damage.core.windows.tmux.TmuxHostCfg(localHostLabel())) + tmuxHosts
+
+    fun tmuxConfig(): wm.damage.core.windows.tmux.TmuxConfig = wm.damage.core.windows.tmux.TmuxConfig(
+        quickKeys = tmuxQuickKeys.ifEmpty { wm.damage.core.windows.tmux.TmuxConfig.DEFAULT_QUICK_KEYS },
+        snippets = tmuxSnippets.ifEmpty { wm.damage.core.windows.tmux.TmuxConfig.DEFAULT_SNIPPETS },
+        waitPatterns = tmuxWaitPatterns.ifEmpty { wm.damage.core.windows.tmux.TmuxConfig.DEFAULT_WAIT_PATTERNS },
+    )
     companion object {
         private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
 
@@ -114,6 +133,14 @@ data class Config(
             val b = ByteArray(24)
             SecureRandom().nextBytes(b)
             return b.joinToString("") { "%02x".format(it) }
+        }
+
+        /** This machine's short hostname as the local tmux host label —
+         *  sessions read "claude · beardos" next to "build · slappy". */
+        fun localHostLabel(): String = try {
+            java.net.InetAddress.getLocalHost().hostName.substringBefore('.').ifEmpty { "local" }
+        } catch (e: Exception) {
+            "local"
         }
     }
 }
@@ -173,9 +200,11 @@ private fun bleInfo() {
 }
 
 private suspend fun hostOnly(cfg: Config) {
-    val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token)
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val tmux = wm.damage.core.windows.tmux.LocalTmuxProvider(cfg.tmuxHostList(), cfg.tmuxConfig(), scope)
+    val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token, tmux = tmux)
     host.start()
-    Log.i("damage", "content host only — serving ${cfg.booksDir} on :${cfg.contentPort}; Ctrl-C to stop")
+    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux on :${cfg.contentPort}; Ctrl-C to stop")
     kotlinx.coroutines.awaitCancellation()
 }
 
@@ -191,6 +220,10 @@ class DesktopStack(
     private val text: AwtText,
     private val onStatus: (String) -> Unit,
     private val onSwitch: (String) -> Unit,
+    /** The process-wide tmux provider (outlives stack rebuilds; also serves
+     *  the phone through the content host). Null only in tools that need no
+     *  tmux window. */
+    private val tmux: wm.damage.core.windows.tmux.TmuxProvider? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private fun ble(): Transport = BlueZTransport(BlueZDbus(), scope,
@@ -227,6 +260,7 @@ class DesktopStack(
         shell = Shell(text, transport, persistence, dataDir.resolve("journal.jsonl"), scope)
         val content = LocalContent(Path.of(cfg.booksDir))
         shell.register(ReaderWindow(text, content, scope, AwtImages()))
+        tmux?.let { tmuxWindow = wm.damage.core.windows.tmux.TmuxWindow(text, it, scope).also(shell::register) }
         shell.hostSettings = listOf(
             HostSetting("Target", MODES, current = { mode }, apply = { v -> onSwitch(v) }),
         )
@@ -234,10 +268,13 @@ class DesktopStack(
             onTerminal = { reason -> Log.e("damage", "the $mode transport ended for good: $reason") })
     }
 
+    private var tmuxWindow: wm.damage.core.windows.tmux.TmuxWindow? = null
+
     fun start() = keeper.start()
 
     suspend fun stop() {
         keeper.stop()
+        tmuxWindow?.detach()   // the provider outlives this stack
         scope.cancel()
         // the BlueZ glue holds a handler on the process-wide bus: release it
         val all = (transport as? PathTransport)?.paths?.map { it.transport } ?: listOf(transport)
@@ -268,8 +305,15 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?): Unit = run
     val switchNote = java.util.concurrent.atomic.AtomicReference("")
     val switching = java.util.concurrent.atomic.AtomicBoolean(false)
 
+    // The process-wide tmux provider: the local shell's window and the phone
+    // (through the content host) both feed from it; it outlives stack switches.
+    val tmuxScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val tmuxProvider = wm.damage.core.windows.tmux.LocalTmuxProvider(
+        cfg.tmuxHostList(), cfg.tmuxConfig(), tmuxScope)
+
     // The PC always serves its library so a phone shell can feed from it.
-    val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token)
+    val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
+        tmux = tmuxProvider)
     try {
         host.start()
     } catch (e: Exception) {
@@ -304,7 +348,8 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?): Unit = run
             }
         }, "damage-switch").start()
     }
-    build = { m -> DesktopStack(cfg, m, remoteHost, text, onStatus = { keeperStatus.set(it) }, onSwitch = { switchTo(it) }) }
+    build = { m -> DesktopStack(cfg, m, remoteHost, text, onStatus = { keeperStatus.set(it) },
+        onSwitch = { switchTo(it) }, tmux = tmuxProvider) }
 
     val first = build(mode)
     stackRef.set(first)
@@ -331,7 +376,8 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?): Unit = run
         val base = stack()?.statusLine() ?: keeperStatus.get()
         val n = switchNote.get()
         if (n.isEmpty()) base else "$n · $base"
-    }, onClose = { endOrderly(); kotlin.system.exitProcess(0) })
+    }, onClose = { endOrderly(); kotlin.system.exitProcess(0) },
+        onText = { line -> stack()?.transport?.injectText(line) })
     // the browser replica on the tailnet
     val replica = ReplicaServer(cfg.replicaPort, cfg.token, { stack()?.transport?.mirror }, {
         val st = stack()?.transport?.state?.value
@@ -341,7 +387,8 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?): Unit = run
             ackMs = st?.ackMsEma?.toInt() ?: 0, bytesPerSec = st?.bytesPerSecEma?.toInt() ?: 0,
             driver = "PC shell (${stack()?.mode ?: mode})", note = note().ifEmpty { keeperStatus.get() },
         )
-    }) { t -> stack()?.transport?.injectInput(t) }
+    }, onInput = { t -> stack()?.transport?.injectInput(t) },
+        onText = { line -> stack()?.transport?.injectText(line) })
     try {
         replica.start()
     } catch (e: Exception) {

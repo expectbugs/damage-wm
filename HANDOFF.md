@@ -1289,3 +1289,26 @@ The §13.2 runbook is unchanged and still the next step — nothing here has met
    just checks the process). Leave it as the daily driver until step 2 of §13.2 needs the radio.
 4. Ask Adam to sideload when the APK is ready; he flips the Target himself. The phone's own
    radio work needs no extra permission — the flash-era no-radio rule is long retired.
+
+## 14. Tmux on glass — designed, refined and built in one day (2026-08-31)
+
+Adam asked for the Tmux window ("look at the G2CC implementation carefully, but don't copy it
+verbatim… a much better implementation"), answered every up-front question in one refinery pass
+(the verdicts are pinned at the top of `TMUX.md`), and the whole thing was built the same day —
+scope INCLUDING typed text via the replicas, multi-host over ssh, and session management;
+excluding search (wants typing first) and the mic (much later).
+
+- **`TMUX.md`** — the design: the G2CC study and constraint archaeology, the Damage-native
+  grammar (scroll-up IS scrollback), costs against the measured curve, the explosion table,
+  the locked verdicts.
+- **`IMPLEMENTATION.md` → "Tmux"** — what runs and where: the SGR grid core, the provider
+  triple on the content port, the window, the shell/transport seams (first canvas window,
+  typed text end to end), the harness scenes, and the on-glass items only hardware can answer.
+- Battery green at HEAD: core **140** · desktop 9 · selfcheck **48** · snapshots (09b–09e are
+  the tmux scenes) · epub-check · lint 0 · **APK 4/0.4 staged** on the /setup page.
+- ⚠ Two latent defects surfaced and fixed on the way: the snapshot harness's walk back to Main
+  silently broke when the shelf grew folders (its waits are labeled now), and a seam test was
+  sampling `started` at the one instant the documented a3-8 state-frame race can flip it.
+- **The §13.2 phone-radio runbook is UNCHANGED and still next** — nothing here touched the
+  radio. When the phone drives, Tmux needs the desktop (or `--host-only`) up on beardos: the
+  provider rides the content host. PC-shell modes exec tmux directly.

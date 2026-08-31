@@ -154,6 +154,8 @@ class Shell(
         override fun runOnShell(action: () -> Unit) = post(Msg.Run(action))
 
         override fun docContentWidth(): Int = layout.contentInner.w - 32
+        // the same height ContentKit.visibleLines divides by lineHeight
+        override fun docContentHeight(): Int = layout.content.h - 2 * wm.damage.core.geom.Layout.CONTENT_PAD
     }
 
     private fun post(m: Msg) {

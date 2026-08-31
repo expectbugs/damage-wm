@@ -162,4 +162,9 @@ interface ShellServices {
     /** The current document content width in px (safe-rect relative, §2.2b) —
      *  windows must wrap against THIS, never a hardcoded 640-derived number. */
     fun docContentWidth(): Int
+
+    /** The current content HEIGHT in px, same rule — a window positioning a
+     *  DocView at its end (Tmux history's live edge) derives the visible-line
+     *  count from this, never from a 480-derived constant. */
+    fun docContentHeight(): Int
 }

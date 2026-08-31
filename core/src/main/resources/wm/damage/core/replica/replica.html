@@ -32,6 +32,9 @@
     <button id="lens">lens: LEFT</button>
     <button id="both">both</button>
     <button id="scale">1×</button>
+    <input id="typebox" type="text" placeholder="type a line (Tmux stages it behind a confirm)" size="34"
+           style="background:#0b1f10;color:#4cb264;border:1px solid #245;padding:4px 8px;">
+    <button id="typesend">send</button>
     <span id="help">wheel = scroll · click = tap · right-click = double-tap · hold = long-press (release on let-go) · keys ↑↓ Enter Backspace/Esc Space (hold) R (release) Tab (lens) B (both) · scaled views are not for legibility calls</span>
   </div>
 </div>
@@ -148,7 +151,21 @@
     });
     c.addEventListener('mouseleave', () => { clearTimeout(holdTimer); if (holding) { holding = false; send('release'); } });
   }
+  const typeBox = document.getElementById('typebox');
+  function sendTyped() {
+    const line = typeBox.value;
+    if (!line.trim() || !ws || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({ t: 'text', line }));
+    typeBox.value = '';
+    typeBox.blur();      // Space/Enter go back to being ring gestures
+  }
+  document.getElementById('typesend').onclick = (e) => { sendTyped(); e.currentTarget.blur(); };
   window.addEventListener('keydown', (e) => {
+    if (e.target === typeBox) {          // typing is typing, never ring gestures
+      if (e.key === 'Enter') sendTyped();
+      if (e.key === 'Escape') { typeBox.value = ''; typeBox.blur(); }
+      return;
+    }
     if (e.ctrlKey || e.metaKey || e.altKey) return;   // browser chords (Ctrl+R, Ctrl+B) stay the browser's
     if (e.repeat) return;   // the ring has no auto-repeat: a held key is one gesture
     const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;   // R and r alike

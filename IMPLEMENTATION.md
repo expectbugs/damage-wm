@@ -277,6 +277,55 @@ none of it has met the radio yet (that is §13.2's runbook, Adam's part):
   placeholder until the mode-10 feed exists; head tracking defaults OFF.
 - ~~Texture caching (Babcock's in-progress firmware work)~~ — **it shipped**, see below.
 
+## Tmux (2026-08-31, TMUX.md — all refinery verdicts locked, built in one pass)
+
+The first app-layer window past Reader, and the first CANVAS window. The glasses are a
+viewer/controller of the REAL tmux server via discrete commands (`=session:` exact targeting,
+no `-C` attach — the G2CC Phase-5 safety shape); `wm.damage.core.windows.tmux`:
+
+- **`Sgr`** parses `capture-pane -e` into styled cells: 16/256/truecolour by luminance onto the
+  16 grays (foregrounds floor at 3 — readable beats faithful), bold/dim/underline/reverse, wide
+  glyphs own two columns, unknown escapes counted never eaten. **`TermRender`** draws the grid
+  in JetBrains Mono FIT to the live layout rect (every height mode 288..480), exact cellW
+  columns, a static inverted cursor, dimmed context rows in spare height (verdict 5: on), and
+  a visible tofu box for glyphs the face lacks.
+- **`LocalTmuxProvider`** execs `sh -c` scripts — ONE per host per tick (status 2.5 s, capture
+  500 ms pushed on change), so an ssh host (verdict 1: multi-host; slappy ships in the default
+  config, port 80) costs one round trip per tick. Waiting-pattern EDGE alerts (verdict 3: on
+  for all, per-session mute, GLASS only); `g2-N` auto-naming; literals cross ssh single-quote
+  escaped. ssh gets BatchMode+ConnectTimeout=5 on connection ESTABLISHMENT only — the
+  equivalent of a refused connect, retried next tick; every loop is pacing, no timeouts.
+- **`TmuxNet`** rides the CONTENT port: `{"t":"tmux"}` after the hello turns the connection
+  into a push channel (status/frames/alerts + id-correlated requests). `RemoteTmuxProvider`
+  (the phone) reconnects keeper-style, re-asserts its subscription, and surfaces "PC
+  unreachable Ns" as the §10.5 staleness line. Config (quick keys/snippets/patterns) is served
+  WITH the session list, so `~/.damage/config.json` on the PC is the one tuning point.
+- **`TmuxWindow`** — the grammar: SESSIONS (waiting pinned, lens shows the tail line) →
+  LIVE (canvas; **scroll-up IS scrollback**, tap descends) → HISTORY (a FROZEN snapshot as a
+  DocView at reading size, opened at the live edge, 5 lines/notch) → KEYS (the dozen, verdict
+  4) → SNIPPETS / WINDOWS (viewing a window targets `=s:idx` — never `select-window`, which is
+  an explicit Session… action) / SESSION_ACTIONS (mute · Fit pane 64×22 · select · rename ·
+  kill-confirm). **Typed text always stages a TYPE_CONFIRM** (run = literal + Enter, the G2CC
+  2026-06-18 semantics); every provider failure rides the title notice. Settings live in the
+  Settings window's **Tmux category** (verdict 6): Context rows · Alerts · Size (default 480).
+- **Shell additions**: `CanvasView.onScroll/onTap` (routed like DocView's),
+  `DamageWindow.onTypedText` + LOUD shell refusal when nothing accepts,
+  `Transport.injectText` → `TransportEvent.Text` across every transport and the seam
+  (`"typed"`), `ShellServices.docContentHeight`. **Typed-text entry points**: the desktop
+  preview (key T), the browser replica's text bar, the phone strip's `type` button — all ride
+  the transport, so they reach whichever shell drives.
+- **Harnesses**: `ScriptedTmux` (deterministic provider) drives the new selfcheck checks (48
+  total) and four snapshot scenes (09b–09e); `TmuxTest` holds 16 core tests (SGR, fit at both
+  height modes, cursor inversion, provider parse/edge-alerts/quoting, the wire round trip, the
+  full window grammar, persistence). Building the scenes also caught a LATENT snapshot-harness
+  drift: the fixed two-double-tap walk back to Main broke silently when the shelf grew folders
+  — the walk now ascends deterministically and the waits are labeled.
+
+**Hardware-blocked (the on-glass items):** fit-80 legibility at 7.6 px cells (the "Fit pane to
+glass" action is the escape hatch), context-rows verdict, quick-key order, alert-pattern tuning
+against real Claude sessions, ssh-host latency feel. The pixel path is the architecture;
+texture-cache glyphs stay a later optimization behind first-light items 19–20.
+
 ## The texture cache (2026-08-30, CFW `a5d1c31`)
 
 The firmware grew a **64 KiB lease-scoped texture cache** and three draw modes. The wire and
@@ -376,7 +425,8 @@ of them are load-bearing and easy to break by accident:
 
 ## Verification
 
-- `./gradlew :core:test` — 121 unit/integration tests (the refinement wave added
+- `./gradlew :core:test` — 140 unit/integration tests (the Tmux build added `TmuxTest` — 16
+  across SGR/renderer/provider/wire/window — and `SeamLivenessTest` ×3; the refinement wave added
   `BatteryBrightnessTest`, `EpubChaptersImagesTest`, and the wire-true source-0 injections in
   `LongPressTest`; the finishing build added
   `MirrorTeeTest`, `PreludeTest`, `DivergenceTest`, `ShellKeeperTest`,

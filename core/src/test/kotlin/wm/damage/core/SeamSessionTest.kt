@@ -145,6 +145,12 @@ class SeamSessionTest {
                     delay(100)
                 }
             }
+            // `started` settles rather than being sampled at one instant: a
+            // stale forwarded state frame may flip it for one message right
+            // after the start (the round 3 a3-8 tolerance the keeper already
+            // documents — a restart from that is a plain reconnect)
+            val t1 = System.currentTimeMillis()
+            while (!client.state.value.started && System.currentTimeMillis() - t1 < 5_000) delay(10)
             assertTrue(client.state.value.started)
             assertEquals(2, glass.preludeAcks, "the far end connected the glasses again")
             client.stop()

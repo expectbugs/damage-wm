@@ -33,6 +33,8 @@ import wm.damage.core.transport.SimTransport
 import wm.damage.core.transport.Transport
 import wm.damage.core.util.Log
 import wm.damage.core.windows.reader.ReaderWindow
+import wm.damage.core.windows.tmux.RemoteTmuxProvider
+import wm.damage.core.windows.tmux.TmuxWindow
 
 /**
  * The phone's Damage process — DESIGN.md §10.1 rows 1 and 2: transport + shell
@@ -79,6 +81,7 @@ class ShellService : Service() {
     @Volatile private var keeper: ShellKeeper? = null     // read by isRunning() off the rebuild thread
     private var seamServer: RemoteTransportServer? = null
     private var replica: ReplicaServer? = null
+    private var tmuxProvider: RemoteTmuxProvider? = null
     @Volatile var remoteDriving = false
         private set
     @Volatile var statusLine: String = "starting"
@@ -210,6 +213,11 @@ class ShellService : Service() {
             onNotice = { detail -> sh.services.notifyInternal("content", detail) },
         )
         sh.register(ReaderWindow(text, rc, scope, AndroidImages()))
+        // Tmux (TMUX.md): the provider lives on the content host — same
+        // host/port/token as the library, so the sessions just appear (§3.1)
+        val tp = RemoteTmuxProvider(prefs.host, prefs.contentPort, prefs.token, scope)
+        tmuxProvider = tp
+        sh.register(TmuxWindow(text, tp, scope))
         sh.onUrgent = { source, body -> urgentNotification(source, body) }
         sh.hostSettings = listOf(
             HostSetting("Target", listOf("sim", "glasses"),
@@ -252,7 +260,8 @@ class ShellService : Service() {
 
         // the browser replica: the same mirror, from any browser on the tailnet
         try {
-            val rs = ReplicaServer(prefs.replicaPort, prefs.token, { mirror }, { replicaStatus() }, { postGesture(it) })
+            val rs = ReplicaServer(prefs.replicaPort, prefs.token, { mirror }, { replicaStatus() },
+                onInput = { postGesture(it) }, onText = { postText(it) })
             rs.start()
             replica = rs
         } catch (e: Exception) {
@@ -311,6 +320,8 @@ class ShellService : Service() {
                 Log.e("service", "keeper stop failed", e)
             }
         }
+        try { tmuxProvider?.close() } catch (e: Exception) { Log.w("service", "tmux provider close: ${e.message}") }
+        tmuxProvider = null
         scope.cancel()
         transport = null
         mirror = null
@@ -425,6 +436,12 @@ class ShellService : Service() {
      *  reaches whichever shell drives (the PC's during a takeover). */
     fun postGesture(type: Int) {
         transport?.injectInput(type) ?: Log.w("service", "gesture $type with no transport")
+    }
+
+    /** A typed line from the strip or the browser page — same routing rule as
+     *  gestures: through the transport, to whichever shell drives. */
+    fun postText(line: String) {
+        transport?.injectText(line) ?: Log.w("service", "typed line with no transport")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY

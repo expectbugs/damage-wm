@@ -107,6 +107,7 @@ class MainActivity : ComponentActivity() {
             addView(status, LinearLayout.LayoutParams(0, -2, 1f))
             addView(targetButton)
             addView(smallButton("lens") { lens?.toggleArm() })
+            addView(smallButton("type") { typeDialog() })
             addView(smallButton("rel") { service?.postGesture(EvenHubMsg.EV_RING_LONG_PRESS_RELEASE) })
         }
         root.addView(bar, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
@@ -167,6 +168,26 @@ class MainActivity : ComponentActivity() {
             text = label
             setOnClickListener { onClick() }
         }
+
+    /** Typed-text entry (TMUX.md verdict 1): the line rides the transport to
+     *  whichever shell drives; the focused window stages it behind a confirm
+     *  ON GLASS, so this dialog sends without running anything. */
+    private fun typeDialog() {
+        val svc = service ?: return
+        val box = android.widget.EditText(this).apply {
+            hint = "line for the focused window (Tmux confirms before running)"
+            setSingleLine()
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Type")
+            .setView(box)
+            .setPositiveButton("send") { _, _ ->
+                val line = box.text?.toString().orEmpty()
+                if (line.isNotBlank()) svc.postText(line)
+            }
+            .setNegativeButton("cancel", null)
+            .show()
+    }
 
     private fun attachLens(svc: ShellService) {
         val m = svc.mirror ?: return

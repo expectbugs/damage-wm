@@ -56,6 +56,9 @@ class ReplicaServer(
     private val panels: () -> LensPanels?,
     private val status: () -> Status,
     private val onInput: (Int) -> Unit,
+    /** A typed LINE from the page's text bar (TMUX.md verdict 1) — rides
+     *  Transport.injectText; the focused window stages it behind a confirm. */
+    private val onText: (String) -> Unit = {},
 ) : AutoCloseable {
 
     data class Status(
@@ -333,6 +336,11 @@ class ReplicaServer(
                     val ev = o["ev"]?.jsonPrimitive?.content
                     val type = gestureOf(ev)
                     if (type == null) Log.w("replica", "unknown input '$ev' ignored") else onInput(type)
+                }
+                "text" -> {
+                    val line = o["line"]?.jsonPrimitive?.content
+                    if (line.isNullOrBlank()) Log.w("replica", "empty typed line ignored")
+                    else onText(line)
                 }
                 "hb" -> {}
                 else -> Log.w("replica", "unknown message ${o["t"]} ignored")

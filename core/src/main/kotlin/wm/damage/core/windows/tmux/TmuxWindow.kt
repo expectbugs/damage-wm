@@ -166,6 +166,14 @@ class TmuxWindow(
         provider.addListener(listener)   // alerts live from registration on
     }
 
+    /** Unhook from the provider — a rebuilt stack replaces this window while
+     *  the provider outlives it (the LensView.detach precedent): a dead
+     *  window's listener must not keep receiving pushes. */
+    fun detach() {
+        provider.subscribe(listener, null)
+        provider.removeListener(listener)
+    }
+
     override fun onActivate(ctx: ShellServices) {
         services = ctx
         if (level == Level_.LIVE || level == Level_.HISTORY || level == Level_.KEYS) resubscribe()
@@ -333,8 +341,10 @@ class TmuxWindow(
         val stripped = raw.joinToString("\n") { Sgr.strip(it).trimEnd() }
             .trimEnd('\n')
         histWrapped = Wrap.wrap(stripped, fRead, text, width)
-        // the live edge: the snapshot opens at its NEWEST page
-        docModel.topLine = maxOf(0, histWrapped.size - 1)
+        // the live edge: open at the newest whole PAGE — the last visible-line
+        // window, derived from the live layout (§2.2b), never a 480 constant
+        val visible = maxOf(1, (services?.docContentHeight() ?: 384) / histLineHeight())
+        docModel.topLine = maxOf(0, histWrapped.size - visible)
     }
 
     private fun histLineHeight(): Int = maxOf(12, text.metrics(fRead).lineHeight)
@@ -526,16 +536,19 @@ class TmuxWindow(
 
     // ------------------------------------------------------------------ chrome
     override fun title(): String {
+        // §4.1: the Title is "what is inside this window right now" — the
+        // chrome already draws the window NAME, so never repeat "Tmux" here
+        // (the Reader precedent: "library", not "Reader · library")
         val base = when (level) {
-            Level_.SESSIONS -> "Tmux"
-            Level_.LIVE -> "Tmux · ${target?.label ?: "?"}"
-            Level_.HISTORY -> "Tmux · ${target?.label} · history"
-            Level_.KEYS -> "Tmux · ${target?.label} · keys"
-            Level_.SNIPPETS -> "Tmux · snippets"
-            Level_.WINDOWS -> "Tmux · ${target?.session} · windows"
-            Level_.SESSION_ACTIONS -> "Tmux · ${target?.label} · session"
-            Level_.KILL_CONFIRM -> "Tmux · kill?"
-            Level_.TYPE_CONFIRM -> "Tmux · confirm"
+            Level_.SESSIONS -> "sessions"
+            Level_.LIVE -> target?.label ?: "sessions"
+            Level_.HISTORY -> "${target?.label} · history"
+            Level_.KEYS -> "${target?.label} · keys"
+            Level_.SNIPPETS -> "snippets"
+            Level_.WINDOWS -> "${target?.session} · windows"
+            Level_.SESSION_ACTIONS -> "${target?.label} · session"
+            Level_.KILL_CONFIRM -> "kill?"
+            Level_.TYPE_CONFIRM -> "confirm"
         }
         return notice?.let { "$base · ! $it" } ?: base
     }

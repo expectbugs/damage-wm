@@ -271,7 +271,7 @@ class TmuxProviderTest {
             statusPacingMs = 60_000, capturePacingMs = 60_000)
         try {
             p.sendLiteral(TmuxTarget("local", "claude"), "echo 'hi'; rm -i x")
-            val sent = exec.scripts.last()
+            val sent = exec.scripts.last { "send-keys" in it }   // the first status tick may follow it
             assertTrue("send-keys" in sent && "-l --" in sent, sent)
             assertTrue("""'echo '\''hi'\''; rm -i x'""" in sent, "single-quote escaping: $sent")
             assertTrue("'=claude:'" in sent, "the exact-session target form")
@@ -372,6 +372,7 @@ private class FakeServices : ShellServices {
     override fun notifyInternal(source: String, body: String, urgent: Boolean) { notices.add("$source: $body") }
     override fun runOnShell(action: () -> Unit) = action()
     override fun docContentWidth(): Int = 560
+    override fun docContentHeight(): Int = 384
 }
 
 class TmuxWindowTest {
@@ -404,7 +405,7 @@ class TmuxWindowTest {
         val sessions = w.view() as WindowView.ListView
         assertEquals(3, sessions.rowCount(), "2 sessions + 1 new-session row")
         sessions.onCommit(0)
-        assertEquals("Tmux · claude", w.title())
+        assertEquals("claude", w.title())
         assertEquals(listOf<TmuxTarget?>(TmuxTarget("local", "claude")), p.subscribed.toList())
         p.pushFrame(TmuxTarget("local", "claude"), frame())
         val live = w.view() as WindowView.CanvasView
@@ -426,9 +427,9 @@ class TmuxWindowTest {
         assertEquals(TmuxConfig.DEFAULT_QUICK_KEYS.size + 4, keys.rowCount())
         keys.onCommit(1)   // "y"
         await { p.sent.any { it == "keys:claude:y" } }
-        assertEquals("Tmux · claude", w.title(), "sending returns to the live view")
+        assertEquals("claude", w.title(), "sending returns to the live view")
         assertTrue(w.back(), "live -> sessions")
-        assertEquals("Tmux", w.title())
+        assertEquals("sessions", w.title())
         assertEquals(null, p.subscribed.last(), "leaving live unsubscribes")
         assertFalse(w.back(), "sessions is the root")
     }
@@ -444,7 +445,7 @@ class TmuxWindowTest {
         assertTrue(p.sent.none { it.startsWith("lit:") }, "NOTHING ran before the confirm")
         (w.view() as WindowView.ListView).onCommit(0)
         await { p.sent.contains("lit:claude:echo hi") && p.sent.contains("keys:claude:Enter") }
-        assertEquals("Tmux · claude", w.title(), "watching it run")
+        assertEquals("claude", w.title(), "watching it run")
         // a discarded line runs nothing
         assertTrue(w.onTypedText("rm -rf /"))
         (w.view() as WindowView.ListView).onCommit(1)
@@ -463,7 +464,7 @@ class TmuxWindowTest {
         val wins = w.view() as WindowView.ListView
         assertEquals(2, wins.rowCount())
         wins.onCommit(1)   // view window 1 non-invasively
-        assertEquals("Tmux · claude:1", w.title())
+        assertEquals("claude:1", w.title())
         assertTrue(p.subscribed.last() == TmuxTarget("local", "claude", 1))
         assertTrue(p.sent.none { it.startsWith("sel:") }, "viewing never select-windows")
         // session actions: mute, then kill with confirm
@@ -479,7 +480,7 @@ class TmuxWindowTest {
         assertTrue(w.title().contains("kill"), w.title())
         (w.view() as WindowView.ListView).onCommit(0)
         await { p.sent.any { it.startsWith("kill:claude") } }
-        assertEquals("Tmux", w.title(), "back at sessions after the kill")
+        assertEquals("sessions", w.title(), "back at sessions after the kill")
     }
 
     @Test
@@ -496,7 +497,7 @@ class TmuxWindowTest {
         val (w2, p2, _) = build()
         w2.restoreState(blob)
         p2.pushStatus(session("claude"))
-        assertEquals("Tmux · claude", w2.title(), "restores to the live grid")
+        assertEquals("claude", w2.title(), "restores to the live grid")
         assertEquals(480, w2.preferredHeight, "the design-point height default")
     }
 }

@@ -1,6 +1,10 @@
 # Tmux on glass — design + plan (2026-08-31)
 
-**Status: refinery PASSED same day — Adam's verdicts, all locked, build in one pass:**
+**Status: BUILT, same day, one pass — battery green (core 140 · desktop 9 · selfcheck 48 ·
+snapshots 09b–09e eyeballed · lint 0 · APK 0.4).** `IMPLEMENTATION.md` → "Tmux" is the record of
+what runs and where; this file stays the design rationale. What only glass can answer (fit-80
+legibility, context rows, key order, alert patterns, ssh feel) is listed there as the on-glass
+items. The refinery verdicts that shaped the build:
 
 1. **Scope = v1 core + typed text via replicas + multi-host (ssh) + session management.**
    Scrollback search stays out (clean to add once typing exists).

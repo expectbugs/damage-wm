@@ -74,8 +74,8 @@ is what keeps it shippable. Do the explosion for new windows on paper (`CAPABILI
 `DESIGN.md` §0/§4.6) before coding them.
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(121 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
-over a fake link), `desktop --selfcheck` (32 checks), `desktop --snapshot DIR` (look at the lens
+(140 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
+over a fake link), `desktop --selfcheck` (48 checks), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.
 Radio use is normal now (post-flash); deploying = stop the desktop JVM and relaunch
 `--transport ble` — the keeper and the start-gate re-asks make restarts routine, and the lease

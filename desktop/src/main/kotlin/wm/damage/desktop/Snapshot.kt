@@ -55,13 +55,15 @@ object Snapshot {
         val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), null, scope)
         val reader = ReaderWindow(text, LocalContent(books), scope, AwtImages())
         shell.register(reader)
+        val tmuxWin = wm.damage.core.windows.tmux.TmuxWindow(text, ScriptedTmux(), scope)
+        shell.register(tmuxWin)
         shell.start()
         settle(shell)
         save(sim, out, "01-main-active")
 
         shell.postGesture(EvenHubMsg.EV_CLICK)          // into Reader (library)
         settle(shell)
-        waitFor { reader.summary().line.contains("book") }
+        waitFor("library loads") { reader.summary().line.contains("book") }
         settle(shell)
         save(sim, out, "02-reader-library")
 
@@ -74,14 +76,14 @@ object Snapshot {
             shell.postGesture(EvenHubMsg.EV_CLICK)
             settle(shell)
         }
-        waitFor { !reader.title().startsWith("library") && reader.title() != "opening" }
+        waitFor("book opens") { !reader.title().startsWith("library") && reader.title() != "opening" }
         settle(shell)
         if (reader.title().endsWith("chapters")) {      // the first-open picker: from the beginning
             save(sim, out, "03b-reader-chapters")
             shell.postGesture(EvenHubMsg.EV_CLICK)
             settle(shell)
         }
-        waitFor { reader.title().contains("p.") }
+        waitFor("book page") { reader.title().contains("p.") }
         settle(shell)
         save(sim, out, "03-reader-book")
 
@@ -112,11 +114,45 @@ object Snapshot {
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // dismiss + read
         settle(shell)
 
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // book -> library
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // book -> library (maybe inside a folder)
         settle(shell)
+        // Ascend to the library ROOT deterministically (§3a: double-tap
+        // ascends a folder) — the old fixed two-tap walk stopped reaching
+        // Main once the shelf grew folders, and 09/10 quietly showed the
+        // wrong surfaces (caught by the tmux scene's waitFor, 2026-08-31).
+        var ascend = 0
+        while (reader.title() != "library" && ascend++ < 6) {
+            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            settle(shell)
+        }
+        waitFor("library root") { reader.title() == "library" }
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // library -> Main
         settle(shell)
         save(sim, out, "09-main-back")
+
+        // Tmux (TMUX.md): sessions, the live SGR grid with context rows and
+        // the inverted cursor, the wrapped history, the keys level
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // Main cursor -> Tmux
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        settle(shell)
+        save(sim, out, "09b-tmux-sessions")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // open 'claude'
+        settle(shell)
+        save(sim, out, "09c-tmux-live")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)        // scroll-up IS scrollback
+        waitFor("tmux history") { tmuxWin.title().contains("history") }
+        settle(shell)
+        save(sim, out, "09d-tmux-history")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // -> live
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // -> keys
+        settle(shell)
+        save(sim, out, "09e-tmux-keys")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // keys -> live
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // live -> sessions
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // sessions -> Main
+        settle(shell)
 
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // silent
         settle(shell)
@@ -134,10 +170,10 @@ object Snapshot {
         delay(50)
     }
 
-    private suspend fun waitFor(cond: () -> Boolean) {
+    private suspend fun waitFor(label: String, cond: () -> Boolean) {
         val t0 = System.currentTimeMillis()
         while (!cond() && System.currentTimeMillis() - t0 < 30_000) delay(25)
-        if (!cond()) failures.add("a wait condition never became true — snapshots are of the WRONG state")
+        if (!cond()) failures.add("wait '" + label + "' never became true — snapshots are of the WRONG state")
     }
 
     private fun save(sim: GlassFirmwareSim, dir: Path, name: String) {

@@ -52,6 +52,9 @@ class Preview(
     private val panels: () -> LensPanels?,
     private val onGesture: (Int) -> Unit,
     private val status: () -> String,
+    /** Typed-text entry (TMUX.md verdict 1): T opens a line dialog; the line
+     *  rides Transport.injectText to whichever shell drives. */
+    private val onText: ((String) -> Unit)? = null,
 ) : JPanel() {
 
     private var arm = Arm.LEFT
@@ -104,6 +107,12 @@ class Preview(
                     KeyEvent.VK_B -> toggleBoth()
                     KeyEvent.VK_MINUS -> setScale(scale - 1)
                     KeyEvent.VK_EQUALS, KeyEvent.VK_PLUS -> setScale(scale + 1)
+                    KeyEvent.VK_T -> onText?.let { sink ->
+                        val line = javax.swing.JOptionPane.showInputDialog(
+                            this@Preview, "Type a line for the focused window (Tmux stages it behind a confirm):",
+                            "Damage · type", javax.swing.JOptionPane.PLAIN_MESSAGE)
+                        if (!line.isNullOrBlank()) sink(line)
+                    }
                 }
             }
         })
@@ -245,8 +254,8 @@ class Preview(
         const val MAX_SCALE = 8
 
         fun show(panels: () -> LensPanels?, onGesture: (Int) -> Unit, status: () -> String,
-                 onClose: () -> Unit = {}): Preview {
-            val p = Preview(panels, onGesture, status)
+                 onClose: () -> Unit = {}, onText: ((String) -> Unit)? = null): Preview {
+            val p = Preview(panels, onGesture, status, onText)
             SwingUtilities.invokeLater {
                 val f = JFrame(p.title())
                 f.defaultCloseOperation = JFrame.DO_NOTHING_ON_CLOSE
