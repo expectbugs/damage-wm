@@ -102,10 +102,13 @@ class ShellKeeper(
     /** The keeper's own stop of the shell: never interrupted midway (a
      *  cancelled stop would leave the shell stopped and the transport started
      *  for good — round 1, d5). Never narrated as a link end: the loop
-     *  narrates only when its own poll saw the session end. */
-    private suspend fun stopShell(why: String) {
+     *  narrates only when its own poll saw the session end.
+     *  [stopTransport] = false is the YIELD form used by [pause]: the glasses
+     *  session keeps running for the claiming driver to adopt ("the session
+     *  outlives the driver", 2026-08-31). */
+    private suspend fun stopShell(why: String, stopTransport: Boolean = true) {
         withContext(NonCancellable) {
-            try { shell.stop() } catch (e: Exception) { Log.w("keeper", "$why: ${e.message}") }
+            try { shell.stop(stopTransport) } catch (e: Exception) { Log.w("keeper", "$why: ${e.message}") }
         }
     }
 
@@ -121,14 +124,16 @@ class ShellKeeper(
         status("stopped")
     }
 
-    /** Another driver takes the transport: stop the shell and hold off until [resume]. */
+    /** Another driver takes the transport: stop the SHELL and hold off until
+     *  [resume] — the transport's session keeps running for the claiming
+     *  driver to adopt (yield, not teardown: no blink on a takeover). */
     suspend fun pause(reason: String) {
         paused = true
         loop?.cancel()
         loop = null
         lock.withLock {
             state = State.PAUSED
-            stopShell("pause")
+            stopShell("pause", stopTransport = false)
         }
         status("paused: $reason")
     }

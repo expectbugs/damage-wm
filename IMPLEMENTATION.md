@@ -99,7 +99,16 @@ and the item-by-item log; this is the map of what it added.
   episode (status `DIVERGE`, journal, urgent notice) and answered with one keyframe.
 - **The session keeper** (`shell/ShellKeeper.kt`): the reconnect loop both hosts use — a link end
   restarts the session after a 2 s pause, forever, no timeouts; a capability refusal is terminal
-  (`onTerminal`); `pause`/`resume` for takeovers.
+  (`onTerminal`); `pause`/`resume` for takeovers. **Since 2026-08-31 ("the session outlives the
+  driver", HANDOFF §16): `pause` YIELDS — `shell.stop(stopTransport=false)` — so the glasses
+  session (lease renewal included) keeps running with no driver, and `Shell.start()` ADOPTS a
+  live session (skips the choreography, rebaselines with one wide keyframe). The seam server
+  answers a claim of a live session with an adopt-grant, never re-choreographs, and NEVER stops
+  the owner's session on driver loss or release — a WiFi edge is now two invisible repaints, not
+  two teardowns (the G2CC decoupling: its BLE session's lifetime never depended on the server
+  link). The transport's OWNING host still tears it down for real (stack teardown, target
+  switch). `HandoverTest` ×4 pins it — `preludeAcks == 1` across claim/silent-death/release/
+  pause/resume is the probe.**
 - **The arbitration** (`transport/PathTransport.kt`): concurrent attempts over the candidate paths
   (the phone's seam first by a head start, PC-direct BLE after), the first to start wins and the
   rest are cancelled, a failed attempt is retried with backoff while the search is open, a
@@ -313,8 +322,8 @@ no `-C` attach — the G2CC Phase-5 safety shape); `wm.damage.core.windows.tmux`
   LIVE (canvas; **scroll-up IS scrollback**, tap descends) → HISTORY (a FROZEN snapshot rendered
   through the SAME live fit — same face/size/width, colours kept, 5 rows/notch, a slim position
   rail; the notch that reaches the live edge RETURNS TO LIVE — revised same day: the old
-  reading-size DocView read as "a different font at a different size", his words) → KEYS (the dozen, verdict
-  4) → SNIPPETS / WINDOWS (viewing a window targets `=s:idx` — never `select-window`, which is
+  reading-size DocView read as "a different font at a different size", his words) → KEYS (verdict 4 + Left/Right,
+  Adam 2026-08-31) → SNIPPETS / WINDOWS (viewing a window targets `=s:idx` — never `select-window`, which is
   an explicit Session… action) / SESSION_ACTIONS (mute · Fit pane 64×22 · select · rename ·
   kill-confirm). **Typed text always stages a TYPE_CONFIRM** (run = literal + Enter, the G2CC
   2026-06-18 semantics); every provider failure rides the title notice. Settings live in the

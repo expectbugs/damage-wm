@@ -79,9 +79,10 @@ data class TmuxConfig(
     val waitPatterns: List<String> = DEFAULT_WAIT_PATTERNS,
 ) {
     companion object {
-        /** TMUX.md verdict 4 — the dozen, in approval-loop order. */
+        /** TMUX.md verdict 4 — approval-loop order; Left/Right added on
+         *  Adam's ask (2026-08-31, menu/readline navigation). */
         val DEFAULT_QUICK_KEYS = listOf(
-            "Enter", "y", "n", "1", "2", "3", "Escape", "C-c", "Up", "Down", "Tab", "q",
+            "Enter", "y", "n", "1", "2", "3", "Escape", "C-c", "Up", "Down", "Left", "Right", "Tab", "q",
         )
 
         /** G2CC's one-tap slash commands (windows/terminal.ts), carried as the

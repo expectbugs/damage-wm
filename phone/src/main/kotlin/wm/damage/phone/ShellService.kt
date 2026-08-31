@@ -320,6 +320,16 @@ class ShellService : Service() {
                 Log.e("service", "keeper stop failed", e)
             }
         }
+        // THIS host owns the radio session ("the session outlives the
+        // driver", 2026-08-31): remote drivers only ever release their claim,
+        // and a PAUSED shell's stop() skips the transport — so the stack
+        // teardown stops it explicitly, exactly once, here. Idempotent when
+        // the keeper's stop already did it.
+        try {
+            transport?.let { runBlocking { it.stop() } }
+        } catch (e: Exception) {
+            Log.w("service", "transport stop at stack teardown: ${e.message}")
+        }
         try { tmuxProvider?.close() } catch (e: Exception) { Log.w("service", "tmux provider close: ${e.message}") }
         tmuxProvider = null
         scope.cancel()

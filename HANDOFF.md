@@ -1329,3 +1329,33 @@ delay every other host's status serially (polls are parallel + skip-if-in-flight
 slappy default was withdrawn — hosts are opted in when actually alive). Battery green: core
 140 · desktop 9 · selfcheck 48 · lint 0. The §13.2 hardware pass remains the open step and
 DAILY.md step 3 is exactly it.
+
+## 16. The session outlives the driver (2026-08-31, evening) — zero-blink handovers
+
+Adam's first day out measured the gap: a WiFi→LTE edge cost TWO visible session teardowns
+(seam heartbeat caught the silent path death at 21 s; the phone tore the glasses session to
+resume; the PC tore it again to re-claim — "link reset: page and prelude state cleared" in the
+log). His verdict: *"the whole point of this hybrid adaptive system is to stay connected"*,
+with G2CC's bridge as the reference — and G2CC's ConnectionManager/Service make the reason
+explicit: **the BLE session's lifetime was decoupled from the server link's** (five reconnect
+defences on the WS; a drop froze the display, never tore the session).
+
+Damage now has the same decoupling, built and deployed the same evening:
+
+- `Shell.stop(stopTransport=false)` is the YIELD form; `ShellKeeper.pause` uses it — the
+  transport session (lease renewal included, transport-owned) runs on with no driver.
+- `Shell.start()` ADOPTS a live session: skips the whole choreography, marks nothing torn,
+  rebaselines the panels with the existing composeFullSurface + requestKeyframe — one wide
+  flush (~100–200 ms) instead of capability→CREATE→lease→warmup.
+- The seam server answers a claim of a live session with an adopt-grant ("started" at once),
+  treats a driver's "stop" as a CLAIM RELEASE, and never stops the owner's session on driver
+  loss — only a fresh session still mid-start is aborted through its own rollback. The phone's
+  stack teardown stops its transport explicitly (the owner's right, and now its duty).
+- Mixed versions degrade to the old behaviour exactly (an old phone still tears on yield), so
+  the rollout is additive; full zero-blink needs both ends ≥ 0.6.
+- `HandoverTest` ×4: claim→release→re-claim, silent driver death, keeper pause/resume, and the
+  full WiFi-edge loop — `glass.preludeAcks == 1` throughout is the pinned invariant, with the
+  lease held across every transition. Battery: core **144** · desktop 9 · selfcheck 48 ·
+  snapshots · lint 0. Also this evening: tmux quick keys grew Left/Right (his ask); the tmux
+  grid went fractional-pitch full-width with history-through-the-live-fit (§15's on-glass
+  fixes). APK **6/0.6** staged; the PC service runs the rework now.

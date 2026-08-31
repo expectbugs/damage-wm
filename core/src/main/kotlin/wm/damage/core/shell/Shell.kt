@@ -241,9 +241,20 @@ class Shell(
             }
         }
 
-        // start the display: capability gate + carrier + lease + warmup splash
+        // Start the display — capability gate + carrier + lease + warmup — OR
+        // ADOPT a session the transport already runs ("the session outlives
+        // the driver", 2026-08-31): a takeover or handback skips the whole
+        // choreography, and the composeFullSurface + requestKeyframe below
+        // rebaseline the glasses from OUR truth in one wide flush. This is
+        // what turns a driver change from a multi-second teardown (Adam's two
+        // blinks per WiFi edge) into a repaint — the G2CC decoupling.
+        val adopted = transport.state.value.started
         try {
-            transport.start(splashFrame())
+            if (adopted) {
+                Log.i("shell", "adopting the transport's live session (a takeover/handback) — no re-choreography, one keyframe")
+            } else {
+                transport.start(splashFrame())
+            }
         } catch (e: Exception) {
             // refuse-to-start (capability gate, link failure): leave the shell
             // stopped, not half-running with no loop (review round 2 #B1)
@@ -287,10 +298,14 @@ class Shell(
         } catch (e: Exception) {
             // the display is up but the shell could not finish assembling
             // itself (a window's activation or first paint refused): leave
-            // nothing running or leased behind (round 3 S4)
+            // nothing running or leased behind (round 3 S4) — unless the
+            // session was ADOPTED, in which case it belongs to the transport's
+            // owner and another driver may still claim it
             running = false
-            try { transport.stop() } catch (s: Exception) {
-                Log.e("shell", "transport stop after a failed start", s)
+            if (!adopted) {
+                try { transport.stop() } catch (s: Exception) {
+                    Log.e("shell", "transport stop after a failed start", s)
+                }
             }
             journal.close()
             throw e
@@ -301,16 +316,22 @@ class Shell(
      *  concurrent SaveTick (review round 1) and no state mutates cross-thread.
      *  If the loop never launched (start() threw first) there is nothing to
      *  post to — awaiting the Shutdown message would hang forever (round 2
-     *  #B1); clean up directly instead. */
-    suspend fun stop() = lifecycle.withLock { stopLocked() }
+     *  #B1); clean up directly instead.
+     *
+     *  [stopTransport] = false is the YIELD form ("the session outlives the
+     *  driver", 2026-08-31): the shell stops and saves, but the transport's
+     *  glasses session — lease renewal included — keeps running for the next
+     *  driver to adopt. Only the transport's OWNING host ever passes true
+     *  while another driver might still want the session. */
+    suspend fun stop(stopTransport: Boolean = true) = lifecycle.withLock { stopLocked(stopTransport) }
 
-    private suspend fun stopLocked() {
+    private suspend fun stopLocked(stopTransport: Boolean) {
         if (!running) return
         if (!loopLaunched) {
             running = false
             if (stateLoaded) saveAll()   // never write defaults over a state never read
-            transport.stop()
-            journal.close()
+            if (stopTransport) transport.stop()
+            journal.close()              // reopens by itself on the next write
             return
         }
         val done = CompletableDeferred<Unit>()
@@ -330,7 +351,7 @@ class Shell(
                 }
             }
         }
-        transport.stop()
+        if (stopTransport) transport.stop()
         journal.close()
     }
 

@@ -16,7 +16,10 @@ crib for it.
 - Both up, anywhere the phone has internet → **PC shell through the phone** (the full-power row —
   even away from home, over Tailscale/LTE).
 - PC unreachable or its internet path dies silently → the seam heartbeat notices in **~20 s** and
-  the **phone shell resumes on its own**; the PC re-claims when it is back.
+  the **phone shell resumes on its own**; the PC re-claims when it is back. **Since the
+  session-outlives-the-driver rework (both ends ≥ 0.6): every one of these transitions is a
+  REPAINT, not a teardown — the glasses session and its lease run continuously; drivers come
+  and go with one keyframe each.** PC deploys are the same: the phone adopts during the gap.
 - Phone app down at the desk → the PC falls to **PC-direct BLE**.
 - Reboot either machine → both sides restart themselves and re-arbitrate.
 

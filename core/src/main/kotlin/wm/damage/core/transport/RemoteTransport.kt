@@ -547,7 +547,6 @@ class RemoteTransportServer(
         val inp = DataInputStream(sock.getInputStream().buffered())
         val out = DataOutputStream(sock.getOutputStream().buffered())
         var holdsSlot = false
-        val innerStarted = java.util.concurrent.atomic.AtomicBoolean(false)
         // the inner start runs as a JOB, never on this reader thread: a driver
         // that leaves while its start is parked in a scan must be seen, and
         // its attempt cancelled (round 1, d1)
@@ -693,21 +692,33 @@ class RemoteTransportServer(
                 when (c.t) {
                     "ping" -> peerPings.set(true)   // receive time recorded above
                     "start" -> {
-                        if (innerStarted.get() || startJob?.isActive == true) {
-                            post(Ctl(t = "startfail", detail = "transport already started"))
-                        } else {
-                            val warmup = blob ?: ByteArray(0)
-                            startJob = scope.launch {
-                                try {
-                                    inner.start(warmup)
-                                    innerStarted.set(true)
-                                    post(Ctl(t = "started"))
-                                } catch (e: CancellationException) {
-                                    post(Ctl(t = "startfail", detail = "start cancelled: the driver left"))
-                                    throw e
-                                } catch (e: Exception) {
-                                    Log.e("transport-server", "inner start failed", e)
-                                    post(Ctl(t = "startfail", detail = e.message ?: e.toString()))
+                        when {
+                            inner.state.value.started -> {
+                                // ADOPT ("the session outlives the driver",
+                                // 2026-08-31): a claim of a LIVE session is
+                                // answered started at once — no teardown, no
+                                // re-choreography; the driver rebaselines the
+                                // panels with its own keyframe. This is the
+                                // G2CC decoupling: the radio session belongs
+                                // to this host, drivers come and go.
+                                Log.i("transport-server", "driver ${sock.inetAddress} ADOPTED the live session")
+                                post(Ctl(t = "started"))
+                            }
+                            startJob?.isActive == true ->
+                                post(Ctl(t = "startfail", detail = "a start is already in progress"))
+                            else -> {
+                                val warmup = blob ?: ByteArray(0)
+                                startJob = scope.launch {
+                                    try {
+                                        inner.start(warmup)
+                                        post(Ctl(t = "started"))
+                                    } catch (e: CancellationException) {
+                                        post(Ctl(t = "startfail", detail = "start cancelled: the driver left"))
+                                        throw e
+                                    } catch (e: Exception) {
+                                        Log.e("transport-server", "inner start failed", e)
+                                        post(Ctl(t = "startfail", detail = e.message ?: e.toString()))
+                                    }
                                 }
                             }
                         }
@@ -745,7 +756,7 @@ class RemoteTransportServer(
                             }
                             if (bad) break
                         }
-                        if (!bad && !innerStarted.get()) {
+                        if (!bad && !inner.state.value.started) {
                             post(Ctl(t = "done", id = c.id, ok = false, error = "transport not started"))
                         } else if (!bad) {
                             val clientId = c.id
@@ -773,8 +784,13 @@ class RemoteTransportServer(
                     }
                     "brightness" -> inner.setBrightness(c.auto, c.level)
                     "stop" -> {
+                        // a driver RELEASING its claim — never a remote
+                        // teardown: the session belongs to THIS host and
+                        // persists for the next driver (the local shell
+                        // resumes and adopts via onRemoteDriver). Only a
+                        // fresh session still mid-start is aborted, through
+                        // its own rollback.
                         runBlocking { startJob?.cancelAndJoin() }
-                        if (innerStarted.getAndSet(false)) runBlocking { inner.stop() }
                         break
                     }
                     else -> Log.w("transport-server", "unknown control '${c.t}' ignored")
@@ -789,20 +805,17 @@ class RemoteTransportServer(
             fwd?.cancel()
             outbox.close()
             try { sock.close() } catch (e: Exception) { /* closed */ }
-            // a start still in progress is cancelled and awaited: its rollback
-            // disconnects, so the local shell can take the glasses back
+            // a FRESH session still mid-start is cancelled and awaited: its
+            // rollback disconnects. A LIVE session is deliberately left
+            // running — the session outlives the driver (2026-08-31), so the
+            // local shell resumes by ADOPTING it: one keyframe, no blink,
+            // the lease never lapses. (The old inner.stop() here was blink #1
+            // of Adam's two per WiFi edge.)
             try { runBlocking { startJob?.cancelAndJoin() } } catch (e: Exception) { Log.w("transport-server", "start cancel: ${e.message}") }
             // only a connection that actually HELD the driver slot may signal
             // the local shell to take back over — a rejected connection must
             // not trigger a dual-driver overlap (review round 1)
-            if (holdsSlot) {
-                if (innerStarted.get()) {
-                    try { runBlocking { inner.stop() } } catch (e: Exception) {
-                        Log.w("transport-server", "inner stop after driver loss: ${e.message}")
-                    }
-                }
-                onRemoteDriver(false)
-            }
+            if (holdsSlot) onRemoteDriver(false)
             // release the slot LAST (round 3 D6): a reconnect during teardown is
             // answered "busy", never granted a transport still being stopped
             synchronized(this) { if (driver === sock) driver = null }
