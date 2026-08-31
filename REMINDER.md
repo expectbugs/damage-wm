@@ -69,17 +69,21 @@ against the simulator and the fake links, none of it on a radio yet:
   from any of them reaches whichever shell drives. The shell compares its belief with the mirror at
   rest and reports any disagreement.
 
-## 🚀 Next — refinement
+## 🚀 Next — PERFECT THE APK (`HANDOFF.md` §13)
 
-**`REFINEMENT.md` is the work queue — and its whole 2026-08-30 backlog SHIPPED 2026-08-31**
-(`HANDOFF.md` §12): chrome depth, per-app height, folders, scroll step + acceleration, the clock
-(revised to digital top-right on Adam's mid-session call), the 4× preview, and the measured
-latency curve. Still open from it: the §4 event-9 temple experiment, and Adam's verdicts on glass.
+**Adam's next mission (2026-08-31):** the phone must do everything the PC does, in every
+`DESIGN.md` §10 configuration — app+PC over the seam, app alone, PC-only — with the §8.1
+arbitration contract honored on real hardware. §13 holds the verified current state, the order
+of work (sideload → phone-target first light → the three configurations → parity audit), the
+traps (one central at a time; the eaten-gate class), and the resume protocol. The phone's
+`BleTransport` glue is the one unproven layer; everything above it is shared, hardware-proven
+core.
 
-Still wanted from the original plan, now unblocked: **the app-layer scope explosion**, starting
-from `CAPABILITIES.md` for what the hardware allows and `DESIGN.md` §0 / §4.6 for what the shell
-provides and what is ruled out. Also queued by Adam 2026-08-31: **a quality pass on the icon set**
-(the current ones are "very basic").
+**Behind it in the queue:** the whole 2026-08-30 refinement backlog SHIPPED 2026-08-31
+(`HANDOFF.md` §12 — chrome depth, per-app height, folders/chapters/images, scroll, the digital
+clock, Settings directories, brightness/battery, the switcher fix, the measured latency curve
+`ms ≈ 60 + bytes/50`). Then: **the app-layer scope explosion** (`CAPABILITIES.md` + `DESIGN.md`
+§0/§4.6), and the **icon-quality pass** Adam queued ("very basic").
 
 ## ✅ Flash day and first light — DONE 2026-08-30
 

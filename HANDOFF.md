@@ -1,11 +1,13 @@
 # HANDOFF — the build record
 
-**Map, newest first. Read §12, then §11.**
+**Map, newest first. A fresh session starts at §13 (the NEXT mission), then §12 for what just
+landed.**
 
 | § | what | status |
 |---|---|---|
-| **12** | **The refinement batch, 2026-08-31** — the whole `REFINEMENT.md` queue built and driven live; the latency curve measured | **current** |
-| **11** | **First light, 2026-08-30** — the PC drove the glasses, the ring drove them, ack latency measured, three defects found | current |
+| **13** | **NEXT: perfect the APK** — the phone must do everything the PC does, in every §10 configuration | **the mission** |
+| **12** | **The refinement wave, 2026-08-31** — the whole `REFINEMENT.md` queue built and driven live; the latency curve measured; switcher/brightness/battery fixed | done |
+| **11** | **First light, 2026-08-30** — the PC drove the glasses, the ring drove them, ack latency measured, three defects found | done |
 | **10** | The firmware install: what changed upstream, the image chosen, the dry-run staircase, the result (§10.11), the ring update (§10.13) | **current** |
 | 9 | The earlier install plan | ⛔ **SUPERSEDED by §10** — written against the older g2flash and the older image. Do not follow it |
 | 8 | The finishing build (2026-08-25) | history; its whole gap list is closed |
@@ -1165,3 +1167,97 @@ Verified on glass the same hour: brightness lands, **glasses 79 %** read from th
 Ring relay decode is wired but passive (whether the glasses push RingRawData is an open probe);
 phone battery remains phone-path-only. `BatteryBrightnessTest` pins both round trips through the
 sim, which now models f4.12/13 and the brightness write.
+
+---
+
+## 13. NEXT MISSION: perfect the APK (written 2026-08-31 for a fresh context)
+
+**Adam's ask, verbatim:** *"Make sure it can do everything the PC system can do, including
+connecting to the PC system and using both, as well as falling back to phone-only and PC-only,
+just like in the design."*
+
+The design it must satisfy is **`DESIGN.md` §10** (three roles, four configurations) and the
+**arbitration contract in §8.1 decision 3+5** (his words, quoted there): phone app + home PC is
+the default; lose the PC → phone alone; no phone → PC-direct; everything reconnects aggressively
+with no timeouts, and the PC is always preferred when reachable. The seam, keeper, arbitration,
+claim/yield and replica plumbing for ALL of this **already exist and are sim/fake-verified**
+(§8) — what has never happened is any of it running on the REAL phone against the REAL glasses.
+
+### 13.1 Where the phone stands (verified in-repo 2026-08-31)
+
+- **`:core` is shared**, so the APK already contains today's entire refinement wave: the
+  switcher source-0 fix, sizes/directories, folders/chapters/images (with `AndroidImages` —
+  BitmapFactory, compiles, never run), scroll settings, brightness pushes, battery events, the
+  capability/CREATE re-asks. Nothing phone-side re-implements shell logic.
+- **`BleTransport` (Nordic glue, §8.2 "Phone") has NEVER run on hardware.** Written from G2CC's
+  proven driver + the reference connect sequence; unit-verified over the firmware model only.
+  The PC-direct BlueZ glue passed its own first light untouched — the protocol brain
+  (`CfwTransportBase`) is shared and hardware-proven; only this glue layer is unproven.
+- **The seam server** (`:7402`) and the phone's replica page (`:7403`) exist; the PC's `auto`
+  mode already races `remote:<phone>` first. End-to-end on hardware: never.
+- `ShellService` sets `phoneBattery` (line ~215) — the P cell works on the phone path.
+- Config: `Prefs` with `BuildConfig` defaults from `damage-secrets.properties`
+  (`SERVER_HOST`/`DAMAGE_TOKEN`/ports). Target persists (sim default); capability gate refuses
+  stock firmware loudly and falls back to SIM with a persistent notification.
+- Manifest carries `BLUETOOTH_SCAN`/`BLUETOOTH_CONNECT` (S+) and
+  `FOREGROUND_SERVICE_CONNECTED_DEVICE`. ⚠ Verify at first run that the RUNTIME grants are
+  actually requested/held on the Pixel 10a — a missing grant surfaces as scan silence.
+- `versionCode 2 / versionName 0.2` — **bump BOTH on every build Adam installs.**
+
+### 13.2 The order of work
+
+1. **Bump version, build, sideload** (`phone/build/outputs/apk/debug/phone-debug.apk`), confirm
+   the SIM target still runs on-device with today's core (Reader images/chapters on screen —
+   BitmapFactory's first real exercise; the categorized Settings; the digital clock).
+2. **Phone-target first light.** ⚠ **Stop the desktop session first** (`pkill -f
+   wm.damage.desktop`) — one central at a time; the pair cannot serve two. Flip Target →
+   glasses, watch the status line walk scanning → connecting → prelude → capability → carrier →
+   lease → warmup → driving. The §12 lessons likely to matter here: the start-gate re-asks (the
+   firmware eats requests during its previous-session teardown), source-0 events 9/10, the ack
+   STATUS enum. Journal + logcat are the witnesses; the phone Log sink raises urgent
+   notifications on errors.
+3. **app + home PC** (the default config): with the phone driving, start the desktop in `auto`;
+   it should claim the phone's transport over the seam, the phone shell yields, the PC drives
+   THROUGH the phone, both replicas stay correct. Then kill the desktop: the phone resumes by
+   itself (keeper `pause`/`resume`). Then bring the PC back: it claims again. Every transition
+   narrated in both status lines.
+4. **app alone:** PC unreachable (stop the desktop + content host) — the phone falls back to
+   cached listing + cached books; the link cell says "PC gone/Nm"; reading keeps working
+   (copy-on-open cache). Verify staleness is SAID, not hidden (§10.5).
+5. **PC-only** already works daily — re-verify it still wins the race when the phone app is down.
+6. **Parity audit against the PC feature set**, fixing gaps as found: brightness push from the
+   phone path, battery cells (G from the wire, P from the phone, R passive), Settings
+   directories incl. host Target row, Reader end-to-end (folders/chapters/images/reset/heights),
+   silent clock, switcher both routes, notifications (§9.3 urgent + the §4.5 sources are
+   phone-side by design — SMS/Music integration is APP-LAYER, not this mission), replica page
+   served BY the phone, input from LensView touch + the browser page while the phone drives.
+7. **The §10 transitions under adversity:** phone BT toggle mid-session (the documented at-work
+   recovery), walking out of BLE range and back, PC reachable but its shell stopped.
+
+### 13.3 Constraints and traps for this mission
+
+- **One central at a time.** The desktop session usually holds the pair; every phone-radio test
+  starts by stopping it deliberately, and says so. `le-connection-abort-by-local` on connect
+  means another central still holds an arm (§11.6).
+- The keeper treats ONLY a typed `CapabilityRefused` as terminal; everything else retries
+  forever. If the phone parks mid-start, the §12 eaten-gate class is the first suspect — the
+  re-asks should already ride through it; if a THIRD gate parks (lease write, warmup ack), give
+  it the same paced re-ask treatment, matching the two precedents in `CfwTransportBase`.
+- Deploys while Adam wears the glasses are routine: stop, relaunch, the lease fails open to
+  stock for the gap and the session repaints. Narrate what he will see.
+- **No G2CC edits** (read from it freely), **no reference/ code** (protocol facts only), plain
+  engineering wording everywhere, measured-vs-modeled marked, links/paths LAST in messages.
+- After ANY code change: the full battery (`CLAUDE.md` — 121 core / 9 desktop / selfcheck 32 /
+  snapshots eyeballed / epub-check / lint 0 / APK), plus on-device checks for phone changes.
+
+### 13.4 Resume protocol (fresh context)
+
+1. Read this §13, then §12, then `IMPLEMENTATION.md` (the wave summary + "Review hardening"),
+   then `CLAUDE.md`'s rules. Memory's index points here.
+2. `git log --oneline -5` — everything through the doc sweep is committed and pushed
+   (`c48eb60`); the tree should be clean.
+3. The desktop session may still be RUNNING and driving the glasses (check
+   `ps aux | grep wm.damage.desktop`; its log is in the session scratchpad, but a fresh context
+   just checks the process). Leave it as the daily driver until step 2 of §13.2 needs the radio.
+4. Ask Adam to sideload when the APK is ready; he flips the Target himself. The phone's own
+   radio work needs no extra permission — the flash-era no-radio rule is long retired.
