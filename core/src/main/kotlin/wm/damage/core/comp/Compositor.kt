@@ -291,6 +291,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             dirtyLeft = true
         } else {
             renderTruth()
+            val areaCells = areaCellSet(area)
             val budget = Geometry.rectBudget(1)     // the wide budget
             var iterations = 0
             while (iterations < MAX_ITERATIONS) {
@@ -304,7 +305,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
                 // which stays wide until clean; repairs in later passes may
                 // push a flush wide as well
                 val aim = if (iterations == 1 && !continuing) maxOf(1, rectBudget - fids) else budget - fids
-                val planned = planOps(dirtyL, dirtyR, aim)
+                val planned = planOps(dirtyL, dirtyR, aim, areaCells)
                 if (planned.isEmpty()) break
                 var exhausted = false
                 for (p in planned) {
@@ -462,10 +463,23 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         class Black(val l: Rect, val r: Rect) : Planned()
     }
 
+    /** The grid cells [area] covers, with dirtyCells' exact rounding — the
+     *  set seamStrips is bounded by. */
+    private fun areaCellSet(area: List<Rect>): java.util.BitSet {
+        val set = java.util.BitSet(cellsW * cellsH)
+        for (a in area) {
+            val cx0 = a.x / CW; val cx1 = (a.right + CW - 1) / CW
+            val cy0 = a.y / CH; val cy1 = (a.bottom + CH - 1) / CH
+            for (cy in cy0 until cy1) for (cx in cx0 until cx1) set.set(cy * cellsW + cx)
+        }
+        return set
+    }
+
     /** Turn dirty cells into planned ops, partitioned toward [aim] rects and
      *  later-wins ordered: the remainder base first, far pieces, plane-0
      *  regions, near pieces, then seam blacks. */
-    private fun planOps(dirtyL: Map<Int, Short>, dirtyR: Map<Int, Short>, aim: Int): List<Planned> {
+    private fun planOps(dirtyL: Map<Int, Short>, dirtyR: Map<Int, Short>, aim: Int,
+                        inArea: java.util.BitSet): List<Planned> {
         val deltas = LinkedHashMap<Pair<Rect, Int>, Planned.Delta>()
         val blacksL = ArrayList<Rect>()
         val blacksR = ArrayList<Rect>()
@@ -475,7 +489,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             for ((idx, own) in dirty) byOwner.getOrPut(own) { ArrayList() }.add(idx)
             for ((own, cells) in byOwner) {
                 when {
-                    own == OWNER_SEAM -> (if (left) blacksL else blacksR).addAll(seamStrips(left, cells))
+                    own == OWNER_SEAM -> (if (left) blacksL else blacksR).addAll(seamStrips(left, cells, inArea))
                     own == OWNER_REMAINDER -> for (r in coarsen(rectsOf(cells), COARSE_MAX)) {
                         deltas.getOrPut(r to 0) { Planned.Delta(r, 0, own) }
                     }
@@ -501,14 +515,21 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         return out
     }
 
-    /** A dirty seam cell stands for its WHOLE strip: the maximal rectangle of
-     *  seam-owned cells around it. Painting black over cells that are
-     *  already black is a no-op on the glass, and the strip is one pair
-     *  instead of a dozen (round 6: cell-granular seams starved the budget). */
-    private fun seamStrips(left: Boolean, cells: List<Int>): List<Rect> {
+    /** A dirty seam cell stands for its strip: the maximal rectangle of
+     *  seam-owned cells around it WITHIN THE SCANNED AREA. Painting black over
+     *  cells that are already black is a no-op on the glass, and the strip is
+     *  one pair instead of a dozen (round 6: cell-granular seams starved the
+     *  budget). The in-area bound is correctness, not economy (review
+     *  2026-09-01 L2, `L2ProbeTest`): pairBlacks' unpaired fallback paints the
+     *  SAME rect on the OPPOSITE lens, where it may cover lit content — safe
+     *  only because the same flush's repair loop rescans it, and that loop
+     *  sees `area` and nothing else. A strip that left the area put real
+     *  black over the other lens's content with no repair path, forever. */
+    private fun seamStrips(left: Boolean, cells: List<Int>, inArea: java.util.BitSet): List<Rect> {
         val owner = if (left) ownerL else ownerR
         fun seam(cx: Int, cy: Int): Boolean =
-            cx in 0 until cellsW && cy in 0 until cellsH && owner[cy * CH * width + cx * CW] == OWNER_SEAM
+            cx in 0 until cellsW && cy in 0 until cellsH && inArea.get(cy * cellsW + cx) &&
+                owner[cy * CH * width + cx * CW] == OWNER_SEAM
         val out = LinkedHashSet<Rect>()
         val covered = HashSet<Int>()
         for (idx in cells) {
@@ -636,8 +657,12 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
 
     /** Black seam rects come in mirrored L/R pairs almost always; pair equal
      *  sizes, and give a leftover a same-size box the other lens shows black
-     *  in both truth and shadow (a no-op there) — failing that, the same box,
-     *  which the next pass repairs on the other lens. */
+     *  in both truth and shadow (a no-op there) — failing that, the same box.
+     *  That fallback paints real black over the other lens's content, and is
+     *  sound ONLY because every strip lies inside the scanned area (the
+     *  seamStrips bound), so the same flush's repair loop re-diffs it and the
+     *  batch ships the correction atomically — the glass never shows the
+     *  intermediate black (review 2026-09-01 L2). */
     private fun pairBlacks(l: List<Rect>, r: List<Rect>): List<Planned.Black> {
         val out = ArrayList<Planned.Black>()
         val restL = ArrayDeque(l)
