@@ -50,43 +50,33 @@ proves the image is reproducible from sources we hold and carries no Thumb-bit d
 
 ## Project status and the order of work
 
-**The system is LIVE as the all-day daily driver** (as of 2026-08-31 evening): the CFW is
-installed (g2flash `a5d1c31`, reports `2.2.6.10` — detect by the `EVENCFW/` capability string,
-never the version), first light 2026-08-30, the refinement wave + the Tmux window + the daily
-driver + the zero-blink handover rework + user typography all landed 2026-08-31. **The default
-configuration runs for real, RE-SHAPED by the §19 correction (2026-08-31 night): the phone APK
-is the PRIMARY DRIVER — radio and shell, always, while it is up; the OpenRC `damage` service
-is the DATA PROVIDER (content + tmux + last-write-wins state sync) plus a STANDBY that drives
-PC-direct BLE only while the APK is unavailable and hands back on its return. The PC never
-claims in daily use** (`--transport remote` keeps the claim path as the explicit dev override).
-Records, newest first: **`HANDOFF.md` §19** (the arbitration correction + sync — the §8.1
-"best case" phrase meant DATA availability, not the driver) then §18 (the tmux FLOW rework;
-§18.1 was the resume protocol, now read with §19) back through §13; `DAILY.md` is the ops
-crib; `TMUX.md` the tmux design; `REFINEMENT.md` the on-glass verdict log. Read
-`IMPLEMENTATION.md` for what runs and how. App layer so far: Reader (folders, chapters,
-images), Tmux (FLOWED SGR text — the grid is retired to an alternate-screen fallback,
-2026-08-31 — history, keys, typed text, 1 s configurable updates), Main, Settings
-(directories; global + per-app font/size/style, per-app depth).
+**The system is LIVE as the all-day daily driver**: the CFW is installed (g2flash `a5d1c31`,
+reports `2.2.6.10` — detect by the `EVENCFW/` capability string, never the version; first light
+2026-08-30). **The topology is `HANDOFF.md` §19: the phone APK is the PRIMARY DRIVER — radio
+and shell, always, while it is up; the OpenRC `damage` service is the DATA PROVIDER (content +
+tmux + last-write-wins state sync) plus a STANDBY that drives PC-direct BLE only while the APK
+is unavailable and hands back on its return. The PC never claims in daily use** (`--transport
+remote` keeps the claim path as the explicit dev override). `REMINDER.md` is the orientation
+file; `HANDOFF.md` §19–§22 the current records; `DAILY.md` the ops crib; `IMPLEMENTATION.md`
+what runs and how. App layer: **Main · Settings · Reader · Tmux · Files** (Files landed
+2026-09-01 with the whole §16 shared machinery — `HANDOFF.md` §22).
 
-Adam's stated methodology governs **the app layer**, and it is now at the refinery/build step:
+Adam's stated methodology governs **the app layer**:
 
 > Heavy research → full documentation → clean repo → the main plan → a couple hundred ridiculous
 > feature-creep scope explosions → heavy refinery to bring it back to reality → passes for
 > consistency and adherence to the research/documentation → a final plan of the actual
 > implementation via real code → **then** slowly, carefully, start executing.
 
-"Feature creep is my RELIGION" — the explosion phase is deliberate and wanted; the refinery phase
-is what keeps it shippable. **The explosion is DONE: `EXPLOSION.md` grades ~175 app ideas across
-13 windows plus the shared contract work (§16).** The current phase is **converting G2CC apps to
-DamageWM windows** — **§16's cross-cutting contract is SETTLED (2026-09-01, `HANDOFF.md` §20:
-deep links, the 100%-consistency state rules, the generic multi-backend window channel, the kit;
-statuses in `EXPLOSION.md` §16, the build checklist in `WINDOWS.md`)**. The refinery LANDED
-2026-09-01 (`EXPLOSION.md` §20: Deliveries/Calendar/Timers/Search/Weather/Health axed, the
-TORRENTS window added as §19, the wow order stands) and **Files is the chosen first
-conversion**; the §16 shared machinery runs in its recorded build order, windows built against
-the `DamageWindow` contract (`core/…/shell/WindowContract.kt`), reading the G2CC original for
-interaction facts only (`/home/user/G2CC/server/src/windows/`, read-only) and `DESIGN.md` §4.6
-for the mode contract. Reader and Tmux are the two worked precedents.
+"Feature creep is my RELIGION" — the explosion phase is deliberate and wanted; the refinery
+keeps it shippable. Both are DONE for the app wave (`EXPLOSION.md`: ~175 graded ideas; §20 =
+the refinery verdicts and the wow order; six windows axed, Torrents added). **The current phase
+is converting G2CC apps to DamageWM windows, one at a time**: Adam's per-window refinery
+verdicts first, then build against the `DamageWindow` contract
+(`core/…/shell/WindowContract.kt`) per the **`WINDOWS.md`** checklist, reading the G2CC
+original for interaction facts only (`/home/user/G2CC/server/src/windows/`, read-only) and
+`DESIGN.md` §4.6 for the mode contract. **Reader, Tmux and Files are the three worked
+precedents** — Files is the only worked example of MenuSurface and the window channel.
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
 (191 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
@@ -145,9 +135,10 @@ The global "investigating ≠ permission" rule is load-bearing here more than an
   momentum, not because a plan said so, not because it "should be safe."
 - **Always dry-run first:** `g2flash.py --stop-before flash` exercises discover / heartbeat /
   file_check without writing a byte. Do this before any real flash, every time.
-- **Leaving firmware 2.2.2 is irreversible.** No firmware read-back path exists, and 2.2.2 is
-  **not** in the public 19-image archive. Every other version is recoverable; ours is not. Say
-  this out loud before any flashing conversation.
+- **Leaving firmware 2.2.2 HAPPENED 2026-08-30 — that door is closed** (no read-back path
+  exists and 2.2.2 is not in the public archive). The CFW itself remains revertible to any
+  archived version; state the reversibility picture out loud before any future flashing
+  conversation all the same.
 - **Read the patch source before flashing it.** g2flash has already shipped one HardFault
   (`overview.md` §9). We are the third serious consumer of this ecosystem, not the thousandth.
 
@@ -367,10 +358,9 @@ that don't fit raise loudly, never silently mangle.
   `overview.md` §5.1 has the capture analysis and what it rules out.
 - Adam's phone is a **Pixel 10a**; the PC is **beardos** (Gentoo, OpenRC, Portage — see the global
   CLAUDE.md; never `systemctl`, never `apt`). Node 24, Python 3.13 via project venvs only.
-- **beardos's radio is reachable from the JVM** (2026-08-25, `--ble-info`): BlueZ 5.86, hci0
-  powered, the system bus admits the user; PC-direct BLE runs on `bluez-dbus` + `dbus-java` (both
-  MIT) — see `desktop/BlueZLink.kt`. Whether the G2 pair connects and negotiates as modeled is a
-  first-light item; the flash itself still goes through `g2flash.py` on the phone/webflasher path.
+- **PC-direct BLE is hardware-proven** (first light 2026-08-30, first try): BlueZ 5.86 via
+  `bluez-dbus` + `dbus-java` (both MIT) — see `desktop/BlueZLink.kt`. Flashing goes through
+  `reference/g2flash/g2flash.py` PC-direct (the webflasher dropped CFW support upstream).
 
 ## Testing safety
 
