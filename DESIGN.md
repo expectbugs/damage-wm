@@ -43,7 +43,7 @@ Recorded so they are not re-proposed. These are *decisions*, not oversights.
 | ❌ **Using the 16 px side gutters for content** | they stay **depth margin**. Adam, 2026-08-17 |
 | ❌ **The ribbon** | retired 2026-08-18 — a third window list competing with Main and the switcher, both of which did it better (§4.1) |
 | ❌ **Segmented battery icons** | measured worse than a plain fill bar at this width, and 20× the run boundaries (§4.1) |
-| ❌ **A generic "overlay" abstraction** | the switcher and the notification surface are **bespoke**, designed independently (§4.3) |
+| ❌ **A generic "overlay" abstraction** | the switcher, the notification surface and the context menu (§4.7) are **bespoke**, designed independently |
 
 ---
 
@@ -129,9 +129,10 @@ cancel restores, so §1.7 still holds. A mistimed deliberate chord degrades to p
 indicator. This is a **sequence window**, the same species as §4.5's grace — nothing is held, so
 §11's retirement of held gestures stands. In **silent mode the long-press never arms** (§1.5):
 gloves-on is where accidental presses are the most common, and double-tap must always mean wake
-there. Whether the real ring delivers `SysEvent 10` reliably (and whether 800 ms is comfortable)
-is first-light item 18 in `REMINDER.md`; if the release never arrives, the window runs from
-event 9 alone.
+there. ✅ Answered on hardware (2026-08-30/31, `HANDOFF.md` §11.4): event 10 fires after almost
+every touch-end (its name describes the hook site, not the semantics), event 9 is the real
+long-press, and the chord is confirmed on glass — five deliberate holds, five clean event-9s,
+zero accidental ones across a day of use.
 
 **Nothing commits on release.** A stray long-press opens a cancellable list and changes nothing.
 
@@ -155,8 +156,9 @@ unambiguous gestures, with an explicit cancel and no timing dependency.
 ⚠ **It does move a cost around.** Under the old grammar release always navigated, so nothing was
 ever restored. Now cancelling has to put back what was there, and there is no off-panel scratch on
 this hardware. With live preview (§4.3) this settles into a good shape: **commit is the cheap path
-(~250 ms, panel-sized) and cancel is the expensive one (~520–750 ms, full restore)** — the common
-action is fast and the rare one pays. It is also why the panel is small and centred.
+and cancel is the expensive one** (~250 ms vs ~520–750 ms at the stock-formula pricing — the
+measured curve shrinks both, the ratio survives) — the common action is fast and the rare one
+pays. It is also why the panel is small and centred.
 
 ### 1.4 The back stack
 
@@ -189,6 +191,11 @@ Horizontal segments are single long RLE runs, so the whole readout prices like a
 lines. **Minutes only — it repaints once a minute, 60 flushes/hour**, and deep idle (§5.15)
 stays completely intact. (The analog face survives unused in `Icons.analogClock` in case it
 returns as a setting.)
+
+**Size is a Global setting (2026-09-01, Adam — `Silent clock`):** **large** = the 144×48 box
+above (the default); **medium** = a 112×34 seven-segment box, same corner; **small** = the
+title bar clock's EXACT size and position (the chrome clock cell's text readout, on black).
+`ShellSettings.silentClock`; the minute tick damages whichever box is active.
 
 **Measured: 0.5 % ink, 174 B, 192 ms (stock-formula pricing)** — the seven-segment readout costs
 FEWER bytes than the analog face did (174 vs 178 B): angled hands were RLE-expensive, horizontal
@@ -266,10 +273,10 @@ budget the content has — a full-width rect cannot shift at all without leaving
 16 px strips beside the bars are shift gutters, level 0, exactly like §3.3's.
 
 ```
-        0  16                              368              544  624  640
-      ┌─┬───────────────────────────────────┬─────────────────┬─────┬─┐
-  0   │░│  ▣ WINDOW · document              │    Battery      │Clock│░│  32
-      │░│               352                 │       176       │  80 │░│
+        0  16                                    424          544  624  640
+      ┌─┬─────────────────────────────────────────┬───────────┬─────┬─┐
+  0   │░│  ▣ WINDOW · document                    │  Battery  │Clock│░│  32
+      │░│               408                       │    120    │  80 │░│
  32   │░├───────────────────────────────────┴─────────────────┴─────┤░│   2   divider
  34   │░│                                                           │░│
       │░│            content   608 × 416   (x 16 – 624)             │░│ 416   content
@@ -318,8 +325,8 @@ right to lose. That is §2.5, demonstrated rather than asserted.
 
 | zone | cell | x | w | y | h |
 |---|---|---|---|---|---|
-| top bar | Title — `▣ WINDOW · document` | 16 | 352 | 0 | 32 |
-| | Battery ×2 (G glasses · P phone), 58 px pitch, 30 px body | 368 | 176 | 0 | 32 |
+| top bar | Title — `▣ WINDOW · document` | 16 | 408 | 0 | 32 |
+| | Battery ×2 (G glasses · P phone), 58 px pitch, 30 px body | 424 | 120 | 0 | 32 |
 | | Clock | 544 | 80 | 0 | 32 |
 | divider | | 16 | 608 | 32 | 2 |
 | content | (nominal, ±d for depth) | 16 | 608 | 34 | 416 |
@@ -406,7 +413,7 @@ direction of the ladder is unchanged.
 | plane | contents | disparity |
 |---|---|---|
 | **+1** (nearest, crossed) | critical modals only — *off by default* | −4 / −8 |
-| **0** (screen plane) | **popups / notifications / switcher overlay**, the focused lens | 0 |
+| **0** (screen plane) | **popups / notifications / switcher overlay / the floating context menu (§4.7)**, the focused lens | 0 |
 | **−1** (far) | **main content**, parked permanently | +d (8 … 16) |
 | **−2** (farthest) | **chrome** — both bars and their dividers | d + 4, capped at 16 (the bar inset) |
 
@@ -424,7 +431,10 @@ mode 9 stereo:  [9|80][Lsrc][Ldst][Rsrc][Rdst]                    +16 bytes
 ```
 
 - **Disparity is quantized to 4 px** — `left` is one byte ×4. Ladder: 0, 4, 8, 12, 16. No fine
-  adjustment exists.
+  adjustment exists. ✅ *In daily use since 2026-08-31* (chrome at −2, content at −1, per-app
+  depth) and Adam's on-glass verdict: "Depth reads well on glass." The calibration ramp and the
+  stock-FAR interaction stay open (§11 item 2). Faceclaw still contains no stereo code — this
+  project's daily driver is the exercised implementation.
 - **Cost is negligible.** Depth is the cheapest visual feature on the device.
 - **Scrolling stereo content works** — mode 9 has its own lenses-differ form.
 
@@ -462,10 +472,10 @@ horizontal offset, our disparity stacks on it and could exceed divergence.
 ### 4.1 The top bar
 
 ```
-     0                                        384    422   460   498  560  640
-   ┌──────────────────────────────────────────┬───────────────────────┬──────┐
- 0 │ ▣ TERMINAL · build #482 · 4m12           │   G▓▓▓▒   P▓▓▒▒       │12:59 │ 32
-   │                   384                    │          176          │  80  │
+     0                                                424       544        640
+   ┌──────────────────────────────────────────────────┬───────────┬──────────┐
+ 0 │ ▣ TERMINAL · build #482 · 4m12                   │ G▓▓▓▒ P▓▓▒│  12:59   │ 32
+   │                   408                            │    120    │    80    │
 32 ├──── window position · attention marks ───────────────────────────────────┤ 2
 ```
 
@@ -523,10 +533,12 @@ information survives; only its 240 px did not.**
 `G▓▓▓▓▒  P▓▓▓▒▒` — glasses, phone. *(The **R** ring cell was removed 2026-08-31: ring battery
 has no open-source source — the glasses can't relay it and the ring's own link needs protocol RE,
 `CLAIMS.md`. A blank cell for an unreachable value is dead chrome. Faceclaw shows the same two,
-Phone + G2, for the same reason.)* **30 px body** plus nub, **58 px pitch in a 176 px
-cell** (`x 384–560`), with the letter **capitalised and set larger** (14 px bold) so the device is
-identified at a glance. Halving the body from 60 px returned **88 px to the Title, which is now
-384 px** — wide enough for `▣ WINDOW · document` without the continuation mark in most cases.
+Phone + G2, for the same reason.)* **30 px body** plus nub, **58 px pitch in a 120 px
+cell** (`x 424–544` — the cell shrank from 176 when the ring gauge went, 2026-09-01: the two
+survivors closed up against the clock and the dead space went to the Title), with the letter
+**capitalised and set larger** (14 px bold) so the device is identified at a glance. The Title
+is now **408 px** — wide enough for `▣ WINDOW · document` without the continuation mark in most
+cases.
 
 Adam asked for granularity: *"I want to visibly see the difference between 45% and 50%, if
 possible."* **Three encodings were rendered and compared** (`design/shots/battery-granularity.png`):
@@ -822,7 +834,8 @@ a single disparity. Same pixels either way; the split adds ~30 B of framing and 
 | **sparse panel (expected)** | **~1,060 B / 96 ms** | **~4.2 KB / ~384 ms** |
 | dense AA, smooth gradients | ~2,530 B / 230 ms ✗ | ~10 KB / ~920 ms ✗ |
 
-The ack floor buys **1,936 B of transfer** (176 ms × 11 KB/s). Stay under that and the pipeline is
+The ack floor buys **1,936 B of transfer** (176 ms × 11 KB/s — stock-formula pricing; the
+measured CFW curve is ~3–5× cheaper, §8.4). Stay under that and the pipeline is
 ack-bound, so with three flushes in flight a frame lands every ~59 ms and a 4-frame spin is
 **~240 ms** — snappy. Go over it and the wheel becomes bandwidth-bound and visibly slow.
 
@@ -868,6 +881,8 @@ instead of reading as strain.
   would split every panel row per frame (§4.5's cost).
 - Costs 3 rects instead of 1 (+4 B each for the stereo box pair, ~30 B of extra framing). Well
   inside budget, negligible bytes, and the bands are contiguous so the pixel count is unchanged.
+  *(Implementation note: the shipped wheel draws each window's ICON, not a live thumbnail —
+  the thumbnail idea in this section is unbuilt.)*
 - 🟡 **Stretch:** interpolate an item's disparity as it rotates forward. The ladder is quantised to
   4 px and content parks around +12, giving **12 → 8 → 4 → 0 across exactly the four spin frames** —
   the depth steps and the animation steps line up on their own. Default is the simpler fixed-band
@@ -892,7 +907,7 @@ visible around it**, so this is a real preview, not a peephole.
 
 | | bytes | ms |
 |---|---|---|
-| settle on a window (content + top bar + panel frame) | 5.2–7.9 KB | **645–893** |
+| settle on a window (content + top bar + panel frame) | 5.2–7.9 KB | **645–893** *(stock-formula pricing throughout this table — §8.4's measured curve is ~3–5× cheaper)* |
 | **commit (tap)** — only the panel region still shows the old window | 0.6–1.1 KB | **234–272** |
 | **cancel (long-press)** — restore the original window everywhere | 3.8–6.3 KB | **521–751** |
 
@@ -1315,8 +1330,11 @@ Learning the vocabulary is free: the switcher and Main both show icon *beside* n
 the icon becomes readable on its own without ever having replaced a label.
 
 🆕 **One drawn icon per app, two scales** (2026-09-01): each `IconKind` is designed once at
-quality and rendered at 56 px (switcher centre, Main's lens) and 20 px (rows) — which is why the
-queued icon-quality pass moves to the **front** of the app wave: settle the language, then draw
+quality and rendered at 56 px (switcher centre, Main's lens) and 20 px (rows). **Re-scoped the
+same night by the theme-icons ruling (§4.7): the user's desktop theme supplies icons at render
+time wherever it can; the drawn set is the FALLBACK and the release path** — the quality pass
+targets the drawn set. The band-height lens icon LANDED (56 px, `MainSurface`; the §4.2 ink
+table was regenerated with it). Then draw
 the ~13 new window icons once, never twice. ⚠ Implementation watch-item: Main's **resting** state
 keeps the lens visible at ≤ 5 % ink, so the render and BUD007 decide whether the band-height icon
 rides at rest or dims there — the same gate that caught the row-icons-at-rest regression (§9.2b).
@@ -1442,7 +1460,10 @@ Targets, to calibrate on the first real render (§4.2):
 
 #### What a window declares to the shell
 
-The chrome-facing half of the window contract. (The full app-side contract is app-layer work.)
+The chrome-facing half, as designed. **The full contract now exists as code and is larger —
+`core/…/shell/WindowContract.kt` is the authority and `WINDOWS.md` §2 the one-screen summary**
+(adds needs, preferredHeight, appSettings, styleTransform, per-item sub-records,
+open(target)/restoreStateLive, typed text, back/levelDepth, and the ShellServices verbs).
 
 | | used by |
 |---|---|
@@ -1457,6 +1478,28 @@ The chrome-facing half of the window contract. (The full app-side contract is ap
 ⚠ **`summary` must be cheap and side-effect-free** — it is called for every window on every Main
 render. G2CC learned this the hard way and split `preview()` out of `view()` for exactly this reason:
 *"MUST be cheap + side-effect-free… NEVER spawn a subprocess or ping the phone."* Carry that rule.
+
+### 4.7 The 2026-09-01 additions, settled with Adam (built the same night)
+
+Three shell surfaces/mechanisms designed during the app-contract session (`HANDOFF.md`
+§20–§22); recorded here because this file is the shell authority:
+
+- **The floating context menu** (Adam: *"a tap should work like a right-click"*): a 248-wide
+  HOLE in the content — not a card — at **plane 0**, cursor opening on row 0 (put the primary
+  action, Open, there; destructive rows never at 0/1 per §1.7), scroll moves, tap commits,
+  double-tap cancels, a pan window for long menus. It owns the screen like the wheel: ordinary
+  notices defer behind it (decision 6 extended), an EMERGENCY cancels it — losing a menu is
+  safe, a missed alert is not. `MenuSurface.kt`; Files' whole grammar rides it.
+- **Deep links + the notification signature**: a notice carries source · thread (coalescing
+  key) · body · appId · target · urgency, and **tap = commit + activate + `open(target)`** in
+  the owning window — never on preview. `DamageWindow.open(target)` takes an opaque per-window
+  target ("book:<id>"); a failed resolution is loud. A hand-off (`openWindow`) records the
+  caller, and a root-level back returns to it.
+- **Theme icons** (Adam: use his desktop theme's icons, grayscale, *"for everything in DamageWM
+  that uses icons"*): icons resolve from the DESKTOP THEME at render time (Papirus-Dark today;
+  the PC rasterizes, the phone fetches over the content port, both cache) with the drawn
+  `IconKind` set as the FALLBACK and the release path — third-party icon assets never enter the
+  repo, the APK, or a release. Main's focused lens takes the 56 px band-height icon (§4.5b).
 
 ---
 
@@ -1542,7 +1585,8 @@ every page turn.)*
 
 ### 6.1 Why it is nearly free
 
-With three flushes in flight a small delta completes every ~59 ms, so **a 4-frame slide is ~236 ms
+With three flushes in flight a small delta completes every ~59 ms (stock-formula pricing — the
+measured curve is cheaper, §8.4), so **a 4-frame slide is ~236 ms
 — about the latency you would have eaten anyway.** Animation converts dead time into motion rather
 than adding time. And because mode 9 makes translation free, **the damage during a slide is only
 the newly exposed strip**, so an animated transition can cost *fewer* bytes than snapping to the
@@ -2101,8 +2145,9 @@ components with different link types, and no configuration is a special case.
   out a Python shell, which is otherwise the house language — **the single most expensive thing to
   discover late.** Kotlin/JVM and TypeScript both satisfy it.
 - ✅ **But the protocol split means each role picks its own best tool.** Transport on Android is
-  Kotlin (see §10.6); transport on desktop is most cheaply Python + `bleak`, the one library
-  covering Linux, Windows and macOS through a single API. Content can be anything the host likes.
+  Kotlin (see §10.6); on desktop the SHIPPED transport is Kotlin/JVM over bluez-dbus + dbus-java
+  (`desktop/BlueZLink.kt` — MIT, hardware-proven; macOS/Windows parity deferred per §10.7).
+  Content can be anything the host likes.
 - ✅ **The offline simulator becomes just another transport.** `BleTransport` / `SimTransport` /
   `RemoteTransport` behind one interface — G2CC's own `DisplaySink` pattern, one level up.
 
@@ -2199,14 +2244,14 @@ rows. This inverts the phone-first assumption and is the cheaper path.
 |---|---|---|---|
 | 1 | ✅ **Per-notch scroll** — **works, daily use since 2026-08-30** (was C ⚠); only fast-spin coalescing unprobed | **M** | done |
 | 2 | **Comfortable disparity `d`**; whether stock FAR already spends budget | **U** | calibration ramp |
-| 3 | **Frame-id discipline** (§8.2) — derived from reading the decoder, never observed | **I** | first light |
+| 3 | **Frame-id discipline** (§8.2) — derived from reading the decoder; exercised daily at the 5-rect cap with no divergence, the BOUND itself never probed | **I** | a deliberate probe (`REMINDER.md` item 4) |
 | 4 | **Link signal** — source, which link, dBm vs % | **U** | the phone reads RSSI on the RIGHT arm every 10 s; BlueZ exposes RSSI only while a device advertises, so the PC-direct cell shows bars without a numeral. Values unmeasured |
 | 5 | **Where system-state detail lives** — orphaned when the info popup was removed | design | app-layer phase |
 | 6 | **Can a normal Android app see WEA/CMAS emergency alerts?** Must be tested before it is promised (§4.5) | **U** | Pixel 10a test |
 | 7 | ✅ **Transport** — resolved 2026-08-25, **corrected 2026-08-31 (`HANDOFF.md` §19)**: the phone shell is the PRIMARY driver whenever the APK is up; the PC provides data (content + sync) and drives PC-direct BLE only when the APK is unavailable, handing the radio back when it returns | decided | §19 build |
-| 8 | **Type legibility ON GLASS** — the assignments are locked and priced (§Type), but no render can answer whether they read at real angular size | measured / unproven | eyes on glass |
+| 8 | **Type legibility ON GLASS** — content faces are answered by daily reading (Reader, Tmux); the open half is CHROME at 32/28 px bar sizes | measured / chrome unproven | eyes on glass |
 | 9 | 🆕 **The safe area** (§2.2b) — how much of the panel is actually visible on Adam's face | **U** | first-light ramp; the layout is written relative to it so only the value changes |
-| 10 | **Per-window typefaces for windows not yet designed** — Files, Calendar, Music, SMS, Timers, Scout, Notices inherit Clear Sans until their app earns an override | design | app-layer phase |
+| 10 | **Per-window typefaces for windows not yet designed** — Music, SMS, Notices, Feed inherit Clear Sans until their app earns an override (Files shipped on Clear Sans; Calendar/Timers axed; §16.6's recorded per-window defaults refine this per window) | design | app-layer phase |
 | 11 | ✅ **The shell runtime** (§10.2) — **RESOLVED 2026-08-24: Kotlin/JVM**, one `:core` library shared by the desktop program and the Android APK (`IMPLEMENTATION.md`) | decided | built |
 | 12 | ✅ **The transport ↔ shell protocol** — **RESOLVED 2026-08-24:** `wm.damage.core.transport.Transport` (`FlushRequest` of nominal ops → `TransportEvent`), also serialized over TCP with single-driver takeover (`IMPLEMENTATION.md`) | decided | built |
 | 13 | 🆕 **Hat bridge power budget** — 1260 mAh running WiFi 6 + BLE for a workday (§10.6) | **U** | bench measurement |

@@ -30,7 +30,7 @@ These are the non-negotiables, each with its authority:
   replica (same session, any screen — built) and LWW sync (separate shells converge). The window's
   part: per-item state in **sub-records** (`window.<id>.<item>`) wherever per-item state exists;
   content declared continuable (cache-on-open, the Reader precedent); the **continuity test**
-  (§3.6 below) passes.
+  (checklist step 6 below) passes.
 - **The input grammar is not negotiable** (`DESIGN.md` §1): tap descends, double-tap backs,
   scroll moves focus, long-press is a no-op by default. No per-window gestures, ever. Actions are
   a LEVEL reached by tap/wrap, not a region (§4.6).
@@ -58,14 +58,27 @@ These are the non-negotiables, each with its authority:
 
 ## 2. What a window declares (the contract, one screen)
 
-`DamageWindow` (`WindowContract.kt`): `view()` (List/Doc/Canvas per level) · `title()` (SHORT —
-§4.1 contract) · `summary()` (cheap; `more`/`progress` flags) · `icon` (drawn `IconKind`, designed
-once, rendered 56 px + 20 px) · `dirty` · `needs` (per-backend once §16.10 lands) ·
-`preferredHeight` (global-default pattern) · `appSettings()` (its Settings category; STABLE
-instances) · `saveState()/restoreState()` (mode included, §9.1; per-item data in sub-records,
-§16.4) · `styleTransform`/`styledText()` (route EVERY measure/draw through it) · `back()` /
-`levelDepth()` · `onTypedText(line)` (confirm-staged) · **`open(target)`** (§16.1, once built:
-opaque per-window target, false = loud).
+`DamageWindow` (`WindowContract.kt` is the authority): `view()` (List/Doc/Canvas per level) ·
+`title()` (SHORT — §4.1 contract) · `summary()` (cheap; `more`/`progress` flags) · `icon`
+(an `IconKind` — the theme-icon system resolves the desktop theme first, the drawn kind is the
+fallback and release path) · `dirty` · `needs` (HOST/PHONE_APIS/BLE; per-BACKEND needs are
+still open — Music is their first customer) · `preferredHeight` (global-default pattern) ·
+`appSettings()` (its Settings category; STABLE instances) · `saveState()/restoreState()` (mode
+included, §9.1) · **`restoreStateLive()`** (a live-synced main record — override when the boot
+restore assumes an activation follow-up; Files/Tmux/Reader are the precedents) ·
+**`saveSubState()/restoreSubState()`** (per-item records, §16.4; empty object = removal
+tombstone) · `styleTransform`/`styledText()` (route EVERY measure/draw through it) · `back()` /
+`levelDepth()` · `onTypedText(line)` (confirm-staged) · **`open(target)`** (§16.1, BUILT:
+opaque per-window target, false = loud; Files→Reader ships on it) · the lifecycle hooks
+(`onRegistered`/`onActivate`/`onDeactivate`/`onLayoutChanged`/`onFontScaleChanged`).
+
+`ShellServices`: `requestRender` · `setOperation` · `notifyInternal(source, body, urgent,
+appId, thread, target)` (§16.5 — tap = commit + activate + open(target)) ·
+**`openMenu(spec, owner): Boolean`** (the floating context menu; pass `owner` from ASYNC
+completions — a false return means deliver the answer as a notice instead) ·
+`openWindow(id, target)` (the hand-off; the shell records the caller for back-to-caller) ·
+`icons()` · `runOnShell` (EVERY off-loop completion applies through it) ·
+`docContentWidth/Height`.
 
 Plus, per window: its **notification sources** (each with a Settings toggle, a coalesce key and a
 deep-link target — §16.5) and its **provider(s)** on the window channel (§16.10: Local on the PC,
@@ -99,20 +112,25 @@ Remote on the phone; backends in preference order with a switch policy if adapti
    earned it. Record any reversal in the DESIGN §0 style — rejected ideas get written down so
    they are not re-proposed.
 
-## 4. The shared machinery (built once, in this order)
+## 4. The shared machinery — ✅ BUILT (2026-09-01, with the Files conversion)
 
-The agreed build order (`EXPLOSION.md` §16, 2026-09-01) — each row's design lives in that table:
+All four rows of the agreed build order are CODE; a conversion consumes them, it does not build
+them:
 
-1. **The state substrate** (§16.4): per-item sub-records · the §19.4 startup-race closure
-   (post-start reconciliation) · the continuity-test harness · content-continuability
-   conventions.
-2. **The generic window channel** (§16.10): `{"t":"win","id":…}` on the content port, providers,
-   summaries/badges, multi-backend arbitration.
-3. **Deep links + the notification signature** (§16.1/§16.5), designed together.
-4. **The kit** (§16.11): fit-with-mark, confirm level, title notice, open-on-PC — extracted
-   alongside the first converted window.
-- **Before any new icon is drawn**: the icon-quality pass (§16.7 — one drawn icon per app, 56 px
-  switcher/lens + 20 px rows; Main's lens takes the band-height icon).
+1. **The state substrate** (§16.4): per-item sub-records with reported-guarded tombstones,
+   stamp-0 baselines, merge-load + post-start reconciliation, per-item re-apply after a
+   main-record live apply; the continuity-test harness (`SubstrateTest`/`FilesTest` shapes).
+2. **The generic window channel** (§16.10): `{"t":"win","win":"<id>"}` on the content port
+   (note the field name), `WinService` host-side, `RemoteWin` client (id-correlated, blob lane,
+   keeper reconnect, `stateLine`). Still open on it: push frames, summaries-over-channel,
+   multi-backend arbitration, per-backend `needs` — Music is their first real customer.
+3. **Deep links + the notification signature** (§16.1/§16.5) — see §2's `notifyInternal`/`open`.
+4. **The kit** (§16.11): `Draw.fit` (elide with the drawn ▸, always), `Draw.dynamic`
+   ('?'-substitutes uncoverable glyphs), `MenuSurface`, open-on-PC via the channel. The
+   confirm-level helper is NOT yet extracted — windows stage confirms by hand (the Tmux
+   TYPE_CONFIRM / Files menu shapes).
+- **Icons**: theme icons resolve automatically; the drawn-set quality pass (fallback + release
+  path) is queued at the front of the app wave.
 - **Independent backlog**: the curated font-library expansion (§16.6; B612 never a default).
 
 ## 5. Traps already paid for (do not re-learn)
@@ -131,7 +149,7 @@ The agreed build order (`EXPLOSION.md` §16, 2026-09-01) — each row's design l
 - **A test default that supplies what the wire omits** — the source-0 and ack-enum lessons: model
   the wire truth, not the flattering version.
 - **Silent clipping without the mark** — use the kit helper; hand-rolled `drawFit` is how the
-  §18.1 debt happened.
+  launch-night tmux bare-clip debt happened.
 - **Forgetting the cursor rest** after a level change (§1.7) — the "$5 turn" lesson.
 - **A phone-side need without its permission story** — a PHONE_APIS window declares which Android
   permissions it needs; a missing grant surfaces as the window's unavailability line, loudly.

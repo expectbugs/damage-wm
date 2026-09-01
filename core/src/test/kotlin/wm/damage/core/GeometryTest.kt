@@ -76,6 +76,38 @@ class GeometryTest {
     }
 
     @Test
+    fun silentClockSizesAreLegalAndSmallMatchesTheChromeCell() {
+        // §1.5 sizes (2026-09-01): small = the title bar clock's EXACT cell;
+        // medium/large = flush top-right, grid-aligned boxes
+        val l = wm.damage.core.geom.Layout()
+        val small = wm.damage.core.shell.SilentMode.clockRect(l, "small")
+        kotlin.test.assertEquals(l.clockCell, small, "small = the chrome clock cell")
+        for (size in wm.damage.core.shell.ShellSettings.SILENT_CLOCKS) {
+            val r = wm.damage.core.shell.SilentMode.clockRect(l, size)
+            kotlin.test.assertTrue(wm.damage.core.geom.Geometry.checkRect(r, size).isEmpty(),
+                "$size box grid-legal")
+        }
+        val med = wm.damage.core.shell.SilentMode.clockRect(l, "medium")
+        val big = wm.damage.core.shell.SilentMode.clockRect(l, "large")
+        kotlin.test.assertEquals(l.safe.right, med.right, "medium flush right")
+        kotlin.test.assertEquals(l.safe.right, big.right, "large flush right")
+        kotlin.test.assertTrue(med.w < big.w && med.h < big.h, "medium between the sizes")
+
+        // the setting itself round-trips and clamps (additive field)
+        val ss = wm.damage.core.shell.ShellSettings(silentClock = "medium")
+        kotlin.test.assertEquals("medium",
+            wm.damage.core.shell.ShellSettings.fromJson(ss.toJson()).silentClock)
+        kotlin.test.assertEquals("large",
+            wm.damage.core.shell.ShellSettings(silentClock = "bogus").clamped().silentClock)
+
+        // the two-gauge battery cell (2026-09-01): both gauges + the tail pad
+        // fit, and the clock cell is unchanged at 80 wide
+        kotlin.test.assertEquals(120, l.batteryCell.w, "battery cell holds two gauges")
+        kotlin.test.assertEquals(80, l.clockCell.w)
+        kotlin.test.assertEquals(l.batteryCell.right, l.clockCell.x)
+    }
+
+    @Test
     fun layoutTilesAndAlignsAcrossSafeRects() {
         val safes = listOf(
             Rect(0, 0, 640, 480),
@@ -109,8 +141,8 @@ class GeometryTest {
         // so chrome can sit behind the content plane with the full 16 px
         // stereo-shift budget.
         val l = Layout()
-        assertEquals(Rect(16, 0, 352, 32), l.titleCell)
-        assertEquals(Rect(368, 0, 176, 32), l.batteryCell)
+        assertEquals(Rect(16, 0, 408, 32), l.titleCell)      // +56 from the two-gauge cell (2026-09-01)
+        assertEquals(Rect(424, 0, 120, 32), l.batteryCell)
         assertEquals(Rect(544, 0, 80, 32), l.clockCell)
         assertEquals(Rect(16, 34, 608, 416), l.content)
         assertEquals(Rect(16, 450, 608, 2), l.bottomDivider)

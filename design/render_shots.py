@@ -18,7 +18,7 @@ DIV2_Y, ST_Y, ST_H = 450, 452, 28
 # Bars inset to the content extent since 2026-08-31 (REFINEMENT.md §1): chrome
 # sits behind the content plane and needs the same 16 px stereo-shift budget.
 BAR_X, BAR_R = 16, 624                              # bar extent (x16, w608)
-TITLE_W, BATT_X, CLK_X = 368, 368, 544              # ribbon retired 2026-08-18
+TITLE_W, BATT_X, CLK_X = 424, 424, 544              # batteries closed up to the clock 2026-09-01 (two gauges, +56 title)
 LENS_Y, LENS_H, ROW_H, PAD = 210, 64, 32, 16
 RAIL_X, RAIL_W = 612, 12
 

@@ -45,7 +45,7 @@ data class Layout(val safe: Rect = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H
     val statusBar = Rect(safe.x + CONTENT_INSET_X, safe.bottom - STATUS_H, safe.w - 2 * CONTENT_INSET_X, STATUS_H)
     val bottomDivider = Rect(statusBar.x, statusBar.y - DIV_H, statusBar.w, DIV_H)
 
-    /** §2.3 top-bar cells (Title 384 / batteries 176 / clock 80 at full width),
+    /** §2.3 top-bar cells (Title 408 / batteries 120 / clock 80 at full width),
      *  scaled by tiling the same proportions onto the safe width, grid-snapped. */
     val titleCell: Rect
     val batteryCell: Rect
@@ -91,9 +91,12 @@ data class Layout(val safe: Rect = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H
         switcherPanel = Rect(Geometry.snapX(cx - 120), Geometry.snapY(cy - 88), 240, 176)
         notificationMax = Rect(Geometry.snapX(cx - 124), Geometry.snapY(cy - 52), 248, 104)
 
-        // Top bar cells: clock fixed 80, batteries fixed 176, title takes the rest.
+        // Top bar cells: clock fixed 80, batteries fixed 120 (two gauges at the
+        // 58 px pitch + tail pad — was 176 for three; the ring gauge is gone
+        // and the dead space goes to the title, 2026-09-01 Adam), title takes
+        // the rest.
         val clockW = 80
-        val battW = 176
+        val battW = 120
         val titleW = Geometry.snapX(topBar.w - clockW - battW)
         titleCell = Rect(topBar.x, topBar.y, titleW, TOP_H)
         batteryCell = Rect(topBar.x + titleW, topBar.y, battW, TOP_H)

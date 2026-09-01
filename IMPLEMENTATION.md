@@ -12,7 +12,13 @@ byte-exact glass simulator, the desktop program, and the phone APK — Reader, T
 underneath, everything on the **CFW display contract** (modes 3/6/8/9 + the 11–15 texture-cache
 wire layer, the FB lease, the capability gate).
 
-**2026-09-01 — the FILES build + the §16 machinery + a 2-round review (HANDOFF.md §22):** the
+**2026-09-01 (later) — two chrome tweaks (Adam):** the battery cell shrank to its two gauges
+(120 px, flush against the clock — the title gained 56 px), and the silent-mode clock size
+became a Global setting (`Silent clock`: large / medium seven-segment, small = the title bar
+clock's cell — `DESIGN.md` §1.5).
+
+**2026-09-01 — the FILES build + the §16 machinery + an 8-round review loop run to
+convergence (79→20→28→9→3→3→2→0 — HANDOFF.md §22):** the
 Files window (locations with capacity bars · tap-=-context-menu grammar · text/image/PDF
 viewers · clipboard Copy/Cut→Paste · trash with Restore and double-confirm purge · typed
 rename/mkdir · Open-on-PC · EPUB→Reader hand-off) over the new shared machinery: the
@@ -176,7 +182,9 @@ and the item-by-item log; this is the map of what it added.
   (`replicaPort` 7403) and the phone.
 - **Host-supplied Settings rows** (`HostSetting`): the display target on both hosts — staged on
   scroll, applied on tap, reverted on double-tap; applying rebuilds the stack.
-- **Decision 6**: a notification arriving while the switcher wheel is open waits behind it.
+- **Decision 6**: an ORDINARY notification arriving while the switcher wheel (or the context
+  menu) is open waits behind it; an EMERGENCY cancels the surface and shows first (the
+  2026-09-01 review rounds).
 
 **2026-08-30 — long-press defaults off (`DESIGN.md` §1.2/§1.3 revised).** A bare long-press is a
 no-op everywhere — it is the most common accidental press, all day, gloves worst — and in silent
@@ -186,7 +194,8 @@ chord is plain back; the input echo's "hold" glyph is the armed indicator). The 
 **"Long-press": off / switcher** restores the direct open — which also restores the focused
 notice's dismiss-unread long-press; by default that job belongs to the chord (the wheel parks the
 box unread and returns it on close). `LongPressTest` pins the grammar; whether the real ring
-delivers the release event is first-light item 18.
+delivers the release event was answered on hardware: event 10 fires after almost every
+touch-end — see `HANDOFF.md` §11.
 
 ## Running it
 
@@ -220,12 +229,11 @@ Phone:
 # -> phone/build/outputs/apk/debug/phone-debug.apk  (sideload on the Pixel 10a)
 ```
 
-The APK runs the same shell against the sim, rendered on screen (integer-scaled,
-labeled — legibility calls stay with the 1x desktop view or glass). It fetches
-the library from beardos over Tailscale, **copies each book locally on open**,
-and falls back to the cache when the PC is unreachable. It also serves the
-transport seam on :7402 so `--remote` from the PC can take over its display,
-local shell yielding and resuming automatically.
+The APK's daily default is Target=glasses: it DRIVES the pair over BLE as the primary driver
+(§19), fetches content from beardos over Tailscale, **copies each book locally on open**, and
+falls back to its caches when the PC is unreachable. It serves the seam on :7402 (probe/claim)
+and its replica on :7403. Distribution: `./gradlew :phone:stageApk` → `~/.damage/damage-wm.apk`
+→ the G2CC `/setup` page. The SIM target remains the on-phone dev mode.
 
 **The all-day daily driver (2026-08-31, `DAILY.md`):** `--no-preview` runs any mode headless
 (no Swing/X — set before AWT loads); `:desktop:stageJar` copies the fat jar to the STABLE
@@ -289,34 +297,12 @@ have caught it.** A model that errs toward permissive is worse than no model.
 
 ## The refinement wave (2026-08-31) — `HANDOFF.md` §12 is the full record
 
-The whole `REFINEMENT.md` queue plus everything Adam asked for while wearing it, built and
-deployed live the same day. The shape of what changed, by seam:
-
-- **Geometry/depth:** bars inset to the content extent (x 16–624) and pushed behind the content
-  plane (`Shell.updatePlanes`, chrome at `min(d+4,16)`); the wheel owns the depth story while
-  open; **Size = four TOP-aligned heights 288/352/416/480, vpos retired** (his fit loses the
-  bottom, never the top); per-app height via `DamageWindow.preferredHeight` → `Shell.syncLayout`
-  on focus commit, with **"global" as every per-app shadow's default**.
-- **Input:** 🔴 the switcher fix — events 9/10 are unattributed (source 0) and now skip the §1
-  ring-only source check; `LongPressTest` injects them with the wire-true source. Document scroll:
-  `DocView.stepLines` (default 5) + the direction-gated ramp (default OFF after his on-glass
-  verdict), both in Settings.
-- **Settings:** three levels — categories are DIRECTORIES (Global + one per app via
-  `DamageWindow.appSettings()`; `HostSetting.options` is a supplier now).
-- **Reader:** folders (`BookMeta.folder`), the first-open **chapter picker** (row 0 "From the
-  beginning"; double-tap always backsteps) + a Chapters action, **ebook images in place**
-  (`ImageDecoder` seam — AWT/BitmapFactory; token paragraphs; box-sample → 16 levels, no
-  dithering; whole-line strips), descenders fixed (line box 30, metrics baseline, loud fit
-  guard), Reset progress.
-- **Telemetry/panel:** brightness transmits (faceclaw's sid-0x09 write; per Settings step + per
-  session start + over the seam); glasses battery fills the chrome G cell (the BARE device-info
-  READ + unsolicited 09-01 updates → `TransportEvent.Battery`); ring relay decode wired, passive.
-- **Transport hardening:** the capability query and the carrier CREATE **re-ask on a 2 s pacing
-  tick** — the firmware eats requests that land during its teardown of a previous session; both
-  re-asks have rescued live starts.
-- **Silent clock:** a drawn seven-segment readout flush top-right (`Icons.sevenSegClock`,
-  mirrored in `render_shots.py`). **Preview:** 4× integer nearest-neighbour.
-- **Measured:** the latency curve `overview.md` §5.2 — `ms ≈ 60 + bytes/50` PC-direct.
+Chrome depth, coarse scroll, Reader folders/chapters/images, per-app height, the digital clock,
+Settings directories, brightness + battery on the wire, the 4× preview — all live the same day.
+The one trap worth restating here: **the switcher was dead since first light because our source
+filter discarded the unattributed events 9/10 (source 0)** — a test default that "helpfully"
+supplies what the wire omits is a model erring permissive; inject what the firmware actually
+sends. Do not reintroduce a source gate on events 9/10.
 
 ## The APK-mission prep (2026-08-31, HANDOFF.md §13 — before any phone-radio test)
 
@@ -345,7 +331,8 @@ none of it has met the radio yet (that is §13.2's runbook, Adam's part):
   re-issued every 20 min, under Android's ~30-min silent downgrade to opportunistic.
 - **Distribution**: `./gradlew :phone:stageApk` stages the debug APK to `~/.damage/damage-wm.apk`;
   the G2CC server's `/setup` page grew a DamageWM box and a `/damage-apk` endpoint (additive
-  twin of `/apk` — same Tailscale+token gate, mtime-stamped filename). APK at 3/0.3.
+  twin of `/apk` — same Tailscale+token gate, mtime-stamped filename). (APK 3/0.3 at the
+  time; versions have moved on — the gradle file is the authority.)
 
 - ~~The phone's `BleTransport` has still never run on hardware~~ — **it passed its own first
   light later the same day (2026-08-31, first try) and owns the radio all day now.** It is
@@ -402,8 +389,8 @@ no `-C` attach — the G2CC Phase-5 safety shape); `wm.damage.core.windows.tmux`
   (`"typed"`), `ShellServices.docContentHeight`. **Typed-text entry points**: the desktop
   preview (key T), the browser replica's text bar, the phone strip's `type` button — all ride
   the transport, so they reach whichever shell drives.
-- **Harnesses**: `ScriptedTmux` (deterministic provider) drives the new selfcheck checks (48
-  total) and four snapshot scenes (09b–09e); `TmuxTest` holds 16 core tests (SGR, fit at both
+- **Harnesses**: `ScriptedTmux` (deterministic provider) drives the tmux selfcheck checks
+  (selfcheck is 61 total today) and four snapshot scenes (09b–09e); `TmuxTest` holds 16 core tests (SGR, fit at both
   height modes, cursor inversion, provider parse/edge-alerts/quoting, the wire round trip, the
   full window grammar, persistence). Building the scenes also caught a LATENT snapshot-harness
   drift: the fixed two-double-tap walk back to Main broke silently when the shelf grew folders
@@ -458,7 +445,7 @@ model layers are built and green; the compositor has not adopted them yet, delib
   the lease gate, whole-list validation before any write, the LUT with its integer truncation,
   transparency tested pre-LUT, per-glyph advance by image width. Mode 15 is **refused loudly**.
   The cache is dropped on lease expiry and on mode 11.
-- `TextureCacheTest` — 25 tests.
+- `TextureCacheTest` + `AckStatusTest` — 44 tests today.
 
 **Two corrections that came out of reading the new source, both already applied:**
 
@@ -497,7 +484,8 @@ of them are load-bearing and easy to break by accident:
   the gap: nominal deltas at their disparity (split when a payload would
   exceed a mode-8 sub-message's 16-bit length or the bytes left in the
   batch; a keyframe past the sub-message length ships bare), black stereo
-  pairs for whole seam strips. Every planned op is applied to the shadows as
+  pairs for seam strips BOUNDED TO THE SCANNED AREA (the round-2 L2 fix —
+  `L2ProbeTest`). Every planned op is applied to the shadows as
   it is planned, so its effect on the OTHER lens (a far piece spilling under
   a nearer one) is seen and repaired in the same flush, in later-wins order.
   What the 16-fid ring or the batch's byte cap (bmp_max) cannot carry stays

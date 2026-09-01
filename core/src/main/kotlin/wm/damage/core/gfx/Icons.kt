@@ -101,6 +101,49 @@ object Icons {
         digit(x0 + 112, mm % 10)
     }
 
+    /** The MEDIUM seven-segment readout (§1.5 silent-clock sizes, 2026-09-01):
+     *  the same drawing at ~2/3 metrics — digit 18 wide / 30 tall, thickness
+     *  4, pitch 24. Kept as its own function so the large one stays
+     *  byte-identical (snapshots pin its pixels). Total width 102. */
+    fun sevenSegClockMedium(s: Gray8, x0: Int, y0: Int, hh: Int, mm: Int) {
+        val segs = intArrayOf(
+            0b1111110, 0b0110000, 0b1101101, 0b1111001, 0b0110011,
+            0b1011011, 0b1011111, 0b1110000, 0b1111111, 0b1111011,
+        )
+        val w = 18; val t = 4
+        fun hseg(x: Int, y: Int, len: Int) {
+            for (r in 0 until t) {
+                val inset = kotlin.math.abs(2 * r - (t - 1)) / 2
+                s.fillRect(x + inset, y + r, len - 2 * inset, 1,
+                    Level.of(if (r == 0 || r == t - 1) 6 else 9))
+            }
+        }
+        fun vseg(x: Int, y: Int, len: Int) {
+            for (c in 0 until t) {
+                val inset = kotlin.math.abs(2 * c - (t - 1)) / 2
+                s.fillRect(x + c, y + inset, 1, len - 2 * inset,
+                    Level.of(if (c == 0 || c == t - 1) 6 else 9))
+            }
+        }
+        fun digit(x: Int, d: Int) {
+            val m = segs[d]
+            if (m and 0b1000000 != 0) hseg(x + 3, y0, w - 6)              // A
+            if (m and 0b0100000 != 0) vseg(x + w - t, y0 + 5, 9)          // B
+            if (m and 0b0010000 != 0) vseg(x + w - t, y0 + 18, 9)         // C
+            if (m and 0b0001000 != 0) hseg(x + 3, y0 + 26, w - 6)         // D
+            if (m and 0b0000100 != 0) vseg(x, y0 + 18, 9)                 // E
+            if (m and 0b0000010 != 0) vseg(x, y0 + 5, 9)                  // F
+            if (m and 0b0000001 != 0) hseg(x + 3, y0 + 13, w - 6)         // G
+        }
+        val h12 = ((hh + 11) % 12) + 1
+        if (h12 >= 10) digit(x0, 1)
+        digit(x0 + 24, h12 % 10)
+        s.fillRect(x0 + 47, y0 + 8, 4, 4, Level.of(9))
+        s.fillRect(x0 + 47, y0 + 19, 4, 4, Level.of(9))
+        digit(x0 + 56, mm / 10)
+        digit(x0 + 84, mm % 10)
+    }
+
     /** The earlier analog face (ticks, tapered hands, hub) — UNUSED since the
      *  2026-08-31 digital revision; kept in case analog returns as a setting. */
     fun analogClock(s: Gray8, cx: Int, cy: Int, r: Int, hh: Int, mm: Int) {

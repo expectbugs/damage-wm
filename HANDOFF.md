@@ -425,8 +425,8 @@ Files is its first consumer. NOT yet: push frames, summaries-over-channel, multi
 arbitration, per-backend `needs` — Music is their first real customer.
 
 **Deep links + notifications (§16.1/§16.5):** `open(target)` on the contract;
-`services.openWindow(id, target, backTarget)` — the switcher's back gesture returns to the
-CALLER when a hand-off set one; the notification signature grew source/thread/appId/target/
+`services.openWindow(id, target)` — the shell records the CALLER itself, and the switcher's
+back gesture returns to it after a hand-off; the notification signature grew source/thread/appId/target/
 urgency and internal notices deep-link.
 
 **MenuSurface (§16.11's biggest piece):** the floating context menu — 248 px hole at plane 0

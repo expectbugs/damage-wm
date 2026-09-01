@@ -84,6 +84,11 @@ class Shell(
         ).apply(spec)
     }
     private val chrome = Chrome(chromeText, { iconSource })
+
+    /** Silent-mode paint plumbing (§1.5 sizes, 2026-09-01): the "small" size
+     *  is the title bar clock's own text at its own cell, drawn by chrome. */
+    private fun silentSmallPainter(c: LocalClock): (wm.damage.core.gfx.Gray8, wm.damage.core.geom.Rect) -> Unit =
+        { g, r -> chrome.paintClockText(g, r, c.hhmm, c.amPm) }
     private val journal = Journal(journalPath)
     val notifications = Notifications(chromeText)
     private val switcher = Switcher(chromeText, { iconSource })
@@ -1052,7 +1057,7 @@ class Shell(
         // smaller form, one at a time, auto-dismissing (§1.5/§4.5)
         notifications.requeueCurrent()
         val c = wallClock()
-        SilentMode.paintAll(comp.composed, layout, c.hh, c.mm)
+        SilentMode.paintAll(comp.composed, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c))
         comp.planes = emptyList()
         comp.damageAll()
         if (notifications.showNextIfIdle()) {
@@ -1271,7 +1276,7 @@ class Shell(
         // deliberate divergence from G2CC's mark-at-display)
         notifications.dropSilent()
         val c = wallClock()
-        SilentMode.paintAll(comp.composed, layout, c.hh, c.mm)
+        SilentMode.paintAll(comp.composed, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c))
         comp.damageAll()
         if (notifications.active) {
             paintNotification()
@@ -1283,8 +1288,8 @@ class Shell(
     private fun handleMinute() {
         if (mode == Mode.SILENT) {
             val c = wallClock()
-            SilentMode.paintClock(comp.composed, layout, c.hh, c.mm)
-            comp.damage(SilentMode.clockRect(layout))    // the 60-per-hour flush
+            SilentMode.paintClock(comp.composed, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c))
+            comp.damage(SilentMode.clockRect(layout, settings.silentClock))    // the 60-per-hour flush
         } else {
             chromeDirty = true                           // rides or waits for idle
         }
@@ -1618,6 +1623,12 @@ class Shell(
                 optionFont = { opt -> wm.damage.core.text.FontSpec(
                     wm.damage.core.text.Face.SYSTEM, 18,
                     bold = opt == "bold", italic = opt == "italic", raw = true) }),
+            // §1.5 silent-clock size (2026-09-01 Adam): large = the original
+            // seven-segment box, medium = a smaller one, small = the title
+            // bar clock's exact size and position
+            HostSetting("Silent clock", { ShellSettings.SILENT_CLOCKS },
+                { settings.silentClock },
+                { v -> applySettings(settings.copy(silentClock = v)) }),
         )
     }
 
@@ -1665,6 +1676,7 @@ class Shell(
         // §4.2's live preview, made real for Brightness (2026-08-31): every
         // step pushes the sid-0x09 write, so the panel changes as you scroll
         val rebright = s.brightness != settings.brightness || s.brightnessAuto != settings.brightnessAuto
+        val reclock = s.silentClock != settings.silentClock
         settings = s
         if (rebright) transport.setBrightness(s.brightnessAuto, s.brightness)
         // liveApplySync passes persist=false: the store already holds the
@@ -1693,7 +1705,12 @@ class Shell(
         }
         // a global size change under a window that pins its own height changes
         // nothing visible — syncLayout says so and the cheap path runs instead
-        if (!relayout || !syncLayout()) {
+        if (mode == Mode.SILENT) {
+            // the silent surface repaints only when ITS one element changed
+            // (a live-synced silent-clock size, §1.5) — paintAll clears the
+            // whole panel, so the old box never lingers
+            if (reclock) composeFullSurface()
+        } else if (!relayout || !syncLayout()) {
             updatePlanes()
             if (redepth) composeFullSurface() else composeContent()
         }
@@ -1704,7 +1721,7 @@ class Shell(
     private fun composeFullSurface() {
         if (mode == Mode.SILENT) {
             val c = wallClock()
-            SilentMode.paintAll(comp.composed, layout, c.hh, c.mm)
+            SilentMode.paintAll(comp.composed, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c))
             comp.planes = emptyList()
             comp.damageAll()
             return
@@ -1942,7 +1959,7 @@ class Shell(
                 if (mode == Mode.SILENT) {
                     notifications.invalidateUnder()
                     val c = wallClock()
-                    SilentMode.paintAll(comp.composed, layout, c.hh, c.mm)
+                    SilentMode.paintAll(comp.composed, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c))
                     comp.damageAll()
                 } else {
                     val restored = notifications.restoreUnderFinished(comp.composed)

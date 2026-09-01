@@ -35,9 +35,11 @@ battery exemption; (2) 🔴 keep the G2CC bridge app Disconnected (a second cent
 first light with NOTHING on beardos holding the pair (`sudo rc-service damage stop`), flip
 Target → glasses; (4) `sudo rc-service damage start` → the log says "standby up (§19)" and the
 phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.16 is the
-current build**: sync client + probeable seam; ring-probe experiment reverted): an older APK
-cannot be status-probed, so the PC conservatively stays out (fine), and a pre-0.10 APK carries
-no sync client, so state does not flow until it is updated.
+current build: Files + theme icons + the sync client + the 2026-09-01 review fixes**). Why old
+APKs matter: a pre-0.15 APK cannot be status-probed (the PC conservatively stays out — fine)
+and a pre-0.10 one carries no sync client, so state does not flow until it is updated.
+**Once 0.16 is INSTALLED, remove Reader's transitional legacy-offsets dual-write**
+(`REMINDER.md` step 1 — the fields are marked in `ReaderWindow`).
 
 ## Ops crib
 
@@ -59,7 +61,8 @@ no sync client, so state does not flow until it is updated.
   the setup page, install over; `MY_PACKAGE_REPLACED` restarts the phone service by itself.
 - Tmux/knobs: `~/.damage/config.json` (`tmuxHosts` — add slappy back when it is actually on —
   `tmuxQuickKeys`, `tmuxSnippets`, `tmuxWaitPatterns`); on-glass settings live in
-  Settings → Tmux. The phone's tmux window needs this PC service (or `--host-only`) up.
+  Settings → Tmux. Every HOST-need window on the phone (Tmux, Files, Reader content) rides
+  this PC service (or `--host-only`) — content port :7401.
 - If the pair "scans forever" while the phone says Connected: the stale-ACL recovery is still
   **toggle phone Bluetooth** (the scan now fails loudly and rides the ON edge back in).
 

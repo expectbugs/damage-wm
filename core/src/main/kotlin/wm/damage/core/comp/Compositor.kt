@@ -33,7 +33,8 @@ import wm.damage.core.util.Log
  * grid, merges the differences toward the fid budget — never across a
  * different plane, so a merged delta cannot paint another region's pixels
  * at the wrong shift — and emits whatever closes the gap: nominal deltas at
- * their disparity, black stereo pairs for whole seam strips. Each planned op
+ * their disparity, black stereo pairs for seam strips bounded to the
+ * scanned area (the L2 clamp — L2ProbeTest). Each planned op
  * is applied to the shadows as it is planned, so an op's effect on the OTHER
  * lens is seen and repaired in the same flush, in later-wins order. Whatever
  * the fid budget cannot carry stays dirty and goes out next flush. Plane

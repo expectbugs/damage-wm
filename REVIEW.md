@@ -1,338 +1,74 @@
-# Review log — the finishing build (2026-08-25)
+# Review archive — the finishing build (2026-08-25) + the texture-cache round (2026-08-30)
 
-Every candidate finding from the review rounds (`HANDOFF.md` §8.3 H) is recorded here as it
-is found, so a compacted session cannot lose one. Format per finding:
+**This file is the 2026-08 review ARCHIVE**, folded 2026-09-01 from the finding-by-finding log
+(git holds every entry). ⚠ **The 2026-09-01 Files/§16 loop — eight rounds to convergence, ~144
+findings — is NOT here: `HANDOFF.md` §22.2 is its record**, with the detail in its round
+commits (`8f0dfe2`, `ead19a3`/`5d7ba5e`, `d0a74aa`, `10db318`, `119d6dc`, `b33253b`,
+`d2945eb`).
 
-```
-### R<round>.<n> <subsystem> — <one-line claim>
-- candidate: <what the reviewer reported, with the trace / sim run it offered>
-- verification: <what the builder re-ran or re-traced, and the result>
-- verdict: CONFIRMED | NOT A DEFECT (why) | DESIGN INTENT (why)
-- fix: <commit> | none
-```
+What this archive keeps: the per-round summaries, and the register of **deliberate behavior a
+future session must not "fix"** — every entry below was traced and the verdict recorded.
 
-## Round 1 (2026-08-25, after commit 926b267)
+## The five rounds, summarized
 
-Six fresh reviewers, one per subsystem, read-only, each told to verify every candidate with a
-concrete trace: (a) transport base + prelude + mirror tee, (b) phone BLE glue + service,
-(c) BlueZ glue against the library sources, (d) seam mirror stream + PathTransport,
-(e) replica server + page + desktop preview, (f) shell changes (divergence check, decision 6,
-host rows, keeper). Findings are recorded below as they are verified by the builder.
+- **Round 1** — 64 candidates across six reports; 58 confirmed and fixed (the arbitration's
+  decision rule and the seam server's start were the two design-level ones), two design calls
+  taken, two accepted, one already fixed by a sibling, one doc inconsistency.
+- **Round 2** — 30 candidates: 26 fixed (largest: a race winner leaked when `start()` was
+  cancelled during the losers' rollbacks; outstanding seam flushes never failed on a link loss;
+  the desktop glue's missing both-arms check), two design calls, two smaller items.
+- **Round 3** — 15 candidates: 12 fixed (the seam's `done` answered exactly once, the keeper's
+  narration gate, one RSSI read in flight, the divergence count per session), four regression
+  tests added, one accepted as theoretical with both candidate fixes traced and REJECTED (a3-8
+  below).
+- **Round 4** — 8 candidates on the round-3 diff: 6 fixed (one `isRunning` predicate shared by
+  all three switch paths; the error limiter evicting and capping per tag), one coverage note,
+  one cosmetic narration case retired by a sibling fix.
+- **Round 5** — CLEAN on the code: one stale doc sentence, two comment tidies, four
+  builder's-choice items (register below).
 
-### R1.a — transport base + prelude + mirror tee (8 candidates)
+**Review loop closed.** 124 candidates; 104 confirmed and fixed; 5 design calls taken; 6
+accepted as theoretical or test-only with the trace recorded; five regression tests added.
 
-- **R1.a1 CONFIRMED** — "capability gate aborted — link down" is classified as a firmware refusal by `ShellKeeper` and `PathTransport` (both match the substring "capability gate"); a link end during the ~200 ms capability wait would make the keeper terminal / disable the path for good. Verified: `CfwTransportBase` throws `LintError("capability gate aborted — …")` on the session-end marker; the refusal path throws "capability gate FAILED …" and emits `Fault("capability")`. Fix (with the base edits, after the remaining reviewers finish): a typed `CapabilityRefused` exception at the refusal site, the abort reworded "capability query ended early", consumers match the type or the exact refusal phrase (the seam carries text).
-- **R1.a2 CONFIRMED** — a cancelled `start()` (a lost arbitration) catches the cancellation, enqueues an FB_RELEASE and calls `disconnectLink()`, which for `withContext(Dispatchers.IO)` throws at entry in a cancelled coroutine → the links stay up; the RELEASE would go out over them. Fix: rollback disconnect under `NonCancellable` (done in `BlueZTransport.disconnectLink` now; the base's rollback too, pending), RELEASE only when this session requested the lease.
-- **R1.a3 CONFIRMED** — the maintenance loops enqueue on `running`, which is true from the end of `connectLink()`, before the settle and the prelude; `lastImageAtMs` is never reset per session, so the keepalive fires on the first 4 s tick. Fix (pending): gate the enqueuing loops on `started`, reset `lastImageAtMs` at session entry.
-- **R1.a4 CONFIRMED** — hardware transports never lower `leaseHeld` (only `SimTransport` calls `setLease(false)`); the tee mirror's lease-expiry prediction is logged at DEBUG (dropped by `Log.minLevel`); the initial FB_ACQUIRE's write failure does not fail `start()`. Fix (pending): derive the lease from the mirror on the tick for tee transports, await the initial ACQUIRE's write, log mirror lease/warmup/launch events at INFO.
-- **R1.a5 CONFIRMED** — sid-0x01 frames discarded during the prelude wait are logged at DEBUG. Fix (pending): WARN with flag and hex.
-- **R1.a6 CONFIRMED (low)** — the model's `preludeSeen`/`layoutCreated` persist across the sim transport's start/stop cycles, so the strict prelude model only bites on the first session. Fix (pending): `linkReset()` on disconnect for the sim transport and tee mirrors (page + prelude are per connection; leases and broken sessions persist — firmware RAM outlives a BLE link).
-- **R1.a7 CONFIRMED (low)** — `preludeMsgId` not reset at session entry. Fix (pending).
-- **R1.a8 CONFIRMED (low)** — `LaunchMsg.msgIdOf` reports a malformed payload as absent. Fix (pending): log distinctly.
-- Doc inconsistency noted by the reviewer: IMPLEMENTATION/HANDOFF say a failed `start()` bumps the epoch; the code sweeps without bumping (harmless). Fix: the docs.
+## The design-intent / accepted register (do not "fix" these)
 
-### R1.c — BlueZ glue (12 candidates, all verified against the unpacked library and bluetoothd sources)
+- **R1.e9** — the second click of a double-click is deliberately NOT a second tap (right-click
+  is the double-tap); documented in the replica page's help line.
+- **R1.f8** — `isQuiescent()`/`quiescenceReport()` read loop-confined state from test threads:
+  introspection only; a stale read is retried by the settle loops.
+- **R1.f6 → R2.d2-10** — a wheel-commit's own app's notice is auto-read and not shown as new;
+  tapping a box to OPEN its app is not "actively clearing", so the next box keeps its grace.
+- **R3.a3-8** — over the seam the client's `started` can flip true→false→true within one
+  message and a 250 ms poll landing inside the gap causes one spurious (self-healing)
+  reconnect. Two fixes were traced and REJECTED: ordering `started` from the link event opens a
+  stuck-driver window (worse), and posting from the collector can wait forever after a
+  conflated loss. Left as is; the keeper's comment says what holds over the seam.
+  *(2026-09-01 postscript: the related seam-start ordering flake was root-caused and closed —
+  the server now posts a fresh state snapshot before every startok, `HANDOFF.md` §22.)*
+- **R4-7** — the seam's unknown-id `done` guard has no direct test: no server path can produce
+  one; verified by reading.
+- **R5-3** — the watcher records a link-end reason only while the keeper is RUNNING, so the
+  narrated reason is always an end seen while driving (taken as an invariant, not a bug fix).
+- **R5-5** — only notices actually SHOWN count toward the per-tag error cap, so a burst yields
+  a steady three per gap and a genuinely new error is never hidden indefinitely.
+- **R5-6** — a reader descheduled across the whole of `stop()` could apply one stale state
+  frame; nothing polls in that window and the next `start()` overwrites it.
+- **R5-7** — no direct test for a superseded reader's buffered frames (cannot be provoked
+  deterministically over a real socket); `SeamSessionTest`'s restart covers the positive path.
 
-- **R1.c1 CONFIRMED** — dbus-java's 20 s default reply deadline on every call (a NO TIMEOUTS violation inherited from the library; an LE `Connect` may take the kernel's 20 s). Fix: `MethodCall.setDefaultTimeout(0)` in `BlueZDbus` init; a bus that ends completes pending calls with an error.
-- **R1.c2 CONFIRMED** — a per-arm failure after `Connect` left that arm connected (the path was registered only after all checks). Fix: registered immediately after connect; the rollback finds it. Test added (`aFailureOnTheSecondArmReleasesBoth`, and the MTU test asserts the release).
-- **R1.c3 CONFIRMED** — no cancellation point in the connect path (`withContext(IO)` around blocking calls, `Thread.sleep` poll). Fix: every link call in `runInterruptible(Dispatchers.IO)`, the services wait is a `delay()` poll over `probe()`, `ensureActive()` between arms; `disconnectLink` and `stopDiscovery` run under `NonCancellable`.
-- **R1.c4 CONFIRMED** — (a) the discovery loop never re-checked that discovery still ran; (b) BlueZ lists previously connected devices by name even when they are not advertising, so a remembered pair in the case would be connected to (20 s per attempt). Fix: `discovering()` checked each poll (loud failure otherwise); a peer matches only when seen by the current scan (`rssi != null`) or already connected. Test added (`aRememberedPairThatIsNotAdvertisingIsNotConnectedTo`).
-- **R1.c5 CONFIRMED** — the RSSI coroutine raced `running` and could persist across sessions; `DeviceManager` is not thread-safe. Fix: RSSI read on the maintenance tick (every 10th), DeviceManager map access behind one lock, blocking bus calls outside it.
-- **R1.c6 CONFIRMED** — the `BluezAlreadyConnectedException` catch was unreachable (bus errors arrive as `DBusExecutionException`); `isPowered()`/`getAdapter()` could throw NPE/IOOBE instead of the intended message. Fix: `Powered`/`Discovering`/`Connected`/`ServicesResolved` read via `Properties.Get` (an exception is an exception), adapter lookup wrapped with the intended message.
-- **R1.c7 CONFIRMED** — property read failures became `null`/`false` state. Fix: `probe()` throws on a failed read.
-- **R1.c8 CONFIRMED** — a `Connected=false` before `running` was dropped. Fix: recorded in `droppedDuringConnect` and checked per arm.
-- **R1.c9 CONFIRMED** — an exception in the signal handler ended on the executor's uncaught handler; handlers accumulated per stack rebuild. Fix: the handler body is wrapped and reports `Event.Failure` (→ `Fault("ble")`); `close()` unregisters; the process-wide bus stays open.
-- **R1.c10 CONFIRMED (low)** — double introspection per lookup. Fix: the redundant `findBtDevicesByIntrospection` dropped.
-- **R1.c11 CONFIRMED** — an unreadable MTU proceeded unchecked, against §8.2's "loud refusal otherwise". Fix: refused. Test added.
-- **R1.c12** — fake-vs-real gaps: tests added for the per-arm failure rollback and for our own disconnect's `Connected=false` not counting as a link loss; the fake now reports `discovering()`/`probe()` like the real link.
+## The texture-cache round (2026-08-30, CFW `a5d1c31`)
 
-### R1.e — replica server, page, desktop preview (12 candidates)
+Wire + byte-exact model review before any of it exists in the compositor. Kept verdicts:
 
-- **R1.e1 CONFIRMED** — `attach()` seeded `lastSent` with zeros and diffed, so black rows (or an all-black mirror) were never sent to a fresh or reconnecting page → stale rows shown as "online". Fix: both full panels on every attach; the page clears its canvases on open.
-- **R1.e2 CONFIRMED** — a page that sent no input never re-attached to a rebuilt mirror. Fix: `attach()` on the 1 Hz status tick (synchronized).
-- **R1.e3 CONFIRMED** — `switchTo` stopped the running stack before building the new one; a failing build left nothing driving and the reason unseen. Fix: build first, stop the old one only after construction succeeds, the failure shown in the strip and the page status; `stack` is an `AtomicReference`.
-- **R1.e4 CONFIRMED** — `lastSent` copied from the live buffer at a different instant than the frame → a lost update. Fix: frames are built at send time and `lastSent` records exactly the bytes sent.
-- **R1.e5 CONFIRMED** — key auto-repeat (page and Swing) turned a held Space into a stream of long-presses. Fix: `e.repeat` guard; a pressed-key set in the preview.
-- **R1.e6 CONFIRMED (medium confidence on browser deltas)** — the 100 px notch threshold dropped every other notch on Linux Chrome and ignored Firefox's line mode. Fix: per `deltaMode`; a notch-sized pixel event is one notch.
-- **R1.e7 CONFIRMED** — the strip `JLabel` cut long status text with "…" (NO TRUNCATION). Fix: a wrapping `JTextArea`, re-packed when its height changes.
-- **R1.e8 CONFIRMED** — an unbounded per-client queue of full frames. Fix: per-client dirty marks; the frame is built at send time from the live mirror against what the client last received; status coalesced.
-- **R1.e9 DESIGN INTENT** — the second click of a double-click is not a second tap (a deliberate trade; right-click is the double-tap). Documented in the page's help line; left as is.
-- **R1.e10 CONFIRMED** — closing the preview window exited without stopping the stack (state within the 2 s save debounce lost, lease left to expire). Fix: the close button and a shutdown hook run an orderly stop.
-- **R1.e11 CONFIRMED (low)** — the close handshake could race the sender; a dead `closedByUs` variable. Fix: the close frame is echoed synchronously; the variable removed.
-- **R1.e12 CONFIRMED (low)** — Chrome's favicon request logged a token warning. Fix: an empty icon link; the favicon path is not logged.
-- Incidental: the `SWEPT` constant holds a raw NUL byte, which makes `grep` treat the file as binary. Fix (pending, base edit): `"\u0000swept: "`.
-
-### R1.d — seam mirror stream + arbitration + keeper (12 candidates)
-
-- **R1.d1 CONFIRMED (design)** — the seam server ran `inner.start()` with `runBlocking` on its reader thread, so a client leaving mid-start (a lost arbitration) was never observed: the phone stayed paused with the driver slot held. And the race decided by completion time favoured PC-direct BLE whenever the phone was reachable (the seam path must pause the phone's shell and reconnect), against the contract. Fix: the server runs the inner start as a job and keeps reading (EOF/stop cancels it; the base's rollback disconnects); `PathTransport` holds a lower rank off entirely while a higher rank is ENGAGED (`Transport.engaged`: the seam client from the server's grant until its start completes or fails) and otherwise only a head start — the phone path wins by construction when reachable. Documented limit: a reachable phone that cannot itself see the glasses keeps the radio waiting (the status line says so). Test: `aLowerRankHoldsOffWhileAHigherRankIsEngaged`.
-- **R1.d2 CONFIRMED** — "every path disabled → keeper terminal" was not implemented (message mismatch). Fix: `PathTransport` throws `CapabilityRefused` when no path is left; consumers test the type. Test: the all-refused case in `PathTransportTest`.
-- **R1.d3 CONFIRMED** — unbounded outbox of raw panel bytes (~50–100× the flush payload), input/done queued behind them. Fix: per-arm marks, the frame built at send time against what the client last received, rows deflated (`Zl.deflate`), `rawLen` carried and checked; ordering preserved (the mark precedes the done). `SeamMirrorTest` still passes (equality after every flush, panel before done).
-- **R1.d4 CONFIRMED** — same as a2/b2 (cancelled attempt skipped its disconnect). Fix: rollback and stop under `NonCancellable` in the base; the two glues' `disconnectLink` as well.
-- **R1.d5 CONFIRMED** — the keeper's `pause`/`stop` cancelled the loop while it could be inside `shell.stop()`, leaving the shell stopped and the transport started for good. Fix (pending the shell report): the keeper's own stops under `NonCancellable`.
-- **R1.d6 CONFIRMED** — forwarders launched dispatched; start-time events never forwarded. Fix: `UNDISPATCHED` launches; `Link(true)`/`Lease` re-emitted after attaching.
-- **R1.d7 CONFIRMED** — client-side `rows × stride` could overflow; two policies for a malformed panel. Fix: `readCtl` validates `y0`, `rows`, `rawLen`; an inflate/size failure is a `Fault("seam")`.
-- **R1.d8** — torn reads: confirmed safe (the diff runs under the sim's monitor on the listener path; the initial push self-heals).
-- **R1.d9 CONFIRMED (low)** — `post()`'s catch was unreachable (`trySend` does not throw). Fix: the result is checked; a refused post is logged.
-- **R1.d10 CONFIRMED (low)** — the keeper counts its own `stop()`'s `Link(false)`. Fix (pending): a `stopping` flag in the watcher.
-- **R1.d11 CONFIRMED** — no `TCP_NODELAY`/`SO_KEEPALIVE`, no client-side stall report. Fix: both options on both ends; the client reports a `Fault("stall")` when a submitted flush has no done for 10 s (a report, nothing cancelled).
-- **R1.d12 CONFIRMED (low)** — a failed start's close logged as a link error; `_state` read-copy-update. Fix: `closing=true` before the close; `updateState` under a lock.
-
-### R1.b — phone BLE glue + service (12 candidates)
-
-- **R1.b1** = a1 (typed refusal).
-- **R1.b2 CONFIRMED** — a cancelled BLE start left both GATT connections open (Nordic's `.suspend()` on a cancelled continuation drops the request before it is enqueued), and the next scan then waited for lenses connected to us. Fix: `disconnectLink` under `NonCancellable`; any manager still connected at the start of `connectLink` is ended first.
-- **R1.b3 CONFIRMED (AOSP `ScanManager`)** — an unfiltered scan does not run with the screen off, so a pocket-time link loss was only recovered when the screen came on. Fix: the scan is filtered on the remembered pair's addresses and advertised names (persisted in Prefs) whenever a pair is remembered; unfiltered only for a pair never seen, and the status says it needs the screen on.
-- **R1.b4 CONFIRMED** — two keeper loops after a takeover ended (`kick()` unserialised, `loop` not volatile). Fix (pending the shell report): synchronized `kick`, volatile `loop`, `resume` clears `paused` inside it.
-- **R1.b5** = d1.
-- **R1.b6 CONFIRMED** — the RSSI poll raced `running` and could persist across sessions. Fix: read on the maintenance tick (non-blocking request with a callback).
-- **R1.b7 CONFIRMED** — a target switch during a rebuild was dropped. Fix: queued and applied when the rebuild finishes.
-- **R1.b8 CONFIRMED** — no `Log` sink on the phone: warnings and errors only reached stdout. Fix: a sink forwards everything to logcat and errors to an urgent notification, rate-limited per tag (10 s).
-- **R1.b9 CONFIRMED (low)** — an unknown MTU (-1) proceeded on an assumption. Fix: the manager's own value decides, and is refused below 245.
-- **R1.b10 CONFIRMED (low)** — a RIGHT drop while LEFT connected was detected only at the prelude write. Fix: both managers are checked after the loop.
-- **R1.b11 CONFIRMED** — "scanning"/"connecting" never reached the status line. Fix: `LinkState.detail` (set by the base at each start step and by both glues during scan/connect; carried over the seam), shown by the phone's status/notification (2 s refresh), the desktop strip and the replica page's note.
-- **R1.b12 CONFIRMED (low)** — `stopStack` closed the seam server before taking the keeper out. Fix: the keeper and shell are taken out first.
-
-### R1.f — shell changes (8 candidates + 4 confirmations)
-
-- **R1.f1 CONFIRMED** — the divergence check read the live mirror buffer with no synchronisation; a fail-open tick repainting the model's panel during the read could raise a false episode. Fix: `LensPanels.snapshot(arm)` (a copy under the mirror's lock; every implementation) and the check compares the snapshot.
-- **R1.f2 CONFIRMED** — no backoff for recurring episodes (one urgent notice + one full keyframe per settle, unbounded). Fix: after 3 episodes without a quiet stretch (10 agreeing checks) the report stays on the status bar (`DIVERGE xN`) with no further notices or keyframes.
-- **R1.f3** = d10 — the keeper counted its own stop. Fix: `selfStopping` around the keeper's stops (with d5's `NonCancellable`).
-- **R1.f4 ALREADY FIXED by a4** — hardware transports derive `leaseHeld` from the mirror's fail-open model on the tick and emit `Lease(false)`; the reviewer read the pre-fix file.
-- **R1.f5 CONFIRMED (low)** — the scan divided per pixel over 614k pixels on the shell loop. Fix: a 256-entry level table, an early-out first-difference scan (the count only when an episode is new).
-- **R1.f6 DESIGN CALL, taken** — a notice that waited behind the wheel was shown and at once marked read when the commit target was its app. Decision: commit first (§4.5's auto-read applies), then show the next UNREAD notice (`Notifications.show()` skips read ones) — a box for the app just entered is not shown as new.
-- **R1.f7 CONFIRMED (low)** — `allEntries[i]` unguarded; a restored cursor beyond a shrunken host list. Fix: `getOrNull` guards, the cursor clamped on restore.
-- **R1.f8 ACCEPTED** — `isQuiescent()`/`quiescenceReport()` read loop-confined state from test threads (introspection only; a stale read is retried by the settle loops). Documented, not changed.
-- f9–f12: confirmed correct (the keyframe after a divergence lands through the normal pump; the furl branch of decision 6 is unreachable but harmless; the wheel-open grace guard is dead but harmless; host-row identity and the quantiser are right).
-
-**Round 1 summary.** 64 candidates across six reports; 58 confirmed and fixed in this round (the
-arbitration's decision rule and the seam server's start were the two design-level ones), two
-design calls taken, two accepted as-is, one already fixed by a sibling fix, one documentation
-inconsistency corrected. Tests added: BlueZ (4 new), PathTransport (2 new), the seam and shell
-tests re-run green. Round 2 follows on the areas that changed.
-
-## Round 2 (2026-08-25, after commit 82dd814)
-
-Four fresh reviewers on the areas round 1 changed, each pointed at `git diff 926b267..82dd814`
-for their files so regressions introduced by the fixes get the same scrutiny: (a2) transport
-base + keeper + arbitration interplay, (b2) seam client/server + replica server + page,
-(c2) both radio glues against the library sources, (d2) shell + settings + preview + main.
-
-### R2.d2 — shell, settings, preview, main (10 candidates)
-
-- **R2.d2-1 CONFIRMED** — the strip's fixed `preferredSize` made the re-pack condition unreachable (text past two lines cut — a NO TRUNCATION regression of R1.e7). Fix: the strip pins only its width (`getPreferredSize` override); the frame re-packs when the wrapped height differs from the laid-out height.
-- **R2.d2-2 CONFIRMED** — a second close click (or a signal during the stop) ended the process before the orderly stop completed. Fix: a latch — a second `endOrderly` waits for the first; the window ignores a second close while one is in progress and says the stop can take a few seconds.
-- **R2.d2-3 CONFIRMED** — divergence bookkeeping survived a shell restart (a new session's first disagreement unreported; a stale report on the hosts' lines). Fix: reset at `start()`.
-- **R2.d2-4 CONFIRMED** — a key held across a focus change stayed "down". Fix: `focusLost` clears the pressed set.
-- **R2.d2-5 CONFIRMED (low)** — the "stopping" text was replaced by the 500 ms refresh. Fix: a `closing` flag.
-- **R2.d2-6 CONFIRMED** — read notices stayed in the queue (badge and persisted count included them). Fix: `markAppRead` removes the app's queued notices.
-- **R2.d2-7 CONFIRMED (low)** — a failing old stop left the new stack unstarted. Fix: the old stop is caught separately; the new stack starts regardless.
-- **R2.d2-8** — tests added: a notice for the app the wheel commits to is not shown as new; recurring divergence episodes stop keyframing after three (`DIVERGE x4` sticky).
-- **R2.d2-9 CONFIRMED (very low)** — the blank-row guard now logs.
-- **R2.d2-10 DESIGN CALL, taken** — tapping a box to open its app counted as "actively clearing", so the next box appeared focused without its grace. Decision: opening is not clearing (`dismiss(clearing = false)` on that path); §4.5 rule 1 applies.
-
-### R2.a2 — base, keeper, arbitration interplay (4 candidates)
-
-- **R2.a2-1 CONFIRMED** — a race winner could be left started and untracked when `start()` was cancelled while the losers finished their non-cancellable rollbacks (`coroutineScope` waits for the children and then discards the value). Fix: the result deferred lives outside the scope; if `start()` ends by exception after a candidate completed, that candidate is stopped under `NonCancellable` before the exception propagates.
-- **R2.a2-2 CONFIRMED** — the keeper's start catch swallowed `CancellationException` (wrong narration and a `WAITING` state racing `PAUSED`). Fix: cancellation passes through.
-- **R2.a2-3 CONFIRMED** — a transient `selfStopping` flag could not mask an asynchronously delivered `Link(false)`; the event count could restart a resumed session spuriously. Fix: the restart decision no longer depends on events at all — the running loop polls the transport's `started` (only the keeper can set it true again); the watcher narrates only, gated on `wanted`.
-- **R2.a2-4 CONFIRMED (latent)** — `stop()`'s final `Link(false)` used the suspending `emit` outside the non-cancellable block. Fix: inside it, `tryEmit` with a loud drop.
-- Clean: the lease derivation cannot fire spuriously (the awaited initial ACQUIRE precedes `started`); renewal timing; the prelude gate; the other two race legs; keeper monitor re-entrancy; no timeouts.
-
-### R2.b2 — seam client/server, replica server, page (8 candidates)
-
-- **R2.b2-1 CONFIRMED** — a seam link loss (or stop) never failed the outstanding flushes: the shell kept stale in-flight entries for the rest of the process, never rolled those cells back, and the divergence check stayed disabled (`inflightFlushes` never empty). Fix: `failOutstanding()` — every pending submit is answered `FlushDone(ok=false)` on link loss and on stop, the seam-side equivalent of the base's session sweep.
-- **R2.b2-2 CONFIRMED** — `attach()` after `close()` could re-subscribe a closed client's listener (a leak per occurrence). Fix: `attach()` returns when the client is closed.
-- **R2.b2-3 CONFIRMED (low)** — `stallWatch`/`sock`/`out` shared without visibility. Fix: `@Volatile`.
-- **R2.b2-4 CONFIRMED (hardening)** — the server's sender caught only `IOException`; another exception would reach the host's scope (on Android, the process). Fix: cancellation rethrown, anything else ends the session loudly.
-- **R2.b2-5 CONFIRMED** — a dead accumulator clamp; large-delta trackpad events produced unbounded bursts. Fix: at most one notch per 40 ms from the notch-sized branch.
-- **R2.b2-6 CONFIRMED (low)** — strip buttons kept focus; the help line omitted R/Tab/B. Fix: buttons blur after a click; help line complete.
-- **R2.b2-7** — two comments described the previous implementation (the round-1 torn-read argument in this file and a test comment). Corrected: the seam's diff now runs on the sender against the live buffer, and is safe because `buildPanel` clears the mark before reading and a present that overlaps the read fires the listener after its copy, queuing a new mark that re-diffs against exactly the bytes sent.
-- **R2.b2-8 CONFIRMED (very low)** — a binary frame from the page was dropped without a line. Fix: logged.
-- Clean: ordering (panel mark before done, on the sim and tee paths), `markQueued`/`fullNext`, the start job and driver-loss path, the stall watcher's shape, the deflate bound (measured: worst overhead 56 B against +1024), replica locking.
-
-### R2.c2 — both radio glues (8 candidates, verified against the library, bluetoothd and AOSP sources)
-
-- **R2.c2-1 CONFIRMED** — the desktop glue lacked the post-loop both-arms check the phone got in round 1 (a RIGHT drop during LEFT's setup was only recorded). Fix: `droppedDuringConnect` is checked after the loop, naming the arm.
-- **R2.c2-2 CONFIRMED** — the D-Bus signal handler (and the stack it references) leaked on every target switch: `BlueZDbus.close()` had no runtime caller. Fix: `BlueZTransport.close()`; `DesktopStack.stop()` closes every BlueZ transport, including the arbitration's candidates (`PathTransport.paths`).
-- **R2.c2-3 CONFIRMED (low)** — the phone's pre-disconnect caught `CancellationException`. Fix: rethrown.
-- **R2.c2-4 CONFIRMED** — the phone's `Log` sink was added on every `onCreate` with no removal (a recreated service doubled error notifications). Fix: `Log.removeSink`; one sink per service, removed on destroy.
-- **R2.c2-5 CONFIRMED (low, bytecode-verified)** — the priority request inside Nordic's atomic queue would cancel the MTU and notification requests on failure, producing a confusing MTU refusal. Fix: the priority request stands alone; MTU + notifications stay atomic.
-- **R2.c2-6 CONFIRMED (low)** — the desktop RSSI read ran on the maintenance coroutine outside the IO context. Fix: launched on the scope through `io {}`.
-- **R2.c2-7 CONFIRMED (low)** — a single failure could raise two urgent notifications (direct + via the sink). Fix: those paths log once; the sink raises the notice, rate-limited per tag.
-- **R2.c2-8 (test quality)** — `ourOwnDisconnectIsNotALinkLoss` passed through the `running` guard only. Extended: a stranger's `Connected=false` while running is ignored (the arm map is the filter).
-- Clean: dbus-java unwrapping of `Get` results, the indefinite reply wait, the raw handles the glue calls, cancellation/rollback under `NonCancellable`, the `seenNow` arbitration cases, Android's scan-filter/address contracts, Nordic's `getMtu`/off-thread `enqueue`.
-
-**Round 2 summary.** 30 candidates across four reports: 26 confirmed and fixed (the largest: a race winner that could be leaked when `start()` was cancelled during the losers' rollbacks; outstanding seam flushes never failed on a link loss; the strip's re-pack unreachable; the desktop glue's missing both-arms check and handler leak), two design calls taken (d2-10, and f6's follow-through), one test-quality item addressed, one comment corrected. Core 73 tests + desktop 8 green. Round 3: a compact pass on the round-2 diff.
-
-## Round 3 (2026-08-25, after commit 66ed069)
-
-Two compact reviewers on the round-2 diff: (a3) core + desktop, (b3) phone + page.
-
-### R3.b3 — phone glue, service, Log, page (7 candidates)
-
-- **R3.b3-1 CONFIRMED** — the log sink was removed in `onDestroy` before the asynchronous stop ran, so a failure in the final save or the disconnect lost its notification. Fix: the sink is removed in the shutdown thread's `finally`, after the stop.
-- **R3.b3-2 CONFIRMED (low)** — a queued target switch could be dropped in a narrow race, and a failed build (no keeper) made `switchTarget` answer "already running". Fix: the coalesced branch drains the queue itself when the runner has already finished; a missing keeper counts as not running.
-- **R3.b3-3 CONFIRMED** — the wheel's rate limit covered only the notch-sized branch; sub-notch trackpad deltas could still burst. Fix: every branch emits at most one notch per 40 ms and the accumulator is clamped to ±1.5.
-- **R3.b3-4 CONFIRMED (low)** — per-tag rate limiting hid a different error under the same tag within 10 s; the rebuild-failure path no longer refreshed the ongoing notification. Fix: the limiter is keyed on the message with its numbers removed; the notification is updated.
-- **R3.b3-5 CONFIRMED (very low)** — `${e.message}` could be null. Fix: the Throwable overload.
-- **R3.b3-6 DOC** — the Nordic mechanism cited in a comment was not the one that applies (a failed child ends the queue through `notifyFail`/`hasMore`, not `cancelQueue`); reworded, and a stale `.done` text fixed.
-- **R3.b3-7 CONFIRMED (very low)** — single-character keys are now case-insensitive; Esc listed in the help.
-- Clean (bytecode-verified): the standalone priority request lands in Nordic's init queue in order before the atomic MTU + notifications queue, and its failure cannot end that queue; the cancellation rethrow; round-1 items b2/b3/b9 still hold; `Log.removeSink` is safe under concurrent emits; the page's script passes `node --check`.
-
-### R3.a3 — core + desktop: arbitration, keeper, seam, replica, shell, preview, glue (8 candidates)
-
-- **R3.a3-1 TEST DEBT, paid** — the three largest round-2 fixes were verified by reading only. Tests added: a `PathTransport.start()` cancelled while a loser's rollback still runs stops the completed winner and leaves the path usable (`PathTransportTest`); a seam that ends with a flush outstanding answers it `FlushDone(ok=false)` with the reason, exactly once, BEFORE the link-down, and a far-end link loss lowers the client's `started`, is reported with its reason, and the same client reconnects (`SeamSessionTest`, new); the first arm dropping during the second arm's setup fails the start naming the arm and releases both (`BlueZTransportTest`).
-- **R3.a3-2 CONFIRMED (low)** — a `done` still in the socket buffer when `stop()` had failed the outstanding flushes reached the shell as a second completion, and a `done` for an id never issued was forwarded as real. Fix: the remove result decides — an id not outstanding is ignored with a line.
-- **R3.a3-3 CONFIRMED (cosmetic)** — `selfStopping` was reset before the watcher coroutine ran, so the keeper's own stop could still be narrated "link ended: … stopped". Fix: narration is gated on the keeper's state (STARTING or RUNNING); every keeper stop sets WAITING / PAUSED / STOPPED under the lock before it stops the shell. `selfStopping` removed.
-- **R3.a3-4 CONFIRMED (bounded-resource note)** — RSSI reads launched one coroutine per 10th tick with no in-flight guard; a bus that stops answering would park IO threads until every other link call waited behind them; the catch also swallowed cancellation. Fix: one read in flight (a due read while one is unanswered is skipped with a line); cancellation rethrown.
-- **R3.a3-5 DOC** — `HANDOFF.md` §8.2 still described the keeper as event-driven. Fixed in place, plus amendments 9–11 (keeper restart source and narration gate; the seam answers each flush once; one RSSI read at a time).
-- **R3.a3-6 CONFIRMED (latent)** — the closing text was set after the Timer's `closing` return, so it never reached the strip's re-pack; a wrap to a second line would have been outside the strip (NO TRUNCATION). Fix: the height check runs whether or not the strip is closing; only the text refresh stops.
-- **R3.a3-7 CONFIRMED (very low)** — `divergencesReported` is documented per session but survived a restart. Fix: reset with the rest of the divergence state.
-- **R3.a3-8 ACCEPTED (theoretical)** — over the seam, the server's state collector can read a value from just before the inner start completed and post it after `started`; the client's `started` would flip true → false → true within one message, and the keeper's 250 ms poll would have to land inside that gap to restart spuriously (a plain reconnect, self-healing). Two fixes were traced and rejected: lowering `started` only from the ordered link event opens a different window in which a `link(false)` routed between the `started` control and the client's own `started=true` write leaves `started` high for good (a stuck driver, persistent — worse than a rare reconnect); posting `started` from the collector when it observes `started=true` can wait forever when a loss right after the start conflates the true value away. Left as is; the keeper's comment now says what holds over the seam.
-- Clean, with traces recorded in the report: the hoisted `result` and the `getCompleted()` guard (for a deferred completed exceptionally `isCancelled` is true, so the first guard already excludes it); every link-loss path reaches the keeper's poll (base, seam client, arbitration forwarder attached `UNDISPATCHED`); `CfwTransportBase.stop()`'s braces (the final `updateState` + `tryEmit` are inside `NonCancellable`); `failOutstanding` ordering from `down()`; `ReplicaServer.attach()`/`close()` interleavings; the divergence reset precedes `transport.start()`; `dismissNotice(clearing=false)` on tap-to-open; `commitSwitcher` ordering; `Notifications` queue/badge/restore; `SettingsWindow.restoreState` sees the host rows; `Preview`'s first pack and non-oscillating re-pack; `Main`'s `ended` latch in both orders, the stop chain bounded by lane progress, `BlueZDbus.close()` per instance; `BlueZTransport`'s post-loop check, `close()`, stale-path RSSI; the three round-2 tests.
-
-**Round 3 summary.** 15 candidates across two compact reports: 12 confirmed and fixed (the phone's sink lifetime and queued target switch, the page's wheel gate for every branch, the seam's `done` answered once, the keeper's narration gate, one RSSI read in flight, the closing text's re-pack, the divergence count per session), one doc entry each side, one test-debt item paid with four regression tests (a cancelled arbitration after the winner completed; a seam ending mid-flush; a far-end link loss over the seam; the first arm dropping during the second arm's setup), one accepted as theoretical with the two candidate fixes traced and rejected (a3-8). Core 70 tests + desktop 9 green; selfcheck 28; snapshots; epub 57/57; lint 0; APK + fat jar. Round 4: one compact reviewer on the round-3 diff.
-
-## Round 4 (2026-08-25, after commit 61e3bb8)
-
-One compact reviewer on the round-3 diff (`git diff 66ed069`), all areas.
-
-### R4 — keeper, seam client, page, phone service, tests (8 candidates)
-
-- **R4-1 CONFIRMED** — the round-3 narration gate depended on the watcher's dispatch timing: `onLinkDown` lowers `started` before it emits `Link(false)`, so a poll waking in that window set WAITING first and the genuine end went un-narrated (and `ShellKeeperTest` line 76 became timing-dependent). Fix: the loop narrates the link end itself, at the decision, with the reason the last `Link(false)` carried (the watcher only records it; one `yield()` lets it catch up; the reason is cleared per attempt). The keeper's own stops never reach that line. HANDOFF amendment 9 reworded.
-- **R4-2 CONFIRMED (low)** — `route()` had no session check: a reader from a superseded session still routed the frames its stream had buffered when `stop()` closed the socket (a stale `state{started=true}`, a stale panel over fresh rows, a dead session's events). Fix: the reader passes its session; frames from a superseded session are ignored with a line. Amendment 12.
-- **R4-3 CONFIRMED** — the lowercase key mapping extended the page's capture to Ctrl+Shift+R (a stray `release`, no hard reload) and Ctrl+B; Ctrl+R was already captured. Fix: modifier chords return before anything else.
-- **R4-4 CONFIRMED** — (a) a residue of the other sign (a coalesced line-mode event leaves 0.5) absorbed a deliberate single notch; (b) a notch-sized step skipped by the 40 ms gate stayed banked as ±1 and surfaced later on a small trackpad delta. Fix: a direction change resets the accumulator; a notch-sized step is sent or dropped, never kept. Amendment 13.
-- **R4-5 CONFIRMED (low)** — `startStack` records `runningTarget` before anything that can fail, so the two queued-switch drains (which compared targets only) skipped a queued switch to a target whose build had just failed, while `switchTarget` would have rebuilt it. Fix: one predicate `isRunning(target)` (target up, keeper present, not terminal) used by all three.
-- **R4-6 CONFIRMED (low)** — the round-3 limiter key never evicted, and messages whose variable part is not numeric each raised a notice. Fix: entries older than the gap are dropped on every error; a tag raises at most three distinct notices per gap, the rest say so in logcat.
-- **R4-7 COVERAGE NOTE, accepted** — the a3-2 `done` guard is exercised by no test: no server path can produce a `done` for an unknown id, and `route()` is private. Verified by reading (three lines).
-- **R4-8 CONFIRMED (cosmetic)** — three self-caused link ends still passed the STARTING half of the round-3 gate (a failed `--remote` start's socket close, `Shell.startLocked`'s own stop after a failed assembly, the takeover release). Retired by the R4-1 fix: only the loop's own poll narrates.
-- Wording: nothing outside plain engineering prose; "narrate" is established project vocabulary.
-- Clean (traces in the report): every `Link(false)` emitter against the keeper's states; `pendingSubmits` set before any server answer, the server's own failure answers still reach the shell; `rssiInFlight` cleared on every exit; the closing text kept and the re-pack non-oscillating; the divergence reset before the loop; the phone's sink lifetime and the queued-switch CAS (no double apply); the page's `preventDefault` coverage; the three round-3 tests sound and not timing-sensitive (margins: 100 ms inside a 1 s rollback; 5 s waits on a loopback socket; no timing in the BlueZ test); doc counts match the sources (70 / 9 / 2).
-
-## Round 5 (2026-08-25, after commit 59020ad)
-
-One compact reviewer on the round-4 diff (`git diff 61e3bb8`). **Clean on the code**: no defect found; one stale doc sentence, two comment tidies, four builder's-choice items.
-
-### R5 — keeper, seam client, page, phone service, docs (7 candidates)
-
-- **R5-1 DOC** — the §8.2 keeper paragraph still said "`Link(false)` events narrate only" while citing the rewritten amendment 9. Fixed in place.
-- **R5-2 DOC** — `kick()`'s comment named a watcher kick that has not existed since round 2. Reworded.
-- **R5-3 THEORETICAL, taken** — the recorded link-end reason could in principle be a stale one from during a start that then succeeded; no emitter does that today (every one traced). Taken anyway as an invariant: the watcher records the reason only while the keeper is RUNNING, so the narrated reason is always an end seen while driving. A watcher catching up during the `yield()` still records (the state changes only after the narration).
-- **R5-4 CONFIRMED (very low), fixed** — `keeper` was read off-thread by `isRunning` without `@Volatile`; a stale null could only cause a redundant rebuild of the same target, never a misroute. `@Volatile` added.
-- **R5-5 DESIGN CALL, taken** — capped keys counted toward the per-tag cap, so a sustained burst of distinct error texts would show three notices and then none for the burst's whole length, including a genuinely new error under that tag. Decision: only notices actually shown count; each shown one frees its slot as it ages out of the gap, so a burst yields a steady three per gap and a new error is never hidden indefinitely (`ErrorSeen(at, notified)`).
-- **R5-6 THEORETICAL, accepted** — a reader that passed the session check and was descheduled across the whole of `stop()` could apply one stale state frame; nothing polls the client's state in that window and the next `start()` overwrites it.
-- **R5-7 COVERAGE NOTE, accepted** — no direct test for R4-2 (a superseded reader's buffered frames); the buffered-but-unrouted condition cannot be provoked deterministically over a real socket. `SeamSessionTest`'s restart already exercises the positive direction, and R4-2 removed a latent flake in it (a stale `state{started=false}` from the old reader). The `session` doc comment now mentions routed frames too.
-- Wording: plain throughout.
-- Clean (traces in the report): `stop()`/`pause()`/`resume()`/restart/genuine loss — exactly one "link ended" per genuine loss, none for a keeper stop; `lastLinkEnd` placement; `yield()` bounded like the existing `delay(250)`; `ShellKeeperTest` deterministic; the seam session predicate on both paths (frames and EOF), current-session `started`/`startfail` always heard, no concurrent start/stop reachable; the five wheel sequences (one notch each way, the coalesced event then a reversal, the gated second notch dropped not banked, the trackpad flick, the horizontal-only event); the chord return; `isRunning` interleavings; the limiter's concurrency (`removeIf` on a `ConcurrentHashMap`, `putIfAbsent`, no recursion through the platform logger); REVIEW/HANDOFF prose matches the code.
-
-**Review loop closed.** Five rounds: 64 + 30 + 15 + 8 + 7 = 124 candidates; 58 + 26 + 12 + 6 + 2 = 104 confirmed and fixed, 5 design calls taken, 6 accepted as theoretical or test-only with the trace recorded, the rest doc/comment corrections and coverage notes; five regression tests added in rounds 2–3. Round 5 found no defect in the code; the finishing build's review phase ends here.
-
----
-
-# Review log — the texture-cache adoption (2026-08-30, CFW `a5d1c31`)
-
-One round, two fresh reviewers reading the C source against the new Kotlin: one on the wire
-encoders (`CfwModes`, `TextureCache`, `Codec`), one on the firmware model and the tests. 14
-candidates, **12 taken**. Two reviewers independently found the same top two defects, which is
-what gave them their weight.
-
-### T1.1 sim/lease — FB_RELEASE did not free the texture cache  🔴 CONFIRMED, fixed
-- candidate: `settings_ext.c:258-262` releases the cache on `FACECLAW_OP_FB_RELEASE`; the model
-  only zeroed the deadline. Reached on Damage's own `stop()`/`start()` cycle
-  (`CfwTransportBase.kt:613` releases, `:478` re-acquires), and the mirror tees every packet, so
-  it is the live belief and not only a test fixture.
-- verification: read both call sites; the model's only two release points were `tick()` and mode
-  11, and `tick()` is guarded on a non-zero deadline that the release had just cleared.
-- verdict: CONFIRMED, and in the dangerous direction — the model would paint a glyph the firmware
-  had silently rejected.
-- fix: the release branch frees the cache.
-
-### T1.2 sim/lease — a FRESH acquire after a lapse did not free it either  🔴 CONFIRMED, fixed
-- candidate: `settings_ext.c:249-257` — "a fresh lease must earn preservation with a newly
-  presented direct frame; a renewal keeps the current one." The model re-armed the deadline
-  unconditionally. The reconnect-after-90 s case: mode 3/6 keep painting while every cached draw
-  silently vanishes, so the failure is *partial and mode-selective*, the worst shape.
-- verdict: CONFIRMED.
-- fix: a fresh acquire (no lease, or one already lapsed) frees the cache; a renewal keeps it.
-
-### T1.3 sim/lease — noticing a lapse is itself a release point  CONFIRMED, fixed
-- candidate: `cfw_fb_lease_active()` frees on the call that detects expiry, so a model that only
-  frees in `tick()` keeps an atlas the firmware dropped whenever time advances by message
-  timestamps instead.
-- fix: one `fbLeaseActive(arm, now)` helper mirroring the C, used by modes 12/13/14 and by both
-  settings ops; `leaseHeld` delegates to it. The deadline is deliberately left standing so
-  `tick()` still models stock's repaint exactly once.
-
-### T1.4 tests — the `forceLease` seam made T1.1–T1.3 untestable by construction  CONFIRMED, fixed
-- candidate: every model test set the deadline directly, which encodes *renewal* semantics for
-  what callers meant as *acquire*; nothing ever drove `settings()` with a real acquire/release.
-- fix: three tests that send the firmware genuine lease control messages
-  (`releasingTheLeaseFreesTheCache…`, `aFreshAcquireAfterALapse…`, `noticingALapse…`).
-
-### T1.5 wire/TextureCache — `layout()` emitted the x-adjust before the wrong glyph  CONFIRMED, fixed
-- candidate: `texture_cache.c:325-339` applies an adjust and *then* draws, so a trailing advance
-  correction emitted before its character displaces the whole string right — and contradicted the
-  hand-built expectation in our own test. `layout()` had no callers, which is why it was green.
-- fix: rewritten (see T1.6).
-
-### T1.6 wire/TextureCache — `layout()` ignored its font and trusted a caller's width  CONFIRMED, fixed
-- candidate: mode 14's advance *is* the cached image width (`texture_cache.c:338`), but `Font`
-  stored only offsets and `layout()` took `widthOf`/`advance` lambdas that could disagree with the
-  atlas. A caller passing metric advances against ink-box images misplaces every glyph, silently.
-- fix: the design was wrong, not just the code. `Font` now carries `glyphWidths` from the atlas and
-  offers `width()`/`measure()`; `layout(text, font, kern)` takes no widths at all. Glyph images are
-  documented as **advance-width boxes** — bake side bearings in as blank columns, which cost one
-  RLE run each and, transparent, paint nothing — leaving the inline adjust bytes for kerning,
-  which is where the firmware actually applies them.
-
-### T1.7 sim — a mode-15 sub-message reported a firmware rejection  CONFIRMED, fixed
-- candidate: the batch gate admits 15 (correctly — the firmware accepts it), then the mode-15
-  handler fails and the batch reports "sub FAILED", which misdescribes hardware that would have
-  drawn it.
-- fix: the batch loop names mode 15 explicitly and says the MODEL stopped, not the firmware.
-
-### T1.8 sim — the settings READ response omitted field 104  CONFIRMED, fixed
-- candidate: `settings_ext.c:365-366` appends the 21-byte mic read-back to every response. We had
-  just written a warning that field 100 is no longer last, but the model — the only thing that
-  could catch such a parser — did not produce the trailing field.
-- fix: modeled for shape (`micStatusBody()`), plus `SettingsMsg.MIC_STATUS_FIELD`.
-
-### T1.9 sim — `imageAt` caught `Exception`  CONFIRMED, fixed
-- candidate: a model indexing defect would come back dressed as a firmware rejection — the
-  opposite of LOUD AND PROUD. Narrowed to `IllegalStateException`.
-
-### T1.10 sim — `cfwDiag` never set `diagSeen`  CONFIRMED (pre-existing, inert), fixed
-- `debug.c:79` sets it on entry, before the `has_fid` branch. Overlay-only, but a modeled field
-  that could never hold the firmware's value. One line.
-
-### T1.11 wire — `cacheUpdate()` had no total-message bound  CONFIRMED, fixed
-- candidate: a message past the reassembly ceiling is DROPPED with only a sticky `f_snap_of` to
-  show for it. Every other path here is bounded. Now bounded to `MODE8_MAX`.
-
-### T1.12 wire — draws whose origin is already off-panel were accepted  CONFIRMED, fixed
-- candidate: the firmware clips them away entirely and still charges a message and an ack. Partial
-  right/bottom clipping stays legal; an origin past the panel now raises.
-
-### T1.13 sim — no warning for a cached draw onto an unseeded shadow  TAKEN
-- The firmware imposes no keyframe requirement on 13/14, but `present_shadow` pushes the whole
-  panel, and on glass the shadow is the container's display buffer A holding whatever was there
-  before — where the model starts at zeroes. It would look right in the sim and wrong on glass.
-  The model now says so.
-
-### T1.14 INFO, recorded not fixed — mode 14 burns one overlay rect per glyph
-- `texture_cache.c:337` calls `cfw_texture_add_rect` per glyph against `CFW_RECT_MAX = 16`
-  (`debug.c:100`), which drops silently past 16. Harmless to the pixels — `present_shadow` queues a
-  full-panel refresh regardless — but with the diagnostic overlay on at first light, any string
-  over ~16 glyphs makes the region outlines incomplete. **Do not diagnose that as a firmware
-  fault.** Recorded in `REMINDER.md`'s first-light notes rather than worked around.
-
-**Clean, verified rather than assumed:** every mode 12/13/14 field offset, width and LE order; mode
-13's exact-8-byte total and mode 14's `8 + strlen`; the `[w][h][RLE]` format with no row pad; the
-escape forms including zero-count rejection; the LUT's integer truncation and the pre-LUT
-transparency test; nibble packing (even x = high nibble); validate-all-before-draw-any; the
-duplicate-fid skip still returning success so it cannot abort a batch; `MODE8_MAX` still equal to
-`bmp_max`; the untouched packed-row `Rle.encode`/`decode`; and no Byte sign-extension defect
-anywhere in the new code.
-
-Battery after the round: **122 tests**, selfcheck all-pass, lint 0, epub 57/57, APK builds.
+- **T1.13 TAKEN** — the firmware imposes no keyframe requirement on modes 13/14, but on glass
+  `present_shadow` pushes a display buffer holding whatever was there before, where the model
+  starts at zeroes: it would look right in the sim and wrong on glass. The model now says so.
+- **T1.14 RECORDED, not fixed** — mode 14 burns one overlay rect per glyph against
+  `CFW_RECT_MAX = 16`, which drops silently past 16. Harmless to the pixels; with the
+  diagnostic overlay on, any string over ~16 glyphs shows incomplete region OUTLINES. **Do not
+  diagnose that as a firmware fault** (`REMINDER.md` item 19 carries the warning).
+- **Clean, verified rather than assumed:** every mode 12/13/14 field offset and LE order; mode
+  13's exact-8-byte total and mode 14's `8 + strlen`; the `[w][h][RLE]` no-row-pad format; the
+  escape forms including zero-count rejection; the LUT's integer truncation and pre-LUT
+  transparency; nibble packing; validate-all-before-draw-any; the duplicate-fid skip returning
+  success so it cannot abort a batch; no Byte sign-extension defect anywhere in the new code.

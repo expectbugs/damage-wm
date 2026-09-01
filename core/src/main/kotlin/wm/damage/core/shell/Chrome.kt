@@ -209,9 +209,16 @@ class Chrome(
 
     private fun paintClock(g: Gray8, l: Layout, s: State) {
         g.fillRect(l.clockCell, Level.BG)
-        draw(g, l.clockCell.x + 4, l.clockCell.y + 6, s.clock, Level.HEAD, fChromeB)
-        if (s.clockAmPm.isNotEmpty())
-            draw(g, l.clockCell.x + 52, l.clockCell.y + 8, s.clockAmPm, Level.DIM, fTiny)
+        paintClockText(g, l.clockCell, s.clock, s.clockAmPm)
+    }
+
+    /** The clock TEXT alone, no background — shared with silent mode's
+     *  "small" size, which draws the same readout at the same cell on black
+     *  (§1.5 sizes, 2026-09-01). */
+    fun paintClockText(g: Gray8, cell: Rect, clock: String, amPm: String) {
+        draw(g, cell.x + 4, cell.y + 6, clock, Level.HEAD, fChromeB)
+        if (amPm.isNotEmpty())
+            draw(g, cell.x + 52, cell.y + 8, amPm, Level.DIM, fTiny)
     }
 
     /** The divider carries window position + attention ticks — the retired

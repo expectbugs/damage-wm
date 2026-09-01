@@ -88,7 +88,8 @@ Wire facts worth their comments (lineage: `G2CC/server/src/tmux.ts`):
 - `capture-pane -p` = the visible grid; `-S -N` = N lines of history (tmux clamps); `-e` adds the
   SGR colour/attribute escapes (G2CC never used this; we will — §3.3).
 - `send-keys` takes KEY NAMES (`Enter`, `C-c`, `Up`, `Escape`); `-l` sends LITERAL text.
-- Keys reach ONE explicitly-opened session only. Keep this rule verbatim.
+- Keys reach ONE explicitly-opened TARGET only (as shipped the target is `=session:idx`, pinned
+  by review — the rule generalized from "session" when window targeting landed).
 - Big `maxBuffer` on history captures; scrollback can be MBs.
 - Tests run against a throwaway `tmux -L <socket>` server, never the real one.
 
@@ -115,7 +116,7 @@ carries over:
 | 540 B page byte-cap | ~1000 B layout-frame wall | dead — image path, no wall |
 | rule-collapse to 18 cols | firmware drew `─` at ~21 px and re-wrapped | dead — our rasterizer, our metrics |
 | box-drawing width calibration | firmware font metrics unknowable | dead |
-| tail (mangled text) vs grid (slow image) SPLIT | text was fast-but-mangled, images were seconds-slow | dead — one true grid, live, ~7 fps worst case (§4) |
+| tail (mangled text) vs grid (slow image) SPLIT | text was fast-but-mangled, images were seconds-slow | dead — the flow view (grid only for alt-screen TUIs); costs in §3.4 |
 | CC input-box stripping | 6 usable rows made chrome ruinous | dead for the live view (the grid IS the screen); optional filter in history reading mode only |
 | on-screen tap keyboard | no other way to type at all | deferred — typed text arrives via the phone/browser replicas (§6), mic much later |
 
@@ -133,16 +134,16 @@ PC):
   laptop-direct: zero hops).
 - **HostTmuxServer** — serves the local provider over the EXISTING content port/token (new
   message types on the same length-prefixed JSON protocol; `ignoreUnknownKeys` keeps old peers
-  decoding). One persistent subscription connection per driving shell: server polls
-  `capture-pane` at 500 ms per subscribed session and **pushes only on change** — an idle
-  session costs zero radio.
+  decoding). One persistent subscription connection per driving shell: the server polls
+  `capture-pane` per subscribed target and **pushes only on change** — an idle session costs
+  zero radio. (Shipped cadence: 1 s default, configurable 0.5/1/2/5 s via `tpace`.)
 - **RemoteTmuxProvider** — the phone side of that channel.
 
 Auto-detection is therefore free: the phone already knows beardos (host/port/token in Prefs);
 the session list just appears. **The window declares `Need.HOST`** (§10.5): PC unreachable ⇒
 Main marks it unavailable, the window shows the last frame with the staleness surface, honest.
 
-### 3.2 The window — levels mapped to the §1 grammar
+### 3.2 The window — levels mapped to the §1 grammar *(⚠ grid-era diagram: LIVE renders as the FLOW view since 2026-08-31 — top matter; the grammar itself is unchanged)*
 
 ```
 SESSIONS (ListView, free)          name · #windows · ● attached · ⚠ waiting · age
@@ -168,7 +169,7 @@ LIVE GRID ── tap ──▶ KEYS (ListView): Enter · y · n · 1 · 2 · 3 �
 - **New session** auto-names (`g2-1`, `g2-2`, …) — naming from glass needs typing; rename from
   the PC. Kill/rename/detach: explosion items (§5).
 
-### 3.3 Rendering — the true grid, finally
+### 3.3 Rendering *(⚠ superseded for normal panes: the grid below survives ONLY for `#{alternate_on}` TUIs — the SGR mapping paragraph serves flow and grid alike)*
 
 - **`capture-pane -e`** + a bounded SGR subset → per-cell (char, fg, bg, bold/dim/reverse/
   underline). Map colours to the 16 grays by luminance; bold brightens, dim dims, reverse swaps
@@ -197,7 +198,7 @@ LIVE GRID ── tap ──▶ KEYS (ListView): Enter · y · n · 1 · 2 · 3 �
 
 | event | bytes (modeled) | latency | feel |
 |---|---|---|---|
-| typical CC churn (2–3 changed rows) | 0.3–0.8 KB | ~70–80 ms | live at the 500 ms poll |
+| typical CC churn (2–3 changed rows) | 0.3–0.8 KB | ~70–80 ms | live at the 1 s poll (configurable) |
 | full grid repaint (TUI redraw) | 2–4 KB (text ink ~10–15 %) | ~100–140 ms | ~7 fps worst case |
 | dense §4.6 canvas ceiling | 3.8–6.3 KB | ~1.5–2.5 fps | never hit by text |
 | history scroll step | 292–486 B (§4.6, measured class) | ~66–70 ms | free |
@@ -223,18 +224,18 @@ window from "go look" into "it tells you"** — the actual workday loop is glanc
 - `summary()`: cached from the provider's last push, side-effect-free ("3 sessions · claude2 ⚠").
 - State blob: session, mode, history offset — restorable, previewable (§9.1/§4.3); the switcher
   preview draws the last cached frame.
-- `appSettings()`: Tmux directory — poll cadence, context rows on/off, alerts on/off, grid
-  scale (if the calibration says we need a non-fit option).
+- `appSettings()`: Tmux directory — SHIPPED as one row: Update (capture pacing 0.5/1/2/5 s).
+  Alerts are a global default + per-session mute in the session's actions; context rows are
+  automatic in the alternate-screen fallback; grid scale never existed (the flow view made it
+  moot).
 - Icon: `IconKind.TERMINAL` already exists.
 - Failures: capture/send errors → on-glass notice + status line, keeper-style retry of the
   subscription with pacing, never silent (the three absolute rules apply as usual).
 
-### 3.7 Shell additions required (small, additive)
+### 3.7 Shell additions required — ✅ BUILT
 
-`CanvasView` today paints but ignores input (`Shell.kt` scroll/tap route `{}` for canvas — it
-was "not used by stage 1"). Add optional `onScroll(delta)` / `onTap()` callbacks to
-`CanvasView`, routed exactly like DocView's. Nothing else in the shell changes; paint, preview,
-planes and persistence already handle canvas.
+`CanvasView.onScroll(delta)` / `onTap()` exist and route like DocView's; Tmux was the first
+consumer. Nothing else in the shell changed.
 
 ## 4. Security posture, stated plainly
 
@@ -244,53 +245,13 @@ seam, targeting one explicitly-opened session. Same trust envelope as G2CC ran f
 Tests never touch the real server (`tmux -L damage-test` throwaway, the G2CC pattern; unit
 tests use a fake provider and no tmux at all).
 
-## 5. The explosion (graded, for the refinery)
+## 5. The explosion, the v1 cut and the refinery questions — CLOSED
 
-| idea | note | my grade |
-|---|---|---|
-| SGR colour → 16-gray mapping | §3.3; contained parser + tests | **v1** |
-| context rows above the pane | §3.3; free, alternate-screen-aware | **v1** (default ON, his call) |
-| alerts (bell/activity/pattern → notifications) | §3.5 | **v1** |
-| quick keys incl. digits, config-driven | §3.2 | **v1** |
-| scroll-is-scrollback grammar | §3.2 | **v1** |
-| "Fit pane to glass" action (`resize-window`) | invasive to the real session — explicit action, never automatic | v1 if trivial, else v1.5 |
-| **typed text from the replicas** (phone strip + browser page + desktop preview → focused window) | the REMINDER open item; confirm-to-run guard like G2CC's typed path; needs a small replica+seam extension | **v1.5, first follow-up** — the ring can't type, and this completes "control" |
-| tmux WINDOW navigation inside a session (`select-window`) | sessions-only first; his CC sessions are single-window | v1.5 |
-| multi-host via ssh (slappy :80, etc.) | host list in PC config; the provider fans out; sessions tagged `host:name` | v2 — design keeps room (session ids carry a host field from day one) |
-| kill / rename / detach-others session actions | destructive → confirm level | v2 |
-| scrollback SEARCH | needs typing first | v2, after typed text |
-| pane navigation within a window | splits render fine already (the grid shows them); targeting a specific pane | v2 |
-| texture-cache glyph path (modes 13/14) | after first-light items 19–20 and compositor adoption | future, priced separately |
-| history reading filters (rule-line collapse etc.) | reading comfort only, default off — the live grid never filters | future |
-| session output → Reader hand-off ("read this log as a book") | cute; the refinery can cut it | future |
-| blinking cursor, bell sound | ❌ motion discipline; ❌ §0 no-buzzer | never |
-
-## 6. Recommended v1 cut and build order
-
-**v1 = watch + approve, slickly:** sessions list · live SGR grid with cursor and context rows ·
-scroll-is-scrollback history · quick keys + snippets · new session · alerts · staleness/offline
-honesty · full persistence. **Explicitly out of v1:** typing (v1.5 via replicas), multi-host,
-window/pane targeting, search, texture cache.
-
-Build order (each step battery-green before the next, per the standing process):
-
-1. **Grid core** (pure, testable): SGR parser → cell model → JBM cell renderer → Gray8.
-   `TmuxGridTest` pins bytes.
-2. **Provider triple** + protocol on the content seam + fake provider; `TmuxProviderTest`.
-3. **Window + shell canvas hooks**: levels, grammar, persistence, settings, alerts→notifications;
-   grammar tests via the fake provider; a tmux scene in `--selfcheck`/`--snapshot`.
-4. **Integration**: register on desktop + phone, config for snippets/patterns; optional
-   `-L`-socket integration check.
-5. **On-glass calibration** (Adam): fit-80 legibility, context-rows verdict, quick-key order,
-   alert defaults — the §2.2b-class items only glass can answer.
-
-## 7. Questions for the refinery
-
-1. **Grid scale**: is fit-80 at ~7.6 px cells acceptable as the default, with "Fit pane to
-   glass" as the escape hatch — or should v1 ship a zoom setting day one?
-2. **Context rows** above the pane: on by default?
-3. **Alerts**: on by default for every session, or opt-in per session?
-4. **Quick keys**: the proposed default list (Enter y n 1 2 3 Esc Ctrl-C Up Down Tab q) — what's
-   missing from your actual approval loop?
-5. **Typed text via the replicas** as the immediate v1.5: agreed, or does it belong in v1?
-6. **Multi-host**: is beardos-only v1 right, or is slappy day-one load-bearing?
+The graded table, the recommended v1 cut/build order, and the six refinery questions that used
+to fill §5–§7 all ran their course in one day (2026-08-31): Adam answered every question (the
+verdicts are pinned in the top matter), v1 was built to the cut and then REWORKED the same
+night into the flow view, and the v1.5/v2 rows shipped early — typed text via all three
+replicas (confirm-to-run), multi-host over ssh, window targeting/select-window, kill/rename,
+per-session mute. Still deliberately unbuilt: scrollback SEARCH (wants typing polish first),
+the texture-cache glyph path (priced separately, after `REMINDER.md` items 19–20), history
+reading filters, session-output→Reader hand-off. ❌ never: blinking cursor, bell sound (§0).

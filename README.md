@@ -18,19 +18,31 @@ wearer in the loop: chrome behind the content plane, per-app height, Reader fold
 Tmux window (terminal output as FLOWED text — the cell grid is retired to an alternate-screen
 fallback — with typed text via the replicas and waiting-session alerts), a seven-segment
 silent clock, live brightness, wire-fed battery cells, and a measured latency curve
-(`ms ≈ 60 + bytes/50`) that retired the modeled numbers. [`IMPLEMENTATION.md`](IMPLEMENTATION.md)
-is the how-to-run; `HANDOFF.md` §10–18 are the install / first-light / refinement / launch-day
-records; `DAILY.md` is the ops crib; `REFINEMENT.md` and `TMUX.md` the design logs.
+(`ms ≈ 60 + bytes/50`) that retired the modeled numbers.
+
+**2026-09-01 — the app wave opened with FILES**, the first G2CC→DamageWM conversion: a
+locations root with capacity bars, tap = a floating context menu with Open first, in-app
+text/image/PDF viewers, a clipboard slot, trash with restore, typed rename, EPUB→Reader deep
+links — riding new shared machinery (a per-item last-write-wins state-sync substrate, a
+generic window channel, the notification signature, theme icons resolved from the desktop
+theme) and an **eight-round adversarial review loop run to convergence** (79→…→0 findings).
+[`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run; `HANDOFF.md` §10–§22 are the
+install / first-light / refinement / launch-day / app-wave records; `DAILY.md` is the ops
+crib; [`WINDOWS.md`](WINDOWS.md) the conversion checklist; `EXPLOSION.md` the graded app
+backlog + refinery verdicts; `REFINEMENT.md` and `TMUX.md` the design logs.
 
 ## Start here
 
 | | |
 |---|---|
 | **[`REMINDER.md`](REMINDER.md)** | orientation — project state, what is next, and what is still unmeasured |
+| [`WINDOWS.md`](WINDOWS.md) | how a G2CC app becomes a DamageWM window — the current phase's build checklist |
+| [`EXPLOSION.md`](EXPLOSION.md) | the graded app backlog, the §16 contract record, the refinery verdicts |
+| [`DAILY.md`](DAILY.md) | the daily-driver ops crib: services, ports, deploys, recovery |
 | [`REFINEMENT.md`](REFINEMENT.md) | the post-first-light refinement log: every ask, its analysis, and what shipped |
 | [`IMPLEMENTATION.md`](IMPLEMENTATION.md) | the built first stage: modules, the transport seam, how to run and verify |
 | [`overview.md`](overview.md) | the research record: hardware facts, the CFW display-mode contract, measured numbers, the ecosystem, open unknowns |
-| [`CLAIMS.md`](CLAIMS.md) | every load-bearing claim graded *vendor-authoritative / measured / corroborated / inferred / single-source / unknown*, and what cannot be resolved before flashing |
+| [`CLAIMS.md`](CLAIMS.md) | every load-bearing claim graded *vendor-authoritative / measured / corroborated / inferred / single-source / unknown* |
 | [`CAPABILITIES.md`](CAPABILITIES.md) | what the hardware can actually do, graded |
 | [`DESIGN.md`](DESIGN.md) | the shell contract — input grammar, geometry, depth, motion, persistence, all six surfaces, typography, costs |
 
@@ -55,8 +67,8 @@ The design is shaped by three facts about this display, and most of it follows f
 ./gradlew :desktop:run --args="--snapshot DIR"        # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"          # parse every book; chapters + image decode
 ./gradlew :desktop:run --args="--transport ble"       # PC-direct BLE (the at-the-desk fallback)
-./gradlew :desktop:run                                # auto mode (phone seam first) + preview (4x)
-./gradlew :phone:assembleDebug                        # the APK
+./gradlew :desktop:run                                # auto = the §19 standby (data host; claims nothing) + preview (4x)
+./gradlew :phone:assembleDebug                        # the APK (deploy flow: :phone:stageApk → the setup page)
 tools/lint.py                # design gate: 20 rules (SYM/GEO/BUD/FID); --selftest proves each fires
 python3 design/render_shots.py   # design renders at true 1x, priced through the firmware's RLE
 python3 research/verify_cfw.py   # rebuilds the CFW offline and checks every pinned hash

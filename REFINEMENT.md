@@ -4,13 +4,15 @@
 > the glasses the same hour): **§1** chrome to the back of the ladder (bars inset to x 16–624,
 > plane −2 at d+4 capped 16 — `DESIGN.md` §2.2/§2.3/§3.1 revised). **§2** per-app height
 > (`DamageWindow.preferredHeight`, applied on focus commit, never preview; Reader defaults to the
-> full panel with a "Height" action row). **§3a** folders (BookMeta.folder, additive; folder rows
+> full panel with a per-app "Size" row). **§3a** folders (BookMeta.folder, additive; folder rows
 > + descend/ascend in Reader). **§3b** scroll (per-notch step 1–8 default 3, direction-gated
 > acceleration ≤250 ms → up to 6×, both in Reader's actions; `DESIGN.md` §0 reversal recorded).
-> **§5** clock repositioned + redrawn — then **superseded same day**: Adam asked for **top-RIGHT,
-> digital, quality** (in progress below). **§6** measured — `overview.md` §5.2: `ms ≈ 60 +
-> bytes/50`, dense full-frame ≈ 2–4 fps. **§4** awaits the one-hold temple experiment.
-> **§9** the 4× PC preview shipped first.
+> **§5** clock: top-RIGHT, digital seven-segment, ✅ SHIPPED (0.5 % ink, 174 B — `DESIGN.md`
+> §1.5; sizes became a Global setting 2026-09-01). **§6** measured — `overview.md` §5.2:
+> `ms ≈ 60 + bytes/50`, dense full-frame ≈ 2–4 fps. **§4** ✅ RESOLVED — the experiment ran,
+> the real cause was our own source filter, fixed and confirmed on glass ("it all works!").
+> **§9** the 4× PC preview shipped first. **§10** brightness + glasses battery wired; ring
+> battery later CLOSED with the probe reverted (see below). **§11** the Reader batch shipped.
 
 **Read `HANDOFF.md` §11 first** for what first light established, then this. The flash, the
 install and first light are all behind us; `REMINDER.md` §"Next" points here.
@@ -69,9 +71,8 @@ Today it is one calibrated setting (`DESIGN.md` §2.2b). Making it per-window me
 Layout is no longer a session constant, so every surface must survive it changing when the window
 changes — which is a real change to the layout contract, not a preference toggle.
 
-**Design question to settle first:** does the height change on window *switch* (so the switcher
-wheel itself lives at one height and the incoming window re-lays-out), or is it a property applied
-when a window takes focus? The second is simpler; the first may look better.
+**Settled and built:** the height is a property applied when a window takes FOCUS (commit),
+never on a switcher preview — the simpler option won (`DamageWindow.preferredHeight`).
 
 ---
 
@@ -206,7 +207,9 @@ tapered hands with tails, hub with pin).
 🔄 **Superseded the same day, Adam mid-session:** *"move the silent mode clock back to the top
 right … all the way up and all the way right, and forget analog, make it good-looking digital
 numbers … something quality, not like the very basic icons currently used on the main app."*
-So: **top-right, flush to the corner, digital, quality rendering.** (The analog drawing stays in
+So: **top-right, flush to the corner, digital, quality rendering** — ✅ shipped as the
+seven-segment readout (`DESIGN.md` §1.5), and 2026-09-01 the SIZE became a Global setting
+(large / medium / small — small = the title bar clock's cell). (The analog drawing stays in
 `Icons.analogClock`, unused, in case it ever returns as an option.)
 
 📌 **Recorded for later, from the same message:** the Main-row **icons are "very basic" and will
@@ -222,10 +225,9 @@ delicate work and misled several earlier passes.
 **Asked for, as anticipation rather than a request:** *"I can't wait to see how fast full-screen
 imagery is."*
 
-Nobody has pushed a full keyframe on the CFW yet. This is also the measurement that turns
-`HANDOFF.md` §11.1's ack figure from a floor into a curve, so it is worth doing early and
-deliberately: time a full 640×480 keyframe and a large delta, and write both numbers into
-`overview.md` §5 with a "measured on CFW" mark.
+✅ Done 2026-08-31: the whole curve measured from 1,488 journalled flushes — `overview.md`
+§5.2 (`ms ≈ 60 + bytes/50`; dense keyframes ~200–270 ms). The floor-to-curve step this section
+asked for happened exactly as specified.
 
 ---
 
@@ -236,20 +238,12 @@ Everything in `REMINDER.md`'s first-light checklist that first light did not clo
 **comfortable disparity (3, now with §1 behind it)**, and **the texture cache on glass (19–20)**,
 which remains the gate on adopting cached glyphs.
 
-Also unconfirmed from the session: whether the content host ever delivered the book list. Main was
-showing **"library loading"** for a while. If that was a real stall rather than a slow first fetch,
-it is a content-path defect and §3a will touch the same code.
+*(The "library loading" question from first light resolved itself in practice: the library
+loads daily over that path — folders, chapters and images all shipped through it the next day.)*
 
 ---
 
-## 8. Suggested order
-
-1. **§3b lines-per-notch** and **§1 chrome depth** — both small, both immediately improve daily use.
-2. **§5 clock position**, then its redraw.
-3. **§3a folders** — the largest Reader change and the one that makes the library usable.
-4. **§6 full-screen timing** — cheap, and it unblocks re-pricing everything.
-5. **§4 the event-9 experiment** — one hold on a temple pad, then decide.
-6. **§2 per-app height** — the biggest contract change; do it once the rest has settled.
+## 8. Suggested order — executed as written (all six steps, 2026-08-31)
 
 ---
 
@@ -305,9 +299,9 @@ real CFW) polled at start+5 s then per minute, plus every unsolicited 09-01 upda
 **79 % read from the real pair**, arriving via an unsolicited update before the first poll even
 fired. Battery changes log (the first-light observability rule).
 
-**Ring battery**: the sid-0x91 relay decode is wired (RingDataPackage.f4.battery, vendor schema)
-but whether the glasses forward RingRawData unprompted is an **open probe** — the R cell fills
-if a relay ever arrives, and an undecodable 0x91 frame logs its head for the next session.
+**Ring battery**: ❌ CLOSED the same night (`HANDOFF.md` §19.3, `CLAIMS.md`) — the stock relay
+never fills RingRawData, the ring offers no open battery path, and Faceclaw does not read it
+either; the probe apparatus was REVERTED and the R chrome cell removed. Nothing fills anything.
 **Phone battery**: only meaningful on the phone path; blank PC-direct, honest.
 
 ---

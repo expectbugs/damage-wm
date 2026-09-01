@@ -50,6 +50,12 @@ data class ShellSettings(
      *  so app content pops FORWARD of the global-depth chrome. */
     val appStyles: Map<String, AppStyle> = emptyMap(),
 
+    /** Silent-mode clock size (2026-09-01 Adam): "large" = the original
+     *  seven-segment readout, "medium" = a smaller seven-segment, "small" =
+     *  the title bar clock's exact size and position. Additive field — an
+     *  older build ignores it. */
+    val silentClock: String = "large",
+
     /** Head tracking — default OFF (§7.1: "that would get old FAST"). */
     val headTracking: Boolean = false,
 
@@ -114,6 +120,7 @@ data class ShellSettings(
         fontFace = if (wm.damage.core.text.Faces.byLabel(fontFace) != null) fontFace else "Clear Sans",
         fontStyle = if (fontStyle in STYLES) fontStyle else "default",
         appStyles = appStyles.mapValues { it.value.clamped() },
+        silentClock = if (silentClock in SILENT_CLOCKS) silentClock else "large",
     )
 
     companion object {
@@ -127,6 +134,9 @@ data class ShellSettings(
 
         /** Style forces; "default" (per-app only) keeps the app's own flags. */
         val STYLES = listOf("default", "regular", "bold", "italic")
+
+        /** Silent-clock sizes (§1.5, 2026-09-01). */
+        val SILENT_CLOCKS = listOf("large", "medium", "small")
         fun fromJson(o: JsonObject?): ShellSettings =
             if (o == null) ShellSettings()
             else try {
