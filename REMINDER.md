@@ -2,7 +2,11 @@
 
 **Updated 2026-09-01 (overnight): FILES IS BUILT — the first G2CC conversion shipped with the
 §16 machinery under it (menu grammar, viewers, trash, theme icons everywhere, the state
-substrate, deep links) and a two-round review pass; `HANDOFF.md` §22 is the record. Previous
+substrate, deep links) and an EIGHT-ROUND review loop run to convergence (79 → 20 → 28 → 9 →
+3 → 3 → 2 → 0 findings; round 8 found nothing); `HANDOFF.md` §22 is the record. Battery at
+HEAD: core 191 · desktop 9 · selfcheck 61 · snapshots 18 · epub 380/404 · lint 0; jar + APK
+**16/0.16** staged (install when convenient — the transitional Reader offsets field comes out
+once the installed APK is ≥ 0.16). Previous
 banner (2026-08-31 night) — the DAILY DRIVER is live and RE-SHAPED by §19: the PHONE SHELL
 is the primary driver (radio + shell, always, while the APK is up); the OpenRC `damage`
 service is the DATA PROVIDER (content + tmux + last-write-wins state sync) plus a STANDBY

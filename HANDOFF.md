@@ -1810,8 +1810,23 @@ the **cross-version law** enforced on every lane (in-band `err`, never a closed 
 was still missing one (openPdf, four tmux busy() sites); **per-item LWW re-apply** after a
 main-record live apply (a newer sub-record wins its item back); `restoreStateLive` overrides so
 a live-synced record gets the refresh/resubscribe boot gets; an emergency now cancels the
-wheel too; and the notice queue no longer duplicates across keeper restarts. Round 4 reviewed
-the round-3 diff itself — the closing status below records the loop's end state.
+wheel too; and the notice queue no longer duplicates across keeper restarts.
+
+**Rounds 4–8 — the convergence tail**, each round a fresh adversarial review of the previous
+round's own fix diff: round 4 (`10db318`, 9 findings — the HIGH: the pdfpage restore
+deterministically cancelled ITSELF, and a freshen mid-window re-stamped BROWSE and closed the
+peer's open PDF; fixed with `pendingOpenView`, pinned); round 5 (`119d6dc`, 3 — each the R4
+mechanism un-applied on one path); round 6 (`b33253b`, 3 — gate-coverage: the subscription
+keys to the TARGET not the level, pinned twice); round 7 (`d2945eb`, 2 — the wrong-file
+class's last doors); **round 8: NOTHING REAL FOUND — the loop converged.** Findings per
+round: 79 → 20 → 28 → 9 → 3 → 3 → 2 → 0. Every layer had fresh eyes at least twice; the
+final diff reviewed clean; the full battery ran green after every round.
+
+Hardening candidates round 8 named, deliberately left un-taken after convergence (both
+latent, neither reachable today): `LocalFilesProvider.list("")` lists the working directory
+rather than refusing (matters only if a Files deep link ever creates a viewer without
+browsing — none exists); Files `nameArmed` survives restoreState (materially safe — the
+confirm shows both names). Take them with the next Files change.
 
 ### 22.3 State at hand-off
 
