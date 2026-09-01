@@ -281,8 +281,20 @@ class FilesTest {
                 "SMS · TEST", "t", "waits behind the menu", "12:00"))
             delay(300)
             assertFalse(r.shell.notifications.active, "a notice must WAIT behind the menu (decision 6)")
-            r.back()                                    // cancel the menu
-            awaitTrue("the box shows after the menu closes") { r.shell.notifications.active }
+            // an EMERGENCY cancels the menu and shows FIRST — ahead of the
+            // parked ordinary box (R2#3: addLast seated the ordinary box
+            // ahead of the alert, inverting "the emergency shows now")
+            r.shell.postNotice(wm.damage.core.shell.Notifications.Notice(
+                "WEA · ALERT", "e", "tornado warning", "12:01", emergency = true))
+            awaitTrue("the emergency cancels the menu") { !r.shell.menuIsOpen }
+            // poll for the FINAL state: the test thread can observe the
+            // transient mid-handleNotice seat (the parked box) between the
+            // menu close and the requeue+post on the loop
+            awaitTrue("the EMERGENCY shows first, not the parked ordinary box") {
+                r.shell.notifications.current?.emergency == true
+            }
+            assertTrue(r.shell.notifications.queued().any { it.source.startsWith("SMS") },
+                "the parked ordinary box waits BEHIND the emergency")
             r.stop()
         } finally {
             tmp.toFile().deleteRecursively()

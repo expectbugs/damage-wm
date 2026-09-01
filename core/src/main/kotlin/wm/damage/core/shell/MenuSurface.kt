@@ -172,13 +172,27 @@ class MenuSurface(private val text: TextRasterizer) {
     }
 
     /** Fit [s] into [maxW] keeping its END (a path/name's tail is the
-     *  distinctive part); the caller's row label carries the mark. */
+     *  distinctive part); the caller's row label carries the mark. Cuts on
+     *  CODE-POINT boundaries — takeLast on a char index split surrogate
+     *  pairs — and binary-searches the fit (log-n measures per paint, was
+     *  n² for a long path detail) (R2#20a). */
     private fun fitEnd(s: String, f: FontSpec, maxW: Int): String {
         if (maxW <= 0) return ""
         if (text.measure(s, f) <= maxW) return s
-        var n = s.length
-        while (n > 0 && text.measure(s.takeLast(n), f) > maxW) n--
-        return s.takeLast(n)
+        val bounds = ArrayList<Int>(s.length + 1)
+        var i = 0
+        while (i < s.length) { bounds.add(i); i += Character.charCount(s.codePointAt(i)) }
+        bounds.add(s.length)
+        // the tail from bounds[m]: width is monotone in m, so binary-search
+        // the SMALLEST start whose tail fits (empty tail always fits)
+        var best = s.length
+        var a = 0
+        var b = bounds.size - 1
+        while (a <= b) {
+            val m = (a + b) / 2
+            if (text.measure(s.substring(bounds[m]), f) <= maxW) { best = bounds[m]; b = m - 1 } else a = m + 1
+        }
+        return s.substring(best)
     }
 
     companion object {

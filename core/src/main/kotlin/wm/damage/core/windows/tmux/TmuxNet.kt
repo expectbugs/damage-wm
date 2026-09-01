@@ -99,8 +99,18 @@ object TmuxNet {
                 outbox.removeIf { it.t == w.t && same(it) }
                 outbox.put(w)
                 if (outbox.size > OUTBOX_CAP) {
-                    outbox.poll()
-                    Log.w("tmux-host", "outbox over $OUTBOX_CAP — oldest frame dropped (driver stalled?)")
+                    // drop the oldest STATE-BEARING wire only (R2#11): a
+                    // dropped tres parks the driver's id-correlated request
+                    // forever (no timeouts by law), a dropped talert is a
+                    // lost alert — both are non-re-derivable. State pushes
+                    // are; and this wire itself is one, so a victim exists.
+                    val victim = outbox.firstOrNull {
+                        it.t == "tstat" || it.t == "tframe" || it.t == "tstate"
+                    }
+                    if (victim != null) {
+                        outbox.remove(victim)
+                        Log.w("tmux-host", "outbox over $OUTBOX_CAP — oldest ${victim.t} dropped (driver stalled?)")
+                    }
                 }
             }
         }
@@ -202,6 +212,24 @@ class RemoteTmuxProvider(
     private val nextId = AtomicLong(1)
     private val pending = ConcurrentHashMap<Long, CompletableFuture<TWire>>()
     @Volatile private var sockRef: Socket? = null
+    @Volatile private var subSet = false
+    /** Control sends (tsub/tpace) go through ONE conflated lane (R2#12): two
+     *  independent launches could arrive REVERSED, leaving the host on the
+     *  previous target while wantedTarget said otherwise. The consumer always
+     *  sends the CURRENT wanted values — off the shell loop (L5), ordered,
+     *  and a queued-stale send cannot exist. */
+    private val ctlKick = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+    private val ctlSender: Job = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        for (k in ctlKick) {
+            val o = out ?: continue
+            try {
+                wantedPace?.let { o.sendWire(TWire(t = "tpace", paceMs = it)) }
+                if (subSet) o.sendWire(TWire(t = "tsub", target = wantedTarget))
+            } catch (e: Exception) {
+                Log.w("tmux-remote", "control not sent (reconnect will re-assert): ${e.message}")
+            }
+        }
+    }
     private val loop: Job = scope.launch(kotlinx.coroutines.Dispatchers.IO) { connectLoop() }
 
     private suspend fun connectLoop() {
@@ -221,9 +249,9 @@ class RemoteTmuxProvider(
                     offlineSince = 0
                     setState("")
                     // re-assert what a reconnect interrupted: the subscription
-                    // and any non-default capture pacing
-                    wantedPace?.let { o.sendWire(TWire(t = "tpace", paceMs = it)) }
-                    wantedTarget?.let { o.sendWire(TWire(t = "tsub", target = it)) }
+                    // and any non-default capture pacing — through the same
+                    // lane every control send uses (R2#12)
+                    ctlKick.trySend(Unit)
                     while (true) route(inp.readWire())
                 }
             } catch (e: Exception) {
@@ -300,27 +328,13 @@ class RemoteTmuxProvider(
 
     override fun subscribe(l: TmuxProvider.Listener, target: TmuxTarget?) {
         wantedTarget = target
-        // OFF the caller's thread (review 2026-09-01 L5): these are called
-        // from commit handlers ON THE SHELL LOOP, and a wedged link with a
-        // full TCP buffer would park the loop in the blocking write
-        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                out?.sendWire(TWire(t = "tsub", target = target))
-            } catch (e: Exception) {
-                Log.w("tmux-remote", "subscribe not sent (reconnect will re-assert): ${e.message}")
-            }
-        }
+        subSet = true
+        ctlKick.trySend(Unit)
     }
 
     override fun setCapturePacing(ms: Long) {
         wantedPace = ms
-        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                out?.sendWire(TWire(t = "tpace", paceMs = ms))
-            } catch (e: Exception) {
-                Log.w("tmux-remote", "pacing not sent (reconnect will re-assert): ${e.message}")
-            }
-        }
+        ctlKick.trySend(Unit)
     }
 
     override fun sendKeys(target: TmuxTarget, keys: List<String>) {
@@ -359,6 +373,7 @@ class RemoteTmuxProvider(
     override fun close() {
         running = false
         loop.cancel()
+        ctlKick.close()                  // ends the control-send lane (R2#12)
         failPending("tmux provider closed")
         try { sockRef?.close() } catch (e: Exception) { /* closing */ }   // unparks a blocked read
     }

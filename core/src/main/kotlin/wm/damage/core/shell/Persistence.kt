@@ -104,6 +104,16 @@ class Persistence(private val file: Path) {
         }
     }
 
+    /** Seed an ABSENT [key] at stamp 0: recorded for local restarts, but
+     *  losing LWW to any real record (review 2026-09-01 R2#16 — a virgin
+     *  store's first save tick stamped window DEFAULTS over the fleet's real
+     *  positions). The first value-changing put() re-stamps for real, so a
+     *  genuine local edit still wins normally. No listener fires — a baseline
+     *  is not a local edit and must not sync-push. */
+    fun putBaseline(key: String, state: JsonObject) {
+        synchronized(lock) { if (loaded[key] == null) loaded[key] = Rec(state, 0L) }
+    }
+
     /** The stamp of [key], 0 when absent — the sync handshake's currency. */
     fun stamp(key: String): Long = synchronized(lock) { loaded[key]?.stamp ?: 0L }
 

@@ -132,7 +132,11 @@ class Notifications(private val text: TextRasterizer) {
             return oldRect
         }
         val i = queue.indexOfFirst { it.source == n.source && it.thread == n.thread }
-        if (i >= 0) queue[i] = n else queue.addLast(n)
+        // an emergency jumps the queue (§4.5 — it must never wait behind an
+        // ordinary box; review 2026-09-01 R2#3: the menu-cancel path requeues
+        // the parked ordinary box at the head, and addLast seated it AHEAD of
+        // the alert, inverting "the emergency shows now")
+        if (i >= 0) queue[i] = n else if (n.emergency) queue.addFirst(n) else queue.addLast(n)
         if (show && current == null) show()
         return null
     }

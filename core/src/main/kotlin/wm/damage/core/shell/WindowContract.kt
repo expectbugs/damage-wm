@@ -64,6 +64,14 @@ abstract class DamageWindow(val id: String, val name: String, val icon: IconKind
     abstract fun saveState(): JsonObject
     abstract fun restoreState(state: JsonObject)
 
+    /** The LIVE-sync arrival of this window's main record — same contract as
+     *  [restoreState] (the default delegates), but the window may treat the
+     *  incoming record as the NEWER authority where boot restore must not
+     *  (R2#7: Reader's transitional legacy-offsets merge needs skip-if-present
+     *  at boot and overwrite on live apply — LWW already ruled the incoming
+     *  record newer than the stored main key). */
+    open fun restoreStateLive(state: JsonObject) = restoreState(state)
+
     /**
      * Per-ITEM state records (EXPLOSION §16.4a, agreed 2026-09-01): sub-key →
      * blob, saved and SYNCED individually as `window.<id>.<subKey>` so two
@@ -206,9 +214,16 @@ interface ShellServices {
      * spec's onCommit runs after the menu closed), double-tap cancels. The
      * cursor opens on row 0 — put the primary action (Open) there and keep
      * destructive rows off 0/1 (§1.7). LOOP-ONLY, WINDOW mode only.
+     *
+     * Returns whether the menu actually SHOWED (R2#8): the shell refuses
+     * outside WINDOW mode, under the switcher — and, when [owner] is given,
+     * whenever [owner] is not the focused window (an ASYNC completion must
+     * never open its menu over someone else's content). A false return is the
+     * caller's cue to deliver the answer another way (a notice).
      */
-    fun openMenu(spec: MenuSurface.Spec) {
+    fun openMenu(spec: MenuSurface.Spec, owner: DamageWindow? = null): Boolean {
         wm.damage.core.util.Log.w("shell", "openMenu: not supported by this host")
+        return false
     }
 
     /** The host's theme-icon source (2026-09-01, Adam: use the desktop theme's

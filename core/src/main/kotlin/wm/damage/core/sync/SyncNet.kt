@@ -188,11 +188,21 @@ class RemoteSync(
      *  SHELL LOOP for every save-path put (review 2026-09-01: a silently dead
      *  path plus a full TCP send buffer parked the loop mid-saveAll). The
      *  outbox is cleared on reconnect; the re-handshake carries anything lost. */
-    private val outbox = LinkedBlockingQueue<SWire>()
+    private val outbox = LinkedBlockingQueue<SWire>(OUTBOX_CAP)
+    /** Bounded (R2#20e): a half-open link otherwise grows the queue for the
+     *  hours TCP keepalive takes to notice. Overflow drops the OLDEST push
+     *  loudly — the 5-minute re-handshake is the designed healing path for
+     *  any lost push, so a drop here converges the same way. */
+    private fun enqueue(w: SWire) {
+        while (!outbox.offer(w)) {
+            outbox.poll()
+            Log.w("sync", "outbox full — dropped the oldest push (the re-handshake heals it)")
+        }
+    }
     private val listener: (String) -> Unit = { key ->
         if (Persistence.syncable(key) && out != null) {
             peer.store.record(key)?.let { (v, t) ->
-                outbox.offer(SWire(t = "syncrec", records = listOf(SRec(key, v, t))))
+                enqueue(SWire(t = "syncrec", records = listOf(SRec(key, v, t))))
             }
         }
     }
@@ -236,7 +246,7 @@ class RemoteSync(
                     val ticker = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         while (isActive) {
                             delay(rehandshakeMs)
-                            outbox.offer(handshakeWire())
+                            enqueue(handshakeWire())
                         }
                     }
                     try {
@@ -268,6 +278,13 @@ class RemoteSync(
                         }
                     } finally {
                         ticker.cancel()
+                        // the sender too (R2#6): left running it parks in
+                        // outbox.take() pinning an IO thread per reconnect,
+                        // and each stale sender STEALS one queued record for
+                        // its dead socket before dying — a flapping-WiFi day
+                        // leaked dozens of threads and dropped records until
+                        // the 5-minute re-handshake healed them
+                        sender.cancel()
                     }
                 }
             } catch (e: Exception) {
@@ -292,5 +309,9 @@ class RemoteSync(
         loop.cancel()
         out = null
         try { sockRef?.close() } catch (e: Exception) { /* closing */ }
+    }
+
+    private companion object {
+        const val OUTBOX_CAP = 256
     }
 }

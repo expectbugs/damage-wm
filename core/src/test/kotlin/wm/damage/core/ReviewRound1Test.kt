@@ -80,6 +80,44 @@ class ReviewRound1Test {
             }
             assertEquals(content, sb.toString(), "reassembled text differs from the file")
             assertEquals(6000L, off, "consumed byte count drifted")
+
+            // R2#1: a COMPLETE 4-byte character ending exactly at the chunk
+            // boundary — the cap-3 walk stripped its continuations and left
+            // the bare lead (four replacement chars across the seam)
+            val emoji = "😀"                                      // U+1F600, 4 bytes
+            val f4 = tmp.resolve("emoji.txt")
+            Files.writeString(f4, emoji.repeat(500))              // 2000 bytes
+            var off4 = 0L
+            val sb4 = StringBuilder()
+            var g4 = 0
+            while (true) {
+                val c = p.readText(f4.toString(), off4, 100)      // 100 % 4 == 0: boundary case
+                assertFalse(c.text.contains('�'),
+                    "a 4-byte char at the seam was mangled at offset $off4")
+                sb4.append(c.text)
+                off4 += c.bytesRead
+                if (!c.more) break
+                assertTrue(g4++ < 50, "4-byte chunking runs away")
+            }
+            assertEquals(emoji.repeat(500), sb4.toString(), "4-byte reassembly differs")
+
+            // R2#2's provider side: invalid bytes must advance by what was
+            // READ, not by the re-encoded (inflated) size — bytesRead is the
+            // contract the window now trusts
+            val junk = ByteArray(300) { 0x80.toByte() }           // bare continuations
+            val fj = tmp.resolve("junk.bin")
+            Files.write(fj, junk)
+            var offJ = 0L
+            var gJ = 0
+            while (true) {
+                val c = p.readText(fj.toString(), offJ, 64)
+                assertTrue(c.bytesRead > 0, "junk read makes progress at $offJ")
+                offJ += c.bytesRead
+                assertTrue(offJ <= 300, "offset drifted past EOF (was the re-encode bug)")
+                if (!c.more) break
+                assertTrue(gJ++ < 50, "junk chunking runs away")
+            }
+            assertEquals(300L, offJ, "junk consumed byte count")
         } finally {
             tmp.toFile().deleteRecursively()
         }

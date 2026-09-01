@@ -469,7 +469,11 @@ class ReaderWindow(
             return
         }
         val meta = s.books.getOrNull(i - s.folders.size) ?: return
-        startOpen(meta)
+        if (!startOpen(meta)) {
+            // a tap while another book is opening must SAY so, not no-op
+            // (R2#20f — the deep-link path already reports; this one didn't)
+            services?.setOperation("still opening the previous book…")
+        }
     }
 
     /** Open [meta] — the commit path and the §16.1 deep link share it.
@@ -833,6 +837,15 @@ class ReaderWindow(
         return true
     }
 
+    /** Transitional (remove with the legacy offsets field at phone ≥ 0.16):
+     *  marks the legacy-map merge as live-authoritative — see R2#7 below. */
+    private var liveMapApply = false
+
+    override fun restoreStateLive(state: JsonObject) {
+        liveMapApply = true
+        try { restoreState(state) } finally { liveMapApply = false }
+    }
+
     override fun restoreState(state: JsonObject) {
         libModel.cursor = state["libCursor"]?.jsonPrimitive?.intOrNull ?: 0
         actModel.cursor = state["actCursor"]?.jsonPrimitive?.intOrNull ?: 0
@@ -846,11 +859,20 @@ class ReaderWindow(
             0 -> null
             else -> wm.damage.core.shell.ShellSettings.HEIGHTS.minByOrNull { kotlin.math.abs(it - h) }
         }
-        // legacy migration (pre-§16.4a stores and older peers): the whole-map
-        // key seeds only books the sub-records have not already restored —
-        // sub-records are newer by construction and always win
+        // legacy migration (pre-§16.4a stores and older peers). At BOOT the
+        // whole-map key seeds only books the sub-records have not already
+        // restored (same-epoch dual-write: sub-records are the newer
+        // authority). On a LIVE apply (R2#7) the incoming map already WON
+        // last-write-wins for the main key, and an old peer writes only the
+        // map — skip-if-present let a stale local entry beat the peer's newer
+        // position and then re-stamp it backwards. Accepted residual: with
+        // two ACTIVE shells an old peer's map save can carry a book it did
+        // not touch (the Sub#F4 dual-live boundary); dies with the
+        // transitional field at phone ≥ 0.16.
         (state["offsets"] as? JsonObject)?.let { o ->
-            for ((k, v) in o) if (k !in offsets) v.jsonPrimitive.intOrNull?.let { offsets[k] = it }
+            for ((k, v) in o) if (liveMapApply || k !in offsets) {
+                v.jsonPrimitive.intOrNull?.let { offsets[k] = it }
+            }
         }
         val id = state["bookId"]?.jsonPrimitive?.contentOrNull
         val lvl = state["level"]?.jsonPrimitive?.contentOrNull

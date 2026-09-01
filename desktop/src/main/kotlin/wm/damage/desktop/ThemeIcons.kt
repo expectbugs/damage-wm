@@ -129,17 +129,28 @@ class ThemeIcons(
 
     // --------------------------------------------------------------- lookup
     /** (bitmap, cleanMiss): (g, _) success · (null, true) the theme has no
-     *  such icon · (null, false) a transient failure worth retrying. */
+     *  USABLE icon of this name · (null, false) a transient failure worth
+     *  retrying. A file that EXISTS but will not rasterize or decode is a
+     *  CLEAN MISS, not a transient (R2#13): it is deterministically dead for
+     *  this theme session, and calling it transient re-ran the tool every
+     *  30 s all day while the paint chain never advanced past it to a later
+     *  name that IS cached. Only an IO read failure stays transient. */
     private fun resolveUncached(name: String, size: Int): Pair<Gray8?, Boolean> {
         val f = findFile(name, size) ?: return null to true
         val png: ByteArray = when {
-            f.toString().endsWith(".svg") -> rasterizeSvg(f, size) ?: return null to false
+            f.toString().endsWith(".svg") -> rasterizeSvg(f, size) ?: run {
+                Log.w("icons", "$f will not rasterize — treating '$name'@$size as missing for this theme")
+                return null to true
+            }
             else -> try { Files.readAllBytes(f) } catch (e: Exception) {
                 Log.w("icons", "read of $f failed: ${e.message}")
                 return null to false
             }
         }
-        val d = decoder.decode(png) ?: return null to false
+        val d = decoder.decode(png) ?: run {
+            Log.w("icons", "$f will not decode — treating '$name'@$size as missing for this theme")
+            return null to true
+        }
         return IconRaster.toSquare(d, size) to false
     }
 

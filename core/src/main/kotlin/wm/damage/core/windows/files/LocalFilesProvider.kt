@@ -165,12 +165,15 @@ class LocalFilesProvider(
             raf.readFully(buf)
         }
         // never cut a UTF-8 character at the chunk seam (review 2026-09-01
-        // Fi#2): back off over a trailing partial sequence (≤3 bytes) unless
-        // this is the file's end. Binary junk stays lossy but [bytesRead]
-        // keeps the offset truthful either way.
+        // Fi#2): back off over a trailing partial sequence unless this is the
+        // file's end. The walk examines up to 3 continuation bytes AND the
+        // lead (cap 4 — R2#1: cap 3 exited before the lead of a COMPLETE
+        // 4-byte character, stripping its continuations and mangling the char
+        // into four replacement chars across the seam). Binary junk stays
+        // lossy but [bytesRead] keeps the offset truthful either way.
         if (offset + n < total) {
             var trim = 0
-            while (trim < 3 && n - 1 - trim >= 0) {
+            while (trim < 4 && n - 1 - trim >= 0) {
                 val b = buf[n - 1 - trim].toInt() and 0xFF
                 if (b and 0xC0 == 0x80) { trim++; continue }        // continuation byte
                 // a lead byte whose sequence would run past the end is dropped
@@ -231,14 +234,22 @@ class LocalFilesProvider(
     }
 
     // ---------------------------------------------------------------- trash
+    /** The last manifest seen — READ paths serve from this without taking
+     *  [trashLock] (R2#20c): a multi-GB cross-volume trash/restore holds the
+     *  lock for its whole move, and locations()/trashList() from the phone
+     *  channel were parked behind it for minutes. A reader mid-op sees the
+     *  pre-op manifest — the same view it had a second earlier. */
+    @Volatile private var manifestCache: Manifest? = null
+
     private fun readManifest(): Manifest = synchronized(trashLock) {
-        if (!Files.isRegularFile(manifestPath)) return Manifest()
-        try {
+        val m = if (!Files.isRegularFile(manifestPath)) Manifest() else try {
             json.decodeFromString(Manifest.serializer(), Files.readString(manifestPath))
         } catch (e: Exception) {
             Log.e("files", "trash manifest unreadable — treating as empty (files stay on disk)", e)
             Manifest()
         }
+        manifestCache = m
+        m
     }
 
     private fun writeManifest(m: Manifest) = synchronized(trashLock) {
@@ -246,6 +257,7 @@ class LocalFilesProvider(
         val tmp = manifestPath.resolveSibling("manifest.json.${System.nanoTime()}.tmp")
         Files.writeString(tmp, json.encodeToString(Manifest.serializer(), m))
         Files.move(tmp, manifestPath, StandardCopyOption.REPLACE_EXISTING)
+        manifestCache = m
     }
 
     // Every trash op holds [trashLock] across its WHOLE read-modify-write:
@@ -269,7 +281,8 @@ class LocalFilesProvider(
         id
     }
 
-    override fun trashList(): List<FTrashEntry> = readManifest().entries.sortedByDescending { it.atMs }
+    override fun trashList(): List<FTrashEntry> =
+        (manifestCache ?: readManifest()).entries.sortedByDescending { it.atMs }
 
     override fun restore(id: String): String = synchronized(trashLock) {
         val m = readManifest()

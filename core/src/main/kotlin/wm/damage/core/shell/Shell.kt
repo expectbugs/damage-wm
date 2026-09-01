@@ -192,11 +192,18 @@ class Shell(
                 body, c.hhmm, emergency = false, appId = appId, target = target)))
         }
 
-        override fun openMenu(spec: MenuSurface.Spec) {
+        override fun openMenu(spec: MenuSurface.Spec, owner: DamageWindow?): Boolean {
             // LOOP-ONLY (§16.11): callers are commit handlers, already on the loop
             if (mode != Mode.WINDOW || switcher.open) {
                 Log.w("shell", "openMenu refused: mode=$mode switcher=${switcher.open}")
-                return
+                return false
+            }
+            // an async completion may land after the user moved to another
+            // window: its menu must not open over someone else's content
+            // (R2#8) — the false return tells the caller to say it another way
+            if (owner != null && owner !== current) {
+                Log.i("shell", "openMenu refused: '${owner.id}' is not the focused window")
+                return false
             }
             // a menu already open (an async Stats landing over a re-opened
             // entry menu) is closed PROPERLY first — restore + onClose — or
@@ -219,6 +226,7 @@ class Shell(
             menu.openWith(spec)
             updatePlanes()
             paintMenu()
+            return true
         }
 
         override fun icons(): wm.damage.core.gfx.IconSource? = iconSource
@@ -311,6 +319,23 @@ class Shell(
         }
         for (w in windows) w.onRegistered(services)
 
+        // a leftover surface from this instance's PREVIOUS session (the keeper
+        // stops and restarts the same Shell on link edges) must not carry a
+        // stale under-capture forward — content can change across the gap
+        // (a sync apply), and the close-restore would blit old pixels
+        // (review 2026-09-01 R2#19). Drop it; reopening costs one tap.
+        if (menu.open) {
+            val leftover = closeMenuSurface(restore = false)
+            try { leftover?.onClose?.invoke() } catch (e: Exception) {
+                Log.e("shell", "menu close handler at session start failed", e)
+            }
+        }
+        // reported sub-keys are per SESSION (review 2026-09-01 R2#5): a key
+        // restored in session N whose restore THROWS in session N+1 must not
+        // stay "reported" — saveAll would tombstone the real record and sync
+        // the removal fleet-wide, exactly what the guard exists to prevent
+        subReported.clear()
+
         // restore persisted state (§9.1: survives WM restart) BEFORE the loop
         persistence.load()
         // the stamp map AT load — the §19.4 reconciliation baseline: any
@@ -320,6 +345,10 @@ class Shell(
         val stampsAtLoad = persistence.stamps()
         stateLoaded = true
         settings = ShellSettings.fromJson(persistence.get("shell.settings"))
+        settingsLocallyEdited = false   // live settings now MIRROR the store
+        if (persistence.get("shell.settings") == null) {
+            persistence.putBaseline("shell.settings", settings.toJson())  // R2#16
+        }
         layout = layoutFor(settings)
         refreshStyles()   // every window draws through its per-app transform (Style.kt)
         for (w in windows) {
@@ -347,6 +376,15 @@ class Shell(
                 subReported.getOrPut(w.id) { HashSet() }.addAll(w.saveSubState().keys)
             } catch (e: Exception) {
                 Log.e("shell", "saveSubState of ${w.id} at restore failed", e)
+            }
+            // a window with NO stored record gets a stamp-0 BASELINE of its
+            // defaults (R2#16): persisted for offline restarts, but any real
+            // fleet record beats it — the first value-changing save after
+            // actual use re-stamps for real
+            if (persistence.get("window.${w.id}") == null) {
+                try { persistence.putBaseline("window.${w.id}", w.saveState()) } catch (e: Exception) {
+                    Log.e("shell", "baseline of ${w.id} failed", e)
+                }
             }
         }
         val shellState = persistence.get("shell.state")
@@ -854,6 +892,9 @@ class Shell(
     /** §16.2: the hand-off caller a root-level back returns to (one level).
      *  Set by openWindow, consumed on use, cleared by explicit navigation. */
     private var backTarget: DamageWindow? = null
+    /** Live settings hold a value the stored record did not produce — i.e. a
+     *  local edit happened. Gates every re-encoding put (R2#4). */
+    private var settingsLocallyEdited = false
 
     /** Per window: the sub-record keys its saveSubState has REPORTED this
      *  session — the only keys the tombstone sweep may remove (F2c/d). */
@@ -1130,7 +1171,8 @@ class Shell(
             // losing a menu is safe, a missed alert is not
             cancelMenu()
             // and the close must not seat a QUEUED ordinary box ahead of the
-            // alert — park it back unread; the emergency shows now
+            // alert — park it back unread; post() seats emergencies at the
+            // queue HEAD (R2#3), so the alert really does show next
             if (notifications.active && notifications.current?.emergency == false) {
                 liftNotificationBox()
                 notifications.requeueCurrent()
@@ -1616,7 +1658,10 @@ class Shell(
         // liveApplySync passes persist=false: the store already holds the
         // EXACT synced record; putting our clamped re-encoding would re-stamp
         // it and, across versions with different ladders, ping-pong restyles
-        // forever (review 2026-09-01 F5)
+        // forever (review 2026-09-01 F5). The flag carries the same fact to
+        // freshenSyncKey and saveAll (R2#4): only a LOCAL edit may ever
+        // re-encode the record.
+        settingsLocallyEdited = persist
         if (persist) persistence.put("shell.settings", s.toJson())
         if (restyle) {
             refreshStyles()
@@ -2101,7 +2146,12 @@ class Shell(
         // genuinely-used device still freshens against its live state.
         if (persistence.get(key) == null) return
         when {
-            key == "shell.settings" -> persistence.put(key, settings.toJson())
+            // re-encode ONLY after a local edit (R2#4): when live settings came
+            // from the stored record itself (boot restore or a peer apply), a
+            // re-encoding differs only by version shape — putting it would
+            // re-stamp the peer's record on every handshake, the F5 ping-pong
+            // through the freshen door
+            key == "shell.settings" -> if (settingsLocallyEdited) persistence.put(key, settings.toJson())
             key.startsWith("window.") -> windowForKey(key)?.let { (w, sub) ->
                 try {
                     if (sub == null) {
@@ -2130,7 +2180,7 @@ class Shell(
                 val (w, sub) = windowForKey(key) ?: return
                 if (sub == null) {
                     Log.i("sync", "state of '${w.id}' updated from the peer")
-                    w.restoreState(value)
+                    w.restoreStateLive(value)
                 } else {
                     Log.i("sync", "item '$sub' of '${w.id}' updated from the peer")
                     w.restoreSubState(sub, value)
@@ -2146,7 +2196,10 @@ class Shell(
     }
 
     private fun saveAll() {
-        persistence.put("shell.settings", settings.toJson())
+        // settings are NOT re-put here (R2#4): applySettings(persist=true)
+        // already persisted every local edit, and a blind re-encoding of a
+        // peer-applied record would re-stamp it on the next save tick — the
+        // exact echo the F5 fix suppressed at the apply site
         persistence.put("shell.state", buildJsonObject {
             put("current", current?.id ?: "")
             put("mode", mode.name)

@@ -278,11 +278,15 @@ class LocalTmuxProvider(
      *  subscribe() clears an entry to force the joiner its first frame. */
     private val lastRaw = ConcurrentHashMap<TmuxTarget, String>()
 
-    /** Targets with a capture already running — the tick SKIPS them instead
-     *  of stacking (the statusLoop pattern, applied here at last: review
-     *  2026-09-01 L4 / the §18.1 recorded debt — one lagging ssh host was
-     *  serializing every other target's capture behind its 5 s connect). */
-    private val captureInFlight = ConcurrentHashMap.newKeySet<TmuxTarget>()
+    /** Targets with a capture already running (value = when it started) — the
+     *  tick SKIPS them instead of stacking (the statusLoop pattern, applied
+     *  here at last: review 2026-09-01 L4 / the §18.1 recorded debt — one
+     *  lagging ssh host was serializing every other target's capture behind
+     *  its 5 s connect). A capture in flight PAST the narration threshold is
+     *  SAID on the pane each tick (R2#14): the skip must never turn a stuck
+     *  host into a silently frozen view. Nothing is cancelled — the capture
+     *  ends when its child does, and frames resume by themselves. */
+    private val captureInFlight = ConcurrentHashMap<TmuxTarget, Long>()
 
     private suspend fun captureLoop() {
         while (scope.isActive && running) {
@@ -290,7 +294,19 @@ class LocalTmuxProvider(
             lastRaw.keys.retainAll(wanted.keys)
             for ((target, who) in wanted) {
                 val h = hosts.firstOrNull { it.name == target.host } ?: continue
-                if (!captureInFlight.add(target)) continue     // still capturing: skip this tick
+                val since = captureInFlight.putIfAbsent(target, System.currentTimeMillis())
+                if (since != null) {
+                    val s = (System.currentTimeMillis() - since) / 1000
+                    if (s >= STUCK_NARRATE_S) {
+                        Log.w("tmux", "capture of ${target.label} in flight ${s}s — saying so on the pane")
+                        for (l in who) try {
+                            l.frame(target, PaneFrame(
+                                listOf("(capture stuck ${s}s on ${target.host} — still waiting; frames resume when it returns)"),
+                                80, 1, 0, 0, false, false, System.currentTimeMillis()))
+                        } catch (x: Exception) { Log.e("tmux", "frame listener", x) }
+                    }
+                    continue                                   // still capturing: skip this tick
+                }
                 scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     try {
                         val out = try {
@@ -347,6 +363,10 @@ class LocalTmuxProvider(
     companion object {
         const val TAIL_MARK = "@@TAIL@@ "
 
+        /** A capture in flight this long is narrated on the pane each tick
+         *  (R2#14) — a liveness DECISION, not a bound: nothing is cancelled. */
+        const val STUCK_NARRATE_S = 15L
+
         /** The per-host status script: the session table, then per-session
          *  tails. `while IFS= read` keeps names with spaces whole. */
         val STATUS_SCRIPT = """
@@ -368,13 +388,13 @@ class LocalTmuxProvider(
             val argv = if (host.ssh.isEmpty()) listOf("sh", "-c", script)
             else listOf("ssh", "-p", host.sshPort.toString(), "-o", "BatchMode=yes",
                 "-o", "ConnectTimeout=5", host.ssh, script)
-            val p = ProcessBuilder(argv).start()
-            val out = p.inputStream.readBytes().toString(Charsets.UTF_8)
-            val err = p.errorStream.readBytes().toString(Charsets.UTF_8)
-            val code = p.waitFor()
-            if (code != 0) throw IllegalStateException(
-                "${argv[0]} exited $code${if (err.isNotBlank()) ": " + err.trim().take(200) else ""}")
-            return out
+            // through the deadlock-proof runner (R2#14): the old
+            // stdout-then-stderr read stalled once a chatty child filled the
+            // 64 KiB stderr pipe mid-stream — the exact pattern Exec removes
+            val r = wm.damage.core.util.Exec.run(argv)
+            if (r.code != 0) throw IllegalStateException(
+                "${argv[0]} exited ${r.code}${if (r.stderr.isNotBlank()) ": " + r.stderr.trim().take(200) else ""}")
+            return r.stdout.toString(Charsets.UTF_8)
         }
     }
 }

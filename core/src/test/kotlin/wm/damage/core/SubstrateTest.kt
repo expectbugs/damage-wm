@@ -56,6 +56,8 @@ class SubstrateTest {
     private class ItemsWindow : DamageWindow("items", "Items", IconKind.FILES) {
         val items = LinkedHashMap<String, Int>()
         val restoredSubs = ArrayList<String>()
+        /** R2#5 harness: a sub-key whose restore THROWS (a corrupt blob). */
+        var failRestoreOf: String? = null
         override fun view() = WindowView.ListView(ListModel(), { 1 },
             { _: Gray8, _: Int, _: Rect, _: Boolean -> }, { _: Gray8, _: Rect, _: Int -> }, {})
         override fun summary() = Summary("items")
@@ -64,6 +66,7 @@ class SubstrateTest {
         override fun saveSubState(): Map<String, JsonObject> =
             items.entries.associate { (k, v) -> k to buildJsonObject { put("v", v) } }
         override fun restoreSubState(subKey: String, state: JsonObject) {
+            if (subKey == failRestoreOf) throw IllegalStateException("poisoned restore of $subKey")
             restoredSubs.add(subKey)
             val v = state["v"]?.jsonPrimitive?.intOrNull
             if (v == null) items.remove(subKey) else items[subKey] = v
@@ -276,6 +279,97 @@ class SubstrateTest {
             r2.onRegistered(s2)
             assertTrue(r2.open("book:no-such-id"))
             awaitTrue("the miss is reported") { s2.notices.any { it.contains("no-such-id") } }
+        } finally {
+            scope.cancel()
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun virginStoreBaselinesLoseToRealRecords(): Unit = runBlocking {
+        // R2#16: a virgin device's save must not stamp window DEFAULTS over
+        // the fleet — startLocked seeds stamp-0 baselines, and a real fleet
+        // record beats them even after local save ticks with unchanged values
+        val tmp = Files.createTempDirectory("damage-substrate-baseline")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val store = Persistence(tmp.resolve("state.json"))
+            val sh = Shell(FakeText(), SimTransport(GlassFirmwareSim(), scope,
+                SimTransport.Timing(instant = true)), store, null, scope)
+            val w = ItemsWindow()
+            sh.register(w)
+            sh.start()
+            assertTrue(store.get("window.items") != null, "the baseline record exists locally")
+            assertEquals(0L, store.stamp("window.items"), "the baseline is stamp 0")
+            assertEquals(0L, store.stamp("shell.settings"), "settings baseline is stamp 0")
+            sh.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // activity → a save
+            sh.stop()                                        // saveAll: value-equal put
+            assertEquals(0L, store.stamp("window.items"),
+                "an unchanged save re-stamped the baseline — defaults would beat the fleet")
+            // the fleet's real record wins
+            assertTrue(store.tryApplyRemote("window.items", buildJsonObject { put("main", 9) }, 1_000L),
+                "a real record must beat the stamp-0 baseline")
+        } finally {
+            scope.cancel()
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun failedSubRestoreInALaterSessionNeverTombstones(): Unit = runBlocking {
+        // R2#5: the keeper restarts the SAME Shell all day — a key restored in
+        // session N whose restore THROWS in session N+1 must not stay
+        // "reported" from N, or saveAll tombstones the real record fleet-wide
+        val tmp = Files.createTempDirectory("damage-substrate-sessions")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val store = Persistence(tmp.resolve("state.json"))
+            val sh = Shell(FakeText(), SimTransport(GlassFirmwareSim(), scope,
+                SimTransport.Timing(instant = true)), store, null, scope)
+            val w = ItemsWindow()
+            sh.register(w)
+            // session 1: the window holds and reports "a"
+            w.items["a"] = 7
+            sh.start()
+            sh.stop()
+            assertEquals(7, store.get("window.items.a")!!["v"]!!.jsonPrimitive.intOrNull,
+                "session 1 saved the sub-record")
+            // session 2 (same instance): the restore of "a" throws
+            w.items.clear()
+            w.failRestoreOf = "a"
+            sh.start()
+            sh.stop()
+            val rec = store.get("window.items.a")
+            assertTrue(rec != null && rec.isNotEmpty(),
+                "a failed restore in a later session tombstoned the real record (R2#5)")
+        } finally {
+            scope.cancel()
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun saveAllNeverReEncodesAPeersSettingsRecord(): Unit = runBlocking {
+        // R2#4: a peer-applied settings record must survive local save ticks
+        // BYTE-IDENTICAL — re-putting our re-encoding re-stamps it and, across
+        // versions with different shapes, ping-pongs restyles forever
+        val tmp = Files.createTempDirectory("damage-substrate-echo")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val store = Persistence(tmp.resolve("state.json"))
+            // the peer's record carries a field OUR encoder does not emit —
+            // the version-shape-drift stand-in
+            val peer = buildJsonObject { put("fontScale", 1.0); put("newerFieldWeDontKnow", 42) }
+            assertTrue(store.tryApplyRemote("shell.settings", peer, 5_000L))
+            val sh = Shell(FakeText(), SimTransport(GlassFirmwareSim(), scope,
+                SimTransport.Timing(instant = true)), store, null, scope)
+            sh.register(ItemsWindow())
+            sh.start()
+            sh.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // activity → a save
+            sh.stop()                                        // saveAll runs
+            val (v, t) = store.record("shell.settings")!!
+            assertEquals(peer, v, "saveAll re-encoded the peer's settings record (the F4 echo)")
+            assertEquals(5_000L, t, "the peer's stamp was overwritten")
         } finally {
             scope.cancel()
             tmp.toFile().deleteRecursively()

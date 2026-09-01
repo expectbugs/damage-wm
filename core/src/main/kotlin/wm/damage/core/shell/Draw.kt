@@ -38,11 +38,25 @@ object Draw {
             tx.draw(g, x / 4 * 4, y / 2 * 2, str, f, lv)
             return false
         }
-        // leave room for the mark itself
+        // leave room for the mark itself. The cut lands on a CODE-POINT
+        // boundary (take(n) could split a surrogate pair — a lone surrogate
+        // reaching the rasterizer is the L1 throw-inside-paint class) and is
+        // found by binary search (log-n measures, was n² per paint) — the
+        // R2#20a fitEnd fix, applied to the kit itself.
         val textMax = maxW - 14
-        var n = str.length
-        while (n > 0 && tx.measure(str.take(n), f) > textMax) n--
-        tx.draw(g, x / 4 * 4, y / 2 * 2, str.take(n), f, lv)
+        val bounds = ArrayList<Int>(str.length + 1)
+        var i = 0
+        while (i < str.length) { bounds.add(i); i += Character.charCount(str.codePointAt(i)) }
+        bounds.add(str.length)
+        // prefix width is monotone in the boundary index: largest prefix ≤ textMax
+        var best = 0
+        var a = 0
+        var b = bounds.size - 1
+        while (a <= b) {
+            val m = (a + b) / 2
+            if (tx.measure(str.substring(0, bounds[m]), f) <= textMax) { best = bounds[m]; a = m + 1 } else b = m - 1
+        }
+        tx.draw(g, x / 4 * 4, y / 2 * 2, str.substring(0, best), f, lv)
         Icons.tri(g, x + maxW - 10, y + 5, 11, markLv)
         return true
     }
@@ -76,6 +90,9 @@ object Draw {
                 else { append('?'); bad.add(s) }
             }
         }
+        // bounded (R2#20b): a month of CJK browsing must not grow this set
+        // forever — clearing re-logs at worst, which is the loud direction
+        if (warnedGlyphs.size > 512) warnedGlyphs.clear()
         if (warnedGlyphs.add(bad.joinToString(""))) {
             wm.damage.core.util.Log.w("draw", "glyphs the ${f.face} face cannot draw: $bad — shown as '?' (first seen in '${str.take(60)}')")
         }

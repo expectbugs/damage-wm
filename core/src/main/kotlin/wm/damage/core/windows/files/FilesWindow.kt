@@ -98,6 +98,9 @@ class FilesWindow(
     /** Stats/PDF probes guard themselves WITHOUT bumping [navSeq] — bumping it
      *  stranded in-flight listings (review 2026-09-01 Fi#5). */
     private var sideSeq = 0
+    private var statSeq = 0
+    /** Ascend's restored cursor, re-applied when the listing lands (R2#20d). */
+    private var pendingBrowseCursor: Int? = null
 
     /** The Reader hand-off prefix and the title's ~-shortening both come from
      *  the HOST's own home (review Fi#15: the phone's local user.home mangled
@@ -184,6 +187,10 @@ class FilesWindow(
                 val (parent, cursor) = browseStack.removeAt(browseStack.size - 1)
                 cwd = parent
                 browseModel.cursor = cursor
+                // survive the listing gap (R2#20d): a scroll while rows() is
+                // the lone placeholder wraps the cursor to 0 via mod(1) — the
+                // restore re-applies when the listing lands
+                pendingBrowseCursor = cursor
                 entries = emptyList()     // Fi#4
                 listState = "listing"
                 nameArmed = null          // Fi#16
@@ -220,10 +227,14 @@ class FilesWindow(
     }
 
     override fun onLayoutChanged() {
+        // a style change swaps the face behind tx: cached glyph coverage is
+        // for the OLD face (R2#17) — stale entries pass tofu or '?' real glyphs
+        coverCache.clear()
         viewer?.relayout()
     }
 
     override fun onFontScaleChanged(scale: Double) {
+        coverCache.clear()
         viewer?.relayout()
     }
 
@@ -238,9 +249,11 @@ class FilesWindow(
             return true
         }
         val (what, target) = armed
-        val verb = if (what == NameFor.RENAME) "Rename '${target.substringAfterLast('/')}' to" else "New folder"
-        services?.openMenu(MenuSurface.Spec("$verb '$name'?",
-            listOf(MenuSurface.Item("Cancel"), MenuSurface.Item("Apply", detail = name)),
+        // every user-content string in a menu goes through dn() (R2#18):
+        // MenuSurface draws raw, and non-Latin names were silent tofu
+        val verb = if (what == NameFor.RENAME) "Rename '${dn(target.substringAfterLast('/'))}' to" else "New folder"
+        services?.openMenu(MenuSurface.Spec("$verb '${dn(name)}'?",
+            listOf(MenuSurface.Item("Cancel"), MenuSurface.Item("Apply", detail = dn(name))),
             onCommit = { idx ->
                 if (idx == 1) runOp(if (what == NameFor.RENAME) "renaming" else "creating folder") {
                     if (what == NameFor.RENAME) provider.rename(target, name)
@@ -374,6 +387,10 @@ class FilesWindow(
                 if (err != null) setNotice(err)
                 services?.setOperation("idle")
                 val n = rows().size
+                pendingBrowseCursor?.let {
+                    browseModel.cursor = it.coerceIn(0, n - 1)
+                    pendingBrowseCursor = null
+                }
                 if (browseModel.cursor >= n) browseModel.cursor = 0
                 services?.requestRender(this@FilesWindow)
             }
@@ -425,8 +442,14 @@ class FilesWindow(
                     thumbsInFlight.remove(path)
                     if (failed) {
                         // a link blip is not a property of the file (review
-                        // Fi#10) — pace a retry instead of caching "no thumb"
+                        // Fi#10) — pace a retry instead of caching "no thumb".
+                        // And REPAINT when the pacing expires (the R2#10
+                        // class): a parked cursor otherwise never retries.
                         thumbRetryAt[path] = System.currentTimeMillis() + 10_000
+                        bg.launch {
+                            kotlinx.coroutines.delay(10_000)
+                            services?.runOnShell { services?.requestRender(this@FilesWindow) }
+                        }
                     } else {
                         thumbs[path] = t
                     }
@@ -494,7 +517,7 @@ class FilesWindow(
         add("Open on PC") { runOp("opening on PC") { provider.openOnPc(path); "opened on the PC" } }
         add("Copy") { clip = ClipVerb.COPY to path; services?.requestRender(this) }
         add("Cut") { clip = ClipVerb.CUT to path; services?.requestRender(this) }
-        if (e.dir && clip != null) add("Paste here", clip!!.second.substringAfterLast('/')) { paste(path) }
+        if (e.dir && clip != null) add("Paste here", dn(clip!!.second.substringAfterLast('/'))) { paste(path) }
         add("Rename") {
             nameArmed = NameFor.RENAME to path
             setNotice("type the new name (phone strip / replica)")
@@ -517,7 +540,7 @@ class FilesWindow(
             setNotice("type the folder name (phone strip / replica)")
             services?.requestRender(this)
         }
-        if (clip != null) add("Paste here", clip!!.second.substringAfterLast('/')) { paste(cwd) }
+        if (clip != null) add("Paste here", dn(clip!!.second.substringAfterLast('/'))) { paste(cwd) }
         add("Sort", sort.name.lowercase()) {
             sort = Sort.entries[(sort.ordinal + 1) % Sort.entries.size]
             services?.requestRender(this)
@@ -528,7 +551,7 @@ class FilesWindow(
         }
         add("Refresh") { refreshList() }
         add("Stats", "this folder") { openStats(cwd, null) }
-        services?.openMenu(MenuSurface.Spec(shortPath(cwd), items,
+        services?.openMenu(MenuSurface.Spec(dn(shortPath(cwd)), items,
             onCommit = { idx -> acts.getOrNull(idx)?.invoke() }))
     }
 
@@ -566,7 +589,7 @@ class FilesWindow(
     }
 
     private fun confirmTrash(path: String, name: String) {
-        services?.openMenu(MenuSurface.Spec("Delete '$name'?",
+        services?.openMenu(MenuSurface.Spec("Delete '${dn(name)}'?",
             listOf(MenuSurface.Item("Cancel"), MenuSurface.Item("Move to Trash", detail = "restorable")),
             onCommit = { idx -> if (idx == 1) runOp("trashing") { provider.trash(path); "moved to trash" } }))
     }
@@ -586,7 +609,9 @@ class FilesWindow(
             return
         }
         opBusy = true                     // du can walk a cold HDD (Fi#6)
-        val seq = ++sideSeq               // NOT navSeq: listings stay live (Fi#5)
+        // its OWN counter (R2#8): sharing sideSeq with openPdf let a Stats tap
+        // silently discard an in-flight pdfInfo (a restore that never happened)
+        val seq = ++statSeq               // NOT navSeq: listings stay live (Fi#5)
         val fromLevel = level
         services?.setOperation("stat")
         bg.launch(Dispatchers.IO) {
@@ -604,7 +629,7 @@ class FilesWindow(
                 Log.e("files", "stat $path failed", ex)
                 services?.runOnShell {
                     opBusy = false
-                    if (seq == sideSeq) setNotice(ex.message ?: "stat failed")
+                    if (seq == statSeq) setNotice(ex.message ?: "stat failed")
                     services?.setOperation("idle")
                     services?.requestRender(this@FilesWindow)
                 }
@@ -613,13 +638,18 @@ class FilesWindow(
             services?.runOnShell {
                 opBusy = false
                 services?.setOperation("idle")
-                if (seq != sideSeq) return@runOnShell
-                if (level == fromLevel) {
+                if (seq != statSeq) return@runOnShell
+                // the menu shows only when Files still owns the screen at the
+                // SAME level; every other case — level changed, user on Main
+                // or another window, wheel open — delivers the answer as a
+                // notice instead of losing it (Fi#6 + R2#8: the level check
+                // alone opened the stats menu over other windows, and a
+                // refused openMenu vanished with a log line)
+                val shown = level == fromLevel &&
                     services?.openMenu(MenuSurface.Spec(
-                        dn(e?.name ?: shortPath(path)), lines, onCommit = { }))
-                } else {
-                    // the user moved on while du walked — the answer must not
-                    // vanish (Fi#6): deliver it as a notice instead
+                        dn(e?.name ?: shortPath(path)), lines, onCommit = { }),
+                        owner = this@FilesWindow) == true
+                if (!shown) {
                     services?.notifyInternal("files",
                         "${e?.name ?: shortPath(path)}: " + lines.joinToString(" · ") { "${it.label} ${it.detail}" })
                 }
@@ -697,24 +727,24 @@ class FilesWindow(
         val e = trashEntries.getOrNull(i) ?: return
         IconPaint.drawFile(g, services?.icons(), e.name, e.dir, r.x + 8, r.y + 4, 56, Level.HEAD)
         Draw.fit(g, tx, r.x + 72, r.y + 6, dn(e.name), Level.HEAD, FontSpec(Face.SYSTEM, 18, bold = true), r.w - 88)
-        Draw.fit(g, tx, r.x + 72, r.y + 34, "was ${shortPath(e.origPath)}", Level.BODY, fBody, r.w - 88)
+        Draw.fit(g, tx, r.x + 72, r.y + 34, "was ${dn(shortPath(e.origPath))}", Level.BODY, fBody, r.w - 88)
     }
 
     private fun commitTrash(i: Int) {
         val e = trashEntries.getOrNull(i) ?: return
-        services?.openMenu(MenuSurface.Spec(e.name, listOf(
-            MenuSurface.Item("Restore", detail = shortPath(e.origPath.substringBeforeLast('/'))),
+        services?.openMenu(MenuSurface.Spec(dn(e.name), listOf(
+            MenuSurface.Item("Restore", detail = dn(shortPath(e.origPath.substringBeforeLast('/')))),
             MenuSurface.Item("Stats", detail = fmtBytes(e.size)),
             MenuSurface.Item("Delete forever", detail = "cannot be undone"),
         ), onCommit = { idx ->
             when (idx) {
                 0 -> runOp("restoring") { "restored to ${shortPath(provider.restore(e.id))}" }
-                1 -> services?.openMenu(MenuSurface.Spec(e.name, listOf(
+                1 -> services?.openMenu(MenuSurface.Spec(dn(e.name), listOf(
                     MenuSurface.Item("Size", fmtBytes(e.size)),
-                    MenuSurface.Item("Was", e.origPath),
+                    MenuSurface.Item("Was", dn(e.origPath)),
                     MenuSurface.Item("Trashed", fmtMtime(e.atMs)),
                 ), onCommit = { }))
-                2 -> services?.openMenu(MenuSurface.Spec("Delete '${e.name}' FOREVER?", listOf(
+                2 -> services?.openMenu(MenuSurface.Spec("Delete '${dn(e.name)}' FOREVER?", listOf(
                     // the one unrecoverable op: Cancel at rest, an info spacer,
                     // the act at index 2 (§1.7's never-0/1, kept even here)
                     MenuSurface.Item("Cancel"),
@@ -753,6 +783,19 @@ class FilesWindow(
         /** Paced retry after a transient chunk/page failure (Fi#3) — never a
          *  silent end-of-file, never an unpaced retry storm. */
         var retryAtMs = 0L
+
+        /** The retry is DEMAND-driven from paint, so something must repaint
+         *  when the pacing expires (R2#10): a parked viewer otherwise showed
+         *  "retrying" forever without retrying. One delayed render per
+         *  failure; paint re-evaluates demand as usual. */
+        fun scheduleRetryPaint() {
+            bg.launch {
+                kotlinx.coroutines.delay(RETRY_PACING_MS)
+                services?.runOnShell {
+                    if (viewer === this@Viewer) services?.requestRender(this@FilesWindow)
+                }
+            }
+        }
 
         fun titleLine(): String = when (mode) {
             "pdfpage" -> {
@@ -891,8 +934,13 @@ class FilesWindow(
                         Log.e("files", "text chunk of $path failed: $err")
                         setNotice(err ?: "read failed — retrying")
                         retryAtMs = System.currentTimeMillis() + RETRY_PACING_MS
+                        scheduleRetryPaint()
                     } else {
-                        loadedBytes = off + chunk.text.toByteArray(Charsets.UTF_8).size
+                        // advance by what the provider actually READ (R2#2):
+                        // re-encoding the decoded text inflates every invalid
+                        // byte to a 3-byte U+FFFD, drifting the offset past
+                        // reality and eventually past EOF on mixed binary logs
+                        loadedBytes = off + chunk.bytesRead
                         totalBytes = chunk.totalBytes
                         more = chunk.more
                         // hold back the trailing partial line; the next chunk
@@ -940,6 +988,7 @@ class FilesWindow(
                         Log.e("files", "pdf page $page of $path failed: $err")
                         setNotice(err ?: "page $page failed — retrying")
                         retryAtMs = System.currentTimeMillis() + RETRY_PACING_MS
+                        scheduleRetryPaint()
                     } else {
                         pageStarts.add(strips.size)
                         appendStrips(g)
@@ -1087,6 +1136,9 @@ class FilesWindow(
                 if (info == null) {
                     Log.e("files", "pdfinfo of $path failed: $err")
                     setNotice(err ?: "could not read the PDF")
+                    // a restore that dies here must not leave its position
+                    // armed for the NEXT unrelated open (R2#9)
+                    pendingViewTop = 0
                     services?.requestRender(this@FilesWindow)
                     return@runOnShell
                 }

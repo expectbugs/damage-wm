@@ -15,7 +15,12 @@ object Exec {
      *  callers decide whether that is loud or a fallback. */
     fun run(cmd: List<String>, stderrCap: Int = 64 * 1024): Result {
         val p = ProcessBuilder(cmd).start()
+        // guarded by errLock (R2#15): the drainer appends on its own thread
+        // and StringBuilder is not thread-safe — a grandchild inheriting
+        // stderr can keep the pipe open past waitFor, so the drainer may
+        // still be appending when the caller reads
         val err = StringBuilder()
+        val errLock = Any()
         val drainer = Thread({
             try {
                 val buf = ByteArray(8 * 1024)
@@ -23,8 +28,10 @@ object Exec {
                     while (true) {
                         val n = s.read(buf)
                         if (n < 0) break
-                        if (err.length < stderrCap) {
-                            err.append(String(buf, 0, minOf(n, stderrCap - err.length), Charsets.UTF_8))
+                        synchronized(errLock) {
+                            if (err.length < stderrCap) {
+                                err.append(String(buf, 0, minOf(n, stderrCap - err.length), Charsets.UTF_8))
+                            }
                         }
                         // past the cap: keep DRAINING (that is the whole point)
                     }
@@ -34,9 +41,23 @@ object Exec {
             }
         }, "exec-stderr-${cmd.firstOrNull()}").apply { isDaemon = true }
         drainer.start()
-        val out = p.inputStream.readBytes()
-        val code = p.waitFor()
-        drainer.join(2_000)   // the pipe closed with the process; a hung drainer is daemon anyway
-        return Result(code, out, err.toString())
+        val out = try {
+            p.inputStream.readBytes()
+        } catch (e: Exception) {
+            p.destroy()          // our failure must not leave the child running (R2#15)
+            throw e
+        }
+        val code = try {
+            p.waitFor()
+        } catch (e: InterruptedException) {
+            p.destroy()
+            throw e
+        }
+        // a completeness GRACE for the drainer's final buffered read, not an
+        // execution bound — the child has exited and its bytes are in the
+        // pipe; only a grandchild holding stderr open outlives this, and its
+        // later output belongs to nobody (the daemon thread keeps draining)
+        drainer.join(2_000)
+        return Result(code, out, synchronized(errLock) { err.toString() })
     }
 }
