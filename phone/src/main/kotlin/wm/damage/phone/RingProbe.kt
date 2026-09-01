@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
@@ -52,6 +53,9 @@ class RingProbe(private val context: Context) {
         val batteryPct: Int? = null,
         val firmwareRev: String? = null,
         val failure: String? = null,
+        /** Listen mode: notify frames captured, and strings pulled from them. */
+        val framesHeard: Int = 0,
+        val strings: List<String> = emptyList(),
     ) {
         val batteryServicePresent: Boolean get() = services.any { it.startsWith("0000180f") }
         fun summary(): String = failure ?: buildString {
@@ -59,8 +63,19 @@ class RingProbe(private val context: Context) {
             append(if (batteryServicePresent) " · Battery Service PRESENT" else " · NO standard Battery Service")
             batteryPct?.let { append(" · battery $it%") }
             firmwareRev?.let { append(" · fw $it") }
+            if (framesHeard > 0 || strings.isNotEmpty()) {
+                append(" · heard $framesHeard frames")
+                if (strings.isNotEmpty()) append(" · " + strings.joinToString(" "))
+            }
         }
     }
+
+    /** Which action a probe run performs. */
+    enum class Mode { ENUMERATE, LISTEN }
+    private var mode = Mode.ENUMERATE
+    private var listenMs = LISTEN_WINDOW_MS
+    private var framesHeard = 0
+    private val heardStrings = LinkedHashSet<String>()
 
     private val handler = Handler(Looper.getMainLooper())
     private val done = AtomicBoolean(false)
@@ -81,6 +96,31 @@ class RingProbe(private val context: Context) {
     private fun std(short: Int): UUID = UUID.fromString("0000%04x-0000-1000-8000-00805f9b34fb".format(short))
     private val batteryLevelUuid = std(0x2A19)
     private val firmwareRevUuid = std(0x2A26)
+    private val CCCD = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+
+    /**
+     * LISTEN mode: subscribe to every notify characteristic (CCCD enable only
+     * — no data write to the ring) and record what streams for [seconds].
+     * Confirms whether the ring pushes unsolicited, pulls firmware/serial
+     * strings out of the proprietary frames (the §10.13 ring-version check),
+     * and captures raw frames so a battery byte can be isolated — G2CC's note
+     * is that battery is pushed on a CHANGE, so a charger on/off during the
+     * window is what forces a battery frame to appear.
+     */
+    fun listen(seconds: Int, address: String?, onDone: (Report) -> Unit) {
+        mode = Mode.LISTEN
+        listenMs = seconds * 1000L
+        this.onDone = onDone
+        val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+        if (adapter == null || !adapter.isEnabled) { finish(Report(failure = "Bluetooth is off")); return }
+        handler.postDelayed({ if (!done.get()) finish(partial(null)) }, listenMs + CONNECT_SLACK_MS)
+        if (address != null) {
+            devAddr = address; devName = "EVEN R1 (remembered)"
+            connect(adapter.getRemoteDevice(address))
+        } else {
+            startScan(adapter, connectOnFind = true)
+        }
+    }
 
     fun run(onDone: (Report) -> Unit) {
         this.onDone = onDone
@@ -89,11 +129,19 @@ class RingProbe(private val context: Context) {
             finish(Report(failure = "Bluetooth is off"))
             return
         }
+        // the overall watchdog: whatever stage stalls, the person gets a report
+        handler.postDelayed({
+            if (!done.get()) {
+                Log.w("ringprobe", "probe did not finish inside ${WATCHDOG_MS / 1000} s — reporting what it has")
+                finish(partial("stalled after ${WATCHDOG_MS / 1000} s (see logcat for the last stage)"))
+            }
+        }, WATCHDOG_MS)
+        startScan(adapter, connectOnFind = true)
+    }
+
+    private fun startScan(adapter: android.bluetooth.BluetoothAdapter, connectOnFind: Boolean) {
         val scanner = adapter.bluetoothLeScanner
-        if (scanner == null) {
-            finish(Report(failure = "no LE scanner (Bluetooth off?)"))
-            return
-        }
+        if (scanner == null) { finish(Report(failure = "no LE scanner (Bluetooth off?)")); return }
         Log.i("ringprobe", "scanning for an EVEN R1 advertisement (${SCAN_WINDOW_MS / 1000} s window)")
         scanning = true
         scanner.startScan(null,
@@ -105,17 +153,10 @@ class RingProbe(private val context: Context) {
                     "is another app holding its phone slot (Even app / G2CC bridge)?"))
             }
         }, SCAN_WINDOW_MS)
-        // the overall watchdog: whatever stage stalls, the person gets a report
-        handler.postDelayed({
-            if (!done.get()) {
-                Log.w("ringprobe", "probe did not finish inside ${WATCHDOG_MS / 1000} s — reporting what it has")
-                finish(partial("stalled after ${WATCHDOG_MS / 1000} s (see logcat for the last stage)"))
-            }
-        }, WATCHDOG_MS)
     }
 
     private fun partial(failure: String?) = Report(devName, devAddr, devRssi, serviceLines,
-        batteryPct, firmwareRev, failure)
+        batteryPct, firmwareRev, failure, framesHeard, heardStrings.toList())
 
     private val scanCb = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -193,7 +234,35 @@ class RingProbe(private val context: Context) {
                 Log.i("ringprobe", "service ${s.uuid} — $chars")
             }
             serviceLines = lines
-            // queue the read-only targets that exist; nothing else is touched
+            if (mode == Mode.LISTEN) {
+                // subscribe to every notify characteristic — a CCCD enable
+                // only, never a data write to the ring — and let frames stream
+                // into onCharacteristicChanged for the listen window
+                var enabled = 0
+                for (s in g.services) for (c in s.characteristics) {
+                    val notifyBit = BluetoothGattCharacteristic.PROPERTY_NOTIFY or
+                        BluetoothGattCharacteristic.PROPERTY_INDICATE
+                    if (c.properties and notifyBit == 0) continue
+                    g.setCharacteristicNotification(c, true)
+                    val cccd = c.getDescriptor(CCCD)
+                    if (cccd != null) {
+                        @Suppress("DEPRECATION")
+                        run {
+                            cccd.value = if (c.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0)
+                                BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                            else BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
+                            g.writeDescriptor(cccd)
+                        }
+                        enabled++
+                    }
+                }
+                Log.i("ringprobe", "listening on $enabled notify char(s) for ${listenMs / 1000} s " +
+                    "(toggle the ring on/off its charger now to force a battery frame)")
+                if (enabled == 0) finish(partial("no notify characteristics to listen on"))
+                else handler.postDelayed({ if (!done.get()) finish(partial(null)) }, listenMs)
+                return
+            }
+            // ENUMERATE: queue the read-only targets that exist; nothing else is touched
             readQueue = ArrayDeque()
             for (s in g.services) for (c in s.characteristics) {
                 if ((c.uuid == batteryLevelUuid || c.uuid == firmwareRevUuid) &&
@@ -202,6 +271,22 @@ class RingProbe(private val context: Context) {
                 }
             }
             if (readQueue.isEmpty()) finish(partial(null)) else nextRead(g)
+        }
+
+        @Deprecated("the (gatt, characteristic) form — the API-31 floor")
+        override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
+            val v = c.value ?: return
+            framesHeard++
+            val hex = v.joinToString("") { "%02x".format(it) }
+            Log.i("ringprobe", "frame #$framesHeard ${c.uuid.toString().take(8)} len=${v.size} $hex")
+            // pull printable runs (firmware "2.2.6.0009", serial, MAC-as-ascii)
+            val run = StringBuilder()
+            for (b in v) {
+                val ch = b.toInt() and 0xFF
+                if (ch in 0x20..0x7e) run.append(ch.toChar())
+                else { if (run.length >= 4) heardStrings.add(run.toString()); run.setLength(0) }
+            }
+            if (run.length >= 4) heardStrings.add(run.toString())
         }
 
         private fun nextRead(g: BluetoothGatt) {
@@ -254,5 +339,9 @@ class RingProbe(private val context: Context) {
         /** SeamProbe-class decision windows (pacing, not work abandonment). */
         const val SCAN_WINDOW_MS = 15_000L
         const val WATCHDOG_MS = 30_000L
+        const val LISTEN_WINDOW_MS = 45_000L
+        /** Slack past the listen window for connect + discovery before the
+         *  watchdog reports whatever was heard. */
+        const val CONNECT_SLACK_MS = 20_000L
     }
 }

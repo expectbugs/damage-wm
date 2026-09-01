@@ -197,10 +197,13 @@ class MainActivity : ComponentActivity() {
         val svc = service ?: return
         AlertDialog.Builder(this)
             .setTitle("Ring probe")
-            .setMessage("Connect to the ring over this phone's own BLE link and list its " +
-                "services, read-only (battery + firmware revision if offered)? " +
-                "One connection, no pairing; the result arrives as a notification.")
-            .setPositiveButton("probe") { _, _ -> svc.probeRing() }
+            .setMessage("The ring has no standard Battery Service, so battery lives in its own " +
+                "notify stream. LISTEN subscribes for 45 s and records what streams — toggle the " +
+                "ring on/off its charger during that window to force a battery frame. " +
+                "LIST re-runs the read-only service enumeration. No pairing, ever; " +
+                "the result arrives as a notification and the raw frames go to logcat.")
+            .setPositiveButton("listen 45s") { _, _ -> svc.listenRing(45) }
+            .setNeutralButton("list services") { _, _ -> svc.probeRing() }
             .setNegativeButton("cancel", null)
             .show()
     }

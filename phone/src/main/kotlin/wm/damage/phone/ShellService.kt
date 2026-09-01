@@ -499,12 +499,33 @@ class ShellService : Service() {
         updateNotification(statusLine)
         RingProbe(this).run { report ->
             ringProbing.set(false)
+            report.address?.let { ringAddress = it }
             urgentNotification("ring", report.summary())
             if (report.batteryPct != null) {
                 shell?.ringBattery = Chrome.Battery(report.batteryPct)
-                ringAddress = report.address
                 startRingPoll()
             }
+        }
+    }
+
+    /**
+     * Listen on the ring's proprietary notify stream (0x0017-class) for
+     * [seconds] — the follow-up when there is no standard Battery Service (the
+     * measured case). Read-only: subscribe (CCCD enable), record frames, pull
+     * firmware/serial strings (the §10.13 ring-version check). Battery is
+     * pushed on a CHANGE (G2CC §10), so the notification asks for a charger
+     * on/off during the window; the raw frames go to logcat for the diff.
+     */
+    fun listenRing(seconds: Int) {
+        if (!ringProbing.compareAndSet(false, true)) {
+            Log.i("ringprobe", "a probe is already running"); return
+        }
+        statusLine = "listening to the ring (${seconds}s)…"
+        updateNotification(statusLine)
+        RingProbe(this).listen(seconds, ringAddress) { report ->
+            ringProbing.set(false)
+            report.address?.let { ringAddress = it }
+            urgentNotification("ring", report.summary())
         }
     }
 
