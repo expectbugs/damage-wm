@@ -85,10 +85,17 @@ the three configurations exercised on hardware the same day — takeover, fallba
 observed working; the §16 handover rework made every transition a repaint; the §19 correction
 then made the PHONE the primary driver and retired daily PC claims). In the queue now:
 
-- **The §19 live checks**: install APK **0.10** (setup page) — it carries the sync client and
-  the probeable seam; watch the first sync exchange in both logs; then the standby drill at
-  the desk (stop the APK → the PC BLE-drives within ~10 s → restart it → handback); then the
-  sync feel across a driver swap (a book position following the swap).
+- **The §19 live checks**: install APK **0.11** (setup page) — it carries the sync client, the
+  probeable seam, AND the ring probe; watch the first sync exchange in both logs; then the
+  standby drill at the desk (stop the APK → the PC BLE-drives within ~10 s → restart it →
+  handback); then the sync feel across a driver swap (a book position following the swap).
+- **The ring probe** (APK 0.11, the strip's "ring" button): the glasses CANNOT relay ring
+  battery — settled from firmware source 2026-08-31 (`CLAIMS.md`) — so the phone reads the
+  ring over its own link. One tap: read-only GATT enumeration + standard battery/firmware
+  reads if offered; result arrives as a phone notification, full table in logcat
+  (`adb logcat -s damage/ringprobe`). A successful battery read fills the chrome **R cell**
+  and re-reads every 15 min for the run. If the ring is not seen advertising, the notification
+  says so (another app may hold its phone slot).
 
 - **On-glass verdicts for the 2026-08-31 night wave**: the tmux FLOW view (wrapped
   typographic terminal text, rules drawn, tail marker, 1 s updates — Font/size/style are real

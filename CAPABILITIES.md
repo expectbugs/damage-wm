@@ -65,7 +65,7 @@ FB lease must be renewed every 45 s or stock LVGL repaints over you.
 | **Wear / unwear detection** | CFW `wearnotify` → sid 0x10 `GLS_WEAR_STATUS`; op 7 queries current state | ✅ V |
 | **Magnetometer compass** | CFW mode 10 · heading via stock sid-0x08 notifier | ✅ V |
 | **Piezo buzzer** — presets, notes, **arbitrary 1–20000 Hz tones, and 48-step sequences** | mode 5 kinds 0–4 · the only audio output on a device with no speaker | ✅ V |
-| **Ring biometrics**: hr, spo2, hrv, temp, steps, kcal, battery — all with timestamps | `RingDataPackage.RingRawData` on sid 0x91 relay | 🟡 V |
+| **Ring biometrics**: hr, spo2, hrv, temp, steps, kcal, battery — all with timestamps | ❌ **NOT via the sid-0x91 relay** — the stock firmware never sends `RingRawData` (service accepts only the EVENT registration; openCFW `pb_service_ring.c` + both captures, 2026-08-31). The real source is the **phone's own BLE link to the ring** (the official-app/Faceclaw shape — the ring serves a phone link beside its glasses link). The APK's "ring" probe (0.11) enumerates its GATT read-only and reads standard Battery/firmware-revision if offered; the proprietary 0x0015/0x0017 frames are the fallback (G2CC §11 residual RE — needs a charging-toggle capture) | ❌ relay (C+M) · 🟡 direct link |
 | Ambient light / auto-brightness, head-up angle, anti-shake | sid 0x80 `DeviceInfo` · sid 0x09 settings | 🟡 V |
 | Glasses battery / charging / case SoC / lid / in-case | sid 0x09 f4.12–13 (⚠ the BARE `08 02 10 xx` READ — the f4-sub-request form returns no device-info on the CFW, measured 2026-08-31); sid 0x81 `GlassesCaseInfo`. **In daily use: the chrome G cell** | ✅ M (CFW) |
 | Glasses microphone | ⚠ disconnects >25 s; audio is on service `6450` | ⚠ S |

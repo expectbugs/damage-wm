@@ -109,6 +109,7 @@ class MainActivity : ComponentActivity() {
             addView(smallButton("lens") { lens?.toggleArm() })
             addView(smallButton("type") { typeDialog() })
             addView(smallButton("rel") { service?.postGesture(EvenHubMsg.EV_RING_LONG_PRESS_RELEASE) })
+            addView(smallButton("ring") { ringProbeDialog() })
         }
         root.addView(bar, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
         setContentView(root)
@@ -185,6 +186,21 @@ class MainActivity : ComponentActivity() {
                 val line = box.text?.toString().orEmpty()
                 if (line.isNotBlank()) svc.postText(line)
             }
+            .setNegativeButton("cancel", null)
+            .show()
+    }
+
+    /** The ring GATT probe (read-only, over the phone's OWN link to the ring —
+     *  the glasses cannot relay ring data, see RingProbe). Confirmed on tap:
+     *  it is a deliberate radio contact, not a passive view. */
+    private fun ringProbeDialog() {
+        val svc = service ?: return
+        AlertDialog.Builder(this)
+            .setTitle("Ring probe")
+            .setMessage("Connect to the ring over this phone's own BLE link and list its " +
+                "services, read-only (battery + firmware revision if offered)? " +
+                "One connection, no pairing; the result arrives as a notification.")
+            .setPositiveButton("probe") { _, _ -> svc.probeRing() }
             .setNegativeButton("cancel", null)
             .show()
     }

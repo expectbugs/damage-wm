@@ -1728,11 +1728,19 @@ class Shell(
 
     @Volatile var phoneBattery: Chrome.Battery? = null
 
-    /** Wire-fed batteries (2026-08-31): glasses from the settings READ
-     *  response (start + the 60 s poll), ring from a sid-0x91 relay. Blank
-     *  until the wire reports — never invented. */
+    /** Wire-fed battery (2026-08-31): glasses from the settings READ
+     *  response (start + the 60 s poll). Blank until the wire reports —
+     *  never invented. */
     private var glassesBattery: Chrome.Battery? = null
-    private var ringBattery: Chrome.Battery? = null
+
+    /** Ring battery. HOST-SET like [phoneBattery] (the phone's RingProbe over
+     *  its own link to the ring) — the glasses CANNOT relay it: the stock
+     *  sid-0x91 service accepts only the EVENT registration and never fills
+     *  RingRawData (openCFW pb_service_ring.c, recovered against our
+     *  2.2.6.10 base; zero rawData frames in both captures — 2026-08-31,
+     *  HANDOFF.md §19.4). The relay listener stays wired in the transport in
+     *  case a future CFW implements it. */
+    @Volatile var ringBattery: Chrome.Battery? = null
 
     /** The active window's id, or null at Main/silent — test introspection. */
     fun currentWindowId(): String? = if (mode == Mode.WINDOW) current?.id else null

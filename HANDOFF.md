@@ -1619,3 +1619,18 @@ by design (LWW as asked); test harnesses use scratch dirs and never touch it.
   the PC side rarely writes at all. The 5-min re-handshake does NOT heal this case (the stale
   overwrite carries the newer stamp). Revisit if a deep review wants it closed; the fix shape
   is a post-start reconciliation pass over syncable keys.
+- **The ring-battery question, settled from source (same night):** the R cell never filled
+  because it CANNOT — the stock sid-0x91 service (openCFW `pb_service_ring.c`, recovered
+  against our 2.2.6.10 base) accepts only the EVENT registration and never fills RingRawData;
+  both captures corroborate (zero rawData frames), and G2CC §10 already said the official app
+  reads ring battery on the ring's OWN link. Our passive relay listener was correct and the
+  answer is negative — banked in `CLAIMS.md`/`CAPABILITIES.md`. Built the same hour (Adam away
+  from the PC, so it rides the phone): **the APK's read-only ring probe** — the strip's "ring"
+  button scans for `EVEN R1`, connects with no pairing, logs the full GATT table, reads
+  standard Battery (0x2A19) + Firmware Revision (0x2A26) once each if offered (never retried —
+  a retry is where Android auto-pairs, and §11.5 says leave this ring's bond state alone), and
+  a successful read fills the chrome R cell + re-reads on a 15 min pacing for the run. The
+  firmware-revision read doubles as the §10.13 "ring version never verified" check. APK
+  **11/0.11** staged (0.10 was never installed); battery green (core 164 · desktop 9 ·
+  selfcheck 48 · lint 0); jar restaged, service restarted (standby — a restart touches
+  nothing on glass now).

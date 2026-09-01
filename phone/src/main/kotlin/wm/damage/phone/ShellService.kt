@@ -323,6 +323,7 @@ class ShellService : Service() {
 
     @Synchronized
     private fun stopStack() {
+        ringPolling = false     // the poll rides the stack's scope; a rebuild re-probes
         // the keeper and shell are taken out FIRST: a seam session ending
         // under the server's close must not resume a keeper being stopped
         val k = keeper
@@ -475,6 +476,64 @@ class ShellService : Service() {
         transport?.injectText(line) ?: Log.w("service", "typed line with no transport")
     }
 
+    // ------------------------------------------------------------------ ring
+    /** One probe at a time; the remembered address + a live re-read loop for
+     *  the rest of this service run once a battery read has succeeded. */
+    private val ringProbing = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var ringAddress: String? = null
+    @Volatile private var ringPolling = false
+
+    /**
+     * The strip's "ring" button: enumerate the ring's GATT over the phone's
+     * own link (read-only — see RingProbe's header for why the glasses can
+     * never supply this). The full table lands in logcat; the summary is a
+     * notification; a successful battery read fills the chrome R cell and
+     * starts a gentle re-read (15 min pacing) for the rest of this run.
+     */
+    fun probeRing() {
+        if (!ringProbing.compareAndSet(false, true)) {
+            Log.i("ringprobe", "a probe is already running")
+            return
+        }
+        statusLine = "probing the ring…"
+        updateNotification(statusLine)
+        RingProbe(this).run { report ->
+            ringProbing.set(false)
+            urgentNotification("ring", report.summary())
+            if (report.batteryPct != null) {
+                shell?.ringBattery = Chrome.Battery(report.batteryPct)
+                ringAddress = report.address
+                startRingPoll()
+            }
+        }
+    }
+
+    /** Re-read battery by the remembered address (no scan) every 15 min while
+     *  this service runs; stops LOUDLY on a failed read — the button restarts
+     *  it. Session-scoped on purpose: persistence is the follow-up once the
+     *  source is proven on this ring. */
+    private fun startRingPoll() {
+        if (ringPolling) return
+        ringPolling = true
+        scope.launch {
+            while (isActive && ringPolling) {
+                delay(RING_POLL_MS)          // pacing between reads, not a timeout
+                val addr = ringAddress ?: break
+                val done = kotlinx.coroutines.CompletableDeferred<RingProbe.Report>()
+                RingProbe(this@ShellService).runAt(addr) { done.complete(it) }
+                val r = done.await()
+                if (r.batteryPct != null) {
+                    shell?.ringBattery = Chrome.Battery(r.batteryPct)
+                    Log.i("ringprobe", "ring battery ${r.batteryPct}% (15 min re-read)")
+                } else {
+                    ringPolling = false
+                    Log.e("ringprobe", "ring re-read failed (${r.failure ?: "no battery value"}) — " +
+                        "poll stopped; the ring button starts it again")
+                }
+            }
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
 
     override fun onDestroy() {
@@ -539,6 +598,8 @@ class ShellService : Service() {
         private const val CHANNEL = "damage"
         private const val CHANNEL_URGENT = "damage-urgent"
         private const val ERROR_NOTICE_GAP_MS = 10_000L
+        /** Ring battery re-read pacing over the phone's own ring link. */
+        private const val RING_POLL_MS = 15 * 60_000L
         /** Distinct error notices one tag may raise per gap; the rest stay in logcat. */
         private const val ERROR_NOTICES_PER_TAG = 3
     }

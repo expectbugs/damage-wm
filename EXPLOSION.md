@@ -455,14 +455,18 @@ graded **v2 overall**: it is only as good as the sources built before it.
 
 ## 13. HEALTH
 
-**Entirely PROBE-gated**: `RingRawData` (hr, spo2, hrv, temp, steps, kcal, battery — vendor
-schema, sid 0x91 relay) is 🟡V in `CAPABILITIES.md`, our decode is **already wired and passive**
-(REFINEMENT §10), and whether the glasses forward it unprompted has simply never been watched
-for. One quiet session answers it. Until then this window is paper only.
+**The relay probe is ANSWERED — negative, from source (2026-08-31 night):** the stock firmware
+**never sends `RingRawData`** on sid 0x91 — its service accepts only the EVENT registration and
+no code path fills rawData (openCFW `pb_service_ring.c`, corroborated by zero rawData frames in
+both captures; `CLAIMS.md`). So this window's data source is what 13.8 said all along: **the
+phone's own BLE link to the ring** — the official-app/Faceclaw shape, proven to coexist with the
+ring↔glasses link. The APK's read-only "ring" probe (0.11) is the first rung: GATT enumeration +
+standard Battery/firmware reads if offered; the proprietary 0x0015/0x0017 frames (G2CC §11,
+charging-toggle capture to isolate fields) are the deeper rung the biometrics need.
 
 | # | idea | note | grade |
 |---|---|---|---|
-| 13.1 | The probe itself: watch a normal session for 0x91 relays; log heads | zero new code — the listener exists | **PROBE, run first** |
+| 13.1 | ~~Watch a session for 0x91 relays~~ → **the direct-link probe** (GATT enumerate + battery read) | ✅ built into APK 0.11 as the strip's "ring" button | **done — awaiting the tap** |
 | 13.2 | Today panel: steps, kcal, last hr | | v2 (post-probe) |
 | 13.3 | HR sparkline as coarse blocks | host stores history | v2 |
 | 13.4 | SpO2 / HRV / temp rows | | v2 |
