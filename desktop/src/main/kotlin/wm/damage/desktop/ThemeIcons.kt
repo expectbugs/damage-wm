@@ -226,7 +226,10 @@ class ThemeIcons(
                 val r = Exec.run(cmd)
                 if (r.code == 0 && r.stdout.isNotEmpty()) return r.stdout
                 Log.w("icons", "${cmd[0]} on ${f.fileName} exit ${r.code}: ${r.stderr.take(200)}")
-                if (r.code in 1..127) refusals++    // a normal refusal, not a signal
+                // a normal-exit refusal — including exit 0 with NO output
+                // (R4 note: some tools "succeed" emptily on a bad file) —
+                // is deterministic; signal-class exits stay transient
+                if (r.code in 0..127) refusals++
             } catch (e: java.io.IOException) {
                 if (toolAbsent.add(cmd[0])) {
                     Log.w("icons", "${cmd[0]} is not installed — SVG theme icons need it (trying the next tool)")

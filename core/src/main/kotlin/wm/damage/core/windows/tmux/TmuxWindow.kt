@@ -190,12 +190,18 @@ class TmuxWindow(
         provider.removeListener(listener)
     }
 
+    /** Focused right now — a PARKED window must never resubscribe (R4#2:
+     *  the G2CC orphan-poll lesson; onDeactivate unsubscribed on purpose). */
+    private var active = false
+
     override fun onActivate(ctx: ShellServices) {
         services = ctx
+        active = true
         if (level == Level_.LIVE || level == Level_.HISTORY || level == Level_.KEYS) resubscribe()
     }
 
     override fun onDeactivate() {
+        active = false
         provider.subscribe(listener, null)   // parked windows hold no capture loop (G2CC's orphan-poll lesson)
     }
 
@@ -426,10 +432,13 @@ class TmuxWindow(
             i == qk.size + 2 -> {
                 busy("listing windows") {
                     val w = provider.windows(t)
-                    // only while the user still waits on KEYS (R3s#2) — a
-                    // late listing must not force the WINDOWS level
+                    // only while the user still waits on KEYS for THIS session
+                    // (R3s#2 + R4#6) — a late listing must not force WINDOWS,
+                    // nor show the OLD session's windows under a new one
                     onShell {
-                        if (level != Level_.KEYS) return@onShell
+                        val cur = target
+                        if (level != Level_.KEYS || cur == null ||
+                            cur.host != t.host || cur.session != t.session) return@onShell
                         wins = w; winModel.cursor = 0; level = Level_.WINDOWS; services?.requestRender(this)
                     }
                 }
@@ -691,11 +700,17 @@ class TmuxWindow(
     /** A LIVE-synced record needs the activation follow-up boot gets from
      *  onActivate (R3d#2): a target swap without resubscribe() leaves the
      *  frame listener filtering every push — the pane freezes on the old
-     *  target's last frame under the new session's title. */
+     *  target's last frame under the new session's title. Only while FOCUSED
+     *  (R4#2): a parked window resubscribing is the orphan capture poll —
+     *  1 Hz ssh execs all day for a pane nobody on this machine watches;
+     *  onActivate re-asserts on focus. And the frame blanks only when the
+     *  TARGET changed — every peer-side save otherwise flashed a watched
+     *  pane to "capturing…". */
     override fun restoreStateLive(state: JsonObject) {
+        val before = target
         restoreState(state)
-        frame = null
-        if (level == Level_.LIVE || level == Level_.HISTORY || level == Level_.KEYS) resubscribe()
+        if (target != before) frame = null
+        if (active && (level == Level_.LIVE || level == Level_.HISTORY || level == Level_.KEYS)) resubscribe()
         services?.requestRender(this)
     }
 
@@ -718,6 +733,13 @@ class TmuxWindow(
                 (state["window"] as? JsonPrimitive)?.content?.toIntOrNull() ?: -1,
             )
             level = Level_.LIVE   // deeper levels restore to the live grid; history re-captures
+        } else if (level == Level_.LIVE || level == Level_.HISTORY || level == Level_.KEYS) {
+            // the record says the peer LEFT (or killed) the session: keeping
+            // the stale LIVE target had the new override resubscribe a dead
+            // pane — a 1 Hz failing exec forever (R4#2)
+            target = null
+            frame = null
+            level = Level_.SESSIONS
         }
     }
 

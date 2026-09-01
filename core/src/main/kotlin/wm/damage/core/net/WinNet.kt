@@ -172,12 +172,15 @@ class RemoteWin(
                     out = o
                     while (true) {
                         val w = inp.readWireFrame()
-                        // healthy only once the host actually ANSWERS on this
-                        // lane (R3#2): resetting on the upgrade write made an
-                        // old host that closes the session flap the state and
-                        // re-log every 2 s forever
-                        if (offlineSince != 0L || stateLine.isNotEmpty()) { offlineSince = 0; setState("") }
+                        // healthy only on a KNOWN-GOOD frame (R3#2 + R4#3):
+                        // flipping on ANY frame — the "err" refusal included —
+                        // re-created the flap-and-relog cycle on the in-band
+                        // refusal path (the RemoteSync `attached` shape)
+                        if (w.t == "wup" || w.t == "wres") {
+                            if (offlineSince != 0L || stateLine.isNotEmpty()) { offlineSince = 0; setState("") }
+                        }
                         when (w.t) {
+                            "wup" -> {}   // the host's greeting — the healthy flip above IS its meaning
                             "wres" -> {
                                 val blob = if (w.blobLen >= 0) {
                                     require(w.blobLen <= WinNet.BLOB_MAX) { "blob ${w.blobLen} B over cap" }

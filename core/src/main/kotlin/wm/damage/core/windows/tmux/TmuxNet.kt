@@ -229,8 +229,11 @@ class RemoteTmuxProvider(
                 Log.w("tmux-remote", "control not sent: ${e.message} — dropping the link so the reader reconnects")
                 // a failed control write is how a SILENT path death becomes
                 // visible (R3#1): the parked reader never errors on its own —
-                // closing the socket unparks it and the connect loop heals
-                try { sockRef?.close() } catch (c: Exception) { /* closing */ }
+                // closing the socket unparks it and the connect loop heals.
+                // Only while the failed stream is STILL the live one (R4#4):
+                // a slow failure landing after a reconnect must not close the
+                // healthy new socket
+                if (out === o) try { sockRef?.close() } catch (c: Exception) { /* closing */ }
             }
         }
     }
@@ -268,11 +271,13 @@ class RemoteTmuxProvider(
                     try {
                         while (true) {
                             val w = inp.readWire()
-                            // healthy only once the host actually SPEAKS tmux
-                            // on this connection (R3#2) — resetting on the
-                            // upgrade write made an old host that closes the
-                            // session flap state and re-log every 2 s
-                            if (offlineSince != 0L) { offlineSince = 0; setState("") }
+                            // healthy only on a KNOWN-GOOD frame (R3#2 + R4#3):
+                            // flipping on the "err" refusal re-created the very
+                            // flap the first-frame rule removed
+                            if (w.t == "tstat" || w.t == "tstate" || w.t == "tframe" ||
+                                w.t == "talert" || w.t == "tres") {
+                                if (offlineSince != 0L) { offlineSince = 0; setState("") }
+                            }
                             route(w)
                         }
                     } finally {

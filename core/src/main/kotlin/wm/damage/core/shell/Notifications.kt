@@ -112,6 +112,7 @@ class Notifications(private val text: TextRasterizer) {
         current = null
         furling = false
         unfurl = 0
+        clearingRun = false   // a restart mid-clear must not skip the next box's grace (R4#8)
         queue.clear()
         invalidateUnder()
     }

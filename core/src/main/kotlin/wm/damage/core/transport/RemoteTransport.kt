@@ -483,9 +483,11 @@ class RemoteTransportClient(
             off += p.size
         }
         pendingSubmits[id] = System.currentTimeMillis()
-        // the blocking socket write runs OFF the caller (R3 note): the pump
-        // calls submit on the shell loop, and a wedged link with a full TCP
-        // buffer would park the loop — the store-listener lesson (R2), here
+        // the blocking write moves to an IO THREAD; the caller still awaits
+        // it (withContext suspends), so a wedged link parks the pump COROUTINE
+        // — but the freed loop thread lets the seam-quiet watcher close the
+        // socket, bounding the park at the liveness decision (~20 s) instead
+        // of TCP's retransmission tail (R3 note, honesty per R4)
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             o.send(Ctl(t = "flush", id = id, epoch = flush.epoch, label = flush.label, ops = ops,
                 wide = flush.wide), blob)

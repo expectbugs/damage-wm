@@ -174,7 +174,9 @@ class FilesWindow(
         Level_.VIEW -> 3 + browseStack.size
     }
 
-    override fun back(): Boolean = when (level) {
+    override fun back(): Boolean {
+        pendingOpenView = null            // user navigation supersedes a pending restore (R4#1)
+        return when (level) {
         Level_.VIEW -> {
             viewer = null
             level = Level_.BROWSE
@@ -212,6 +214,7 @@ class FilesWindow(
             }
         }
         Level_.LOCATIONS -> false
+        }
     }
 
     override fun onRegistered(ctx: ShellServices) { services = ctx }
@@ -220,7 +223,9 @@ class FilesWindow(
         services = ctx
         when (level) {
             Level_.LOCATIONS -> refreshLocations()
-            Level_.BROWSE -> refreshList()
+            // while a restore's pdf open is in flight, hold the refresh: its
+            // ++navSeq cancelled the open it was restoring (R4#1)
+            Level_.BROWSE -> if (pendingOpenView == null) refreshList()
             Level_.TRASH -> refreshTrash()
             Level_.VIEW -> {}
         }
@@ -570,6 +575,7 @@ class FilesWindow(
     }
 
     private fun openEntry(e: FEntry) {
+        pendingOpenView = null            // user navigation supersedes a pending restore (R4#1)
         val path = pathOf(e)
         if (e.dir) {
             browseStack.add(cwd to browseModel.cursor)
@@ -610,11 +616,14 @@ class FilesWindow(
     }
 
     private fun paste(destDir: String) {
-        val (verb, src) = clip ?: return
+        val took = clip ?: return
+        val (verb, src) = took
         // the clip slot clears in the LOOP completion (R3s#9), never in the
-        // IO-side op — title() reads it every chrome sync
+        // IO-side op — title() reads it every chrome sync — and only if it
+        // still holds the pair THIS op consumed (R4#9: a clip re-armed during
+        // a multi-second move must survive the old completion)
         runOp(if (verb == ClipVerb.COPY) "copying" else "moving",
-            onSuccess = { if (verb == ClipVerb.CUT) clip = null }) {
+            onSuccess = { if (verb == ClipVerb.CUT && clip == took) clip = null }) {
             val dest = if (verb == ClipVerb.COPY) provider.copy(src, destDir) else provider.move(src, destDir)
             "→ ${shortPath(dest)}"
         }
@@ -1041,6 +1050,13 @@ class FilesWindow(
      *  [pendingViewFor]'s file so an unrelated open cannot inherit it. */
     private var pendingViewTop = 0
     private var pendingViewFor: String? = null
+    /** A RESTORE's async pdf open in flight (path, name, mode) — R4#1: while
+     *  set, (a) saveState reports the VIEW being restored, not the transient
+     *  BROWSE (a freshen mid-window otherwise re-stamped BROWSE and closed
+     *  the PEER's open PDF), and (b) the automatic refreshes (onActivate,
+     *  restoreStateLive) hold off — their ++navSeq deterministically
+     *  cancelled the very open the restore launched. */
+    private var pendingOpenView: Triple<String, String, String>? = null
 
     private fun consumePendingTop(v: Viewer) {
         if (pendingViewFor != null && pendingViewFor != v.path) return   // not this file (R3d#8)
@@ -1159,6 +1175,7 @@ class FilesWindow(
             }
             services?.runOnShell {
                 if (seq != sideSeq) return@runOnShell
+                if (pendingOpenView?.first == path) pendingOpenView = null   // resolved either way (R4#1)
                 services?.setOperation("idle")
                 // apply-only-if-undisturbed (R3s#1, the Reader #B8 shape): a
                 // slow pdfInfo over a stalled link must not yank the user out
@@ -1246,10 +1263,22 @@ class FilesWindow(
         put("clipVerb", clip?.first?.name ?: "")
         put("clipPath", clip?.second ?: "")
         val v = viewer
-        put("viewPath", v?.path ?: "")
-        put("viewName", v?.name ?: "")
-        put("viewMode", v?.mode ?: "")
-        put("viewTop", docModel.topLine)
+        val pending = pendingOpenView
+        if (v == null && pending != null) {
+            // a restore's pdf open is in flight (R4#1): report the VIEW being
+            // restored — saving the transient BROWSE re-stamped it over the
+            // peer's real state
+            put("level", Level_.VIEW.name)
+            put("viewPath", pending.first)
+            put("viewName", pending.second)
+            put("viewMode", pending.third)
+            put("viewTop", pendingViewTop)
+        } else {
+            put("viewPath", v?.path ?: "")
+            put("viewName", v?.name ?: "")
+            put("viewMode", v?.mode ?: "")
+            put("viewTop", docModel.topLine)
+        }
     }
 
     /** A LIVE-synced record needs the refresh boot gets from onActivate
@@ -1259,7 +1288,11 @@ class FilesWindow(
     override fun restoreStateLive(state: JsonObject) {
         restoreState(state)
         when (level) {
-            Level_.BROWSE -> { entries = emptyList(); listState = "listing"; refreshList() }
+            // R4#1: while the record's own pdf open is in flight the level is
+            // transiently BROWSE — refreshing would ++navSeq and cancel it
+            Level_.BROWSE -> if (pendingOpenView == null) {
+                entries = emptyList(); listState = "listing"; refreshList()
+            }
             Level_.TRASH -> refreshTrash()
             Level_.LOCATIONS -> refreshLocations()
             Level_.VIEW -> {}   // the restore path reopens through the normal opens
@@ -1311,7 +1344,12 @@ class FilesWindow(
                         "text" -> openText(vPath, vName)
                         "image" -> openImage(vPath, vName)
                         "pdftext" -> openPdfText(vPath, vName)
-                        "pdfpage" -> openPdf(vPath, vName)
+                        "pdfpage" -> {
+                            // the one ASYNC create: level stays BROWSE until
+                            // pdfInfo lands, so the in-flight intent is state
+                            pendingOpenView = Triple(vPath, vName, "pdfpage")
+                            openPdf(vPath, vName)
+                        }
                     }
                 } else level = Level_.BROWSE
             }

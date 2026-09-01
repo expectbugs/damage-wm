@@ -1788,13 +1788,46 @@ tolerance, `restampMsgId` loud refusal on fixed-width, inflate refusing needsDic
 sim strictness ×3. Boundaries verified as DESIGNED and documented rather than "fixed":
 dual-live-shell LWW alternation (two shells both actively writing the same key trade wins —
 inherent to LWW), activity-beats-remote-reset, and the startup micro-window now covered by
-reconciliation. Round 2 ran two probes (compositor pairBlacks; a fresh diff review of round 1's
-own fixes) — see the closing status below for its outcome.
+reconciliation.
+
+**Round 2** (`ead19a3`, `5d7ba5e`): the pairBlacks probe CONFIRMED a real compositor defect —
+an unpaired seam strip's fallback painted real black on the opposite lens OUTSIDE the repair
+area, permanently and silently (1,920 px in the probe; `L2ProbeTest` stays as the regression
+gate) — fixed by bounding seam strips to the scanned area. The fix-diff reviewer's 20 findings
+all verified and addressed; the LWW ones matter most: **stamp-0 baselines** (a virgin device's
+save can no longer stamp defaults over the fleet's real positions), the settings **re-encode
+echo** closed at both saveAll and freshen, `subReported` made per-session (a failed restore
+after a keeper restart can no longer tombstone real data), and the transitional Reader map
+made live-authoritative. Plus: emergencies jump the notification queue, the sync sender
+lifecycle, paced retries that actually repaint, code-point-safe fits, and Exec hardening.
+
+**Round 3** (`d0a74aa`): three fresh reviewers over the whole project again (fix-diff /
+glue+net / shell+windows) — ~28 findings, all verified, all real ones fixed. Standouts:
+content-channel **liveness** (keepAlive everywhere, the tmux subscription re-assert, the win
+host greeting) so a silent path death reconnects instead of freezing a healthy-looking window;
+the **cross-version law** enforced on every lane (in-band `err`, never a closed session, no
+2 s flap against an old host); apply-only-if-undisturbed guards on every async completion that
+was still missing one (openPdf, four tmux busy() sites); **per-item LWW re-apply** after a
+main-record live apply (a newer sub-record wins its item back); `restoreStateLive` overrides so
+a live-synced record gets the refresh/resubscribe boot gets; an emergency now cancels the
+wheel too; and the notice queue no longer duplicates across keeper restarts. Round 4 reviewed
+the round-3 diff itself — the closing status below records the loop's end state.
 
 ### 22.3 State at hand-off
 
-Battery: core **183** · desktop 9 · selfcheck **61** · snapshots 18 (eyeballed) · epub
+Battery: core **188** · desktop 9 · selfcheck **61** · snapshots 18 (eyeballed) · epub
 380/404 · lint 0 · APK **16/0.16** staged (bump per install; the phone still runs 0.15 until
 Adam installs). Jar staged; service restarted onto the build (kept driving via the phone,
 untouched on glass). Reader writes transitional legacy offsets alongside sub-records —
-**remove when the installed APK is ≥ 0.16.**
+**remove when the installed APK is ≥ 0.16** (with it: `restoreStateLive`'s map-authority and
+`liveMapApply`).
+
+Recorded limits, verified as designed or accepted (round 3): the Reader reset-progress picker
+matches by TITLE (two same-titled books are indistinguishable in that list either way — a
+disambiguation is a design item); a Settings double-tap revert applies its whole captured
+snapshot (a peer sync landing mid-adjust rolls back — dual-active esoterica); the "+N" badge
+counts already-read queue entries; the content-port pre-auth hello read has no time bound
+(tailnet-only, tracked and closed on stop); the win channel has no app-level ping (a silent
+path death is bounded by keepAlive and the write path's own retransmission); the L2 seam
+repair is same-batch in the USUAL case — under exact budget exhaustion it rides the next
+flush via `residual`, a one-flush transient.

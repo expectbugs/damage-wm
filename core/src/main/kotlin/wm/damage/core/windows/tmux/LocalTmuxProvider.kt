@@ -299,16 +299,18 @@ class LocalTmuxProvider(
                     val s = (System.currentTimeMillis() - since) / 1000
                     if (s >= STUCK_NARRATE_S) {
                         Log.w("tmux", "capture of ${target.label} in flight ${s}s — saying so on the pane")
-                        // and forget the last raw capture (R3d#3): a stalled
-                        // host usually returns an UNCHANGED pane, whose
-                        // dedup would suppress the recovery push and latch
-                        // the stuck banner on a healthy link
-                        lastRaw.remove(target)
                         for (l in who) try {
                             l.frame(target, PaneFrame(
                                 listOf("(capture stuck ${s}s on ${target.host} — still waiting; frames resume when it returns)"),
                                 80, 1, 0, 0, false, false, System.currentTimeMillis()))
                         } catch (x: Exception) { Log.e("tmux", "frame listener", x) }
+                        // forget the last raw capture AFTER the push (R3d#3 +
+                        // R4#5): a stalled host usually returns an UNCHANGED
+                        // pane, whose dedup would suppress the recovery frame
+                        // — and removing LAST means a completion racing this
+                        // tick costs one duplicate frame, never a latched
+                        // banner
+                        lastRaw.remove(target)
                     }
                     continue                                   // still capturing: skip this tick
                 }

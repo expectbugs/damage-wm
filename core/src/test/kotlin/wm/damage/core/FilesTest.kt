@@ -28,6 +28,7 @@ import wm.damage.core.transport.SimTransport
 import wm.damage.core.windows.files.FEntry
 import wm.damage.core.windows.files.FLocation
 import wm.damage.core.windows.files.FilesProvider
+import wm.damage.core.windows.files.PdfInfo
 import wm.damage.core.windows.files.FilesService
 import wm.damage.core.windows.files.FilesWindow
 import wm.damage.core.windows.files.LocalFilesProvider
@@ -297,6 +298,71 @@ class FilesTest {
                 "the parked ordinary box waits BEHIND the emergency")
             r.stop()
         } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun pdfpageRestoreSurvivesActivationAndSavesHonestly(): Unit = runBlocking {
+        // R4#1: the pdfpage restore is the ONE async viewer create — level is
+        // transiently BROWSE while pdfInfo walks. Before the fix, onActivate's
+        // refreshList ++navSeq'd the very open the restore launched (dropped,
+        // deterministically), and a save in the window re-stamped BROWSE over
+        // the peer's real VIEW state — closing the PDF on the OTHER device.
+        val tmp = Files.createTempDirectory("damage-files-pdfrestore")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val h = Harness(tmp)
+            val pdf = h.root.resolve("scan.pdf")
+            Files.writeString(pdf, "%PDF-1.4 fake")
+            val gate = java.util.concurrent.CountDownLatch(1)
+            val gated = object : FilesProvider by h.provider {
+                override fun pdfInfo(path: String): PdfInfo {
+                    gate.await()                    // held until the test releases it
+                    return PdfInfo(pages = 2, textChars = 0)   // → pdfpage mode
+                }
+                override fun pdfPage(path: String, page: Int, widthPx: Int): ByteArray =
+                    ByteArray(8)                    // undecodable; the viewer still exists
+            }
+            val store = Persistence(tmp.resolve("state.json"))
+            store.put("window.files", buildJsonObject {
+                put("level", "VIEW")
+                put("locationPath", h.root.toString())
+                put("locationKind", "mount")
+                put("cwd", h.root.toString())
+                put("viewPath", pdf.toString())
+                put("viewName", "scan.pdf")
+                put("viewMode", "pdfpage")
+                put("viewTop", 30)
+            })
+            store.put("shell.state", buildJsonObject {
+                put("current", "files")
+                put("mode", "WINDOW")
+                put("mainCursor", "0")
+            })
+            val shell = Shell(FakeText(), SimTransport(GlassFirmwareSim(), scope,
+                SimTransport.Timing(instant = true)), store, null, scope)
+            val win = FilesWindow(FakeText(), gated, scope)
+            shell.register(win)
+            shell.start()                            // restore + onActivate, pdfInfo gated
+
+            // while the open is in flight, the SAVED state must be the VIEW
+            // being restored — not the transient BROWSE (the freshen door)
+            val mid = win.saveState()
+            assertEquals("VIEW", mid["level"]!!.jsonPrimitive.content,
+                "mid-restore save must report the VIEW being restored")
+            assertEquals("pdfpage", mid["viewMode"]!!.jsonPrimitive.content)
+
+            gate.countDown()
+            awaitTrue("the pdfpage viewer survives activation") {
+                val s = win.saveState()
+                s["level"]!!.jsonPrimitive.content == "VIEW" &&
+                    s["viewMode"]!!.jsonPrimitive.content == "pdfpage" &&
+                    win.title().contains("p.")       // the viewer EXISTS (titleLine)
+            }
+            shell.stop()
+        } finally {
+            scope.cancel()
             tmp.toFile().deleteRecursively()
         }
     }
