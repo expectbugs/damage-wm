@@ -1,10 +1,12 @@
 # Damage — a framebuffer window manager for the Even Realities G2
 
-**Status (2026-08-31): BUILT, FLASHED, LIVE.** The research phase this file records closed
-2026-08-17; the shell was built 2026-08-24/25, the CFW installed 2026-08-30 (`HANDOFF.md` §10),
-first light the same day (§11), and the first refinement wave 2026-08-31 (§12). This file remains
-**the fact record** — read it with [`CLAIMS.md`](CLAIMS.md) for grades — and the app-layer
-**scope explosion** is the next phase, starting from [`CAPABILITIES.md`](CAPABILITIES.md).
+**Status (2026-09-01): BUILT, FLASHED, LIVE, and into the app wave.** The research phase this
+file records closed 2026-08-17; the shell was built 2026-08-24/25, the CFW installed 2026-08-30
+(`HANDOFF.md` §10), first light the same day (§11), the refinement wave 2026-08-31 (§12), and
+the first G2CC window conversion (Files) plus the shared app machinery landed 2026-09-01
+(`HANDOFF.md` §22). This file remains **the fact record** — read it with
+[`CLAIMS.md`](CLAIMS.md) for grades; the app wave's own records are `EXPLOSION.md` and
+`WINDOWS.md`.
 ⚠ Facts below marked "our firmware is 2.2.2.20" are historical: **the pair now runs the CFW**
 (g2flash `a5d1c31`, reporting `2.2.6.10`; detect by `EVENCFW/`, never the version).
 
@@ -20,9 +22,10 @@ This document is the complete carry-over from the research that produced the dec
 > vendor-authoritative / measured / corroborated / inferred / single-source / unknown. Four claims
 > that sat in this document stated as fact turned out to be wrong within two days, each time
 > because prose disagreed with working code. `CLAIMS.md` says which ground is solid, lists the five
-> things most worth distrusting, and names what cannot be resolved before flashing.
+> things most worth distrusting (the pre-flash unknowns are resolved or marked in place).
 
-> 🎨 **The shell is fully specified: [`DESIGN.md`](DESIGN.md)** (2026-08-17/18, ~1,850 lines).
+> 🎨 **The shell is fully specified: [`DESIGN.md`](DESIGN.md)** (locked 2026-08-17/18, grown
+> with the shipped revisions since).
 > Ring-only input grammar · exact 640×480 cell geometry on the mode-3 quantization grid · the
 > corrected depth layer order · motion, persistence and failure policy · the six shell surfaces
 > (top bar, Main + settings, switcher wheel, status bar, notifications, content area) · the locked
@@ -196,9 +199,9 @@ and `PANEL_W/PANEL_H` are 640/480 with `copy_panel()` moving all 153,600 bytes. 
 - ✅ **We have 1.85× the canvas we were designing for.** Re-scope every layout.
 - ❌ **Off-panel scratch does not exist** (old unknown #2 — resolved by having its premise deleted).
   Pre-render-then-flip-in via a zero-pixel mode-9 copy has nowhere to hide. See §12.
-- ⚠ **Full-screen keyframes cost ~1.85× more.** §5's 6,704 B / 581 ms keyframe was measured on a
-  576×288 scene; re-measure at 640×480. **Dirty-rect costs are unaffected**, which is the case that
-  actually matters — one more reason the architecture is right.
+- ⚠ **Full-screen keyframes cost ~1.85× more area** than the 576×288 scenes the early numbers
+  used. The 640×480 measurement now exists: §5.2 — a dense ~10 KB keyframe lands ~200–270 ms on
+  the CFW curve. **Dirty-rect costs are unaffected**, which is the case that actually matters.
 - 🆕 **Safe-area rule:** usable extent is **fit-dependent** (his occlusion caveat). Keep load-bearing
   UI inside a centred safe area and treat the outer rows as bonus, never as required.
 
@@ -262,7 +265,7 @@ What survives unchanged: **subscribe to RIGHT for async events**; Left is silent
 
 | version | what landed |
 |---|---|
-| **2.2.2.20** | **what our glasses run today.** Pre-compression |
+| **2.2.2.20** | what our glasses ran until 2026-08-30 (now the CFW). Pre-compression |
 | 2.2.4.34 | (archived; seen in CFW detect output) |
 | **2.2.6.10** | **"Improved Even Hub graphics rendering and image delivery."** Paired with Even App 2.2.6 + **SDK 0.0.12: "Improve Image compression algorithm"** (LZ4). **This is the CFW base.** |
 | 2.2.7.14 | the version the community performance numbers were measured on |
@@ -282,14 +285,15 @@ updates went from ~2 fps to ~7 fps. Our 2.2.2 predates it entirely.
   2.1.1.8, 2.1.1.12, **2.2.0.24**, **2.2.4.34**, 2.2.6.10, 2.2.6.11(CFW), 2.2.7.14, 2.2.8.4,
   2.2.8.9, 2.2.8.10, 2.2.8.11, 2.2.8.11-runtime-fix — plus 11 R1 images including
   `r1/2.2.0.0014` (**our ring's exact version**).
-- ⚠ **2.2.2 is NOT in that archive** (it jumps 2.2.0.24 → 2.2.4.34). **Leaving 2.2.2 is the one
-  genuinely irreversible step.** Every *other* version is one SHA-pinned download away.
+- ⚠ **2.2.2 is NOT in that archive** (it jumps 2.2.0.24 → 2.2.4.34). **Leaving 2.2.2 was the one
+  genuinely irreversible step — taken 2026-08-30.** Every *other* version is one SHA-pinned
+  download away.
 - **CFW itself is easily reversible**: an official-app OTA "will fully remove the custom
   firmware and restore stock behavior"; or flash an unmodified image with g2flash; or Faceclaw's
   "Uninstall firmware".
 - **Flash 2.2.2 → CFW directly.** `g2flash` writes a whole EVENOTA container; no need to update
-  to official latest first. *(Unverified: whether a cross-version jump from 2.2.2 is accepted —
-  nothing in the flasher gates on version, but nobody has documented doing it.)*
+  to official latest first. *(Verified 2026-08-30 on our own pair: 2.2.2.20 → CFW, both lenses,
+  all six components, zero resends — `HANDOFF.md` §10.)*
 
 ### Unrecoverable-image risk (researched precisely — judged acceptable, decision made)
 
@@ -484,9 +488,12 @@ its own, with no interleaved heartbeat needed.
 - **HIGH BIT of the mode byte = "lenses differ."** Mode 3: two boxes (L then R, **same size**)
   **sharing one zlib payload** — a stereo *shift* without duplicating pixels; each lens draws at
   its own box. Mode 9: two rect-sets. See §7.
-- Capability string advertised by current g2flash (`patches/settings_ext.c:325`, verified
-  2026-08-16 — was `/6` in earlier notes):
-  **`EVENCFW/8 img576 img640 imgz rle wakelease directfb fbguard wearnotify compass10`**
+- Capability string as of the 2026-08-16 review (`patches/settings_ext.c:325` — was `/6` in
+  earlier notes): `EVENCFW/8 img576 img640 imgz rle wakelease directfb fbguard wearnotify
+  compass10`. ⚠ Historical — **the INSTALLED a5d1c31 advertises `EVENCFW/16 … cleanup11
+  texcache12 teximg13 texstr14 font15 micctl`** (and dropped `img576`/`compass10` from the
+  string for space while keeping both features — never gate on tokens beyond
+  `SettingsMsg.REQUIRED_CAPS`).
 
 ### 🔑 The architectural consequence — mode 8 batching
 
@@ -741,9 +748,10 @@ the heaviest frame observed (24.6 KB) ⇒ ~2 fps. That answers "how fast is full
 (REFINEMENT.md §6) at the honest level: 2–4 fps for dense frames, faster for sparse ones, and
 small-damage batches ride the 60 ms floor.
 
-⚠ **Scope:** one host (beardos, BlueZ, otherwise idle), PC-direct — the phone-bridged path is
-unmeasured and may differ; and this does **not** retire the 7–13 KB/s row above, which is the
-stock EvenHub path on stock firmware. The ~10× shortfall question (§5.1) is about that path;
+⚠ **Scope:** one host (beardos, BlueZ, otherwise idle), PC-direct — the phone path is
+unmeasured and may differ, and since §19 the PHONE is the primary daily driver, so this curve
+describes the standby path; do not price the daily path with it unmeasured. This also does
+**not** retire the 7–13 KB/s row above, which is the stock EvenHub path on stock firmware. The ~10× shortfall question (§5.1) is about that path;
 this section says the CFW path on this host clears at least ~50 KB/s of it.
 
 ### Four hypotheses tested and REFUTED
@@ -861,13 +869,16 @@ feed, a terminal, and an ebook reader.
 Source: `g2flash` `patches/gesture_fwd.c`. Input dispatcher `FUN_004424a2` turns each gesture
 into a UI event code posted via `FUN_0045fc80(ctx, code, data)`.
 
-- **Source byte at `0x2034dc30`: 0/1 = left/right temple touchpad, 4 = R1 ring.**
-  ⇒ **per-source gesture discrimination is available** — long-press-on-left-temple,
-  -on-right-temple, and -on-ring can be three distinct events. Input vocabulary can go well
-  past five gestures.
+- **Source byte at `0x2034dc30`: 0/1 = left/right temple touchpad, 4 = R1 ring.** The byte
+  exists inside the firmware — ⚠ but for events 9/10 it never reaches the host: a5d1c31 sends
+  them with `EventSource` ABSENT (proto3 zero-omission; verified at instruction level,
+  `CLAIMS.md`), so **a long-press is unattributed on the wire** and per-source long-press
+  grammar cannot be built. Tap/scroll events do carry a real source byte.
 - **long-press = subtype 3.** In EvenHub it calls `FUN_0046a644`, the **"End this feature?"
-  dialog**. g2flash **replaces that call** ⇒ emits SysEvent **9** `RING_LONG_PRESS_EVENT`.
-  Gated on `source == ring`. A touchpad long-press in EvenHub now does nothing. **DONE/proven.**
+  dialog**. g2flash **replaces that call** ⇒ emits SysEvent **9**. ⚠ The `source == ring` gate
+  described here was the PRE-a5d1c31 build: **the installed firmware raises event 9 from either
+  temple as well as the ring** (the §1.2 bare-long-press no-op is what keeps the extra
+  accidental sources harmless).
 - **ring release-long-press = subtype 0xe** → `FUN_0045fc80(ctx, 0x4a, coords)`, which the
   EvenHub UI handler **drops** (no 0x4a case). g2flash intercepts ⇒ SysEvent **10**
   `RING_LONG_PRESS_RELEASE_EVENT`. Enables true press-and-hold / hold-to-confirm. **DONE/proven.**
@@ -877,7 +888,8 @@ into a UI event code posted via `FUN_0045fc80(ctx, code, data)`.
   gesture outside the EvenHub branch. Ours to write if we want it. Adam says it never fires
   accidentally — **recommend leaving it as a hardware escape hatch** in case our own software wedges.
 - ⚠ **Removing the dialog removes the only stock way to quit an app.** Damage must provide its own
-  quit path (Faceclaw does exactly this, plus a 10 s keepalive).
+  quit path (Faceclaw does exactly this, plus a 10 s keepalive). Since a5d1c31 the dialog is
+  suppressed only while the FB lease is held — lose the lease and it returns, a safety net.
 
 ### 🔑 6.1 Per-notch scroll — G2CC's boundary-only limitation does not carry over
 
@@ -1391,20 +1403,11 @@ workday.** The spec has a hybrid power policy and no measured budget.
 
 ## 11. Open unknowns — resolve these before/while building
 
-1. ✅ **CFW ack latency on the direct-framebuffer path — MEASURED 2026-08-30, first light: ~50 ms.**
-   The shell's own `ackMsEma` cell read a steady **50 ms** while driving the real pair PC-direct,
-   against the **176 ms** from stock 2.2.2 captures that priced every number in §5. That is roughly
-   **3.5× better than the whole project was designed against**, and it moves in the direction that
-   makes everything cheaper.
+1. ✅ **CFW ack latency — the whole CURVE measured 2026-08-31: `ms ≈ 60 + bytes/50` (§5.2,
+   n=1,488 flushes).** First light's ~50 ms EMA established the floor a day earlier; §5.2
+   superseded it and is the number to quote.
 
-   ⚠ **Do not go re-pricing §5 with 50 ms yet.** The measurement is an exponential moving average
-   taken over a *mostly idle shell* — clock ticks and small chrome cells, the light-payload end of
-   the range. Ack latency may well grow with payload size, and nobody has yet measured it under a
-   full keyframe or a heavy scroll. What it establishes is that the floor is far lower than
-   assumed; the curve is still unmeasured. Re-measure under real content before any number in §5
-   is rewritten.
-
-   The original text, kept because its reasoning still holds and explains why this never gated
+   The original reasoning, kept because it still holds and explains why this never gated
    anything: every number in §5 is priced with 176 ms from stock 2.2.2 captures. *Re-graded
    2026-08-17 — this was previously marked 🔴 "the single most load-bearing unmeasured value," and
    that was wrong.* **It is a tuning constant, not a design input.** Apply the decision-relevance
@@ -1428,21 +1431,13 @@ workday.** The spec has a hybrid power policy and no measured budget.
    > **multiple screens' worth of available or reclaimable memory**, but there's a bit of reverse
    > engineering and plumbing work left."
 
-   Multiple screens of on-device cache beats a 640×480 margin by a wide margin, and it is *being
-   built* — see §15. ⚠ It is therefore a **moving target**: anything Damage builds against today's
-   CFW must be able to absorb texture caching landing later.
+   Multiple screens of on-device cache beats a 640×480 margin by a wide margin — and ✅ **it
+   LANDED in the installed a5d1c31 (2026-08-30)**: modes 12/13/14 (+11 teardown, 15 refused),
+   lease-scoped 64 KiB, fully documented in §4. What remains open is deliberate: **the
+   compositor has not adopted it** — priced against the measured curve when the on-glass checks
+   (REMINDER items 19–20) run.
 
-   **Timeline and why it matters to us specifically** (same thread, 2026-08-17):
-
-   > "It's somewhat difficult to hand off in its current state but **probably done by end of next
-   > weekend**. The SoC has a bunch of different allocation pools/heaps; the RE task is figuring out
-   > **which heaps are safe to fill how much and which mutexes need locking**."
-
-   Adam offered to help; the answer was effectively *not yet* — the remaining work is firmware RE on
-   heap safety and mutex analysis, his strongest ground and not easily parallelised from outside.
-
-   🔴 **It is not a nice-to-have for us — it is the enabler for our headline feature.** He gave the
-   reason he is building it:
+   🔴 **Why it matters — the author's own reason for building it:**
 
    > "Deflate (zlib, 32kb window)+RLE. This is almost as good as PNG and mostly good enough
    > (**but it doesn't play nice with antialiased fonts, hence the texture cache**)."
@@ -1461,7 +1456,10 @@ workday.** The spec has a hybrid power policy and no measured budget.
    handler uses), so a steady mode-3/6/8/9 stream is self-sustaining. The stock counter at
    `0x200745AC` fires teardown past 899 ticks; we simply never get there while rendering. Still
    need a heartbeat when idle.
-5. **Typed-text input** path (G2CC has an `input event 'text'` → `onTypedText` flow).
+5. ~~**Typed-text input** path~~ — **BUILT 2026-08-31**: `DamageWindow.onTypedText` +
+   `Transport.injectText`; a line typed on the phone strip, the browser replica or the desktop
+   preview reaches the focused window, always staged behind the window's own confirm (Tmux and
+   Files consume it).
 6. ~~**Dirty-rect addressing constraints**~~ — **RESOLVED 2026-08-16**, see §4: mode 3 is
    quantized (left/width ×4, top/height ×2, one byte each, bounds-checked to 640×480); mode 8 is
    size-capped (~153 KB), not count-capped; `CFW_RECT_MAX=16` is a debug-overlay limit only.
@@ -1516,15 +1514,13 @@ workday.** The spec has a hybrid power policy and no measured budget.
   `UI_FOREGROUND_EVEN_AI_ID`, not "Dashboard"; `0e-20` is `UI_HEALTH_APP_ID`, not "widget config";
   `0c-20` is `UI_QUICKLIST_APP_ID`, not "Tasks"; `10-20` is `UI_ONBOARDING_APP_ID`; `20-20` is
   `SERVICE_MODULE_CONFIGURE_APP_ID` (language + dashboard auto-close), not "Commit".
-8. ~~**Transport for flashing**~~ — **RESOLVED 2026-08-15.** beardos has a working BLE radio:
-   **Intel AX201** (`8087:0026`), BlueZ 5.86, `hci0`, controller `C4:BD:E5:2E:C9:75`, bluetooth
-   service started. `g2flash`'s `g2://local` transport via `bleak` should work directly from the
-   PC — no DroidBridge needed. *(Still unverified: that the AX201 negotiates the link params the
-   glasses want, and that the glasses advertise for a direct connection while the phone is off.)*
-   Fallbacks if it misbehaves: DroidBridge (Android GATT-over-WebSocket, **public availability
-   unconfirmed**) or the SybilSight webflasher's Web Bluetooth path.
-9. Whether the webflasher's "recovery set" captures a **restorable image of our glasses** or just
-   hands us the matching *archived official* bundle. If the latter, it does not help for 2.2.2.
+8. ~~**Transport for flashing**~~ — **RESOLVED, then EXERCISED.** beardos's Intel AX201 /
+   BlueZ 5.86 ran the whole flash PC-direct 2026-08-30 (`HANDOFF.md` §10: ~25 KB/s OTA goodput,
+   unbonded host, both arms) and the PC drove the glasses within the hour — the 2026-08-15
+   caveats (link params, advertising with the phone off) are answered on hardware.
+9. ~~The webflasher "recovery set" question~~ — **MOOT since 2026-08-30**: it existed only to
+   protect the 2.2.2 fallback, and 2.2.2 is gone (the webflasher also dropped CFW support
+   upstream).
 
 ### On the "cheapest high-value experiment"
 
@@ -1563,9 +1559,10 @@ which open decision changes if the answer flips. If none does, it is not a block
   only buildable because we get it (§6.1).** Under G2CC's firmware containers, scroll was a
   *boundary* event — the widget owned the scroll and only reported the ends — so a fixed-cursor
   panning list could not have been driven at all. Dropping firmware containers is what supplies
-  the input this decision rests on. ⚠ The evidence is graded **C**, not **M** (read from
-  Faceclaw's code, not our own wire) — **if per-notch scroll turns out not to work, this decision
-  falls with it**, and the fallback is coarse page-flips on boundary events.
+  the input this decision rests on. ✅ Upgraded to **M** 2026-08-30: per-notch delivery is
+  observed in daily use on our own wire (every ring notch arrives as its own SCROLL event); the
+  page-flip fallback was never needed. Still open: coalescing under very fast spins
+  (`REMINDER.md` item 2).
 - ~~**Save-under for overlays** via mode 9 (pending unknown #2)~~ — **dead as of 2026-08-17**; its
   premise (off-panel scratch) does not exist, the full 640×480 is visible (§2). **The fallback is
   now the plan:** a mode-3 repaint of the covered region (~215 ms for a 300×80 toast), which we
@@ -1630,8 +1627,8 @@ Everything G2CC does, rebuilt without the image tax, plus what was never possibl
 
 - **FF1** rendered properly instead of avoided
 - **Far more games** — real frames at interactive rates
-- **A real ebook reader** — proper typography, AA text, endless scroll
-- **A file manager with real icons and thumbnails**
+- **A real ebook reader** — proper typography, AA text, endless scroll *(BUILT — Reader)*
+- **A file manager with real icons and thumbnails** *(BUILT 2026-09-01 — Files)*
 - **Mail and MMS with embedded images**
 - **A Reddit-style feed** with endless scroll
 - Real **modal dialogs**, **toast notifications**, **z-order**, **overlapping windows**
@@ -1690,8 +1687,8 @@ grepping `adam` in the public g2cc repo — see the hygiene note below). Current
   a webview, rasterising the layout to an image and sending that, plus extensions over the stock API
   to give app devs a reason to switch firmware; (b) **font configurability** (he prefers small
   fonts, ships Terminus 6×12, doesn't expect it to suit everyone); (c) 🔑 **a texture cache in the
-  firmware protocol** — see §11 #2. That third one is the highest-value thing to coordinate on,
-  because it lands in the firmware we depend on.
+  firmware protocol** — see §11 #2; it LANDED in a5d1c31 (2026-08-30), the firmware now
+  installed.
 - **Adam's stated position:** personal use, no Hub compatibility wanted, **PC-powered with the phone
   as a Tailscale bridge** — which he flagged to Babcock as possibly incompatible with Faceclaw's
   phone-resident design. That is the honest seam: **Faceclaw runs on the phone, Damage runs on the

@@ -18,8 +18,7 @@ all measured numbers, every relevant external project, and the open unknowns. If
 conflicts with `overview.md` on a fact, `overview.md` wins; on a *rule*, this file wins.
 
 **Then read `CLAIMS.md`** — it grades every load-bearing claim (vendor-authoritative / measured /
-corroborated / inferred / single-source / unknown), lists the five most worth distrusting, and
-names what cannot be resolved before flashing. **If `overview.md` states a fact and `CLAIMS.md`
+corroborated / inferred / single-source / unknown) and lists the claims most worth distrusting. **If `overview.md` states a fact and `CLAIMS.md`
 grades it `S` or `U`, do not build on it without checking.**
 
 **Then read `DESIGN.md`** — the shell design contract, locked with Adam 2026-08-17/18: the

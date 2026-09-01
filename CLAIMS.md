@@ -44,7 +44,7 @@ they meant — including ours.
 | **No `LE_Conn_Update` is ever issued for handle 65 (R lens)** | **M** | capture; 64 and 66 both get explicit ones |
 | Cause of the ~10× shortfall | **U** | HCI can't separate stack / app cadence / BT-WiFi coexistence |
 | Image ack latency median 176 ms | **M** | capture, stock 2.2.2 only |
-| **CFW ack latency — the CURVE: `ms ≈ 60 + bytes/50`** | **M** | 2026-08-31, n=1,488 journalled flushes on the real pair PC-direct (`overview.md` §5.2): floor median 60 ms (min 33), transfer ~50–75 KB/s, dense full-frame 2–4 fps. Supersedes the 2026-08-30 ~50 ms floor-only EMA. Scope: one host (beardos/BlueZ); the phone-bridged path is unmeasured |
+| **CFW ack latency — the CURVE: `ms ≈ 60 + bytes/50`** | **M** | 2026-08-31, n=1,488 journalled flushes on the real pair PC-direct (`overview.md` §5.2): floor median 60 ms (min 33), transfer ~50–75 KB/s, dense full-frame 2–4 fps. Supersedes the 2026-08-30 ~50 ms floor-only EMA. Scope: one host (beardos/BlueZ) PC-direct — since §19 that is the STANDBY path; the phone path (the daily driver) is unmeasured |
 | msgId (`MagicRandom`, pb field 2) is effectively 1 byte | **C** | our hardware finding + g2-kit, independently |
 | ~1000 B wall applies to **layout frames only** | **M** | largest layout frame observed = 401 B; image chunks are 4096 B / 18 fragments |
 
@@ -79,12 +79,12 @@ they meant — including ours.
 
 | claim | grade | basis |
 |---|---|---|
-| Mode table 3/5/6/7/8/9/10, `zlib(rle(px))` on 3+6 | **V** | `zlib_glue.c` source |
+| Mode table 3/5/6/7/8/9/10 (+11–15 since a5d1c31 — graded in their own table below), `zlib(rle(px))` on 3+6 | **V** | `zlib_glue.c` source |
 | Mode-3 quantization: left/width ×4, top/height ×2, 1 byte each | **V+C** | source **and** Faceclaw's aligner does exactly this |
-| **Panel is 640×480 and all of it is visible** | **C** | CFW author by email + `PANEL_W/H` in source + Faceclaw's `G2_LENS_WIDTH/HEIGHT = 640/480` |
+| **Panel is 640×480** — full-height rendering | **M** | daily use since 2026-08-31 (Reader at 480). "All visible" is fit-dependent: Adam's fit loses BOTTOM rows (sizes went top-aligned) |
 | Width headroom (64 cols) is the stereo-shift budget | **S** | author's prose; plausible and matches §7, but not independently confirmed |
 | 640×288 is the sensible default | **C** | author's prose **and** Faceclaw's `MIN_WINDOW_HEIGHT = 288` in code |
-| Direct-framebuffer lease required (sid 0x09 field 101 op 5/6, both arms, 45 s renew) | **V+C** | `settings_ext.c` + Faceclaw's Java implementing it |
+| Direct-framebuffer lease required (sid 0x09 field 101 op 5/6, both arms, 45 s renew) | **V+C+M** | `settings_ext.c` + Faceclaw's Java; the choreography runs on hardware in every session and holds the screen all day |
 | Carrier layout needs a dummy full-screen text container | **C** | `buildCreateMixedImagePage` + the lease comment naming it |
 | ~6 rects per mode-8 batch (fid ring is 16 deep) | **C** | Faceclaw's `MULTI_RECT_MAX_RECTS = 6` + `CFW_FID_RING` in source |
 | `fid` in `[1, 0xFFFE]`, +1 per delta | **C** | Faceclaw's `nextImageFrameId` + the 0xFFFF sentinel in source |
@@ -92,8 +92,10 @@ they meant — including ours.
 | Splitting rects costs ~15 fixed bytes **plus** lost cross-rect zlib dictionary sharing | **S** (his code comment) | worth re-measuring ourselves |
 | Keepalive self-sustains under image traffic | **V** | `FW_KEEPALIVE_RESET()` on every image message |
 | Stale-compositing-base hazard (buffer two frames back) | **S** | Faceclaw comment; says fixed by the snapshot FIFO, but the flag comment is stale |
-| Bulk pixels → LEFT arm, control → RIGHT | **I** ⚠ | inferred from Faceclaw's code (5 call sites, `sendImagesToLeft=true`); **no capture** |
-| ~~CFW ack latency~~ (measured — see the transport table) · msgId-255 under CFW · mode-8 limits in practice | **U** (the last two) | msgId-255 and the real batch limits remain unprobed |
+| Bulk pixels → LEFT arm, control → RIGHT — **the split FUNCTIONS** | **M** | in daily use since 2026-08-30 on our own wire |
+| …and the split is the OPTIMAL/required one | **I** ⚠ | still inferred from Faceclaw's code; **the two-arm capture has never been taken** |
+| ~~CFW ack latency~~ (measured — see the transport table) · mode-8 BATCHING in practice | **M** | the one-flush-per-frame architecture runs daily (1,488 journalled flushes) |
+| msgId-255 under CFW · the mode-8 CEILINGS (max rects/bytes before refusal) | **U** | unprobed BY DESIGN — the transport cycles msgId and the compositor caps at 5 rects, so neither limit is ever approached |
 
 ## Input
 
@@ -107,7 +109,7 @@ they meant — including ours.
 | Per-notch scroll comes from dropping firmware containers, **not from the CFW** | **I** | `gesture_fwd.c` does not touch scroll; it follows from the layout |
 | Ring's own BLE link carries decodable gestures (`0x04` SWIPE_UP / `0x05` SWIPE_DOWN, + 32-bit tick) | **C** | `FaceclawRingEventDecoder.java`, two frame shapes |
 | ~~Ring link is "battery/firmware/sensors only; navigation input does NOT come over it"~~ | ❌ | **withdrawn** — `G2_BLE_PROTOCOL.md` §11 is wrong or incomplete; Faceclaw decodes gestures from it |
-| Ring notch coalescing / event-rate ceiling | **U** | first-light check |
+| Ring notch coalescing / event-rate ceiling | **U** | needs a deliberate fast-spin probe (`REMINDER.md` item 2) |
 
 ## Firmware image / flashing
 
@@ -119,7 +121,7 @@ they meant — including ours.
 | SybilSight CFW = g2flash CFW + 15 bytes (3 ASCII version digits + CRC fixups) | **M** | same, byte-level diff |
 | No Thumb-bit defect in either rebuilt blob | **M** | `thumb_branch_audit` on our own rebuild, 14 branches all Thumb |
 | CFW image is **enlarged** by 20,127 B, preamble length bumped, ~403 KB headroom | **M** | patch set + measured image sizes |
-| 2.2.2 → CFW cross-version flash is accepted | **I** | Faceclaw classifies ≤2.2.6.10 as `flashable-stock`; **nobody has documented doing it from 2.2.2** |
+| 2.2.2 → CFW cross-version flash is accepted | **M** | done 2026-08-30 on our own pair: 2.2.2.20 → CFW, both lenses, six components, zero resends (`HANDOFF.md` §10) |
 | Leaving 2.2.2 is irreversible | **M** | 2.2.2 absent from the 19-image archive (verified on disk: 2.2.0.24 → 2.2.4.34) |
 | No firmware read-back path | **S→U** | asserted; but `UX_EVEN_FILE_SERVICE_CMD_EXPORT_ID=198` and OTA-export SIDs exist in the vendor enum, unexplored |
 
@@ -146,7 +148,7 @@ Everything here backs a decision in [`DESIGN.md`](DESIGN.md).
 | **Rect budget = 5** = `floor(CFW_FID_RING / window)` at a 3-deep pipeline | **I** ⚠ | derived from the two facts above; **never observed on hardware** |
 | A vertical icon rail costs **+7.4 %** on every frame vs a horizontal strip | **M** | rendered both; a 40 px vertical strip adds run boundaries to all 416 content rows against the top bar's 32 |
 | A 640×288 band is **0.63×** the bytes of 640×480, and shows 4 dashboard rows against 11 | **M** | rendered both, with and without simulated occlusion |
-| Usable panel extent under real optical occlusion | **U** | fit-dependent and personal; unknowable before first light. `DESIGN.md` §2.2b makes it a calibrated setting rather than a guess |
+| Usable panel extent under real optical occlusion | **M** (Adam's fit) | measured in use 2026-08-31: his fit loses the BOTTOM rows, never the top — sizes went top-aligned, vpos retired. Still personal/fit-dependent; §2.2b keeps it a calibrated setting |
 
 ### The texture cache (added 2026-08-30, CFW `a5d1c31`)
 
@@ -163,8 +165,8 @@ Everything here backs a decision in [`DESIGN.md`](DESIGN.md).
 | **`Sys_ItemEvent.EventSource` is absent for event types 9 and 10** — a long-press is unattributed | **V** | the stock sender writes that field only inside a branch gated on `EventType ∈ {0,3}`, and the struct is memset to 0. Disassembled at instruction level on our pinned 2.2.6.10 base **and** on 2.2.4.34 — it has never worked |
 | Since `a5d1c31` **either temple touchpad** raises event 9, not just the ring | **V** | `gesture_fwd.c` dropped its `EVT_SRC == SRC_RING` gate |
 | Stock **2.2.2.20 answers** g2flash's new AUTHENTICATION request with exactly the `1a 00` reply it demands | **M** | four exchanges in `captures/allbutimages.log` + `imagestatus.log`, both arms, 43–92 ms; request framing and CRC reproduce from g2flash's own `crc16()` |
-| The glasses **require** an encrypted/bonded link before GATT | **U** ⚠ | every capture we hold was taken from an already-bonded phone (LE Secure Connections, Rand=0/EDIV=0), so the unbonded case is simply not in the data. beardos has never bonded with the pair |
-| What a mode-12 atlas upload costs, and whether 13/14 render as modeled on glass | **U** | modeled byte-exactly, never run on hardware. First-light items 19–20 |
+| ~~The glasses require an encrypted/bonded link before GATT~~ — **NO** | **M** | resolved 2026-08-30 on hardware: beardos, never bonded, connected + discovered + authenticated on both arms with no pairing prompt (`HANDOFF.md` §10); it has connected daily since |
+| What a mode-12 atlas upload costs, and whether 13/14 render as modeled on glass | **U** | modeled byte-exactly, never run on hardware — the gate on compositor adoption (`REMINDER.md` items 19–20) |
 
 ### Measured during the refinement wave (2026-08-31, on the real pair)
 
@@ -185,7 +187,7 @@ Everything here backs a decision in [`DESIGN.md`](DESIGN.md).
 | A network gap > 90 s costs the screen if the lease is renewed across it | **I** | `settings_ext.c` lease semantics + the 45 s/90 s constants; fail-open is in the source, the *consequence* is inference |
 | Transport must be stateful and liveness-critical in every configuration | **I** | follows from the above |
 | The shell must run on Android **and** desktop ⇒ not Python | **I** | follows from the "app alone" configuration being required |
-| G2CC's `ble/` layer survives a CFW switch largely intact | **I** | it is transport-layer; the CFW changes modes, not the AA envelope. Not yet ported |
+| The AA envelope is unchanged under the CFW (why G2CC's `ble/` facts carried over) | **M** | Damage's own transport runs the AA envelope against the CFW daily; the once-planned port of G2CC's layer never happened — Damage wrote its own |
 | `Rasterizer.kt` proves arbitrary phone-side Canvas → 4bpp works | **M** | shipped and in daily use in G2CC |
 | A vertical rail costs ~+7.4 % per frame vs a horizontal strip | **M** | rendered both at 1× |
 | **Dual-band removes BT/WiFi coexistence contention** | **I** | 5 GHz WiFi + 2.4 GHz BLE do not share a radio. Sound in principle; **the effect on G2 throughput is UNMEASURED** |
@@ -199,15 +201,15 @@ Everything here backs a decision in [`DESIGN.md`](DESIGN.md).
 ## The five things most worth distrusting
 
 1. **`CompressMode 1 = RLE`** — single-source, uncited, never exercised. Moot in practice (we always send 0) but do not build on it.
-2. **The arm split (bulk → LEFT)** — inferred from someone else's code, not observed. It decides whether a flush is one message or two. **Verify with a two-arm capture at first light.**
+2. **The arm split (bulk → LEFT)** — WORKS daily, but its optimality is still inferred from someone else's code. **The two-arm capture is still owed** (start BTSnoop before connecting).
 3. **Container name cap** — 14 vs 16, and our own data supports neither.
 4. **Width headroom = depth budget** — author's prose only; it constrains layout if true.
 4b. ~~**Per-notch scroll**~~ — **resolved 2026-08-30/31: works, in daily use** (the fixed-cursor
    design it carried is live). Only the fast-spin coalescing question remains.
 5. **"No firmware read-back path"** — the vendor's own service enum contains a file-export service we have never probed. If it works, the one irreversible thing about this project stops being irreversible.
-6. 🆕 **The rect budget of 5** (`DESIGN.md` §8.2) — graded **I**, derived from reading `cfw_diag()`, never observed. It governs how much damage fits in one flush, and being wrong is *silent*: a retransmitted batch whose fids have aged out gets re-applied instead of skipped. The mitigation that does not depend on the number being right is **never putting the same fid on the wire twice**; verify the budget itself at first light.
+6. 🆕 **The rect budget of 5** (`DESIGN.md` §8.2) — graded **I**, derived from reading `cfw_diag()`, never observed. It governs how much damage fits in one flush, and being wrong is *silent*: a retransmitted batch whose fids have aged out gets re-applied instead of skipped. The mitigation that does not depend on the number being right is **never putting the same fid on the wire twice**; the budget itself still wants a deliberate probe (`REMINDER.md` item 4).
 
-## What cannot be resolved before flashing *(historical — the flash happened 2026-08-30; of the list below, ack latency is measured, the arm split runs daily but unproven-optimal, and msgId-255 / batch limits / stale-base remain unprobed)*
+## What could not be resolved before flashing *(historical — the flash happened 2026-08-30: ack latency is measured, the cross-version flash took, the arm split runs daily but unproven-optimal; msgId-255 / the batch ceilings / stale-base remain unprobed by design)*
 
 CFW ack latency · msgId-255 under CFW · real mode-8 batch limits · stale-compositing-base behaviour ·
 whether the arm split is right · whether 2.2.2 → CFW actually takes.
