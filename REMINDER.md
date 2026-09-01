@@ -10,8 +10,9 @@ loop run to convergence** (79 → 20 → 28 → 9 → 3 → 3 → 2 → 0 findin
 **State of the world:** the phone APK is the primary driver (`HANDOFF.md` §19 — radio + shell
 while it is up); the OpenRC `damage` service is the data provider (content + tmux + sync on
 :7401, seam :7402, replica :7403) plus a standby that BLE-drives only while the APK is away.
-Battery at HEAD: core **191** · desktop 9 · selfcheck 61 · snapshots 18 · epub 380/404 ·
-lint 0. Jar + APK **16/0.16 staged**; the phone still runs **0.15** until Adam installs.
+Battery at HEAD: core **192** · desktop 9 · selfcheck 61 · snapshots 18 · epub 380/404 ·
+lint 0. **APK 0.16 is INSTALLED** (observed 2026-09-01: the phone attached to the files
+channel); **17/0.17 staged** (identical + the chrome tweaks — install when convenient).
 Deploys: `./gradlew :desktop:stageJar && sudo rc-service damage restart` (never touches the
 display — the PC does not claim). ⚠ One central at a time: stop the service before any
 `:desktop:run`; G2CC's Android bridge stays Disconnected.
@@ -26,12 +27,12 @@ the chosen window's section). Standing references: `overview.md` (facts), `CLAIM
 
 ## 🚀 Next
 
-1. **Install APK 0.16** (the setup page's DamageWM box — Files, theme icons, the sync client,
-   every 2026-09-01 review fix; 0.15 lacks them all). Then the live checks: watch the first
-   sync exchange in both logs; the standby drill (stop the APK → the PC BLE-drives → restart →
-   handback); a book position following a driver swap. **Once the installed APK is ≥ 0.16,
-   remove Reader's transitional legacy-offsets dual-write** (`ReaderWindow` — the fields are
-   marked; `restoreStateLive`/`liveMapApply` go with them).
+1. **The Reader transitional cleanup is UNBLOCKED** (0.16 is installed): remove the
+   legacy-offsets dual-write in `ReaderWindow` — the fields are marked; `restoreStateLive`'s
+   `liveMapApply` mechanics go with them (update `SubstrateTest`'s migration pin). A clean
+   first task for a fresh session. Also still owed from the install: the live checks — the
+   standby drill (stop the APK at the desk → the PC BLE-drives → restart → handback) and a
+   book position following a driver swap; and 0.17 (the chrome tweaks) when convenient.
 2. **On-glass verdicts** — Files (the menu grammar feel, viewers, the thumbnail lens, theme
    icons at 20/56 px) and the still-unjudged night wave (the tmux flow view, fonts previewed in
    their own faces, per-app depth).

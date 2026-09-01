@@ -34,8 +34,9 @@ ever needs redoing: (1) sideload from the setup page, grant Bluetooth ×2 + noti
 battery exemption; (2) 🔴 keep the G2CC bridge app Disconnected (a second central); (3) phone
 first light with NOTHING on beardos holding the pair (`sudo rc-service damage stop`), flip
 Target → glasses; (4) `sudo rc-service damage start` → the log says "standby up (§19)" and the
-phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.16 is the
-current build: Files + theme icons + the sync client + the 2026-09-01 review fixes**). Why old
+phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.17 is the
+staged build: Files + theme icons + the sync client + the 2026-09-01 review fixes + the
+chrome tweaks; 0.16 is installed**). Why old
 APKs matter: a pre-0.15 APK cannot be status-probed (the PC conservatively stays out — fine)
 and a pre-0.10 one carries no sync client, so state does not flow until it is updated.
 **Once 0.16 is INSTALLED, remove Reader's transitional legacy-offsets dual-write**
@@ -74,4 +75,5 @@ PC logged `sync-host: peer attached to the sync channel`, the store migrated to 
 schema, and a phone-side record (`window.tmux`) crossed and applied store-direct while the PC
 shell was in standby. **Still awaiting a deliberate glass test**: a real standby engagement
 (stop the APK at the desk → the PC BLE-drives within ~10 s → restart the APK → handback) and
-the sync feel across a driver swap (a book position following the swap). Current staged APK: **0.16** (Files + theme icons + the review-round fixes; what Adam last INSTALLED may lag — check before reasoning about phone behaviour).
+the sync feel across a driver swap (a book position following the swap). Current staged APK: **0.17** (0.16 + the chrome tweaks); **0.16 is INSTALLED** (observed
+2026-09-01 — the phone speaks the files channel).
