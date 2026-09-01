@@ -28,3 +28,6 @@ build/
 */build/
 local.properties
 damage-secrets.properties
+
+# --snapshot output when run from the desktop workdir (the committed home is ./snapshots)
+desktop/snapshots/
