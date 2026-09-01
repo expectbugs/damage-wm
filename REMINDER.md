@@ -110,11 +110,19 @@ then made the PHONE the primary driver and retired daily PC claims). In the queu
   appSettings / save-restore / styleTransform / onTypedText), register it on desktop + phone,
   add it to SelfCheck/Snapshot. Read the G2CC original for interaction facts (`/home/user/G2CC/
   server/src/windows/<app>.ts`, read-only, no code taken) and `DESIGN.md` §4.6 for the mode
-  contract. Reader + Tmux are the two worked precedents. **Start with the refinery pass on
-  `EXPLOSION.md`** (Adam cuts/reorders, answers the per-window questions, settles §16.1 deep
-  links + §16.4 cross-driver state) before coding any window.
-- The **icon-quality pass** Adam queued ("very basic") — every new window needs a drawn
-  `IconKind` anyway (§16.7), so fold it in.
+  contract. Reader + Tmux are the two worked precedents. 🔴 **§16 IS SETTLED (2026-09-01,
+  `HANDOFF.md` §20)** — deep links designed, cross-driver state raised to Adam's
+  100%-consistency priority (four must-dos), the generic multi-backend window channel, the
+  shared kit, the Title short-by-design contract, B612 never a default; statuses in
+  `EXPLOSION.md` §16, the build checklist in **`WINDOWS.md`**. 🪓 **The refinery LANDED
+  2026-09-01 (`EXPLOSION.md` §20)**: axed Deliveries/Calendar/Timers/Search/Weather/Health;
+  added the **TORRENTS window (§19)**, Feed comics, the caller-ID source, the Games 10b lanes;
+  the wow order stands in §20. 🔴 **FILES is the chosen first conversion** — design discussion
+  live (tap = context menu with Open first, locations root list, in-app text/PDF/image viewers);
+  the §16 shared machinery runs in its recorded build order ahead of/alongside it.
+- The **icon-quality pass** Adam queued ("very basic") — **moved to the FRONT of the app wave
+  (2026-09-01)**: settle the upgraded language first, then draw the ~13 new `IconKind`s once at
+  two scales; Main's lens now takes the band-height icon when focused (`DESIGN.md` §4.5b).
 - Watch-items from today: the left-lens seam residue (one-shot early-burst tear — recurs? then
   harden session start), the ~20 s silent-death freeze window (tighten heartbeat constants if
   it feels long in practice).

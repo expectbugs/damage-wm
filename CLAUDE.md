@@ -78,11 +78,15 @@ Adam's stated methodology governs **the app layer**, and it is now at the refine
 "Feature creep is my RELIGION" — the explosion phase is deliberate and wanted; the refinery phase
 is what keeps it shippable. **The explosion is DONE: `EXPLOSION.md` grades ~175 app ideas across
 13 windows plus the shared contract work (§16).** The current phase is **converting G2CC apps to
-DamageWM windows** — refinery pass on `EXPLOSION.md` first (cut/reorder, settle §16.1 deep links
-and §16.4 cross-driver state), then build a window against the `DamageWindow` contract
-(`core/…/shell/WindowContract.kt`), reading the G2CC original for interaction facts only
-(`/home/user/G2CC/server/src/windows/`, read-only) and `DESIGN.md` §4.6 for the mode contract.
-Reader and Tmux are the two worked precedents.
+DamageWM windows** — **§16's cross-cutting contract is SETTLED (2026-09-01, `HANDOFF.md` §20:
+deep links, the 100%-consistency state rules, the generic multi-backend window channel, the kit;
+statuses in `EXPLOSION.md` §16, the build checklist in `WINDOWS.md`)**. The refinery LANDED
+2026-09-01 (`EXPLOSION.md` §20: Deliveries/Calendar/Timers/Search/Weather/Health axed, the
+TORRENTS window added as §19, the wow order stands) and **Files is the chosen first
+conversion**; the §16 shared machinery runs in its recorded build order, windows built against
+the `DamageWindow` contract (`core/…/shell/WindowContract.kt`), reading the G2CC original for
+interaction facts only (`/home/user/G2CC/server/src/windows/`, read-only) and `DESIGN.md` §4.6
+for the mode contract. Reader and Tmux are the two worked precedents.
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
 (164 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue

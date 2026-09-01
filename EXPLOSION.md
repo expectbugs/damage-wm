@@ -111,7 +111,7 @@ message, read-view offset · settings: account(s), notify rules, list density.
 | 1.11 | Reply/compose via typed text from the replicas | `onTypedText` exists; line-based body builder, always confirm-to-send (G2CC composed via msmtp already) | v1.5 |
 | 1.12 | Attachment list; image attachments render inline; "save on PC" action | save = content-host file op, loud result | v1.5 |
 | 1.13 | Multi-account (mbsync profiles as folders) | folder rows like Reader's shelf | v1.5 |
-| 1.14 | **Deliveries view** — carrier/shipping mail parsed to a tracked-package list | G2CC `deliveries.ts` shipped exactly this (15-min Gmail sync); a Mail sub-level or its own small window — refinery's call | v2 |
+| 1.14 | ~~**Deliveries view**~~ | 🪓 AXED by Adam 2026-09-01 ("never used") — G2CC `deliveries.ts` stays historical reference only | axed |
 | 1.15 | Per-sender notification rules (VIP-only interrupts) | extends the §4.5 source filter downward, honouring its focus-stealing logic | v2 |
 | 1.16 | Mail search (typed) | or leave it to the universal Search window (§12) | v2 |
 | 1.17 | Calendar-invite detection → Calendar hand-off | .ics part → §16.2 hand-off | v2 |
@@ -191,11 +191,15 @@ player day one? Does lyrics' per-line radio spend feel right on glass?
 
 ## 4. CALENDAR
 
+> 🪓 **AXED by Adam, 2026-09-01** (*"axe the stuff I never used and don't care about"*).
+> Recorded, not deleted — do not build, do not re-propose. Ripples: reminder source 4.4 dies
+> (§16.5 list updated); Mail 1.17's .ics hand-off and Timers 6.11 (itself axed) are moot.
+
 G2CC lineage: `calendar.ts` — Google Calendar agenda, **read-only**, synced PC-side every 15 min.
 That shape (HOST need, no phone dependency) carries over cleanly.
 
 **Declares:** List (agenda) → Document (event detail) · needs **HOST** · face Clear Sans, and
-this is the §Type note's "digit-heavy surface" — **B612 revisit candidate** · summary
+this is a digit-heavy surface — drawn digits where large (B612 ruled out as a default, §16.6) · summary
 `Standup 09:30 · in 22m` (§4.2 mock) · state: cursor, day offset · settings: calendars on/off,
 lead-time for reminders.
 
@@ -256,6 +260,10 @@ delete + rename?
 ---
 
 ## 6. TIMERS
+
+> 🪓 **AXED by Adam, 2026-09-01** (*"never used, don't care"*). Recorded, not deleted. Ripples:
+> **§16.13 (the scheduled-work substrate) dies with it** — alarms/snooze/scheduled-send were its
+> only other consumers and all were future-graded; the Timers 6.3 notification source dies too.
 
 G2CC lineage: `timers.ts` — durable timers, fires through the notification layer. **The one
 window with no `needs` at all** — it runs identically in every §10 configuration, *if* its state
@@ -349,7 +357,7 @@ is a window" — `DESIGN.md` §4.3). It also pays a recorded debt: §4.1 narrowe
 knowing *"exact percentages live in the Info/Stats surface."*
 
 **Declares:** List (sections) → Document (detail per section) · needs none (it reports whatever
-is present) · face Clear Sans; **B612 candidate — it is the digit-heaviest surface in the shell**
+is present) · face Clear Sans — the digit-heaviest surface in the shell, drawn digits where large (B612 ruled out as a default, §16.6)
 · summary = the current configuration (`PC via phone · 60ms`) · state: cursor · settings: none
 (it IS the diagnostics).
 
@@ -370,6 +378,12 @@ is present) · face Clear Sans; **B612 candidate — it is the digit-heaviest su
 
 **Refinery questions:** read-only, or does it grow actions (force keyframe, restart transport)?
 Where is the line between Info and the status bar (glance vs check is the §4.1 answer)?
+
+> 📌 **Steered by Adam 2026-09-01:** *"I'd be more interested in drive space and process usage
+> and similar type of stats … Useful info."* ⇒ **9.11 (beardos vitals) promotes from v2 toward
+> the first cut** — drive fill per mount (turtle's squeeze at a glance, du/df block bars), load,
+> top processes, temperatures — and novelty stats (a "wrapped" view, books-finished counters)
+> are REJECTED. §15's MONITORING row largely folds in here.
 
 ---
 
@@ -399,12 +413,50 @@ state: per-game saves via the blob · settings: per-game rows.
 | 10.10 | Universal Paperclips | personal-only; mostly numbers = cheap list, its own weird fit | v2 |
 | 10.11 | Wordle-class daily word (typed guesses) | typed text exists; five drawn tiles | v2 |
 | 10.12 | Roguelike (native, glyph grid, per-cell deltas) | JBM grid; damage-tiny | future |
-| 10.13 | Game Boy emulation | needs sustained fps the link does not have; would disappoint | never (measured ceiling) |
+| 10.13 | ~~Game Boy emulation~~ **emulated titles, curated by PACE** | 🔴 REFRAMED 2026-09-01 (Adam: "Game Boy is not a game, it is a system") — "never" belongs to sustained refresh cadence, not silicon; specific titles work when built the FF1 way. See the 2026-09-01 block below | per-title (screener-gated) |
 | 10.14 | Turn notifications ("Stockfish moved") when parked | | v1.5 |
 
 **Refinery questions:** which game first (chess is the strongest fit; 2048 the cheapest build)?
 Is the FF1 bridge reachable as-is from the content host (G2CC's `games/ff1/` read-only), or does
 it wait?
+
+### 10b. The 2026-09-01 additions (Adam's live refinery — revisit AFTER the roster above is built and polished)
+
+**Roster adds, first revisit batch:** card games (solitaire/freecell class — Blackjack is the
+precedent) · **Minesweeper** (per-cell deltas, near-native) · **a Chip's Challenge clone**
+(turn-stepped tile grid = mode-9 country; clone by necessity — Tile World-class rules are well
+documented) · *"other games of that nature."*
+
+**The emulation lane (10.13 reframed — curate by title, not system):**
+- Integer fits: GB/GBC 160×144 at **2× = 320×288** inside 608×416; GBA 240×160 at **2× =
+  480×320**; NES/SNES/Genesis at 1× (the FF1 shape). **Original GB is natively 4-shade
+  grayscale** — a DMG game maps onto the 16 levels with zero loss.
+- 🔑 **The ROM pace-screener comes FIRST**: run a title headless in the emulator, feed frames
+  through the compositor model, price them on the measured curve → a per-title playability score
+  (median frame bytes, effective fps, translation-rule hit rate) before anything is built. The
+  10.9 "measurement to run, not assume", made reusable.
+- **The input gate is the second gate:** the ring gives scroll + tap (double-tap stays shell
+  back, non-negotiable), so a d-pad lives on the phone strip / any replica page — the G2CC
+  `ff1-controller` shape modernized. Menu-heavy titles barely notice; free movement wants the
+  phone in hand.
+- Title shortlist fitting the profile: **Azure Dreams (GBC)** (Adam's pick — the Tower is a
+  turn-grid roguelike, near-ideal; the Town is exactly what the screener judges) · Pokémon TCG ·
+  Dragon Warrior/Quest Monsters · Pokémon RBY/GSC (the overworld scroll is the perfect
+  translation-rule test) · Mario's Picross · Fire Emblem / Advance Wars (GBA 2×) · Golden Sun ·
+  FF Legend/SaGa · the Mystery Dungeon class · Tetris with a low-speed asterisk.
+- Save states ride the §16.4 state substrate (resume anywhere, replica play included); optional
+  game audio on the PC/phone speakers (the glasses stay silent — the piezo rule is untouched).
+  Personal-only lane like FF1: ROMs never ship.
+
+**The Balatro real-game interface (Adam's concept, 2026-09-01 — "way, way down the line if
+ever", recorded as FEASIBLE):** the real game runs on the PC; DamageWM is a custom interface —
+a card-image DB pre-converted to 4bpp from the game's own atlas, game state read from the running
+game, selections forwarded back, results repopulated. Feasibility upgrade over his screencap
+sketch: Balatro is LÖVE/Lua with the Steamodded/lovely modding ecosystem, so **a small mod can
+export authoritative state over a socket and accept plays** — clean data instead of vision;
+screencaps stay the fallback for anything unmodded. 🔑 **The pattern generalizes as the
+"real-game seam" lane**: any turn-based PC game with a reachable state seam can get a native
+DamageWM face. Assets stay personal-only, like FF1.
 
 ---
 
@@ -431,6 +483,7 @@ image loading.
 | 11.9 | "Open on PC" action per item | `xdg-open` on beardos, the 4.11 trick | v2 |
 | 11.10 | Long article → Reader hand-off | | future |
 | 11.11 | YouTube subscriptions (poster + title; play lands on the PC) | ridiculous; the poster is just an image | future |
+| 11.12 | **Comic-strip sources — xkcd, 8-Bit Theater, "and the like"** (Adam, 2026-09-01: "an interesting add") | xkcd is natively monochrome line art — a 16-gray native fit; 8-Bit Theater is a completed ~1,225-page archive, so this is BINGE mode: sequential reading with position memory riding the §16.4 substrate, not a daily-strip feed | v1.5 |
 
 **Refinery questions:** which sources day one? Fetch cadence vs staleness honesty (§10.5 says
 say it, not hide it)?
@@ -438,6 +491,9 @@ say it, not hide it)?
 ---
 
 ## 12. SEARCH
+
+> 🪓 **AXED by Adam, 2026-09-01** (*"never used, don't care"*). Recorded, not deleted. The §16.1
+> deep-link target grammar stays Search-proof by design, so a future revival costs nothing now.
 
 G2CC lineage: `search.ts` — one results list across sources, hand-off to the owning window.
 G2CC drove it by dictation; **Damage's enabler is typed text, which now exists.** Whole window
@@ -454,6 +510,11 @@ graded **v2 overall**: it is only as good as the sources built before it.
 ---
 
 ## 13. HEALTH
+
+> 🪓 **DEAD ENTIRELY, 2026-09-01.** The ring path was already closed (below), and the alternate
+> source is gone too: Adam — *"I don't do health tracking or use Aria anymore"* (a Fitbit-via-aria
+> revival was pitched and rejected; note **aria is retired**, whatever the global config still
+> says about its services). Do not re-propose from either direction.
 
 **Every open source of ring data is closed off — this window is DEFERRED, not cheap (2026-08-31).**
 Chased to the end and reverted: the glasses never relay `RingRawData` (firmware source), the ring
@@ -483,11 +544,17 @@ whether the question is even live.)
 
 ## 14. WEATHER
 
+> 🪓 **AXED by Adam, 2026-09-01**: *"I prefer the weather app on my phone. I check it when I wake
+> up and it doesn't really change often enough within the same day."* Recorded, not deleted.
+> ⚠ Ripple: **14.4's NWS severe-alert hedge dies with the window** — the `DESIGN.md` §4.5
+> emergency promise now rides on the WEA/CMAS probe alone (§17), with the phone's own alarm
+> remaining the never-the-only-path backstop, as that rule always required.
+
 New candidate — no G2CC ancestor, no design mention, included because it is the cheapest
 high-daily-value window on the list and one row of it already improves Main.
 
 **Declares:** List (now + days) → Document (detail) · needs **HOST** (PC fetch) · face Clear
-Sans / B612-digits candidate · summary `72° clear · rain 3pm`.
+Sans, drawn digits where large (B612 ruled out as a default, §16.6) · summary `72° clear · rain 3pm`.
 
 | # | idea | note | grade |
 |---|---|---|---|
@@ -518,19 +585,32 @@ Sans / B612-digits candidate · summary `72° clear · rain 3pm`.
 ## 16. Cross-cutting — contract work the ideas above share
 
 These are the load-bearing additions multiple windows need. **They are the real v1 engineering**
-hiding inside the explosion; each is small, none exists yet.
+hiding inside the explosion.
 
-| # | addition | consumers | note |
+🔴 **SETTLED WITH ADAM 2026-09-01** (the pre-refinery general-topics session). Statuses below;
+**`WINDOWS.md` is the build-facing distillation** (per-window checklist + shared idioms). Nothing
+is coded yet; the agreed build order closes this section.
+
+| # | addition | consumers | status / design |
 |---|---|---|---|
-| 16.1 | **`open(target)` deep link** — a window opens AT an item (notification tap → Mail at the message, Notices onward-tap, Search hits) | Mail, SMS, Notices, Search, Calendar | §4.5's gesture table already promises "tap = open it in its source app"; the contract just has no verb for it yet. One nullable method + a shell routing rule |
-| 16.2 | **Window hand-off** — window A asks the shell to focus window B at a target | Files→Reader, Search→anything, Mail→Calendar | same verb as 16.1, invoked from inside |
-| 16.3 | **Quick-action lists as a shared idiom** — config-driven per-window rows (keys, replies, prompts) | Tmux (built), Mail, SMS | pattern extraction, not new machinery |
-| 16.4 | ✅ **Cross-driver state — ANSWERED by Adam 2026-08-31 (`HANDOFF.md` §19): automatic last-write-wins sync** over the content port, per key (`shell.settings` + `window.<id>`), as soon as PC and phone can talk. Built as `Persistence` v2 stamps + `core/sync/SyncNet` | Timers, Notices, Feed, Games, Habits — and Reader/settings today | the per-book (sub-window key) refinement stays open for Reader-class blobs; Maildir's put-state-where-the-data-lives (1.8) remains the better answer where a host-owned store exists |
-| 16.5 | **New notification sources stay inside the §4.5 filter's logic** — each addition (Calendar 4.4, Deliveries 1.14, NWS 14.4, tmux waiting-alerts as built) is our own generated event with its own Settings toggle; general phone-notification forwarding stays out | Calendar, Mail, Weather, Tmux | the filter is load-bearing (it is what buys boxes their focus); grow it source by source, never wholesale |
-| 16.6 | **Faces for the new windows** (open item #10 paid): Mail/SMS/Notices/Feed-list = Fira Sans · Feed-read = Alegreya · Games-text = JetBrains Mono · Calendar/Timers/Info digits = **B612 revisit** (the §Type note anticipated exactly this) · everything else Clear Sans until earned | all | every choice previews live in Settings since the typography build |
-| 16.7 | **Icons** — every new window needs a drawn `IconKind` (§2.4 rule 9: thick strokes, closed forms); lands inside the queued icon-quality pass | all | |
-| 16.8 | **Emoji/foreign-glyph policy** — the tofu-box idiom (visible, never silent) as the shell-wide rule; a small drawn set later | SMS, Mail, Feed, Tmux (has it) | NO TRUNCATION's glyph-level corollary |
-| 16.9 | **Engine adoptions apps are waiting on** (not app work, listed for honesty): texture-cache adoption (items 19–20 first) pays list-heavy windows most; §5 rule 5 (speculative pre-compression) pays the switcher and games; rule 10 (cross-window deltas) pays every window switch | — | each is priced in `IMPLEMENTATION.md`; none blocks a v1 above |
+| 16.1 | ✅ **`open(target)` deep link — DESIGN AGREED**: `DamageWindow.open(target: String): Boolean`; the target is an OPAQUE per-window string (Mail: message id · SMS: thread id · Calendar: event id) parsed by the window, so the shell stays dumb and Search later stores `(windowId, target)` pairs for free. `false` (unsupported/unresolvable — item deleted since) → the shell says so loudly and lands at the window root. Notification tap = commit + activate + open, **never on preview** (§4.3 rule 1). A deep-linked window synthesizes its internal level path (inbox → message) so back behaves as if navigated by hand | Mail, SMS, Notices, Torrents (T.2) — *(Search/Calendar axed 2026-09-01; the opaque-target grammar keeps a Search revival free)* | agreed 2026-09-01 |
+| 16.2 | ✅ **Window hand-off — the same verb from inside**: `ShellServices.openWindow(id, target)`, and it PUSHES the back stack so double-tap returns to the caller (§1.4) | Files→Reader, Search→anything, Mail→Calendar | agreed |
+| 16.3 | ✅ **Quick-action lists**: pattern extraction from Tmux KEYS. ⚠ Placement decided: per-window USER config (quick-replies, prompts) lives in the **synced store** — SMS quick-replies must work app-alone — while PC `config.json` stays host-provider tuning only (tmux hosts, fetch credentials) | Tmux (built), Mail, SMS | agreed |
+| 16.4 | 🔴 **Cross-driver state — RAISED to Adam's TOP PRIORITY 2026-09-01**: *"an always-active session that can be continued seamlessly from every device connected to DamageWM … 100%. Any proposal must take this into account."* Two layers: the **replica** is same-session-from-anywhere (built — phone screen, browser page, desktop preview, all with input); **LWW sync** (§19, built) converges separate shells. Promoted to MUST-DO before the first conversion: **(a) per-item sub-records** `window.<id>.<item>` — whole-blob LWW clobbers cross-item edits (Reader per-book offsets, Games per-game saves); **(b) close the §19.4 startup micro-race** (the recorded debt; fix shape = post-start reconciliation pass); **(c) a per-window CONTINUITY TEST in the battery** — save on shell A → sync → restore on shell B → identical position/frame (§9.1's regression-gate philosophy applied to sync); **(d) content continuability declared per window** (Reader's copy-on-open generalized — state without bytes is useless). Honest boundary, stated to Adam: simultaneous edits to the SAME item still resolve LWW-newest; the sub-record split makes that rare and its cost a position nudge, never data loss. Put-state-where-the-data-lives (1.8) still beats replication wherever a host-owned store exists (Maildir flags, host-side feed read-marks) | everything | agreed; the foundation everything sits on |
+| 16.5 | ✅ **New notification sources stay inside the §4.5 filter's logic** — each addition is our own generated event with its own toggle in its app's Settings category; general phone-notification forwarding stays out. Live source list after the 2026-09-01 cuts: Mail, SMS, **incoming-call caller ID** (approved 2026-09-01 — "not an app, an extension of the notifications"; missed calls land in Notices), Torrents T.2, tmux waiting-alerts (built), Damage events. *(Calendar 4.4, NWS 14.4, Timers 6.3 died with their windows.)* **And the signature grows ONCE**: (source, coalesce/thread key, body, deep-link target, urgency) — coalescing-by-thread and tap-to-open are both already promised by §4.5, so one change now beats four retrofits | Mail, SMS, Torrents, Tmux, phone-calls | agreed |
+| 16.6 | 🔴 **Faces — REWRITTEN 2026-09-01. B612 is NEVER a default for anything** (Adam, final, after repeated re-proposals: *"let it go"*) — option-only if the library carries it; the old "B612 revisit" advice here is retracted, and digit-heavy surfaces use the system face or DRAWN digits (`Icons.sevenSegClock` is the precedent, Timers 6.4 its consumer). Defaults stand: Mail/SMS/Notices/Feed-list = Fira Sans · Feed-read = Alegreya · Games-text = JetBrains Mono · everything else Clear Sans until earned. The real work item is the **curated font-library expansion** (`DESIGN.md` §Type carries the plan: sturdy-at-1× survivors of the 66 surveyed, OFL/Apache-clean for the APK, lint coverage row + x-height normalisation per face, defaults untouched) | all | ruling recorded |
+| 16.7 | ✅ **Icons — the quality pass moves to the FRONT of the app wave**: settle the upgraded language (§2.4 rule 9), then draw the ~13 new `IconKind`s once at quality, rendered at two scales (56 px switcher + **Main's lens, which now takes the band-height icon** — Adam 2026-09-01, `DESIGN.md` §4.5b; 20 px rows). Watch Main-resting ≤ 5 % ink on implementation (the BUD007 precedent) | all | agreed |
+| 16.8 | ✅ **Emoji/foreign-glyph policy** — the visible tofu box is the shell-wide rule NOW (Tmux has it); the small drawn set stays v2 | SMS, Mail, Feed, Tmux (has it) | agreed |
+| 16.9 | **Engine adoptions apps are waiting on** (not app work, listed for honesty): texture-cache adoption (items 19–20 first) pays list-heavy windows most; §5 rule 5 (speculative pre-compression) pays the switcher and games; rule 10 (cross-window deltas) pays every window switch | — | standing; none blocks a v1 |
+| 16.10 | 🆕 **ONE generic window channel with MULTI-BACKEND providers** — the tmux pattern generalized instead of cloned N times: a `{"t":"win","id":…}` upgrade on the content port (pushed frames + summaries/badges + id-correlated requests), `LocalXProvider` on the PC / `RemoteXProvider` on the phone, keeper-style reconnect, staleness said with duration (§10.5). **Adaptive backends** (Adam's spec, Music the archetype): a window declares a SET of backends in preference order; `needs` becomes per-backend (the window is available if ANY backend's needs are met); the channel's staleness clock drives a settable sustained-loss threshold (a liveness decision of the seam-heartbeat class, not a timeout); **auto-switch fires only under a window-defined condition** — PC library → phone Spotify *only if actively playing*; **switchback is DELIBERATE, never automatic** (no mid-song flapping); Main's summary names the live backend (`▶ Spotify · phone`). Music therefore builds MediaSession-remote (3.4) FIRST — it is the fallback backend. Summaries ride the channel so `summary()` stays cheap (§4.6). PC-only configurations bind the Local providers directly, as tmux does today | every HOST window; Music now, Games engines later | agreed |
+| 16.11 | 🆕 **Shared kit** — a fit helper that ALWAYS draws `▸` when it clips (closes the §18.1 tmux-row debt and Reader's silent `drawFit` clips: unadvertised cuts become impossible by construction) · a confirm-level helper (every destructive or outbound act stages a confirm; placement per §1.7) · the one-shot notice-riding-the-title failure surface · ONE **"open on PC"** verb (content-host `xdg-open`; Calendar 4.11, Feed 11.9, Files) | all | agreed |
+| 16.12 | 🆕 **The Title contract + honest NO-TRUNCATION wording** (Adam, 2026-09-01): the absolute rule governs CONTENT; rows/titles are HANDLES elided only with an advertised, reachable path; the ellipsis ban is style, not principle. **Titles are SHORT BY DESIGN — never long enough to cut**; variable content goes to the body or a notification (which is why notifications are popups here, unlike G2CC). A `▸` in the Title = window-defect tripwire. `DESIGN.md` §2.4 r3 + §4.1 carry the full wording | all | recorded |
+| 16.13 | ~~**The scheduled-work substrate**~~ | 🪓 died with Timers (2026-09-01) — alarms/snooze/scheduled-send were its only other consumers, all future-graded. The agreed sketch (host-shell ticks, LWW `fired` stamp, duplicate-notification-never-missed-fire) stays recorded here for any revival | axed |
+
+**Agreed build order for the shared work:** the state substrate (16.4 a–d) → the window channel
+(16.10) → deep links + the notification signature together (16.1/16.5) → the kit (16.11)
+alongside the first converted window · the icon pass (16.7) before any new icon is drawn · the
+font expansion (16.6) as an independent backlog item.
 
 ---
 
@@ -559,7 +639,85 @@ items, and 6 probes — ~175 items in all** (counted, not estimated: 54 v1 · 34
 20 future · 2 never · 4 probe-gated). One whole section (§8: Scout/Aria/CC) was excluded by
 Adam mid-explosion and recorded rather than deleted. Per the methodology,
 **next is the refinery** — Adam's pass: cut, reorder, answer the per-window questions (each
-section ends with its 2–4), and above all settle **§16.4 (cross-driver state)** and **§16.1
-(deep links)**, which are the two pieces of real contract work nearly everything touches. After
-the refinery: consistency passes against `DESIGN.md`/`CAPABILITIES.md`, then a real
+section ends with its 2–4). 🔴 **2026-09-01: §16 itself is SETTLED** — the general-topics
+session with Adam fixed the cross-cutting contract (§16.1 and §16.4 included; statuses in the
+table, `WINDOWS.md` is the build-facing checklist, the shared-work build order closes §16).
+After the refinery: consistency passes against `DESIGN.md`/`CAPABILITIES.md`, then a real
 implementation plan per surviving window, then — slowly, carefully — code.
+
+---
+
+## 19. TORRENTS — added by Adam 2026-09-01 ("Yes! I always intended for a real qbittorrent integration")
+
+**His spec, verbatim intent:** *"the ability to log into and browse my private torrent site and
+add torrents to qbittorrent all within G2. Especially useful for things like linux distros I
+want to try and other large downloads better done via torrent."* qBittorrent already runs on
+beardos; the tracker session and credentials live host-side in the gitignored config (the
+standing secrets rule).
+
+**Declares:** List (transfers / tracker browse / search results) → Document (torrent detail) →
+actions · needs **HOST** · face Fira Sans (dense lists) · summary `2 active · 1.2 MB/s · 1 done`
+· state: view, cursors (per-device UI; nothing here wants sync beyond settings) · settings:
+notify rules, default category, tracker account rows.
+
+| # | idea | note | grade |
+|---|---|---|---|
+| T.1 | Transfers list: name, progress **block bar**, speed, ETA, state | qBittorrent Web API host-side on a pacer; block bars per §4.5b | v1 |
+| T.2 | Done-notification (§16.5 source) with a deep link to the transfer | the notification everyone actually wants from a torrent client | v1 |
+| T.3 | **Private tracker browse** — login session host-side, category listings as rows | per-site HTML adapter; fragility said honestly (a markup change breaks parsing loudly, never silently) | v1 |
+| T.4 | Tracker search via typed text (replicas) | `onTypedText`; results = the same row shape | v1 |
+| T.5 | Torrent detail Document (description, size, seeders) + **Add** action | Add is an outbound act ⇒ confirm level (§16.11), category picked at confirm | v1 |
+| T.6 | Pause / resume / delete (delete-with-data = double confirm) per transfer | destructive placement per §1.7 | v1.5 |
+| T.7 | **Shelf glue**: a finished book-category torrent lands in `~/books` → Reader shelf notification | the acquisition pipeline — the hoard grows while you watch | v1.5 |
+| T.8 | Torrents → Files deep link at the payload path | §16.1/16.2 consumer | v1.5 |
+| T.9 | Categories/labels on add; per-category default paths | | v1.5 |
+| T.10 | RSS/auto-watch on the tracker | | v2 |
+| T.11 | Multiple trackers (adapter per site) | | v2 |
+| T.12 | Files → Torrents hand-off (.torrent file → add) | | v2 |
+
+**Refinery questions:** which tracker(s) day one (decides the adapter)? Is browse-by-category or
+search-first the daily entry? Delete-with-data reachable from glass at all, or PC-only?
+
+---
+
+## 20. The 2026-09-01 live refinery — cuts, adds, and the standing wow order
+
+Adam's pass over the G2CC roster and two idea-explosion rounds, in session. This section
+supersedes §18's counts.
+
+**🪓 Axed (recorded in place, never re-propose):** Deliveries (1.14) · Calendar (§4) · Timers
+(§6, taking §16.13 with it) · Search (§12) · **Weather** (§14 — *"I prefer the weather app on my
+phone … it doesn't change often enough within the same day"*) · **Health** (§13, now dead from
+both directions — ring closed AND *"I don't do health tracking or use Aria anymore"*; aria is
+retired). Scout/Aria/CC were already out (§8).
+
+**✅ Added/steered:** the **TORRENTS window** (§19) · Feed comic sources (11.12: xkcd, 8-Bit
+Theater binge) · **incoming-call caller ID as a §16.5 notification source** ("not an app, an
+extension of the notifications") · Info steered to useful system stats (§9 note: drive fill,
+processes, temps; novelty stats rejected) · the Games 10b block (roster adds, the emulation lane
++ ROM pace-screener, the Balatro real-game seam).
+
+**🚫 Pitched and rejected (do not re-pitch):** TOTP codes on glass · Fitbit-fed health ·
+audiobook handoff (*"I'm a reader not a listener"*) · serial/webnovel subscriptions · reading
+stats · find-my-phone (his logic: within BLE range it isn't lost; out of range the glasses
+aren't working) · star map (*"a ton of work and likely janky"*) · and the earlier lane: watchers,
+tickers, a standalone comics/CBZ reader, reader-mode browse window, teleprompter, presentation
+remote, PC live captions, chat bridges, a demos/eyecandy toy window.
+
+**The standing wow order (Adam-approved 2026-09-01)** — how cool each survivor can be within
+DamageWM's system, which is the intended *build excitement* order (risk still prices the actual
+sequencing per window):
+
+1. **Games** (roster first; 10b lanes on revisit)
+2. **Torrents** (§19)
+3. **Files** — 🔴 **CHOSEN by Adam as the NEXT WINDOW TO IMPLEMENT (2026-09-01)**; design
+   discussion live — his sketch: G2CC-like + the graphical wave, in-app text/PDF/image viewing,
+   a locations root list, and **tap = context menu with Open first** (two taps to enter a folder)
+4. **Music** (adaptive PC-library ↔ Spotify per §16.10)
+5. **Feed** + comics
+6. **Mail**
+7. **SMS** (+ caller-ID source)
+8. **Info** (useful-stats steer)
+9. **Notices**
+
+Shipped and polishing outside the list: Reader, Tmux.

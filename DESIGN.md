@@ -342,9 +342,21 @@ handles long messages better under NO TRUNCATION. Kept separate by default, as s
 3. **Nothing is ever silently cut. Two mechanisms, chosen by context.** *Marquee* where motion is
    wanted and the element is focused (Main's lens, the switcher's centre item) — mode 9 takes full
    uint16 coords, so a horizontal marquee is a shift plus a small fill; step by 4. *A `▸`
-   continuation mark* on everything persistent and unfocused (the top-bar Title, unfocused Main
-   rows) — it advertises that more exists without putting permanent motion in the periphery or
-   costing a flush forever. Both satisfy NO TRUNCATION; neither uses an ellipsis.
+   continuation mark* on everything persistent and unfocused (unfocused Main rows, list rows) —
+   it advertises that more exists without putting permanent motion in the periphery or costing a
+   flush forever.
+   🔴 **Worded honestly (Adam's push, 2026-09-01):** the mark does not make a cut acceptable —
+   the guarantees behind it do. NO TRUNCATION's absolute half governs **content**: documents wrap
+   and scroll, bodies scroll, the tmux flow wraps — nothing content-level is ever elided. Rows and
+   titles are **handles** to content, and a handle may be elided only when the cut is
+   **advertised** (the mark appears exactly when something was clipped) and the full text is
+   **reachable in place** (focus it and the lens shows it whole; descend and the content is all
+   there). The ellipsis ban is style, not principle — the drawn `▸` is a solid closed form that
+   survives 1× where dot-triples grey out (§2.4 rule 9), and it points at the mechanism rather
+   than stating an omission — but an ellipsis with the same guarantees would satisfy the same
+   rule. The shared fit helper draws the mark whenever it clips, so an unadvertised cut is
+   impossible by construction, not by discipline. The Title is not covered by the reachability
+   rule — it is covered by a stronger one: §4.1's short-by-design contract.
 4. **Full height 480 is the default.** Content is 416, bars are thin.
 5. **Layout snaps to the damage grid** — every cell edge, text baseline and glyph origin lands on
    4 px x / 2 px y so a dirty rect never has to grow to cover a stray pixel.
@@ -485,6 +497,15 @@ of the list beneath it. It was a third window-list competing with two better one
 With no ribbon there is no redundancy left to avoid, so the two halves rejoin into one line:
 **`▣ WINDOW · document`** — icon, window name at head level, context dimmer. 296 px. Overflow takes
 the `▸` continuation mark, never a marquee (§2.4 rule 3).
+
+🔴 **The Title contract (Adam, 2026-09-01): the Title is SHORT BY DESIGN — its content must
+never be long enough to cut.** The context half is terse and bounded; unbounded or variable
+content (message bodies, senders, anything beyond a document name's head) belongs to the content
+area or the notification surface, never to chrome — **which is exactly why notifications are a
+popup here instead of G2CC's title-bar cram.** The `▸` fit guard stays as the tripwire, but a
+Title that takes the mark is a window defect to fix at the source, not a feature. Naturally
+unbounded names (a long book title) are the tolerated residue: rare, and the full name is always
+one step away inside the window itself.
 
 #### 🔑 The divider absorbs the ribbon's remaining job
 
@@ -1287,11 +1308,19 @@ switcher's distinguishing feature is that it is the only surface using icons. So
 |---|---|
 | switcher wheel | 56 px, full brightness on the centre item (§4.3) |
 | **Main's list rows** | 20 px, dim, ahead of the name — icon **and** name, so nothing is lost |
-| **Main's lens** | 24 px at the focus level |
+| **Main's lens** | ~~24 px~~ → **band-height (56 px class) — revised 2026-09-01, Adam:** *"when that app is selected and has two lines available, the icon should take up both lines, so it can be a better more visually appealing icon"* — the focused row's icon spans the 64 px lens band at the switcher-class size; summary text starts right of it |
 | notification source line | 16 px ahead of `SMS · MOM` (§4.5) |
 
 Learning the vocabulary is free: the switcher and Main both show icon *beside* name constantly, so
 the icon becomes readable on its own without ever having replaced a label.
+
+🆕 **One drawn icon per app, two scales** (2026-09-01): each `IconKind` is designed once at
+quality and rendered at 56 px (switcher centre, Main's lens) and 20 px (rows) — which is why the
+queued icon-quality pass moves to the **front** of the app wave: settle the language, then draw
+the ~13 new window icons once, never twice. ⚠ Implementation watch-item: Main's **resting** state
+keeps the lens visible at ≤ 5 % ink, so the render and BUD007 decide whether the band-height icon
+rides at rest or dims there — the same gate that caught the row-icons-at-rest regression (§9.2b).
+The measured ink table in §4.2 reflects current renders; regenerate when this lands.
 
 **Drawing rules** (§2.4 rule 9, and they are also the compression rules): thick strokes, closed
 forms, no hairlines, few levels, solid fills. Measured cost of adding icons to all eleven Main rows
@@ -1889,10 +1918,13 @@ look far better than they will on glass, and reordered the field when corrected:
 candidates are resolved to files in `design/fonts.json` and rendered as five 1× specimen sheets:
 `specimen-{sans,geometric,serif,mono,display}.png`.
 
-🔑 **The find worth naming: `B612`.** It is the typeface Airbus commissioned **for aircraft cockpit
-displays** — designed for legibility on an emissive screen read in a glance under load. That is
-this device's exact problem. `B612` and `B612 Mono` are now the first candidates to beat, not
-the last.
+**A find from the survey: `B612`**, the typeface Airbus commissioned for aircraft cockpit
+displays — designed for legibility on an emissive screen read in a glance under load.
+🔴 **Ruled out as a default by Adam — final, 2026-09-01, after repeated re-proposals across
+sessions** (*"It looks like shit, let it go"*): **B612 is NEVER a default for anything.** It may
+ride the font-library expansion as one user-selectable option among many; nothing more. Do not
+re-propose it, and do not read this section's survey enthusiasm as standing advice — the
+measurements below stay as records, the advocacy does not.
 
 Also newly available and directly relevant: **Clear Sans** (Intel, legibility-designed), **Fira
 Sans** (Mozilla, for small screens), **IBM Plex**, **Source Sans/Serif**, **EB Garamond** (the
@@ -1928,8 +1960,8 @@ crop in `main-font-compare.png`.
 | Source Sans 3 | 0.490 | 1.12 | 9.0 % | 8,548 B | 1.11× |
 | Cantarell | 0.480 | 1.15 | 9.0 % | 8,696 B | 1.13× |
 
-**B612 costs ~11 % more than DejaVu at matched x-height.** Real, but not disqualifying — it is the
-only candidate actually designed for this job, and 11 % of a chrome-and-text screen is ~850 B.
+**B612 costs ~11 % more than DejaVu at matched x-height** — recorded as measurement only; see the
+🔴 ruling above (never a default).
 
 #### 🔴 UI symbols must be DRAWN, never typed
 
@@ -1962,9 +1994,15 @@ surface, and `mixed-fonts.png` shows four windows each in a face chosen for its 
 | **Terminal** and any column-aligned view | **JetBrains Mono** | alignment is functional here, not decorative |
 | every other window | **Clear Sans** (system face) | until that app is designed and earns an override |
 
-*(B612 was the earlier pick for Main and was swapped out on Adam's call — it stays the reference
-for "designed for a cockpit display", and it is worth revisiting for any surface that becomes
-digit-heavy.)*
+*(B612 was the earlier pick for Main and was swapped out on Adam's call. 🔴 **2026-09-01, final:
+NEVER a default for anything** — the "revisit for digit-heavy surfaces" advice that used to live
+here is retracted; it kept re-seeding a pitch Adam had already rejected repeatedly. Digit-heavy
+surfaces use the system face or drawn digits — `Icons.sevenSegClock` is the quality precedent.
+What Adam DOES want is **a lot more font options**: a curated expansion from `design/fonts.json`'s
+66 surveyed candidates — sturdy-at-1× survivors only, OFL/Apache-clean for APK bundling, an
+x-height normalisation and a lint coverage-table row per face, all selectable in the existing
+typography rows, **defaults untouched**, per-face byte tax surfaced in the cost oracle per rule 3
+below. B612 may ride along as one option among many.)*
 
 ⚠ ~~**The system face is not negotiable per window.**~~ **REVERSED 2026-08-31 by Adam** (see
 §0): chrome + Main follow Settings → Global (font/size/style), and each app can override its

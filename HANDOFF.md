@@ -1651,3 +1651,54 @@ by design (LWW as asked); test harnesses use scratch dirs and never touch it.
   **Process lesson: a cosmetic gauge became a multi-round side-quest; it should have been
   cost/benefit-checked at the first finding and verified against Faceclaw before any building.**
   APK **15/0.15** (probe removed); battery green (core 164 · desktop 9 · selfcheck 48 · lint 0).
+
+## 20. The general-contract session (2026-09-01) — §16 SETTLED, recorded, no code
+
+The pre-refinery "general topics" pass with Adam. Decisions only; nothing coded. The records:
+
+- **`EXPLOSION.md` §16 rewritten with statuses + the agreed build order.** Highlights: 16.1/16.2
+  the deep-link verb designed (`open(target)`, opaque per-window targets, push-on-hand-off, never
+  on preview); 16.3 per-window user config moves to the SYNCED store (app-alone quick-replies);
+  16.4 **raised to Adam's top priority** — *"an always-active session that can be continued
+  seamlessly from every device … 100%"* — with four must-dos before the first conversion
+  (per-item sub-records, the §19.4 startup-race closure, a per-window continuity test in the
+  battery, content continuability); 16.5 the notification signature grows once (source, coalesce
+  key, body, deep-link target, urgency); 16.10 **ONE generic window channel with multi-backend
+  providers** (Music's PC-library→Spotify fallback is the archetype: switch only if actively
+  playing, switchback deliberate, summary names the live backend); 16.11 the shared kit
+  (fit-with-▸ closes the §18.1 debt structurally); 16.12 the Title short-by-design contract +
+  the honest NO-TRUNCATION wording (content vs handles); 16.13 the scheduled-work substrate
+  sketch (LWW `fired` stamp — duplicate notification possible, missed fire never).
+- 🔴 **B612 is NEVER a default — final.** Adam, after repeated cross-session re-proposals
+  (seeded by the docs' own "revisit candidate" notes): *"It looks like shit, let it go."*
+  All advocacy notes neutralized in place (`DESIGN.md` §Type ×3, `EXPLOSION.md` ×4); the ruling
+  is in session memory. The surviving real item: a **curated font-library expansion**
+  (`DESIGN.md` §Type carries the plan; option-only, defaults untouched).
+- **Main's lens icon goes band-height** (56 px class) for the focused row — `DESIGN.md` §4.5b —
+  and the **icon-quality pass moves to the front of the app wave** (one drawn icon per app, two
+  scales). Watch Main-resting ≤ 5 % ink when it lands.
+- **`WINDOWS.md` created** — the per-window conversion checklist, the bar every window meets,
+  and the traps already paid for.
+
+**Next:** Adam's per-window refinery pass on `EXPLOSION.md`, then the shared machinery in §16's
+build order (state substrate → window channel → deep links + notify signature → kit), then the
+first conversion.
+
+## 21. The live refinery + Files chosen (2026-09-01, later)
+
+The refinery ran in session and is recorded in **`EXPLOSION.md` §20** (which supersedes §18's
+counts): 🪓 axed Deliveries · Calendar · Timers (§16.13 dies with it) · Search · **Weather**
+(phone app preferred; NWS hedge 14.4 dies — the §4.5 emergency promise rides the WEA/CMAS probe
+alone) · **Health** (dead both directions; aria is retired). ✅ Added: the **TORRENTS window**
+(§19 — his "Yes!": private-tracker browse + add-to-qBittorrent + progress + done-notifications),
+Feed comic sources (11.12), **caller ID as a §16.5 notification source**, the Info useful-stats
+steer, and the Games 10b block (roster adds: cards/Minesweeper/Chip's clone; the emulation lane
+gated on a ROM pace-screener; the Balatro real-game seam — LÖVE/Steamodded state-export beats
+screencap vision). 🚫 The full rejected-ideas pile is recorded in §20 so none of it is
+re-pitched. The wow order stands (§20).
+
+🔴 **Adam chose FILES as the first conversion.** His design intent: G2CC-like + the graphical
+wave; a locations root list (root, home, mounts); **tap = context menu with Open as the first
+row** (two taps to enter a folder — uniform for every entry type); in-app viewers for text, PDF
+and images "in nice ways". Design discussion live; the settled design gets its own record before
+code, per `WINDOWS.md` step 3.
