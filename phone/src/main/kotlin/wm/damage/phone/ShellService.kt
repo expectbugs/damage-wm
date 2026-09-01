@@ -83,6 +83,7 @@ class ShellService : Service() {
     private var replica: ReplicaServer? = null
     private var tmuxProvider: RemoteTmuxProvider? = null
     private var filesProvider: wm.damage.core.windows.files.RemoteFilesProvider? = null
+    private var remoteIcons: RemoteIcons? = null
     private var remoteSync: wm.damage.core.sync.RemoteSync? = null
     @Volatile var remoteDriving = false
         private set
@@ -206,6 +207,12 @@ class ShellService : Service() {
         // content scaling moved INTO the style transforms (Style.kt, 2026-08-31)
         val text = AndroidText(this)
         val persistence = Persistence(dataDir.resolve("state.json"))
+        // LOAD BEFORE ANY SYNC WRITER EXISTS (review 2026-09-01 F1): a sync
+        // record applied to an unloaded store saves a map holding ONLY that
+        // record, replacing state.json and discarding everything local —
+        // including shell.state, which never syncs back. The shell's own
+        // load() later merges harmlessly (strictly-newer in-memory wins).
+        persistence.load()
         val sh = Shell(text, t, persistence, dataDir.resolve("journal.jsonl"), scope)
         shellRef = sh
         shell = sh
@@ -238,8 +245,10 @@ class ShellService : Service() {
             prefs.host, prefs.contentPort, prefs.token, scope)
         filesProvider = fp
         sh.register(wm.damage.core.windows.files.FilesWindow(text, fp, scope, AndroidImages()))
-        sh.iconSource = RemoteIcons(prefs.host, prefs.contentPort, prefs.token,
+        val ri = RemoteIcons(prefs.host, prefs.contentPort, prefs.token,
             dataDir.resolve("icons"), scope, onLoaded = { sh.requestRepaint() })
+        remoteIcons = ri
+        sh.iconSource = ri
         sh.onUrgent = { source, body -> urgentNotification(source, body) }
         sh.hostSettings = listOf(
             HostSetting("Target", listOf("sim", "glasses"),
@@ -364,6 +373,8 @@ class ShellService : Service() {
         tmuxProvider = null
         try { filesProvider?.close() } catch (e: Exception) { Log.w("service", "files provider close: ${e.message}") }
         filesProvider = null
+        try { remoteIcons?.close() } catch (e: Exception) { Log.w("service", "icons close: ${e.message}") }
+        remoteIcons = null
         try { remoteSync?.close() } catch (e: Exception) { Log.w("service", "sync close: ${e.message}") }
         remoteSync = null
         scope.cancel()

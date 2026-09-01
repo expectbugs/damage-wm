@@ -255,6 +255,13 @@ class GlassFirmwareSim() : LensPanels {
                 abort(session, total, fragIdx, msgId)
                 return
             }
+            if (s != null) {
+                // the model must be LOUD where the firmware is quiet (review
+                // 2026-09-01 L7): a new session discarding a partial one is
+                // exactly the interleaving defect this model exists to expose
+                diag.event("image", "session $session opened while session ${s.session} held " +
+                    "${s.buf.size()}/${s.total} B — partial DISCARDED (interleaved writes?)")
+            }
             s = ImgSession(session, total)
             img = s
         }
@@ -265,12 +272,15 @@ class GlassFirmwareSim() : LensPanels {
         }
         s.buf.write(data)
         s.nextFrag++
-        ack(EvenHubMsg.CMD_IMAGE, msgId, null)
+        // overrun checked BEFORE the ack (review 2026-09-01 L7): acking
+        // success and then aborting made the transport read OK for a fragment
+        // the session dropped — the error must be the FIRST answer
         if (s.buf.size() > s.total) {
             diag.event("image", "session $session overran declared total ${s.total} — abort")
             abort(session, total, fragIdx, msgId)
             return
         }
+        ack(EvenHubMsg.CMD_IMAGE, msgId, null)
         if (s.buf.size() == s.total) {
             img = null
             val image = s.buf.toByteArray()
@@ -419,7 +429,10 @@ class GlassFirmwareSim() : LensPanels {
                 if (src.size > Geometry.MODE8_MAX) {
                     diag.event("decode", "$arm mode-8 over bmp_max — rejected in silence"); return false
                 }
-                if (src.size < 2) return false
+                if (src.size < 2) {
+                    diag.event("decode", "$arm mode-8 of ${src.size} B — too short for a batch header, rejected")
+                    return false
+                }
                 val count = src[1].toInt() and 0xFF
                 var pos = 2
                 for (i in 0 until count) {

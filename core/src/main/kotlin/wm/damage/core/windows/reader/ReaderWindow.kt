@@ -389,7 +389,11 @@ class ReaderWindow(
                     // (round 3 R1: first-completion-wins kept the stale wrap)
                     if (book !== b || gen != layoutGen) return@runOnShell
                     book = re
-                    docModel.topLine = re.lineAtOffset(keep)
+                    // the CURRENT offset, not the pre-wrap capture: a synced
+                    // position applied mid-wrap must survive the completion
+                    // (review 2026-09-01 F8 — the stale capture then
+                    // out-stamped the peer's progress via rememberPosition)
+                    docModel.topLine = re.lineAtOffset(offsets[b.meta.id] ?: keep)
                     ensureCurrentLayout()
                     services?.requestRender(this@ReaderWindow)
                 }
@@ -468,9 +472,11 @@ class ReaderWindow(
         startOpen(meta)
     }
 
-    /** Open [meta] — the commit path and the §16.1 deep link share it. */
-    private fun startOpen(meta: BookMeta) {
-        if (openingId != null) return
+    /** Open [meta] — the commit path and the §16.1 deep link share it.
+     *  False = another open is in flight (the caller reports it; a silent
+     *  no-op here made a deep link claim success — review 2026-09-01 F7). */
+    private fun startOpen(meta: BookMeta): Boolean {
+        if (openingId != null) return false
         openingId = meta.id
         rememberPosition()
         services?.setOperation("fetching book")
@@ -529,6 +535,7 @@ class ReaderWindow(
                 }
             }
         }
+        return true
     }
 
     /**
@@ -740,8 +747,13 @@ class ReaderWindow(
         put("heightPref", heightPref ?: 0)   // 0 = global
         // per-book positions moved to SUB-RECORDS (§16.4a, 2026-09-01):
         // `window.reader.book.<id>` each — two devices reading DIFFERENT books
-        // no longer clobber each other's positions under LWW. The legacy
-        // whole-map "offsets" key is read on restore but no longer written.
+        // no longer clobber each other's positions under LWW.
+        // ⚠ TRANSITIONAL: the legacy whole-map still writes so a peer on the
+        // pre-sub-record build (the installed 0.15 APK) and this build keep
+        // ONE main-record shape — dropping it mid-fleet made every save
+        // re-stamp against the other side's shape forever (review 2026-09-01
+        // F3). Remove once the phone runs ≥0.16.
+        put("offsets", buildJsonObject { for ((k, v) in offsets) put(k, v) })
     }
 
     /** §16.4a: one record per book — the sub-key is the stable book id. */
@@ -774,7 +786,10 @@ class ReaderWindow(
         }
         offsets[id] = off
         val b = book
-        if (b != null && b.meta.id == id && level == Level_.BOOK) {
+        // any level with this book loaded (review 2026-09-01 F9): parked at
+        // ACTIONS/CHAPTERS, a stale topLine would be re-stamped by the next
+        // rememberPosition and revert the peer's newer progress
+        if (b != null && b.meta.id == id) {
             val line = b.lineAtOffset(off)
             if (line != docModel.topLine) docModel.topLine = line
         }
@@ -788,7 +803,9 @@ class ReaderWindow(
         if (!target.startsWith("book:")) return false
         val id = target.removePrefix("book:")
         if (id.isEmpty()) return false
-        library.firstOrNull { it.id == id }?.let { startOpen(it); return true }
+        // an in-flight open refuses HONESTLY (false → the shell reports it);
+        // claiming success while doing nothing was review 2026-09-01 F7
+        library.firstOrNull { it.id == id }?.let { return startOpen(it) }
         // library not loaded (a hand-off right after activation): resolve it
         // off-loop, then open — guarded like every async completion here
         if (openingId != null) return false
@@ -807,8 +824,8 @@ class ReaderWindow(
                 if (meta == null) {
                     services?.setOperation("idle")
                     services?.notifyInternal("reader", "couldn't open book $id — not in the library")
-                } else {
-                    startOpen(meta)
+                } else if (!startOpen(meta)) {
+                    services?.notifyInternal("reader", "couldn't open ${meta.title} — another book is opening")
                 }
                 services?.requestRender(this@ReaderWindow)
             }
@@ -859,9 +876,22 @@ class ReaderWindow(
                         library = lib
                         libraryState = "ok"
                         book = loaded
-                        docModel.topLine = loaded.lineAtOffset(offsets[id] ?: 0)
-                        level = if (lvl == "ACTIONS") Level_.ACTIONS else Level_.BOOK
-                        services?.setOperation("reading")
+                        val saved = offsets[id]
+                        if (saved == null && loaded.book.chapters.size >= 2) {
+                            // the position vanished while we were reopening (a
+                            // synced progress-RESET tombstone racing this
+                            // restore — review 2026-09-01 F9): honor the reset
+                            // — first-open chapter picker, not page 1 in BOOK
+                            docModel.topLine = 0
+                            level = Level_.CHAPTERS
+                            chaptersReturnToBook = false
+                            chapModel.cursor = 0
+                            services?.setOperation("pick a chapter")
+                        } else {
+                            docModel.topLine = loaded.lineAtOffset(saved ?: 0)
+                            level = if (lvl == "ACTIONS") Level_.ACTIONS else Level_.BOOK
+                            services?.setOperation("reading")
+                        }
                         ensureCurrentLayout()
                     }
                     services?.runOnShell {

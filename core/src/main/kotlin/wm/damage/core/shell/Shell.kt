@@ -198,6 +198,11 @@ class Shell(
                 Log.w("shell", "openMenu refused: mode=$mode switcher=${switcher.open}")
                 return
             }
+            // a menu already open (an async Stats landing over a re-opened
+            // entry menu) is closed PROPERLY first — restore + onClose — or
+            // its pixels become the new menu's "under" and get painted back
+            // on cancel (review 2026-09-01 F1)
+            if (menu.open) cancelMenu()
             settleSlidesForOverlay()
             // decision-6 semantics: the menu owns the screen like the wheel —
             // a box on screen goes back to the queue unread and returns after
@@ -226,7 +231,12 @@ class Shell(
                 Log.w("shell", "openWindow('$id'): no such window — hand-off refused")
                 return false
             }
+            // §16.2's "double-tap returns to the caller": remember who handed
+            // off (one level — B→C after A→B returns to B, then Main). Cleared
+            // by any EXPLICIT navigation (Main commit, switcher commit).
+            val caller = if (mode == Mode.WINDOW) current else null
             commitWindow(w)
+            if (w !== caller) backTarget = caller?.takeIf { it !== w }
             if (target != null) tryOpenTarget(w, target)
             return true
         }
@@ -252,6 +262,11 @@ class Shell(
 
     // ------------------------------------------------------------------ set-up
     fun register(w: DamageWindow) {
+        // the sub-record key scheme parses `window.<id>.<subKey>` at the FIRST
+        // dot — a dotted id would let one window's tombstone sweep overwrite
+        // another's records (review 2026-09-01 F9). Enforced, not assumed.
+        require('.' !in w.id) { "window id '${w.id}' must not contain '.'" }
+        require(windows.none { it.id == w.id }) { "window id '${w.id}' already registered" }
         windows.add(w)
     }
 
@@ -323,6 +338,15 @@ class Shell(
                 try { w.restoreState(it) } catch (e: Exception) {
                     Log.e("shell", "restore of ${w.id} failed — window starts fresh", e)
                 }
+            }
+            // keys the window actually HOLDS after restore count as reported
+            // (F2c/d): a later removal may tombstone them, while keys a build
+            // ignores (no sub-record support) or failed to restore stay
+            // protected — "didn't load it" is never a removal
+            try {
+                subReported.getOrPut(w.id) { HashSet() }.addAll(w.saveSubState().keys)
+            } catch (e: Exception) {
+                Log.e("shell", "saveSubState of ${w.id} at restore failed", e)
             }
         }
         val shellState = persistence.get("shell.state")
@@ -421,7 +445,11 @@ class Shell(
                     if (running && gen == tickGen) post(Msg.IdleTick)
                 }
             }
-            scheduleRest()
+            // scheduleRest mutates restGen, which the LOOP also mutates on
+            // every input — and the loop is already draining queued messages
+            // by this point in the start tail. Post it, so every generation
+            // counter stays loop-serial (review 2026-09-01 F6).
+            post(Msg.Run { scheduleRest() })
             post(Msg.Pump)
         } catch (e: Exception) {
             // the display is up but the shell could not finish assembling
@@ -540,7 +568,9 @@ class Shell(
     private fun handleTypedText(line: String) {
         val trimmed = line.trim()
         if (trimmed.isEmpty()) return
-        val w = if (mode == Mode.WINDOW && !switcher.open) current else null
+        // the menu owns the screen like the wheel does — a typed line landing
+        // under it would open confirm surfaces OVER it (review 2026-09-01 F3)
+        val w = if (mode == Mode.WINDOW && !switcher.open && !menu.open) current else null
         val accepted = try {
             w?.onTypedText(trimmed) ?: false
         } catch (e: Exception) {
@@ -551,6 +581,7 @@ class Shell(
             val where = when {
                 mode == Mode.SILENT -> "the shell is in silent mode"
                 switcher.open -> "the switcher is open"
+                menu.open -> "a menu is open — close it first"
                 w == null -> "no window is focused"
                 else -> "${w.name} does not accept typed text"
             }
@@ -695,7 +726,14 @@ class Shell(
                     // keeps its grace (§4.5 rule 1), so the tap meant for the
                     // app just entered does not land on it (round 2, d2-10)
                     dismissNotice(markRead = true, clearing = false)
-                    windows.firstOrNull { it.id == n.appId }?.let { w ->
+                    val w = windows.firstOrNull { it.id == n.appId }
+                    if (w == null) {
+                        // NO SILENT FAILURES: the notice is gone (read) — say
+                        // why nothing opened instead of swallowing the tap
+                        Log.w("shell", "notice tap: window '${n.appId}' is not registered here")
+                        services.notifyInternal("shell",
+                            "that notice's app (${n.appId}) is not available on this device")
+                    } else {
                         commitWindow(w)
                         // §16.1: tap = commit + activate + open AT the item
                         n.target?.let { tryOpenTarget(w, it) }
@@ -813,11 +851,28 @@ class Shell(
         scheduleSave()
     }
 
+    /** §16.2: the hand-off caller a root-level back returns to (one level).
+     *  Set by openWindow, consumed on use, cleared by explicit navigation. */
+    private var backTarget: DamageWindow? = null
+
+    /** Per window: the sub-record keys its saveSubState has REPORTED this
+     *  session — the only keys the tombstone sweep may remove (F2c/d). */
+    private val subReported = HashMap<String, MutableSet<String>>()
+
     private fun backFocused() {
         when (mode) {
             Mode.WINDOW -> {
                 val w = current ?: return
                 if (!w.back()) {
+                    val ret = backTarget?.takeIf { it !== w && it in windows }
+                    backTarget = null
+                    if (ret != null) {
+                        // the §16.2 promise: back from a handed-off window's
+                        // root returns to the CALLER (Files → Reader → back
+                        // lands in Files), not Main
+                        commitWindow(ret)
+                        return
+                    }
                     w.onDeactivate()
                     mode = Mode.MAIN
                     current = null
@@ -907,6 +962,9 @@ class Shell(
 
     // ------------------------------------------------------------------ modes
     private fun commitWindow(w: DamageWindow) {
+        // an EXPLICIT navigation ends any pending hand-off return (§16.2);
+        // openWindow re-sets it right after when IT is the caller
+        backTarget = null
         if (switcher.open) {
             switcher.close()
             previewPainted = null
@@ -995,6 +1053,7 @@ class Shell(
         switcher.close()
         previewPainted = null
         if (target == null) {
+            backTarget = null     // explicit navigation ends a pending hand-off
             current?.onDeactivate()
             current = null
             mode = Mode.MAIN
@@ -1064,7 +1123,20 @@ class Shell(
             }
             return
         }
-        if (switcher.open || menu.open) {
+        if (menu.open && n.emergency) {
+            // §4.5: "an emergency alert cancels any pending confirm rather
+            // than stacking on it" — a menu can sit open indefinitely, so an
+            // emergency must not wait behind it (review 2026-09-01 F8);
+            // losing a menu is safe, a missed alert is not
+            cancelMenu()
+            // and the close must not seat a QUEUED ordinary box ahead of the
+            // alert — park it back unread; the emergency shows now
+            if (notifications.active && notifications.current?.emergency == false) {
+                liftNotificationBox()
+                notifications.requeueCurrent()
+                boxLifted = false
+            }
+        } else if (switcher.open || menu.open) {
             // decision 6: wait behind the wheel — and behind the context menu
             // (§16.11) — queued unshown until the surface closes
             notifications.post(n, layout, show = false)
@@ -1525,7 +1597,7 @@ class Shell(
         )
     }
 
-    private fun applySettings(s: ShellSettings) {
+    private fun applySettings(s: ShellSettings, persist: Boolean = true) {
         val relayout = s.heightMode != settings.heightMode
         // any typography change — global face/scale/style or an app's —
         // re-derives every wrap and repaints whole (the §Type reversal)
@@ -1541,7 +1613,11 @@ class Shell(
         val rebright = s.brightness != settings.brightness || s.brightnessAuto != settings.brightnessAuto
         settings = s
         if (rebright) transport.setBrightness(s.brightnessAuto, s.brightness)
-        persistence.put("shell.settings", s.toJson())
+        // liveApplySync passes persist=false: the store already holds the
+        // EXACT synced record; putting our clamped re-encoding would re-stamp
+        // it and, across versions with different ladders, ping-pong restyles
+        // forever (review 2026-09-01 F5)
+        if (persist) persistence.put("shell.settings", s.toJson())
         if (restyle) {
             refreshStyles()
             for (w in windows) {
@@ -1583,7 +1659,13 @@ class Shell(
         if (mode == Mode.SILENT) return
         slides = emptyList()
         notifications.invalidateUnder()   // the content beneath is repainting
-        paintContentOf(if (mode == Mode.WINDOW) current else null)
+        // while the wheel is open the backdrop belongs to the PREVIEWED entry
+        // (§4.3) — an async repaint (an icon resolve, an invalidate) must not
+        // swap it back to the current window under a settled preview
+        // (review 2026-09-01 F7). Render-only, never an activation.
+        val behind = if (switcher.open && previewPainted != null) switcher.selected()?.window
+        else if (mode == Mode.WINDOW) current else null
+        paintContentOf(behind)
         if (switcher.open) paintSwitcherFrame()
         if (menu.open) {
             menu.invalidateUnder()        // recapture over the fresh content
@@ -2012,6 +2094,12 @@ class Shell(
     }
 
     private fun freshenSyncKey(key: String) {
+        // FRESHEN ONLY WHAT THIS DEVICE EVER HELD (review 2026-09-01 F2): a
+        // virgin or corrupt-wiped store must not stamp its DEFAULTS over the
+        // fleet's real records — if we never had the key, the peer's record
+        // simply wins. Local edits made this session put the key first, so a
+        // genuinely-used device still freshens against its live state.
+        if (persistence.get(key) == null) return
         when {
             key == "shell.settings" -> persistence.put(key, settings.toJson())
             key.startsWith("window.") -> windowForKey(key)?.let { (w, sub) ->
@@ -2036,7 +2124,7 @@ class Shell(
         when {
             key == "shell.settings" -> {
                 Log.i("sync", "settings updated from the peer")
-                applySettings(ShellSettings.fromJson(value))
+                applySettings(ShellSettings.fromJson(value), persist = false)
             }
             key.startsWith("window.") -> {
                 val (w, sub) = windowForKey(key) ?: return
@@ -2073,11 +2161,18 @@ class Shell(
                 // longer holds gets the removal TOMBSTONE (an empty object) —
                 // value-changed, so it re-stamps once and the removal syncs;
                 // re-putting an existing tombstone is value-equal and free.
+                // ⚠ Only keys the window ITSELF reported this session may be
+                // tombstoned (review 2026-09-01 F2c/d): a failed restore, or a
+                // build that does not speak sub-records, must never turn
+                // "didn't load it" into a fresh-stamped removal of real data.
                 val subs = w.saveSubState()
                 val prefix = "window.${w.id}."
+                val reported = subReported.getOrPut(w.id) { HashSet() }
+                reported.addAll(subs.keys)
                 for ((sk, blob) in subs) persistence.put(prefix + sk, blob)
                 for (k in persistence.keysWithPrefix(prefix)) {
-                    if (k.removePrefix(prefix) !in subs) persistence.put(k, JsonObject(emptyMap()))
+                    val sk = k.removePrefix(prefix)
+                    if (sk !in subs && sk in reported) persistence.put(k, JsonObject(emptyMap()))
                 }
             } catch (e: Exception) {
                 Log.e("shell", "saveState of ${w.id} failed", e)

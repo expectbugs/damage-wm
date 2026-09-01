@@ -244,6 +244,8 @@ object Zl {
             var o = 0
             while (!inf.finished()) {
                 val n = inf.inflate(out, o, out.size - o)
+                if (n == 0 && inf.needsDictionary()) throw LintError(
+                    "zlib stream demands a preset dictionary (FDICT) — refused, the firmware has none")
                 if (n == 0 && inf.needsInput()) throw LintError("zlib stream truncated")
                 o += n
                 if (o == out.size && !inf.finished())

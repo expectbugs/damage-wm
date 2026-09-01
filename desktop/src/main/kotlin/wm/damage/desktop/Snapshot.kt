@@ -55,8 +55,17 @@ object Snapshot {
         val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), null, scope)
         // theme icons for the eyeball scenes (2026-09-01): the REAL desktop
         // theme (Papirus-Dark on beardos), drawn fallbacks where it misses
-        shell.iconSource = ThemeIcons(AwtImages(), tmp.resolve("icons"),
+        val icons = ThemeIcons(AwtImages(), tmp.resolve("icons"),
             onLoaded = { shell.requestRepaint() })
+        shell.iconSource = icons
+        // scenes wait for the resolve queue to DRAIN, not a guessed delay —
+        // a late resolve repainting between settle and save tore the PNG
+        // (review 2026-09-01 icons#7)
+        suspend fun iconsSettled() {
+            val t0 = System.currentTimeMillis()
+            while (icons.pending() > 0 && System.currentTimeMillis() - t0 < 30_000) delay(50)
+            settle(shell)
+        }
         val reader = ReaderWindow(text, LocalContent(books), scope, AwtImages())
         shell.register(reader)
         val tmuxWin = wm.damage.core.windows.tmux.TmuxWindow(text, ScriptedTmux(), scope)
@@ -66,9 +75,7 @@ object Snapshot {
             scope, AwtImages(), initialBooksDir = cfg.booksDir)
         shell.register(filesWin)
         shell.start()
-        // let the first wave of icon resolves land so the scenes show the theme
-        delay(2_000)
-        settle(shell)
+        iconsSettled()   // the first wave of resolves lands before any scene
         settle(shell)
         save(sim, out, "01-main-active")
 
@@ -172,13 +179,11 @@ object Snapshot {
         settle(shell)
         shell.postGesture(EvenHubMsg.EV_CLICK)
         waitFor("files locations") { filesWin.summary().line.contains("locations") }
-        delay(1_500)                                       // icon resolves land
-        settle(shell)
+        iconsSettled()
         save(sim, out, "11-files-locations")
         shell.postGesture(EvenHubMsg.EV_CLICK)             // first location (Root)
         waitFor("files listing") { filesWin.summary().detail.contains("folders") }
-        delay(1_500)
-        settle(shell)
+        iconsSettled()
         save(sim, out, "12-files-browse")
         shell.postGesture(EvenHubMsg.EV_CLICK)             // tap = context menu
         waitFor("files menu") { shell.menuIsOpen }

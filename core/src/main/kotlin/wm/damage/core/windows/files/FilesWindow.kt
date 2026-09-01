@@ -95,8 +95,27 @@ class FilesWindow(
      *  loudly, never queued invisibly. */
     private var opBusy = false
     private var navSeq = 0
+    /** Stats/PDF probes guard themselves WITHOUT bumping [navSeq] — bumping it
+     *  stranded in-flight listings (review 2026-09-01 Fi#5). */
+    private var sideSeq = 0
 
-    private var notice: String? = null               // one-shot, rides the title
+    /** The Reader hand-off prefix and the title's ~-shortening both come from
+     *  the HOST's own home (review Fi#15: the phone's local user.home mangled
+     *  PC paths). Learned from the locations listing. */
+    private var hostHome = ""
+
+    /** A short-lived title notice (review Fi#11: consuming it on first read
+     *  made every success message vanish within one chrome sync — the shell
+     *  reads title() every frame). A scheduled UI display window, the §4.5
+     *  grace's class — nothing waits on it. */
+    private var notice: String? = null
+    private var noticeUntil = 0L
+
+    private fun setNotice(s: String) {
+        notice = s
+        noticeUntil = System.currentTimeMillis() + 4_000
+        services?.requestRender(this)
+    }
 
     private val fRow = FontSpec(Face.SYSTEM, 18)
     private val fSmall = FontSpec(Face.SYSTEM, 13, bold = true)
@@ -118,7 +137,10 @@ class FilesWindow(
     }
 
     override fun title(): String {
-        notice?.let { n -> notice = null; return n }
+        notice?.let { n ->
+            if (System.currentTimeMillis() < noticeUntil) return n
+            notice = null
+        }
         val clipNote = clip?.let { (v, p) ->
             " · ${if (v == ClipVerb.CUT) "cut" else "copy"}: ${p.substringAfterLast('/')}"
         } ?: ""
@@ -162,12 +184,18 @@ class FilesWindow(
                 val (parent, cursor) = browseStack.removeAt(browseStack.size - 1)
                 cwd = parent
                 browseModel.cursor = cursor
+                entries = emptyList()     // Fi#4
+                listState = "listing"
+                nameArmed = null          // Fi#16
                 refreshList()
                 true
             } else if (loc != null && cwd != loc.path) {
                 // stack lost (a restore): ascend by path
                 cwd = cwd.substringBeforeLast('/').ifEmpty { "/" }
                 browseModel.cursor = 0
+                entries = emptyList()     // Fi#4
+                listState = "listing"
+                nameArmed = null          // Fi#16
                 refreshList()
                 true
             } else {
@@ -203,7 +231,12 @@ class FilesWindow(
         val armed = nameArmed ?: return false
         nameArmed = null
         val name = line.trim()
-        if (name.isEmpty()) return false
+        if (name.isEmpty()) {
+            // consuming the arm on a blank line and then reporting "does not
+            // accept typed text" mis-blamed the window (review Fi#16)
+            setNotice("empty name — ${if (armed.first == NameFor.RENAME) "rename" else "new folder"} cancelled")
+            return true
+        }
         val (what, target) = armed
         val verb = if (what == NameFor.RENAME) "Rename '${target.substringAfterLast('/')}' to" else "New folder"
         services?.openMenu(MenuSurface.Spec("$verb '$name'?",
@@ -237,9 +270,10 @@ class FilesWindow(
                     // the Reader hand-off prefix comes from the HOST's own
                     // Books location (the phone cannot know the PC's path)
                     locs.firstOrNull { it.kind == "books" }?.let { booksDir = it.path }
+                    locs.firstOrNull { it.kind == "home" }?.let { hostHome = it.path }
                 }
                 listState = err ?: ""
-                if (err != null) notice = err
+                if (err != null) setNotice(err)
                 services?.setOperation("idle")
                 services?.requestRender(this@FilesWindow)
             }
@@ -267,7 +301,7 @@ class FilesWindow(
         // the capacity bar — turtle's squeeze visible the moment Files opens
         if (l.totalBytes > 0) {
             val used = 1.0 - l.freeBytes.toDouble() / l.totalBytes
-            Icons.blocks(g, r.right - 208, r.y + 12, 120, 8, used, n = 10, level = Level.of(5))
+            Icons.blocks(g, r.right - 232, r.y + 12, 112, 8, used, n = 10, level = Level.of(5))
             Draw.right(g, tx, r.right - 24, r.y + 8, "${fmtBytes(l.freeBytes)} free", Level.DIM, fSmall)
         }
     }
@@ -299,6 +333,9 @@ class FilesWindow(
         cwd = l.path
         browseStack.clear()
         browseModel.cursor = 0            // cursor rest (§1.7)
+        entries = emptyList()             // never show the OLD folder's rows (Fi#4)
+        listState = "listing"
+        nameArmed = null                  // navigation disarms a pending name (Fi#16)
         level = Level_.BROWSE
         refreshList()
     }
@@ -330,9 +367,11 @@ class FilesWindow(
             }
             services?.runOnShell {
                 if (seq != navSeq || cwd != dir) return@runOnShell
-                if (err == null) entries = list
+                // an error must not leave the PREVIOUS folder's rows live and
+                // commit-able under the new title (review Fi#4)
+                entries = if (err == null) list else emptyList()
                 listState = err ?: ""
-                if (err != null) notice = err
+                if (err != null) setNotice(err)
                 services?.setOperation("idle")
                 val n = rows().size
                 if (browseModel.cursor >= n) browseModel.cursor = 0
@@ -355,7 +394,7 @@ class FilesWindow(
         }
         IconPaint.drawFile(g, services?.icons(), e.name, e.dir, r.x + 8, r.y + 6, 20, Level.DIM)
         val nameMax = r.w - 40 - 176
-        Draw.fit(g, tx, r.x + 40, r.y + 5, e.name, if (e.dir) Level.HEAD else Level.BODY, fRow, nameMax)
+        Draw.fit(g, tx, r.x + 40, r.y + 5, dn(e.name), if (e.dir) Level.HEAD else Level.BODY, fRow, nameMax)
         if (!e.dir) Draw.right(g, tx, r.right - 96, r.y + 8, fmtBytes(e.size), Level.DIM, fSmall)
         Draw.right(g, tx, r.right - 24, r.y + 8, fmtMtime(e.mtimeMs), Level.DIM, fSmall)
     }
@@ -365,6 +404,7 @@ class FilesWindow(
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Gray8?>) = size > 24
     }
     private val thumbsInFlight = HashSet<String>()
+    private val thumbRetryAt = HashMap<String, Long>()
 
     private fun isImageName(n: String) = n.substringAfterLast('.', "").lowercase() in
         setOf("png", "jpg", "jpeg", "gif", "bmp", "webp")
@@ -372,15 +412,24 @@ class FilesWindow(
     private fun lensThumb(path: String): Gray8? {
         thumbs[path]?.let { return it }
         if (path in thumbs) return null               // known undecodable
+        thumbRetryAt[path]?.let {
+            if (System.currentTimeMillis() < it) return null else thumbRetryAt.remove(path)
+        }
         if (thumbsInFlight.add(path)) {
             bg.launch(Dispatchers.IO) {
-                val t = try { provider.thumb(path, 56) } catch (e: Exception) {
-                    Log.w("files", "thumb $path: ${e.message}")
-                    null
+                val (t, failed) = try { provider.thumb(path, 56) to false } catch (e: Exception) {
+                    Log.w("files", "thumb $path failed: ${e.message} — retrying after pacing")
+                    null to true
                 }
                 services?.runOnShell {
                     thumbsInFlight.remove(path)
-                    thumbs[path] = t
+                    if (failed) {
+                        // a link blip is not a property of the file (review
+                        // Fi#10) — pace a retry instead of caching "no thumb"
+                        thumbRetryAt[path] = System.currentTimeMillis() + 10_000
+                    } else {
+                        thumbs[path] = t
+                    }
                     services?.requestRender(this@FilesWindow)
                 }
             }
@@ -406,7 +455,7 @@ class FilesWindow(
         val thumb = if (!e.dir && isImageName(e.name)) lensThumb(path) else null
         if (thumb != null) IconPaint.blit(g, thumb, r.x + 8, r.y + 4, Level.HEAD)
         else IconPaint.drawFile(g, services?.icons(), e.name, e.dir, r.x + 8, r.y + 4, 56, Level.HEAD)
-        Draw.fit(g, tx, r.x + 72, r.y + 6, e.name, Level.HEAD, fB, r.w - 88)
+        Draw.fit(g, tx, r.x + 72, r.y + 6, dn(e.name), Level.HEAD, fB, r.w - 88)
         val kind = if (e.dir) "folder" else e.name.substringAfterLast('.', "file").lowercase()
         val det = if (e.dir) "$kind · ${fmtMtime(e.mtimeMs)}"
         else "${fmtBytes(e.size)} · ${fmtMtime(e.mtimeMs)} · $kind"
@@ -439,7 +488,7 @@ class FilesWindow(
         val readerId = readerIdFor(path)
         if (readerId != null) add("Open in Reader") {
             if (services?.openWindow("reader", "book:$readerId") != true) {
-                notice = "Reader is not available"
+                setNotice("Reader is not available")
             }
         }
         add("Open on PC") { runOp("opening on PC") { provider.openOnPc(path); "opened on the PC" } }
@@ -448,12 +497,12 @@ class FilesWindow(
         if (e.dir && clip != null) add("Paste here", clip!!.second.substringAfterLast('/')) { paste(path) }
         add("Rename") {
             nameArmed = NameFor.RENAME to path
-            notice = "type the new name (phone strip / replica)"
+            setNotice("type the new name (phone strip / replica)")
             services?.requestRender(this)
         }
         add("Stats") { openStats(path, e) }
         add("Delete", "to trash") { confirmTrash(path, e.name) }
-        services?.openMenu(MenuSurface.Spec(e.name, items, onCommit = { idx -> acts.getOrNull(idx)?.invoke() }))
+        services?.openMenu(MenuSurface.Spec(dn(e.name), items, onCommit = { idx -> acts.getOrNull(idx)?.invoke() }))
     }
 
     private fun openThisFolderMenu() {
@@ -465,7 +514,7 @@ class FilesWindow(
         }
         add("New folder") {
             nameArmed = NameFor.MKDIR to cwd
-            notice = "type the folder name (phone strip / replica)"
+            setNotice("type the folder name (phone strip / replica)")
             services?.requestRender(this)
         }
         if (clip != null) add("Paste here", clip!!.second.substringAfterLast('/')) { paste(cwd) }
@@ -489,6 +538,9 @@ class FilesWindow(
             browseStack.add(cwd to browseModel.cursor)
             cwd = path
             browseModel.cursor = 0        // cursor rest (§1.7)
+            entries = emptyList()         // Fi#4
+            listState = "listing"
+            nameArmed = null              // Fi#16
             refreshList()
             return
         }
@@ -499,7 +551,7 @@ class FilesWindow(
             ext == "epub" -> {
                 val id = readerIdFor(path)
                 if (id != null && services?.openWindow("reader", "book:$id") == true) return
-                notice = "not in the Reader library — Open on PC instead"
+                setNotice("not in the Reader library — Open on PC instead")
                 services?.requestRender(this)
             }
             else -> openText(path, e.name)
@@ -529,7 +581,13 @@ class FilesWindow(
     }
 
     private fun openStats(path: String, e: FEntry?) {
-        val seq = ++navSeq
+        if (opBusy) {
+            setNotice("busy — one operation at a time")
+            return
+        }
+        opBusy = true                     // du can walk a cold HDD (Fi#6)
+        val seq = ++sideSeq               // NOT navSeq: listings stay live (Fi#5)
+        val fromLevel = level
         services?.setOperation("stat")
         bg.launch(Dispatchers.IO) {
             val lines = try {
@@ -545,17 +603,26 @@ class FilesWindow(
             } catch (ex: Exception) {
                 Log.e("files", "stat $path failed", ex)
                 services?.runOnShell {
-                    notice = ex.message ?: "stat failed"
+                    opBusy = false
+                    if (seq == sideSeq) setNotice(ex.message ?: "stat failed")
                     services?.setOperation("idle")
                     services?.requestRender(this@FilesWindow)
                 }
                 return@launch
             }
             services?.runOnShell {
-                if (seq != navSeq) return@runOnShell
+                opBusy = false
                 services?.setOperation("idle")
-                services?.openMenu(MenuSurface.Spec(
-                    e?.name ?: shortPath(path), lines, onCommit = { }))
+                if (seq != sideSeq) return@runOnShell
+                if (level == fromLevel) {
+                    services?.openMenu(MenuSurface.Spec(
+                        dn(e?.name ?: shortPath(path)), lines, onCommit = { }))
+                } else {
+                    // the user moved on while du walked — the answer must not
+                    // vanish (Fi#6): deliver it as a notice instead
+                    services?.notifyInternal("files",
+                        "${e?.name ?: shortPath(path)}: " + lines.joinToString(" · ") { "${it.label} ${it.detail}" })
+                }
             }
         }
     }
@@ -564,7 +631,7 @@ class FilesWindow(
      *  return becomes the title notice. Refreshes whatever level shows. */
     private fun runOp(verb: String, op: () -> String?) {
         if (opBusy) {
-            notice = "busy — one operation at a time"
+            setNotice("busy — one operation at a time")
             services?.requestRender(this)
             return
         }
@@ -581,10 +648,10 @@ class FilesWindow(
                 opBusy = false
                 services?.setOperation("idle")
                 if (err != null) {
-                    notice = err
+                    setNotice(err)
                     services?.notifyInternal("files", "$verb failed: $err")
                 } else if (msg != null) {
-                    notice = msg
+                    setNotice(msg)
                 }
                 when (level) {
                     Level_.BROWSE -> refreshList()
@@ -608,7 +675,7 @@ class FilesWindow(
             }
             services?.runOnShell {
                 if (seq != navSeq) return@runOnShell
-                if (err == null) trashEntries = list else notice = err
+                if (err == null) trashEntries = list else setNotice(err)
                 services?.setOperation("idle")
                 if (trashModel.cursor >= trashEntries.size) trashModel.cursor = 0
                 services?.requestRender(this@FilesWindow)
@@ -622,14 +689,14 @@ class FilesWindow(
             return
         }
         IconPaint.drawFile(g, services?.icons(), e.name, e.dir, r.x + 8, r.y + 6, 20, Level.DIM)
-        Draw.fit(g, tx, r.x + 40, r.y + 5, e.name, Level.BODY, fRow, r.w - 40 - 176)
+        Draw.fit(g, tx, r.x + 40, r.y + 5, dn(e.name), Level.BODY, fRow, r.w - 40 - 176)
         Draw.right(g, tx, r.right - 24, r.y + 8, fmtMtime(e.atMs), Level.DIM, fSmall)
     }
 
     private fun paintTrashLens(g: Gray8, r: Rect, i: Int) {
         val e = trashEntries.getOrNull(i) ?: return
         IconPaint.drawFile(g, services?.icons(), e.name, e.dir, r.x + 8, r.y + 4, 56, Level.HEAD)
-        Draw.fit(g, tx, r.x + 72, r.y + 6, e.name, Level.HEAD, FontSpec(Face.SYSTEM, 18, bold = true), r.w - 88)
+        Draw.fit(g, tx, r.x + 72, r.y + 6, dn(e.name), Level.HEAD, FontSpec(Face.SYSTEM, 18, bold = true), r.w - 88)
         Draw.fit(g, tx, r.x + 72, r.y + 34, "was ${shortPath(e.origPath)}", Level.BODY, fBody, r.w - 88)
     }
 
@@ -683,6 +750,9 @@ class FilesWindow(
         val stripH = 32
 
         var lineH = 24
+        /** Paced retry after a transient chunk/page failure (Fi#3) — never a
+         *  silent end-of-file, never an unpaced retry storm. */
+        var retryAtMs = 0L
 
         fun titleLine(): String = when (mode) {
             "pdfpage" -> {
@@ -767,12 +837,15 @@ class FilesWindow(
 
         fun paintTextLine(g: Gray8, i: Int, r: Rect) {
             if (i >= lines.size) {
-                Draw.fit(g, tx, r.x + 16, r.y + 2, if (loading) "loading more…" else "· · ·",
+                val waiting = !loading && System.currentTimeMillis() < retryAtMs
+                Draw.fit(g, tx, r.x + 16, r.y + 2,
+                    if (loading) "loading more…" else if (waiting) "read failed — retrying" else "· · ·",
                     Level.REST, fSmall, r.w - 32)
-                if (!loading && more) loadNextChunk()
+                if (!loading && more && !waiting) loadNextChunk()
                 return
             }
-            if (more && !loading && i > lines.size - 60) loadNextChunk()
+            if (more && !loading && i > lines.size - 60 &&
+                System.currentTimeMillis() >= retryAtMs) loadNextChunk()
             val line = lines[i]
             if (line.isEmpty()) return
             val m = tx.metrics(font())
@@ -782,13 +855,15 @@ class FilesWindow(
 
         fun paintStrip(g: Gray8, i: Int, r: Rect) {
             val strip = strips.getOrNull(i)
+            val waiting = !loading && System.currentTimeMillis() < retryAtMs
             if (strip == null) {
-                Draw.fit(g, tx, r.x + 16, r.y + 8, if (loading) "loading page $pdfNextPage…" else "",
+                Draw.fit(g, tx, r.x + 16, r.y + 8,
+                    if (loading) "loading page $pdfNextPage…" else if (waiting) "page failed — retrying" else "",
                     Level.REST, fSmall, r.w - 32)
-                if (mode == "pdfpage" && !loading && pdfNextPage <= pdfPages) loadNextPdfPage()
+                if (mode == "pdfpage" && !loading && !waiting && pdfNextPage <= pdfPages) loadNextPdfPage()
                 return
             }
-            if (mode == "pdfpage" && !loading && pdfNextPage <= pdfPages &&
+            if (mode == "pdfpage" && !loading && !waiting && pdfNextPage <= pdfPages &&
                 i > strips.size - 20) loadNextPdfPage()
             val x = ((r.x + (r.w - strip.w).coerceAtLeast(0) / 2) / 4) * 4
             g.blit(strip, Rect(0, 0, strip.w, stripH), x, r.y)
@@ -809,8 +884,13 @@ class FilesWindow(
                     loading = false
                     if (viewer !== this@Viewer) return@runOnShell
                     if (chunk == null) {
-                        notice = err
-                        more = false
+                        // a transient read failure must not read as the END
+                        // of the file (review Fi#3): keep [more], pace the
+                        // retry, and say it — a 2 s PC blip must not silently
+                        // half-show a log for the rest of the session
+                        Log.e("files", "text chunk of $path failed: $err")
+                        setNotice(err ?: "read failed — retrying")
+                        retryAtMs = System.currentTimeMillis() + RETRY_PACING_MS
                     } else {
                         loadedBytes = off + chunk.text.toByteArray(Charsets.UTF_8).size
                         totalBytes = chunk.totalBytes
@@ -823,8 +903,15 @@ class FilesWindow(
                         val usable = if (cut < 0) "" else whole.substring(0, cut)
                         carry = if (cut < 0) whole else whole.substring(minOf(cut + 1, whole.length))
                         val add = usable + (if (!chunk.more && carry.isNotEmpty()) "\n$carry" else "")
-                        if (rawText == null) layoutText(add, append = true).also { applyRestoreTop(done = !more) }
-                        else if (add.isNotEmpty()) appendText(add)
+                        if (rawText == null) {
+                            // a first chunk with no newline yet contributes
+                            // nothing — laying out "" fabricated a blank first
+                            // line the file does not contain (review Fi#13)
+                            if (add.isNotEmpty() || !chunk.more) {
+                                layoutText(add, append = true)
+                                applyRestoreTop(done = !more)
+                            }
+                        } else if (add.isNotEmpty()) appendText(add)
                         if (!chunk.more) carry = ""
                     }
                     services?.requestRender(this@FilesWindow)
@@ -848,8 +935,11 @@ class FilesWindow(
                     loading = false
                     if (viewer !== this@Viewer) return@runOnShell
                     if (g == null) {
-                        notice = err ?: "no decoder for the page raster"
-                        pdfNextPage = pdfPages + 1
+                        // keep our place and retry after pacing (Fi#3) — the
+                        // old skip-to-end silently dropped every later page
+                        Log.e("files", "pdf page $page of $path failed: $err")
+                        setNotice(err ?: "page $page failed — retrying")
+                        retryAtMs = System.currentTimeMillis() + RETRY_PACING_MS
                     } else {
                         pageStarts.add(strips.size)
                         appendStrips(g)
@@ -877,6 +967,14 @@ class FilesWindow(
     }
 
     private var viewer: Viewer? = null
+    /** A restored reading position waiting for its viewer (Fi#7) — consumed
+     *  at Viewer creation by every open path, async ones included. */
+    private var pendingViewTop = 0
+
+    private fun consumePendingTop(v: Viewer) {
+        v.restoreTop = pendingViewTop
+        pendingViewTop = 0
+    }
 
     private val coverCache = HashMap<String, Boolean>()
 
@@ -910,6 +1008,7 @@ class FilesWindow(
         val v = Viewer(path, name, "text")
         v.mono = name.substringAfterLast('.', "").lowercase() in MONO_EXTS
         v.more = true
+        consumePendingTop(v)
         viewer = v
         docModel.topLine = 0
         level = Level_.VIEW
@@ -918,6 +1017,7 @@ class FilesWindow(
 
     private fun openImage(path: String, name: String) {
         val v = Viewer(path, name, "image")
+        consumePendingTop(v)
         viewer = v
         docModel.topLine = 0
         level = Level_.VIEW
@@ -936,7 +1036,7 @@ class FilesWindow(
                 services?.setOperation("idle")
                 if (viewer !== v) return@runOnShell
                 if (scaled == null) {
-                    notice = err ?: "not a decodable image"
+                    setNotice(err ?: "not a decodable image")
                     level = Level_.BROWSE
                     viewer = null
                 } else {
@@ -974,7 +1074,7 @@ class FilesWindow(
 
     private fun openPdf(path: String, name: String) {
         services?.setOperation("reading pdf")
-        val seq = ++navSeq
+        val seq = ++sideSeq
         bg.launch(Dispatchers.IO) {
             val (info, err) = try {
                 provider.pdfInfo(path) to null
@@ -982,10 +1082,11 @@ class FilesWindow(
                 null to (e.message ?: "pdf info failed")
             }
             services?.runOnShell {
-                if (seq != navSeq) return@runOnShell
+                if (seq != sideSeq) return@runOnShell
                 services?.setOperation("idle")
                 if (info == null) {
-                    notice = err
+                    Log.e("files", "pdfinfo of $path failed: $err")
+                    setNotice(err ?: "could not read the PDF")
                     services?.requestRender(this@FilesWindow)
                     return@runOnShell
                 }
@@ -998,6 +1099,7 @@ class FilesWindow(
 
     private fun openPdfText(path: String, name: String) {
         val v = Viewer(path, name, "pdftext")
+        consumePendingTop(v)
         viewer = v
         docModel.topLine = 0
         level = Level_.VIEW
@@ -1014,7 +1116,8 @@ class FilesWindow(
                 services?.setOperation("idle")
                 if (viewer !== v) return@runOnShell
                 if (raw == null) {
-                    notice = err
+                    Log.e("files", "pdftotext of $path failed: $err")
+                    setNotice(err ?: "text extraction failed")
                     level = Level_.BROWSE
                     viewer = null
                 } else {
@@ -1029,6 +1132,7 @@ class FilesWindow(
     private fun openPdfPages(path: String, name: String, pages: Int) {
         val v = Viewer(path, name, "pdfpage")
         v.pdfPages = pages
+        consumePendingTop(v)
         viewer = v
         docModel.topLine = 0
         level = Level_.VIEW
@@ -1088,15 +1192,16 @@ class FilesWindow(
                 val vTop = state["viewTop"]?.jsonPrimitive?.intOrNull ?: 0
                 if (vPath.isNotEmpty() && vName.isNotEmpty()) {
                     level = Level_.BROWSE
+                    // consumed by whichever open path CREATES the viewer —
+                    // pdfpage creates it inside an async completion, so a
+                    // direct write here hit null and lost the page (Fi#7)
+                    pendingViewTop = vTop
                     when (vMode) {
                         "text" -> openText(vPath, vName)
                         "image" -> openImage(vPath, vName)
                         "pdftext" -> openPdfText(vPath, vName)
                         "pdfpage" -> openPdf(vPath, vName)
                     }
-                    // the position rides restoreTop until enough content
-                    // streams in — the first paint's clamp must not zero it
-                    viewer?.restoreTop = vTop
                 } else level = Level_.BROWSE
             }
         }
@@ -1104,14 +1209,21 @@ class FilesWindow(
 
     // ================================================================ helpers
     private fun shortPath(p: String): String {
-        val home = System.getProperty("user.home")
-        return if (home != null && p.startsWith(home)) "~" + p.removePrefix(home) else p
+        // the HOST's home, learned from the locations listing — the phone's
+        // local user.home ("/" under ART) mangled every PC path (Fi#15)
+        val home = hostHome.ifEmpty { System.getProperty("user.home") ?: "" }
+        return if (home.length > 1 && p.startsWith(home)) "~" + p.removePrefix(home) else p
     }
+
+    /** Display form of an untrusted file name: glyphs the face cannot draw
+     *  become a visible '?' — never tofu, never a refused draw (Fi#12). */
+    private fun dn(s: String) = sanitize(s, false)
 
     override fun appSettings(): List<HostSetting> = emptyList()
 
     companion object {
         private const val CHUNK = 128 * 1024
+        private const val RETRY_PACING_MS = 5_000L
         private val MONO_EXTS = setOf("log", "json", "xml", "conf", "cfg", "ini", "toml", "yaml",
             "yml", "sh", "bash", "py", "kt", "kts", "c", "h", "cpp", "rs", "go", "java", "js",
             "ts", "html", "htm", "css", "sql", "ebuild", "gradle", "properties", "service", "csv")

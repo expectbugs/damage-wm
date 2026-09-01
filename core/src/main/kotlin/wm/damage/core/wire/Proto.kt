@@ -85,14 +85,14 @@ object Pb {
                 0 -> {
                     val (v, vn) = readVarint(data, i)
                     i += vn
-                    out += Field(field, v, null)
+                    out += Field(field, v, null, 0)
                 }
                 2 -> {
                     val (len, ln) = readVarint(data, i)
                     i += ln
                     if (i + len > data.size)
                         throw IllegalArgumentException("field $field length $len overruns buffer")
-                    out += Field(field, null, data.copyOfRange(i, i + len.toInt()))
+                    out += Field(field, null, data.copyOfRange(i, i + len.toInt()), 2)
                     i += len.toInt()
                 }
                 5 -> { // fixed32 — appears in vendor schemas; skip with the value kept
@@ -100,14 +100,14 @@ object Pb {
                     var v = 0L
                     for (b in 0 until 4) v = v or ((data[i + b].toLong() and 0xFF) shl (8 * b))
                     i += 4
-                    out += Field(field, v, null)
+                    out += Field(field, v, null, 5)
                 }
                 1 -> { // fixed64
                     if (i + 8 > data.size) throw IllegalArgumentException("fixed64 truncated")
                     var v = 0L
                     for (b in 0 until 8) v = v or ((data[i + b].toLong() and 0xFF) shl (8 * b))
                     i += 8
-                    out += Field(field, v, null)
+                    out += Field(field, v, null, 1)
                 }
                 else -> throw IllegalArgumentException("unsupported wire type ${(k and 7L)} for field $field")
             }
@@ -121,5 +121,7 @@ object Pb {
     fun bytesField(data: ByteArray, field: Int): ByteArray? =
         fields(data).firstOrNull { it.field == field && it.bytes != null }?.bytes
 
-    data class Field(val field: Int, val varint: Long?, val bytes: ByteArray?)
+    /** [wireType] distinguishes fixed32/fixed64 (5/1) from true varints (0) —
+     *  both land in [varint]; re-encoders must not conflate them (L8). */
+    data class Field(val field: Int, val varint: Long?, val bytes: ByteArray?, val wireType: Int = 0)
 }

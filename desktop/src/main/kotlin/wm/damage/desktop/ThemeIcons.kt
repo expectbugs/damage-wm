@@ -9,6 +9,7 @@ import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.IconRaster
 import wm.damage.core.gfx.IconSource
 import wm.damage.core.gfx.ImageDecoder
+import wm.damage.core.util.Exec
 import wm.damage.core.util.Log
 
 /**
@@ -22,11 +23,18 @@ import wm.damage.core.util.Log
  *
  * Resolution follows the real freedesktop rules pragmatically: the active
  * theme from xfconf, its `Inherits` chain (Papirus-Dark → breeze-dark →
- * hicolor), sized directories in both layouts (`64x64/mimetypes` Papirus-style
- * and `mimetypes/64` breeze-style) plus `scalable`. SVGs rasterize through
- * `rsvg-convert` (ImageMagick as fallback); PNGs decode directly. Everything
- * lands as 8-bit luminance composited toward black, box-sampled square, and is
- * cached in memory and on disk (`~/.damage/icons/<theme>/<size>/`).
+ * hicolor), sized directories in BOTH layouts — Papirus-style
+ * `64x64/mimetypes` and breeze-style `mimetypes/64` (sizes discovered per
+ * layout — review 2026-09-01: root-only discovery made category-first themes
+ * unreachable) — plus `scalable`. SVGs rasterize through `rsvg-convert`
+ * (ImageMagick as fallback) via the deadlock-proof [Exec]; PNGs decode
+ * directly. Results are 8-bit luminance composited toward black, box-sampled
+ * square, cached in memory and on disk (`~/.damage/icons/<theme>/<size>/`).
+ *
+ * Failure discipline (review 2026-09-01): a CLEAN miss (the theme has no such
+ * icon) caches as [missing] permanently; a FAILURE (tool refused, IO hiccup)
+ * only pauses that key for [RETRY_PACING_MS] — an emerge replacing theme
+ * files or one bad moment must not latch drawn icons for an all-day service.
  *
  * [IconSource.icon] is the PAINT path: cache hits only; a miss schedules an
  * async resolve and returns null (the drawn icon paints this frame), then
@@ -43,7 +51,10 @@ class ThemeIcons(
     private val themeName: String = themeOverride ?: detectXfceTheme() ?: "hicolor"
     private val chain: List<Path> = buildChain(themeName)
     private val mem = ConcurrentHashMap<String, Gray8>()
-    private val missing = ConcurrentHashMap.newKeySet<String>()
+    /** Clean misses — permanent for the run. */
+    private val missingKeys = ConcurrentHashMap.newKeySet<String>()
+    /** Transient failures — retried after pacing, never latched. */
+    private val retryAt = ConcurrentHashMap<String, Long>()
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
     private val pool = Executors.newSingleThreadExecutor { r ->
         Thread(r, "theme-icons").apply { isDaemon = true }
@@ -53,28 +64,44 @@ class ThemeIcons(
         Log.i("icons", "theme '$themeName' — chain: ${chain.joinToString { it.fileName.toString() }}")
     }
 
+    override fun themeId(): String = themeName
+
+    /** Resolves still outstanding — the snapshot harness drains this instead
+     *  of guessing with fixed delays. */
+    fun pending(): Int = inFlight.size
+
     // ------------------------------------------------------------- the seam
+    override fun missing(name: String, sizePx: Int): Boolean = "$name@$sizePx" in missingKeys
+
     override fun icon(name: String, sizePx: Int): Gray8? {
         val key = "$name@$sizePx"
         mem[key]?.let { return it }
-        if (key in missing) return null
+        if (key in missingKeys) return null
+        retryAt[key]?.let { if (System.currentTimeMillis() < it) return null else retryAt.remove(key) }
         // disk cache is cheap enough for the paint path (a few KB, once)
         diskRead(name, sizePx)?.let { mem[key] = it; return it }
         if (inFlight.add(key)) {
             pool.execute {
                 try {
-                    val g = resolveUncached(name, sizePx)
-                    if (g == null) {
-                        missing.add(key)
-                        Log.i("icons", "no theme icon for '$name' — drawn fallback stays")
-                    } else {
-                        mem[key] = g
-                        diskWrite(name, sizePx, g)
-                        onLoaded()
+                    val (g, cleanMiss) = resolveUncached(name, sizePx)
+                    when {
+                        g != null -> {
+                            mem[key] = g
+                            diskWrite(name, sizePx, g)
+                            onLoaded()
+                        }
+                        cleanMiss -> {
+                            missingKeys.add(key)
+                            onLoaded()   // the chain's next name gets its turn
+                        }
+                        else -> {
+                            retryAt[key] = System.currentTimeMillis() + RETRY_PACING_MS
+                            Log.w("icons", "resolve of '$name'@$sizePx failed — retrying after pacing")
+                        }
                     }
                 } catch (e: Exception) {
-                    missing.add(key)
-                    Log.w("icons", "resolve of '$name'@$sizePx failed: ${e.message}")
+                    retryAt[key] = System.currentTimeMillis() + RETRY_PACING_MS
+                    Log.w("icons", "resolve of '$name'@$sizePx threw (${e.message}) — retrying after pacing")
                 } finally {
                     inFlight.remove(key)
                 }
@@ -83,50 +110,69 @@ class ThemeIcons(
         return null
     }
 
-    /** Blocking resolve — the content host serves the phone through this. */
+    /** Blocking resolve — the content host serves the phone through this.
+     *  Throws on FAILURE (the host answers err, the phone retries); returns
+     *  null only for a clean miss (the phone may cache it). */
     override fun resolve(name: String, sizePx: Int): Gray8? {
         val key = "$name@$sizePx"
         mem[key]?.let { return it }
-        if (key in missing) return null
+        if (key in missingKeys) return null
         diskRead(name, sizePx)?.let { mem[key] = it; return it }
-        val g = try { resolveUncached(name, sizePx) } catch (e: Exception) {
-            Log.w("icons", "resolve of '$name'@$sizePx failed: ${e.message}")
-            null
+        val (g, cleanMiss) = resolveUncached(name, sizePx)
+        when {
+            g != null -> { mem[key] = g; diskWrite(name, sizePx, g) }
+            cleanMiss -> missingKeys.add(key)
+            else -> throw IllegalStateException("icon '$name'@$sizePx did not resolve (transient)")
         }
-        if (g == null) missing.add(key) else { mem[key] = g; diskWrite(name, sizePx, g) }
         return g
     }
 
     // --------------------------------------------------------------- lookup
-    private fun resolveUncached(name: String, size: Int): Gray8? {
-        val f = findFile(name, size) ?: return null
+    /** (bitmap, cleanMiss): (g, _) success · (null, true) the theme has no
+     *  such icon · (null, false) a transient failure worth retrying. */
+    private fun resolveUncached(name: String, size: Int): Pair<Gray8?, Boolean> {
+        val f = findFile(name, size) ?: return null to true
         val png: ByteArray = when {
-            f.toString().endsWith(".svg") -> rasterizeSvg(f, size) ?: return null
-            else -> Files.readAllBytes(f)
+            f.toString().endsWith(".svg") -> rasterizeSvg(f, size) ?: return null to false
+            else -> try { Files.readAllBytes(f) } catch (e: Exception) {
+                Log.w("icons", "read of $f failed: ${e.message}")
+                return null to false
+            }
         }
-        val d = decoder.decode(png) ?: return null
-        return IconRaster.toSquare(d, size)
+        val d = decoder.decode(png) ?: return null to false
+        return IconRaster.toSquare(d, size) to false
     }
 
     private val categories = listOf("mimetypes", "places", "apps", "devices", "status", "actions", "categories", "emblems")
 
-    /** Candidate dirs inside one theme for [size], best first: exact size,
-     *  then larger sizes ascending (downscaling keeps quality), scalable last. */
-    private fun sizeDirs(theme: Path, size: Int): List<String> {
-        val sizes = ArrayList<Int>()
-        try {
-            Files.list(theme).use { s ->
-                for (p in s) {
-                    val n = p.fileName.toString()
-                    val m = Regex("^(\\d+)x\\1(@2x)?$").matchEntire(n)
-                    if (m != null && m.groupValues[2].isEmpty()) sizes.add(m.groupValues[1].toInt())
-                    else n.toIntOrNull()?.let { sizes.add(it) }   // breeze bare-number dirs
-                }
+    /** Size tokens available in [theme], best-first for [size] — discovered
+     *  from the theme ROOT (Papirus: `64x64/…`) AND from inside category dirs
+     *  (breeze: `mimetypes/64`), since either layout may be the only one. */
+    private val sizeDirCache = ConcurrentHashMap<String, List<String>>()
+
+    private fun sizeDirs(theme: Path, size: Int): List<String> =
+        sizeDirCache.getOrPut("$theme@$size") {
+            val sizes = sortedSetOf<Int>()
+            fun scan(dir: Path) {
+                try {
+                    Files.list(dir).use { s ->
+                        for (p in s) {
+                            val n = p.fileName.toString()
+                            val m = Regex("^(\\d+)x\\1$").matchEntire(n)
+                            if (m != null) sizes.add(m.groupValues[1].toInt())
+                            else n.toIntOrNull()?.let { sizes.add(it) }
+                        }
+                    }
+                } catch (e: Exception) { /* unreadable dir — the chain shrinks */ }
             }
-        } catch (e: Exception) { /* unreadable theme dir */ }
-        val ordered = sizes.distinct().sortedWith(compareBy({ it < size }, { kotlin.math.abs(it - size) }))
-        return ordered.flatMap { listOf("${it}x${it}", "$it") }.distinct() + "scalable"
-    }
+            scan(theme)
+            for (cat in categories) {
+                val c = theme.resolve(cat)
+                if (Files.isDirectory(c)) scan(c)
+            }
+            val ordered = sizes.toList().sortedWith(compareBy({ it < size }, { kotlin.math.abs(it - size) }))
+            ordered.flatMap { listOf("${it}x${it}", "$it") }.distinct() + "scalable"
+        }
 
     private fun findFile(name: String, size: Int): Path? {
         for (theme in chain) {
@@ -149,20 +195,22 @@ class ThemeIcons(
         return null
     }
 
+    private val toolAbsent = ConcurrentHashMap.newKeySet<String>()
+
     private fun rasterizeSvg(f: Path, size: Int): ByteArray? {
         for (cmd in listOf(
             listOf("rsvg-convert", "-w", "$size", "-h", "$size", f.toString()),
             listOf("magick", f.toString(), "-background", "none", "-resize", "${size}x${size}", "png:-"),
         )) {
+            if (cmd[0] in toolAbsent) continue
             try {
-                val p = ProcessBuilder(cmd).redirectErrorStream(false).start()
-                val outBytes = p.inputStream.readBytes()
-                val err = p.errorStream.readBytes()
-                val code = p.waitFor()
-                if (code == 0 && outBytes.isNotEmpty()) return outBytes
-                Log.w("icons", "${cmd[0]} on ${f.fileName} exit $code: ${err.toString(Charsets.UTF_8).take(200)}")
+                val r = Exec.run(cmd)
+                if (r.code == 0 && r.stdout.isNotEmpty()) return r.stdout
+                Log.w("icons", "${cmd[0]} on ${f.fileName} exit ${r.code}: ${r.stderr.take(200)}")
             } catch (e: java.io.IOException) {
-                // tool not installed — try the next one
+                if (toolAbsent.add(cmd[0])) {
+                    Log.w("icons", "${cmd[0]} is not installed — SVG theme icons need it (trying the next tool)")
+                }
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
                 return null
@@ -213,6 +261,10 @@ class ThemeIcons(
 
     // ---------------------------------------------------------------- theme
     companion object {
+        /** Transient-failure pacing — a hiccup pauses one key, never latches
+         *  the run (an all-day service must recover by itself). */
+        const val RETRY_PACING_MS = 30_000L
+
         private val ICON_ROOTS = listOf(
             Path.of(System.getProperty("user.home"), ".icons"),
             Path.of(System.getProperty("user.home"), ".local/share/icons"),

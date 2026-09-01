@@ -183,17 +183,16 @@ class RemoteSync(
     @Volatile private var sockRef: Socket? = null
     @Volatile private var skew = 0L                  // serverClock - ourNow
     private var saidNoSync = false
+    /** Pushes leave through this queue and a sender coroutine — NEVER by a
+     *  blocking socket write on the store listener's thread, which is the
+     *  SHELL LOOP for every save-path put (review 2026-09-01: a silently dead
+     *  path plus a full TCP send buffer parked the loop mid-saveAll). The
+     *  outbox is cleared on reconnect; the re-handshake carries anything lost. */
+    private val outbox = LinkedBlockingQueue<SWire>()
     private val listener: (String) -> Unit = { key ->
-        if (Persistence.syncable(key)) {
-            val o = out
-            if (o != null) {
-                peer.store.record(key)?.let { (v, t) ->
-                    try {
-                        o.sendWire(SWire(t = "syncrec", records = listOf(SRec(key, v, t))))
-                    } catch (e: Exception) {
-                        Log.w("sync", "push of '$key' not sent (the re-handshake will carry it): ${e.message}")
-                    }
-                }
+        if (Persistence.syncable(key) && out != null) {
+            peer.store.record(key)?.let { (v, t) ->
+                outbox.offer(SWire(t = "syncrec", records = listOf(SRec(key, v, t))))
             }
         }
     }
@@ -214,17 +213,30 @@ class RemoteSync(
                 Socket(host, port).use { sock ->
                     sockRef = sock
                     sock.tcpNoDelay = true
+                    sock.keepAlive = true   // OS liveness probing on an idle link, not a bound on work
                     val inp = DataInputStream(sock.getInputStream().buffered())
                     val o = DataOutputStream(sock.getOutputStream().buffered())
                     val hello = json.encodeToString(Hello.serializer(), Hello(token = token)).toByteArray(Charsets.UTF_8)
                     synchronized(o) { o.writeInt(hello.size); o.write(hello); o.flush() }
                     o.sendWire(handshakeWire())
+                    // the sender: drains queued pushes off the listener's thread
+                    outbox.clear()
+                    val sender = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        try {
+                            while (isActive) {
+                                val w = kotlinx.coroutines.runInterruptible { outbox.take() }
+                                o.sendWire(w)
+                            }
+                        } catch (e: Exception) {
+                            try { sock.close() } catch (c: Exception) { /* closing */ }
+                        }
+                    }
                     // the periodic re-handshake: the convergence net for any
                     // push lost around a shell stop or a dropped write
                     val ticker = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         while (isActive) {
                             delay(rehandshakeMs)
-                            try { o.sendWire(handshakeWire()) } catch (e: Exception) { return@launch }
+                            outbox.offer(handshakeWire())
                         }
                     }
                     try {

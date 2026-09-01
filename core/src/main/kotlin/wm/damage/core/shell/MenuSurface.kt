@@ -151,10 +151,16 @@ class MenuSurface(private val text: TextRasterizer) {
                 // focus as brightness plus a small drawn lead mark
                 wm.damage.core.gfx.Icons.tri(g, box.x + 6, y + 6, 11, Level.MID)
             }
-            val detailW = if (it.detail.isEmpty()) 0 else text.measure(it.detail, fDetail) + 8
+            // the detail is CAPPED to half the box (review 2026-09-01 F2): an
+            // unbounded right-align walked left past box.x, painting outside
+            // the damage rect and the plane-0 region — undamaged composed ink
+            // the mirror check cannot see, shipped as garbage later
+            val detailMax = (box.w / 2 - 12).coerceAtLeast(0)
+            val detailShown = if (it.detail.isEmpty()) "" else fitEnd(it.detail, fDetail, detailMax)
+            val detailW = if (detailShown.isEmpty()) 0 else text.measure(detailShown, fDetail) + 8
             Draw.fit(g, text, box.x + 20, y + 2, it.label, lv, fRow, box.w - 28 - detailW)
-            if (it.detail.isNotEmpty()) {
-                Draw.right(g, text, box.right - 8, y + 6, it.detail, if (focusedRow) Level.MID else Level.DIM, fDetail)
+            if (detailShown.isNotEmpty()) {
+                Draw.right(g, text, box.right - 8, y + 6, detailShown, if (focusedRow) Level.MID else Level.DIM, fDetail)
             }
         }
         if (s.items.size > rows) {
@@ -163,6 +169,16 @@ class MenuSurface(private val text: TextRasterizer) {
             if (top + rows < s.items.size) g.fillRect(box.x + box.w / 2 - 8, box.bottom - 6, 16, 2, Level.MID)
         }
         return box
+    }
+
+    /** Fit [s] into [maxW] keeping its END (a path/name's tail is the
+     *  distinctive part); the caller's row label carries the mark. */
+    private fun fitEnd(s: String, f: FontSpec, maxW: Int): String {
+        if (maxW <= 0) return ""
+        if (text.measure(s, f) <= maxW) return s
+        var n = s.length
+        while (n > 0 && text.measure(s.takeLast(n), f) > maxW) n--
+        return s.takeLast(n)
     }
 
     companion object {

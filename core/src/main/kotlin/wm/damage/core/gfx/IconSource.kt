@@ -16,6 +16,12 @@ interface IconSource {
      *  null. Must be CHEAP on the paint path: memory-cached; a miss may
      *  resolve asynchronously and repaint via the host's hook. */
     fun icon(name: String, sizePx: Int): Gray8?
+
+    /** True when [name] is KNOWN absent from the theme (a clean miss — never
+     *  a transient failure). Lets the paint path walk a fallback chain past
+     *  confirmed misses while scheduling only ONE unresolved name at a time
+     *  (review 2026-09-01: the old walk fanned out a fetch per chain name). */
+    fun missing(name: String, sizePx: Int): Boolean = false
 }
 
 /**
@@ -98,7 +104,15 @@ object IconPaint {
 
     fun draw(g: Gray8, src: IconSource?, names: List<String>, x: Int, y: Int, size: Int,
         fallback: IconKind, lv: Int) {
-        val bm = src?.let { s -> names.firstNotNullOfOrNull { n -> s.icon(n, size) } }
+        val bm = src?.let { s ->
+            var found: Gray8? = null
+            for (n in names) {
+                if (s.missing(n, size)) continue      // confirmed miss: next in chain
+                found = s.icon(n, size)
+                break                                  // hit, or ONE pending resolve
+            }
+            found
+        }
         if (bm == null) {
             Icons.draw(g, x, y, size, size, fallback, lv)
             return

@@ -220,8 +220,10 @@ class SubstrateTest {
             val subs = reader.saveSubState()
             assertEquals(1234, subs["book.$id"]!!["off"]!!.jsonPrimitive.intOrNull)
             assertEquals(7, subs["book.gone-book"]!!["off"]!!.jsonPrimitive.intOrNull)
-            // and the main record no longer carries the map
-            assertEquals(null, reader.saveState()["offsets"])
+            // TRANSITIONAL (review F3): the legacy map still writes so the
+            // 0.15 APK and this build keep one main-record shape — remove
+            // this (and saveState's field) once the phone runs ≥0.16
+            assertTrue(reader.saveState()["offsets"] != null)
 
             // a sub-record beats the legacy map on restore order (subs first)
             val r2 = ReaderWindow(FakeText(), content, scope)

@@ -278,25 +278,38 @@ class LocalTmuxProvider(
      *  subscribe() clears an entry to force the joiner its first frame. */
     private val lastRaw = ConcurrentHashMap<TmuxTarget, String>()
 
+    /** Targets with a capture already running — the tick SKIPS them instead
+     *  of stacking (the statusLoop pattern, applied here at last: review
+     *  2026-09-01 L4 / the §18.1 recorded debt — one lagging ssh host was
+     *  serializing every other target's capture behind its 5 s connect). */
+    private val captureInFlight = ConcurrentHashMap.newKeySet<TmuxTarget>()
+
     private suspend fun captureLoop() {
         while (scope.isActive && running) {
             val wanted = subs.entries.groupBy({ it.value }, { it.key })
             lastRaw.keys.retainAll(wanted.keys)
             for ((target, who) in wanted) {
                 val h = hosts.firstOrNull { it.name == target.host } ?: continue
-                val out = try {
-                    exec.run(h, captureScript(target))
-                } catch (e: Exception) {
-                    for (l in who) try {
-                        l.frame(target, PaneFrame(listOf("(capture failed: ${e.message})"),
-                            80, 1, 0, 0, false, false, System.currentTimeMillis()))
-                    } catch (x: Exception) { Log.e("tmux", "frame listener", x) }
-                    continue
+                if (!captureInFlight.add(target)) continue     // still capturing: skip this tick
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        val out = try {
+                            exec.run(h, captureScript(target))
+                        } catch (e: Exception) {
+                            for (l in who) try {
+                                l.frame(target, PaneFrame(listOf("(capture failed: ${e.message})"),
+                                    80, 1, 0, 0, false, false, System.currentTimeMillis()))
+                            } catch (x: Exception) { Log.e("tmux", "frame listener", x) }
+                            return@launch
+                        }
+                        if (out == lastRaw[target]) return@launch
+                        lastRaw[target] = out
+                        val frame = parseCapture(out) ?: return@launch
+                        for (l in who) try { l.frame(target, frame) } catch (e: Exception) { Log.e("tmux", "frame listener", e) }
+                    } finally {
+                        captureInFlight.remove(target)
+                    }
                 }
-                if (out == lastRaw[target]) continue
-                lastRaw[target] = out
-                val frame = parseCapture(out) ?: continue
-                for (l in who) try { l.frame(target, frame) } catch (e: Exception) { Log.e("tmux", "frame listener", e) }
             }
             delay(capturePace)
         }

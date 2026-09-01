@@ -98,8 +98,11 @@ class MainSurface(
     }
 
     private fun draw(g: Gray8, x: Int, y: Int, str: String, lv: Int, f: FontSpec) {
-        DrawnStrings.check(str, text, f)
-        text.draw(g, (x / 4) * 4, (y / 2) * 2, str, f, lv)
+        // Main's rows carry EXTERNAL text (summaries from tmux sessions, book
+        // titles): substitute-not-throw, like Chrome (review 2026-09-01 L1 —
+        // a CJK session name threw mid-repaint and left the content half
+        // painted). Our own symbol literals stay guarded by tools/lint.py.
+        text.draw(g, (x / 4) * 4, (y / 2) * 2, Draw.dynamic(text, str, f), f, lv)
     }
 
     private fun drawRight(g: Gray8, xRight: Int, y: Int, str: String, lv: Int, f: FontSpec) =

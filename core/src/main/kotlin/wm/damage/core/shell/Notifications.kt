@@ -339,6 +339,9 @@ class Notifications(private val text: TextRasterizer) {
     }
 
     private fun drawStr(g: Gray8, x: Int, y: Int, s: String, lv: Int, f: FontSpec) {
-        text.draw(g, x / 4 * 4, y / 2 * 2, s, f, lv)
+        // notice text is external (SMS bodies, session tails): '?'-substitute
+        // uncoverable glyphs — silent tofu on glass is the §Type failure
+        // (review 2026-09-01 L1)
+        text.draw(g, x / 4 * 4, y / 2 * 2, Draw.dynamic(text, s, f), f, lv)
     }
 }

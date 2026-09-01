@@ -27,7 +27,13 @@ object Draw {
      */
     fun fit(g: Gray8, tx: TextRasterizer, x: Int, y: Int, str: String, lv: Int,
         f: FontSpec, maxW: Int, markLv: Int = Level.DIM): Boolean {
-        if (maxW <= 0) return false
+        if (maxW <= 0) {
+            // no room at all: the MARK still draws — a silently absent label
+            // is the exact omission this helper exists to prevent (review
+            // 2026-09-01 F2 sibling)
+            if (str.isNotEmpty()) Icons.tri(g, x, y + 5, 11, markLv)
+            return str.isNotEmpty()
+        }
         if (tx.measure(str, f) <= maxW) {
             tx.draw(g, x / 4 * 4, y / 2 * 2, str, f, lv)
             return false
@@ -44,5 +50,35 @@ object Draw {
     /** Right-aligned draw ending at [xRight]. */
     fun right(g: Gray8, tx: TextRasterizer, xRight: Int, y: Int, str: String, lv: Int, f: FontSpec) {
         tx.draw(g, (xRight - tx.measure(str, f)) / 4 * 4, y / 2 * 2, str, f, lv)
+    }
+
+    private val warnedGlyphs = java.util.Collections.synchronizedSet(HashSet<String>())
+
+    /**
+     * DYNAMIC (externally-sourced) text — summaries, notification bodies,
+     * session names, file names: every glyph the face cannot draw becomes a
+     * visible '?', logged once per glyph set. Chrome has carried this rule
+     * since round 4; review 2026-09-01 L1 found Main and the notification box
+     * without it — a CJK tmux-session name THREW inside Main's row paint and
+     * left the content half-painted with no damage hint. Never throw on data.
+     */
+    fun dynamic(tx: TextRasterizer, str: String, f: FontSpec): String {
+        if (str.isEmpty() || tx.covers(str, f)) return str
+        val bad = LinkedHashSet<String>()
+        val fixed = buildString(str.length) {
+            var i = 0
+            while (i < str.length) {
+                val cp = str.codePointAt(i)
+                i += Character.charCount(cp)
+                val s = String(Character.toChars(cp))
+                if (cp < 0x20) { append('?'); bad.add("U+%04X".format(cp)) }
+                else if (tx.covers(s, f)) append(s)
+                else { append('?'); bad.add(s) }
+            }
+        }
+        if (warnedGlyphs.add(bad.joinToString(""))) {
+            wm.damage.core.util.Log.w("draw", "glyphs the ${f.face} face cannot draw: $bad — shown as '?' (first seen in '${str.take(60)}')")
+        }
+        return fixed
     }
 }

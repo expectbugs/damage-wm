@@ -311,7 +311,8 @@ class RemoteTransportClient(
                 if (err.contains("capability gate FAILED")) throw CapabilityRefused("remote transport: $err")
                 throw IllegalStateException("remote transport start failed: $err")
             }
-            updateState { it.copy(connected = true, started = true) }
+            // connected/started were set by the ROUTER when the startok frame
+            // arrived (wire-serial with every state frame) — no write here
             pendingSubmits.clear()
             stallReported = false
             stallWatch?.cancel()
@@ -416,7 +417,15 @@ class RemoteTransportClient(
                 }
                 mirror.apply(arm, c.y0, c.rows, raw)
             }
-            "started" -> started.trySend(null)
+            "started" -> {
+                // lifecycle set HERE, on the reader thread, in wire order —
+                // start()'s coroutine must not blind-write it later and mask a
+                // genuine started=false state routed in between (review
+                // 2026-09-01 F11b: the keeper polls state.started and would
+                // never recycle a dead session)
+                updateState { it.copy(connected = true, started = true) }
+                started.trySend(null)
+            }
             "startfail" -> started.trySend(c.detail)
             "done" -> {
                 // answered once: a done still in the socket buffer when stop()

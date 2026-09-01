@@ -9,6 +9,8 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import wm.damage.core.gfx.Gray8
@@ -18,10 +20,16 @@ import wm.damage.core.util.Log
 /**
  * The phone's theme-icon source (2026-09-01): converted bitmaps fetched from
  * the PC over the content port (`{"t":"icon",...}` → gray blob), cached on
- * disk so app-alone keeps the last-known theme look. A miss caches as missing
- * for the run; everything falls back to the drawn set until a fetch lands,
- * then [onLoaded] repaints. PERSONAL LANE: nothing here ships in the APK —
- * the bitmaps come from Adam's own installed desktop theme at runtime.
+ * disk so app-alone keeps the last-known theme look. PERSONAL LANE: nothing
+ * here ships in the APK — the bitmaps come from Adam's own desktop theme.
+ *
+ * Review 2026-09-01 hardening: a fetch FAILURE (unreachable PC — the normal
+ * cellular morning) only pauses the key for [RETRY_PACING_MS], never latches
+ * "missing" for the run; only an in-band clean miss (len 0) caches as
+ * [missing]. The disk cache is theme-keyed via the host's theme tag — a theme
+ * change on the PC wipes it. Fetches ride a small semaphore (a cold first
+ * paint must not open dozens of sockets), and [close] releases in-flight
+ * sockets so a stack rebuild cannot pin IO threads.
  */
 class RemoteIcons(
     private val host: String,
@@ -30,7 +38,7 @@ class RemoteIcons(
     private val cacheDir: Path,
     private val scope: CoroutineScope,
     private val onLoaded: () -> Unit = {},
-) : IconSource {
+) : IconSource, AutoCloseable {
 
     @Serializable
     private data class Hello(val t: String = "hello", val token: String, val proto: Int = 1)
@@ -39,35 +47,53 @@ class RemoteIcons(
     private data class IconMsg(val t: String = "icon", val name: String, val size: Int)
 
     @Serializable
-    private data class IconBlobMsg(val t: String = "iconblob", val w: Int = 0, val h: Int = 0, val len: Int = 0)
+    private data class IconBlobMsg(val t: String = "iconblob", val w: Int = 0, val h: Int = 0,
+        val len: Int = 0, val theme: String = "", val detail: String = "")
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val mem = ConcurrentHashMap<String, Gray8>()
-    private val missing = ConcurrentHashMap.newKeySet<String>()
+    /** Clean in-band misses — permanent for the run. */
+    private val missingKeys = ConcurrentHashMap.newKeySet<String>()
+    /** Transient failures — paced retries, never latched. */
+    private val retryAt = ConcurrentHashMap<String, Long>()
     private val inFlight = ConcurrentHashMap.newKeySet<String>()
+    private val fetchGate = Semaphore(4)   // a cold Main paints ~15 icons; 4 at a time is plenty
+    private val openSockets = ConcurrentHashMap.newKeySet<Socket>()
+    @Volatile private var closed = false
+
+    override fun missing(name: String, sizePx: Int): Boolean = "$name@$sizePx" in missingKeys
 
     override fun icon(name: String, sizePx: Int): Gray8? {
+        if (closed) return null
         val key = "$name@$sizePx"
         mem[key]?.let { return it }
-        if (key in missing) return null
+        if (key in missingKeys) return null
+        retryAt[key]?.let { if (System.currentTimeMillis() < it) return null else retryAt.remove(key) }
         diskRead(name, sizePx)?.let { mem[key] = it; return it }
         if (inFlight.add(key)) {
             scope.launch(Dispatchers.IO) {
                 try {
-                    val g = fetch(name, sizePx)
-                    if (g == null) {
-                        // a miss OR an unreachable PC: don't cache "missing"
-                        // when the fetch itself failed — retry next session
-                        Log.i("icons", "no theme icon for '$name' from $host this run")
-                        missing.add(key)
-                    } else {
-                        mem[key] = g
-                        diskWrite(name, sizePx, g)
-                        onLoaded()
+                    fetchGate.withPermit {
+                        if (closed) return@withPermit
+                        val r = fetch(name, sizePx)
+                        when {
+                            r.bitmap != null -> {
+                                syncTheme(r.theme)
+                                mem[key] = r.bitmap
+                                diskWrite(name, sizePx, r.bitmap)
+                                onLoaded()
+                            }
+                            r.cleanMiss -> {
+                                syncTheme(r.theme)
+                                missingKeys.add(key)
+                                onLoaded()   // the chain's next name gets its turn
+                            }
+                        }
                     }
                 } catch (e: Exception) {
-                    Log.w("icons", "icon fetch '$name' failed (${e.message}) — drawn fallback; will not retry this run")
-                    missing.add(key)
+                    retryAt[key] = System.currentTimeMillis() + RETRY_PACING_MS
+                    if (!closed) Log.i("icons",
+                        "icon fetch '$name' failed (${e.message}) — drawn fallback, retrying after pacing")
                 } finally {
                     inFlight.remove(key)
                 }
@@ -76,30 +102,71 @@ class RemoteIcons(
         return null
     }
 
-    private fun fetch(name: String, size: Int): Gray8? {
-        Socket(host, port).use { sock ->
-            sock.tcpNoDelay = true
-            val inp = DataInputStream(sock.getInputStream().buffered())
-            val out = DataOutputStream(sock.getOutputStream().buffered())
-            fun send(s: String) {
-                val b = s.toByteArray(Charsets.UTF_8)
-                out.writeInt(b.size); out.write(b); out.flush()
+    private class Fetched(val bitmap: Gray8?, val cleanMiss: Boolean, val theme: String)
+
+    private fun fetch(name: String, size: Int): Fetched {
+        val sock = Socket(host, port)
+        openSockets.add(sock)
+        try {
+            sock.use {
+                it.tcpNoDelay = true
+                val inp = DataInputStream(it.getInputStream().buffered())
+                val out = DataOutputStream(it.getOutputStream().buffered())
+                fun send(s: String) {
+                    val b = s.toByteArray(Charsets.UTF_8)
+                    out.writeInt(b.size); out.write(b); out.flush()
+                }
+                send(json.encodeToString(Hello.serializer(), Hello(token = token)))
+                send(json.encodeToString(IconMsg.serializer(), IconMsg(name = name, size = size)))
+                val n = inp.readInt()
+                require(n in 1..(1 shl 20)) { "icon frame length $n" }
+                val fb = ByteArray(n)
+                inp.readFully(fb)
+                val head = json.decodeFromString(IconBlobMsg.serializer(), fb.toString(Charsets.UTF_8))
+                if (head.t != "iconblob") throw IllegalStateException(
+                    "host answered ${head.t}: ${head.detail.ifEmpty { "refused" }}")
+                if (head.len <= 0) return Fetched(null, cleanMiss = true, theme = head.theme)
+                require(head.w in 1..256 && head.h in 1..256 && head.len == head.w * head.h) {
+                    "icon blob shape ${head.w}x${head.h}/${head.len}"
+                }
+                val pix = ByteArray(head.len)
+                inp.readFully(pix)
+                val g = Gray8(head.w, head.h)
+                System.arraycopy(pix, 0, g.pix, 0, pix.size)
+                return Fetched(g, cleanMiss = false, theme = head.theme)
             }
-            send(json.encodeToString(Hello.serializer(), Hello(token = token)))
-            send(json.encodeToString(IconMsg.serializer(), IconMsg(name = name, size = size)))
-            val n = inp.readInt()
-            require(n in 1..(1 shl 20)) { "icon frame length $n" }
-            val fb = ByteArray(n)
-            inp.readFully(fb)
-            val head = json.decodeFromString(IconBlobMsg.serializer(), fb.toString(Charsets.UTF_8))
-            if (head.t == "err") throw IllegalStateException("host refused the icon request")
-            if (head.len <= 0 || head.w <= 0 || head.h <= 0) return null      // a real miss
-            require(head.len == head.w * head.h && head.len <= (1 shl 20)) { "icon blob ${head.len}" }
-            val pix = ByteArray(head.len)
-            inp.readFully(pix)
-            val g = Gray8(head.w, head.h)
-            System.arraycopy(pix, 0, g.pix, 0, pix.size)
-            return g
+        } finally {
+            openSockets.remove(sock)
+        }
+    }
+
+    /** A different serving theme wipes the cache (once), so the phone follows
+     *  desktop re-themes instead of showing the old set forever. */
+    private val themeLock = Any()
+    private fun syncTheme(theme: String) {
+        if (theme.isEmpty()) return
+        synchronized(themeLock) {
+            val marker = cacheDir.resolve("theme.txt")
+            val known = try {
+                if (Files.isRegularFile(marker)) String(Files.readAllBytes(marker), Charsets.UTF_8).trim() else ""
+            } catch (e: Exception) { "" }
+            if (known == theme) return
+            try {
+                if (known.isNotEmpty()) {
+                    Log.i("icons", "desktop theme changed '$known' → '$theme' — icon cache wiped")
+                    Files.walk(cacheDir).use { s ->
+                        s.sorted(Comparator.reverseOrder()).forEach { p ->
+                            if (p != cacheDir) Files.deleteIfExists(p)
+                        }
+                    }
+                    mem.clear()
+                    missingKeys.clear()
+                }
+                Files.createDirectories(cacheDir)
+                Files.write(marker, theme.toByteArray(Charsets.UTF_8))
+            } catch (e: Exception) {
+                Log.w("icons", "theme marker update failed: ${e.message}")
+            }
         }
     }
 
@@ -119,6 +186,7 @@ class RemoteIcons(
             System.arraycopy(b, 8, g.pix, 0, w * h)
             g
         } catch (e: Exception) {
+            Log.w("icons", "icon cache read '${p.fileName}': ${e.message}")
             null
         }
     }
@@ -137,5 +205,18 @@ class RemoteIcons(
         } catch (e: Exception) {
             Log.w("icons", "icon cache write '$name': ${e.message}")
         }
+    }
+
+    /** Stack teardown: no new fetches, and every in-flight socket is closed so
+     *  a blocked read unparks (review 2026-09-01: the one stack channel that
+     *  could pin IO threads across rebuilds). */
+    override fun close() {
+        closed = true
+        for (s in openSockets) try { s.close() } catch (e: Exception) { /* closing */ }
+        openSockets.clear()
+    }
+
+    companion object {
+        const val RETRY_PACING_MS = 30_000L
     }
 }

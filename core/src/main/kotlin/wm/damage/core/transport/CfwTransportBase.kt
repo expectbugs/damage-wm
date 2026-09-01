@@ -1214,6 +1214,13 @@ abstract class CfwTransportBase(
         val fields = Pb.fields(payload)
         val parts = ArrayList<ByteArray>(fields.size)
         for (f in fields) {
+            // fixed32/fixed64 land in the varint slot of Pb.fields and would
+            // re-encode as WIRE TYPE 0 — silent corruption. No control payload
+            // carries them today; the first that does must fail LOUDLY here,
+            // not on the glass (review 2026-09-01 L8).
+            require(f.wireType == 0 || f.bytes != null) {
+                "restampMsgId cannot re-encode field ${f.field} (wire type ${f.wireType}) — extend the codec first"
+            }
             parts += when {
                 f.field == 2 && f.varint != null -> Pb.v(2, id)
                 f.varint != null -> Pb.v(f.field, f.varint)

@@ -67,15 +67,17 @@ class Persistence(private val file: Path) {
                 true
             } catch (e: Exception) {
                 // A corrupt store must not stop boot — but it must be LOUD, and the
-                // bad file is kept for post-mortem rather than deleted.
-                Log.e("persist", "state store unreadable — starting fresh, kept as .bad", e)
+                // bad file is kept for post-mortem rather than deleted. The
+                // IN-MEMORY records stay: they are exactly what the merge
+                // exists to protect (a pre-load sync apply must survive this
+                // path too — review 2026-09-01 F12).
+                Log.e("persist", "state store unreadable — kept as .bad; in-memory records retained", e)
                 try {
                     Files.move(file, file.resolveSibling(file.fileName.toString() + ".bad"),
                         StandardCopyOption.REPLACE_EXISTING)
                 } catch (m: Exception) {
                     Log.e("persist", "could not preserve corrupt store", m)
                 }
-                loaded = HashMap()
                 false
             }
         }

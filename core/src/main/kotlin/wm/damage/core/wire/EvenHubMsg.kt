@@ -186,9 +186,12 @@ object EvenHubMsg {
         val t = f.firstOrNull { it.field == 1 && it.varint != null }?.varint ?: return null
         val id = f.firstOrNull { it.field == 2 && it.varint != null }?.varint ?: -1
         // Image acks carry ImgResCmd in the wrapper; the status is its field 8.
+        // Each sibling parses under its OWN try (review 2026-09-01 L6): one
+        // plain-string bytes field in a future firmware's wrapper must not
+        // void the whole ack — that stalls the lane until the msgId cycle.
         var status: Long? = null
         for (sub in f) if (sub.bytes != null) {
-            val e = Pb.varintField(sub.bytes, 8)
+            val e = try { Pb.varintField(sub.bytes, 8) } catch (x: IllegalArgumentException) { null }
             if (e != null) status = e
         }
         val err = status?.takeIf { it !in STATUS_SUCCESS }

@@ -37,16 +37,19 @@ class FilesService(private val p: FilesProvider) : WinService {
             "locations" -> WinService.Answer(buildJsonObject {
                 put("locs", json.encodeToJsonElement(ListSerializer(FLocation.serializer()), p.locations()))
             })
-            "list" -> WinService.Answer(buildJsonObject {
-                put("entries", json.encodeToJsonElement(ListSerializer(FEntry.serializer()),
-                    p.list(s("dir"), args["hidden"]?.jsonPrimitive?.booleanOrNull ?: false)))
-            })
+            // listings ride the BLOB lane (review 2026-09-01 Fi#8): a huge
+            // directory (a Gentoo distfiles dir) overflows the 4 MB control
+            // frame and would tear the channel down on every retry
+            "list" -> WinService.Answer(blob = json.encodeToString(ListSerializer(FEntry.serializer()),
+                p.list(s("dir"), args["hidden"]?.jsonPrimitive?.booleanOrNull ?: false))
+                .toByteArray(Charsets.UTF_8))
             "stat" -> WinService.Answer(json.encodeToJsonElement(FStat.serializer(), p.stat(s("path"))).jsonObject)
             "du" -> WinService.Answer(buildJsonObject { put("bytes", p.du(s("path"))) })
             "text" -> {
                 val c = p.readText(s("path"), l("off", 0), i("max", 256 * 1024))
-                WinService.Answer(buildJsonObject { put("more", c.more); put("total", c.totalBytes) },
-                    c.text.toByteArray(Charsets.UTF_8))
+                WinService.Answer(buildJsonObject {
+                    put("more", c.more); put("total", c.totalBytes); put("read", c.bytesRead)
+                }, c.text.toByteArray(Charsets.UTF_8))
             }
             "bytes" -> WinService.Answer(blob = p.readBytes(s("path"), i("max", 24 shl 20)))
             "thumb" -> {
@@ -58,9 +61,8 @@ class FilesService(private val p: FilesProvider) : WinService {
             "pdftext" -> WinService.Answer(blob = p.pdfText(s("path")).toByteArray(Charsets.UTF_8))
             "pdfpage" -> WinService.Answer(blob = p.pdfPage(s("path"), i("page", 1), i("width", 1216)))
             "trash" -> WinService.Answer(buildJsonObject { put("id", p.trash(s("path"))) })
-            "trashlist" -> WinService.Answer(buildJsonObject {
-                put("entries", json.encodeToJsonElement(ListSerializer(FTrashEntry.serializer()), p.trashList()))
-            })
+            "trashlist" -> WinService.Answer(blob = json.encodeToString(
+                ListSerializer(FTrashEntry.serializer()), p.trashList()).toByteArray(Charsets.UTF_8))
             "restore" -> WinService.Answer(buildJsonObject { put("path", p.restore(s("id"))) })
             "purge" -> { p.purge(s("id")); WinService.Answer() }
             "rename" -> WinService.Answer(buildJsonObject { put("path", p.rename(s("path"), s("name"))) })
@@ -98,8 +100,9 @@ class RemoteFilesProvider(
             ch.request("locations").data["locs"]!!.jsonArray)
 
     override fun list(dir: String, showHidden: Boolean): List<FEntry> =
-        json.decodeFromJsonElement(ListSerializer(FEntry.serializer()),
-            ch.request("list", args("dir" to dir, "hidden" to showHidden)).data["entries"]!!.jsonArray)
+        json.decodeFromString(ListSerializer(FEntry.serializer()),
+            (ch.request("list", args("dir" to dir, "hidden" to showHidden)).blob
+                ?: throw IllegalStateException("no listing came back")).toString(Charsets.UTF_8))
 
     override fun stat(path: String): FStat =
         json.decodeFromJsonElement(FStat.serializer(), ch.request("stat", args("path" to path)).data)
@@ -109,10 +112,12 @@ class RemoteFilesProvider(
 
     override fun readText(path: String, offset: Long, maxBytes: Int): TextChunk {
         val a = ch.request("text", args("path" to path, "off" to offset, "max" to maxBytes))
+        val blob = a.blob ?: ByteArray(0)
         return TextChunk(
-            (a.blob ?: ByteArray(0)).toString(Charsets.UTF_8),
+            blob.toString(Charsets.UTF_8),
             a.data["more"]?.jsonPrimitive?.booleanOrNull ?: false,
             a.data["total"]?.jsonPrimitive?.longOrNull ?: 0L,
+            a.data["read"]?.jsonPrimitive?.longOrNull ?: blob.size.toLong(),
         )
     }
 
@@ -145,8 +150,9 @@ class RemoteFilesProvider(
         ch.request("trash", args("path" to path)).data["id"]!!.jsonPrimitive.contentOrNull!!
 
     override fun trashList(): List<FTrashEntry> =
-        json.decodeFromJsonElement(ListSerializer(FTrashEntry.serializer()),
-            ch.request("trashlist").data["entries"]!!.jsonArray)
+        json.decodeFromString(ListSerializer(FTrashEntry.serializer()),
+            (ch.request("trashlist").blob
+                ?: throw IllegalStateException("no trash listing came back")).toString(Charsets.UTF_8))
 
     override fun restore(id: String): String =
         ch.request("restore", args("id" to id)).data["path"]!!.jsonPrimitive.contentOrNull!!

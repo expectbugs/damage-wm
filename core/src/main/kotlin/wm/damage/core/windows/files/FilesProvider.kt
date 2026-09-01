@@ -38,7 +38,14 @@ data class FTrashEntry(
 )
 
 @Serializable
-data class TextChunk(val text: String, val more: Boolean, val totalBytes: Long)
+data class TextChunk(
+    val text: String, val more: Boolean, val totalBytes: Long,
+    /** The bytes actually CONSUMED from the file for [text] — the caller's
+     *  next offset is `offset + bytesRead`. Not the re-encoded string size:
+     *  lossy decoding of a mid-character slice (or binary junk) makes those
+     *  differ and drifted the offset past EOF (review 2026-09-01 Fi#2). */
+    val bytesRead: Long = 0,
+)
 
 @Serializable
 data class PdfInfo(val pages: Int, val textChars: Long)

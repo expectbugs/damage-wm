@@ -158,13 +158,35 @@ class LocalFilesProvider(
         val p = Path.of(path)
         val total = Files.size(p)
         require(offset in 0..total) { "offset $offset outside $total-byte file" }
-        val n = minOf(maxBytes.toLong(), total - offset).toInt()
+        var n = minOf(maxBytes.toLong(), total - offset).toInt()
         val buf = ByteArray(n)
         java.io.RandomAccessFile(p.toFile(), "r").use { raf ->
             raf.seek(offset)
             raf.readFully(buf)
         }
-        return TextChunk(String(buf, Charsets.UTF_8), offset + n < total, total)
+        // never cut a UTF-8 character at the chunk seam (review 2026-09-01
+        // Fi#2): back off over a trailing partial sequence (≤3 bytes) unless
+        // this is the file's end. Binary junk stays lossy but [bytesRead]
+        // keeps the offset truthful either way.
+        if (offset + n < total) {
+            var trim = 0
+            while (trim < 3 && n - 1 - trim >= 0) {
+                val b = buf[n - 1 - trim].toInt() and 0xFF
+                if (b and 0xC0 == 0x80) { trim++; continue }        // continuation byte
+                // a lead byte whose sequence would run past the end is dropped
+                val need = when {
+                    b and 0x80 == 0 -> 1
+                    b and 0xE0 == 0xC0 -> 2
+                    b and 0xF0 == 0xE0 -> 3
+                    b and 0xF8 == 0xF0 -> 4
+                    else -> 1
+                }
+                if (need > trim + 1) trim++ else trim = -trim       // sequence complete: keep all
+                break
+            }
+            if (trim > 0 && trim < n) n -= trim
+        }
+        return TextChunk(String(buf, 0, n, Charsets.UTF_8), offset + n < total, total, n.toLong())
     }
 
     override fun readBytes(path: String, maxBytes: Int): ByteArray {
@@ -226,7 +248,11 @@ class LocalFilesProvider(
         Files.move(tmp, manifestPath, StandardCopyOption.REPLACE_EXISTING)
     }
 
-    override fun trash(path: String): String {
+    // Every trash op holds [trashLock] across its WHOLE read-modify-write:
+    // the provider is shared by the local shell and the phone's channel
+    // (review 2026-09-01 Fi#9 — two near-simultaneous trashes lost the first
+    // manifest entry, leaving an invisible, un-restorable payload).
+    override fun trash(path: String): String = synchronized(trashLock) {
         val p = Path.of(path).toAbsolutePath()
         require(Files.exists(p, LinkOption.NOFOLLOW_LINKS)) { "$path does not exist" }
         require(!p.startsWith(trashDir)) { "already in the trash" }
@@ -240,12 +266,12 @@ class LocalFilesProvider(
         val e = FTrashEntry(id, p.fileName.toString(), p.toString(), a.isDirectory,
             if (a.isDirectory) 0 else a.size(), System.currentTimeMillis())
         writeManifest(Manifest(readManifest().entries + e))
-        return id
+        id
     }
 
     override fun trashList(): List<FTrashEntry> = readManifest().entries.sortedByDescending { it.atMs }
 
-    override fun restore(id: String): String {
+    override fun restore(id: String): String = synchronized(trashLock) {
         val m = readManifest()
         val e = m.entries.firstOrNull { it.id == id } ?: throw IllegalArgumentException("no trash entry $id")
         val src = trashDir.resolve(id).resolve(e.name)
@@ -259,10 +285,10 @@ class LocalFilesProvider(
         try { Files.deleteIfExists(trashDir.resolve(id)) } catch (e2: IOException) {
             Log.w("files", "empty trash slot $id not removed: ${e2.message}")
         }
-        return dest.toString()
+        dest.toString()
     }
 
-    override fun purge(id: String) {
+    override fun purge(id: String): Unit = synchronized(trashLock) {
         val m = readManifest()
         require(m.entries.any { it.id == id }) { "no trash entry $id" }
         deleteRecursively(trashDir.resolve(id))
@@ -292,8 +318,18 @@ class LocalFilesProvider(
         val dest = Path.of(destDir).resolve(s.fileName.toString())
         require(!Files.exists(dest, LinkOption.NOFOLLOW_LINKS)) { "${s.fileName} already exists there" }
         require(!dest.toAbsolutePath().startsWith(s.toAbsolutePath())) { "cannot copy a folder into itself" }
-        if (Files.isDirectory(s, LinkOption.NOFOLLOW_LINKS)) copyTree(s, dest) else {
-            Files.copy(s, dest, StandardCopyOption.COPY_ATTRIBUTES)
+        if (Files.isDirectory(s, LinkOption.NOFOLLOW_LINKS)) {
+            try {
+                copyTree(s, dest)
+            } catch (e: IOException) {
+                // no half-copied tree left behind (review 2026-09-01 Fi#14)
+                try { deleteRecursively(dest) } catch (r: IOException) {
+                    Log.w("files", "partial copy at $dest not removed: ${r.message}")
+                }
+                throw e
+            }
+        } else {
+            Files.copy(s, dest, StandardCopyOption.COPY_ATTRIBUTES, LinkOption.NOFOLLOW_LINKS)
         }
         return dest.toString()
     }
@@ -344,7 +380,9 @@ class LocalFilesProvider(
                 return
             }
             try {
-                Files.copy(src, dest, StandardCopyOption.COPY_ATTRIBUTES)
+                // NOFOLLOW: a symlink moves AS a link — silently materializing
+                // its target's content changed what the object IS (Fi#14)
+                Files.copy(src, dest, StandardCopyOption.COPY_ATTRIBUTES, LinkOption.NOFOLLOW_LINKS)
                 Files.delete(src)
             } catch (e2: IOException) {
                 try { Files.deleteIfExists(dest) } catch (e3: IOException) {
@@ -356,6 +394,8 @@ class LocalFilesProvider(
     }
 
     private fun copyTree(src: Path, dest: Path) {
+        // symlinks inside the tree copy AS links (Fi#14): walkFileTree does
+        // not follow them, and the file copy must not either
         Files.walkFileTree(src, object : SimpleFileVisitor<Path>() {
             override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
                 Files.createDirectories(dest.resolve(src.relativize(dir).toString()))
@@ -363,7 +403,7 @@ class LocalFilesProvider(
             }
             override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
                 Files.copy(file, dest.resolve(src.relativize(file).toString()),
-                    StandardCopyOption.COPY_ATTRIBUTES)
+                    StandardCopyOption.COPY_ATTRIBUTES, LinkOption.NOFOLLOW_LINKS)
                 return FileVisitResult.CONTINUE
             }
         })
@@ -387,12 +427,12 @@ class LocalFilesProvider(
     companion object {
         private val counter = java.util.concurrent.atomic.AtomicLong(0)
 
+        /** Through the deadlock-proof runner (review 2026-09-01: the old
+         *  stdout-then-stderr read hung on chatty children — pdftoppm on a
+         *  damaged PDF fills stderr while streaming the PNG). */
         fun runExec(cmd: List<String>): ExecResult {
-            val p = ProcessBuilder(cmd).start()
-            val outB = p.inputStream.readBytes()
-            val errB = p.errorStream.readBytes()
-            val code = p.waitFor()
-            return ExecResult(code, outB, errB.toString(Charsets.UTF_8))
+            val r = wm.damage.core.util.Exec.run(cmd)
+            return ExecResult(r.code, r.stdout, r.stderr)
         }
     }
 }

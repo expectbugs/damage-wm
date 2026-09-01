@@ -83,20 +83,39 @@ object TmuxNet {
     /** Sender-thread stop sentinel — LinkedBlockingQueue refuses nulls. */
     private val END = TWire(t = "__end")
 
+    /** Hard cap on queued pushes toward one driver (L3) — beyond it the
+     *  oldest drops loudly; the reconnecting driver re-subscribes anyway. */
+    private const val OUTBOX_CAP = 64
+
     fun serve(sock: Socket, inp: DataInputStream, out: DataOutputStream, provider: TmuxProvider) {
         val outbox = LinkedBlockingQueue<TWire>()
+        // COALESCE state-bearing pushes (review 2026-09-01 L3): a half-open
+        // driver (Doze without FIN) wedges the sender in the TCP buffer while
+        // the listener keeps producing ~1 frame/s — only the NEWEST tstat /
+        // tstate / per-target tframe matters, so replace instead of append
+        // (the ReplicaServer build-at-send lesson). Alerts and answers queue.
+        fun coalesce(w: TWire, same: (TWire) -> Boolean) {
+            synchronized(outbox) {
+                outbox.removeIf { it.t == w.t && same(it) }
+                outbox.put(w)
+                if (outbox.size > OUTBOX_CAP) {
+                    outbox.poll()
+                    Log.w("tmux-host", "outbox over $OUTBOX_CAP — oldest frame dropped (driver stalled?)")
+                }
+            }
+        }
         val listener = object : TmuxProvider.Listener {
             override fun status(sessions: List<TmuxSessionInfo>, cfg: TmuxConfig) {
-                outbox.put(TWire(t = "tstat", sessions = sessions, cfg = cfg))
+                coalesce(TWire(t = "tstat", sessions = sessions, cfg = cfg)) { true }
             }
             override fun frame(target: TmuxTarget, frame: PaneFrame) {
-                outbox.put(TWire(t = "tframe", target = target, frame = frame))
+                coalesce(TWire(t = "tframe", target = target, frame = frame)) { it.target == target }
             }
             override fun alert(session: TmuxSessionInfo) {
                 outbox.put(TWire(t = "talert", session = session))
             }
             override fun state(state: String) {
-                outbox.put(TWire(t = "tstate", detail = state))
+                coalesce(TWire(t = "tstate", detail = state)) { true }
             }
         }
         val sender = Thread({
@@ -281,19 +300,26 @@ class RemoteTmuxProvider(
 
     override fun subscribe(l: TmuxProvider.Listener, target: TmuxTarget?) {
         wantedTarget = target
-        try {
-            out?.sendWire(TWire(t = "tsub", target = target))
-        } catch (e: Exception) {
-            Log.w("tmux-remote", "subscribe not sent (reconnect will re-assert): ${e.message}")
+        // OFF the caller's thread (review 2026-09-01 L5): these are called
+        // from commit handlers ON THE SHELL LOOP, and a wedged link with a
+        // full TCP buffer would park the loop in the blocking write
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                out?.sendWire(TWire(t = "tsub", target = target))
+            } catch (e: Exception) {
+                Log.w("tmux-remote", "subscribe not sent (reconnect will re-assert): ${e.message}")
+            }
         }
     }
 
     override fun setCapturePacing(ms: Long) {
         wantedPace = ms
-        try {
-            out?.sendWire(TWire(t = "tpace", paceMs = ms))
-        } catch (e: Exception) {
-            Log.w("tmux-remote", "pacing not sent (reconnect will re-assert): ${e.message}")
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                out?.sendWire(TWire(t = "tpace", paceMs = ms))
+            } catch (e: Exception) {
+                Log.w("tmux-remote", "pacing not sent (reconnect will re-assert): ${e.message}")
+            }
         }
     }
 

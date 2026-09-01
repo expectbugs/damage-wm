@@ -106,12 +106,21 @@ private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 @Serializable private data class ErrMsg(val t: String = "err", val detail: String)
 @Serializable private data class WinProbe(val t: String = "", val win: String = "")
 @Serializable private data class IconMsg(val t: String = "icon", val name: String = "", val size: Int = 0)
-@Serializable private data class IconBlobMsg(val t: String = "iconblob", val w: Int, val h: Int, val len: Int)
+@Serializable private data class IconBlobMsg(
+    val t: String = "iconblob", val w: Int, val h: Int, val len: Int,
+    /** The serving theme's identity — the phone wipes its cache on a change
+     *  (review 2026-09-01: a theme-less phone cache showed the old desktop
+     *  theme forever). Additive: an old peer ignores it. */
+    val theme: String = "",
+)
 
 /** Blocking theme-icon resolution for serving (2026-09-01): the desktop's
- *  ThemeIcons implements it; null = no such icon (the phone caches the miss). */
-fun interface IconResolver {
+ *  ThemeIcons implements it. Null = a CLEAN miss (the phone may cache it);
+ *  a transient failure THROWS and is answered as err — the phone retries
+ *  (review 2026-09-01: failures must never be cached as misses). */
+interface IconResolver {
     fun resolve(name: String, sizePx: Int): wm.damage.core.gfx.Gray8?
+    fun themeId(): String = ""
 }
 
 private fun DataOutputStream.sendJson(s: String) {
@@ -229,20 +238,27 @@ class ContentHostServer(
                         }
                         "icon" -> {
                             // theme icons for the phone (2026-09-01): resolved
-                            // blocking on this session thread, missing answers
-                            // len 0 so the phone can cache the miss
+                            // blocking on this session thread. A CLEAN miss
+                            // answers len 0 (the phone caches it); a resolve
+                            // FAILURE answers err so the phone retries — the
+                            // two must stay distinguishable on the wire
                             val req = json.decodeFromString(IconMsg.serializer(), line)
-                            val res = icons?.let {
-                                try { it.resolve(req.name, req.size.coerceIn(8, 128)) } catch (e: Exception) {
-                                    Log.w("content-host", "icon '${req.name}' resolve failed: ${e.message}")
-                                    null
-                                }
+                            val theme = icons?.themeId() ?: ""
+                            val res = try {
+                                icons?.resolve(req.name, req.size.coerceIn(8, 128))
+                            } catch (e: Exception) {
+                                Log.w("content-host", "icon '${req.name}' resolve failed: ${e.message}")
+                                out.sendJson(json.encodeToString(ErrMsg.serializer(),
+                                    ErrMsg(detail = "icon resolve failed: ${e.message}")))
+                                out.flush()
+                                continue
                             }
                             if (res == null) {
-                                out.sendJson(json.encodeToString(IconBlobMsg.serializer(), IconBlobMsg(w = 0, h = 0, len = 0)))
+                                out.sendJson(json.encodeToString(IconBlobMsg.serializer(),
+                                    IconBlobMsg(w = 0, h = 0, len = 0, theme = theme)))
                             } else {
                                 out.sendJson(json.encodeToString(IconBlobMsg.serializer(),
-                                    IconBlobMsg(w = res.w, h = res.h, len = res.pix.size)))
+                                    IconBlobMsg(w = res.w, h = res.h, len = res.pix.size, theme = theme)))
                                 out.write(res.pix)
                             }
                             out.flush()
