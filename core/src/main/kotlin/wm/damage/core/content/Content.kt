@@ -101,6 +101,8 @@ private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 @Serializable private data class GetMsg(val t: String = "get", val id: String)
 @Serializable private data class BlobMsg(val t: String = "blob", val id: String, val len: Long)
 @Serializable private data class ErrMsg(val t: String = "err", val detail: String)
+@Serializable private data class DevLogHello(val t: String = "devlog", val dev: String = "")
+@Serializable private data class LogLineMsg(val t: String = "log", val line: String = "")
 
 private fun DataOutputStream.sendJson(s: String) {
     val b = s.toByteArray(Charsets.UTF_8)
@@ -129,6 +131,10 @@ class ContentHostServer(
     /** When present, a connection that sends `{"t":"sync",…}` after the hello
      *  becomes the persistent state-sync channel (HANDOFF.md §19.2). */
     private val sync: wm.damage.core.sync.SyncPeer? = null,
+    /** When present, a connection that sends `{"t":"devlog"}` after the hello
+     *  streams a peer's log lines here — the phone's logs on the PC with no
+     *  adb (2026-08-31). Each accepted line is handed to this sink. */
+    private val deviceLog: ((String) -> Unit)? = null,
 ) : AutoCloseable {
     @Volatile private var server: ServerSocket? = null
     @Volatile private var running = false
@@ -196,6 +202,27 @@ class ContentHostServer(
                             // the connection belongs to the sync channel now;
                             // serve() blocks until the peer leaves (§19.2)
                             wm.damage.core.sync.SyncNet.serve(sock, inp, out, sp, line)
+                            return
+                        }
+                        "devlog" -> {
+                            val sink = deviceLog
+                            if (sink == null) {
+                                out.sendJson(json.encodeToString(ErrMsg.serializer(),
+                                    ErrMsg(detail = "this host serves no device log")))
+                                continue
+                            }
+                            // the connection is a one-way log stream now: read
+                            // {"t":"log","line":…} frames and append until EOF
+                            val dev = json.decodeFromString(DevLogHello.serializer(), line).dev
+                            sink("---- device '$dev' (${sock.inetAddress}) log opened ----")
+                            try {
+                                while (running) {
+                                    val l = json.decodeFromString(LogLineMsg.serializer(), inp.readJson())
+                                    sink(l.line)
+                                }
+                            } catch (e: java.io.EOFException) {
+                                sink("---- device '$dev' log closed ----")
+                            }
                             return
                         }
                         "library" -> {

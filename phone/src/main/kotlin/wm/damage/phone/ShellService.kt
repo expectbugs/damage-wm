@@ -135,14 +135,22 @@ class ShellService : Service() {
         }
         logSink = sink
         Log.addSink(sink)      // removed at the END of this instance's shutdown (onDestroy)
+        // forward every log line to the PC's content port → ~/.damage/device.log
+        // (no adb needed). Service-scoped: it outlives stack rebuilds.
+        val prefs = Prefs(this)
+        val dev = DeviceLog(prefs.host, prefs.contentPort, prefs.token,
+            "${android.os.Build.MODEL} (${BuildConfig.VERSION_NAME})")
+        deviceLog = dev
+        Log.addSink(dev)
         startForeground(NOTIF_ID, buildNotification("Damage shell starting"))
-        startStack(Prefs(this).target)
+        startStack(prefs.target)
     }
 
     /** An error text seen within the gap: when, and whether it raised a notice. */
     private class ErrorSeen(val at: Long, val notified: Boolean)
     private val errorsSeen = java.util.concurrent.ConcurrentHashMap<String, ErrorSeen>()
     private var logSink: Log.Sink? = null
+    private var deviceLog: DeviceLog? = null
 
     /** The status the screen and the notification show: the keeper's last
      *  transition plus what the transport is doing right now ("scanning for
@@ -568,7 +576,10 @@ class ShellService : Service() {
             // the sink stays for the stop itself: a failure in the final save or
             // the disconnect must still reach the person (round 3, b3-1)
             try { stopStack() } catch (e: Exception) { Log.e("service", "shutdown failed", e) }
-            finally { sink?.let { Log.removeSink(it) } }
+            finally {
+                sink?.let { Log.removeSink(it) }
+                deviceLog?.let { Log.removeSink(it); it.close() }
+            }
         }, "damage-shutdown").start()
         super.onDestroy()
     }
