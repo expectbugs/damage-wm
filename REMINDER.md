@@ -89,13 +89,18 @@ then made the PHONE the primary driver and retired daily PC claims). In the queu
   probeable seam, AND the ring probe; watch the first sync exchange in both logs; then the
   standby drill at the desk (stop the APK → the PC BLE-drives within ~10 s → restart it →
   handback); then the sync feel across a driver swap (a book position following the swap).
-- **The ring probe** (APK 0.11, the strip's "ring" button): the glasses CANNOT relay ring
-  battery — settled from firmware source 2026-08-31 (`CLAIMS.md`) — so the phone reads the
-  ring over its own link. One tap: read-only GATT enumeration + standard battery/firmware
-  reads if offered; result arrives as a phone notification, full table in logcat
-  (`adb logcat -s damage/ringprobe`). A successful battery read fills the chrome **R cell**
-  and re-reads every 15 min for the run. If the ring is not seen advertising, the notification
-  says so (another app may hold its phone slot).
+- **The ring battery — cheap paths EXHAUSTED (2026-08-31, APK 0.14 `RingProbe` on hardware,
+  logs via the PC device-log path). Decision pending on the one path left.** Settled: the
+  glasses can't relay it (firmware source), the ring has **no standard Battery Service** and
+  **no battery in its advertisement**, and its vendor link (`bae80001-…`) is **request/response**
+  — subscribing + tapping the ring gave **zero frames** (gestures go to the glasses, its bonded
+  primary). The ONLY remaining source is **polling the ring's vendor protocol**, whose frame
+  carries a 4-byte rolling field + a **non-standard 2-byte CRC** (offline scan of 14 CRC-16
+  variants: no match). That is a real RE sub-project AND it **writes to the ring** (a live input
+  device; §11.5 bond fragility) → **needs Adam's explicit go**. Recommendation: fold it into the
+  Health window (`EXPLOSION.md` §13), which needs this exact link anyway; leave the **R cell
+  blank** until then (cosmetic — ring battery shows in the Even app). The `RingProbe` tooling
+  (enumerate / listen) and the PC device-log (`~/.damage/device.log`) stay for that work.
 
 - **On-glass verdicts for the 2026-08-31 night wave**: the tmux FLOW view (wrapped
   typographic terminal text, rules drawn, tail marker, 1 s updates — Font/size/style are real
