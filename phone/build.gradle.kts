@@ -32,8 +32,8 @@ android {
         targetSdk = 35
         // Bump BOTH on every build Adam installs (monotonic versionCode makes a
         // stale Downloads-folder APK refuse to install over a newer one).
-        versionCode = 9
-        versionName = "0.9"
+        versionCode = 10
+        versionName = "0.10"
 
         buildConfigField("String", "DAMAGE_TOKEN", "\"${secrets.getProperty("token", "")}\"")
         buildConfigField("String", "SERVER_HOST", "\"${secrets.getProperty("serverHost", "100.107.139.121")}\"")

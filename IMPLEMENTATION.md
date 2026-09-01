@@ -2,9 +2,11 @@
 
 **First stage built 2026-08-24; finishing build 2026-08-25 (`HANDOFF.md` §8); LIVE ON HARDWARE
 since first light 2026-08-30 (§11); the refinement wave landed 2026-08-31 (§12); the DAILY
-DRIVER went live 2026-08-31 (§13.3b–§17, `DAILY.md`): the phone APK passed its own first light
-and owns the radio all day, the PC shell drives THROUGH it over the seam from the OpenRC
-`damage` service, and handovers adopt the live session (zero teardowns).** The shell core, the
+DRIVER went live 2026-08-31 (§13.3b–§17, `DAILY.md`) and was RE-SHAPED the same night by the
+§19 correction: the PHONE SHELL is the primary driver (it owns the radio AND the shell, always,
+while the APK is up); the OpenRC `damage` service is the DATA PROVIDER — content + tmux +
+last-write-wins state sync on the content port — plus a STANDBY that drives PC-direct BLE only
+while the APK is unavailable and hands the radio back when it returns.** The shell core, the
 byte-exact glass simulator, the desktop program, and the phone APK — Reader, Tmux, Main and
 Settings at the app layer, the full shell underneath, everything on the **CFW display contract**
 (modes 3/6/8/9 + the 11–15 texture-cache wire layer, the FB lease, the capability gate).
@@ -116,8 +118,10 @@ and the item-by-item log; this is the map of what it added.
 - **The arbitration** (`transport/PathTransport.kt`): concurrent attempts over the candidate paths
   (the phone's seam first by a head start, PC-direct BLE after), the first to start wins and the
   rest are cancelled, a failed attempt is retried with backoff while the search is open, a
-  refused path is disabled for the run; a working path is held until it ends. The desktop's
-  default mode.
+  refused path is disabled for the run; a working path is held until it ends.
+  ⛔ **No longer the desktop's default (§19, 2026-08-31): `auto` is the STANDBY policy now** —
+  see "Phone-primary + sync" below. The class stays (tested; `--transport remote` remains the
+  explicit claim-and-drive dev override).
 - **The phone**: `BleTransport` rebuilt on G2CC's driver + the reference's sequence (RIGHT then
   LEFT, `retry(10, 500)`, MTU 512 checked ≥ 245, priority HIGH, notify enable surfaced, cached
   pair addresses, RSSI poll); `ShellService` on the keeper (a seam claim pauses it, a release
@@ -161,15 +165,15 @@ Desktop (laptop-direct with the sim standing in for glass — §10.8's
 development environment; also serves ~/books to the phone):
 
 ```
-./gradlew :desktop:run                        # AUTO: phone seam first, PC BLE otherwise; preview + replica + content host
+./gradlew :desktop:run                        # AUTO = STANDBY (§19): data host (content+tmux+sync) + replica; probes the phone, BLE-drives ONLY while the APK is away
 ./gradlew :desktop:run --args="--transport sim"   # the simulator in-process (development)
-./gradlew :desktop:run --args="--transport ble"   # PC-direct BLE only
+./gradlew :desktop:run --args="--transport ble"   # PC-direct BLE only (manual)
+./gradlew :desktop:run --args="--remote HOST"     # claim the phone's transport and drive through it — the EXPLICIT dev override
 ./gradlew :desktop:run --args="--ble-info"    # adapter enumeration only (no discovery)
 ./gradlew :desktop:run --args="--selfcheck"   # the 48-check scripted gate
 ./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"  # parse every book in ~/books
-./gradlew :desktop:run --args="--host-only"   # content host alone
-./gradlew :desktop:run --args="--remote HOST" # the phone's transport over the seam only
+./gradlew :desktop:run --args="--host-only"   # content host alone (books + tmux + sync, no stack ever)
 ./gradlew :desktop:test                       # 9 tests: the BlueZ glue over the fake link
 ```
 
@@ -205,11 +209,36 @@ ports). `DAILY.md` is the ops crib and the one-time phone sequencing.
 
 | configuration | how |
 |---|---|
-| **app + home PC** (the default) | APK (Target = glasses) + `:desktop:run` on beardos: auto mode claims the phone's transport over the seam; the phone yields and resumes on its own |
-| app alone | the APK with no PC reachable: its own shell, cached library + cached books |
-| PC-direct BLE | `:desktop:run` at the desk with no phone app up: auto falls to `ble`; or `--transport ble` |
+| **app + home PC** (the default — §10.1 row 1 as INTENDED, §19) | APK (Target = glasses) DRIVES; the `damage` service is the data host: live library, tmux, state sync. The PC never claims |
+| app alone | the APK with no PC reachable: its own shell, cached library + cached books, staleness said; sync catches up on reconnect |
+| PC-direct BLE (the rare case) | auto's standby starts a BLE stack after ~2 probes of APK absence and hands back on its return; or `--transport ble` manually |
+| PC drives through the phone | `--transport remote` ONLY — the explicit dev override (the old daily mode, kept for development) |
 | laptop-direct with the simulator | `:desktop:run --args="--transport sim"` — the development environment |
-| browser replica | `http://<desktop-or-phone>:7403/?token=…` from any machine on the tailnet |
+| browser replica | `http://<desktop-or-phone>:7403/?token=…` from any machine on the tailnet — the PHONE's is the live view in the default configuration |
+
+## Phone-primary + sync (2026-08-31 night, `HANDOFF.md` §19 — the corrected §8.1 reading)
+
+- **`Persistence` is the sync substrate**: schema v2 with a per-key stamp, re-stamped only on
+  real value change; `tryApplyRemote` is strict last-write-wins (equal values adopt the higher
+  stamp silently and never re-apply); legacy stores migrate in place with mtime stamps.
+- **`core/sync/SyncNet.kt`** rides the content port exactly like the tmux channel
+  (`{"t":"sync"}` upgrade): handshake exchanges stamp maps + clocks (skew-normalized), newer
+  records flow both ways, then live pushes; the client (`RemoteSync`, in the phone's
+  `startStack`) reconnects keeper-style and re-handshakes every 5 min so a lost push always
+  heals. `shell.settings` + `window.<id>` sync; `shell.state` (per-device UI) never does.
+- **`Shell.postSync`** applies a record on the loop: freshen the key from the LIVE window
+  first, then LWW, then live-apply (restyle for settings; restore + repaint for the focused
+  window). The driving shell's state is newest by construction, so sync flows driver → idle.
+- **The seam status probe** (`SeamProbe` / `Ctl t="status"`): a non-claiming question — "does
+  the APK want the radio?" — answered by the phone from Target + liveness. An old APK answers
+  `busy`, read as YES (never contend with an APK that cannot be asked).
+- **Desktop `auto` = STANDBY**: one shared process-wide store feeding the sync channel and any
+  stack; probe every 5 s; APK absent/idle ×2 → build a plain `ble` stack; APK back → stop it
+  (the handback; the lease fails open and the phone re-choreographs). A BlueZ-less machine
+  stands by as data host only, loudly. PC deploys no longer touch the display at all.
+- Pinned by `SyncTest` ×6 (store LWW + migration, both-ways convergence + live push over a real
+  loopback host, old-host refusal survived, freshen-beats-older in a live shell, probe answers
+  without claiming).
 
 ## Confirmed on hardware — first light, 2026-08-30
 
@@ -475,7 +504,9 @@ of them are load-bearing and easy to break by accident:
 
 ## Verification
 
-- `./gradlew :core:test` — 158 unit/integration tests (the flow rework added `FlowRenderTest`
+- `./gradlew :core:test` — 164 unit/integration tests (§19 added `SyncTest` ×6: the stamped
+  store's LWW, migration, the sync channel over a real loopback host, the shell's
+  freshen-then-apply, the seam status probe; the flow rework added `FlowRenderTest`
   ×6 plus the pacing/alternate-fallback window tests and the wire-pacing round trip;
   2026-08-31 added `TmuxTest` ×16,
   `SeamLivenessTest` ×3, `HandoverTest` ×4, `StyleTest` ×5 and the tmux freeze/bleed regressions; the refinement wave added

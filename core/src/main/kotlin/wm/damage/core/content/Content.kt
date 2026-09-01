@@ -126,6 +126,9 @@ class ContentHostServer(
     private val port: Int,
     private val token: String,
     private val tmux: wm.damage.core.windows.tmux.TmuxProvider? = null,
+    /** When present, a connection that sends `{"t":"sync",…}` after the hello
+     *  becomes the persistent state-sync channel (HANDOFF.md §19.2). */
+    private val sync: wm.damage.core.sync.SyncPeer? = null,
 ) : AutoCloseable {
     @Volatile private var server: ServerSocket? = null
     @Volatile private var running = false
@@ -181,6 +184,18 @@ class ContentHostServer(
                             // the connection belongs to the tmux channel now;
                             // serve() blocks until the driver leaves
                             wm.damage.core.windows.tmux.TmuxNet.serve(sock, inp, out, tp)
+                            return
+                        }
+                        "sync" -> {
+                            val sp = sync
+                            if (sp == null) {
+                                out.sendJson(json.encodeToString(ErrMsg.serializer(),
+                                    ErrMsg(detail = "this host serves no sync channel")))
+                                continue
+                            }
+                            // the connection belongs to the sync channel now;
+                            // serve() blocks until the peer leaves (§19.2)
+                            wm.damage.core.sync.SyncNet.serve(sock, inp, out, sp, line)
                             return
                         }
                         "library" -> {

@@ -1,14 +1,17 @@
 # Where we are, and what to do next
 
-**Updated 2026-08-31 (night) — the DAILY DRIVER is live: phone APK owns the radio (its own
-first light passed), the PC shell drives through it from the OpenRC `damage` service,
-handovers adopt the session (zero blinks), Tmux + user typography shipped. Then the night
-wave: a full-codebase deep review (four verified fixes, `67a1d41`) and 🔴 THE TMUX GRID
-RETIRED — the terminal renders as FLOWED text through the per-app typography; the grid
-survives only for alternate-screen TUIs (`HANDOFF.md` §18, TMUX.md top block).**
+**Updated 2026-08-31 (night) — the DAILY DRIVER is live and RE-SHAPED by §19: the PHONE SHELL
+is the primary driver (radio + shell, always, while the APK is up); the OpenRC `damage`
+service is the DATA PROVIDER (content + tmux + last-write-wins state sync) plus a STANDBY
+that BLE-drives only while the APK is away. The §8.1 "best case = home PC" phrase meant DATA
+availability — Adam's correction; the PC-claims-and-drives reading is retired (`--transport
+remote` keeps it as the dev override). Earlier the same day: Tmux + user typography, the deep
+review (`67a1d41`), and 🔴 THE TMUX GRID RETIRED — flowed text through the per-app typography;
+the grid survives only for alternate-screen TUIs (`HANDOFF.md` §18, TMUX.md top block). The
+app-layer EXPLOSION document exists (`EXPLOSION.md`, ~175 graded items) awaiting the refinery.**
 
-📍 **Start here, in this order:** `HANDOFF.md` §18 (the night wave + the CURRENT resume
-protocol, §18.1) then §17.1 back through §13, then `DAILY.md` (the ops crib for the all-day
+📍 **Start here, in this order:** `HANDOFF.md` §19 (the corrected arbitration + sync — the
+CURRENT state) then §18/§18.1 back through §13, then `DAILY.md` (the ops crib for the all-day
 setup), then this file for the checklist of what is still unmeasured on glass.
 
 **History, if you need it:** `HANDOFF.md` §10 is the firmware install; §10.13 is the ring update;
@@ -79,7 +82,13 @@ against the simulator and the fake links, none of it on a radio yet:
 
 **The §13 APK mission is DONE** (2026-08-31: phone first light, the daily-driver config live,
 the three configurations exercised on hardware the same day — takeover, fallback, PC-only all
-observed working; the §16 handover rework made every transition a repaint). In the queue now:
+observed working; the §16 handover rework made every transition a repaint; the §19 correction
+then made the PHONE the primary driver and retired daily PC claims). In the queue now:
+
+- **The §19 live checks**: install APK **0.10** (setup page) — it carries the sync client and
+  the probeable seam; watch the first sync exchange in both logs; then the standby drill at
+  the desk (stop the APK → the PC BLE-drives within ~10 s → restart it → handback); then the
+  sync feel across a driver swap (a book position following the swap).
 
 - **On-glass verdicts for the 2026-08-31 night wave**: the tmux FLOW view (wrapped
   typographic terminal text, rules drawn, tail marker, 1 s updates — Font/size/style are real

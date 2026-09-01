@@ -7,6 +7,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -29,20 +32,25 @@ import wm.damage.core.windows.reader.ReaderWindow
 /**
  * The PC program. Modes (`--transport`):
  *
- *   auto     THE DEFAULT (HANDOFF.md §8.1 decision 3/5): the PC shell drives
- *            the glasses by whichever path works — the phone's transport over
- *            the seam first, PC-direct BLE otherwise — and keeps trying every
- *            path until one does; a working path is held until it ends
+ *   auto     THE DEFAULT — STANDBY (HANDOFF.md §19, the corrected §8.1
+ *            reading): the PHONE SHELL is the primary driver; this process
+ *            serves data (content host + state sync + replica) and probes the
+ *            phone's seam on a 5 s pacing. Only when the APK is absent — or
+ *            reachable and saying Target≠glasses — for two consecutive probes
+ *            does it start a PC-direct BLE stack; the moment the APK wants
+ *            the radio back, the stack stops (the handback) and the phone's
+ *            keeper reconnects with its normal choreography
  *   sim      the byte-exact firmware model in-process — the development
  *            environment (DESIGN.md §10.8)
  *   ble      PC-direct BLE over BlueZ only (laptop-direct with real glasses)
- *   remote   the phone's transport over the seam only (`--remote HOST` or
- *            `phoneHost` in the config) — the "app + home PC" placement
+ *   remote   the phone's transport over the seam, this shell driving THROUGH
+ *            it (`--remote HOST`) — the EXPLICIT dev override; daily operation
+ *            never claims (§19.1)
  *
  * Whatever the mode: the 1x preview draws the transport's mirror with mouse
  * input, the browser replica is served on `replicaPort`, the content host
- * serves `booksDir`, and a session keeper restarts the session after every
- * link end. Other entry points:
+ * serves `booksDir` + tmux + sync, and a session keeper restarts any running
+ * session after every link end. Other entry points:
  *
  *   --selfcheck · --snapshot DIR · --epub-check · --host-only · --ble-info
  *
@@ -211,9 +219,13 @@ private fun bleInfo() {
 private suspend fun hostOnly(cfg: Config) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val tmux = wm.damage.core.windows.tmux.LocalTmuxProvider(cfg.tmuxHostList(), cfg.tmuxConfig(), scope)
-    val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token, tmux = tmux)
+    // host-only still syncs (§19.2): the store is the data, no shell needed
+    val store = Persistence(Path.of(cfg.dataDir).resolve("state.json"))
+    store.load()
+    val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
+        tmux = tmux, sync = wm.damage.core.sync.SyncPeer(store))
     host.start()
-    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux on :${cfg.contentPort}; Ctrl-C to stop")
+    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync on :${cfg.contentPort}; Ctrl-C to stop")
     kotlinx.coroutines.awaitCancellation()
 }
 
@@ -233,6 +245,10 @@ class DesktopStack(
      *  the phone through the content host). Null only in tools that need no
      *  tmux window. */
     private val tmux: wm.damage.core.windows.tmux.TmuxProvider? = null,
+    /** The ONE process-wide state store (§19.2): shared with the content
+     *  host's sync channel, so a stack and the sync peer see the same
+     *  records. Null builds a private store (tools). */
+    private val sharedStore: Persistence? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private fun ble(): Transport = BlueZTransport(BlueZDbus(), scope,
@@ -246,26 +262,16 @@ class DesktopStack(
         "sim" -> SimTransport(GlassFirmwareSim(), scope)
         "ble" -> ble()
         "remote" -> remote()
-        "auto" -> {
-            val phoneName = "remote:${remoteHost ?: cfg.phoneHost}"
-            val paths = ArrayList<PathTransport.Candidate>()
-            paths += PathTransport.Candidate(phoneName, remote())
-            try {
-                paths += PathTransport.Candidate("ble", ble())
-            } catch (e: Exception) {
-                // no BlueZ on this machine: the phone path is the only one, said loudly
-                Log.e("damage", "PC-direct BLE unavailable (${e.message}) — auto mode keeps only $phoneName")
-            }
-            PathTransport(paths, scope)
-        }
-        else -> throw IllegalArgumentException("unknown transport mode '$mode' (auto | sim | ble | remote)")
+        // "auto" builds NO stack: it is the standby policy in runShell (§19.2)
+        // — a stack only exists while the APK is not available
+        else -> throw IllegalArgumentException("unknown stack mode '$mode' (sim | ble | remote; auto is the standby policy, not a stack)")
     }
     val shell: Shell
     val keeper: ShellKeeper
 
     init {
         val dataDir = Path.of(cfg.dataDir)
-        val persistence = Persistence(dataDir.resolve("state.json"))
+        val persistence = sharedStore ?: Persistence(dataDir.resolve("state.json"))
         shell = Shell(text, transport, persistence, dataDir.resolve("journal.jsonl"), scope)
         val content = LocalContent(Path.of(cfg.booksDir))
         shell.register(ReaderWindow(text, content, scope, AwtImages()))
@@ -306,7 +312,8 @@ class DesktopStack(
 
 private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Boolean = true): Unit = runBlocking {
     // the current stack: written by the switch thread, read by the EDT, the
-    // replica's threads and every client — a reference with visibility
+    // replica's threads and every client — a reference with visibility.
+    // NULL is a legal steady state now (§19): standby with the phone driving.
     val stackRef = java.util.concurrent.atomic.AtomicReference<DesktopStack?>(null)
     fun stack() = stackRef.get()
     // content scaling moved INTO the style transforms (Style.kt, 2026-08-31)
@@ -314,7 +321,21 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     val text = AwtText()
     val keeperStatus = java.util.concurrent.atomic.AtomicReference("starting")
     val switchNote = java.util.concurrent.atomic.AtomicReference("")
+    val standbyNote = java.util.concurrent.atomic.AtomicReference("standby: probing the phone")
     val switching = java.util.concurrent.atomic.AtomicBoolean(false)
+    // §19: `auto` IS the standby policy — the phone shell is primary; manual
+    // modes (sim | ble | remote) disable it for the run of that mode
+    val standbyOn = java.util.concurrent.atomic.AtomicBoolean(mode == "auto")
+
+    // The ONE process-wide state store (§19.2): the sync channel and every
+    // stack share it, so records agree by construction. Loaded now — standby
+    // must serve real records with no shell running.
+    val store = Persistence(Path.of(cfg.dataDir).resolve("state.json"))
+    store.load()
+    val syncPeer = wm.damage.core.sync.SyncPeer(store, applier = { k, v, t ->
+        val sh = stackRef.get()?.shell
+        if (sh == null || !sh.postSync(k, v, t)) store.tryApplyRemote(k, v, t)
+    })
 
     // The process-wide tmux provider: the local shell's window and the phone
     // (through the content host) both feed from it; it outlives stack switches.
@@ -322,9 +343,10 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     val tmuxProvider = wm.damage.core.windows.tmux.LocalTmuxProvider(
         cfg.tmuxHostList(), cfg.tmuxConfig(), tmuxScope)
 
-    // The PC always serves its library so a phone shell can feed from it.
+    // The PC always serves its library + tmux + sync — the DATA PROVIDER role
+    // (§19.1) — whoever is driving the glasses.
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
-        tmux = tmuxProvider)
+        tmux = tmuxProvider, sync = syncPeer)
     try {
         host.start()
     } catch (e: Exception) {
@@ -332,15 +354,16 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     }
 
     lateinit var build: (String) -> DesktopStack
-    fun switchTo(next: String) {
-        if (next == stack()?.mode) return
+    // ONE mutation path for the running stack, shared by manual switches and
+    // the standby policy. next == null tears down with no replacement (the
+    // handback: the lease fails open and the phone's keeper reconnects).
+    fun swapStack(next: String?, why: String) {
         if (!switching.compareAndSet(false, true)) return
-        Log.i("damage", "switching the transport to $next")
         Thread({
             try {
                 // build the new stack FIRST: a mode this machine cannot build
                 // (no BlueZ, say) must leave the running one driving
-                val s = build(next)
+                val s = next?.let { build(it) }
                 val old = stackRef.get()
                 try {
                     runBlocking { old?.stop() }
@@ -350,20 +373,79 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
                 }
                 stackRef.set(s)
                 switchNote.set("")
-                s.start()
+                if (old != null || s != null)
+                    Log.i("damage", "stack: ${old?.mode ?: "none"} → ${s?.mode ?: "none"} ($why)")
+                s?.start()
             } catch (e: Exception) {
-                Log.e("damage", "switch to $next failed — the current transport keeps driving", e)
-                switchNote.set("switch to $next failed: ${e.message}")
+                Log.e("damage", "switch to ${next ?: "standby"} failed — the current stack keeps driving", e)
+                switchNote.set("switch to ${next ?: "standby"} failed: ${e.message}")
             } finally {
                 switching.set(false)
             }
         }, "damage-switch").start()
     }
+    fun switchTo(next: String) {
+        if (next == "auto") {
+            if (standbyOn.compareAndSet(false, true))
+                swapStack(null, "auto = standby (§19): the phone shell is primary")
+            return
+        }
+        standbyOn.set(false)
+        if (next == stack()?.mode) return
+        swapStack(next, "manual mode")
+    }
     build = { m -> DesktopStack(cfg, m, remoteHost, text, onStatus = { keeperStatus.set(it) },
-        onSwitch = { switchTo(it) }, tmux = tmuxProvider) }
+        onSwitch = { switchTo(it) }, tmux = tmuxProvider, sharedStore = store) }
 
-    val first = build(mode)
-    stackRef.set(first)
+    if (mode != "auto") {
+        val first = build(mode)
+        stackRef.set(first)
+        first.start()
+    }
+
+    // THE STANDBY LOOP (§19.2). Probe the phone's seam on pacing: the APK
+    // wanting the radio (or an APK too old to be asked) keeps the PC out;
+    // absent-or-idle for STANDBY_DEBOUNCE consecutive probes starts a plain
+    // BLE stack; the APK's return stops it — the handback.
+    launch(Dispatchers.IO) {
+        var absentStreak = 0
+        var bleBroken = false
+        while (isActive) {
+            if (standbyOn.get()) {
+                if (bleBroken && switchNote.get().isEmpty()) bleBroken = false   // a manual round-trip cleared it
+                if (switchNote.get().startsWith("switch to ble failed") && !bleBroken) {
+                    bleBroken = true
+                    Log.e("damage", "PC-direct BLE unavailable on this machine — standing by as the data host only")
+                    standbyNote.set("standby: data host only (no usable BLE)")
+                }
+                val r = wm.damage.core.transport.SeamProbe.probe(
+                    remoteHost ?: cfg.phoneHost, cfg.transportPort, cfg.token)
+                val phoneOwns = r is wm.damage.core.transport.SeamProbe.Result.Reachable &&
+                    r.wantsRadio != false        // null = an APK too old to ask: conservative
+                if (phoneOwns) {
+                    absentStreak = 0
+                    val d = (r as wm.damage.core.transport.SeamProbe.Result.Reachable).detail
+                    standbyNote.set("standby: phone drives" + (d.takeIf { it.isNotEmpty() }?.let { " · $it" } ?: ""))
+                    if (stack() != null && standbyOn.get())
+                        swapStack(null, "handback — the APK wants the radio")
+                } else if (!bleBroken) {
+                    absentStreak++
+                    val why = if (r is wm.damage.core.transport.SeamProbe.Result.Reachable)
+                        "the APK says Target≠glasses" else "the APK is unreachable"
+                    if (stack() == null) {
+                        if (absentStreak < STANDBY_DEBOUNCE) {
+                            standbyNote.set("standby: $why ($absentStreak/$STANDBY_DEBOUNCE)")
+                        } else {
+                            standbyNote.set("standby → PC-direct BLE ($why)")
+                            Log.i("damage", "standby: $why for $absentStreak probes — starting the PC BLE stack")
+                            swapStack("ble", "standby: $why")
+                        }
+                    }
+                }
+            }
+            delay(STANDBY_PROBE_MS)      // pacing between probes, not a timeout
+        }
+    }
     // an orderly end — the window's close button, Ctrl-C, a kill: the shell
     // saves its state and the transport releases the display
     val ending = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -382,13 +464,18 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         switchNote.get().ifEmpty { null },
         stack()?.shell?.lastDivergence?.let { "DIVERGE $it" },
     ).joinToString(" · ")
+    // in standby with no stack, the status IS the standby narration
+    fun statusText(): String {
+        val base = stack()?.statusLine()
+            ?: if (standbyOn.get()) standbyNote.get() else keeperStatus.get()
+        val n = switchNote.get()
+        return if (n.isEmpty()) base else "$n · $base"
+    }
     // the 1x preview with mouse, on whatever the current stack mirrors
     if (preview) {
-        Preview.show({ stack()?.transport?.mirror }, { t -> stack()?.transport?.injectInput(t) }, {
-            val base = stack()?.statusLine() ?: keeperStatus.get()
-            val n = switchNote.get()
-            if (n.isEmpty()) base else "$n · $base"
-        }, onClose = { endOrderly(); kotlin.system.exitProcess(0) },
+        Preview.show({ stack()?.transport?.mirror }, { t -> stack()?.transport?.injectInput(t) },
+            { statusText() },
+            onClose = { endOrderly(); kotlin.system.exitProcess(0) },
             onText = { line -> stack()?.transport?.injectText(line) })
     } else {
         Log.i("damage", "running WITHOUT the preview window (--no-preview): the phone screen and " +
@@ -401,7 +488,9 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
             transport = st?.transportName ?: "none",
             connected = st?.connected ?: false, started = st?.started ?: false, leaseHeld = st?.leaseHeld ?: false,
             ackMs = st?.ackMsEma?.toInt() ?: 0, bytesPerSec = st?.bytesPerSecEma?.toInt() ?: 0,
-            driver = "PC shell (${stack()?.mode ?: mode})", note = note().ifEmpty { keeperStatus.get() },
+            driver = stack()?.let { "PC shell (${it.mode})" }
+                ?: if (standbyOn.get()) "standby (phone drives)" else "none",
+            note = note().ifEmpty { statusText() },
         )
     }, onInput = { t -> stack()?.transport?.injectInput(t) },
         onText = { line -> stack()?.transport?.injectText(line) })
@@ -411,9 +500,17 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         Log.e("damage", "browser replica failed to bind :${cfg.replicaPort}", e)
     }
 
-    first.start()
-    Log.i("damage", "shell up in $mode mode — books from ${cfg.booksDir}, journal in ${cfg.dataDir}")
+    Log.i("damage", if (mode == "auto")
+        "standby up (§19: the phone shell is primary) — data host on :${cfg.contentPort}, probing ${remoteHost ?: cfg.phoneHost}:${cfg.transportPort}"
+    else
+        "shell up in $mode mode — books from ${cfg.booksDir}, journal in ${cfg.dataDir}")
     Log.i("damage", "preview: wheel/click/right-click/hold = ring · Tab lens · B both")
     Log.i("damage", "browser replica: http://<this-host>:${cfg.replicaPort}/?token=${cfg.token}")
     kotlinx.coroutines.awaitCancellation()
 }
+
+/** Standby pacing (§19.2): probe cadence, and how many consecutive
+ *  absent-or-idle probes it takes before the PC starts its own BLE stack —
+ *  the debounce that rides out an APK restart or update. */
+private const val STANDBY_PROBE_MS = 5_000L
+private const val STANDBY_DEBOUNCE = 2

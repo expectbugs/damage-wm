@@ -514,6 +514,11 @@ class RemoteTransportServer(
     private val onRemoteDriver: (Boolean) -> Unit = {},
     private val pingMs: Long = SEAM_PING_MS,
     private val quietMs: Long = SEAM_QUIET_MS,
+    /** Answers a non-claiming `status` probe (HANDOFF.md §19.2): does this
+     *  host WANT the radio (Target=glasses), and is its transport driving?
+     *  Null (an unwired host) reads as wanting it — the conservative answer:
+     *  a PC must never contend with an APK it cannot ask. */
+    private val statusFor: (() -> SeamStatus)? = null,
 ) : AutoCloseable {
     @Volatile private var server: ServerSocket? = null
     @Volatile private var running = false
@@ -608,6 +613,18 @@ class RemoteTransportServer(
         val peerPings = java.util.concurrent.atomic.AtomicBoolean(false)
         try {
             val (hello, _) = inp.readCtl()
+            if (hello.t == "status") {
+                // a probe, not a claim: answer and leave — the driver slot,
+                // onRemoteDriver and the local shell are never touched (§19.2)
+                if (hello.token != token) {
+                    out.send(Ctl(t = "busy", detail = "bad token"))
+                    return
+                }
+                val st = statusFor?.invoke()
+                    ?: SeamStatus(wantsRadio = true, driving = inner.state.value.started)
+                out.send(Ctl(t = "status", ok = st.wantsRadio, connected = st.driving, detail = st.line))
+                return
+            }
             if (hello.t != "hello" || hello.token != token) {
                 out.send(Ctl(t = "busy", detail = "bad token"))
                 return
@@ -865,5 +882,46 @@ class RemoteMirror : LensPanels {
         require(off + rows * stride <= packed.size) { "panel update short: ${packed.size - off} B for $rows rows" }
         synchronized(panels) { System.arraycopy(packed, off, panels.getValue(arm), y0 * stride, rows * stride) }
         for (l in listeners) l.panelChanged(arm)
+    }
+}
+
+// ================================================================== status
+/** What a seam host reports to a non-claiming probe (HANDOFF.md §19.2). */
+data class SeamStatus(val wantsRadio: Boolean, val driving: Boolean, val line: String = "")
+
+/**
+ * The PC's standby question: is the APK up, and does it own the radio? One
+ * short connection sending `Ctl(t="status")` — never a claim, so the phone's
+ * driver slot and shell are untouched. An OLD server answers the unknown
+ * frame with `busy` — reported as reachable with [Result.Reachable.wantsRadio]
+ * null, which the standby policy treats as WANTING the radio (never contend
+ * with an APK that cannot be asked).
+ */
+object SeamProbe {
+    sealed class Result {
+        object Unreachable : Result()
+        data class Reachable(val wantsRadio: Boolean?, val driving: Boolean, val detail: String) : Result()
+    }
+
+    fun probe(host: String, port: Int, token: String, windowMs: Int = 4_000): Result = try {
+        java.net.Socket().use { s ->
+            // The bounded window is a liveness DECISION of the SEAM_QUIET_MS
+            // class, not a work-abandoning timeout: the standby loop polls on
+            // pacing, "no answer inside the window" means "not present", and
+            // the next poll simply asks again. Nothing is cancelled.
+            s.connect(java.net.InetSocketAddress(host, port), windowMs)
+            s.soTimeout = windowMs
+            s.tcpNoDelay = true
+            val out = DataOutputStream(s.getOutputStream().buffered())
+            val inp = DataInputStream(s.getInputStream().buffered())
+            out.send(Ctl(t = "status", token = token))
+            val (r, _) = inp.readCtl()
+            when (r.t) {
+                "status" -> Result.Reachable(r.ok, r.connected, r.detail)
+                else -> Result.Reachable(null, false, "server answered '${r.t}' (predates the probe)")
+            }
+        }
+    } catch (e: Exception) {
+        Result.Unreachable
     }
 }

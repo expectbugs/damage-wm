@@ -1771,6 +1771,60 @@ class Shell(
         return Zl.encodeCfw(Pack.rect(g, Rect(0, 0, g.w, g.h)))
     }
 
+    // ------------------------------------------------------------------ sync
+    /**
+     * A sync record from the peer (HANDOFF.md §19.2). Returns false when the
+     * shell is not running — the caller applies it to the store directly. On
+     * the loop: FRESHEN the key first (last-write-wins must compare against
+     * the state the user sees now, not the last debounced save), then apply
+     * under LWW, then live-apply so the change is visible without a restart.
+     */
+    fun postSync(key: String, value: JsonObject, stamp: Long): Boolean {
+        if (!running) return false
+        post(Msg.Run {
+            try {
+                freshenSyncKey(key)
+                if (persistence.tryApplyRemote(key, value, stamp)) liveApplySync(key, value)
+            } catch (e: Exception) {
+                Log.e("sync", "applying synced '$key' failed", e)
+            }
+        })
+        return true
+    }
+
+    private fun freshenSyncKey(key: String) {
+        when {
+            key == "shell.settings" -> persistence.put(key, settings.toJson())
+            key.startsWith("window.") -> windows.firstOrNull { it.id == key.removePrefix("window.") }?.let { w ->
+                try {
+                    persistence.put(key, w.saveState())
+                } catch (e: Exception) {
+                    Log.e("sync", "freshen saveState of ${w.id} failed", e)
+                }
+            }
+        }
+    }
+
+    private fun liveApplySync(key: String, value: JsonObject) {
+        when {
+            key == "shell.settings" -> {
+                Log.i("sync", "settings updated from the peer")
+                applySettings(ShellSettings.fromJson(value))
+            }
+            key.startsWith("window.") -> {
+                val w = windows.firstOrNull { it.id == key.removePrefix("window.") } ?: return
+                Log.i("sync", "state of '${w.id}' updated from the peer")
+                w.restoreState(value)
+                // repaint only when the change is on screen; the wheel owns the
+                // screen while open (§4.3) and a parked window paints on focus
+                if (mode == Mode.WINDOW && current === w && !switcher.open) {
+                    syncLayout()
+                    composeFullSurface()
+                }
+            }
+        }
+    }
+
     private fun saveAll() {
         persistence.put("shell.settings", settings.toJson())
         persistence.put("shell.state", buildJsonObject {

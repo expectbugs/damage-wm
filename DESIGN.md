@@ -2046,6 +2046,14 @@ seams between roles must be **protocols, not function calls** — neither side k
 peer is in-process or across a network. Given that, all four configurations are the same three
 components with different link types, and no configuration is a special case.
 
+> 🔴 **Row 1's shell placement is the INTENT, confirmed by Adam 2026-08-31** (`HANDOFF.md` §19):
+> in the default configuration the **phone shell drives** and the PC's job is to *provide data*
+> so every app is fully functional. The finishing build had inverted this (the PC shell claimed
+> the seam and drove whenever reachable) by misreading §8.1's "home PC is always the best case"
+> — that phrase graded the DATA path, not the driver. The PC drives only in the rare
+> APK-unavailable case, over BLE, and hands the radio back when the APK returns. State that can
+> differ between the two syncs automatically, most-recent-wins (§19.2).
+
 ### 10.2 What this forces on the runtime
 
 - 🔴 **The shell must run on Android *and* desktop.** The "app alone" row requires it. That rules
@@ -2154,7 +2162,7 @@ rows. This inverts the phone-first assumption and is the cheaper path.
 | 4 | **Link signal** — source, which link, dBm vs % | **U** | the phone reads RSSI on the RIGHT arm every 10 s; BlueZ exposes RSSI only while a device advertises, so the PC-direct cell shows bars without a numeral. Values unmeasured |
 | 5 | **Where system-state detail lives** — orphaned when the info popup was removed | design | app-layer phase |
 | 6 | **Can a normal Android app see WEA/CMAS emergency alerts?** Must be tested before it is promised (§4.5) | **U** | Pixel 10a test |
-| 7 | ✅ **Transport** — **RESOLVED 2026-08-25: both, arbitrated** — the PC drives through the phone's transport when the seam is reachable and PC-direct BLE otherwise, retrying every path; the phone's own shell is the last resort (`HANDOFF.md` §8.1) | decided | built, unexercised on hardware |
+| 7 | ✅ **Transport** — resolved 2026-08-25, **corrected 2026-08-31 (`HANDOFF.md` §19)**: the phone shell is the PRIMARY driver whenever the APK is up; the PC provides data (content + sync) and drives PC-direct BLE only when the APK is unavailable, handing the radio back when it returns | decided | §19 build |
 | 8 | **Type legibility ON GLASS** — the assignments are locked and priced (§Type), but no render can answer whether they read at real angular size | measured / unproven | eyes on glass |
 | 9 | 🆕 **The safe area** (§2.2b) — how much of the panel is actually visible on Adam's face | **U** | first-light ramp; the layout is written relative to it so only the value changes |
 | 10 | **Per-window typefaces for windows not yet designed** — Files, Calendar, Music, SMS, Timers, Scout, Notices inherit Clear Sans until their app earns an override | design | app-layer phase |

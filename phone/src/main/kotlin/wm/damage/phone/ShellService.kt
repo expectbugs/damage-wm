@@ -82,6 +82,7 @@ class ShellService : Service() {
     private var seamServer: RemoteTransportServer? = null
     private var replica: ReplicaServer? = null
     private var tmuxProvider: RemoteTmuxProvider? = null
+    private var remoteSync: wm.damage.core.sync.RemoteSync? = null
     @Volatile var remoteDriving = false
         private set
     @Volatile var statusLine: String = "starting"
@@ -214,6 +215,15 @@ class ShellService : Service() {
             onNotice = { detail -> sh.services.notifyInternal("content", detail) },
         )
         sh.register(ReaderWindow(text, rc, scope, AndroidImages()))
+        // State sync (HANDOFF.md §19.2): the PC pushes/receives stamped state
+        // records over the content port, most-recent wins. Records reach the
+        // live shell (freshen → LWW → live-apply) or, when it is not running,
+        // the store directly.
+        remoteSync = wm.damage.core.sync.RemoteSync(prefs.host, prefs.contentPort, prefs.token, scope,
+            wm.damage.core.sync.SyncPeer(persistence, applier = { k, v, t ->
+                val liveShell = shell
+                if (liveShell == null || !liveShell.postSync(k, v, t)) persistence.tryApplyRemote(k, v, t)
+            }))
         // Tmux (TMUX.md): the provider lives on the content host — same
         // host/port/token as the library, so the sessions just appear (§3.1)
         val tp = RemoteTmuxProvider(prefs.host, prefs.contentPort, prefs.token, scope)
@@ -269,11 +279,19 @@ class ShellService : Service() {
             Log.e("replica", "browser replica failed to start", e)   // the sink raises the notice
         }
 
-        // the transport seam server: a PC shell can claim this transport
+        // the transport seam server: answers the PC's standby probe (§19.2 —
+        // "does the APK want the radio?"), and still accepts an EXPLICIT
+        // remote claim (`--transport remote`, the deliberate dev override)
         if (prefs.seamServer) {
             try {
                 val server = RemoteTransportServer(t, prefs.transportPort, prefs.token, scope,
-                    onRemoteDriver = { driving -> onRemoteDriver(driving) })
+                    onRemoteDriver = { driving -> onRemoteDriver(driving) },
+                    statusFor = {
+                        wm.damage.core.transport.SeamStatus(
+                            wantsRadio = Prefs(this).target == Prefs.Target.GLASSES && !destroyed,
+                            driving = transport?.state?.value?.started == true,
+                            line = displayStatus())
+                    })
                 server.start()
                 seamServer = server
             } catch (e: Exception) {
@@ -333,6 +351,8 @@ class ShellService : Service() {
         }
         try { tmuxProvider?.close() } catch (e: Exception) { Log.w("service", "tmux provider close: ${e.message}") }
         tmuxProvider = null
+        try { remoteSync?.close() } catch (e: Exception) { Log.w("service", "sync close: ${e.message}") }
+        remoteSync = null
         scope.cancel()
         transport = null
         mirror = null

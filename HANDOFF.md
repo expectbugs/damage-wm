@@ -5,6 +5,7 @@ landed.**
 
 | § | what | status |
 |---|---|---|
+| **19** | **The arbitration correction + sync (2026-08-31, night)** — §8.1's "PC is the best case" meant DATA, not the driver: the phone shell is PRIMARY, the PC is the data provider + rare BLE stand-in; last-write-wins state sync | **current** |
 | **13** | **NEXT: perfect the APK** — the phone must do everything the PC does, in every §10 configuration | **the mission** |
 | **12** | **The refinement wave, 2026-08-31** — the whole `REFINEMENT.md` queue built and driven live; the latency curve measured; switcher/brightness/battery fixed | done |
 | **11** | **First light, 2026-08-30** — the PC drove the glasses, the ring drove them, ack latency measured, three defects found | done |
@@ -310,6 +311,9 @@ prose, comments, commit messages, reviewer prompts.
    that option is available again). Home PC is always the best case to constantly be trying
    for as it is the most powerful and capable implementation, phone-app-only is the weakest
    implementation and last resort, but one of those should ALWAYS be running."*
+   ⛔ **The reading below was a MISREADING — corrected by Adam 2026-08-31, see §19.** "Best
+   case" meant the PC being available to PROVIDE DATA so every app is fully functional — not
+   the PC shell driving. Kept verbatim as the record of what the finishing build believed:
    Reading adopted for the build (§8.2 "Arbitration"): **who drives** = the PC shell whenever
    it can reach the glasses by any path, else the phone shell; **PC path order** = the phone's
    transport over the seam first, PC-direct BLE when the phone is not reachable; **a working
@@ -1489,3 +1493,129 @@ eyeballed) · epub-check · lint 0 · **APK 9/0.9 staged, jar staged**.
 7. G2CC coexistence unchanged: its SERVER runs (:7300, serves our APK page); its ANDROID
    bridge stays Disconnected (second central); never sweep its in-flight FF1 work into a
    commit.
+
+## 19. The arbitration correction + last-write-wins sync (2026-08-31, night)
+
+**Adam, correcting §8.1's reading:** *"When I said the best path should always be home PC I
+meant having it available to provide data to the apk so that DamageWM is fully functional with
+all its apps. I assumed you'd read my statement WITHIN my documented intent, not as a reversal
+of it."* And the intent, restated in full: *"The intent is for the apk on the phone to be the
+primary driver, with the PC server pushing data to it when available, with the ability to fall
+back to apk-only when PC unavailable, and in the rare case the PC is available via BLE but the
+apk is not, the PC can drive the glasses directly. … data that can differ between apk and PC
+should be automatically synced as soon as both systems can communicate, with the most recent
+data having priority."*
+
+So this is **not a reversal of §8.1 — it is a correction of the build's READING of §8.1**, and
+it **restores `DESIGN.md` §10.1 row 1 exactly as written** (transport=phone, **shell=phone**,
+content=PC). The finishing build inverted the shell placement ("the PC shell drives whenever it
+can reach the glasses by any path"); that inversion is retired.
+
+### 19.1 The corrected contract
+
+1. **The phone shell is the PRIMARY driver, always, while the APK is up** with Target=glasses.
+2. **The PC is the data provider**: content host (books, tmux, config) + the sync service. Its
+   reachability decides how CAPABLE the phone shell is, never who drives.
+3. **APK-only fallback** when the PC is unreachable — cached content, staleness said (§10.5).
+   Unchanged; already built.
+4. **PC-direct BLE only when the APK is not available** (seam unreachable, or reachable and
+   saying Target≠glasses) — and the PC **hands the radio back** when the APK returns.
+5. **State that can differ syncs automatically, most-recent wins**, as soon as PC and phone can
+   talk. This also answers `EXPLOSION.md` §16.4.
+
+What this buys beyond correctness: away from home the network LEAVES the interaction loop
+(today every gesture round-trips phone→PC over Tailscale and the frame comes back); PC deploys
+stop touching the display entirely; driver-failover machinery becomes the rare path instead of
+the daily one.
+
+### 19.2 Design (fixed — do not re-derive after a compaction)
+
+**Seam status probe (`RemoteTransport.kt`).** New first-frame type on the seam (:7402):
+`Ctl(t="status", token)` → the server answers `Ctl(t="status", ok=<wantsRadio>,
+connected=<driving>, detail=<status line>)` and closes — no claim, no driver slot touched.
+`RemoteTransportServer` gains `statusFor: (() -> SeamStatus)?` (phone supplies
+wantsRadio = Target==GLASSES && !destroyed, driving = transport started). `SeamProbe.probe()`
+is the client: `Unreachable` / `Reachable(wantsRadio, driving)`; an OLD server answers the
+probe with `busy "bad token"` → `Reachable(wantsRadio=null)`, treated as **wants the radio**
+(conservative — never contend with an APK we cannot ask). The probe's bounded connect/read
+window is a liveness DECISION of the seam-heartbeat class (SEAM_QUIET_MS precedent), not a
+work-abandoning timeout.
+
+**Desktop standby (`Main.kt`).** `auto` mode no longer builds a driving stack. It runs content
+host + sync + replica, and a **standby loop**: probe the phone seam every 5 s (pacing);
+phone wants the radio (or unknown/old) → ensure no PC stack runs (stop = the handback; the
+lease fails open ≤90 s and the phone's keeper reconnects with its normal choreography);
+phone absent or Target≠glasses for **2 consecutive probes** (debounce over APK restarts) →
+build and start a plain `ble` DesktopStack. `--transport ble | remote | sim` stay as explicit
+manual modes (`remote` keeps the hardened claim/adopt machinery as the deliberate override);
+the Target row switches between manual modes and back to `auto`(=standby). PathTransport loses
+its default consumer and stays (tested, harmless).
+
+**Sync store (`Persistence.kt`, evolved in place).** Schema v2: `{"__v":2, "records":
+{key:{"v":blob,"t":stampMs}}}`; a legacy file (no `__v`) migrates on load with every stamp =
+the file's mtime. `put()` re-stamps **only when the value actually changed** (max(now, old+1),
+monotonic per key) and then notifies listeners — otherwise LWW would degenerate to
+"whoever saved last wins everything" (saveAll rewrites every key every tick).
+`tryApplyRemote(key, v, t)`: strictly-newer stamp → store silently (no listener echo) + save;
+equal value with a different stamp → adopt the higher stamp silently; else refuse. Stamps are
+compared after per-connection skew normalization (each handshake carries the sender's clock;
+incoming stamps shift by the measured offset, future-clamped) — cheap insurance, NTP does the
+real work. get/put/save/load keep their signatures: Shell and every test compile unchanged.
+
+**Sync wire (`core/sync/SyncNet.kt`).** Rides the CONTENT port exactly like the tmux channel:
+a connection that sends `{"t":"sync","stamps":{…},"clock":…}` after the hello becomes the
+persistent sync channel. Server (`SyncNet.serve`, hosted by `ContentHostServer(sync = SyncPeer)`)
+answers `syncok` (its strictly-newer records + the keys the client holds newer + its clock),
+the client pushes those, then BOTH sides live-push `syncrec` on every local change (store
+listener → outbox). The client (`RemoteSync`, phone) reconnects keeper-style (15 s pacing) and
+**re-handshakes every 5 min on a live connection** — convergence never depends on no push ever
+being lost. Synced keys: `shell.settings` + `window.<id>`; `shell.state` (focused window, mode,
+cursor, notices) is per-device UI and NEVER syncs. An old host closes the session on the
+unknown request — the client logs once and keeps its pacing (version-skew-safe both ways).
+
+**Shell live-apply (`Shell.postSync`).** `postSync(key, value, stamp): Boolean` — false when
+the shell is not running (the host applies to the store directly). On the loop: **freshen the
+key first** (put the LIVE window state / settings, so LWW compares against what the user sees,
+not the last debounced save), then `tryApplyRemote`, and only if accepted: settings →
+`applySettings` (full restyle path; its own put is value-equal so no echo); `window.<id>` →
+`restoreState`, and when that window is focused in WINDOW mode with the wheel closed →
+`syncLayout()` + full repaint. The driving shell's state is by construction the newest, so in
+practice sync flows driver → idle; LWW covers the switchover races.
+
+**Hosts.** PC: ONE process-wide store (`~/.damage/state.json`) shared by the content host's
+SyncPeer and any stack the standby (or a manual mode) builds; applier routes through the live
+shell when one runs. Phone: `RemoteSync` joins `startStack` (same lifecycle as the tmux
+provider); applier routes through `Shell.postSync` with store-direct fallback. Dev note: a PC
+`sim` session shares the PC store — state touched in the preview syncs like any PC-side state,
+by design (LWW as asked); test harnesses use scratch dirs and never touch it.
+
+### 19.3 Checklist
+
+- [x] S1 Persistence v2: stamps, change-detection, listeners, tryApplyRemote, migration; store tests in `SyncTest`
+- [x] S2 `SyncNet` + `SyncPeer` + `RemoteSync`; ContentHostServer dispatch; loopback tests (initial convergence both ways, live push, old-host refusal survived)
+- [x] S3 `Shell.postSync` (freshen → apply → live-apply); test: newer applies + repaints, older refused after freshen
+- [x] S4 Seam `status` + `SeamProbe` (+ phone `statusFor`); probe test incl. the slot-untouched guard
+- [x] S5 Desktop standby loop replacing auto's race; handback narrated; BlueZ-less machine stays host+sync loudly
+- [x] S6 Phone wiring (`RemoteSync` in startStack/stopStack); APK bump 10/0.10
+- [x] S7 Full battery green (core **164** · desktop 9 · selfcheck 48 · snapshots eyeballed · epub 380/404 · lint 0 · APK); jar + APK staged
+- [x] S8 Docs sweep (DAILY, IMPLEMENTATION, CLAUDE status, README, REMINDER, DESIGN §10/§11, EXPLOSION §16.4); memory; commit
+
+### 19.4 Progress log
+
+- 2026-08-31 — §19 written; §8.1's reading annotated as corrected; DESIGN §10.1 confirmed as the intent.
+- S1–S7 built and green the same night. One store-semantics call made during testing: an EQUAL
+  value never reports "applied" whatever its stamp (it adopts the higher stamp silently) — a
+  live re-apply of what is already shown would only cost a repaint.
+- **Deployed**: the service restarted onto the standby build and behaved exactly as designed
+  against the OLD 0.9 APK — the un-probeable seam answers `busy`, the probe reads it as "the
+  phone owns the radio", no BLE stack was started, the phone shell kept driving; the legacy
+  state store migrated in place (5 keys, mtime-stamped). Sync stays dormant until APK 0.10 is
+  installed (the 0.9 APK has no sync client) — `REMINDER.md` §Next carries the live checks.
+- ⚠ **Recorded debt (micro-race, deliberately accepted):** a record arriving in the moments a
+  shell is BETWEEN store-load and running (start-up) is applied store-direct but not
+  live-applied, and the shell's first save of the stale live state can out-stamp it — a remote
+  edit made in exactly that window can lose to older data. The window is microseconds-per-key
+  at stack start, the peer's copy survives until the next local change, and under phone-primary
+  the PC side rarely writes at all. The 5-min re-handshake does NOT heal this case (the stale
+  overwrite carries the newer stamp). Revisit if a deep review wants it closed; the fix shape
+  is a post-start reconciliation pass over syncable keys.

@@ -54,10 +54,14 @@ proves the image is reproducible from sources we hold and carries no Thumb-bit d
 installed (g2flash `a5d1c31`, reports `2.2.6.10` — detect by the `EVENCFW/` capability string,
 never the version), first light 2026-08-30, the refinement wave + the Tmux window + the daily
 driver + the zero-blink handover rework + user typography all landed 2026-08-31. **The default
-configuration runs for real: the phone APK owns the radio (its BLE glue passed first light
-2026-08-31), the PC shell drives THROUGH it from the OpenRC `damage` service, handovers ADOPT
-the live session.** Records, newest first: **`HANDOFF.md` §18** (the tmux FLOW rework + the
-review build; **§18.1 is the fresh-context resume**) then §17.1 back through §13; `DAILY.md` is the ops
+configuration runs for real, RE-SHAPED by the §19 correction (2026-08-31 night): the phone APK
+is the PRIMARY DRIVER — radio and shell, always, while it is up; the OpenRC `damage` service
+is the DATA PROVIDER (content + tmux + last-write-wins state sync) plus a STANDBY that drives
+PC-direct BLE only while the APK is unavailable and hands back on its return. The PC never
+claims in daily use** (`--transport remote` keeps the claim path as the explicit dev override).
+Records, newest first: **`HANDOFF.md` §19** (the arbitration correction + sync — the §8.1
+"best case" phrase meant DATA availability, not the driver) then §18 (the tmux FLOW rework;
+§18.1 was the resume protocol, now read with §19) back through §13; `DAILY.md` is the ops
 crib; `TMUX.md` the tmux design; `REFINEMENT.md` the on-glass verdict log. Read
 `IMPLEMENTATION.md` for what runs and how. App layer so far: Reader (folders, chapters,
 images), Tmux (FLOWED SGR text — the grid is retired to an alternate-screen fallback,
@@ -76,13 +80,13 @@ is what keeps it shippable. Do the explosion for new windows on paper (`CAPABILI
 `DESIGN.md` §0/§4.6) before coding them.
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(158 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
+(164 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
 over a fake link), `desktop --selfcheck` (48 checks), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.
 Radio use is normal now (post-flash); deploying = `./gradlew :desktop:stageJar && sudo
-rc-service damage restart` (`DAILY.md`) — with both ends ≥ 0.6 the phone ADOPTS the session
-during the gap, so a PC deploy is invisible on glass. Stop the service before any
-`:desktop:run` dev session (one central, one set of ports). `IMPLEMENTATION.md` → "Review
+rc-service damage restart` (`DAILY.md`) — since §19 the PC never claims, so a PC deploy never
+touches the display at all. Stop the service before any `:desktop:run` dev session (one set of
+ports; and `ble`/`remote` dev modes are a second central/driver). `IMPLEMENTATION.md` → "Review
 hardening" lists the mechanisms that are load-bearing and easy to break by accident — the
 compositor's per-lens truth/shadow model, the transport's session-epoch sweep, the shell's
 start/stop mutex. Do not re-introduce nominal-only seam guessing in the compositor: a pixel

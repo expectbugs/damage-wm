@@ -6,10 +6,11 @@ access. The PC composes complete scenes with real fonts and arbitrary layout; th
 a dumb framebuffer.
 
 **Live on hardware since 2026-08-30, the all-day daily driver since 2026-08-31** — the CFW is
-installed and the DEFAULT configuration runs for real: the phone APK owns the radio (its BLE
-glue passed its own first light), the PC shell drives through it over the transport seam from
-an OpenRC service, handovers ADOPT the live session (a driver change is one repaint, not a
-teardown), and PC-direct BlueZ remains the at-the-desk fallback. Built 2026-08-24/25 (the
+installed and the DEFAULT configuration runs for real: **the phone APK is the primary driver**
+(radio and shell both, its BLE glue passed first light on the first try), the PC is the data
+provider — content, tmux and last-write-wins state sync over one port, from an OpenRC service —
+and a standby policy drives PC-direct BlueZ only while the APK is unavailable, handing the
+radio back the moment it returns. Built 2026-08-24/25 (the
 Kotlin shell core, the byte-exact glass simulator, the desktop program and the phone APK,
 hardened through rounds of independent review), lit 2026-08-30, refined 2026-08-31 with the
 wearer in the loop: chrome behind the content plane, per-app height, Reader folders / chapters
