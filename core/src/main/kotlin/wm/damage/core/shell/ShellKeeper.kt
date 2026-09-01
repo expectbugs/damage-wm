@@ -117,6 +117,8 @@ class ShellKeeper(
         wanted = false
         loop?.cancel()
         loop = null
+        watcher?.cancel()   // R3s note: it outlived every stop otherwise
+        watcher = null
         lock.withLock {
             state = State.STOPPED
             stopShell("stop")

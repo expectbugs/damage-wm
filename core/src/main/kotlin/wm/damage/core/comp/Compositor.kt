@@ -660,9 +660,12 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      *  in both truth and shadow (a no-op there) — failing that, the same box.
      *  That fallback paints real black over the other lens's content, and is
      *  sound ONLY because every strip lies inside the scanned area (the
-     *  seamStrips bound), so the same flush's repair loop re-diffs it and the
-     *  batch ships the correction atomically — the glass never shows the
-     *  intermediate black (review 2026-09-01 L2). */
+     *  seamStrips bound), so the repair loop re-diffs it — usually within the
+     *  SAME batch, so the glass never shows the intermediate black. Under
+     *  exact fid/byte exhaustion the repair can ride the NEXT flush instead
+     *  (`residual` carries the area): one ~60 ms transient, never permanence
+     *  (review 2026-09-01 L2 + R3 honesty note — do not build on "always
+     *  same-batch"). */
     private fun pairBlacks(l: List<Rect>, r: List<Rect>): List<Planned.Black> {
         val out = ArrayList<Planned.Black>()
         val restL = ArrayDeque(l)

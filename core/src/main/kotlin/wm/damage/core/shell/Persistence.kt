@@ -155,10 +155,13 @@ class Persistence(private val file: Path) {
     fun removeListener(l: (String) -> Unit) { listeners.remove(l) }
 
     /** Atomic write: temp file + move, so an interruption never half-writes the
-     *  store. Synchronized + unique tmp: two savers must never interleave. */
-    fun save() {
+     *  store. Synchronized + unique tmp: two savers must never interleave.
+     *  Returns whether the write LANDED (R3s#11) — a full disk repeating only
+     *  in the log would surface at the next restart as lost state; saveAll
+     *  raises it visibly once per failure streak. */
+    fun save(): Boolean {
         synchronized(lock) {
-            try {
+            return try {
                 file.parent?.let { Files.createDirectories(it) }
                 val root = buildJsonObject {
                     put("__v", 2L)
@@ -173,8 +176,10 @@ class Persistence(private val file: Path) {
                 } finally {
                     Files.deleteIfExists(tmp)
                 }
+                true
             } catch (e: Exception) {
                 Log.e("persist", "state save FAILED — state will not survive restart", e)
+                false
             }
         }
     }

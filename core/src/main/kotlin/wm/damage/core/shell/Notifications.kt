@@ -105,6 +105,17 @@ class Notifications(private val text: TextRasterizer) {
         queue.addLast(n)
     }
 
+    /** Same-instance session start (the keeper restarts the Shell all day):
+     *  the persisted notices about to re-enqueue ARE the in-memory ones —
+     *  drop the live set first or restarts duplicate the unread queue. */
+    fun resetForRestore() {
+        current = null
+        furling = false
+        unfurl = 0
+        queue.clear()
+        invalidateUnder()
+    }
+
     private val fSmall = FontSpec(Face.SYSTEM, 13, bold = true)
     private val fTiny = FontSpec(Face.SYSTEM, 12, bold = true)
     private val fBody = FontSpec(Face.SYSTEM, 17)
@@ -135,8 +146,15 @@ class Notifications(private val text: TextRasterizer) {
         // an emergency jumps the queue (§4.5 — it must never wait behind an
         // ordinary box; review 2026-09-01 R2#3: the menu-cancel path requeues
         // the parked ordinary box at the head, and addLast seated it AHEAD of
-        // the alert, inverting "the emergency shows now")
-        if (i >= 0) queue[i] = n else if (n.emergency) queue.addFirst(n) else queue.addLast(n)
+        // the alert, inverting "the emergency shows now"). One that COALESCES
+        // into an existing thread jumps too (R3d#6) — replacing in place kept
+        // it parked at the ordinary entry's position.
+        when {
+            i >= 0 && n.emergency -> { queue.removeAt(i); queue.addFirst(n) }
+            i >= 0 -> queue[i] = n
+            n.emergency -> queue.addFirst(n)
+            else -> queue.addLast(n)
+        }
         if (show && current == null) show()
         return null
     }

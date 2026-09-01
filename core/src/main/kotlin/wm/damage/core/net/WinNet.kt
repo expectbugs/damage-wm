@@ -82,6 +82,12 @@ object WinNet {
     fun serve(sock: Socket, inp: DataInputStream, out: DataOutputStream, winId: String, service: WinService) {
         Log.i("win-host", "driver ${sock.inetAddress} attached to the '$winId' channel")
         try {
+            // greet (R3#2): the win lane is request-driven, so this is the
+            // client's only unsolicited "the host really speaks this lane"
+            // frame — its healthy flip waits for it, not for the upgrade
+            // write (which an old host may answer by closing). Unknown to no
+            // one: every win-serving build ships with this greeting.
+            out.sendWire(WWire("wup"))
             while (true) {
                 val w = inp.readWireFrame()
                 when (w.t) {
@@ -156,6 +162,7 @@ class RemoteWin(
                 Socket(host, port).use { sock ->
                     sockRef = sock
                     sock.tcpNoDelay = true
+                    sock.keepAlive = true   // OS liveness probing on an idle link, not a bound on work (R3#1)
                     val inp = DataInputStream(sock.getInputStream().buffered())
                     val o = DataOutputStream(sock.getOutputStream().buffered())
                     val hello = json.encodeToString(Hello.serializer(), Hello(token = token)).toByteArray(Charsets.UTF_8)
@@ -163,10 +170,13 @@ class RemoteWin(
                     val up = json.encodeToString(Upgrade.serializer(), Upgrade(win = winId)).toByteArray(Charsets.UTF_8)
                     synchronized(o) { o.writeInt(up.size); o.write(up); o.flush() }
                     out = o
-                    offlineSince = 0
-                    setState("")
                     while (true) {
                         val w = inp.readWireFrame()
+                        // healthy only once the host actually ANSWERS on this
+                        // lane (R3#2): resetting on the upgrade write made an
+                        // old host that closes the session flap the state and
+                        // re-log every 2 s forever
+                        if (offlineSince != 0L || stateLine.isNotEmpty()) { offlineSince = 0; setState("") }
                         when (w.t) {
                             "wres" -> {
                                 val blob = if (w.blobLen >= 0) {
@@ -185,6 +195,12 @@ class RemoteWin(
                                         w.detail.ifEmpty { "'$winId' request refused" }))
                                 }
                             }
+                            // the host's in-band refusal (an old host, or a
+                            // win id it does not serve): treat like the sync
+                            // channel does (R3#2) — paced quiet retry, never
+                            // "attached and healthy"
+                            "err" -> throw java.io.IOException(
+                                "host refused the '$winId' channel${if (w.detail.isNotEmpty()) ": ${w.detail}" else ""}")
                             else -> Log.w("win-remote", "unknown win control '${w.t}' ignored")
                         }
                     }

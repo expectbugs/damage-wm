@@ -823,7 +823,12 @@ class ReaderWindow(
                 null
             }
             services?.runOnShell {
-                if (openingId != id) return@runOnShell      // user moved on
+                if (openingId != id) {
+                    // abandoned scan: the op cell must not keep saying
+                    // "finding book" (R3s#10) — same shape as startOpen's
+                    if (openingId == null && level == Level_.LIBRARY) services?.setOperation("idle")
+                    return@runOnShell
+                }
                 openingId = null
                 if (meta == null) {
                     services?.setOperation("idle")
@@ -872,6 +877,16 @@ class ReaderWindow(
         (state["offsets"] as? JsonObject)?.let { o ->
             for ((k, v) in o) if (liveMapApply || k !in offsets) {
                 v.jsonPrimitive.intOrNull?.let { offsets[k] = it }
+            }
+            // the OPEN book's screen position re-seats like restoreSubState's
+            // (R3d#1): without it, the next rememberPosition re-stamps the
+            // STALE line over the just-applied newer offset and the
+            // regression syncs fleet-wide
+            if (liveMapApply) book?.let { b ->
+                offsets[b.meta.id]?.let { off ->
+                    val line = b.lineAtOffset(off)
+                    if (line != docModel.topLine) docModel.topLine = line
+                }
             }
         }
         val id = state["bookId"]?.jsonPrimitive?.contentOrNull

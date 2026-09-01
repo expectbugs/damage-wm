@@ -413,6 +413,10 @@ class ShellService : Service() {
                     statusLine = "REBUILD FAILED: ${e.message ?: e::class.simpleName}"
                     Log.e("service", statusLine)   // the sink raises the notice
                     updateNotification(statusLine)
+                    // startStack acquires the wake lock FIRST — a failed build
+                    // must not hold CPU forever while driving nothing (R3#4);
+                    // the next rebuild trigger (a switch, BT, boot) re-acquires
+                    releaseWakeLock()
                 } finally {
                     rebuilding.set(false)
                 }
@@ -545,9 +549,13 @@ class ShellService : Service() {
 
     /** §9.3: serious display-path errors become PHONE notifications — the only
      *  alert path that works when the display itself is broken. */
+    private val urgentIds = java.util.concurrent.atomic.AtomicInteger(0)
+
     private fun urgentNotification(source: String, body: String) {
         channels().notify(
-            (System.currentTimeMillis() and 0xFFFF).toInt(),
+            // a rolling id well clear of NOTIF_ID (R3 note: the millis-derived
+            // id could collide with the foreground notification)
+            1_000 + (urgentIds.incrementAndGet() % 64),
             NotificationCompat.Builder(this, CHANNEL_URGENT)
                 .setSmallIcon(R.drawable.ic_damage)
                 .setContentTitle("Damage: $source")

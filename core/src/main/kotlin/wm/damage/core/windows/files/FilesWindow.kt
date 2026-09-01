@@ -335,6 +335,7 @@ class FilesWindow(
     }
 
     private fun commitLocation(i: Int) {
+        pendingBrowseCursor = null   // an abandoned ascend must not steer this folder (R3d#7)
         val l = locations.getOrNull(i) ?: return
         location = l
         if (l.kind == "trash") {
@@ -356,14 +357,27 @@ class FilesWindow(
     // ================================================================= browse
     /** Sorted rows: dirs first, then the chosen order, plus the wrap-to-end
      *  "This folder" pseudo-row (§4.6's wrap-to-end idiom). */
+    /** Cached by (entries identity, sort) — rows() is called per row PAINT,
+     *  and re-sorting a few-thousand-entry directory dozens of times per
+     *  repaint on the shell loop was real work (R3s#8). [entries] is only
+     *  ever replaced wholesale, so identity is the right key. */
+    private var rowsKeyEntries: List<FEntry>? = null
+    private var rowsKeySort: Sort? = null
+    private var rowsCache: List<FEntry?> = listOf(null)
+
     private fun rows(): List<FEntry?> {
-        val cmp: Comparator<FEntry> = when (sort) {
-            Sort.NAME -> compareBy { it.name.lowercase() }
-            Sort.SIZE -> compareByDescending { it.size }
-            Sort.MTIME -> compareByDescending { it.mtimeMs }
+        if (rowsKeyEntries !== entries || rowsKeySort != sort) {
+            val cmp: Comparator<FEntry> = when (sort) {
+                Sort.NAME -> compareBy { it.name.lowercase() }
+                Sort.SIZE -> compareByDescending { it.size }
+                Sort.MTIME -> compareByDescending { it.mtimeMs }
+            }
+            rowsCache = entries.sortedWith(compareByDescending<FEntry> { it.dir }.then(cmp)) +
+                listOf<FEntry?>(null)                // null = the This-folder row
+            rowsKeyEntries = entries
+            rowsKeySort = sort
         }
-        val sorted = entries.sortedWith(compareByDescending<FEntry> { it.dir }.then(cmp))
-        return sorted + listOf<FEntry?>(null)        // null = the This-folder row
+        return rowsCache
     }
 
     private fun refreshList() {
@@ -567,6 +581,7 @@ class FilesWindow(
             refreshList()
             return
         }
+        nameArmed = null                  // Fi#16, viewer entries too (R3s note)
         val ext = e.name.substringAfterLast('.', "").lowercase()
         when {
             isImageName(e.name) -> openImage(path, e.name)
@@ -596,9 +611,11 @@ class FilesWindow(
 
     private fun paste(destDir: String) {
         val (verb, src) = clip ?: return
-        runOp(if (verb == ClipVerb.COPY) "copying" else "moving") {
+        // the clip slot clears in the LOOP completion (R3s#9), never in the
+        // IO-side op — title() reads it every chrome sync
+        runOp(if (verb == ClipVerb.COPY) "copying" else "moving",
+            onSuccess = { if (verb == ClipVerb.CUT) clip = null }) {
             val dest = if (verb == ClipVerb.COPY) provider.copy(src, destDir) else provider.move(src, destDir)
-            if (verb == ClipVerb.CUT) clip = null
             "→ ${shortPath(dest)}"
         }
     }
@@ -658,8 +675,10 @@ class FilesWindow(
     }
 
     /** One provider op at a time, narrated, loud on failure; a non-null
-     *  return becomes the title notice. Refreshes whatever level shows. */
-    private fun runOp(verb: String, op: () -> String?) {
+     *  return becomes the title notice. Refreshes whatever level shows.
+     *  [onSuccess] applies view-facing follow-up state ON THE LOOP (R3s#9 —
+     *  mutating it inside [op] runs on IO, the round-1 reader-race class). */
+    private fun runOp(verb: String, onSuccess: (() -> Unit)? = null, op: () -> String?) {
         if (opBusy) {
             setNotice("busy — one operation at a time")
             services?.requestRender(this)
@@ -680,8 +699,9 @@ class FilesWindow(
                 if (err != null) {
                     setNotice(err)
                     services?.notifyInternal("files", "$verb failed: $err")
-                } else if (msg != null) {
-                    setNotice(msg)
+                } else {
+                    if (msg != null) setNotice(msg)
+                    onSuccess?.invoke()
                 }
                 when (level) {
                     Level_.BROWSE -> refreshList()
@@ -1017,12 +1037,16 @@ class FilesWindow(
 
     private var viewer: Viewer? = null
     /** A restored reading position waiting for its viewer (Fi#7) — consumed
-     *  at Viewer creation by every open path, async ones included. */
+     *  at Viewer creation by every open path, async ones included; bound to
+     *  [pendingViewFor]'s file so an unrelated open cannot inherit it. */
     private var pendingViewTop = 0
+    private var pendingViewFor: String? = null
 
     private fun consumePendingTop(v: Viewer) {
+        if (pendingViewFor != null && pendingViewFor != v.path) return   // not this file (R3d#8)
         v.restoreTop = pendingViewTop
         pendingViewTop = 0
+        pendingViewFor = null
     }
 
     private val coverCache = HashMap<String, Boolean>()
@@ -1124,6 +1148,9 @@ class FilesWindow(
     private fun openPdf(path: String, name: String) {
         services?.setOperation("reading pdf")
         val seq = ++sideSeq
+        val nav = navSeq
+        val fromLevel = level
+        val fromViewer = viewer
         bg.launch(Dispatchers.IO) {
             val (info, err) = try {
                 provider.pdfInfo(path) to null
@@ -1133,12 +1160,26 @@ class FilesWindow(
             services?.runOnShell {
                 if (seq != sideSeq) return@runOnShell
                 services?.setOperation("idle")
+                // apply-only-if-undisturbed (R3s#1, the Reader #B8 shape): a
+                // slow pdfInfo over a stalled link must not yank the user out
+                // of a file or folder they went to meanwhile — every other
+                // async open got this guard; the one that CREATES the viewer
+                // had none
+                if (nav != navSeq || level != fromLevel || viewer !== fromViewer) {
+                    Log.i("files", "pdf open of $name superseded by user activity — dropped")
+                    setNotice("opening $name cancelled — you moved on")
+                    pendingViewTop = 0
+                    pendingViewFor = null
+                    services?.requestRender(this@FilesWindow)
+                    return@runOnShell
+                }
                 if (info == null) {
                     Log.e("files", "pdfinfo of $path failed: $err")
                     setNotice(err ?: "could not read the PDF")
                     // a restore that dies here must not leave its position
                     // armed for the NEXT unrelated open (R2#9)
                     pendingViewTop = 0
+                    pendingViewFor = null
                     services?.requestRender(this@FilesWindow)
                     return@runOnShell
                 }
@@ -1211,6 +1252,21 @@ class FilesWindow(
         put("viewTop", docModel.topLine)
     }
 
+    /** A LIVE-synced record needs the refresh boot gets from onActivate
+     *  (R3d#2): applying a new cwd over the OLD folder's rows let a menu
+     *  commit act on `pathOf(stale row)` — a same-named file in the new
+     *  folder would be the wrong file. */
+    override fun restoreStateLive(state: JsonObject) {
+        restoreState(state)
+        when (level) {
+            Level_.BROWSE -> { entries = emptyList(); listState = "listing"; refreshList() }
+            Level_.TRASH -> refreshTrash()
+            Level_.LOCATIONS -> refreshLocations()
+            Level_.VIEW -> {}   // the restore path reopens through the normal opens
+        }
+        services?.requestRender(this)
+    }
+
     override fun restoreState(state: JsonObject) {
         locModel.cursor = state["locCursor"]?.jsonPrimitive?.intOrNull ?: 0
         browseModel.cursor = state["browseCursor"]?.jsonPrimitive?.intOrNull ?: 0
@@ -1246,8 +1302,11 @@ class FilesWindow(
                     level = Level_.BROWSE
                     // consumed by whichever open path CREATES the viewer —
                     // pdfpage creates it inside an async completion, so a
-                    // direct write here hit null and lost the page (Fi#7)
+                    // direct write here hit null and lost the page (Fi#7).
+                    // Bound to ITS file (R3d#8): a different file the user
+                    // opens meanwhile must not inherit the position.
                     pendingViewTop = vTop
+                    pendingViewFor = vPath
                     when (vMode) {
                         "text" -> openText(vPath, vName)
                         "image" -> openImage(vPath, vName)

@@ -392,6 +392,10 @@ class Shell(
         val restoredMode = shellState?.get("mode")?.jsonPrimitive?.contentOrNull
         main.model.cursor = shellState?.get("mainCursor")?.jsonPrimitive?.contentOrNull
             ?.toIntOrNull() ?: 0
+        // same-instance restart: the persisted notices ARE the in-memory ones
+        // — drop the live set first or every keeper restart duplicates the
+        // whole unread queue (R3d note, the third per-session-family member)
+        notifications.resetForRestore()
         restoreNotices(shellState)
         // divergence bookkeeping is per session: a restarted shell reports its
         // first disagreement afresh, and a stale report does not linger on the
@@ -895,6 +899,8 @@ class Shell(
     /** Live settings hold a value the stored record did not produce — i.e. a
      *  local edit happened. Gates every re-encoding put (R2#4). */
     private var settingsLocallyEdited = false
+    /** One visible alarm per save-failure streak (R3s#11). */
+    private var saveFailureRaised = false
 
     /** Per window: the sub-record keys its saveSubState has REPORTED this
      *  session — the only keys the tombstone sweep may remove (F2c/d). */
@@ -1144,6 +1150,10 @@ class Shell(
         // the box (grace holds while the wheel is open) goes back on top with
         // a fresh capture of the previewed content (review round 2 #A5)
         if (notifications.active) paintNotification()
+        // the settle runs in the pump's NOTHING-PENDING branch, so its damage
+        // has no flush behind it — without this pump the preview waits for
+        // the next incidental message, up to the 5 s idle tick (R3s#5)
+        post(Msg.Pump)
     }
 
     // ------------------------------------------------------------------ notices
@@ -1164,12 +1174,14 @@ class Shell(
             }
             return
         }
-        if (menu.open && n.emergency) {
+        if ((menu.open || switcher.open) && n.emergency) {
             // §4.5: "an emergency alert cancels any pending confirm rather
             // than stacking on it" — a menu can sit open indefinitely, so an
-            // emergency must not wait behind it (review 2026-09-01 F8);
-            // losing a menu is safe, a missed alert is not
-            cancelMenu()
+            // emergency must not wait behind it (review 2026-09-01 F8); the
+            // WHEEL has no auto-close either, so the same rationale covers it
+            // (R3s#3). Losing a surface is safe, a missed alert is not.
+            if (switcher.open) cancelSwitcher()
+            if (menu.open) cancelMenu()
             // and the close must not seat a QUEUED ordinary box ahead of the
             // alert — park it back unread; post() seats emergencies at the
             // queue HEAD (R2#3), so the alert really does show next
@@ -1664,6 +1676,10 @@ class Shell(
         settingsLocallyEdited = persist
         if (persist) persistence.put("shell.settings", s.toJson())
         if (restyle) {
+            // a synced record can change typography AND height in one apply
+            // (R3s#6): re-derive the layout BEFORE the full repaint, or the
+            // restyle renders at the stale height until the next invalidate
+            if (relayout) syncLayout()
             refreshStyles()
             for (w in windows) {
                 w.onFontScaleChanged(effScale(w.id))
@@ -1974,6 +1990,10 @@ class Shell(
                 Log.e("shell", "flush assembly failed", e)
                 journal.note("assemble-error", e.toString())
                 setStatus("ASSEMBLE ${e.message}")
+                // a throw mid-assembly can leave shadows seeded with nothing
+                // on the wire (R3s#7): a keyframe re-grounds belief — cheap
+                // insurance on a path that should never run
+                comp.requestKeyframe()
                 null
             }
             if (assembled != null) {
@@ -2181,9 +2201,28 @@ class Shell(
                 if (sub == null) {
                     Log.i("sync", "state of '${w.id}' updated from the peer")
                     w.restoreStateLive(value)
+                    // per-ITEM last-write-wins on top of the main record
+                    // (R3d#1): an old peer's whole-map record can win the
+                    // MAIN key while this side holds NEWER sub-records — each
+                    // newer sub wins its item back, and restoreSubState's own
+                    // re-seat keeps the open item's screen position honest
+                    val mainStamp = persistence.stamp(key)
+                    for (k2 in persistence.keysWithPrefix("$key.")) {
+                        if (persistence.stamp(k2) > mainStamp) {
+                            persistence.get(k2)?.let { v2 ->
+                                try { w.restoreSubState(k2.removePrefix("$key."), v2) }
+                                catch (e: Exception) { Log.e("sync", "sub re-apply of $k2 failed", e) }
+                            }
+                        }
+                    }
                 } else {
                     Log.i("sync", "item '$sub' of '${w.id}' updated from the peer")
                     w.restoreSubState(sub, value)
+                    // the window now HOLDS (or just removed) this item: it
+                    // counts as reported (R3s#4) — without this, a user
+                    // removal made before the next saveAll never tombstones
+                    // and the peer's record resurrects it at the next restart
+                    subReported.getOrPut(w.id) { HashSet() }.add(sub)
                 }
                 // repaint only when the change is on screen; the wheel owns the
                 // screen while open (§4.3) and a parked window paints on focus
@@ -2231,7 +2270,13 @@ class Shell(
                 Log.e("shell", "saveState of ${w.id} failed", e)
             }
         }
-        persistence.save()
+        val landed = persistence.save()
+        // raise once per failure streak (R3s#11): an all-day driver on a full
+        // disk must not learn at the next restart that nothing persisted
+        if (!landed && !saveFailureRaised) {
+            saveFailureRaised = true
+            services.notifyInternal("state", "state save FAILED — changes will not survive a restart", urgent = true)
+        } else if (landed) saveFailureRaised = false
     }
 
     /** Unread notifications the user could still see must survive a restart

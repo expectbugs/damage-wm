@@ -375,9 +375,11 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         tmux = tmuxProvider, sync = syncPeer,
         win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider)),
         icons = themeIcons)
+    var hostBound = true
     try {
         host.start()
     } catch (e: Exception) {
+        hostBound = false
         Log.e("damage", "content host failed to bind :${cfg.contentPort} (another instance?)", e)
     }
 
@@ -386,7 +388,13 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     // the standby policy. next == null tears down with no replacement (the
     // handback: the lease fails open and the phone's keeper reconnects).
     fun swapStack(next: String?, why: String) {
-        if (!switching.compareAndSet(false, true)) return
+        if (!switching.compareAndSet(false, true)) {
+            // a concurrent switch owns the slot — SAY the drop (R3#7): the
+            // standby loop re-probes and retries by itself; a manual mode
+            // change needs the operator to see it was not taken
+            Log.w("damage", "switch to ${next ?: "standby"} dropped — another switch is in progress ($why)")
+            return
+        }
         Thread({
             try {
                 // build the new stack FIRST: a mode this machine cannot build
@@ -441,6 +449,14 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         var bleBroken = false
         while (isActive) {
             if (standbyOn.get()) {
+                if (!hostBound) {
+                    // another instance holds the content port (R3#8): it is
+                    // probably ALSO running this standby policy — two claims
+                    // would be two centrals on one adapter. Data-host-only.
+                    standbyNote.set("standby: content port busy — another instance? not claiming")
+                    delay(STANDBY_PROBE_MS)
+                    continue
+                }
                 if (bleBroken && switchNote.get().isEmpty()) bleBroken = false   // a manual round-trip cleared it
                 if (switchNote.get().startsWith("switch to ble failed") && !bleBroken) {
                     bleBroken = true

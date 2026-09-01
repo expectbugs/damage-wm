@@ -297,7 +297,15 @@ class TmuxWindow(
         val host = hosts().getOrElse(i - sessions.size) { "local" }
         busy("creating a session on $host") {
             val name = provider.newSession(host)
-            onShell { open(TmuxTarget(host, name)) }
+            // apply-only-if-undisturbed (R3s#2): a slow ssh host must not
+            // yank the user out of a session they opened meanwhile
+            onShell {
+                if (level == Level_.SESSIONS) open(TmuxTarget(host, name))
+                else {
+                    notice = "session $name created on $host"
+                    services?.requestRender(this@TmuxWindow)
+                }
+            }
         }
     }
 
@@ -418,7 +426,12 @@ class TmuxWindow(
             i == qk.size + 2 -> {
                 busy("listing windows") {
                     val w = provider.windows(t)
-                    onShell { wins = w; winModel.cursor = 0; level = Level_.WINDOWS; services?.requestRender(this) }
+                    // only while the user still waits on KEYS (R3s#2) — a
+                    // late listing must not force the WINDOWS level
+                    onShell {
+                        if (level != Level_.KEYS) return@onShell
+                        wins = w; winModel.cursor = 0; level = Level_.WINDOWS; services?.requestRender(this)
+                    }
                 }
             }
             else -> { level = Level_.SESSION_ACTIONS; actModel.cursor = 0 }
@@ -495,7 +508,15 @@ class TmuxWindow(
                 level = Level_.LIVE
                 busy("selecting the window") {
                     provider.selectWindow(t, t.window)
-                    onShell { target = t.copy(window = -1); resubscribe() }
+                    // re-target/resubscribe only if the user still watches
+                    // THIS session (R3s#2): after back() the capture loop
+                    // must not poll a pane nobody watches
+                    onShell {
+                        val cur = target
+                        if (cur != null && cur.host == t.host && cur.session == t.session) {
+                            target = t.copy(window = -1); resubscribe()
+                        }
+                    }
                 }
             }
             rows[i].startsWith("Rename") -> {
@@ -556,8 +577,14 @@ class TmuxWindow(
                 provider.renameSession(t, line)
                 onShell {
                     val clean = TmuxNames.clean(line) ?: return@onShell
-                    target = t.copy(session = clean)
-                    resubscribe()
+                    val cur = target
+                    // the rename happened on the HOST either way; only the
+                    // local view re-targets, and only if the user is still
+                    // on that session (R3s#2)
+                    if (cur != null && cur.host == t.host && cur.session == t.session) {
+                        target = t.copy(session = clean)
+                        resubscribe()
+                    }
                 }
             }
         } else {
@@ -659,6 +686,17 @@ class TmuxWindow(
         put("paceMs", paceMs)
         heightPref?.let { put("height", it) }
         putJsonArray("muted") { muted.forEach { add(JsonPrimitive(it)) } }
+    }
+
+    /** A LIVE-synced record needs the activation follow-up boot gets from
+     *  onActivate (R3d#2): a target swap without resubscribe() leaves the
+     *  frame listener filtering every push — the pane freezes on the old
+     *  target's last frame under the new session's title. */
+    override fun restoreStateLive(state: JsonObject) {
+        restoreState(state)
+        frame = null
+        if (level == Level_.LIVE || level == Level_.HISTORY || level == Level_.KEYS) resubscribe()
+        services?.requestRender(this)
     }
 
     override fun restoreState(state: JsonObject) {

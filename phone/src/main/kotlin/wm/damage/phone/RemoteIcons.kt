@@ -76,16 +76,24 @@ class RemoteIcons(
                     fetchGate.withPermit {
                         if (closed) return@withPermit
                         val r = fetch(name, sizePx)
+                        // the theme adoption and the cache insert are ONE
+                        // atomic step (R3#6): a stale old-theme result landing
+                        // after a wipe otherwise writes its bitmap into the
+                        // fresh cache, where a mem hit keeps it for the run
                         when {
                             r.bitmap != null -> {
-                                syncTheme(r.theme)
-                                mem[key] = r.bitmap
-                                diskWrite(name, sizePx, r.bitmap)
+                                synchronized(themeLock) {
+                                    syncThemeLocked(r.theme)
+                                    mem[key] = r.bitmap
+                                    diskWrite(name, sizePx, r.bitmap)
+                                }
                                 onLoaded()
                             }
                             r.cleanMiss -> {
-                                syncTheme(r.theme)
-                                missingKeys.add(key)
+                                synchronized(themeLock) {
+                                    syncThemeLocked(r.theme)
+                                    missingKeys.add(key)
+                                }
                                 onLoaded()   // the chain's next name gets its turn
                             }
                         }
@@ -110,6 +118,7 @@ class RemoteIcons(
         try {
             sock.use {
                 it.tcpNoDelay = true
+                it.keepAlive = true   // OS liveness probing (R3#1)
                 val inp = DataInputStream(it.getInputStream().buffered())
                 val out = DataOutputStream(it.getOutputStream().buffered())
                 fun send(s: String) {
@@ -143,9 +152,11 @@ class RemoteIcons(
     /** A different serving theme wipes the cache (once), so the phone follows
      *  desktop re-themes instead of showing the old set forever. */
     private val themeLock = Any()
-    private fun syncTheme(theme: String) {
+    /** Callers hold [themeLock] — the adoption must be atomic with the
+     *  caller's cache insert (R3#6). */
+    private fun syncThemeLocked(theme: String) {
         if (theme.isEmpty()) return
-        synchronized(themeLock) {
+        run {
             val marker = cacheDir.resolve("theme.txt")
             val known = try {
                 if (Files.isRegularFile(marker)) String(Files.readAllBytes(marker), Charsets.UTF_8).trim() else ""

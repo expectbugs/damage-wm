@@ -226,7 +226,11 @@ class RemoteTmuxProvider(
                 wantedPace?.let { o.sendWire(TWire(t = "tpace", paceMs = it)) }
                 if (subSet) o.sendWire(TWire(t = "tsub", target = wantedTarget))
             } catch (e: Exception) {
-                Log.w("tmux-remote", "control not sent (reconnect will re-assert): ${e.message}")
+                Log.w("tmux-remote", "control not sent: ${e.message} — dropping the link so the reader reconnects")
+                // a failed control write is how a SILENT path death becomes
+                // visible (R3#1): the parked reader never errors on its own —
+                // closing the socket unparks it and the connect loop heals
+                try { sockRef?.close() } catch (c: Exception) { /* closing */ }
             }
         }
     }
@@ -239,6 +243,7 @@ class RemoteTmuxProvider(
                 Socket(host, port).use { sock ->
                     sockRef = sock
                     sock.tcpNoDelay = true
+                    sock.keepAlive = true   // OS liveness probing on an idle link (R3#1)
                     val inp = DataInputStream(sock.getInputStream().buffered())
                     val o = DataOutputStream(sock.getOutputStream().buffered())
                     // the content hello, then switch the connection to tmux
@@ -246,13 +251,33 @@ class RemoteTmuxProvider(
                     synchronized(o) { o.writeInt(hello.size); o.write(hello); o.flush() }
                     o.sendWire(TWire(t = "tmux"))
                     out = o
-                    offlineSince = 0
-                    setState("")
                     // re-assert what a reconnect interrupted: the subscription
                     // and any non-default capture pacing — through the same
                     // lane every control send uses (R2#12)
                     ctlKick.trySend(Unit)
-                    while (true) route(inp.readWire())
+                    // paced liveness (R3#1): while subscribed, re-asserting is
+                    // an idempotent WRITE — on a silently dead path the send
+                    // fails within TCP's own retransmission bound and the ctl
+                    // sender drops the link, where a pure reader parks forever
+                    val liveness = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        while (isActive) {
+                            delay(LIVENESS_PACING_MS)
+                            if (subSet || wantedPace != null) ctlKick.trySend(Unit)
+                        }
+                    }
+                    try {
+                        while (true) {
+                            val w = inp.readWire()
+                            // healthy only once the host actually SPEAKS tmux
+                            // on this connection (R3#2) — resetting on the
+                            // upgrade write made an old host that closes the
+                            // session flap state and re-log every 2 s
+                            if (offlineSince != 0L) { offlineSince = 0; setState("") }
+                            route(w)
+                        }
+                    } finally {
+                        liveness.cancel()
+                    }
                 }
             } catch (e: Exception) {
                 out = null
@@ -283,6 +308,9 @@ class RemoteTmuxProvider(
             }
             "talert" -> w.session?.let { s -> for (l in listeners) l.alert(s) }
             "tres" -> pending.remove(w.id)?.complete(w)
+            // the host's in-band refusal: paced quiet retry, never "attached"
+            "err" -> throw java.io.IOException(
+                "host refused the tmux channel${if (w.detail.isNotEmpty()) ": ${w.detail}" else ""}")
             else -> Log.w("tmux-remote", "unknown tmux control '${w.t}' ignored")
         }
     }
@@ -376,5 +404,11 @@ class RemoteTmuxProvider(
         ctlKick.close()                  // ends the control-send lane (R2#12)
         failPending("tmux provider closed")
         try { sockRef?.close() } catch (e: Exception) { /* closing */ }   // unparks a blocked read
+    }
+
+    private companion object {
+        /** Idempotent re-assert pacing while subscribed (R3#1) — the write
+         *  that turns a silent path death into a visible failure. */
+        const val LIVENESS_PACING_MS = 60_000L
     }
 }

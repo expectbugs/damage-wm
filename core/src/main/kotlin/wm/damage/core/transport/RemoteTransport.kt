@@ -483,8 +483,13 @@ class RemoteTransportClient(
             off += p.size
         }
         pendingSubmits[id] = System.currentTimeMillis()
-        o.send(Ctl(t = "flush", id = id, epoch = flush.epoch, label = flush.label, ops = ops,
-            wide = flush.wide), blob)
+        // the blocking socket write runs OFF the caller (R3 note): the pump
+        // calls submit on the shell loop, and a wedged link with a full TCP
+        // buffer would park the loop — the store-listener lesson (R2), here
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            o.send(Ctl(t = "flush", id = id, epoch = flush.epoch, label = flush.label, ops = ops,
+                wide = flush.wide), blob)
+        }
         return id
     }
 
@@ -533,6 +538,11 @@ class RemoteTransportServer(
     @Volatile private var running = false
     @Volatile private var driver: Socket? = null
 
+    /** Every accepted socket, tracked so close() reaches connections that
+     *  never won the driver slot (R3#3): a half-connected peer's reader
+     *  otherwise outlives the server across phone stack rebuilds. */
+    private val accepted = java.util.concurrent.ConcurrentHashMap.newKeySet<Socket>()
+
     fun start() {
         running = true
         val s = ServerSocket(port)
@@ -544,9 +554,11 @@ class RemoteTransportServer(
                     if (running) Log.e("transport-server", "accept failed", e)
                     break
                 }
-                Thread({ serve(client) }, "transport-driver-${client.inetAddress}").start()
+                accepted.add(client)
+                Thread({ try { serve(client) } finally { accepted.remove(client) } },
+                    "transport-driver-${client.inetAddress}").apply { isDaemon = true }.start()
             }
-        }, "transport-server").start()
+        }, "transport-server").apply { isDaemon = true }.start()
     }
 
     /** What the ordered sender carries: a message, or a per-arm mark that
@@ -873,6 +885,8 @@ class RemoteTransportServer(
         running = false
         server?.close()
         driver?.close()
+        // connections that never became the driver (R3#3)
+        for (c in accepted) try { c.close() } catch (e: Exception) { /* closing */ }
     }
 }
 

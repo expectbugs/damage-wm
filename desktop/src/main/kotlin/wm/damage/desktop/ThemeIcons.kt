@@ -129,12 +129,13 @@ class ThemeIcons(
 
     // --------------------------------------------------------------- lookup
     /** (bitmap, cleanMiss): (g, _) success · (null, true) the theme has no
-     *  USABLE icon of this name · (null, false) a transient failure worth
-     *  retrying. A file that EXISTS but will not rasterize or decode is a
-     *  CLEAN MISS, not a transient (R2#13): it is deterministically dead for
-     *  this theme session, and calling it transient re-ran the tool every
-     *  30 s all day while the paint chain never advanced past it to a later
-     *  name that IS cached. Only an IO read failure stays transient. */
+     *  USABLE icon of this name · (null, false) or a THROW = transient. A
+     *  file a tool ran on and refused, or one that will not decode, is a
+     *  CLEAN MISS (R2#13): deterministically dead for this theme session —
+     *  calling it transient re-ran the tool every 30 s all day while the
+     *  paint chain never advanced past it. TOOL-level trouble (nothing
+     *  installed, signal-class exits, IO read failures) stays transient
+     *  (R3d#4 — rasterizeSvg throws for those). */
     private fun resolveUncached(name: String, size: Int): Pair<Gray8?, Boolean> {
         val f = findFile(name, size) ?: return null to true
         val png: ByteArray = when {
@@ -208,7 +209,14 @@ class ThemeIcons(
 
     private val toolAbsent = ConcurrentHashMap.newKeySet<String>()
 
+    /** null = a tool RAN and refused the file (deterministic — the caller may
+     *  latch a clean miss). Tool-level trouble — no rasterizer installed,
+     *  interrupted, a signal-class exit (an OOM-stopped rsvg-convert during a
+     *  -j12 emerge) — THROWS instead (R3d#4): those are transient and must
+     *  keep the paced-retry lane, never latch drawn icons for an all-day
+     *  service. */
     private fun rasterizeSvg(f: Path, size: Int): ByteArray? {
+        var refusals = 0
         for (cmd in listOf(
             listOf("rsvg-convert", "-w", "$size", "-h", "$size", f.toString()),
             listOf("magick", f.toString(), "-background", "none", "-resize", "${size}x${size}", "png:-"),
@@ -218,15 +226,18 @@ class ThemeIcons(
                 val r = Exec.run(cmd)
                 if (r.code == 0 && r.stdout.isNotEmpty()) return r.stdout
                 Log.w("icons", "${cmd[0]} on ${f.fileName} exit ${r.code}: ${r.stderr.take(200)}")
+                if (r.code in 1..127) refusals++    // a normal refusal, not a signal
             } catch (e: java.io.IOException) {
                 if (toolAbsent.add(cmd[0])) {
                     Log.w("icons", "${cmd[0]} is not installed — SVG theme icons need it (trying the next tool)")
                 }
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
-                return null
+                throw IllegalStateException("rasterize of ${f.fileName} interrupted")
             }
         }
+        if (refusals == 0) throw IllegalStateException(
+            "no rasterizer could run for ${f.fileName} (absent tools or transient failures)")
         return null
     }
 

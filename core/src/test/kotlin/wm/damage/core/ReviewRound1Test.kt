@@ -173,7 +173,9 @@ class ReviewRound1Test {
             awaitTrue("menu 1's onClose ran") { w.closedCount == 1 }
             r.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // cancel menu 2
             awaitTrue("menu 2 closed") { !r.shell.menuIsOpen }
-            assertEquals(2, w.closedCount)
+            // poll, don't assert instantly: the menu closes BEFORE onClose
+            // runs, and the test thread can win that window (R3 flake)
+            awaitTrue("menu 2's onClose ran") { w.closedCount == 2 }
             r.shell.stop()
         } finally {
             r.scope.cancel()

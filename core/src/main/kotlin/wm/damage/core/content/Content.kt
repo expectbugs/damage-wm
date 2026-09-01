@@ -302,8 +302,16 @@ class ContentHostServer(
                             out.flush()
                         }
                         else -> {
-                            Log.w("content-host", "unknown request t='$t' — closing session")
-                            return
+                            // cross-version law (R3#2): a NEWER client's lane
+                            // request must get an in-band refusal, never a
+                            // closed session — the 0.15 host closing on the
+                            // new "win" lane is what made the phone flap every
+                            // 2 s. Upgrade controls are single JSON frames, so
+                            // the stream stays aligned after the answer.
+                            Log.w("content-host", "unknown request t='$t' — refused in-band")
+                            out.sendJson(json.encodeToString(ErrMsg.serializer(),
+                                ErrMsg(detail = "unknown request '$t' (version skew?)")))
+                            out.flush()
                         }
                     }
                 }

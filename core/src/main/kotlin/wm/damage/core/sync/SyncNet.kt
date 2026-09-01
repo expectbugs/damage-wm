@@ -79,6 +79,9 @@ object SyncNet {
     /** Sender-thread stop sentinel — LinkedBlockingQueue refuses nulls. */
     private val END = SWire(t = "__end")
 
+    /** R3#5: the server outbox's bound (the client's cap is its own const). */
+    private const val SERVE_OUTBOX_CAP = 256
+
     private fun syncableStamps(store: Persistence): Map<String, Long> =
         store.stamps().filterKeys { Persistence.syncable(it) }
 
@@ -113,10 +116,20 @@ object SyncNet {
                 clock = System.currentTimeMillis()))
         }
 
-        val outbox = LinkedBlockingQueue<SWire>()
+        // bounded like the client's (R3#5 — R2#20e applied to one side only):
+        // a half-open peer parks the sender in the TCP buffer while local puts
+        // keep producing; overflow drops the OLDEST loudly, and the client's
+        // periodic re-handshake heals any dropped push
+        val outbox = LinkedBlockingQueue<SWire>(SERVE_OUTBOX_CAP)
+        fun enqueue(w: SWire) {
+            while (!outbox.offer(w)) {
+                outbox.poll()
+                Log.w("sync-host", "outbox full — dropped the oldest push (the re-handshake heals it)")
+            }
+        }
         val listener: (String) -> Unit = { key ->
             if (Persistence.syncable(key)) {
-                peer.store.record(key)?.let { (v, t) -> outbox.put(SWire(t = "syncrec", records = listOf(SRec(key, v, t)))) }
+                peer.store.record(key)?.let { (v, t) -> enqueue(SWire(t = "syncrec", records = listOf(SRec(key, v, t)))) }
             }
         }
         val sender = Thread({
@@ -152,7 +165,8 @@ object SyncNet {
             Log.w("sync-host", "sync channel ended: ${e.message}")
         } finally {
             peer.store.removeListener(listener)
-            outbox.put(END)
+            // the bounded queue must never park the teardown: make room
+            while (!outbox.offer(END)) outbox.poll()
             try { sock.close() } catch (e: Exception) { /* closed */ }
         }
     }
