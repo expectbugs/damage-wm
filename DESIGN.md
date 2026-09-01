@@ -596,8 +596,8 @@ surface exceeds its budget. Starting targets, to calibrate on the first real ren
 
 | surface | budget | **measured** |
 |---|---|---|
-| Main, active | ≤ 15% | **8.5%** ✅ |
-| Main, resting | ≤ 5% | **4.4%** ✅ |
+| Main, active | ≤ 15% | **9.0%** ✅ *(8.5% before the band-height lens icon, 2026-09-01)* |
+| Main, resting | ≤ 5% | **4.8%** ✅ *(4.4% before)* |
 | notification box | ≤ 25% | **5.2%** ✅ |
 | emergency banner | ≤ 25% | **6.5%** ✅ |
 | switcher | ≤ 25% | **5.3%** ✅ |

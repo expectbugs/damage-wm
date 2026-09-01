@@ -10,7 +10,7 @@ data availability, not the driver. This file is the ops crib.
 | piece | job | kept alive by |
 |---|---|---|
 | **phone APK** (Target = glasses) | **THE driver** — owns the BLE radio and runs the shell, always; serves the seam :7402 (status probe + explicit dev claims) + replica :7403 | foreground service + wakelock + Doze exemption + `BootReceiver` (reboot/update) |
-| **beardos `damage` service** | **the data host + standby**: books + tmux + STATE SYNC on :7401, the PC replica :7403; probes the phone every 5 s and starts a PC-direct BLE stack ONLY while the APK is not available, handing the radio back the moment it returns | OpenRC `/etc/init.d/damage` (supervise-daemon, enabled at `default`, headless `--no-preview`, mode `auto` = standby) |
+| **beardos `damage` service** | **the data host + standby**: books + tmux + STATE SYNC + the window channel (the phone's FILES window: listings, ops, viewers, blobs) + theme icons on :7401, the PC replica :7403; probes the phone every 5 s and starts a PC-direct BLE stack ONLY while the APK is not available, handing the radio back the moment it returns | OpenRC `/etc/init.d/damage` (supervise-daemon, enabled at `default`, headless `--no-preview`, mode `auto` = standby) |
 
 **Who drives when** (all automatic, event-driven, pacing not timeouts):
 
@@ -34,7 +34,7 @@ ever needs redoing: (1) sideload from the setup page, grant Bluetooth ×2 + noti
 battery exemption; (2) 🔴 keep the G2CC bridge app Disconnected (a second central); (3) phone
 first light with NOTHING on beardos holding the pair (`sudo rc-service damage stop`), flip
 Target → glasses; (4) `sudo rc-service damage start` → the log says "standby up (§19)" and the
-phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.15 is the
+phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.16 is the
 current build**: sync client + probeable seam; ring-probe experiment reverted): an older APK
 cannot be status-probed, so the PC conservatively stays out (fine), and a pre-0.10 APK carries
 no sync client, so state does not flow until it is updated.
@@ -71,4 +71,4 @@ PC logged `sync-host: peer attached to the sync channel`, the store migrated to 
 schema, and a phone-side record (`window.tmux`) crossed and applied store-direct while the PC
 shell was in standby. **Still awaiting a deliberate glass test**: a real standby engagement
 (stop the APK at the desk → the PC BLE-drives within ~10 s → restart the APK → handback) and
-the sync feel across a driver swap (a book position following the swap). Current APK: **0.15**.
+the sync feel across a driver swap (a book position following the swap). Current staged APK: **0.16** (Files + theme icons + the review-round fixes; what Adam last INSTALLED may lag — check before reasoning about phone behaviour).

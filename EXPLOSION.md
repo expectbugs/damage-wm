@@ -40,6 +40,11 @@ side-effect-free** — called for every window on every Main render) · `icon` �
 from the replicas — **always staged behind the window's own confirm**) · `back()` /
 `levelDepth()` (the unified back stack and the bottom divider's depth segments).
 
+*Grown 2026-09-01 with the Files build:* `open(target)` (§16.1 deep links) ·
+`saveSubState()/restoreSubState()` (§16.4 per-item sub-records) — and `ShellServices` grew
+`openMenu` (the floating context menu), `openWindow(id, target, backTarget)` (hand-off with
+back-to-caller), `notifyInternal(appId, thread, target)` and `icons()` (theme-icon lookup).
+
 ### 0.3 The price list every idea is graded against
 
 **Measured** (`overview.md` §5.2, n=1,488 flushes, PC-direct): `ms ≈ 60 + bytes/50`.
@@ -224,6 +229,16 @@ Strictly read-only? Is the week strip wanted at all on a glanceable HUD?
 ---
 
 ## 5. FILES
+
+> ✅ **BUILT 2026-09-01 (the first conversion — `HANDOFF.md` §22, `IMPLEMENTATION.md`).** The
+> shipped grammar SUPERSEDES rows 5.1/5.2 below: **tap = context menu with Open first**
+> (uniform for every entry, Adam's settled design) — not tap-descends. Shipped in v1 beyond
+> the graded plan: PDF dual-mode (5.10, was v2), rename via typed text (5.9), EPUB→Reader
+> hand-off (5.8), trash with explicit Restore + on-glass double-confirm purge, the clipboard
+> Copy/Cut→Paste (the Move/Copy refinery question answered), per-volume capacity bars, theme
+> icons per file type. NOT shipped: 5.7 row thumbnails (the LENS shows a real thumbnail;
+> per-row = v1.5), configurable roots/trash-retention settings (`appSettings()` is empty —
+> hidden/sort live in the This-folder menu; recorded deviation).
 
 G2CC lineage: `files.ts` — tree + preview + image viewer + ops + trash; its ACTIONS level is the
 pattern `DESIGN.md` §4.6 generalised to every window. The §13 promise: *"a file manager with real
@@ -587,9 +602,15 @@ Sans, drawn digits where large (B612 ruled out as a default, §16.6) · summary 
 These are the load-bearing additions multiple windows need. **They are the real v1 engineering**
 hiding inside the explosion.
 
-🔴 **SETTLED WITH ADAM 2026-09-01** (the pre-refinery general-topics session). Statuses below;
-**`WINDOWS.md` is the build-facing distillation** (per-window checklist + shared idioms). Nothing
-is coded yet; the agreed build order closes this section.
+🔴 **SETTLED WITH ADAM 2026-09-01** (the pre-refinery general-topics session); **BUILT the
+same night with the Files conversion** — 16.1/16.2 (deep links + hand-off with back-to-caller),
+16.4a–d (sub-records + reported-guarded tombstones, merge-load + reconciliation, both
+continuity gates in the battery), 16.5 (the signature), 16.11 (Draw.fit + MenuSurface +
+open-on-PC; no extracted confirm helper yet) are CODE; 16.10 shipped the request/blob channel
+with Files as its consumer (**push frames, summaries-over-channel, multi-backend arbitration
+and per-backend `needs` remain open** — Music is their first real customer); 16.7 was
+re-scoped by Adam's theme-icons ruling (drawn set = fallback + release path). `WINDOWS.md`
+is the build-facing distillation.
 
 | # | addition | consumers | status / design |
 |---|---|---|---|
@@ -710,9 +731,10 @@ sequencing per window):
 
 1. **Games** (roster first; 10b lanes on revisit)
 2. **Torrents** (§19)
-3. **Files** — 🔴 **CHOSEN by Adam as the NEXT WINDOW TO IMPLEMENT (2026-09-01)**; design
-   discussion live — his sketch: G2CC-like + the graphical wave, in-app text/PDF/image viewing,
-   a locations root list, and **tap = context menu with Open first** (two taps to enter a folder)
+3. **Files** — ✅ **BUILT (2026-09-01, the same night — the §5 banner, `HANDOFF.md` §22)**:
+   the settled design shipped whole (locations + capacity bars, the context-menu grammar,
+   text/image/PDF viewers, clipboard, trash+restore, typed rename, Open-on-PC, EPUB→Reader
+   hand-off, theme icons) and survived a two-round review
 4. **Music** (adaptive PC-library ↔ Spotify per §16.10)
 5. **Feed** + comics
 6. **Mail**

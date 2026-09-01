@@ -299,10 +299,12 @@ def rail(d, frac, span):
 def lens(d, name, l1, l2, *, level=HEAD, ic=None, prog=None):
     d.rectangle([CX, LENS_Y, CX + CW - 1, LENS_Y + 1], fill=RULE)        # bracketing rules
     d.rectangle([CX, LENS_Y + LENS_H - 2, CX + CW - 1, LENS_Y + LENS_H - 1], fill=RULE)
-    if ic: icon(d, 28, LENS_Y + 10, 24, 24, ic, level)
-    text(d, (60, LENS_Y + 8), name, level, f_rowb)
+    # BAND-HEIGHT icon (Adam, 2026-09-01 — DESIGN §4.5b revised): the focused
+    # row's icon spans the 64 px lens at the switcher-class 56 px
+    if ic: icon(d, 24, LENS_Y + 4, 56, 56, ic, level)
+    text(d, (88, LENS_Y + 8), name, level, f_rowb)
     rtext(d, (592, LENS_Y + 8), l1, BODY, f_row)
-    text(d, (32 if not ic else 60, LENS_Y + 34), l2, BODY, f_row)
+    text(d, (32 if not ic else 88, LENS_Y + 34), l2, BODY, f_row)
     if l2 and d.textlength(l2, f_row) > 500: tri(d, 584, LENS_Y + 40, 11, DIM)
     if prog is not None: blocks(d, 400, LENS_Y + 40, 196, 8, prog)
 

@@ -1,6 +1,9 @@
 # Where we are, and what to do next
 
-**Updated 2026-08-31 (night) — the DAILY DRIVER is live and RE-SHAPED by §19: the PHONE SHELL
+**Updated 2026-09-01 (overnight): FILES IS BUILT — the first G2CC conversion shipped with the
+§16 machinery under it (menu grammar, viewers, trash, theme icons everywhere, the state
+substrate, deep links) and a two-round review pass; `HANDOFF.md` §22 is the record. Previous
+banner (2026-08-31 night) — the DAILY DRIVER is live and RE-SHAPED by §19: the PHONE SHELL
 is the primary driver (radio + shell, always, while the APK is up); the OpenRC `damage`
 service is the DATA PROVIDER (content + tmux + last-write-wins state sync) plus a STANDBY
 that BLE-drives only while the APK is away. The §8.1 "best case = home PC" phrase meant DATA
@@ -85,7 +88,7 @@ the three configurations exercised on hardware the same day — takeover, fallba
 observed working; the §16 handover rework made every transition a repaint; the §19 correction
 then made the PHONE the primary driver and retired daily PC claims). In the queue now:
 
-- **The §19 live checks**: install APK **0.15** (setup page) — it carries the sync client and
+- **The §19 live checks**: install APK **0.16** (setup page — Files + theme icons + the 2026-09-01 review fixes; 0.15 lacked them all) — it carries the sync client and
   the probeable seam; watch the first sync exchange in both logs; then the standby drill at the
   desk (stop the APK → the PC BLE-drives within ~10 s → restart it → handback); then the sync
   feel across a driver swap (a book position following the swap).
@@ -202,8 +205,9 @@ in the existing corpus.
   closes. Built (`HANDOFF.md` §8.1 decision 6).
 - **Where system-state detail lives** — orphaned when the long-press info popup became the switcher.
   Live telemetry is in the status bar; the deeper view wants to be a window, i.e. app-layer work.
-- **Per-window typeface for the windows not yet designed** — Files, Calendar, Music, SMS, Timers,
-  Scout, Notices all inherit Clear Sans until their app earns an override. Deliberately not invented.
+- **Per-window typeface for the windows not yet designed** — Music, SMS, Notices, Feed inherit
+  Clear Sans until their app earns an override (Files shipped on Clear Sans 2026-09-01;
+  Calendar/Timers axed; Scout excluded). Deliberately not invented.
 - ~~**Typed-text input**~~ — **built 2026-08-31** (`DamageWindow.onTypedText` +
   `Transport.injectText`): a line typed on the phone strip, the browser replica or the desktop
   preview reaches the focused window, which ALWAYS stages a confirm before anything runs (Tmux

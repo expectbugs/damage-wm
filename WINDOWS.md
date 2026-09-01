@@ -11,9 +11,13 @@ always: `overview.md` on facts, `CLAUDE.md` on rules, `DESIGN.md` on shell desig
 as code), and the G2CC original (`/home/user/G2CC/server/src/windows/<app>.ts`) — **read-only,
 interaction facts only, no code taken** (clean-room rule, `CLAUDE.md`).
 
-**The two worked precedents:** `ReaderWindow` (List → Document → Actions, async content, per-item
-state, images) and `TmuxWindow` (Canvas, a live provider over the content port, quick keys, typed
-text with confirm, alerts). Read both before writing a third.
+**The three worked precedents:** `ReaderWindow` (List → Document → Actions, async content,
+per-item sub-records, images), `TmuxWindow` (Canvas, a live provider over the content port,
+quick keys, typed text with confirm, alerts), and **`FilesWindow`** (2026-09-01 — the
+tap-=-context-menu grammar via `MenuSurface`, the §16.10 window channel via
+`FilesService`/`RemoteFilesProvider`, viewers as strip/wrapped DocViews, paced-retry failure
+discipline, `Draw.fit`/`dn()` display hygiene). Read all three before writing a fourth —
+Files is the only worked example of MenuSurface and WinNet.
 
 ---
 

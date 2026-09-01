@@ -7,9 +7,26 @@ DRIVER went live 2026-08-31 (§13.3b–§17, `DAILY.md`) and was RE-SHAPED the s
 while the APK is up); the OpenRC `damage` service is the DATA PROVIDER — content + tmux +
 last-write-wins state sync on the content port — plus a STANDBY that drives PC-direct BLE only
 while the APK is unavailable and hands the radio back when it returns.** The shell core, the
-byte-exact glass simulator, the desktop program, and the phone APK — Reader, Tmux, Main and
-Settings at the app layer, the full shell underneath, everything on the **CFW display contract**
-(modes 3/6/8/9 + the 11–15 texture-cache wire layer, the FB lease, the capability gate).
+byte-exact glass simulator, the desktop program, and the phone APK — Reader, Tmux, **Files
+(2026-09-01, the first conversion)**, Main and Settings at the app layer, the full shell
+underneath, everything on the **CFW display contract** (modes 3/6/8/9 + the 11–15 texture-cache
+wire layer, the FB lease, the capability gate).
+
+**2026-09-01 — the FILES build + the §16 machinery + a 2-round review (HANDOFF.md §22):** the
+Files window (locations with capacity bars · tap-=-context-menu grammar · text/image/PDF
+viewers · clipboard Copy/Cut→Paste · trash with Restore and double-confirm purge · typed
+rename/mkdir · Open-on-PC · EPUB→Reader hand-off) over the new shared machinery: the
+**MenuSurface** floating context menu, the **WinNet** generic window channel
+(`{"t":"win","win":…}` on the content port, blob answers), **theme icons everywhere**
+(Papirus-Dark via desktop `ThemeIcons` + phone `RemoteIcons` over a content-port icon op;
+drawn set = fallback and release path; Main's lens icon is band-height 56 px), the §16.4
+**state substrate** (per-item sub-records with reported-guarded tombstones, merge-on-load,
+post-start reconciliation, the continuity gates), `open(target)`/`openWindow` deep links with
+back-to-caller, the grown notification signature (appId/thread/target), and `Draw.fit`/
+`Draw.dynamic` (every cut advertised; external text '?'-substitutes instead of throwing).
+Module map additions: `core.windows.files`, `core.net` (WinNet), `core.util.Exec`
+(deadlock-proof subprocess runner), shell `MenuSurface`/`Draw`, `gfx.IconSource`, desktop
+`ThemeIcons`, phone `RemoteIcons`.
 
 ## The two locked decisions
 
@@ -75,14 +92,26 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
                                       ContentKit (lens/list/document), slides,
                                       persistence, settings
             wm.damage.core.windows.reader  Reader + EPUB extraction
+            wm.damage.core.windows.files   FILES (2026-09-01): the window, the
+                                      Local/Remote providers, FilesService on
+                                      the win channel, trash manifest
+            wm.damage.core.windows.tmux    Tmux window + providers + TmuxNet
+            wm.damage.core.net        WinNet — the §16.10 generic window
+                                      channel (wreq/wres + raw blob answers)
+            wm.damage.core.sync       SyncNet/RemoteSync — LWW state sync
+            wm.damage.core.util       Log · Exec (deadlock-proof subprocess
+                                      runner — stderr drains concurrently)
             wm.damage.core.content    library providers: local dir, TCP host,
-                                      remote client with copy-on-open caching
+                                      remote client with copy-on-open caching;
+                                      + the win/icon dispatch (2026-09-01)
 desktop/    AWT rasterizer · Swing lens preview (integer-scaled, default 4x;
-            keyboard + mouse = ring) · CLI
+            keyboard + mouse = ring) · CLI · ThemeIcons (Papirus-Dark from
+            xfconf, rsvg-convert, mem+disk cache, serves the phone)
 phone/      Android app: foreground ShellService, on-screen lens view (touch =
             ring), AndroidText (bundled OFL/Apache fonts), BleTransport (LIVE
             on hardware since 2026-08-31), transport seam server, wakelock +
-            Doze exemption + BootReceiver, §9.3 urgent phone notifications
+            Doze exemption + BootReceiver, §9.3 urgent phone notifications,
+            RemoteIcons (theme bitmaps fetched + theme-keyed disk cache)
 ```
 
 ## The finishing build (2026-08-25)
@@ -170,7 +199,7 @@ development environment; also serves ~/books to the phone):
 ./gradlew :desktop:run --args="--transport ble"   # PC-direct BLE only (manual)
 ./gradlew :desktop:run --args="--remote HOST"     # claim the phone's transport and drive through it — the EXPLICIT dev override
 ./gradlew :desktop:run --args="--ble-info"    # adapter enumeration only (no discovery)
-./gradlew :desktop:run --args="--selfcheck"   # the 48-check scripted gate
+./gradlew :desktop:run --args="--selfcheck"   # the 61-check scripted gate (Files scenes incl.)
 ./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"  # parse every book in ~/books
 ./gradlew :desktop:run --args="--host-only"   # content host alone (books + tmux + sync, no stack ever)
@@ -504,7 +533,11 @@ of them are load-bearing and easy to break by accident:
 
 ## Verification
 
-- `./gradlew :core:test` — 164 unit/integration tests (§19 added `SyncTest` ×6: the stamped
+- `./gradlew :core:test` — 183 unit/integration tests (2026-09-01 added
+  `SubstrateTest` ×6 — incl. the Reader CONTINUITY gate, save on shell A → sync → restore on
+  B — `FilesTest` ×7 and `ReviewRound1Test` ×6: the UTF-8 chunk seam, menu-over-menu,
+  back-to-caller, the virgin-freshen guard, the tombstone reported-guard, the Files viewer
+  continuity gate) (§19 added `SyncTest` ×6: the stamped
   store's LWW, migration, the sync channel over a real loopback host, the shell's
   freshen-then-apply, the seam status probe; the flow rework added `FlowRenderTest`
   ×6 plus the pacing/alternate-fallback window tests and the wire-pacing round trip;

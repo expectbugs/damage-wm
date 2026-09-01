@@ -1479,7 +1479,10 @@ eyeballed) · epub-check · lint 0 · **APK 9/0.9 staged, jar staged**.
    (09c/09d show the flow) · epub-check 380/404 images · lint 0 · APK builds. Run the whole
    battery after ANY code change (`CLAUDE.md`). One flaky one-off was seen mid-session
    (a single core-test failure that never reproduced across four reruns on a loaded box) —
-   note it if it recurs.
+   note it if it recurs. **[CLOSED 2026-09-01, §22: root-caused as a seam-start ordering race
+   (`started` could reach the client before the state snapshot); the server now posts a fresh
+   state snapshot strictly before every startok, and the router derives connected/started from
+   the "started" frame. Three consecutive full-suite greens after the fix.]**
 5. **Open, in order:** Adam's on-glass verdicts on the FLOW view (wrap feel, default 16-px
    base size, rule collapse, the 1 s cadence, alternate-screen fallback) and the rest of the
    night wave (per-app depth, fonts-in-their-own-face); the left-lens seam-residue watch; the
@@ -1489,7 +1492,9 @@ eyeballed) · epub-check · lint 0 · **APK 9/0.9 staged, jar staged**.
 6. Known minor debts, deliberately not taken (reported 2026-08-31): tmux list rows cut long
    strings without the ▸ continuation mark (reachable content, soft NO-TRUNCATION gap);
    `LocalTmuxProvider.captureLoop` blocks on the scope dispatcher (statusLoop got the
-   parallel-IO treatment, captures did not — one subscriber in practice).
+   parallel-IO treatment, captures did not — one subscriber in practice). **[BOTH CLOSED
+   2026-09-01, §22: every hand-rolled fit went through `Draw.fit` (always marks the cut);
+   captureLoop launches captures on IO with an in-flight skip.]**
 7. G2CC coexistence unchanged: its SERVER runs (:7300, serves our APK page); its ANDROID
    bridge stays Disconnected (second central); never sweep its in-flight FF1 work into a
    commit.
@@ -1618,7 +1623,9 @@ by design (LWW as asked); test harnesses use scratch dirs and never touch it.
   at stack start, the peer's copy survives until the next local change, and under phone-primary
   the PC side rarely writes at all. The 5-min re-handshake does NOT heal this case (the stale
   overwrite carries the newer stamp). Revisit if a deep review wants it closed; the fix shape
-  is a post-start reconciliation pass over syncable keys.
+  is a post-start reconciliation pass over syncable keys. **[CLOSED 2026-09-01, §22: exactly
+  that fix — `startLocked`'s tail posts a reconciliation Run that re-applies any store record
+  newer than the live state; covered in `SubstrateTest`.]**
 - **The ring-battery question, settled from source (same night):** the R cell never filled
   because it CANNOT — the stock sid-0x91 service (openCFW `pb_service_ring.c`, recovered
   against our 2.2.6.10 base) accepts only the EVENT registration and never fills RingRawData;
@@ -1702,3 +1709,92 @@ wave; a locations root list (root, home, mounts); **tap = context menu with Open
 row** (two taps to enter a folder — uniform for every entry type); in-app viewers for text, PDF
 and images "in nice ways". Design discussion live; the settled design gets its own record before
 code, per `WINDOWS.md` step 3.
+
+The design was settled the same evening (his answers, binding): the context-menu popup is
+**floating** (a hole in the content, not a card); the This-folder row wraps to the end of the
+list; clipboard-slot Copy/Cut → Paste-here; **lens thumbnail AND per-row file-type icons "like
+a real file manager"**; PDF dual-mode with an auto default; trash carries Restore + an on-glass
+permanent delete behind a double confirm; typed rename/mkdir; Open-on-PC; EPUB→Reader hand-off;
+locations include the damagewm project dir. Then his theme-icons ruling: **use his XFCE
+Papirus-Dark icon set, grayscale-converted, "for everything in DamageWM that uses icons"** —
+third-party assets, so personal-lane only (rendered locally at runtime, never in the repo, APK
+assets, or a release; the drawn set stays as fallback + release path). His last words before
+bed: build it all autonomously, then *"run a heavy review … for each problem or issue found,
+double check and verify it is really a problem … then for every confirmed issue, fix it. Do
+those review-then-verify-then-fix steps until a full review passes with no more issues found
+at all, in a loop. We want to eliminate ALL bugs."* §22 is the record of that night.
+
+## 22. The overnight build: §16 machinery + FILES + the review loop (2026-09-01, overnight)
+
+Executed alone on the standing instruction above. Zero radio/glasses/phone interaction all
+night; G2CC untouched; the `damage` service restart is safe by §19 (the PC never claims).
+
+### 22.1 What was built (commits `b93d7e0` docs · `fa80bdf` substrate · `b715a18` Files · `8f0dfe2` review round 1)
+
+**The state substrate (§16.4):** Persistence v2 sub-records (`window.<id>.<subKey>`) with
+`saveSubState()/restoreSubState()` on the contract; tombstones = empty objects, written only
+for keys the window has ever reported (the `reported` guard); merge-on-load (strictly-newer
+in-memory wins, corrupt store keeps memory); the **post-start reconciliation Run** (closes the
+§19.4 debt); `freshen` skips absent keys (virgin-shell guard); live-apply is sub-aware and
+routes `applySettings(persist=false)`. Continuity tests in `SubstrateTest` (A-save → sync →
+B-restore → identical position).
+
+**The window channel (§16.10, first slice):** `WinNet.kt` — `{"t":"win","win":…}` on the
+content port, `WinService` host side, `RemoteWin` client (keeper reconnect, id-correlated
+request/response, raw-blob answers for bulk, `stateLine` for staleness). Built generic;
+Files is its first consumer. NOT yet: push frames, summaries-over-channel, multi-backend
+arbitration, per-backend `needs` — Music is their first real customer.
+
+**Deep links + notifications (§16.1/§16.5):** `open(target)` on the contract;
+`services.openWindow(id, target, backTarget)` — the switcher's back gesture returns to the
+CALLER when a hand-off set one; the notification signature grew source/thread/appId/target/
+urgency and internal notices deep-link.
+
+**MenuSurface (§16.11's biggest piece):** the floating context menu — 248 px hole at plane 0
+(nearest), under-content captured and restored, pan-window for long menus, detail column capped
+at half-box via `fitEnd`. Decision-6 notice deferral honored; emergencies cancel the menu and
+requeue. Plus `Draw.kt` (`fit` — always marks cuts with ▸, `right`, `dynamic` — '?' for
+uncoverable glyphs, warned once) and `Exec.kt` (subprocess runner whose stderr drains on a
+daemon thread — no pipe-full stalls).
+
+**Theme icons (Adam's ruling):** core `IconSource/IconNames/IconPaint/IconRaster`; desktop
+`ThemeIcons.kt` (xfconf theme detect, Inherits-chain BFS, both dir layouts, rsvg-convert /
+magick rasterize, mem+disk cache keyed by theme, clean-miss vs paced-retry-failure); phone
+`RemoteIcons.kt` (content-port `icon` op, theme-keyed cache with a wipe marker on theme change,
+Semaphore(4), closable). Main's focused lens icon is the 56 px band-height class (`DESIGN.md`
+§4.5b; ink re-measured 9.0 %/4.8 %, tables updated). Icons are a RENDER-TIME lookup with the
+drawn set as fallback — a missing tool or theme degrades loudly to drawn, never blocks.
+
+**FilesWindow (~1,150 lines) + `LocalFilesProvider` + `FilesNet`:** the whole settled design —
+locations root (Root/Home/Downloads/Books/damagewm/live mounts with capacity bars/Trash when
+non-empty), tap = context menu with Open first, This-folder row at the wrap end, text viewer
+(wrapped, UTF-8 boundary-safe chunked reads), image viewer (strip DocView), PDF dual-mode
+(pdftotext/pdftoppm, auto default by extractable-text ratio), clipboard Copy/Cut → Paste-here
+(NOFOLLOW copies, copyTree rollback), trash/Restore/purge (whole-op lock, double-confirm
+purge), typed rename/mkdir (sanitized, blank cancels), Open-on-PC (xdg-open on the host),
+EPUB→Reader hand-off via `open("book:<id>")`, per-row theme icons + lens thumbnail. Deviations
+from the graded §5 table are recorded in its banner (row thumbnails v1.5; `appSettings()`
+empty — hidden/sort live in the This-folder menu).
+
+### 22.2 The review loop
+
+Round 1: six fresh reviewer subagents (compositor+wire · shell · substrate+sync · Files ·
+transport+seam · phone+desktop glue) returned **79 findings; each was verified before any fix;
+~55 confirmed and fixed** in `8f0dfe2` (the rest: agent misreadings, working-as-designed, or
+duplicates). The fixes that matter: the seam-start ordering race (the §18.1.4 flake — root
+cause found and closed), timed notices, paced viewer/thumbnail retries (5 s), navigation
+clearing stale entries, restore-position preserved through relayout, `parseAck` per-subfield
+tolerance, `restampMsgId` loud refusal on fixed-width, inflate refusing needsDictionary,
+sim strictness ×3. Boundaries verified as DESIGNED and documented rather than "fixed":
+dual-live-shell LWW alternation (two shells both actively writing the same key trade wins —
+inherent to LWW), activity-beats-remote-reset, and the startup micro-window now covered by
+reconciliation. Round 2 ran two probes (compositor pairBlacks; a fresh diff review of round 1's
+own fixes) — see the closing status below for its outcome.
+
+### 22.3 State at hand-off
+
+Battery: core **183** · desktop 9 · selfcheck **61** · snapshots 18 (eyeballed) · epub
+380/404 · lint 0 · APK **16/0.16** staged (bump per install; the phone still runs 0.15 until
+Adam installs). Jar staged; service restarted onto the build (kept driving via the phone,
+untouched on glass). Reader writes transitional legacy offsets alongside sub-records —
+**remove when the installed APK is ≥ 0.16.**
