@@ -341,6 +341,7 @@ class FilesWindow(
 
     private fun commitLocation(i: Int) {
         pendingBrowseCursor = null   // an abandoned ascend must not steer this folder (R3d#7)
+        pendingOpenView = null       // user navigation supersedes a pending restore (R5#1)
         val l = locations.getOrNull(i) ?: return
         location = l
         if (l.kind == "trash") {
@@ -1194,9 +1195,12 @@ class FilesWindow(
                     Log.e("files", "pdfinfo of $path failed: $err")
                     setNotice(err ?: "could not read the PDF")
                     // a restore that dies here must not leave its position
-                    // armed for the NEXT unrelated open (R2#9)
+                    // armed for the NEXT unrelated open (R2#9); and the held
+                    // refresh must run NOW (R5#1c) — the gate skipped it while
+                    // the intent was armed, so the browse rows may be stale
                     pendingViewTop = 0
                     pendingViewFor = null
+                    if (level == Level_.BROWSE) refreshList()
                     services?.requestRender(this@FilesWindow)
                     return@runOnShell
                 }
@@ -1301,6 +1305,13 @@ class FilesWindow(
     }
 
     override fun restoreState(state: JsonObject) {
+        // any incoming record supersedes a pending pdf-restore intent (R5#1):
+        // without this, a live-applied BROWSE/TRASH record left the stale
+        // intent armed — the gate then skipped the refresh (no navSeq bump),
+        // the in-flight completion applied "undisturbed", and saveState
+        // re-stamped the OLD view over the peer's newer record (the R4#1
+        // ping-pong, direction reversed). The pdfpage branch re-arms below.
+        pendingOpenView = null
         locModel.cursor = state["locCursor"]?.jsonPrimitive?.intOrNull ?: 0
         browseModel.cursor = state["browseCursor"]?.jsonPrimitive?.intOrNull ?: 0
         trashModel.cursor = state["trashCursor"]?.jsonPrimitive?.intOrNull ?: 0

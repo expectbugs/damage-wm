@@ -306,8 +306,10 @@ class TmuxWindow(
             // apply-only-if-undisturbed (R3s#2): a slow ssh host must not
             // yank the user out of a session they opened meanwhile
             onShell {
-                if (level == Level_.SESSIONS) open(TmuxTarget(host, name))
+                if (active && level == Level_.SESSIONS) open(TmuxTarget(host, name))
                 else {
+                    // parked or navigated away (R5#3): never resubscribe a
+                    // parked window — the notice waits for the next focus
                     notice = "session $name created on $host"
                     services?.requestRender(this@TmuxWindow)
                 }
@@ -523,7 +525,10 @@ class TmuxWindow(
                     onShell {
                         val cur = target
                         if (cur != null && cur.host == t.host && cur.session == t.session) {
-                            target = t.copy(window = -1); resubscribe()
+                            // retarget is state; the SUBSCRIPTION needs focus
+                            // (R5#3) — onActivate re-asserts on the next one
+                            target = t.copy(window = -1)
+                            if (active) resubscribe()
                         }
                     }
                 }
@@ -589,10 +594,11 @@ class TmuxWindow(
                     val cur = target
                     // the rename happened on the HOST either way; only the
                     // local view re-targets, and only if the user is still
-                    // on that session (R3s#2)
+                    // on that session (R3s#2); the subscription needs focus
+                    // (R5#3)
                     if (cur != null && cur.host == t.host && cur.session == t.session) {
                         target = t.copy(session = clean)
-                        resubscribe()
+                        if (active) resubscribe()
                     }
                 }
             }
@@ -736,10 +742,13 @@ class TmuxWindow(
         } else if (level == Level_.LIVE || level == Level_.HISTORY || level == Level_.KEYS) {
             // the record says the peer LEFT (or killed) the session: keeping
             // the stale LIVE target had the new override resubscribe a dead
-            // pane — a 1 Hz failing exec forever (R4#2)
+            // pane — a 1 Hz failing exec forever (R4#2). And UNSUBSCRIBE like
+            // back() does (R5#2): dropping the target while the provider
+            // still polls it is the same orphan exec by another door.
             target = null
             frame = null
             level = Level_.SESSIONS
+            provider.subscribe(listener, null)
         }
     }
 
