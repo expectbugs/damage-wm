@@ -53,7 +53,7 @@ dramatic verbs); measured vs modeled every time; links and key actions **last** 
 - **`:core`** (Kotlin, shared unmodified by desktop and phone): compositor (per-lens
   truth/shadow model), wire codecs (CRC/protobuf/AA envelope/EvenHub/settings/CFW modes),
   `GlassFirmwareSim` (byte-exact model of the CFW display path: per-lens shadows, cfw_diag fid
-  ring and flags, warmup drop, msgId-255 kill, stuck sessions, lease fail-open), the transport
+  ring and flags, warmup drop, msgId-255 silence, stuck sessions, lease fail-open), the transport
   seam (`Transport`, `Emit`, `CfwTransportBase`, `SimTransport`, `RemoteTransportClient/Server`),
   the shell (input grammar, chrome, Main, switcher, notifications, silent mode, slides,
   persistence, settings), Reader + EPUB, content providers (local dir, TCP host, remote with
@@ -645,7 +645,7 @@ The arms must be powered and NOT connected to the phone (they are, per 9.2). `ad
 5. **The write** — the same command **without** `--stop-before flash` (default `--lens both`). The
    tool prints the confirmation banner and waits for the typed phrase. Do not pass
    `--my-warranty-is-void`; let Adam type it. This is the irreversible step.
-6. Do **not** bypass the tool's guards. The hardware-safety facts are already coded into it: the
+6. Do **not** skip the tool's guards. The hardware-safety facts are already coded into it: the
    image must fit under MRAM (`validate_firmware` + the size ceiling), and an already-written block
    must never be re-sent (the OTA path has no dedup and would double-advance). The CFW is +20,127 B
    and bumps the preamble correctly — `verify_cfw` confirmed it. Let the tool's retry logic handle
@@ -728,7 +728,7 @@ on its users' glasses**, not something only we would be running.
 release is days old. Most of the new bulk is `texture_cache.c` (514 lines) and `mic_control.c`
 (446), and the author marks the mic path's stock audio entry points as **ABI-inferred and not yet
 validated on hardware** — which is why bringing up the capture hardware sits behind an explicit
-arm flag. We never set that flag, and nothing in Damage touches field 103. Both *known* brick
+arm flag. We never set that flag, and nothing in Damage touches field 103. Both *known* unrecoverable-failure
 classes (unbounded MRAM program, Thumb-bit interworking) check clean on it.
 
 ### 10.4 Flasher changes that affect the procedure
@@ -770,7 +770,7 @@ Only `7c6d3c1` touched `g2flash.py`, but it changed the shape of a run.
    multi-byte varints, so it understands them — the tool just cannot emit them).
    - It only fires on a **bare ack timeout during the real transfer**; a `--stop-before flash` run
      never gets the counter past ~3.
-   - It **aborts, it does not corrupt** — and an aborted transfer leaves the prior firmware.
+   - It **aborts, it does not leave anything inconsistent** — and an aborted transfer leaves the prior firmware.
    - Fix if Adam wants it: swap two lines so `_reset_seq()` runs before `authenticate()` in
      `recover_session`. **His call — do not edit the flashing tool without his word.** Worth
      reporting upstream either way.
@@ -1011,7 +1011,7 @@ real content.
    own success ack, failing every session start against a perfect link. **Nothing offline could
    catch it: the simulator modeled success as an ABSENT field 8.** Fixed both sides; `AckStatusTest`
    pins them together.
-2. **The journal flood.** A keeper restart wrote into the stream a previous `stop()` had closed,
+2. **The journal write pileup.** A keeper restart wrote into the stream a previous `stop()` had closed,
    failing and logging *every line* — burying the log at exactly the moment it existed to explain.
    It now reopens in append mode (journalling across a reconnect is when it is most useful) and an
    unrecoverable failure is reported **once**. Repeating an unrecoverable error per line is not
@@ -1137,7 +1137,7 @@ was documented in `CLAUDE.md` all along ("a long-press is UNATTRIBUTED") — and
 `Shell.handleInput`'s ring-only check (source ≠ 2 → drop) discarded every real long-press before
 the grammar ran. Both switcher routes were dead since first light. **`LongPressTest` passed the
 entire time because `postGesture` defaults to the ring source** — the harness fed the grammar an
-attribution the wire never carries. Fixed: events 9/10 bypass the source check (§1.2's
+attribution the wire never carries. Fixed: events 9/10 skip the source check (§1.2's
 bare-long-press no-op is what keeps the temple harmless, exactly as the rule said); the suite
 now injects 9/10 with source 0; a bare release no longer overwrites the input echo (it follows
 almost every swipe). Lesson, same family as the ack-status enum: **a test default that
@@ -1222,7 +1222,7 @@ claim/yield and replica plumbing for ALL of this **already exist and are sim/fak
    notifications on errors.
 3. **app + home PC** (the default config): with the phone driving, start the desktop in `auto`;
    it should claim the phone's transport over the seam, the phone shell yields, the PC drives
-   THROUGH the phone, both replicas stay correct. Then kill the desktop: the phone resumes by
+   THROUGH the phone, both replicas stay correct. Then stop the desktop: the phone resumes by
    itself (keeper `pause`/`resume`). Then bring the PC back: it claims again. Every transition
    narrated in both status lines.
 4. **app alone:** PC unreachable (stop the desktop + content host) — the phone falls back to
@@ -1438,7 +1438,7 @@ unpleasant way it looks is entirely because of the grid. Lets kill the grid enti
 Probes had already proven the mechanism (measured, fake AND real fonts): face/style reached
 the grid (~40–50 k px differ) but **Font size compensated to exactly zero** — `fitFor` picks
 the size whose TRANSFORMED metrics fit the fixed pitch, so any scale lands on the same
-physical glyphs. His decisions: kill the grid, keep it only as the alternate-screen fallback,
+physical glyphs. His decisions: retire the grid, keep it only as the alternate-screen fallback,
 stay JBM as the default face, capture at 1 s configurable.
 
 Built the same night (TMUX.md top block is the design record):
@@ -1634,3 +1634,20 @@ by design (LWW as asked); test harnesses use scratch dirs and never touch it.
   **11/0.11** staged (0.10 was never installed); battery green (core 164 · desktop 9 ·
   selfcheck 48 · lint 0); jar restaged, service restarted (standby — a restart touches
   nothing on glass now).
+- **Ring battery — CLOSED and the probe REVERTED (2026-08-31, Adam's call).** The probe chase
+  (0.11 enumerate → 0.13 device-log → 0.14 listen) ran to the end on hardware and confirmed:
+  the ring has no standard Battery Service, no advertised battery, and a request/response
+  vendor link (`bae80001-…`) with a custom checksum (no standard CRC-16 matched 47 clean
+  frames). Then the decisive check I should have run FIRST — **Faceclaw does not read ring
+  battery anywhere** (state is `{headset, headsetCharging}`; chrome draws Phone+G2 only; the
+  ring decoder is gestures-only; device-info probe hits the glasses). Only the closed Even SDK
+  reads it. ⚠ My earlier "Faceclaw-proven second connection" framing was wrong and created a
+  false "just copy Faceclaw" premise — corrected in `CLAIMS.md`/`CAPABILITIES.md`. Reverted:
+  `RingProbe.kt`, phone `DeviceLog.kt`, desktop `DeviceLogFile.kt`, the content-port `devlog`
+  dispatch, the strip "ring" button, the ShellService probe methods; `Shell.ringBattery` back
+  to a private wire-fed field (the 0x91 relay listener stays — harmless, documents the finding).
+  The R cell stays blank (cosmetic; ring battery is in the Even app). The biometrics, if ever
+  wanted, are the `EXPLOSION.md` §13 Health window as a deliberate protocol-RE sub-project.
+  **Process lesson: a cosmetic gauge became a multi-round side-quest; it should have been
+  cost/benefit-checked at the first finding and verified against Faceclaw before any building.**
+  APK **15/0.15** (probe removed); battery green (core 164 · desktop 9 · selfcheck 48 · lint 0).

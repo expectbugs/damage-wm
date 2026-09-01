@@ -109,7 +109,6 @@ class MainActivity : ComponentActivity() {
             addView(smallButton("lens") { lens?.toggleArm() })
             addView(smallButton("type") { typeDialog() })
             addView(smallButton("rel") { service?.postGesture(EvenHubMsg.EV_RING_LONG_PRESS_RELEASE) })
-            addView(smallButton("ring") { ringProbeDialog() })
         }
         root.addView(bar, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
         setContentView(root)
@@ -186,24 +185,6 @@ class MainActivity : ComponentActivity() {
                 val line = box.text?.toString().orEmpty()
                 if (line.isNotBlank()) svc.postText(line)
             }
-            .setNegativeButton("cancel", null)
-            .show()
-    }
-
-    /** The ring GATT probe (read-only, over the phone's OWN link to the ring —
-     *  the glasses cannot relay ring data, see RingProbe). Confirmed on tap:
-     *  it is a deliberate radio contact, not a passive view. */
-    private fun ringProbeDialog() {
-        val svc = service ?: return
-        AlertDialog.Builder(this)
-            .setTitle("Ring probe")
-            .setMessage("The ring has no standard Battery Service, so battery lives in its own " +
-                "notify stream. LISTEN subscribes for 45 s and records what streams — toggle the " +
-                "ring on/off its charger during that window to force a battery frame. " +
-                "LIST re-runs the read-only service enumeration. No pairing, ever; " +
-                "the result arrives as a notification and the raw frames go to logcat.")
-            .setPositiveButton("listen 45s") { _, _ -> svc.listenRing(45) }
-            .setNeutralButton("list services") { _, _ -> svc.probeRing() }
             .setNegativeButton("cancel", null)
             .show()
     }

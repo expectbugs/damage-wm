@@ -32,7 +32,6 @@ class Chrome(private val text: TextRasterizer) {
         val clock: String = "--:--",
         val clockAmPm: String = "",
         val glasses: Battery? = null,
-        val ring: Battery? = null,
         val phone: Battery? = null,
         val windowCount: Int = 1,
         val windowAt: Int = 0,
@@ -69,7 +68,7 @@ class Chrome(private val text: TextRasterizer) {
         ) {
             paintTitle(g, l, s); out.add(l.titleCell)
         }
-        if (p == null || p.glasses != s.glasses || p.ring != s.ring || p.phone != s.phone) {
+        if (p == null || p.glasses != s.glasses || p.phone != s.phone) {
             paintBatteries(g, l, s); out.add(l.batteryCell)
         }
         if (p == null || p.clock != s.clock || p.clockAmPm != s.clockAmPm) {
@@ -186,7 +185,10 @@ class Chrome(private val text: TextRasterizer) {
 
     private fun paintBatteries(g: Gray8, l: Layout, s: State) {
         g.fillRect(l.batteryCell, Level.BG)
-        val devs = listOf("G" to s.glasses, "R" to s.ring, "P" to s.phone)
+        // G (glasses, from the wire) and P (phone). No R: ring battery has no
+        // open-source source (CLAIMS.md) — a blank cell for a value that can
+        // never arrive is dead chrome, removed 2026-08-31.
+        val devs = listOf("G" to s.glasses, "P" to s.phone)
         for ((i, dev) in devs.withIndex()) {
             val (tag, b) = dev
             val bx = l.batteryCell.x + 4 + i * 58

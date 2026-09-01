@@ -64,7 +64,7 @@ int  ring_release(void *ctx, int code, void *data)
 🔴 **The ring-only rule's mechanics, corrected 2026-08-31 (HANDOFF.md §12).** "Ring only" is
 enforced by source byte for the attributed gestures (tap / double-tap / scroll carry
 `EventSource = 2`) — but **events 9/10 are UNATTRIBUTED by firmware design** (`EventSource` is
-absent for them; they decode as source 0) and MUST bypass that check. The first implementation
+absent for them; they decode as source 0) and MUST skip that check. The first implementation
 filtered them out with everything else, which made the switcher unreachable by both routes for
 two days while `LongPressTest` passed — its harness injected 9/10 with the flattering ring
 source. The suite now injects them with source 0, the wire truth. What keeps the temple (the
@@ -211,7 +211,7 @@ stays home during the workday.** Temporary popup notifications still appear. **A
 except double-tap**, which returns to Main.
 
 🔑 **This completes the gloves fix.** `overview.md` §6: glove-induced ring long-press → "End
-Feature?" → app killed, or a second long-press → Firmware Menu → Silent Mode. The dialog no longer
+Feature?" → app ended, or a second long-press → Firmware Menu → Silent Mode. The dialog no longer
 exists (CFW patch), and in silent mode a stray long-press is swallowed by us — it does not even
 arm the §1.3 chord (2026-08-30), so double-tap always means wake here. **The chain has no
 first step left.**
@@ -319,7 +319,7 @@ right to lose. That is §2.5, demonstrated rather than asserted.
 | zone | cell | x | w | y | h |
 |---|---|---|---|---|---|
 | top bar | Title — `▣ WINDOW · document` | 16 | 352 | 0 | 32 |
-| | Battery ×3, 58 px pitch, 30 px body | 368 | 176 | 0 | 32 |
+| | Battery ×2 (G glasses · P phone), 58 px pitch, 30 px body | 368 | 176 | 0 | 32 |
 | | Clock | 544 | 80 | 0 | 32 |
 | divider | | 16 | 608 | 32 | 2 |
 | content | (nominal, ±d for depth) | 16 | 608 | 34 | 416 |
@@ -452,7 +452,7 @@ horizontal offset, our disparity stacks on it and could exceed divergence.
 ```
      0                                        384    422   460   498  560  640
    ┌──────────────────────────────────────────┬───────────────────────┬──────┐
- 0 │ ▣ TERMINAL · build #482 · 4m12           │ G▓▓▓▒ R▓▒▒▒ P▓▓▒▒     │12:59 │ 32
+ 0 │ ▣ TERMINAL · build #482 · 4m12           │   G▓▓▓▒   P▓▓▒▒       │12:59 │ 32
    │                   384                    │          176          │  80  │
 32 ├──── window position · attention marks ───────────────────────────────────┤ 2
 ```
@@ -499,7 +499,10 @@ information survives; only its 240 px did not.**
 
 #### 🔑 Battery — a plain fill bar, deliberately NOT segmented
 
-`G▓▓▓▓▒  R▓▒▒▒▒  P▓▓▓▒▒` — glasses, ring, phone. **30 px body** plus nub, **58 px pitch in a 176 px
+`G▓▓▓▓▒  P▓▓▓▒▒` — glasses, phone. *(The **R** ring cell was removed 2026-08-31: ring battery
+has no open-source source — the glasses can't relay it and the ring's own link needs protocol RE,
+`CLAIMS.md`. A blank cell for an unreachable value is dead chrome. Faceclaw shows the same two,
+Phone + G2, for the same reason.)* **30 px body** plus nub, **58 px pitch in a 176 px
 cell** (`x 384–560`), with the letter **capitalised and set larger** (14 px bold) so the device is
 identified at a glance. Halving the body from 60 px returned **88 px to the Title, which is now
 384 px** — wide enough for `▣ WINDOW · document` without the continuation mark in most cases.
@@ -514,7 +517,7 @@ possible."* **Three encodings were rendered and compared** (`design/shots/batter
 | ✅ **20 segments, pure length** | **clearly monotonic — and at this width the segments merge into a solid bar anyway** |
 
 🔑 **So the answer is not to segment at all.** Segmentation solves a *small-width* problem, and
-killing the ribbon removed the width constraint. A plain fill gives **~0.9 px per percent**, so 45 %
+removing the ribbon removed the width constraint. A plain fill gives **~0.9 px per percent**, so 45 %
 and 50 % differ by ~2.8 px — read instantly as length, which the eye does far better than
 brightness. And it is the cheapest option available: **one run per row instead of twenty.** The
 legible choice is again the cheap one.
@@ -572,14 +575,14 @@ surface exceeds its budget. Starting targets, to calibrate on the first real ren
 
 | surface | budget | **measured** |
 |---|---|---|
-| Main, active | ≤ 15% | **8.7%** ✅ |
-| Main, resting | ≤ 5% | **4.6%** ✅ |
+| Main, active | ≤ 15% | **8.5%** ✅ |
+| Main, resting | ≤ 5% | **4.4%** ✅ |
 | notification box | ≤ 25% | **5.2%** ✅ |
-| emergency banner | ≤ 25% | **6.7%** ✅ |
+| emergency banner | ≤ 25% | **6.5%** ✅ |
 | switcher | ≤ 25% | **5.3%** ✅ |
 | silent mode | ≤ 2% | **0.5%** ✅ *(digital readout, 2026-08-31; was 0.2% analog)* |
 | window, list mode | ≤ 15% | **8.3%** ✅ |
-| window, document mode | ≤ 25% | **7.9%** ✅ |
+| window, document mode | ≤ 25% | **7.7%** ✅ |
 
 ✅ **Measured 2026-08-18 from real renders** — `design/render_shots.py` composes each screen at
 true 1× 640×480 in the locked faces, quantises to 4 bpp, and runs the firmware's own RLE through
@@ -804,7 +807,7 @@ ack-bound, so with three flushes in flight a frame lands every ~59 ms and a 4-fr
 
 🔴 **Therefore the fade MUST be quantised, not smooth.** Four discrete brightness tiers (centre
 full, neighbours ~50 %, their outer edges ~25 %, background 0), not a per-pixel ramp. A smooth
-gradient turns every row into unique values and destroys RLE — it is the difference between the
+gradient turns every row into unique values and defeats RLE — it is the difference between the
 1,060 B row and the 2,530 B row. At 16 levels a smooth fade would band visibly anyway, so tiers
 look *more* deliberate, not less.
 
@@ -1442,7 +1445,7 @@ All adopted 2026-08-17.
 3. **Any list or strip that moves by a whole row/cell is a mode-9 shift plus one fill** — never a
    repaint. Main's panning list is the live case (§4.2); the retired ribbon was the first, and the
    rule outlived it. ⚠ It requires uniform row/cell extents: **a translation cannot resize**, which
-   is precisely what killed the unequal-width ribbon (§4.1).
+   is precisely what ended the unequal-width ribbon (§4.1).
 4. **Occlusion culling** — never transmit pixels a higher layer covers.
 5. **Speculative pre-compression** — while idle, render and deflate the likely next frames (the
    next scroll position, the switcher's adjacent windows). The flush becomes a memcpy.
@@ -1663,7 +1666,7 @@ design was proven against; quote §5.2 for anything current.
 ### 8.5 Rendering optimizations
 
 - **Snap glyphs to the 4 px grid** — crisp vertical stems, AA only on curves. Prettier *and* fewer
-  gray runs *and* fewer bytes. Directly attacks *"zlib+RLE doesn't play nice with antialiased
+  gray runs *and* fewer bytes. Directly addresses *"zlib+RLE doesn't play nice with antialiased
   fonts."*
 - **A restrained gray ramp** — ~5 levels for UI (bg / dim chrome / text / bright / highlight), all
   16 reserved for imagery. Fewer distinct values = longer RLE runs. Restraint is a compression
@@ -1802,7 +1805,7 @@ The contract:
   Measured coverage of the symbols this design reached for: **`▸` and `▶` missing from 3 of 4
   locked faces, `⚙` from all 4, `⇒` from 3, `▓`/`▒` from 2.** Only `·` and `—` are universal.
 - **Panic frame.** On any mode-7 divergence flag or decompress failure, immediately keyframe rather
-  than keep compositing onto a corrupt shadow.
+  than keep compositing onto an inconsistent shadow.
 - **Startup capability gate.** Read the `EVENCFW/` string (sid-0x09 settings READ response, field
   100) and require `img640 directfb fbguard imgz rle`; refuse loudly otherwise. Needs no timeout —
   tag 100 sits above the stock field range so stock decoders skip it. Also catches a future CFW

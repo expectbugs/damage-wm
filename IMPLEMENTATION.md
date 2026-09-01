@@ -64,7 +64,7 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
                                       layouts read from zlib_glue.c)
             wm.damage.core.sim        GlassFirmwareSim — the byte-exact model:
                                       per-lens shadows, cfw_diag fid ring + flags,
-                                      warmup drop, msgId-255 kill, stuck sessions,
+                                      warmup drop, msgId-255 silence, stuck sessions,
                                       lease fail-open, silent rejects made loud
             wm.damage.core.transport  the seam + Emit + CfwTransportBase +
                                       SimTransport + Remote client/server
@@ -268,7 +268,7 @@ deployed live the same day. The shape of what changed, by seam:
   open; **Size = four TOP-aligned heights 288/352/416/480, vpos retired** (his fit loses the
   bottom, never the top); per-app height via `DamageWindow.preferredHeight` → `Shell.syncLayout`
   on focus commit, with **"global" as every per-app shadow's default**.
-- **Input:** 🔴 the switcher fix — events 9/10 are unattributed (source 0) and now bypass the §1
+- **Input:** 🔴 the switcher fix — events 9/10 are unattributed (source 0) and now skip the §1
   ring-only source check; `LongPressTest` injects them with the wire-true source. Document scroll:
   `DocView.stepLines` (default 5) + the direction-gated ramp (default OFF after his on-glass
   verdict), both in Settings.
@@ -303,7 +303,7 @@ none of it has met the radio yet (that is §13.2's runbook, Adam's part):
   behaviour, so version skew cannot false-trip it. `SeamLivenessTest` (3 tests, raw-socket fake
   peers that go quiet WITHOUT closing) pins both directions and the skew guard.
 - **The pocket-liveness trio** (each a G2CC factory finding): a PARTIAL_WAKE_LOCK while a
-  GLASSES stack runs (the FGS type stops process-kill, NOT Doze CPU throttling — G2CC measured
+  GLASSES stack runs (the FGS type stops process termination, NOT Doze CPU throttling — G2CC measured
   delay() ticks gapping 13–28 s on a 10 s cadence; our lease renews every 45 s against the 90 s
   fail-open), the battery-optimization exemption (asked once at first run; its absence stays in
   the status line; a boot-time revocation raises a re-grant notification), and a `BootReceiver`
@@ -403,7 +403,7 @@ was the hazard). **Depth**: the focused app's content plane uses its own depth (
 0/4/8/12/16 ladder) while the bars and Main stay on the global setting — app content pops
 forward of (or parks behind) the chrome. At every default the whole feature is render-neutral
 (snapshot-verified byte-identical below the clock). `StyleTest` ×5 pins the transform edges,
-clamps and the raw bypass.
+clamps and the raw passthrough.
 
 ## The texture cache (2026-08-30, CFW `a5d1c31`)
 

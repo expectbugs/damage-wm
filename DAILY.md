@@ -34,9 +34,10 @@ ever needs redoing: (1) sideload from the setup page, grant Bluetooth ×2 + noti
 battery exemption; (2) 🔴 keep the G2CC bridge app Disconnected (a second central); (3) phone
 first light with NOTHING on beardos holding the pair (`sudo rc-service damage stop`), flip
 Target → glasses; (4) `sudo rc-service damage start` → the log says "standby up (§19)" and the
-phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.10 is the
-sync/standby build**): an older APK cannot be status-probed, so the PC conservatively stays
-out (fine), and it carries no sync client, so state does not flow until it is updated.
+phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.15 is the
+current build**: sync client + probeable seam; ring-probe experiment reverted): an older APK
+cannot be status-probed, so the PC conservatively stays out (fine), and a pre-0.10 APK carries
+no sync client, so state does not flow until it is updated.
 
 ## Ops crib
 
@@ -65,9 +66,9 @@ out (fine), and it carries no sync client, so state does not flow until it is up
 ## What was verified vs what awaits glass
 
 The §13.2 hardware pass ran 2026-08-31 (phone first light + the three configurations). The §19
-re-shape is verified to this line: the store, the sync channel, the freshen-then-apply and the
-status probe are test-pinned (`SyncTest` ×6); the service came up in standby against the 0.9
-APK and correctly stayed out (the un-probeable old server reads as "phone owns"), migrating the
-legacy store in place. **Awaiting hardware/live**: the first real sync exchange (needs APK
-0.10 installed), a real standby engagement (stop the APK at the desk → PC BLE-drives → restart
-it → handback), and the sync feel across a driver swap.
+re-shape: test-pinned (`SyncTest` ×6) AND seen live — with the sync-carrying APK installed the
+PC logged `sync-host: peer attached to the sync channel`, the store migrated to the stamped v2
+schema, and a phone-side record (`window.tmux`) crossed and applied store-direct while the PC
+shell was in standby. **Still awaiting a deliberate glass test**: a real standby engagement
+(stop the APK at the desk → the PC BLE-drives within ~10 s → restart the APK → handback) and
+the sync feel across a driver swap (a book position following the swap). Current APK: **0.15**.

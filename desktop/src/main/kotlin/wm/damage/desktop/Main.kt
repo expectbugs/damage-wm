@@ -222,11 +222,10 @@ private suspend fun hostOnly(cfg: Config) {
     // host-only still syncs (§19.2): the store is the data, no shell needed
     val store = Persistence(Path.of(cfg.dataDir).resolve("state.json"))
     store.load()
-    val deviceLog = DeviceLogFile(Path.of(cfg.dataDir).resolve("device.log"))
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
-        tmux = tmux, sync = wm.damage.core.sync.SyncPeer(store), deviceLog = deviceLog::append)
+        tmux = tmux, sync = wm.damage.core.sync.SyncPeer(store))
     host.start()
-    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync + devlog on :${cfg.contentPort}; Ctrl-C to stop")
+    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync on :${cfg.contentPort}; Ctrl-C to stop")
     kotlinx.coroutines.awaitCancellation()
 }
 
@@ -345,11 +344,9 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         cfg.tmuxHostList(), cfg.tmuxConfig(), tmuxScope)
 
     // The PC always serves its library + tmux + sync — the DATA PROVIDER role
-    // (§19.1) — whoever is driving the glasses. It also accepts the phone's
-    // device-log stream (no adb needed) into ~/.damage/device.log.
-    val deviceLog = DeviceLogFile(Path.of(cfg.dataDir).resolve("device.log"))
+    // (§19.1) — whoever is driving the glasses.
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
-        tmux = tmuxProvider, sync = syncPeer, deviceLog = deviceLog::append)
+        tmux = tmuxProvider, sync = syncPeer)
     try {
         host.start()
     } catch (e: Exception) {

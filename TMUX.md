@@ -262,7 +262,7 @@ tests use a fake provider and no tmux at all).
 | pane navigation within a window | splits render fine already (the grid shows them); targeting a specific pane | v2 |
 | texture-cache glyph path (modes 13/14) | after first-light items 19–20 and compositor adoption | future, priced separately |
 | history reading filters (rule-line collapse etc.) | reading comfort only, default off — the live grid never filters | future |
-| session output → Reader hand-off ("read this log as a book") | cute; the refinery can kill it | future |
+| session output → Reader hand-off ("read this log as a book") | cute; the refinery can cut it | future |
 | blinking cursor, bell sound | ❌ motion discipline; ❌ §0 no-buzzer | never |
 
 ## 6. Recommended v1 cut and build order

@@ -85,31 +85,36 @@ the three configurations exercised on hardware the same day — takeover, fallba
 observed working; the §16 handover rework made every transition a repaint; the §19 correction
 then made the PHONE the primary driver and retired daily PC claims). In the queue now:
 
-- **The §19 live checks**: install APK **0.11** (setup page) — it carries the sync client, the
-  probeable seam, AND the ring probe; watch the first sync exchange in both logs; then the
-  standby drill at the desk (stop the APK → the PC BLE-drives within ~10 s → restart it →
-  handback); then the sync feel across a driver swap (a book position following the swap).
-- **The ring battery — cheap paths EXHAUSTED (2026-08-31, APK 0.14 `RingProbe` on hardware,
-  logs via the PC device-log path). Decision pending on the one path left.** Settled: the
-  glasses can't relay it (firmware source), the ring has **no standard Battery Service** and
-  **no battery in its advertisement**, and its vendor link (`bae80001-…`) is **request/response**
-  — subscribing + tapping the ring gave **zero frames** (gestures go to the glasses, its bonded
-  primary). The ONLY remaining source is **polling the ring's vendor protocol**, whose frame
-  carries a 4-byte rolling field + a **non-standard 2-byte CRC** (offline scan of 14 CRC-16
-  variants: no match). That is a real RE sub-project AND it **writes to the ring** (a live input
-  device; §11.5 bond fragility) → **needs Adam's explicit go**. Recommendation: fold it into the
-  Health window (`EXPLOSION.md` §13), which needs this exact link anyway; leave the **R cell
-  blank** until then (cosmetic — ring battery shows in the Even app). The `RingProbe` tooling
-  (enumerate / listen) and the PC device-log (`~/.damage/device.log`) stay for that work.
+- **The §19 live checks**: install APK **0.15** (setup page) — it carries the sync client and
+  the probeable seam; watch the first sync exchange in both logs; then the standby drill at the
+  desk (stop the APK → the PC BLE-drives within ~10 s → restart it → handback); then the sync
+  feel across a driver swap (a book position following the swap).
+- **Ring battery — CLOSED, not pursued (2026-08-31).** No open-source path exists: the glasses
+  can't relay it, the ring has no standard Battery Service / no advertised battery, its vendor
+  link needs protocol RE + writes to a live device, and **Faceclaw doesn't read it either** —
+  only the closed Even SDK does (`CLAIMS.md`). The R cell stays blank (cosmetic; the ring's
+  battery is in the Even app). The probe + device-log tooling was **reverted** to a clean state;
+  the ring biometrics live in the Health window (`EXPLOSION.md` §13) as a deliberate RE
+  sub-project if ever wanted for hr/steps, not for a gauge.
 
 - **On-glass verdicts for the 2026-08-31 night wave**: the tmux FLOW view (wrapped
   typographic terminal text, rules drawn, tail marker, 1 s updates — Font/size/style are real
   knobs on the terminal now; the grid remains only for htop-class TUIs), the settings
   typography (fonts previewed in their own faces), per-app depth against global chrome, arrow
   quick keys — all sim-verified, awaiting his eyes.
-- **The app-layer scope explosion** (`CAPABILITIES.md` + `DESIGN.md` §0/§4.6) — the next big
-  phase, deliberately after the daily driver settled.
-- The **icon-quality pass** Adam queued ("very basic").
+- 🚀 **THE NEXT PHASE — converting G2CC apps to DamageWM windows.** The scope explosion is
+  DONE: **`EXPLOSION.md`** grades ~175 app ideas across 13 windows (Mail, SMS, Music, Calendar,
+  Files, Timers, Notices, Info, Games, Feed, Search, Health, Weather) and names the shared
+  contract work (§16: deep links, cross-driver state, quick-action lists). To build a window:
+  implement `DamageWindow` (`core/…/shell/WindowContract.kt` — view / summary / needs /
+  appSettings / save-restore / styleTransform / onTypedText), register it on desktop + phone,
+  add it to SelfCheck/Snapshot. Read the G2CC original for interaction facts (`/home/user/G2CC/
+  server/src/windows/<app>.ts`, read-only, no code taken) and `DESIGN.md` §4.6 for the mode
+  contract. Reader + Tmux are the two worked precedents. **Start with the refinery pass on
+  `EXPLOSION.md`** (Adam cuts/reorders, answers the per-window questions, settles §16.1 deep
+  links + §16.4 cross-driver state) before coding any window.
+- The **icon-quality pass** Adam queued ("very basic") — every new window needs a drawn
+  `IconKind` anyway (§16.7), so fold it in.
 - Watch-items from today: the left-lens seam residue (one-shot early-burst tear — recurs? then
   harden session start), the ~20 s silent-death freeze window (tighten heartbeat constants if
   it feels long in practice).
@@ -140,7 +145,7 @@ actually looks on glass is among them.**
 | 4 | **The rect budget of 5** (graded **I**) | derived from `cfw_diag()`, never observed; failure is silent |
 | 5 | **Two-arm BTSnoop capture** | settles the bulk-to-LEFT / control-to-RIGHT split (graded **I**) |
 | ~~6~~ | ✅ **CFW ack latency — the whole CURVE measured 2026-08-31**: `ms ≈ 60 + bytes/50` from 1,488 journalled flushes (floor median 60 ms, min 33; ~50–75 KB/s transfer; dense full-frame 2–4 fps). `overview.md` §5.2 | `HANDOFF.md` §12 |
-| 7 | **msgId-255 behaviour under CFW** | it kills the link on stock |
+| 7 | **msgId-255 behaviour under CFW** | it drops the link on stock |
 | 8 | **Chrome legibility** at 32/28 px bars, real faces on glass | the one thing renders cannot answer |
 | 9 | **Whether a normal Android app can see WEA/CMAS alerts** (Pixel 10a) | `DESIGN.md` §4.5 promises emergency alerts; unverified |
 | 10 | **Connected RSSI** — obtainable at all, and from which link | the status bar's link cell |
@@ -151,7 +156,7 @@ actually looks on glass is among them.**
 | 15 | **The sid-0x01 connect prelude** — graded U: does the CFW require it before CREATE? | the transport sends it (the reference does); the model treats it as required. If the real firmware answers differently, `LaunchMsg` says where to change it |
 | ~~16~~ | ✅ **PC-direct BLE over BlueZ** — works, first try, and **no bonding was required**. Original question: — the MTU the characteristic reports, notification delivery, write-without-response pacing, **and whether beardos must BOND with the pair first** | first exercise of `BlueZDbus`; the nine fake-link tests say what is expected. The bonding half is open because every capture we hold was taken from an already-bonded phone (`HANDOFF.md` §10.5) — it applies to the flash and to the runtime link alike |
 | ~~17~~ | ✅ **Takeover and fallback — LIVE on hardware 2026-08-31** (phone first light + the daily driver): PC claims via the seam, phone resumes on loss (measured 21 s silent-death detection), PC-direct at the desk; since §16 every transition ADOPTS the session (no teardown) | done — `DAILY.md` |
-| 18 | 🔴→✅ **The switcher — real cause FOUND AND FIXED 2026-08-31: our own §1 source filter.** Events 9/10 are unattributed (source 0, `EventSource` absent by firmware design) and the shell's ring-only check (source ≠ 2 → drop) discarded every real long-press before the grammar ran — both routes dead since first light while `LongPressTest` passed on its flattering ring-source default. Fixed: 9/10 bypass the source check; the suite injects them with source 0. The hardware half is also settled: five deliberate ~1 s holds produced five clean event-9s (accidental brushes end early — their event-10s mean "a touch ended"). **Awaiting Adam's on-glass confirmation of both routes** (`REFINEMENT.md` §4) | the grammar's premise (the arming event is rare in normal use) is OBSERVED: zero 9s across a day of use, five on demand |
+| 18 | 🔴→✅ **The switcher — real cause FOUND AND FIXED 2026-08-31: our own §1 source filter.** Events 9/10 are unattributed (source 0, `EventSource` absent by firmware design) and the shell's ring-only check (source ≠ 2 → drop) discarded every real long-press before the grammar ran — both routes dead since first light while `LongPressTest` passed on its flattering ring-source default. Fixed: 9/10 skip the source check; the suite injects them with source 0. The hardware half is also settled: five deliberate ~1 s holds produced five clean event-9s (accidental brushes end early — their event-10s mean "a touch ended"). **Awaiting Adam's on-glass confirmation of both routes** (`REFINEMENT.md` §4) | the grammar's premise (the arming event is rare in normal use) is OBSERVED: zero 9s across a day of use, five on demand |
 | 19 | **The texture cache on glass** (new, CFW `a5d1c31`) — upload a small atlas with mode 12, draw it with 13 and 14, and compare the panel against the simulator's prediction pixel for pixel | modes 12/13/14 are modeled byte-exactly but have never run on hardware. This is the gate on adopting cached glyphs for text. ⚠ **Two things not to misdiagnose:** mode 14 adds one overlay rect per glyph against a 16-deep list, so with the diagnostic overlay on, a string over ~16 glyphs shows incomplete outlines — that is the overlay, not a firmware fault. And a failed 64 KiB allocation shows ONLY as the sticky `ALLOC` flag, so leave the overlay on for the first upload |
 | 20 | **What an atlas upload actually costs** — time a 16/32/64 KiB mode-12 upload at the measured link rate, and confirm the cache really survives a lease *renewal* while dying on a lapse | decides atlas size and whether a session can afford a full font. Prices the whole mode-14 trade against item 6's real ack latency |
 | 21 | **Temple-touchpad long-press** — since `a5d1c31` either temple raises `SysEvent 9` too, not just the ring. How often does it fire by accident, in gloves, in a coat pocket? | `DESIGN.md` §1.2's "a bare long-press is a no-op" was decided for the ring alone and now carries a second accidental source. Confirm the default still feels right before anyone proposes relaxing it |

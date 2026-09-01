@@ -68,7 +68,7 @@ images), Tmux (FLOWED SGR text — the grid is retired to an alternate-screen fa
 2026-08-31 — history, keys, typed text, 1 s configurable updates), Main, Settings
 (directories; global + per-app font/size/style, per-app depth).
 
-Adam's stated methodology still governs **the app layer**, where the scope explosion is next:
+Adam's stated methodology governs **the app layer**, and it is now at the refinery/build step:
 
 > Heavy research → full documentation → clean repo → the main plan → a couple hundred ridiculous
 > feature-creep scope explosions → heavy refinery to bring it back to reality → passes for
@@ -76,8 +76,13 @@ Adam's stated methodology still governs **the app layer**, where the scope explo
 > implementation via real code → **then** slowly, carefully, start executing.
 
 "Feature creep is my RELIGION" — the explosion phase is deliberate and wanted; the refinery phase
-is what keeps it shippable. Do the explosion for new windows on paper (`CAPABILITIES.md`,
-`DESIGN.md` §0/§4.6) before coding them.
+is what keeps it shippable. **The explosion is DONE: `EXPLOSION.md` grades ~175 app ideas across
+13 windows plus the shared contract work (§16).** The current phase is **converting G2CC apps to
+DamageWM windows** — refinery pass on `EXPLOSION.md` first (cut/reorder, settle §16.1 deep links
+and §16.4 cross-driver state), then build a window against the `DamageWindow` contract
+(`core/…/shell/WindowContract.kt`), reading the G2CC original for interaction facts only
+(`/home/user/G2CC/server/src/windows/`, read-only) and `DESIGN.md` §4.6 for the mode contract.
+Reader and Tmux are the two worked precedents.
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
 (164 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
@@ -232,7 +237,7 @@ that don't fit raise loudly, never silently mangle.
 - Letting **msgId exceed 255** — it is a 1-byte field; the glasses stop acking at 255 and go
   silent. Cycle it.
 - Writing to **`sid=0x80` (`dev_config`)** — developer/debug fields; one early RE session
-  non-terminally bricked a pair this way. Stay on `sid=0x09`.
+  non-terminally disabled a pair this way. Stay on `sid=0x09`.
 - **Floyd-Steinberg (or any) dithering** in our renderer — it roughly halves compression by
   turning smooth runs into high-entropy noise, and the 4-bit downsample looks better without it.
 - **Per-pixel or per-row scroll steps** — cost is ack-dominated, so a 40-row jump costs barely
@@ -250,11 +255,11 @@ that don't fit raise loudly, never silently mangle.
   crippled the batching thesis. Do keep CREATE/REBUILD frames under ~1000 B.
 - **Firmware patches that change image length** without bumping the preamble length — the
   bootloader programs `preamble[0]&0xFFFFFF` bytes with **no bounds check**; an overrun past MRAM
-  end is an SWD-only brick. ⚠ Note the shipped CFW **is** enlarged (+20,127 B) and bumps the
+  end is an SWD-only recovery. ⚠ Note the shipped CFW **is** enlarged (+20,127 B) and bumps the
   preamble correctly; safety comes from that bump, `check_mainapp_fits_mram()`, and ~403 KB of
   headroom — not from length-preservation. See `overview.md` §3.
 - **Re-sending an already-written flash block** — the c0/c1 OTA path has no block index and no
-  dedup; a resend double-advances the offset and corrupts.
+  dedup; a resend double-advances the offset and leaves it inconsistent.
 - Hard-coded wire constants or firmware addresses **without a source comment** naming the file or
   capture they came from.
 

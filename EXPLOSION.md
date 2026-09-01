@@ -355,7 +355,7 @@ is present) · face Clear Sans; **B612 candidate — it is the digit-heaviest su
 
 | # | idea | note | grade |
 |---|---|---|---|
-| 9.1 | Battery detail: G/R/P exact %, charging states, **case SoC** (sid 0x81 `caseInfo.soc` — decoded in our own captures) | the §4.1 debt paid; R fills when the 0x91 probe lands | v1 |
+| 9.1 | Battery detail: G + P exact %, charging states, **case SoC** (sid 0x81 `caseInfo.soc` — decoded in our own captures) | the §4.1 debt paid. No ring: it has no open-source source (`CLAIMS.md`); the chrome R cell was removed 2026-08-31 | v1 |
 | 9.2 | **Which configuration is driving** — the §10 row, named: `PC → phone → glasses`, path, since-when | turns the arbitration from invisible to legible; the daily-driver ops crib on glass | v1 |
 | 9.3 | Link panel: ack EMA, B/s, RSSI (where readable), seam heartbeat age | all already in `LinkState`/status | v1 |
 | 9.4 | Session: lease held/renewals, uptime, flushes, bytes today | journal-derived | v1 |
@@ -455,22 +455,23 @@ graded **v2 overall**: it is only as good as the sources built before it.
 
 ## 13. HEALTH
 
-**The relay probe is ANSWERED — negative, from source (2026-08-31 night):** the stock firmware
-**never sends `RingRawData`** on sid 0x91 — its service accepts only the EVENT registration and
-no code path fills rawData (openCFW `pb_service_ring.c`, corroborated by zero rawData frames in
-both captures; `CLAIMS.md`). So this window's data source is what 13.8 said all along: **the
-phone's own BLE link to the ring** — the official-app/Faceclaw shape, proven to coexist with the
-ring↔glasses link. The APK's read-only "ring" probe (0.11) is the first rung: GATT enumeration +
-standard Battery/firmware reads if offered; the proprietary 0x0015/0x0017 frames (G2CC §11,
-charging-toggle capture to isolate fields) are the deeper rung the biometrics need.
+**Every open source of ring data is closed off — this window is DEFERRED, not cheap (2026-08-31).**
+Chased to the end and reverted: the glasses never relay `RingRawData` (firmware source), the ring
+has no standard Battery Service and no advertised battery, its vendor link (`bae80001-…`) is
+request/response with a **custom checksum** (offline scan matched no standard CRC-16), and
+**Faceclaw does not read ring battery either** — only the closed Even SDK does (full evidence in
+`CLAIMS.md`). So every biometric here needs reverse-engineering the ring's vendor protocol AND
+writing to the ring (a live input device, §11.5). That is the real cost of this window: a
+protocol-RE sub-project, not an afternoon. Worth it only if the biometrics (hr/steps/sleep) are
+wanted for their own sake — not for a battery gauge.
 
 | # | idea | note | grade |
 |---|---|---|---|
-| 13.1 | ~~Watch a session for 0x91 relays~~ → **the direct-link probe** (GATT enumerate + battery read) | ✅ built into APK 0.11 as the strip's "ring" button | **done — awaiting the tap** |
+| 13.1 | Reverse-engineer the ring's vendor protocol (checksum + poll requests) | the gate on EVERYTHING below; writes to the ring | **the sub-project** |
 | 13.2 | Today panel: steps, kcal, last hr | | v2 (post-probe) |
 | 13.3 | HR sparkline as coarse blocks | host stores history | v2 |
 | 13.4 | SpO2 / HRV / temp rows | | v2 |
-| 13.5 | Ring battery detail + charge state (also feeds the chrome R cell) | shared with Info 9.1 | v2 |
+| 13.5 | Ring battery detail + charge state (would re-add a chrome ring cell, removed 2026-08-31) | needs the §13.1 protocol RE | v2 |
 | 13.6 | Big-digit live HR view (workout) | 1 Hz-class radio spend, opt-in like 6.5 | future |
 | 13.7 | Threshold alerts | | future |
 | 13.8 | Direct ring link (Faceclaw decodes gestures + data on it) | a second central on the ring; real complexity, weigh against what the relay gives free | future |
@@ -533,13 +534,13 @@ hiding inside the explosion; each is small, none exists yet.
 
 ---
 
-## 17. The probe ledger — cheap experiments this document hangs on
+## 17. The probe ledger — cheap experiments this document depends on
 
 In rough order of value per effort. None requires new firmware; all are additive.
 
 | probe | unblocks | effort |
 |---|---|---|
-| **Ring relay watch** (0x91 unprompted?) | Health entirely; the chrome R cell | zero — listener already wired; watch one session's log |
+| ~~Ring relay watch~~ | ✅ ANSWERED negative (glasses never send `RingRawData`); ring biometrics need the ring's own link + protocol RE — §13.1, `CLAIMS.md` | done |
 | **WEA/CMAS visibility on the Pixel 10a** | the §4.5 emergency promise (14.4 is the hedge either way) | an afternoon with the phone |
 | **Logger service, sid 0x0F** | live on-glass log stream — turns silent decompress trouble visible; `CAPABILITIES.md` calls it the highest-value untested lead | small transport addition |
 | **Compass feed** (mode 10 + sid 0x08) | the status-bar tape placeholder; Navigation | small; V-graded wire, never run by us |

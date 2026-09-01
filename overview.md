@@ -68,9 +68,9 @@ The pivot to firmware text/menus bought "single ~62-86ms text/list writes" and m
 usable — at the cost of every design ambition. Images were avoided everywhere because they cost
 seconds. The custom firmware removes **every named cause of that failure**:
 
-| what killed the original design | what the CFW does about it |
+| what ended the original design | what the CFW does about it |
 |---|---|
-| `f1=7` rebuild on every menu state change | EvenHub layout system bypassed entirely — rebuilds do not exist |
+| `f1=7` rebuild on every menu state change | EvenHub layout system removed entirely — rebuilds do not exist |
 | re-push all four tiles per rebuild | **dirty rects** — send only changed pixels |
 | *(retention probe never run)* | ✅ **PROBE RUN 2026-08-17 — see below.** The re-push was not conservatism, it was required |
 | 288×144 image-container cap forcing a 2×2 grid | one 576×288 surface (640×480 shadow) |
@@ -80,7 +80,7 @@ seconds. The custom firmware removes **every named cause of that failure**:
 
 ### ✅ The retention probe, finally run (2026-08-17) — and it vindicates the whole decision
 
-Commit `709d18c` killed the original framebuffer design partly on a *suspicion*: the renderer
+Commit `709d18c` ended the original framebuffer design partly on a *suspicion*: the renderer
 re-pushed all four tiles on every rebuild, and the parenthetical **"(retention probe never run)"**
 left open the possibility that this was needless conservatism — that images survived a menu change
 and G2CC was simply throwing away throughput.
@@ -103,7 +103,7 @@ Three consequences worth carrying forward:
 
 1. **The pivot away from framebuffer-on-stock was correct**, and for a better reason than we knew.
 2. **The CFW is not an optimisation, it is the only path.** Under stock EvenHub *any* layout change
-   destroys image content, so no amount of clever damage tracking helps while firmware containers
+   discards image content, so no amount of clever damage tracking helps while firmware containers
    own the layout. Under CFW there are no containers to rebuild and the entire failure class is
    gone — which is precisely why the mode-8 batching thesis is viable there and was not here.
 3. ⚠ **It also prices the fallback honestly.** If Damage stalls and we return to G2CC, this is a
@@ -291,7 +291,7 @@ updates went from ~2 fps to ~7 fps. Our 2.2.2 predates it entirely.
   to official latest first. *(Unverified: whether a cross-version jump from 2.2.2 is accepted —
   nothing in the flasher gates on version, but nobody has documented doing it.)*
 
-### Brick risk (researched precisely — judged acceptable, decision made)
+### Unrecoverable-image risk (researched precisely — judged acceptable, decision made)
 
 The bootloader programs the main app to `dst = preamble[0x14]`, `len = preamble[0]&0xFFFFFF`,
 **with no bounds check**. Reaching the OTA flag `0x7FE000` clobbers it and the BLE-bond/KV NV
@@ -317,7 +317,7 @@ got exactly the reviewed image. **Danger zone remains: writing our own patches t
 app without bumping the preamble length.**
 
 Second hazard: the c0/c1 OTA path has **no block index and no dedup** — re-sending an
-already-written block double-advances the flash offset and corrupts. Hence
+already-written block double-advances the flash offset and leaves it inconsistent. Hence
 `--block-nak-retries` / `--component-retries`.
 
 ### ✅ The image is reproducible from sources we hold — verified offline (2026-08-17)
@@ -349,7 +349,7 @@ ambiguous ACK timeout restarts the whole component rather than replaying a block
 Source: `g2flash` `patches/zlib_glue.c` header comment (and, for modes 12–15,
 `patches/texture_cache.c`). Dispatch is on the image's own leading bytes: `'BM'` = BMP, otherwise
 a small u8 mode. Custom modes **3/6/8/9/13/14/15 operate on the full 640×480 physical image**
-(packed 4bpp shadow); they bypass LVGL, serialize on the stock display semaphore, and
+(packed 4bpp shadow); they go around LVGL, serialize on the stock display semaphore, and
 `display_copy_hook` copies straight into the physical framebuffer before panel refresh.
 
 **⚠ Updated 2026-08-30 for g2flash `a5d1c31`** (was `877c8d9`). Modes 3/6/8/9 are **unchanged** —
@@ -419,7 +419,7 @@ deleted **purely to fit under 127 bytes**; both features still work. Never gate 
 the box is bounds-checked against 640×480. The quantization is deliberate: multiples of 4 make
 `left>>1` and `bw>>1` whole byte offsets, so each box row lands as a plain byte run with no nibble
 shifting. **`fid` is a uint16 frame counter** and a fid still present in the last-16 ring is
-**silently skipped, not rejected** — re-applying a delta out of order would corrupt the shadow.
+**silently skipped, not rejected** — re-applying a delta out of order would leave the shadow inconsistent.
 Mode 9 uses full uint16 coords with no quantization.
 
 **Mode 8's rect limit — corrected 2026-08-17.** An earlier version of this section said "mode 8 has
@@ -876,7 +876,7 @@ into a UI event code posted via `FUN_0045fc80(ctx, code, data)`.
 - **double / both-temple long-press → stock Silent Mode: NOT patched by anyone.** A system-level
   gesture outside the EvenHub branch. Ours to write if we want it. Adam says it never fires
   accidentally — **recommend leaving it as a hardware escape hatch** in case our own software wedges.
-- ⚠ **Killing the dialog kills the only stock way to quit an app.** Damage must provide its own
+- ⚠ **Removing the dialog removes the only stock way to quit an app.** Damage must provide its own
   quit path (Faceclaw does exactly this, plus a 10 s keepalive).
 
 ### 🔑 6.1 Per-notch scroll — G2CC's boundary-only limitation does not carry over
@@ -911,7 +911,7 @@ unplayable on boundary-only events.
 ### 🆕 A second, independent input path: the ring's own BLE link
 
 Faceclaw also connects to the R1 ring over **its own link** and decodes gestures host-side,
-bypassing the glasses' UI layer entirely (`FaceclawRingEventDecoder.java`). Two frame shapes:
+going around the glasses' UI layer entirely (`FaceclawRingEventDecoder.java`). Two frame shapes:
 
 ```
 11-byte "charger" gesture:  00 09 61 00 <code> <param:16LE> <tick:32LE>
@@ -941,7 +941,7 @@ At work Adam wears gloves. The failure chain today:
 
 1. double-tap → G2CC mini-silent-mode (tiny clock, ignores all input but another double-tap)
 2. gloves force a **ring long_press** → **"End Feature?" menu** overrides mini-silent-mode
-3. then either a glove **tap** → selects End Feature → **kills G2CC** until the phone notices
+3. then either a glove **tap** → selects End Feature → **ends G2CC** until the phone notices
    and refreshes, or another glove **long_press** → **Firmware Menu**, whose first item is
    **Silent Mode**, which then gets selected → **firmware Silent Mode, no clock, no notifications**
 
@@ -1016,7 +1016,7 @@ The schema pins the *field*; it says nothing about the *values*.
 **RLE4** bytes — but it ran on **2.2.2**, which predates the feature entirely and has no decoder.
 Inconclusive by construction; do not read it as confirming *or* refuting the mapping.
 
-**On our 2.2.2 the field most likely has no stock meaning at all.** g2flash's *older* CFW hijacked
+**On our 2.2.2 the field most likely has no stock meaning at all.** g2flash's *older* CFW repurposed
 it outright: `patches/decompress.c`'s `frag_write` treated **any nonzero CompressMode as "the
 payload is 1bpp, expand it 1→4."** That only works if stock ignored the field. `patches_main.c`
 says the expander "was dropped in the 2.2.6.10 rebase — stock now uses CompressMode itself" — which
@@ -1033,7 +1033,7 @@ Babcock, by email:
 
 Everything in the grading table above survives. "Unused in older firmwares" confirms the inference
 that the field has **no stock meaning on our 2.2.2** — which is exactly why g2flash's old
-`frag_write` could hijack any nonzero value for its 1bpp expander. "Even's first-party compression
+`frag_write` could repurpose any nonzero value for its 1bpp expander. "Even's first-party compression
 mode" in newer firmwares confirms it became meaningful at 2.2.6.10.
 
 ⚠ **He did not confirm `1 = RLE`.** He described the field's role without giving values, so that
@@ -1068,7 +1068,7 @@ be answered.
 | **[jimrandomh/g2flash](https://github.com/jimrandomh/g2flash)** | **THE custom firmware.** GPL-3.0. Author **James Babcock**. Patches stock 2.2.6.10. `patches/zlib_glue.c` = the mode table; `patches/gesture_fwd.c` = input; `patches/patch_compress.py` = the patcher; `demos/lz4.ts` = LZ4 block encoder; `demos/video-bench.ts` = the benchmark; `demos/detect-cfw.ts` = capability probe; `g2flash.py` = the flasher |
 | **[jimrandomh/faceclaw](https://github.com/jimrandomh/faceclaw)** | the reference UI on that CFW. **Ships `app/fonts/terminus/*.bdf`** and renders its own framebuffer UI — proof the architecture works |
 | **[Commute773/g2-kit-unofficial](https://github.com/Commute773/g2-kit-unofficial)** | ★31. **An independent from-scratch RE of the BLE stack — the same category of work as ours.** `ble/gen/*_pb.ts` = **generated protobuf schemas** for ~20 message families, each embedding the **vendor's own `FileDescriptorProto`** — the single most valuable artifact in the ecosystem (§9.1). ⚠ **`ble/docs/`'s 11 prose docs are materially unreliable — read the `.ts`, not the `.md`** (§9.1). *(jimrandomh's copy is a byte-identical fork existing only to pin a dependency SHA.)* |
-| **[kalanihelekunihi/evenRealities-openCFW](https://github.com/kalanihelekunihi/evenRealities-openCFW)** | Author **Kalani Helekunihi** (company: AM Guru). Three things: (a) a byte-exact **reconstruction** of stock 2.2.6.10 — ~5% source-owned, an analysis project, nothing to adopt; (b) an **unreleased** `g2-2.2.6.12` build = older g2flash `d5eb48dd` + **canvas480** (see §4 — not the CFW anyone installs); (c) **the adversarial review of g2flash**, which is the genuinely valuable part: `tools/thumb_branch_audit.py`, the evenai_thumb HardFault writeup, and a regression test |
+| **[kalanihelekunihi/evenRealities-openCFW](https://github.com/kalanihelekunihi/evenRealities-openCFW)** | Author **Kalani Helekunihi** (company: AM Guru). Three things: (a) a byte-exact **reconstruction** of stock 2.2.6.10 — ~5% source-owned, an analysis project, nothing to adopt; (b) an **unreleased** `g2-2.2.6.12` build = older g2flash `d5eb48dd` + **canvas480** (see §4 — not the CFW anyone installs); (c) **the independent review of g2flash**, which is the genuinely valuable part: `tools/thumb_branch_audit.py`, the evenai_thumb HardFault writeup, and a regression test |
 | **[AM-Guru/SybilSight-webflasher](https://github.com/AM-Guru/SybilSight-webflasher)** | MIT. Deployed at **webflasher.sybilsight.com**. Browser flasher over Web Bluetooth **and the charging case's CH340 USB serial** (`1A86:7523`). Backup set (512 KiB case flash + option block + temple identity snapshots + matching official glasses bundle). **Hosts the 19-image firmware archive.** Case-USB pogo bridge pushes to a *responsive* temple — **not a dead-device rescue** |
 | **[i-soxi/even-g2-protocol](https://github.com/i-soxi/even-g2-protocol)** | the original community BLE RE reference (G2CC's original upstream) |
 | **[nickustinov/even-g2-notes](https://github.com/nickustinov/even-g2-notes)** | **`docs/performance.md`** (the fps/cost model) and **`docs/display.md`** (container rules, glyph inventory, fullwidth-CJK monospace trick) |
@@ -1088,7 +1088,7 @@ be answered.
 - `magic` is **effectively uint8** (firmware compares only the low byte) — the same wall as our
   msgId-255 finding, hit from the other side.
 - Container name cap is **14 chars**, hard, silent rejection.
-- **`sid=0x80` (dev_config) bricked a pair** — non-terminally; needed power-cycle + re-pair.
+- **`sid=0x80` (dev_config) disabled a pair** — non-terminally; needed power-cycle + re-pair.
   **Stay on `sid=0x09`.**
 - Multi-fragment messages must not interleave on the characteristic — one reassembly buffer keyed
   by transport `seq`. Serialize writes.
@@ -1291,7 +1291,7 @@ patches at instruction level**:
 - **Scope rejections** (`release.json` `removed_features`): `faceclaw-wake-lease`,
   `faceclaw-idle-double-tap-takeover`, `faceclaw-even-ai-interception`, plus the settings
   field-101 decoder; `"native_even_ai_behavior": "stock"`. These are product-scope choices —
-  Faceclaw hijacks the wake word and idle double-tap for its own UI; SybilSight wanted stock
+  Faceclaw claims the wake word and idle double-tap for its own UI; SybilSight wanted stock
   "Hey Even" to keep working. **Not safety judgments.**
 - 🔴 **A real HardFault bug he found in an early CFW 2.2.6.11**
   (`components/apollo_main/evenai_thumb/`): the `even_ai_display_ctrl` trampoline resumed the
@@ -1323,7 +1323,7 @@ patches at instruction level**:
   (14 branches vs the 9 in his writeup because HEAD's blob added compass, wear-notify and the
   buzzer sequencer since `6d5c5859`.) **Re-run this audit before any flash** — it is free.
 
-⇒ **Corroboration is n=2 with instruction-level adversarial review, a defect found, and a fix that
+⇒ **Corroboration is n=2 with instruction-level independent review, a defect found, and a fix that
 flowed upstream and that we independently confirmed.** That is a working review loop, and a
 materially better trust story than "one author's say-so." Expect to be the third serious consumer
 of this ecosystem. Read patches before flashing them.
@@ -1494,13 +1494,17 @@ workday.** The spec has a hybrid power policy and no measured budget.
   requests the low-power state ~2 s after connect. A `setSpeed = FAST` may pin it — a direct lever
   on the ack latency that prices this entire project. ⚠ On the dangerous sid; see below.
 - ✅ **We now know exactly why sid 0x80 is dangerous.** `dev_config_protocol.proto`:
-  `UNPAIR_INFO = 9` and **`RESTORE_TO_FACTORY_SETTINGS = 13`**. That is the brick g2-kit hit.
+  `UNPAIR_INFO = 9` and **`RESTORE_TO_FACTORY_SETTINGS = 13`**. That is the unrecoverable state g2-kit hit.
   The rule sharpens from "never touch sid 0x80" to **"commandIds 9 and 13 are destructive;
   4 (AUTHENTICATION) and 128 (TIME_SYNC) are what the official app already sends."**
-- ✅ **Ring battery is solved without decoding the ring's own link.** `ring.proto` on
-  `UX_RING_DATA_RELAY_ID = 145` (our `91-XX`): `RingRawData{battery=1, chargeStates=2, hr, spo2,
-  hrv, temp, actKcal, allKcal, steps + timestamps}`. Retires the residual RE item in
-  `G2_BLE_PROTOCOL.md` §10/§11.
+- ⚠ **Ring biometrics: the schema exists but the glasses never send it — CORRECTED 2026-08-31.**
+  `ring.proto` on `UX_RING_DATA_RELAY_ID = 145` (our `91-XX`) defines
+  `RingRawData{battery=1, chargeStates=2, hr, spo2, hrv, temp, actKcal, allKcal, steps +
+  timestamps}` — but the stock firmware's 0x91 service only registers the ring MAC (`EVENT`) and
+  never fills `RawData` (verified against firmware source + both captures; `CLAIMS.md`). An
+  earlier note here called ring battery "solved" via the relay — that was wrong. The only
+  source is the closed Even SDK over the ring's own link; not pursued (cosmetic). See
+  `CAPABILITIES.md` (ring biometrics) and `EXPLOSION.md` §13.
 - ✅ **sid 0x0D is `sync_info`, not "configuration query"** — `sync_info_data_msg
   {backgroundAppID, foregroundAppID}`. It tells us when EvenHub is fore/backgrounded, which
   Damage needs in order to know whether its surface is actually visible.

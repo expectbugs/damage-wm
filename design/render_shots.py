@@ -252,7 +252,7 @@ def new():
 # ---------------------------------------------------------------- shared chrome
 def chrome(d, title, win, win_ic, *, pos_frac=0.4, depth=2, dirty=(), op="idle",
            status="ok", thru="8.4K/s · 176ms", comp="NE", link=-58,
-           batt=(("g", 87), ("r", 18), ("p", 62)), flash=0, nwin=13, at=5,
+           batt=(("g", 87), ("p", 62)), flash=0, nwin=13, at=5,   # no R: ring battery has no source (CLAIMS.md)
            dirty_at=(1, 9)):
     # --- top bar: [icon] WINDOW · document | batteries | clock -------------------
     icon(d, BAR_X + 8, 6, 20, 20, win_ic, HEAD)

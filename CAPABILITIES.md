@@ -52,7 +52,7 @@ FB lease must be renewed every 45 s or stock LVGL repaints over you.
 | Tap / double-tap / long-press / long-press-release | EvenHub `Sys_ItemEvent`; CFW adds SysEvent 9/10 for ring long-press | ✅ V |
 | **Per-notch scroll** | every notch delivered — **in daily use since 2026-08-30**; fast-spin coalescing still unprobed | ✅ M |
 | **Per-source discrimination** (L temple / R temple / ring) | firmware source byte `0x2034dc30`; protobuf `EventSourceType` | ✅ V |
-| **Direct ring gestures, bypassing the glasses** | ring's own BLE link · `0x04` SWIPE_UP / `0x05` SWIPE_DOWN + **32-bit tick** ⇒ velocity possible | 🟡 C |
+| **Direct ring gestures, going around the glasses** | ring's own BLE link · `0x04` SWIPE_UP / `0x05` SWIPE_DOWN + **32-bit tick** ⇒ velocity possible | 🟡 C |
 | Both-temple long-press → stock Silent Mode | unpatched by anyone — **keep as the hardware escape hatch** | ✅ M |
 | Wake-word "Hey Even" as an app event | sid 0x07; CFW can suppress the stock handler | 🟡 S |
 | Typed-text input path | G2CC had `onTypedText`; unported | ❓ U |
@@ -65,7 +65,7 @@ FB lease must be renewed every 45 s or stock LVGL repaints over you.
 | **Wear / unwear detection** | CFW `wearnotify` → sid 0x10 `GLS_WEAR_STATUS`; op 7 queries current state | ✅ V |
 | **Magnetometer compass** | CFW mode 10 · heading via stock sid-0x08 notifier | ✅ V |
 | **Piezo buzzer** — presets, notes, **arbitrary 1–20000 Hz tones, and 48-step sequences** | mode 5 kinds 0–4 · the only audio output on a device with no speaker | ✅ V |
-| **Ring biometrics**: hr, spo2, hrv, temp, steps, kcal, battery — all with timestamps | ❌ **NOT via the sid-0x91 relay** (firmware never sends `RingRawData` — §CLAIMS). Direct-link probe run on hardware 2026-08-31 (APK 0.14, `RingProbe`): the ring exposes a **vendor GATT service `bae80001-4f05-4503-8e65-3af1f7329d1f`** (notify `bae80011`/`bae80013`, write `bae80010`/`bae80012` = G2CC's 0x0015/0x0017), **NO standard Battery Service**, and **NO battery in the advertisement** (mfr data 0x5245 "ER" = reversed MAC + serial `B210DGACA300496` only). ⚠ **The link is REQUEST/RESPONSE**: subscribing to both notify chars and physically tapping the ring produced **zero frames** — the ring pushes gestures to its bonded primary (the glasses), not to a phone secondary; every notify in the captures followed a phone WRITE. So battery needs **polling** the vendor protocol (a frame with a 4-byte rolling field + a 2-byte CRC that does NOT match any standard CRC-16 — uncracked), which **writes to the ring**. Decision pending (writes to a live input device; §11.5 bond fragility) | ❌ relay · ❌ GATT/adv · 🟡 poll (RE + writes) |
+| **Ring biometrics**: hr, spo2, hrv, temp, steps, kcal, battery — all with timestamps | ❌ **Not available to any open-source path — NOT PURSUED (cosmetic).** Glasses can't relay it (firmware source); the ring has no standard Battery Service and no battery in its advertisement; its vendor link (`bae80001-…`) is request/response with a custom checksum (would need reverse-engineering + writes to a live input device); and **Faceclaw does not read it either** — only the closed Even SDK does. Full evidence + the retracted "Faceclaw does this" lead in `CLAIMS.md`. The chrome **R cell stays blank**; ring battery is visible in the Even app | ❌ (all open paths) |
 | Ambient light / auto-brightness, head-up angle, anti-shake | sid 0x80 `DeviceInfo` · sid 0x09 settings | 🟡 V |
 | Glasses battery / charging / case SoC / lid / in-case | sid 0x09 f4.12–13 (⚠ the BARE `08 02 10 xx` READ — the f4-sub-request form returns no device-info on the CFW, measured 2026-08-31); sid 0x81 `GlassesCaseInfo`. **In daily use: the chrome G cell** | ✅ M (CFW) |
 | Glasses microphone | ⚠ disconnects >25 s; audio is on service `6450` | ⚠ S |
@@ -107,7 +107,7 @@ at scale, and it is the difference between "AA text is affordable" and "AA text 
 it can be adopted without rework.
 
 **Most under-explored:** the **logger** (turns silent failure into visible failure — directly serves
-the project's own rule) and the **file-export service** (attacks the one genuinely irreversible
+the project's own rule) and the **file-export service** (addresses the one genuinely irreversible
 thing about this project). Both are cheap probes and neither has been touched.
 
 **Most likely to be wrong** *(updated 2026-08-31)*: ~~per-notch scroll~~ (resolved — works, daily

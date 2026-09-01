@@ -1020,7 +1020,9 @@ class Shell(
                 // chrome never justifies its own flush (§8.3): the new value
                 // rides the next content flush or the idle chrome tick
                 ev.glassesPct?.let { glassesBattery = Chrome.Battery(it) }
-                ev.ringPct?.let { ringBattery = Chrome.Battery(it) }
+                // ev.ringPct is ignored: ring battery has no source and no cell
+                // (CLAIMS.md); the relay listener stays only to log a frame if a
+                // future CFW ever pushes one
                 chromeDirty = true
             }
             is TransportEvent.Lease -> {
@@ -1705,7 +1707,6 @@ class Shell(
             clock = c.hhmm,
             clockAmPm = c.amPm,
             glasses = glassesBattery, // sid-0x09 device-info response, f4.12 (2026-08-31)
-            ring = ringBattery,       // sid-0x91 relay, when the glasses forward one
             phone = phoneBattery,
             windowCount = rows.size,
             windowAt = at,
@@ -1728,19 +1729,17 @@ class Shell(
 
     @Volatile var phoneBattery: Chrome.Battery? = null
 
-    /** Wire-fed battery (2026-08-31): glasses from the settings READ
-     *  response (start + the 60 s poll). Blank until the wire reports —
-     *  never invented. */
+    /** Wire-fed batteries: glasses from the settings READ response (start +
+     *  the 60 s poll). Blank until the wire reports — never invented. The ring
+     *  cell has no working source: the glasses CANNOT relay ring battery (the
+     *  stock sid-0x91 service accepts only the EVENT registration and never
+     *  fills RingRawData — openCFW pb_service_ring.c on our 2.2.6.10 base +
+     *  both captures), the ring has no standard Battery Service / no adv
+     *  battery, and its vendor link is request/response with a custom
+     *  checksum. The only source is the closed Even SDK. Not pursued
+     *  (cosmetic) — `CLAIMS.md`. The relay listener stays wired in the
+     *  transport in case a future CFW ever implements the push. */
     private var glassesBattery: Chrome.Battery? = null
-
-    /** Ring battery. HOST-SET like [phoneBattery] (the phone's RingProbe over
-     *  its own link to the ring) — the glasses CANNOT relay it: the stock
-     *  sid-0x91 service accepts only the EVENT registration and never fills
-     *  RingRawData (openCFW pb_service_ring.c, recovered against our
-     *  2.2.6.10 base; zero rawData frames in both captures — 2026-08-31,
-     *  HANDOFF.md §19.4). The relay listener stays wired in the transport in
-     *  case a future CFW implements it. */
-    @Volatile var ringBattery: Chrome.Battery? = null
 
     /** The active window's id, or null at Main/silent — test introspection. */
     fun currentWindowId(): String? = if (mode == Mode.WINDOW) current?.id else null
