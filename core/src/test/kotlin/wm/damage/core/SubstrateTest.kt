@@ -282,6 +282,42 @@ class SubstrateTest {
         }
     }
 
+    @Test
+    fun deepLinkWhileAnOpenIsInFlightRefusesHonestly(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-substrate-busy")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            writeBook(tmp.resolve("books"))
+            val inner = LocalContent(tmp.resolve("books"))
+            val gate = java.util.concurrent.CountDownLatch(1)
+            val gated = object : wm.damage.core.content.ContentProvider {
+                override fun library() = inner.library()
+                override fun openBook(id: String): java.nio.file.Path {
+                    gate.await()                       // held until the test releases it
+                    return inner.openBook(id)
+                }
+                override fun state() = ""
+            }
+            val id = inner.library().single().id
+            val reader = ReaderWindow(FakeText(), gated, scope)
+            reader.onRegistered(Services())
+
+            assertTrue(reader.open("book:$id"), "the first deep link is accepted")
+            // openingId is set synchronously before open() returns, so this is
+            // deterministic: the second link must refuse, never claim success
+            // while doing nothing (review 2026-09-01 F7)
+            assertFalse(reader.open("book:$id"), "a second link while one is in flight refuses")
+
+            gate.countDown()
+            awaitTrue("the first open still completes after the refusal") {
+                reader.title().contains("p.")
+            }
+        } finally {
+            scope.cancel()
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
     // -------------------------------------------------------- the continuity gate
 
     @Test
