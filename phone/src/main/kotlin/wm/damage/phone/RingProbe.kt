@@ -91,6 +91,31 @@ class RingProbe(private val context: Context) {
     private var batteryPct: Int? = null
     private var firmwareRev: String? = null
     private var readQueue: ArrayDeque<BluetoothGattCharacteristic> = ArrayDeque()
+    private var cccdQueue: ArrayDeque<BluetoothGattCharacteristic> = ArrayDeque()
+
+    /** Enable notifications on the next queued characteristic (one GATT op at a
+     *  time); when the queue drains, open the listen window. */
+    private fun enableNext(g: BluetoothGatt) {
+        if (cccdQueue.isEmpty()) {
+            Log.i("ringprobe", "all subscriptions set — listening ${listenMs / 1000} s " +
+                "(TOUCH THE RING — tap/swipe it — to generate frames; a charger on/off forces a battery frame)")
+            handler.postDelayed({ if (!done.get()) finish(partial(null)) }, listenMs)
+            return
+        }
+        val c = cccdQueue.removeFirst()
+        g.setCharacteristicNotification(c, true)
+        val cccd = c.getDescriptor(CCCD)
+        if (cccd == null) { enableNext(g); return }
+        @Suppress("DEPRECATION")
+        cccd.value = if (c.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0)
+            BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+        else BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
+        @Suppress("DEPRECATION")
+        if (!g.writeDescriptor(cccd)) {
+            Log.w("ringprobe", "CCCD write on ${c.uuid.toString().take(8)} refused to start")
+            enableNext(g)
+        }
+    }
 
     /** Read-only Battery Level / Device Information targets. */
     private fun std(short: Int): UUID = UUID.fromString("0000%04x-0000-1000-8000-00805f9b34fb".format(short))
@@ -168,6 +193,9 @@ class RingProbe(private val context: Context) {
             devAddr = result.device.address
             devRssi = result.rssi
             Log.i("ringprobe", "found $name at ${result.device.address} (${result.rssi} dBm) — connecting (no pairing)")
+            // dump the raw advertisement FIRST — some rings broadcast battery
+            // in manufacturer/service data, readable with no connection at all
+            dumpAdvertisement(result)
             connect(result.device)
         }
 
@@ -208,6 +236,22 @@ class RingProbe(private val context: Context) {
         gatt = device.connectGatt(context, false, gattCb, BluetoothDevice.TRANSPORT_LE)
     }
 
+    /** Log the whole advertisement — manufacturer-specific and service data —
+     *  so a broadcast battery byte (if any) is visible without connecting. */
+    private fun dumpAdvertisement(result: ScanResult) {
+        val rec = result.scanRecord
+        if (rec == null) { Log.i("ringprobe", "adv: (no scan record)"); return }
+        rec.bytes?.let { Log.i("ringprobe", "adv raw: ${it.joinToString("") { b -> "%02x".format(b) }}") }
+        val msd = rec.manufacturerSpecificData
+        for (i in 0 until (msd?.size() ?: 0)) {
+            val id = msd!!.keyAt(i)
+            Log.i("ringprobe", "adv mfr 0x%04x: %s".format(id, msd.valueAt(i).joinToString("") { "%02x".format(it) }))
+        }
+        rec.serviceData?.forEach { (uuid, data) ->
+            Log.i("ringprobe", "adv svcdata $uuid: ${data.joinToString("") { "%02x".format(it) }}")
+        }
+    }
+
     private val gattCb = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             Log.i("ringprobe", "connection state $newState (status $status)")
@@ -235,31 +279,20 @@ class RingProbe(private val context: Context) {
             }
             serviceLines = lines
             if (mode == Mode.LISTEN) {
-                // subscribe to every notify characteristic — a CCCD enable
-                // only, never a data write to the ring — and let frames stream
-                // into onCharacteristicChanged for the listen window
-                var enabled = 0
-                for (s in g.services) for (c in s.characteristics) {
-                    val notifyBit = BluetoothGattCharacteristic.PROPERTY_NOTIFY or
-                        BluetoothGattCharacteristic.PROPERTY_INDICATE
-                    if (c.properties and notifyBit == 0) continue
-                    g.setCharacteristicNotification(c, true)
-                    val cccd = c.getDescriptor(CCCD)
-                    if (cccd != null) {
-                        @Suppress("DEPRECATION")
-                        run {
-                            cccd.value = if (c.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY != 0)
-                                BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                            else BluetoothGattDescriptor.ENABLE_INDICATION_VALUE
-                            g.writeDescriptor(cccd)
-                        }
-                        enabled++
-                    }
-                }
-                Log.i("ringprobe", "listening on $enabled notify char(s) for ${listenMs / 1000} s " +
-                    "(toggle the ring on/off its charger now to force a battery frame)")
-                if (enabled == 0) finish(partial("no notify characteristics to listen on"))
-                else handler.postDelayed({ if (!done.get()) finish(partial(null)) }, listenMs)
+                // subscribe to every notify characteristic — a CCCD enable only,
+                // never a data write to the ring. Android runs ONE GATT op at a
+                // time: fire the descriptor writes SERIALLY, one per
+                // onDescriptorWrite (firing them together drops all but the
+                // first — the v2 zero-frames bug). VENDOR notify chars first, so
+                // the useful subscriptions land even if a later one stalls.
+                val notifyBit = BluetoothGattCharacteristic.PROPERTY_NOTIFY or
+                    BluetoothGattCharacteristic.PROPERTY_INDICATE
+                val all = g.services.flatMap { it.characteristics }
+                    .filter { it.properties and notifyBit != 0 && it.getDescriptor(CCCD) != null }
+                val vendorFirst = all.sortedByDescending { it.uuid.toString().startsWith("bae8") }
+                cccdQueue = ArrayDeque(vendorFirst)
+                if (cccdQueue.isEmpty()) { finish(partial("no notify characteristics to listen on")); return }
+                enableNext(g)
                 return
             }
             // ENUMERATE: queue the read-only targets that exist; nothing else is touched
@@ -271,6 +304,13 @@ class RingProbe(private val context: Context) {
                 }
             }
             if (readQueue.isEmpty()) finish(partial(null)) else nextRead(g)
+        }
+
+        override fun onDescriptorWrite(g: BluetoothGatt, d: BluetoothGattDescriptor, status: Int) {
+            val cu = d.characteristic.uuid.toString().take(8)
+            if (status == BluetoothGatt.GATT_SUCCESS) Log.i("ringprobe", "notify enabled on $cu")
+            else Log.w("ringprobe", "CCCD write on $cu failed (status $status)")
+            enableNext(g)      // next enable, or start the listen window
         }
 
         @Deprecated("the (gatt, characteristic) form — the API-31 floor")
