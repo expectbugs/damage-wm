@@ -488,7 +488,9 @@ private class FakeServices : ShellServices {
     val notices = java.util.concurrent.CopyOnWriteArrayList<String>()
     override fun requestRender(window: DamageWindow) { renders++ }
     override fun setOperation(op: String) {}
-    override fun notifyInternal(source: String, body: String, urgent: Boolean) { notices.add("$source: $body") }
+    override fun notifyInternal(source: String, body: String, urgent: Boolean,
+        appId: String?, thread: String, target: String?) { notices.add("$source: $body") }
+    override fun openWindow(id: String, target: String?): Boolean = false
     override fun runOnShell(action: () -> Unit) = action()
     override fun docContentWidth(): Int = 560
     override fun docContentHeight(): Int = 384

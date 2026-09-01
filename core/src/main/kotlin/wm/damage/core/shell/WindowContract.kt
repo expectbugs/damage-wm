@@ -64,6 +64,34 @@ abstract class DamageWindow(val id: String, val name: String, val icon: IconKind
     abstract fun saveState(): JsonObject
     abstract fun restoreState(state: JsonObject)
 
+    /**
+     * Per-ITEM state records (EXPLOSION §16.4a, agreed 2026-09-01): sub-key →
+     * blob, saved and SYNCED individually as `window.<id>.<subKey>` so two
+     * drivers touching DIFFERENT items (two books, two games) never clobber
+     * each other under last-write-wins — a whole-blob record would. Sub-keys
+     * are stable item identifiers ("book.<id>"). The shell writes a TOMBSTONE
+     * (an empty object) for any stored sub-key this map no longer contains, so
+     * removals (a progress reset) sync too; [restoreSubState] receiving an
+     * empty object treats it as removal. Keep it cheap — called on every save.
+     */
+    open fun saveSubState(): Map<String, JsonObject> = emptyMap()
+
+    /** One sub-record arriving — at restore (before the loop runs) or LIVE
+     *  from sync (on the loop; the shell repaints after when this window is
+     *  focused). An empty [state] is the removal tombstone. */
+    open fun restoreSubState(subKey: String, state: JsonObject) {}
+
+    /**
+     * §16.1 deep link (agreed 2026-09-01): open this window AT [target] — an
+     * OPAQUE per-window string (Mail: a message id · Reader: "book:<id>").
+     * Called on the shell loop, AFTER activation, on the COMMIT path only —
+     * never for a switcher preview (§4.3 rule 1). The window synthesizes its
+     * internal level path so back behaves as if navigated by hand. Return
+     * false when unsupported or unresolvable (the item is gone): the shell
+     * reports it loudly and the window stays at its root.
+     */
+    open fun open(target: String): Boolean = false
+
     /** Called once at shell start for EVERY registered window, before any
      *  restore — the services handle for background completions. */
     open fun onRegistered(ctx: ShellServices) {}
@@ -163,7 +191,24 @@ class DocModel {
 interface ShellServices {
     fun requestRender(window: DamageWindow)
     fun setOperation(op: String)
-    fun notifyInternal(source: String, body: String, urgent: Boolean = false)
+
+    /** Raise an internal notification (§4.5). The §16.5 signature (2026-09-01):
+     *  [thread] is the coalescing key (same source+thread replaces/merges),
+     *  [appId] names the window a tap opens, [target] deep-links INTO it
+     *  (§16.1) — tap = commit + activate + open(target). */
+    fun notifyInternal(source: String, body: String, urgent: Boolean = false,
+        appId: String? = null, thread: String = "", target: String? = null)
+
+    /**
+     * §16.2 window hand-off (agreed 2026-09-01): focus window [id] — a full
+     * COMMIT (recency, activation, notices marked read) — and, when [target]
+     * is given, open it there via [DamageWindow.open]; an unresolvable target
+     * is reported loudly and the window stays at its root. Pushes the back
+     * stack, so double-tap returns to the caller. LOOP-ONLY: call from
+     * gesture/commit handlers, or route through [runOnShell].
+     * Returns false when no such window is registered.
+     */
+    fun openWindow(id: String, target: String? = null): Boolean
 
     /** Run [action] ON THE SHELL LOOP. Background work (IO, layout) computes
      *  off-loop, then applies its state mutations here — windows' view-facing

@@ -468,6 +468,11 @@ class ReaderWindow(
             return
         }
         val meta = s.books.getOrNull(i - s.folders.size) ?: return
+        startOpen(meta)
+    }
+
+    /** Open [meta] — the commit path and the §16.1 deep link share it. */
+    private fun startOpen(meta: BookMeta) {
         if (openingId != null) return
         openingId = meta.id
         rememberPosition()
@@ -736,7 +741,82 @@ class ReaderWindow(
         put("scrollLines", scrollLines)
         put("scrollAccel", scrollAccel)
         put("heightPref", heightPref ?: 0)   // 0 = global
-        put("offsets", buildJsonObject { for ((k, v) in offsets) put(k, v) })
+        // per-book positions moved to SUB-RECORDS (§16.4a, 2026-09-01):
+        // `window.reader.book.<id>` each — two devices reading DIFFERENT books
+        // no longer clobber each other's positions under LWW. The legacy
+        // whole-map "offsets" key is read on restore but no longer written.
+    }
+
+    /** §16.4a: one record per book — the sub-key is the stable book id. */
+    override fun saveSubState(): Map<String, JsonObject> {
+        rememberPosition()
+        return offsets.entries.associate { (id, off) ->
+            "book.$id" to buildJsonObject { put("off", off) }
+        }
+    }
+
+    /** A per-book record — at restore or LIVE from sync. An empty blob is the
+     *  removal tombstone (a progress reset on the peer): mirror the local
+     *  reset's semantics — the map entry goes, and the OPEN book closes so it
+     *  counts as a first open again. A live position for the OPEN book moves
+     *  the page — the "continue on the next device" experience (§16.4). */
+    override fun restoreSubState(subKey: String, state: JsonObject) {
+        if (!subKey.startsWith("book.")) return
+        val id = subKey.removePrefix("book.")
+        val off = state["off"]?.jsonPrimitive?.intOrNull
+        if (off == null) {
+            if (offsets.remove(id) != null && book?.meta?.id == id) {
+                bookmarkOffset = -1
+                book = null
+                docModel.topLine = 0
+                level = Level_.LIBRARY
+                services?.setOperation("idle")
+                Log.i("reader", "progress of the open book was reset on the peer — back to the shelf")
+            }
+            return
+        }
+        offsets[id] = off
+        val b = book
+        if (b != null && b.meta.id == id && level == Level_.BOOK) {
+            val line = b.lineAtOffset(off)
+            if (line != docModel.topLine) docModel.topLine = line
+        }
+    }
+
+    /** §16.1 deep link: "book:<id>" opens that library book (Files hand-off is
+     *  the first consumer). Resolution is ASYNC (the library may need a scan);
+     *  a failed resolution surfaces through the same loud open-failure path
+     *  commitLibrary uses — never silently. */
+    override fun open(target: String): Boolean {
+        if (!target.startsWith("book:")) return false
+        val id = target.removePrefix("book:")
+        if (id.isEmpty()) return false
+        library.firstOrNull { it.id == id }?.let { startOpen(it); return true }
+        // library not loaded (a hand-off right after activation): resolve it
+        // off-loop, then open — guarded like every async completion here
+        if (openingId != null) return false
+        openingId = id
+        services?.setOperation("finding book")
+        bg.launch(Dispatchers.IO) {
+            val meta = try {
+                content.library().firstOrNull { it.id == id }
+            } catch (e: Exception) {
+                Log.e("reader", "deep-link library scan failed", e)
+                null
+            }
+            services?.runOnShell {
+                if (openingId != id) return@runOnShell      // user moved on
+                openingId = null
+                if (meta == null) {
+                    services?.setOperation("idle")
+                    services?.notifyInternal("reader", "couldn't open book $id — not in the library")
+                } else {
+                    startOpen(meta)
+                }
+                services?.requestRender(this@ReaderWindow)
+            }
+        }
+        return true
     }
 
     override fun restoreState(state: JsonObject) {
@@ -752,8 +832,11 @@ class ReaderWindow(
             0 -> null
             else -> wm.damage.core.shell.ShellSettings.HEIGHTS.minByOrNull { kotlin.math.abs(it - h) }
         }
+        // legacy migration (pre-§16.4a stores and older peers): the whole-map
+        // key seeds only books the sub-records have not already restored —
+        // sub-records are newer by construction and always win
         (state["offsets"] as? JsonObject)?.let { o ->
-            for ((k, v) in o) v.jsonPrimitive.intOrNull?.let { offsets[k] = it }
+            for ((k, v) in o) if (k !in offsets) v.jsonPrimitive.intOrNull?.let { offsets[k] = it }
         }
         val id = state["bookId"]?.jsonPrimitive?.contentOrNull
         val lvl = state["level"]?.jsonPrimitive?.contentOrNull

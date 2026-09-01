@@ -28,6 +28,9 @@ class Notifications(private val text: TextRasterizer) {
         val timeHHMM: String,
         val emergency: Boolean = false,
         val appId: String? = null,    // tap opens this app when set
+        /** §16.1 deep link (2026-09-01): tap = commit + activate + open(target)
+         *  in [appId]'s window. Null = the window opens at wherever it was. */
+        val target: String? = null,
         var read: Boolean = false,
     )
 

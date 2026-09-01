@@ -165,11 +165,25 @@ class Shell(
             post(Msg.Run { if (opText != op) { opText = op; chromeDirty = true } })
         }
 
-        override fun notifyInternal(source: String, body: String, urgent: Boolean) {
+        override fun notifyInternal(source: String, body: String, urgent: Boolean,
+            appId: String?, thread: String, target: String?) {
             if (urgent) onUrgent?.invoke(source, body)
             val c = wallClock()
-            post(Msg.Notice(Notifications.Notice("DAMAGE · $source", source, body, c.hhmm,
-                emergency = false)))
+            post(Msg.Notice(Notifications.Notice("DAMAGE · $source", thread.ifEmpty { source },
+                body, c.hhmm, emergency = false, appId = appId, target = target)))
+        }
+
+        override fun openWindow(id: String, target: String?): Boolean {
+            // LOOP-ONLY by contract (§16.2): callers are gesture/commit
+            // handlers, which already run on the loop
+            val w = windows.firstOrNull { it.id == id }
+            if (w == null) {
+                Log.w("shell", "openWindow('$id'): no such window — hand-off refused")
+                return false
+            }
+            commitWindow(w)
+            if (target != null) tryOpenTarget(w, target)
+            return true
         }
 
         override fun runOnShell(action: () -> Unit) = post(Msg.Run(action))
@@ -239,13 +253,31 @@ class Shell(
 
         // restore persisted state (§9.1: survives WM restart) BEFORE the loop
         persistence.load()
+        // the stamp map AT load — the §19.4 reconciliation baseline: any
+        // syncable key whose stamp advances before the loop's first pass was
+        // applied store-direct and must be LIVE-applied before the first save
+        // can out-stamp it with stale live state (2026-09-01)
+        val stampsAtLoad = persistence.stamps()
         stateLoaded = true
         settings = ShellSettings.fromJson(persistence.get("shell.settings"))
         layout = layoutFor(settings)
         refreshStyles()   // every window draws through its per-app transform (Style.kt)
-        for (w in windows) persistence.get("window.${w.id}")?.let {
-            try { w.restoreState(it) } catch (e: Exception) {
-                Log.e("shell", "restore of ${w.id} failed — window starts fresh", e)
+        for (w in windows) {
+            // sub-records FIRST (§16.4a): per-item state (reading positions,
+            // saves) is in place before the main restore launches any async
+            // open that reads it
+            val prefix = "window.${w.id}."
+            for (k in persistence.keysWithPrefix(prefix)) {
+                persistence.get(k)?.let {
+                    try { w.restoreSubState(k.removePrefix(prefix), it) } catch (e: Exception) {
+                        Log.e("shell", "sub-restore of $k failed", e)
+                    }
+                }
+            }
+            persistence.get("window.${w.id}")?.let {
+                try { w.restoreState(it) } catch (e: Exception) {
+                    Log.e("shell", "restore of ${w.id} failed — window starts fresh", e)
+                }
             }
         }
         val shellState = persistence.get("shell.state")
@@ -321,6 +353,21 @@ class Shell(
 
             scope.launch { loop() }
             loopLaunched = true
+            // §19.4 post-start reconciliation (2026-09-01): the FIRST loop
+            // message — any syncable record that advanced past the load
+            // baseline (a peer's push racing this start) is live-applied now,
+            // so the first save writes the same value and cannot out-stamp it
+            post(Msg.Run {
+                for ((k, t) in persistence.stamps()) {
+                    if (!Persistence.syncable(k) || t <= (stampsAtLoad[k] ?: 0L)) continue
+                    Log.i("sync", "post-start reconciliation: '$k' advanced during startup — live-applying")
+                    persistence.get(k)?.let { v ->
+                        try { liveApplySync(k, v) } catch (e: Exception) {
+                            Log.e("sync", "reconciliation of '$k' failed", e)
+                        }
+                    }
+                }
+            })
             val gen = ++tickGen
             scheduleMinuteTick(gen)
             scope.launch {
@@ -591,7 +638,11 @@ class Shell(
                     // keeps its grace (§4.5 rule 1), so the tap meant for the
                     // app just entered does not land on it (round 2, d2-10)
                     dismissNotice(markRead = true, clearing = false)
-                    windows.firstOrNull { it.id == n.appId }?.let { commitWindow(it) }
+                    windows.firstOrNull { it.id == n.appId }?.let { w ->
+                        commitWindow(w)
+                        // §16.1: tap = commit + activate + open AT the item
+                        n.target?.let { tryOpenTarget(w, it) }
+                    }
                 } else {
                     // emergencies and app-less notices: tap = dismiss (§4.5 —
                     // "there's no app to switch to for those")
@@ -727,6 +778,22 @@ class Shell(
         Mode.MAIN -> main.view()
         Mode.WINDOW -> current?.view()
         Mode.SILENT -> null
+    }
+
+    /** §16.1: run [w].open(target) on the commit path; unresolvable or
+     *  unsupported targets are reported LOUDLY, never swallowed. */
+    private fun tryOpenTarget(w: DamageWindow, target: String) {
+        val ok = try {
+            w.open(target)
+        } catch (e: Exception) {
+            Log.e("shell", "open('$target') in ${w.id} failed", e)
+            false
+        }
+        if (!ok) {
+            services.notifyInternal(w.id, "couldn't open the requested item ($target) — it may be gone")
+        }
+        composeContent()
+        scheduleSave()
     }
 
     // ------------------------------------------------------------------ modes
@@ -1799,14 +1866,33 @@ class Shell(
         return true
     }
 
+    /** `window.<id>` → (window, null); `window.<id>.<subKey>` → (window, sub).
+     *  Window ids carry no dots, so the first segment is always the id. */
+    private fun windowForKey(key: String): Pair<DamageWindow, String?>? {
+        if (!key.startsWith("window.")) return null
+        val rest = key.removePrefix("window.")
+        val id = rest.substringBefore('.')
+        val sub = rest.substringAfter('.', "").ifEmpty { null }
+        val w = windows.firstOrNull { it.id == id } ?: return null
+        return w to sub
+    }
+
     private fun freshenSyncKey(key: String) {
         when {
             key == "shell.settings" -> persistence.put(key, settings.toJson())
-            key.startsWith("window.") -> windows.firstOrNull { it.id == key.removePrefix("window.") }?.let { w ->
+            key.startsWith("window.") -> windowForKey(key)?.let { (w, sub) ->
                 try {
-                    persistence.put(key, w.saveState())
+                    if (sub == null) {
+                        persistence.put(key, w.saveState())
+                    } else {
+                        // freshen only what the window HOLDS: an absent item is
+                        // either never-had (the remote record should apply) or
+                        // removed (its tombstone already carries a fresh stamp
+                        // from the removal's save) — LWW decides both correctly
+                        w.saveSubState()[sub]?.let { persistence.put(key, it) }
+                    }
                 } catch (e: Exception) {
-                    Log.e("sync", "freshen saveState of ${w.id} failed", e)
+                    Log.e("sync", "freshen of $key failed", e)
                 }
             }
         }
@@ -1819,9 +1905,14 @@ class Shell(
                 applySettings(ShellSettings.fromJson(value))
             }
             key.startsWith("window.") -> {
-                val w = windows.firstOrNull { it.id == key.removePrefix("window.") } ?: return
-                Log.i("sync", "state of '${w.id}' updated from the peer")
-                w.restoreState(value)
+                val (w, sub) = windowForKey(key) ?: return
+                if (sub == null) {
+                    Log.i("sync", "state of '${w.id}' updated from the peer")
+                    w.restoreState(value)
+                } else {
+                    Log.i("sync", "item '$sub' of '${w.id}' updated from the peer")
+                    w.restoreSubState(sub, value)
+                }
                 // repaint only when the change is on screen; the wheel owns the
                 // screen while open (§4.3) and a parked window paints on focus
                 if (mode == Mode.WINDOW && current === w && !switcher.open) {
@@ -1843,6 +1934,17 @@ class Shell(
         for (w in windows) {
             try {
                 persistence.put("window.${w.id}", w.saveState())
+                // §16.4a sub-records: per-item blobs, individually stamped so
+                // sync converges per ITEM. A stored sub-key the window no
+                // longer holds gets the removal TOMBSTONE (an empty object) —
+                // value-changed, so it re-stamps once and the removal syncs;
+                // re-putting an existing tombstone is value-equal and free.
+                val subs = w.saveSubState()
+                val prefix = "window.${w.id}."
+                for ((sk, blob) in subs) persistence.put(prefix + sk, blob)
+                for (k in persistence.keysWithPrefix(prefix)) {
+                    if (k.removePrefix(prefix) !in subs) persistence.put(k, JsonObject(emptyMap()))
+                }
             } catch (e: Exception) {
                 Log.e("shell", "saveState of ${w.id} failed", e)
             }
@@ -1863,6 +1965,7 @@ class Shell(
             put("time", n.timeHHMM)
             put("emergency", n.emergency)
             put("appId", n.appId ?: "")
+            put("target", n.target ?: "")
             put("read", n.read)
         })
     }
@@ -1880,6 +1983,7 @@ class Shell(
                     timeHHMM = o["time"]?.jsonPrimitive?.contentOrNull ?: "",
                     emergency = o["emergency"]?.jsonPrimitive?.booleanOrNull ?: false,
                     appId = o["appId"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() },
+                    target = o["target"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() },
                 ))
             } catch (ex: Exception) {
                 Log.w("shell", "unreadable persisted notice skipped: ${ex.message}")

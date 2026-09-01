@@ -272,7 +272,7 @@ object SelfCheck {
         awaitTrue("reopening a book mid-session restores its position (§9.1)") {
             (reader.summary().progress ?: 0.0) > 0.0
         }
-        val posBefore = reader.saveState()["offsets"].toString()
+        val posBefore = reader.saveSubState().toString()   // §16.4a: per-book sub-records
         shell.stop()
 
         val persistence2 = Persistence(tmp.resolve("state.json"))
@@ -288,7 +288,7 @@ object SelfCheck {
         awaitTrue("restored reader reopens its book (mode, not just position §9.1)") {
             reader2.levelDepth() >= 2
         }
-        val posAfter = reader2.saveState()["offsets"].toString()
+        val posAfter = reader2.saveSubState().toString()
         check("reading position survives restart ($posBefore -> $posAfter)", posBefore == posAfter)
         shell2.stop()
         scope2.cancel()

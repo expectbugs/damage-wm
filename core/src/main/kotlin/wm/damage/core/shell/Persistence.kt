@@ -41,18 +41,29 @@ class Persistence(private val file: Path) {
             if (!Files.exists(file)) return false
             return try {
                 val root = json.parseToJsonElement(Files.readString(file)).jsonObject
-                loaded = if (root["__v"]?.jsonPrimitive?.long == 2L) {
+                val fromDisk: Map<String, Rec> = if (root["__v"]?.jsonPrimitive?.long == 2L) {
                     val recs = root["records"]?.jsonObject ?: JsonObject(emptyMap())
-                    HashMap(recs.mapValues { (_, e) ->
+                    recs.mapValues { (_, e) ->
                         val o = e.jsonObject
                         Rec(o["v"]!!.jsonObject, o["t"]!!.jsonPrimitive.long)
-                    })
+                    }
                 } else {
                     // legacy map: every value's honest "last modified" is the file's
                     val mtime = try { Files.getLastModifiedTime(file).toMillis() } catch (e: Exception) { 0L }
                     Log.i("persist", "migrating legacy state store (${root.size} keys, stamp=$mtime)")
-                    HashMap(root.mapValues { Rec(it.value.jsonObject, mtime) })
+                    root.mapValues { Rec(it.value.jsonObject, mtime) }
                 }
+                // MERGE, never replace (the §19.4 startup-race closure,
+                // 2026-09-01): a record applied store-direct in the moments
+                // before load() runs — a sync peer racing a shell start — must
+                // not be wiped by the disk image. The strictly-newer copy wins
+                // per key, exactly LWW's rule.
+                val merged = HashMap<String, Rec>(fromDisk)
+                for ((k, r) in loaded) {
+                    val d = merged[k]
+                    if (d == null || r.stamp > d.stamp) merged[k] = r
+                }
+                loaded = merged
                 true
             } catch (e: Exception) {
                 // A corrupt store must not stop boot — but it must be LOUD, and the
@@ -71,6 +82,11 @@ class Persistence(private val file: Path) {
     }
 
     fun get(key: String): JsonObject? = synchronized(lock) { loaded[key]?.value }
+
+    /** Keys currently held that start with [prefix] — sub-record enumeration
+     *  (`window.<id>.<subKey>`, §16.4a). */
+    fun keysWithPrefix(prefix: String): List<String> =
+        synchronized(lock) { loaded.keys.filter { it.startsWith(prefix) } }
 
     /** Local write. Re-stamps and notifies ONLY when the value changed. */
     fun put(key: String, state: JsonObject) {
