@@ -1815,7 +1815,7 @@ the round-3 diff itself — the closing status below records the loop's end stat
 
 ### 22.3 State at hand-off
 
-Battery: core **188** · desktop 9 · selfcheck **61** · snapshots 18 (eyeballed) · epub
+Battery: core **191** · desktop 9 · selfcheck **61** · snapshots 18 (eyeballed) · epub
 380/404 · lint 0 · APK **16/0.16** staged (bump per install; the phone still runs 0.15 until
 Adam installs). Jar staged; service restarted onto the build (kept driving via the phone,
 untouched on glass). Reader writes transitional legacy offsets alongside sub-records —

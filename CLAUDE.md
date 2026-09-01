@@ -89,7 +89,7 @@ interaction facts only (`/home/user/G2CC/server/src/windows/`, read-only) and `D
 for the mode contract. Reader and Tmux are the two worked precedents.
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(189 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
+(191 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
 over a fake link), `desktop --selfcheck` (61 checks), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.
 Radio use is normal now (post-flash); deploying = `./gradlew :desktop:stageJar && sudo

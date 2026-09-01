@@ -180,6 +180,10 @@ class FilesWindow(
         Level_.VIEW -> {
             viewer = null
             level = Level_.BROWSE
+            // a restored/synced viewer's cwd may never have been listed
+            // (safe-empty rows + a "listing" note with nothing in flight —
+            // R7#1): list it now
+            if (entries.isEmpty()) refreshList()
             true
         }
         Level_.TRASH -> { level = Level_.LOCATIONS; refreshLocations(); true }
@@ -1131,6 +1135,7 @@ class FilesWindow(
                     setNotice(err ?: "not a decodable image")
                     level = Level_.BROWSE
                     viewer = null
+                    if (entries.isEmpty()) refreshList()   // R7#2b: never land on fake-empty rows
                 } else {
                     v.appendStrips(scaled)
                     v.applyRestoreTop(done = true)
@@ -1236,6 +1241,7 @@ class FilesWindow(
                     setNotice(err ?: "text extraction failed")
                     level = Level_.BROWSE
                     viewer = null
+                    if (entries.isEmpty()) refreshList()   // R7#2b
                 } else {
                     v.layoutText(raw, append = false)
                     v.applyRestoreTop(done = true)
@@ -1307,7 +1313,13 @@ class FilesWindow(
             }
             Level_.TRASH -> refreshTrash()
             Level_.LOCATIONS -> refreshLocations()
-            Level_.VIEW -> {}   // the restore path reopens through the normal opens
+            Level_.VIEW -> {
+                // the restore path reopens through the normal opens — but the
+                // OLD folder's rows behind the viewer still clear (R7#2): a
+                // back() would otherwise commit pathOf(stale row) under the
+                // record's NEW cwd; back()'s empty-refresh relists
+                entries = emptyList(); listState = "listing"
+            }
         }
         services?.requestRender(this)
     }

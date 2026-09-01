@@ -533,11 +533,12 @@ of them are load-bearing and easy to break by accident:
 
 ## Verification
 
-- `./gradlew :core:test` — 189 unit/integration tests (2026-09-01 added
+- `./gradlew :core:test` — 191 unit/integration tests (2026-09-01 added
   `SubstrateTest` ×10 — incl. the Reader CONTINUITY gate, the stamp-0 baseline pin, the
   poisoned-restore pin, the settings-echo pin — `FilesTest` ×8 incl. the pdfpage-restore and
-  emergency-first pins, `ReviewRound1Test` ×6 incl. the 4-byte UTF-8 seam, and `L2ProbeTest`,
-  the compositor seam-clamp regression) (§19 added `SyncTest` ×6: the stamped
+  emergency-first pins, `ReviewRound1Test` ×6 incl. the 4-byte UTF-8 seam, `L2ProbeTest` (the
+  compositor seam-clamp regression), and the R6 tmux pins: deep-park re-arm + the
+  peer-left-session drop) (§19 added `SyncTest` ×6: the stamped
   store's LWW, migration, the sync channel over a real loopback host, the shell's
   freshen-then-apply, the seam status probe; the flow rework added `FlowRenderTest`
   ×6 plus the pacing/alternate-fallback window tests and the wire-pacing round trip;

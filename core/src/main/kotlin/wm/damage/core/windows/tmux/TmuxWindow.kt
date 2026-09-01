@@ -720,7 +720,7 @@ class TmuxWindow(
         val before = target
         restoreState(state)
         if (target != before) frame = null
-        if (active && (level == Level_.LIVE || level == Level_.HISTORY || level == Level_.KEYS)) resubscribe()
+        if (active && target != null) resubscribe()   // the R6#1 rule (post-restore: LIVE or SESSIONS only)
         services?.requestRender(this)
     }
 
@@ -743,6 +743,7 @@ class TmuxWindow(
                 (state["window"] as? JsonPrimitive)?.content?.toIntOrNull() ?: -1,
             )
             level = Level_.LIVE   // deeper levels restore to the live grid; history re-captures
+            renameArmed = false   // a record swap must not leave the NEXT typed line staging a rename (R7 residue)
         } else if (target != null) {
             // the record says the peer LEFT (or killed) the session: keeping
             // the stale target had the new override resubscribe a dead pane —
@@ -754,6 +755,7 @@ class TmuxWindow(
             target = null
             frame = null
             level = Level_.SESSIONS
+            renameArmed = false
             provider.subscribe(listener, null)
         }
     }
