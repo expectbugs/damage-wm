@@ -520,6 +520,47 @@ class TmuxWindowTest {
     }
 
     @Test
+    fun deepLevelParkAndReturnReArmsTheSubscription() {
+        // R6#1: the subscription keys to the TARGET, not the level — parking
+        // at a DEEP level (Session…) unsubscribed, and onActivate's old
+        // three-level gate re-armed nothing: back to LIVE = a silently
+        // frozen pane
+        val (w, p, svc) = build()
+        w.onActivate(svc)
+        p.pushStatus(session("claude"))
+        (w.view() as WindowView.ListView).onCommit(0)      // open → LIVE, subscribed
+        (w.view() as WindowView.CanvasView).onTap!!()      // → KEYS
+        val keys = w.view() as WindowView.ListView
+        keys.onCommit(TmuxConfig.DEFAULT_QUICK_KEYS.size + 3)   // → Session…
+        w.onDeactivate()                                    // park: unsubscribes
+        assertEquals(null, p.subscribed.last(), "parking unsubscribes")
+        w.onActivate(svc)                                   // return, still deep
+        assertEquals(TmuxTarget("local", "claude"), p.subscribed.last(),
+            "focus re-arms the subscription while a target exists (R6#1)")
+    }
+
+    @Test
+    fun aPeerSessionsRecordDropsTheTargetAtAnyDepth() {
+        // R6#3: a live-applied record saying the peer LEFT the session must
+        // drop the target and unsubscribe from EVERY target-holding level —
+        // the three-level gate kept the orphan poll at Session… and
+        // re-stamped level=live over the peer's newer record
+        val (w, p, svc) = build()
+        w.onActivate(svc)
+        p.pushStatus(session("claude"))
+        (w.view() as WindowView.ListView).onCommit(0)      // open → LIVE
+        (w.view() as WindowView.CanvasView).onTap!!()      // → KEYS
+        (w.view() as WindowView.ListView).onCommit(TmuxConfig.DEFAULT_QUICK_KEYS.size + 3)  // → Session…
+        w.restoreStateLive(kotlinx.serialization.json.buildJsonObject {
+            put("level", kotlinx.serialization.json.JsonPrimitive("sessions"))
+        })
+        assertEquals(null, p.subscribed.last(), "the stale subscription drops (R5#2/R6#3)")
+        val save = w.saveState()
+        assertTrue(save["level"]?.let { it is kotlinx.serialization.json.JsonPrimitive && it.content != "live" } ?: true,
+            "the next save must not re-stamp level=live over the peer's record")
+    }
+
+    @Test
     fun theGrammarWalksSessionsLiveHistoryKeysAndBack() {
         val (w, p, _) = build()
         p.pushStatus(session("claude"), session("spare"))

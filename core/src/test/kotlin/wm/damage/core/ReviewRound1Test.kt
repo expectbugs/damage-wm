@@ -28,6 +28,7 @@ import wm.damage.core.shell.MenuSurface
 import wm.damage.core.shell.Persistence
 import wm.damage.core.shell.Shell
 import wm.damage.core.shell.ShellServices
+import wm.damage.core.shell.WindowView
 import wm.damage.core.shell.ShellSettings
 import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.sync.RemoteSync
@@ -317,6 +318,12 @@ class ReviewRound1Test {
                 awaitTrue("menu") { shA.menuIsOpen }
                 shA.postGesture(EvenHubMsg.EV_CLICK)              // Open
                 awaitTrue("viewer") { winA.title() == "log.txt" }
+                // the CONTENT must land before scrolling (R6 flake fix): a
+                // notch against an empty doc clamps to 0 and is lost — under
+                // full-suite load the chunk lags the viewer creation
+                awaitTrue("content loaded") {
+                    ((winA.view() as? WindowView.DocView)?.lineCount?.invoke() ?: 0) > 25
+                }
                 repeat(4) { shA.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
                 awaitTrue("scrolled to 20") {
                     (winA.saveState()["viewTop"]?.jsonPrimitive?.intOrNull ?: 0) == 20

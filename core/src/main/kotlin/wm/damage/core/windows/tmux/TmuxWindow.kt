@@ -197,7 +197,11 @@ class TmuxWindow(
     override fun onActivate(ctx: ShellServices) {
         services = ctx
         active = true
-        if (level == Level_.LIVE || level == Level_.HISTORY || level == Level_.KEYS) resubscribe()
+        // the subscription keys to the TARGET, not the level (R6#1): parking
+        // at a DEEP level (Snippets, Session…, a confirm) unsubscribed, and
+        // returning + backing to LIVE re-armed nothing — a silently frozen
+        // pane. While a target exists, focus re-arms it.
+        if (target != null) resubscribe()
     }
 
     override fun onDeactivate() {
@@ -739,12 +743,14 @@ class TmuxWindow(
                 (state["window"] as? JsonPrimitive)?.content?.toIntOrNull() ?: -1,
             )
             level = Level_.LIVE   // deeper levels restore to the live grid; history re-captures
-        } else if (level == Level_.LIVE || level == Level_.HISTORY || level == Level_.KEYS) {
+        } else if (target != null) {
             // the record says the peer LEFT (or killed) the session: keeping
-            // the stale LIVE target had the new override resubscribe a dead
-            // pane — a 1 Hz failing exec forever (R4#2). And UNSUBSCRIBE like
-            // back() does (R5#2): dropping the target while the provider
-            // still polls it is the same orphan exec by another door.
+            // the stale target had the new override resubscribe a dead pane —
+            // a 1 Hz failing exec forever (R4#2). Gate on HOLDING a target,
+            // not on a level list (R6#3): at Snippets/Session…/a confirm the
+            // three-level gate skipped this, kept the orphan poll, and the
+            // next save re-stamped level=live over the peer's newer record.
+            // And UNSUBSCRIBE like back() does (R5#2).
             target = null
             frame = null
             level = Level_.SESSIONS

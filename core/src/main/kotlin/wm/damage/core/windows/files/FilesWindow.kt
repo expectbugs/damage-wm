@@ -224,8 +224,10 @@ class FilesWindow(
         when (level) {
             Level_.LOCATIONS -> refreshLocations()
             // while a restore's pdf open is in flight, hold the refresh: its
-            // ++navSeq cancelled the open it was restoring (R4#1)
+            // ++navSeq cancelled the open it was restoring (R4#1) — but the
+            // stale rows still clear (R6#2, the boot door of the same class)
             Level_.BROWSE -> if (pendingOpenView == null) refreshList()
+            else { entries = emptyList(); listState = "listing" }
             Level_.TRASH -> refreshTrash()
             Level_.VIEW -> {}
         }
@@ -1293,9 +1295,15 @@ class FilesWindow(
         restoreState(state)
         when (level) {
             // R4#1: while the record's own pdf open is in flight the level is
-            // transiently BROWSE — refreshing would ++navSeq and cancel it
+            // transiently BROWSE — refreshing would ++navSeq and cancel it.
+            // The OLD rows still clear either way (R6#2): a commit against
+            // them would resolve pathOf() under the record's NEW cwd — the
+            // wrong-file class. Safe-empty until the viewer lands (or the
+            // failure path's refresh runs).
             Level_.BROWSE -> if (pendingOpenView == null) {
                 entries = emptyList(); listState = "listing"; refreshList()
+            } else {
+                entries = emptyList(); listState = "listing"
             }
             Level_.TRASH -> refreshTrash()
             Level_.LOCATIONS -> refreshLocations()

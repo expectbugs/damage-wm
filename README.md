@@ -49,7 +49,7 @@ The design is shaped by three facts about this display, and most of it follows f
 ## Building and verifying
 
 ```
-./gradlew :core:test                                  # 183 tests, incl. the per-lens oracle
+./gradlew :core:test                                  # 189 tests, incl. the per-lens oracle
 ./gradlew :desktop:test                               # 9 tests: the BlueZ glue over a fake link
 ./gradlew :desktop:run --args="--selfcheck"           # the 61-check whole-stack gate
 ./gradlew :desktop:run --args="--snapshot DIR"        # lens-truth PNGs of every surface
