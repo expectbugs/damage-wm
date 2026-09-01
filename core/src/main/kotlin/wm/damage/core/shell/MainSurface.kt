@@ -26,6 +26,8 @@ class MainSurface(
     private val onCommit: (DamageWindow) -> Unit,
     /** §4.2 Settings "Presence": 0 = rows away entirely at rest, 1 = dim names. */
     private val presence: () -> Int = { 1 },
+    /** Theme icons (2026-09-01); null/miss falls back to the drawn set. */
+    private val icons: () -> wm.damage.core.gfx.IconSource? = { null },
 ) {
     val model = ListModel()
     var resting = false
@@ -52,7 +54,8 @@ class MainSurface(
             if (presence() >= 1) draw(g, r.x + 40, r.y + 7, w.name.uppercase(), Level.REST, fSmall)
             return
         }
-        Icons.draw(g, r.x + 12, r.y + 6, 20, 20, w.icon, Level.DIM)
+        wm.damage.core.gfx.IconPaint.draw(g, icons(), wm.damage.core.gfx.IconNames.forKind(w.icon),
+            r.x + 12, r.y + 6, 20, w.icon, Level.DIM)
         draw(g, r.x + 40, r.y + 7, w.name.uppercase(), Level.DIM, fSmall)
         val s = w.summary()
         val unavailable = w.needs.isNotEmpty() && s.line.isEmpty()
@@ -67,12 +70,17 @@ class MainSurface(
     private fun paintLens(g: Gray8, r: Rect, index: Int) {
         val w = windows().getOrNull(index) ?: return
         val s = w.summary()
-        Icons.draw(g, r.x + 12, r.y + 10, 24, 24, w.icon, Level.HEAD)
-        draw(g, r.x + 44, r.y + 8, w.name.uppercase(), Level.HEAD, fRowB)
+        // BAND-HEIGHT icon (Adam, 2026-09-01 — DESIGN §4.5b revised): the
+        // focused row's icon spans the 64 px lens at the switcher-class size,
+        // "so it can be a better more visually appealing icon"
+        wm.damage.core.gfx.IconPaint.draw(g, icons(), wm.damage.core.gfx.IconNames.forKind(w.icon),
+            r.x + 8, r.y + 4, 56, w.icon, Level.HEAD)
+        val tx0 = r.x + 72
+        draw(g, tx0, r.y + 8, w.name.uppercase(), Level.HEAD, fRowB)
         // right-aligned first line, bounded so it can never overrun the name
         // (an unbounded draw was a silent-overlap finding); overflow gets the
         // drawn mark — the lens is the reveal, the mark says "more exists"
-        val nameEnd = r.x + 44 + text.measure(w.name.uppercase(), fRowB) + 16
+        val nameEnd = tx0 + text.measure(w.name.uppercase(), fRowB) + 16
         val l1Max = r.right - 16 - nameEnd
         val l1 = s.line
         if (text.measure(l1, fRow) <= l1Max) {
@@ -82,9 +90,9 @@ class MainSurface(
             Icons.tri(g, r.right - 14, r.y + 13, 11, Level.DIM)
         }
         if (s.detail.isNotEmpty()) {
-            val dMax = r.right - 60 - (if (s.progress != null) 200 else 0)
-            drawFit(g, r.x + 44, r.y + 34, s.detail, Level.BODY, fRow, dMax)
-            if (text.measure(s.detail, fRow) > dMax) Icons.tri(g, r.x + 44 + dMax + 4, r.y + 39, 11, Level.DIM)
+            val dMax = r.right - 88 - (if (s.progress != null) 200 else 0)
+            drawFit(g, tx0, r.y + 34, s.detail, Level.BODY, fRow, dMax)
+            if (text.measure(s.detail, fRow) > dMax) Icons.tri(g, tx0 + dMax + 4, r.y + 39, 11, Level.DIM)
         }
         if (s.progress != null) Icons.blocks(g, r.right - 212, r.y + 40, 196, 8, s.progress)
     }

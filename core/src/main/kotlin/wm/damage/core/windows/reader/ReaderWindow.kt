@@ -431,10 +431,9 @@ class ReaderWindow(
             return
         }
         val b = s.books.getOrNull(i - s.folders.size) ?: return
-        val maxW = r.w - 200
-        drawFit(g, r.x + 32, r.y + 5, b.title, Level.BODY, fRow, maxW)
+        // Draw.fit marks a cut itself (§16.11) — no second mark needed
+        drawFit(g, r.x + 32, r.y + 5, b.title, Level.BODY, fRow, r.w - 200)
         drawRight(g, r.right - 24, r.y + 8, "${b.bytes / 1024}K", Level.DIM, fSmall)
-        if (tx.measure(b.title, fRow) > maxW) Icons.tri(g, r.right - 12, r.y + 11, 11, Level.DIM)
     }
 
     private fun paintLibLens(g: Gray8, r: Rect, i: Int) {
@@ -449,9 +448,7 @@ class ReaderWindow(
         }
         val b = s.books.getOrNull(i - s.folders.size) ?: return
         Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.READER, Level.HEAD)
-        val titleMax = r.w - 60
-        drawFit(g, r.x + 44, r.y + 6, b.title, Level.HEAD, fB, titleMax)
-        if (tx.measure(b.title, fB) > titleMax) Icons.tri(g, r.right - 12, r.y + 11, 11, Level.DIM)
+        drawFit(g, r.x + 44, r.y + 6, b.title, Level.HEAD, fB, r.w - 60)
         val sub = listOf(b.author, "${b.bytes / 1024} KB")
             .filter { it.isNotEmpty() }.joinToString(" · ")
         val line2 = if (openingId == b.id) "opening..." else sub
@@ -883,17 +880,15 @@ class ReaderWindow(
     }
 
     // ------------------------------------------------------------------ helpers
+    /** Through the shared kit (§16.11, 2026-09-01): a cut is ADVERTISED with
+     *  the drawn mark, never silent. The explicit tri calls some rows add on
+     *  measured overflow stay (they mark at a custom spot); this closes the
+     *  silent-clip paths (chapter and action rows). */
     private fun drawFit(g: Gray8, x: Int, y: Int, s: String, lv: Int, f: FontSpec, maxW: Int) {
-        var str = s
-        if (tx.measure(str, f) > maxW) {
-            var n = str.length
-            while (n > 0 && tx.measure(str.take(n), f) > maxW) n--
-            str = str.take(n)
-        }
-        tx.draw(g, x / 4 * 4, y / 2 * 2, str, f, lv)
+        wm.damage.core.shell.Draw.fit(g, tx, x, y, s, lv, f, maxW)
     }
 
     private fun drawRight(g: Gray8, xRight: Int, y: Int, s: String, lv: Int, f: FontSpec) {
-        tx.draw(g, (xRight - tx.measure(s, f)) / 4 * 4, y / 2 * 2, s, f, lv)
+        wm.damage.core.shell.Draw.right(g, tx, xRight, y, s, lv, f)
     }
 }

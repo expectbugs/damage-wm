@@ -83,15 +83,34 @@ class Shell(
             italic = when (settings.fontStyle) { "italic" -> true; "regular", "bold" -> false; else -> null },
         ).apply(spec)
     }
-    private val chrome = Chrome(chromeText)
+    private val chrome = Chrome(chromeText, { iconSource })
     private val journal = Journal(journalPath)
     val notifications = Notifications(chromeText)
-    private val switcher = Switcher(chromeText)
+    private val switcher = Switcher(chromeText, { iconSource })
+    private val menu = MenuSurface(chromeText)
+
+    /** The host's theme-icon source (2026-09-01) — set before start; every
+     *  icon call site falls back to the drawn set when null or on a miss. */
+    @Volatile var iconSource: wm.damage.core.gfx.IconSource? = null
+
+    /** Test/introspection: is the floating context menu open, and whose? */
+    val menuIsOpen: Boolean get() = menu.open
+    val menuTitle: String? get() = menu.current()?.title
+
+    /** An async icon resolve completed: repaint so the theme bitmap replaces
+     *  the drawn fallback (posted by the host's IconSource hook). */
+    fun requestRepaint() {
+        post(Msg.Run {
+            chrome.invalidate()
+            chromeDirty = true
+            if (mode != Mode.SILENT) composeContent()
+        })
+    }
 
     private val windows = ArrayList<DamageWindow>()
     private val recency = ArrayList<DamageWindow>()          // most recent first
     private lateinit var settingsWindow: SettingsWindow
-    private val main = MainSurface(chromeText, { mainRows() }, { commitWindow(it) }, { settings.presence })
+    private val main = MainSurface(chromeText, { mainRows() }, { commitWindow(it) }, { settings.presence }, { iconSource })
 
     private enum class Mode { MAIN, WINDOW, SILENT }
     private var mode = Mode.MAIN
@@ -172,6 +191,32 @@ class Shell(
             post(Msg.Notice(Notifications.Notice("DAMAGE · $source", thread.ifEmpty { source },
                 body, c.hhmm, emergency = false, appId = appId, target = target)))
         }
+
+        override fun openMenu(spec: MenuSurface.Spec) {
+            // LOOP-ONLY (§16.11): callers are commit handlers, already on the loop
+            if (mode != Mode.WINDOW || switcher.open) {
+                Log.w("shell", "openMenu refused: mode=$mode switcher=${switcher.open}")
+                return
+            }
+            settleSlidesForOverlay()
+            // decision-6 semantics: the menu owns the screen like the wheel —
+            // a box on screen goes back to the queue unread and returns after
+            if (notifications.active) {
+                if (notifications.furlingOut) {
+                    notifications.restoreUnderFinished(comp.composed)?.let { comp.damage(it) }
+                    notifications.abandonFurl()
+                } else {
+                    liftNotificationBox()
+                    notifications.requeueCurrent()
+                }
+                boxLifted = false
+            }
+            menu.openWith(spec)
+            updatePlanes()
+            paintMenu()
+        }
+
+        override fun icons(): wm.damage.core.gfx.IconSource? = iconSource
 
         override fun openWindow(id: String, target: String?): Boolean {
             // LOOP-ONLY by contract (§16.2): callers are gesture/commit
@@ -607,6 +652,18 @@ class Shell(
             handleNotificationGesture(type)
             return
         }
+        // Floating context menu open (§16.11): scroll/tap/cancel — the chord
+        // block above still runs first, so the wheel opens OVER a menu (which
+        // cancels) and a bare long-press stays a no-op
+        if (menu.open) {
+            when (type) {
+                EvenHubMsg.EV_SCROLL_TOP -> { menu.scroll(-1); paintMenu() }
+                EvenHubMsg.EV_SCROLL_BOTTOM -> { menu.scroll(1); paintMenu() }
+                EvenHubMsg.EV_CLICK -> commitMenu()
+                EvenHubMsg.EV_DOUBLE_CLICK, EvenHubMsg.EV_RING_LONG_PRESS -> cancelMenu()
+            }
+            return
+        }
         // Switcher open: §1.3 grammar
         if (switcher.open) {
             when (type) {
@@ -780,6 +837,58 @@ class Shell(
         Mode.SILENT -> null
     }
 
+    // ------------------------------------------------------------------ menu
+    private fun paintMenu() {
+        menu.paint(comp.composed, layout)?.let { comp.damage(it) }
+        chromeDirty = true
+    }
+
+    /** Close + restore what the menu covered; a box that waited behind it
+     *  shows with its grace (the decision-6 shape, shared with the wheel). */
+    private fun closeMenuSurface(restore: Boolean): MenuSurface.Spec? {
+        if (!menu.open) return null
+        val s = menu.close()
+        if (restore) {
+            val r = menu.restoreUnderFinished(comp.composed)
+            if (r != null) comp.damage(r) else composeContent()
+        } else {
+            menu.invalidateUnder()
+        }
+        updatePlanes()
+        if (notifications.showNextIfIdle()) {
+            updatePlanes()
+            paintNotification()
+            if (mode != Mode.SILENT) scheduleGrace()
+        }
+        chromeDirty = true
+        return s
+    }
+
+    private fun commitMenu() {
+        val s = menu.current() ?: return
+        val idx = menu.selected()
+        if (s.items.getOrNull(idx)?.enabled != true) return   // a dim row is a visible no-op
+        closeMenuSurface(restore = true)
+        try {
+            s.onCommit(idx)
+        } catch (e: Exception) {
+            Log.e("shell", "menu commit failed", e)
+            services.notifyInternal("menu", "action failed: ${e.message}")
+        }
+        composeContent()
+        scheduleSave()
+    }
+
+    private fun cancelMenu() {
+        val s = closeMenuSurface(restore = true) ?: return
+        try {
+            s.onClose?.invoke()
+        } catch (e: Exception) {
+            Log.e("shell", "menu close handler failed", e)
+        }
+        scheduleSave()
+    }
+
     /** §16.1: run [w].open(target) on the commit path; unresolvable or
      *  unsupported targets are reported LOUDLY, never swallowed. */
     private fun tryOpenTarget(w: DamageWindow, target: String) {
@@ -802,6 +911,10 @@ class Shell(
             switcher.close()
             previewPainted = null
         }
+        if (menu.open) {
+            // a window change repaints the whole content — no under-restore
+            closeMenuSurface(restore = false)
+        }
         if (w === current && mode == Mode.WINDOW) {
             composeContent()      // e.g. committing the switcher to the current
             return                // window must still erase the panel
@@ -823,6 +936,11 @@ class Shell(
 
     private fun enterSilent() {
         mode = Mode.SILENT
+        if (menu.open) {
+            val s = menu.close()          // silent repaints everything itself
+            menu.invalidateUnder()
+            try { s?.onClose?.invoke() } catch (e: Exception) { Log.e("shell", "menu close on silent", e) }
+        }
         settleSlidesForOverlay()
         slides = emptyList()
         // an on-screen box goes back to the queue UNREAD; silent shows its own
@@ -850,6 +968,7 @@ class Shell(
 
     // ------------------------------------------------------------------ switcher
     private fun openSwitcher() {
+        if (menu.open) cancelMenu()       // the wheel displaces the menu (§16.11)
         settleSlidesForOverlay()
         // decision 6 (HANDOFF.md §8.1): the wheel owns the screen. A box on
         // screen goes back to the queue unread, unshown until the wheel closes;
@@ -945,8 +1064,9 @@ class Shell(
             }
             return
         }
-        if (switcher.open) {
-            // decision 6: wait behind the wheel — queued unshown until it closes
+        if (switcher.open || menu.open) {
+            // decision 6: wait behind the wheel — and behind the context menu
+            // (§16.11) — queued unshown until the surface closes
             notifications.post(n, layout, show = false)
             return
         }
@@ -1310,6 +1430,11 @@ class Shell(
         chrome.invalidate()
         kit.resetRail()
         slides = emptyList()
+        if (menu.open) {
+            val s = menu.close()          // the geometry under it changed
+            menu.invalidateUnder()
+            try { s?.onClose?.invoke() } catch (e: Exception) { Log.e("shell", "menu close on relayout", e) }
+        }
         for (w in windows) w.onLayoutChanged()
         comp.composed.clear(0)
         composeFullSurface()
@@ -1460,6 +1585,10 @@ class Shell(
         notifications.invalidateUnder()   // the content beneath is repainting
         paintContentOf(if (mode == Mode.WINDOW) current else null)
         if (switcher.open) paintSwitcherFrame()
+        if (menu.open) {
+            menu.invalidateUnder()        // recapture over the fresh content
+            paintMenu()
+        }
         updatePlanes()
         if (notifications.active) paintNotification()
         chromeDirty = true
@@ -1506,8 +1635,13 @@ class Shell(
             // is not the focus — and this full-content-width plane-0 band runs
             // through the wheel's rows, which dragged the whole width forward,
             // background included (Adam's report).
-            if (!switcher.open && focusedView() is WindowView.ListView) {
+            if (!switcher.open && !menu.open && focusedView() is WindowView.ListView) {
                 planes.add(Compositor.PlaneRegion(layout.lens, 0))          // lens comes forward
+            }
+            if (menu.open) {
+                // the menu owns the depth story while open (the §4.3 wheel
+                // lesson applied): its box is the only plane-0 region
+                menu.rect(layout)?.let { planes.add(Compositor.PlaneRegion(it, 0)) }
             }
             if (switcher.open) {
                 planes.add(Compositor.PlaneRegion(layout.switcherPanel, d)) // neighbours with content
@@ -1780,7 +1914,7 @@ class Shell(
             dirtyAt = rows.mapIndexedNotNull { i, w -> if (w.dirty) i else null }.toSet(),
             stackDepth = when (mode) {
                 Mode.MAIN -> 1
-                Mode.WINDOW -> 1 + (current?.levelDepth() ?: 1)
+                Mode.WINDOW -> 1 + (current?.levelDepth() ?: 1) + (if (menu.open) 1 else 0)
                 Mode.SILENT -> 1
             },
             op = opText,

@@ -74,6 +74,27 @@ object SelfCheck {
         }
         Files.writeString(books.resolve("selfcheck-book.txt"), bookText)
 
+        // a deterministic filesystem for the Files window (2026-09-01): one
+        // SC root with a folder, a text file and a real PNG
+        val scRoot = tmp.resolve("sc-root")
+        Files.createDirectories(scRoot.resolve("sub"))
+        Files.writeString(scRoot.resolve("sub").resolve("inner.txt"), "inner\n")
+        Files.writeString(scRoot.resolve("a.txt"),
+            (1..80).joinToString("\n") { "line $it of the selfcheck file" } + "\n")
+        run {
+            val img = java.awt.image.BufferedImage(64, 64, java.awt.image.BufferedImage.TYPE_INT_RGB)
+            for (y in 0 until 64) for (x in 0 until 64) img.setRGB(x, y, (x * 4 shl 16) or (y * 4 shl 8))
+            javax.imageio.ImageIO.write(img, "png", scRoot.resolve("img.png").toFile())
+        }
+        val filesLocal = wm.damage.core.windows.files.LocalFilesProvider(
+            books, tmp.resolve("trash"), AwtImages(), mountsFile = tmp.resolve("no-mounts"))
+        val filesProvider = object : wm.damage.core.windows.files.FilesProvider by filesLocal {
+            override fun locations(): List<wm.damage.core.windows.files.FLocation> =
+                listOf(wm.damage.core.windows.files.FLocation("SC", scRoot.toString(), "mount",
+                    1_000_000, 400_000)) +
+                    filesLocal.locations().filter { it.kind == "trash" }
+        }
+
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val sim = GlassFirmwareSim()
         val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
@@ -85,6 +106,8 @@ object SelfCheck {
         val tmuxScripted = ScriptedTmux()
         val tmuxWin = wm.damage.core.windows.tmux.TmuxWindow(text, tmuxScripted, scope)
         shell.register(tmuxWin)
+        val filesWin = wm.damage.core.windows.files.FilesWindow(text, filesProvider, scope, AwtImages())
+        shell.register(filesWin)
 
         var flushFails = 0
         scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
@@ -263,6 +286,53 @@ object SelfCheck {
         shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)         // Main cursor back to Reader
         settle(shell, "main-to-reader-row")
 
+        // ---- Files (Adam's first conversion, 2026-09-01): locations →
+        // tap-is-a-menu grammar → viewers, against the deterministic SC root
+        repeat(2) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // Reader → Tmux → Files
+        settle(shell, "main-to-files-row")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        settle(shell, "files-locations")
+        awaitTrue("Files opens at locations") { filesWin.summary().line == "1 locations" }
+        val inkLoc = Pack.inkFraction(shell.comp.composed)
+        check("Files locations ink <= 15% list budget (was ${"%.1f".format(inkLoc * 100)}%)", inkLoc <= 0.15)
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // enter SC
+        awaitTrue("the listing arrives") { filesWin.summary().detail.contains("1 folders") }
+        settle(shell, "files-browse")
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // tap = context menu (sub)
+        awaitTrue("tap opens the context menu, Open first") { shell.menuIsOpen }
+        settle(shell, "files-menu")
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Open at cursor rest
+        awaitTrue("two taps enter the folder") { filesWin.title().endsWith("/sub") }
+        check("the menu closed on commit", !shell.menuIsOpen)
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // ascend
+        awaitTrue("double-tap ascends") { filesWin.title().endsWith("sc-root") }
+        settle(shell, "files-ascended")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)                  // sub → a.txt
+        settle(shell, "files-to-a")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("menu on a.txt") { shell.menuIsOpen && shell.menuTitle == "a.txt" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Open
+        awaitTrue("the text viewer opens") { filesWin.title() == "a.txt" }
+        settle(shell, "files-text")
+        val inkTxt = Pack.inkFraction(shell.comp.composed)
+        check("Files text viewer ink <= 25% document budget (was ${"%.1f".format(inkTxt * 100)}%)", inkTxt <= 0.25)
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // viewer → browse
+        settle(shell, "files-back-browse")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)                  // a.txt → img.png
+        settle(shell, "files-to-img")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("menu on img.png") { shell.menuIsOpen && shell.menuTitle == "img.png" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Open
+        awaitTrue("the image viewer opens") { filesWin.title() == "img.png" }
+        settle(shell, "files-image")
+        check("the image painted (panel not blank in content)",
+            Pack.inkFraction(shell.comp.composed) > 0.02)
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }     // viewer→browse→locations→Main
+        settle(shell, "files-out")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)                     // Main cursor back toward Reader
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)
+        settle(shell, "main-back-to-reader-row")
+
         // ---- persistence round trip: leave a BOOK open, restart, land back in it
         shell.postGesture(EvenHubMsg.EV_CLICK)              // back into reader (library)
         awaitTrue("reader reopens") { shell.isQuiescent() }
@@ -283,6 +353,7 @@ object SelfCheck {
         val reader2 = ReaderWindow(text, LocalContent(books), scope2, AwtImages())
         shell2.register(reader2)
         shell2.register(wm.damage.core.windows.tmux.TmuxWindow(text, ScriptedTmux(), scope2))
+        shell2.register(wm.damage.core.windows.files.FilesWindow(text, filesProvider, scope2, AwtImages()))
         shell2.start()
         settle(shell2, "restart")
         awaitTrue("restored reader reopens its book (mode, not just position §9.1)") {

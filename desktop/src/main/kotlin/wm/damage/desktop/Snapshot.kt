@@ -53,11 +53,22 @@ object Snapshot {
         val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
         val text = AwtText()
         val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), null, scope)
+        // theme icons for the eyeball scenes (2026-09-01): the REAL desktop
+        // theme (Papirus-Dark on beardos), drawn fallbacks where it misses
+        shell.iconSource = ThemeIcons(AwtImages(), tmp.resolve("icons"),
+            onLoaded = { shell.requestRepaint() })
         val reader = ReaderWindow(text, LocalContent(books), scope, AwtImages())
         shell.register(reader)
         val tmuxWin = wm.damage.core.windows.tmux.TmuxWindow(text, ScriptedTmux(), scope)
         shell.register(tmuxWin)
+        val filesWin = wm.damage.core.windows.files.FilesWindow(text,
+            wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), AwtImages()),
+            scope, AwtImages(), initialBooksDir = cfg.booksDir)
+        shell.register(filesWin)
         shell.start()
+        // let the first wave of icon resolves land so the scenes show the theme
+        delay(2_000)
+        settle(shell)
         settle(shell)
         save(sim, out, "01-main-active")
 
@@ -152,6 +163,32 @@ object Snapshot {
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // keys -> live
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // live -> sessions
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // sessions -> Main
+        settle(shell)
+
+        // Files (2026-09-01): locations with capacity bars, a browse listing
+        // with per-type theme icons, the floating context menu. The Main
+        // cursor sits on Tmux (row 1) after the tmux scenes — one notch down.
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)                 // → Files row
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("files locations") { filesWin.summary().line.contains("locations") }
+        delay(1_500)                                       // icon resolves land
+        settle(shell)
+        save(sim, out, "11-files-locations")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // first location (Root)
+        waitFor("files listing") { filesWin.summary().detail.contains("folders") }
+        delay(1_500)
+        settle(shell)
+        save(sim, out, "12-files-browse")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // tap = context menu
+        waitFor("files menu") { shell.menuIsOpen }
+        settle(shell)
+        save(sim, out, "13-files-menu")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // cancel the menu
+        settle(shell)
+        repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → locations → Main
+        settle(shell)
+        repeat(2) { shell.postGesture(EvenHubMsg.EV_SCROLL_TOP) }      // cursor home
         settle(shell)
 
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // silent

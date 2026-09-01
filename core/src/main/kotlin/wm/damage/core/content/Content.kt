@@ -83,9 +83,12 @@ class LocalContent(private val dir: Path) : ContentProvider {
     override fun state(): String = ""
 
     companion object {
-        fun idFor(p: Path): String {
-            val d = MessageDigest.getInstance("SHA-256")
-                .digest(p.toAbsolutePath().toString().toByteArray())
+        fun idFor(p: Path): String = idForPathString(p.toAbsolutePath().toString())
+
+        /** The id from the HOST's absolute path STRING — computable on either
+         *  end (the Files hand-off resolves Reader ids from browsed paths). */
+        fun idForPathString(abs: String): String {
+            val d = MessageDigest.getInstance("SHA-256").digest(abs.toByteArray())
             return d.take(8).joinToString("") { "%02x".format(it) }
         }
     }
@@ -101,6 +104,15 @@ private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 @Serializable private data class GetMsg(val t: String = "get", val id: String)
 @Serializable private data class BlobMsg(val t: String = "blob", val id: String, val len: Long)
 @Serializable private data class ErrMsg(val t: String = "err", val detail: String)
+@Serializable private data class WinProbe(val t: String = "", val win: String = "")
+@Serializable private data class IconMsg(val t: String = "icon", val name: String = "", val size: Int = 0)
+@Serializable private data class IconBlobMsg(val t: String = "iconblob", val w: Int, val h: Int, val len: Int)
+
+/** Blocking theme-icon resolution for serving (2026-09-01): the desktop's
+ *  ThemeIcons implements it; null = no such icon (the phone caches the miss). */
+fun interface IconResolver {
+    fun resolve(name: String, sizePx: Int): wm.damage.core.gfx.Gray8?
+}
 
 private fun DataOutputStream.sendJson(s: String) {
     val b = s.toByteArray(Charsets.UTF_8)
@@ -129,6 +141,11 @@ class ContentHostServer(
     /** When present, a connection that sends `{"t":"sync",…}` after the hello
      *  becomes the persistent state-sync channel (HANDOFF.md §19.2). */
     private val sync: wm.damage.core.sync.SyncPeer? = null,
+    /** §16.10 window services: `{"t":"win","win":"files"}` after the hello
+     *  becomes that window's persistent channel (WinNet). */
+    private val win: Map<String, wm.damage.core.net.WinService> = emptyMap(),
+    /** Theme icons served to the phone (`{"t":"icon",...}` → gray blob). */
+    private val icons: IconResolver? = null,
 ) : AutoCloseable {
     @Volatile private var server: ServerSocket? = null
     @Volatile private var running = false
@@ -197,6 +214,38 @@ class ContentHostServer(
                             // serve() blocks until the peer leaves (§19.2)
                             wm.damage.core.sync.SyncNet.serve(sock, inp, out, sp, line)
                             return
+                        }
+                        "win" -> {
+                            // §16.10: the connection becomes one window's channel
+                            val id = json.decodeFromString(WinProbe.serializer(), line).win
+                            val svc = win[id]
+                            if (svc == null) {
+                                out.sendJson(json.encodeToString(ErrMsg.serializer(),
+                                    ErrMsg(detail = "this host serves no '$id' window channel")))
+                                continue
+                            }
+                            wm.damage.core.net.WinNet.serve(sock, inp, out, id, svc)
+                            return
+                        }
+                        "icon" -> {
+                            // theme icons for the phone (2026-09-01): resolved
+                            // blocking on this session thread, missing answers
+                            // len 0 so the phone can cache the miss
+                            val req = json.decodeFromString(IconMsg.serializer(), line)
+                            val res = icons?.let {
+                                try { it.resolve(req.name, req.size.coerceIn(8, 128)) } catch (e: Exception) {
+                                    Log.w("content-host", "icon '${req.name}' resolve failed: ${e.message}")
+                                    null
+                                }
+                            }
+                            if (res == null) {
+                                out.sendJson(json.encodeToString(IconBlobMsg.serializer(), IconBlobMsg(w = 0, h = 0, len = 0)))
+                            } else {
+                                out.sendJson(json.encodeToString(IconBlobMsg.serializer(),
+                                    IconBlobMsg(w = res.w, h = res.h, len = res.pix.size)))
+                                out.write(res.pix)
+                            }
+                            out.flush()
                         }
                         "library" -> {
                             // a scan failure answers in-band: dropping the session

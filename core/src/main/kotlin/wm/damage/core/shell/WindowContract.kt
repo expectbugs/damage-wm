@@ -200,6 +200,23 @@ interface ShellServices {
         appId: String? = null, thread: String = "", target: String? = null)
 
     /**
+     * §16.11 floating context menu (Adam's Files design, 2026-09-01: "a tap
+     * should work like a right-click"). Opens [spec] at plane 0 over the
+     * focused window's content; scroll moves its cursor, tap commits (the
+     * spec's onCommit runs after the menu closed), double-tap cancels. The
+     * cursor opens on row 0 — put the primary action (Open) there and keep
+     * destructive rows off 0/1 (§1.7). LOOP-ONLY, WINDOW mode only.
+     */
+    fun openMenu(spec: MenuSurface.Spec) {
+        wm.damage.core.util.Log.w("shell", "openMenu: not supported by this host")
+    }
+
+    /** The host's theme-icon source (2026-09-01, Adam: use the desktop theme's
+     *  icons "for everything in DamageWM that uses icons"), or null — callers
+     *  fall back to the drawn set. */
+    fun icons(): wm.damage.core.gfx.IconSource? = null
+
+    /**
      * §16.2 window hand-off (agreed 2026-09-01): focus window [id] — a full
      * COMMIT (recency, activation, notices marked read) — and, when [target]
      * is given, open it there via [DamageWindow.open]; an unresolvable target

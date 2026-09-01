@@ -222,10 +222,15 @@ private suspend fun hostOnly(cfg: Config) {
     // host-only still syncs (§19.2): the store is the data, no shell needed
     val store = Persistence(Path.of(cfg.dataDir).resolve("state.json"))
     store.load()
+    val filesProvider = wm.damage.core.windows.files.LocalFilesProvider(
+        Path.of(cfg.booksDir), Path.of(cfg.dataDir).resolve("trash"), AwtImages())
+    val themeIcons = ThemeIcons(AwtImages(), Path.of(cfg.dataDir).resolve("icons"))
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
-        tmux = tmux, sync = wm.damage.core.sync.SyncPeer(store))
+        tmux = tmux, sync = wm.damage.core.sync.SyncPeer(store),
+        win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider)),
+        icons = themeIcons)
     host.start()
-    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync on :${cfg.contentPort}; Ctrl-C to stop")
+    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync + files + icons on :${cfg.contentPort}; Ctrl-C to stop")
     kotlinx.coroutines.awaitCancellation()
 }
 
@@ -249,6 +254,11 @@ class DesktopStack(
      *  host's sync channel, so a stack and the sync peer see the same
      *  records. Null builds a private store (tools). */
     private val sharedStore: Persistence? = null,
+    /** The process-wide filesystem provider (Files window; also served to the
+     *  phone through the content host). Null in tools. */
+    private val files: wm.damage.core.windows.files.FilesProvider? = null,
+    /** Theme icons (2026-09-01) — process-wide, also serves the phone. */
+    private val themeIcons: ThemeIcons? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private fun ble(): Transport = BlueZTransport(BlueZDbus(), scope,
@@ -273,9 +283,14 @@ class DesktopStack(
         val dataDir = Path.of(cfg.dataDir)
         val persistence = sharedStore ?: Persistence(dataDir.resolve("state.json"))
         shell = Shell(text, transport, persistence, dataDir.resolve("journal.jsonl"), scope)
+        shell.iconSource = themeIcons
         val content = LocalContent(Path.of(cfg.booksDir))
         shell.register(ReaderWindow(text, content, scope, AwtImages()))
         tmux?.let { tmuxWindow = wm.damage.core.windows.tmux.TmuxWindow(text, it, scope).also(shell::register) }
+        files?.let {
+            shell.register(wm.damage.core.windows.files.FilesWindow(text, it, scope, AwtImages(),
+                initialBooksDir = cfg.booksDir))
+        }
         shell.hostSettings = listOf(
             HostSetting("Target", MODES, current = { mode }, apply = { v -> onSwitch(v) }),
         )
@@ -343,10 +358,23 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     val tmuxProvider = wm.damage.core.windows.tmux.LocalTmuxProvider(
         cfg.tmuxHostList(), cfg.tmuxConfig(), tmuxScope)
 
-    // The PC always serves its library + tmux + sync — the DATA PROVIDER role
-    // (§19.1) — whoever is driving the glasses.
+    // Theme icons from the desktop's own theme (2026-09-01, Papirus-Dark on
+    // beardos) — one instance feeds the local shell AND the phone; a resolve
+    // completing repaints whatever shell currently runs.
+    val themeIcons = ThemeIcons(AwtImages(), Path.of(cfg.dataDir).resolve("icons"),
+        onLoaded = { stackRef.get()?.shell?.requestRepaint() })
+
+    // The process-wide filesystem provider: the local Files window and the
+    // phone's (over the win channel) share it — trash manifest included.
+    val filesProvider = wm.damage.core.windows.files.LocalFilesProvider(
+        Path.of(cfg.booksDir), Path.of(cfg.dataDir).resolve("trash"), AwtImages())
+
+    // The PC always serves its library + tmux + sync + files + icons — the
+    // DATA PROVIDER role (§19.1) — whoever is driving the glasses.
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
-        tmux = tmuxProvider, sync = syncPeer)
+        tmux = tmuxProvider, sync = syncPeer,
+        win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider)),
+        icons = themeIcons)
     try {
         host.start()
     } catch (e: Exception) {
@@ -395,7 +423,8 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         swapStack(next, "manual mode")
     }
     build = { m -> DesktopStack(cfg, m, remoteHost, text, onStatus = { keeperStatus.set(it) },
-        onSwitch = { switchTo(it) }, tmux = tmuxProvider, sharedStore = store) }
+        onSwitch = { switchTo(it) }, tmux = tmuxProvider, sharedStore = store,
+        files = filesProvider, themeIcons = themeIcons) }
 
     if (mode != "auto") {
         val first = build(mode)

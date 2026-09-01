@@ -82,6 +82,7 @@ class ShellService : Service() {
     private var seamServer: RemoteTransportServer? = null
     private var replica: ReplicaServer? = null
     private var tmuxProvider: RemoteTmuxProvider? = null
+    private var filesProvider: wm.damage.core.windows.files.RemoteFilesProvider? = null
     private var remoteSync: wm.damage.core.sync.RemoteSync? = null
     @Volatile var remoteDriving = false
         private set
@@ -229,6 +230,16 @@ class ShellService : Service() {
         val tp = RemoteTmuxProvider(prefs.host, prefs.contentPort, prefs.token, scope)
         tmuxProvider = tp
         sh.register(TmuxWindow(text, tp, scope))
+        // Files (2026-09-01, the first §16.10 window-channel consumer): the
+        // PC's filesystem browsed from the phone; theme icons fetched and
+        // cached the same way. App-alone the window is honestly unavailable
+        // (a filesystem does not cache) — the staleness line says so.
+        val fp = wm.damage.core.windows.files.RemoteFilesProvider(
+            prefs.host, prefs.contentPort, prefs.token, scope)
+        filesProvider = fp
+        sh.register(wm.damage.core.windows.files.FilesWindow(text, fp, scope, AndroidImages()))
+        sh.iconSource = RemoteIcons(prefs.host, prefs.contentPort, prefs.token,
+            dataDir.resolve("icons"), scope, onLoaded = { sh.requestRepaint() })
         sh.onUrgent = { source, body -> urgentNotification(source, body) }
         sh.hostSettings = listOf(
             HostSetting("Target", listOf("sim", "glasses"),
@@ -351,6 +362,8 @@ class ShellService : Service() {
         }
         try { tmuxProvider?.close() } catch (e: Exception) { Log.w("service", "tmux provider close: ${e.message}") }
         tmuxProvider = null
+        try { filesProvider?.close() } catch (e: Exception) { Log.w("service", "files provider close: ${e.message}") }
+        filesProvider = null
         try { remoteSync?.close() } catch (e: Exception) { Log.w("service", "sync close: ${e.message}") }
         remoteSync = null
         scope.cancel()

@@ -719,6 +719,13 @@ class RemoteTransportServer(
                                 // G2CC decoupling: the radio session belongs
                                 // to this host, drivers come and go.
                                 Log.i("transport-server", "driver ${sock.inetAddress} ADOPTED the live session")
+                                // a FRESH snapshot strictly before the startok:
+                                // the outbox is FIFO, so every stale pre-start
+                                // state frame drains before it — the client can
+                                // never see started=false after its start()
+                                // returns (the recurring seam-test race,
+                                // root-caused 2026-09-01)
+                                post(Ctl(t = "state", state = inner.state.value.toWire()))
                                 post(Ctl(t = "started"))
                             }
                             startJob?.isActive == true ->
@@ -728,6 +735,9 @@ class RemoteTransportServer(
                                 startJob = scope.launch {
                                     try {
                                         inner.start(warmup)
+                                        // fresh snapshot before the startok —
+                                        // see the ADOPT branch's ordering note
+                                        post(Ctl(t = "state", state = inner.state.value.toWire()))
                                         post(Ctl(t = "started"))
                                     } catch (e: CancellationException) {
                                         post(Ctl(t = "startfail", detail = "start cancelled: the driver left"))

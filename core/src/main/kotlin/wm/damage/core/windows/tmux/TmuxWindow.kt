@@ -731,18 +731,14 @@ class TmuxWindow(
         }
     }
 
+    /** Through the shared kit (§16.11, 2026-09-01): a cut is ADVERTISED with
+     *  the drawn mark, never silent — the §18.1 debt, closed structurally. */
     private fun drawFit(g: Gray8, x: Int, y: Int, s: String, lv: Int, f: FontSpec, maxW: Int) {
-        var str = s
-        if (tx.measure(str, f) > maxW) {
-            var n = str.length
-            while (n > 0 && tx.measure(str.take(n), f) > maxW) n--
-            str = str.take(n)
-        }
-        tx.draw(g, x / 4 * 4, y / 2 * 2, str, f, lv)
+        wm.damage.core.shell.Draw.fit(g, tx, x, y, s, lv, f, maxW)
     }
 
     private fun drawRight(g: Gray8, xRight: Int, y: Int, s: String, lv: Int, f: FontSpec) {
-        tx.draw(g, (xRight - tx.measure(s, f)) / 4 * 4, y / 2 * 2, s, f, lv)
+        wm.damage.core.shell.Draw.right(g, tx, xRight, y, s, lv, f)
     }
 
     private fun paintPlainRow(g: Gray8, label: String, @Suppress("UNUSED_PARAMETER") i: Int, r: Rect, dim: Boolean) {

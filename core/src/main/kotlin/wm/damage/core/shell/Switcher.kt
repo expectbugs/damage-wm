@@ -24,7 +24,11 @@ import wm.damage.core.text.TextRasterizer
  * tiers (a smooth gradient shreds RLE, §4.3); a vertical drum foreshortens
  * vertically only, which keeps every scanline's run structure.
  */
-class Switcher(private val text: TextRasterizer) {
+class Switcher(
+    private val text: TextRasterizer,
+    /** Theme icons (2026-09-01); null/miss falls back to the drawn set. */
+    private val icons: () -> wm.damage.core.gfx.IconSource? = { null },
+) {
 
     /** One drum row: Main is a pseudo-entry (null window). */
     data class Entry(val window: DamageWindow?, val name: String, val icon: IconKind, val dirty: Boolean)
@@ -148,7 +152,8 @@ class Switcher(private val text: TextRasterizer) {
         // (marquee is the §4.3 upgrade path).
         val ce = entryAt(if (frac > 0.5) 1 else 0)
         val iconY = bandTop + 4
-        Icons.draw(g, p.x + (p.w - 56) / 2, iconY, 56, 56, ce.icon, Level.HEAD)
+        wm.damage.core.gfx.IconPaint.draw(g, icons(), wm.damage.core.gfx.IconNames.forKind(ce.icon),
+            p.x + (p.w - 56) / 2, iconY, 56, ce.icon, Level.HEAD)
         val maxW = p.w - 32
         val name = fitText(ce.name, fBig, maxW)
         val tw = text.measure(name, fBig)
@@ -162,7 +167,10 @@ class Switcher(private val text: TextRasterizer) {
     }
 
     private fun paintSmall(g: Gray8, p: Rect, e: Entry, y: Int, lv: Int) {
-        Icons.draw(g, p.x + 44, y / 2 * 2, 40, 20, e.icon, lv)
+        // square 20 px for both sets — theme bitmaps are square, and the drawn
+        // set reads fine at 20×20 (the old 40×20 stretch predated theme icons)
+        wm.damage.core.gfx.IconPaint.draw(g, icons(), wm.damage.core.gfx.IconNames.forKind(e.icon),
+            p.x + 52, y / 2 * 2, 20, e.icon, lv)
         val name = fitText(e.name, fBody, p.right - (p.x + 96) - 12)
         text.draw(g, (p.x + 96) / 4 * 4, y / 2 * 2, name, fBody, lv)
         if (e.dirty) g.fillRect((p.x + 96 + text.measure(name, fBody) + 6).coerceAtMost(p.right - 6),

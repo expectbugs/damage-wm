@@ -21,7 +21,11 @@ import wm.damage.core.text.TextRasterizer
  * whose CONTENT changed and returns their rects; the shell lets them ride the
  * next content flush, or flushes them on the 5 s idle tick.
  */
-class Chrome(private val text: TextRasterizer) {
+class Chrome(
+    private val text: TextRasterizer,
+    /** Theme icons (2026-09-01); null/miss falls back to the drawn set. */
+    private val icons: () -> wm.damage.core.gfx.IconSource? = { null },
+) {
 
     data class Battery(val pct: Int, val flashPhase: Int? = null)
 
@@ -161,7 +165,8 @@ class Chrome(private val text: TextRasterizer) {
     // --- top bar -----------------------------------------------------------------
     private fun paintTitle(g: Gray8, l: Layout, s: State) {
         g.fillRect(l.titleCell, Level.BG)
-        Icons.draw(g, l.titleCell.x + 8, l.titleCell.y + 6, 20, 20, s.windowIcon, Level.HEAD)
+        wm.damage.core.gfx.IconPaint.draw(g, icons(), wm.damage.core.gfx.IconNames.forKind(s.windowIcon),
+            l.titleCell.x + 8, l.titleCell.y + 6, 20, s.windowIcon, Level.HEAD)
         val nx = l.titleCell.x + 36
         val name = dynamic(s.windowName, fChromeB)
         draw(g, nx, l.titleCell.y + 6, name, Level.HEAD, fChromeB)
