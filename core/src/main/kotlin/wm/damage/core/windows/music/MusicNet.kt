@@ -91,6 +91,7 @@ class MusicService(private val lib: MusicLibrary) : WinService {
             }
             "lyrics.search" -> WinService.Answer(blob = json.encodeToString(ListSerializer(Lyrics.serializer()),
                 lib.searchLyrics(i("id", 0), s("q"))).toByteArray(Charsets.UTF_8))
+            "lyrics.sources" -> { lib.setLyricsSources(s("sources")); WinService.Answer() }
             "lyrics.set" -> {
                 val choice = json.decodeFromString(Lyrics.serializer(), s("lyrics"))
                 lib.setLyrics(i("id", 0), choice); WinService.Answer()
@@ -264,6 +265,10 @@ class RemoteMusicLibrary(
 
     override fun searchLyrics(trackId: Int, query: String): List<Lyrics> =
         json.decodeFromString(ListSerializer(Lyrics.serializer()), blobOf(ch.request("lyrics.search", args("id" to trackId, "q" to query)), "lyric candidates").toString(Charsets.UTF_8))
+
+    override fun setLyricsSources(sources: String) {
+        try { ch.request("lyrics.sources", args("sources" to sources)) } catch (e: Exception) { Log.w("music-remote", "lyric sources not sent: ${e.message}") }
+    }
 
     override fun setLyrics(trackId: Int, choice: Lyrics) {
         ch.request("lyrics.set", args("id" to trackId, "lyrics" to json.encodeToString(Lyrics.serializer(), choice)))

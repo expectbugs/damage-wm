@@ -141,6 +141,8 @@ data class Config(
     val musicQueueSize: Int = 25,
     val mediaPort: Int = 7404,
     val musicAcoustidKey: String = "",
+    /** The enrichment package + viz.py (`audio/` in the repo, MUSIC.md §9.5). */
+    val musicAudioDir: String = "/home/user/damagewm/audio",
 ) {
     /** The PC-side music library (MUSIC.md §5): Postgres + Qdrant + the
      *  caches + the media endpoint's resolver. The leaf collaborators

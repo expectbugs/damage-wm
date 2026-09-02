@@ -461,6 +461,9 @@ interface MusicLibrary {
     fun setPlaylistTracks(id: Int, trackIds: List<Int>)
     fun lyrics(trackId: Int): Lyrics?
     fun searchLyrics(trackId: Int, query: String): List<Lyrics>
+    /** Settings → Music → Lyrics sources: "lrclib+local" · "+netease" ·
+     *  "+musixmatch" (verdict 24). The host's fetch chain follows it. */
+    fun setLyricsSources(sources: String) {}
     fun setLyrics(trackId: Int, choice: Lyrics)
     /** 4-bit gray, px×px, packed two pixels a byte (high nibble first), box-sampled on the PC; null = none. */
     fun art(trackId: Int, px: Int): ByteArray?

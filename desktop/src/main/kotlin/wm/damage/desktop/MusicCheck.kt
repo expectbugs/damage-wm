@@ -105,6 +105,21 @@ object MusicCheck {
             } catch (e: Exception) {
                 check("qdrant reachable (${e.message})", false)
             }
+            // the deterministic lane through the real resolver: no model, no embedder
+            val lane1 = wm.damage.core.windows.music.Resolver(db, null, null, null, cfg.musicQueueSize)
+            for (q in listOf("pink floyd", "random", cat.vocab.firstOrNull { it.kind == "mood" }?.term ?: "calm")) {
+                val a = lane1.ask(q)
+                println("  ask \"$q\": ${a.lane} · ${a.tracks.size} tracks · ${a.detail}")
+                check("lane 1 answers \"$q\"", a.tracks.isNotEmpty())
+            }
+            // one visualizer precompute through viz.py (writes only into our own viz dir)
+            if (lib.ingester == null) check("viz.py reachable (enrichment wired)", false) else {
+                val t = db.trackFile(cat.tracks.minByOrNull { it.durMs.takeIf { d -> d > 0 } ?: Int.MAX_VALUE }!!.id)!!
+                val tv = System.currentTimeMillis()
+                val v = try { lib.viz(t.id) } catch (e: Exception) { println("  viz: ${e.message}"); null }
+                println("  viz for #${t.id} \"${t.title}\" (${t.durMs / 1000} s): ${if (v == null) "none" else "${v.fps} fps · ${v.bands} bands · ${v.frameCount} frames · ${v.beatsMs.size} beats"} in ${System.currentTimeMillis() - tv} ms")
+                check("viz.py computed a blob for a real track", v != null && v.frameCount > 0)
+            }
             println("  media endpoint would bind :${cfg.mediaPort}; viz dir ${lib.vizDir} holds ${Files.list(lib.vizDir).use { it.count() }} blobs")
         } catch (e: Throwable) {
             e.printStackTrace()

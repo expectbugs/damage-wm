@@ -38,6 +38,11 @@ class LocalMusicLibrary(
     // wired by the host as the leaf modules land (§5); null = said loudly
     @Volatile var resolver: AskResolver? = null
     @Volatile var lyricsFetch: LyricsFetcher? = null
+    /** The chain per sources choice — the host wires a factory; the
+     *  instances are kept (each paces its own remote calls). */
+    @Volatile var lyricsFetchFactory: ((netease: Boolean, musixmatch: Boolean) -> LyricsFetcher)? = null
+    @Volatile private var lyricsSources = "lrclib+local"
+    private val fetchers = HashMap<String, LyricsFetcher>()
     @Volatile var youtube: YtClient? = null
     @Volatile var ingester: Ingester? = null
     /** Where a grab lands (`<libraryDirs[0]>/YouTube`). */
@@ -137,20 +142,35 @@ class LocalMusicLibrary(
     // ------------------------------------------------------------------ lyrics
     private fun file(id: Int): MusicDb.TrackFile = db.trackFile(id) ?: throw IllegalStateException("track $id is not in the library")
 
+    override fun setLyricsSources(sources: String) { lyricsSources = sources }
+
+    private fun fetcher(): LyricsFetcher? {
+        val fac = lyricsFetchFactory ?: return lyricsFetch
+        val key = lyricsSources
+        return synchronized(fetchers) {
+            fetchers.getOrPut(key) { fac(key.contains("netease") || key.contains("musixmatch"), key.contains("musixmatch")) }
+        }
+    }
+
     override fun lyrics(trackId: Int): Lyrics? {
         val t = file(trackId)
         val stored = db.lyrics(t)
         if (stored != null && stored.found) return stored
-        if (stored != null && stored.source != "" && stored.source != "lrclib") return null   // a durable negative from OUR chain
-        val f = lyricsFetch ?: return stored
-        val fetched = f.fetch(t)
-        db.setLyrics(t, fetched ?: Lyrics(source = "none"))
+        // a durable negative from OUR chain stands until the sources widen
+        if (stored != null && stored.source.startsWith("none:") && stored.source == "none:$lyricsSources") return null
+        val f = fetcher() ?: return stored?.takeIf { it.found }
+        val fetched = try { f.fetch(t) } catch (e: Exception) {
+            // a source FAULTED (not a miss): say so, record nothing durable
+            Log.w("music", "lyrics for track $trackId: ${e.message}")
+            throw e
+        }
+        db.setLyrics(t, fetched ?: Lyrics(source = "none:$lyricsSources"))
         changed()
         return fetched
     }
 
     override fun searchLyrics(trackId: Int, query: String): List<Lyrics> {
-        val f = lyricsFetch ?: throw IllegalStateException("the lyric sources are not wired on this host")
+        val f = fetcher() ?: throw IllegalStateException("the lyric sources are not wired on this host")
         return f.search(file(trackId), query)
     }
 

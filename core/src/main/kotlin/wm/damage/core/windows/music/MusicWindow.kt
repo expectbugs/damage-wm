@@ -332,9 +332,16 @@ class MusicWindow(
         catalogVersion = cat.version
     }
 
+    /** The sources choice reaches the host off-loop (a Remote sends an op). */
+    private fun pushLyricsSources() {
+        val v = lyricsSources
+        bg.launch(Dispatchers.IO) { try { library.setLyricsSources(v) } catch (e: Exception) { Log.w("music", "lyric sources: ${e.message}") } }
+    }
+
     override fun onActivate(ctx: ShellServices) {
         services = ctx
         active = true
+        pushLyricsSources()
         player.setFocused(true)
         library.setFocused(true, CARD_PACE_MS)
         st = player.state
@@ -1607,7 +1614,7 @@ class MusicWindow(
             HostSetting("Prefetch", listOf("1", "2", "3", "5", "10"), { "${prefetchPref}" }, { v -> prefetchPref = v.toIntOrNull() ?: 3; player.setPrefetch(prefetchPref) }),
             HostSetting("Lyrics offset", (-500..500 step 50).map { "${if (it > 0) "+" else ""}$it ms" }, { "${if (lyricsOffset() > 0) "+" else ""}${lyricsOffset()} ms" },
                 { v -> lyricsOffsets[outputKey()] = v.removeSuffix(" ms").replace("+", "").toIntOrNull() ?: 0 }),
-            HostSetting("Lyrics sources", LYRICS_SOURCES, { lyricsSources }, { lyricsSources = it }),
+            HostSetting("Lyrics sources", LYRICS_SOURCES, { lyricsSources }, { v -> lyricsSources = v; pushLyricsSources() }),
             HostSetting("Visualizer", VIZ_NAMES, { vizName }, { vizName = it }),
             HostSetting("Visualizer rate", listOf("4", "8", "12"), { "$vizRate" }, { vizRate = it.toIntOrNull() ?: 8 }),
             HostSetting("Music Mode · card", listOf("on", "off"), { onOff(mmCard) }, { mmCard = it == "on" }),

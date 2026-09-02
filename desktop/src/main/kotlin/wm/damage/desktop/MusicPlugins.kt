@@ -11,8 +11,8 @@ import wm.damage.core.windows.music.LocalMusicLibrary
  */
 object MusicPlugins {
     fun wire(cfg: Config, lib: LocalMusicLibrary) {
-        val audioDir = java.nio.file.Path.of(System.getProperty("user.dir")).resolve("audio").takeIf { java.nio.file.Files.isDirectory(it) }
-            ?: java.nio.file.Path.of("/home/user/damagewm/audio")
+        val audioDir = java.nio.file.Path.of(cfg.musicAudioDir).takeIf { java.nio.file.Files.isDirectory(it.resolve("enrich")) }
+            ?: java.nio.file.Path.of(System.getProperty("user.dir")).resolve("audio")
         val python = java.nio.file.Path.of(cfg.musicPython)
         val embed: ((String) -> List<Double>)? = if (java.nio.file.Files.isExecutable(python) && java.nio.file.Files.isDirectory(audioDir.resolve("enrich"))) {
             val eq = wm.damage.core.windows.music.EmbedQuery(cfg.musicPython, audioDir)
@@ -24,7 +24,13 @@ object MusicPlugins {
             wm.damage.core.windows.music.Qdrant(cfg.musicQdrant, cfg.musicQdrantCollection), embed, llm, cfg.musicQueueSize, cfg.musicClaudeModel)
         val ytDir = lib.youtubeDir ?: java.nio.file.Path.of(cfg.musicLibraryDirs.first()).resolve(cfg.musicYoutubeDir)
         lib.youtube = wm.damage.core.windows.music.YouTube(cfg.musicYtDlp, ytDir)
+        // §9.4: the lyric chain per sources choice (verdict 24 — the keyless
+        // routes behind the window's toggle); §9.5: the enrichment passes + viz
+        lib.lyricsFetchFactory = { netease, musixmatch -> wm.damage.core.windows.music.LyricsFetch(netease = netease, musixmatch = musixmatch) }
+        if (java.nio.file.Files.isExecutable(python) && java.nio.file.Files.isDirectory(audioDir.resolve("enrich"))) {
+            lib.ingester = wm.damage.core.windows.music.Enrich(cfg.musicPython, audioDir)
+        } else Log.w("music", "enrichment + viz off: python ${cfg.musicPython} or ${audioDir}/enrich missing")
         Log.i("music", "music library: db=${cfg.musicDb} roots=${cfg.musicLibraryDirs} cache=${cfg.musicCache} media=:${cfg.mediaPort} " +
-            "resolver=lanes 1${if (llm != null) "+2" else ""}${if (embed != null) "+3" else ""} yt-dlp=${cfg.musicYtDlp}")
+            "resolver=lanes 1+2${if (embed != null) "+3" else ""} yt-dlp=${cfg.musicYtDlp} audio=$audioDir enrich=${lib.ingester != null}")
     }
 }
