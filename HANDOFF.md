@@ -5,7 +5,8 @@ lessons and measured facts behind the current state.**
 
 | § | what | status |
 |---|---|---|
-| **23** | **Torrents + the keyboard (2026-09-01, evening): the second conversion, built whole, + a 4-round review loop — PAUSED at Adam's word, not converged; resume from `980d832..HEAD`** | **current** |
+| **24** | **Music (2026-09-02/03): the design verdicts + plan, then the overnight build — M1–M6, six commits, the shell's EXCLUSIVE mode; §24.1 is the build record; the review loop has NOT run yet** | **current** |
+| 23 | Torrents + the keyboard (2026-09-01, evening): the second conversion, built whole, + a 4-round review loop — PAUSED at Adam's word, not converged; resume from `980d832..HEAD` | current |
 | 22 | The overnight build (2026-09-01): §16 machinery + FILES + the 8-round review loop, run to convergence | current |
 | **21** | The live refinery + Files chosen + the settled Files design (2026-09-01) | current |
 | **20** | The general-contract session — EXPLOSION §16 settled (2026-09-01) | current |

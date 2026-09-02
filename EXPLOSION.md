@@ -7,8 +7,8 @@ cuts it back. Grades are the builder's first-pass opinion **for the refinery to 
 ⚠ **Role update 2026-09-01/02: the explosion and refinery are CLOSED** — §5 (Files, built), §16
 (the contract, built), §19 (Torrents, built) and §20 (the verdicts + the rejected-ideas guard) are
 RECORDS of settled/built work; the remaining per-window tables are still proposals awaiting their
-own refinery pass. **Music (§3) is the next window** (Adam's choice, 2026-09-02); its refinery
-questions are still open.
+own refinery pass. **Music (§3) was refined and BUILT 2026-09-02/03** — `MUSIC.md` holds its 29
+verdicts and the settled design, `HANDOFF.md` §24 the build record.
 
 **Inputs:** [`CAPABILITIES.md`](CAPABILITIES.md) (what the hardware can do, graded),
 [`DESIGN.md`](DESIGN.md) §0 (what is already excluded) and §4.6 (the window contract),
@@ -174,10 +174,13 @@ compose-new v1 or does reply-only cover the daily loop?
 
 ## 3. MUSIC
 
-> 🎯 **NEXT — Adam's choice, 2026-09-02.** Music is the next window: the §16.10 multi-backend
-> archetype (PC library ↔ phone media) and the first real customer of the window channel's
-> still-unbuilt push / summary / arbitration slices (`HANDOFF.md` §22.1). The design discussion
-> is starting; **his per-window verdicts come first** (no verdicts, no build — `WINDOWS.md`), then
+> ✅ **BUILT 2026-09-02/03 — `MUSIC.md` is the record (29 verdicts, the design, the build plan
+> as built), `HANDOFF.md` §24 the build record.** The ideas below are the explosion that fed
+> Adam's verdicts; his verdicts supersede every grade here. As built: the §16.10 push slice
+> shipped with it; the backend fallback (PC library → Spotify on the phone) lives in the
+> player, switchback deliberate. Historically the banner read: Music is the next window, the
+> first real customer of the channel's push / summary / arbitration slices; **his per-window
+> verdicts come first** (no verdicts, no build — `WINDOWS.md`), then
 > built whole. ⚠ **The two refinery questions at the end of this section are still UNANSWERED.**
 
 **Phone plays the audio** (G2CC decision 2026-08-05: volume is max and phone-owned); the library
@@ -517,8 +520,9 @@ same night with the Files conversion** — 16.1/16.2 (deep links + hand-off with
 continuity gates in the battery), 16.5 (the signature), 16.11 (Draw.fit + MenuSurface +
 open-on-PC; no extracted confirm helper yet) are CODE; 16.10 shipped the request/blob channel
 with Files and Torrents as its consumers — Torrents adds version-cursor snapshots and event replay
-(`TorrentsNet`) — (**push frames, summaries-over-channel, multi-backend arbitration
-and per-backend `needs` remain open** — Music is their first real customer); 16.7 was
+(`TorrentsNet`) — Music (2026-09-02) added **push frames** (`WinService.Push`, `wpush`) and
+its backend fallback inside the player; **summaries-over-channel and a per-backend `needs`
+contract remain unbuilt** (Music declares `needs` per host instead); 16.7 was
 re-scoped by Adam's theme-icons ruling (drawn set = fallback + release path). `WINDOWS.md`
 is the build-facing distillation.
 
@@ -647,15 +651,15 @@ DamageWM's system, which is the intended *build excitement* order (risk still pr
 sequencing per window):
 
 1. **Games** (roster first; 10b lanes on revisit) — not started; **Music was taken next instead
-   (Adam, 2026-09-02)**
+   (Adam, 2026-09-02) and is built**
 2. **Torrents** (§19) — ✅ **BUILT 2026-09-01 evening** (`TORRENTS.md`, `HANDOFF.md` §23; four
    review rounds, paused at Adam's word; on-glass verdicts owed)
 3. **Files** — ✅ **BUILT (2026-09-01, the same night — the §5 banner, `HANDOFF.md` §22)**:
    the settled design shipped whole (locations + capacity bars, the context-menu grammar,
    text/image/PDF viewers, clipboard, trash+restore, typed rename, Open-on-PC, EPUB→Reader
    hand-off, theme icons) and survived an eight-round review loop run to convergence
-4. **Music** (adaptive PC-library ↔ Spotify per §16.10) — 🎯 **NEXT**: design discussion
-   starting 2026-09-02; §3's refinery questions still open
+4. **Music** (adaptive PC-library ↔ Spotify per §16.10) — ✅ **BUILT 2026-09-02/03** (`MUSIC.md`,
+   `HANDOFF.md` §24; the review loop and the on-phone measured items are what remain)
 5. **Feed** + comics
 6. **Mail**
 7. **SMS** (+ caller-ID source)

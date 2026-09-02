@@ -1,32 +1,34 @@
 # Where we are, and what to do next
 
-**Updated 2026-09-01 (late night): TORRENTS + THE KEYBOARD ARE BUILT** — the second G2CC→DamageWM
-conversion, on Adam's rule for every window from now on (**built whole to its best state before
-the next; no v1/v1.5 staging**): `TORRENTS.md` (the verdicts, the verified qBittorrent 2.11 +
-TorrentLeech facts, the design), `DESIGN.md` §4.8 (the ring-driven wireframe keyboard — row then
-key, draft kept, QWERTY/abc — the fourth bespoke shell surface after the wheel, the notification
-box and the context menu), `HANDOFF.md` §23 (the record). qBittorrent on beardos serves its Web
-API on 127.0.0.1:8090 (rebuilt with USE `webui`; `DAILY.md`). The review loop ran FOUR rounds
-(`HANDOFF.md` §23.1–§23.4, ~114 findings, every one verified before a fix) and is **PAUSED at
-Adam's word, not converged** — the next review pass starts from `980d832..HEAD`.
+**Updated 2026-09-03 (early morning): MUSIC IS BUILT** — the third G2CC→DamageWM conversion,
+built whole overnight in an autonomous session (M1–M6 of `MUSIC.md` §11, a commit per milestone
+with the battery green at each; `HANDOFF.md` §24.1 is the build record with every decision made
+inside the plan). The G2CC music SYSTEM is Damage's now (Postgres `g2cc`, Qdrant, the 8.1 GB
+cache read in place, the enrichment package copied into `audio/`, yt-dlp); the PHONE plays
+(ExoPlayer + a media session — the buds' taps drive the queue from anywhere), the PC serves
+(the window channel + a media endpoint on :7404); the window is written once against two core
+contracts so the desktop runs a read-only mirror of the phone's player; **Music Mode is a new
+shell mode** (`DESIGN.md` §4.9, EXCLUSIVE: the window paints the whole panel, only double-tap
+leaves). The review loop for it has NOT run yet.
 
-Earlier the same day: **FILES**, the first conversion, with the whole EXPLOSION §16 machinery
-under it (the LWW state substrate with per-item sub-records, the generic window channel, deep
-links + the notification signature, the context-menu surface + the Draw kit, theme icons per
-Adam's Papirus ruling) and an eight-round review loop run to convergence (79 → … → 0) —
-`HANDOFF.md` §22. Reader / Tmux / Files / Torrents are the worked precedents (`WINDOWS.md`).
+Before it (2026-09-01): **TORRENTS + the keyboard** (`TORRENTS.md`, `DESIGN.md` §4.8,
+`HANDOFF.md` §23 — four review rounds, paused at Adam's word, not converged; resume from
+`980d832..HEAD`) and **FILES** with the whole EXPLOSION §16 machinery under it (`HANDOFF.md` §22,
+eight review rounds to convergence). Reader / Tmux / Files / Torrents / Music are the worked
+precedents (`WINDOWS.md`).
 
 **State of the world:** the phone APK is the primary driver (`HANDOFF.md` §19 — radio + shell
 while it is up); the OpenRC `damage` service is the data provider (content + tmux + sync + the
-window channel on :7401, seam :7402, replica :7403) plus a standby that BLE-drives only while the
-APK is away. Battery at HEAD (`390a25c`): core **221** · desktop 9 · selfcheck **89** ·
-snapshots 26 · epub-check clean · lint 0. **APK 18/0.18 is STAGED** (the setup page +
-`~/.damage/damage-wm.apk`; the jar and the service run the same round-4 build). **0.16 is the
-last build observed INSTALLED** (2026-09-01 — the phone spoke the files channel); 0.17 was never
-installed and 0.18 supersedes it (Files, the chrome tweaks, Torrents, the keyboard, every
-2026-09-01 review fix). Deploys: `./gradlew :desktop:stageJar && sudo rc-service damage restart`
-(never touches the display — the PC does not claim). ⚠ One central at a time: stop the service
-before any `:desktop:run`; G2CC's Android bridge stays Disconnected.
+window channel on :7401, seam :7402, replica :7403, the media endpoint :7404) plus a standby
+that BLE-drives only while the APK is away. Battery at HEAD: core **315** · desktop 9 ·
+selfcheck **134** · snapshots 36 · epub-check clean · lint 0 · `--music-check` all pass against
+the real library. **APK 19/0.19 is STAGED** (the setup page + `~/.damage/damage-wm.apk`; the jar
+and the service run the same M6 build). **0.16 is the last build observed INSTALLED**
+(2026-09-01); 0.17/0.18 were never installed and 0.19 supersedes them (Files, the chrome tweaks,
+Torrents, the keyboard, every 2026-09-01 review fix, Music). Deploys: `./gradlew
+:desktop:stageJar && sudo rc-service damage restart` (never touches the display — the PC does
+not claim). ⚠ One central at a time: stop the service before any `:desktop:run` dev session;
+G2CC's Android bridge stays Disconnected.
 
 📍 **Start here, in this order:** this file → `HANDOFF.md` §19–§23 (the topology contract, the
 overnight record, the Torrents + keyboard record) → `DAILY.md` (ops crib) → `IMPLEMENTATION.md`
@@ -36,7 +38,8 @@ contract, §20 refinery verdicts, the chosen window's section). Standing referen
 
 ## 🚀 Next
 
-1. **Install 0.18, then on-glass verdicts for Torrents + the keyboard**: the keyboard's feel
+1. **Install 0.19, grant `music access` (`DAILY.md` → Music), then on-glass verdicts for Music,
+   Torrents and the keyboard**: Music's measured items first (`MUSIC.md` §12); the keyboard's feel
    (row pitch at 288, the highlight, the text-line pan, stay-in-row, the Tmux live rows), the
    transfers list and lens, a real done-notification, browse / search / add against the live
    tracker (the first real add is the first real download through the adapter). Then the

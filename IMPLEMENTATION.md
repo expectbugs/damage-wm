@@ -228,9 +228,10 @@ development environment; also serves ~/books to the phone):
 ./gradlew :desktop:run --args="--transport ble"   # PC-direct BLE only (manual)
 ./gradlew :desktop:run --args="--remote HOST"     # claim the phone's transport and drive through it — the EXPLICIT dev override
 ./gradlew :desktop:run --args="--ble-info"    # adapter enumeration only (no discovery)
-./gradlew :desktop:run --args="--selfcheck"   # the 89-check scripted gate (Files, Torrents and keyboard walks incl.)
+./gradlew :desktop:run --args="--selfcheck"   # the 134-check scripted gate (Files, Torrents, keyboard and Music walks incl.)
 ./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"  # parse every book in ~/books
+./gradlew :desktop:run --args="--music-check" # the real g2cc library read-only: counts, the catalog, lanes, cache keys, Qdrant, one viz blob
 ./gradlew :desktop:run --args="--host-only"   # content host alone (books + tmux + sync, no stack ever)
 ./gradlew :desktop:test                       # 9 tests: the BlueZ glue over the fake link
 ```
@@ -242,7 +243,8 @@ The browser replica link is printed at start (`http://<host>:7403/?token=…`). 
 `~/.damage/config.json` (books dir, ports, token — generated on first run and must match
 `damage-secrets.properties` before building the APK — the phone host, the cached pair
 addresses, the tmux hosts/quick keys/snippets/wait patterns, the qBittorrent URL and the
-TorrentLeech credentials; the `Config` class in `desktop/Main.kt` is the key list).
+TorrentLeech credentials, the `music*` keys of `MUSIC.md` §9.7 and `mediaPort`; the `Config`
+class in `desktop/Main.kt` is the key list).
 
 Phone:
 
@@ -253,7 +255,8 @@ Phone:
 
 The APK's daily default is Target=glasses: it DRIVES the pair over BLE as the primary driver
 (§19), fetches content from beardos over Tailscale, **copies each book locally on open**, and
-falls back to its caches when the PC is unreachable. It serves the seam on :7402 (probe/claim)
+falls back to its caches when the PC is unreachable; it plays music from the PC's media
+endpoint (:7404) or its prefetch cache. It serves the seam on :7402 (probe/claim)
 and its replica on :7403. Distribution: `./gradlew :phone:stageApk` → `~/.damage/damage-wm.apk`
 → the G2CC `/setup` page. The SIM target remains the on-phone dev mode.
 
@@ -680,7 +683,10 @@ of them are load-bearing and easy to break by accident:
 
 ## Verification
 
-- `./gradlew :core:test` — 221 unit/integration tests (2026-09-01 evening added
+- `./gradlew :core:test` — 315 unit/integration tests (2026-09-02/03 added the Music set:
+  `MusicTest` ×7, `MusicWindowTest` ×6, `MusicModeTest` ×2, `ResolverTest` ×19, `LyricsFetchTest`
+  ×24, `YouTubeTest` ×13, `VizTest` ×12, `EnrichTest` ×11 — plus `--music-check` against the real
+  library, not part of the suite; 2026-09-01 evening added
   `TorrentsTest` ×7 and `KeyboardTest` ×22 — the Torrents build and its four review rounds —
   and a `GeometryTest` pin for the chrome tweaks; 2026-09-01 added
   `SubstrateTest` ×10 — incl. the Reader CONTINUITY gate, the stamp-0 baseline pin, the

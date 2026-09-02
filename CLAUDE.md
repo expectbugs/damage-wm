@@ -59,10 +59,11 @@ and shell, always, while it is up; the OpenRC `damage` service is the DATA PROVI
 tmux + last-write-wins state sync) plus a STANDBY that drives PC-direct BLE only while the APK
 is unavailable and hands back on its return. The PC never claims in daily use** (`--transport
 remote` keeps the claim path as the explicit dev override). `REMINDER.md` is the orientation
-file; `HANDOFF.md` §19–§23 the current records; `DAILY.md` the ops crib; `IMPLEMENTATION.md`
-what runs and how. App layer: **Main · Settings · Reader · Tmux · Files · Torrents** (Files landed
+file; `HANDOFF.md` §19–§24 the current records; `DAILY.md` the ops crib; `IMPLEMENTATION.md`
+what runs and how. App layer: **Main · Settings · Reader · Tmux · Files · Torrents · Music** (Files landed
 2026-09-01 with the whole §16 shared machinery — `HANDOFF.md` §22; Torrents + the §4.8
-keyboard the same evening — `TORRENTS.md`, `HANDOFF.md` §23).
+keyboard the same evening — `TORRENTS.md`, `HANDOFF.md` §23; Music overnight 2026-09-02/03 —
+`MUSIC.md`, `HANDOFF.md` §24, the shell's exclusive mode `DESIGN.md` §4.9).
 
 Adam's stated methodology governs **the app layer**:
 
@@ -78,16 +79,18 @@ is converting G2CC apps to DamageWM windows, one at a time**: Adam's per-window 
 verdicts first, then build against the `DamageWindow` contract
 (`core/…/shell/WindowContract.kt`) per the **`WINDOWS.md`** checklist, reading the G2CC
 original for interaction facts only (`/home/user/G2CC/server/src/windows/`, read-only) and
-`DESIGN.md` §4.6 for the mode contract. **Reader, Tmux, Files and Torrents are the worked
+`DESIGN.md` §4.6 for the mode contract. **Reader, Tmux, Files, Torrents and Music are the worked
 precedents** — Files and Torrents for MenuSurface and the window channel, Torrents for the §4.8
-keyboard. Two of Adam's rules since Torrents bind every window: **built whole to its best state
+keyboard, Music (`MUSIC.md`, built 2026-09-02/03) for a two-host contract, the channel's push
+frames and the §4.9 exclusive mode. Two of Adam's rules since Torrents bind every window: **built whole to its best state
 before the next — no v1/v1.5 staging**; and **each app's notification toggles live in its own
 Settings category, never Global** (`WINDOWS.md` §1).
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(221 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
-over a fake link), `desktop --selfcheck` (89 checks), `desktop --snapshot DIR` (look at the lens
-renders), `desktop --epub-check ~/books`, `python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.
+(315 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
+over a fake link), `desktop --selfcheck` (134 checks), `desktop --snapshot DIR` (look at the lens
+renders), `desktop --epub-check ~/books`, `desktop --music-check` (the real library, read-only),
+`python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.
 Radio use is normal now (post-flash); deploying = `./gradlew :desktop:stageJar && sudo
 rc-service damage restart` (`DAILY.md`) — since §19 the PC never claims, so a PC deploy never
 touches the display at all. Stop the service before any `:desktop:run` dev session (one set of

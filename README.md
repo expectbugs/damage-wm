@@ -37,6 +37,15 @@ install / first-light / refinement / launch-day / app-wave records; `DAILY.md` i
 crib; [`WINDOWS.md`](WINDOWS.md) the conversion checklist; `EXPLOSION.md` the graded app
 backlog + refinery verdicts; `REFINEMENT.md` and `TMUX.md` the design logs.
 
+**2026-09-02/03 — MUSIC**, built whole overnight (`MUSIC.md`, `HANDOFF.md` §24): the G2CC music
+system taken over (Postgres, Qdrant, the transcode cache, the enrichment package, yt-dlp), the
+phone as the player (ExoPlayer + a media session — earbud taps drive the queue from anywhere,
+hold-my-volume, boost, sleep, prefetch, Spotify as the fallback), the PC as the library over the
+window channel + a Range-capable media endpoint, a queue-with-card window with browse, Ask through
+three resolver lanes, synced lyrics, YouTube grabs with full ingest, playlists edited on glass,
+and **Music Mode** — a new EXCLUSIVE shell mode (`DESIGN.md` §4.9) stacking card, lyrics,
+visualizer, queue peek and clock per height.
+
 ## Start here
 
 | | |
@@ -68,11 +77,12 @@ The design is shaped by three facts about this display, and most of it follows f
 ## Building and verifying
 
 ```
-./gradlew :core:test                                  # 221 tests, incl. the per-lens oracle
+./gradlew :core:test                                  # 315 tests, incl. the per-lens oracle
 ./gradlew :desktop:test                               # 9 tests: the BlueZ glue over a fake link
-./gradlew :desktop:run --args="--selfcheck"           # the 89-check whole-stack gate
+./gradlew :desktop:run --args="--selfcheck"           # the 134-check whole-stack gate
 ./gradlew :desktop:run --args="--snapshot DIR"        # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"          # parse every book; chapters + image decode
+./gradlew :desktop:run --args="--music-check"         # the real music library, read-only (counts, catalog, lanes, cache keys, Qdrant, viz)
 ./gradlew :desktop:run --args="--transport ble"       # PC-direct BLE (the at-the-desk fallback)
 ./gradlew :desktop:run                                # auto = the §19 standby (data host; claims nothing) + preview (4x)
 ./gradlew :phone:assembleDebug                        # the APK (deploy flow: :phone:stageApk → the setup page)

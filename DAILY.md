@@ -10,7 +10,7 @@ data availability, not the driver. This file is the ops crib.
 | piece | job | kept alive by |
 |---|---|---|
 | **phone APK** (Target = glasses) | **THE driver** — owns the BLE radio and runs the shell, always; serves the seam :7402 (status probe + explicit dev claims) + replica :7403 | foreground service + wakelock + Doze exemption + `BootReceiver` (reboot/update) |
-| **beardos `damage` service** | **the data host + standby**: books + tmux + STATE SYNC + the window channel (Files: listings, ops, viewers, blobs; Torrents: qBittorrent + the TorrentLeech session) + theme icons on :7401, the PC replica :7403; probes the phone every 5 s and starts a PC-direct BLE stack ONLY while the APK is not available, handing the radio back the moment it returns | OpenRC `/etc/init.d/damage` (supervise-daemon, enabled at `default`, headless `--no-preview`, mode `auto` = standby) |
+| **beardos `damage` service** | **the data host + standby**: books + tmux + STATE SYNC + the window channel (Files: listings, ops, viewers, blobs; Torrents: qBittorrent + the TorrentLeech session; Music: the library — Postgres/Qdrant/cache/resolver/lyrics/yt-dlp — with the media endpoint on :7404) + theme icons on :7401, the PC replica :7403; probes the phone every 5 s and starts a PC-direct BLE stack ONLY while the APK is not available, handing the radio back the moment it returns | OpenRC `/etc/init.d/damage` (supervise-daemon, enabled at `default`, headless `--no-preview`, mode `auto` = standby) |
 
 **Who drives when** (all automatic, event-driven, pacing not timeouts):
 
@@ -34,9 +34,9 @@ ever needs redoing: (1) sideload from the setup page, grant Bluetooth ×2 + noti
 battery exemption; (2) 🔴 keep the G2CC bridge app Disconnected (a second central); (3) phone
 first light with NOTHING on beardos holding the pair (`sudo rc-service damage stop`), flip
 Target → glasses; (4) `sudo rc-service damage start` → the log says "standby up (§19)" and the
-phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.18 is the
+phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.19 is the
 staged build: Files + theme icons + the sync client + Torrents + the keyboard + every
-2026-09-01 review fix + the chrome tweaks; 0.16 is the last build observed installed**). Why old
+2026-09-01 review fix + the chrome tweaks + Music; 0.16 is the last build observed installed**). Why old
 APKs matter: a pre-0.15 APK cannot be status-probed (the PC conservatively stays out — fine)
 and a pre-0.10 one carries no sync client, so state does not flow until it is updated. 0.16
 being installed also unblocks Reader's transitional legacy-offsets cleanup (`REMINDER.md` Next 2).
@@ -113,5 +113,5 @@ schema, and a phone-side record (`window.tmux`) crossed and applied store-direct
 shell was in standby. **Still awaiting a deliberate glass test**: a real standby engagement
 (stop the APK at the desk → the PC BLE-drives within ~10 s → restart the APK → handback) and
 the sync feel across a driver swap (a book position following the swap). Current staged APK:
-**0.18** (Files, the chrome tweaks, Torrents, the keyboard); **0.16 is the last build observed
-INSTALLED** (2026-09-01 — the phone speaks the files channel).
+**0.19** (Files, the chrome tweaks, Torrents, the keyboard, Music); **0.16 is the last build
+observed INSTALLED** (2026-09-01 — the phone speaks the files channel).

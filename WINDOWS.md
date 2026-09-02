@@ -85,8 +85,9 @@ These are the non-negotiables, each with its authority:
 `DamageWindow` (`WindowContract.kt` is the authority): `view()` (List/Doc/Canvas per level) ·
 `title()` (SHORT — §4.1 contract) · `summary()` (cheap; `more`/`progress` flags) · `icon`
 (an `IconKind` — the theme-icon system resolves the desktop theme first, the drawn kind is the
-fallback and release path) · `dirty` · `needs` (HOST/PHONE_APIS/BLE; per-BACKEND needs are
-still open — Music is their first customer) · `preferredHeight` (global-default pattern) ·
+fallback and release path) · `dirty` · `needs` (HOST/PHONE_APIS/BLE; a per-BACKEND `needs`
+contract is still unbuilt — Music declares them per host: none on the phone, HOST on the desktop
+mirror — and keeps its backend fallback inside the player) · `preferredHeight` (global-default pattern) ·
 `appSettings()` (its Settings category; STABLE instances) · `saveState()/restoreState()` (mode
 included, §9.1) · **`restoreStateLive()`** (a live-synced main record — override when the boot
 restore assumes an activation follow-up; Files/Tmux/Reader are the precedents) ·
@@ -152,8 +153,9 @@ All four rows of the agreed build order are CODE, and so is the keyboard that fo
    main-record live apply; the continuity-test harness (`SubstrateTest`/`FilesTest` shapes).
 2. **The generic window channel** (§16.10): `{"t":"win","win":"<id>"}` on the content port
    (note the field name), `WinService` host-side, `RemoteWin` client (id-correlated, blob lane,
-   keeper reconnect, `stateLine`). Still open on it: push frames, summaries-over-channel,
-   multi-backend arbitration, per-backend `needs` — Music is their first real customer.
+   keeper reconnect, `stateLine`), and since Music (2026-09-02) **push frames**
+   (`WinService.Push` → `RemoteWin(onPush)`, the `wpush` frame). Still open on it:
+   summaries-over-channel and a per-backend `needs` contract.
 3. **Deep links + the notification signature** (§16.1/§16.5) — see §2's `notifyInternal`/`open`.
 4. **The kit** (§16.11): `Draw.fit` (elide with the drawn ▸, always), `Draw.dynamic`
    ('?'-substitutes uncoverable glyphs), `MenuSurface`, open-on-PC via the channel. The

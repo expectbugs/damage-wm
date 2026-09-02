@@ -81,8 +81,9 @@ radio is not the default.
   removed — the toggle moves to Settings → Music); Silent Mode's input path (`DESIGN.md` §1.5:
   everything swallowed except double-tap) is the model for Music Mode.
 - **The seam:** the §16.10 window channel (`WinNet.kt`), the Torrents Local/Remote provider split
-  (`TorrentsNet.kt`), the Files blob lane (`FilesNet.kt`). Still unbuilt on the channel and Music
-  is their first customer: push frames, summaries-over-channel, per-backend `needs`.
+  (`TorrentsNet.kt`), the Files blob lane (`FilesNet.kt`). Music built the channel's PUSH slice
+  (as built: `WinService.Push` + `RemoteWin(onPush)`, the `wpush` frame); summaries-over-channel
+  and a per-backend `needs` contract stay unbuilt (Music declares `needs` per host).
 - **`claude` CLI** exposes `--model`, `--effort` and `-p/--print` (checked 2026-09-02).
 
 ## 3. The design (settled parts)
@@ -343,7 +344,8 @@ the desktop mirror and a re-installed APK resume the same queue. Never auto-play
   serves. Malformed Range → 200 full (ExoPlayer treats a 416 as fatal — G2CC lesson). The phone
   learns the port from `Prefs.mediaPort` (BuildConfig default). NO TIMEOUTS.
 - **Push**: the host pushes `catalog` version bumps and `yt` job progress as unsolicited frames
-  on the channel — the first use of the §16.10 push slice (`WinNet` gains `push(op, args)`).
+  on the channel — the first use of the §16.10 push slice (as built: `WinService.Push.send(op,
+  args, blob?)` on the host, `RemoteWin(onPush = …)` on the phone, a `wpush` frame).
 
 ### 6.4 Data formats
 - **AudioProfile** `name · codec (opus|passthrough) · kbps · channels (1|2) · loudnorm`.
@@ -365,11 +367,12 @@ the desktop mirror and a re-installed APK resume the same queue. Never auto-play
 ## 7. The APK
 
 - **Dependencies**: `androidx.media3:media3-exoplayer` + `media3-session` (G2CC proved 1.5.1;
-  pin the current stable in `gradle/libs.versions.toml`). Manifest: `FOREGROUND_SERVICE_MEDIA_PLAYBACK`,
+  as built 1.5.1 is pinned in `gradle/libs.versions.toml`). Manifest: `FOREGROUND_SERVICE_MEDIA_PLAYBACK`,
   `ShellService` type `connectedDevice|mediaPlayback`; `MusicListener` declared with
   `BIND_NOTIFICATION_LISTENER_SERVICE` (the one-time "notification access" grant — `DAILY.md`
   runbook; the window says "grant notification access on the phone" while missing).
-  **No RECORD_AUDIO.** `MODIFY_AUDIO_SETTINGS` only if the output API needs it (verify).
+  **No RECORD_AUDIO.** `MODIFY_AUDIO_SETTINGS` was not needed (as built: `setStreamVolume` and
+  `setPreferredAudioDevice` work without it).
 - **Sink**: ExoPlayer with `USAGE_MEDIA`/`CONTENT_TYPE_MUSIC`, audio focus GAIN (others pause;
   transient loss → pause, resume on regain), a 60–300 s LoadControl (Tailscale insurance), gapless
   via the prestaged next item, `setPreferredAudioDevice` for the Output row (devices from
