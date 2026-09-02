@@ -1,7 +1,7 @@
 # Music on glass — design record (2026-09-02)
 
-**Status: DESIGN IN DISCUSSION — verdicts below are Adam's and binding; §4 lists what is still
-open; NOT BUILT.** The window is built whole on Adam's rule (no v1/v1.5 staging), as an overnight
+**Status: DESIGN SETTLED 2026-09-02 (two rounds of verdicts); §4 holds one open item (the
+Postgres collation refresh, Adam's go) — otherwise ready for the overnight build; NOT BUILT.** The window is built whole on Adam's rule (no v1/v1.5 staging), as an overnight
 autonomous build once §4 is closed, then the review loop (`REVIEW.md`). `EXPLOSION.md` §3 is
 the idea record; `/home/user/G2CC/docs/MUSIC_SPEC.md` is the previous player's decision record
 (read for facts and lessons, never for code — the G2CC music *system* is now Damage's, its code
@@ -24,15 +24,22 @@ is ported, not pasted).
 | 11 | Heights | 🔴 **Every window works well at all four sizes (288/352/416/480) and each app's size is adjustable in Settings.** Music's card, queue, lyrics and Music Mode are each specified per height. Now a rule in `WINDOWS.md` §1. |
 | 12 | Adam-specific defaults | **Nothing is baked in**: mono/stereo, normalization, codec/bitrate, output, volume, lyrics, visuals are Settings rows. **Mono to start** (one work earbud today); release defaults are chosen later in a global pass. |
 | 13 | Volume | In Settings **and** in the app, **synced both ways with the phone's media volume**. |
-| 14 | Hearing-protection limiter | The phone lowers the volume after a long stretch at max and posts a notification. Detect it (the OS notification via the listener, and the large instant drop, which looks nothing like repeated volume-down taps) and **re-set the volume** to what Adam set. Setting "Hold my volume", default on. Pixel probe first. |
-| 15 | Gain | **Not for undoing the limiter** (quality, and the accidental-loudness trap: max the volume while paused with gain active, then play). But a **separate "Volume boost" option** for rare quiet material, up to **200 % or more** of normal max, outside the normal volume control. |
+| 14 | Hearing-protection limiter | The phone lowers the volume after a long stretch at max and posts a notification; **there is no confirmation dialog on Adam's phone** — volume-up simply restores it, and the problem is the phone sitting on the cart out of reach. Detect the event (the OS notification via the listener, and the large instant drop, which looks nothing like repeated volume-down taps) and **re-set the stream to the held level**. Setting "Hold my volume", default on. The APK logs every volume change with its cause so the first real trigger at work is captured for verification. |
+| 15 | Gain | **Not for undoing the limiter** (quality, and the accidental-loudness trap: max the volume while paused with gain active, then play). But a **separate "Volume boost" option** for rare quiet material, outside the normal volume control: **ceiling 400 % (+12 dB), off when the track ends, never remembered** — a rare one-off. Shown on the card while active; a notice when both max volume and boost are on. |
 | 16 | Music Mode | **Silent Mode with music décor**: the display shows only the configured music surfaces (card, lyrics, visualizer, …), **ring input is ignored except double-tap, which exits** Music Mode. No menu inside it. |
 | 17 | Earbud taps | **The primary transport control, from anywhere**: single = play/pause, double = next, triple = previous (the buds' native gestures through the media session). Ring inputs are never remapped. |
-| 18 | Codec | **Best sound quality by default**, alternatives configurable for a saturated link (§4 item 1 settles which "best" means). |
+| 18 | Codec | Adam: *"whatever quality the BLE forces"* — clarified: no audio ever crosses the glasses' BLE; the ceiling is the **phone → earbud Bluetooth link** (A2DP, lossy). So the default is **Opus high (128 k mono / 192 k stereo)**, at or above what that link carries, with **Lossless** (FLAC passthrough — for the phone on an AUX cable into a stereo), **Standard** (96 k) and **Saver** (48 k) as options. |
 | 19 | Visualizer | Precomputed on the PC (no microphone permission), rendered in sync on the phone. **Only visuals that suit the G2** (4-bit gray, one flush per frame, the measured latency curve) — fast and responsive, never a lagging display. Several options plus **off**. Adam wants suitable open-source ideas adopted too. |
 | 20 | Spotify switchback | **Deliberate, never automatic.** When Spotify was the *automatic* fallback, a **"Back to PC library" row appears in the app Menu as soon as the PC is reachable again**, and the player and Music Mode show **whether the PC is connected and, if not, for how long**. Spotify can be started cold. |
 | 21 | Phone notifications | 🔴 **The APK stops sending errors to the phone.** Errors go to the glasses' notifications and the log. The one permanent foreground notification stays. Built with the Music build (a Settings toggle, default off). |
 | 22 | Build shape | Overnight autonomous build, everything above, then the review loop. |
+| 23 | Notices in Music Mode | **Yes** — temporary notices still show over Music Mode, as in silent mode. |
+| 24 | Lyrics sources | **Everything reachable without a new account**: LRCLIB, embedded tags, `.lrc` files, NetEase's public endpoint, the unofficial Musixmatch route (keyless; may stop working — behind a toggle), plus any key Adam already made for the G2CC player (read from his G2CC config at build time). MusicBrainz needs no key. |
+| 25 | Spotify auto-fallback | **Automatic on PC loss** (default on). Spotify is installed and signed in. |
+| 26 | Per-height numbers | Principle confirmed; the numbers come from real renders and are adjusted on glass. |
+| 27 | G2CC's server | **Keeps running for now** (the APK setup page); retired when DamageWM is complete. |
+| 28 | Sleep | **Sleep options in Settings, default off**: stop after this track, or after any timer. |
+| 29 | Prefetch | **Three tracks ahead**, adjustable in Settings. |
 
 Recorded so it is not re-pitched: no PC audio output; no ring remapping in Music Mode; gain never
 undoes the limiter; no auto-play on boot; Spotify only as the phone fallback (no desktop client);
@@ -85,7 +92,7 @@ radio is not the default.
   (it has no sink; it displays only). PC-only configuration: the window says playback needs the
   phone, exactly as G2CC did.
 - **The phone caches the catalog** (a few thousand rows) so Browse works with the PC down, and
-  **prefetches the next N queue tracks** (setting) so a Tailscale drop does not stop the music
+  **prefetches the next 3 queue tracks** (setting) so a Tailscale drop does not stop the music
   before the queue ends. The card and Music Mode show the PC link state and its staleness age.
 
 ### 3.2 The window (`MusicWindow`, id `music`)
@@ -117,6 +124,7 @@ radio is not the default.
 ### 3.3 Music Mode
 Silent Mode with music décor (`DESIGN.md` §1.5's input path): **all ring input swallowed except
 double-tap, which exits to the window**; long-press never arms; the chord cannot fire. No menu.
+Temporary notices still show (verdict 23).
 Surfaces, each on/off and ordered in Settings → Music → Music Mode: Now Playing card · Lyrics ·
 Visualizer (type) · Queue peek (next 2–3) · Clock · PC link state. Layout per height: stacked at
 480, fewer/shorter surfaces at 288. Temporary notices still show (the shell's, as in silent mode).
@@ -134,12 +142,12 @@ whichever window is up. With Spotify as the backend the buds drive Spotify's own
   sequence of single steps) → re-set the stream to the held level; if the OS parks the raise behind
   its confirmation dialog, a glass notice says so ("phone lowered the volume — confirm on the
   phone"). Probe on the Pixel before the semantics are final.
-- **Volume boost** (separate row, default off, 100–200 %+; the exact ceiling per §4 item 2): a gain
-  stage on our own audio session with a limiter. Never touched by "Hold my volume". Shown on the
-  card while active. Reset rule per §4 item 2.
+- **Volume boost** (separate row, default off, 100–400 %): a gain stage on our own audio session
+  with a limiter. Never touched by "Hold my volume". Shown on the card while active; a notice when
+  max volume and boost coincide. **Off when the track ends, never remembered.**
 
 ### 3.6 Audio profiles (Settings → Music)
-Codec/quality (§4 item 1) · Channels: mono (default now) / stereo · Normalization: on/off
+Quality: Opus high (default) / Lossless / Standard / Saver (verdict 18) · Channels: mono (default now) / stereo · Normalization: on/off
 (loudnorm at transcode) · Output device. A profile keys the transcode cache (the existing 8 GB
 cache is `opus-96k-mono-loudnorm`); any other profile transcodes lazily on the PC (seconds a track),
 with an optional background pre-transcode of the library.
@@ -150,8 +158,8 @@ the scheduler runs on the phone from ExoPlayer's real position; a **per-output-d
 offset** (Bluetooth adds ~100–250 ms), calibrated once on glass by nudging a line with the ring
 (±50 ms notches) and remembered per device; each line is flushed **ahead by the known display
 latency** (the measured `60 + bytes/50` curve) so it lands on the beat. Sources in order: the
-`lyrics` table (LRCLIB), embedded tags, `.lrc` beside the file, the community fetchers (§4 item
-4), manual keyboard search. Plain-text fallback pages. The texture cache's glyph strings (mode 14)
+`lyrics` table (LRCLIB), embedded tags, `.lrc` beside the file, NetEase, the unofficial
+Musixmatch route (toggle), manual keyboard search (verdict 24). Plain-text fallback pages. The texture cache's glyph strings (mode 14)
 are the later optimization behind the on-glass check (`REMINDER.md` items 19–20).
 
 ### 3.8 Visualizer
@@ -173,7 +181,7 @@ knowledge base like any track. Progress rides the title notice; done/failed are 
 Per `EXPLOSION.md` §16.10: backends in preference order (PC library, Spotify-on-phone); the
 window is available if any backend's needs are met; the channel's staleness clock drives the
 sustained-loss threshold (a liveness decision, not a timeout). **Automatic switch to Spotify
-only on PC loss and only if allowed in Settings; switchback deliberate** — the "Back to PC
+on PC loss (Settings, default on); switchback deliberate** — the "Back to PC
 library" row appears the moment the PC is reachable again. Spotify is controlled through its
 media session (notification-listener grant, one-time on the phone) and started cold through its
 media browser service. Main's summary names the live backend (`▶ Spotify · phone`).
@@ -182,8 +190,9 @@ media browser service. Main's summary names the live backend (`▶ Spotify · ph
 Sources: track change (on) · queue end (on) · route loss / paused (on) · PC unreachable (off) ·
 YouTube grab done/failed (on) · playlist saved (off). Rows: Notify · … · Volume · Volume boost ·
 Hold my volume · Output · Quality · Channels · Normalization · Mode default · Prefetch tracks ·
-Lyrics offset · Visualizer · Visualizer rate · Music Mode surfaces · Spotify fallback (auto/never)
-· Phone notifications (off, the APK-wide switch) · Size · Font/Size/Style/Depth.
+Lyrics offset · Visualizer · Visualizer rate · Music Mode surfaces · Spotify fallback (auto,
+default / never) · Sleep (off / after this track / a timer) · Phone notifications (off, the
+APK-wide switch) · Size · Font/Size/Style/Depth.
 
 ### 3.12 The takeover
 - **Reused as-is**: the Postgres schema and data, the Qdrant collection, the media cache, the
@@ -202,25 +211,13 @@ Lyrics offset · Visualizer · Visualizer rate · Music Mode surfaces · Spotify
 
 ## 4. Open before the build (Adam)
 
-1. **"Best quality" codec default.** The earbud hop is lossy regardless (A2DP re-encodes), so
-   lossless to the phone buys nothing audible over the buds and costs ~8–10× the data on LTE.
-   Proposal: default **Opus high** (128 k mono / 192 k stereo), options **Lossless passthrough**
-   (FLAC as-is), **Standard** (96 k), **Saver** (48 k). Or lossless as the default regardless?
-2. **Boost semantics**: ceiling (200 % = +6 dB; 400 % = +12 dB?), reset rule (off at the end of
-   the track it was set on unless "keep", or remembered per track/album?), and the guard against
-   the paused-then-max trap (boost shown on the card; a notice when both max volume and boost).
-3. **Music Mode + notices**: temporary notices still show over Music Mode (default yes)?
-4. **Lyrics community fetchers**: which ones are acceptable (Musixmatch-style unofficial APIs
-   are grey; NetEase is public). LRCLIB + embedded + `.lrc` are certain.
-5. **The Spotify auto-fallback setting** default: auto on PC loss (proposed) or never?
-6. **Per-height numbers**: the card at 64 px band height at every size (art 56 px, two lines);
-   queue rows above/below (2+2 at 288 … 6+6 at 480); lyrics 3/5/7/9 lines; Music Mode stacks.
-   Confirm the principle; the numbers are set from real renders.
-7. **G2CC's server**: keep it running for the setup page (proposed; its boot scan is idempotent)
-   or move the page to a static Caddy directory and stop the server for good?
-8. **The Postgres collation warning**: refresh it (`ALTER DATABASE g2cc REFRESH COLLATION
-   VERSION`) before the build, or leave it?
-9. **Sleep/stop options** (Stop after this track · Stop in 30/60 min) — cheap, wanted?
+All of the first round's items are settled in §1 (verdicts 14–15, 18, 23–29). One remains:
+
+1. **The Postgres collation warning** on `g2cc` (created under glibc 2.42, the system now has
+   2.43). Postgres sorts text with the C library's rules; when the library changes, indexes over
+   text columns *could* be ordered by the old rules. The safe fix is `REINDEX DATABASE g2cc;`
+   then `ALTER DATABASE g2cc REFRESH COLLATION VERSION;` (the second line only clears the
+   warning). Adam's go, since it touches his database; the build does not depend on it.
 
 ## 5. Build order (one pass, whole) and gates
 
