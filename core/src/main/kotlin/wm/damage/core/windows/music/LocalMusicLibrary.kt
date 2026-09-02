@@ -78,7 +78,7 @@ class LocalMusicLibrary(
                 if (v == catVersion && cat.tracks.isNotEmpty()) { setState(""); return }
                 val t0 = System.currentTimeMillis()
                 art.beginCatalog()
-                val c = db.catalog(v) { id, path -> art.likelyHas(cache.keyFor(MusicDb.TrackFile(id, path, 0, "", "", "", 0)), path) }
+                val c = db.catalog(v) { id, path, mtime -> art.likelyHas(cache.keyFor(MusicDb.TrackFile(id, path, mtime, "", "", "", 0)), path) }
                 cat = c
                 catVersion = v
                 setState("")
@@ -118,6 +118,8 @@ class LocalMusicLibrary(
         val ranked = ids.mapNotNull { byId[it] }.filter { it.dupeCluster == null || it.dupeCluster !in bad }
         return Rules.postProcess(ranked, Rules.Opts(shuffle = false, excludeSpoken = true, cap = n, requestLc = "radio"))
     }
+
+    override fun recent(n: Int): List<Int> = db.recentIds(n)
 
     override fun randomLibrary(n: Int, exclude: List<Int>): List<TrackRef> {
         val ex = exclude.toHashSet()
@@ -165,7 +167,7 @@ class LocalMusicLibrary(
             throw e
         }
         db.setLyrics(t, fetched ?: Lyrics(source = "none:$lyricsSources"))
-        changed()
+        if (fetched != null) changed()      // a new hasLyrics bit; a negative changes no catalog field
         return fetched
     }
 
@@ -187,20 +189,39 @@ class LocalMusicLibrary(
 
     fun vizPath(t: MusicDb.TrackFile): Path = vizDir.resolve(cache.keyFor(t) + ".viz")
 
+    /** The cached blob at once; a missing one is BUILT IN THE BACKGROUND (a
+     *  librosa run takes seconds — never inline on the sequential window
+     *  channel, review 2026-09-03) and announced through [Listener.vizReady]. */
     override fun viz(trackId: Int): VizData? {
         val t = file(trackId)
         val p = vizPath(t)
-        if (Files.exists(p)) return try { VizData.decode(Files.readAllBytes(p)) } catch (e: Exception) {
-            Log.w("music", "viz blob for track $trackId unreadable — rebuilding: ${e.message}")
-            Files.deleteIfExists(p); null
-        } ?: buildViz(t)
-        return buildViz(t)
+        if (Files.exists(p)) {
+            try { return VizData.decode(Files.readAllBytes(p)) } catch (e: Exception) {
+                Log.w("music", "viz blob for track $trackId unreadable — rebuilding: ${e.message}")
+                Files.deleteIfExists(p)
+            }
+        }
+        buildVizAsync(t)
+        return null
     }
 
-    private fun buildViz(t: MusicDb.TrackFile): VizData? {
+    private val vizBuilding = ConcurrentHashMap.newKeySet<Int>()
+
+    private fun buildVizAsync(t: MusicDb.TrackFile) {
+        val ing = ingester ?: return
+        if (!vizBuilding.add(t.id)) return
+        scope.launch(Dispatchers.IO) {
+            try {
+                if (buildViz(t, ing) != null) for (l in listeners) try { l.vizReady(t.id) } catch (e: Exception) { Log.e("music", "viz listener", e) }
+            } finally { vizBuilding.remove(t.id) }
+        }
+    }
+
+    /** Blocking build + cache write; null when the tool produced nothing. */
+    fun buildViz(t: MusicDb.TrackFile, ingester: Ingester? = this.ingester): VizData? {
         val ing = ingester ?: return null
-        val b = ing.viz(t) ?: return null
-        val v = VizData.decode(b)
+        val b = try { ing.viz(t) } catch (e: Exception) { Log.w("music", "viz for track ${t.id}: ${e.message}"); null } ?: return null
+        val v = try { VizData.decode(b) } catch (e: Exception) { Log.w("music", "viz for track ${t.id} undecodable: ${e.message}"); return null }
         try {
             val tmp = vizPath(t).resolveSibling(vizPath(t).fileName.toString() + ".${System.nanoTime()}.tmp")
             Files.write(tmp, b)
@@ -246,7 +267,7 @@ class LocalMusicLibrary(
                     j = jobs[jobId]!!.copy(phase = "enriching"); jobUpdate(j)
                     try { ing.enrich(t.id) { ph -> jobUpdate(jobs[jobId]!!.copy(phase = "enriching: $ph")) } }
                     catch (e: Exception) { Log.e("music", "enrichment for track ${t.id} failed (the track stays playable)", e) }
-                    try { buildViz(t) } catch (e: Exception) { Log.w("music", "viz for track ${t.id}: ${e.message}") }
+                    buildViz(t, ing)
                 } else Log.w("music", "no ingester wired — track ${t.id} indexed without enrichment")
                 j = jobs[jobId]!!.copy(phase = "lyrics"); jobUpdate(j)
                 try { lyrics(t.id) } catch (e: Exception) { Log.w("music", "lyrics for track ${t.id}: ${e.message}") }

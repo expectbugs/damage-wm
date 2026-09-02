@@ -98,7 +98,7 @@ class MediaServer(
     /** `bytes=a-b` / `bytes=a-` / `bytes=-n` → (first, last) inclusive, or
      *  null when absent or malformed (→ 200 whole, never 416). */
     fun parseRange(h: String?, size: Long): Pair<Long, Long>? {
-        if (h == null || !h.startsWith("bytes=")) return null
+        if (h == null || !h.startsWith("bytes=") || size <= 0) return null
         val spec = h.removePrefix("bytes=").trim()
         if (',' in spec) return null                       // multi-range: whole file
         val dash = spec.indexOf('-')

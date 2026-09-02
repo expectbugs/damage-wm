@@ -134,12 +134,18 @@ data class PcLink(val up: Boolean = true, val sinceMs: Long = 0) {
 /** Sleep (verdict 28): off · after this track · a deadline the player checks
  *  on its ticks (pacing, never a timer wrapper). */
 @Serializable
-data class Sleep(val kind: Kind = Kind.OFF, val deadlineMs: Long = 0) {
+data class Sleep(val kind: Kind = Kind.OFF, val deadlineMs: Long = 0, val minutes: Int = 0) {
     enum class Kind { OFF, AFTER_TRACK, TIMER }
     fun label(nowMs: Long): String = when (kind) {
         Kind.OFF -> "off"
         Kind.AFTER_TRACK -> "after this track"
         Kind.TIMER -> Fmt.mmss(maxOf(0L, deadlineMs - nowMs)) + " left"
+    }
+    /** The Settings/menu choice this sleep came from (a running timer keeps its length). */
+    fun choice(): String = when (kind) {
+        Kind.OFF -> "off"
+        Kind.AFTER_TRACK -> "after this track"
+        Kind.TIMER -> "$minutes min"
     }
     companion object {
         val OFF = Sleep()
@@ -150,7 +156,7 @@ data class Sleep(val kind: Kind = Kind.OFF, val deadlineMs: Long = 0) {
             "after this track" -> Sleep(Kind.AFTER_TRACK)
             else -> {
                 val m = choice.substringBefore(' ').toLongOrNull() ?: 0L
-                if (m <= 0) OFF else Sleep(Kind.TIMER, nowMs + m * 60_000)
+                if (m <= 0) OFF else Sleep(Kind.TIMER, nowMs + m * 60_000, m.toInt())
             }
         }
     }
@@ -183,6 +189,8 @@ data class PlayerState(
     val queue: List<QueueEntry> = emptyList(),
     val index: Int = 0,
     val posMs: Long = 0,
+    /** When [posMs] was sampled (wall clock): the mirror extrapolates from it. */
+    val posAtMs: Long = 0,
     val durMs: Long = 0,
     val mode: Mode = Mode.SHUFFLE,
     /** The phone's media stream, 0–100 (verdict 13: synced both ways). */
@@ -467,7 +475,12 @@ interface MusicLibrary {
     fun setLyrics(trackId: Int, choice: Lyrics)
     /** 4-bit gray, px×px, packed two pixels a byte (high nibble first), box-sampled on the PC; null = none. */
     fun art(trackId: Int, px: Int): ByteArray?
+    /** The cached blob, or null while the host builds it (a [Listener.vizReady]
+     *  follows) or when there is none. */
     fun viz(trackId: Int): VizData?
+    /** The last [n] distinct played track ids, newest first — LIVE (the catalog's
+     *  copy is the offline fallback). */
+    fun recent(n: Int): List<Int> = catalog().recent.take(n)
     fun ytSearch(q: String): List<YtResult>
     /** Starts a grab; returns the job id. Explicit request only. */
     fun ytGrab(id: String): String
@@ -487,6 +500,8 @@ interface MusicLibrary {
         fun catalogChanged(c: Catalog) {}
         fun ytJob(j: YtJob) {}
         fun state(line: String) {}
+        /** A visualizer blob finished building on the host: ask again. */
+        fun vizReady(trackId: Int) {}
     }
 }
 

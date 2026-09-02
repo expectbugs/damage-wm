@@ -47,6 +47,9 @@ class MusicService(private val lib: MusicLibrary) : WinService {
         override fun state(line: String) {
             for (p in pushers) p.send("state", buildJsonObject { put("line", line) })
         }
+        override fun vizReady(trackId: Int) {
+            for (p in pushers) p.send("viz", buildJsonObject { put("id", trackId) })
+        }
     }
 
     init { lib.addListener(listener) }
@@ -68,8 +71,11 @@ class MusicService(private val lib: MusicLibrary) : WinService {
                 // blob; a refresh runs first when the driver asks for one
                 if (b("refresh", false)) lib.refreshCatalog()
                 val c = lib.catalog()
+                // an EMPTY host catalog (the database not up yet) must never
+                // replace a driver's cached one — answer in-band, loudly
+                if (c.tracks.isEmpty()) throw IllegalStateException(lib.stateLine().ifEmpty { "the catalog is not built yet" })
                 val have = args["v"]?.jsonPrimitive?.contentOrNull ?: ""
-                val changed = c.version != have || c.tracks.isEmpty() && have.isNotEmpty()
+                val changed = c.version != have
                 WinService.Answer(buildJsonObject { put("v", c.version); put("changed", changed); put("state", lib.stateLine()) },
                     if (changed) c.encode() else null)
             }
@@ -77,6 +83,7 @@ class MusicService(private val lib: MusicLibrary) : WinService {
             "ask" -> WinService.Answer(blob = json.encodeToString(ResolvedQueue.serializer(), lib.ask(s("q"))).toByteArray(Charsets.UTF_8))
             "similar" -> refs(lib.similar(ids("ids"), ids("exclude"), i("n", 10)))
             "random" -> refs(lib.randomLibrary(i("n", 25), ids("exclude")))
+            "recent" -> WinService.Answer(buildJsonObject { put("ids", JsonArray(lib.recent(i("n", 100)).map { JsonPrimitive(it) })) })
             "playlists" -> WinService.Answer(blob = json.encodeToString(ListSerializer(Playlist.serializer()), lib.playlists()).toByteArray(Charsets.UTF_8))
             "playlist" -> refs(lib.playlistTracks(i("id", 0)))
             "playlist.save" -> WinService.Answer(json.encodeToJsonElement(Playlist.serializer(),
@@ -174,6 +181,7 @@ class RemoteMusicLibrary(
                 for (l in listeners) try { l.ytJob(j) } catch (e: Exception) { Log.e("music-remote", "yt listener", e) }
             } catch (e: Exception) { Log.w("music-remote", "yt push undecodable: ${e.message}") }
             "state" -> { hostState = args["line"]?.jsonPrimitive?.contentOrNull ?: ""; pushState() }
+            "viz" -> args["id"]?.jsonPrimitive?.intOrNull?.let { id -> for (l in listeners) try { l.vizReady(id) } catch (e: Exception) { Log.e("music-remote", "viz listener", e) } }
             else -> Log.w("music-remote", "unknown push '$op' ignored")
         }
     })
@@ -240,6 +248,13 @@ class RemoteMusicLibrary(
         refs(ch.request("similar", args("ids" to trackIds, "exclude" to exclude, "n" to n)), "neighbours")
     override fun randomLibrary(n: Int, exclude: List<Int>): List<TrackRef> =
         refs(ch.request("random", args("n" to n, "exclude" to exclude)), "random tracks")
+    /** Live from the host; the cached catalog's list when the PC is away. */
+    override fun recent(n: Int): List<Int> = try {
+        (ch.request("recent", args("n" to n)).data["ids"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.intOrNull } ?: emptyList()
+    } catch (e: Exception) {
+        Log.w("music-remote", "recent: ${e.message} — using the cached catalog's list")
+        cat.recent.take(n)
+    }
     override fun playlists(): List<Playlist> =
         json.decodeFromString(ListSerializer(Playlist.serializer()), blobOf(ch.request("playlists"), "playlists").toString(Charsets.UTF_8))
     override fun playlistTracks(id: Int): List<TrackRef> = refs(ch.request("playlist", args("id" to id)), "playlist")
@@ -259,8 +274,14 @@ class RemoteMusicLibrary(
         val a = ch.request("lyrics", args("id" to trackId))
         val has = a.data["has"]?.jsonPrimitive?.booleanOrNull == true
         val ly = if (has && a.blob != null) json.decodeFromString(Lyrics.serializer(), a.blob.toString(Charsets.UTF_8)) else null
-        if (ly != null && ly.found) try { Files.writeString(p, json.encodeToString(Lyrics.serializer(), ly)) } catch (e: Exception) { Log.w("music-remote", "lyrics cache write: ${e.message}") }
+        if (ly != null && ly.found) try { Files.writeString(p, json.encodeToString(Lyrics.serializer(), ly)); evict(cacheDir.resolve("lyrics"), LYRICS_CACHE_FILES) } catch (e: Exception) { Log.w("music-remote", "lyrics cache write: ${e.message}") }
         return ly
+    }
+
+    companion object {
+        const val VIZ_CACHE_FILES = 150
+        const val ART_CACHE_FILES = 3_000
+        const val LYRICS_CACHE_FILES = 3_000
     }
 
     override fun searchLyrics(trackId: Int, query: String): List<Lyrics> =
@@ -284,6 +305,7 @@ class RemoteMusicLibrary(
         val has = a.data["has"]?.jsonPrimitive?.booleanOrNull == true
         try {
             if (has && a.blob != null) Files.write(p, a.blob) else Files.writeString(none, "")
+            evict(cacheDir.resolve("art"), ART_CACHE_FILES)
         } catch (e: Exception) { Log.w("music-remote", "art cache write: ${e.message}") }
         return if (has) a.blob else null
     }
@@ -297,8 +319,17 @@ class RemoteMusicLibrary(
         val has = a.data["has"]?.jsonPrimitive?.booleanOrNull == true
         if (!has || a.blob == null) return null
         val v = VizData.decode(a.blob)
-        try { Files.write(p, a.blob) } catch (e: Exception) { Log.w("music-remote", "viz cache write: ${e.message}") }
+        try { Files.write(p, a.blob); evict(cacheDir.resolve("viz"), VIZ_CACHE_FILES) } catch (e: Exception) { Log.w("music-remote", "viz cache write: ${e.message}") }
         return v
+    }
+
+    /** The per-track caches are bounded (review 2026-09-03): the oldest files
+     *  beyond [keep] go — viz blobs are ~100 KB each over a 3 k library. */
+    private fun evict(dir: Path, keep: Int) {
+        val files = try { Files.list(dir).use { s -> s.filter { Files.isRegularFile(it) }.toList() } } catch (e: Exception) { return }
+        if (files.size <= keep) return
+        files.sortedBy { try { Files.getLastModifiedTime(it).toMillis() } catch (e: Exception) { 0L } }
+            .take(files.size - keep).forEach { try { Files.deleteIfExists(it) } catch (e: Exception) { /* next time */ } }
     }
 
     override fun ytSearch(q: String): List<YtResult> =

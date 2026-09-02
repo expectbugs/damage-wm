@@ -147,17 +147,24 @@ class QueueEngine(private val random: java.util.Random = java.util.Random()) {
     fun ids(): List<Int> = list.map { it.track.id }
 
     /** The synced record's slice: entries with their qids, the index, mode, label. */
-    fun toJson(): JsonObject = buildJsonObject {
-        put("index", index)
-        put("mode", mode.name)
-        put("label", label)
-        put("nextQid", nextQid)
-        put("queue", buildJsonArray {
-            for (e in list) add(buildJsonObject {
-                put("qid", e.qid); put("id", e.track.id); put("title", e.track.title)
-                put("artist", e.track.artist); put("album", e.track.album); put("dur", e.track.durMs)
+    fun toJson(): JsonObject = jsonOf(list, index, mode, label, nextQid)
+
+    companion object {
+        const val LOW_WATER = 2
+
+        /** The same record from a SNAPSHOT (a caller off the engine's thread). */
+        fun jsonOf(queue: List<QueueEntry>, index: Int, mode: Mode, label: String, nextQid: Long = 0L): JsonObject = buildJsonObject {
+            put("index", index)
+            put("mode", mode.name)
+            put("label", label)
+            put("nextQid", maxOf(nextQid, (queue.maxOfOrNull { it.qid } ?: 0L) + 1))
+            put("queue", buildJsonArray {
+                for (e in queue) add(buildJsonObject {
+                    put("qid", e.qid); put("id", e.track.id); put("title", e.track.title)
+                    put("artist", e.track.artist); put("album", e.track.album); put("dur", e.track.durMs)
+                })
             })
-        })
+        }
     }
 
     fun fromJson(o: JsonObject) {
@@ -175,9 +182,5 @@ class QueueEngine(private val random: java.util.Random = java.util.Random()) {
         index = (o["index"]?.jsonPrimitive?.intOrNull ?: 0).coerceIn(0, maxOf(0, list.size - 1))
         mode = o["mode"]?.jsonPrimitive?.contentOrNull?.let { n -> Mode.entries.firstOrNull { it.name == n } } ?: Mode.SHUFFLE
         label = o["label"]?.jsonPrimitive?.contentOrNull ?: ""
-    }
-
-    companion object {
-        const val LOW_WATER = 2
     }
 }

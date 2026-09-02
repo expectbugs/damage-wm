@@ -114,7 +114,8 @@ class Shell(
         post(Msg.Run {
             chrome.invalidate()
             chromeDirty = true
-            if (mode != Mode.SILENT) composeContent()
+            if (mode == Mode.EXCLUSIVE) paintExclusiveDelta()     // the window decides what an icon changed
+            else if (mode != Mode.SILENT) composeContent()
         })
     }
 

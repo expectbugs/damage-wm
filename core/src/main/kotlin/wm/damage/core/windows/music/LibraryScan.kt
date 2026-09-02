@@ -57,7 +57,9 @@ class LibraryScan(private val db: MusicDb, private val roots: List<String>, priv
                 s.scanned++
                 val path = p.toString()
                 seen.add(path)
-                val mtime = try { Files.getLastModifiedTime(p).toMillis() } catch (e: Exception) { continue }
+                val mtime = try { Files.getLastModifiedTime(p).toMillis() } catch (e: Exception) {
+                    s.failed++; Log.w("music-scan", "cannot stat $path: ${e.message}"); continue
+                }
                 val existing = known[path]
                 if (existing != null && existing.second == mtime) continue
                 try {

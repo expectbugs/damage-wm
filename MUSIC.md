@@ -368,7 +368,11 @@ the desktop mirror and a re-installed APK resume the same queue. Never auto-play
 
 - **Dependencies**: `androidx.media3:media3-exoplayer` + `media3-session` (G2CC proved 1.5.1;
   as built 1.5.1 is pinned in `gradle/libs.versions.toml`). Manifest: `FOREGROUND_SERVICE_MEDIA_PLAYBACK`,
-  `ShellService` type `connectedDevice|mediaPlayback`; `MusicListener` declared with
+  `ShellService` declares `connectedDevice|mediaPlayback` but STARTS as `connectedDevice` only
+  and adds `mediaPlayback` when playback first engages — Android 15 refuses that type for a
+  service started at boot (review round 1); `android:usesCleartextTraffic="true"` for the
+  :7404 endpoint over the tailnet (targetSdk 35 refuses cleartext by default — the same round);
+  `MusicListener` declared with
   `BIND_NOTIFICATION_LISTENER_SERVICE` (the one-time "notification access" grant — `DAILY.md`
   runbook; the window says "grant notification access on the phone" while missing).
   **No RECORD_AUDIO.** `MODIFY_AUDIO_SETTINGS` was not needed (as built: `setStreamVolume` and
@@ -605,7 +609,8 @@ records which).
    "Music" + module map, `HANDOFF.md` §24, `REMINDER.md`, `DAILY.md` (one-time phone grants:
    notification access; the volume probe; Spotify cold-start check; the mediaPort; the venv
    freeze), `WINDOWS.md` (five precedents), memory; APK 19/0.19 staged; jar staged; service
-   restarted.
+   restarted. (Review round 1 followed the same morning — `HANDOFF.md` §24.2 — and bumped the
+   staged APK to 20/0.20.)
 
 Delegation guide (token budget): M1's DAO/transcode/stream, M5's `LyricsFetch`, `YouTube`,
 `viz.py` and the lane-1 `Resolver` port, M3's `Viz` renderers and M4's `SpotifyRemote` are leaf

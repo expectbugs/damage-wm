@@ -19,9 +19,11 @@ import wm.damage.core.util.Log
  * one, `MUSIC.md` §9.7).
  *
  * Failure policy, from the house rules and `MUSIC.md` §12:
- *  - NO TIMEOUTS. A pass takes as long as it takes (the profile pass calls a
+ *  - NO TIMEOUTS on this side. A pass takes as long as it takes (the profile pass calls a
  *    language model; the audio pass decodes the file). Nothing here is
- *    time-bounded, and the caller supervises.
+ *    time-bounded, and the caller supervises. (The Python profile pass keeps
+ *    G2CC's own 15-minute cap on its one-shot subprocess — Adam's code, the
+ *    resource-cap class its header sanctions — which is not a bound of ours.)
  *  - NO SILENT FAILURES. A pass that exits non-zero is logged with its exit
  *    code and the head of its stderr, and per-track failures the runner
  *    itself reports on stdout (its `FAILED #<id>` lines) are logged too.

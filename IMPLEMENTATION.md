@@ -387,7 +387,8 @@ one window: `wm.damage.core.windows.music`.
   the whole file), `Art` (ffmpeg extracts the embedded picture as raw gray, box-sampled; folder
   images; `.none` markers), `LibraryScan` (ffprobe, format + stream tags, incremental, deletion
   scoped to walked roots), `LocalMusicLibrary` (composes them + the leaf modules; the catalog
-  is a cached field, refreshed on a fingerprint), `MusicService`/`RemoteMusicLibrary`
+  is a cached field, refreshed on a SHAPE-only fingerprint — never lyrics or play history, which
+  change with every play; `recent(n)` is its own op so the list is live), `MusicService`/`RemoteMusicLibrary`
   (`MusicNet.kt` — every op on the `music` window channel; the catalog behind a version
   cursor; art/viz/lyrics cached per track on the phone; the §16.10 PUSH slice's first use:
   catalog bumps and grab progress as unsolicited `wpush` frames — `WinNet` gained

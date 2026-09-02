@@ -166,6 +166,9 @@ def _to_levels(db, name: str):
         raise RuntimeError(f"{name}: level window collapsed (lo={lo}, hi={hi}) — "
                            f"the decoded audio is degenerate")
     lv = np.clip((db - lo) / span, 0.0, 1.0) * 15.0
+    # digital silence sits AT the floor: with a collapsed window the clip above
+    # would map it to full scale (review 2026-09-03) — silence is level 0
+    lv = np.where(db <= FLOOR_DB + 1e-6, 0.0, lv)
     return np.rint(lv).astype(np.uint8), lo, hi
 
 

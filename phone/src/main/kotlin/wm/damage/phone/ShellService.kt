@@ -140,7 +140,11 @@ class ShellService : Service() {
         }
         logSink = sink
         Log.addSink(sink)      // removed at the END of this instance's shutdown (onDestroy)
-        startForeground(NOTIF_ID, buildNotification("Damage shell starting"))
+        // the connectedDevice type ONLY at start: Android 15 refuses a service
+        // started from BOOT_COMPLETED whose types include mediaPlayback; that
+        // type is added when playback engages (review 2026-09-03)
+        startForeground(NOTIF_ID, buildNotification("Damage shell starting"),
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         startStack(Prefs(this).target)
     }
 
@@ -264,7 +268,7 @@ class ShellService : Service() {
         val ml = wm.damage.core.windows.music.RemoteMusicLibrary(prefs.host, prefs.contentPort, prefs.token, prefs.mediaPort, musicDir, scope,
             onState = { line -> mp[0]?.onPcLinkLine(line) })
         musicLibrary = ml
-        val player = wm.damage.phone.music.AndroidMusicPlayer(this, ml, scope)
+        val player = wm.damage.phone.music.AndroidMusicPlayer(this, ml, scope, onEngaged = { promoteToMediaPlayback() })
         mp[0] = player
         musicPlayer = player
         sh.register(wm.damage.core.windows.music.MusicWindow(text, ml, player, scope))
@@ -577,6 +581,23 @@ class ShellService : Service() {
 
     private fun updateNotification(text: String) {
         channels().notify(NOTIF_ID, buildNotification(text))
+    }
+
+    /** Playback engaged (a user action, never boot): the service takes the
+     *  mediaPlayback foreground type too. A refusal is logged loudly — the
+     *  connectedDevice type keeps the service alive either way. */
+    @Volatile private var mediaTypeOn = false
+    private fun promoteToMediaPlayback() {
+        if (mediaTypeOn || destroyed) return
+        try {
+            startForeground(NOTIF_ID, buildNotification(displayStatus()),
+                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+            mediaTypeOn = true
+            Log.i("service", "foreground types: connectedDevice | mediaPlayback")
+        } catch (e: Exception) {
+            Log.e("service", "the mediaPlayback foreground type was refused — playback continues under connectedDevice", e)
+        }
     }
 
     /** §9.3: serious display-path errors become PHONE notifications — the only

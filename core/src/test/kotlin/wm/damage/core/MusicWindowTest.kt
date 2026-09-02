@@ -5,6 +5,7 @@ import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -82,6 +83,12 @@ class MusicWindowTest {
         assertTrue(q.move(last.qid, -10)); assertEquals(last.qid, q.entries[0].qid); assertEquals(cur.qid, q.current!!.qid); assertEquals(1, q.index)
         assertTrue(q.playFrom(last.qid)); assertEquals(0, q.index)
         assertFalse(q.playFrom(999L))
+        // "play next" from BEFORE the current is one row less than from after (the removal shifts the current)
+        q.set((1..5).map { t(it) }, 2, Mode.QUEUE, "pn")
+        val a = q.entries[0]; val e5 = q.entries[4]
+        assertTrue(q.move(a.qid, 2 - 0)); assertEquals(listOf(2, 3, 1, 4, 5), q.ids()); assertEquals(1, q.index)
+        assertTrue(q.move(e5.qid, q.index + 1 - 4)); assertEquals(listOf(2, 3, 5, 1, 4), q.ids()); assertEquals(1, q.index)
+        q.set(tracks, 2, Mode.SHUFFLE, "six"); q.remove(q.entries[1].qid); q.move(q.entries.last().qid, -10); q.playFrom(q.entries[0].qid)
         // insert next lands after the current
         val fresh = q.insertNext(listOf(t(7), t(8)))
         assertEquals(fresh.map { it.qid }, q.entries.subList(1, 3).map { it.qid })
@@ -198,6 +205,15 @@ class MusicWindowTest {
         p.play(); p.setSleep(Sleep(Sleep.Kind.AFTER_TRACK))
         now += 60_000; p.advance()
         assertEquals(PlayState.PAUSED, p.state.play); assertEquals(1, p.state.index)
+        // a route loss after the sink already paused itself still says so (the buds-gone notice)
+        p.play(); p.pause(); val n0 = ev.events.size
+        p.onRouteLost("earbuds gone"); assertTrue(ev.events.drop(n0).any { it is PlayerEvent.RouteLost })
+        p.stop(); p.onRouteLost("earbuds gone"); assertFalse(ev.events.drop(n0 + 1).any { it is PlayerEvent.RouteLost })   // nothing loaded: silent by design
+        // persist reads the cached snapshot (the saver is not the player's thread) and round-trips the queue
+        p.playQueue((1..3).map { t(it, "A", 50_000) }, 1, Mode.QUEUE, "persist")
+        val rec0 = p.persist()
+        val q0 = QueueEngine(); q0.fromJson(rec0["engine"] as kotlinx.serialization.json.JsonObject)
+        assertEquals(p.state.queue.map { it.qid }, q0.entries.map { it.qid }); assertEquals(1, q0.index)
         // outputs: a refused one is an error, never silently "set"
         p.refuseOutput = "speaker"; p.setOutput("speaker"); assertEquals("auto", p.state.output); assertTrue(ev.events.last() is PlayerEvent.Error)
         p.setOutput("buds"); assertEquals("buds", p.state.output)
@@ -211,9 +227,17 @@ class MusicWindowTest {
         p.backToPc(); assertEquals(Backend.LIBRARY, p.state.backend)
         // persist → restore never auto-plays, keeps the queue, index and settings
         val rec = p.persist()
+        assertNotEquals(PlayState.STOPPED, p.state.play)
+        assertEquals(p.state.play.name, (rec["play"] as kotlinx.serialization.json.JsonPrimitive).content)   // the truth travels (never forced to STOPPED); restore never plays
         val p2 = SimMusicPlayer(Lib(), { now })
+        p2.setVolume(30, "the phone's real level")
         p2.restore(rec)
         assertEquals(PlayState.STOPPED, p2.state.play)
+        assertEquals(30, p2.state.volume, "a record's volume never replaces the sink's level")
+        // our own echo clears the marker even when the level already matches (no stale held level)
+        p2.setHoldVolume(true)   // p turned it off above; the record carried that
+        p2.setVolume(60, "settings"); p2.observeVolume(60, "broadcast"); p2.observeVolume(60, "user-button"); p2.observeVolume(35, "unknown")
+        assertEquals(60, p2.state.volume, "a large drop from the held level is still the limiter")
         assertEquals(p.state.queue.map { it.qid }, p2.state.queue.map { it.qid })
         assertEquals(p.state.index, p2.state.index)
         assertEquals("buds", p2.state.output)

@@ -76,7 +76,7 @@ class MirrorMusicPlayer(private val clock: () -> Long = { System.currentTimeMill
             (o["engine"] as? JsonObject)?.let { engine.fromJson(it) }
             val play = when (o["play"]?.jsonPrimitive?.contentOrNull) { "PLAYING" -> PlayState.PLAYING; "PAUSED" -> PlayState.PAUSED; else -> PlayState.STOPPED }
             recPos = o["posMs"]?.jsonPrimitive?.longOrNull ?: 0L
-            recAt = o["stamp"]?.jsonPrimitive?.longOrNull ?: clock()
+            recAt = o["posAt"]?.jsonPrimitive?.longOrNull ?: o["stamp"]?.jsonPrimitive?.longOrNull ?: clock()
             st = PlayerState(
                 backend = o["backend"]?.jsonPrimitive?.contentOrNull?.let { n -> Backend.entries.firstOrNull { it.name == n } } ?: Backend.LIBRARY,
                 play = play, queue = engine.entries.toList(), index = engine.index, posMs = recPos,

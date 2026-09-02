@@ -157,6 +157,10 @@ class MusicTest {
                 val head = Http.request("HEAD", "http://127.0.0.1:$port/track/7?token=tok")
                 assertEquals(200, head.status)
                 assertEquals("100000", head.header("Content-Length"))
+                // a 0-byte file never answers 206 (a suffix range would have said "bytes 0--1/0")
+                Files.write(file, ByteArray(0))
+                val empty = Http.request("GET", "http://127.0.0.1:$port/track/7?token=tok", mapOf("Range" to "bytes=-5"))
+                assertEquals(200, empty.status); assertEquals(0, empty.body.size)
             } finally {
                 server.close()
             }

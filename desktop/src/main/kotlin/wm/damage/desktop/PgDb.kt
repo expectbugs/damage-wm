@@ -97,7 +97,9 @@ class PgDb(private val database: String, private val socketDir: String) : Db {
             val r = block(this)          // the lock is reentrant: the block's calls reuse this connection
             c.commit()
             r
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Throwable, not Exception: the finally's autoCommit=true would COMMIT a
+            // half-applied transaction after an Error (review 2026-09-03)
             try { c.rollback() } catch (e2: Exception) { /* the throw below carries the cause */ }
             throw e
         } finally {

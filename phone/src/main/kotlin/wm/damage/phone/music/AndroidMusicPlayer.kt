@@ -56,7 +56,11 @@ class AndroidMusicPlayer(
     private val ctx: Context,
     library: MusicLibrary,
     private val scope: CoroutineScope,
+    /** Playback engaged for the first time: the service adds the mediaPlayback
+     *  foreground type (never at boot — Android 15 refuses it there). */
+    private val onEngaged: () -> Unit = {},
 ) : PlayerCore(library, { System.currentTimeMillis() }) {
+    private var engaged = false
 
     private val main = Handler(Looper.getMainLooper())
     private val audio = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -72,6 +76,26 @@ class AndroidMusicPlayer(
     private var pollJob: kotlinx.coroutines.Job? = null
     private var spotify: SpotifyRemote? = null
     @Volatile private var spotifyState: SpotifyRemoteState? = null
+    /** ExoPlayer may only be touched on the main looper: these samples serve
+     *  every other thread (the shell loop reads the position for the card,
+     *  the lyric scheduler, the summary). */
+    @Volatile private var playingFlag = false
+    @Volatile private var posSample = 0L
+    @Volatile private var posSampleAt = 0L
+
+    private fun onMain(): Boolean = Looper.myLooper() === Looper.getMainLooper()
+
+    private fun samplePosition() {
+        val p = exo?.currentPosition?.coerceAtLeast(0) ?: 0L
+        posSample = p
+        posSampleAt = clock()
+    }
+
+    override fun positionMs(): Long {
+        if (curBackend == Backend.SPOTIFY) return spotifyPos()
+        if (onMain()) { val p = super.positionMs(); posSample = p; posSampleAt = clock(); return p }
+        return if (playingFlag) posSample + (clock() - posSampleAt) else posSample
+    }
 
     override fun post(block: () -> Unit) {
         if (Looper.myLooper() === Looper.getMainLooper()) block() else main.post(block)
@@ -93,6 +117,8 @@ class AndroidMusicPlayer(
             onSinkError("playback failed: ${error.errorCodeName} ${error.message ?: ""}".trim())
         }
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            playingFlag = isPlaying
+            samplePosition()
             // an audio-focus pause (another app, a call) shows honestly
             if (!isPlaying && play == PlayState.PLAYING && exo?.playbackState == Player.STATE_READY && exo?.playWhenReady == false) {
                 play = PlayState.PAUSED
@@ -167,6 +193,7 @@ class AndroidMusicPlayer(
             p.setMediaItem(item, startMs)
             p.prepare()
             p.playWhenReady = playWhenReady
+            if (!engaged) { engaged = true; try { onEngaged() } catch (e: Exception) { Log.e("music-android", "engaged hook", e) } }
             applyBoost()
             ensureTicks()
             Log.i("music-android", "open ${track.id} ${if (local != null) "from the cache" else "streamed"} at $startMs (${if (playWhenReady) "playing" else "staged"})")
@@ -227,14 +254,17 @@ class AndroidMusicPlayer(
     private var focusedNow = false
     override fun setFocused(focused: Boolean) { super.setFocused(focused); focusedNow = focused; post { ensureTicks() } }
 
+    /** Main thread only (it reads the player); the loops it starts read the
+     *  volatile samples, never the player. */
     private fun ensureTicks() {
-        val playing = exo?.isPlaying == true || curBackend == Backend.SPOTIFY
+        playingFlag = exo?.isPlaying == true
+        val playing = playingFlag || curBackend == Backend.SPOTIFY
         if (playing && tickJob?.isActive != true) {
             tickJob = scope.launch {
                 while (isActive) {
                     delay(if (focusedNow) 1_000 else 5_000)
-                    main.post { if (exo?.isPlaying == true || curBackend == Backend.SPOTIFY) tick() }
-                    if (exo?.isPlaying != true && curBackend != Backend.SPOTIFY) break
+                    main.post { if (playingFlag || curBackend == Backend.SPOTIFY) { samplePosition(); tick() } }
+                    if (!playingFlag && curBackend != Backend.SPOTIFY) break
                 }
             }
         }
@@ -245,7 +275,7 @@ class AndroidMusicPlayer(
                     delay(1_000)
                     val v = readVolumePct()
                     if (v != volume) onVolumeObserved(v, "poll")
-                    if (exo?.isPlaying != true) break
+                    if (!playingFlag) break
                 }
             }
         }
@@ -261,7 +291,14 @@ class AndroidMusicPlayer(
 
     private val deviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) {
-            if (removed.any { isExternal(it) }) { onRouteLost("earbuds gone"); changed() }
+            // only the ACTIVE route's loss is a route loss: the OS pauses the
+            // player itself (becoming-noisy) when the route it played on went;
+            // a dongle unplugged elsewhere must not stop the music (review
+            // 2026-09-03). Look a moment later at whether playback stopped.
+            if (removed.any { isExternal(it) }) {
+                val wasPlaying = playingFlag
+                main.postDelayed({ if (wasPlaying && !playingFlag) onRouteLost("the output went away") else changed() }, 500)
+            }
             if (preferredDevice != null && removed.any { it.id == preferredDevice!!.id }) { preferredDevice = null; curOutput = Output.AUTO; changed() }
         }
         override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>) { changed() }

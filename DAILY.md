@@ -34,9 +34,10 @@ ever needs redoing: (1) sideload from the setup page, grant Bluetooth ×2 + noti
 battery exemption; (2) 🔴 keep the G2CC bridge app Disconnected (a second central); (3) phone
 first light with NOTHING on beardos holding the pair (`sudo rc-service damage stop`), flip
 Target → glasses; (4) `sudo rc-service damage start` → the log says "standby up (§19)" and the
-phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.19 is the
+phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.20 is the
 staged build: Files + theme icons + the sync client + Torrents + the keyboard + every
-2026-09-01 review fix + the chrome tweaks + Music; 0.16 is the last build observed installed**). Why old
+2026-09-01 review fix + the chrome tweaks + Music + its review round 1; 0.16 is the last build
+observed installed**). Why old
 APKs matter: a pre-0.15 APK cannot be status-probed (the PC conservatively stays out — fine)
 and a pre-0.10 one carries no sync client, so state does not flow until it is updated. 0.16
 being installed also unblocks Reader's transitional legacy-offsets cleanup (`REMINDER.md` Next 2).
@@ -48,7 +49,7 @@ being installed also unblocks Reader's transitional legacy-offsets cleanup (`REM
 | **beardos `damage` service** | the music LIBRARY: Postgres `g2cc` over the Unix socket (peer auth, no password), Qdrant `g2cc_music`, the transcode cache (`~/.g2cc/media-cache` read in place as the Standard profile, `~/.damage/media-cache/<profile>/` for the rest), art + viz blobs, the resolver lanes (a `claude -p` one-shot for Ask, `audio/enrich/embed_query.py` on G2CC's venv for the embedding lane), yt-dlp, the enrichment passes; the **media endpoint on :7404** (`GET /track/<id>?token=&profile=`, Range-capable) next to the window channel on :7401 |
 | **phone APK** | the PLAYER: ExoPlayer + a media session (bud taps: single = play/pause, double = next, triple = previous, from anywhere), the catalog/art/viz/lyrics cached on disk, the next 3 tracks prefetched, hold-my-volume, boost, sleep, Spotify as the fallback |
 
-**One-time phone grants (0.19):** open the app → **`music access`** on the strip → allow
+**One-time phone grants (0.20):** open the app → **`music access`** on the strip → allow
 *Damage music* notification access (Spotify's session + the OS volume-lowered notice ride on
 it; the window says "grant notification access on the phone" until then). No RECORD_AUDIO
 is asked, ever. Then in Settings → Music pick the Output (Auto follows the buds; the phone
@@ -59,7 +60,9 @@ hearing-limiter trigger at work — every volume change is logged with its cause
 system notification from the system packages is logged with its text, so the matcher in
 `MusicListener.rules` can be corrected from evidence; the Spotify cold start (does Spotify
 publish a media browser service on this phone?); the Bluetooth lyric offset (Lyrics → scroll
-nudges ±50 ms per output, remembered); the achievable visualizer rate on glass.
+nudges ±50 ms per output, remembered); the achievable visualizer rate on glass; **the buds' taps
+reaching the media3 session** (it lives in the shell service, not a `MediaSessionService` — if a
+tap does nothing with the app in the background, that is the first thing to check in logcat).
 
 **The venv:** the enrichment package runs on G2CC's `/home/user/G2CC/audio/venv` until Damage
 owns one — `audio/requirements-frozen.txt` is its `pip freeze` (224 pins). `--music-check`
@@ -113,5 +116,5 @@ schema, and a phone-side record (`window.tmux`) crossed and applied store-direct
 shell was in standby. **Still awaiting a deliberate glass test**: a real standby engagement
 (stop the APK at the desk → the PC BLE-drives within ~10 s → restart the APK → handback) and
 the sync feel across a driver swap (a book position following the swap). Current staged APK:
-**0.19** (Files, the chrome tweaks, Torrents, the keyboard, Music); **0.16 is the last build
-observed INSTALLED** (2026-09-01 — the phone speaks the files channel).
+**0.20** (Files, the chrome tweaks, Torrents, the keyboard, Music + its review round 1); **0.16 is
+the last build observed INSTALLED** (2026-09-01 — the phone speaks the files channel).

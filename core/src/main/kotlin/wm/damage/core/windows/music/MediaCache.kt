@@ -29,8 +29,10 @@ class MediaCache(
     private val ffmpeg: String = "ffmpeg",
 ) {
     private val lock = ReentrantLock()
-    /** In-flight transcodes by output path: concurrent opens share one run. */
-    private val inFlight = HashMap<Path, Thread>()
+    /** In-flight transcodes by output path: concurrent opens share one run —
+     *  a LATCH per output (review 2026-09-03: joining the runner's THREAD
+     *  waited for a request thread's whole stream, or the sweep's whole day). */
+    private val inFlight = HashMap<Path, java.util.concurrent.CountDownLatch>()
 
     init {
         Files.createDirectories(root)
@@ -89,14 +91,14 @@ class MediaCache(
         // one transcode at a time, and one per OUTPUT: a second caller for
         // the same file waits for the first run instead of starting another
         val mine: Boolean
-        val runner: Thread
+        val latch: java.util.concurrent.CountDownLatch
         lock.withLock {
             val existing = inFlight[out]
-            if (existing != null) { runner = existing; mine = false }
-            else { runner = Thread.currentThread(); inFlight[out] = runner; mine = true }
+            if (existing != null) { latch = existing; mine = false }
+            else { latch = java.util.concurrent.CountDownLatch(1); inFlight[out] = latch; mine = true }
         }
         if (!mine) {
-            runner.join()
+            latch.await()                    // the other caller's transcode, not its thread
             if (!Files.exists(out)) throw IllegalStateException("transcode of track ${t.id} failed in another caller")
             return
         }
@@ -122,6 +124,7 @@ class MediaCache(
             }
         } finally {
             lock.withLock { inFlight.remove(out) }
+            latch.countDown()
         }
     }
 

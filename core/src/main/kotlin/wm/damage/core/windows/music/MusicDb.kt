@@ -37,8 +37,11 @@ class MusicDb(private val db: Db, private val libraryDirs: List<String>) {
     }
 
     // ------------------------------------------------------------------ the catalog
-    /** A cheap fingerprint of everything the catalog is built from: a change
-     *  anywhere bumps it; the phone's version cursor compares strings. */
+    /** A cheap fingerprint of the catalog's SHAPE: the tracks, their
+     *  profiles, the playlists, and the count of found lyrics (a new
+     *  `hasLyrics` bit). Deliberately NOT lyric fetch stamps or play history
+     *  (review 2026-09-03: each lookup and each play forced a full rebuild
+     *  and a whole-catalog push) — `recent` is served live. */
     fun catalogVersion(): String {
         val r = db.query(
             """SELECT (SELECT count(*) FROM tracks) AS n,
@@ -48,10 +51,8 @@ class MusicDb(private val db: Db, private val libraryDirs: List<String>) {
                       (SELECT coalesce(max(extract(epoch FROM updated_at)),0)::bigint FROM playlists) AS tp,
                       (SELECT count(*) FROM playlists) AS np,
                       (SELECT count(*) FROM playlist_tracks) AS npt,
-                      (SELECT coalesce(max(extract(epoch FROM fetched_at)),0)::bigint FROM lyrics) AS tl,
-                      (SELECT count(*) FROM lyrics WHERE found) AS nl,
-                      (SELECT coalesce(max(id),0) FROM play_history) AS ph""").first()
-        val s = listOf("n", "ti", "tm", "nm", "tp", "np", "npt", "tl", "nl", "ph").joinToString("|") { r.str(it) }
+                      (SELECT count(*) FROM lyrics WHERE found) AS nl""").first()
+        val s = listOf("n", "ti", "tm", "nm", "tp", "np", "npt", "nl").joinToString("|") { r.str(it) }
         val d = MessageDigest.getInstance("SHA-1").digest(s.toByteArray())
         return d.take(6).joinToString("") { "%02x".format(it) }
     }
@@ -67,9 +68,9 @@ class MusicDb(private val db: Db, private val libraryDirs: List<String>) {
     }
 
     /** The whole catalog (~3 k rows, one query + four small ones). */
-    fun catalog(version: String = catalogVersion(), hasArt: (Int, String) -> Boolean = { _, _ -> false }): Catalog {
+    fun catalog(version: String = catalogVersion(), hasArt: (id: Int, path: String, mtimeMs: Long) -> Boolean = { _, _, _ -> false }): Catalog {
         val rows = db.query(
-            """SELECT t.id, t.path, t.title, coalesce(t.artist,'') AS artist, coalesce(t.album,'') AS album,
+            """SELECT t.id, t.path, t.mtime_ms, t.title, coalesce(t.artist,'') AS artist, coalesce(t.album,'') AS album,
                       coalesce(t.dur_ms,0) AS dur_ms, coalesce(t.track_no,0) AS track_no, coalesce(t.disc_no,0) AS disc_no,
                       extract(epoch FROM t.indexed_at)::bigint AS added,
                       m.genres, m.styles, m.moods, coalesce(m.energy,0) AS energy, coalesce(m.year,0) AS year,
@@ -86,7 +87,7 @@ class MusicDb(private val db: Db, private val libraryDirs: List<String>) {
                 durMs = r.int("dur_ms"), trackNo = r.int("track_no"), discNo = r.int("disc_no"), year = r.int("year"),
                 genres = r.list("genres"), moods = r.list("moods"), styles = r.list("styles"),
                 energy = r.int("energy"), vocals = r.str("vocals"), hasLyrics = r.bool("has_lyrics"),
-                hasArt = hasArt(r.int("id"), path), dupeCluster = r.int("dupe_cluster"),
+                hasArt = hasArt(r.int("id"), path, r.long("mtime_ms")), dupeCluster = r.int("dupe_cluster"),
                 folder = folderOf(path), addedAt = r.long("added"), ext = path.substringAfterLast('.', "").lowercase(),
             )
         }

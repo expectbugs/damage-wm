@@ -88,6 +88,9 @@ abstract class PlayerCore(
     private var historyStart = 0L
     private var historyTrack: TrackRef? = null
     private var fillInFlight = false
+    /** An end-of-queue advance that arrived while a fill was in flight: it
+     *  runs when the fill lands (never "the queue ended" with rows coming). */
+    private var advanceAfterFill: String? = null
     private var queueGen = 0
     /** The volume we last set ourselves (a change to another value with no
      *  cause of ours is the phone's). */
@@ -101,7 +104,7 @@ abstract class PlayerCore(
     // ------------------------------------------------------------------ state
     protected fun snapshot(): PlayerState = PlayerState(
         backend = curBackend, play = play, queue = engine.entries.toList(), index = engine.index,
-        posMs = positionMs(), durMs = if (curBackend == Backend.LIBRARY) sink.durationMs().takeIf { it > 0 } ?: (engine.current?.track?.durMs?.toLong() ?: 0L) else (spotifyNow?.durMs ?: 0L),
+        posMs = positionMs(), posAtMs = clock(), durMs = if (curBackend == Backend.LIBRARY) sink.durationMs().takeIf { it > 0 } ?: (engine.current?.track?.durMs?.toLong() ?: 0L) else (spotifyNow?.durMs ?: 0L),
         mode = engine.mode, volume = volume, boost = curBoost, output = curOutput, outputs = safeOutputs(),
         pcLink = pcLink, sleep = curSleep, holdVolume = curHold, profile = curProfile, label = engine.label,
         spotify = spotifyNow, spotifyAuto = spotifyAuto, problem = problem, listenerGranted = listenerGranted,
@@ -221,7 +224,8 @@ abstract class PlayerCore(
     private fun advance(cause: String, playNow: Boolean) {
         if (engine.isEmpty) return
         if (engine.next()) { openCurrent(0, playNow, cause); return }
-        if (engine.needsFill() && !fillInFlight) {
+        if (fillInFlight) { advanceAfterFill = cause; return }      // the fill lands and advances
+        if (engine.needsFill()) {
             // the fill lands asynchronously and advances when it has rows
             maybeFill(cause, thenAdvance = true)
             return
@@ -271,6 +275,7 @@ abstract class PlayerCore(
         if (tracks.isEmpty()) { emit(PlayerEvent.Error("nothing to play")); return@post }
         if (curBackend == Backend.SPOTIFY && !spotifyAuto) curBackend = Backend.LIBRARY    // a deliberate library play leaves a chosen Spotify
         queueGen++
+        advanceAfterFill = null
         engine.set(tracks, startIndex, mode, label)
         openCurrent(0, true, "new-queue")
     }
@@ -334,6 +339,9 @@ abstract class PlayerCore(
             if (mode == Mode.RADIO) library.similar(seeds, exclude, RADIO_BATCH) else library.randomLibrary(RADIO_BATCH, exclude)
         }) { r ->
             fillInFlight = false
+            val adv = thenAdvance || advanceAfterFill != null
+            val cause = advanceAfterFill ?: reason
+            advanceAfterFill = null
             if (gen != queueGen) { Log.i("player", "fill discarded — the queue was replaced meanwhile"); return@runAsync }
             val tracks = r.getOrElse { e ->
                 Log.w("player", "${mode.label} fill failed: ${e.message}")
@@ -342,12 +350,12 @@ abstract class PlayerCore(
             }
             if (tracks.isEmpty()) {
                 Log.w("player", "${mode.label}: no fresh tracks — the queue ends honestly")
-                if (thenAdvance) endOfQueue(reason)
+                if (adv) endOfQueue(cause)
                 return@runAsync
             }
             engine.append(tracks)
             Log.i("player", "${mode.label} appended ${tracks.size} tracks ($reason)")
-            if (thenAdvance) advance(reason, playNow = play != PlayState.STOPPED) else { prefetchAhead(); changed() }
+            if (adv) advance(cause, playNow = play != PlayState.STOPPED) else { prefetchAhead(); changed() }
         }
     }
 
@@ -372,9 +380,11 @@ abstract class PlayerCore(
      */
     fun onVolumeObserved(pct: Int, cause: String = "unknown") = post {
         val v = pct.coerceIn(0, 100)
+        // our own set echoes back once: clear the marker on that echo, even
+        // when the level already matches — a later user move to the same
+        // value must not read as ours (review 2026-09-03)
+        if (v == ourVolume) { ourVolume = -1; if (v != volume) { volume = v; changed() }; return@post }
         if (v == volume) return@post
-        val fromUs = v == ourVolume
-        if (fromUs) { volume = v; ourVolume = -1; changed(); return@post }
         val drop = heldVolume - v
         val limiter = curHold && heldVolume > 0 && drop >= LIMITER_DROP && cause != "user-button"
         Log.i("player", "volume $volume → $v observed ($cause${if (limiter) ", limiter suspected" else ""})")
@@ -466,14 +476,17 @@ abstract class PlayerCore(
         changed()
     }
 
+    /** The output went away. The sink may already have paused itself (the
+     *  becoming-noisy handler) — the notice still fires while a track is loaded. */
     fun onRouteLost(detail: String) = post {
+        if (play == PlayState.STOPPED) return@post
         if (play == PlayState.PLAYING) {
             lastPos = positionMs()
             try { sink.pause() } catch (e: Exception) { Log.w("player", "pause on route loss: ${e.message}") }
             play = PlayState.PAUSED
-            emit(PlayerEvent.RouteLost(detail))
-            changed()
         }
+        emit(PlayerEvent.RouteLost(detail))
+        changed()
     }
 
     /** The PC link as the library reports it (staleness with duration). */
@@ -522,10 +535,14 @@ abstract class PlayerCore(
     }
 
     // ------------------------------------------------------------------ persistence
+    /** From the CACHED snapshot: the shell loop saves while the player's
+     *  thread may be reordering the engine's list. */
     override fun persist(): JsonObject = buildJsonObject {
-        put("engine", engine.toJson())
-        put("play", if (play == PlayState.STOPPED) "STOPPED" else "PAUSED")   // never auto-plays on restore
-        put("posMs", lastPos)
+        val s = cached
+        put("engine", QueueEngine.jsonOf(s.queue, s.index, s.mode, s.label))
+        put("play", s.play.name)           // the truth for the mirror; a RESTORE never auto-plays (see restore)
+        put("posMs", s.posMs)
+        put("posAt", s.posAtMs)
         put("backend", curBackend.name)
         put("spotifyAuto", spotifyAuto)
         put("volume", volume)
@@ -534,7 +551,6 @@ abstract class PlayerCore(
         put("prefetch", prefetchN)
         put("spotifyFallback", curSpotifyFallback)
         put("output", curOutput)
-        put("stamp", clock())
     }
 
     override fun restore(o: JsonObject) = post {
@@ -543,8 +559,9 @@ abstract class PlayerCore(
             lastPos = o["posMs"]?.jsonPrimitive?.longOrNull ?: 0L
             curBackend = o["backend"]?.jsonPrimitive?.contentOrNull?.let { n -> Backend.entries.firstOrNull { it.name == n } } ?: Backend.LIBRARY
             spotifyAuto = o["spotifyAuto"]?.jsonPrimitive?.booleanOrNull ?: false
-            volume = o["volume"]?.jsonPrimitive?.intOrNull ?: volume
-            heldVolume = volume
+            // the media stream's level is the PHONE's truth, read from the sink
+            // at start — a record's stale value would make the first observed
+            // level look like a limiter drop (review 2026-09-03)
             curHold = o["holdVolume"]?.jsonPrimitive?.booleanOrNull ?: true
             curProfile = o["profile"]?.jsonPrimitive?.contentOrNull?.let { AudioProfile.parse(it) } ?: AudioProfile.DEFAULT
             prefetchN = o["prefetch"]?.jsonPrimitive?.intOrNull ?: 3

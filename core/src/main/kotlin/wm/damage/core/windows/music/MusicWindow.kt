@@ -153,7 +153,8 @@ class MusicWindow(
     private var mmPeek = false
     private var mmClock = true
     private var mmLink = true
-    private var heightPref: Int? = null
+    /** 480 by design (`MUSIC.md` §8); "global" is a real choice, stored as 0. */
+    private var heightPref: Int? = 480
     private var normalization = true
     private var channels = 1
     private var quality = AudioProfile.Quality.HIGH
@@ -164,8 +165,11 @@ class MusicWindow(
     private val artPending = HashSet<Int>()
     private var lyricsFor = -1
     private var lyricsParsed: LyricsSync.Parsed? = null
-    private var lyricsPlain: List<List<String>>? = null
+    private var lyricsPlain: List<String>? = null           // raw lines; paged by what FITS at paint time
     private var lyricsPlainPage = 0
+    private var lyricsPlainPages = 1
+    private var plainWrapKey: Any? = null
+    private var plainWrapped: List<String> = emptyList()
     private var lyricsState = ""                       // "" · "loading" · "none" · error
     private var lyricsSeq = 0
     private var lyricsGen = 0
@@ -183,7 +187,7 @@ class MusicWindow(
     private val fBig = FontSpec(Face.SYSTEM, 36, bold = true)
 
     override val needs: Set<Need> = if (mirror) setOf(Need.HOST) else emptySet()
-    override val preferredHeight: Int? get() = heightPref ?: 480
+    override val preferredHeight: Int? get() = heightPref
 
     // ================================================================ small helpers
     private fun onShell(action: () -> Unit) { services?.runOnShell(action) ?: action() }
@@ -204,6 +208,7 @@ class MusicWindow(
         override fun catalogChanged(c: Catalog) { onShell { catalogVersion = c.version; invalidateRows(); render() } }
         override fun ytJob(j: YtJob) { onShell { handleYtJob(j) } }
         override fun state(line: String) { onShell { if (stateLine != line) { stateLine = line; render() } } }
+        override fun vizReady(trackId: Int) { onShell { vizCache.remove(trackId); if (exclusive) { mmVizDue = true; render() } } }
     }
 
     private val playerListener = object : MusicPlayer.Listener {
@@ -237,7 +242,7 @@ class MusicWindow(
             else -> r.model.cursor.coerceIn(0, maxOf(0, after.size - 1))
         }
         if (userMoved && !(trackChanged && !userMoved)) r.model.cursor = rest else setRootCursor(rest)
-        if (trackChanged) { lyricsGen++; if (top.kind == Kind.LYRICS) loadLyrics() }
+        if (trackChanged) { lyricsGen++; if (top.kind == Kind.LYRICS || exclusive) loadLyrics() }
         if (s.problem.isNotEmpty() && s.problem != before.problem) setNotice(s.problem)
         if (active || exclusive) render()
     }
@@ -362,7 +367,7 @@ class MusicWindow(
     private fun reloadTop() {
         val f = top
         when (f.kind) {
-            Kind.PLAYLIST, Kind.RESULTS, Kind.YT -> if (f.tracks == null && f.yt == null) load(f)
+            Kind.PLAYLIST, Kind.RESULTS, Kind.YT, Kind.RECENT -> if (f.tracks == null && f.yt == null) load(f)
             Kind.LYRICS -> loadLyrics()
             else -> {}
         }
@@ -496,7 +501,7 @@ class MusicWindow(
             Kind.SEEK -> 3          // "+10 s": a harmless rest (§1.7)
             else -> 0
         }
-        if (f.kind == Kind.PLAYLIST || f.kind == Kind.RESULTS || f.kind == Kind.YT) load(f)
+        if (f.kind == Kind.PLAYLIST || f.kind == Kind.RESULTS || f.kind == Kind.YT || f.kind == Kind.RECENT) load(f)
         if (f.kind == Kind.LYRICS) { lyricsGen++; loadLyrics() }
     }
 
@@ -521,8 +526,7 @@ class MusicWindow(
         Kind.TERM -> cat.tracks.filter { t -> t.genres.any { it.equals(f.key, true) } || t.moods.any { it.equals(f.key, true) } || t.styles.any { it.equals(f.key, true) } }
             .sortedWith(compareBy({ it.artist.lowercase() }, { it.album.lowercase() }, { it.discNo }, { it.trackNo })).map { it.ref() }
         Kind.FOLDER -> cat.tracks.filter { it.folder == f.key }.sortedWith(compareBy({ it.discNo }, { it.trackNo }, { it.title.lowercase() })).map { it.ref() }
-        Kind.RECENT -> cat.recent.mapNotNull { cat.track(it)?.ref() }
-        Kind.PLAYLIST, Kind.RESULTS -> f.tracks ?: emptyList()
+        Kind.RECENT, Kind.PLAYLIST, Kind.RESULTS -> f.tracks ?: emptyList()
         else -> emptyList()
     }
 
@@ -617,7 +621,15 @@ class MusicWindow(
             }
             else -> {}
         }
-        if (f.kind == Kind.RECENT) { tracksOf(f).forEach { out.add(Row.Track(it)) }; if (out.isEmpty()) out.add(Row.Text("nothing played yet", "", emptyList(), "") {}); out.add(Row.Menu) }
+        if (f.kind == Kind.RECENT) {
+            val ts = f.tracks
+            when {
+                f.loading && ts == null -> out.add(Row.Loading)
+                f.error.isNotEmpty() && ts == null -> out.add(Row.Text("failed: ${f.error}", "tap to retry", emptyList(), "") { load(f) })
+                ts != null -> { ts.forEach { out.add(Row.Track(it)) }; if (ts.isEmpty()) out.add(Row.Text("nothing played yet", "", emptyList(), "") {}) }
+            }
+            out.add(Row.Menu)
+        }
         return out
     }
 
@@ -637,6 +649,7 @@ class MusicWindow(
                     Kind.PLAYLIST -> library.playlistTracks(f.key.toInt())
                     Kind.RESULTS -> library.search(f.key)
                     Kind.YT -> library.ytSearch(f.key)
+                    Kind.RECENT -> library.recent(100).let { ids -> val c = cat; ids.mapNotNull { c.track(it)?.ref() } }
                     else -> emptyList<TrackRef>()
                 })
             } catch (e: Exception) {
@@ -796,6 +809,7 @@ class MusicWindow(
     /** Demand art for the cursor's and the current entry — from view() on
      *  the loop, never from a paint (the L1 class). */
     private fun demandArt() {
+        if (!active && !exclusive) return      // a switcher PREVIEW renders this window too — never a request from a render
         val want = ArrayList<Int>()
         st.entry?.track?.id?.let { want.add(it) }
         (rows(top).getOrNull(top.model.cursor) as? Row.Entry)?.e?.track?.id?.let { want.add(it) }
@@ -879,7 +893,9 @@ class MusicWindow(
         val rows = ArrayList<Pair<MenuSurface.Item, () -> Unit>>()
         rows.add(item(if (current) (if (st.play == PlayState.PLAYING) "Pause" else "Play") else "Play from here") { if (current) player.toggle() else player.playFrom(e.qid) })
         rows.add(item("Track info") { push(Frame(Kind.INFO, "${e.track.id}")) })
-        if (!current) rows.add(item("Play next", "after the current") { player.move(e.qid, st.index + 1 - idx + (if (idx < st.index) 0 else 0)); render() })
+        // the target slot is "right after the current": from BEFORE the current the removal
+        // shifts the current down one, so the delta is one less
+        if (!current) rows.add(item("Play next", "after the current") { player.move(e.qid, if (idx < st.index) st.index - idx else st.index + 1 - idx); render() })
         rows.add(item("Move up", enabled = idx > 0) { player.move(e.qid, -1) })
         rows.add(item("Move down", enabled = idx < st.queue.size - 1) { player.move(e.qid, 1) })
         rows.add(item("Add to playlist") { openAddToPlaylist(listOf(e.track)) })
@@ -979,7 +995,7 @@ class MusicWindow(
     }
 
     private fun openSleepMenu() {
-        menu("sleep", Sleep.CHOICES.map { c -> item(c, if (st.sleep.label(clock()).startsWith(c.substringBefore(' '))) "current" else "") { player.setSleep(Sleep.fromChoice(c, clock())); setNotice("sleep: $c") } })
+        menu("sleep", Sleep.CHOICES.map { c -> item(c, if (c == st.sleep.choice()) "current" + (if (st.sleep.kind == Sleep.Kind.TIMER) " · ${st.sleep.label(clock())}" else "") else "") { player.setSleep(Sleep.fromChoice(c, clock())); setNotice("sleep: $c") } })
     }
 
     // ---------------------------------------------------------------- playlists
@@ -1042,7 +1058,9 @@ class MusicWindow(
         menu("delete '${p.name}'?", listOf(item("Cancel") {}, item("Continue", "asks once more") {
             services?.openMenu(MenuSurface.Spec("really delete '${p.name}'?", listOf(MenuSurface.Item("Cancel"),
                 MenuSurface.Item("this cannot be undone", enabled = false), MenuSurface.Item("Delete", detail = "${p.count} rows")),
-                onCommit = { j -> if (j == 2) runOp("deleting") { library.deletePlaylist(p.id); if (top.kind == Kind.PLAYLIST) back(); "deleted ${p.name}" } }))
+                onCommit = { j -> if (j == 2) runOp("deleting", then = {
+                    if (top.kind == Kind.PLAYLIST && top.key == "${p.id}") back()     // on the loop, never from the IO thread
+                }) { library.deletePlaylist(p.id); "deleted ${p.name}" } }))
         }))
     }
 
@@ -1131,12 +1149,18 @@ class MusicWindow(
     /** A grab is an outbound act: it stages a confirm (never the first hit unasked — verdict 7). */
     private fun confirmGrab(r: YtResult) {
         menu("grab '${r.title}'?", listOf(item("Cancel") {}, item("Grab and add", "${r.channel} · ${Fmt.mmss(r.durS * 1000L)}") {
-            runOp("grabbing") { val job = library.ytGrab(r.id); ytJobs[job] = YtJob(job, r.title, "queued"); "grab started · ${r.title}" }
+            val job = java.util.concurrent.atomic.AtomicReference("")
+            runOp("grabbing", then = {
+                val j = job.get()
+                if (j.isNotEmpty() && !ytJobs.containsKey(j)) ytJobs[j] = YtJob(j, r.title, "queued")   // the loop owns the map
+            }) { job.set(library.ytGrab(r.id)); "grab started · ${r.title}" }
         }))
     }
 
     // ---------------------------------------------------------------- one op at a time
-    private fun runOp(verb: String, op: () -> String?) {
+    /** [op] runs off-loop and returns the notice; [then] runs ON THE LOOP after
+     *  a success — the only place a completion may touch window state. */
+    private fun runOp(verb: String, then: (() -> Unit)? = null, op: () -> String?) {
         if (opBusy) { setNotice("busy — one operation at a time"); return }
         opBusy = true
         services?.setOperation(verb)
@@ -1145,8 +1169,12 @@ class MusicWindow(
             onShell {
                 opBusy = false
                 services?.setOperation("idle")
-                r.onSuccess { msg -> if (msg != null) setNotice(dn(msg, fSmall)); invalidateRows(); if (top.kind == Kind.PLAYLIST && top.tracks == null) load(top) }
-                    .onFailure { e -> setNotice(dn(e.message ?: "$verb failed", fSmall)) }
+                r.onSuccess { msg ->
+                    if (msg != null) setNotice(dn(msg, fSmall))
+                    invalidateRows()
+                    try { then?.invoke() } catch (e: Exception) { Log.e("music", "$verb completion failed", e); setNotice(dn(e.message ?: "$verb failed", fSmall)) }
+                    if (top.kind == Kind.PLAYLIST && top.tracks == null) load(top)
+                }.onFailure { e -> setNotice(dn(e.message ?: "$verb failed", fSmall)) }
                 render()
             }
         }
@@ -1154,6 +1182,7 @@ class MusicWindow(
 
     // ================================================================ lyrics (§3.7 — the scheduler runs from the player's real position)
     private fun demandLyrics() {
+        if (!active && !exclusive) return
         val tid = st.track?.id ?: return
         if (lyricsFor != tid && lyricsState != "loading") loadLyrics()
     }
@@ -1174,10 +1203,10 @@ class MusicWindow(
                         ly == null || !ly.found -> lyricsState = "none"
                         !ly.synced.isNullOrBlank() -> {
                             val p = LyricsSync.parse(ly.synced!!)
-                            if (p.isEmpty) { lyricsPlain = LyricsSync.pages(ly.synced!!, 12); lyricsState = "plain" }
+                            if (p.isEmpty) { lyricsPlain = ly.synced!!.split('\n'); lyricsState = "plain" }
                             else { lyricsParsed = p; lyricsState = "synced" }
                         }
-                        else -> { lyricsPlain = LyricsSync.pages(ly.plain ?: "", 12); lyricsState = "plain" }
+                        else -> { lyricsPlain = (ly.plain ?: "").split('\n'); lyricsState = "plain" }
                     }
                 }.onFailure { e -> lyricsState = "failed: ${e.message}" }
                 if (top.kind == Kind.LYRICS) { render(); scheduleLyricFlush() }
@@ -1204,9 +1233,13 @@ class MusicWindow(
         }
     }
 
+    /** The line to show NOW: the one heard when the pixels land — the same
+     *  display lead the scheduler arms with, so a flush fired early paints
+     *  the NEW line instead of the old one and re-arming again (review
+     *  2026-09-03: the early render used to spin until the stamp passed). */
     private fun currentLyricLine(): Int {
         val p = lyricsParsed ?: return -1
-        return LyricsSync.lineAt(p.lines, LyricsSync.heardPos(player.positionMs(), lyricsOffset().toLong()))
+        return LyricsSync.lineAt(p.lines, LyricsSync.heardPos(player.positionMs() + LYRIC_DISPLAY_MS, lyricsOffset().toLong()))
     }
 
     private fun paintLyrics(g: Gray8, r: Rect) {
@@ -1225,16 +1258,16 @@ class MusicWindow(
             }
             lyricsState.startsWith("failed") -> Draw.fit(g, tx, x, r.y + 16, dn(lyricsState, fBody), Level.DIM, fBody, w)
             lyricsState == "plain" -> {
-                val pages = lyricsPlain ?: emptyList()
-                val page = pages.getOrNull(lyricsPlainPage.coerceIn(0, maxOf(0, pages.size - 1))) ?: emptyList()
+                // pages are made of WRAPPED lines that fit this canvas: every line is reachable (NO TRUNCATION)
+                val wrapped = plainWrapped(w, fLyricDim)
+                val per = maxOf(1, (r.h - 40) / lhDim)
+                lyricsPlainPages = maxOf(1, (wrapped.size + per - 1) / per)
+                lyricsPlainPage = lyricsPlainPage.coerceIn(0, lyricsPlainPages - 1)
                 var y = r.y + 12
-                for (line in page) {
-                    for (wl in Wrap.wrap(dn(line, fLyricDim), fLyricDim, tx, w)) {
-                        if (y + lhDim > r.bottom - 8) break
-                        tx.draw(g, x / 4 * 4, y / 2 * 2, wl, fLyricDim, Level.BODY); y += lhDim
-                    }
+                for (wl in wrapped.drop(lyricsPlainPage * per).take(per)) {
+                    tx.draw(g, x / 4 * 4, y / 2 * 2, wl, fLyricDim, Level.BODY); y += lhDim
                 }
-                Draw.right(g, tx, r.right - 20, r.bottom - 22, "page ${lyricsPlainPage + 1}/${maxOf(1, pages.size)} · scroll", Level.DIM, fSmall)
+                Draw.right(g, tx, r.right - 20, r.bottom - 22, "page ${lyricsPlainPage + 1}/$lyricsPlainPages · scroll", Level.DIM, fSmall)
             }
             else -> {
                 val p = lyricsParsed ?: return
@@ -1262,12 +1295,22 @@ class MusicWindow(
         }
     }
 
+    /** The plain text wrapped for [width] (cached per text + width + font). */
+    private fun plainWrapped(width: Int, f: FontSpec): List<String> {
+        val raw = lyricsPlain ?: return emptyList()
+        val key = listOf(lyricsFor, width, f, raw.size)
+        if (plainWrapKey != key) {
+            plainWrapped = raw.flatMap { line -> if (line.isBlank()) listOf("") else Wrap.wrap(dn(line, f), f, tx, width) }
+            plainWrapKey = key
+        }
+        return plainWrapped
+    }
+
     /** Scroll on the lyrics: a synced track nudges the per-output offset by
      *  ±50 ms (calibration, remembered per device); plain pages turn. */
     private fun nudgeLyrics(delta: Int) {
         if (lyricsState == "plain") {
-            val n = lyricsPlain?.size ?: 1
-            lyricsPlainPage = (lyricsPlainPage + delta).coerceIn(0, maxOf(0, n - 1))
+            lyricsPlainPage = (lyricsPlainPage + delta).coerceIn(0, maxOf(0, lyricsPlainPages - 1))
             render(); return
         }
         if (lyricsParsed == null) return
@@ -1390,6 +1433,7 @@ class MusicWindow(
     }
 
     private fun demandViz() {
+        if (!active && !exclusive) return
         val id = st.track?.id ?: return
         if (vizCache.containsKey(id) || id in vizPending) return
         vizPending.add(id)
@@ -1448,6 +1492,7 @@ class MusicWindow(
         val out = ArrayList<Rect>()
         demandArtPx(l.artPx)
         if (l.viz != null) demandViz()
+        if (l.lyrics != null) demandLyrics()
         // card
         val cardKey = mmCardKeyNow()
         val cardPainted = l.card != null && (full || cardKey != mmCardKey)
@@ -1563,8 +1608,11 @@ class MusicWindow(
             lyricsState == "none" -> Draw.fit(g, tx, x, y, "no lyrics", Level.DIM, fBody, w)
             lyricsState.startsWith("failed") -> Draw.fit(g, tx, x, y, dn(lyricsState, fBody), Level.DIM, fBody, w)
             lyricsState == "plain" -> {
-                val page = lyricsPlain?.getOrNull(lyricsPlainPage) ?: emptyList()
-                for (line in page.take(l.lyricLines)) { Draw.fit(g, tx, x, y, dn(line, fLyricDim), Level.BODY, fLyricDim, w); y += lh }
+                val wrapped = plainWrapped(w, fLyricDim)
+                val per = maxOf(1, l.lyricLines)
+                lyricsPlainPages = maxOf(1, (wrapped.size + per - 1) / per)
+                lyricsPlainPage = lyricsPlainPage.coerceIn(0, lyricsPlainPages - 1)
+                for (line in wrapped.drop(lyricsPlainPage * per).take(per)) { Draw.fit(g, tx, x, y, line, Level.BODY, fLyricDim, w); y += lh }
             }
             else -> {
                 val p = lyricsParsed ?: return
@@ -1572,7 +1620,10 @@ class MusicWindow(
                 val before = if (l.lyricLines >= 5) 2 else if (l.lyricLines >= 3) 1 else 0
                 for (i in LyricsSync.window(p.lines, maxOf(0, cur), before, l.lyricLines)) {
                     val isCur = i == cur
-                    val f = if (isCur) fLyric else fLyricDim
+                    // the current line in the large face — unless it would not fit on the
+                    // one row Music Mode gives it, when the smaller face at HEAD level shows
+                    // the WHOLE line (never cut; the window's view wraps instead; review 2026-09-03)
+                    val f = if (isCur && tx.measure(dn(p.lines[i].text, fLyric), fLyric) <= w) fLyric else fLyricDim
                     val lv = when { isCur -> Level.HEAD; i < cur -> Level.DIM; else -> Level.BODY }
                     val m = tx.metrics(f)
                     Draw.fit(g, tx, x, y + (lh - (m.ascent + m.descent)) / 2, dn(p.lines[i].text.ifEmpty { "-" }, f), lv, f, w)
@@ -1600,7 +1651,9 @@ class MusicWindow(
             HostSetting("Notify · PC unreachable", listOf("on", "off"), { onOff(notifyPc) }, { notifyPc = it == "on" }),
             HostSetting("Notify · YouTube", listOf("on", "off"), { onOff(notifyYt) }, { notifyYt = it == "on" }),
             HostSetting("Notify · playlist saved", listOf("on", "off"), { onOff(notifyPlaylist) }, { notifyPlaylist = it == "on" }),
-            HostSetting("Volume", (0..100 step 5).map { "$it%" }, { "${st.volume}%" }, { v -> player.setVolume(v.removeSuffix("%").toIntOrNull() ?: st.volume, "settings") }),
+            // the phone can set any percent (a 15-step stream): the row shows the NEAREST option so a
+            // first notch steps from it, never from the list's edge
+            HostSetting("Volume", (0..100 step 5).map { "$it%" }, { "${((st.volume + 2) / 5 * 5).coerceIn(0, 100)}%" }, { v -> player.setVolume(v.removeSuffix("%").toIntOrNull() ?: st.volume, "settings") }),
             HostSetting("Volume boost", BOOSTS.map { if (it == 100) "off" else "$it%" }, { if (st.boost <= 100) "off" else "${st.boost}%" },
                 { v -> player.setBoost(if (v == "off") 100 else v.removeSuffix("%").toIntOrNull() ?: 100) }),
             HostSetting("Hold my volume", listOf("on", "off"), { onOff(st.holdVolume) }, { player.setHoldVolume(it == "on") }),
@@ -1611,8 +1664,8 @@ class MusicWindow(
             HostSetting("Channels", listOf("mono", "stereo"), { if (channels >= 2) "stereo" else "mono" }, { v -> channels = if (v == "stereo") 2 else 1; player.setProfile(profile()) }),
             HostSetting("Normalization", listOf("on", "off"), { onOff(normalization) }, { v -> normalization = v == "on"; player.setProfile(profile()) }),
             HostSetting("Default mode", Mode.entries.map { it.label }, { defaultMode.label }, { v -> Mode.entries.firstOrNull { it.label == v }?.let { defaultMode = it } }),
-            HostSetting("Prefetch", listOf("1", "2", "3", "5", "10"), { "${prefetchPref}" }, { v -> prefetchPref = v.toIntOrNull() ?: 3; player.setPrefetch(prefetchPref) }),
-            HostSetting("Lyrics offset", (-500..500 step 50).map { "${if (it > 0) "+" else ""}$it ms" }, { "${if (lyricsOffset() > 0) "+" else ""}${lyricsOffset()} ms" },
+            HostSetting("Prefetch", PREFETCHES.map { "$it" }, { "${PREFETCHES.minByOrNull { kotlin.math.abs(it - prefetchPref) } ?: 3}" }, { v -> prefetchPref = v.toIntOrNull() ?: 3; player.setPrefetch(prefetchPref) }),
+            HostSetting("Lyrics offset", (-500..500 step 50).map { "${if (it > 0) "+" else ""}$it ms" }, { val o = ((lyricsOffset() + 25).floorDiv(50) * 50).coerceIn(-500, 500); "${if (o > 0) "+" else ""}$o ms" },
                 { v -> lyricsOffsets[outputKey()] = v.removeSuffix(" ms").replace("+", "").toIntOrNull() ?: 0 }),
             HostSetting("Lyrics sources", LYRICS_SOURCES, { lyricsSources }, { v -> lyricsSources = v; pushLyricsSources() }),
             HostSetting("Visualizer", VIZ_NAMES, { vizName }, { vizName = it }),
@@ -1624,11 +1677,11 @@ class MusicWindow(
             HostSetting("Music Mode · clock", listOf("on", "off"), { onOff(mmClock) }, { mmClock = it == "on" }),
             HostSetting("Music Mode · PC link", listOf("on", "off"), { onOff(mmLink) }, { mmLink = it == "on" }),
             HostSetting("Spotify fallback", listOf("auto", "never"), { if (spotifyFallbackPref) "auto" else "never" }, { v -> spotifyFallbackPref = v == "auto"; player.setSpotifyFallback(spotifyFallbackPref) }),
-            HostSetting("Sleep", Sleep.CHOICES, { st.sleep.label(clock()).let { l -> Sleep.CHOICES.firstOrNull { c -> l.startsWith(c.substringBefore(' ')) } ?: "off" } },
+            HostSetting("Sleep", Sleep.CHOICES, { st.sleep.choice() },
                 { v -> player.setSleep(Sleep.fromChoice(v, clock())) }),
             HostSetting("Pre-transcode library", listOf("no", "start"), { "no" }, { v -> if (v == "start") runOp("pre-transcode") { library.pretranscode(profile()) } }),
             HostSetting("Rescan library", listOf("no", "start"), { "no" }, { v -> if (v == "start") runOp("rescan") { library.rescan() } }),
-            HostSetting("Size", listOf("global") + ShellSettings.HEIGHTS.map { "$it" }, { heightPref?.toString() ?: "480" },
+            HostSetting("Size", listOf("global") + ShellSettings.HEIGHTS.map { "$it" }, { heightPref?.toString() ?: "global" },
                 { heightPref = it.toIntOrNull() }),
         )
     }
@@ -1660,7 +1713,7 @@ class MusicWindow(
         put("quality", quality.name); put("channels", channels); put("normalization", normalization)
         put("prefetch", prefetchPref); put("spotifyFallback", spotifyFallbackPref)
         put("lyricsPlainPage", lyricsPlainPage)
-        heightPref?.let { put("height", it) }
+        put("height", heightPref ?: 0)
     }
 
     override fun restoreState(state: JsonObject) {
@@ -1710,7 +1763,7 @@ class MusicWindow(
         prefetchPref = state["prefetch"]?.jsonPrimitive?.intOrNull ?: 3
         spotifyFallbackPref = state["spotifyFallback"]?.jsonPrimitive?.booleanOrNull ?: true
         lyricsPlainPage = state["lyricsPlainPage"]?.jsonPrimitive?.intOrNull ?: 0
-        heightPref = state["height"]?.jsonPrimitive?.intOrNull?.takeIf { it in ShellSettings.HEIGHTS }
+        heightPref = when (val h = state["height"]?.jsonPrimitive?.intOrNull) { null -> 480; 0 -> null; else -> h.takeIf { it in ShellSettings.HEIGHTS } ?: 480 }
         if (opBusy) services?.setOperation("idle")
         opBusy = false
         lyricsSeq++; lyricsGen++
@@ -1719,7 +1772,7 @@ class MusicWindow(
         // a restored queue cursor resolves NOW when the player's record is at hand (a boot
         // or keeper restart would otherwise wait for the next state push)
         root.pendingQid?.let { q -> rows(root).indexOfFirst { (it as? Row.Entry)?.e?.qid == q }.takeIf { it >= 0 }?.let { setRootCursor(it); root.pendingQid = null; root.pendingCursor = null } }
-        needsReload = top.kind in listOf(Kind.PLAYLIST, Kind.RESULTS, Kind.YT, Kind.LYRICS)
+        needsReload = top.kind in listOf(Kind.PLAYLIST, Kind.RESULTS, Kind.YT, Kind.RECENT, Kind.LYRICS)
     }
 
     override fun restoreStateLive(state: JsonObject) {
@@ -1744,6 +1797,7 @@ class MusicWindow(
         /** The modeled display cost of a lyric repaint (`60 + bytes/50`, a few hundred bytes). */
         const val LYRIC_DISPLAY_MS = 70L
         val BOOSTS = listOf(100, 150, 200, 300, 400)
+        val PREFETCHES = listOf(1, 2, 3, 5, 10)
         val LYRICS_SOURCES = listOf("lrclib+local", "+netease", "+musixmatch")
         val VIZ_NAMES = listOf("Off", "Bars", "Scope", "Pulse", "Meter")
         val SEEK_ROWS = listOf("-5 min" to -300_000L, "-30 s" to -30_000L, "-10 s" to -10_000L, "+10 s" to 10_000L, "+30 s" to 30_000L, "+5 min" to 300_000L, "Restart" to Long.MIN_VALUE)

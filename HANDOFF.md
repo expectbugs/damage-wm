@@ -749,14 +749,14 @@ today with Adam's go: `REINDEX DATABASE g2cc` + `ALTER DATABASE g2cc REFRESH COL
 | M1 host foundation | `36343dc` | `MusicModel` (types + the two contracts), the `Db` seam + `PgDb` (pgjdbc 42.7.13 over the Unix socket via junixsocket 2.11.1, peer auth), `MusicDb` (every query + the additive `lyrics.source/track_id` migration recorded in `damage_schema`), `Qdrant`, `MediaCache` + transcoder, `MediaServer` (:7404, Range), `Art`, `LibraryScan`, `LocalMusicLibrary`, `MusicNet` (service + remote with disk caches), the `WinNet` PUSH slice; `--music-check` passed against the real DB |
 | M2 window | `2acf432` | `MusicWindow` (every level at four heights), `QueueEngine`, `PlayerCore` + `SimMusicPlayer` + `MirrorMusicPlayer`, `LyricsSync`; `ScriptedMusic`, the selfcheck walk, snapshot scenes 30–37; the six delegated leaf modules (Resolver + ClaudeOneShot + EmbedQuery, LyricsFetch, YouTube, Viz, `audio/` + viz.py + Enrich, MusicListener + SpotifyRemote) |
 | M3 shell | `fc2fa99` | `Mode.EXCLUSIVE` (`DESIGN.md` §4.9) and Music Mode's per-height surface stack; `MusicModeTest`; selfcheck at 480/Bars + 288/Scope; scenes 38–39 |
-| M4 APK | `67d65b8` | `AndroidMusicPlayer` (ExoPlayer + media3 session over a ForwardingPlayer), `TrackCache`, media3 1.5.1, the manifest's mediaPlayback type, `Prefs.mediaPort`, the service registration, the Global **Phone notifications** switch, the strip's `music access` grant; APK 19/0.19 |
+| M4 APK | `67d65b8` | `AndroidMusicPlayer` (ExoPlayer + media3 session over a ForwardingPlayer), `TrackCache`, media3 1.5.1, the manifest's mediaPlayback type, `Prefs.mediaPort`, the service registration, the Global **Phone notifications** switch, the strip's `music access` grant; APK 19/0.19 (20/0.20 after §24.2) |
 | M5 host features | `72cae3d` | the lyric-sources choice pushed to the host (one fetch chain per choice; a source FAULT throws, a MISS stands until the sources widen), `Enrich` + `LyricsFetch` wired, `musicAudioDir`; `--music-check` runs the deterministic lanes and one real viz precompute |
 | M6 docs + staging | (see git log) | this record, `MUSIC.md` corrections, `IMPLEMENTATION.md` Music, `DAILY.md` Music, `REMINDER.md`, `WINDOWS.md` (five precedents), memory; jar + APK staged, the service restarted |
 
 **The battery at M5 (all green):** core **315** tests (was 221 before Music) · desktop 9 ·
 selfcheck **134** checks · snapshots **36** · epub-check clean · lint 0 · `--music-check` all
 pass against the real `g2cc` (2,981 tracks, catalog 1,440 KB in ~70 ms, legacy cache 20/20,
-Qdrant 2,981 points, lanes 1 answer, one viz blob) · `:phone:assembleDebug` 0.19.
+Qdrant 2,981 points, lanes 1 answer, one viz blob) · `:phone:assembleDebug` 0.19 (0.20 after §24.2).
 
 **Delegation:** six Opus agents in isolated worktrees, each with the fixed interfaces
 (`Plugins.kt`, `MusicModel.kt`) and its own tests: LyricsFetch ×24 · YouTube ×13 · Resolver ×19 ·
@@ -773,7 +773,7 @@ strings and logged verbatim on first sight; `PlaybackState.getLastPositionUpdate
 - `MediaServer` is a ServerSocket HTTP/1.1 server in core (no `com.sun.net.httpserver` — Android-clean); a malformed Range answers 200 with the whole file.
 - Profiles: High = Opus 128 k mono / 192 k stereo, Standard = 96 k, Saver = 48 k, Lossless = passthrough; cache dirs `<quality>-<mono|stereo>-<loudnorm|flat>`; the legacy G2CC cache IS `standard-mono-loudnorm`, read in place (20/20 sampled keys map).
 - `--music-check` applies the one additive migration (the service does at every start) and says so; everything else it does is read-only, plus one viz blob into our own cache dir.
-- The catalog is one JSON blob (1,440 KB for 2,981 tracks, built in ~70 ms), cached on the phone; its version is a SHA-1 over table counts and max timestamps.
+- The catalog is one JSON blob (1,440 KB for 2,981 tracks, built in ~70 ms), cached on the phone; its version is a SHA-1 over the catalog's SHAPE — track / artist / album / playlist counts and the newest track, playlist and membership stamps, never lyrics or play history, which change with every play (§24.2).
 - The card repaints on a 5 s pace while focused (a lens repaint is a few hundred bytes; 1 Hz would be ~10 % link duty); Music Mode's card every 5 % of progress; lyrics on line change, the visualizer at its own rate — every surface one rect.
 - Track-change notices fire only while the Music window is NOT on screen (the card shows the change there); verdict 10's default stays on.
 - Seek rests on "+10 s"; Replace-queue-while-playing confirms; Save-over asks twice; Delete playlist is Cancel-first with the unrecoverable row at index 2; a replica-typed line is an Ask staged behind a confirm.
@@ -788,5 +788,67 @@ strings and logged verbatim on first sight; `PlaybackState.getLastPositionUpdate
 Bluetooth lyric offset, the achievable visualizer rate, the limiter's real notice and the Spotify
 cold start are the phone's measured items (`MUSIC.md` §12, `DAILY.md` Music).
 
-**Next:** install 0.19 + the grants (`DAILY.md`), the measured items, then the review loop
-(`REVIEW.md`) over `36343dc..HEAD` — and the still-owed Torrents/keyboard on-glass verdicts.
+**Next:** install 0.20 + the grants (`DAILY.md`), the measured items, then round 2 of the
+review loop (§24.2 was round 1) — and the still-owed Torrents/keyboard on-glass verdicts.
+
+### 24.2 The review loop — round 1 (2026-09-03, morning, autonomous)
+
+Docs sweep first (`17a9a9b`, every doc current at the M6 commit), then `/code-review high` over
+`8d5e30b..HEAD` (the whole Music build). **10 ranked findings (9 CONFIRMED, 1 PLAUSIBLE) + 17
+one-liners; every one re-verified against the code before a fix; 2 declined as non-issues**
+(the `notifyMusic` gate is the shell's pre-existing rule; a helper-duplication note is quality,
+not a defect). Nine defects of my own from a read-through of the window went in first (the
+`runOp(verb, then, op)` signature — a trailing lambda bound to the wrong parameter; the cursor
+set by code re-read as the user's; a deep link cleared the stack before validating; nearest-option
+rows; the play-next move index when the source sits above the cursor; demands gated on
+`active || exclusive`). The round's fixes, by weight:
+
+- **The APK could not have played at all**: targetSdk 35 refuses cleartext HTTP by default, so
+  ExoPlayer and the prefetch store would have refused `http://beardos:7404`. `usesCleartextTraffic`
+  is now declared, with the comment (token-gated endpoint, tailnet transport).
+- **Boot**: Android 15 refuses a foreground service started from `BOOT_COMPLETED` whose types
+  include `mediaPlayback`. The service now starts as `connectedDevice` only and adds
+  `mediaPlayback` when playback first engages (`AndroidMusicPlayer(onEngaged)`); a refusal logs
+  loudly and playback continues under the first type.
+- **The player record**: `persist()` forced `play = STOPPED` and wrote a `stamp`, so the truth
+  never travelled and value-equality never held; it now writes the real state + `posAt` and no
+  stamp — `restore()` still never auto-plays, and it no longer overwrites the sink's volume /
+  held level with the record's (the phone's real level is the truth). The our-own-echo marker
+  now clears even when the level already matches (a later user move to the same value read as
+  ours). Sleep's menu "current" is by the choice, not a label prefix.
+- **Lyrics**: a track change while in Music Mode never reloaded the lyrics (only the LYRICS frame
+  on top did); `paintExclusive` now demands them and `applyState` reloads when exclusive. The
+  scheduler arms a flush `LYRIC_DISPLAY_MS` early but the painter chose the line by the raw
+  position, so an early flush painted the OLD line and re-armed — the painter now uses the same
+  lead. Plain lyrics were paged as 12 raw lines, so wrapped lines past the canvas were never
+  reachable — pages are now made of the wrapped lines that fit (cached per width + face), in
+  the window and in Music Mode alike. The Music Mode current line, when it overflows the large
+  face, now draws whole in the smaller face at HEAD level instead of the continuation mark.
+- **The catalog**: `hasArt` was keyed with mtime 0 (art never refreshed after a retag, or
+  re-extracted every scan depending on the branch) — the catalog query selects the real mtime.
+  The version fingerprint included lyrics and play_history max timestamps, so every play made
+  the phone re-download a 1.4 MB catalog — it is shape-only now. RECENT was built synchronously
+  from the catalog's list (stale until the next catalog refresh) — it is a loaded frame through
+  `MusicLibrary.recent(n)` (a `recent` op; the remote falls back to the cached list off-line).
+  The scan's stat failure was silent (counted + logged now); an EMPTY host catalog is no longer
+  served as an answer (throws). The viz blob was built inline on the channel thread — it is
+  async, pushed as `viz` (`Listener.vizReady`), and Music Mode marks the viz due when it lands.
+  The remote's disk caches were unbounded — `evict()` keeps viz 150 / art 3,000 / lyrics 3,000.
+- **Phone**: the listener rule `com.google.android.` matched EVERY Google app's notifications
+  (systemui / settings / `com.google.android.settings` now); route loss fired on ANY external
+  audio device removal — a dongle unplugged elsewhere stopped the music — so it now looks 500 ms
+  later at whether playback actually stopped; `preferredHeight ?: 480` made the Size row's
+  "global" unreachable (480 is the default, global is stored as 0 — `MUSIC.md` §8).
+- **Small**: `requestRepaint` in exclusive mode flushed the full canvas (delta now); `PgDb.tx`
+  skipped the rollback on an `Error`; a 0-byte file answered 206 with `bytes 0--1/0` (200 now);
+  `MediaCache` joined a transcode thread that could be lost (a `CountDownLatch` per output,
+  counted down in `finally`); `LyricsFetch.kt` carried NUL bytes (git saw a binary file);
+  `viz.py` normalized silence to 15 instead of 0; `Enrich`'s header claimed a cap that
+  `profile.py`'s own pass has.
+
+Pins added: the record carries the play state and never the sink's volume; the echo/limiter
+sequence; play-next's move; route loss while paused; the 0-byte Range; persist round trip.
+**Battery after the round (all green):** core 315 · desktop 9 · selfcheck 134 · snapshots 36 ·
+epub-check clean · lint 0 · `:phone:assembleDebug` **0.20**; jar + APK staged, the service
+restarted on the round-1 build. **Round 2 starts from the round-1 fix commit** — round 4 of the
+Torrents loop found real defects in round 3's fixes, so this round's own diff is the next target.

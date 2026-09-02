@@ -22,10 +22,10 @@ while it is up); the OpenRC `damage` service is the data provider (content + tmu
 window channel on :7401, seam :7402, replica :7403, the media endpoint :7404) plus a standby
 that BLE-drives only while the APK is away. Battery at HEAD: core **315** · desktop 9 ·
 selfcheck **134** · snapshots 36 · epub-check clean · lint 0 · `--music-check` all pass against
-the real library. **APK 19/0.19 is STAGED** (the setup page + `~/.damage/damage-wm.apk`; the jar
-and the service run the same M6 build). **0.16 is the last build observed INSTALLED**
-(2026-09-01); 0.17/0.18 were never installed and 0.19 supersedes them (Files, the chrome tweaks,
-Torrents, the keyboard, every 2026-09-01 review fix, Music). Deploys: `./gradlew
+the real library. **APK 20/0.20 is STAGED** (the setup page + `~/.damage/damage-wm.apk`; the jar
+and the service run the same review-round-1 build). **0.16 is the last build observed INSTALLED**
+(2026-09-01); 0.17–0.19 were never installed and 0.20 supersedes them (Files, the chrome tweaks,
+Torrents, the keyboard, every 2026-09-01 review fix, Music + its review round 1 — `HANDOFF.md` §24.2). Deploys: `./gradlew
 :desktop:stageJar && sudo rc-service damage restart` (never touches the display — the PC does
 not claim). ⚠ One central at a time: stop the service before any `:desktop:run` dev session;
 G2CC's Android bridge stays Disconnected.
@@ -38,7 +38,7 @@ contract, §20 refinery verdicts, the chosen window's section). Standing referen
 
 ## 🚀 Next
 
-1. **Install 0.19, grant `music access` (`DAILY.md` → Music), then on-glass verdicts for Music,
+1. **Install 0.20, grant `music access` (`DAILY.md` → Music), then on-glass verdicts for Music,
    Torrents and the keyboard**: Music's measured items first (`MUSIC.md` §12); the keyboard's feel
    (row pitch at 288, the highlight, the text-line pan, stay-in-row, the Tmux live rows), the
    transfers list and lens, a real done-notification, browse / search / add against the live
@@ -54,10 +54,13 @@ contract, §20 refinery verdicts, the chosen window's section). Standing referen
    task for a fresh session.
 3. **MUSIC — BUILT overnight 2026-09-02/03** (`MUSIC.md` §1 = the 29 binding verdicts; M1–M6
    committed one milestone at a time with the battery green; `HANDOFF.md` §24 = the build record
-   + the decisions made inside the plan). What waits: **install APK 0.19**, the one-time
-   notification-access grant (`DAILY.md` → Music), the on-phone measured items (`MUSIC.md` §12:
-   the limiter's real notice text, the Spotify cold start, the Bluetooth lyric offset, the
-   visualizer rate on glass), then the review loop (`REVIEW.md`) from the M1 commit forward.
+   + the decisions made inside the plan). **Review round 1 ran 2026-09-03** (`HANDOFF.md`
+   §24.2: 10 ranked + 17 one-line findings, every one verified before a fix, all fixed — among
+   them two the APK could not have played without: cleartext HTTP and the boot foreground type).
+   What waits: **install APK 0.20**, the one-time notification-access grant (`DAILY.md` →
+   Music), the on-phone measured items (`MUSIC.md` §12: the limiter's real notice text, the
+   Spotify cold start, the Bluetooth lyric offset, the visualizer rate on glass), then round 2
+   of the review loop (`REVIEW.md`) over round 1's own fix diff.
 4. **The icon-quality pass** (front of the app wave): one drawn icon per app at 20 px + 56 px —
    the drawn set is the fallback and the release path (theme icons are personal-lane only).
 5. **Watch-items:** the left-lens seam residue (a one-shot early-burst tear — if it recurs

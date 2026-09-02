@@ -31,7 +31,12 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- Cleartext HTTP to the PC's media endpoint (:7404) over the tailnet
+         (MUSIC.md §6.3): ExoPlayer and the prefetch store use HttpURLConnection,
+         which the platform's cleartext policy would otherwise refuse (review
+         2026-09-03). The endpoint is token-gated; the transport is Tailscale. -->
     <application
+        android:usesCleartextTraffic="true"
         android:label="Damage"
         android:icon="@drawable/ic_damage"
         android:theme="@style/Theme.Damage"
