@@ -1236,7 +1236,7 @@ class MusicWindow(
     /** The line to show NOW: the one heard when the pixels land — the same
      *  display lead the scheduler arms with, so a flush fired early paints
      *  the NEW line instead of the old one and re-arming again (review
-     *  2026-09-03: the early render used to spin until the stamp passed). */
+     *  2026-09-02: the early render used to spin until the stamp passed). */
     private fun currentLyricLine(): Int {
         val p = lyricsParsed ?: return -1
         return LyricsSync.lineAt(p.lines, LyricsSync.heardPos(player.positionMs() + LYRIC_DISPLAY_MS, lyricsOffset().toLong()))
@@ -1622,7 +1622,7 @@ class MusicWindow(
                     val isCur = i == cur
                     // the current line in the large face — unless it would not fit on the
                     // one row Music Mode gives it, when the smaller face at HEAD level shows
-                    // the WHOLE line (never cut; the window's view wraps instead; review 2026-09-03)
+                    // the WHOLE line (never cut; the window's view wraps instead; review 2026-09-02)
                     val f = if (isCur && tx.measure(dn(p.lines[i].text, fLyric), fLyric) <= w) fLyric else fLyricDim
                     val lv = when { isCur -> Level.HEAD; i < cur -> Level.DIM; else -> Level.BODY }
                     val m = tx.metrics(f)

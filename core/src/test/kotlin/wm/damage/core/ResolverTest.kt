@@ -224,7 +224,7 @@ class ResolverTest {
         val q = resolver(f).ask("Wurm")
         assertEquals("artist", q.lane)
         assertTrue(q.tracks.isEmpty())
-        assertEquals("lane artist \"Wurm\": 2 in library → 0 queued — all matches are excluded content (sound effects)", q.detail)
+        assertEquals("lane artist \"Wurm\": 2 in library → 0 queued — all matches are excluded content (sound effects / spoken word)", q.detail)
 
         // naming them opts back in
         val q2 = resolver(f).ask("Wurm sound effects")

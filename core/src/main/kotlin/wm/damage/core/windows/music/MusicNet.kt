@@ -274,7 +274,7 @@ class RemoteMusicLibrary(
         val a = ch.request("lyrics", args("id" to trackId))
         val has = a.data["has"]?.jsonPrimitive?.booleanOrNull == true
         val ly = if (has && a.blob != null) json.decodeFromString(Lyrics.serializer(), a.blob.toString(Charsets.UTF_8)) else null
-        if (ly != null && ly.found) try { Files.writeString(p, json.encodeToString(Lyrics.serializer(), ly)); evict(cacheDir.resolve("lyrics"), LYRICS_CACHE_FILES) } catch (e: Exception) { Log.w("music-remote", "lyrics cache write: ${e.message}") }
+        if (ly != null && ly.found) try { atomicWrite(p, json.encodeToString(Lyrics.serializer(), ly).toByteArray()); evict(cacheDir.resolve("lyrics"), LYRICS_CACHE_FILES) } catch (e: Exception) { Log.w("music-remote", "lyrics cache write: ${e.message}") }
         return ly
     }
 
@@ -293,7 +293,7 @@ class RemoteMusicLibrary(
 
     override fun setLyrics(trackId: Int, choice: Lyrics) {
         ch.request("lyrics.set", args("id" to trackId, "lyrics" to json.encodeToString(Lyrics.serializer(), choice)))
-        try { Files.writeString(lyricsPath(trackId), json.encodeToString(Lyrics.serializer(), choice)) } catch (e: Exception) { Log.w("music-remote", "lyrics cache write: ${e.message}") }
+        try { atomicWrite(lyricsPath(trackId), json.encodeToString(Lyrics.serializer(), choice).toByteArray()) } catch (e: Exception) { Log.w("music-remote", "lyrics cache write: ${e.message}") }
     }
 
     override fun art(trackId: Int, px: Int): ByteArray? {
@@ -304,7 +304,7 @@ class RemoteMusicLibrary(
         val a = ch.request("art", args("id" to trackId, "px" to px))
         val has = a.data["has"]?.jsonPrimitive?.booleanOrNull == true
         try {
-            if (has && a.blob != null) Files.write(p, a.blob) else Files.writeString(none, "")
+            if (has && a.blob != null) atomicWrite(p, a.blob) else Files.writeString(none, "")
             evict(cacheDir.resolve("art"), ART_CACHE_FILES)
         } catch (e: Exception) { Log.w("music-remote", "art cache write: ${e.message}") }
         return if (has) a.blob else null
@@ -319,12 +319,21 @@ class RemoteMusicLibrary(
         val has = a.data["has"]?.jsonPrimitive?.booleanOrNull == true
         if (!has || a.blob == null) return null
         val v = VizData.decode(a.blob)
-        try { Files.write(p, a.blob); evict(cacheDir.resolve("viz"), VIZ_CACHE_FILES) } catch (e: Exception) { Log.w("music-remote", "viz cache write: ${e.message}") }
+        try { atomicWrite(p, a.blob); evict(cacheDir.resolve("viz"), VIZ_CACHE_FILES) } catch (e: Exception) { Log.w("music-remote", "viz cache write: ${e.message}") }
         return v
     }
 
-    /** The per-track caches are bounded (review 2026-09-03): the oldest files
+    /** The per-track caches are bounded (review 2026-09-02): the oldest files
      *  beyond [keep] go — viz blobs are ~100 KB each over a 3 k library. */
+    /** Cache writes land whole or not at all: a JVM stopped mid-write must
+     *  not leave a short blob that Art.unpack would render as black pixels
+     *  (ultrareview 2026-09-02; the catalog write above already did this). */
+    private fun atomicWrite(p: Path, bytes: ByteArray) {
+        val tmp = p.resolveSibling(p.fileName.toString() + ".${System.nanoTime()}.tmp")
+        Files.write(tmp, bytes)
+        Files.move(tmp, p, StandardCopyOption.REPLACE_EXISTING)
+    }
+
     private fun evict(dir: Path, keep: Int) {
         val files = try { Files.list(dir).use { s -> s.filter { Files.isRegularFile(it) }.toList() } } catch (e: Exception) { return }
         if (files.size <= keep) return

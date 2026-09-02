@@ -62,6 +62,17 @@ class MusicTest {
 
     // =========================================================== profiles + cache keys
     @Test
+    fun scanPrunesHiddenDirectoriesBelowTheRoot() {
+        // ultrareview 2026-09-02: Files.walk is flat — .Trashes/x.mp3 must be pruned by its ancestor
+        val root = java.nio.file.Path.of("/m")
+        assertTrue(wm.damage.core.windows.music.LibraryScan.pruned(root, root.resolve(".Trashes/Deleted Song.mp3")))
+        assertTrue(wm.damage.core.windows.music.LibraryScan.pruned(root, root.resolve("a/.stversions/x.opus")))
+        assertTrue(wm.damage.core.windows.music.LibraryScan.pruned(root, root.resolve("lost+found/y.flac")))
+        assertFalse(wm.damage.core.windows.music.LibraryScan.pruned(root, root.resolve("ok/Song.mp3")))
+        assertFalse(wm.damage.core.windows.music.LibraryScan.pruned(root, root.resolve("dots.in.name/Song.mp3")))
+    }
+
+    @Test
     fun audioProfilesNameParseAndTheLegacyCacheMapping() {
         assertEquals("high-mono-loudnorm", AudioProfile.DEFAULT.name)
         assertEquals(128, AudioProfile.DEFAULT.kbps)
@@ -305,7 +316,9 @@ class MusicTest {
             else listOf(Db.Row(mapOf("synced" to "[00:01.00] hi", "plain" to null, "found" to true, "source" to ""))) }
         val ly = m.lyrics(MusicDb.TrackFile(4, "/p.flac", 0, "Song", "Art", "", 123_400))
         assertNotNull(ly); assertEquals("lrclib", ly!!.source); assertTrue(ly.found)
-        assertEquals(listOf<Any?>("Art", "Song", 123), db.calls.last().second)
+        assertEquals(listOf<Any?>("Art", "Art", "Song", 123), db.calls.last().second)   // raw + normalized artist
+        m.lyrics(MusicDb.TrackFile(5, "/q.flac", 0, "Song", "", "", 123_400))
+        assertEquals(listOf<Any?>("", "(unknown)", "Song", 123), db.calls.last().second)   // the form setLyrics writes
         assertEquals(Art.pack(byteArrayOf(0, 255.toByte(), 128.toByte()), 3).toList(), listOf(0x0F.toByte(), 0x80.toByte()).toList())
     }
 

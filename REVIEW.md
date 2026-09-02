@@ -7,7 +7,11 @@ commits (`8f0dfe2`, `ead19a3`/`5d7ba5e`, `d0a74aa`, `10db318`, `119d6dc`, `b3325
 `d2945eb`) and its accepted limits in §22.3. The Torrents + keyboard loop — four rounds, ~114
 findings (~55 · ~30 · ~15 · ~14), **PAUSED at Adam's word, not converged** — is `HANDOFF.md`
 §23.1–§23.4 (round commits `73fdf81`, `4f5e6e0`, `980d832`, `390a25c`; its accepted-not-fixed
-items are recorded in §23.2 and §23.4); the next review pass starts from `980d832..HEAD`.
+items are recorded in §23.2 and §23.4); its round-4 diff is `980d832..390a25c`. The Music loop
+(2026-09-02) — review round 1 (27 findings, `4565f35`) and two ultrareview runs (8 findings +
+a hidden notice gate) — is `HANDOFF.md` §24.2–§24.3. How a round runs: the Adam quote in
+`HANDOFF.md` §21 and the §22.2 discipline — every finding verified against the code before a
+fix, a test pin per fix, the whole battery green, the next round over the previous round's own diff.
 
 What this archive keeps: the per-round summaries, and the register of **deliberate behavior a
 future session must not "fix"** — every entry below was traced and the verdict recorded.

@@ -44,7 +44,7 @@ DocView read as a font switch and is gone). The refinery verdicts that shaped th
    fit = min(width-fit, height-fit), re-derived in `onLayoutChanged`, context rows only
    when spare height exists. 480 is the design point (`preferredHeight`), 288 must work.
 3. **Alerts: on for all sessions + per-session mute. GLASS ONLY** — no phone fallback.
-4. **Quick keys: the proposed dozen** (Enter y n 1 2 3 Esc Ctrl-C Up Down Tab q + Snippets…),
+4. **Quick keys: the shipped fourteen** (Enter y n 1 2 3 Esc Ctrl-C Up Down Left Right Tab q + Snippets… — Left/Right added on Adam's ask 2026-08-31),
    config-overridable.
 5. **Context rows: ON by default.**
 6. **Every tmux setting lives in the Settings window's Tmux category** (`appSettings()` —
@@ -155,7 +155,7 @@ LIVE GRID (CanvasView)             the pane, true grid, JetBrains Mono, cursor c
 HISTORY (DocView, free)            frozen scrollback, WRAPPED at reading size, 5-lines/notch
                                    + accel like Reader; scroll-down past the end → LIVE again
 LIVE GRID ── tap ──▶ KEYS (ListView): Enter · y · n · 1 · 2 · 3 · Esc · Ctrl-C · Up · Down ·
-                     Tab · q · Snippets… · Type… (§4.8 keyboard, 2026-09-01) · New session ·
+                     Left · Right · Tab · q · Snippets… · Type… (§4.8 keyboard, 2026-09-01) · New session ·
                      (per-session rows)
 ```
 

@@ -94,7 +94,7 @@ abstract class PlayerCore(
     private var queueGen = 0
     /** Bumped by a user's pick (play-from): a fill dispatched earlier with
      *  "advance when you land" keeps its rows but drops that advance, or it
-     *  would step one past the row the user chose (ultrareview 2026-09-03). */
+     *  would step one past the row the user chose (ultrareview 2026-09-02). */
     private var pickGen = 0
     /** The volume we last set ourselves (a change to another value with no
      *  cause of ours is the phone's). */
@@ -389,7 +389,7 @@ abstract class PlayerCore(
         val v = pct.coerceIn(0, 100)
         // our own set echoes back once: clear the marker on that echo, even
         // when the level already matches — a later user move to the same
-        // value must not read as ours (review 2026-09-03)
+        // value must not read as ours (review 2026-09-02)
         if (v == ourVolume) { ourVolume = -1; if (v != volume) { volume = v; changed() }; return@post }
         if (v == volume) return@post
         val drop = heldVolume - v
@@ -568,7 +568,7 @@ abstract class PlayerCore(
             spotifyAuto = o["spotifyAuto"]?.jsonPrimitive?.booleanOrNull ?: false
             // the media stream's level is the PHONE's truth, read from the sink
             // at start — a record's stale value would make the first observed
-            // level look like a limiter drop (review 2026-09-03)
+            // level look like a limiter drop (review 2026-09-02)
             curHold = o["holdVolume"]?.jsonPrimitive?.booleanOrNull ?: true
             curProfile = o["profile"]?.jsonPrimitive?.contentOrNull?.let { AudioProfile.parse(it) } ?: AudioProfile.DEFAULT
             prefetchN = o["prefetch"]?.jsonPrimitive?.intOrNull ?: 3

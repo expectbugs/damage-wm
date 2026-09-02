@@ -296,7 +296,7 @@ class AndroidMusicPlayer(
             // only the ACTIVE route's loss is a route loss: the OS pauses the
             // player itself (becoming-noisy) when the route it played on went;
             // a dongle unplugged elsewhere must not stop the music (review
-            // 2026-09-03). Look a moment later at whether playback stopped.
+            // 2026-09-02). Look a moment later at whether playback stopped.
             if (removed.any { isExternal(it) }) {
                 val wasPlaying = playingFlag
                 main.postDelayed({ if (wasPlaying && !playingFlag) onRouteLost("the output went away") else changed() }, 500)

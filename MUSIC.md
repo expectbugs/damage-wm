@@ -1,10 +1,11 @@
 # Music on glass — design record (2026-09-02)
 
-**Status: BUILT 2026-09-02/03 in the overnight autonomous session (M1–M6, a commit per
+**Status: BUILT 2026-09-01/02 in the overnight autonomous session (M1–M6, a commit per
 milestone with the battery green — `HANDOFF.md` §24 is the build record with the as-built
 numbers and the decisions made inside this plan); §4 is closed (the collation refresh ran
 with Adam's go on 2026-09-02).** The window was built whole on Adam's rule (no v1/v1.5
-staging); next is the review loop (`REVIEW.md`) and the on-phone checks in §12. `EXPLOSION.md` §3 is
+staging); reviewed three ways the same day — round 1 (`HANDOFF.md` §24.2) and two ultrareview runs
+(§24.3); what remains is the on-phone checks (`DAILY.md` → Music). `EXPLOSION.md` §3 is
 the idea record; `/home/user/G2CC/docs/MUSIC_SPEC.md` is the previous player's decision record
 (read for facts and lessons, never for code — the G2CC music *system* is now Damage's, its code
 is ported, not pasted).
@@ -61,7 +62,7 @@ radio is not the default.
   `Collections/`, `Archive/Dupes/`, `Unsorted/`, `YouTube/`, `new/`); 1,754 FLAC · 631 MP3 · 553
   OGG · 29 WAV · a few M4A/WMA/Opus; 68 folder JPEGs. Postgres `g2cc`: `tracks` 2,981, `track_meta`
   2,981 (moods/genres from the LLM profile pass), `playlists` 25 (all adaptive), `play_history`
-  388, `lyrics` 2,194 rows / **542 with synced lyrics**, `player_state` 1. Qdrant `g2cc_music`:
+  388, `lyrics` 2,194 rows / **542 found (428 with synced text)**, `player_state` 1. Qdrant `g2cc_music`:
   2,981 points, 384-dim (`BAAI/bge-small-en-v1.5`). Connection: `pg.Pool({host: <socket dir>,
   database: 'g2cc'})` — peer auth over the Unix socket, no password (`store.ts:34`). ⚠ `psql`
   reports a collation-version mismatch (2.42 vs 2.43) — a one-line refresh, Adam's call.
@@ -71,9 +72,9 @@ radio is not the default.
 - **Enrichment pipeline:** `/home/user/G2CC/audio/enrich/` (`run_enrichment.py`, `embed_query.py`,
   `passes/`, `db.py`) on the venv `/home/user/G2CC/audio/venv` (librosa, embeddings, the LLM
   profile pass). yt-dlp 2026.06.09 at `~/.local/bin/yt-dlp`.
-- **The Damage APK** has no media stack: no ExoPlayer, no MediaSession, no notification listener,
-  no media-playback foreground type, no RECORD_AUDIO (and it stays that way). G2CC used media3
-  1.5.1 (`libs.media3.exoplayer`).
+- **The Damage APK** had no media stack at design time: no ExoPlayer, no MediaSession, no
+  notification listener, no media-playback foreground type — M4 (§7) added every one of these;
+  no RECORD_AUDIO (and that stays that way). G2CC used media3 1.5.1 (`libs.media3.exoplayer`).
 - **The ring** sends five events: tap, double-tap, scroll up/down, long-press + release
   (`EvenHubMsg.kt:213-222`). No triple-tap event exists.
 - **Shell pieces already waiting:** `IconKind.MUSIC` + theme names `multimedia-audio-player` /
@@ -104,10 +105,10 @@ radio is not the default.
   m:ss/m:ss, queue position, mode, PC link). Scrolling previews other rows in the same card.
   Tap on a row → row menu (Play from here · Play next · Remove · Move up/down · Add to playlist…);
   the current row is never removable. **The wrap-end row is Menu.**
-- **Menu**: Pause/Resume · Next · Previous · Volume… · Ask… (keyboard) · Browse · Playlists ·
-  Moods & genres · Search… (keyboard) · Mode (Queue / Shuffle / Radio / Library random) · Lyrics ·
-  Seek… · Save queue as playlist · Music Mode · Output… · Stop · (when applicable) Back to PC
-  library · Switch to Spotify.
+- **Menu** (as built): Pause/Resume · Next · Previous · Volume… · Ask… (keyboard) · Browse ·
+  Playlists · Moods & genres · Search… (keyboard) · Mode (Queue / Shuffle / Radio / Library
+  random) · Lyrics · Seek… · Save queue as playlist · Music Mode · Output… · Sleep… · Shuffle the
+  rest · Clear queue · Stop · (when applicable) Back to PC library · Switch to Spotify.
 - **Browse**: Artists → Albums → Tracks · Albums · Moods & genres · Playlists · Collections ·
   Recent · YouTube…; a tap on any track/album/playlist offers Play now · Play next · Append ·
   Replace queue.
@@ -117,7 +118,7 @@ radio is not the default.
 - **Playlists**: list → open (rows) → Play · Play at random · Add current · Rename · Edit
   (reorder/remove) · Delete (Cancel-first double confirm) · Save-over needs saying twice.
   Adaptive playlists refuse Edit and say why.
-- **Lyrics (Document)**: current line highlighted with context, paced line advance from the
+- **Lyrics (as built a canvas)**: current line highlighted with context, paced line advance from the
   phone's real position (§3.6). **Seek**: ±10 s per notch on a row, ±5 min rows.
 - **YouTube…**: keyboard search → up to 10 results (title · channel · duration) → pick → grab →
   ingest → "added; playing / queued" (§3.9).
@@ -129,7 +130,7 @@ Silent Mode with music décor (`DESIGN.md` §1.5's input path): **all ring input
 double-tap, which exits to the window**; long-press never arms; the chord cannot fire. No menu.
 Temporary notices still show (verdict 23).
 Surfaces, each on/off and ordered in Settings → Music → Music Mode: Now Playing card · Lyrics ·
-Visualizer (type) · Queue peek (next 2–3) · Clock · PC link state. Layout per height: stacked at
+Visualizer (type) · Queue peek (next 2) · Clock · PC link state. Layout per height: stacked at
 480, fewer/shorter surfaces at 288. Temporary notices still show (the shell's, as in silent mode).
 
 ### 3.4 Earbud transport
@@ -152,7 +153,7 @@ whichever window is up. With Spotify as the backend the buds drive Spotify's own
 ### 3.6 Audio profiles (Settings → Music)
 Quality: Opus high (default) / Lossless / Standard / Saver (verdict 18) · Channels: mono (default now) / stereo · Normalization: on/off
 (loudnorm at transcode) · Output device. A profile keys the transcode cache (the existing 8 GB
-cache is `opus-96k-mono-loudnorm`); any other profile transcodes lazily on the PC (seconds a track),
+cache is `standard-mono-loudnorm`, §6.4); any other profile transcodes lazily on the PC (seconds a track),
 with an optional background pre-transcode of the library.
 
 ### 3.7 Lyrics engine
@@ -244,9 +245,11 @@ core/src/main/kotlin/wm/damage/core/windows/music/
   MusicWindow.kt       the window (§8): all levels at 288/352/416/480, Music Mode surfaces,
                        Settings rows, notifications, summary, deep links, persistence
   LocalMusicLibrary.kt PC: MusicDb (Postgres over the Unix socket) + Qdrant + files
-                       (`MusicDb.kt`, `Qdrant.kt`, `Transcoder.kt`, `MediaCache.kt`,
-                       `MediaServer.kt`, `Resolver.kt`, `LyricsFetch.kt`, `YouTube.kt`,
-                       `Enrich.kt`, `VizPrecompute.kt` — one class each, all in this package)
+                       (as built: `MusicDb.kt`, `Db.kt`, `Qdrant.kt`, `MediaCache.kt` — the
+                       transcoder lives in it — `MediaServer.kt`, `Art.kt`, `LibraryScan.kt`,
+                       `Resolver.kt` + `Rules.kt` + `ClaudeOneShot.kt` + `EmbedQuery.kt`,
+                       `LyricsFetch.kt`, `YouTube.kt`, `Enrich.kt` — the viz build is
+                       `LocalMusicLibrary.buildViz` over `Enrich.viz` — all in this package)
   MusicNet.kt          MusicService (host side of the window channel) + RemoteMusicLibrary
                        (phone side: catalog/art/viz/lyrics caches on disk, version cursors)
   MirrorMusicPlayer.kt desktop: a MusicPlayer with no sink — shows the synced record, refuses
@@ -266,7 +269,7 @@ phone/src/main/kotlin/wm/damage/phone/music/
                          system "volume lowered" notice
   SpotifyRemote.kt       MediaController over Spotify's session; cold start via its media
                          browser service; state → PlayerState(backend = SPOTIFY)
-  TrackCache.kt          prefetch store (next N tracks, LRU by queue distance), served to
+  TrackCache.kt          prefetch store (next N tracks; as built LRU by last access beyond N+2, never a wanted file), served to
                          ExoPlayer from disk; falls back to the PC stream
 desktop/src/main/kotlin/wm/damage/desktop/
   ScriptedMusic.kt     deterministic library + player for --selfcheck / --snapshot
@@ -328,22 +331,35 @@ interface MusicPlayer {
 }
 ```
 The player persists `PlayerState` minus volatile fields into the window's sub-record
-`window.music.player` (queue, index, posMs every 10 s and on every change, mode, backend) so
-the desktop mirror and a re-installed APK resume the same queue. Never auto-plays on boot.
+`window.music.player` so the desktop mirror and a re-installed APK resume the same queue. As
+built (`PlayerCore.persist()`): the engine (queue / index / mode / label), the REAL play state,
+`posMs` + `posAt`, backend, spotifyAuto, volume, holdVolume, profile, prefetch, spotifyFallback,
+output — no stamp of its own (LWW value-equality); every 10 s through the tick and on every
+change. `restore()` never auto-plays and never applies the record's volume — the phone's stream
+is the truth (review round 1). As built, the contracts also carry `similar` / `randomLibrary` /
+`setLyricsSources` / `recent(n)` / `pretranscode` / `rescan` / `close` on the library, `Listener.vizReady`,
+and `replace` / `shuffleRest` / `setVolume(pct, cause)` / `setPrefetch` / `setSpotifyFallback` /
+`persist` / `restore` / `setFocused` / `close` on the player; the events are TrackChange · QueueEnd ·
+RouteLost · Error · LimiterUndone · LimiterKeeps · BoostOff · BoostLoud · SleepEnded ·
+BackendChanged · PcUnreachable.
 
 ### 6.3 Wire
 - **Window channel `music`** (`MusicService` on the content port, the Torrents shape): ops
   `catalog` (version cursor → blob), `search`, `ask`, `similar`, `random`, `playlists`,
   `playlist`, `playlist.save/rename/delete/set`, `lyrics`, `lyrics.search`, `lyrics.set`,
-  `art` (blob), `viz` (blob), `yt.search`, `yt.grab`, `yt.status`, `played`. Every failure is an
-  in-band error (`TlException`-style message), never an empty answer.
-- **Media endpoint** (`MediaServer`, JDK `HttpServer`, new `mediaPort` default **7404**, bound like
+  `art` (blob), `viz` (blob), `yt.search`, `yt.grab`, `yt.status`, `played`, and as built
+  `recent`, `lyrics.sources`, `pretranscode`, `rescan`. Every failure is an in-band error
+  (`TlException`-style message), never an empty answer.
+- **Media endpoint** (`MediaServer`, as built a ServerSocket HTTP/1.1 server — core runs inside the
+  APK, so no `com.sun.net.httpserver`; HEAD accepted, a 0-byte file answers 200, `Cache-Control:
+  no-store` — new `mediaPort` default **7404**, bound like
   the content port, token as a query parameter): `GET /track/<id>?token=&profile=<name>` →
   200/206, `Accept-Ranges: bytes`, `Content-Type: audio/ogg` (Opus) or the source's type
   (lossless passthrough); a cache miss transcodes to completion first (seconds; logged), then
   serves. Malformed Range → 200 full (ExoPlayer treats a 416 as fatal — G2CC lesson). The phone
   learns the port from `Prefs.mediaPort` (BuildConfig default). NO TIMEOUTS.
-- **Push**: the host pushes `catalog` version bumps and `yt` job progress as unsolicited frames
+- **Push**: the host pushes `catalog` version bumps, `yt` job progress, its `state` line and
+  `viz` (a blob became ready) as unsolicited frames
   on the channel — the first use of the §16.10 push slice (as built: `WinService.Push.send(op,
   args, blob?)` on the host, `RemoteWin(onPush = …)` on the phone, a `wpush` frame).
 
@@ -359,10 +375,13 @@ the desktop mirror and a re-installed APK resume the same queue. Never auto-play
   in the `lyrics` table (artist, track, duration_s, synced, plain, found) — the build adds a
   `source` column and a `track_id` link (additive migration, `MusicDb` owns it).
 - **VizData** `fps (20) · bands (24) · frames: 4-bit packed levels · rms: 4-bit per 20 ms ·
-  beats: ms[]`, computed by `audio/viz.py` (librosa) at transcode time, stored as `<key>.viz`
-  beside the cache entry, sent as a blob, cached on the phone with the track.
-- **Art**: embedded picture (ffprobe/ffmpeg extract) else `folder.jpg|cover.jpg` else none;
-  box-sampled to px×px 4-bit gray on the PC, cached as `<key>-<px>.gray`.
+  beats: ms[]`, computed by `audio/viz.py` (librosa) — as built on the first `viz()` ask, in the
+  background with a `vizReady` push, and during a YouTube ingest; never at transcode time — stored
+  as `<musicCache>/viz/<key>.viz` (a `.miss` marker beside it when the build produced nothing),
+  sent as a blob, cached on the phone with the track.
+- **Art**: embedded picture (ffprobe/ffmpeg extract) else a folder image (`folder|Folder|cover|
+  Cover|front|album` .jpg/.png) else none; box-sampled to px×px 4-bit gray on the PC, cached as
+  `<musicCache>/art/<key>-<px>.gray` (`.none` markers for misses).
 
 ## 7. The APK
 
@@ -372,7 +391,8 @@ the desktop mirror and a re-installed APK resume the same queue. Never auto-play
   and adds `mediaPlayback` when playback first engages — Android 15 refuses that type for a
   service started at boot (review round 1); `android:usesCleartextTraffic="true"` for the
   :7404 endpoint over the tailnet (targetSdk 35 refuses cleartext by default — the same round);
-  `MusicListener` declared with
+  `<queries><package android:name="com.spotify.music"/></queries>` so the cold start can see
+  Spotify at all (Android 11+ package visibility — ultrareview run 1); `MusicListener` declared with
   `BIND_NOTIFICATION_LISTENER_SERVICE` (the one-time "notification access" grant — `DAILY.md`
   runbook; the window says "grant notification access on the phone" while missing).
   **No RECORD_AUDIO.** `MODIFY_AUDIO_SETTINGS` was not needed (as built: `setStreamVolume` and
@@ -386,12 +406,15 @@ the desktop mirror and a re-installed APK resume the same queue. Never auto-play
   previous (the buds' single/double/triple), **from anywhere**. ExoPlayer errors → notice + log.
 - **Volume**: `STREAM_MUSIC` index ↔ percent; the player sets it; a receiver for the volume-change
   broadcast plus a 1 s poll as backup keeps the rows in step with the phone buttons. Every change
-  is logged with its cause (`user-button`, `ring`, `settings`, `hold-reset`, `unknown-drop`).
+  is logged with its cause (as built: our sets `ring` / `settings`; observed changes `broadcast` /
+  `poll`, with "limiter suspected" appended when it is; the re-set logs "re-setting the volume to
+  the held N% (drop of N | notice)").
 - **HoldVolume**: `held` = the last level set by any user action. On a change to `new < held`
   where the drop is ≥ max(3 steps, 25 % of range) in one event (not a run of single steps) and not
   ours → limiter suspected → re-set to `held`, log it, glass notice "phone lowered the volume —
-  restored". The listener's sighting of the system notice (package `com.android.systemui` or the
-  Settings app, text matching volume + hearing/protect/lower — verify on device) is the high-
+  restored". The listener's sighting of the system notice (packages `com.android.systemui`,
+  `com.android.settings`, `com.google.android.settings`; text matching volume + hearing/protect/lower
+  — verify on device) is the high-
   confidence signal. Pacing rule: at most 3 re-sets in 10 minutes, then a notice that the phone
   keeps lowering it (never a loop).
 - **Boost**: `LoudnessEnhancer(audioSessionId)`, target gain 0…+1200 mB (100…400 %), a limiter
@@ -431,10 +454,10 @@ QUEUE (List, root) ──tap row──▶ ROW MENU (MenuSurface)  ──▶ back
   │                 → ALBUMS → ALBUM → tracks · MOODS & GENRES → vocab word → tracks
   │                 → PLAYLISTS → PLAYLIST (rows; row 0 = "Play at random") → row menu
   │                 → COLLECTIONS (folder tree) · RECENT (play_history) · YOUTUBE…
-  ├─ LYRICS (Document; the scheduler advances the top line; scroll = nudge offset ±50 ms
-  │          in calibration, tap keeps; double-tap back)
+  ├─ LYRICS (as built a canvas: the current line bright with context; scroll = nudge offset
+  │          ±50 ms per output / plain pages; tap = the lyrics menu; double-tap back)
   ├─ SEEK (List: −5 min · −30 s · −10 s · +10 s · +30 s · +5 min · Restart · Back)
-  ├─ VOLUME (List: the level with ▲/▼ rows; scroll adjusts live, tap keeps — the Depth-row shape)
+  ├─ VOLUME (as built a canvas: the percent in the 36 px face + a 20-block bar; scroll adjusts live, tap keeps)
   ├─ ASK / SEARCH / YT SEARCH / RENAME / SAVE-AS → the keyboard (§4.8), draft kept
   └─ MUSIC MODE (exclusive, §8.3) ── double-tap ──▶ QUEUE
 ```
@@ -442,10 +465,11 @@ QUEUE (List, root) ──tap row──▶ ROW MENU (MenuSurface)  ──▶ back
   m:ss / m:ss on the current entry (queue position i/n and the mode word on others) · state
   glyph ▶ ❚❚ ■ · backend/link badge (`PC` · `PC ↓ 2m` · `Spotify`) · boost badge when active.
   Cursor rests on the current entry at every level change; the row identity is `qid`.
-- **Row menu**: Play from here · Play next · Remove (never for the current entry) · Move up ·
-  Move down · Add to playlist… · Track info (Document). Cancel first.
+- **Row menu** (as built): Pause/Play (current) or Play from here · Track info (Document) · Play
+  next (not the current) · Move up · Move down · Add to playlist… · Lyrics · Remove (not the
+  current; LAST — the misfire rule). No Cancel row.
 - **Empty queue**: one row "Nothing queued — tap for Browse" + the Menu row.
-- **Confirms**: Clear queue · Delete playlist (Cancel first, the unrecoverable row at index 2) ·
+- **Confirms**: Clear queue (Cancel · Clear) · Delete playlist and Save-over (Cancel first, the unrecoverable row at index 2) ·
   Save over an existing playlist name (asked twice) · Replace queue while playing.
 - **Ask**: keyboard → `ask()` → the honest lane line in the title notice → `playQueue`.
   **Search**: results list; none → "Search YouTube…" row. **YouTube**: results (title · channel ·
@@ -453,27 +477,31 @@ QUEUE (List, root) ──tap row──▶ ROW MENU (MenuSurface)  ──▶ back
   notification with `t:<id>`; the new track is offered Play now / Play next.
 - **Deep links**: `t:<trackId>` (queue row if queued, else Track info), `pl:<id>`, `mode:music`
   (enter Music Mode), `yt:<job>`.
-- **Summary** (cheap, from `player.state`): `▶ Title — Artist` + progress · `❚❚ Title` ·
-  `▶ Spotify · phone` · `♪ 25 queued` · `♪ idle` · `player: phone needed` (desktop); detail =
-  album · `q i/n` · mode.
+- **Summary** (cheap, from `player.state`; as built words, no glyphs): `playing · Title — Artist`
+  · `paused · Title` · `Spotify · phone[ · title]` · `25 queued · staged` · `idle` · `player: phone
+  needed` (desktop); detail = album · `q i/n` · mode.
 
 ### 8.2 Menu (wrap-end row; the order is the cursor-rest order)
 Pause/Resume · Next · Previous · Volume… · Ask… · Browse · Playlists · Moods & genres · Search…
 · Mode: Shuffle/Queue/Radio/Library random · Lyrics · Seek… · Save queue as playlist… · Music
-Mode · Output… · Sleep… · Stop · [Back to PC library] · [Switch to Spotify]. Every row wraps and
+Mode · Output… · Sleep… · Shuffle the rest · Clear queue · Stop · [Back to PC library] · [Switch
+to Spotify]. Every row wraps and
 elides through `Draw.fit`; nothing is cut.
 
 ### 8.3 Music Mode (shell `Mode.EXCLUSIVE`)
-- `ShellServices.enterExclusive(window)` / `exitExclusive()`; the shell paints the whole panel
-  through `window.paintExclusive(g, rect, height)`; **input: everything swallowed except
+- `ShellServices.enterExclusive(window): Boolean` / `exitExclusive()`; the shell paints the whole
+  panel through `window.paintExclusive(g: Gray8, safe: Rect, full: Boolean): List<Rect>` (the
+  damaged rects), with `onExclusive(on)` at the edges; **input: everything swallowed except
   double-tap → exit** (the `Mode.SILENT` branch generalized; long-press never arms; the chord
   cannot fire); notices show as in silent mode (verdict 23); the mode persists like SILENT and
   restores after a driver swap only if the window is still registered. `DESIGN.md` gains **§4.9
   Exclusive mode** (the build writes it) and §1.5 gains the sibling sentence.
-- Surfaces (each on/off + order in Settings → Music → Music Mode): **Card** (large: art 120 px at
-  480 / 56 px at 288, title/artist/album, bar) · **Lyrics** (3/5/7/9 lines by height, current
-  line bright) · **Visualizer** (strip 608×48…96) · **Queue peek** (next 2–3) · **Clock** ·
-  **PC link**. Defaults: Card + Lyrics on, Visualizer off, Clock on, PC link on.
+- Surfaces (each on/off + order in Settings → Music → Music Mode), as built: **Card** (art 120 px
+  at 416 and 480 / 56 px below; 136 / 88 / 72 px tall; title/artist/album, bar) · **Lyrics**
+  (as many lines as fit between the card and the bottom surfaces at the 22 px face, capped at 9;
+  the current line bright — in the 18 px face at HEAD level when it would not fit its one row) ·
+  **Visualizer** (608×48 below 416, 608×64 at 416/480) · **Queue peek** (next 2) · **Clock** ·
+  **PC link**. Defaults: Card + Lyrics on, Visualizer off, Queue peek off, Clock on, PC link on.
 - Repaint policy: the card on track change and every 5 % of progress; lyrics on line change;
   visualizer at its rate; each repaint is ONE dirty rect per surface (§12).
 
@@ -485,7 +513,8 @@ Channels (mono default/stereo) · Normalization (on) · Default mode (Shuffle) �
 (1/2/3/5/10) · Lyrics offset (−500…+500 by 50, per output device) · Lyrics sources (LRCLIB+local /
 +NetEase / +Musixmatch) · Visualizer (Off/Bars/Scope/Pulse/Meter) · Visualizer rate (4/8/12) ·
 Music Mode: Card/Lyrics/Visualizer/Queue peek/Clock/PC link (on/off each) · Spotify fallback
-(auto/never) · Sleep (off/after track/15/30/60/90) · Pre-transcode library (action) · Size ·
+(auto/never) · Sleep (off/after track/15/30/60/90) · Pre-transcode library (action) · Rescan
+library (action) · Size ·
 Font/Font size/Font style/Depth (automatic). Global gains **Phone notifications** (off).
 
 ## 9. The host
@@ -519,10 +548,13 @@ shuffle, size cap `queueSize` 25 except finite album/playlist sets). Lane 2: `cl
 (measured 2026-09-02: `--bare` reads only `ANTHROPIC_API_KEY`, and Adam's CLI is signed in over
 OAuth, so it answers "Not logged in" with exit 0; `ClaudeOneShot` keeps `bare` as an off-by-default
 flag and judges the lane by parseability, never by the exit code), env scrubbed, a strict-JSON prompt (artists/albums/genres/moods/
-styles/energy/free text) that lane 1 then executes; any failure or non-JSON → lane 3 → lane 1
-random. Lane 3: `embed_query` (stdin text → 384-dim JSON, ~3.5 s cold) → Qdrant search. Every
-result carries the lane + label + detail line. Radio = Qdrant `recommend` from the last 3 played
-ids, minus the queue, minus dupes. Library random = lane-1 rules over the whole catalog.
+styles/energy/free text) that lane 1 then executes; any failure or non-JSON → lane 3 → an honest
+EMPTY answer (never a guess, never YouTube; the random lane is lane 1's own, for a literal
+"random" or a request with no content tokens). Lane 3: `embed_query` (stdin text → 384-dim JSON,
+~3.5 s cold) → Qdrant search. Every result carries the lane + label + detail line. Radio (as
+built) = Qdrant `recommend` from up to the last 5 queue entries ending at the current (those
+present in Qdrant), excluding the queue, the last 50 history ids and their dupe clusters, in
+batches of 10. Library random = lane-1 rules over the whole catalog.
 
 ### 9.4 Lyrics fetch (`LyricsFetch`), in order, first hit wins, all paced and cached (negatives too)
 1. the `lyrics` table; 2. embedded tags (`LYRICS`, `UNSYNCEDLYRICS`, `lyrics-*` via ffprobe);
@@ -531,8 +563,8 @@ ids, minus the queue, minus dupes. Library random = lane-1 rules over the whole 
 `syncedlyrics` project, MIT: read for facts, write our own); 6. the unofficial Musixmatch desktop
 token route (same reference; behind the Settings toggle; expect it to stop working someday and
 say so loudly, never silently). Manual search = the same chain with a typed query, results as
-choices. AcoustID (Adam's existing key in `~/.g2cc/config.json`) stays with the enrichment
-passes, not the fetch chain.
+choices. AcoustID (the key as `musicAcoustidKey` in `~/.damage/config.json`, `ACOUSTID_API_KEY`
+winning) stays with the enrichment passes, not the fetch chain.
 
 ### 9.5 The Python package (`audio/`)
 Copy `/home/user/G2CC/audio/enrich/` into `damagewm/audio/enrich/` (Adam's code, his licence);
@@ -540,8 +572,8 @@ Copy `/home/user/G2CC/audio/enrich/` into `damagewm/audio/enrich/` (Adam's code,
 same cache-key rule; run with `musicPython` (G2CC's venv for now, untouched) from `audio/` as
 `-m enrich.<module>`; add `viz.py` (§6.4). Ingest for a new track = `run_enrichment` passes
 `tags musicbrainz lyrics audio profile embed dedupe` scoped `--track-id`, then viz, then the
-transcode for the current profile. A Damage-owned venv is a later chore (`DAILY.md` records the
-`pip freeze` of G2CC's).
+transcode for the current profile. A Damage-owned venv is a later chore (`audio/requirements-frozen.txt`
+is the `pip freeze` of G2CC's, 224 pins).
 
 ### 9.6 YouTube (`YouTube`)
 `yt-dlp --no-download --flat-playlist --dump-json "ytsearch10:<q>"` → results; grab = `yt-dlp -f
@@ -557,29 +589,26 @@ channel. Never the first result unasked.
 `musicLegacyCache` (~/.g2cc/media-cache) · `musicCache` (~/.damage/media-cache) · `musicPython`
 (/home/user/G2CC/audio/venv/bin/python) · `musicYtDlp` (~/.local/bin/yt-dlp) · `musicYoutubeDir`
 (YouTube) · `musicClaudeModel` (opus) · `musicClaudeEffort` (low) · `musicQueueSize` (25) ·
-`mediaPort` (7404) · `musicAcoustidKey` (optional; Adam copies it from his G2CC config).
+`mediaPort` (7404) · `musicAudioDir` (/home/user/damagewm/audio) · `musicAcoustidKey` (optional;
+Adam copies it from his G2CC config).
 
 ## 10. Tests, harnesses, gates
 
-- **`MusicTest` (core)**: LRC parsing (plain, line, enhanced), scheduler math (offset, send-ahead,
-  seek/pause re-sync, no double flush), `QueueEngine` (shuffle keeps current first, remove/move,
-  mode changes, radio low-water, library random, current entry never removable), profile keys
-  and the legacy cache mapping, lane-1 resolver over a fixed catalog (artist/album/playlist/vocab/
-  search + every post-processing rule), the LLM/embedding fallback contract (a failing lane →
-  the next), `HoldVolume` classification (limiter drop vs button steps vs our own set; the pacing
-  rule), boost reset on track change, sleep deadline, Spotify switch/switchback state machine,
-  the window grammar at **288 and 480** (levels, wrap-end menu, cursor rests, confirms, empty
-  queue, deep links), persistence round-trip + the continuity test (state and sub-records),
-  Music Mode enter/exit through the shell (swallow test: tap/scroll/long-press ignored,
-  double-tap exits, the chord cannot fire), the remote library over a loopback host (catalog
-  version cursor, art/viz blobs, yt job push), viz renderers (determinism, one rect per frame,
-  ink ≤ budget).
-- **Desktop**: `ScriptedMusic` drives the selfcheck walk (queue → row menu → browse → playlist →
-  lyrics → ask via the keyboard → Music Mode at 288 and 480 → the done/track-change notice) with
-  the ink budgets stated; snapshot scenes: card 288/480, queue, browse, lyrics, Music Mode 288/480
-  with Bars and Scope, YouTube results, settings rows. `--music-check`: a read-only pass against
-  the real Postgres/Qdrant/cache (counts, a sample query per lane, the cache-key mapping for 20
-  random tracks) — the `--epub-check` shape; not part of `:core:test`.
+- **Core tests, as built**: `MusicTest` ×8 (profiles + the legacy cache mapping, the media endpoint
+  — Range/token/0-byte, VizData round trip, queue rules, the catalog codec, the SQL layer over a
+  fake Db, the remote library over loopback, the scan's hidden-directory prune), `MusicWindowTest`
+  ×7 (`QueueEngine`, a Radio fill landing after a pick, PlayerCore transport / fill / sleep / boost /
+  hold / Spotify, LRC + the scheduler, the grammar at **480 and 288**, persistence + continuity),
+  `MusicModeTest` ×2 (enter/exit through the shell, the swallow test), `ResolverTest` ×19,
+  `LyricsFetchTest` ×24, `YouTubeTest` ×13, `VizTest` ×12, `EnrichTest` ×11.
+- **Desktop**: `ScriptedMusic` drives the selfcheck walk (as built: the empty queue → Browse →
+  Artists → an artist → play via the set menu → the card → the row menu → the Music menu → Ask via
+  the keyboard → Lyrics → Music Mode 480/Bars then 288/Scope (swallow, a notice over it, double-tap
+  exit) → the off-screen track-change notice) with the ink budgets stated; snapshot scenes 30–39:
+  queue 480/288, menu, browse, artist, lyrics, YouTube, settings, Music Mode 480/Bars + 288/Scope.
+  `--music-check`: a pass against the real Postgres/Qdrant/cache, read-only bar the additive
+  schema migration (counts, a sample query per lane, the cache-key mapping for 20 random tracks,
+  one viz blob) — the `--epub-check` shape; not part of `:core:test`.
 - **Gates**: `:core:test` · `:desktop:test` · `--selfcheck` · `--snapshot` (look at every new
   scene at 1×) · `--epub-check` · `--music-check` · `tools/lint.py` · `:phone:assembleDebug` ·
   `:phone:stageApk` · `:desktop:stageJar`; every milestone commit leaves all of them green.
@@ -609,8 +638,8 @@ records which).
    "Music" + module map, `HANDOFF.md` §24, `REMINDER.md`, `DAILY.md` (one-time phone grants:
    notification access; the volume probe; Spotify cold-start check; the mediaPort; the venv
    freeze), `WINDOWS.md` (five precedents), memory; APK 19/0.19 staged; jar staged; service
-   restarted. (Review round 1 followed the same morning — `HANDOFF.md` §24.2 — and bumped the
-   staged APK to 20/0.20.)
+   restarted. (Review round 1 followed the same morning — `HANDOFF.md` §24.2, APK 20/0.20 — and
+   two ultrareview runs the same afternoon — §24.3, APK 21/0.21.)
 
 Delegation guide (token budget): M1's DAO/transcode/stream, M5's `LyricsFetch`, `YouTube`,
 `viz.py` and the lane-1 `Resolver` port, M3's `Viz` renderers and M4's `SpotifyRemote` are leaf

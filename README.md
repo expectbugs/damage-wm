@@ -32,12 +32,12 @@ bars and a live lens, a details document, browse by category and search, a torre
 Add behind a confirm, done-notifications decided once host-side, a seeding-under-a-week list
 for the tracker's rules — and a ring-driven wireframe keyboard (row, then key) that Torrents,
 Tmux and Files all ask for.
-[`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run; `HANDOFF.md` §10–§23 are the
+[`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run; `HANDOFF.md` §10–§24 are the
 install / first-light / refinement / launch-day / app-wave records; `DAILY.md` is the ops
 crib; [`WINDOWS.md`](WINDOWS.md) the conversion checklist; `EXPLOSION.md` the graded app
 backlog + refinery verdicts; `REFINEMENT.md` and `TMUX.md` the design logs.
 
-**2026-09-02/03 — MUSIC**, built whole overnight (`MUSIC.md`, `HANDOFF.md` §24): the G2CC music
+**2026-09-01/02 — MUSIC**, built whole overnight (`MUSIC.md`, `HANDOFF.md` §24): the G2CC music
 system taken over (Postgres, Qdrant, the transcode cache, the enrichment package, yt-dlp), the
 phone as the player (ExoPlayer + a media session — earbud taps drive the queue from anywhere,
 hold-my-volume, boost, sleep, prefetch, Spotify as the fallback), the PC as the library over the
@@ -54,6 +54,7 @@ visualizer, queue peek and clock per height.
 | [`WINDOWS.md`](WINDOWS.md) | how a G2CC app becomes a DamageWM window — the current phase's build checklist |
 | [`EXPLOSION.md`](EXPLOSION.md) | the graded app backlog, the §16 contract record, the refinery verdicts |
 | [`TORRENTS.md`](TORRENTS.md) | the Torrents window: verdicts, the verified qBittorrent and TorrentLeech facts, the design, the plan |
+| [`MUSIC.md`](MUSIC.md) | the Music window: 29 verdicts, the verified library facts, the two-host design, the build plan with its as-built notes |
 | [`DAILY.md`](DAILY.md) | the daily-driver ops crib: services, ports, deploys, recovery |
 | [`REFINEMENT.md`](REFINEMENT.md) | the post-first-light refinement log: every ask, its analysis, and what shipped |
 | [`IMPLEMENTATION.md`](IMPLEMENTATION.md) | the built first stage: modules, the transport seam, how to run and verify |
@@ -77,7 +78,7 @@ The design is shaped by three facts about this display, and most of it follows f
 ## Building and verifying
 
 ```
-./gradlew :core:test                                  # 315 tests, incl. the per-lens oracle
+./gradlew :core:test                                  # 317 tests, incl. the per-lens oracle
 ./gradlew :desktop:test                               # 9 tests: the BlueZ glue over a fake link
 ./gradlew :desktop:run --args="--selfcheck"           # the 134-check whole-stack gate
 ./gradlew :desktop:run --args="--snapshot DIR"        # lens-truth PNGs of every surface
@@ -86,7 +87,7 @@ The design is shaped by three facts about this display, and most of it follows f
 ./gradlew :desktop:run --args="--transport ble"       # PC-direct BLE (the at-the-desk fallback)
 ./gradlew :desktop:run                                # auto = the §19 standby (data host; claims nothing) + preview (4x)
 ./gradlew :phone:assembleDebug                        # the APK (deploy flow: :phone:stageApk → the setup page)
-tools/lint.py                # design gate: 19 rules (SYM/GEO/BUD/FID); --selftest fires 16 of them
+tools/lint.py                # design gate: 20 rules (SYM/GEO/BUD/FID); --selftest fires 15 of them in 16 cases
 python3 design/render_shots.py   # design renders at true 1x, priced through the firmware's RLE
 python3 research/verify_cfw.py   # rebuilds the CFW offline and checks every pinned hash
 ```

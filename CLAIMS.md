@@ -83,7 +83,7 @@ they meant — including ours.
 | Mode-3 quantization: left/width ×4, top/height ×2, 1 byte each | **V+C** | source **and** Faceclaw's aligner does exactly this |
 | **Panel is 640×480** — full-height rendering | **M** | daily use since 2026-08-31 (Reader at 480). "All visible" is fit-dependent: Adam's fit loses BOTTOM rows (sizes went top-aligned) |
 | Width headroom (64 cols) is the stereo-shift budget | **S** | author's prose; plausible and matches §7, but not independently confirmed |
-| 640×288 is the sensible default | **C** | author's prose **and** Faceclaw's `MIN_WINDOW_HEIGHT = 288` in code |
+| 640×288 is the sensible default | **C** | author's prose **and** Faceclaw's `MIN_WINDOW_HEIGHT = 288` in code — Faceclaw's default; Damage ships 480 as its Global default per Adam's fit (`DESIGN.md` §2.4 rule 4), sizes top-aligned |
 | Direct-framebuffer lease required (sid 0x09 field 101 op 5/6, both arms, 45 s renew) | **V+C+M** | `settings_ext.c` + Faceclaw's Java; the choreography runs on hardware in every session and holds the screen all day |
 | Carrier layout needs a dummy full-screen text container | **C** | `buildCreateMixedImagePage` + the lease comment naming it |
 | ~6 rects per mode-8 batch (fid ring is 16 deep) | **C** | Faceclaw's `MULTI_RECT_MAX_RECTS = 6` + `CFW_FID_RING` in source |

@@ -36,7 +36,7 @@
          both lookups are filtered and Spotify reads as "not installed" even
          when it is — the passive session path never showed it because the
          notification-listener grant exempts active sessions only
-         (ultrareview 2026-09-03). -->
+         (ultrareview 2026-09-02). -->
     <queries>
         <package android:name="com.spotify.music" />
     </queries>
@@ -44,7 +44,7 @@
     <!-- Cleartext HTTP to the PC's media endpoint (:7404) over the tailnet
          (MUSIC.md §6.3): ExoPlayer and the prefetch store use HttpURLConnection,
          which the platform's cleartext policy would otherwise refuse (review
-         2026-09-03). The endpoint is token-gated; the transport is Tailscale. -->
+         2026-09-02). The endpoint is token-gated; the transport is Tailscale. -->
     <application
         android:usesCleartextTraffic="true"
         android:label="Damage"

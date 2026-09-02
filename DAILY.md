@@ -34,10 +34,10 @@ ever needs redoing: (1) sideload from the setup page, grant Bluetooth ×2 + noti
 battery exemption; (2) 🔴 keep the G2CC bridge app Disconnected (a second central); (3) phone
 first light with NOTHING on beardos holding the pair (`sudo rc-service damage stop`), flip
 Target → glasses; (4) `sudo rc-service damage start` → the log says "standby up (§19)" and the
-phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.20 is the
+phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.21 is the
 staged build: Files + theme icons + the sync client + Torrents + the keyboard + every
-2026-09-01 review fix + the chrome tweaks + Music + its review round 1; 0.16 is the last build
-observed installed**). Why old
+2026-09-01 review fix + the chrome tweaks (the Silent-clock size row included) + Music + its
+three reviews; 0.16 is the last build observed installed**). Why old
 APKs matter: a pre-0.15 APK cannot be status-probed (the PC conservatively stays out — fine)
 and a pre-0.10 one carries no sync client, so state does not flow until it is updated. 0.16
 being installed also unblocks Reader's transitional legacy-offsets cleanup (`REMINDER.md` Next 2).
@@ -49,13 +49,13 @@ being installed also unblocks Reader's transitional legacy-offsets cleanup (`REM
 | **beardos `damage` service** | the music LIBRARY: Postgres `g2cc` over the Unix socket (peer auth, no password), Qdrant `g2cc_music`, the transcode cache (`~/.g2cc/media-cache` read in place as the Standard profile, `~/.damage/media-cache/<profile>/` for the rest), art + viz blobs, the resolver lanes (a `claude -p` one-shot for Ask, `audio/enrich/embed_query.py` on G2CC's venv for the embedding lane), yt-dlp, the enrichment passes; the **media endpoint on :7404** (`GET /track/<id>?token=&profile=`, Range-capable) next to the window channel on :7401 |
 | **phone APK** | the PLAYER: ExoPlayer + a media session (bud taps: single = play/pause, double = next, triple = previous, from anywhere), the catalog/art/viz/lyrics cached on disk, the next 3 tracks prefetched, hold-my-volume, boost, sleep, Spotify as the fallback |
 
-**One-time phone grants (0.20):** open the app → **`music access`** on the strip → allow
+**One-time phone grants (0.21):** open the app → **`music access`** on the strip → allow
 *Damage music* notification access (Spotify's session + the OS volume-lowered notice ride on
 it; the window says "grant notification access on the phone" until then). No RECORD_AUDIO
 is asked, ever. Then in Settings → Music pick the Output (Auto follows the buds; the phone
 speaker plays only when chosen).
 
-**Checks owed on the phone (`MUSIC.md` §12, measured items):** the first real
+**Checks owed on the phone (the measured items — `HANDOFF.md` §24.1 "Measured vs modeled"):** the first real
 hearing-limiter trigger at work — every volume change is logged with its cause and every
 system notification from the system packages is logged with its text, so the matcher in
 `MusicListener.rules` can be corrected from evidence; the Spotify cold start (does Spotify
@@ -91,8 +91,9 @@ runs every read-only probe against the real database and computes one viz blob.
   the setup page, install over; `MY_PACKAGE_REPLACED` restarts the phone service by itself.
 - Tmux/knobs: `~/.damage/config.json` (`tmuxHosts` — add slappy back when it is actually on —
   `tmuxQuickKeys`, `tmuxSnippets`, `tmuxWaitPatterns`); on-glass settings live in
-  Settings → Tmux. Every HOST-need window on the phone (Tmux, Files, Torrents, Reader content)
-  rides this PC service (or `--host-only`) — content port :7401.
+  Settings → Tmux. Every HOST-need window on the phone (Tmux, Files, Torrents, Reader content,
+  Music) rides this PC service (or `--host-only`) — content port :7401, plus the media endpoint
+  :7404 for Music.
 - If the pair "scans forever" while the phone says Connected: the stale-ACL recovery is still
   **toggle phone Bluetooth** (the scan now fails loudly and rides the ON edge back in).
 - **Torrents (2026-09-01, `TORRENTS.md`):** the window reads qBittorrent's Web API on
@@ -116,5 +117,5 @@ schema, and a phone-side record (`window.tmux`) crossed and applied store-direct
 shell was in standby. **Still awaiting a deliberate glass test**: a real standby engagement
 (stop the APK at the desk → the PC BLE-drives within ~10 s → restart the APK → handback) and
 the sync feel across a driver swap (a book position following the swap). Current staged APK:
-**0.20** (Files, the chrome tweaks, Torrents, the keyboard, Music + its review round 1); **0.16 is
+**0.21** (Files, the chrome tweaks, Torrents, the keyboard, Music + its three reviews); **0.16 is
 the last build observed INSTALLED** (2026-09-01 — the phone speaks the files channel).

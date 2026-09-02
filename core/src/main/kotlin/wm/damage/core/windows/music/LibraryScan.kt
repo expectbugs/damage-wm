@@ -44,7 +44,10 @@ class LibraryScan(private val db: MusicDb, private val roots: List<String>, priv
                 Files.walk(rp).use { st ->
                     for (p in st) {
                         val n = p.fileName?.toString() ?: continue
-                        if (n.startsWith(".") || n == "lost+found") continue
+                        // Files.walk is a flat stream: a hidden DIRECTORY must be pruned by
+                        // looking at every segment below the root, or .Trashes/x.mp3 and
+                        // .stversions/x.opus get indexed (ultrareview 2026-09-02)
+                        if (pruned(rp, p)) continue
                         if (Files.isRegularFile(p) && n.substringAfterLast('.', "").lowercase() in AUDIO_EXTS) files.add(p)
                     }
                 }
@@ -112,6 +115,13 @@ class LibraryScan(private val db: MusicDb, private val roots: List<String>, priv
     }
 
     companion object {
+        /** True when any segment of [p] below [root] is hidden or `lost+found`
+         *  (Files.walk cannot prune a subtree, so every path is checked). */
+        fun pruned(root: Path, p: Path): Boolean {
+            val rel = root.relativize(p)
+            return (0 until rel.nameCount).any { i -> rel.getName(i).toString().let { it.startsWith(".") || it == "lost+found" } }
+        }
+
         val AUDIO_EXTS = setOf("mp3", "flac", "m4a", "ogg", "opus", "wav", "aac", "wma", "aiff")
 
         /** "3", "3/12", "03" → 3; junk → null (tag values are strings and lie). */

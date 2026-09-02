@@ -148,7 +148,7 @@ class MusicListener : NotificationListenerService() {
             NoticeRule("com.android.settings"),
             // the Google-branded settings package only — a bare `com.google.android.`
             // prefix let a text message reading "volume … safe" re-set the stream
-            // and land in the log (review 2026-09-03)
+            // and land in the log (review 2026-09-02)
             NoticeRule("com.google.android.settings"),
         )
 

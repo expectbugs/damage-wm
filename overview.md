@@ -6,7 +6,7 @@ wave.** The research phase this file records closed 2026-08-17; the shell was bu
 the refinement wave 2026-08-31 (§12), the phone APK became the primary driver with the PC as
 data provider + standby the same night (§19), and 2026-09-01 brought the first G2CC window
 conversion (Files) with the shared app machinery (§22) and then Torrents + the on-glass keyboard
-(§23), and 2026-09-02/03 Music (§24 — `MUSIC.md`). App layer: Main · Settings · Reader · Tmux ·
+(§23), and 2026-09-01/02 Music (§24 — `MUSIC.md`). App layer: Main · Settings · Reader · Tmux ·
 Files · Torrents · Music. This file
 remains **the fact record** — read it with [`CLAIMS.md`](CLAIMS.md) for grades; the app wave's
 own records are `EXPLOSION.md`, `WINDOWS.md` and `TORRENTS.md`.
@@ -38,7 +38,7 @@ This document is the complete carry-over from the research that produced the dec
 >
 > Two things exist alongside it that a fresh session must know about:
 > - **`tools/lint.py` + `tools/geometry.py`** — the build gate from `DESIGN.md` §9.2b (the
->   SYM/GEO/BUD/FID rule set). `tools/lint.py --selftest` proves each one fires; `tools/lint.py` gates the
+>   SYM/GEO/BUD/FID rule set, 20 rules). `tools/lint.py --selftest` fires 15 of them in 16 cases; `tools/lint.py` gates the
 >   repo and currently exits 0. **Run it after any geometry or layout change.**
 > - **`design/render_shots.py`** — renders every shell surface at **true 1× 640×480**, 4bpp
 >   quantized, priced through the firmware's own RLE. Output in `design/shots/`. This is how ink
@@ -232,8 +232,10 @@ Two things that change how we should use the canvas:
 
 ⇒ **Working guidance: 640×288 default; 640×480 available when a specific app earns it; leave width
 margin if that app wants depth.**
-*(Built: per-app `preferredHeight` with four TOP-aligned sizes 288/352/416/480 — Reader and Tmux
-take 480 — `DESIGN.md` §2.2b/§4.2, `REFINEMENT.md` §2.)*
+*(Built: 288 is Faceclaw's default; Damage ships **480 as the Global default** — Adam's fit loses
+the bottom, so the four sizes 288/352/416/480 are TOP-aligned — with a per-app `preferredHeight`:
+Reader, Tmux and Music prefer 480; Files, Torrents and Music offer global + all four —
+`DESIGN.md` §2.2b/§2.4 rule 4/§4.2, `REFINEMENT.md` §2.)*
 
 ### 🔴 Two corrections to the table above (2026-08-17)
 
@@ -1497,8 +1499,8 @@ workday.** The spec has a hybrid power policy and no measured budget.
    (`CfwTransportBase`).
 5. ~~**Typed-text input** path~~ — **BUILT 2026-08-31**: `DamageWindow.onTypedText` +
    `Transport.injectText`; a line typed on the phone strip, the browser replica or the desktop
-   preview reaches the focused window, always staged behind the window's own confirm (Tmux and
-   Files consume it).
+   preview reaches the focused window, always staged behind the window's own confirm (Tmux,
+   Files, Torrents and Music consume it).
 6. ~~**Dirty-rect addressing constraints**~~ — **RESOLVED 2026-08-16**, see §4: mode 3 is
    quantized (left/width ×4, top/height ×2, one byte each, bounds-checked to 640×480); mode 8 is
    size-capped (~153 KB), not count-capped; `CFW_RECT_MAX=16` is a debug-overlay limit only.
@@ -1678,8 +1680,10 @@ Everything G2CC does, rebuilt without the image tax, plus what was never possibl
 - Access to the whole PC library — books, data, imagery, everything *(the content host + the
   window channel, `HANDOFF.md` §19/§22)*
 
-Shipped beyond the list: Tmux (2026-08-31), Torrents (2026-09-01) and Music (2026-09-02/03,
-`MUSIC.md`). Next: the review loop for Music, then the wow order in `EXPLOSION.md` §20.
+Shipped beyond the list: Tmux (2026-08-31), Torrents (2026-09-01) and Music (2026-09-01/02,
+`MUSIC.md`; reviewed three ways the same day — `HANDOFF.md` §24.2–§24.3). Next: the on-phone
+measured items for Music, then the wow order in `EXPLOSION.md` §20 — Games (#1) or Feed + comics
+(#5), Adam's pick.
 
 ---
 

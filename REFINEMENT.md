@@ -5,7 +5,7 @@
 > plane −2 at d+4 capped 16 — `DESIGN.md` §2.2/§2.3/§3.1 revised). **§2** per-app height
 > (`DamageWindow.preferredHeight`, applied on focus commit, never preview; Reader defaults to the
 > full panel with a per-app "Size" row). **§3a** folders (BookMeta.folder, additive; folder rows
-> + descend/ascend in Reader). **§3b** scroll (per-notch step 1–8 default 3, direction-gated
+> + descend/ascend in Reader). **§3b** scroll (per-notch step 1–8 default 5, direction-gated
 > acceleration ≤250 ms → up to 6×, both in Reader's actions; `DESIGN.md` §0 reversal recorded).
 > **§5** clock: top-RIGHT, digital seven-segment, ✅ SHIPPED (0.5 % ink, 174 B — `DESIGN.md`
 > §1.5; sizes became a Global setting 2026-09-01). **§6** measured — `overview.md` §5.2:
@@ -16,7 +16,7 @@
 
 **Read `HANDOFF.md` §11 first** for what first light established, then this. The flash, the
 install, first light and this whole wave are behind us; `REMINDER.md`'s "Next" has moved on to
-the app-wave conversions (`HANDOFF.md` §22–§23). This file is the record of the 2026-08-30/31 wave.
+the app-wave conversions (`HANDOFF.md` §22–§24). This file is the record of the 2026-08-30/31 wave.
 
 This is Adam's list, taken from his own account of wearing the glasses and driving them from the
 PC, plus the analysis each item already has. **Nothing here is speculative feature work** — every
@@ -129,7 +129,7 @@ actions level.
 settings, then one additional category per app (which right now is just Reader so far)."*
 Built: header landmarks ("GLOBAL", "READER") over the list; apps contribute rows via
 `DamageWindow.appSettings()` (the `HostSetting` contract); Reader contributes Scroll step /
-Scroll accel / Height. Headers are non-interactive rest cells.
+Scroll accel / Size. Headers are non-interactive rest cells.
 
 ---
 

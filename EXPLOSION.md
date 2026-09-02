@@ -7,7 +7,7 @@ cuts it back. Grades are the builder's first-pass opinion **for the refinery to 
 ⚠ **Role update 2026-09-01/02: the explosion and refinery are CLOSED** — §5 (Files, built), §16
 (the contract, built), §19 (Torrents, built) and §20 (the verdicts + the rejected-ideas guard) are
 RECORDS of settled/built work; the remaining per-window tables are still proposals awaiting their
-own refinery pass. **Music (§3) was refined and BUILT 2026-09-02/03** — `MUSIC.md` holds its 29
+own refinery pass. **Music (§3) was refined and BUILT 2026-09-01/02** — `MUSIC.md` holds its 29
 verdicts and the settled design, `HANDOFF.md` §24 the build record.
 
 **Inputs:** [`CAPABILITIES.md`](CAPABILITIES.md) (what the hardware can do, graded),
@@ -174,7 +174,7 @@ compose-new v1 or does reply-only cover the daily loop?
 
 ## 3. MUSIC
 
-> ✅ **BUILT 2026-09-02/03 — `MUSIC.md` is the record (29 verdicts, the design, the build plan
+> ✅ **BUILT 2026-09-01/02 — `MUSIC.md` is the record (29 verdicts, the design, the build plan
 > as built), `HANDOFF.md` §24 the build record.** The ideas below are the explosion that fed
 > Adam's verdicts; his verdicts supersede every grade here. As built: the §16.10 push slice
 > shipped with it; the backend fallback (PC library → Spotify on the phone) lives in the
@@ -651,15 +651,17 @@ DamageWM's system, which is the intended *build excitement* order (risk still pr
 sequencing per window):
 
 1. **Games** (roster first; 10b lanes on revisit) — not started; **Music was taken next instead
-   (Adam, 2026-09-02) and is built**
+   (Adam, 2026-09-02) and is built**. Next candidates after Music: Games (this row) or Feed +
+   comics (#5) — Adam picks.
 2. **Torrents** (§19) — ✅ **BUILT 2026-09-01 evening** (`TORRENTS.md`, `HANDOFF.md` §23; four
    review rounds, paused at Adam's word; on-glass verdicts owed)
 3. **Files** — ✅ **BUILT (2026-09-01, the same night — the §5 banner, `HANDOFF.md` §22)**:
    the settled design shipped whole (locations + capacity bars, the context-menu grammar,
    text/image/PDF viewers, clipboard, trash+restore, typed rename, Open-on-PC, EPUB→Reader
    hand-off, theme icons) and survived an eight-round review loop run to convergence
-4. **Music** (adaptive PC-library ↔ Spotify per §16.10) — ✅ **BUILT 2026-09-02/03** (`MUSIC.md`,
-   `HANDOFF.md` §24; the review loop and the on-phone measured items are what remain)
+4. **Music** (adaptive PC-library ↔ Spotify per §16.10) — ✅ **BUILT 2026-09-01/02** (`MUSIC.md`,
+   `HANDOFF.md` §24; review round 1 + two ultrareview runs done the same day — §24.2–§24.3; the
+   on-phone measured items are what remain)
 5. **Feed** + comics
 6. **Mail**
 7. **SMS** (+ caller-ID source)

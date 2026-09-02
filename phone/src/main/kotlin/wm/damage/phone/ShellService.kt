@@ -142,7 +142,7 @@ class ShellService : Service() {
         Log.addSink(sink)      // removed at the END of this instance's shutdown (onDestroy)
         // the connectedDevice type ONLY at start: Android 15 refuses a service
         // started from BOOT_COMPLETED whose types include mediaPlayback; that
-        // type is added when playback engages (review 2026-09-03)
+        // type is added when playback engages (review 2026-09-02)
         startForeground(NOTIF_ID, buildNotification("Damage shell starting"),
             android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
         startStack(Prefs(this).target)

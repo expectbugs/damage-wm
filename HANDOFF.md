@@ -5,8 +5,8 @@ lessons and measured facts behind the current state.**
 
 | § | what | status |
 |---|---|---|
-| **24** | **Music (2026-09-02/03): the design verdicts + plan, then the overnight build — M1–M6, six commits, the shell's EXCLUSIVE mode; §24.1 is the build record; the review loop has NOT run yet** | **current** |
-| 23 | Torrents + the keyboard (2026-09-01, evening): the second conversion, built whole, + a 4-round review loop — PAUSED at Adam's word, not converged; resume from `980d832..HEAD` | current |
+| **24** | **Music (2026-09-02): the design verdicts + plan, the overnight build — M1–M6, six commits, the shell's EXCLUSIVE mode (§24.1) — then review round 1 (§24.2) and two ultrareview runs (§24.3), all the same day** | **current** |
+| 23 | Torrents + the keyboard (2026-09-01, evening): the second conversion, built whole, + a 4-round review loop — PAUSED at Adam's word, not converged; its round-4 diff is `980d832..390a25c` | current |
 | 22 | The overnight build (2026-09-01): §16 machinery + FILES + the 8-round review loop, run to convergence | current |
 | **21** | The live refinery + Files chosen + the settled Files design (2026-09-01) | current |
 | **20** | The general-contract session — EXPLOSION §16 settled (2026-09-01) | current |
@@ -721,13 +721,13 @@ Round 4 still found real defects in round 3's fixes, so this is a PAUSED loop, n
 one — Adam's call ("the last review for now"); the next session's first review pass should
 start from the round-4 diff (`980d832..HEAD`).
 
-**Next (`REMINDER.md`):** on-glass verdicts — install 0.18, then the keyboard's feel (row
+**Next as written then (superseded by §24 — Music was built the same night):** on-glass verdicts — install 0.18, then the keyboard's feel (row
 pitch at 288, the highlight, the text-line pan, stay-in-row), the transfers list, a real
 done-notification, browse/search/add against the live tracker; the resumed review pass; the
 Reader transitional cleanup (unblocked); then the next window — Music, design discussion and
 verdicts before code.
 
-## 24. Music — the design settled and the build planned (2026-09-02, after the docs sweep)
+## 24. Music — designed, built and reviewed (2026-09-02)
 
 Two rounds of verdicts with Adam (`MUSIC.md` §1, 29 rows), the facts verified read-only
 (§2: G2CC's music system is taken over whole — Postgres `g2cc`, Qdrant, the 8.1 GB cache,
@@ -742,21 +742,21 @@ owned"); the phone speaker is an allowed output; every window works at all four 
 today with Adam's go: `REINDEX DATABASE g2cc` + `ALTER DATABASE g2cc REFRESH COLLATION VERSION`
 (2.42 → 2.43; the other databases still carry their old versions — other projects' call).
 
-### 24.1 The build (2026-09-02/03, overnight, autonomous — six commits, the battery green at each)
+### 24.1 The build (2026-09-01/02, overnight, autonomous — six commits, the battery green at each)
 
 | milestone | commit | what landed |
 |---|---|---|
 | M1 host foundation | `36343dc` | `MusicModel` (types + the two contracts), the `Db` seam + `PgDb` (pgjdbc 42.7.13 over the Unix socket via junixsocket 2.11.1, peer auth), `MusicDb` (every query + the additive `lyrics.source/track_id` migration recorded in `damage_schema`), `Qdrant`, `MediaCache` + transcoder, `MediaServer` (:7404, Range), `Art`, `LibraryScan`, `LocalMusicLibrary`, `MusicNet` (service + remote with disk caches), the `WinNet` PUSH slice; `--music-check` passed against the real DB |
 | M2 window | `2acf432` | `MusicWindow` (every level at four heights), `QueueEngine`, `PlayerCore` + `SimMusicPlayer` + `MirrorMusicPlayer`, `LyricsSync`; `ScriptedMusic`, the selfcheck walk, snapshot scenes 30–37; the six delegated leaf modules (Resolver + ClaudeOneShot + EmbedQuery, LyricsFetch, YouTube, Viz, `audio/` + viz.py + Enrich, MusicListener + SpotifyRemote) |
 | M3 shell | `fc2fa99` | `Mode.EXCLUSIVE` (`DESIGN.md` §4.9) and Music Mode's per-height surface stack; `MusicModeTest`; selfcheck at 480/Bars + 288/Scope; scenes 38–39 |
-| M4 APK | `67d65b8` | `AndroidMusicPlayer` (ExoPlayer + media3 session over a ForwardingPlayer), `TrackCache`, media3 1.5.1, the manifest's mediaPlayback type, `Prefs.mediaPort`, the service registration, the Global **Phone notifications** switch, the strip's `music access` grant; APK 19/0.19 (20/0.20 after §24.2) |
+| M4 APK | `67d65b8` | `AndroidMusicPlayer` (ExoPlayer + media3 session over a ForwardingPlayer), `TrackCache`, media3 1.5.1, the manifest's mediaPlayback type, `Prefs.mediaPort`, the service registration, the Global **Phone notifications** switch, the strip's `music access` grant; APK 19/0.19 (20/0.20 after §24.2, 21/0.21 after §24.3) |
 | M5 host features | `72cae3d` | the lyric-sources choice pushed to the host (one fetch chain per choice; a source FAULT throws, a MISS stands until the sources widen), `Enrich` + `LyricsFetch` wired, `musicAudioDir`; `--music-check` runs the deterministic lanes and one real viz precompute |
-| M6 docs + staging | (see git log) | this record, `MUSIC.md` corrections, `IMPLEMENTATION.md` Music, `DAILY.md` Music, `REMINDER.md`, `WINDOWS.md` (five precedents), memory; jar + APK staged, the service restarted |
+| M6 docs + staging | `178603f` | this record, `MUSIC.md` corrections, `IMPLEMENTATION.md` Music, `DAILY.md` Music, `REMINDER.md`, `WINDOWS.md` (five precedents), memory; jar + APK staged, the service restarted |
 
 **The battery at M5 (all green):** core **315** tests (was 221 before Music) · desktop 9 ·
 selfcheck **134** checks · snapshots **36** · epub-check clean · lint 0 · `--music-check` all
 pass against the real `g2cc` (2,981 tracks, catalog 1,440 KB in ~70 ms, legacy cache 20/20,
-Qdrant 2,981 points, lanes 1 answer, one viz blob) · `:phone:assembleDebug` 0.19 (0.20 after §24.2).
+Qdrant 2,981 points, lanes 1 answer, one viz blob) · `:phone:assembleDebug` 0.19 (0.20 after §24.2, 0.21 after §24.3).
 
 **Delegation:** six Opus agents in isolated worktrees, each with the fixed interfaces
 (`Plugins.kt`, `MusicModel.kt`) and its own tests: LyricsFetch ×24 · YouTube ×13 · Resolver ×19 ·
@@ -788,10 +788,10 @@ strings and logged verbatim on first sight; `PlaybackState.getLastPositionUpdate
 Bluetooth lyric offset, the achievable visualizer rate, the limiter's real notice and the Spotify
 cold start are the phone's measured items (`MUSIC.md` §12, `DAILY.md` Music).
 
-**Next:** install 0.20 + the grants (`DAILY.md`), the measured items, then round 2 of the
-review loop (§24.2 was round 1) — and the still-owed Torrents/keyboard on-glass verdicts.
+**Next:** install 0.21 + the grants (`DAILY.md`), the measured items — and the still-owed
+Torrents/keyboard on-glass verdicts. The review record is §24.2 (round 1) and §24.3 (ultrareview).
 
-### 24.2 The review loop — round 1 (2026-09-03, morning, autonomous)
+### 24.2 The review loop — round 1 (2026-09-02, morning, autonomous)
 
 Docs sweep first (`17a9a9b`, every doc current at the M6 commit), then `/code-review high` over
 `8d5e30b..HEAD` (the whole Music build). **10 ranked findings (9 CONFIRMED, 1 PLAUSIBLE) + 17
@@ -827,7 +827,9 @@ rows; the play-next move index when the source sits above the cursor; demands ga
 - **The catalog**: `hasArt` was keyed with mtime 0 (art never refreshed after a retag, or
   re-extracted every scan depending on the branch) — the catalog query selects the real mtime.
   The version fingerprint included lyrics and play_history max timestamps, so every play made
-  the phone re-download a 1.4 MB catalog — it is shape-only now. RECENT was built synchronously
+  the phone re-download a 1.4 MB catalog — it is shape-only now (counts, the newest track /
+  playlist / membership stamps, and the count of FOUND lyrics, which flips `hasLyrics`; never a
+  fetch stamp or play history). RECENT was built synchronously
   from the catalog's list (stale until the next catalog refresh) — it is a loaded frame through
   `MusicLibrary.recent(n)` (a `recent` op; the remote falls back to the cached list off-line).
   The scan's stat failure was silent (counted + logged now); an EMPTY host catalog is no longer
@@ -850,5 +852,58 @@ Pins added: the record carries the play state and never the sink's volume; the e
 sequence; play-next's move; route loss while paused; the 0-byte Range; persist round trip.
 **Battery after the round (all green):** core 315 · desktop 9 · selfcheck 134 · snapshots 36 ·
 epub-check clean · lint 0 · `:phone:assembleDebug` **0.20**; jar + APK staged, the service
-restarted on the round-1 build. **Round 2 starts from the round-1 fix commit** — round 4 of the
-Torrents loop found real defects in round 3's fixes, so this round's own diff is the next target.
+restarted on the round-1 build. The next pass was ultrareview (§24.3), the same afternoon.
+
+### 24.3 Ultrareview — two cloud runs over the whole build (2026-09-02, afternoon)
+
+Adam wanted the cloud multi-agent review (`/code-review ultra`) tried on Music. It reviews the
+current branch against a base branch and caps the diff at 8,000 lines; the whole build is 128
+files / 17,149 lines from `pre-music` (= `8d5e30b`). So two synthetic pairs were built: a base
+commit holding everything on main EXCEPT the files under review, with a review branch on top
+whose tree is byte-identical to main — the reviewer sees the full code, the diff is only the
+chosen files. Run 1 (`music-review1` → `base-music1`, 31 files / 6,854 lines): the window,
+player, shell exclusive mode, phone, desktop wiring, viz.py. Run 2 (`music-review2` →
+`base-music2`, 24 files / 6,396 lines): the DB, net, library, cache, media server, the leaf
+modules, PgDb and their tests. Left out: the docs, snapshots, the copied G2CC enrich package, and
+three window test files. The branches were temporary and are deleted. Every finding was
+re-verified against the code before a fix, with a pin each.
+
+**Run 1 — 3 findings, all real (`d6bb08b`):**
+- **Spotify cold start could never work**: the APK declared no package queries, and on Android 12+
+  package visibility hides Spotify from both lookups `coldStart` uses, so it always logged "not
+  installed". The passive session path hid it (the listener grant exempts active sessions only).
+  `<queries>` for `com.spotify.music`.
+- **A Play-from during a pending Radio / Library-random fill was stepped past** when the fill
+  landed carrying "advance when you land". `PlayerCore.pickGen`: the fill keeps its rows and drops
+  the stale advance. `SimMusicPlayer.deferAsync`/`flushAsync` make the gap testable; the pin
+  fails on the unfixed code (cursor 1, expected 0).
+- A constant-true `takeIf` in `applyBoost` that read as a check and checked nothing.
+
+**Run 2 — 5 findings, all real, all rated nits by the reviewer (the closing commit):** the host
+re-spawned `viz.py` on every ask for a track whose build permanently fails (a `.miss` marker +
+an in-memory set now, keyed like the blob so a re-encoded file is probed afresh — the `Art`
+pattern); `LibraryScan` skipped only a hidden directory's own entry while `Files.walk` still
+descended into it (`.Trashes/x.mp3` got indexed — `pruned()` checks every segment below the
+root); `setLyrics` writes an empty artist as `(unknown)` but the legacy-key reads bound the raw
+empty string (both forms accepted now); `Rules.exclusionNote` blamed "sound effects" when the
+spoken-word filter was the cause; the remote's art/viz/lyrics cache writes were not atomic (a
+short art file renders as black pixels with no throw — `atomicWrite` now, the catalog's own
+pattern).
+
+**Found by the closing docs audit, fixed in the same commit:** the shell's `noticeAllowed` still
+gated the `music` source on the Global `notifyMusic` field, which has had no row since Torrents
+(2026-09-01) — but APKs up to 0.17 (0.16 is the one installed) carried the Global "Notify · Music"
+row, so a persisted "off" from it would have silenced every Music notice with nothing to turn it
+back on. The gate is removed; the window owns its six Notify rows (`WINDOWS.md` §1). The audit
+also corrected a systematic dating error: every Music commit is stamped 2026-09-02 (the build
+ran 03:08–04:44), so "2026-09-03" and "09-02/03" in docs, comments and memory were one day
+ahead and are fixed everywhere.
+
+**Verdict on the tool:** fresh eyes found what the author's review had not — two of run 1's
+three were worth the run alone — and none of the eight touched a design decision. It lists
+findings only (fixes are opt-in via `--fix`, not used); it reads `CLAUDE.md` and `REVIEW.md`.
+Three passes in one day converged on nits: a further pass is optional, not owed.
+
+**Battery at close (all green, measured):** core **317** · desktop 9 · selfcheck 134 · snapshots
+36 · epub-check clean · lint 0 · `:phone:assembleDebug` **0.21**; jar + APK staged, the service
+restarted on the closing build.

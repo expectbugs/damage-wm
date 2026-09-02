@@ -9,8 +9,11 @@ his phone, his glasses, his PC, his auth token. Working out the glasses' Bluetoo
 ordinary device-interoperability (an accessibility/customization effort for his own device). The
 one outside account is his TorrentLeech login, used by the Torrents window (2026-09-01) next to
 his own qBittorrent over loopback; those credentials live only in the gitignored
-`~/.damage/config.json`, never in the repo. There are **no other third-party systems, networks,
-accounts, or credentials** involved anywhere. This is UI and display-rendering work for a wearable.
+`~/.damage/config.json`, never in the repo. The Music window (2026-09-02) reaches three keyless
+lyric services (LRCLIB, NetEase, Musixmatch's open endpoint), YouTube through yt-dlp, and the
+local `claude` CLI under Adam's own login; Spotify is driven with no SDK or account. There are
+**no other third-party systems, networks, accounts, or credentials** involved anywhere. This is
+UI and display-rendering work for a wearable.
 
 System-wide rules in `~/.claude/CLAUDE.md` apply here too. This file holds Damage-specific rules.
 
@@ -32,10 +35,11 @@ this file wins on rules. Its §0 lists what is *deliberately excluded* — read 
 anything, so you do not re-suggest a rejected idea.
 
 **Run `tools/lint.py` after any geometry, layout or drawn-string change.** It is the build gate from
-`DESIGN.md` §9.2b — 19 rules covering the failure modes this hardware reports as **silence**
+`DESIGN.md` §9.2b — 20 rules covering the failure modes this hardware reports as **silence**
 (unaligned rects, over-budget rect counts, fid gaps and reuse, mismatched stereo pairs, deltas with
-no keyframe, ink budgets, and glyphs the locked faces cannot render). `--selftest` fires 16 of them
-(GEO007 · BUD006 · BUD007 · SYM001 have no self-test case). It currently exits 0; keep it that way.
+no keyframe, ink budgets, and glyphs the locked faces cannot render). `--selftest` fires 15 of them
+in 16 cases (GEO006 · GEO007 · BUD006 · BUD007 · SYM001 have no self-test case — the repo run
+checks those). It currently exits 0; keep it that way.
 
 **`DESIGN.md` §10 is the deployment topology** — three roles (transport / shell / content) and four
 configurations. It constrains the runtime: **the shell must run on Android and desktop, so it cannot
@@ -62,7 +66,7 @@ remote` keeps the claim path as the explicit dev override). `REMINDER.md` is the
 file; `HANDOFF.md` §19–§24 the current records; `DAILY.md` the ops crib; `IMPLEMENTATION.md`
 what runs and how. App layer: **Main · Settings · Reader · Tmux · Files · Torrents · Music** (Files landed
 2026-09-01 with the whole §16 shared machinery — `HANDOFF.md` §22; Torrents + the §4.8
-keyboard the same evening — `TORRENTS.md`, `HANDOFF.md` §23; Music overnight 2026-09-02/03 —
+keyboard the same evening — `TORRENTS.md`, `HANDOFF.md` §23; Music overnight 2026-09-01/02 —
 `MUSIC.md`, `HANDOFF.md` §24, the shell's exclusive mode `DESIGN.md` §4.9).
 
 Adam's stated methodology governs **the app layer**:
@@ -81,15 +85,17 @@ verdicts first, then build against the `DamageWindow` contract
 original for interaction facts only (`/home/user/G2CC/server/src/windows/`, read-only) and
 `DESIGN.md` §4.6 for the mode contract. **Reader, Tmux, Files, Torrents and Music are the worked
 precedents** — Files and Torrents for MenuSurface and the window channel, Torrents for the §4.8
-keyboard, Music (`MUSIC.md`, built 2026-09-02/03) for a two-host contract, the channel's push
+keyboard, Music (`MUSIC.md`, built 2026-09-01/02) for a two-host contract, the channel's push
 frames and the §4.9 exclusive mode. Two of Adam's rules since Torrents bind every window: **built whole to its best state
 before the next — no v1/v1.5 staging**; and **each app's notification toggles live in its own
-Settings category, never Global** (`WINDOWS.md` §1).
+Settings category, never Global** (`WINDOWS.md` §1; Global keeps only the WM's own `Notify ·
+Damage` and the APK-wide `Phone notifications` switch, and the shell never gates an app's
+source on a hidden field — a Global row that disappears leaves a persisted value nothing can undo).
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(315 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
+(317 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
 over a fake link), `desktop --selfcheck` (134 checks), `desktop --snapshot DIR` (look at the lens
-renders), `desktop --epub-check ~/books`, `desktop --music-check` (the real library, read-only),
+renders), `desktop --epub-check ~/books`, `desktop --music-check` (the real library, read-only bar the additive schema migration),
 `python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.
 Radio use is normal now (post-flash); deploying = `./gradlew :desktop:stageJar && sudo
 rc-service damage restart` (`DAILY.md`) — since §19 the PC never claims, so a PC deploy never
@@ -298,7 +304,7 @@ that don't fit raise loudly, never silently mangle.
     oracle stops being exact. Modes 13/14 draw from a cache *we* wrote, so the model reproduces
     them bit for bit. The simulator refuses mode 15 loudly on purpose.
 - **Damage tracking with a single mode-8 flush per frame** is the architecture. Accumulate dirty
-  rects across all windows; emit one atomic batch. **Cap the batch at ~6 mode-3 rects**, not 16:
+  rects across all windows; emit one atomic batch. **Cap the batch at the fid budget — 5 mode-3 rects at the 3-deep pipeline (`Geometry.rectBudget`; Faceclaw uses 6)**, not 16:
   a mode-3 sub-message burns a `fid`, the firmware's duplicate-fid ring is 16 deep, and a
   collision is **silently skipped**, not rejected. Keep `fid` in `[1,0xFFFE]`, +1 per delta.
   ⚠ **Only mode 3 burns a fid** — modes 6/9/13/14 do not touch the ring, so the ~6 cap prices

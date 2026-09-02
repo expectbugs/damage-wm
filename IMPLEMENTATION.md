@@ -9,6 +9,7 @@ last-write-wins state sync on the content port — plus a STANDBY that drives PC
 while the APK is unavailable and hands the radio back when it returns.** The shell core, the
 byte-exact glass simulator, the desktop program, and the phone APK — Reader, Tmux, **Files
 (2026-09-01, the first conversion)**, **Torrents (2026-09-01 evening, with the §4.8 keyboard)**,
+**Music (2026-09-02 — the phone plays, the PC serves; Music Mode = the shell's exclusive mode)**,
 Main and Settings at the app layer, the full shell underneath, everything on the **CFW display
 contract** (modes 3/6/8/9 + the 11–15 texture-cache wire layer, the FB lease, the capability gate).
 
@@ -231,7 +232,7 @@ development environment; also serves ~/books to the phone):
 ./gradlew :desktop:run --args="--selfcheck"   # the 134-check scripted gate (Files, Torrents, keyboard and Music walks incl.)
 ./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"  # parse every book in ~/books
-./gradlew :desktop:run --args="--music-check" # the real g2cc library read-only: counts, the catalog, lanes, cache keys, Qdrant, one viz blob
+./gradlew :desktop:run --args="--music-check" # the real g2cc library, read-only bar the additive schema migration: counts, the catalog, lanes, cache keys, Qdrant, one viz blob
 ./gradlew :desktop:run --args="--host-only"   # content host alone (books + tmux + sync, no stack ever)
 ./gradlew :desktop:test                       # 9 tests: the BlueZ glue over the fake link
 ```
@@ -367,7 +368,7 @@ and all of it has run on the radio daily since the phone's own first light later
   placeholder until the mode-10 feed exists; head tracking defaults OFF.
 - ~~Texture caching (Babcock's in-progress firmware work)~~ — **it shipped**, see below.
 
-## Music (2026-09-02/03, MUSIC.md · DESIGN.md §4.9) — the phone plays, the PC serves
+## Music (2026-09-01/02, MUSIC.md · DESIGN.md §4.9) — the phone plays, the PC serves
 
 The third app-wave window, built whole overnight (M1–M6, `HANDOFF.md` §24). The G2CC music
 SYSTEM is Damage's now: Postgres `g2cc`, Qdrant `g2cc_music`, the 8.1 GB transcode cache read
@@ -387,8 +388,9 @@ one window: `wm.damage.core.windows.music`.
   the whole file), `Art` (ffmpeg extracts the embedded picture as raw gray, box-sampled; folder
   images; `.none` markers), `LibraryScan` (ffprobe, format + stream tags, incremental, deletion
   scoped to walked roots), `LocalMusicLibrary` (composes them + the leaf modules; the catalog
-  is a cached field, refreshed on a SHAPE-only fingerprint — never lyrics or play history, which
-  change with every play; `recent(n)` is its own op so the list is live), `MusicService`/`RemoteMusicLibrary`
+  is a cached field, refreshed on a SHAPE-only fingerprint — counts, the newest track / playlist /
+  membership stamps and the count of FOUND lyrics (it flips `hasLyrics`); never a lyric fetch stamp
+  or play history, which change with every play; `recent(n)` is its own op so the list is live), `MusicService`/`RemoteMusicLibrary`
   (`MusicNet.kt` — every op on the `music` window channel; the catalog behind a version
   cursor; art/viz/lyrics cached per track on the phone; the §16.10 PUSH slice's first use:
   catalog bumps and grab progress as unsolicited `wpush` frames — `WinNet` gained
@@ -439,7 +441,7 @@ one window: `wm.damage.core.windows.music`.
   notice) and the snapshot scenes 30–39; `--music-check` probes the real Postgres / Qdrant /
   cache read-only (plus one viz precompute); core tests: `MusicTest`, `MusicWindowTest`,
   `MusicModeTest`, `ResolverTest`, `LyricsFetchTest`, `YouTubeTest`, `VizTest`, `EnrichTest`.
-  Battery after Music: core 315 · desktop 9 · selfcheck 134 · snapshots 36 · lint 0.
+  Battery after Music and its three reviews: core 317 · desktop 9 · selfcheck 134 · snapshots 36 · lint 0.
 
 ## Torrents + the keyboard (2026-09-01, TORRENTS.md · DESIGN.md §4.8)
 
@@ -550,7 +552,7 @@ no `-C` attach — the G2CC Phase-5 safety shape); `wm.damage.core.windows.tmux`
   preview (key T), the browser replica's text bar, the phone strip's `type` button — all ride
   the transport, so they reach whichever shell drives.
 - **Harnesses**: `ScriptedTmux` (deterministic provider) drives the tmux selfcheck checks (part
-  of the 89-check gate) and four snapshot scenes (09b–09e); `TmuxTest.kt` holds 27 core tests in
+  of the 134-check gate) and four snapshot scenes (09b–09e); `TmuxTest.kt` holds 27 core tests in
   six classes — `SgrTest` ×4, `TermRenderTest` ×4, `FlowRenderTest` ×6, `TmuxProviderTest` ×3,
   `TmuxNetTest` ×1, `TmuxWindowTest` ×9 (SGR, fit at both height modes, cursor inversion, the
   flow view, provider parse/edge-alerts/quoting, the wire round trip incl. pacing, the full
@@ -684,8 +686,8 @@ of them are load-bearing and easy to break by accident:
 
 ## Verification
 
-- `./gradlew :core:test` — 315 unit/integration tests (2026-09-02/03 added the Music set:
-  `MusicTest` ×7, `MusicWindowTest` ×6, `MusicModeTest` ×2, `ResolverTest` ×19, `LyricsFetchTest`
+- `./gradlew :core:test` — 317 unit/integration tests (2026-09-01/02 added the Music set:
+  `MusicTest` ×8, `MusicWindowTest` ×7, `MusicModeTest` ×2, `ResolverTest` ×19, `LyricsFetchTest`
   ×24, `YouTubeTest` ×13, `VizTest` ×12, `EnrichTest` ×11 — plus `--music-check` against the real
   library, not part of the suite; 2026-09-01 evening added
   `TorrentsTest` ×7 and `KeyboardTest` ×22 — the Torrents build and its four review rounds —

@@ -30,7 +30,7 @@ class MediaCache(
 ) {
     private val lock = ReentrantLock()
     /** In-flight transcodes by output path: concurrent opens share one run —
-     *  a LATCH per output (review 2026-09-03: joining the runner's THREAD
+     *  a LATCH per output (review 2026-09-02: joining the runner's THREAD
      *  waited for a request thread's whole stream, or the sweep's whole day). */
     private val inFlight = HashMap<Path, java.util.concurrent.CountDownLatch>()
 

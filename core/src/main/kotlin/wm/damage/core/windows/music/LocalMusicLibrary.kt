@@ -191,7 +191,7 @@ class LocalMusicLibrary(
 
     /** The cached blob at once; a missing one is BUILT IN THE BACKGROUND (a
      *  librosa run takes seconds — never inline on the sequential window
-     *  channel, review 2026-09-03) and announced through [Listener.vizReady]. */
+     *  channel, review 2026-09-02) and announced through [Listener.vizReady]. */
     override fun viz(trackId: Int): VizData? {
         val t = file(trackId)
         val p = vizPath(t)
@@ -201,11 +201,18 @@ class LocalMusicLibrary(
                 Files.deleteIfExists(p)
             }
         }
+        if (vizMisses.contains(t.id) || Files.exists(vizMissPath(t))) { vizMisses.add(t.id); return null }   // probed once, like Art
         buildVizAsync(t)
         return null
     }
 
     private val vizBuilding = ConcurrentHashMap.newKeySet<Int>()
+    /** Tracks whose build produced nothing: the marker beside the blob (keyed
+     *  like it, so a re-encoded file is probed afresh) + this set for the hot
+     *  path — one librosa start per track, not one per paint (ultrareview
+     *  2026-09-02). */
+    private val vizMisses = ConcurrentHashMap.newKeySet<Int>()
+    private fun vizMissPath(t: MusicDb.TrackFile) = vizPath(t).resolveSibling(vizPath(t).fileName.toString() + ".miss")
 
     private fun buildVizAsync(t: MusicDb.TrackFile) {
         val ing = ingester ?: return
@@ -220,8 +227,8 @@ class LocalMusicLibrary(
     /** Blocking build + cache write; null when the tool produced nothing. */
     fun buildViz(t: MusicDb.TrackFile, ingester: Ingester? = this.ingester): VizData? {
         val ing = ingester ?: return null
-        val b = try { ing.viz(t) } catch (e: Exception) { Log.w("music", "viz for track ${t.id}: ${e.message}"); null } ?: return null
-        val v = try { VizData.decode(b) } catch (e: Exception) { Log.w("music", "viz for track ${t.id} undecodable: ${e.message}"); return null }
+        val b = try { ing.viz(t) } catch (e: Exception) { Log.w("music", "viz for track ${t.id}: ${e.message}"); null } ?: return markVizMiss(t)
+        val v = try { VizData.decode(b) } catch (e: Exception) { Log.w("music", "viz for track ${t.id} undecodable: ${e.message}"); return markVizMiss(t) }
         try {
             val tmp = vizPath(t).resolveSibling(vizPath(t).fileName.toString() + ".${System.nanoTime()}.tmp")
             Files.write(tmp, b)
@@ -230,6 +237,13 @@ class LocalMusicLibrary(
             Log.w("music", "viz cache write failed for track ${t.id}: ${e.message}")
         }
         return v
+    }
+
+    private fun markVizMiss(t: MusicDb.TrackFile): VizData? {
+        vizMisses.add(t.id)
+        try { Files.writeString(vizMissPath(t), "") } catch (e: Exception) { Log.w("music", "viz miss marker for track ${t.id}: ${e.message}") }
+        Log.w("music", "viz for track ${t.id}: no blob — marked, not retried until the file changes")
+        return null
     }
 
     // ------------------------------------------------------------------ YouTube + ingest

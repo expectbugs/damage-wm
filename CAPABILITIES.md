@@ -22,7 +22,7 @@ per-app gestures, or off-panel scratch is already ruled out.
 | capability | how | grade |
 |---|---|---|
 | **640×480 canvas, 16 gray levels, 4bpp** | CFW modes 3/6/8/9 on the full physical framebuffer (full height in daily use; usable extent is fit-dependent) | ✅ M |
-| Sensible default **640×288** | full height only when an app earns it (FoV) | ✅ C |
+| Sensible default **640×288** (Faceclaw's) | Damage ships **480** as the Global default with four top-aligned sizes — Adam's fit loses the bottom (`DESIGN.md` §2.4 rule 4) | ✅ C |
 | **Full-screen keyframe** | mode 6 · `zlib(rle(px))` · dense ~10 KB ≈ 200–270 ms on the measured curve | ✅ M |
 | **Dirty-rect delta** | mode 3 · quantised left/w ×4, top/h ×2 · small flushes ride the ~60 ms floor | ✅ V+M |
 | **Atomic multi-op frame** | mode 8 batch, ~6 rects · **the project's core thesis** | ✅ V+C |
@@ -51,7 +51,7 @@ FB lease must be renewed every 45 s or stock LVGL repaints over you.
 | **Direct ring gestures, going around the glasses** | ring's own BLE link · `0x04` SWIPE_UP / `0x05` SWIPE_DOWN + **32-bit tick** ⇒ velocity possible | 🟡 C |
 | Both-temple long-press → stock Silent Mode | unpatched by anyone — **keep as the hardware escape hatch** | ✅ M |
 | Wake-word "Hey Even" as an app event | sid 0x07; CFW can suppress the stock handler | 🟡 S |
-| Typed-text input path | ✅ BUILT 2026-08-31: `DamageWindow.onTypedText` via all three replicas, always confirm-staged (Tmux, Files and Torrents consume it) — and since 2026-09-01 **typing from the ring alone** through the on-glass wireframe keyboard (`DESIGN.md` §4.8: tracker search, rename/new-folder, tmux Type…) | ✅ M |
+| Typed-text input path | ✅ BUILT 2026-08-31: `DamageWindow.onTypedText` via all three replicas, always confirm-staged (Tmux, Files, Torrents and Music consume it) — and since 2026-09-01 **typing from the ring alone** through the on-glass wireframe keyboard (`DESIGN.md` §4.8: tracker search, rename/new-folder, tmux Type…, Music's Ask / library search / YouTube / playlist names) | ✅ M |
 
 ## 3. Sensors & feedback
 

@@ -1,6 +1,6 @@
 # Where we are, and what to do next
 
-**Updated 2026-09-03 (early morning): MUSIC IS BUILT** — the third G2CC→DamageWM conversion,
+**Updated 2026-09-02 (afternoon): MUSIC IS BUILT AND REVIEWED** — the third G2CC→DamageWM conversion,
 built whole overnight in an autonomous session (M1–M6 of `MUSIC.md` §11, a commit per milestone
 with the battery green at each; `HANDOFF.md` §24.1 is the build record with every decision made
 inside the plan). The G2CC music SYSTEM is Damage's now (Postgres `g2cc`, Qdrant, the 8.1 GB
@@ -9,28 +9,31 @@ cache read in place, the enrichment package copied into `audio/`, yt-dlp); the P
 (the window channel + a media endpoint on :7404); the window is written once against two core
 contracts so the desktop runs a read-only mirror of the phone's player; **Music Mode is a new
 shell mode** (`DESIGN.md` §4.9, EXCLUSIVE: the window paints the whole panel, only double-tap
-leaves). The review loop for it has NOT run yet.
+leaves). Reviewed three ways the same day: review round 1 (`4565f35`, 27 findings), ultrareview
+run 1 (`d6bb08b`, 3) and run 2 (the closing commit, 5 + a hidden Music notice gate) — `HANDOFF.md`
+§24.2–§24.3; every finding verified before its fix.
 
 Before it (2026-09-01): **TORRENTS + the keyboard** (`TORRENTS.md`, `DESIGN.md` §4.8,
 `HANDOFF.md` §23 — four review rounds, paused at Adam's word, not converged; resume from
-`980d832..HEAD`) and **FILES** with the whole EXPLOSION §16 machinery under it (`HANDOFF.md` §22,
+`980d832..390a25c`) and **FILES** with the whole EXPLOSION §16 machinery under it (`HANDOFF.md` §22,
 eight review rounds to convergence). Reader / Tmux / Files / Torrents / Music are the worked
 precedents (`WINDOWS.md`).
 
 **State of the world:** the phone APK is the primary driver (`HANDOFF.md` §19 — radio + shell
 while it is up); the OpenRC `damage` service is the data provider (content + tmux + sync + the
 window channel on :7401, seam :7402, replica :7403, the media endpoint :7404) plus a standby
-that BLE-drives only while the APK is away. Battery at HEAD: core **315** · desktop 9 ·
+that BLE-drives only while the APK is away. Battery at HEAD: core **317** · desktop 9 ·
 selfcheck **134** · snapshots 36 · epub-check clean · lint 0 · `--music-check` all pass against
-the real library. **APK 20/0.20 is STAGED** (the setup page + `~/.damage/damage-wm.apk`; the jar
-and the service run the same review-round-1 build). **0.16 is the last build observed INSTALLED**
-(2026-09-01); 0.17–0.19 were never installed and 0.20 supersedes them (Files, the chrome tweaks,
-Torrents, the keyboard, every 2026-09-01 review fix, Music + its review round 1 — `HANDOFF.md` §24.2). Deploys: `./gradlew
+the real library. **APK 21/0.21 is STAGED** (the setup page + `~/.damage/damage-wm.apk`; the jar
+and the service run the same closing build). **0.16 is the last build observed INSTALLED**
+(2026-09-01); 0.17–0.20 were never installed and 0.21 supersedes them (Files, the chrome tweaks +
+the Silent-clock size row, Torrents, the keyboard, every 2026-09-01 review fix, Music + its three
+reviews — `HANDOFF.md` §24.2–§24.3). Deploys: `./gradlew
 :desktop:stageJar && sudo rc-service damage restart` (never touches the display — the PC does
 not claim). ⚠ One central at a time: stop the service before any `:desktop:run` dev session;
 G2CC's Android bridge stays Disconnected.
 
-📍 **Start here, in this order:** this file → `HANDOFF.md` §19–§23 (the topology contract, the
+📍 **Start here, in this order:** this file → `HANDOFF.md` §19–§24 (the topology contract, the
 overnight record, the Torrents + keyboard record) → `DAILY.md` (ops crib) → `IMPLEMENTATION.md`
 (what runs) → for the next conversion: `WINDOWS.md` (the checklist) + `EXPLOSION.md` (§16
 contract, §20 refinery verdicts, the chosen window's section). Standing references: `overview.md`
@@ -38,8 +41,13 @@ contract, §20 refinery verdicts, the chosen window's section). Standing referen
 
 ## 🚀 Next
 
-1. **Install 0.20, grant `music access` (`DAILY.md` → Music), then on-glass verdicts for Music,
-   Torrents and the keyboard**: Music's measured items first (`MUSIC.md` §12); the keyboard's feel
+1. **The next window.** Adam picks from `EXPLOSION.md` §20's wow order — **Games** (#1, roster
+   first; skipped once for Music) or **Feed + comics** (#5) — then the per-window refinery verdicts
+   BEFORE code, then the `WINDOWS.md` checklist with Music (`MUSIC.md`, `HANDOFF.md` §24) as the
+   latest worked precedent. Built whole, no staging; its notification toggles in its own category.
+2. **Install 0.21, grant `music access` (`DAILY.md` → Music), then on-glass verdicts for Music,
+   Torrents and the keyboard**: Music's measured items first (`DAILY.md` → Music, the list;
+   `HANDOFF.md` §24.1 "Measured vs modeled"); the keyboard's feel
    (row pitch at 288, the highlight, the text-line pan, stay-in-row, the Tmux live rows), the
    transfers list and lens, a real done-notification, browse / search / add against the live
    tracker (the first real add is the first real download through the adapter). Then the
@@ -48,19 +56,22 @@ contract, §20 refinery verdicts, the chosen window's section). Standing referen
    lens, theme icons at 20/56 px), the night wave (the tmux flow view, fonts previewed in their
    own faces, per-app depth), and the live checks — the standby drill (stop the APK at the desk
    → the PC BLE-drives → restart → handback) and a book position following a driver swap.
-2. **The Reader transitional cleanup** (UNBLOCKED — 0.16 is installed): remove the
+3. **The Reader transitional cleanup** (UNBLOCKED — 0.16 is installed): remove the
    legacy-offsets dual-write in `ReaderWindow` — the fields are marked; `restoreStateLive`'s
    `liveMapApply` mechanics go with them (update `SubstrateTest`'s migration pin). A clean first
    task for a fresh session.
-3. **MUSIC — BUILT overnight 2026-09-02/03** (`MUSIC.md` §1 = the 29 binding verdicts; M1–M6
+4. **MUSIC — BUILT overnight 2026-09-01/02** (`MUSIC.md` §1 = the 29 binding verdicts; M1–M6
    committed one milestone at a time with the battery green; `HANDOFF.md` §24 = the build record
-   + the decisions made inside the plan). **Review round 1 ran 2026-09-03** (`HANDOFF.md`
+   + the decisions made inside the plan). **Review round 1 ran 2026-09-02** (`HANDOFF.md`
    §24.2: 10 ranked + 17 one-line findings, every one verified before a fix, all fixed — among
    them two the APK could not have played without: cleartext HTTP and the boot foreground type).
-   What waits: **install APK 0.20**, the one-time notification-access grant (`DAILY.md` →
-   Music), the on-phone measured items (`MUSIC.md` §12: the limiter's real notice text, the
-   Spotify cold start, the Bluetooth lyric offset, the visualizer rate on glass), then round 2
-   of the review loop (`REVIEW.md`) over round 1's own fix diff.
+   **Ultrareview** (the cloud multi-agent review, two runs over synthetic base branches because
+   the whole build is 17 k lines against its 8 k cap) found 8 more the same afternoon
+   (`HANDOFF.md` §24.3) — among them Spotify's cold start blocked by package visibility and a
+   Radio fill stepping past a user's pick. What waits: **install APK 0.21**, the one-time
+   notification-access grant (`DAILY.md` → Music), the on-phone measured items (`DAILY.md` →
+   Music: the limiter's real notice text, the Spotify cold start, the Bluetooth lyric offset, the
+   visualizer rate on glass). A further review pass is optional — three passes converged on nits.
 4. **The icon-quality pass** (front of the app wave): one drawn icon per app at 20 px + 56 px —
    the drawn set is the fallback and the release path (theme icons are personal-lane only).
 5. **Watch-items:** the left-lens seam residue (a one-shot early-burst tear — if it recurs
@@ -101,8 +112,8 @@ explicit `NOT_SUPPORT`, so the probe is safe).
 
 - **Where system-state detail lives** — live telemetry is in the status bar; the deeper view
   wants to be the Info window (`EXPLOSION.md` §9 + the §20 useful-stats steer).
-- **Per-window typefaces for windows not yet designed** — Music, SMS, Notices, Feed inherit
-  Clear Sans until their app earns an override (Files shipped on Clear Sans, Torrents on Fira
+- **Per-window typefaces for windows not yet designed** — SMS, Notices, Feed inherit
+  Clear Sans until their app earns an override (Files and Music shipped on Clear Sans, Torrents on Fira
   Sans — the list face). Deliberately not invented in advance. The curated font-library
   expansion is a separate backlog item (`DESIGN.md` §Type; option-only, defaults untouched,
   B612 never a default).
@@ -111,7 +122,7 @@ explicit `NOT_SUPPORT`, so the probe is safe).
 
 - **`/etc/portage/package.accept_keywords/damage-fonts`** — `~amd64` for eight font *data*
   packages (no code) so the typeface survey could run. Safe to remove; the fonts stay.
-- **44 `media-fonts/*` packages installed** (450 families). `design/fonts.json` pins the 66
+- **56 `media-fonts/*` packages installed** (453 families, 2026-09-02 count). `design/fonts.json` pins the 66
   evaluated candidates. The locked faces are Clear Sans, Fira Sans, Alegreya and JetBrains
   Mono — **`tools/lint.py` checks glyph coverage against exactly those**; its table must grow
   if a window ever claims a fifth face.

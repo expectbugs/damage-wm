@@ -1496,7 +1496,10 @@ class Shell(
         return when (kind) {
             "SMS", "MMS" -> settings.notifySms
             "MAIL" -> settings.notifyMail
-            "MUSIC" -> settings.notifyMusic
+            // MUSIC is NOT gated here: the window owns its six Notify rows
+            // (WINDOWS.md §1), and the Global "Notify · Music" row that APKs up
+            // to 0.17 carried could have persisted a false that no row could
+            // undo — a hidden gate (docs audit 2026-09-02)
             "DAMAGE" -> settings.notifyDamage
             else -> true
         }

@@ -40,7 +40,7 @@ class MusicDb(private val db: Db, private val libraryDirs: List<String>) {
     /** A cheap fingerprint of the catalog's SHAPE: the tracks, their
      *  profiles, the playlists, and the count of found lyrics (a new
      *  `hasLyrics` bit). Deliberately NOT lyric fetch stamps or play history
-     *  (review 2026-09-03: each lookup and each play forced a full rebuild
+     *  (review 2026-09-02: each lookup and each play forced a full rebuild
      *  and a whole-catalog push) — `recent` is served live. */
     fun catalogVersion(): String {
         val r = db.query(
@@ -76,7 +76,7 @@ class MusicDb(private val db: Db, private val libraryDirs: List<String>) {
                       m.genres, m.styles, m.moods, coalesce(m.energy,0) AS energy, coalesce(m.year,0) AS year,
                       coalesce(m.vocals,'') AS vocals, coalesce(m.dupe_cluster,0) AS dupe_cluster,
                       EXISTS (SELECT 1 FROM lyrics l WHERE l.found AND (l.track_id = t.id OR
-                              (lower(l.artist) = lower(coalesce(t.artist,'')) AND lower(l.track) = lower(t.title)
+                              (lower(l.artist) IN (lower(coalesce(t.artist,'')), lower(coalesce(nullif(t.artist,''),'(unknown)'))) AND lower(l.track) = lower(t.title)
                                AND l.duration_s = round(coalesce(t.dur_ms,0) / 1000.0)::int))) AS has_lyrics
                FROM tracks t LEFT JOIN track_meta m ON m.track_id = t.id
                ORDER BY t.id""")
@@ -341,8 +341,11 @@ class MusicDb(private val db: Db, private val libraryDirs: List<String>) {
     fun lyrics(t: TrackFile): Lyrics? {
         val byId = db.query("SELECT synced, plain, found, coalesce(source,'') AS source FROM lyrics WHERE track_id = ? ORDER BY fetched_at DESC LIMIT 1", t.id).firstOrNull()
         val r = byId ?: db.query(
-            "SELECT synced, plain, found, coalesce(source,'') AS source FROM lyrics WHERE lower(artist) = lower(?) AND lower(track) = lower(?) AND duration_s = ?",
-            t.artist, t.title, durKey(t.durMs)).firstOrNull() ?: return null
+            // the legacy key: setLyrics writes an empty artist as "(unknown)" (the unique index
+            // cannot hold NULL/empty usefully), so the read accepts BOTH forms — the raw one
+            // for G2CC-era rows, the normalized one for ours (ultrareview 2026-09-02)
+            "SELECT synced, plain, found, coalesce(source,'') AS source FROM lyrics WHERE lower(artist) IN (lower(?), lower(?)) AND lower(track) = lower(?) AND duration_s = ?",
+            t.artist, t.artist.ifEmpty { "(unknown)" }, t.title, durKey(t.durMs)).firstOrNull() ?: return null
         if (!r.bool("found")) return Lyrics(source = r.str("source").ifEmpty { "lrclib" }, synced = null, plain = null)
         return Lyrics(source = r.str("source").ifEmpty { "lrclib" }, synced = r.strOrNull("synced")?.takeIf { it.isNotBlank() },
             plain = r.strOrNull("plain")?.takeIf { it.isNotBlank() })

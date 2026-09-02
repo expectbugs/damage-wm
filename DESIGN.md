@@ -735,7 +735,8 @@ categories — **Global** (the table below + the host's display-target rows), th
 every app category carries Font · Font size · Font style · Depth (§0's typography reversal, §3.1's
 per-app depth) plus the rows that window contributes through `DamageWindow.appSettings()` (Reader:
 Scroll step · Scroll accel · Size · Reset progress; Tmux: Update · Context rows · Alerts · Size;
-Torrents: Notify · done · Notify · errors · Poll · Size; Files: none) — tap descends into a
+Torrents: Notify · done · Notify · errors · Poll · Size; Files: none; Music: six Notify rows, the
+playback rows, Music Mode's six surfaces, Sleep, Pre-transcode, Rescan, Size — about thirty) — tap descends into a
 category, double-tap climbs out, exactly the §4.6 level pattern.
 
 🔑 **The global/override pattern** (Adam, 2026-08-31): any per-app shadow of a global setting
@@ -1254,14 +1255,17 @@ Origin splits usefully:
 | origin | sources |
 |---|---|
 | **PC-side** (no phone involved) | Mail (Maildir + mbsync on beardos), Damage-specific events |
-| **Phone-side** (via the bridge) | SMS/MMS, Music (MediaSessionManager), emergency alerts |
+| **Phone-side** (via the bridge) | SMS/MMS, emergency alerts |
+| **App-owned** | Music (the window itself, on either host: track change, queue end, route loss, PC unreachable, YouTube, playlist saved) |
 
 🔑 **Where the toggles live (Adam, 2026-09-01):** every source that belongs to an app has its
 on/off row **in that app's Settings category** — Tmux → Alerts, Torrents → Notify · done /
-Notify · errors — never in Global. Global keeps `Notify · Damage` only, because the WM's own
-events belong to no app. The window gates its own `notifyInternal` calls on its rows; the shell
-filter (`noticeAllowed`) keeps the historical SMS/Mail/Music fields for the apps still to come,
-which will carry their rows when they exist.
+Notify · errors, Music → its six Notify rows — never in Global. Global keeps `Notify · Damage`
+(the WM's own events belong to no app) and the APK-wide `Phone notifications` switch. The window
+gates its own `notifyInternal` calls on its rows; the shell filter (`noticeAllowed`) keeps the
+historical SMS/Mail fields for the apps still to come, which will carry their rows when they
+exist. It no longer gates `music` (2026-09-02): a Global row that has gone must not leave a
+hidden persisted gate behind.
 
 #### 🔴 Emergency alerts — the one genuinely unverified piece
 
@@ -1533,7 +1537,8 @@ keyboard wireframe-style where I can move the highlight to select the key."**
 wheel, the notification box, the context menu and the keyboard are each their own design). A
 window asks for it (`ShellServices.openKeyboard`); it never opens on a gesture, so §1's
 grammar is untouched. Requesters today: Torrents (search), Tmux ("Type…" — the composed line
-still stages its run confirm), Files (rename / new folder, pre-filled with the current name).
+still stages its run confirm), Files (rename / new folder, pre-filled with the current name),
+Music (Ask, library search, YouTube search, playlist name, rename playlist).
 The phone strip, the browser page and the desktop preview remain the fast paths; the keyboard
 is the pocket-stays-closed path.
 
@@ -1576,7 +1581,7 @@ reachable across the two layers; `KeyboardTest` pins that, the digit row is on b
 move the caret, `Del` deletes forward, `Clear` empties the draft. The **requester rows** are
 optional and belong to the caller: up to six live keys make one row, up to twelve two rows,
 more is refused loudly — Tmux supplies its non-character quick keys with the harmless ones
-(Esc, Tab, the arrows) first so the row's rest position never sends Enter; Torrents and Files
+(Esc, Tab, the arrows) first so the row's rest position never sends Enter; Torrents, Files and Music
 supply none.
 
 **Layouts.** Settings → Global → `Keyboard`: **qwerty** (default) · **abc** (three alphabetic
@@ -1966,7 +1971,7 @@ The contract:
   over its ink budget. **NO SILENT FAILURES, pushed left to build time.** Adam: *"minimizing the
   chances of a bug making it to the glasses as much as possible."*
 
-  ✅ **`tools/lint.py` + `tools/geometry.py` exist and pass** (2026-08-18; 19 rules, `--selftest`
+  ✅ **`tools/lint.py` + `tools/geometry.py` exist and pass** (2026-08-18; 20 rules, `--selftest`
   green, 0 findings at HEAD).
 
   ⚠ **Most of these are RUNTIME properties, not static ones** — a rect computed at frame time is
@@ -1997,7 +2002,8 @@ The contract:
   | **FID003** | fid outside `[1, 0xFFFE]` |
   | **FID004** | a mode-3 delta with no prior keyframe |
 
-  🔑 **`--selftest` proves every rule fires**, against known-bad inputs, and that valid geometry
+  🔑 **`--selftest` proves 15 of the 20 rules fire** (16 cases; GEO006 · GEO007 · BUD006 · BUD007 ·
+  SYM001 are exercised by the repo run instead), against known-bad inputs, and that valid geometry
   stays silent. *A gate nobody has seen fail is a gate nobody trusts.*
 
   ✅ **It caught a real regression on its first full run.** Adding row icons (§4.5b) pushed

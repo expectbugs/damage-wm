@@ -107,7 +107,7 @@ class MusicWindowTest {
     }
 
     @Test fun radioFillLandingAfterAUserPickKeepsThePick() {
-        // ultrareview 2026-09-03: an end-of-queue Radio fill carries "advance when you land";
+        // ultrareview 2026-09-02: an end-of-queue Radio fill carries "advance when you land";
         // a Play-from meanwhile must not be stepped past when the rows arrive
         var now = 1_000_000L
         val lib = Lib(); lib.similarAnswer = emptyList()

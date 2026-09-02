@@ -137,7 +137,7 @@ Remote on the phone; backends in preference order with a switch policy if adapti
 7. **Register everywhere**: desktop `Main.kt` (a host-side provider goes into BOTH the auto/standby
    stack and `--host-only`'s service map), phone `ShellService.kt`, SelfCheck, Snapshot.
 8. **Run the whole battery** (`CLAUDE.md` list: `:core:test`, `:desktop:test`, `--selfcheck`,
-   `--snapshot`, `--epub-check`, `tools/lint.py`, `:phone:assembleDebug`) and keep it green.
+   `--snapshot`, `--epub-check`, `--music-check`, `tools/lint.py`, `:phone:assembleDebug`) and keep it green.
    Regenerate `design/shots/` if anything design-visible changed, and read the numbers.
 9. **Document**: a verdict block for a simple window; a `TMUX.md`-weight doc only if the window
    earned it. Record any reversal in the DESIGN §0 style — rejected ideas get written down so

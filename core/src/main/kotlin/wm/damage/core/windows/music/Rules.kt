@@ -110,7 +110,7 @@ object Rules {
 
     /** "N matched but everything was excluded" reads as exactly that. */
     fun exclusionNote(matched: Int, queued: Int): String =
-        if (queued == 0 && matched > 0) " — all matches are excluded content (sound effects)" else ""
+        if (queued == 0 && matched > 0) " — all matches are excluded content (sound effects / spoken word)" else ""
 
     val STOPWORDS = setOf(
         "play", "some", "stuff", "something", "anything", "music", "songs", "song",
