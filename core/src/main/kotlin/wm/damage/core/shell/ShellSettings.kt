@@ -85,6 +85,11 @@ data class ShellSettings(
     val notifyMail: Boolean = true,
     val notifyMusic: Boolean = true,
     val notifyDamage: Boolean = true,
+
+    /** MUSIC.md verdict 21 (2026-09-02): the APK stops posting errors to the
+     *  phone — they go to the glasses' notices and the log; the one
+     *  permanent foreground notification stays. OFF by default. Additive. */
+    val phoneNotifications: Boolean = false,
 ) {
     enum class BatteryAlert { OFF, ON, ESCALATING }
     enum class LongPress { OFF, SWITCHER }

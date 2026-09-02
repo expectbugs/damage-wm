@@ -52,7 +52,12 @@ abstract class PlayerCore(
         fun isPlaying(): Boolean
     }
 
+    /** A sink that cannot open because the PC is down and the file is not
+     *  cached: the core switches to the Spotify fallback (verdict 25). */
+    class StalledException(msg: String) : Exception(msg)
+
     protected abstract val sink: Sink
+    protected val prefetchCount: Int get() = prefetchN
     /** Run [block] on the player's thread. */
     protected abstract fun post(block: () -> Unit)
     /** Run [block] off the player's thread (library I/O); [then] back on it. */
@@ -137,6 +142,10 @@ abstract class PlayerCore(
         if (curBoost != 100) { curBoost = 100; try { sink.setBoostPct(100) } catch (ex: Exception) { Log.w("player", "boost off: ${ex.message}") }; emit(PlayerEvent.BoostOff) }
         try {
             sink.open(currentUrl(t), startMs, playNow, t)
+        } catch (ex: StalledException) {
+            Log.w("player", "open of track ${t.id} stalled: ${ex.message}")
+            libraryStalled(ex.message ?: "not cached")
+            return
         } catch (ex: Exception) {
             Log.e("player", "open of track ${t.id} failed", ex)
             problem = "open failed: ${ex.message}"

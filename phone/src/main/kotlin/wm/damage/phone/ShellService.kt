@@ -84,6 +84,8 @@ class ShellService : Service() {
     private var tmuxProvider: RemoteTmuxProvider? = null
     private var filesProvider: wm.damage.core.windows.files.RemoteFilesProvider? = null
     private var torrentsProvider: wm.damage.core.windows.torrents.RemoteTorrentsProvider? = null
+    private var musicLibrary: wm.damage.core.windows.music.RemoteMusicLibrary? = null
+    private var musicPlayer: wm.damage.phone.music.AndroidMusicPlayer? = null
     private var remoteIcons: RemoteIcons? = null
     private var remoteSync: wm.damage.core.sync.RemoteSync? = null
     @Volatile var remoteDriving = false
@@ -129,7 +131,7 @@ class ShellService : Service() {
                     val shownForTag = errorsSeen.entries.count { it.key.startsWith("$tag|") && it.value.notified }
                     val notify = shownForTag < ERROR_NOTICES_PER_TAG
                     if (errorsSeen.putIfAbsent(key, ErrorSeen(now, notify)) == null) {
-                        if (notify) urgentNotification(tag, message)
+                        if (notify) errorNotice(tag, message)
                         else android.util.Log.w("damage/service",
                             "error notices for '$tag' capped at $ERROR_NOTICES_PER_TAG per ${ERROR_NOTICE_GAP_MS / 1000} s — the rest are in logcat")
                     }
@@ -254,11 +256,26 @@ class ShellService : Service() {
             prefs.host, prefs.contentPort, prefs.token, scope)
         torrentsProvider = torp
         sh.register(wm.damage.core.windows.torrents.TorrentsWindow(text, torp, scope))
+        // Music (2026-09-02, MUSIC.md): the library rides the window channel
+        // with its catalog/art/viz/lyrics cached on disk; the PLAYER is here —
+        // ExoPlayer + the media session the earbuds' taps route through
+        val musicDir = dataDir.resolve("music")
+        val mp = arrayOfNulls<wm.damage.phone.music.AndroidMusicPlayer>(1)
+        val ml = wm.damage.core.windows.music.RemoteMusicLibrary(prefs.host, prefs.contentPort, prefs.token, prefs.mediaPort, musicDir, scope,
+            onState = { line -> mp[0]?.onPcLinkLine(line) })
+        musicLibrary = ml
+        val player = wm.damage.phone.music.AndroidMusicPlayer(this, ml, scope)
+        mp[0] = player
+        musicPlayer = player
+        sh.register(wm.damage.core.windows.music.MusicWindow(text, ml, player, scope))
         val ri = RemoteIcons(prefs.host, prefs.contentPort, prefs.token,
             dataDir.resolve("icons"), scope, onLoaded = { sh.requestRepaint() })
         remoteIcons = ri
         sh.iconSource = ri
-        sh.onUrgent = { source, body -> urgentNotification(source, body) }
+        // verdict 21: urgent internal notices reach the phone ONLY when the
+        // Global "Phone notifications" switch is on; the shell's own box
+        // already shows them on glass
+        sh.onUrgent = { source, body -> if (sh.settings.phoneNotifications) urgentNotification(source, body) }
         sh.hostSettings = listOf(
             HostSetting("Target", listOf("sim", "glasses"),
                 current = { if (prefs.target == Prefs.Target.GLASSES) "glasses" else "sim" },
@@ -383,6 +400,10 @@ class ShellService : Service() {
         try { filesProvider?.close() } catch (e: Exception) { Log.w("service", "files provider close: ${e.message}") }
         try { torrentsProvider?.close() } catch (e: Exception) { Log.w("service", "torrents provider close: ${e.message}") }
         torrentsProvider = null
+        try { musicPlayer?.close() } catch (e: Exception) { Log.w("service", "music player close: ${e.message}") }
+        musicPlayer = null
+        try { musicLibrary?.close() } catch (e: Exception) { Log.w("service", "music library close: ${e.message}") }
+        musicLibrary = null
         filesProvider = null
         try { remoteIcons?.close() } catch (e: Exception) { Log.w("service", "icons close: ${e.message}") }
         remoteIcons = null
@@ -562,6 +583,15 @@ class ShellService : Service() {
      *  alert path that works when the display itself is broken. */
     private val urgentIds = java.util.concurrent.atomic.AtomicInteger(0)
 
+    /** A logged ERROR (verdict 21): a glass notice through the running shell
+     *  plus the log; the phone notification only when the Global switch is on. */
+    private fun errorNotice(tag: String, message: String) {
+        val sh = shell
+        if (sh != null && sh.settings.phoneNotifications) { urgentNotification(tag, message); return }
+        if (sh == null) { urgentNotification(tag, message); return }   // no shell to show it on glass: the phone is the only channel
+        try { sh.services.notifyInternal(tag, message) } catch (e: Exception) { android.util.Log.w("damage/service", "glass notice failed: ${e.message}") }
+    }
+
     private fun urgentNotification(source: String, body: String) {
         channels().notify(
             // a rolling id well clear of NOTIF_ID (R3 note: the millis-derived
@@ -598,6 +628,8 @@ class Prefs(context: Context) {
     val contentPort: Int get() = p.getInt("contentPort", BuildConfig.CONTENT_PORT)
     val transportPort: Int get() = p.getInt("transportPort", BuildConfig.TRANSPORT_PORT)
     val replicaPort: Int get() = p.getInt("replicaPort", BuildConfig.REPLICA_PORT)
+    /** The PC's media endpoint (MUSIC.md §6.3). */
+    val mediaPort: Int get() = p.getInt("mediaPort", BuildConfig.MEDIA_PORT)
 
     /** SIM until flash day. GLASSES is the real BLE path. */
     val target: Target

@@ -99,6 +99,9 @@ class SettingsWindow(
         // Notification toggles live in each APP's category (Adam, 2026-09-01 —
         // `WINDOWS.md` §1); Global keeps only the WM's own events
         Entry("Notify · Damage", { onOff(get().notifyDamage) }, { s, d -> s.copy(notifyDamage = d > 0) }),
+        // MUSIC.md verdict 21: the APK-wide switch for phone notifications
+        // (errors go to the glasses and the log; the foreground one stays)
+        Entry("Phone notifications", { onOff(get().phoneNotifications) }, { s, d -> s.copy(phoneNotifications = d > 0) }),
         // §4.8 the keyboard's layout
         Entry("Keyboard", { get().keyboardLayout }, { s, d ->
             val ks = ShellSettings.KEYBOARDS

@@ -89,6 +89,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** A granted-but-unbound notification listener rebinds here (the
+     *  MusicListener's own recovery; a no-op otherwise). */
+    override fun onResume() {
+        super.onResume()
+        try { wm.damage.phone.music.MusicListener.rebindIfStuck(this) } catch (e: Exception) { status.text = "listener rebind: ${e.message}" }
+    }
+
     @SuppressLint("SetTextI18n")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -109,6 +116,12 @@ class MainActivity : ComponentActivity() {
             addView(smallButton("lens") { lens?.toggleArm() })
             addView(smallButton("type") { typeDialog() })
             addView(smallButton("rel") { service?.postGesture(EvenHubMsg.EV_RING_LONG_PRESS_RELEASE) })
+            // MUSIC.md §7: the one-time "notification access" grant (Spotify's
+            // session + the OS volume-lowered notice) — opens the system page
+            addView(smallButton("music access") {
+                try { startActivity(wm.damage.phone.music.MusicListener.settingsIntent(this@MainActivity)) }
+                catch (e: Exception) { status.text = "notification-access page unavailable: ${e.message}" }
+            })
         }
         root.addView(bar, FrameLayout.LayoutParams(-1, -2, Gravity.TOP))
         setContentView(root)

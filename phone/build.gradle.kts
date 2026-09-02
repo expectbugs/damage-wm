@@ -32,14 +32,15 @@ android {
         targetSdk = 35
         // Bump BOTH on every build Adam installs (monotonic versionCode makes a
         // stale Downloads-folder APK refuse to install over a newer one).
-        versionCode = 18
-        versionName = "0.18"
+        versionCode = 19
+        versionName = "0.19"
 
         buildConfigField("String", "DAMAGE_TOKEN", "\"${secrets.getProperty("token", "")}\"")
         buildConfigField("String", "SERVER_HOST", "\"${secrets.getProperty("serverHost", "100.107.139.121")}\"")
         buildConfigField("int", "CONTENT_PORT", secrets.getProperty("contentPort", "7401"))
         buildConfigField("int", "TRANSPORT_PORT", secrets.getProperty("transportPort", "7402"))
         buildConfigField("int", "REPLICA_PORT", secrets.getProperty("replicaPort", "7403"))
+        buildConfigField("int", "MEDIA_PORT", secrets.getProperty("mediaPort", "7404"))
     }
 
     // ONE canonical signing identity, pinned, with NO exists() fallback: a
@@ -105,4 +106,8 @@ dependencies {
     // still refuses any non-CFW firmware.
     implementation(libs.nordic.ble)
     implementation(libs.nordic.ble.ktx)
+    // Music (MUSIC.md §7): the ExoPlayer sink + the media session the
+    // earbuds' taps route through
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.session)
 }

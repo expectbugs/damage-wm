@@ -9,6 +9,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!-- Music (MUSIC.md §7): the shell service also plays media — the
+         second foreground-service type; no RECORD_AUDIO, ever. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- BLE: the live radio path since 2026-08-31 — the phone owns the pair
          all day (Target=glasses); the capability gate refuses non-CFW firmware. -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
@@ -48,7 +51,7 @@
         <service
             android:name=".ShellService"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice" />
+            android:foregroundServiceType="connectedDevice|mediaPlayback" />
 
         <!-- Music (MUSIC.md §7): the notification listener. It is what
              authorizes MediaSessionManager.getActiveSessions() for Spotify's

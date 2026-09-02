@@ -19,6 +19,9 @@ slf4j = "2.0.18"
 # Postgres for the Music library (MUSIC.md §9.1): pgjdbc (BSD-2) over the Unix
 # socket via junixsocket (Apache-2.0) — peer auth, no password. Desktop only.
 postgresql = "42.7.13"
+# The phone's player (MUSIC.md §7): media3 ExoPlayer + MediaSession — 1.5.1
+# is the version G2CC proved on this phone, cached in ~/.gradle.
+media3 = "1.5.1"
 junixsocket = "2.11.1"
 
 [libraries]
@@ -43,6 +46,8 @@ dbus-java-unixsocket = { module = "com.github.hypfvieh:dbus-java-transport-nativ
 slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
 postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
 junixsocket-core = { module = "com.kohlschutter.junixsocket:junixsocket-core", version.ref = "junixsocket" }
+media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
+media3-session = { module = "androidx.media3:media3-session", version.ref = "media3" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
