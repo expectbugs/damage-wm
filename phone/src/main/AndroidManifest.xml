@@ -31,6 +31,16 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- Package visibility (Android 11+): SpotifyRemote's cold start looks up
+         Spotify's media-browser service and binds it. Without this declaration
+         both lookups are filtered and Spotify reads as "not installed" even
+         when it is — the passive session path never showed it because the
+         notification-listener grant exempts active sessions only
+         (ultrareview 2026-09-03). -->
+    <queries>
+        <package android:name="com.spotify.music" />
+    </queries>
+
     <!-- Cleartext HTTP to the PC's media endpoint (:7404) over the tailnet
          (MUSIC.md §6.3): ExoPlayer and the prefetch store use HttpURLConnection,
          which the platform's cleartext policy would otherwise refuse (review

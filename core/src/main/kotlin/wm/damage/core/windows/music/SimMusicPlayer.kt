@@ -57,10 +57,15 @@ class SimMusicPlayer(
     private val simSink = SimSink()
     override val sink: Sink get() = simSink
     override fun post(block: () -> Unit) = synchronized(this) { block() }
+    /** Tests: with [deferAsync] set, async work runs but its completion waits
+     *  for [flushAsync] — the gap in which a user acts while a fill is in flight. */
+    var deferAsync = false
+    private val deferred = ArrayDeque<() -> Unit>()
     override fun <T> runAsync(block: () -> T, then: (Result<T>) -> Unit) {
         val r = try { Result.success(block()) } catch (e: Exception) { Result.failure(e) }
-        then(r)
+        if (deferAsync) deferred.addLast { then(r) } else then(r)
     }
+    fun flushAsync() = post { while (deferred.isNotEmpty()) deferred.removeFirst()() }
 
     val prefetched: List<Pair<Int, String>> get() = simSink.prefetched
     val sinkVolume: Int get() = simSink.vol

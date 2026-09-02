@@ -241,7 +241,9 @@ class AndroidMusicPlayer(
         try {
             val sid = p.audioSessionId
             if (sid == C.AUDIO_SESSION_ID_UNSET) return
-            val e = enhancer?.takeIf { true } ?: LoudnessEnhancer(sid).also { enhancer = it }
+            // one enhancer for the life of the player: exo is built once in player()
+            // and released only in close(), so its session id never changes
+            val e = enhancer ?: LoudnessEnhancer(sid).also { enhancer = it }
             e.setTargetGain(mB)
             e.enabled = mB > 0
         } catch (e: Exception) {

@@ -92,6 +92,10 @@ abstract class PlayerCore(
      *  runs when the fill lands (never "the queue ended" with rows coming). */
     private var advanceAfterFill: String? = null
     private var queueGen = 0
+    /** Bumped by a user's pick (play-from): a fill dispatched earlier with
+     *  "advance when you land" keeps its rows but drops that advance, or it
+     *  would step one past the row the user chose (ultrareview 2026-09-03). */
+    private var pickGen = 0
     /** The volume we last set ourselves (a change to another value with no
      *  cause of ours is the phone's). */
     protected var ourVolume = -1
@@ -282,6 +286,8 @@ abstract class PlayerCore(
 
     override fun playFrom(qid: Long) = post {
         if (!engine.playFrom(qid)) { emit(PlayerEvent.Error("that row is gone")); return@post }
+        pickGen++
+        advanceAfterFill = null
         openCurrent(0, true, "play-from")
     }
 
@@ -332,6 +338,7 @@ abstract class PlayerCore(
         if (!engine.needsFill() || fillInFlight) { if (thenAdvance) endOfQueue(reason); return }
         fillInFlight = true
         val gen = queueGen
+        val pick = pickGen
         val mode = engine.mode
         val seeds = engine.seedIds()
         val exclude = engine.ids()
@@ -339,7 +346,7 @@ abstract class PlayerCore(
             if (mode == Mode.RADIO) library.similar(seeds, exclude, RADIO_BATCH) else library.randomLibrary(RADIO_BATCH, exclude)
         }) { r ->
             fillInFlight = false
-            val adv = thenAdvance || advanceAfterFill != null
+            val adv = (thenAdvance && pick == pickGen) || advanceAfterFill != null
             val cause = advanceAfterFill ?: reason
             advanceAfterFill = null
             if (gen != queueGen) { Log.i("player", "fill discarded — the queue was replaced meanwhile"); return@runAsync }

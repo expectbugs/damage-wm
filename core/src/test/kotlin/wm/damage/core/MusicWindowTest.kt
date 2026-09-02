@@ -106,6 +106,35 @@ class MusicWindowTest {
         q.clear(); assertTrue(q.isEmpty); assertFalse(q.needsFill())
     }
 
+    @Test fun radioFillLandingAfterAUserPickKeepsThePick() {
+        // ultrareview 2026-09-03: an end-of-queue Radio fill carries "advance when you land";
+        // a Play-from meanwhile must not be stepped past when the rows arrive
+        var now = 1_000_000L
+        val lib = Lib(); lib.similarAnswer = emptyList()
+        val p = SimMusicPlayer(lib, { now })
+        p.playQueue(listOf(t(1, "A", 50_000), t(2, "A", 50_000)), 1, Mode.RADIO, "radio")   // the open's fill finds nothing
+        assertEquals(2, p.state.queue.size); assertEquals(1, p.state.index)
+        lib.similarAnswer = listOf(TrackRef(50, "N50"), TrackRef(51, "N51"))
+        p.deferAsync = true
+        now += 60_000; p.advance()                       // track 2 ends at the end of the queue: fill dispatched, advance pending
+        assertEquals(2, p.state.queue.size)
+        p.playFrom(p.state.queue[0].qid)                 // the user picks row 1 while the fill is in flight
+        assertEquals(0, p.state.index); assertEquals(1, p.state.queue[p.state.index].track.id)
+        p.flushAsync()                                   // the fill lands
+        assertEquals(4, p.state.queue.size, "the fetched rows are kept")
+        assertEquals(0, p.state.index, "the pick stands — the stale advance is dropped")
+        assertEquals(1, p.state.queue[p.state.index].track.id); assertEquals(PlayState.PLAYING, p.state.play)
+        // with no pick meanwhile the landing fill still advances into the new rows
+        val lib2 = Lib(); lib2.similarAnswer = emptyList()
+        val p2 = SimMusicPlayer(lib2, { now })
+        p2.playQueue(listOf(t(1, "A", 50_000), t(2, "A", 50_000)), 1, Mode.RADIO, "radio")
+        lib2.similarAnswer = listOf(TrackRef(50, "N50"), TrackRef(51, "N51"))
+        p2.deferAsync = true
+        now += 60_000; p2.advance()
+        p2.flushAsync()
+        assertEquals(4, p2.state.queue.size); assertEquals(2, p2.state.index); assertEquals(50, p2.state.queue[2].track.id)
+    }
+
     // =========================================================== the player core over the sim sink
     private class Lib : wm.damage.core.windows.music.MusicLibrary {
         val played = ArrayList<String>()
