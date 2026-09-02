@@ -332,15 +332,19 @@ class DesktopStack(
         try {
             keeper.stop()
         } finally {
-            // the providers outlive this stack: detach even when the stop
-            // threw, or the leak returns on the failure path (R2-W12)
-            tmuxWindow?.detach()
-            torrentsWindow?.detach()   // a leaked listener fed a dead shell's queue every poll (P1)
+            try {
+                // the providers outlive this stack: detach even when the stop
+                // threw, or the leak returns on the failure path (R2-W12)
+                tmuxWindow?.detach()
+                torrentsWindow?.detach()   // a leaked listener fed a dead shell's queue every poll (P1)
+            } finally {
+                // and the stack's own resources go the same way (R3-K3): its
+                // coroutines, and the BlueZ handler on the process-wide bus
+                scope.cancel()
+                val all = (transport as? PathTransport)?.paths?.map { it.transport } ?: listOf(transport)
+                for (t in all) (t as? BlueZTransport)?.close()
+            }
         }
-        scope.cancel()
-        // the BlueZ glue holds a handler on the process-wide bus: release it
-        val all = (transport as? PathTransport)?.paths?.map { it.transport } ?: listOf(transport)
-        for (t in all) (t as? BlueZTransport)?.close()
     }
 
     fun statusLine(): String {

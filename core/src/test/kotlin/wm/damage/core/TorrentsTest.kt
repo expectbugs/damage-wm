@@ -283,7 +283,8 @@ SHA256: abc</pre>
         try {
             FakeTl().use { site ->
                 val jar = tmp.resolve("tl-cookies.json")
-                val tl = TorrentLeech("glassuser", "pw!", jar, base = site.base)
+                var now = 1_800_000_000_000L
+                val tl = TorrentLeech("glassuser", "pw!", jar, base = site.base, clock = { now })
                 val page = tl.list(null, null, 1, "added")
                 assertEquals(1, site.requests.count { it.startsWith("POST /user/account/login/") })
                 assertTrue(site.requests.any { it.startsWith("GET /torrents/browse/list/orderby/added/order/desc/page/1") })
@@ -298,7 +299,13 @@ SHA256: abc</pre>
                 // search + category + sort URL shapes
                 tl.list("ubuntu server", 23, 2, "seeders")
                 assertTrue(site.requests.any { it.startsWith("GET /torrents/browse/list/query/ubuntu%20server/categories/23/orderby/seeders/order/desc/page/2") })
-                // session expiry: ONE re-login, then the retry succeeds
+                // session expiry within a minute of the login: reported, not re-logged (R3-P5)
+                site.expireOnce = true
+                val e0 = assertFailsWith<TorrentLeech.TlException> { tl.list(null, null, 1, "added") }
+                assertTrue(e0.message!!.contains("not retrying within a minute"), e0.message)
+                assertEquals(1, site.requests.count { it.startsWith("POST /user/account/login/") })
+                // a minute later the same expiry gets its ONE re-login, then the retry succeeds
+                now += 61_000
                 site.expireOnce = true
                 tl.list(null, null, 1, "added")
                 assertEquals(2, site.requests.count { it.startsWith("POST /user/account/login/") })
@@ -347,10 +354,14 @@ SHA256: abc</pre>
                 site.listingBody = FakeTl.LISTING
                 TorrentLeech("glassuser", "pw!", jar, base = site.base).list(null, null, 1, "added")
                 assertEquals(logins, site.requests.count { it.startsWith("POST /user/account/login/") })
-                // wrong credentials refuse with the site's answer
+                // wrong credentials refuse with the site's answer — and LATCH: the
+                // next request does not post the credentials again (R3-P5)
                 val bad = TorrentLeech("glassuser", "nope", tmp.resolve("other.json"), base = site.base)
                 val e3 = assertFailsWith<TorrentLeech.TlException> { bad.list(null, null, 1, "added") }
                 assertTrue(e3.message!!.contains("login failed"), e3.message)
+                val postsAfterRefusal = site.requests.count { it.startsWith("POST /user/account/login/") }
+                assertFailsWith<TorrentLeech.TlException> { bad.list(null, null, 1, "added") }
+                assertEquals(postsAfterRefusal, site.requests.count { it.startsWith("POST /user/account/login/") })
             }
         } finally {
             tmp.toFile().deleteRecursively()
@@ -463,7 +474,8 @@ SHA256: abc</pre>
         private fun snap() = Snapshot(version, epoch, System.currentTimeMillis(), transfers, SessionStats(dlSpeed = 1_250_000, upSpeed = 420_000, version = "v5.1.4"), seq)
         override fun stateLine() = ""
         override fun snapshot() = snap()
-        override fun addListener(l: TorrentsProvider.Listener) { listeners.add(l); l.snapshot(snap()); l.state("") }
+        override fun addListener(l: TorrentsProvider.Listener) { if (listeners.addIfAbsent(l)) { l.snapshot(snap()); l.state("") } }
+        @Volatile var failBrowseOnce = false
         override fun removeListener(l: TorrentsProvider.Listener) { listeners.remove(l) }
         override fun setFocused(focused: Boolean, paceMs: Long) { ops.add("focus:$focused:$paceMs") }
         override fun refresh() { ops.add("refresh") }
@@ -490,6 +502,7 @@ SHA256: abc</pre>
         private fun item(i: Int) = TlItem("f$i", "Item $i", "Item.$i.torrent", 23, 1_000L * i, 10, 1, 5, "2026-09-01 10:00:00", listOf("Linux"), i == 0)
         override fun tlBrowse(categoryId: Int?, page: Int, sort: String): TlPage {
             ops.add("browse:${categoryId ?: 0}:$page:$sort")
+            if (failBrowseOnce) { failBrowseOnce = false; throw IllegalStateException("tracker hiccup") }
             return if (page == 1) TlPage((0 until 3).map { item(it) }, 1, 35, 3) else TlPage(emptyList(), page, 35, 3)
         }
         override fun tlSearch(query: String, page: Int, sort: String): TlPage {
@@ -548,8 +561,11 @@ SHA256: abc</pre>
             awaitTrue("torrents menu") { r.shell.menuIsOpen && r.shell.menuTitle == "torrents" }
             r.tap()                                              // Browse TorrentLeech
             awaitTrue("categories") { r.win.title() == "browse" }
+            r.fake.failBrowseOnce = true                         // the FIRST page fails: the listing must retry by itself (R3-P1)
             r.tap()                                              // Newest
-            awaitTrue("listing") { r.win.title() == "newest" && r.fake.ops.any { it.startsWith("browse:0:1:added") } }
+            awaitTrue("listing asked") { r.fake.ops.count { it.startsWith("browse:0:1:added") } == 1 }
+            awaitTrue("the failed first page retried on its own pacing") { r.fake.ops.count { it.startsWith("browse:0:1:added") } >= 2 }
+            awaitTrue("listing") { r.win.title() == "newest" && r.win.saveState()["listCursor"] != null }
             r.tap()                                              // Item 0 → the torrent page
             awaitTrue("torrent page") { r.win.title() == "torrent" && r.win.levelDepth() == 4 }
             r.tap()                                              // add menu

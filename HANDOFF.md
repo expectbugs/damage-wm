@@ -572,7 +572,7 @@ staging — complete and polished before the next app.** The session, in order:
   menu visit), and the first fix chased an empty list's menu row to the end (the core test).
   The cursor now follows its row's identity (hash, or the menu row) across snapshots.
 - **Measured (selfcheck)**: transfers list 9.0 % ink, details 6.4 %, the open keyboard 9–11 %.
-  Battery at hand-off: core **219** · desktop 9 · selfcheck **89** · snapshots 26
+  Battery at hand-off: core **220** · desktop 9 · selfcheck **89** · snapshots 26
   (8 new, looked at) · lint 0 · design shots byte-identical. APK **18/0.18** staged.
 
 ### 23.1 The review loop — round 1 (2026-09-01, night)
@@ -653,9 +653,32 @@ description. Doc mismatches corrected in `TORRENTS.md` / `DESIGN.md` §4.8 /
 (a stale connection's end drops the live driver's pace for at most one poll interval); the
 keyboard's 576 px key field assumes the full-width content area (a narrower calibrated safe
 rect is not configured today).
-Battery after round 2: core **219** · desktop 9 · selfcheck 89 · snapshots 26 (refreshed) ·
+Battery after round 2: core **220** · desktop 9 · selfcheck 89 · snapshots 26 (refreshed) ·
 lint 0; the service runs the round-2 jar, APK 18/0.18 re-staged.
 
-**Next (`REMINDER.md`):** round 3 — fresh eyes on the round-2 fix diff — until a round finds
+### 23.3 Round 3 — the round-2 fix diff (2026-09-01, late)
+
+Two reviewers over `73fdf81..4f5e6e0`. One HIGH, real: **a listing whose only content row
+was the loading row could never re-demand its page** — the list kit paints the cursor row
+through the lens, never through the row painter, so a failed first page (or a `tl:` deep
+link's back target) sat forever; the demand now runs from the window's `view()` on the loop
+and from the paced retry itself, and never while unfocused (a switcher preview renders the
+window too — it must never issue a tracker request). The rest, verified and fixed: a keeper's
+same-instance restart registered the provider listener again (the round-1 leak through the
+restart path — listeners are idempotent now, on both providers and in the window); the Tmux
+"keys off the keyboard" notice named the wrong keys; the stack stop's `finally` did half the
+job; a restore's sequence bumps orphaned an in-flight load's op word; a live record's
+pending cursor waited for a NEW snapshot object (minutes on an idle phone) instead of resolving
+against the one at hand; a cursor saved on the menu row restores to the menu row; the first
+snapshot (empty or not) consumes the pending; tracker logins are paced to one a minute on
+every branch and a refused login latches for the process; a failed page no longer applies a
+restored top against the placeholder; recents/search from the browse side set their back
+target; a zero-result search says `no results`; the pan start never splits a surrogate pair;
+the Files deep link clears an abandoned ascend's cursor. Pins added for the refusal-before-open,
+the harmless row heads, the failed-first-page retry, the login latch and the paced re-login.
+Battery after round 3: core **220** · desktop 9 · selfcheck 89 · snapshots 26 (refreshed) ·
+lint 0; the service runs the round-3 jar, APK 18/0.18 re-staged.
+
+**Next (`REMINDER.md`):** round 4 — fresh eyes on the round-3 fix diff — until a round finds
 nothing real; then on-glass verdicts for the keyboard's feel (row pitch at 288, the highlight,
 the text-line pan) and the transfers list.

@@ -398,6 +398,9 @@ class KeyboardSurface(private val text: TextRasterizer) {
                 if (text.measure(d.substring(m, caret), fDraft) <= headMax) b = m else a = m + 1
             }
             start = a
+            // never begin the shown text inside a surrogate pair (R3-K5): a
+            // lone low surrogate is the one glyph the rasterizers cannot see
+            if (start < d.length && Character.isLowSurrogate(d[start])) start++
         }
         if (start > 0) {
             Icons.tri(g, dx + 10, dy + 5, 11, Level.DIM, left = true)
@@ -467,9 +470,9 @@ class KeyboardSurface(private val text: TextRasterizer) {
                 val pool = ArrayDeque(heads.drop(rowsWanted) + rest)
                 for (r in 0 until rowsWanted) {
                     val head = heads.getOrNull(r)
-                    val target = if (r == 0) size1 else extra.size - size1
+                    val rowEnd = if (r == 0) size1 else extra.size      // where this row's keys stop
                     if (head != null) ordered.add(head)
-                    while (ordered.size < (if (r == 0) target else extra.size) && pool.isNotEmpty()) ordered.add(pool.removeFirst())
+                    while (ordered.size < rowEnd && pool.isNotEmpty()) ordered.add(pool.removeFirst())
                 }
                 val chunks = if (rowsWanted == 1) listOf(ordered) else listOf(ordered.take(size1), ordered.drop(size1))
                 for (chunk in chunks) {

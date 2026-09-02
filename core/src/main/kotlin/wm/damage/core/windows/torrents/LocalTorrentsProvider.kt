@@ -112,7 +112,7 @@ class LocalTorrentsProvider(
     override fun stateLine(): String = stateLine
     override fun snapshot(): Snapshot? = snap
     override fun addListener(l: TorrentsProvider.Listener) {
-        listeners.add(l)
+        if (!listeners.addIfAbsent(l)) return   // a same-instance restart registers again (R3-K2)
         snap?.let { s -> try { l.snapshot(s) } catch (e: Exception) { Log.e("torrents", "listener", e) } }
         try { l.state(stateLine) } catch (e: Exception) { Log.e("torrents", "listener", e) }
     }

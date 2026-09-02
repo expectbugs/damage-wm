@@ -1,6 +1,6 @@
 # Torrents on glass — design + plan (2026-09-01)
 
-**Status: DESIGN SETTLED with Adam 2026-09-01 (evening); BUILT the same night (`HANDOFF.md` §23; battery green — core 219 · selfcheck 89 · 26 snapshots); the review loop is next.** The second
+**Status: DESIGN SETTLED with Adam 2026-09-01 (evening); BUILT the same night (`HANDOFF.md` §23; battery green — core 220 · selfcheck 89 · 26 snapshots); the review loop is next.** The second
 window of the app wave after Files (`EXPLOSION.md` §20's wow order: Games · **Torrents** ·
 Files ✅ · Music · …). Not a G2CC conversion — G2CC never had a torrent window — so
 `WINDOWS.md` step 2 has nothing to mine; Reader, Tmux and Files are the precedents.
@@ -140,7 +140,9 @@ TRANSFERS (List, root)  ──tap──▶ transfer MENU ──Details──▶ 
   loaded end (never from a painted row — the panning list wraps its tail rows above the
   cursor); a dim `loading…` pseudo-row shows while a page is in flight; a failed page shows
   the failure in place and retries on a 5 s pacing (the Files viewer precedent — never a
-  silent end).
+  silent end; the demand runs from the window's own view on the loop, so it fires with the
+  cursor resting on the loading row too, and never from a switcher preview). A search with
+  no matches keeps one honest row: `no results`.
 - **TORRENT** (Document, a tracker item): name · category · size · seeders/leechers ·
   snatches · added · uploader · tags · freeleech · `Description` + the text · `NFO` (mono) ·
   `Files (n)`. Tap → **add MENU**: Add to qBittorrent → confirm (`Add '<name>'? Cancel / Add →
@@ -199,7 +201,9 @@ unreachable 40s`, `qBittorrent unreachable 12s`, `TorrentLeech: login failed`) r
 row's hash, so a restore lands on the same torrent after the list reorders) · filter · sort ·
 open hash · browse category · search query + recents · the settings rows · the keyboard draft.
 Restored positions wait for their content (a document's top for both the transfer and its
-file list; a listing cursor for its page; the transfers row for the first snapshot, once).
+file list; a listing cursor for its page; the transfers row — by hash, by the wrap-end menu
+row, or by index — for the first snapshot, once; resolved at once when a snapshot is already
+at hand).
 A live-synced record reloads its open document at once only while the window is focused;
 unfocused, on the next activation. Nothing here has per-item state, so no sub-records.
 `open("t:<hash>")` and `open("tl:<fid>")` synthesize the level path so back behaves as if
@@ -236,8 +240,10 @@ most one host interval behind — a deliberate simplification over an on-demand 
   refused login latches for the process (five failures ban the address for an hour).
 - **`TorrentLeech`**: login → cookie jar persisted in `~/.damage/tl-cookies.json` (0600),
   re-login once on a redirect to the login page, the login form, or an HTML page in place of
-  the listing JSON (re-logins paced to one a minute — a maintenance page is reported, not
-  logged into), then the request retried once; browse / search / detail / download / account; HTML parsed with a small stdlib
+  the listing JSON — **at most one login a minute** (a session dropped within a minute of a
+  login, or a maintenance page, is reported, not logged into again) and **a login the site
+  refuses latches for the process** (the qBittorrent rule: a retrying listing must never post
+  the credentials every five seconds), then the request retried once; browse / search / detail / download / account; HTML parsed with a small stdlib
   tokenizer (no third-party parser), every expected landmark checked. Credentials come from
   `~/.damage/config.json` (`torrentleechUser` / `torrentleechPass`) — the standing secrets
   rule; nothing in the repo.

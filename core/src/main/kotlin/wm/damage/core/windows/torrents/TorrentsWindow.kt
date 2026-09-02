@@ -137,6 +137,8 @@ class TorrentsWindow(
      *  placeholder document, so they are re-applied when the bytes land. */
     private var pendingTransHash: String? = null
     private var pendingTransIndex: Int? = null
+    private var pendingTransMenu = false
+    private var registered = false
     private var pendingListCursor: Int? = null
     private var pendingDocTop: Int? = null
     private var pendingTlDocTop: Int? = null
@@ -208,13 +210,15 @@ class TorrentsWindow(
         val after = rows()
         val want = pendingTransHash
         val wantIdx = pendingTransIndex
-        if (s.transfers.isNotEmpty()) {
-            // ONE shot (R2-W3): a restored row that is not in this snapshot
-            // (filtered out, gone) must not steer the cursor minutes later
-            pendingTransHash = null
-            pendingTransIndex = null
-        }
+        val wantMenu = pendingTransMenu
+        // ONE shot on the first snapshot, empty or not (R2-W3, R3-P8): a
+        // restored row not in it (filtered out, gone) must not steer the
+        // cursor minutes later; an empty list has no position to keep
+        pendingTransHash = null
+        pendingTransIndex = null
+        pendingTransMenu = false
         transModel.cursor = when {
+            wantMenu -> after.size - 1                                   // the menu row, wherever it moved to (R3-P7)
             want != null && after.any { it?.hash == want } -> after.indexOfFirst { it?.hash == want }
             wantIdx != null && s.transfers.isNotEmpty() -> wantIdx.coerceIn(0, after.size - 1)
             onMenu -> after.size - 1
@@ -223,6 +227,22 @@ class TorrentsWindow(
             else -> transModel.cursor.coerceIn(0, after.size - 1)
         }
         applyPendingDocTop()
+    }
+
+    /** The pending restored cursor against the snapshot at hand — the
+     *  applySnapshot rule, callable without a new snapshot (R3-P4). */
+    private fun resolvePendingCursor(s: Snapshot) {
+        val after = rows()
+        val want = pendingTransHash
+        val wantIdx = pendingTransIndex
+        val wantMenu = pendingTransMenu
+        pendingTransHash = null; pendingTransIndex = null; pendingTransMenu = false
+        transModel.cursor = when {
+            wantMenu -> after.size - 1
+            want != null && after.any { it?.hash == want } -> after.indexOfFirst { it?.hash == want }
+            wantIdx != null && s.transfers.isNotEmpty() -> wantIdx.coerceIn(0, after.size - 1)
+            else -> transModel.cursor.coerceIn(0, after.size - 1)
+        }
     }
 
     /** A restored document position waits for BOTH the transfer (the header)
@@ -243,6 +263,7 @@ class TorrentsWindow(
      *  or a dead shell's queue is fed every poll (review 2026-09-01 P1). */
     fun detach() {
         active = false
+        registered = false
         provider.setFocused(false, pollMs)
         provider.removeListener(listener)
     }
@@ -279,7 +300,9 @@ class TorrentsWindow(
 
     override fun onRegistered(ctx: ShellServices) {
         services = ctx
-        provider.addListener(listener)
+        // a same-instance restart (the keeper's link edges) registers again:
+        // the listener goes in ONCE (R3-K2 — providers are idempotent too)
+        if (!registered) { registered = true; provider.addListener(listener) }
         // the listener's first push lands through runOnShell, which a shell
         // that is not running yet may not carry: seed from the cached
         // snapshot directly (cheap by contract), on the registering thread
@@ -324,8 +347,11 @@ class TorrentsWindow(
             stepLines = { 5 })
         Level_.CATEGORIES -> WindowView.ListView(catModel, { catRows().size },
             ::paintCatRow, ::paintCatLens, ::commitCategory)
-        Level_.LISTING -> WindowView.ListView(listModel, { listingRows().size },
-            ::paintListingRow, ::paintListingLens, ::commitListing)
+        Level_.LISTING -> {
+            demandPageIfNear()            // from the loop's view() — the cursor row itself is painted by the lens (R3-P1)
+            WindowView.ListView(listModel, { listingRows().size },
+                ::paintListingRow, ::paintListingLens, ::commitListing)
+        }
         Level_.TORRENT -> WindowView.DocView(tlDocModel, { tlLines().size }, lineH(fBody),
             ::paintTlLine, ::openAddMenu, stepLines = { 5 })
     }
@@ -861,13 +887,14 @@ class TorrentsWindow(
 
     private val listingMore: Boolean get() = listingTotal < 0 || listing.size < listingTotal
 
-    private var listingRowsKey: Triple<Int, Boolean, Boolean>? = null
+    private var listingRowsKey: List<Any>? = null
     private var listingRowsCache: List<LRow> = emptyList()
 
-    /** Cached by (size, loading, more/state) — called per row paint (R2-W1). */
+    /** Cached by (listing identity, size, loading, tail) — called per row paint (R2-W1). */
     private fun listingRows(): List<LRow> {
-        val tail = listingLoading || listingMore || listingState.isNotEmpty()
-        val key = Triple(listing.size, listingLoading, tail)
+        // a zero-result search keeps its row: "no results" is said, never a bare menu (R3-P11)
+        val tail = listingLoading || listingMore || listingState.isNotEmpty() || (listingTotal == 0 && listing.isEmpty())
+        val key = listOf(listSeq, listing.size, listingLoading, tail)
         if (listingRowsKey != key) {
             val out = ArrayList<LRow>(listing.size + 2)
             for (it in listing) out.add(LRow.Item(it))
@@ -879,11 +906,13 @@ class TorrentsWindow(
         return listingRowsCache
     }
 
-    /** Demand the next page from the CURSOR's position — never from a row
-     *  being painted: the panning list wraps its tail rows ABOVE the cursor,
-     *  so a paint-time demand from the Loading row fetched every page of a
-     *  category while the cursor sat on row 0 (R2-W1, the L1 class). */
+    /** Demand the next page from the CURSOR's position, on the loop's view()
+     *  — never keyed on a row being painted: the panning list wraps its tail
+     *  rows ABOVE the cursor, so a paint-time demand from the Loading row
+     *  fetched every page of a category while the cursor sat on row 0 (R2-W1,
+     *  the L1 class), and the cursor row itself is painted by the lens (R3-P1). */
     private fun demandPageIfNear() {
+        if (!active) return               // a switcher PREVIEW renders this window too — never a request from a render (R3-P2)
         if (listingLoading || !listingMore) return
         if (listModel.cursor >= listing.size - 8) loadNextPage()   // honours the 5 s pacing itself
     }
@@ -933,7 +962,12 @@ class TorrentsWindow(
     private fun scheduleRetryPaint(seq: Int) {
         bg.launch {
             kotlinx.coroutines.delay(RETRY_PACING_MS)
-            onShell { if (seq == listSeq && level == Level_.LISTING) services?.requestRender(this@TorrentsWindow) }
+            onShell {
+                if (seq == listSeq && level == Level_.LISTING) {
+                    demandPageIfNear()     // the retry itself (R3-P1): a repaint alone demanded nothing when the cursor sat on the loading row
+                    services?.requestRender(this@TorrentsWindow)
+                }
+            }
         }
     }
 
@@ -978,13 +1012,11 @@ class TorrentsWindow(
                     listingLoading -> if (listing.isEmpty()) (if (listingQuery != null) "searching" else "loading") else "loading more"
                     waiting -> "failed - retrying: ${dn(listingState)}"
                     listingState.isNotEmpty() -> "failed - retrying now: ${dn(listingState)}"
+                    listingTotal == 0 && listing.isEmpty() -> "no results"
                     else -> "more"
                 }
                 Draw.fit(g, tx, r.x + 40, r.y + 5, s, Level.REST, fRow, r.w - 64)
-                // the paced retry lives HERE too (review W7): an empty listing
-                // has no item row to demand from — but only when the CURSOR is
-                // on this row or the listing is empty (R2-W1)
-                if (listing.isEmpty() || listModel.cursor >= listing.size) demandPageIfNear()
+                // the demand itself comes from view() on the loop (R3-P1)
             }
             is LRow.Menu -> {
                 Draw.fit(g, tx, r.x + 40, r.y + 5, "Browse", Level.DIM, fRow, r.w - 64)
@@ -1007,9 +1039,14 @@ class TorrentsWindow(
                 Draw.fit(g, tx, r.x + 72, r.y + 48, dn(l3, fSmall), Level.DIM, fSmall, r.w - 88)
             }
             is LRow.Loading -> {
-                Draw.fit(g, tx, r.x + 72, r.y + 6, if (listingLoading) "loading" else "more", Level.HEAD, fHead, r.w - 88)
-                Draw.fit(g, tx, r.x + 72, r.y + 32,
-                    if (listingTotal >= 0) "${listing.size} of $listingTotal loaded" else "asking TorrentLeech", Level.BODY, fBody, r.w - 88)
+                val none = listingTotal == 0 && listing.isEmpty()
+                Draw.fit(g, tx, r.x + 72, r.y + 6, if (listingLoading) "loading" else if (none) "no results" else "more", Level.HEAD, fHead, r.w - 88)
+                Draw.fit(g, tx, r.x + 72, r.y + 32, when {
+                    none -> "nothing matched on TorrentLeech"
+                    listingState.isNotEmpty() -> dn(listingState, fBody)
+                    listingTotal >= 0 -> "${listing.size} of $listingTotal loaded"
+                    else -> "asking TorrentLeech"
+                }, Level.BODY, fBody, r.w - 88)
             }
             is LRow.Menu -> {
                 Draw.fit(g, tx, r.x + 72, r.y + 6, "Browse", Level.HEAD, fHead, r.w - 88)
@@ -1036,7 +1073,7 @@ class TorrentsWindow(
             acts.add(act)
         }
         add("Search TorrentLeech", "keyboard") { openSearch() }
-        for (q in recents.take(5)) add("Search", q) { openListing(null, q) }
+        for (q in recents.take(5)) add("Search", q) { listingFromTransfers = false; openListing(null, q) }   // from the browse side (R3-P9)
         if (level == Level_.LISTING) {
             // rows that act on a listing exist only inside one (R2-W7)
             add("Sort", tlSort) {
@@ -1067,7 +1104,7 @@ class TorrentsWindow(
         recents.remove(q)
         recents.addFirst(q)
         while (recents.size > RECENTS) recents.removeLast()
-        if (level == Level_.TRANSFERS || level == Level_.DETAILS) listingFromTransfers = true
+        listingFromTransfers = level == Level_.TRANSFERS || level == Level_.DETAILS   // set, not only raised (R3-P9)
         openListing(null, q)
     }
 
@@ -1103,7 +1140,7 @@ class TorrentsWindow(
                     tlDetail = d
                 }
                 tlCache = null
-                pendingTlDocTop?.let { tlDocModel.topLine = it; pendingTlDocTop = null }   // W4
+                if (err == null) pendingTlDocTop?.let { tlDocModel.topLine = it; pendingTlDocTop = null }   // W4; not against the placeholder (R3-P6)
                 services?.requestRender(this@TorrentsWindow)
             }
         }
@@ -1213,7 +1250,7 @@ class TorrentsWindow(
             } else {
                 lines.add(MenuSurface.Item("qBittorrent", st.ifEmpty { "no snapshot yet" }))
             }
-            // the tracker's strings are sanitized on the loop below (dm is loop-only)
+            // the tracker's strings join the menu on the loop (MenuSurface sanitizes them)
             val raw = ArrayList<Pair<String, String>>()
             try {
                 val a = provider.tlAccount()
@@ -1296,6 +1333,7 @@ class TorrentsWindow(
         put("level", level.name)
         put("cursor", transModel.cursor)
         rows().getOrNull(transModel.cursor)?.hash?.let { put("cursorHash", it) }   // the row, not the index (R2-W2)
+        if (transModel.cursor >= rows().size - 1) put("cursorMenu", true)         // the wrap-end row, wherever it moves (R3-P7)
         put("catCursor", catModel.cursor)
         put("listCursor", listModel.cursor)
         put("docTop", docModel.topLine)
@@ -1349,6 +1387,9 @@ class TorrentsWindow(
         if (level == Level_.LISTING && listingCat == null && listingQuery == null && !listingFromTransfers) {
             // "newest" browse — fine, it reloads
         }
+        // a load in flight is orphaned by the sequence bumps below: its op word
+        // ends here, not with an answer nobody will act on (R3-P3)
+        if (detailState == "loading" || listingLoading || tlDetailState == "loading") services?.setOperation("idle")
         listing.clear()
         listingTotal = -1
         listingPage = 0
@@ -1369,6 +1410,7 @@ class TorrentsWindow(
         pendingTransHash = if (level == Level_.DETAILS) openHash
             else state["cursorHash"]?.jsonPrimitive?.contentOrNull
         pendingTransIndex = transModel.cursor
+        pendingTransMenu = level != Level_.DETAILS && state["cursorMenu"]?.jsonPrimitive?.booleanOrNull == true
         pendingListCursor = listModel.cursor.takeIf { level == Level_.LISTING || level == Level_.TORRENT }
         listingRetryAt = 0L
         pendingDocTop = docModel.topLine.takeIf { level == Level_.DETAILS && it > 0 }
@@ -1385,6 +1427,9 @@ class TorrentsWindow(
         val keepDetail = detail?.takeIf { it.hash == state["openHash"]?.jsonPrimitive?.contentOrNull }
         val keepPage = tlDetail?.takeIf { it.fid == state["openFid"]?.jsonPrimitive?.contentOrNull }
         restoreState(state)
+        // a snapshot is already at hand: resolve the restored cursor NOW, not
+        // on the next changed snapshot — on the phone that can be minutes (R3-P4)
+        snap?.let { s -> if (s.transfers.isNotEmpty()) resolvePendingCursor(s) }
         if (active) provider.setFocused(true, pollMs)            // a synced Poll change applies now (R2-W15)
         // the same item's content survives the apply: only the position moves
         if (keepDetail != null) { detail = keepDetail; detailState = ""; applyPendingDocTop() }

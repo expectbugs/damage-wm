@@ -62,7 +62,7 @@ class ScriptedTorrents : TorrentsProvider {
     override fun stateLine(): String = ""
     override fun snapshot(): Snapshot = snap()
     override fun addListener(l: TorrentsProvider.Listener) {
-        listeners.add(l)
+        if (!listeners.addIfAbsent(l)) return
         l.snapshot(snap())
         l.state("")
     }

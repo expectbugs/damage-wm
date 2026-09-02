@@ -246,6 +246,7 @@ class FilesWindow(
         val hasExt = !isDir && raw != "/" && raw.substringAfterLast('/').contains('.')
         val dir = if (hasExt) raw.substringBeforeLast('/').ifEmpty { "/" } else raw
         pendingOpenView = null
+        pendingBrowseCursor = null        // an abandoned ascend must not steer the linked folder (R3-K4)
         viewer = null
         nameArmed = null
         location = locations.firstOrNull { l ->

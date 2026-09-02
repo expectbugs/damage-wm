@@ -247,7 +247,7 @@ class RemoteTorrentsProvider(
     override fun stateLine(): String = chanState.ifEmpty { hostState }
     override fun snapshot(): Snapshot? = snap
     override fun addListener(l: TorrentsProvider.Listener) {
-        listeners.add(l)
+        if (!listeners.addIfAbsent(l)) return   // idempotent (R3-K2)
         snap?.let { s -> try { l.snapshot(s) } catch (e: Exception) { Log.e("torrents-remote", "listener", e) } }
         try { l.state(stateLine()) } catch (e: Exception) { Log.e("torrents-remote", "listener", e) }
     }

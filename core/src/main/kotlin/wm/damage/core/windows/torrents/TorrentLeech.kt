@@ -48,6 +48,7 @@ class TorrentLeech(
     /** Where the session cookies persist between service restarts (0600). */
     private val cookieFile: Path?,
     private val base: String = "https://www.torrentleech.org",
+    private val clock: () -> Long = { System.currentTimeMillis() },
 ) {
     class TlException(msg: String) : java.io.IOException(msg)
 
@@ -60,6 +61,10 @@ class TorrentLeech(
     /** Re-logins are PACED (R2-P3): a site that answers a page instead of the
      *  listing for a while (maintenance) must not get a fresh login per retry. */
     private var lastLoginAt = 0L
+    /** Credentials the site refused latch for the process (R3-P5): the
+     *  qBittorrent rule — a retrying listing must never become one login
+     *  POST per five seconds against an account the site is rejecting. */
+    @Volatile private var loginRefused: String? = null
 
     init {
         cookieFile?.let { f ->
@@ -141,8 +146,9 @@ class TorrentLeech(
     /** Log in: a 302 away from the login page with cookies = success. */
     fun login() {
         if (user.isEmpty() || pass.isEmpty()) throw TlException("TorrentLeech credentials are not configured")
+        loginRefused?.let { throw TlException(it) }
         synchronized(lock) {
-            lastLoginAt = System.currentTimeMillis()
+            lastLoginAt = clock()
             cookies.clear()
             val body = Http.formEncode(mapOf("username" to user, "password" to pass)).toByteArray(Charsets.UTF_8)
             val r = Http.request("POST", "$base/user/account/login/", headers(), body,
@@ -150,7 +156,15 @@ class TorrentLeech(
             absorbCookies(r)
             val loc = r.header("Location") ?: ""
             val ok = r.status == 302 && !loc.contains("login", ignoreCase = true) && cookies.isNotEmpty()
-            if (!ok) throw TlException("TorrentLeech login failed (HTTP ${r.status}${if (loc.isNotEmpty()) " -> $loc" else ""})")
+            if (!ok) {
+                val why = "TorrentLeech login failed (HTTP ${r.status}${if (loc.isNotEmpty()) " -> $loc" else ""})"
+                // the form shown again = the credentials were refused → latched;
+                // a site error (5xx, a redirect elsewhere) is transient and is not
+                if (r.status == 200 && r.contentType.contains("text/html", ignoreCase = true)) {
+                    loginRefused = "$why - check torrentleechUser/torrentleechPass and restart the service"
+                }
+                throw TlException(loginRefused ?: why)
+            }
             Log.i("torrentleech", "logged in as $user")
         }
     }
@@ -181,14 +195,14 @@ class TorrentLeech(
             val htmlOnJson = wantJson && r.status == 200 && r.contentType.contains("text/html", ignoreCase = true)
             if (looksLoggedOut(r) || htmlOnJson) {
                 if (!retry) throw TlException("TorrentLeech session refused after re-login ($path)")
-                // a GENUINE logout (the login form, a redirect to it) is answered
-                // with one login per request; a page that is NOT the login form
-                // (maintenance) gets a login at most once a minute and is
-                // otherwise reported as what it is (R2-P3)
+                // ONE login a minute at most, whatever the answer looked like
+                // (R3-P5): a session the site drops within a minute of a login
+                // is a refusal to report, not a reason to log in again
                 val genuine = looksLoggedOut(r)
-                val paced = System.currentTimeMillis() - lastLoginAt < RELOGIN_PACING_MS
-                if (!genuine && paced) throw TlException(
-                    "TorrentLeech answered a page in place of the listing (logged out, or down for maintenance)")
+                val paced = clock() - lastLoginAt < RELOGIN_PACING_MS
+                if (paced) throw TlException(
+                    if (genuine) "TorrentLeech dropped the session right after a login - not retrying within a minute ($path)"
+                    else "TorrentLeech answered a page in place of the listing (logged out, or down for maintenance)")
                 Log.i("torrentleech", if (genuine) "session expired - logging in again" else "a page in place of the listing - logging in again")
                 login()
                 return get(path, retry = false, wantJson = wantJson)

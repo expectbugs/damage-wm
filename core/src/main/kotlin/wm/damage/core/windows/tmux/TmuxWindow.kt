@@ -444,12 +444,13 @@ class TmuxWindow(
                 // review 2026-09-01 K2), capped at what the keyboard holds
                 val harmless = listOf("Escape", "Tab", "Up", "Down", "Left", "Right", "Home", "End", "PageUp", "PageDown")
                 val multi = qk.filter { it.length > 1 }
-                val live = (multi.filter { it in harmless }.sortedBy { harmless.indexOf(it) } + multi.filter { it !in harmless })
-                    .take(KeyboardSurface.MAX_EXTRA)
-                if (multi.size > live.size) {
+                val orderedAll = multi.filter { it in harmless }.sortedBy { harmless.indexOf(it) } + multi.filter { it !in harmless }
+                val live = orderedAll.take(KeyboardSurface.MAX_EXTRA)
+                if (orderedAll.size > live.size) {
                     // never silently (R2-K4): a config with more quick keys than the
-                    // keyboard holds is told which ones stayed off it
-                    val off = multi.drop(live.size).joinToString(", ") { prettyKey(it) }
+                    // keyboard holds is told which ones stayed off it — the ones
+                    // dropped from the SEATED order (R3-K1)
+                    val off = orderedAll.drop(live.size).joinToString(", ") { prettyKey(it) }
                     Log.w("tmux", "quick keys beyond the keyboard's ${KeyboardSurface.MAX_EXTRA}: $off")
                     notice = "not on the keyboard: $off"
                 }

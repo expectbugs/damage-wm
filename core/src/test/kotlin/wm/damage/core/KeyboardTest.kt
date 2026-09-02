@@ -313,11 +313,16 @@ class KeyboardTest {
     @Test
     fun tooManyLiveKeysAreRefusedBeforeAnythingOpensAndHarmlessKeysHeadEachRow() {
         val kb = KeyboardSurface(FakeText())
+        kb.openWith(KeyboardSurface.Spec("first", "kept", onCommit = {}), "qwerty")
         val thirteen = (1..13).map { KeyboardSurface.ExtraKey("k$it", "id$it") }
         kotlin.test.assertFailsWith<IllegalArgumentException> {
             kb.openWith(KeyboardSurface.Spec("x", "", thirteen, onCommit = {}), "qwerty")
         }
-        assertFalse(kb.open)                                     // nothing half-open
+        // the refused spec touched nothing: the surface still holds the first one (R3-K6)
+        assertTrue(kb.open)
+        assertEquals("first", kb.current()?.title)
+        assertEquals("kept", kb.draft)
+        kb.close()
         // a config whose harmless keys are not first: both rows still rest on one
         val mixed = listOf("Enter", "C-c", "C-d", "C-z", "C-l", "Escape", "Tab").map {
             KeyboardSurface.ExtraKey(it, it, harmless = it == "Escape" || it == "Tab")
@@ -369,9 +374,14 @@ class KeyboardTest {
         val log = ArrayList<String>()
         var draft = ""
         var extraFirst = false
+        var tooMany = false
         override fun onRegistered(ctx: ShellServices) { services = ctx }
         override fun view(): WindowView = WindowView.ListView(model, { 1 }, { _, _, _, _ -> }, { _, _, _ -> }, {
-            val extra = if (extraFirst) listOf(KeyboardSurface.ExtraKey("Esc", "Escape")) else emptyList()
+            val extra = when {
+                tooMany -> (1..13).map { KeyboardSurface.ExtraKey("k$it", "id$it") }
+                extraFirst -> listOf(KeyboardSurface.ExtraKey("Esc", "Escape"))
+                else -> emptyList()
+            }
             val ok = services?.openKeyboard(KeyboardSurface.Spec("ask", draft, extra,
                 onCommit = { log.add("commit:$it") },
                 onCancel = { draft = it; log.add("cancel:$it") },
@@ -495,6 +505,20 @@ class KeyboardTest {
             assertFalse(r.shell.keyboardIsOpen)
             r.shell.start()
             awaitTrue("restarted") { r.shell.isQuiescent() }
+            assertFalse(r.shell.keyboardIsOpen)
+            r.stop()
+        } catch (e: Throwable) { r.stop(); throw e }
+    }
+
+    @Test
+    fun theShellRefusesTooManyLiveKeysWithoutTouchingTheSurface(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.win.tooMany = true
+            r.start()
+            awaitTrue("asker focused") { r.shell.isQuiescent() }
+            r.g(EvenHubMsg.EV_CLICK)                              // asks with 13 live keys
+            awaitTrue("refused") { r.win.log.contains("opened:false") }
             assertFalse(r.shell.keyboardIsOpen)
             r.stop()
         } catch (e: Throwable) { r.stop(); throw e }
