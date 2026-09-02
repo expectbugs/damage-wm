@@ -381,6 +381,10 @@ class DesktopStack(
                 initialBooksDir = cfg.booksDir))
         }
         torrents?.let { torrentsWindow = wm.damage.core.windows.torrents.TorrentsWindow(text, it, scope).also(shell::register) }
+        // Music (MUSIC.md §3.1): the desktop shell MIRRORS the phone's player
+        // through the synced record and cannot play — it says so loudly
+        music?.let { musicWindow = wm.damage.core.windows.music.MusicWindow(text, it,
+            wm.damage.core.windows.music.MirrorMusicPlayer(), scope, mirror = true).also(shell::register) }
         shell.hostSettings = listOf(
             HostSetting("Target", MODES, current = { mode }, apply = { v -> onSwitch(v) }),
         )
@@ -391,6 +395,8 @@ class DesktopStack(
     private var tmuxWindow: wm.damage.core.windows.tmux.TmuxWindow? = null
 
     private var torrentsWindow: wm.damage.core.windows.torrents.TorrentsWindow? = null
+
+    private var musicWindow: wm.damage.core.windows.music.MusicWindow? = null
 
     fun start() = keeper.start()
 
@@ -403,6 +409,7 @@ class DesktopStack(
                 // threw, or the leak returns on the failure path (R2-W12)
                 tmuxWindow?.detach()
                 torrentsWindow?.detach()   // a leaked listener fed a dead shell's queue every poll (P1)
+                musicWindow?.detach()
             } finally {
                 // and the stack's own resources go the same way (R3-K3): its
                 // coroutines, and the BlueZ handler on the process-wide bus

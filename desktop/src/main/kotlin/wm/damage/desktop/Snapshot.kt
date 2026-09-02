@@ -10,6 +10,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import wm.damage.core.content.LocalContent
 import wm.damage.core.geom.Geometry
 import wm.damage.core.shell.Persistence
@@ -77,6 +81,20 @@ object Snapshot {
         val torrentsScripted = ScriptedTorrents()
         val torrentsWin = wm.damage.core.windows.torrents.TorrentsWindow(text, torrentsScripted, scope)
         shell.register(torrentsWin)
+        val musicLib = ScriptedMusic()
+        var musicSkew = 0L
+        val musicClock: () -> Long = { System.currentTimeMillis() + musicSkew }
+        val musicPlayer = wm.damage.core.windows.music.SimMusicPlayer(musicLib, musicClock)
+        val musicWin = wm.damage.core.windows.music.MusicWindow(text, musicLib, musicPlayer, scope, clock = musicClock)
+        shell.register(musicWin)
+        suspend fun musicMenuRow() {
+            settle(shell)
+            val st = musicWin.saveState()["stack"]!!.jsonArray[0].jsonObject
+            val cursor = st["cursor"]?.jsonPrimitive?.contentOrNull?.toInt() ?: 0
+            val rows = maxOf(1, musicPlayer.state.queue.size) + 1
+            repeat((rows - 1 - cursor).mod(rows)) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+            settle(shell)
+        }
         shell.start()
         iconsSettled()   // the first wave of resolves lands before any scene
         settle(shell)
@@ -257,6 +275,90 @@ object Snapshot {
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // transfers → Main
         settle(shell)
         repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_TOP) }      // cursor home
+        settle(shell)
+
+        // Music (MUSIC.md, 2026-09-02): the queue with the Now Playing card at
+        // 480 and 288, the Music menu, browse, an artist, lyrics, YouTube
+        // results, the Settings → Music rows
+        repeat(4) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → Music row
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("music opens") { musicWin.title() == "music" }
+        // play AFTER entering: a track change while the window is on screen
+        // shows on the card, not as a notice
+        musicPlayer.playQueue(musicLib.catalog().tracks.take(6).map { it.ref() }, 0, wm.damage.core.windows.music.Mode.QUEUE, "Pink Floyd")
+        musicSkew += 65_000                                             // 1:05 into "Time"
+        waitFor("music queue") { musicWin.title().startsWith("queue") }
+        iconsSettled()
+        waitFor("the card's art arrived") { shell.isQuiescent() }
+        settle(shell)
+        save(sim, out, "30-music-queue-480")
+        musicMenuRow()
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the music menu") { shell.menuIsOpen && shell.menuTitle == "music" }
+        settle(shell)
+        save(sim, out, "31-music-menu")
+        repeat(5) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → Browse
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("browse") { musicWin.title() == "browse" }
+        iconsSettled()
+        save(sim, out, "32-music-browse")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // Artists
+        waitFor("artists") { musicWin.title() == "artists" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // the first artist
+        waitFor("an artist") { musicWin.levelDepth() == 4 }
+        iconsSettled()
+        save(sim, out, "33-music-artist")
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → queue
+        musicMenuRow()
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the music menu 2") { shell.menuIsOpen && shell.menuTitle == "music" }
+        repeat(10) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }  // → Lyrics
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("lyrics") { musicWin.title() == "lyrics" }
+        waitFor("lyrics loaded") { shell.isQuiescent() }
+        settle(shell)
+        save(sim, out, "34-music-lyrics")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → queue
+        musicMenuRow()
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the music menu 3") { shell.menuIsOpen && shell.menuTitle == "music" }
+        repeat(5) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → Browse
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("browse 2") { musicWin.title() == "browse" }
+        repeat(7) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → YouTube
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("yt keyboard") { shell.keyboardIsOpen }
+        transport.injectText("dragula live")
+        waitFor("yt results") { musicWin.title() == "youtube" && shell.isQuiescent() }
+        iconsSettled()
+        save(sim, out, "35-music-youtube")
+        repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → queue
+        settle(shell)
+        // the card at 288: the window's Size row, applied on the next focus
+        shell.services.runOnShell { musicWin.appSettings().first { it.name == "Size" }.apply("288") }
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Main
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // → Music at 288
+        waitFor("music at 288") { musicWin.title().startsWith("queue") }
+        iconsSettled()
+        save(sim, out, "36-music-queue-288")
+        shell.services.runOnShell { musicWin.appSettings().first { it.name == "Size" }.apply("global") }
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Main
+        settle(shell)
+        // Settings → Music (the Main cursor sits on the Music row; Settings is one notch down)
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        settle(shell)
+        repeat(5) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // Global, Reader, Tmux, Files, Torrents, Music
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        settle(shell)
+        save(sim, out, "37-music-settings")
+        repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → categories → Main
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // cursor home (Reader)
         settle(shell)
 
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // silent

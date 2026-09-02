@@ -125,6 +125,21 @@ abstract class DamageWindow(val id: String, val name: String, val icon: IconKind
      *  cached text layout, or overlong lines would clip — NO TRUNCATION. */
     open fun onFontScaleChanged(scale: Double) {}
 
+    /**
+     * §4.9 exclusive mode: paint the WHOLE panel ([safe] = the layout's safe
+     * rect at the window's height) and return the rects that changed — one
+     * per surface (the fid budget: a visualizer painted bar by bar is
+     * silently skipped by the firmware). [full] asks for everything (entry,
+     * a relayout); otherwise only what moved since the last call. The shell
+     * calls this on the loop on every [ShellServices.requestRender] while
+     * exclusive.
+     */
+    open fun paintExclusive(g: Gray8, safe: Rect, full: Boolean): List<Rect> = emptyList()
+
+    /** Exclusive mode entered / left (the window pauses or resumes its own
+     *  pacing, e.g. a visualizer's frame ticks). */
+    open fun onExclusive(on: Boolean) {}
+
     /** A typed LINE arrived from a replica (phone strip, browser page,
      *  desktop preview — Transport.injectText). Return true if this window
      *  ACCEPTED it (staged behind its own confirm — text must never run
@@ -243,6 +258,23 @@ interface ShellServices {
      *  icons "for everything in DamageWM that uses icons"), or null — callers
      *  fall back to the drawn set. */
     fun icons(): wm.damage.core.gfx.IconSource? = null
+
+    /**
+     * §4.9 EXCLUSIVE mode (MUSIC.md §8.3, 2026-09-02 — Music Mode is its
+     * first user): the shell hands the WHOLE panel to [window], which paints
+     * it through [DamageWindow.paintExclusive]; every ring input is
+     * swallowed except double-tap, which exits back to the window (the
+     * §1.5 silent-mode path generalized; the chord cannot fire, a long-press
+     * never arms). Temporary notices still show, as in silent mode. LOOP-ONLY;
+     * false = refused (not the focused window, or a host without the mode).
+     */
+    fun enterExclusive(window: DamageWindow): Boolean {
+        wm.damage.core.util.Log.w("shell", "enterExclusive: not supported by this host")
+        return false
+    }
+
+    /** Leave exclusive mode back to the window (LOOP-ONLY; a no-op outside it). */
+    fun exitExclusive() {}
 
     /**
      * §16.2 window hand-off (agreed 2026-09-01): focus window [id] — a full

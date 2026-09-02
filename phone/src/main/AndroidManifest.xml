@@ -50,6 +50,25 @@
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
 
+        <!-- Music (MUSIC.md §7): the notification listener. It is what
+             authorizes MediaSessionManager.getActiveSessions() for Spotify's
+             session (verdict 3/20/25) and what sees the phone's
+             hearing-safety "volume lowered" notice (verdict 14). The user
+             grants notification access once, in Settings; nothing here binds
+             the service itself — the system does.
+             exported="false" + the BIND permission is the shape G2CC's own
+             listener has run in daily on this phone: the system server binds
+             it as uid SYSTEM, which is allowed past the export check. -->
+        <service
+            android:name=".music.MusicListener"
+            android:exported="false"
+            android:label="Damage music"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <!-- Boot/update auto-start (the G2CC BootReceiver pattern): the phone
              is the default driver of the glasses, so a reboot or a sideload
              update must not leave the pair undriven until the app is opened.

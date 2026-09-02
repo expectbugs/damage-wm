@@ -9,6 +9,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -113,6 +115,22 @@ object SelfCheck {
         val torrentsScripted = ScriptedTorrents()
         val torrentsWin = wm.damage.core.windows.torrents.TorrentsWindow(text, torrentsScripted, scope)
         shell.register(torrentsWin)
+        val musicLib = ScriptedMusic()
+        var musicSkew = 0L
+        val musicClock: () -> Long = { System.currentTimeMillis() + musicSkew }
+        val musicPlayer = wm.damage.core.windows.music.SimMusicPlayer(musicLib, musicClock)
+        val musicWin = wm.damage.core.windows.music.MusicWindow(text, musicLib, musicPlayer, scope, clock = musicClock)
+        shell.register(musicWin)
+        /** Scroll the queue cursor onto its wrap-end Music menu row wherever
+         *  it rests (the cursor follows the current entry, or the user). */
+        suspend fun musicMenuRow() {
+            settle(shell, "music-menu-row-seek")
+            val st = musicWin.saveState()["stack"]!!.jsonArray[0].jsonObject
+            val cursor = st["cursor"]?.jsonPrimitive?.contentOrNull?.toInt() ?: 0
+            val rows = maxOf(1, musicPlayer.state.queue.size) + 1
+            repeat((rows - 1 - cursor).mod(rows)) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+            settle(shell, "music-menu-row")
+        }
 
         var flushFails = 0
         scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
@@ -429,6 +447,81 @@ object SelfCheck {
         repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_TOP) }      // Main cursor back to Reader
         settle(shell, "main-back-to-reader-row-2")
 
+        // ---- Music (MUSIC.md, 2026-09-02): the queue-with-card root, browse →
+        // artist → play through the set menu, the row menu, the Music menu, Ask
+        // through the keyboard (a replica line commits the draft), lyrics,
+        // seek, a playlist, and the track-change notice off-screen
+        repeat(4) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // Reader → Tmux → Files → Torrents → Music
+        settle(shell, "main-to-music-row")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("Music opens at the empty queue") { musicWin.title() == "music" }
+        settle(shell, "music-empty")
+        check("the empty queue summary is honest", musicWin.summary().line == "idle")
+        val inkMusicEmpty = Pack.inkFraction(shell.comp.composed)
+        check("Music empty queue ink <= 15% list budget (was ${"%.1f".format(inkMusicEmpty * 100)}%)", inkMusicEmpty <= 0.15)
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // the empty row → Browse
+        awaitTrue("Browse opens") { musicWin.title() == "browse" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Artists
+        awaitTrue("Artists list") { musicWin.title() == "artists" }
+        settle(shell, "music-artists")
+        val inkArtists = Pack.inkFraction(shell.comp.composed)
+        check("Music artists ink <= 15% (was ${"%.1f".format(inkArtists * 100)}%)", inkArtists <= 0.15)
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // the first artist
+        awaitTrue("an artist opens") { musicWin.levelDepth() == 4 }
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // All tracks → the set menu
+        awaitTrue("the set menu opens, Play now first") { shell.menuIsOpen }
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Play now
+        awaitTrue("the queue plays") { musicPlayer.state.play == wm.damage.core.windows.music.PlayState.PLAYING }
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }     // → queue
+        awaitTrue("back at the queue with the card") { musicWin.levelDepth() == 1 && musicWin.title().startsWith("queue") }
+        settle(shell, "music-queue")
+        val inkCard = Pack.inkFraction(shell.comp.composed)
+        check("Music queue + card ink <= 15% (was ${"%.1f".format(inkCard * 100)}%)", inkCard <= 0.15)
+        check("the summary reads the player", musicWin.summary().line.startsWith("playing · "))
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // tap the current row = its menu, Pause first
+        awaitTrue("the row menu opens") { shell.menuIsOpen }
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Pause
+        awaitTrue("paused from the row menu") { musicPlayer.state.play == wm.damage.core.windows.music.PlayState.PAUSED }
+        musicMenuRow()                                                  // the wrap-end Music menu row
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("the wrap-end row opens the Music menu") { shell.menuIsOpen && shell.menuTitle == "music" }
+        repeat(4) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → Ask
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("Ask opens the keyboard") { shell.keyboardIsOpen }
+        transport.injectText("aggressive metal")                        // a replica line IS the draft and commits
+        awaitTrue("the ask played the vocab lane") {
+            musicLib.ops.contains("ask:aggressive metal") && musicPlayer.state.label.contains("metal") && musicPlayer.state.play == wm.damage.core.windows.music.PlayState.PLAYING
+        }
+        settle(shell, "music-ask")
+        // lyrics through the Music menu: the first track ("Time") has synced lyrics
+        musicPlayer.playQueue(listOf(musicLib.catalog().tracks[0].ref()), 0, wm.damage.core.windows.music.Mode.QUEUE, "Time")
+        awaitTrue("Time plays") { musicPlayer.state.track?.id == 1 }
+        musicMenuRow()
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("the Music menu again") { shell.menuIsOpen && shell.menuTitle == "music" }
+        repeat(10) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }  // → Lyrics
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("Lyrics opens") { musicWin.title() == "lyrics" }
+        settle(shell, "music-lyrics")
+        musicSkew += 6_000
+        awaitTrue("the synced line advanced") { musicPlayer.positionMs() >= 5_000 }
+        settle(shell, "music-lyrics-advance")
+        val inkLyrics = Pack.inkFraction(shell.comp.composed)
+        check("Music lyrics ink <= 25% (was ${"%.1f".format(inkLyrics * 100)}%)", inkLyrics <= 0.25)
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // → queue
+        awaitTrue("back from lyrics") { musicWin.levelDepth() == 1 }
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // → Main
+        awaitTrue("Music → Main") { shell.currentWindowId() == null }
+        musicPlayer.next()                                              // off-screen: the track-change notice
+        awaitTrue("a track change off-screen raises the notification box") { shell.notifications.active }
+        check("the notice marks Music dirty", musicWin.dirty)
+        delay(3_000)
+        settle(shell, "music-notice-grace")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // dismiss
+        awaitTrue("the music notice dismisses") { !shell.notifications.active }
+        repeat(4) { shell.postGesture(EvenHubMsg.EV_SCROLL_TOP) }      // Main cursor back to Reader
+        settle(shell, "main-back-to-reader-row-3")
+
         // ---- persistence round trip: leave a BOOK open, restart, land back in it
         shell.postGesture(EvenHubMsg.EV_CLICK)              // back into reader (library)
         awaitTrue("reader reopens") { shell.isQuiescent() }
@@ -441,6 +534,7 @@ object SelfCheck {
         val posBefore = reader.saveSubState().toString()   // §16.4a: per-book sub-records
         shell.stop()
         torrentsWin.detach()                                // the stack-stop rule, mirrored (review P1)
+        musicWin.detach()
 
         val persistence2 = Persistence(tmp.resolve("state.json"))
         val scope2 = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -452,6 +546,8 @@ object SelfCheck {
         shell2.register(wm.damage.core.windows.tmux.TmuxWindow(text, ScriptedTmux(), scope2))
         shell2.register(wm.damage.core.windows.files.FilesWindow(text, filesProvider, scope2, AwtImages()))
         shell2.register(wm.damage.core.windows.torrents.TorrentsWindow(text, ScriptedTorrents(), scope2))
+        val musicLib2 = ScriptedMusic()
+        shell2.register(wm.damage.core.windows.music.MusicWindow(text, musicLib2, wm.damage.core.windows.music.SimMusicPlayer(musicLib2), scope2))
         shell2.start()
         settle(shell2, "restart")
         awaitTrue("restored reader reopens its book (mode, not just position §9.1)") {
