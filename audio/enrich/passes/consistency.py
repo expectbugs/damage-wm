@@ -42,8 +42,21 @@ def run(conn, force: bool = False, limit: int | None = None,
     if limit:
         missing_from_db = missing_from_db[:limit]
     vanished = sorted(in_db.keys() - on_disk)
-    drifted = [p for p in (on_disk & in_db.keys())
-               if round(os.stat(p).st_mtime * 1000) != int(in_db[p]["mtime_ms"])]
+    # a bare os.stat here ended the whole pass the first time a file moved
+    # between the walk and this loop (a live music library, a 3,000-track
+    # batch): an unreadable file is REPORTED and the pass continues, which is
+    # what every other per-track failure in this package does.
+    drifted: list[str] = []
+    unreadable: list[str] = []
+    for p in sorted(on_disk & in_db.keys()):
+        try:
+            disk_ms = round(os.stat(p).st_mtime * 1000)
+        except OSError as e:
+            unreadable.append(f"{p}: {e}")
+            continue
+        db_ms = in_db[p]["mtime_ms"]
+        if db_ms is None or disk_ms != int(db_ms):
+            drifted.append(p)
 
     inserted = failed = 0
     for p in missing_from_db:
@@ -60,7 +73,12 @@ def run(conn, force: bool = False, limit: int | None = None,
     print(f"[consistency] disk={len(on_disk)} db={len(in_db)} → "
           f"+{inserted} indexed ({failed} failed); "
           f"{len(vanished)} DB rows with missing files (REPORT ONLY — server scan owns deletion); "
-          f"{len(drifted)} mtime-drifted (server scan will re-probe)", flush=True)
+          f"{len(drifted)} mtime-drifted (server scan will re-probe)"
+          + (f"; {len(unreadable)} unreadable while comparing mtimes" if unreadable else ""), flush=True)
+    for u in unreadable[:20]:
+        print(f"[consistency]   unreadable: {u}", flush=True)
+    if len(unreadable) > 20:
+        print(f"[consistency]   … and {len(unreadable) - 20} more", flush=True)
     for p in vanished[:20]:
         print(f"[consistency]   vanished: {p}", flush=True)
     if len(vanished) > 20:

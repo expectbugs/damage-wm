@@ -177,10 +177,6 @@ class Switcher(
             y + 4, 3, 8, lv)
     }
 
-    private fun fitText(s: String, f: wm.damage.core.text.FontSpec, maxW: Int): String {
-        if (text.measure(s, f) <= maxW) return s
-        var n = s.length
-        while (n > 0 && text.measure(s.take(n), f) > maxW) n--
-        return s.take(n)
-    }
+    private fun fitText(s: String, f: wm.damage.core.text.FontSpec, maxW: Int): String =
+        Draw.prefix(text, s, f, maxW)
 }

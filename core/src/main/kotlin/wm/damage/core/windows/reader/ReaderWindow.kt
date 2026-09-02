@@ -692,13 +692,16 @@ class ReaderWindow(
     }
 
     private fun paintActRow(g: Gray8, i: Int, r: Rect, dim: Boolean) {
-        val (name, detail) = actions()[i]
+        // getOrNull, like every other row painter here: the action list SHRINKS
+        // when the book closes, and a paint that throws leaves the content
+        // half-drawn with no damage hint (the L1 class)
+        val (name, detail) = actions().getOrNull(i) ?: return
         tx.draw(g, (r.x + 32) / 4 * 4, (r.y + 7) / 2 * 2, name, fSmall, Level.DIM)
         drawFit(g, r.x + 240, r.y + 5, detail, Level.BODY, fRow, r.right - 24 - (r.x + 240))
     }
 
     private fun paintActLens(g: Gray8, r: Rect, i: Int) {
-        val (name, detail) = actions()[i]
+        val (name, detail) = actions().getOrNull(i) ?: return
         Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.READER, Level.HEAD)
         tx.draw(g, (r.x + 44) / 4 * 4, (r.y + 8) / 2 * 2, name, FontSpec(Face.SYSTEM, 18, bold = true), Level.HEAD)
         drawFit(g, r.x + 44, r.y + 34, detail, Level.BODY, fRow, r.w - 60)
@@ -706,7 +709,7 @@ class ReaderWindow(
 
     private fun commitAction(i: Int) {
         val b = book ?: run { level = Level_.LIBRARY; return }
-        when (actions()[i].first) {
+        when (actions().getOrNull(i)?.first) {
             "Resume" -> level = Level_.BOOK
             "Chapters" -> {
                 level = Level_.CHAPTERS

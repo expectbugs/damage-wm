@@ -8,9 +8,18 @@ package wm.damage.core.windows.tmux
  * here is bounded and known: SGR (CSI ... m) with 0/1/2/4/7/22/24/27, the
  * 16 base colours (30-37/90-97 fg, 40-47/100-107 bg), 256-colour (38;5;n /
  * 48;5;n), truecolour (38;2;r;g;b / 48;2;r;g;b — Claude Code uses it), and
- * defaults (39/49). Anything else escape-shaped is skipped and COUNTED, never
- * silently mangled into text (NO SILENT FAILURES: the count reaches the
- * window's status line).
+ * defaults (39/49).
+ *
+ * Anything else escape-shaped is CONSUMED as an escape rather than mangled
+ * into text, and [parse] reports how many through [Parsed.skippedEscapes] —
+ * which the tests assert and the renderers deliberately do NOT show. A titled
+ * pane writes an OSC title on every capture, so a permanent "3 escapes
+ * skipped" on the status line would be noise, not signal; what NO SILENT
+ * FAILURES buys here is that an unsupported sequence never reaches the screen
+ * as garbage characters. [parseRuns] (the flow path) offers the same count
+ * through its `onSkip` hook, unused for the same reason. (Corrected
+ * 2026-09-02: this note used to claim the count reached the status line, which
+ * no caller has ever done.)
  *
  * Colour -> gray: luminance of the xterm palette value, quantized to the 16
  * levels, with a floor of 3 on non-default foregrounds so a saturated blue

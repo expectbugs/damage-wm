@@ -853,8 +853,13 @@ class GlassFirmwareSim() : LensPanels {
                     // A FRESH acquire — no lease, or one already lapsed — releases the
                     // texture cache; a renewal of a live lease keeps it.
                     val c = ctx(arm)
+                    // NOTE the order: fbLeaseActive() is not a pure query — it
+                    // releases the cache itself when it notices a lapse, so the
+                    // "was there one?" question has to be asked BEFORE it runs
+                    // or this narration can never fire (review 2026-09-02)
+                    val hadCache = c.textureCache != null
                     if (!fbLeaseActive(arm, now)) {
-                        if (c.textureCache != null)
+                        if (hadCache)
                             diag.event("texture", "$arm fresh FB lease after a lapse — " +
                                 "texture cache freed; the atlas must be uploaded again")
                         c.textureCache = null

@@ -27,6 +27,12 @@ class Gray8(val w: Int, val h: Int) {
     fun fillRect(x: Int, y: Int, rw: Int, rh: Int, v: Int) {
         val x0 = x.coerceAtLeast(0); val y0 = y.coerceAtLeast(0)
         val x1 = (x + rw).coerceAtMost(w); val y1 = (y + rh).coerceAtMost(h)
+        // an EMPTY span paints nothing — the same as every other out-of-range
+        // case here. Without the guard a negative width reaches Arrays.fill
+        // with from > to, which THROWS: a fault inside a paint leaves the
+        // content half-drawn with no damage hint (the L1 class), where a
+        // no-op is what the clipping contract already promises everywhere else
+        if (x1 <= x0 || y1 <= y0) return
         val b = v.toByte()
         for (yy in y0 until y1) pix.fill(b, yy * w + x0, yy * w + x1)
     }

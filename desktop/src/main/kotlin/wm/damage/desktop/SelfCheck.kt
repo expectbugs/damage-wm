@@ -34,7 +34,12 @@ import wm.damage.core.windows.reader.ReaderWindow
  */
 object SelfCheck {
     private val failures = ArrayList<String>()
-    private var faults = 0
+    /** Written from the transport's event collector (any dispatcher thread),
+     *  read from the script at the end: a plain Int has no visibility
+     *  guarantee across that hand-off, and a gate that reads a stale 0 passes
+     *  a run that actually faulted — a silent failure in the thing whose job
+     *  is to have none (review 2026-09-02). */
+    private val faults = java.util.concurrent.atomic.AtomicInteger()
 
     private fun check(what: String, ok: Boolean) {
         val mark = if (ok) "PASS" else "FAIL"
@@ -132,12 +137,12 @@ object SelfCheck {
             settle(shell, "music-menu-row")
         }
 
-        var flushFails = 0
+        val flushFails = java.util.concurrent.atomic.AtomicInteger()   // same cross-thread read as `faults`
         scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
             transport.events.collect {
                 when (it) {
-                    is TransportEvent.FlushDone -> if (!it.ok) flushFails++
-                    is TransportEvent.Fault -> if (it.what !in setOf("lease")) faults++
+                    is TransportEvent.FlushDone -> if (!it.ok) flushFails.incrementAndGet()
+                    is TransportEvent.Fault -> if (it.what !in setOf("lease")) faults.incrementAndGet()
                     else -> {}
                 }
             }
@@ -596,8 +601,8 @@ object SelfCheck {
         shell2.stop()
         scope2.cancel()
 
-        check("no failed flushes anywhere", flushFails == 0)
-        check("no transport faults (decode/fid/session)", faults == 0)
+        check("no failed flushes anywhere (were ${flushFails.get()})", flushFails.get() == 0)
+        check("no transport faults (decode/fid/session, were ${faults.get()})", faults.get() == 0)
         val flags = sim.flags(Arm.LEFT).filterValues { it }
         check("no sticky diagnostic flags (were $flags)", flags.isEmpty())
         scope.cancel()

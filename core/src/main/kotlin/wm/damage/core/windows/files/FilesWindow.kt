@@ -908,7 +908,7 @@ class FilesWindow(
             // width or style changed: re-derive from the raw content
             if (mode == "text" || mode == "pdftext") {
                 val raw = rawText ?: return
-                layoutText(raw, append = false)
+                layoutText(raw)
             }
         }
 
@@ -930,8 +930,10 @@ class FilesWindow(
         }
 
         /** Full (re)layout — width/style changes, whole-text opens. Keeps the
-         *  reading position (a restore sets it before content arrives). */
-        fun layoutText(raw: String, append: Boolean) {
+         *  reading position (a restore sets it before content arrives).
+         *  There is no append form here on purpose: [appendText] is the
+         *  incremental path, and a second unused flag read as a choice. */
+        fun layoutText(raw: String) {
             rawText = raw
             val f = font()
             deriveLineH(f)
@@ -958,7 +960,7 @@ class FilesWindow(
             val n = if (mode == "image" || mode == "pdfpage") strips.size else lines.size
             if (n > restoreTop || done) {
                 docModel.topLine = restoreTop.coerceIn(0, maxOf(0, n - 1))
-                if (n > restoreTop || done) restoreTop = 0
+                restoreTop = 0
             } else if (n > 0) {
                 docModel.topLine = n - 1     // ride the loading edge toward it
             }
@@ -1053,7 +1055,7 @@ class FilesWindow(
                             // nothing — laying out "" fabricated a blank first
                             // line the file does not contain (review Fi#13)
                             if (add.isNotEmpty() || !chunk.more) {
-                                layoutText(add, append = true)
+                                layoutText(add)
                                 applyRestoreTop(done = !more)
                             }
                         } else if (add.isNotEmpty()) appendText(add)
@@ -1304,7 +1306,7 @@ class FilesWindow(
                     viewer = null
                     if (entries.isEmpty()) refreshList()   // R7#2b
                 } else {
-                    v.layoutText(raw, append = false)
+                    v.layoutText(raw)
                     v.applyRestoreTop(done = true)
                 }
                 services?.requestRender(this@FilesWindow)

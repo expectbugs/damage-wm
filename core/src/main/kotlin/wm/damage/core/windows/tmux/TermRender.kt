@@ -18,9 +18,11 @@ import wm.damage.core.text.TextRasterizer
  * "narrow and centered", his words). Rounding drifts a glyph at most 1 px
  * against its neighbour, which mono at these sizes absorbs.
  *
- * History renders through the SAME fit as the live pane ([renderHistory]) —
- * same face, same size, same width, colours kept — just a row offset into
- * the scrollback. His verdict: no font or size switch when scrolling.
+ * HISTORY IS NOT DRAWN HERE. Scrollback is normal-screen text even when the
+ * live pane runs a TUI, so it renders through [FlowRender.renderHistory] —
+ * the §18 grid retirement (2026-08-31) left this class with the ONE job of
+ * an alternate-screen pane. A grid history path lived here until 2026-09-02
+ * and was removed once a review found nothing could reach it.
  *
  * Context rows (verdict 5: ON) draw dimmed above the live pane with a faint
  * seam; the cursor cell renders inverted, static — a blink would spend two
@@ -35,10 +37,6 @@ class TermRender(private val text: TextRasterizer) {
          *  so the grid spans the full pitch with <=1 px local drift. */
         fun cellX(col: Int): Int = x0 + (col * pitchX).roundToInt()
     }
-
-    /** What a history paint decided: the fit, the offset actually shown
-     *  (clamped), and how far back the scrollback allows. */
-    data class HistView(val fit: FitSpec, val offset: Int, val maxOffset: Int)
 
     private var fitKey: Long = -1
     private var fitCols = -1
@@ -141,39 +139,6 @@ class TermRender(private val text: TextRasterizer) {
         return spec
     }
 
-    /**
-     * Paint scrollback THROUGH the live fit: the same face/size/width as the
-     * pane, [offset] rows back from the live edge, colours kept, no cursor,
-     * no dimming. A slim rail at the right edge marks the position.
-     */
-    fun renderHistory(g: Gray8, rect: Rect, lines: List<String>, cols: Int, paneRows: Int,
-        offset: Int, wantContext: Boolean): HistView {
-        g.fillRect(rect, Level.BG)
-        val spec = fitFor(rect, cols, paneRows, if (wantContext) CONTEXT_ASK else 0)
-        val capacity = spec.rowsShown + spec.contextShown
-        val maxOffset = maxOf(0, lines.size - capacity)
-        val at = offset.coerceIn(0, maxOffset)
-        val end = lines.size - at
-        val start = maxOf(0, end - capacity)
-        val parsed = Sgr.parse(lines.subList(start, end), cols)
-        var y = spec.y0
-        for (row in parsed.rows) {
-            if (y + spec.cellH + 2 > rect.bottom) break   // the same divider-bleed guard
-            drawRow(g, spec, row, y, dim = false)
-            y += spec.cellH
-        }
-        // the position rail (Canvas owns its own indication — §4.6): the thumb
-        // spans the visible fraction, top = oldest
-        if (maxOffset > 0) {
-            val track = rect.h - 8
-            val span = maxOf(16, track * capacity / lines.size)
-            val ty = rect.y + 4 + ((track - span) * (maxOffset - at).toDouble() / maxOffset).roundToInt()
-            g.fillRect(rect.right - 6, rect.y + 4, 3, track, Level.FAINT)
-            g.fillRect(rect.right - 6, ty, 3, span, Level.DIM)
-        }
-        return HistView(spec, at, maxOffset)
-    }
-
     private fun drawRow(g: Gray8, spec: FitSpec, row: Sgr.Row, y: Int, dim: Boolean) {
         val n = minOf(row.cols, spec.cols)
         // background runs first (a run of equal bg is one fill)
@@ -229,11 +194,5 @@ class TermRender(private val text: TextRasterizer) {
             return
         }
         text.draw(g, x, y, s, f, level)
-    }
-
-    companion object {
-        /** Context rows requested from a history fit — matches the provider's
-         *  capture depth so live and history agree on the cell size. */
-        const val CONTEXT_ASK = 12
     }
 }

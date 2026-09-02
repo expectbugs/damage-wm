@@ -151,9 +151,10 @@ class Chrome(
             draw(g, x, y, s, lv, f)
             return
         }
-        var n = s.length
-        while (n > 0 && text.measure(s.take(n), f) > maxW) n--
-        draw(g, x, y, s.take(n), lv, f)
+        // the shared code-point-boundary binary search (Draw.prefix): a status
+        // cell carries exception text, and the old walk-from-the-end measured
+        // O(n²) substrings on the shell loop
+        draw(g, x, y, Draw.prefix(text, s, f, maxW), lv, f)
         Icons.tri(g, triX, y + 5, 9, Level.REST)
     }
 
@@ -174,13 +175,11 @@ class Chrome(
         if (s.context.isNotEmpty()) {
             val ctx = "· ${dynamic(s.context, fChrome)}"
             val cx = nx + nameW + 8
-            val fit = ctx.length.downTo(1).firstOrNull { n ->
-                text.measure(ctx.take(n), fChrome) <= l.titleCell.right - 16 - cx
-            } ?: 0
-            if (fit < ctx.length) {
+            val shown = Draw.prefix(text, ctx, fChrome, l.titleCell.right - 16 - cx)
+            if (shown.length < ctx.length) {
                 // NO TRUNCATION as silence: persistent+unfocused overflow gets the
                 // drawn continuation mark (§2.4 rule 3); full text lives in Main's lens.
-                draw(g, cx, l.titleCell.y + 6, ctx.take(maxOf(0, fit)), Level.DIM, fChrome)
+                draw(g, cx, l.titleCell.y + 6, shown, Level.DIM, fChrome)
                 Icons.tri(g, l.titleCell.right - 12, l.titleCell.y + 12, 9, Level.DIM)
             } else {
                 draw(g, cx, l.titleCell.y + 6, ctx, Level.DIM, fChrome)

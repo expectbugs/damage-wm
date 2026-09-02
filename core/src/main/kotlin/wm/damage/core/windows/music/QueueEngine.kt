@@ -105,16 +105,22 @@ class QueueEngine(private val random: java.util.Random = java.util.Random()) {
         if (i < 0) return false
         val j = (i + delta).coerceIn(0, list.size - 1)
         if (j == i) return false
+        // the entry the cursor is ON, captured BEFORE the list moves — the
+        // index rule below has to leave that same row current whatever moved
+        // (the old assertion read `current` after the move and then admitted
+        // any in-range index, so it asserted nothing)
+        val was = list.getOrNull(index)
         val e = list.removeAt(i)
         list.add(j, e)
-        val cur = current
         index = when {
-            i == index -> j
-            i < index && j >= index -> index - 1
-            i > index && j <= index -> index + 1
+            i == index -> j                          // the current entry itself moved
+            i < index && j >= index -> index - 1     // it slid out from above and back in below
+            i > index && j <= index -> index + 1     // …or in from below
             else -> index
         }
-        check(current === cur || i == index || list.getOrNull(index) != null)
+        check(was == null || list.getOrNull(index) === was) {
+            "queue move left the cursor on a different entry (i=$i j=$j index=$index)"
+        }
         return true
     }
 

@@ -38,27 +38,36 @@ object Draw {
             tx.draw(g, x / 4 * 4, y / 2 * 2, str, f, lv)
             return false
         }
-        // leave room for the mark itself. The cut lands on a CODE-POINT
-        // boundary (take(n) could split a surrogate pair — a lone surrogate
-        // reaching the rasterizer is the L1 throw-inside-paint class) and is
-        // found by binary search (log-n measures, was n² per paint) — the
-        // R2#20a fitEnd fix, applied to the kit itself.
-        val textMax = maxW - 14
-        val bounds = ArrayList<Int>(str.length + 1)
+        // leave room for the mark itself.
+        tx.draw(g, x / 4 * 4, y / 2 * 2, prefix(tx, str, f, maxW - 14), f, lv)
+        Icons.tri(g, x + maxW - 10, y + 5, 11, markLv)
+        return true
+    }
+
+    /**
+     * The longest prefix of [s] that measures within [maxW]. The cut lands on
+     * a CODE-POINT boundary (take(n) could split a surrogate pair — a lone
+     * surrogate reaching the rasterizer is the L1 throw-inside-paint class)
+     * and is found by BINARY SEARCH: prefix width is monotone in the boundary
+     * index, so this is log-n measures where a walk from the end is n², and a
+     * long status line (exception text) is measured on the shell loop
+     * (the R2#20a fitEnd fix, shared here so no call site re-invents it).
+     */
+    fun prefix(tx: TextRasterizer, s: String, f: FontSpec, maxW: Int): String {
+        if (maxW <= 0) return ""
+        if (tx.measure(s, f) <= maxW) return s
+        val bounds = ArrayList<Int>(s.length + 1)
         var i = 0
-        while (i < str.length) { bounds.add(i); i += Character.charCount(str.codePointAt(i)) }
-        bounds.add(str.length)
-        // prefix width is monotone in the boundary index: largest prefix ≤ textMax
+        while (i < s.length) { bounds.add(i); i += Character.charCount(s.codePointAt(i)) }
+        bounds.add(s.length)
         var best = 0
         var a = 0
         var b = bounds.size - 1
         while (a <= b) {
             val m = (a + b) / 2
-            if (tx.measure(str.substring(0, bounds[m]), f) <= textMax) { best = bounds[m]; a = m + 1 } else b = m - 1
+            if (tx.measure(s.substring(0, bounds[m]), f) <= maxW) { best = bounds[m]; a = m + 1 } else b = m - 1
         }
-        tx.draw(g, x / 4 * 4, y / 2 * 2, str.substring(0, best), f, lv)
-        Icons.tri(g, x + maxW - 10, y + 5, 11, markLv)
-        return true
+        return s.substring(0, best)
     }
 
     /** Right-aligned draw ending at [xRight]. */

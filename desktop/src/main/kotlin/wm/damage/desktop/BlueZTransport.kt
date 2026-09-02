@@ -41,8 +41,13 @@ class BlueZTransport(
     private val rememberAddresses: (left: String, right: String) -> Unit = { _, _ -> },
 ) : CfwTransportBase(scope, "ble") {
 
-    private val devicePath = HashMap<Arm, String>()
-    private val writePath = HashMap<Arm, String>()
+    // written on the start/stop path, READ from other threads — writePath by
+    // the image and control lanes (writeArm), devicePath by the maintenance
+    // coroutine (onMaintenanceTick). Concurrent, like the two maps below are
+    // already synchronized; a plain HashMap read while stop() clears it is
+    // the reader race this project keeps finding.
+    private val devicePath = java.util.concurrent.ConcurrentHashMap<Arm, String>()
+    private val writePath = java.util.concurrent.ConcurrentHashMap<Arm, String>()
     private val notifyToArm = HashMap<String, Arm>()
     private val deviceToArm = HashMap<String, Arm>()
     /** Devices that reported `Connected=false` while a connect was in progress. */
@@ -161,7 +166,12 @@ class BlueZTransport(
                 delay(SCAN_POLL_MS)
             }
         } finally {
-            withContext(NonCancellable) { io { link.stopDiscovery() } }
+            // a stopDiscovery that throws here would REPLACE the reason the
+            // scan ended (an adapter that went away throws on both calls) —
+            // the cause is the thing worth keeping, so this one is logged
+            withContext(NonCancellable) {
+                try { io { link.stopDiscovery() } } catch (e: Exception) { Log.w("ble", "stopDiscovery: ${e.message}") }
+            }
         }
     }
 

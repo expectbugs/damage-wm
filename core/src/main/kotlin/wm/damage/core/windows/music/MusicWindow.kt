@@ -1384,6 +1384,13 @@ class MusicWindow(
         val viz: Rect?, val peek: Rect?, val clock: Rect?, val link: Rect?)
 
     private var mmLayoutCache: MmLayout? = null
+    /** Everything the layout is derived from besides the safe rect: the
+     *  surfaces that are on, the visualizer choice, and the lyric line box
+     *  (which moves with the font). Keyed rather than cleared by hand — a
+     *  live-synced Settings record changes any of them while Music Mode is
+     *  ON, and a stale layout then paints lyric lines past the rect it
+     *  reports as damaged (review 2026-09-02). */
+    private var mmLayoutKey: Any? = null
     private var mmCardKey: Any? = null
     private var mmLyricsKey: Any? = null
     private var mmClockKey: Any? = null
@@ -1399,8 +1406,11 @@ class MusicWindow(
      *  queue peek above it, the lyrics taking the rest in whole lines. Every
      *  rect sits on the 4×2 grid. */
     private fun mmLayout(safe: Rect): MmLayout {
-        mmLayoutCache?.let { if (it.safe == safe) return it }
         val on = mmSurfaces().toSet()
+        val lh = lineH(fLyric)
+        val key = listOf(safe, on, vizName, lh)
+        mmLayoutCache?.let { if (mmLayoutKey == key) return it }
+        mmLayoutKey = key
         val big = safe.h >= 416
         val x = Geometry.snapX(safe.x + 16)
         val w = Geometry.snapX(safe.w - 32)
@@ -1421,7 +1431,6 @@ class MusicWindow(
             Rect(x, Geometry.snapY(bottom - h), w, h).also { bottom -= h + 8 }
         } else null
         val peek = if ("peek" in on && bottom - y >= 100) Rect(x, Geometry.snapY(bottom - 44), w, 44).also { bottom -= 52 } else null
-        val lh = lineH(fLyric)
         val lyricLines = if ("lyrics" in on) ((bottom - y - 4) / lh).coerceIn(0, 9) else 0
         val lyrics = if (lyricLines >= 1) Rect(x, y, w, Geometry.snapY(lyricLines * lh + 4)) else null
         return MmLayout(safe, card, artPx, lyrics, lyricLines, viz, peek, clock, link).also { mmLayoutCache = it }

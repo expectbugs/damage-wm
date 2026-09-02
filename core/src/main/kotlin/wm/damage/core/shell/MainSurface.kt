@@ -112,9 +112,12 @@ class MainSurface(
      *  text is always REACHABLE (focus the row and the lens shows it) — that is
      *  what NO TRUNCATION requires; the mark advertises the rest (§4.2). */
     private fun drawFit(g: Gray8, x: Int, y: Int, str: String, lv: Int, f: FontSpec, maxW: Int) {
-        if (text.measure(str, f) <= maxW) { draw(g, x, y, str, lv, f); return }
-        var n = str.length
-        while (n > 0 && text.measure(str.take(n), f) > maxW) n--
-        draw(g, x, y, str.take(n), lv, f)
+        // SANITIZE FIRST, then fit: the old order measured the raw string and
+        // drew the substituted one, so the fit was computed against glyphs
+        // that were never drawn. The cut is the shared code-point-boundary
+        // binary search (Draw.prefix) — a walk from the end measured O(n²)
+        // substrings of a long summary on the shell loop.
+        val s = Draw.dynamic(text, str, f)
+        draw(g, x, y, Draw.prefix(text, s, f, maxW), lv, f)
     }
 }

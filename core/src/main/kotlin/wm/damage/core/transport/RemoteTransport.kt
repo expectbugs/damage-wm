@@ -488,9 +488,19 @@ class RemoteTransportClient(
         // — but the freed loop thread lets the seam-quiet watcher close the
         // socket, bounding the park at the liveness decision (~20 s) instead
         // of TCP's retransmission tail (R3 note, honesty per R4)
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            o.send(Ctl(t = "flush", id = id, epoch = flush.epoch, label = flush.label, ops = ops,
-                wide = flush.wide), blob)
+        try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                o.send(Ctl(t = "flush", id = id, epoch = flush.epoch, label = flush.label, ops = ops,
+                    wide = flush.wide), blob)
+            }
+        } catch (e: Throwable) {
+            // A flush that never left has no `done` coming: its entry must go
+            // WITH the throw, or the stall watcher reports a stall that is not
+            // one and the next sweep answers a flush the shell already rolled
+            // back — counted toward the failure streak and eventually a PANIC
+            // keyframe nobody asked for. The caller sees the throw either way.
+            pendingSubmits.remove(id)
+            throw e
         }
         return id
     }

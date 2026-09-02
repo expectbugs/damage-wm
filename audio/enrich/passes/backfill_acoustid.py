@@ -135,7 +135,11 @@ def run(conn, force: bool = False, limit: int | None = None,
                     identified += 1
         except Exception as e:  # noqa: BLE001 — recorded, batch continues (house pattern)
             failed += 1
-            db.set_pass_status(conn, t["id"], "acoustid", False, extra={"error": str(e)[:200]})
+            # the `err` PARAMETER, like every other pass — as `extra={"error"}`
+            # the reason landed under a key nothing reads (report._failures
+            # asks for `err` and would print "?"), which is a silent failure
+            # dressed as a recorded one (review 2026-09-02)
+            db.set_pass_status(conn, t["id"], "acoustid", False, str(e))
             print(f"[acoustid] FAILED track {t['id']} ({t['path']}): {e}", flush=True)
         if i % 25 == 0:
             print(f"[acoustid] {i}/{len(todo)} (id {identified} / mismatch {mismatched} / miss {missed} / fail {failed})", flush=True)

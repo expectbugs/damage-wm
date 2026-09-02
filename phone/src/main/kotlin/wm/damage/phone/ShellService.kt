@@ -210,7 +210,6 @@ class ShellService : Service() {
         transport = t
         mirror = t.mirror
 
-        var shellRef: Shell? = null
         // content scaling moved INTO the style transforms (Style.kt, 2026-08-31)
         val text = AndroidText(this)
         val persistence = Persistence(dataDir.resolve("state.json"))
@@ -221,7 +220,6 @@ class ShellService : Service() {
         // load() later merges harmlessly (strictly-newer in-memory wins).
         persistence.load()
         val sh = Shell(text, t, persistence, dataDir.resolve("journal.jsonl"), scope)
-        shellRef = sh
         shell = sh
 
         val rc = RemoteContent(

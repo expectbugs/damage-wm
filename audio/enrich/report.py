@@ -85,7 +85,15 @@ def build_report(conn) -> str:
     except Exception as e:  # noqa: BLE001
         lines.append(f"Qdrant `{COLLECTION}`: UNREADABLE ({e})")
     cache_files = [f for f in os.listdir(cfg.cache_dir)] if os.path.isdir(cfg.cache_dir) else []
-    size = sum(os.path.getsize(os.path.join(cfg.cache_dir, f)) for f in cache_files)
+    # the pretranscode pass may be writing into this directory right now: a
+    # file listed and then gone must not end the report (it also holds .part
+    # files, which vanish on os.replace)
+    size = 0
+    for f in cache_files:
+        try:
+            size += os.path.getsize(os.path.join(cfg.cache_dir, f))
+        except OSError:
+            pass
     lines.append(f"Transcode cache: {len(cache_files)} files, {size / 1e9:.2f} GB")
     lines.append("")
     lines.append("## Pass coverage")
@@ -127,7 +135,9 @@ def build_report(conn) -> str:
 
 def run(conn, out_path: str) -> None:
     text = build_report(conn)
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    # abspath first: a bare `--report-out report.md` has no directory part and
+    # os.makedirs("") raises, ending the run AFTER the report was built
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(text)
     print(f"[report] written → {out_path} ({len(text)} chars)", flush=True)

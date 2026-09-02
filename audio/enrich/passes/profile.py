@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -275,47 +276,53 @@ def run(conn, force: bool = False, limit: int | None = None,
     t_by_id = {t["id"]: t for t in todo}
     batches = [todo[i:i + BATCH] for i in range(0, len(todo), BATCH)]
     workdir = tempfile.mkdtemp(prefix="damage-enrich-llm-", dir=os.environ.get("DAMAGE_ENRICH_TMP") or os.environ.get("G2CC_ENRICH_TMP") or None)
-    total_ok = total_failed = 0
+    try:
+        total_ok = total_failed = 0
 
-    # Dossiers are built HERE, in the main thread — psycopg connections are
-    # not safe for concurrent cursor use; worker threads only run the claude
-    # subprocess. All status writes happen in the as_completed loop (main).
-    prepared: list[tuple[int, list[int], str]] = []
-    for i, b in enumerate(batches):
-        ids = [t["id"] for t in b]
-        payload = json.dumps({"tracks": [_dossier(conn, t) for t in b]}, ensure_ascii=False)
-        prepared.append((i, ids, payload))
+        # Dossiers are built HERE, in the main thread — psycopg connections are
+        # not safe for concurrent cursor use; worker threads only run the claude
+        # subprocess. All status writes happen in the as_completed loop (main).
+        prepared: list[tuple[int, list[int], str]] = []
+        for i, b in enumerate(batches):
+            ids = [t["id"] for t in b]
+            payload = json.dumps({"tracks": [_dossier(conn, t) for t in b]}, ensure_ascii=False)
+            prepared.append((i, ids, payload))
 
-    def do_batch(idx: int, ids: list[int], payload: str) -> tuple[int, list[int], dict[int, dict[str, Any]] | None, str | None]:
-        last_err: str | None = None
-        for attempt in (1, 2):
-            try:
-                raw = _call_claude(payload, workdir)
-                return idx, ids, _parse_reply(raw), None
-            except Exception as e:  # noqa: BLE001
-                last_err = str(e)
-                print(f"[profile] batch {idx} attempt {attempt} failed: {last_err[:200]}", flush=True)
-        return idx, ids, None, last_err
+        def do_batch(idx: int, ids: list[int], payload: str) -> tuple[int, list[int], dict[int, dict[str, Any]] | None, str | None]:
+            last_err: str | None = None
+            for attempt in (1, 2):
+                try:
+                    raw = _call_claude(payload, workdir)
+                    return idx, ids, _parse_reply(raw), None
+                except Exception as e:  # noqa: BLE001
+                    last_err = str(e)
+                    print(f"[profile] batch {idx} attempt {attempt} failed: {last_err[:200]}", flush=True)
+            return idx, ids, None, last_err
 
-    with ThreadPoolExecutor(max_workers=concurrency) as pool:
-        futs = [pool.submit(do_batch, i, ids, payload) for i, ids, payload in prepared]
-        for fut in as_completed(futs):
-            idx, ids, profiles, err = fut.result()
-            if profiles is None:
-                for tid in ids:
-                    db.set_pass_status(conn, tid, "profile", False, f"batch call failed: {err}")
-                total_failed += len(ids)
-                print(f"[profile] batch {idx} FAILED for all {len(ids)} tracks", flush=True)
-                continue
-            ok, failed = _apply(conn, t_by_id, profiles, ids)
-            total_ok += ok
-            total_failed += failed
-            print(f"[profile] batch {idx} done ({ok} ok, {failed} failed) — "
-                  f"{total_ok + total_failed}/{len(todo)} total", flush=True)
-    if deferred:
-        left = _copy_from_cluster(conn, deferred)
-        for t in left:
-            print(f"[profile] deferred #{t['id']} still has no profiled mate "
-                  f"(its cluster's caller failed?) — left pending", flush=True)
-    print(f"[profile] done: {total_ok} ok, {total_failed} failed"
-          + (f", {len(deferred)} copy-swept" if deferred else ""), flush=True)
+        with ThreadPoolExecutor(max_workers=concurrency) as pool:
+            futs = [pool.submit(do_batch, i, ids, payload) for i, ids, payload in prepared]
+            for fut in as_completed(futs):
+                idx, ids, profiles, err = fut.result()
+                if profiles is None:
+                    for tid in ids:
+                        db.set_pass_status(conn, tid, "profile", False, f"batch call failed: {err}")
+                    total_failed += len(ids)
+                    print(f"[profile] batch {idx} FAILED for all {len(ids)} tracks", flush=True)
+                    continue
+                ok, failed = _apply(conn, t_by_id, profiles, ids)
+                total_ok += ok
+                total_failed += failed
+                print(f"[profile] batch {idx} done ({ok} ok, {failed} failed) — "
+                      f"{total_ok + total_failed}/{len(todo)} total", flush=True)
+        if deferred:
+            left = _copy_from_cluster(conn, deferred)
+            for t in left:
+                print(f"[profile] deferred #{t['id']} still has no profiled mate "
+                      f"(its cluster's caller failed?) — left pending", flush=True)
+        print(f"[profile] done: {total_ok} ok, {total_failed} failed"
+              + (f", {len(deferred)} copy-swept" if deferred else ""), flush=True)
+    finally:
+        # the scratch cwd the child ran in (no CLAUDE.md context leak) is
+        # ours to remove — one empty directory per run otherwise stays in
+        # the temp dir forever (review 2026-09-02)
+        shutil.rmtree(workdir, ignore_errors=True)

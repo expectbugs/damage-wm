@@ -261,17 +261,33 @@ class SettingsWindow(
         val e = entriesAt().getOrNull(i) ?: run {
             wm.damage.core.util.Log.w("settings", "row $i beyond ${entriesAt().size} entries — blank row"); return
         }
-        text.draw(g, r.x + 40, (r.y + 7) / 2 * 2, e.name, fSmall, Level.DIM)
-        text.draw(g, r.x + 280, (r.y + 5) / 2 * 2, e.value(), valueFont(e), Level.BODY)
+        // both columns are FITTED to their own cell: a row value is dynamic
+        // (an Output device's product name, a host row's answer) and an
+        // unbounded draw put ink past the content rect the kit damages —
+        // undamaged composed ink that shows up on the next keyframe out of
+        // nowhere (review 2026-09-02)
+        Draw.fit(g, text, r.x + 40, r.y + 7, Draw.dynamic(text, e.name, fSmall), Level.DIM, fSmall, 232)
+        val vf = valueFont(e)
+        Draw.fit(g, text, r.x + 280, r.y + 5, Draw.dynamic(text, e.value(), vf), Level.BODY, vf,
+            r.right - 24 - (r.x + 280))
     }
 
     private fun paintLens(g: Gray8, r: Rect, i: Int) {
         val e = entriesAt().getOrNull(i) ?: return
         Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.SETTINGS, Level.HEAD)
         text.draw(g, r.x + 44, (r.y + 8) / 2 * 2, e.name, fRowB, Level.HEAD)
-        val v = e.value()
         val vf = valueFont(e)
-        text.draw(g, r.right - 16 - text.measure(v, vf), (r.y + 8) / 2 * 2, v, vf, Level.BODY)
+        // right-aligned while it fits beside the name; past that it is drawn
+        // FROM the name's end with the drawn continuation mark, so it can
+        // never walk left over the name or off the row (the Main lens shape)
+        val v = Draw.dynamic(text, e.value(), vf)
+        val nameEnd = r.x + 44 + text.measure(e.name, fRowB) + 16
+        val vMax = r.right - 16 - nameEnd
+        if (text.measure(v, vf) <= vMax) {
+            text.draw(g, (r.right - 16 - text.measure(v, vf)) / 4 * 4, (r.y + 8) / 2 * 2, v, vf, Level.BODY)
+        } else {
+            Draw.fit(g, text, nameEnd, r.y + 8, v, Level.BODY, vf, vMax)
+        }
         val hint = if (adjusting != null) "scroll adjusts live · tap keeps · double-tap reverts"
         else "tap to adjust"
         text.draw(g, r.x + 44, (r.y + 34) / 2 * 2, hint, FontSpec(Face.SYSTEM, 14), Level.DIM)
