@@ -70,6 +70,10 @@ interface WinService {
     class Answer(val data: JsonObject = JsonObject(emptyMap()), val blob: ByteArray? = null)
 
     fun request(op: String, args: JsonObject): Answer
+
+    /** The driver's channel ended (review 2026-09-01 P4): a service holding
+     *  per-driver state (the Torrents focus pace) clears it here. */
+    fun detached() {}
 }
 
 object WinNet {
@@ -117,6 +121,7 @@ object WinNet {
             Log.w("win-host", "'$winId' channel ended: ${e.message}")
         } finally {
             try { sock.close() } catch (e: Exception) { /* closed */ }
+            try { service.detached() } catch (e: Exception) { Log.e("win-host", "'$winId' detached hook", e) }
         }
     }
 }

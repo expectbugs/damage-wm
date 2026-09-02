@@ -376,9 +376,10 @@ best state before we move on"*), and the fourth bespoke shell surface. `wm.damag
 - **`TorrentsWindow`** — TRANSFERS (activity sort: errors first, then downloads, checking,
   seeds, stopped; six filters incl. **seeding < 1 week** for TL's hit-and-run rule; rows =
   icon · name · 10-block bar · state word, the LENS carries the live numbers + a 12-block bar +
-  an 8-column speed history) → the transfer MENU (Details · Start/Stop · Recheck · Open in
-  Files (a `path:` deep link Files now accepts) · Open on PC · Delete · Delete with files behind
-  a double confirm) → DETAILS (a document: state, speeds, ratio, peers, dates, paths, the file
+  an 8-column speed history; the cursor follows its row's identity across live snapshots) →
+  the transfer MENU (Details — Refresh from the document · Start/Stop · Recheck · Open in
+  Files (a `path:` deep link Files now accepts) · Open on PC · Delete · Delete + files behind
+  a double confirm with the unrecoverable row at index 2) → DETAILS (a document: state, speeds, ratio, peers, dates, paths, the file
   list) · the wrap-end Torrents MENU (Browse · Search via the keyboard · recents · Filter · Sort ·
   Seeding < 1 week · Refresh · Stats) → CATEGORIES (Newest + 40 rows with group icons) →
   LISTING (endless pages, a loading pseudo-row, paced retry in place, FL mark, seeders/leechers
@@ -400,7 +401,7 @@ best state before we move on"*), and the fourth bespoke shell surface. `wm.damag
   gained `Keyboard`.
 - **Harnesses**: `ScriptedTorrents` (desktop) drives the selfcheck's torrents walk (transfers →
   menu → details → browse → listing → page → add-confirm → keyboard search → the done
-  notification, plus the ink budgets: transfers 9.0 %, details 6.5 %) and the snapshot scenes
+  notification, plus the ink budgets: transfers 9.0 %, details 6.4 %) and the snapshot scenes
   15–22; `TorrentsTest` ×7 (the client against a fake Web API, the adapter against fixtures incl.
   drift and expiry, the provider's diff/baseline/persistence, the window grammar, persistence +
   continuity, the remote provider over a real loopback host) and `KeyboardTest` ×14.

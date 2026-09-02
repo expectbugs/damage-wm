@@ -314,7 +314,7 @@ class DesktopStack(
             shell.register(wm.damage.core.windows.files.FilesWindow(text, it, scope, AwtImages(),
                 initialBooksDir = cfg.booksDir))
         }
-        torrents?.let { shell.register(wm.damage.core.windows.torrents.TorrentsWindow(text, it, scope)) }
+        torrents?.let { torrentsWindow = wm.damage.core.windows.torrents.TorrentsWindow(text, it, scope).also(shell::register) }
         shell.hostSettings = listOf(
             HostSetting("Target", MODES, current = { mode }, apply = { v -> onSwitch(v) }),
         )
@@ -324,11 +324,15 @@ class DesktopStack(
 
     private var tmuxWindow: wm.damage.core.windows.tmux.TmuxWindow? = null
 
+    private var torrentsWindow: wm.damage.core.windows.torrents.TorrentsWindow? = null
+
     fun start() = keeper.start()
 
     suspend fun stop() {
         keeper.stop()
         tmuxWindow?.detach()   // the provider outlives this stack
+        torrentsWindow?.detach()   // … and so does the torrents provider: a leaked listener
+                                   // fed a dead shell's queue every poll (review 2026-09-01 P1)
         scope.cancel()
         // the BlueZ glue holds a handler on the process-wide bus: release it
         val all = (transport as? PathTransport)?.paths?.map { it.transport } ?: listOf(transport)

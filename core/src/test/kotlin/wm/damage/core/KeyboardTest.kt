@@ -66,7 +66,6 @@ class KeyboardTest {
                 when (k.kind) {
                     KeyboardSurface.Kind.CHAR -> { reachable.add(k.ch[0]); reachable.add(k.ch.uppercase()[0]) }
                     KeyboardSurface.Kind.SPACE -> reachable.add(' ')
-                    KeyboardSurface.Kind.TAB -> reachable.add('\t')
                     else -> {}
                 }
             }
@@ -224,6 +223,65 @@ class KeyboardTest {
     }
 
     @Test
+    fun liveKeysWrapOntoTwoRowsAndMoreThanTwelveAreRefusedLoudly() {
+        val eight = (1..8).map { KeyboardSurface.ExtraKey("k$it", "id$it") }
+        val rows = KeyboardSurface.buildRows("qwerty", false, eight)
+        assertEquals(7, rows.size)                          // 5 + two live rows of 4
+        assertEquals(4, rows[5].size); assertEquals(4, rows[6].size)
+        assertTrue(rows[5].all { it.span == 3 } && rows[6].all { it.span == 3 })
+        val twelve = (1..12).map { KeyboardSurface.ExtraKey("k$it", "id$it") }
+        assertEquals(7, KeyboardSurface.buildRows("qwerty", false, twelve).size)
+        val thirteen = (1..13).map { KeyboardSurface.ExtraKey("k$it", "id$it") }
+        val e = kotlin.test.assertFailsWith<IllegalArgumentException> { KeyboardSurface.buildRows("qwerty", false, thirteen) }
+        assertTrue(e.message!!.contains("at most"), e.message)
+        // the surface fits every height with two live rows too
+        val (kb, _) = opened(extra = twelve)
+        for (h in listOf(288, 352, 416, 480)) {
+            val l = Layout().withHeightMode(h, VPos.TOP)
+            val box = kb.rect(l)!!
+            assertTrue(box.y >= l.content.y && box.bottom <= l.content.bottom, "7 rows fit at $h: $box in ${l.content}")
+        }
+    }
+
+    /** A rasterizer that covers ASCII only — the phone's face for a CJK name. */
+    private class AsciiOnlyText : wm.damage.core.text.TextRasterizer {
+        private val inner = FakeText()
+        override fun measure(text: String, font: wm.damage.core.text.FontSpec) = inner.measure(text, font)
+        override fun metrics(font: wm.damage.core.text.FontSpec) = inner.metrics(font)
+        override fun draw(surface: Gray8, x: Int, y: Int, text: String, font: wm.damage.core.text.FontSpec, level: Int) {
+            for (ch in text) require(ch.code in 0x20..0x7E) { "a glyph the face cannot draw reached the rasterizer: U+%04X".format(ch.code) }
+            inner.draw(surface, x, y, text, font, level)
+        }
+        override fun covers(text: String, font: wm.damage.core.text.FontSpec) = text.all { it.code in 0x20..0x7E }
+    }
+
+    @Test
+    fun uncoveredGlyphsDisplayAsQuestionMarksWithoutMovingTheCaret() {
+        val kb = KeyboardSurface(AsciiOnlyText())
+        kb.openWith(KeyboardSurface.Spec("rename \u4e2d\u6587", "\u65e5\u672c\ud83d\ude00x", onCommit = {}), "qwerty")
+        val l = Layout()
+        val g = Gray8(640, 480)
+        kb.paint(g, l)                                   // draws '?' forms, never throws
+        kb.tapKind(KeyboardSurface.Kind.LEFT)            // caret moves by CODE POINT over the emoji
+        kb.tapKind(KeyboardSurface.Kind.LEFT)
+        kb.type("a")
+        assertEquals("\u65e5\u672ca\ud83d\ude00x", kb.draft)  // the draft keeps the real characters
+        kb.paint(g, l)
+    }
+
+    @Test
+    fun aLongPromptIsFittedAndTheDraftStillPaints() {
+        val (kb, _) = opened("draft")
+        kb.close()
+        kb.openWith(KeyboardSurface.Spec("type -> " + "x".repeat(200), "draft", onCommit = {}), "qwerty")
+        val g = Gray8(640, 480)
+        val box = kb.paint(g, Layout())!!
+        for (y in 0 until 480) for (x in 0 until 640) {
+            if (!(x in box.x until box.right && y in box.y until box.bottom)) assertEquals(0, g[x, y], "ink outside the box at $x,$y")
+        }
+    }
+
+    @Test
     fun aRequesterRowIsLiveAndStaysOpen() {
         val extra = listOf(KeyboardSurface.ExtraKey("Esc", "Escape"), KeyboardSurface.ExtraKey("Tab", "Tab"))
         val (kb, _) = opened(extra = extra)
@@ -369,6 +427,26 @@ class KeyboardTest {
             assertTrue(r.shell.keyboardIsOpen)
             r.g(EvenHubMsg.EV_DOUBLE_CLICK); r.g(EvenHubMsg.EV_DOUBLE_CLICK)
             awaitTrue("closed") { !r.shell.keyboardIsOpen }
+            r.stop()
+        } catch (e: Throwable) { r.stop(); throw e }
+    }
+
+    @Test
+    fun aShellStopHandsTheDraftBackAndTheKeyboardIsGoneAfterRestart(): Unit = runBlocking {
+        val r = Rig()
+        try {
+            r.start()
+            awaitTrue("asker focused") { r.shell.isQuiescent() }
+            r.g(EvenHubMsg.EV_CLICK)
+            awaitTrue("keyboard open") { r.shell.keyboardIsOpen }
+            r.g(EvenHubMsg.EV_CLICK); r.g(EvenHubMsg.EV_CLICK)   // 'a'
+            awaitTrue("typed") { r.shell.keyboardDraft() == "a" }
+            r.shell.stop()                                        // the keeper's link-edge restart shape
+            assertTrue(r.win.log.contains("cancel:a"), "the draft went back to its requester on stop: ${r.win.log}")
+            assertFalse(r.shell.keyboardIsOpen)
+            r.shell.start()
+            awaitTrue("restarted") { r.shell.isQuiescent() }
+            assertFalse(r.shell.keyboardIsOpen)
             r.stop()
         } catch (e: Throwable) { r.stop(); throw e }
     }

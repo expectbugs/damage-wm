@@ -209,20 +209,24 @@ class TorrentsTest {
                 {"fid":"241826800","filename":"Ubuntu.26.04.torrent","name":"Ubuntu 26.04 Desktop amd64","addedTimestamp":"2026-09-01 20:15:05","categoryID":23,"size":3300000000,"completed":234,"seeders":145,"leechers":19,"tags":["Linux","amd64"],"new":false,"imdbID":"","rating":0,"genres":"","download_multiplier":0},
                 {"fid":241826801,"filename":"Debian.13.torrent","name":"Debian 13 DVD amd64","addedTimestamp":"2026-09-01 19:00:00","categoryID":23,"size":4000000000,"completed":12,"seeders":30,"leechers":2,"tags":["Linux"],"download_multiplier":1}
             ]}"""
-            const val DETAIL = """<html><body><h1 id="torrentName">Ubuntu 26.04 Desktop amd64</h1>
+            const val DETAIL = """<html><body><h1 id="torrentnameid">Ubuntu 26.04 Desktop amd64</h1>
+                <!-- a commented-out template of the NFO block, exactly as the live page carries one:
+                <div class="editNFO" id="nfo_text" data-pk="--><!--">TEMPLATE</div> -->
+                <div id="subs"><h4 id="torrentName">a modal's copy of the name</h4></div>
                 <div id="torrentinfo"><table><tr><td>Category</td><td>PC-ISO</td></tr>
                 <tr><td>Added</td><td>
                 Monday 1st September 2026 (an hour ago)</td></tr><tr><td>Size</td><td>3.1 GB</td></tr>
                 <tr><td>Peers</td><td>164 Peers</td></tr><tr><td>Downloaded</td><td>234 times</td></tr>
                 <tr><td>Uploader</td><td>Anonymous <a href="#">Thank You</a></td></tr>
-                <tr><td>Tags</td><td><span class="tag">Linux</span> <span class="tag">FREELEECH</span></td></tr>
+                <tr><td>Tags</td><td><span class="tag">Adobe Acrobat Professional</span>
+                <span class="tag">FREELEECH</span></td></tr>
                 <tr><td>Seeders</td><td>145</td></tr><tr><td>Leechers</td><td>19</td></tr></table></div>
                 <div class="torrent-info-details">The live image &amp; installer.<br>Boots on UEFI.</div>
                 <pre id="nfo_text">Release: Ubuntu
 SHA256: abc</pre>
                 <div id="torrent-files-panel"><table><tr><th>Filename</th><th>Size</th></tr>
                 <tr><td>ubuntu.iso</td><td>3.1 GB</td></tr><tr><td>SHA256SUMS</td><td>1 KB</td></tr></table></div>
-                <a href="/download/241826800/Ubuntu.26.04.torrent">Download Torrent</a></body></html>"""
+                <a href="/download/241826800/Ubuntu.26.04.DD%2B5.1+Atmos.torrent">Download Torrent</a></body></html>"""
             const val LOGIN_FORM = """<html><body><form action="/user/account/login/" method="post">
                 <input name="username"><input name="password" type="password"></form></body></html>"""
             const val PROFILE = """<html><body><div>uploaded:10.44 TB</div><div>downloaded: 605.58 GB</div>
@@ -245,7 +249,7 @@ SHA256: abc</pre>
                 val loggedIn = cookie.contains("PHPSESSID=sess1")
                 when {
                     path == "/user/account/login/" ->
-                        if (body.contains("username=notloki") && body.contains("password=pw%21"))
+                        if (body.contains("username=glassuser") && body.contains("password=pw%21"))
                             reply(x, 302, ByteArray(0), mapOf("Location" to "$base/", "Set-Cookie" to "PHPSESSID=sess1; path=/"))
                         else reply(x, 200, LOGIN_FORM.toByteArray(), mapOf("Content-Type" to "text/html"))
                     !loggedIn || expireOnce -> {
@@ -272,7 +276,7 @@ SHA256: abc</pre>
         try {
             FakeTl().use { site ->
                 val jar = tmp.resolve("tl-cookies.json")
-                val tl = TorrentLeech("notloki", "pw!", jar, base = site.base)
+                val tl = TorrentLeech("glassuser", "pw!", jar, base = site.base)
                 val page = tl.list(null, null, 1, "added")
                 assertEquals(1, site.requests.count { it.startsWith("POST /user/account/login/") })
                 assertTrue(site.requests.any { it.startsWith("GET /torrents/browse/list/orderby/added/order/desc/page/1") })
@@ -298,13 +302,13 @@ SHA256: abc</pre>
                 assertEquals(145, d.seeders); assertEquals(19, d.leechers); assertEquals(234, d.snatched)
                 assertEquals("Anonymous", d.uploader)
                 assertTrue(d.added.startsWith("Monday 1st September 2026"), d.added)
-                assertTrue("FREELEECH" in d.tags && "Linux" in d.tags, d.tags.toString())
+                assertTrue("FREELEECH" in d.tags && "Adobe Acrobat Professional" in d.tags, d.tags.toString())   // multi-word tags survive
                 assertEquals("The live image & installer.\nBoots on UEFI.", d.description)
                 assertEquals("Release: Ubuntu\nSHA256: abc", d.nfo)
                 assertEquals(listOf(TlFile("ubuntu.iso", "3.1 GB"), TlFile("SHA256SUMS", "1 KB")), d.files)
                 // the torrent file
                 val (name, bytes) = tl.download("241826800")
-                assertEquals("Ubuntu.26.04.torrent", name)
+                assertEquals("Ubuntu.26.04.DD+5.1+Atmos.torrent", name)   // '%2B' decodes, a literal '+' stays a plus
                 assertTrue(bytes[0] == 'd'.code.toByte())
                 // the account stats (five fields, nothing else read)
                 val a = tl.account()
@@ -317,13 +321,23 @@ SHA256: abc</pre>
                 site.detailBody = "<html><body><h1>Ubuntu</h1><p>no info table here</p></body></html>"
                 val e2 = assertFailsWith<TorrentLeech.TlException> { tl.detail("241826800") }
                 assertTrue(e2.message!!.contains("format changed"), e2.message)
+                // a row without its identity is drift, not a shorter page
+                site.listingBody = """{"numFound":1,"perPage":35,"page":1,"torrentList":[{"id":"1","title":"renamed keys"}]}"""
+                val e4 = assertFailsWith<TorrentLeech.TlException> { tl.list(null, null, 1, "added") }
+                assertTrue(e4.message!!.contains("fid/name"), e4.message)
+                // an HTML answer on the JSON endpoint is a refused session: one re-login, then the retry
+                val loginsBefore = site.requests.count { it.startsWith("POST /user/account/login/") }
+                site.listingBody = FakeTl.LISTING
+                site.expireOnce = true
+                assertEquals(2, tl.list(null, null, 1, "added").items.size)
+                assertEquals(loginsBefore + 1, site.requests.count { it.startsWith("POST /user/account/login/") })
                 // a second instance reuses the persisted session — no new login
                 val logins = site.requests.count { it.startsWith("POST /user/account/login/") }
                 site.listingBody = FakeTl.LISTING
-                TorrentLeech("notloki", "pw!", jar, base = site.base).list(null, null, 1, "added")
+                TorrentLeech("glassuser", "pw!", jar, base = site.base).list(null, null, 1, "added")
                 assertEquals(logins, site.requests.count { it.startsWith("POST /user/account/login/") })
                 // wrong credentials refuse with the site's answer
-                val bad = TorrentLeech("notloki", "nope", tmp.resolve("other.json"), base = site.base)
+                val bad = TorrentLeech("glassuser", "nope", tmp.resolve("other.json"), base = site.base)
                 val e3 = assertFailsWith<TorrentLeech.TlException> { bad.list(null, null, 1, "added") }
                 assertTrue(e3.message!!.contains("login failed"), e3.message)
             }
@@ -373,8 +387,18 @@ SHA256: abc</pre>
                 p.pollNow()
                 assertEquals(listOf("done", "error", "removed"), c.events.map { it.kind })
                 assertEquals("bb02", c.events[2].hash)
-                assertEquals(3L, p.snapshot()!!.lastSeq)
-                assertEquals(2, p.eventsSince(1, p.epoch).size)
+                // the removed seed comes back with the SAME completion stamp (a
+                // qBittorrent restart's partial list): added, never done again
+                q.torrents = q.torrents + FakeQbt.row("bb02", "done.mkv", "stalledUP", 1.0, 2_000, completion = 1_700_000_000, seeding = 100_100)
+                p.pollNow()
+                assertEquals(listOf("done", "error", "removed", "added"), c.events.map { it.kind })
+                // …and with a NEW stamp (re-downloaded) it is a real finish
+                q.torrents = listOf(q.torrents[0], FakeQbt.row("bb02", "done.mkv", "stalledUP", 1.0, 2_000, completion = 1_800_000_500, seeding = 3))
+                p.pollNow()
+                assertEquals("done", c.events.last().kind)
+                assertEquals("bb02", c.events.last().hash)
+                assertEquals(5L, p.snapshot()!!.lastSeq)
+                assertEquals(4, p.eventsSince(1, p.epoch).size)
                 assertTrue(p.eventsSince(0, p.epoch + 1).isEmpty(), "a foreign epoch replays nothing")
                 p.close()
 
@@ -424,7 +448,8 @@ SHA256: abc</pre>
             Transfer("dd04", "Old.Seed", "stalledUP", 1.0, 12_000_000, 12_000_000, 200_000_000, 0, 0, 0, 17.6,
                 0, 3, 0, 1, now - 86_400 * 30, now - 86_400 * 29, 86_400 * 29, "/home/user/Downloads", "/home/user/Downloads/Old.Seed", "", "", "https://t/a"),
         )
-        private fun snap() = Snapshot(version, 7L, System.currentTimeMillis(), transfers, SessionStats(dlSpeed = 1_250_000, upSpeed = 420_000, version = "v5.1.4"), seq)
+        var epoch = 7L
+        private fun snap() = Snapshot(version, epoch, System.currentTimeMillis(), transfers, SessionStats(dlSpeed = 1_250_000, upSpeed = 420_000, version = "v5.1.4"), seq)
         override fun stateLine() = ""
         override fun snapshot() = snap()
         override fun addListener(l: TorrentsProvider.Listener) { listeners.add(l); l.snapshot(snap()); l.state("") }
@@ -433,7 +458,7 @@ SHA256: abc</pre>
         override fun refresh() { ops.add("refresh") }
         val events = CopyOnWriteArrayList<TorrentEvent>()
         override fun eventsSince(seq: Long, epoch: Long): List<TorrentEvent> =
-            if (epoch != 7L) emptyList() else events.filter { it.seq > seq }
+            if (epoch != this.epoch) emptyList() else events.filter { it.seq > seq }
         fun fireDone() {
             transfers = transfers.map { if (it.hash == "aa01") it.copy(state = "uploading", progress = 1.0, completedOn = now, seedingTime = 1) else it }
             version++
@@ -496,6 +521,11 @@ SHA256: abc</pre>
             awaitTrue("menu") { r.shell.menuIsOpen && r.shell.menuTitle == "ubuntu-26.04.iso" }
             r.tap()
             awaitTrue("details") { r.win.title() == "details" && r.win.levelDepth() == 2 }
+            r.tap()                                              // the document's actions menu
+            awaitTrue("details menu") { r.shell.menuIsOpen }
+            r.tap()                                              // row 0 is harmless (Refresh), never Stop
+            awaitTrue("refresh, not stop") { !r.shell.menuIsOpen }
+            assertTrue(r.fake.ops.none { it.startsWith("stop:") }, r.fake.ops.toString())
             r.back()
             awaitTrue("back") { r.win.title() == "transfers" }
             // Stop from the menu → the provider, then the title notice
@@ -554,7 +584,12 @@ SHA256: abc</pre>
             awaitTrue("done notice") { r.shell.notifications.active }
             assertTrue(r.win.dirty)
             assertEquals("t:aa01", r.shell.notifications.current?.target)
-            r.stop()
+            // detach (the desktop stack-stop rule): no listener stays behind
+            r.shell.stop()
+            r.win.detach()
+            assertTrue(r.fake.listeners.isEmpty(), "the window's listener was removed")
+            assertTrue(r.fake.ops.last().startsWith("focus:false"), r.fake.ops.last())
+            r.scope.cancel()
         } catch (e: Throwable) {
             r.stop(); throw e
         } finally {
@@ -613,7 +648,9 @@ SHA256: abc</pre>
         val c = Collect()
         remote.addListener(c)
         try {
-            awaitTrue("the first snapshot arrives") { remote.snapshot() != null }
+            // await the LISTENER's copy: the provider stores its snapshot before it
+            // notifies, and a poll between the two would count a push twice
+            awaitTrue("the first snapshot arrives") { c.snaps.isNotEmpty() }
             assertEquals(3, remote.snapshot()!!.transfers.size)
             assertEquals("", remote.stateLine())
             val snaps = c.snaps.size
@@ -636,6 +673,15 @@ SHA256: abc</pre>
             assertEquals(40, remote.tlCategories().size)
             assertEquals("1 TB", remote.tlAccount().uploaded)
             assertEquals("Item of f1", remote.tlDetail("f1").name)
+            // the host "restarts": a new epoch with a baseline done in its fresh log
+            fake.epoch = 8L
+            fake.events.clear(); fake.seq = 0
+            fake.fireDone()                                     // seq 1 in epoch 8
+            val evBefore = c.events.size
+            remote.pollOnce()                                   // sees the new epoch: rewinds, wakes
+            remote.pollOnce()                                   // replays the fresh log from 0
+            awaitTrue("the new epoch's baseline done reached the phone") { c.events.size == evBefore + 1 }
+            assertEquals(8L, remote.snapshot()!!.epoch)         // and the snapshot was re-sent on the epoch change alone
         } finally {
             remote.close()
             host.close()

@@ -74,13 +74,30 @@ class TorrentLeech(
     private fun absorbCookies(r: Http.Response) {
         var changed = false
         for (sc in r.setCookies()) {
-            val kv = sc.substringBefore(';')
+            val parts = sc.split(';')
+            val kv = parts[0]
             val k = kv.substringBefore('=').trim()
             val v = kv.substringAfter('=', "").trim()
             if (k.isEmpty()) continue
-            if (cookies[k] != v) { cookies[k] = v; changed = true }
+            // a deletion (Max-Age=0 / an expiry in the past) removes the cookie
+            // instead of re-sending it forever (review 2026-09-01 C15)
+            val deleted = parts.drop(1).any { a ->
+                val t = a.trim()
+                (t.startsWith("Max-Age=", ignoreCase = true) && (t.substringAfter('=').trim().toLongOrNull() ?: 1L) <= 0L) ||
+                    (t.startsWith("Expires=", ignoreCase = true) && expiresInPast(t.substringAfter('=').trim()))
+            }
+            if (deleted) {
+                if (cookies.remove(k) != null) changed = true
+            } else if (cookies[k] != v) { cookies[k] = v; changed = true }
         }
         if (changed) saveJar()
+    }
+
+    private fun expiresInPast(s: String): Boolean = try {
+        java.time.ZonedDateTime.parse(s, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME)
+            .toInstant().isBefore(java.time.Instant.now())
+    } catch (e: Exception) {
+        false
     }
 
     private fun saveJar() {
@@ -88,13 +105,16 @@ class TorrentLeech(
         try {
             Files.createDirectories(f.parent)
             val tmp = f.resolveSibling(f.fileName.toString() + ".tmp")
-            Files.writeString(tmp, json.encodeToString(CookieJar.serializer(),
-                CookieJar(LinkedHashMap(cookies), System.currentTimeMillis())))
+            // created 0600 from the first byte (review 2026-09-01 C14) — the
+            // session cookie is never world-readable, not even for a moment
             try {
-                Files.setPosixFilePermissions(tmp, PosixFilePermissions.fromString("rw-------"))
-            } catch (e: Exception) {
+                Files.deleteIfExists(tmp)
+                Files.createFile(tmp, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")))
+            } catch (e: UnsupportedOperationException) {
                 // a filesystem without POSIX permissions (the phone never runs this side)
             }
+            Files.writeString(tmp, json.encodeToString(CookieJar.serializer(),
+                CookieJar(LinkedHashMap(cookies), System.currentTimeMillis())))
             Files.move(tmp, f, StandardCopyOption.REPLACE_EXISTING)
         } catch (e: Exception) {
             Log.w("torrentleech", "cookie jar not saved: ${e.message}")
@@ -122,7 +142,7 @@ class TorrentLeech(
             absorbCookies(r)
             val loc = r.header("Location") ?: ""
             val ok = r.status == 302 && !loc.contains("login", ignoreCase = true) && cookies.isNotEmpty()
-            if (!ok) throw TlException("TorrentLeech login failed (HTTP ${r.status}${if (loc.isNotEmpty()) " → $loc" else ""})")
+            if (!ok) throw TlException("TorrentLeech login failed (HTTP ${r.status}${if (loc.isNotEmpty()) " -> $loc" else ""})")
             Log.i("torrentleech", "logged in as $user")
         }
     }
@@ -133,24 +153,29 @@ class TorrentLeech(
             return loc.contains("login", ignoreCase = true)
         }
         if (r.status == 200 && r.contentType.contains("text/html", ignoreCase = true)) {
-            val head = r.text().take(4000)
-            return head.contains("user/account/login", ignoreCase = true) &&
-                head.contains("name=\"password\"", ignoreCase = true)
+            // the WHOLE body (review 2026-09-01 C6): the login form may sit
+            // past any prefix on a page with a long head
+            val body = r.text()
+            return body.contains("user/account/login", ignoreCase = true) &&
+                body.contains("name=\"password\"", ignoreCase = true)
         }
         return r.status == 401 || r.status == 403
     }
 
-    /** GET with the session; a logged-out answer triggers ONE login and one retry. */
-    private fun get(path: String, retry: Boolean = true): Http.Response {
+    /** GET with the session; a logged-out answer triggers ONE login and one
+     *  retry. [wantJson]: an HTML answer on the JSON endpoint is a session
+     *  refused (the site shows a page, never a JSON error) — the same one retry. */
+    private fun get(path: String, retry: Boolean = true, wantJson: Boolean = false): Http.Response {
         synchronized(lock) {
             if (cookies.isEmpty()) login()
             val r = Http.request("GET", base + path, headers(), followRedirects = false)
             absorbCookies(r)
-            if (looksLoggedOut(r)) {
+            val htmlOnJson = wantJson && r.status == 200 && r.contentType.contains("text/html", ignoreCase = true)
+            if (looksLoggedOut(r) || htmlOnJson) {
                 if (!retry) throw TlException("TorrentLeech session refused after re-login ($path)")
-                Log.i("torrentleech", "session expired — logging in again")
+                Log.i("torrentleech", "session expired - logging in again")
                 login()
-                return get(path, retry = false)
+                return get(path, retry = false, wantJson = wantJson)
             }
             if (r.status != 200) throw TlException("TorrentLeech $path: HTTP ${r.status}")
             return r
@@ -165,7 +190,7 @@ class TorrentLeech(
         if (categoryId != null && categoryId > 0) sb.append("categories/").append(categoryId).append('/')
         val s = if (sort in SORTS) sort else "added"
         sb.append("orderby/").append(s).append("/order/desc/page/").append(page.coerceAtLeast(1))
-        val r = get(sb.toString())
+        val r = get(sb.toString(), wantJson = true)
         val body = r.text()
         val root = try {
             json.parseToJsonElement(body).jsonObject
@@ -174,14 +199,21 @@ class TorrentLeech(
         }
         val list = root["torrentList"] as? JsonArray
             ?: throw TlException("TorrentLeech format changed: no torrentList in the listing")
-        val items = list.mapNotNull { el -> (el as? JsonObject)?.let { itemOf(it) } }
+        val items = list.map { el ->
+            val o = el as? JsonObject
+                ?: throw TlException("TorrentLeech format changed: a listing row is not an object")
+            itemOf(o)
+        }
         return TlPage(items, root.int("page", page), root.int("perPage", 35), root.int("numFound", items.size))
     }
 
-    private fun itemOf(o: JsonObject): TlItem? {
+    private fun itemOf(o: JsonObject): TlItem {
         val fid = o.str("fid")
         val name = o.str("name")
-        if (fid.isEmpty() || name.isEmpty()) return null
+        // a row without its identity is drift, refused loudly — never a
+        // quietly shorter page (review 2026-09-01 C2)
+        if (fid.isEmpty() || name.isEmpty()) throw TlException(
+            "TorrentLeech format changed: a listing row without fid/name (keys ${o.keys.take(12)})")
         val tags = (o["tags"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull } ?: emptyList()
         val mult = o.int("download_multiplier", 1)
         return TlItem(
@@ -197,15 +229,20 @@ class TorrentLeech(
     fun pageUrl(fid: String): String = "$base/torrent/$fid"
 
     fun detail(fid: String): TlDetail {
-        val html = get("/torrent/$fid").text()
+        // comments go first (review 2026-09-01 C1): the live page carries a
+        // commented-out TEMPLATE of the NFO block before the real one, and a
+        // raw landmark search found the template
+        val html = Html.stripComments(get("/torrent/${Http.pathEncode(fid)}").text())
         val info = Html.element(html, "id", "torrentinfo")
             ?: throw TlException("TorrentLeech format changed: the Torrent Info table is missing on /torrent/$fid")
         val rows = Html.tableRows(info)
         fun row(label: String): String =
             rows.firstOrNull { it.isNotEmpty() && it[0].trim().trimEnd(':').equals(label, ignoreCase = true) }
                 ?.getOrNull(1)?.trim() ?: ""
-        val name = Html.element(html, "id", "torrentName")?.let { Html.text(it).trim() }?.ifEmpty { null }
-            ?: Html.element(html, "id", "torrentnameid")?.let { Html.text(it).trim() }?.ifEmpty { null }
+        // the heading is `torrentnameid`; `torrentName` is a modal's copy of
+        // it on the live page (review 2026-09-01 C10) — the heading first
+        val name = Html.element(html, "id", "torrentnameid")?.let { Html.text(it).trim() }?.ifEmpty { null }
+            ?: Html.element(html, "id", "torrentName")?.let { Html.text(it).trim() }?.ifEmpty { null }
             ?: throw TlException("TorrentLeech format changed: no torrent name on /torrent/$fid")
         val category = row("Category")
         val added = row("Added").lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() } ?: ""
@@ -213,7 +250,9 @@ class TorrentLeech(
         val snatched = row("Downloaded").filter { it.isDigit() }.toIntOrNull() ?: 0
         val uploader = row("Uploader").lineSequence().map { it.trim() }.firstOrNull { it.isNotEmpty() }
             ?.substringBefore("Thank")?.trim() ?: ""
-        val tags = row("Tags").split('\n', ' ', '\t').map { it.trim() }.filter { it.isNotEmpty() }
+        // one tag per line on the page — tags carry spaces ("Adobe Acrobat
+        // Professional", review 2026-09-01 C5)
+        val tags = row("Tags").split('\n').map { it.trim() }.filter { it.isNotEmpty() }
         val seeders = row("Seeders").filter { it.isDigit() }.toIntOrNull() ?: 0
         val leechers = row("Leechers").filter { it.isDigit() }.toIntOrNull() ?: 0
         val description = Html.element(html, "class", "torrent-info-details")?.let { Html.text(it) }
@@ -240,10 +279,12 @@ class TorrentLeech(
      *  page (its filename segment is part of the URL), then fetched with the
      *  session. Anything that is not a bencoded dictionary is refused. */
     fun download(fid: String): Pair<String, ByteArray> {
-        val html = get("/torrent/$fid").text()
-        val href = Regex("href=\"(/download/$fid/[^\"]+)\"").find(html)?.groupValues?.get(1)
+        val html = Html.stripComments(get("/torrent/${Http.pathEncode(fid)}").text())
+        val href = Regex("href=\"(/download/${Regex.escape(fid)}/[^\"]+)\"").find(html)?.groupValues?.get(1)
             ?: throw TlException("TorrentLeech format changed: no download link on /torrent/$fid")
-        val fileName = href.substringAfterLast('/').let { java.net.URLDecoder.decode(it, "UTF-8") }
+        // path-segment decoding: %XX only — a '+' in a release name is a plus,
+        // not a space (review 2026-09-01 C4)
+        val fileName = Html.percentDecode(href.substringAfterLast('/'))
         val r = get(href)
         val bytes = r.body
         if (bytes.isEmpty() || bytes[0] != 'd'.code.toByte() ||
@@ -262,7 +303,10 @@ class TorrentLeech(
         val ratio = grab("ratio:\\s*([^\\n]+)")
         val points = grab("TL Points:\\s*([^\\n]+)")
         val klass = grab("\\bClass\\s+([^\\n]+)")
-        if (up.isEmpty() && ratio.isEmpty()) throw TlException("TorrentLeech format changed: no stats on the profile page")
+        // the three that matter must all be there — a partial page is drift,
+        // not a quiet stats row with holes
+        if (up.isEmpty() || down.isEmpty() || ratio.isEmpty()) throw TlException(
+            "TorrentLeech format changed: the profile page lost uploaded/downloaded/ratio")
         return TlAccount(user, up, down, ratio, points, klass)
     }
 
@@ -316,6 +360,30 @@ class TorrentLeech(
 object Html {
 
     private val blockTags = setOf("p", "br", "div", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6", "table", "pre", "ul", "ol")
+
+    /** HTML comments removed — a commented-out template must never satisfy
+     *  a landmark search (review 2026-09-01 C1). */
+    fun stripComments(html: String): String =
+        Regex("<!--.*?-->", RegexOption.DOT_MATCHES_ALL).replace(html, "")
+
+    /** `%XX` decoding only: a URL path segment keeps its '+' (the form
+     *  decoder's plus-is-space rule does not apply to paths). */
+    fun percentDecode(s: String): String {
+        if (!s.contains('%')) return s
+        val out = java.io.ByteArrayOutputStream(s.length)
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            if (c == '%' && i + 2 < s.length + 0 && i + 2 <= s.length - 1) {
+                val h = s.substring(i + 1, i + 3).toIntOrNull(16)
+                if (h != null) { out.write(h); i += 3; continue }
+            }
+            val b = c.toString().toByteArray(Charsets.UTF_8)
+            out.write(b, 0, b.size)
+            i++
+        }
+        return out.toByteArray().toString(Charsets.UTF_8)
+    }
 
     /** The outer HTML of the first element whose [attr] equals [value]. */
     fun element(html: String, attr: String, value: String): String? {
@@ -401,9 +469,10 @@ object Html {
 
     fun decode(s: String): String = Regex("&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);").replace(s) { m ->
         val e = m.groupValues[1]
+        fun chars(cp: Int?): String? = cp?.takeIf { Character.isValidCodePoint(it) }?.let { String(Character.toChars(it)) }
         when {
-            e.startsWith("#x") -> e.substring(2).toIntOrNull(16)?.let { cp -> String(Character.toChars(cp)) } ?: m.value
-            e.startsWith("#") -> e.substring(1).toIntOrNull()?.let { cp -> String(Character.toChars(cp)) } ?: m.value
+            e.startsWith("#x") -> chars(e.substring(2).toIntOrNull(16)) ?: m.value
+            e.startsWith("#") -> chars(e.substring(1).toIntOrNull()) ?: m.value
             else -> entities[e.lowercase()] ?: m.value
         }
     }

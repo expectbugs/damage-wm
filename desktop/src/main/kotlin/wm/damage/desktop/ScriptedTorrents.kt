@@ -113,9 +113,15 @@ class ScriptedTorrents : TorrentsProvider {
     private fun item(i: Int, cat: Int, name: String): TlItem = TlItem(
         fid = "2418${26_800 + i}", name = name, filename = name.replace(' ', '.') + ".torrent", categoryId = cat,
         size = 700_000_000L * (i + 1), seeders = 145 - i * 3, leechers = 19 + i, snatched = 234 + i * 7,
-        addedAt = "2026-09-01 2${i % 4}:1${i % 6}:05", tags = listOf("Linux", "amd64", if (i % 5 == 0) "FREELEECH" else "x86"),
+        addedAt = stamp(6 + i),   // "Nh ago" stays stable day after day (the snapshot scene)
+        tags = listOf("Linux", "amd64", if (i % 5 == 0) "FREELEECH" else "x86"),
         freeleech = i % 5 == 0,
     )
+
+    /** The site's UTC timestamp text, [hoursAgo] before now. */
+    private fun stamp(hoursAgo: Int): String =
+        java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).minusHours(hoursAgo.toLong())
+            .withSecond(5).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
 
     private val names = listOf("Ubuntu 26.04 Desktop amd64", "Fedora Workstation 44 Live x86_64", "Debian 13 DVD amd64",
         "Gentoo LiveGUI USB 2026", "Arch Linux 2026.09.01 ISO", "openSUSE Tumbleweed DVD", "Linux Mint 23 Cinnamon",
@@ -163,6 +169,6 @@ class ScriptedTorrents : TorrentsProvider {
         return name
     }
 
-    override fun tlAccount(): TlAccount = TlAccount("notloki", "10.44 TB", "605.58 GB", "17.648", "4,416.88", "Extreme User")
+    override fun tlAccount(): TlAccount = TlAccount("glassuser", "10.44 TB", "605.58 GB", "17.648", "4,416.88", "Extreme User")
     override fun openOnPc(target: String) { ops.add("open:$target") }
 }

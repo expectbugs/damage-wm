@@ -35,6 +35,10 @@ class QbtClient(baseUrl: String, private val user: String = "", private val pass
     private val base = baseUrl.trimEnd('/')
     private val json = Json { ignoreUnknownKeys = true }
     @Volatile private var sid: String? = null
+    /** A refused login latches for the process (review 2026-09-01 C7): the
+     *  server bans an address after five failures for an hour, and a 2 s poll
+     *  loop would get there in ten seconds. A fixed config means a restart. */
+    @Volatile private var loginRefused: String? = null
 
     private fun call(path: String, form: Map<String, String>? = null,
         multipart: Pair<String, ByteArray>? = null, retry: Boolean = true): Http.Response {
@@ -54,7 +58,7 @@ class QbtClient(baseUrl: String, private val user: String = "", private val pass
         }
         if (r.status != 200) {
             throw QbtException("qBittorrent $path: HTTP ${r.status}" +
-                r.text().lineSequence().firstOrNull()?.take(120)?.let { if (it.isEmpty()) "" else " — $it" })
+                r.text().lineSequence().firstOrNull()?.take(120)?.let { if (it.isEmpty()) "" else " - $it" })
         }
         return r
     }
@@ -62,10 +66,15 @@ class QbtClient(baseUrl: String, private val user: String = "", private val pass
     /** `auth/login`: username/password → the SID cookie. Five failures ban
      *  the IP for an hour (the server's rule), so this is never retried in a loop. */
     fun login() {
+        loginRefused?.let { throw QbtException(it) }
         val r = Http.request("POST", "$base/api/v2/auth/login", mapOf("Referer" to base),
             Http.formEncode(mapOf("username" to user, "password" to pass)).toByteArray(Charsets.UTF_8),
             "application/x-www-form-urlencoded")
-        if (r.status != 200 || r.text().trim() != "Ok.") throw QbtException("qBittorrent login refused (HTTP ${r.status}: ${r.text().trim().take(60)})")
+        if (r.status != 200 || r.text().trim() != "Ok.") {
+            val why = "qBittorrent login refused (HTTP ${r.status}: ${r.text().trim().take(60)}) - check qbtUser/qbtPass and restart"
+            if (r.text().trim() == "Fails.") loginRefused = why
+            throw QbtException(why)
+        }
         sid = r.setCookies().firstOrNull { it.startsWith("SID=") }?.substringAfter("SID=")?.substringBefore(';')
             ?: throw QbtException("qBittorrent login answered Ok. without a SID cookie")
     }
@@ -77,7 +86,18 @@ class QbtClient(baseUrl: String, private val user: String = "", private val pass
      *  request carries the transfer list and the session line, and a full
      *  answer for a few dozen torrents on loopback costs nothing while the
      *  incremental merge would be a bug surface (TORRENTS.md §4). */
-    fun maindata(): JsonObject = parseObject(call("sync/maindata?rid=0").text(), "sync/maindata")
+    fun maindata(): JsonObject {
+        val md = parseObject(call("sync/maindata?rid=0").text(), "sync/maindata")
+        // rid=0 always answers a FULL update (synccontroller.cpp): anything
+        // else is a server this client does not know — refuse, never read a
+        // partial answer as "no torrents" (review 2026-09-01 C12)
+        if (md["full_update"]?.let { (it as? JsonPrimitive)?.booleanOrNull } != true) {
+            throw QbtException("qBittorrent sync/maindata: not a full update (keys ${md.keys.take(8)})")
+        }
+        return md
+    }
+
+    private fun enc(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
 
     private fun parseObject(s: String, what: String): JsonObject = try {
         json.parseToJsonElement(s).jsonObject
@@ -135,10 +155,10 @@ class QbtClient(baseUrl: String, private val user: String = "", private val pass
     )
 
     fun detail(hash: String): TransferDetail {
-        val props = parseObject(call("torrents/properties?hash=$hash").text(), "torrents/properties")
+        val props = parseObject(call("torrents/properties?hash=${enc(hash)}").text(), "torrents/properties")
         val files = ArrayList<TFile>()
         val fa = try {
-            json.parseToJsonElement(call("torrents/files?hash=$hash").text()).jsonArray
+            json.parseToJsonElement(call("torrents/files?hash=${enc(hash)}").text()).jsonArray
         } catch (e: QbtException) {
             throw e
         } catch (e: Exception) {
@@ -150,13 +170,15 @@ class QbtClient(baseUrl: String, private val user: String = "", private val pass
         }
         val trackers = ArrayList<String>()
         try {
-            for (t in json.parseToJsonElement(call("torrents/trackers?hash=$hash").text()).jsonArray) {
+            for (t in json.parseToJsonElement(call("torrents/trackers?hash=${enc(hash)}").text()).jsonArray) {
                 val o = t as? JsonObject ?: continue
                 val u = o.str("url")
                 if (u.startsWith("http") || u.startsWith("udp")) trackers.add(u)
             }
         } catch (e: Exception) {
-            // trackers are decoration on the detail page; their absence is not a failure
+            // trackers are decoration on the detail page; their absence is not
+            // a failure of the detail — but it is said (review 2026-09-01 C11)
+            wm.damage.core.util.Log.w("torrents", "torrents/trackers for $hash: ${e.message}")
         }
         return TransferDetail(hash, files, comment = props.str("comment"),
             createdOn = props.long("creation_date"), pieces = props.int("pieces_num"),

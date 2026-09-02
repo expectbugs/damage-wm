@@ -575,6 +575,53 @@ staging — complete and polished before the next app.** The session, in order:
   Battery at hand-off: core **213** · desktop 9 · selfcheck **89** · snapshots 26
   (8 new, looked at) · lint 0 · design shots byte-identical. APK **18/0.18** staged.
 
-**Next (`REMINDER.md`):** the review loop over this build (the Files precedent: fresh
-reviewers, verify each finding, fix, repeat to convergence), then on-glass verdicts for the
-keyboard's feel (row pitch at 288, the highlight, the text-line pan) and the transfers list.
+### 23.1 The review loop — round 1 (2026-09-01, night)
+
+Five fresh reviewers over the whole build (keyboard + wiring · the two HTTP clients against
+the qBittorrent 5.1.4 source and the live TorrentLeech fixtures · provider + channel · the
+window · glue/harnesses/docs). ~55 findings; every one re-verified against the code before a
+fix; all real ones fixed, the doc mismatches corrected, one recorded as a design exemption.
+The ones that mattered:
+
+- **The provider listener leaked on every desktop stack swap** (standby → BLE → handback): a
+  dead shell's queue was fed one snapshot per poll for the life of the service. `TorrentsWindow.detach()`,
+  called from `DesktopStack.stop()` like tmux's, plus the focus release.
+- **The tracker's NFO landmark matched a commented-out template** that precedes the real
+  element on the live page (found by running a port of the reader over the real page): comments
+  are stripped before any landmark search; a listing row without `fid`/`name` is now refused
+  loudly instead of silently dropped; `+` in a release name is no longer decoded as a space;
+  multi-word tags survive; an HTML answer on the JSON endpoint counts as a refused session.
+- **Announcements**: the announced stamp is kept across a removal (a qBittorrent restart's
+  partial list re-added everything and would have storm-announced 38 finishes); "done" keys on
+  the completion stamp alone; a host restart's fresh log is replayed to a phone that was
+  connected before, while a phone's first contact still adopts the current sequence; the host
+  says `truncated` when its ring no longer reaches back; a `snap` counts a new epoch as changed.
+- **The window**: the categories list called the provider from a paint (a blocking channel
+  request on the phone's loop — the L1 class) → the static table; a live-synced record now
+  reloads the open document at once (`restoreStateLive`) and bumps the sequences so an
+  in-flight answer cannot land on the restored item; restored cursors/tops wait for their
+  content instead of being clamped by the first paint; the Poll row no longer re-arms the
+  focused pace from Settings; an empty listing retries on its pacing; the unrecoverable
+  delete sits at index 2 behind a spacer; from DETAILS the actions menu rests on Refresh.
+- **The keyboard**: live keys wrap onto a second row up to twelve and more is refused loudly
+  (Tmux's fourteen defaults silently lost Tab and q); Tmux sends only its non-character quick
+  keys, harmless ones first; every label is sized to its cell; the prompt is fitted; uncovered
+  glyphs display as `?` one per UTF-16 unit so the caret never drifts; the Tab key left the
+  symbol layer; a shell stop, a keeper restart and a window commit drop the keyboard with the
+  draft handed back.
+- **Smaller**: a mid-body HTTP failure is a failure (never an empty answer → "format changed");
+  a refused qBittorrent login latches (five failures ban the address for an hour); `Fmt` is
+  locale-fixed; hashes/fids are encoded in URLs; the cookie jar is created 0600; `Max-Age=0`
+  deletes a cookie; the private-tracker username left the fixtures; the scripted listing's
+  ages are relative so the snapshot scene does not drift by the day; `.kotlin/` untracked.
+- **Recorded exemption**: a replica-typed line searches without a confirm — a read-only query.
+
+New pins: `TorrentsTest` (re-add with the same stamp is silent, a new stamp announces; the
+host-restart replay; the details menu's harmless row 0; detach removes the listener) and
+`KeyboardTest` ×18 (live rows chunk 8 → 4+4 and 13 is refused; a seven-row board fits every
+Size; uncovered glyphs display as `?` without moving the caret; a long prompt stays in the
+box; a shell stop hands the draft back and the restart has no keyboard).
+
+**Next (`REMINDER.md`):** round 2 — fresh eyes on the round-1 fix diff — until a round finds
+nothing real; then on-glass verdicts for the keyboard's feel (row pitch at 288, the highlight,
+the text-line pan) and the transfers list.

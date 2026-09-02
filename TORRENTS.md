@@ -82,10 +82,11 @@ finished) are in every info row — the latter is what the "seeding under a week
 ## 3. The window (`TorrentsWindow`, id `torrents`)
 
 **Declares:** needs **HOST** · face **Fira Sans** (dense lists; the LIST role) · icon
-`IconKind.TORRENTS` (theme names `qbittorrent`, `transmission`, `network-transmit-receive`;
-drawn fallback = a down-arrow into a tray) · `preferredHeight` from its Size row · title forms
-(short by design, §4.1): `transfers` · `details` · `browse` · `<category>` · `"<query>"` ·
-`torrent` · `stats`.
+`IconKind.TORRENTS` (theme names `qbittorrent`, `transmission`, `deluge`,
+`network-transmit-receive`, `folder-download`; drawn fallback = a down-arrow into a tray) ·
+`preferredHeight` from its Size row · title forms (short by design, §4.1): `transfers` (or the
+active filter's label) · `details` · `browse` · `<category>` / `newest` · `"<query>"` ·
+`torrent`.
 
 ### 3.1 Levels and grammar
 
@@ -105,15 +106,20 @@ TRANSFERS (List, root)  ──tap──▶ transfer MENU ──Details──▶ 
   Lens (focused): 56 px icon · name bold · one detail line (`47% · 1.2 MB/s ↓ 0.3 ↑ · 12 m left
   · 34 peers`, or for a seed `seeding · ratio 2.31 · 6d 3h seeded · 145 peers`) · a 12-block bar
   · an 8-column speed history (the last 8 polls, quantized to 2 px steps). Sort default =
-  ACTIVITY: downloading first (by progress desc), then seeding (completed desc), then stopped,
-  then errors; NAME / ADDED / PROGRESS / SIZE on the Torrents menu. Filter: ALL / DOWNLOADING /
+  ACTIVITY: **errors first** (they need attention), then downloads (by progress desc),
+  checking, seeds (completed desc), stopped; NAME / ADDED / PROGRESS / SIZE on the Torrents
+  menu. Filter: ALL / DOWNLOADING /
   SEEDING / STOPPED / ERRORS / **UNDER A WEEK** (finished, `seeding_time` < 7 d — the row's state
-  word becomes `3d 4h seeded`, the lens says how long remains). Cursor rest = row 0 after every
-  level change (§1.7). Empty list = one honest row (`no transfers` / the state line).
-- **transfer MENU** (tap on a row; MenuSurface, Details first): Details · Start or Stop (which
-  one applies) · Recheck · Open in Files (the payload path — a Files `path:` deep link) · Open
-  on PC · Delete (keep files) → confirm · **Delete with files** → confirm → second confirm. The
-  destructive rows are last (§1.7).
+  word becomes `3d 4h seeded`, the lens says how long remains). Cursor rest: a descent lands on
+  row 0 (§1.7); an ascent returns to the row it left from (the Files ascend rule), and the
+  cursor follows its row's IDENTITY (the hash, or the wrap-end menu row) across live
+  snapshots. Empty list = one honest row (`no transfers` / the state line).
+- **transfer MENU** (tap on a row; MenuSurface, Details first — from the DETAILS document the
+  harmless row 0 is Refresh instead): Details · Start or Stop (which one applies) · Recheck ·
+  Open in Files (the payload path — a Files `path:` deep link) · Open on PC · Delete (keep
+  files) → confirm · **Delete + files** → confirm → a second confirm whose unrecoverable row
+  sits at index 2 behind a disabled spacer (the Files purge shape). The destructive rows are
+  last (§1.7).
 - **Torrents MENU** (the wrap-end row): Browse TorrentLeech · Search TorrentLeech (opens the
   keyboard) · a recent search per row (up to 5, newest first — Adam wanted no history row in
   the keyboard; the recents live here) · Filter (cycles) · Sort (cycles) · Seeding < 1 week ·
@@ -123,8 +129,9 @@ TRANSFERS (List, root)  ──tap──▶ transfer MENU ──Details──▶ 
   every file as `name · size · nn%`. Wrapped at the live content width; relayout on font/size
   change; tap → the same actions menu (minus Details).
 - **CATEGORIES** (List): `Newest` first, then the 40 categories as `Group · Name` rows with a
-  group icon (tv/film/game/app/book/music/education/animation/foreign). Wrap-end row = the
-  Browse menu (Search…, recents, Refresh).
+  group icon (tv/film/game/app/book/music/education/animation/foreign) — the table is core's
+  constant, never a provider call. Wrap-end row = the Browse menu (Search…, recents, Account;
+  Sort and Refresh only inside a LISTING).
 - **LISTING** (List; a category, or search results): name (fit) · size · `↑seeders ↓leechers`
   · a `FL` mark for freeleech; the lens adds snatches, age, category, tags. **Endless paging**:
   a listing near its loaded end fetches the next page (35/page) off-loop and appends; a dim
@@ -140,6 +147,8 @@ TRANSFERS (List, root)  ──tap──▶ transfer MENU ──Details──▶ 
 - **Search**: `openKeyboard(title "search torrentleech", initial = the last draft)`; ↵ runs the
   search and lands in LISTING titled `"query"`; the query joins the recents (max 10, deduped,
   synced with the window record). Cancel keeps the draft for the next open (his verdict 4).
+  A line typed on a replica searches the same way. **Recorded exemption to "typed text
+  always stages a confirm"**: a search is a read-only query, nothing outbound or destructive.
 - **Stats** (a menu of read-only rows): qBittorrent `↓ speed · ↑ speed`, session down/up,
   all-time ratio, free space, peers, connection status, version; TorrentLeech uploaded /
   downloaded / ratio / points / class. Computed off-loop, delivered as a notice if the window
@@ -154,11 +163,16 @@ TRANSFERS (List, root)  ──tap──▶ transfer MENU ──Details──▶ 
 
 Coalescing key = the hash. Announcements are decided **host-side, once**, so the phone shell
 and a PC standby shell agree; the announced set persists in `~/.damage/torrents.json` (hash →
-completion stamp); the first run after install marks every already-finished torrent announced
-(38 of them today) so nothing storms. A shell that reconnects asks for events since the last
-sequence it saw and replays what it missed; a host that restarted (new epoch) hands out its
-current sequence with no replay — a missed announcement is recoverable from the list, a
-duplicate storm is not.
+completion stamp, **kept across a removal** — a torrent that comes back with the same stamp is
+a reload, one with a new stamp a real finish); the first run after install marks every
+already-finished torrent announced (38 of them today) so nothing storms; on a later restart
+whatever finished while the service was down announces once. A shell that reconnects asks for
+events since the last sequence it saw and replays what it missed (the host says `truncated`
+when its 200-deep ring no longer reaches back that far). A host that restarted (new epoch):
+a phone that was connected before replays the fresh log from its start — it holds only the
+baseline finishes and what happened since — while a phone making its very first contact
+adopts the current sequence with no replay, so a phone app restart never re-shows days of
+old announcements.
 
 ### 3.3 Settings → Torrents
 
@@ -186,48 +200,60 @@ level path so back behaves as if navigated by hand (§16.1).
 
 ```
 TorrentsProvider (interface)                Local (PC)                       Remote (phone)
-  stateLine()                               QbtClient  ─ HTTP loopback       RemoteWin "torrents"
-  snapshot(maxAgeMs) / events(sinceSeq)     TorrentLeech ─ HTTPS + cookie    polls `snap` on its own
-  start/stop/recheck/delete(hashes,…)       poll loop 15 s + demand polls    pacing (2 s focused,
-  detail(hash)                              event log + announced set        15 s idle), pushes
-  tlCategories/tlBrowse/tlSearch/tlDetail   `TorrentsService` on the win     into the window's
-  tlAdd(fid, stopped) / tlAccount()         channel (`{"t":"win","win":      listener; blobs for
-  openOnPc(pathOrUrl)                       "torrents"}`)                    listings/details
+  stateLine() · snapshot() (cached)         QbtClient  ─ HTTP loopback       RemoteWin "torrents"
+  eventsSince(seq, epoch)                   TorrentLeech ─ HTTPS + cookie    polls `snap` on its own
+  setFocused(focused, paceMs) · refresh()   poll loop: 15 s idle, the        pacing (2 s focused,
+  start/stop/recheck/delete(hashes,…)       fastest FOCUSED party's pace     15 s idle; woken by
+  detail(hash)                              (local shell / phone tracked     attach and focus),
+  tlCategories/tlBrowse/tlSearch/tlDetail   separately); event log +         pushes into the
+  tlAdd(fid, stopped) / tlAccount()         announced set; `TorrentsService` window's listener;
+  openOnPc(pathOrUrl)                       on the win channel               blobs for the bulk
 ```
 
+The wire (`snap`): the phone sends its snapshot `v`ersion, the last event `since` it saw and
+the host `epoch` it belongs to, plus `focused`/`pace`; the host answers `changed` (a blob with
+the whole snapshot only when the version OR the epoch differs), the events since, `truncated`
+when its ring no longer reaches back, and its own state line. The phone therefore reads at
+most one host interval behind — a deliberate simplification over an on-demand `maxAge` poll.
+
 - **`QbtClient`** (`java.net.HttpURLConnection` — core runs on Android too, no `java.net.http`):
-  `maindata` with `rid` (the snapshot), `info`, `properties` + `files`, `start` / `stop` /
-  `recheck` / `delete`, `add` (multipart `.torrent` bytes + `savepath` / `stopped`),
-  `transfer/info`, `app/version`. A refused request or a non-JSON body is an exception with the
-  status and the first line of the body; a `Forbidden` triggers one login attempt when
-  credentials are configured (they are not, on beardos) and is otherwise reported as such.
+  `sync/maindata` with `rid=0` — always a full update, deliberately (one request carries the
+  list AND the session line, and a full answer for a few dozen torrents on loopback costs
+  nothing while an incremental merge would be a bug surface; anything but a full update is
+  refused), `properties` + `files` + `trackers`, `start` / `stop` / `recheck` / `delete`, `add`
+  (multipart `.torrent` bytes + `savepath` / `stopped`), `app/version`. A refused request or a
+  non-JSON body is an exception with the status and the first line of the body; a `Forbidden`
+  triggers one login attempt when credentials are configured (they are not, on beardos) and a
+  refused login latches for the process (five failures ban the address for an hour).
 - **`TorrentLeech`**: login → cookie jar persisted in `~/.damage/tl-cookies.json` (0600),
   re-login once on a redirect to the login page or a non-JSON answer, then the request retried
   once; browse / search / detail / download / account; HTML parsed with a small stdlib
   tokenizer (no third-party parser), every expected landmark checked. Credentials come from
   `~/.damage/config.json` (`torrentleechUser` / `torrentleechPass`) — the standing secrets
   rule; nothing in the repo.
-- **`LocalTorrentsProvider`**: owns both clients and the poll loop (15 s pacing; `snapshot(maxAge)`
-  polls at once when the cached snapshot is older — the window's focused pacing rides this
-  through `setFocused`), diffs snapshots into events (done / error / added / removed), keeps the
-  last 200 events with a monotonic sequence and a per-process epoch, persists the announced
-  set. All qBittorrent and tracker I/O is off-loop; the window applies results through
-  `runOnShell`.
-- **`TorrentsService` / `RemoteTorrentsProvider`** (`TorrentsNet.kt`): ops `snap` (args maxAge,
-  since, epoch → a JSON snapshot + events; the transfer list rides the **blob lane** — 38
-  torrents are small, a seedbox is not), `detail`, `start`, `stop`, `recheck`, `delete`,
-  `tlcats`, `tlbrowse`, `tlsearch`, `tldetail`, `tladd`, `tlaccount`, `open`. The remote
-  provider runs its own paced poll (focused/idle) and pushes into the window's listener; its
-  `stateLine` is the channel's ("PC unreachable Ns"). App-alone the window is honestly
-  unavailable — a torrent client does not cache.
+- **`LocalTorrentsProvider`**: owns both clients and the poll loop (15 s idle; the fastest
+  focused party — the local window or the phone through the channel — sets the pace, and a
+  driver's focus is released when its channel ends), diffs snapshots into events (done / error
+  / added / removed), keeps the last 200 events with a monotonic sequence and a per-process
+  epoch, persists the announced set. All qBittorrent and tracker I/O is off-loop; the window
+  applies results through `runOnShell`. A desktop stack stop DETACHES its window (listener +
+  focus) because the provider outlives the stack.
+- **`TorrentsService` / `RemoteTorrentsProvider`** (`TorrentsNet.kt`): ops `snap` (above; the
+  transfer list rides the **blob lane** — 38 torrents are small, a seedbox is not), `detail`,
+  `start`, `stop`, `recheck`, `delete`, `tlcats`, `tlbrowse`, `tlsearch`, `tldetail`, `tladd`,
+  `tlaccount`, `open`. The remote provider runs its own paced poll (focused/idle) and pushes
+  into the window's listener; its `stateLine` is the channel's ("PC unreachable Ns") first, the
+  host's own (`qBittorrent unreachable Ns`, `host answer not understood`) second. App-alone the
+  window is honestly unavailable — a torrent client does not cache.
 
 ## 5. Failure discipline (the absolute rules, applied)
 
 - Poll failures: the state line (`qBittorrent unreachable 12s`), never a notice storm; the
   first failure after health logs once; recovery clears it.
-- Tracker failures: one title notice per attempt (`TorrentLeech: login failed` / `format
-  changed: …`) and the state line while it persists; a page fetch failure shows in the listing
-  in place and retries on a 5 s pacing.
+- Tracker failures: one title notice per attempt (`TorrentLeech login failed` / `format
+  changed: …`), and a page fetch failure shows in the listing's loading row in place and
+  retries on a 5 s pacing (an empty listing included). The state line is qBittorrent's; the
+  tracker's health is visible where the tracker is used.
 - Every menu action reports its result on the title (`stopped`, `added · <name>`, `deleted`)
   and its failure as a notice; one provider op at a time per window, refused loudly when busy.
 - No timeouts: pacing loops and liveness decisions only (the `RemoteWin` contract); HTTP calls
@@ -249,8 +275,8 @@ TorrentsProvider (interface)                Local (PC)                       Rem
 - **core `KeyboardTest`**: `DESIGN.md` §4.8's list.
 - **`--selfcheck`**: a `ScriptedTorrents` provider drives the whole walk plus the ink budgets
   (transfers list ≤ 15 %, keyboard measured and reported).
-- **`--snapshot`**: scenes 15–21 (transfers, lens+menu, details, categories, listing, keyboard,
-  torrent page) — looked at, at true 1×.
+- **`--snapshot`**: scenes 15–22 (transfers, lens+menu, details, categories, listing, torrent
+  page, the keyboard at its two stages) — looked at, at true 1×.
 - `tools/lint.py` at 0, `:phone:assembleDebug` green, then `stageJar` + service restart and a
   staged APK (bump per install).
 

@@ -216,19 +216,23 @@ interface TorrentsProvider : AutoCloseable {
 
 /** Display formatting shared by the window's rows, lens and documents. */
 object Fmt {
+    /** Locale-fixed (review 2026-09-01 C9): the phone's locale must not turn
+     *  1.5 MB into 1,5 MB on glass. */
+    private val L = java.util.Locale.ROOT
+
     fun bytes(b: Long): String = when {
         b < 0 -> "?"
         b < 1024 -> "$b B"
         b < 1024L * 1024 -> "${b / 1024} KB"
-        b < 1024L * 1024 * 1024 -> "%.1f MB".format(b / 1048576.0)
-        b < 1024L * 1024 * 1024 * 1024 -> "%.2f GB".format(b / 1073741824.0)
-        else -> "%.2f TB".format(b / 1099511627776.0)
+        b < 1024L * 1024 * 1024 -> "%.1f MB".format(L, b / 1048576.0)
+        b < 1024L * 1024 * 1024 * 1024 -> "%.2f GB".format(L, b / 1073741824.0)
+        else -> "%.2f TB".format(L, b / 1099511627776.0)
     }
 
     fun speed(bps: Long): String = when {
         bps <= 0 -> "0"
         bps < 1024L * 1024 -> "${bps / 1024} KB/s"
-        else -> "%.1f MB/s".format(bps / 1048576.0)
+        else -> "%.1f MB/s".format(L, bps / 1048576.0)
     }
 
     /** A duration in seconds as `12 m`, `3h 05m`, `2d 4h`. */
@@ -236,7 +240,7 @@ object Fmt {
         s < 0 -> "?"
         s < 60 -> "${s} s"
         s < 3600 -> "${s / 60} m"
-        s < 86_400 -> "${s / 3600}h ${"%02d".format((s % 3600) / 60)}m"
+        s < 86_400 -> "${s / 3600}h ${"%02d".format(L, (s % 3600) / 60)}m"
         else -> "${s / 86_400}d ${(s % 86_400) / 3600}h"
     }
 
@@ -257,5 +261,5 @@ object Fmt {
 
     fun pct(p: Double): String = "${(p * 100).toInt().coerceIn(0, 100)}%"
 
-    fun ratio(r: Double): String = if (r < 0) "inf" else "%.2f".format(r)
+    fun ratio(r: Double): String = if (r < 0) "inf" else "%.2f".format(L, r)
 }

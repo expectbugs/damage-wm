@@ -129,6 +129,16 @@ class TorrentsWindow(
     private var notice: String? = null
     private var noticeUntil = 0L
     private var needsReload = false
+    /** Focused (between onActivate and onDeactivate): the only time the
+     *  provider may run at the focused pace (review 2026-09-01 W5). */
+    private var active = false
+    /** Restored positions wait for their content (review W4): the first
+     *  paint clamps a cursor/top against an EMPTY list or a two-line
+     *  placeholder document, so they are re-applied when the bytes land. */
+    private var pendingTransHash: String? = null
+    private var pendingListCursor: Int? = null
+    private var pendingDocTop: Int? = null
+    private var pendingTlDocTop: Int? = null
 
     private val fRow = FontSpec(Face.LIST, 18)
     private val fSmall = FontSpec(Face.LIST, 13, bold = true)
@@ -150,6 +160,12 @@ class TorrentsWindow(
     }
 
     private fun dn(s: String, f: FontSpec = fRow): String = Draw.dynamic(tx, s, f)
+
+    /** Menu-bound strings are drawn by MenuSurface in the SYSTEM face through
+     *  the raw rasterizer — sanitize against THAT, not this window's face
+     *  (review 2026-09-01 W13). */
+    private val fMenu = FontSpec(Face.SYSTEM, 17)
+    private fun dm(s: String): String = Draw.dynamic(text, s, fMenu)
 
     // ================================================================ provider glue
     private val listener = object : TorrentsProvider.Listener {
@@ -180,6 +196,7 @@ class TorrentsWindow(
      *  now points at whoever slid underneath (the selfcheck caught this: an
      *  add under the menu row moved the menu away from the cursor). */
     private fun applySnapshot(s: Snapshot) {
+        if (snap === s) return            // the same object twice (registration seeds it, the listener pushes it — W12)
         val before = rows()
         // an EMPTY list's only row is the menu row: the first real snapshot
         // must land the cursor on the first transfer, not chase the menu row
@@ -189,12 +206,26 @@ class TorrentsWindow(
         snap = s
         updateHistory(s)
         val after = rows()
+        val want = pendingTransHash
         transModel.cursor = when {
+            want != null && after.any { it?.hash == want } -> {
+                pendingTransHash = null   // the restored row is here now (W4)
+                after.indexOfFirst { it?.hash == want }
+            }
             onMenu -> after.size - 1
             onHash != null -> after.indexOfFirst { it?.hash == onHash }.takeIf { it >= 0 }
                 ?: transModel.cursor.coerceIn(0, after.size - 1)
             else -> transModel.cursor.coerceIn(0, after.size - 1)
         }
+    }
+
+    /** The stack is going away while the provider lives on (the desktop's
+     *  process-wide provider): stop listening and release the focused pace,
+     *  or a dead shell's queue is fed every poll (review 2026-09-01 P1). */
+    fun detach() {
+        active = false
+        provider.setFocused(false, pollMs)
+        provider.removeListener(listener)
     }
 
     private fun updateHistory(s: Snapshot) {
@@ -238,6 +269,7 @@ class TorrentsWindow(
 
     override fun onActivate(ctx: ShellServices) {
         services = ctx
+        active = true
         provider.snapshot()?.let { s -> if (snap !== s) applySnapshot(s) }
         provider.setFocused(true, pollMs)
         provider.refresh()
@@ -253,6 +285,7 @@ class TorrentsWindow(
     }
 
     override fun onDeactivate() {
+        active = false
         provider.setFocused(false, pollMs)
     }
 
@@ -261,7 +294,10 @@ class TorrentsWindow(
         Level_.TRANSFERS -> WindowView.ListView(transModel, { rows().size },
             ::paintTransferRow, ::paintTransferLens, ::commitTransfer)
         Level_.DETAILS -> WindowView.DocView(docModel, { detailLines().size }, lineH(fBody),
-            ::paintDetailLine, { openHash?.let { h -> currentTransfer(h)?.let { openTransferMenu(it, fromDetails = true) } } },
+            ::paintDetailLine, {
+                val t = openHash?.let { currentTransfer(it) }
+                if (t != null) openTransferMenu(t, fromDetails = true) else setNotice("this transfer is gone")
+            },
             stepLines = { 5 })
         Level_.CATEGORIES -> WindowView.ListView(catModel, { catRows().size },
             ::paintCatRow, ::paintCatLens, ::commitCategory)
@@ -448,7 +484,7 @@ class TorrentsWindow(
         val t = rows().getOrNull(i) ?: run {
             // the wrap-end MENU row — the state line when there is nothing else to show
             val n = snap?.transfers?.size ?: 0
-            val label = if (n == 0) stateLine.ifEmpty { if (snap == null) "connecting" else "no transfers" } else "Torrents"
+            val label = if (n == 0) dn(stateLine).ifEmpty { if (snap == null) "connecting" else "no transfers" } else "Torrents"
             IconPaint.draw(g, services?.icons(), IconNames.forKind(IconKind.TORRENTS), r.x + 8, r.y + 6, 20, IconKind.TORRENTS, Level.DIM)
             Draw.fit(g, tx, r.x + 40, r.y + 5, label, Level.DIM, fRow, r.w - 64)
             Icons.tri(g, r.right - 36, r.y + 10, 11, Level.DIM)
@@ -458,7 +494,12 @@ class TorrentsWindow(
         val lv = if (t.error) Level.HEAD else Level.BODY
         Draw.fit(g, tx, r.x + 40, r.y + 5, dn(t.name), lv, fRow, r.w - 40 - 244)
         Icons.blocks(g, r.right - 236, r.y + 12, 112, 8, t.progress, n = 10, level = Level.of(5))
-        Draw.right(g, tx, r.right - 24, r.y + 8, stateWord(t), Level.DIM, fSmall)
+        // the state word: right-aligned in its 96 px column, fitted with the
+        // mark when a font override makes it wider (review 2026-09-01 W18)
+        val word = stateWord(t)
+        val ww = tx.measure(word, fSmall)
+        if (ww <= 96) Draw.right(g, tx, r.right - 24, r.y + 8, word, Level.DIM, fSmall)
+        else Draw.fit(g, tx, r.right - 120, r.y + 8, word, Level.DIM, fSmall, 96)
     }
 
     private fun lensDetail(t: Transfer): String = when {
@@ -477,7 +518,7 @@ class TorrentsWindow(
             IconPaint.draw(g, services?.icons(), IconNames.forKind(IconKind.TORRENTS), r.x + 8, r.y + 4, 56, IconKind.TORRENTS, Level.HEAD)
             Draw.fit(g, tx, r.x + 72, r.y + 6, "Torrents", Level.HEAD, fHead, r.w - 88)
             val n = snap?.transfers?.size ?: 0
-            val line = stateLine.ifEmpty { if (snap == null) "connecting to the host" else "$n transfers · tap for the menu" }
+            val line = dn(stateLine, fBody).ifEmpty { if (snap == null) "connecting to the host" else "$n transfers · tap for the menu" }
             Draw.fit(g, tx, r.x + 72, r.y + 32, line, Level.BODY, fBody, r.w - 88)
             return
         }
@@ -516,7 +557,10 @@ class TorrentsWindow(
             items.add(MenuSurface.Item(label, detail))
             acts.add(act)
         }
+        // row 0 is harmless either way (§1.7): Details from the list, a
+        // Refresh of the file list from the document (review 2026-09-01 W10)
         if (!fromDetails) add("Details") { openDetails(t.hash) }
+        else add("Refresh", "the file list") { loadDetail(t.hash) }
         if (t.stopped || t.error) add("Start") { runOp("starting") { provider.start(listOf(t.hash)); "started" } }
         else add("Stop") { runOp("stopping") { provider.stop(listOf(t.hash)); "stopped" } }
         add("Recheck") { runOp("rechecking") { provider.recheck(listOf(t.hash)); "rechecking" } }
@@ -528,11 +572,11 @@ class TorrentsWindow(
         }
         add("Delete", "keep files") { confirmDelete(t, withFiles = false) }
         add("Delete + files", "2 confirms") { confirmDelete(t, withFiles = true) }
-        services?.openMenu(MenuSurface.Spec(dn(t.name, fSmall), items, onCommit = { idx -> acts.getOrNull(idx)?.invoke() }))
+        services?.openMenu(MenuSurface.Spec(dm(t.name), items, onCommit = { idx -> acts.getOrNull(idx)?.invoke() }))
     }
 
     private fun confirmDelete(t: Transfer, withFiles: Boolean) {
-        val name = dn(t.name, fSmall)
+        val name = dm(t.name)
         if (!withFiles) {
             services?.openMenu(MenuSurface.Spec("Delete '$name'?",
                 listOf(MenuSurface.Item("Cancel"), MenuSurface.Item("Delete", detail = "files stay")),
@@ -542,9 +586,12 @@ class TorrentsWindow(
         services?.openMenu(MenuSurface.Spec("Delete '$name' AND its files?",
             listOf(MenuSurface.Item("Cancel"), MenuSurface.Item("Continue", detail = "asks once more")),
             onCommit = { idx ->
+                // the unrecoverable act sits at index 2 behind a disabled
+                // spacer — never index 0/1 (WINDOWS.md §1; the Files purge shape)
                 if (idx == 1) services?.openMenu(MenuSurface.Spec("Really delete the files?",
-                    listOf(MenuSurface.Item("Cancel"), MenuSurface.Item("Delete files", detail = "unrecoverable")),
-                    onCommit = { j -> if (j == 1) runOp("deleting with files") { provider.delete(listOf(t.hash), true); "deleted with files" } }))
+                    listOf(MenuSurface.Item("Cancel"), MenuSurface.Item("this cannot be undone", enabled = false),
+                        MenuSurface.Item("Delete files", detail = "unrecoverable")),
+                    onCommit = { j -> if (j == 2) runOp("deleting with files") { provider.delete(listOf(t.hash), true); "deleted with files" } }))
             }))
     }
 
@@ -557,7 +604,7 @@ class TorrentsWindow(
         }
         add("Browse TorrentLeech") { openCategories() }
         add("Search TorrentLeech", "keyboard") { openSearch() }
-        for (q in recents.take(5)) add("Search", dn(q, fSmall)) { listingFromTransfers = true; openListing(null, q) }
+        for (q in recents.take(5)) add("Search", dm(q)) { listingFromTransfers = true; openListing(null, q) }
         add("Filter", filter.label) {
             filter = Filter.entries[(filter.ordinal + 1) % Filter.entries.size]
             transModel.cursor = 0
@@ -600,8 +647,8 @@ class TorrentsWindow(
                 null to (e.message ?: "details failed")
             }
             onShell {
+                services?.setOperation("idle")    // even for a stale answer (review W11)
                 if (seq != detailSeq) return@onShell   // the user moved on
-                services?.setOperation("idle")
                 if (err != null) {
                     detailState = err
                     setNotice(err)
@@ -610,6 +657,7 @@ class TorrentsWindow(
                     detail = d
                 }
                 detailCache = null
+                pendingDocTop?.let { docModel.topLine = it; pendingDocTop = null }   // the content is here (W4)
                 services?.requestRender(this@TorrentsWindow)
             }
         }
@@ -683,8 +731,11 @@ class TorrentsWindow(
         catModel.cursor = 0
     }
 
-    /** Rows: Newest (null) · the 40 categories · the wrap-end menu. */
-    private fun catRows(): List<Any?> = listOf<Any?>(null) + provider.tlCategories() + listOf(LRow.Menu)
+    /** Rows: Newest (null) · the 40 categories · the wrap-end menu. The table
+     *  is core's constant — never a provider call from a paint (on the phone
+     *  that was a blocking channel request on the loop, review W1). */
+    private val catRowsCache: List<Any?> by lazy { listOf<Any?>(null) + TorrentLeech.CATEGORIES + listOf(LRow.Menu) }
+    private fun catRows(): List<Any?> = catRowsCache
 
     private fun groupIcons(group: String): List<String> = when (group) {
         "Movies" -> listOf("video-x-generic", "applications-multimedia")
@@ -787,9 +838,9 @@ class TorrentsWindow(
                 null to (e.message ?: "listing failed")
             }
             onShell {
-                if (seq != listSeq) return@onShell
-                listingLoading = false
                 services?.setOperation("idle")
+                if (seq != listSeq) return@onShell    // a superseded listing; openListing reset its own flags
+                listingLoading = false
                 if (err != null || p == null) {
                     listingState = err ?: "listing failed"
                     listingRetryAt = System.currentTimeMillis() + RETRY_PACING_MS
@@ -802,6 +853,9 @@ class TorrentsWindow(
                     listingPage = page
                     listingTotal = if (p.items.isEmpty()) listing.size else maxOf(p.total, listing.size)
                     if (p.items.size < p.perPage) listingTotal = listing.size
+                    pendingListCursor?.let { c ->              // the restored row, once it exists (W4)
+                        if (c < listing.size) { listModel.cursor = c; pendingListCursor = null }
+                    }
                 }
                 services?.requestRender(this@TorrentsWindow)
             }
@@ -855,12 +909,14 @@ class TorrentsWindow(
                 val waiting = !listingLoading && listingState.isNotEmpty() && System.currentTimeMillis() < listingRetryAt
                 val s = when {
                     listingLoading -> if (listing.isEmpty()) (if (listingQuery != null) "searching" else "loading") else "loading more"
-                    waiting -> "failed — retrying: $listingState"
-                    listingState.isNotEmpty() -> "failed — tap to retry: $listingState"
+                    waiting -> "failed - retrying: ${dn(listingState)}"
+                    listingState.isNotEmpty() -> "failed - retrying now: ${dn(listingState)}"
                     else -> "more"
                 }
                 Draw.fit(g, tx, r.x + 40, r.y + 5, s, Level.REST, fRow, r.w - 64)
-                if (!listingLoading && listingState.isEmpty() && listingMore) loadNextPage()
+                // the paced retry lives HERE too (review W7): an empty listing
+                // has no item row to demand the next page from
+                if (!listingLoading && listingMore) loadNextPage()   // loadNextPage honours the 5 s pacing itself
             }
             is LRow.Menu -> {
                 Draw.fit(g, tx, r.x + 40, r.y + 5, "Browse", Level.DIM, fRow, r.w - 64)
@@ -966,8 +1022,8 @@ class TorrentsWindow(
                 null to (e.message ?: "torrent page failed")
             }
             onShell {
-                if (seq != tlSeq) return@onShell
                 services?.setOperation("idle")
+                if (seq != tlSeq) return@onShell
                 if (err != null) {
                     tlDetailState = err
                     setNotice(err)
@@ -976,6 +1032,7 @@ class TorrentsWindow(
                     tlDetail = d
                 }
                 tlCache = null
+                pendingTlDocTop?.let { tlDocModel.topLine = it; pendingTlDocTop = null }   // W4
                 services?.requestRender(this@TorrentsWindow)
             }
         }
@@ -998,7 +1055,7 @@ class TorrentsWindow(
             head(item?.name ?: "torrent")
             line(when {
                 tlDetailState == "loading" -> "loading the torrent page"
-                tlDetailState.isNotEmpty() -> "failed: $tlDetailState"
+                tlDetailState.isNotEmpty() -> "failed: $tlDetailState"   // line() runs it through dn()
                 else -> ""
             }, lv = Level.DIM)
         } else {
@@ -1037,7 +1094,7 @@ class TorrentsWindow(
     private fun openAddMenu() {
         val fid = openFid ?: return
         val d = tlDetail
-        val name = dn(d?.name ?: listing.firstOrNull { it.fid == fid }?.name ?: fid, fSmall)
+        val name = dm(d?.name ?: listing.firstOrNull { it.fid == fid }?.name ?: fid)
         val items = ArrayList<MenuSurface.Item>()
         val acts = ArrayList<() -> Unit>()
         fun add(label: String, detail: String = "", act: () -> Unit) {
@@ -1058,7 +1115,7 @@ class TorrentsWindow(
         services?.openMenu(MenuSurface.Spec("Add '$name'?",
             listOf(MenuSurface.Item("Cancel"), MenuSurface.Item(if (stopped) "Add stopped" else "Add", detail = "to ~/Downloads")),
             onCommit = { idx ->
-                if (idx == 1) runOp("adding") { "added · ${dn(provider.tlAdd(fid, stopped), fSmall)}" }
+                if (idx == 1) runOp("adding") { "added · " + provider.tlAdd(fid, stopped) }   // runOp sanitizes the notice on the loop
             }))
     }
 
@@ -1068,8 +1125,9 @@ class TorrentsWindow(
         opBusy = true
         services?.setOperation("stats")
         val fromLevel = level
+        val s = snap                      // captured ON the loop (review W14)
+        val st = stateLine
         bg.launch(Dispatchers.IO) {
-            val s = snap
             val lines = ArrayList<MenuSurface.Item>()
             if (s != null) {
                 lines.add(MenuSurface.Item("Down", Fmt.speed(s.session.dlSpeed)))
@@ -1082,22 +1140,23 @@ class TorrentsWindow(
                 lines.add(MenuSurface.Item("Seeding < 1 week", "${s.transfers.count { it.underAWeek }}"))
                 if (s.session.version.isNotEmpty()) lines.add(MenuSurface.Item("qBittorrent", s.session.version))
             } else {
-                lines.add(MenuSurface.Item("qBittorrent", stateLine.ifEmpty { "no snapshot yet" }))
+                lines.add(MenuSurface.Item("qBittorrent", st.ifEmpty { "no snapshot yet" }))
             }
-            var accountErr: String? = null
+            // the tracker's strings are sanitized on the loop below (dm is loop-only)
+            val raw = ArrayList<Pair<String, String>>()
             try {
                 val a = provider.tlAccount()
-                lines.add(MenuSurface.Item("TL uploaded", a.uploaded))
-                lines.add(MenuSurface.Item("TL downloaded", a.downloaded))
-                lines.add(MenuSurface.Item("TL ratio", a.ratio))
-                if (a.points.isNotEmpty()) lines.add(MenuSurface.Item("TL points", a.points))
-                if (a.klass.isNotEmpty()) lines.add(MenuSurface.Item("TL class", dn(a.klass, fSmall)))
+                raw.add("TL uploaded" to a.uploaded)
+                raw.add("TL downloaded" to a.downloaded)
+                raw.add("TL ratio" to a.ratio)
+                if (a.points.isNotEmpty()) raw.add("TL points" to a.points)
+                if (a.klass.isNotEmpty()) raw.add("TL class" to a.klass)
             } catch (e: Exception) {
                 Log.w("torrents", "TorrentLeech account: ${e.message}")
-                accountErr = e.message ?: "account failed"
-                lines.add(MenuSurface.Item("TorrentLeech", dn(accountErr, fSmall)))
+                raw.add("TorrentLeech" to (e.message ?: "account failed"))
             }
             onShell {
+                for ((k, v) in raw) lines.add(MenuSurface.Item(k, dm(v)))
                 opBusy = false
                 services?.setOperation("idle")
                 val shown = level == fromLevel &&
@@ -1133,7 +1192,7 @@ class TorrentsWindow(
                     setNotice(err)
                     services?.notifyInternal("torrent", "$verb failed: ${dn(err, fSmall)}")
                 } else if (msg != null) {
-                    setNotice(msg)
+                    setNotice(dn(msg, fSmall))
                 }
                 provider.refresh()
                 services?.requestRender(this@TorrentsWindow)
@@ -1150,7 +1209,9 @@ class TorrentsWindow(
                 { if (notifyErrors) "on" else "off" }, { notifyErrors = it == "on" }),
             HostSetting("Poll", PACES.keys.toList(),
                 { PACES.entries.firstOrNull { it.value == pollMs }?.key ?: "2 s" },
-                { v -> pollMs = PACES[v] ?: 2_000L; provider.setFocused(true, pollMs) }),
+                // applied from Settings, i.e. while this window is NOT focused:
+                // the new pace takes effect on the next focus (review W5)
+                { v -> pollMs = PACES[v] ?: 2_000L; if (active) provider.setFocused(true, pollMs) }),
             HostSetting("Size", listOf("global") + wm.damage.core.shell.ShellSettings.HEIGHTS.map { "$it" },
                 { heightPref?.toString() ?: "global" },
                 { heightPref = it.toIntOrNull() }),
@@ -1201,7 +1262,9 @@ class TorrentsWindow(
         searchDraft = state["searchDraft"]?.jsonPrimitive?.contentOrNull ?: ""
         recents.clear()
         state["recents"]?.let { arr ->
-            try { for (e in arr.jsonArray) e.jsonPrimitive.contentOrNull?.let { recents.addLast(it) } } catch (e: Exception) { /* not an array */ }
+            try { for (e in arr.jsonArray) e.jsonPrimitive.contentOrNull?.let { recents.addLast(it) } } catch (e: Exception) {
+                Log.w("torrents", "recent searches unreadable in the stored record — dropped: ${e.message}")
+            }
         }
         notifyDone = state["notifyDone"]?.jsonPrimitive?.booleanOrNull ?: true
         notifyErrors = state["notifyErrors"]?.jsonPrimitive?.booleanOrNull ?: true
@@ -1220,9 +1283,37 @@ class TorrentsWindow(
         listingLoading = false
         listingState = ""
         detail = null
+        detailState = ""
         tlDetail = null
+        tlDetailState = ""
+        // an in-flight answer for the PREVIOUS item must not land on the
+        // restored one (review W3 — the Files R4/R5 class)
+        detailSeq++; listSeq++; tlSeq++
+        // positions re-apply when their content lands (W4): the first paint
+        // would clamp them against an empty list or a placeholder document
+        pendingTransHash = openHash?.takeIf { level == Level_.TRANSFERS || level == Level_.DETAILS }
+            ?: rows().getOrNull(transModel.cursor)?.hash
+        pendingListCursor = listModel.cursor.takeIf { level == Level_.LISTING || level == Level_.TORRENT }
+        pendingDocTop = docModel.topLine.takeIf { level == Level_.DETAILS && it > 0 }
+        pendingTlDocTop = tlDocModel.topLine.takeIf { level == Level_.TORRENT && it > 0 }
         invalidateDocs()
         needsReload = level != Level_.TRANSFERS && level != Level_.CATEGORIES
+    }
+
+    /** A live-synced record (§16.4): the same restore, then the reload the
+     *  boot path leaves to activation happens NOW — the window may be the
+     *  focused one and would otherwise sit on a header with no file list
+     *  until the user leaves and returns (review 2026-09-01 W2). */
+    override fun restoreStateLive(state: JsonObject) {
+        restoreState(state)
+        if (services == null) return
+        needsReload = false
+        when (level) {
+            Level_.DETAILS -> openHash?.let { loadDetail(it) }
+            Level_.LISTING -> loadNextPage()
+            Level_.TORRENT -> openFid?.let { loadTorrent(it) }
+            else -> {}
+        }
     }
 
     companion object {

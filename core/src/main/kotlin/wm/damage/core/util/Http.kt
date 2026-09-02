@@ -44,8 +44,12 @@ object Http {
         val stream = if (status >= 400) conn.errorStream else conn.inputStream
         val bytes = try {
             stream?.use { it.readBytes() } ?: ByteArray(0)
-        } catch (e: Exception) {
-            ByteArray(0)
+        } catch (e: java.io.IOException) {
+            // a body that ends early is a transport failure, never an empty
+            // answer a parser would then call "format changed" (review
+            // 2026-09-01 C3)
+            conn.disconnect()
+            throw java.io.IOException("$method $url: body read failed after HTTP $status: ${e.message}", e)
         }
         val hdrs = HashMap<String, List<String>>()
         for ((k, v) in conn.headerFields) if (k != null) hdrs[k] = v

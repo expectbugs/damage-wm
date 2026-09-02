@@ -383,6 +383,7 @@ class Shell(
                 Log.e("shell", "menu close handler at session start failed", e)
             }
         }
+        dropKeyboard()                    // the same rule for the keyboard (§4.8), draft handed back
         // reported sub-keys are per SESSION (review 2026-09-01 R2#5): a key
         // restored in session N whose restore THROWS in session N+1 must not
         // stay "reported" — saveAll would tombstone the real record and sync
@@ -631,6 +632,7 @@ class Shell(
                     is Msg.Run -> m.action()
                     is Msg.Shutdown -> {
                         running = false
+                        dropKeyboard()    // the draft goes back to its requester BEFORE the save (review 2026-09-01 K5)
                         saveAll()
                         m.done.complete(Unit)
                     }
@@ -804,8 +806,10 @@ class Shell(
                 EvenHubMsg.EV_SCROLL_TOP -> { keyboard.scroll(-1); paintKeyboard() }
                 EvenHubMsg.EV_SCROLL_BOTTOM -> { keyboard.scroll(1); paintKeyboard() }
                 EvenHubMsg.EV_CLICK -> tapKeyboard()
-                EvenHubMsg.EV_DOUBLE_CLICK, EvenHubMsg.EV_RING_LONG_PRESS ->
-                    if (keyboard.back()) paintKeyboard() else cancelKeyboard()
+                EvenHubMsg.EV_DOUBLE_CLICK -> if (keyboard.back()) paintKeyboard() else cancelKeyboard()
+                // reachable only with long-press ENABLED (the chord block ran
+                // first): the menu's meaning, a cancel — the draft is kept
+                EvenHubMsg.EV_RING_LONG_PRESS -> cancelKeyboard()
             }
             return
         }
@@ -1176,6 +1180,7 @@ class Shell(
             // a window change repaints the whole content — no under-restore
             closeMenuSurface(restore = false)
         }
+        dropKeyboard()                    // never carried into another window (§4.8)
         if (w === current && mode == Mode.WINDOW) {
             composeContent()      // e.g. committing the switcher to the current
             return                // window must still erase the panel

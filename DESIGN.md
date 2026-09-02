@@ -1547,7 +1547,8 @@ it (decision 6, as for the menu). A typed line from a replica while the keyboard
 never index 0/1, never a rest position. A stray tap types a letter, undone by `⌫`.
 
 **Layout** (12 units of 48 px = 576 px, centred in the content area; row pitch adapts to the
-height mode — 48 px at 480, down to 30 px at 288 — so the keyboard fits every Size):
+height mode — 48 px at 480, 34 px at 288, 28 px at 288 with a live row — so the keyboard fits
+every Size; a row's label size is the largest that fits every label of that row):
 
 ```
  text line:  prompt ·  draft with caret  (pans, never cuts — the cut is marked and reachable)
@@ -1556,35 +1557,42 @@ height mode — 48 px at 480, down to 30 px at 288 — so the keyboard fits ever
  a s d f g h j k l ' ↵↵
  ⇧⇧ z x c v b n m , . _
  ?123 ␣␣␣␣␣ ← → Del Clear
- [ requester row: e.g. Tmux's Esc · Tab · Ctrl-C · ↑ · ↓ — live keys, sent as they are tapped ]
+ [ requester rows: e.g. Tmux's Esc · Tab · ↑ · ↓ · ← · → · Enter · Ctrl-C — live keys, sent as tapped ]
 ```
 
 Shift: one tap = the next key capitalized, a second tap = caps lock, a third = off. `?123`
-swaps the three letter rows for the symbol layer (`! @ # $ % ^ & * ( ) [ ]` / `+ = { } ; : " <
-> ~ ↵` / `abc ` + `` ` \ | ? ` — every printable ASCII character reachable exactly once across
-the two layers; `KeyboardTest` pins that). `←`/`→` move the caret, `Del` deletes forward,
-`Clear` empties the draft. The **requester row** is optional and belongs to the caller: Tmux
-supplies its quick keys so a terminal gets its specials where a composed line cannot carry
-them; Torrents and Files supply none.
+swaps the three letter rows for the symbol layer (`! @ # $ % ^ & * ( ) { }` / `+ = [ ] ; : " <
+> ~ ↵↵` / `⇧⇧` `` ` `` `\` `|` `?` `⌫⌫`, two units each — every printable ASCII character is
+reachable across the two layers; `KeyboardTest` pins that, the digit row is on both). `←`/`→`
+move the caret, `Del` deletes forward, `Clear` empties the draft. The **requester rows** are
+optional and belong to the caller: up to six live keys make one row, up to twelve two rows,
+more is refused loudly — Tmux supplies its non-character quick keys with the harmless ones
+(Esc, Tab, the arrows) first so the row's rest position never sends Enter; Torrents and Files
+supply none.
 
 **Layouts.** Settings → Global → `Keyboard`: **qwerty** (default) · **abc** (three alphabetic
 rows). Same specials, same geometry.
 
 **Look — a wireframe.** Every key is a 2 px outline on the 4×2 grid with its label centred; the
-surface is a HOLE like the menu (the content under it is captured and restored). Brightness
+surface is a HOLE like the menu (the content under it is captured and restored). Text drawn
+on it — the prompt, the draft, a pre-filled file name — shows every glyph the face cannot draw
+as `?` (one per UTF-16 unit, so the caret never drifts); the prompt is a handle fitted to a
+third of the line with the mark. Brightness
 carries focus: at the ROW stage the focused row's outlines and labels rise to BODY (the rest
 FAINT/DIM) with a `▸` at the row's left edge; at the KEY stage the focused key's outline and
 label go to HEAD, its row BODY, the other rows FAINT/DIM. Latched modifiers show at HEAD. The
 outlines' cost is paid ONCE when the keyboard opens (one flush of the box); afterwards a
 scroll repaints two key cells and a keypress repaints the text line — all well inside the
 ~100 ms class. **Measured (selfcheck, 2026-09-01): the open keyboard is 9–11 % ink** over the whole
-panel (the transfers list behind it sets the rest) — the wireframe costs less than a dense list.
+panel (9.2 % and 11.2 % in two runs; the transfers list behind it sets the rest) — the
+wireframe costs less than a dense list.
 
 **Depth.** Plane 0, forward of the content, like the menu and the notification box (§3.1).
 
 **Cost and persistence.** Nothing persists in the shell; the draft belongs to the requester
-(Torrents saves its search draft in its record). The keyboard adds one back-stack segment to
-the bottom divider while open (§4.6's depth rail).
+(Torrents saves its search draft in its record) — a shell stop, a keeper restart, a window
+commit and a relayout all hand the draft back before the surface goes. The keyboard adds one
+back-stack segment to the bottom divider while open (§4.6's depth rail).
 
 **Not in this design, deliberately:** a history/suggestions row (Adam: no), predictive text,
 per-window key remaps, a gesture to open it (§1 is not negotiable).

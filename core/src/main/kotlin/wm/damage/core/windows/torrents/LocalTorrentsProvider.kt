@@ -77,11 +77,13 @@ class LocalTorrentsProvider(
 
     private suspend fun loop() {
         while (scope.isActive && running) {
+            // clear BEFORE the poll (review 2026-09-01 P5): a wake that lands
+            // while the poll is in flight must shorten the coming wait
+            wakeFlag = false
             pollOnce()
             // paced wait, interruptible by a wake — a flag polled at a coarse
             // tick, not a timeout on any work
             val until = clock() + currentPace()
-            wakeFlag = false
             while (scope.isActive && running && !wakeFlag && clock() < until) delay(200)
         }
     }
@@ -91,9 +93,17 @@ class LocalTorrentsProvider(
     /** Focus by WHO (the local shell, the phone through the channel): the
      *  fastest interested party sets the pace. */
     fun setFocusedBy(who: String, focused: Boolean, paceMs: Long) {
+        val before = focusedBy[who]
         if (focused) focusedBy[who] = paceMs.coerceAtLeast(500) else focusedBy.remove(who)
-        wakeFlag = true
+        // wake only on a CHANGE (review 2026-09-01 P4): the phone's every
+        // `snap` request re-asserts its focus, and waking each time made the
+        // host poll twice per interval and answer one interval stale
+        if (before != focusedBy[who]) wakeFlag = true
     }
+
+    /** The oldest event still held, or 0 when the ring is empty — the host's
+     *  `snap` says `truncated` when a driver asks from before it. */
+    fun oldestSeq(): Long = synchronized(events) { events.firstOrNull()?.seq ?: 0L }
 
     override fun setFocused(focused: Boolean, paceMs: Long) = setFocusedBy("local", focused, paceMs)
     override fun refresh() { wakeFlag = true }
@@ -151,25 +161,32 @@ class LocalTorrentsProvider(
                 val p = prev[t.hash]
                 if (p == null) {
                     fresh.add(ev("added", t, now))
-                    if (t.finished && t.completedOn > 0 && !announced.containsKey(t.hash)) {
+                    // a torrent that comes back finished announces only with
+                    // a NEW completion stamp (review 2026-09-01 P2): a
+                    // transient partial list (qBittorrent restarting) removes
+                    // and re-adds the same torrents with the same stamp
+                    if (t.finished && t.completedOn > 0 && announced[t.hash] != t.completedOn) {
                         fresh.add(ev("done", t, now))
                         announced[t.hash] = t.completedOn
                         announcedChanged = true
                     }
                     continue
                 }
-                val doneEdge = t.finished && t.completedOn > 0 && (!p.finished || p.completedOn <= 0)
-                if (doneEdge && announced[t.hash] != t.completedOn) {
+                // ONE rule for "done": finished with a completion stamp we have
+                // not announced — a re-download that finishes within a poll
+                // interval (the previous poll saw it finished too) carries a
+                // NEW stamp and announces; a reload with the old stamp does not
+                if (t.finished && t.completedOn > 0 && announced[t.hash] != t.completedOn) {
                     fresh.add(ev("done", t, now))
                     announced[t.hash] = t.completedOn
                     announcedChanged = true
                 }
                 if (t.error && !p.error) fresh.add(ev("error", t, now))
             }
-            for ((h, p) in prev) if (h !in byHash) {
-                fresh.add(ev("removed", p, now))
-                if (announced.remove(h) != null) announcedChanged = true
-            }
+            // a removal keeps its announced stamp (P2): a re-add with the same
+            // completion is a reload, not a new finish — the set is bounded by
+            // the torrents ever seen, a few bytes each
+            for ((h, p) in prev) if (h !in byHash) fresh.add(ev("removed", p, now))
         }
         if (announcedChanged || (prev == null && !announcedLoaded)) saveAnnounced()
         val changed = prev == null || prev != byHash || snap?.session != sess

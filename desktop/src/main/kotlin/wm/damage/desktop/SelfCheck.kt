@@ -8,6 +8,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import wm.damage.core.content.LocalContent
@@ -383,7 +385,7 @@ object SelfCheck {
         awaitTrue("the confirmed add reached the provider") { torrentsScripted.added.contains("241826800:false") }
         settle(shell, "torrents-added")
         repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }     // page → listing → categories → transfers
-        awaitTrue("back at the transfers") { torrentsWin.title() == "transfers" }
+        awaitTrue("back at the transfers") { torrentsWin.levelDepth() == 1 }   // the title carries the add notice for 4 s
         settle(shell, "torrents-back")
         // search through the keyboard: the cursor still rests on the menu row
         // it left from (the Files ascend rule) → Search → type 'u' → Enter
@@ -408,7 +410,9 @@ object SelfCheck {
         awaitTrue("Enter runs the search") {
             !shell.keyboardIsOpen && torrentsScripted.ops.any { it.startsWith("search:u:1") }
         }
-        awaitTrue("the results list is titled by the query") { torrentsWin.title() == "\"u\"" }
+        awaitTrue("the results list is titled by the query") {
+            torrentsWin.levelDepth() == 2 && torrentsWin.saveState()["listingQuery"]?.jsonPrimitive?.contentOrNull == "u"
+        }
         settle(shell, "torrents-search")
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // results → transfers
         awaitTrue("back from the search") { torrentsWin.title() == "transfers" }
@@ -436,6 +440,7 @@ object SelfCheck {
         }
         val posBefore = reader.saveSubState().toString()   // §16.4a: per-book sub-records
         shell.stop()
+        torrentsWin.detach()                                // the stack-stop rule, mirrored (review P1)
 
         val persistence2 = Persistence(tmp.resolve("state.json"))
         val scope2 = CoroutineScope(SupervisorJob() + Dispatchers.Default)

@@ -34,10 +34,11 @@ carries Files, the chrome tweaks, Torrents and the keyboard).
 
 ## 🚀 Next
 
-0. **The review loop over the Torrents + keyboard build** (the §22 discipline: fresh reviewers
-   per layer, verify every finding, fix, repeat until a round finds nothing), then the on-glass
-   verdicts: the keyboard's feel (row pitch at 288, the highlight, the text-line pan, stay-in-
-   row), the transfers list, the done notification on a real finish.
+0. **The review loop over the Torrents + keyboard build** — round 1 done (`HANDOFF.md`
+   §23.1: ~55 findings, all verified, the real ones fixed); continue with fresh eyes on each
+   round's fix diff until a round finds nothing. Then the on-glass verdicts: the keyboard's
+   feel (row pitch at 288, the highlight, the text-line pan, stay-in-row), the transfers list,
+   the done notification on a real finish.
 
 1. **The Reader transitional cleanup is UNBLOCKED** (0.16 is installed): remove the
    legacy-offsets dual-write in `ReaderWindow` — the fields are marked; `restoreStateLive`'s

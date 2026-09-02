@@ -242,8 +242,9 @@ class FilesWindow(
         pendingOpenView = null
         viewer = null
         nameArmed = null
-        location = locations.firstOrNull { it.kind != "trash" && dir.startsWith(it.path) }
-            ?: FLocation("Path", dir, "path", 0, 0)
+        location = locations.firstOrNull { l ->
+            l.kind != "trash" && (dir == l.path || dir.startsWith(l.path.trimEnd('/') + "/"))   // a real ancestor, not a prefix (review K9)
+        } ?: FLocation("Path", dir, "path", 0, 0)
         browseStack.clear()
         cwd = dir
         browseModel.cursor = 0
@@ -379,6 +380,7 @@ class FilesWindow(
 
     private fun commitLocation(i: Int) {
         pendingBrowseCursor = null   // an abandoned ascend must not steer this folder (R3d#7)
+        pendingSelectName = null     // nor a deep link's file steer another folder (review K9)
         pendingOpenView = null       // user navigation supersedes a pending restore (R5#1)
         val l = locations.getOrNull(i) ?: return
         location = l
@@ -442,7 +444,7 @@ class FilesWindow(
                 // commit-able under the new title (review Fi#4)
                 entries = if (err == null) list else emptyList()
                 listState = err ?: ""
-                if (err != null) setNotice(err)
+                if (err != null) { setNotice(err); pendingSelectName = null }
                 services?.setOperation("idle")
                 val n = rows().size
                 pendingBrowseCursor?.let {
@@ -452,6 +454,7 @@ class FilesWindow(
                 pendingSelectName?.let { name ->
                     val idx = rows().indexOfFirst { it?.name == name }
                     if (idx >= 0) browseModel.cursor = idx
+                    else setNotice("$name is not in this folder")   // said, never a silent miss (review K9)
                     pendingSelectName = null
                 }
                 if (browseModel.cursor >= n) browseModel.cursor = 0
@@ -633,6 +636,7 @@ class FilesWindow(
 
     private fun openEntry(e: FEntry) {
         pendingOpenView = null            // user navigation supersedes a pending restore (R4#1)
+        pendingSelectName = null
         val path = pathOf(e)
         if (e.dir) {
             browseStack.add(cwd to browseModel.cursor)

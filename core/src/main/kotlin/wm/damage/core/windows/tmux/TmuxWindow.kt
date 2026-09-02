@@ -438,9 +438,17 @@ class TmuxWindow(
                 // the §4.8 keyboard (2026-09-01): the composed line still stages
                 // TYPE_CONFIRM exactly like a replica-typed one; the quick keys
                 // ride along as the LIVE row (a composed line cannot carry an Esc)
+                // the live row: the quick keys a composed line cannot carry
+                // (single characters are typed, not sent), HARMLESS ones first
+                // so the row's rest position is never Enter or Ctrl-C (§1.7,
+                // review 2026-09-01 K2), capped at what the keyboard holds
+                val harmless = listOf("Escape", "Tab", "Up", "Down", "Left", "Right", "Home", "End", "PageUp", "PageDown")
+                val live = qk.filter { it.length > 1 }.let { ks ->
+                    ks.filter { it in harmless }.sortedBy { harmless.indexOf(it) } + ks.filter { it !in harmless }
+                }.take(KeyboardSurface.MAX_EXTRA)
                 val opened = services?.openKeyboard(KeyboardSurface.Spec(
-                    title = "type → ${t.label}", initial = typedDraft,
-                    extra = qk.map { KeyboardSurface.ExtraKey(prettyKey(it), it) },
+                    title = "type -> ${t.label}", initial = typedDraft,
+                    extra = live.map { KeyboardSurface.ExtraKey(prettyKey(it), it) },
                     onCommit = { line ->
                         typedDraft = ""
                         if (line.isNotBlank() && !onTypedText(line)) {

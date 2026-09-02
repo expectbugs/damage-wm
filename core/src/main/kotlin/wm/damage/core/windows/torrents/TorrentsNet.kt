@@ -53,12 +53,21 @@ class TorrentsService(private val p: TorrentsProvider) : WinService {
                 if (lp != null) lp.setFocusedBy("remote", b("focused", false), l("pace", 2_000))
                 else p.setFocused(b("focused", false), l("pace", 2_000))
                 val snap = p.snapshot()
-                val events = if (snap != null && since >= 0 && ep == snap.epoch) p.eventsSince(since, ep) else emptyList()
-                val changed = snap != null && snap.version != v
+                val sameEpoch = snap != null && ep == snap.epoch
+                val events = if (sameEpoch && since >= 0) p.eventsSince(since, ep) else emptyList()
+                // a driver asking from before the ring's oldest entry has lost
+                // events — say so (review 2026-09-01 P8), never pretend
+                val oldest = lp?.oldestSeq() ?: 0L
+                val truncated = sameEpoch && since >= 0 && oldest > 0 && since < oldest - 1
+                if (truncated) Log.w("torrents", "driver asked for events since $since but the ring starts at $oldest — some were lost")
+                // changed on a new EPOCH too (P6): a restarted host restarts
+                // its versions, and version 1 of epoch 2 is not version 1 of epoch 1
+                val changed = snap != null && (snap.version != v || snap.epoch != ep)
                 val data = buildJsonObject {
                     put("state", p.stateLine())
                     put("has", snap != null)
                     put("changed", changed)
+                    put("truncated", truncated)
                     if (snap != null) {
                         put("v", snap.version); put("epoch", snap.epoch); put("lastSeq", snap.lastSeq)
                     }
@@ -84,6 +93,12 @@ class TorrentsService(private val p: TorrentsProvider) : WinService {
             else -> throw IllegalArgumentException("unknown torrents op '$op'")
         }
     }
+
+    /** The driver's channel ended: its focus must not keep the host at the
+     *  fast pace forever (review 2026-09-01 P4). */
+    override fun detached() {
+        (p as? LocalTorrentsProvider)?.setFocusedBy("remote", false, 0)
+    }
 }
 
 class RemoteTorrentsProvider(
@@ -92,13 +107,6 @@ class RemoteTorrentsProvider(
     private val onState: (String) -> Unit = {},
 ) : TorrentsProvider {
 
-    private val ch = RemoteWin(host, port, token, "torrents", scope, onState = { s ->
-        chanState = s
-        // the channel just came up (or back): poll at once instead of waiting
-        // out the idle pacing — a freshly attached phone wants its list now
-        if (s.isEmpty()) wakeFlag = true
-        pushState()
-    })
     private val listeners = CopyOnWriteArrayList<TorrentsProvider.Listener>()
     @Volatile private var snap: Snapshot? = null
     @Volatile private var hostState = ""
@@ -111,11 +119,30 @@ class RemoteTorrentsProvider(
     @Volatile private var wakeFlag = false
     @Volatile private var running = true
 
+    // declared AFTER every field it touches: RemoteWin launches its connect
+    // loop in its constructor and the state hook can run at once (review
+    // 2026-09-01 P7 — the tmux provider's ordering)
+    private val ch = RemoteWin(host, port, token, "torrents", scope, onState = { s ->
+        chanState = s
+        // the channel just came up (or back): poll at once instead of waiting
+        // out the idle pacing — a freshly attached phone wants its list now
+        if (s.isEmpty()) wakeFlag = true
+        pushState()
+    })
+
     private val loop: Job = scope.launch(Dispatchers.IO) {
         while (scope.isActive && running) {
-            pollOnce()
+            wakeFlag = false              // before the poll (P5): a wake during it shortens the wait
+            try {
+                pollOnce()
+            } catch (e: Exception) {
+                // one answer this build cannot read must never end the loop
+                // for the life of the provider (review 2026-09-01 P8)
+                Log.w("torrents-remote", "host answer not understood: ${e.message}")
+                hostState = "host answer not understood"
+                pushState()
+            }
             val until = System.currentTimeMillis() + (if (focused) pace else idlePaceMs)
-            wakeFlag = false
             while (scope.isActive && running && !wakeFlag && System.currentTimeMillis() < until) delay(200)
         }
     }
@@ -150,6 +177,7 @@ class RemoteTorrentsProvider(
                 json.decodeFromString(Snapshot.serializer(), a.blob!!.toString(Charsets.UTF_8))
             } catch (e: Exception) {
                 Log.w("torrents-remote", "snapshot undecodable: ${e.message}")
+                hostState = "host snapshot not understood"    // said, never silently stale (P8)
                 null
             }
             if (s != null) snap = s
@@ -158,16 +186,31 @@ class RemoteTorrentsProvider(
             (a.data["events"] as? JsonArray)?.let { json.decodeFromJsonElement(ListSerializer(TorrentEvent.serializer()), it) }
                 ?: emptyList()
         } catch (e: Exception) {
+            Log.w("torrents-remote", "events undecodable: ${e.message}")
+            hostState = "host events not understood"
             emptyList()
+        }
+        if (a.data["truncated"]?.jsonPrimitive?.booleanOrNull == true) {
+            Log.w("torrents-remote", "the host's event ring no longer holds everything since $lastSeq — some announcements were lost")
         }
         val hostEpoch = a.data["epoch"]?.jsonPrimitive?.longOrNull ?: 0L
         val hostLast = a.data["lastSeq"]?.jsonPrimitive?.longOrNull ?: -1L
-        if (hostEpoch != 0L && (hostEpoch != epoch || lastSeq < 0)) {
-            // a host restart (new epoch) or our first contact: take its
-            // current sequence, no replay — a missed announcement is
-            // recoverable from the list, a storm is not (TORRENTS.md §3.2)
+        if (hostEpoch != 0L && hostEpoch != epoch) {
+            if (epoch == 0L) {
+                // our FIRST contact: take the host's current sequence, no
+                // replay of its history — a phone app restart must not
+                // re-show days of old announcements (TORRENTS.md §3.2)
+                lastSeq = hostLast
+            } else {
+                // the HOST restarted under us (a new epoch): its fresh log
+                // holds only what finished while it was down (the baseline,
+                // deduplicated by its announced file) and what happened since
+                // — replay it from the start on the next poll (review
+                // 2026-09-01 P3), which the wake below makes immediate
+                lastSeq = 0L
+                wakeFlag = true
+            }
             epoch = hostEpoch
-            lastSeq = hostLast
         }
         val fresh = evs.filter { it.seq > lastSeq }.sortedBy { it.seq }
         for (e in fresh) {

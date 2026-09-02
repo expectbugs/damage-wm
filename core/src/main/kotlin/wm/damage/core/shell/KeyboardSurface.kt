@@ -59,7 +59,7 @@ class KeyboardSurface(private val text: TextRasterizer) {
         class Extra(val id: String) : Tap()
     }
 
-    internal enum class Kind { CHAR, BACKSPACE, ENTER, SHIFT, SYMBOLS, SPACE, LEFT, RIGHT, DEL, CLEAR, TAB, EXTRA }
+    internal enum class Kind { CHAR, BACKSPACE, ENTER, SHIFT, SYMBOLS, SPACE, LEFT, RIGHT, DEL, CLEAR, EXTRA }
 
     internal class Key(val kind: Kind, val span: Int, val ch: String = "", val label: String = "", val id: String = "")
 
@@ -158,7 +158,6 @@ class KeyboardSurface(private val text: TextRasterizer) {
                 if (shift == 1) shift = 0
             }
             Kind.SPACE -> insert(" ")
-            Kind.TAB -> insert("\t")
             Kind.BACKSPACE -> if (caret > 0) {
                 val start = caret - Character.charCount(buf.codePointBefore(caret))
                 buf.delete(start, caret)
@@ -249,12 +248,17 @@ class KeyboardSurface(private val text: TextRasterizer) {
         val textY = box.y + PAD
         paintTextLine(g, s, box, x0, textY, p)
 
-        val fLabel = FontSpec(Face.SYSTEM, (p * 2 / 5).coerceIn(12, 18), bold = true)
-        val fm = text.metrics(fLabel)
+        val fBase = (p * 2 / 5).coerceIn(12, 18)
         for ((ri, r) in rs.withIndex()) {
             val ry = textY + (ri + 1) * p
             val focusedRow = ri == row
             if (focusedRow && stage == Stage.ROW) Icons.tri(g, x0 - 12, ry + p / 2 - 5, 11, Level.MID)
+            // the row's label size: the largest that fits EVERY label of the
+            // row in its cell (a live row of "Ctrl-C"/"Enter" at one unit each
+            // overran its outlines — review 2026-09-01 K3); Draw.fit stays
+            // underneath as the marked last resort
+            val fLabel = rowFont(r, fBase)
+            val fm = text.metrics(fLabel)
             var u = 0
             for ((ki, k) in r.withIndex()) {
                 val kx = x0 + u * UNIT
@@ -279,6 +283,27 @@ class KeyboardSurface(private val text: TextRasterizer) {
         return box
     }
 
+    private fun labelOf(k: Key): String = when (k.kind) {
+        Kind.CHAR -> if (shift > 0) k.ch.uppercase() else k.ch
+        Kind.SYMBOLS -> if (symbols) "abc" else "?123"
+        Kind.LEFT, Kind.RIGHT, Kind.SHIFT -> ""
+        else -> k.label
+    }
+
+    private fun rowFont(r: List<Key>, base: Int): FontSpec {
+        var size = base
+        while (size > 11) {
+            val f = FontSpec(Face.SYSTEM, size, bold = true)
+            val fits = r.all { k ->
+                val l = labelOf(k)
+                l.isEmpty() || text.measure(display(l, f), f) <= k.span * UNIT - 16
+            }
+            if (fits) return f
+            size -= 2
+        }
+        return FontSpec(Face.SYSTEM, 11, bold = true)
+    }
+
     private fun paintLabel(g: Gray8, k: Key, cell: Rect, f: FontSpec, lineH: Int, lv: Int) {
         when (k.kind) {
             Kind.LEFT -> Icons.tri(g, cell.x + cell.w / 2 + 5, cell.y + cell.h / 2 - 6, 13, lv, left = true)
@@ -292,15 +317,12 @@ class KeyboardSurface(private val text: TextRasterizer) {
                 if (shift == 2) g.fillRect(cx - 6, top + 18, 12, 2, lv)   // caps lock: underlined
             }
             else -> {
-                val label = when (k.kind) {
-                    Kind.CHAR -> if (shift > 0) k.ch.uppercase() else k.ch
-                    Kind.SYMBOLS -> if (symbols) "abc" else "?123"
-                    else -> k.label
-                }
-                val w = text.measure(label, f)
+                val label = display(labelOf(k), f)
+                val maxW = cell.w - 8
+                val w = minOf(text.measure(label, f), maxW)
                 val x = (cell.x + (cell.w - w) / 2) / 4 * 4
                 val y = (cell.y + (cell.h - lineH) / 2) / 2 * 2
-                text.draw(g, x, y, label, f, lv)
+                Draw.fit(g, text, x, y, label, lv, f, maxW)
             }
         }
     }
@@ -309,18 +331,49 @@ class KeyboardSurface(private val text: TextRasterizer) {
      *  than the line PANS so the caret stays visible — the cut is marked at
      *  the edge it happened on and the whole text is reachable by moving the
      *  caret (§2.4 r3: advertised and reachable, never silent). */
+    /** A 1:1 display form of [s]: every code point the face cannot draw
+     *  becomes '?' — ONE per UTF-16 unit, so caret indices into the draft
+     *  and into its display string coincide (Draw.dynamic collapses a
+     *  surrogate pair to one '?', which would shift the caret). */
+    private val coverCache = HashMap<Int, Boolean>()
+    private fun display(s: String, f: FontSpec): String {
+        var clean = true
+        var i = 0
+        while (i < s.length) {
+            val cp = s.codePointAt(i)
+            i += Character.charCount(cp)
+            if (cp < 0x20 || !(cp in 0x20..0x7E || coverCache.getOrPut(cp) { text.covers(String(Character.toChars(cp)), f) })) {
+                clean = false; break
+            }
+        }
+        if (clean) return s
+        val sb = StringBuilder(s.length)
+        i = 0
+        while (i < s.length) {
+            val cp = s.codePointAt(i)
+            val n = Character.charCount(cp)
+            i += n
+            val ok = cp >= 0x20 && (cp in 0x20..0x7E || coverCache.getOrPut(cp) { text.covers(String(Character.toChars(cp)), f) })
+            if (ok) sb.append(String(Character.toChars(cp))) else repeat(n) { sb.append('?') }
+        }
+        return sb.toString()
+    }
+
     private fun paintTextLine(g: Gray8, s: Spec, box: Rect, x0: Int, y: Int, p: Int) {
-        val prompt = s.title.uppercase()
+        val prompt = display(s.title.uppercase(), fPrompt)
         val pm = text.metrics(fPrompt)
         val dm = text.metrics(fDraft)
-        val promptW = text.measure(prompt, fPrompt)
-        text.draw(g, x0, (y + (p - pm.lineHeight) / 2) / 2 * 2, prompt, fPrompt, Level.DIM)
-        var dx = (x0 + promptW + 16) / 4 * 4
         val right = x0 + UNITS * UNIT
+        // the prompt is a handle: fitted to a third of the line with the
+        // mark (a long Tmux session name must never push the draft off the
+        // line — review 2026-09-01 K4)
+        val promptMax = UNITS * UNIT / 3
+        val promptW = minOf(text.measure(prompt, fPrompt), promptMax)
+        Draw.fit(g, text, x0, (y + (p - pm.lineHeight) / 2) / 2 * 2, prompt, Level.DIM, fPrompt, promptMax)
+        var dx = (x0 + promptW + 16) / 4 * 4
         val avail = right - dx - 8
         val dy = (y + (p - dm.lineHeight) / 2) / 2 * 2
-        if (avail < 40) return
-        val d = draft
+        val d = display(draft, fDraft)
         // the visible window: from `start` so that the head up to the caret fits
         var start = 0
         val headMax = avail - 14
@@ -343,12 +396,13 @@ class KeyboardSurface(private val text: TextRasterizer) {
         val caretX = (dx + text.measure(d.substring(start, caret), fDraft)).coerceAtMost(right - 4)
         // the caret: a 2 px bar at HEAD, tall as the line
         g.fillRect(caretX / 2 * 2, dy, 2, dm.lineHeight, Level.HEAD)
-        if (cut && caret >= d.length) g.fillRect(caretX / 2 * 2, dy, 2, dm.lineHeight, Level.HEAD)
+        if (cut) Unit   // the tail's cut is already marked by Draw.fit
     }
 
     companion object {
         const val UNIT = 48                 // one key unit, ×4 ✓
         const val UNITS = 12                // 576 px of keys in the 608 px content
+        const val MAX_EXTRA = 12            // live keys: two rows at most
         const val PAD = 8
         /** The home row (asdf…) — where the ROW stage opens. */
         const val HOME_ROW = 2
@@ -364,9 +418,8 @@ class KeyboardSurface(private val text: TextRasterizer) {
             val letters: List<List<Key>> = if (symbols) listOf(
                 chars("!", "@", "#", "$", "%", "^", "&", "*", "(", ")", "{", "}"),
                 chars("+", "=", "[", "]", ";", ":", "\"", "<", ">", "~") + Key(Kind.ENTER, 2, label = "Enter"),
-                listOf(Key(Kind.SHIFT, 2), Key(Kind.CHAR, 1, ch = "`"), Key(Kind.CHAR, 2, ch = "\\"),
-                    Key(Kind.CHAR, 1, ch = "|"), Key(Kind.CHAR, 2, ch = "?"),
-                    Key(Kind.TAB, 2, label = "Tab"), Key(Kind.BACKSPACE, 2, label = "Bksp")),
+                listOf(Key(Kind.SHIFT, 2), Key(Kind.CHAR, 2, ch = "`"), Key(Kind.CHAR, 2, ch = "\\"),
+                    Key(Kind.CHAR, 2, ch = "|"), Key(Kind.CHAR, 2, ch = "?"), Key(Kind.BACKSPACE, 2, label = "Bksp")),
             ) else if (layout == "abc") listOf(
                 chars("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "-", "/"),
                 chars("k", "l", "m", "n", "o", "p", "q", "r", "s", "'") + Key(Kind.ENTER, 2, label = "Enter"),
@@ -386,13 +439,20 @@ class KeyboardSurface(private val text: TextRasterizer) {
             out.addAll(letters)
             out.add(bottom)
             if (extra.isNotEmpty()) {
-                // live keys share the units evenly, capped so labels keep room
-                val n = extra.size.coerceAtMost(UNITS)
-                val span = UNITS / n
-                val keys = extra.take(n).mapIndexed { i, e ->
-                    Key(Kind.EXTRA, if (i == n - 1) UNITS - span * (n - 1) else span, label = e.label, id = e.id)
+                // live keys: one row up to six, two rows up to twelve (labels
+                // keep at least two units), more is refused LOUDLY — a
+                // requester must cap what it sends, never lose keys silently
+                // (review 2026-09-01 K1: Tmux's 14 defaults lost Tab and q)
+                require(extra.size <= MAX_EXTRA) { "a keyboard live row holds at most $MAX_EXTRA keys, got ${extra.size}" }
+                val chunks = if (extra.size <= 6) listOf(extra) else
+                    listOf(extra.take((extra.size + 1) / 2), extra.drop((extra.size + 1) / 2))
+                for (chunk in chunks) {
+                    val n = chunk.size
+                    val span = UNITS / n
+                    out.add(chunk.mapIndexed { i, e ->
+                        Key(Kind.EXTRA, if (i == n - 1) UNITS - span * (n - 1) else span, label = e.label, id = e.id)
+                    })
                 }
-                out.add(keys)
             }
             return out
         }
