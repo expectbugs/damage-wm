@@ -452,7 +452,7 @@ class TmuxWindow(
                     // dropped from the SEATED order (R3-K1)
                     val off = orderedAll.drop(live.size).joinToString(", ") { prettyKey(it) }
                     Log.w("tmux", "quick keys beyond the keyboard's ${KeyboardSurface.MAX_EXTRA}: $off")
-                    notice = "not on the keyboard: $off"
+                    notice = "$off: not on the keyboard"   // the names FIRST — the title cell cuts the tail (R4-K1)
                 }
                 val opened = services?.openKeyboard(KeyboardSurface.Spec(
                     title = "type -> ${t.label}", initial = typedDraft,

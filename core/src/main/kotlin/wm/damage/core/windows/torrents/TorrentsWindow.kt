@@ -952,6 +952,8 @@ class TorrentsWindow(
                     if (p.items.size < p.perPage) listingTotal = listing.size
                     pendingListCursor?.let { c ->              // the restored row, once it exists (W4)
                         if (c < listing.size) { listModel.cursor = c; pendingListCursor = null }
+                        else if (listingMore && active) loadNextPage()   // it sits on a later page: fetch on (R4-P11)
+                        else pendingListCursor = null                    // beyond the end: nothing to wait for
                     }
                 }
                 services?.requestRender(this@TorrentsWindow)
@@ -964,6 +966,7 @@ class TorrentsWindow(
             kotlinx.coroutines.delay(RETRY_PACING_MS)
             onShell {
                 if (seq == listSeq && level == Level_.LISTING) {
+                    listingRetryAt = 0L    // this callback IS the pacing (R4-P5) — the wall clock must not gate it
                     demandPageIfNear()     // the retry itself (R3-P1): a repaint alone demanded nothing when the cursor sat on the loading row
                     services?.requestRender(this@TorrentsWindow)
                 }
@@ -1073,7 +1076,10 @@ class TorrentsWindow(
             acts.add(act)
         }
         add("Search TorrentLeech", "keyboard") { openSearch() }
-        for (q in recents.take(5)) add("Search", q) { listingFromTransfers = false; openListing(null, q) }   // from the browse side (R3-P9)
+        for (q in recents.take(5)) add("Search", q) {
+            if (level == Level_.CATEGORIES) listingFromTransfers = false   // the browse side; inside a listing the back target stays (R3-P9, R4-P4)
+            openListing(null, q)
+        }
         if (level == Level_.LISTING) {
             // rows that act on a listing exist only inside one (R2-W7)
             add("Sort", tlSort) {
@@ -1104,7 +1110,11 @@ class TorrentsWindow(
         recents.remove(q)
         recents.addFirst(q)
         while (recents.size > RECENTS) recents.removeLast()
-        listingFromTransfers = level == Level_.TRANSFERS || level == Level_.DETAILS   // set, not only raised (R3-P9)
+        listingFromTransfers = when (level) {                       // set from where the search starts (R3-P9, R4-P4)
+            Level_.TRANSFERS, Level_.DETAILS -> true
+            Level_.CATEGORIES -> false
+            else -> listingFromTransfers                                // inside a listing: its back target stays
+        }
         openListing(null, q)
     }
 
@@ -1333,7 +1343,7 @@ class TorrentsWindow(
         put("level", level.name)
         put("cursor", transModel.cursor)
         rows().getOrNull(transModel.cursor)?.hash?.let { put("cursorHash", it) }   // the row, not the index (R2-W2)
-        if (transModel.cursor >= rows().size - 1) put("cursorMenu", true)         // the wrap-end row, wherever it moves (R3-P7)
+        if (snap != null && transModel.cursor >= rows().size - 1) put("cursorMenu", true)   // the wrap-end row, wherever it moves (R3-P7); never asserted from an empty placeholder (R4-P3)
         put("catCursor", catModel.cursor)
         put("listCursor", listModel.cursor)
         put("docTop", docModel.topLine)
@@ -1415,6 +1425,10 @@ class TorrentsWindow(
         listingRetryAt = 0L
         pendingDocTop = docModel.topLine.takeIf { level == Level_.DETAILS && it > 0 }
         pendingTlDocTop = tlDocModel.topLine.takeIf { level == Level_.TORRENT && it > 0 }
+        // a snapshot already at hand resolves the transfers cursor NOW — a boot
+        // or keeper restart would otherwise wait for the next changed push,
+        // minutes on an idle phone (R4-P6)
+        snap?.let { s -> if (s.transfers.isNotEmpty()) resolvePendingCursor(s) }
         invalidateDocs()
         needsReload = level != Level_.TRANSFERS && level != Level_.CATEGORIES
     }

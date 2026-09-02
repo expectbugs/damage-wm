@@ -148,6 +148,11 @@ class TorrentLeech(
         if (user.isEmpty() || pass.isEmpty()) throw TlException("TorrentLeech credentials are not configured")
         loginRefused?.let { throw TlException(it) }
         synchronized(lock) {
+            // the pacing lives HERE, on every path into a login (R4-P1): an
+            // empty jar after a failed POST must not post again five seconds later
+            if (lastLoginAt != 0L && clock() - lastLoginAt < RELOGIN_PACING_MS) {
+                throw TlException("TorrentLeech login attempted less than a minute ago - not retrying yet")
+            }
             lastLoginAt = clock()
             cookies.clear()
             val body = Http.formEncode(mapOf("username" to user, "password" to pass)).toByteArray(Charsets.UTF_8)
@@ -158,9 +163,10 @@ class TorrentLeech(
             val ok = r.status == 302 && !loc.contains("login", ignoreCase = true) && cookies.isNotEmpty()
             if (!ok) {
                 val why = "TorrentLeech login failed (HTTP ${r.status}${if (loc.isNotEmpty()) " -> $loc" else ""})"
-                // the form shown again = the credentials were refused → latched;
-                // a site error (5xx, a redirect elsewhere) is transient and is not
-                if (r.status == 200 && r.contentType.contains("text/html", ignoreCase = true)) {
+                // the LOGIN FORM shown again = the credentials were refused → latched;
+                // any other page (maintenance) or a site error is transient and is
+                // covered by the pacing, never latched (R4-P2)
+                if (r.status == 200 && looksLoggedOut(r)) {
                     loginRefused = "$why - check torrentleechUser/torrentleechPass and restart the service"
                 }
                 throw TlException(loginRefused ?: why)

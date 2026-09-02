@@ -34,12 +34,14 @@ carries Files, the chrome tweaks, Torrents and the keyboard).
 
 ## 🚀 Next
 
-0. **The review loop over the Torrents + keyboard build** — rounds 1–3 done
-   (`HANDOFF.md` §23.1–§23.3: ~55, ~30, then ~15 findings, all verified, the real ones fixed);
-   continue with fresh eyes on each round's fix diff until a round finds nothing. Then the on-glass verdicts: the keyboard's
-   feel (row pitch at 288, the highlight, the text-line pan, stay-in-row), the transfers list,
-   the done notification on a real finish.
-
+0. **On-glass verdicts for Torrents + the keyboard** — install **0.18** (staged on the setup
+   page; the round-4 build), then: the keyboard's feel (row pitch at 288, the highlight, the
+   text-line pan, stay-in-row, the Tmux live rows), the transfers list and lens, a real
+   done-notification, browse / search / add against the live tracker (the first real add is
+   the first real download through the adapter). The review loop ran four rounds
+   (`HANDOFF.md` §23.1–§23.4, ~114 findings, all verified, the real ones fixed) and is
+   PAUSED at Adam's word, not converged — round 4 still found real defects in round 3's fixes,
+   so the next review pass starts from `980d832..HEAD`.
 1. **The Reader transitional cleanup is UNBLOCKED** (0.16 is installed): remove the
    legacy-offsets dual-write in `ReaderWindow` — the fields are marked; `restoreStateLive`'s
    `liveMapApply` mechanics go with them (update `SubstrateTest`'s migration pin). A clean

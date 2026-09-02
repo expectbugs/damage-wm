@@ -404,7 +404,7 @@ best state before we move on"*), and the fourth bespoke shell surface. `wm.damag
   notification, plus the ink budgets: transfers 9.0 %, details 6.4 %) and the snapshot scenes
   15–22; `TorrentsTest` ×7 (the client against a fake Web API, the adapter against fixtures incl.
   drift and expiry, the provider's diff/baseline/persistence, the window grammar, persistence +
-  continuity, the remote provider over a real loopback host) and `KeyboardTest` ×20.
+  continuity, the remote provider over a real loopback host) and `KeyboardTest` ×22.
 
 ## Tmux (2026-08-31, TMUX.md — all refinery verdicts locked, built in one pass)
 

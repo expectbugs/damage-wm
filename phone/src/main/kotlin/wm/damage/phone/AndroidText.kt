@@ -119,7 +119,15 @@ class AndroidText(
         // Typeface has no cmap query; approximate by comparing against tofu
         // width — Paint.hasGlyph exists on API 23+ and is the real check.
         val p = paint(font)
-        for (ch in text) if (!p.hasGlyph(ch.toString())) return false
+        // by CODE POINT (review 2026-09-01 R4-K aside): a supplementary
+        // character (an emoji) is two UTF-16 units, and asking for each half
+        // said "uncovered" for every glyph the face actually has
+        var i = 0
+        while (i < text.length) {
+            val cp = text.codePointAt(i)
+            i += Character.charCount(cp)
+            if (!p.hasGlyph(String(Character.toChars(cp)))) return false
+        }
         return true
     }
 

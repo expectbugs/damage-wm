@@ -653,8 +653,8 @@ description. Doc mismatches corrected in `TORRENTS.md` / `DESIGN.md` §4.8 /
 (a stale connection's end drops the live driver's pace for at most one poll interval); the
 keyboard's 576 px key field assumes the full-width content area (a narrower calibrated safe
 rect is not configured today).
-Battery after round 2: core **220** · desktop 9 · selfcheck 89 · snapshots 26 (refreshed) ·
-lint 0; the service runs the round-2 jar, APK 18/0.18 re-staged.
+Battery after round 2: core **219** · desktop 9 · selfcheck 89 · snapshots 26 (refreshed) ·
+lint 0; the service ran the round-2 jar, APK 18/0.18 re-staged.
 
 ### 23.3 Round 3 — the round-2 fix diff (2026-09-01, late)
 
@@ -679,6 +679,40 @@ the harmless row heads, the failed-first-page retry, the login latch and the pac
 Battery after round 3: core **220** · desktop 9 · selfcheck 89 · snapshots 26 (refreshed) ·
 lint 0; the service runs the round-3 jar, APK 18/0.18 re-staged.
 
-**Next (`REMINDER.md`):** round 4 — fresh eyes on the round-3 fix diff — until a round finds
-nothing real; then on-glass verdicts for the keyboard's feel (row pitch at 288, the highlight,
-the text-line pan) and the transfers list.
+### 23.4 Round 4 — the round-3 fix diff; the loop's last round for now (2026-09-01, late)
+
+Two reviewers over `4f5e6e0..980d832`. Adam, mid-round: *"this is the last review for now"* —
+so this round closes the loop rather than a clean sheet. Nothing HIGH; the real ones, all
+fixed: the tracker's empty-jar login path was the one unpaced way in (a failed POST left the
+jar empty and the 5 s listing retry posted the credentials again — the pacing now lives in
+`login()` itself, on every path), and the refusal latch fired on ANY 200 HTML answer to the
+login POST (a maintenance page would have latched a healthy account for the life of the
+service — it latches only on the login form now); a save made before the first snapshot
+marked the transfers cursor as "on the menu row" and that outranked the saved index on the
+next restore; the Tmux "keys off the keyboard" notice put the names where the title cell cuts
+them; a live-synced Files record could inherit a stale ascend's cursor steer; a search launched
+from inside a transfers-side listing lost its back target; the paced retry was gated on the
+wall clock; a restart resolved its restored transfers cursor only on the next changed push; a
+restored listing cursor beyond page 1 never fetched its page. Pins added for the surrogate pan
+(a rasterizer that refuses malformed UTF-16), the refusal of a second ask while a keyboard is
+open, and the retried page landing. Adjacent, fixed the same way: the phone rasterizer's
+coverage check iterated UTF-16 units, so every emoji counted as uncovered on the phone — it
+checks code points now.
+
+**Accepted, recorded (not fixed):** the status bar's op word has no owner — a window's
+"idle" on a live apply can blank another window's running op word (a shell-side owner is a
+later item); one "remote" focus key per channel (a stale connection's end drops the live
+driver's pace for at most one poll interval); the keyboard's 576 px key field assumes the
+full-width content area (a narrower calibrated safe rect is not configured today).
+
+**Battery after round 4:** core 221 · desktop 9 · selfcheck 89 · snapshots 26 · epub-check clean · lint 0; APK 18/0.18 and the jar restaged, the service restarted on it.
+
+**The loop's record:** rounds 1–4 → ~55 · ~30 · ~15 · ~14 findings, every one re-verified
+against the code before a fix, the real ones fixed and pinned, the doc mismatches corrected.
+Round 4 still found real defects in round 3's fixes, so this is a PAUSED loop, not a converged
+one — Adam's call ("the last review for now"); the next session's first review pass should
+start from the round-4 diff (`980d832..HEAD`).
+
+**Next (`REMINDER.md`):** on-glass verdicts — install 0.18, then the keyboard's feel (row
+pitch at 288, the highlight, the text-line pan, stay-in-row), the transfers list, a real
+done-notification, browse/search/add against the live tracker; and the resumed review pass.

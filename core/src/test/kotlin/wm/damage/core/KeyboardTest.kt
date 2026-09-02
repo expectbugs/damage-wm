@@ -243,6 +243,36 @@ class KeyboardTest {
         }
     }
 
+    /** A rasterizer that refuses malformed UTF-16 — a lone surrogate reaching
+     *  measure/draw is the R3-K5 defect made loud. */
+    private class StrictText : wm.damage.core.text.TextRasterizer {
+        private val inner = FakeText()
+        private fun check(t: String) {
+            var i = 0
+            while (i < t.length) {
+                val c = t[i]
+                if (Character.isHighSurrogate(c)) { require(i + 1 < t.length && Character.isLowSurrogate(t[i + 1])) { "lone high surrogate at $i" }; i += 2 }
+                else { require(!Character.isLowSurrogate(c)) { "lone low surrogate at $i in '${t.take(12)}'" }; i++ }
+            }
+        }
+        override fun measure(text: String, font: wm.damage.core.text.FontSpec): Int { return inner.measure(text, font) }
+        override fun metrics(font: wm.damage.core.text.FontSpec) = inner.metrics(font)
+        override fun draw(surface: Gray8, x: Int, y: Int, text: String, font: wm.damage.core.text.FontSpec, level: Int) {
+            check(text); inner.draw(surface, x, y, text, font, level)
+        }
+        override fun covers(text: String, font: wm.damage.core.text.FontSpec) = true
+    }
+
+    @Test
+    fun aPannedEmojiDraftNeverStartsInsideASurrogatePair() {
+        val kb = KeyboardSurface(StrictText())
+        kb.openWith(KeyboardSurface.Spec("search", "\ud83d\ude00".repeat(80), onCommit = {}), "qwerty")
+        val g = Gray8(640, 480)
+        kb.paint(g, Layout())                            // the pan lands on a pair boundary or the draw throws
+        repeat(3) { kb.tapKind(KeyboardSurface.Kind.LEFT) }
+        kb.paint(g, Layout())
+    }
+
     /** A rasterizer that covers ASCII only — the phone's face for a CJK name. */
     private class AsciiOnlyText : wm.damage.core.text.TextRasterizer {
         private val inner = FakeText()
@@ -514,12 +544,23 @@ class KeyboardTest {
     fun theShellRefusesTooManyLiveKeysWithoutTouchingTheSurface(): Unit = runBlocking {
         val r = Rig()
         try {
-            r.win.tooMany = true
             r.start()
             awaitTrue("asker focused") { r.shell.isQuiescent() }
-            r.g(EvenHubMsg.EV_CLICK)                              // asks with 13 live keys
-            awaitTrue("refused") { r.win.log.contains("opened:false") }
-            assertFalse(r.shell.keyboardIsOpen)
+            r.g(EvenHubMsg.EV_CLICK)                              // a valid ask: open
+            awaitTrue("open") { r.shell.keyboardIsOpen }
+            r.g(EvenHubMsg.EV_CLICK); r.g(EvenHubMsg.EV_CLICK)   // 'a' typed
+            awaitTrue("typed") { r.shell.keyboardDraft() == "a" }
+            // a second ask with 13 live keys is refused BEFORE the open surface is touched (R4-K4)
+            r.win.tooMany = true
+            var refused: Boolean? = null
+            r.shell.services.runOnShell {
+                refused = !r.shell.services.openKeyboard(KeyboardSurface.Spec("x", "",
+                    (1..13).map { KeyboardSurface.ExtraKey("k$it", "id$it") }, onCommit = {}), owner = r.win)
+            }
+            awaitTrue("refused") { refused == true }
+            assertTrue(r.shell.keyboardIsOpen)
+            assertEquals("a", r.shell.keyboardDraft())
+            assertTrue(r.win.log.none { it.startsWith("cancel:") }, r.win.log.toString())
             r.stop()
         } catch (e: Throwable) { r.stop(); throw e }
     }

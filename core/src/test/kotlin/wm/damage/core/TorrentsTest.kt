@@ -20,6 +20,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import wm.damage.core.content.ContentHostServer
 import wm.damage.core.content.LocalContent
 import wm.damage.core.shell.Persistence
@@ -565,7 +566,8 @@ SHA256: abc</pre>
             r.tap()                                              // Newest
             awaitTrue("listing asked") { r.fake.ops.count { it.startsWith("browse:0:1:added") } == 1 }
             awaitTrue("the failed first page retried on its own pacing") { r.fake.ops.count { it.startsWith("browse:0:1:added") } >= 2 }
-            awaitTrue("listing") { r.win.title() == "newest" && r.win.saveState()["listCursor"] != null }
+            awaitTrue("listing applied") { r.win.title() == "newest" && r.shell.isQuiescent() }
+            awaitTrue("the retried page landed") { r.win.saveState()["listCursor"]?.jsonPrimitive?.intOrNull == 0 && r.shell.isQuiescent() }
             r.tap()                                              // Item 0 → the torrent page
             awaitTrue("torrent page") { r.win.title() == "torrent" && r.win.levelDepth() == 4 }
             r.tap()                                              // add menu

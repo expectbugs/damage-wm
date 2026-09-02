@@ -1393,6 +1393,8 @@ class FilesWindow(
         // re-stamped the OLD view over the peer's newer record (the R4#1
         // ping-pong, direction reversed). The pdfpage branch re-arms below.
         pendingOpenView = null
+        pendingBrowseCursor = null        // a record's listing must not apply a stale ascend's steer (R4-K2)
+        pendingSelectName = null
         locModel.cursor = state["locCursor"]?.jsonPrimitive?.intOrNull ?: 0
         browseModel.cursor = state["browseCursor"]?.jsonPrimitive?.intOrNull ?: 0
         trashModel.cursor = state["trashCursor"]?.jsonPrimitive?.intOrNull ?: 0
