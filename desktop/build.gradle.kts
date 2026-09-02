@@ -19,6 +19,9 @@ dependencies {
     implementation(libs.dbus.java.core)
     runtimeOnly(libs.dbus.java.unixsocket)
     runtimeOnly(libs.slf4j.simple)
+    // Music (MUSIC.md §9.1): Postgres over the Unix socket, peer auth
+    implementation(libs.postgresql)
+    implementation(libs.junixsocket.core)
     testImplementation(kotlin("test"))
     testImplementation(libs.junit)
 }

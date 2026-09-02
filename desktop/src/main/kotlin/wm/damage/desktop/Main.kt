@@ -66,6 +66,7 @@ fun main(args: Array<String>) {
     when {
         "--selfcheck" in args -> SelfCheck.run(cfg)
         "--epub-check" in args -> epubCheck(cfg)
+        "--music-check" in args -> MusicCheck.run(cfg)
         "--snapshot" in args -> Snapshot.run(cfg,
             Path.of(args.getOrNull(args.indexOf("--snapshot") + 1) ?: "snapshots"))
         "--ble-info" in args -> bleInfo()
@@ -119,7 +120,53 @@ data class Config(
     val qbtPass: String = "",
     val torrentleechUser: String = "",
     val torrentleechPass: String = "",
+    /** Music (MUSIC.md §9.7, 2026-09-02): the G2CC music system taken over
+     *  whole — Postgres `g2cc` over the Unix socket (peer auth), Qdrant, the
+     *  library roots, the legacy transcode cache read in place, our own cache,
+     *  the enrichment package's Python (G2CC's venv until Damage owns one),
+     *  yt-dlp, the Claude one-shot for the Ask lane, and the media endpoint's
+     *  port. `musicAcoustidKey` is optional and lives ONLY in this file. */
+    val musicDb: String = "g2cc",
+    val musicSocketDir: String = "/run/postgresql",
+    val musicQdrant: String = "http://127.0.0.1:6333",
+    val musicQdrantCollection: String = "g2cc_music",
+    val musicLibraryDirs: List<String> = listOf(System.getProperty("user.home") + "/Music"),
+    val musicLegacyCache: String = System.getProperty("user.home") + "/.g2cc/media-cache",
+    val musicCache: String = System.getProperty("user.home") + "/.damage/media-cache",
+    val musicPython: String = "/home/user/G2CC/audio/venv/bin/python",
+    val musicYtDlp: String = System.getProperty("user.home") + "/.local/bin/yt-dlp",
+    val musicYoutubeDir: String = "YouTube",
+    val musicClaudeModel: String = "opus",
+    val musicClaudeEffort: String = "low",
+    val musicQueueSize: Int = 25,
+    val mediaPort: Int = 7404,
+    val musicAcoustidKey: String = "",
 ) {
+    /** The PC-side music library (MUSIC.md §5): Postgres + Qdrant + the
+     *  caches + the media endpoint's resolver. The leaf collaborators
+     *  (resolver lanes, lyric sources, yt-dlp, the enrichment package) are
+     *  wired by [wireMusicPlugins] as they exist. */
+    fun musicLibrary(scope: CoroutineScope): wm.damage.core.windows.music.LocalMusicLibrary {
+        val db = wm.damage.core.windows.music.MusicDb(PgDb(musicDb, musicSocketDir), musicLibraryDirs)
+        val cacheRoot = Path.of(musicCache)
+        val legacy = Path.of(musicLegacyCache).takeIf { Files.isDirectory(it) }
+        val cache = wm.damage.core.windows.music.MediaCache(cacheRoot, legacy)
+        val art = wm.damage.core.windows.music.Art(cacheRoot.resolve("art"))
+        val qdrant = wm.damage.core.windows.music.Qdrant(musicQdrant, musicQdrantCollection)
+        val scan = wm.damage.core.windows.music.LibraryScan(db, musicLibraryDirs)
+        val tok = java.net.URLEncoder.encode(token, "UTF-8")
+        val lib = wm.damage.core.windows.music.LocalMusicLibrary(db, cache, art, cacheRoot.resolve("viz"), qdrant, scan, scope,
+            mediaUrl = { id, p -> "http://127.0.0.1:$mediaPort/track/$id?token=$tok&profile=${p.name}" },
+            queueSize = musicQueueSize)
+        lib.youtubeDir = Path.of(musicLibraryDirs.firstOrNull() ?: (System.getProperty("user.home") + "/Music")).resolve(musicYoutubeDir)
+        MusicPlugins.wire(this, lib)
+        return lib
+    }
+
+    /** The media endpoint on [mediaPort], bound like the content port. */
+    fun mediaServer(lib: wm.damage.core.windows.music.LocalMusicLibrary): wm.damage.core.windows.music.MediaServer =
+        wm.damage.core.windows.music.MediaServer(mediaPort, token) { id, p -> lib.resolveMedia(id, p) }
+
     /** The PC-side torrents provider: qBittorrent over loopback + the tracker
      *  session (null tracker = browse/search say so loudly). */
     fun torrentsProvider(scope: CoroutineScope): wm.damage.core.windows.torrents.LocalTorrentsProvider =
@@ -217,6 +264,20 @@ private fun epubCheck(cfg: Config) {
 
 /** Adapter enumeration only — a D-Bus read, no discovery, no connection: the
  *  one BlueZ check that is allowed before first light (HANDOFF.md §8.1 #2). */
+/** The music library + its media endpoint, or null (loudly) when Postgres
+ *  is not reachable at start — the rest of the host keeps serving. The
+ *  catalog builds on the first request (or the first driver's cursor). */
+private fun startMusic(cfg: Config, scope: CoroutineScope): wm.damage.core.windows.music.LocalMusicLibrary? = try {
+    val lib = cfg.musicLibrary(scope)
+    lib.db.migrate()
+    cfg.mediaServer(lib).start()
+    scope.launch(Dispatchers.IO) { try { lib.refreshCatalog(force = true) } catch (e: Exception) { /* the state line says */ } }
+    lib
+} catch (e: Exception) {
+    Log.e("damage", "music library unavailable — Postgres/Qdrant/the cache did not come up; the music channel is not served", e)
+    null
+}
+
 private fun bleInfo() {
     try {
         val link = BlueZDbus()
@@ -244,13 +305,15 @@ private suspend fun hostOnly(cfg: Config) {
         Path.of(cfg.booksDir), Path.of(cfg.dataDir).resolve("trash"), AwtImages())
     val themeIcons = ThemeIcons(AwtImages(), Path.of(cfg.dataDir).resolve("icons"))
     val torrents = cfg.torrentsProvider(scope)
+    val music = startMusic(cfg, scope)
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
         tmux = tmux, sync = wm.damage.core.sync.SyncPeer(store),
         win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider),
-            "torrents" to wm.damage.core.windows.torrents.TorrentsService(torrents)),
+            "torrents" to wm.damage.core.windows.torrents.TorrentsService(torrents)) +
+            (music?.let { mapOf("music" to wm.damage.core.windows.music.MusicService(it)) } ?: emptyMap()),
         icons = themeIcons)
     host.start()
-    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync + files + torrents + icons on :${cfg.contentPort}; Ctrl-C to stop")
+    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync + files + torrents + music + icons on :${cfg.contentPort}; Ctrl-C to stop")
     kotlinx.coroutines.awaitCancellation()
 }
 
@@ -282,6 +345,9 @@ class DesktopStack(
     /** The process-wide torrents provider (TORRENTS.md) — qBittorrent + the
      *  tracker; also served to the phone through the content host. */
     private val torrents: wm.damage.core.windows.torrents.TorrentsProvider? = null,
+    /** The process-wide music library (MUSIC.md) — the local window mirrors
+     *  the phone's player over the synced record; null in tools. */
+    private val music: wm.damage.core.windows.music.MusicLibrary? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private fun ble(): Transport = BlueZTransport(BlueZDbus(), scope,
@@ -411,11 +477,16 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     // the phone's (over the win channel) share its poll loop and event log,
     // so a done-announcement is decided once
     val torrentsProvider = cfg.torrentsProvider(tmuxScope)
+    // The process-wide music library (MUSIC.md): Postgres/Qdrant/the caches
+    // + the media endpoint on :mediaPort; the local shell's window mirrors
+    // the phone's player, the phone's library rides the win channel
+    val musicLibrary = startMusic(cfg, tmuxScope)
 
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
         tmux = tmuxProvider, sync = syncPeer,
         win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider),
-            "torrents" to wm.damage.core.windows.torrents.TorrentsService(torrentsProvider)),
+            "torrents" to wm.damage.core.windows.torrents.TorrentsService(torrentsProvider)) +
+            (musicLibrary?.let { mapOf("music" to wm.damage.core.windows.music.MusicService(it)) } ?: emptyMap()),
         icons = themeIcons)
     var hostBound = true
     try {
@@ -474,7 +545,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     }
     build = { m -> DesktopStack(cfg, m, remoteHost, text, onStatus = { keeperStatus.set(it) },
         onSwitch = { switchTo(it) }, tmux = tmuxProvider, sharedStore = store,
-        files = filesProvider, themeIcons = themeIcons, torrents = torrentsProvider) }
+        files = filesProvider, themeIcons = themeIcons, torrents = torrentsProvider, music = musicLibrary) }
 
     if (mode != "auto") {
         val first = build(mode)

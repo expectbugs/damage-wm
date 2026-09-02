@@ -69,11 +69,25 @@ private fun DataInputStream.readWireFrame(maxLen: Int = 4 shl 20): WWire {
 interface WinService {
     class Answer(val data: JsonObject = JsonObject(emptyMap()), val blob: ByteArray? = null)
 
+    /** The §16.10 PUSH slice (2026-09-02, Music is its first customer): an
+     *  unsolicited host → driver frame on the channel — a catalog version
+     *  bump, a grab's progress. Safe from any thread; a write failure ends
+     *  the channel loudly (the driver's keeper reconnects). */
+    interface Push {
+        fun send(op: String, args: JsonObject = JsonObject(emptyMap()), blob: ByteArray? = null)
+    }
+
     fun request(op: String, args: JsonObject): Answer
+
+    /** A driver attached: keep [push] to send it unsolicited frames. */
+    fun attached(push: Push) {}
 
     /** The driver's channel ended (review 2026-09-01 P4): a service holding
      *  per-driver state (the Torrents focus pace) clears it here. */
     fun detached() {}
+
+    /** The same, naming WHICH driver left (a service holding several pushers). */
+    fun detached(push: Push) = detached()
 }
 
 object WinNet {
@@ -85,6 +99,7 @@ object WinNet {
      *  the client leaves; the caller owns the socket. */
     fun serve(sock: Socket, inp: DataInputStream, out: DataOutputStream, winId: String, service: WinService) {
         Log.i("win-host", "driver ${sock.inetAddress} attached to the '$winId' channel")
+        var pushRef: WinService.Push? = null
         try {
             // greet (R3#2): the win lane is request-driven, so this is the
             // client's only unsolicited "the host really speaks this lane"
@@ -92,6 +107,23 @@ object WinNet {
             // write (which an old host may answer by closing). Unknown to no
             // one: every win-serving build ships with this greeting.
             out.sendWire(WWire("wup"))
+            val push = object : WinService.Push {
+                override fun send(op: String, args: JsonObject, blob: ByteArray?) {
+                    // a failed push must not be swallowed: it ends this channel
+                    // (the read loop sees the closed socket) and is logged
+                    try {
+                        if (blob != null) {
+                            require(blob.size.toLong() <= WinNet.BLOB_MAX) { "push blob ${blob.size} B over cap" }
+                            out.sendWire(WWire("wpush", op = op, args = args, blobLen = blob.size.toLong()), blob)
+                        } else out.sendWire(WWire("wpush", op = op, args = args))
+                    } catch (e: Exception) {
+                        Log.w("win-host", "'$winId' push '$op' failed — closing the channel: ${e.message}")
+                        try { sock.close() } catch (e2: Exception) { /* closing */ }
+                    }
+                }
+            }
+            pushRef = push
+            try { service.attached(push) } catch (e: Exception) { Log.e("win-host", "'$winId' attached hook", e) }
             while (true) {
                 val w = inp.readWireFrame()
                 when (w.t) {
@@ -121,7 +153,7 @@ object WinNet {
             Log.w("win-host", "'$winId' channel ended: ${e.message}")
         } finally {
             try { sock.close() } catch (e: Exception) { /* closed */ }
-            try { service.detached() } catch (e: Exception) { Log.e("win-host", "'$winId' detached hook", e) }
+            try { val pr = pushRef; if (pr != null) service.detached(pr) else service.detached() } catch (e: Exception) { Log.e("win-host", "'$winId' detached hook", e) }
         }
     }
 }
@@ -141,6 +173,9 @@ class RemoteWin(
     private val scope: CoroutineScope,
     private val retryPacingMs: Long = 2_000,
     private val onState: (String) -> Unit = {},
+    /** An unsolicited host frame (the push slice): op, args, an optional
+     *  blob. Runs on the channel's read thread — hand off, never block. */
+    private val onPush: (String, JsonObject, ByteArray?) -> Unit = { _, _, _ -> },
 ) : AutoCloseable {
 
     @Serializable
@@ -181,11 +216,20 @@ class RemoteWin(
                         // flipping on ANY frame — the "err" refusal included —
                         // re-created the flap-and-relog cycle on the in-band
                         // refusal path (the RemoteSync `attached` shape)
-                        if (w.t == "wup" || w.t == "wres") {
+                        if (w.t == "wup" || w.t == "wres" || w.t == "wpush") {
                             if (offlineSince != 0L || stateLine.isNotEmpty()) { offlineSince = 0; setState("") }
                         }
                         when (w.t) {
                             "wup" -> {}   // the host's greeting — the healthy flip above IS its meaning
+                            "wpush" -> {
+                                val blob = if (w.blobLen >= 0) {
+                                    require(w.blobLen <= WinNet.BLOB_MAX) { "push blob ${w.blobLen} B over cap" }
+                                    val b = ByteArray(w.blobLen.toInt())
+                                    inp.readFully(b)
+                                    b
+                                } else null
+                                try { onPush(w.op, w.args, blob) } catch (e: Exception) { Log.e("win-remote", "'$winId' push '${w.op}' handler failed", e) }
+                            }
                             "wres" -> {
                                 val blob = if (w.blobLen >= 0) {
                                     require(w.blobLen <= WinNet.BLOB_MAX) { "blob ${w.blobLen} B over cap" }

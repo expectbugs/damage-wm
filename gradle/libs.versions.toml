@@ -16,6 +16,10 @@ junit = "4.13.2"
 bluez-dbus = "0.3.5"
 dbus-java = "5.2.0"
 slf4j = "2.0.18"
+# Postgres for the Music library (MUSIC.md §9.1): pgjdbc (BSD-2) over the Unix
+# socket via junixsocket (Apache-2.0) — peer auth, no password. Desktop only.
+postgresql = "42.7.13"
+junixsocket = "2.11.1"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -37,6 +41,8 @@ bluez-dbus = { module = "com.github.hypfvieh:bluez-dbus", version.ref = "bluez-d
 dbus-java-core = { module = "com.github.hypfvieh:dbus-java-core", version.ref = "dbus-java" }
 dbus-java-unixsocket = { module = "com.github.hypfvieh:dbus-java-transport-native-unixsocket", version.ref = "dbus-java" }
 slf4j-simple = { module = "org.slf4j:slf4j-simple", version.ref = "slf4j" }
+postgresql = { module = "org.postgresql:postgresql", version.ref = "postgresql" }
+junixsocket-core = { module = "com.kohlschutter.junixsocket:junixsocket-core", version.ref = "junixsocket" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
