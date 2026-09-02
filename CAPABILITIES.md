@@ -51,7 +51,7 @@ FB lease must be renewed every 45 s or stock LVGL repaints over you.
 | **Direct ring gestures, going around the glasses** | ring's own BLE link · `0x04` SWIPE_UP / `0x05` SWIPE_DOWN + **32-bit tick** ⇒ velocity possible | 🟡 C |
 | Both-temple long-press → stock Silent Mode | unpatched by anyone — **keep as the hardware escape hatch** | ✅ M |
 | Wake-word "Hey Even" as an app event | sid 0x07; CFW can suppress the stock handler | 🟡 S |
-| Typed-text input path | ✅ BUILT 2026-08-31: `DamageWindow.onTypedText` via all three replicas, always confirm-staged (Tmux + Files consume it) | ✅ M |
+| Typed-text input path | ✅ BUILT 2026-08-31: `DamageWindow.onTypedText` via all three replicas, always confirm-staged (Tmux, Files and Torrents consume it) — and since 2026-09-01 **typing from the ring alone** through the on-glass wireframe keyboard (`DESIGN.md` §4.8: tracker search, rename/new-folder, tmux Type…) | ✅ M |
 
 ## 3. Sensors & feedback
 
@@ -60,7 +60,7 @@ FB lease must be renewed every 45 s or stock LVGL repaints over you.
 | **IMU x/y/z** (head tracking!) | EvenHub `Cmd 19/20` · `IMU_CtrlCmd{IMUReportEn, reportFrq}` · Faceclaw ships `buildImuControl()` | 🟡 V |
 | **Wear / unwear detection** | CFW `wearnotify` → sid 0x10 `GLS_WEAR_STATUS`; op 7 queries current state | ✅ V |
 | **Magnetometer compass** | CFW mode 10 · heading via stock sid-0x08 notifier | ✅ V |
-| **Piezo buzzer** — presets, notes, **arbitrary 1–20000 Hz tones, and 48-step sequences** | mode 5 kinds 0–4 · the only audio output on a device with no speaker | ✅ V |
+| **Piezo buzzer** — presets, notes, **arbitrary 1–20000 Hz tones, and 48-step sequences** | mode 5 kinds 0–4 · the only audio output on a device with no speaker · ❌ **never used by Damage** — excluded by `DESIGN.md` §0 (Adam: no sound from the glasses; mode 5 is never sent) | ✅ V (hardware) / ❌ (policy) |
 | **Ring biometrics**: hr, spo2, hrv, temp, steps, kcal, battery — all with timestamps | ❌ **Not available to any open-source path — NOT PURSUED (cosmetic).** Glasses can't relay it (firmware source); the ring has no standard Battery Service and no battery in its advertisement; its vendor link (`bae80001-…`) is request/response with a custom checksum (would need reverse-engineering + writes to a live input device); and **Faceclaw does not read it either** — only the closed Even SDK does. Full evidence + the retracted "Faceclaw does this" lead in `CLAIMS.md`. The chrome **R cell was removed** (dead chrome); ring battery is visible in the Even app | ❌ (all open paths) |
 | Ambient light / auto-brightness, head-up angle, anti-shake | sid 0x80 `DeviceInfo` · sid 0x09 settings | 🟡 V |
 | Glasses battery / charging / case SoC / lid / in-case | sid 0x09 f4.12–13 (⚠ the BARE `08 02 10 xx` READ — the f4-sub-request form returns no device-info on the CFW, measured 2026-08-31); sid 0x81 `GlassesCaseInfo`. **In daily use: the chrome G cell** | ✅ M (CFW) |
@@ -71,7 +71,7 @@ FB lease must be renewed every 45 s or stock LVGL repaints over you.
 | capability | how | grade |
 |---|---|---|
 | Settings: brightness, silent mode, head-up, wear, lens x/y, dominant hand, units | sid 0x09 `G2SettingPackage` — **brightness write exercised on our own wire 2026-08-31** (faceclaw's form; the panel follows live) | ✅ M (brightness) / V |
-| **Gesture remapping** (`APP_Send_Gesture_Control{screenOn, operationType, apptype}`) | sid 0x09 — possibly relevant to the gloves problem *without* CFW | ❓ V |
+| **Gesture remapping** (`APP_Send_Gesture_Control{screenOn, operationType, apptype}`) | sid 0x09 — never probed. *(Historical: it was a candidate for the gloves problem *without* the CFW; the CFW is installed and that chain is closed — `overview.md` §6)* | ❓ V |
 | **On-device logger over BLE** — `logStr` streamed to host, file list/delete | sid 0x0F `logger.proto` · **would make CFW decompress failures visible** | 🟡 V |
 | **File export from device** (`EXPORT_START/DATA/RESULT_CHECK`) | sid 198/199 · **never probed. If it works, "no firmware read-back" stops being true** | ❓ V |
 | Foreground/background app awareness | sid 0x0D `sync_info{backgroundAppID, foregroundAppID}` | 🟡 V |
@@ -98,9 +98,11 @@ FB lease must be renewed every 45 s or stock LVGL repaints over you.
 because images cost seconds — thumbnails, embedded images, game frames, an ebook reader with real
 typography — is now bounded by the measured `ms ≈ 60 + bytes/50` curve, once per frame.
 
-**Highest ceiling, not yet ours:** the **texture cache**. It is what makes anti-aliased text cheap
-at scale, and it is the difference between "AA text is affordable" and "AA text is free." Design so
-it can be adopted without rework.
+**Highest ceiling, not yet ours:** the **texture cache** — in the firmware since `a5d1c31`, wire +
+byte-exact model built (`IMPLEMENTATION.md`), compositor adoption still gated on the on-glass
+checks (`REMINDER.md` items 19–20). It is what makes anti-aliased text cheap at scale, and it is
+the difference between "AA text is affordable" and "AA text is free." Design so it can be adopted
+without rework.
 
 **Most under-explored:** the **logger** (turns silent failure into visible failure — directly serves
 the project's own rule) and the **file-export service** (addresses the one genuinely irreversible

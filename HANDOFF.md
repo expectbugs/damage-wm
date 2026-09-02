@@ -5,7 +5,8 @@ lessons and measured facts behind the current state.**
 
 | § | what | status |
 |---|---|---|
-| **22** | **The overnight build (2026-09-01): §16 machinery + FILES + the 8-round review loop, run to convergence** | **current** |
+| **23** | **Torrents + the keyboard (2026-09-01, evening): the second conversion, built whole, + a 4-round review loop — PAUSED at Adam's word, not converged; resume from `980d832..HEAD`** | **current** |
+| 22 | The overnight build (2026-09-01): §16 machinery + FILES + the 8-round review loop, run to convergence | current |
 | **21** | The live refinery + Files chosen + the settled Files design (2026-09-01) | current |
 | **20** | The general-contract session — EXPLOSION §16 settled (2026-09-01) | current |
 | **19** | **The arbitration correction + LWW sync (2026-08-31)** — the phone shell is PRIMARY; the PC is the data provider + standby; per-key last-write-wins state sync | **the topology contract** |
@@ -47,8 +48,9 @@ later sections cite them:
    drives whenever it can". **Adam corrected that 2026-08-31 — see §19**: best case = the PC
    AVAILABLE TO PROVIDE DATA. §19 is the standing contract.
 3. **Decision 6:** a notification arriving while the switcher wheel is open waits behind it,
-   queued unshown; a shown box requeues unread. (Extended 2026-09-01: the context menu defers
-   the same way, and an EMERGENCY cancels either surface instead of waiting — §22.)
+   queued unshown; a shown box requeues unread. (Extended 2026-09-01: the context menu and the
+   keyboard defer the same way, and an EMERGENCY cancels any of the three surfaces instead of
+   waiting — §22, §23.)
 4. **MIT dependencies are fine** for PC-direct BLE (`bluez-dbus` + `dbus-java`); the clean-room
    rule is about GPL code.
 5. Arbitration decides by ENGAGEMENT (the phone path wins by construction when reachable);
@@ -88,7 +90,8 @@ conversation, still.
   resends, exit 0**; every END verify returned status 8 (UPDATING) — inside the tool's OK set.
   Effective OTA goodput ~25 KB/s PC-direct (`overview.md` §5.1, with its caveats).
 - **Arm addresses (Adam's pair, serial 32):** left `D8:AE:E7:C1:FA:4D`, right
-  `E4:87:77:65:CD:50`, both public. ⚠ The addresses at `overview.md:1164` are a third party's.
+  `E4:87:77:65:CD:50`, both public. ⚠ The `C4:…` addresses in `overview.md` §9.2 are the
+  third-party CFW user's, not this pair's.
 
 **§10.13 The R1 ring updated the same day** — to 2.2.6.0009 (the release paired with the
 2.2.6.10 base), via our own `research/r1_dfu.py` (Nordic Secure DFU; the R1 facts read from
@@ -107,7 +110,7 @@ SybilSight's MIT `r1Dfu.js`). Zero retries, clean reboot to the application. Les
 
 The PC drove the glasses within an hour of the flash: scan → both arms → MTU 247 → prelude →
 capability gate (`EVENCFW/16`) → carrier → lease → warmup → `driving via ble`, then the ring
-drove the shell. Closed on hardware: PC-direct BlueZ works first try; link-death recovery
+drove the shell. Closed on hardware: PC-direct BlueZ works first try; link-drop recovery
 (two unplanned LEFT drops, keeper resumed both unaided); the ring→glasses→`e0-01` event hop.
 
 **The measurement that re-priced the project:** CFW ack latency ≈ **50 ms** floor against the
@@ -147,7 +150,7 @@ latency curve (§11 note above).
   (`CfwTransportBase`); any future gate that parks the same way gets the same treatment. The
   deeper cause (sessions ending without FB_RELEASE/mode-11 cleanup) is the standing argument
   for mode 11 in `stop()`, still deliberately unadopted.
-- **The switcher was dead since first light because of OUR source filter** — events 9/10
+- **The switcher was inoperative from first light because of OUR source filter** — events 9/10
   arrive with `EventSource` ABSENT (source 0, documented all along) and the ring-only check
   discarded them. `LongPressTest` passed throughout because the harness supplied the source
   the wire omits. Lesson, same family as the ack enum: **a test default that "helpfully"
@@ -159,8 +162,8 @@ latency curve (§11 note above).
 Adam's ask, verbatim: *"Make sure it can do everything the PC system can do, including
 connecting to the PC system and using both, as well as falling back to phone-only and
 PC-only, just like in the design."* All of `DESIGN.md` §10's configurations now run on
-hardware daily. Pre-radio hardening that shipped with it: the **seam heartbeat** (a silent
-path death hands back in ~20 s, not TCP's minutes), the **pocket-liveness trio**
+hardware daily. Pre-radio hardening that shipped with it: the **seam heartbeat** (a silently
+lost path hands back in ~20 s, not TCP's minutes), the **pocket-liveness trio**
 (PARTIAL_WAKE_LOCK, battery-exemption ask, boot auto-start), **scan hardening** (BT-off fails
 loudly; re-issue under Android's 30-min downgrade), and APK distribution via
 `./gradlew :phone:stageApk` → `~/.damage/damage-wm.apk` → the G2CC `/setup` page's
@@ -195,7 +198,7 @@ system is to stay connected."* The BLE session's lifetime is now decoupled from 
 form; `start()` ADOPTS a live session (one wide flush instead of the whole choreography); the
 seam server grants adoption, treats a driver's "stop" as claim release, and never ends the
 owner's session on driver loss. `HandoverTest` pins `preludeAcks == 1` across claim → release
-→ re-claim, silent driver death, and the full WiFi-edge loop. Mixed versions degrade to the
+→ re-claim, silent driver loss, and the full WiFi-edge loop. Mixed versions degrade to the
 old tear-and-rebuild exactly.
 
 ## 17. User typography + per-app depth (2026-08-31, late)
@@ -347,7 +350,7 @@ The pre-refinery "general topics" pass with Adam. Decisions only; nothing coded.
   on preview); 16.3 per-window user config moves to the SYNCED store (app-alone quick-replies);
   16.4 **raised to Adam's top priority** — *"an always-active session that can be continued
   seamlessly from every device … 100%"* — with four must-dos before the first conversion
-  (per-item sub-records, the §19.4 startup-race closure, a per-window continuity test in the
+  (per-item sub-records, the §19.3 startup-race closure, a per-window continuity test in the
   battery, content continuability); 16.5 the notification signature grows once (source, coalesce
   key, body, deep-link target, urgency); 16.10 **ONE generic window channel with multi-backend
   providers** (Music's PC-library→Spotify fallback is the archetype: switch only if actively
@@ -366,17 +369,18 @@ The pre-refinery "general topics" pass with Adam. Decisions only; nothing coded.
 - **`WINDOWS.md` created** — the per-window conversion checklist, the bar every window meets,
   and the traps already paid for.
 
-**Next:** Adam's per-window refinery pass on `EXPLOSION.md`, then the shared machinery in §16's
-build order (state substrate → window channel → deep links + notify signature → kit), then the
-first conversion.
+**What followed:** the refinery ran the same day (§21); the shared machinery in §16's build
+order (state substrate → window channel → deep links + notify signature → kit) and the first
+conversion were built that night (§22).
 
 ## 21. The live refinery + Files chosen (2026-09-01, later)
 
 The refinery ran in session and is recorded in **`EXPLOSION.md` §20** (which supersedes §18's
-counts): 🪓 axed Deliveries · Calendar · Timers (§16.13 dies with it) · Search · **Weather**
-(phone app preferred; NWS hedge 14.4 dies — the §4.5 emergency promise rides the WEA/CMAS probe
-alone) · **Health** (dead both directions; aria is retired). ✅ Added: the **TORRENTS window**
-(§19 — his "Yes!": private-tracker browse + add-to-qBittorrent + progress + done-notifications),
+counts): 🪓 axed Deliveries · Calendar · Timers (§16.13 goes with it) · Search · **Weather**
+(phone app preferred; the NWS hedge 14.4 goes with it — the §4.5 emergency promise rides the
+WEA/CMAS probe alone) · **Health** (no longer viable in either direction; aria is retired).
+✅ Added: the **TORRENTS window** (§19 — his "Yes!": private-tracker browse +
+add-to-qBittorrent + progress + done-notifications),
 Feed comic sources (11.12), **caller ID as a §16.5 notification source**, the Info useful-stats
 steer, and the Games 10b block (roster adds: cards/Minesweeper/Chip's clone; the emulation lane
 gated on a ROM pace-screener; the Balatro real-game seam — LÖVE/Steamodded state-export beats
@@ -386,8 +390,8 @@ re-pitched. The wow order stands (§20).
 🔴 **Adam chose FILES as the first conversion.** His design intent: G2CC-like + the graphical
 wave; a locations root list (root, home, mounts); **tap = context menu with Open as the first
 row** (two taps to enter a folder — uniform for every entry type); in-app viewers for text, PDF
-and images "in nice ways". Design discussion live; the settled design gets its own record before
-code, per `WINDOWS.md` step 3.
+and images "in nice ways". The design discussion ran live; the settled design got its own record
+before code, per `WINDOWS.md` step 3.
 
 The design was settled the same evening (his answers, binding): the context-menu popup is
 **floating** (a hole in the content, not a card); the This-folder row wraps to the end of the
@@ -413,8 +417,8 @@ night; G2CC untouched; the `damage` service restart is safe by §19 (the PC neve
 **The state substrate (§16.4):** Persistence v2 sub-records (`window.<id>.<subKey>`) with
 `saveSubState()/restoreSubState()` on the contract; tombstones = empty objects, written only
 for keys the window has ever reported (the `reported` guard); merge-on-load (strictly-newer
-in-memory wins, corrupt store keeps memory); the **post-start reconciliation Run** (closes the
-§19.4 debt); `freshen` skips absent keys (virgin-shell guard); live-apply is sub-aware and
+in-memory wins, an unreadable store keeps memory); the **post-start reconciliation Run** (closes the
+§19.3 debt); `freshen` skips absent keys (virgin-shell guard); live-apply is sub-aware and
 routes `applySettings(persist=false)`. Continuity tests in `SubstrateTest` (A-save → sync →
 B-restore → identical position).
 
@@ -439,7 +443,7 @@ daemon thread — no pipe-full stalls).
 **Theme icons (Adam's ruling):** core `IconSource/IconNames/IconPaint/IconRaster`; desktop
 `ThemeIcons.kt` (xfconf theme detect, Inherits-chain BFS, both dir layouts, rsvg-convert /
 magick rasterize, mem+disk cache keyed by theme, clean-miss vs paced-retry-failure); phone
-`RemoteIcons.kt` (content-port `icon` op, theme-keyed cache with a wipe marker on theme change,
+`RemoteIcons.kt` (content-port `icon` op, theme-keyed cache cleared on theme change via a marker,
 Semaphore(4), closable). Main's focused lens icon is the 56 px band-height class (`DESIGN.md`
 §4.5b; ink re-measured 9.0 %/4.8 %, tables updated). Icons are a RENDER-TIME lookup with the
 drawn set as fallback — a missing tool or theme degrades loudly to drawn, never blocks.
@@ -452,7 +456,8 @@ non-empty), tap = context menu with Open first, This-folder row at the wrap end,
 (NOFOLLOW copies, copyTree rollback), trash/Restore/purge (whole-op lock, double-confirm
 purge), typed rename/mkdir (sanitized, blank cancels), Open-on-PC (xdg-open on the host),
 EPUB→Reader hand-off via `open("book:<id>")`, per-row theme icons + lens thumbnail. Deviations
-from the graded §5 table are recorded in its banner (row thumbnails v1.5; `appSettings()`
+from the graded table are recorded in `EXPLOSION.md` §5's banner (per-row thumbnails not
+shipped — the lens shows one — left as a later item before the no-staging rule; `appSettings()`
 empty — hidden/sort live in the This-folder menu).
 
 ### 22.2 The review loop
@@ -484,7 +489,7 @@ lifecycle, paced retries that actually repaint, code-point-safe fits, and Exec h
 **Round 3** (`d0a74aa`): three fresh reviewers over the whole project again (fix-diff /
 glue+net / shell+windows) — ~28 findings, all verified, all real ones fixed. Standouts:
 content-channel **liveness** (keepAlive everywhere, the tmux subscription re-assert, the win
-host greeting) so a silent path death reconnects instead of freezing a healthy-looking window;
+host greeting) so a silently lost path reconnects instead of freezing a healthy-looking window;
 the **cross-version law** enforced on every lane (in-band `err`, never a closed session, no
 2 s flap against an old host); apply-only-if-undisturbed guards on every async completion that
 was still missing one (openPdf, four tmux busy() sites); **per-item LWW re-apply** after a
@@ -511,11 +516,11 @@ confirm shows both names). Take them with the next Files change.
 ### 22.3 State at hand-off
 
 Battery: core **191** · desktop 9 · selfcheck **61** · snapshots 18 (eyeballed) · epub
-380/404 · lint 0 · APK **16/0.16** staged (bump per install; the phone still runs 0.15 until
-Adam installs). Jar staged; service restarted onto the build (kept driving via the phone,
-untouched on glass). Reader writes transitional legacy offsets alongside sub-records —
-**remove when the installed APK is ≥ 0.16** (with it: `restoreStateLive`'s map-authority and
-`liveMapApply`).
+380/404 · lint 0 · APK **16/0.16** staged (the phone still ran 0.15 at that hour; 0.16 was
+observed installed later that day — `37cf9b0`). Jar staged; service restarted onto the build
+(kept driving via the phone, untouched on glass). Reader writes transitional legacy offsets
+alongside sub-records — **removable now that the installed APK is ≥ 0.16** (`REMINDER.md`
+Next 2; with it: `restoreStateLive`'s map-authority and `liveMapApply`).
 
 Recorded limits, verified as designed or accepted (round 3): the Reader reset-progress picker
 matches by TITLE (two same-titled books are indistinguishable in that list either way — a
@@ -523,7 +528,7 @@ disambiguation is a design item); a Settings double-tap revert applies its whole
 snapshot (a peer sync landing mid-adjust rolls back — dual-active esoterica); the "+N" badge
 counts already-read queue entries; the content-port pre-auth hello read has no time bound
 (tailnet-only, tracked and closed on stop); the win channel has no app-level ping (a silent
-path death is bounded by keepAlive and the write path's own retransmission); the L2 seam
+path loss is bounded by keepAlive and the write path's own retransmission); the L2 seam
 repair is same-batch in the USUAL case — under exact budget exhaustion it rides the next
 flush via `residual`, a one-flush transient.
 
@@ -566,7 +571,7 @@ staging — complete and polished before the next app.** The session, in order:
   sequence), `TorrentsNet` (the win channel: version-cursor snapshots, event replay),
   `TorrentsWindow` (five levels, three menus, two documents, six filters, the speed history),
   `ScriptedTorrents`, `IconKind.TORRENTS`, the Files `path:` deep link, registration on both
-  hosts, SelfCheck + Snapshot walks. The dead Global notify rows are gone.
+  hosts, SelfCheck + Snapshot walks. The unused Global notify rows (SMS/Mail/Music) are gone.
 - **What the harnesses caught**: the transfers cursor was a bare index into a LIVE list — an
   add under the wrap-end menu row moved the menu away from the cursor (the selfcheck's second
   menu visit), and the first fix chased an empty list's menu row to the end (the core test).
@@ -584,15 +589,16 @@ fix; all real ones fixed, the doc mismatches corrected, one recorded as a design
 The ones that mattered:
 
 - **The provider listener leaked on every desktop stack swap** (standby → BLE → handback): a
-  dead shell's queue was fed one snapshot per poll for the life of the service. `TorrentsWindow.detach()`,
-  called from `DesktopStack.stop()` like tmux's, plus the focus release.
+  stopped shell's queue was fed one snapshot per poll for the life of the service.
+  `TorrentsWindow.detach()`, called from `DesktopStack.stop()` like tmux's, plus the focus
+  release.
 - **The tracker's NFO landmark matched a commented-out template** that precedes the real
   element on the live page (found by running a port of the reader over the real page): comments
   are stripped before any landmark search; a listing row without `fid`/`name` is now refused
   loudly instead of silently dropped; `+` in a release name is no longer decoded as a space;
   multi-word tags survive; an HTML answer on the JSON endpoint counts as a refused session.
 - **Announcements**: the announced stamp is kept across a removal (a qBittorrent restart's
-  partial list re-added everything and would have storm-announced 38 finishes); "done" keys on
+  partial list re-added everything and would have announced all 38 finishes at once); "done" keys on
   the completion stamp alone; a host restart's fresh log is replayed to a phone that was
   connected before, while a phone's first contact still adopts the current sequence; the host
   says `truncated` when its ring no longer reaches back; a `snap` counts a new epoch as changed.
@@ -705,7 +711,8 @@ later item); one "remote" focus key per channel (a stale connection's end drops 
 driver's pace for at most one poll interval); the keyboard's 576 px key field assumes the
 full-width content area (a narrower calibrated safe rect is not configured today).
 
-**Battery after round 4:** core 221 · desktop 9 · selfcheck 89 · snapshots 26 · epub-check clean · lint 0; APK 18/0.18 and the jar restaged, the service restarted on it.
+**Battery after round 4:** core 221 · desktop 9 · selfcheck 89 · snapshots 26 · epub-check
+clean · lint 0; APK 18/0.18 and the jar restaged, the service restarted on it.
 
 **The loop's record:** rounds 1–4 → ~55 · ~30 · ~15 · ~14 findings, every one re-verified
 against the code before a fix, the real ones fixed and pinned, the doc mismatches corrected.
@@ -715,4 +722,6 @@ start from the round-4 diff (`980d832..HEAD`).
 
 **Next (`REMINDER.md`):** on-glass verdicts — install 0.18, then the keyboard's feel (row
 pitch at 288, the highlight, the text-line pan, stay-in-row), the transfers list, a real
-done-notification, browse/search/add against the live tracker; and the resumed review pass.
+done-notification, browse/search/add against the live tracker; the resumed review pass; the
+Reader transitional cleanup (unblocked); then the next window — Music, design discussion and
+verdicts before code.

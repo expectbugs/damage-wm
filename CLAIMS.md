@@ -140,7 +140,7 @@ Everything here backs a decision in [`DESIGN.md`](DESIGN.md).
 | **No `inflateSetDictionary`** ⇒ every rect in a batch gets its own zlib stream, so splitting always loses cross-rect sharing | **V** | only `inflateInit2(strm, 15, …)` is imported |
 | mode-3 stereo: boxes size-checked equal, `box_off = (FW_SIDE()==2) ? 1 : 5`, +4 B | **V** | source |
 | mode-9 stereo: 4 rects / 32 B, right lens uses the 2nd set | **V** | source |
-| **Ink coverage of every shell surface** (Main 8.5 % active / 4.4 % resting, silent 0.5 %, …) | **M** | `design/render_shots.py`, real renders at 1×, quantized to 4bpp (2026-08-31: −0.2 % across full-screen surfaces after the R battery cell was removed) |
+| **Ink coverage of every shell surface** (Main 9.0 % active / 4.8 % resting, silent 0.5 %, Torrents list 9.0 %, the open keyboard 9–11 %, …) | **M** | `design/render_shots.py` + the selfcheck, real renders at 1×, quantized to 4bpp (2026-08-31: −0.2 % across full-screen surfaces after the R battery cell was removed; 2026-09-01: Main +0.5 %/+0.4 % for the band-height lens icon — `DESIGN.md` §4.2; Torrents/keyboard from `HANDOFF.md` §23) |
 | **Compression at 640×480 is 0.008–0.056×** of raw | **M** | same. ⚠ The 0.03–0.05× band used for modelling is sound but sits at the **pessimistic** end — do not plan against its low end |
 | Per-face byte cost spans **0.98×–1.17×** at matched x-height | **M** | 10 faces, x-height normalised (comparing at nominal size is not a fair test) |
 | `▸`/`▶` absent from **13 of 16** candidate faces, `⚙` from **15 of 16** | **M** | real font `cmap`s via fontTools. ⚠ `PIL.getmask().getbbox()` is **not** a coverage test — a tofu box has a bbox too |

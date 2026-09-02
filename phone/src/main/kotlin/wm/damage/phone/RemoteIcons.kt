@@ -27,7 +27,7 @@ import wm.damage.core.util.Log
  * cellular morning) only pauses the key for [RETRY_PACING_MS], never latches
  * "missing" for the run; only an in-band clean miss (len 0) caches as
  * [missing]. The disk cache is theme-keyed via the host's theme tag — a theme
- * change on the PC wipes it. Fetches ride a small semaphore (a cold first
+ * change on the PC clears it. Fetches ride a small semaphore (a cold first
  * paint must not open dozens of sockets), and [close] releases in-flight
  * sockets so a stack rebuild cannot pin IO threads.
  */
@@ -152,7 +152,7 @@ class RemoteIcons(
         }
     }
 
-    /** A different serving theme wipes the cache (once), so the phone follows
+    /** A different serving theme clears the cache (once), so the phone follows
      *  desktop re-themes instead of showing the old set forever. */
     private val themeLock = Any()
     /** Callers hold [themeLock] — the adoption must be atomic with the

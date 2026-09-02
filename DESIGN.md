@@ -14,8 +14,8 @@ capture measurements — every table says which. Two tools enforce the rest:
 **`tools/lint.py`** (the build gate, §9.2b) and **`tools/geometry.py`** (the rules it shares with
 the compositor).
 
-📍 **New here? Read `REMINDER.md` first** — project state, what comes next, and the consolidated
-first-light checklist. **If you are deciding implementation, read §10 (deployment topology) before
+📍 **New here? Read `REMINDER.md` first** — project state, what comes next, and what is still
+unmeasured on glass. **If you are deciding implementation, read §10 (deployment topology) before
 anything else** — it is the only part of this document that constrains *how* the shell is written,
 and it rules out one otherwise-obvious runtime choice.
 
@@ -43,23 +43,19 @@ Recorded so they are not re-proposed. These are *decisions*, not oversights.
 | ❌ **Using the 16 px side gutters for content** | they stay **depth margin**. Adam, 2026-08-17 |
 | ❌ **The ribbon** | retired 2026-08-18 — a third window list competing with Main and the switcher, both of which did it better (§4.1) |
 | ❌ **Segmented battery icons** | measured worse than a plain fill bar at this width, and 20× the run boundaries (§4.1) |
-| ❌ **A generic "overlay" abstraction** | the switcher, the notification surface and the context menu (§4.7) are **bespoke**, designed independently |
+| ❌ **A generic "overlay" abstraction** | the switcher, the notification surface, the context menu (§4.7) and the keyboard (§4.8) are **bespoke**, designed independently |
 
 ---
 
 ## 1. Input grammar — ring only
 
-**The R1 ring is the only input device.** Temple touchpads are deliberately unused. This aligns
-with the CFW, which hard-gates both halves of the long-press pair on the ring
-(`g2flash/patches/gesture_fwd.c`):
-
-```c
-#define SRC_RING 4                                   /* source byte @ 0x2034dc30 */
-void evenhub_longpress(void) { if (EVT_SRC == SRC_RING) FW_SYSEVT(0,0,0, ET_LONG, 0,0); }
-int  ring_release(void *ctx, int code, void *data)
-                              { if (EVT_SRC == SRC_RING) { ...ET_REL... } ... }
-```
-> *"A touchpad long-press in EvenHub now does nothing (dialog removed, no forward)."*
+**The R1 ring is the only input device.** Temple touchpads are deliberately unused. ⚠ The CFW no
+longer enforces that for us: an earlier `g2flash/patches/gesture_fwd.c` gated both halves of the
+long-press pair on the ring's source byte (`4`), but the shipped `a5d1c31` forwards events 9/10
+from **any** source while the framebuffer lease is held, handing the raw source byte to a stock
+sender that drops it for those event types (below). Ring-only is therefore *our* rule: the
+attributed gestures are filtered on `EventSource = 2`, and the unattributed pair is kept harmless
+by §1.2's no-op default.
 
 🔴 **The ring-only rule's mechanics, corrected 2026-08-31 (HANDOFF.md §12).** "Ring only" is
 enforced by source byte for the attributed gestures (tap / double-tap / scroll carry
@@ -77,14 +73,16 @@ default, not the source filter.
 |---|---|---|
 | **tap** | EvenHub `Sys_ItemEvent`, `EventSource = 2 (RING)` — stock, unpatched | **V** |
 | **double-tap** | same path, stock | **V** |
-| **scroll ↑ / ↓, per notch** | stock; every notch is delivered because the capture container holds one space and can never scroll internally (§1.5) | **C** ⚠ |
+| **scroll ↑ / ↓, per notch** | stock; every notch is delivered because the capture container holds one space and can never scroll internally (§1.5) | **M** — daily use since 2026-08-30 (§11 #1) |
 | **long-press** | CFW `SysEvent 9` `RING_LONG_PRESS_EVENT` — fires when the hold threshold trips, *while still held* | **V** |
 | **long-press release** | CFW `SysEvent 10` `RING_LONG_PRESS_RELEASE_EVENT` | **V** |
 
 ⚠ Do not conflate the two source numberings: protobuf `EventSourceType` is `1=GLASSES_R, 2=RING,
 3=GLASSES_L`; the firmware's internal source byte is `0/1 = L/R temple, 4 = ring`.
 
-⚠ The hold threshold is a stock firmware constant, **unmeasured (U)**.
+⚠ The hold threshold is a stock firmware constant, never read from the image; on glass a
+deliberate hold of roughly a second raises event 9 (`HANDOFF.md` §11). Nothing in the grammar
+depends on its exact value (§1.3).
 
 ### 1.2 Semantics
 
@@ -129,7 +127,7 @@ cancel restores, so §1.7 still holds. A mistimed deliberate chord degrades to p
 indicator. This is a **sequence window**, the same species as §4.5's grace — nothing is held, so
 §11's retirement of held gestures stands. In **silent mode the long-press never arms** (§1.5):
 gloves-on is where accidental presses are the most common, and double-tap must always mean wake
-there. ✅ Answered on hardware (2026-08-30/31, `HANDOFF.md` §11.4): event 10 fires after almost
+there. ✅ Answered on hardware (2026-08-30/31, `HANDOFF.md` §11): event 10 fires after almost
 every touch-end (its name describes the hook site, not the semantics), event 9 is the real
 long-press, and the chord is confirmed on glass — five deliberate holds, five clean event-9s,
 zero accidental ones across a day of use.
@@ -202,20 +200,18 @@ FEWER bytes than the analog face did (174 vs 178 B): angled hands were RLE-expen
 segments are runs. Compare the 1.6 % / 1,165 B the 2026-08-18 *centred* digital clock cost — the
 objection then was huge-and-centered, and this one is 144×48 in a corner.
 
-⚠ **On a sweeping second hand.** Bytes are not the constraint — the constraint is that a 1 Hz update
-runs the radio continuously and contradicts deep idle (§5.15), on a device whose **only power
-control is the case, which stays home during the workday**.
+⚠ **On seconds.** Bytes are not the constraint (a whole silent frame is 174 B) — the constraint is
+that anything sub-minute runs the radio continuously and contradicts deep idle (§5.15), on a
+device whose **only power control is the case, which stays home during the workday**.
 
 | option | flushes/hour | |
 |---|---|---|
-| ✅ **hands snap on the minute** | **60** | adopted |
-| hands glide over 4 frames | 240 | rejected — unnecessary motion |
-| smooth 1 Hz sweep second hand | 3,600 | rejected |
+| ✅ **the readout steps on the minute** | **60** | adopted |
+| an animated minute change over 4 frames | 240 | rejected — unnecessary motion |
+| a seconds readout at 1 Hz | 3,600 | rejected |
 
-⇒ Bytes were never the constraint (a whole silent frame is 178 B). The constraint is that anything
-sub-minute runs the radio continuously on a device whose **only power control is the case, which
-stays home during the workday.** Temporary popup notifications still appear. **All input swallowed
-except double-tap**, which returns to Main.
+Temporary popup notifications still appear. **All input swallowed except double-tap**, which
+returns to Main.
 
 🔑 **This completes the gloves fix.** `overview.md` §6: glove-induced ring long-press → "End
 Feature?" → app ended, or a second long-press → Firmware Menu → Silent Mode. The dialog no longer
@@ -293,30 +289,32 @@ x = 320**, the same axis as the switcher wheel and Main's lens.
 
 ### 🔴 2.2b Express this layout RELATIVE to a calibrated safe rect, not absolute
 
-Every number in this file is written against a full 640×480. **That is the assumption to build on
-for now** (Adam, 2026-08-18) — but it is an assumption, because usable extent is fit-dependent and
-**cannot be known before first light**:
+Every number in this file is written against a full 640×480. **That is the assumption to build on**
+(Adam, 2026-08-18) — but it is an assumption, because usable extent is fit-dependent:
 
 > *"You can lose part of the top or bottom to optical occlusion depending how the glasses sit on
 > your face."* — the CFW author
 
 Designing for the worst case surrenders FoV we may not need to; designing for the best case risks a
-UI that does not work at the desk it is meant for. **So make it a calibration, exactly like
-disparity (§3.4):** a first-light ramp draws a border and shrinks it until it is fully visible, and
-that safe rect is stored as a setting. `640×480` and Faceclaw's `640×288` then stop being two
-designs and become two values of one parameter. *(A vertical-position setting once fell out of
-this too — retired 2026-08-31: Adam's fit always shows the top and loses the bottom, so every
-reduced band is TOP-aligned; see §4.2 Size and §2.5.)*
+UI that does not work at the desk it is meant for. **So it is a calibration, exactly like
+disparity (§3.4):** a ramp draws a border and shrinks it until it is fully visible, and that safe
+rect is stored as a setting. `640×480` and Faceclaw's `640×288` then stop being two designs and
+become two values of one parameter. **State (2026-09-01):** the border ramp has not been run
+(`REMINDER.md` → still unmeasured, #1); what wearing it settled is the *direction* — Adam's fit
+always shows the top and loses the bottom (§2.5) — so the working parameter today is the Size
+setting's four TOP-aligned heights (§4.2), global with per-app overrides. *(A vertical-position
+setting once fell out of this too — retired 2026-08-31 for the same reason.)*
 
 ⚠ **Cheap now, expensive to retrofit.** It means no hardcoded `34` / `210` / `450` anywhere: the
-bars, the lens and the content band are all positioned *from the safe rect*. Adopt the discipline
-immediately even while the value stays 640×480.
+bars, the lens and the content band are all positioned *from the safe rect* —
+`core/…/geom/Layout.kt` takes the safe rect as its one input and `GeometryTest` sweeps it.
 
 ✅ **The importance gradient is what makes it degrade gracefully**, and we already have it. Rendered
-with 56 px occluded top and bottom (`design/shots/cmp-480-ribbon-occluded.png`), the current layout
-loses only the top bar and the status bar — clock, battery, telemetry — and keeps **every dashboard
-row and the lens**. Load-bearing content is centred; the outermost rows carry the things that are
-right to lose. That is §2.5, demonstrated rather than asserted.
+with 56 px occluded top and bottom (`design/shots/cmp-480-ribbon-occluded.png`), the 2026-08-18
+layout (ribbon era, same importance ordering) loses only the top bar and the status bar — clock,
+battery, telemetry — and keeps **every dashboard row and the lens**. Load-bearing content is
+centred; the outermost rows carry the things that are right to lose. That is §2.5, demonstrated
+rather than asserted.
 
 ### 2.3 Cell table
 
@@ -339,7 +337,7 @@ right to lose. That is §2.5, demonstrated rather than asserted.
 
 Every value divides: x/w by 4, y/h by 2. ✅ Both bars tile 16 → 624. ✅
 
-*(Optional variant: merging Current operation + Status into one 352 px marquee cell is cleaner and
+*(Optional variant: merging Current operation + Status into one 260 px marquee cell is cleaner and
 handles long messages better under NO TRUNCATION. Kept separate by default, as specified.)*
 
 ### 2.4 Rules
@@ -438,9 +436,6 @@ mode 9 stereo:  [9|80][Lsrc][Ldst][Rsrc][Rdst]                    +16 bytes
 - **Cost is negligible.** Depth is the cheapest visual feature on the device.
 - **Scrolling stereo content works** — mode 9 has its own lenses-differ form.
 
-⚠ **Nobody has ever sent one.** Faceclaw contains no stereo code at all. The mechanism is V-grade;
-the comfort is untested by anyone.
-
 ### 3.3 Why 608 wide
 
 Content inset 16 px each side gives the full ladder. At maximum disparity the left lens draws at
@@ -460,8 +455,9 @@ horizontal offset, our disparity stacks on it and could exceed divergence.
 - ✅ Content parks far permanently, so a popup appearing does **not** force the content to repaint
   its stereo boxes. Only the popup rect is new.
 - **IPD / convergence calibration is a first-class WM setting** — misaligned images are what
-  actually cause eye strain, so this is a comfort win independent of any effect. Ship a ramp
-  (0/4/8/12/16, hold to accept).
+  actually cause eye strain, so this is a comfort win independent of any effect. Shipped as the
+  Depth rows (0/4/8/12/16 — scroll previews live, tap keeps, double-tap reverts; §4.2). The ramp
+  as a guided calibration is still owed (§11 #2).
 - Horizontal offsets only, never vertical (the wire format would allow vertical — the guard is
   ours). Never different *content* per eye.
 
@@ -472,7 +468,7 @@ horizontal offset, our disparity stacks on it and could exceed divergence.
 ### 4.1 The top bar
 
 ```
-     0                                                424       544        640
+    16                                                424       544        624
    ┌──────────────────────────────────────────────────┬───────────┬──────────┐
  0 │ ▣ TERMINAL · build #482 · 4m12                   │ G▓▓▓▒ P▓▓▒│  12:59   │ 32
    │                   408                            │    120    │    80    │
@@ -505,7 +501,8 @@ of the list beneath it. It was a third window-list competing with two better one
 #### Title — window and document, merged
 
 With no ribbon there is no redundancy left to avoid, so the two halves rejoin into one line:
-**`▣ WINDOW · document`** — icon, window name at head level, context dimmer. 296 px. Overflow takes
+**`▣ WINDOW · document`** — icon, window name at head level, context dimmer. 408 px (296 until the
+2026-09-01 battery-cell trim, below). Overflow takes
 the `▸` continuation mark, never a marquee (§2.4 rule 3).
 
 🔴 **The Title contract (Adam, 2026-09-01): the Title is SHORT BY DESIGN — its content must
@@ -519,7 +516,7 @@ one step away inside the window itself.
 
 #### 🔑 The divider absorbs the ribbon's remaining job
 
-The `640×2` rule is lit regardless, so it carries both axes of "where am I":
+The `608×2` rule is lit regardless, so it carries both axes of "where am I":
 
 - a **dim track** the full width, one slot per window;
 - a **bright segment** at your position;
@@ -604,7 +601,7 @@ should drive every decision below.
 
 ⇒ **Adopt an INK BUDGET as a first-class, lintable design metric** — the fraction of pixels above
 level 0. The layout linter (§9.2b) can compute it from a rendered surface and fail the build when a
-surface exceeds its budget. Starting targets, to calibrate on the first real render:
+surface exceeds its budget. The budgets, against the current renders:
 
 | surface | budget | **measured** |
 |---|---|---|
@@ -628,7 +625,8 @@ design change. **Every budget is met with wide margin**, which says the budgets 
 set conservatively rather than that the design is sparse by luck. Shots in `design/shots/`.
 
 ⚠ **Those are full-screen KEYFRAME costs, not per-interaction deltas.** Cold entry to a screen:
-**178 B (silent) → 8,487 B (a dense mail list).** Compression ratios land at **0.008–0.056×**, so the
+**174 B (silent, today's readout) → ~8.5 KB (a dense mail list, 2026-08-18 render).** Compression
+ratios land at **0.008–0.056×**, so the
 0.03–0.05× band used throughout §8 was sound but slightly optimistic — the measured full-screen
 keyframe sits at the **pessimistic end** of the modelled range. Do not plan against the low end.
 
@@ -732,9 +730,12 @@ notification focus grace (§4.5) — scheduler priority, not a timer.
 The last list entry opens the WM's global settings. **Organized as DIRECTORIES since 2026-08-31**
 (Adam, same day, after inline headers proved too slow: *"the categories should be DIRECTORIES …
 it takes way way too long to scroll through 50 different things"*): the top level lists the
-categories — **Global** (the table below + the host's display-target rows), then **one per app**
-contributing rows through `DamageWindow.appSettings()` (Reader: Scroll step · Scroll accel ·
-Size) — tap descends into a category, double-tap climbs out, exactly the §4.6 level pattern.
+categories — **Global** (the table below + the host's display-target rows), then **one per app**:
+every app category carries Font · Font size · Font style · Depth (§0's typography reversal, §3.1's
+per-app depth) plus the rows that window contributes through `DamageWindow.appSettings()` (Reader:
+Scroll step · Scroll accel · Size · Reset progress; Tmux: Update · Context rows · Alerts · Size;
+Torrents: Notify · done · Notify · errors · Poll · Size; Files: none) — tap descends into a
+category, double-tap climbs out, exactly the §4.6 level pattern.
 
 🔑 **The global/override pattern** (Adam, 2026-08-31): any per-app shadow of a global setting
 offers **"global" as its DEFAULT option** plus the global setting's own values; a non-global
@@ -747,13 +748,14 @@ choice overrides the global for that app only. Reader's Size row is the first in
 | **Size** | **four heights — 288 / 352 / 416 / 480 — always TOP-aligned** (revised 2026-08-31, Adam: *"I can always see the top, it's the lower areas that get cut off if I wear the glasses too high"* — so the vertical-position setting was useless and is retired). Per-app shadows follow the global/override pattern below |
 | **Depth** | the disparity calibration ramp, 0/4/8/12/16 (§3.4) |
 | **Presence** | the resting-state ink floor — one knob for "how much is it in my way" |
-| **Font** | system face and size; per-window content override (§Type — defaults are locked, this is for tuning) |
+| **Font · Font size · Font style** | chrome + Main's face, scale and style, each option previewed in its own face (§Type's defaults, changeable since 2026-08-31); every app category carries the same three rows for its content |
+| **Silent clock** | large (the 144×48 seven-segment box, default) / medium / small — §1.5 |
 | **Head tracking** | default OFF (§7.1) |
 | **Long-press** | **off** (default — §1.2 revised 2026-08-30: a bare long-press is a no-op; the §1.3 chord opens the switcher) / switcher |
 | **Notification sources** | only `Notify · Damage` here — **each app's toggles live in that app's own category** (Adam, 2026-09-01; §4.5) |
 | **Keyboard** | qwerty / abc — the §4.8 keyboard's layout |
 | **Battery alert** | off / on / escalating — the ≤ 20 % pulse (§4.1) |
-| **Profiler / diagnostics** | status-bar profiler, mode-7 overlay (§9.2) |
+| **Profiler · Diag overlay** | the status-bar profiler (off by default) and the mode-7 diagnostic overlay (on since bring-up; a sticky flag is a hard error either way — §9.2) |
 
 🔑 **Every appearance setting previews LIVE as you scroll its value.** Brightness changes the panel
 as you move; depth changes the disparity as you move; size re-lays out as you move. **This is the
@@ -761,12 +763,14 @@ only sane way to set a perceptual value on a HUD** — you cannot pick a comfort
 number, you pick it by looking. It reuses the live-preview machinery from §4.3 rather than adding
 any.
 
-⚠ Size changes re-lay out the whole shell ⇒ a keyframe (~1.1 s). Fine for a setting, but it is the
-one setting that cannot preview per notch; it previews on settle.
+⚠ Size changes re-lay out the whole shell ⇒ a keyframe (~1.1 s at stock-formula pricing, ~0.3 s on
+the measured CFW curve, §8.4). Fine for a setting, but it is the one setting that cannot preview
+per notch: it is staged while scrolling and applied on tap (the font rows stage the same way — a
+face change is a relayout too).
 
 #### Cost
 
-| | bytes | ms |
+| | bytes | ms *(stock-formula, §8.4)* |
 |---|---|---|
 | **scroll one notch** (mode 9 shift + 2 fills) | 880–1,460 B | **256–309** |
 | full Main paint (entry) | 3.8–6.3 KB | 521–751 |
@@ -882,8 +886,6 @@ instead of reading as strain.
   would split every panel row per frame (§4.5's cost).
 - Costs 3 rects instead of 1 (+4 B each for the stereo box pair, ~30 B of extra framing). Well
   inside budget, negligible bytes, and the bands are contiguous so the pixel count is unchanged.
-  *(Implementation note: the shipped wheel draws each window's ICON, not a live thumbnail —
-  the thumbnail idea in this section is unbuilt.)*
 - 🟡 **Stretch:** interpolate an item's disparity as it rotates forward. The ladder is quantised to
   4 px and content parks around +12, giving **12 → 8 → 4 → 0 across exactly the four spin frames** —
   the depth steps and the animation steps line up on their own. Default is the simpler fixed-band
@@ -891,9 +893,11 @@ instead of reading as strain.
 
 #### Contents and behaviour
 
-Rows are **windows only**. Each carries a real downscaled thumbnail of that window's composed frame
-(the PC already has it, so this costs transmission only — free once the texture cache lands), its
-name, and a **dirty tick** when it has new content (§4.1).
+Rows are **windows only**. Each carries its icon (the theme icon or the drawn fallback, §4.7), its
+name, and a **dirty tick** when it has new content (§4.1). *(The original design put a real
+downscaled thumbnail of the window's composed frame here; that is unbuilt — the texture cache that
+would make it cheap landed in firmware 2026-08-30, but the compositor does not use it yet,
+`IMPLEMENTATION.md` → The texture cache.)*
 
 Long titles marquee inside the 240 px band; they are never truncated (§2.4 rule 3).
 
@@ -964,7 +968,7 @@ returns after. The wheel owns the screen; nothing repaints over it.
 | Current operation | the verb — rendering, fetching, flushing |
 | Status | result / state — ok, warn, error — plus the **input echo** (§9.2) |
 | Throughput ↑ · ack ms | uplink B/s and image ack latency. ⚠ downlink is *not* shown: the glasses send only acks and events, so it would read ~0 forever |
-| **Compass ✱** | 8 sectors (N NE E SE S SW W NW) — **hysteresis required**, see §7.2 |
+| **Compass ✱** | 8 sectors (N NE E SE S SW W NW) — **hysteresis required**, see §7.2. ⚠ No heading source is wired yet; the tape shows its rest mark |
 | Link signal | 🔴 **TWO links, one 120 px cell.** See below |
 
 #### 🔴 There are two links and they fail completely differently
@@ -986,8 +990,10 @@ the host is gone, exactly as the battery does (§4.1). And it reports **duration
 G2CC's `ConnectionManager` already tracks `offlineSince`, so `PC 4m` is free and far more actionable
 than `offline`.
 
-⚠ *Which* BLE link, and whether connected RSSI is readable at all, remain **(U)** — and the answer
-now differs per platform (§10.7).
+⚠ *Which* link and how: both transports read RSSI from the **RIGHT** (command) arm every 10th
+maintenance tick (~10 s). The APK reads it from the live GATT connection; BlueZ reports it only
+while the device is being seen by the scanner, so the PC-direct cell may carry bars without a
+numeral. No value has been checked against a real signal on glass yet (§11 #4).
 
 **Per-window capability lives elsewhere and costs nothing new:** Main's existing summary line already
 has a slot per window, so a window that is unavailable offline simply says so there (§10.5).
@@ -1306,7 +1312,7 @@ mis-landed gesture is not.
 
 #### Cost — notifications are effectively free
 
-| | bytes | ms |
+| | bytes | ms *(stock-formula, §8.4)* |
 |---|---|---|
 | appear, max size 248×104 | 390–650 B | 211–235 |
 | appear, min size 248×56 | 210–350 B | 195–208 |
@@ -1342,15 +1348,13 @@ quality and rendered at 56 px (switcher centre, Main's lens) and 20 px (rows). *
 same night by the theme-icons ruling (§4.7): the user's desktop theme supplies icons at render
 time wherever it can; the drawn set is the FALLBACK and the release path** — the quality pass
 targets the drawn set. The band-height lens icon LANDED (56 px, `MainSurface`; the §4.2 ink
-table was regenerated with it). Then draw
-the ~13 new window icons once, never twice. ⚠ Implementation watch-item: Main's **resting** state
-keeps the lens visible at ≤ 5 % ink, so the render and BUD007 decide whether the band-height icon
-rides at rest or dims there — the same gate that caught the row-icons-at-rest regression (§9.2b).
-The measured ink table in §4.2 reflects current renders; regenerate when this lands.
+table was regenerated with it — Main resting measures 4.8 %, so the icon rides at rest inside the
+5 % budget, the same gate that caught the row-icons-at-rest regression, §9.2b). Each new window's
+icon is drawn once, at both scales, as it is built (`REMINDER.md` → the icon-quality pass).
 
 **Drawing rules** (§2.4 rule 9, and they are also the compression rules): thick strokes, closed
 forms, no hairlines, few levels, solid fills. Measured cost of adding icons to all eleven Main rows
-plus the lens: **ink 7.1 % → 8.1 %, bytes +8 %** — well inside the 15 % budget.
+plus the lens: **ink 7.1 % → 8.1 %, bytes +8 %** (2026-08-18 render) — well inside the 15 % budget.
 
 ✅ **Three more adopted 2026-08-18:**
 
@@ -1361,12 +1365,14 @@ plus the lens: **ink 7.1 % → 8.1 %, bytes +8 %** — well inside the 15 % budg
 - **A compass TAPE** replaces the `NE` label: three sectors with the current one under a fixed
   centre mark. Wide-and-short is the cheap shape (§4.5), and a tape is unambiguous about which way
   it scrolls, which a rotating arrow would not be. Paid for by rebalancing the status bar to
-  `op 160 · status 132 · thru 128 · tape 100 · link 120`.
+  `op 160 · status 132 · thru 128 · tape 100 · link 120` — `op 128` since the bars were inset to
+  608 px (§2.3): the op cell absorbs the width difference.
 - **Coarse block progress bars** wherever there is a genuine quantity — build progress in the lens,
   reading position on a row. **Discrete blocks, never a smooth bar**: solid blocks are long RLE
   runs, a gradient is not. Same rule as the switcher's quantised fade.
 
-Measured after all three plus row icons: **ink 8.7 %, 7,861 B** — still inside the 15 % budget.
+Measured after all three plus row icons: **ink 8.7 %, 7,861 B** (2026-08-18; §4.2's table is
+current) — still inside the 15 % budget.
 
 ❌ **Not adopted: a gesture legend.** Faceclaw puts one on every screen (`▲▼ item · launch · ·· row`),
 and it is genuinely smart *there* — because its gestures change per screen. **Ours do not.** Tap,
@@ -1394,9 +1400,10 @@ content list  ──tap an item──▶  that item's actions  ──tap──�
 
 which is exactly what G2CC's Files window already did (*"tapping a FILE opens the ACTIONS level —
 Open / Move / Copy / Rename / Del / Stats"*), generalised to every window. **Window-level** actions
-(Reader's Jump/Mark/Recent) live at the end of the list, reachable in **one notch up from the top by
-wrapping** — the identical pattern that puts Settings at the end of Main's list (§4.2). Same gesture,
-same place, at both levels.
+live at the end of the list, reachable in **one notch up from the top by wrapping** — the identical
+pattern that puts Settings at the end of Main's list (§4.2). Same gesture, same place, at both
+levels. *(A document window has no rows to end: Reader opens its level — Resume · Chapters · Jump ·
+Bookmark · Library — with a tap on the page.)*
 
 ⇒ The window gets the whole content area. That is where the 2.37× comes from — it is not extra
 panel, it is mostly *chrome we stopped drawing*.
@@ -1435,7 +1442,7 @@ handles its own indication.
 
 #### 🔑 The dividers are the WM's status rails
 
-The top divider already carries window position and attention marks (§4.1). The bottom one — `640×2` at `y 450` — is
+The top divider already carries window position and attention marks (§4.1). The bottom one — `608×2` at `y 450` — is
 lit anyway, so give it the other axis: **back-stack depth.** N bright segments = N levels deep.
 
 | divider | axis | tells you |
@@ -1458,7 +1465,7 @@ have no focused row, so they sit flat at −1.
 
 #### Ink
 
-Targets, to calibrate on the first real render (§4.2):
+Budgets — the measured values are in §4.2's table (list 8.3 %, document 7.7 %):
 
 | mode | ink budget |
 |---|---|
@@ -1622,7 +1629,7 @@ All adopted 2026-08-17.
 7. **A real fid allocator**, with hard assertions on outstanding depth. Collisions are **silently
    skipped** by firmware; this is the bug class that eats compositors invisibly. See §8.2.
 8. **Never keyframe** — ~1.1 s. Cold start and detected divergence only.
-9. **Per-lens shadow model**, once stereo is live.
+9. **Per-lens shadow model** (stereo has been live since 2026-08-31).
 10. **Cross-window deltas** — a switch computes the delta from the *current screen* to the target's
     composed frame, not from black. With chrome identical everywhere (§2.4 rule 6) and layouts
     often similar, this is far smaller than a repaint.
@@ -1658,7 +1665,10 @@ cells it touched **unknown**, because other flushes land around it and no snapsh
 the glass holds. Rule 16 is partial: a lease loss requests a keyframe; reconnect itself is still
 host-driven. Rules 5 (speculative pre-compression), 10 (cross-window deltas from the current
 screen) and 18 (content-hash cache keys) are **not built yet** — the seam is designed to take
-them. `LensOracleTest` pins the per-lens model against the firmware simulator; see
+them. (Rule 18's target has since landed: the cache is in CFW `a5d1c31` since 2026-08-30 and
+`wire/CfwModes.kt` + `wire/TextureCache.kt` encode modes 11–14, but the compositor still emits
+pixel deltas only — adoption waits on the on-glass check, `IMPLEMENTATION.md` → The texture
+cache.) `LensOracleTest` pins the per-lens model against the firmware simulator; see
 `IMPLEMENTATION.md` → "Review hardening".
 
 **Finishing build (2026-08-25).** Rule 16's reconnect is now the session keeper's: a link end
@@ -1728,7 +1738,8 @@ default**, opt-in per feature, never a required input path.
 ### 7.2 Compass — adopted
 
 CFW mode 10, heading via the stock sid-0x08 notifier. **8 sectors** (N NE E SE S SW W NW) in the
-status bar.
+status bar. ⚠ **Drawn, not fed (2026-09-01):** `Chrome` paints the tape from a heading string, but
+no heading source exists yet — the sid-0x08 read-out is unbuilt and the cell shows its rest mark.
 
 🔴 **Hysteresis is mandatory, not polish.** Heading changes constantly as his head moves; a naive
 implementation would emit a flush every time the reading crosses a sector boundary and turn the
@@ -1746,10 +1757,12 @@ between N and NE.
 
 ### 8.1 Three flushes in flight
 
-**Adopted.** The ~176 ms is *latency*, not service time; the CFW's snapshot/deferred FIFO exists
-to make pipelined deltas safe, and Faceclaw ships `WINDOW_SIZE = 3` on exactly this path. Keeping
-the window full gives **~15–17 fps on small damage**, not ~5.7. Graded **C/I** — read from his
-code, not our wire.
+**Adopted and shipped** (`CfwTransportBase.WINDOW = 3`). The ack floor is *latency*, not service
+time — ~176 ms on stock, **~60 ms measured on the CFW** (`overview.md` §5.2); the CFW's
+snapshot/deferred FIFO exists to make pipelined deltas safe, and Faceclaw ships `WINDOW_SIZE = 3`
+on exactly this path. Keeping the window full gives **~15–17 fps on small damage** at the stock
+figure, not ~5.7. The fps figure is graded **C/I** — read from his code, never measured as a rate
+on our wire.
 
 ### 8.2 🔴 Frame-id discipline — read from `cfw_diag()`, not inferred
 
@@ -1807,7 +1820,8 @@ not a safety net, so "keep enough history in the ring" is the wrong thing to eng
 rect — their bounding box is the whole screen. Chrome is usually clean (§8.3), so content typically
 gets 4–5.
 
-Grade **I** — derived from reading the decoder, not observed on hardware.
+Grade **I** — derived from reading the decoder. Exercised daily since 2026-08-31 at the 5-rect cap
+(`Geometry.rectBudget(3)`) with no divergence flag; the bound itself has never been probed (§11 #3).
 
 ### 8.3 The flush rule
 
@@ -1868,6 +1882,7 @@ The contract:
 4. 🔑 **A regression gate makes it stick.** In the byte-exact simulator (§9.2): switch away, switch
    back, **assert the composed frame is byte-identical.** That turns "I had to push for this
    repeatedly" into a test that fails loudly instead of a discipline that erodes.
+   ✅ `ShellBehaviorTest.switchAwayAndBackIsByteIdentical`.
 
 ### 9.2 Observability
 
@@ -1876,9 +1891,11 @@ The contract:
   modeled per-lens shadow and render what the lens *would* show. **The whole WM becomes
   developable and regression-testable with no glasses**, and it catches the stale-base/divergence
   class of bug that is otherwise invisible until it is on your face. Nothing like the EvenHub
-  simulator, which lies.
+  simulator, which lies. ✅ Built — `core/…/sim/GlassFirmwareSim.kt`, pinned by `LensOracleTest`
+  and run by `desktop --selfcheck`.
 - **Deterministic frame journal** — every flush with its rects, bytes, fids, ack latency, replayable
   into the simulator. That is how you debug something you cannot attach a debugger to.
+  ✅ `core/…/comp/Journal.kt`.
 - 🔑 **The mode-7 flags are a free loss/ordering telemetry channel, not a debug toy.** Reading
   `cfw_diag()` shows each maps to a distinct real condition:
 
@@ -1892,14 +1909,17 @@ The contract:
   Those are exactly the compositor's failure modes, reported by the firmware for free. `f_skip` in
   particular is a **transmission-loss detector** we would otherwise have to build. Wire them to the
   status indicator and to automatic resync; leave the overlay ON during bring-up. ⚠ Whitelist the
-  one expected `f_skip` at each fid wrap (§8.2 #6).
+  one expected `f_skip` at each fid wrap (§8.2 #6). ✅ Wired: `TransportEvent.DiagFlags` → a
+  `PANIC` status, a journal note and a keyframe request; the overlay defaults ON
+  (`ShellSettings.diagOverlay`).
 - **Status-bar profiler** — flush rate, damage bytes, rect count, fid depth, ack. Toggleable, off
-  by default in normal use (it is itself a flush consumer).
+  by default in normal use (it is itself a flush consumer). ✅ Settings → Global → Profiler.
 - **Input echo** — the last gesture actually received, shown in the status cell. Turns the
   ambiguous scroll-vs-tap physical action into an observable one (§1.7).
 - **The logger service (sid 0x0F)** — `logStr` streamed to host would surface the CFW's own
   `evenhub_ui: decompress failed, mode=%u raw_len=%u`. Our worst failure mode is silent garbage on
-  the lens; this is what makes it loud. Untested lead (**V** schema, **U** on our firmware).
+  the lens; this is what makes it loud. Untested lead (**V** schema, **U** on our firmware) — still
+  unprobed 2026-09-01 (`REMINDER.md` → cheap probes).
 
 ### 9.2b Build-time gates and runtime guards
 
@@ -1911,7 +1931,8 @@ The contract:
   over its ink budget. **NO SILENT FAILURES, pushed left to build time.** Adam: *"minimizing the
   chances of a bug making it to the glasses as much as possible."*
 
-  ✅ **`tools/lint.py` + `tools/geometry.py` exist and pass** (2026-08-18).
+  ✅ **`tools/lint.py` + `tools/geometry.py` exist and pass** (2026-08-18; 19 rules, `--selftest`
+  green, 0 findings at HEAD).
 
   ⚠ **Most of these are RUNTIME properties, not static ones** — a rect computed at frame time is
   invisible to a source linter. So the rules live in **`tools/geometry.py` as a library the
@@ -1951,10 +1972,10 @@ The contract:
   drops the icons. **4.6 %, passing.** That is exactly the drift the gate exists to catch, and it
   found it within minutes of existing.
 
-  It also lints **DESIGN.md's own §2.3 cell table**, which is machine-readable and is the current
-  source of truth for the shell's layout. Both real layout bugs so far — the 96/128/96 ribbon and
-  the 250 px notification width — were errors *in that table*, found by eye. They would now fail
-  the build.
+  It also lints **DESIGN.md's own §2.3 cell table**, which is machine-readable (the runtime layout,
+  `core/…/geom/Layout.kt`, is written to the same table). Both real layout bugs so far — the
+  96/128/96 ribbon and the 250 px notification width — were errors *in that table*, found by eye.
+  They would now fail the build.
 
   It reads the real **`cmap`** of every locked face (§Type). ⚠ *`PIL.getmask().getbbox()` is not a
   coverage test — a tofu box has a bounding box too, and that false negative is exactly how U+25B8
@@ -1962,7 +1983,8 @@ The contract:
 
   **Scope is strings passed to a drawing call, not every literal in the repo.** The first cut
   flagged 45 findings — newlines, docstrings, log lines — which is how a rule gets ignored. Narrowed
-  to drawn strings it reports **2 real findings and nothing else**. Verified against a fixture: it
+  to drawn strings it reported **2 real findings and nothing else** on its first run (both fixed;
+  the gate exits 0 today). Verified against a fixture: it
   catches a literal in `d.text(...)` *and* inside an f-string, while ignoring docstrings, `print()`
   calls, safe glyphs (`·`, `—` are in all four faces), and any line marked `# lint:allow-symbols`.
 
@@ -1975,7 +1997,7 @@ The contract:
   Measured coverage of the symbols this design reached for: **`▸` and `▶` missing from 3 of 4
   locked faces, `⚙` from all 4, `⇒` from 3, `▓`/`▒` from 2.** Only `·` and `—` are universal.
 - **Panic frame.** On any mode-7 divergence flag or decompress failure, immediately keyframe rather
-  than keep compositing onto an inconsistent shadow.
+  than keep compositing onto an inconsistent shadow. ✅ (`Shell` on `DiagFlags`, §9.2.)
 - **Startup capability gate.** Read the `EVENCFW/` string (sid-0x09 settings READ response, field
   100) and require `img640 directfb fbguard imgz rle`; refuse loudly otherwise. Needs no timeout —
   tag 100 sits above the stock field range so stock decoders skip it. Also catches a future CFW
@@ -1990,8 +2012,9 @@ The contract:
 
 ### 9.3 Error surfacing — the phone is the out-of-band channel
 
-With the buzzer excluded, **the phone bridge app raises a phone notification on serious errors.**
-That is now the *only* alert path that works when the display itself is what is broken.
+With the buzzer excluded, **the phone APK raises a phone notification on serious errors**
+(✅ `ShellService.urgentNotification`, channel "Damage errors"). That is the *only* alert path that
+works when the display itself is what is broken.
 
 Severity worth escalating to the phone: framebuffer lease lost · decompress failure ·
 `ImgResCmd.ErrorCode` · link down · fid collision detected · sustained ack-timeout streak.
@@ -2165,9 +2188,12 @@ varies only content, which is the intended design.
 ⇒ **Rule: every UI symbol is a drawn shape, like the icons already are (§4.5b).** Typing them would
 ship boxes on glass **and** would silently couple typeface choice to symbol coverage — which
 directly breaks the per-window font freedom adopted above. Only plain text goes through the font.
-Add it to the linter (§9.2b): flag any non-Latin-1 codepoint in a drawn string.
+The linter enforces it: SYM001 (§9.2b) flags any drawn string with a codepoint the target face
+cannot render.
 
-⚠ Still not legibility *on glass*, which is what actually decides it. Open item #8 stands.
+⚠ Renders are not legibility *on glass*. Content faces are answered by daily reading (Reader on
+Alegreya, Tmux on JetBrains Mono, Torrents on Fira Sans); chrome at bar size is the half still
+open (§11 #8).
 
 #### 🔑 Per-window typefaces — free, and partly functional
 
@@ -2184,9 +2210,12 @@ Correct, and it earns more than eyecandy:
 
 **Rules:**
 
-1. 🔴 **Chrome is ONE fixed face, always.** The bars are the constant frame; varying them would read
-   as chaos and would defeat the identity cue by making everything variable.
-2. Content faces are the window's choice, from the sturdy-at-1× list above.
+1. 🔴 **Chrome is ONE face across every window, always.** The bars are the constant frame; varying
+   them per window would read as chaos and would defeat the identity cue by making everything
+   variable. (Which face is Adam's to set — Settings → Global, the 2026-08-31 reversal — but it is
+   one face everywhere.)
+2. Content faces are the window's default, from the sturdy-at-1× list above, overridable per app in
+   Settings.
 3. ⚠ **A face choice is a permanent byte tax on that window** (0.98×–1.17× measured). A window that
    picks Bookman pays 17 % more on every frame, forever. Surface it in the cost oracle (§9.2b).
 4. Global default plus per-window override, both in Settings (§4.2).
@@ -2240,9 +2269,10 @@ components with different link types, and no configuration is a special case.
 
 - 🔴 **The shell must run on Android *and* desktop.** The "app alone" row requires it. That rules
   out a Python shell, which is otherwise the house language — **the single most expensive thing to
-  discover late.** Kotlin/JVM and TypeScript both satisfy it.
+  discover late.** Kotlin/JVM and TypeScript both satisfy it — resolved as Kotlin/JVM (§11 #11).
 - ✅ **But the protocol split means each role picks its own best tool.** Transport on Android is
-  Kotlin (see §10.6); on desktop the SHIPPED transport is Kotlin/JVM over bluez-dbus + dbus-java
+  Kotlin (`phone/BleTransport.kt`, hardware-proven 2026-08-31); on desktop the SHIPPED transport
+  is Kotlin/JVM over bluez-dbus + dbus-java
   (`desktop/BlueZLink.kt` — MIT, hardware-proven; macOS/Windows parity deferred per §10.7).
   Content can be anything the host likes.
 - ✅ **The offline simulator becomes just another transport.** `BleTransport` / `SimTransport` /
@@ -2274,12 +2304,14 @@ that can be previewed is a window that can be read offline.** The change is "rep
 to wherever the shell is," not "build offline apps."
 
 Reader is the easy case: declare the book as its cache — an epub is tiny — and page turns become
-pure shell.
+pure shell. ✅ The APK caches the library and the books, so app-alone reading works
+(`IMPLEMENTATION.md` → Configurations wired today).
 
 ### 10.5 Capability is a function of what is present
 
 Extend §4.6's window contract with one field: **what the window NEEDS** (BLE · host · phone APIs).
 The shell marks a window unavailable when its needs are not met, using the same surface as staleness.
+✅ `DamageWindow.needs` (`Need { HOST, PHONE_APIS, BLE }`).
 
 ⚠ **The bridge and laptop-direct configurations cannot have phone integration at all.** SMS,
 notifications, media state and phone battery come from Android APIs; a Pi or a laptop cannot see
@@ -2333,6 +2365,10 @@ environment* — one process, real glasses, a real debugger, no phone and no net
 working, then split out transport for the bridge, then relocate the shell to Android for the phone
 rows. This inverts the phone-first assumption and is the cheaper path.
 
+✅ Followed as written: desktop first (2026-08-24), PC-direct BLE first light 2026-08-30, the APK
+shell live 2026-08-31 and the primary driver since (`HANDOFF.md` §19). The bridge appliance
+remains unbuilt (§10.6).
+
 ---
 
 ## 11. Open items
@@ -2341,14 +2377,14 @@ rows. This inverts the phone-first assumption and is the cheaper path.
 |---|---|---|---|
 | 1 | ✅ **Per-notch scroll** — **works, daily use since 2026-08-30** (was C ⚠); only fast-spin coalescing unprobed | **M** | done |
 | 2 | **Comfortable disparity `d`**; whether stock FAR already spends budget | **U** | calibration ramp |
-| 3 | **Frame-id discipline** (§8.2) — derived from reading the decoder; exercised daily at the 5-rect cap with no divergence, the BOUND itself never probed | **I** | a deliberate probe (`REMINDER.md` item 4) |
+| 3 | **Frame-id discipline** (§8.2) — derived from reading the decoder; exercised daily at the 5-rect cap with no divergence, the BOUND itself never probed | **I** | a deliberate probe (`REMINDER.md` → still unmeasured, #4) |
 | 4 | **Link signal** — source, which link, dBm vs % | **U** | the phone reads RSSI on the RIGHT arm every 10 s; BlueZ exposes RSSI only while a device advertises, so the PC-direct cell shows bars without a numeral. Values unmeasured |
 | 5 | **Where system-state detail lives** — orphaned when the info popup was removed | design | app-layer phase |
 | 6 | **Can a normal Android app see WEA/CMAS emergency alerts?** Must be tested before it is promised (§4.5) | **U** | Pixel 10a test |
 | 7 | ✅ **Transport** — resolved 2026-08-25, **corrected 2026-08-31 (`HANDOFF.md` §19)**: the phone shell is the PRIMARY driver whenever the APK is up; the PC provides data (content + sync) and drives PC-direct BLE only when the APK is unavailable, handing the radio back when it returns | decided | §19 build |
 | 8 | **Type legibility ON GLASS** — content faces are answered by daily reading (Reader, Tmux); the open half is CHROME at 32/28 px bar sizes | measured / chrome unproven | eyes on glass |
-| 9 | 🆕 **The safe area** (§2.2b) — how much of the panel is actually visible on Adam's face | **U** | first-light ramp; the layout is written relative to it so only the value changes |
-| 10 | **Per-window typefaces for windows not yet designed** — Music, SMS, Notices, Feed inherit Clear Sans until their app earns an override (Files shipped on Clear Sans; Calendar/Timers axed; §16.6's recorded per-window defaults refine this per window) | design | app-layer phase |
+| 9 | **The safe area** (§2.2b) — how many rows of the panel are actually visible on Adam's face | **U** — the direction is known (the bottom goes, never the top — §2.5) | the border ramp (`REMINDER.md` → still unmeasured, #1); the layout is written relative to the safe rect so only the value changes; the top-aligned Size heights are the working parameter meanwhile |
+| 10 | **Per-window typefaces for windows not yet designed** — Music, SMS, Notices, Feed inherit Clear Sans until their app earns an override (Files shipped on Clear Sans, Torrents on Fira Sans — the list face; Calendar/Timers axed; `EXPLOSION.md` §16.6's recorded per-window defaults refine this per window) | design | app-layer phase |
 | 11 | ✅ **The shell runtime** (§10.2) — **RESOLVED 2026-08-24: Kotlin/JVM**, one `:core` library shared by the desktop program and the Android APK (`IMPLEMENTATION.md`) | decided | built |
 | 12 | ✅ **The transport ↔ shell protocol** — **RESOLVED 2026-08-24:** `wm.damage.core.transport.Transport` (`FlushRequest` of nominal ops → `TransportEvent`), also serialized over TCP with single-driver takeover (`IMPLEMENTATION.md`) | decided | built |
 | 13 | 🆕 **Hat bridge power budget** — 1260 mAh running WiFi 6 + BLE for a workday (§10.6) | **U** | bench measurement |
@@ -2359,12 +2395,12 @@ rows. This inverts the phone-first assumption and is the cheaper path.
 *(Retired 2026-08-17 by the switcher redesign: "is hold-plus-scroll comfortable?" and "what is the
 long-press hold threshold?" — nothing is held any more, and no interaction is timing-dependent.)*
 
-📍 **`REMINDER.md` carries the consolidated first-light checklist** — these items plus the ones in
-`overview.md` §11, in the order to run them, with the dry-run and verification steps that must come
-first. Start a fresh session there.
+📍 **`REMINDER.md` carries the list of what is still unmeasured on glass** — these items plus the
+ones in `overview.md` §11 — and what comes next. Start a fresh session there.
 
 **On #7.** Beardos has a working BLE radio, but beardos is at *home* and the glasses are at
-*work*, so PC-direct only ever works at his desk. The deployment transport is **PC composes →
-Tailscale → phone → BLE → glasses**, which decides where the BLE stack lives, where RSSI comes
-from, and where phone-side error notifications originate. **"Ack latency" in the status bar means
-the wire ack (phone↔glasses)** — the number that prices frames.
+*work*, so PC-direct only ever works at his desk. The daily path is **phone composes → BLE →
+glasses, with the PC providing content over Tailscale** (`HANDOFF.md` §19), which decides where
+the BLE stack lives, where RSSI comes from, and where phone-side error notifications originate.
+**"Ack latency" in the status bar means the wire ack (phone↔glasses)** — the number that prices
+frames.

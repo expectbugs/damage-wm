@@ -62,7 +62,7 @@ class as the resize).
 
 **The original proposal below stands as written except where the verdicts above override
 it (§5's grades are superseded by verdict 1; §7's questions are answered).** This is the §4.6 app-layer design for
-the Tmux window: the G2CC study, what dies with the old constraints, the Damage-native design,
+the Tmux window: the G2CC study, what goes away with the old constraints, the Damage-native design,
 costs priced against the MEASURED curve, the scope explosion, and a recommended v1 cut.
 
 Sources: `G2CC/server/src/tmux.ts` + `windows/terminal.ts` (read in full; facts cited, no code
@@ -105,22 +105,22 @@ Behavioural lessons paid for on glass (lineage: `windows/terminal.ts` review com
 - Adam's asks that shaped it: full lines wrapped, never column-cut (2026-06-14); quick keys
   centred on the Claude-approval loop (y/n/Enter/Esc/Ctrl-C).
 
-## 2. What dies with the constraints (the archaeology)
+## 2. What goes away with the constraints (the archaeology)
 
 Most of `terminal.ts` exists because stock firmware text containers owned rendering. None of it
 carries over:
 
 | G2CC machinery | constraint it served | Damage status |
 |---|---|---|
-| 6-row pages (`TERM_PAGE_ROWS`) | firmware overflow scrollbar was un-scrollable | dead — we own every pixel |
-| 540 B page byte-cap | ~1000 B layout-frame wall | dead — image path, no wall |
-| rule-collapse to 18 cols | firmware drew `─` at ~21 px and re-wrapped | dead — our rasterizer, our metrics |
-| box-drawing width calibration | firmware font metrics unknowable | dead |
-| tail (mangled text) vs grid (slow image) SPLIT | text was fast-but-mangled, images were seconds-slow | dead — the flow view (grid only for alt-screen TUIs); costs in §3.4 |
-| CC input-box stripping | 6 usable rows made chrome ruinous | dead for the live view (the grid IS the screen); optional filter in history reading mode only |
-| on-screen tap keyboard | no other way to type at all | deferred — typed text arrives via the phone/browser replicas (§6), mic much later |
+| 6-row pages (`TERM_PAGE_ROWS`) | firmware overflow scrollbar was un-scrollable | gone — we own every pixel |
+| 540 B page byte-cap | ~1000 B layout-frame wall | gone — image path, no wall |
+| rule-collapse to 18 cols | firmware drew `─` at ~21 px and re-wrapped | gone — our rasterizer, our metrics |
+| box-drawing width calibration | firmware font metrics unknowable | gone |
+| tail (mangled text) vs grid (slow image) SPLIT | text was fast-but-mangled, images were seconds-slow | gone — the flow view (grid only for alt-screen TUIs); costs in §3.4 |
+| CC input-box stripping | 6 usable rows made chrome ruinous | gone for the live view (the grid IS the screen); optional filter in history reading mode only |
+| on-screen tap keyboard | no other way to type at all | typed text arrives via the three replicas (confirm-to-run) — and, since 2026-09-01, the ring-driven on-glass keyboard (`DESIGN.md` §4.8; Tmux's "Type…" row puts its quick keys on the live row). Mic much later |
 
-The one G2CC feature that was a workaround AND stays dead here: dictation (mic comes "way way
+The one G2CC feature that was a workaround AND stays out here: dictation (mic comes "way way
 later" — Adam, 2026-08-31).
 
 ## 3. The Damage design
@@ -155,7 +155,8 @@ LIVE GRID (CanvasView)             the pane, true grid, JetBrains Mono, cursor c
 HISTORY (DocView, free)            frozen scrollback, WRAPPED at reading size, 5-lines/notch
                                    + accel like Reader; scroll-down past the end → LIVE again
 LIVE GRID ── tap ──▶ KEYS (ListView): Enter · y · n · 1 · 2 · 3 · Esc · Ctrl-C · Up · Down ·
-                     Tab · q · Snippets… · New session · (per-session rows)
+                     Tab · q · Snippets… · Type… (§4.8 keyboard, 2026-09-01) · New session ·
+                     (per-session rows)
 ```
 
 - **Scroll IS scrollback** — the terminal's own mouse-wheel grammar, no mode button. Entering
@@ -166,8 +167,8 @@ LIVE GRID ── tap ──▶ KEYS (ListView): Enter · y · n · 1 · 2 · 3 �
 - Quick-keys list is config-driven (host-side config, served with the session list), default
   tuned for the Claude-approval loop — including `1`/`2`/`3` for CC's numbered choices, which
   G2CC never had.
-- **New session** auto-names (`g2-1`, `g2-2`, …) — naming from glass needs typing; rename from
-  the PC. Kill/rename/detach: explosion items (§5).
+- **New session** auto-names (`g2-1`, `g2-2`, …); rename via typed text — the replicas or, since
+  2026-09-01, the §4.8 keyboard. Session end/rename/detach shipped with the §5 closure.
 
 ### 3.3 Rendering *(⚠ superseded for normal panes: the grid below survives ONLY for `#{alternate_on}` TUIs — the SGR mapping paragraph serves flow and grid alike)*
 
@@ -224,7 +225,8 @@ window from "go look" into "it tells you"** — the actual workday loop is glanc
 - `summary()`: cached from the provider's last push, side-effect-free ("3 sessions · claude2 ⚠").
 - State blob: session, mode, history offset — restorable, previewable (§9.1/§4.3); the switcher
   preview draws the last cached frame.
-- `appSettings()`: Tmux directory — SHIPPED as one row: Update (capture pacing 0.5/1/2/5 s).
+- `appSettings()`: Tmux directory — SHIPPED: Update (capture pacing 0.5/1/2/5 s), beside the
+  Font / Font size / Font style / Depth rows every app category carries (`HANDOFF.md` §17).
   Alerts are a global default + per-session mute in the session's actions; context rows are
   automatic in the alternate-screen fallback; grid scale never existed (the flow view made it
   moot).
@@ -251,7 +253,8 @@ The graded table, the recommended v1 cut/build order, and the six refinery quest
 to fill §5–§7 all ran their course in one day (2026-08-31): Adam answered every question (the
 verdicts are pinned in the top matter), v1 was built to the cut and then REWORKED the same
 night into the flow view, and the v1.5/v2 rows shipped early — typed text via all three
-replicas (confirm-to-run), multi-host over ssh, window targeting/select-window, kill/rename,
-per-session mute. Still deliberately unbuilt: scrollback SEARCH (wants typing polish first),
+replicas (confirm-to-run), multi-host over ssh, window targeting/select-window, session end/rename,
+per-session mute. Still deliberately unbuilt: scrollback SEARCH (its typing prerequisite is met
+since the §4.8 keyboard landed 2026-09-01; still unbuilt),
 the texture-cache glyph path (priced separately, after `REMINDER.md` items 19–20), history
 reading filters, session-output→Reader hand-off. ❌ never: blinking cursor, bell sound (§0).

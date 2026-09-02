@@ -9,15 +9,19 @@ always: `overview.md` on facts, `CLAUDE.md` on rules, `DESIGN.md` on shell desig
 **Inputs per window:** the window's `EXPLOSION.md` section (with Adam's refinery verdicts),
 `DESIGN.md` §4.6 (modes + what a window declares), `core/…/shell/WindowContract.kt` (the contract
 as code), and the G2CC original (`/home/user/G2CC/server/src/windows/<app>.ts`) — **read-only,
-interaction facts only, no code taken** (clean-room rule, `CLAUDE.md`).
+interaction facts only, no code taken** (clean-room rule, `CLAUDE.md`) — when one exists
+(Torrents had none; step 2 then has nothing to mine).
 
-**The three worked precedents:** `ReaderWindow` (List → Document → Actions, async content,
+**The four worked precedents:** `ReaderWindow` (List → Document → Actions, async content,
 per-item sub-records, images), `TmuxWindow` (Canvas, a live provider over the content port,
-quick keys, typed text with confirm, alerts), and **`FilesWindow`** (2026-09-01 — the
+quick keys, typed text with confirm, alerts), **`FilesWindow`** (2026-09-01 — the
 tap-=-context-menu grammar via `MenuSurface`, the §16.10 window channel via
 `FilesService`/`RemoteFilesProvider`, viewers as strip/wrapped DocViews, paced-retry failure
-discipline, `Draw.fit`/`dn()` display hygiene). Read all three before writing a fourth —
-Files is the only worked example of MenuSurface and WinNet.
+discipline, `Draw.fit`/`dn()` display hygiene), and **`TorrentsWindow`** (2026-09-01 evening,
+`TORRENTS.md` — no G2CC original, built whole; the keyboard as a requester, version-cursor
+snapshots + event replay over the channel's blob lane, a LIVE list whose cursor follows row
+identity, announcements decided host-side once). Read them before writing a fifth — Files and
+Torrents are the worked examples of MenuSurface and WinNet, Torrents of the keyboard.
 
 ---
 
@@ -41,8 +45,9 @@ These are the non-negotiables, each with its authority:
 - **Misfire tolerance** (§1.7): cursor rests on a harmless cell after every level change;
   destructive rows never at cursor rest, never index 0/1; every navigation undoable by
   double-tap.
-- **Every destructive or outbound act stages a confirm** — deletes, sends, kills, typed text
-  (`onTypedText` always stages; the Tmux TYPE_CONFIRM shape).
+- **Every destructive or outbound act stages a confirm** — deletes, sends, ending a session,
+  typed text (`onTypedText` always stages; the Tmux TYPE_CONFIRM shape). Recorded exemption: a
+  read-only query — the Torrents search — commits without one (`TORRENTS.md` §3.1).
 - **LOUD failures** (the absolute rules): provider errors ride the one-shot notice on the title;
   staleness is said with duration (`PC unreachable 40s`); a missing need marks the window
   unavailable in Main and says why (§10.5). No timeouts anywhere — pacing loops and liveness
@@ -80,6 +85,8 @@ opaque per-window target, false = loud; Files→Reader ships on it) · the lifec
 appId, thread, target)` (§16.5 — tap = commit + activate + open(target)) ·
 **`openMenu(spec, owner): Boolean`** (the floating context menu; pass `owner` from ASYNC
 completions — a false return means deliver the answer as a notice instead) ·
+**`openKeyboard(spec, owner): Boolean`** (§4.8 — the same refusal rules; `onCommit(text)` runs
+AFTER the keyboard closed, `onCancel(draft)` hands the draft back — the requester owns it) ·
 `openWindow(id, target)` (the hand-off; the shell records the caller for back-to-caller) ·
 `icons()` · `runOnShell` (EVERY off-loop completion applies through it) ·
 `docContentWidth/Height`.
@@ -96,11 +103,14 @@ Remote on the phone; backends in preference order with a switch policy if adapti
    keeping. Record the facts mined (a short block in the window's doc or commit message).
 3. **Declare the contract** (§2 above) on paper first: levels and their modes, state split
    (sub-records vs `shell.state` vs host-owned per 1.8), needs/backends, notification sources
-   with targets, settings rows, icon, title forms (short!), typed-text uses.
+   with targets, settings rows, icon, title forms (short!), typed-text and keyboard uses (what
+   the window asks the keyboard for, and whether it supplies live keys).
 4. **Providers**: Local + Remote on the window channel; staleness surfaced; adaptive switch
    policy if any (window-defined condition, deliberate switchback).
-5. **Build** against ContentKit + the shared kit (fit-with-mark, confirm level, notice, open-on-PC
-   where relevant). Async work computes off-loop and mutates through `runOnShell` only.
+5. **Build** — whole, to its best state (Adam, 2026-09-01: no v1/v1.5 staging, *"completely
+   built to its best state before we move on"*) — against ContentKit + the shared kit
+   (fit-with-mark, confirm level, notice, the keyboard, open-on-PC where relevant). Async work
+   computes off-loop and mutates through `runOnShell` only.
 6. **Tests**, all four kinds:
    - a **Scripted provider** (deterministic — the `ScriptedTmux` precedent);
    - core tests incl. a **persistence round-trip** (switch away/back → byte-identical frame,
@@ -108,7 +118,8 @@ Remote on the phone; backends in preference order with a switch policy if adapti
      position/frame — §16.4c);
    - a **selfcheck scene**;
    - a **snapshot scene** (and look at the render).
-7. **Register everywhere**: desktop `Main.kt`, phone `ShellService.kt`, SelfCheck, Snapshot.
+7. **Register everywhere**: desktop `Main.kt` (a host-side provider goes into BOTH the auto/standby
+   stack and `--host-only`'s service map), phone `ShellService.kt`, SelfCheck, Snapshot.
 8. **Run the whole battery** (`CLAUDE.md` list: `:core:test`, `:desktop:test`, `--selfcheck`,
    `--snapshot`, `--epub-check`, `tools/lint.py`, `:phone:assembleDebug`) and keep it green.
    Regenerate `design/shots/` if anything design-visible changed, and read the numbers.
@@ -118,8 +129,8 @@ Remote on the phone; backends in preference order with a switch policy if adapti
 
 ## 4. The shared machinery — ✅ BUILT (2026-09-01, with the Files conversion)
 
-All four rows of the agreed build order are CODE; a conversion consumes them, it does not build
-them:
+All four rows of the agreed build order are CODE, and so is the keyboard that followed them
+(row 5); a conversion consumes them, it does not build them:
 
 1. **The state substrate** (§16.4): per-item sub-records with reported-guarded tombstones,
    stamp-0 baselines, merge-load + post-start reconciliation, per-item re-apply after a
@@ -161,3 +172,21 @@ them:
 - **Forgetting the cursor rest** after a level change (§1.7) — the "$5 turn" lesson.
 - **A phone-side need without its permission story** — a PHONE_APIS window declares which Android
   permissions it needs; a missing grant surfaces as the window's unavailability line, loudly.
+- **A cursor that is an index into a LIVE list** — a poll that adds a row moves the row under the
+  cursor (the Torrents wrap-end menu row walked away; an empty list's menu row is the rest).
+  Track the row's IDENTITY (hash, or the menu row) and re-resolve on every snapshot.
+- **A page demand from a painted row** — the panning list paints tail rows ABOVE the cursor, so
+  a demand keyed on "the loading row was painted" re-fires every repaint (an unbounded chain of
+  tracker requests). Demand from the cursor's position on the loop's `view()`, never from a
+  painter, and never while unfocused — a switcher preview renders the window too.
+- **A provider call from a paint** — a blocking channel request on the phone's loop (the L1
+  class). Static tables stay constants; everything else is fetched off-loop.
+- **A listener registered per `start()`** — the keeper's same-instance restart registers it again
+  (a defect class, not a one-off: the Files loop met it too). Listeners are idempotent, and a
+  stack stop detaches them in a `finally`.
+- **A retry loop that posts credentials** — pace and latch logins inside `login()` itself, on
+  every path; latch only on a definite refusal (the site's login FORM), never on a maintenance
+  page.
+- **Refusing after a surface is open** — validate a spec BEFORE `open = true` (the half-open
+  keyboard); and close a surface before running its requester's callback (the keyboard commit
+  closes and restores first, then `onCommit`, so the callback may open the next level or menu).

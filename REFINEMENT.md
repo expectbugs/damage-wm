@@ -15,7 +15,8 @@
 > battery later CLOSED with the probe reverted (see below). **§11** the Reader batch shipped.
 
 **Read `HANDOFF.md` §11 first** for what first light established, then this. The flash, the
-install and first light are all behind us; `REMINDER.md` §"Next" points here.
+install, first light and this whole wave are behind us; `REMINDER.md`'s "Next" has moved on to
+the app-wave conversions (`HANDOFF.md` §22–§23). This file is the record of the 2026-08-30/31 wave.
 
 This is Adam's list, taken from his own account of wearing the glasses and driving them from the
 PC, plus the analysis each item already has. **Nothing here is speculative feature work** — every
@@ -39,11 +40,15 @@ rasterise, RLE, deflate, mode-3 delta. **The texture cache is NOT wired into the
 (`IMPLEMENTATION.md` says so, deliberately). Do not let anyone later credit modes 13/14 for speed
 that the ordinary path is already delivering; that would hide how much headroom the cache has left
 to give, and it would price the adoption work wrongly. What the speed *does* corroborate is the
-~50 ms ack measurement in `HANDOFF.md` §11.1.
+measured CFW curve — `overview.md` §5.2, `ms ≈ 60 + bytes/50` (first light's ~50 ms floor was
+its first point).
 
 ---
 
 ## 1. Depth: the bars belong at the back
+
+✅ *Built 2026-08-31 — bars inset and on the back plane (`DESIGN.md` §2.2/§2.3/§3.1); the seam
+geometry change was judged by `LensOracleTest` as predicted below.*
 
 **Asked for:** the title bar and the status bar should sit **as far back as depth allows**, not at
 the same depth as the selection.
@@ -79,6 +84,9 @@ never on a switcher preview — the simpler option won (`DamageWindow.preferredH
 ## 3. Reader
 
 ### 3a. Folders should be folders
+✅ *Built 2026-08-31 — `BookMeta.folder` (additive), folder rows with descend/ascend in Reader,
+the same shape on all three providers.*
+
 **Asked for:** books in a subfolder should be **categorised within that folder**. Flattening
 everything put the whole Xanth series into the main list and made it unusable.
 
@@ -213,7 +221,10 @@ seven-segment readout (`DESIGN.md` §1.5), and 2026-09-01 the SIZE became a Glob
 `Icons.analogClock`, unused, in case it ever returns as an option.)
 
 📌 **Recorded for later, from the same message:** the Main-row **icons are "very basic" and will
-eventually be upgraded** — an icon-quality pass is future backlog, not this batch.
+eventually be upgraded.** Since then: the icon-quality pass moved to the front of the app wave
+(`HANDOFF.md` §20 — one drawn icon per app at 20 px + 56 px, still owed), and 2026-09-01 theme
+icons landed as the personal lane (Papirus-Dark rendered at runtime, `DESIGN.md` §4.7); the drawn
+set stays the fallback and the release path.
 
 **Re-render at true 1× and look at it** — `design/render_shots.py`, never at 2×, which flattered
 delicate work and misled several earlier passes.
@@ -233,10 +244,12 @@ asked for happened exactly as specified.
 
 ## 7. Carried over, still open
 
-Everything in `REMINDER.md`'s first-light checklist that first light did not close — in particular
-**legibility on glass (8)**, **the safe area (1)**, **per-notch scroll (2, now with §3b behind it)**,
-**comfortable disparity (3, now with §1 behind it)**, and **the texture cache on glass (19–20)**,
-which remains the gate on adopting cached glyphs.
+Everything in `REMINDER.md`'s "still unmeasured on glass" table — in particular **chrome
+legibility on glass (8)** (content faces are answered by daily reading), **the safe area (1)** (no
+calibrated safe rect is configured; every reduced band is top-aligned for Adam's fit), **ring
+fast-spin coalescing (2)** (per-notch delivery itself is resolved — daily use), **comfortable
+disparity (3, with §1's chrome plane and per-app depth behind it)**, and **the texture cache on
+glass (19–20)**, which remains the gate on adopting cached glyphs.
 
 *(The "library loading" question from first light resolved itself in practice: the library
 loads daily over that path — folders, chapters and images all shipped through it the next day.)*

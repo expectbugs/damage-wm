@@ -32,7 +32,7 @@ bars and a live lens, a details document, browse by category and search, a torre
 Add behind a confirm, done-notifications decided once host-side, a seeding-under-a-week list
 for the tracker's rules — and a ring-driven wireframe keyboard (row, then key) that Torrents,
 Tmux and Files all ask for.
-[`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run; `HANDOFF.md` §10–§22 are the
+[`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run; `HANDOFF.md` §10–§23 are the
 install / first-light / refinement / launch-day / app-wave records; `DAILY.md` is the ops
 crib; [`WINDOWS.md`](WINDOWS.md) the conversion checklist; `EXPLOSION.md` the graded app
 backlog + refinery verdicts; `REFINEMENT.md` and `TMUX.md` the design logs.
@@ -51,7 +51,7 @@ backlog + refinery verdicts; `REFINEMENT.md` and `TMUX.md` the design logs.
 | [`overview.md`](overview.md) | the research record: hardware facts, the CFW display-mode contract, measured numbers, the ecosystem, open unknowns |
 | [`CLAIMS.md`](CLAIMS.md) | every load-bearing claim graded *vendor-authoritative / measured / corroborated / inferred / single-source / unknown* |
 | [`CAPABILITIES.md`](CAPABILITIES.md) | what the hardware can actually do, graded |
-| [`DESIGN.md`](DESIGN.md) | the shell contract — input grammar, geometry, depth, motion, persistence, all six surfaces, typography, costs |
+| [`DESIGN.md`](DESIGN.md) | the shell contract — input grammar, geometry, depth, motion, persistence, every shell surface (§4, the context menu and the keyboard included), typography, costs |
 
 ## Why it looks the way it does
 
@@ -76,7 +76,7 @@ The design is shaped by three facts about this display, and most of it follows f
 ./gradlew :desktop:run --args="--transport ble"       # PC-direct BLE (the at-the-desk fallback)
 ./gradlew :desktop:run                                # auto = the §19 standby (data host; claims nothing) + preview (4x)
 ./gradlew :phone:assembleDebug                        # the APK (deploy flow: :phone:stageApk → the setup page)
-tools/lint.py                # design gate: 20 rules (SYM/GEO/BUD/FID); --selftest proves each fires
+tools/lint.py                # design gate: 19 rules (SYM/GEO/BUD/FID); --selftest fires 16 of them
 python3 design/render_shots.py   # design renders at true 1x, priced through the firmware's RLE
 python3 research/verify_cfw.py   # rebuilds the CFW offline and checks every pinned hash
 ```

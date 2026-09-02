@@ -1,10 +1,13 @@
 # Review archive — the finishing build (2026-08-25) + the texture-cache round (2026-08-30)
 
 **This file is the 2026-08 review ARCHIVE**, folded 2026-09-01 from the finding-by-finding log
-(git holds every entry). ⚠ **The 2026-09-01 Files/§16 loop — eight rounds to convergence, ~144
-findings — is NOT here: `HANDOFF.md` §22.2 is its record**, with the detail in its round
+(git holds every entry). ⚠ **The 2026-09-01 loops are NOT here.** The Files/§16 loop — eight
+rounds to convergence, ~144 findings — is `HANDOFF.md` §22.2, with the detail in its round
 commits (`8f0dfe2`, `ead19a3`/`5d7ba5e`, `d0a74aa`, `10db318`, `119d6dc`, `b33253b`,
-`d2945eb`).
+`d2945eb`) and its accepted limits in §22.3. The Torrents + keyboard loop — four rounds, ~114
+findings (~55 · ~30 · ~15 · ~14), **PAUSED at Adam's word, not converged** — is `HANDOFF.md`
+§23.1–§23.4 (round commits `73fdf81`, `4f5e6e0`, `980d832`, `390a25c`; its accepted-not-fixed
+items are recorded in §23.2 and §23.4); the next review pass starts from `980d832..HEAD`.
 
 What this archive keeps: the per-round summaries, and the register of **deliberate behavior a
 future session must not "fix"** — every entry below was traced and the verdict recorded.

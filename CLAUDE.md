@@ -6,9 +6,11 @@ runs **custom firmware** (`g2flash`) that replaces the vendor's EvenHub containe
 direct framebuffer access, so a PC-side compositor can render complete scenes with real fonts and
 arbitrary layout and push pixels. Everything runs on hardware Adam owns over his home network —
 his phone, his glasses, his PC, his auth token. Working out the glasses' Bluetooth wire format is
-ordinary device-interoperability (an accessibility/customization effort for his own device); there
-are **no third-party systems, networks, accounts, or credentials** involved anywhere. This is UI
-and display-rendering work for a wearable.
+ordinary device-interoperability (an accessibility/customization effort for his own device). The
+one outside account is his TorrentLeech login, used by the Torrents window (2026-09-01) next to
+his own qBittorrent over loopback; those credentials live only in the gitignored
+`~/.damage/config.json`, never in the repo. There are **no other third-party systems, networks,
+accounts, or credentials** involved anywhere. This is UI and display-rendering work for a wearable.
 
 System-wide rules in `~/.claude/CLAUDE.md` apply here too. This file holds Damage-specific rules.
 
@@ -23,16 +25,17 @@ grades it `S` or `U`, do not build on it without checking.**
 
 **Then read `DESIGN.md`** — the shell design contract, locked with Adam 2026-08-17/18: the
 ring-only input grammar, the exact 640×480 cell geometry, the depth layer order, motion and
-persistence policy, all six shell surfaces, the locked typeface assignments, and per-frame costs
+persistence policy, every shell surface (§4 — the context menu and the keyboard included), the
+locked typeface assignments, and per-frame costs
 **measured from real renders**. **It wins on shell design** the way `overview.md` wins on facts and
 this file wins on rules. Its §0 lists what is *deliberately excluded* — read that before proposing
 anything, so you do not re-suggest a rejected idea.
 
 **Run `tools/lint.py` after any geometry, layout or drawn-string change.** It is the build gate from
-`DESIGN.md` §9.2b — 20 rules covering the failure modes this hardware reports as **silence**
+`DESIGN.md` §9.2b — 19 rules covering the failure modes this hardware reports as **silence**
 (unaligned rects, over-budget rect counts, fid gaps and reuse, mismatched stereo pairs, deltas with
-no keyframe, ink budgets, and glyphs the locked faces cannot render). `--selftest` proves every rule
-fires. It currently exits 0; keep it that way.
+no keyframe, ink budgets, and glyphs the locked faces cannot render). `--selftest` fires 16 of them
+(GEO007 · BUD006 · BUD007 · SYM001 have no self-test case). It currently exits 0; keep it that way.
 
 **`DESIGN.md` §10 is the deployment topology** — three roles (transport / shell / content) and four
 configurations. It constrains the runtime: **the shell must run on Android and desktop, so it cannot
@@ -56,7 +59,7 @@ and shell, always, while it is up; the OpenRC `damage` service is the DATA PROVI
 tmux + last-write-wins state sync) plus a STANDBY that drives PC-direct BLE only while the APK
 is unavailable and hands back on its return. The PC never claims in daily use** (`--transport
 remote` keeps the claim path as the explicit dev override). `REMINDER.md` is the orientation
-file; `HANDOFF.md` §19–§22 the current records; `DAILY.md` the ops crib; `IMPLEMENTATION.md`
+file; `HANDOFF.md` §19–§23 the current records; `DAILY.md` the ops crib; `IMPLEMENTATION.md`
 what runs and how. App layer: **Main · Settings · Reader · Tmux · Files · Torrents** (Files landed
 2026-09-01 with the whole §16 shared machinery — `HANDOFF.md` §22; Torrents + the §4.8
 keyboard the same evening — `TORRENTS.md`, `HANDOFF.md` §23).
@@ -75,8 +78,11 @@ is converting G2CC apps to DamageWM windows, one at a time**: Adam's per-window 
 verdicts first, then build against the `DamageWindow` contract
 (`core/…/shell/WindowContract.kt`) per the **`WINDOWS.md`** checklist, reading the G2CC
 original for interaction facts only (`/home/user/G2CC/server/src/windows/`, read-only) and
-`DESIGN.md` §4.6 for the mode contract. **Reader, Tmux and Files are the three worked
-precedents** — Files is the only worked example of MenuSurface and the window channel.
+`DESIGN.md` §4.6 for the mode contract. **Reader, Tmux, Files and Torrents are the worked
+precedents** — Files and Torrents for MenuSurface and the window channel, Torrents for the §4.8
+keyboard. Two of Adam's rules since Torrents bind every window: **built whole to its best state
+before the next — no v1/v1.5 staging**; and **each app's notification toggles live in its own
+Settings category, never Global** (`WINDOWS.md` §1).
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
 (221 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
@@ -267,20 +273,22 @@ that don't fit raise loudly, never silently mangle.
   ⚠ **Safe area:** usable extent is fit-dependent ("you can lose part of the top or bottom to
   optical occlusion depending how the glasses sit on your face"). Keep load-bearing UI centred;
   treat outer rows as bonus, never as required.
-- **Default to 640×288; go taller only when an app earns it.** Babcock: *"covering up too much FoV
-  is annoying. Most Faceclaw UI is 640x288 for this reason"* — full height only for his Terminal.
-  Same instinct as Adam's FAR display-distance setting. And **the 64 columns of width headroom are
-  the stereo-shift budget** ("the width headroom is used for a depth effect"), so full-640-wide
-  spends the depth allowance on pixels. Know which trade you are making.
+- **Height is a setting, not a constant.** The shipped Global default is **480** (`DESIGN.md` §2.4
+  rule 4) with four TOP-aligned sizes 288/352/416/480 and a per-app `preferredHeight`; Adam's fit
+  loses the bottom, so a shorter size keeps the top. Babcock's instinct still applies when an app
+  does not need the height: *"covering up too much FoV is annoying. Most Faceclaw UI is 640x288 for
+  this reason."* And **the 64 columns of width headroom are the stereo-shift budget** ("the width
+  headroom is used for a depth effect"), so full-640-wide spends the depth allowance on pixels.
+  Know which trade you are making.
 - **There is no off-panel scratch space.** Pre-render-off-panel-then-flip-in and save-under-via-
-  mode-9 are both dead — nowhere to hide. Overlays repaint the covered region with mode 3.
+  mode-9 are both ruled out — nowhere to hide. Overlays repaint the covered region with mode 3.
 - 🆕 **The texture cache LANDED (g2flash a5d1c31, 2026-08-30).** It is no longer future work.
   A **lease-scoped 64 KiB** phone-owned cache: **mode 12** writes it, **mode 13** draws a cached
   image, **mode 14** draws a string through a 96-entry glyph table, **mode 11** tears the session
   down. A cached image is `[w:u8][h:u8][4bpp RLE of exactly w*h pixels]` — **no row pad nibble**,
   unlike modes 3/6. Read `patches/texture_cache.c`; `core/.../wire/TextureCache.kt` holds our
   layout and `CfwModes` the encoders.
-  - **The cache dies with the lease** — freed on expiry, on FB_RELEASE, on a fresh acquire after a
+  - **The cache goes with the lease** — freed on expiry, on FB_RELEASE, on a fresh acquire after a
     lapse, and on mode 11; kept across a *renewal*. Upload the atlas once per lease, not per frame.
   - ❌ **Never emit mode 15** (draw with the firmware's own 20 px font). Its pixels come from an
     LVGL font chain inside the firmware, so no offline model can predict them and the per-lens
@@ -309,9 +317,11 @@ that don't fit raise loudly, never silently mangle.
 - **A mode-3 delta requires a prior mode-6 keyframe.** Track that state; never emit a delta
   against an unseeded shadow. ⚠ **The compositing base is not free either** — the display driver
   has been observed handing back a buffer *two frames back*, so deltas composited onto a stale
-  base and diverged per lens. The CFW's snapshot FIFO fixes this at the source, but **leave the
-  mode-7 diagnostic overlay ON during bring-up** and treat any sticky flag (`f_reorder`, `f_skip`,
-  `f_dup`, `f_snap_of`) as a hard error. That is what NO SILENT FAILURES means here.
+  base and diverged per lens. The CFW's snapshot FIFO fixes this at the source. Bring-up is past:
+  Damage never switched the on-panel mode-7 overlay on (nothing sends mode-7 sub-2); the guard on
+  hardware is the per-lens model + the oracle + the keyframe rule, and the simulator raises any
+  sticky flag (`f_reorder`, `f_skip`, `f_dup`, `f_snap_of`) as a hard error (panic keyframe).
+  Keep it that way — that is what NO SILENT FAILURES means here.
 - **Push a sacrificial warmup frame** after container creation — the first burst is silently
   dropped by firmware (g2-kit gotcha, confirmed independently).
 - **Endless scroll = mode 8 { mode 9 rect-copy + mode 3 fill }** — shift on-device, transmit only
@@ -320,10 +330,11 @@ that don't fit raise loudly, never silently mangle.
   content under it. This recovers the free scrolling we lose by leaving firmware list containers.
 - **Anti-alias text** across the 16 gray levels. Do not ship a 1-bit-looking font; that was the
   stock firmware's limitation, not ours.
-- **Damage must provide its own quit path** — the CFW removes the stock "End this feature?"
-  dialog, which was the only stock way out of an app. ⚠ **Conditional since a5d1c31:** the dialog
-  is suppressed only while the FB lease is held. Lose the lease and it returns — which is a
-  safety net, not a substitute for our own quit.
+- **There is no quit path, by design** (`DESIGN.md` §1.6, locked with Adam): the WM runs always,
+  and the stock both-temple long-press → Silent Mode is the hardware escape. The CFW removes the
+  stock "End this feature?" dialog while the FB lease is held; lose the lease and it returns — a
+  safety net, not a design element. (An earlier version of this file demanded our own quit path;
+  the design superseded it.)
 - 🔴 **A long-press is UNATTRIBUTED — never build grammar on its source.** Since a5d1c31 either
   temple touchpad raises event 9 as well as the ring, and `Sys_ItemEvent.EventSource` is **absent**
   for event types 9 and 10: the stock sender writes that field only inside a branch gated on

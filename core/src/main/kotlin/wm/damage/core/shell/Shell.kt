@@ -733,7 +733,7 @@ class Shell(
             EvenHubMsg.EV_SCROLL_BOTTOM -> "down"
             EvenHubMsg.EV_RING_LONG_PRESS -> "hold"
             // a bare release means "a touch ended" and follows almost every
-            // swipe (HANDOFF.md §11.4): echoing it would permanently overwrite
+            // swipe (HANDOFF.md §11): echoing it would permanently overwrite
             // the last real gesture, so it echoes only when a chord is armed
             EvenHubMsg.EV_RING_LONG_PRESS_RELEASE ->
                 if (chordArmedAtMs != 0L) "release" else inputEcho

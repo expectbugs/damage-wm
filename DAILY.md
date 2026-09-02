@@ -10,7 +10,7 @@ data availability, not the driver. This file is the ops crib.
 | piece | job | kept alive by |
 |---|---|---|
 | **phone APK** (Target = glasses) | **THE driver** — owns the BLE radio and runs the shell, always; serves the seam :7402 (status probe + explicit dev claims) + replica :7403 | foreground service + wakelock + Doze exemption + `BootReceiver` (reboot/update) |
-| **beardos `damage` service** | **the data host + standby**: books + tmux + STATE SYNC + the window channel (the phone's FILES window: listings, ops, viewers, blobs) + theme icons on :7401, the PC replica :7403; probes the phone every 5 s and starts a PC-direct BLE stack ONLY while the APK is not available, handing the radio back the moment it returns | OpenRC `/etc/init.d/damage` (supervise-daemon, enabled at `default`, headless `--no-preview`, mode `auto` = standby) |
+| **beardos `damage` service** | **the data host + standby**: books + tmux + STATE SYNC + the window channel (Files: listings, ops, viewers, blobs; Torrents: qBittorrent + the TorrentLeech session) + theme icons on :7401, the PC replica :7403; probes the phone every 5 s and starts a PC-direct BLE stack ONLY while the APK is not available, handing the radio back the moment it returns | OpenRC `/etc/init.d/damage` (supervise-daemon, enabled at `default`, headless `--no-preview`, mode `auto` = standby) |
 
 **Who drives when** (all automatic, event-driven, pacing not timeouts):
 
@@ -34,13 +34,12 @@ ever needs redoing: (1) sideload from the setup page, grant Bluetooth ×2 + noti
 battery exemption; (2) 🔴 keep the G2CC bridge app Disconnected (a second central); (3) phone
 first light with NOTHING on beardos holding the pair (`sudo rc-service damage stop`), flip
 Target → glasses; (4) `sudo rc-service damage start` → the log says "standby up (§19)" and the
-phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.17 is the
-staged build: Files + theme icons + the sync client + the 2026-09-01 review fixes + the
-chrome tweaks; 0.16 is installed**). Why old
+phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.18 is the
+staged build: Files + theme icons + the sync client + Torrents + the keyboard + every
+2026-09-01 review fix + the chrome tweaks; 0.16 is the last build observed installed**). Why old
 APKs matter: a pre-0.15 APK cannot be status-probed (the PC conservatively stays out — fine)
-and a pre-0.10 one carries no sync client, so state does not flow until it is updated.
-**Once 0.16 is INSTALLED, remove Reader's transitional legacy-offsets dual-write**
-(`REMINDER.md` step 1 — the fields are marked in `ReaderWindow`).
+and a pre-0.10 one carries no sync client, so state does not flow until it is updated. 0.16
+being installed also unblocks Reader's transitional legacy-offsets cleanup (`REMINDER.md` Next 2).
 
 ## Ops crib
 
@@ -62,20 +61,21 @@ and a pre-0.10 one carries no sync client, so state does not flow until it is up
   the setup page, install over; `MY_PACKAGE_REPLACED` restarts the phone service by itself.
 - Tmux/knobs: `~/.damage/config.json` (`tmuxHosts` — add slappy back when it is actually on —
   `tmuxQuickKeys`, `tmuxSnippets`, `tmuxWaitPatterns`); on-glass settings live in
-  Settings → Tmux. Every HOST-need window on the phone (Tmux, Files, Reader content) rides
-  this PC service (or `--host-only`) — content port :7401.
+  Settings → Tmux. Every HOST-need window on the phone (Tmux, Files, Torrents, Reader content)
+  rides this PC service (or `--host-only`) — content port :7401.
 - If the pair "scans forever" while the phone says Connected: the stale-ACL recovery is still
   **toggle phone Bluetooth** (the scan now fails loudly and rides the ON edge back in).
 - **Torrents (2026-09-01, `TORRENTS.md`):** the window reads qBittorrent's Web API on
-  `http://127.0.0.1:8090` (loopback only, localhost auth bypass — no credentials in our path) and
-  the TorrentLeech account from `~/.damage/config.json` (`torrentleechUser` / `torrentleechPass`;
-  `qbtUrl`, and `qbtUser`/`qbtPass` only if the bypass is ever turned off). The Web UI came with
-  the `webui` USE flag rebuild (`/etc/portage/package.use/60-qbittorrent`); qBittorrent's own
-  Web UI login (`admin` + the password in `~/.config/qBittorrent/webui-credentials.txt`) exists
-  only because qBittorrent refuses to start the Web UI without one. ⚠ qBittorrent is the GUI app in
-  the X session, not a service: if it is not running, the window says `qBittorrent unreachable Ns`
-  and everything else keeps working. The tracker session cookie lives in `~/.damage/tl-cookies.json`;
-  the announced-set (which downloads were already announced as done) in `~/.damage/torrents.json`.
+  `http://127.0.0.1:8090` (loopback only; qBittorrent's `LocalHostAuth=false` means no
+  credentials in our path) and the TorrentLeech account from `~/.damage/config.json`
+  (`torrentleechUser` / `torrentleechPass`; `qbtUrl`, and `qbtUser`/`qbtPass` only if localhost
+  auth is ever turned back on). The Web UI came with the `webui` USE flag rebuild
+  (`/etc/portage/package.use/60-qbittorrent`); qBittorrent's own Web UI login (`admin` + the
+  password in `~/.config/qBittorrent/webui-credentials.txt`) exists only because qBittorrent
+  refuses to start the Web UI without one. ⚠ qBittorrent is the GUI app in the X session, not a
+  service: if it is not running, the window says `qBittorrent unreachable Ns` and everything else
+  keeps working. The tracker session cookie lives in `~/.damage/tl-cookies.json`; the
+  announced-set (which downloads were already announced as done) in `~/.damage/torrents.json`.
 
 ## What was verified vs what awaits glass
 
@@ -85,5 +85,6 @@ PC logged `sync-host: peer attached to the sync channel`, the store migrated to 
 schema, and a phone-side record (`window.tmux`) crossed and applied store-direct while the PC
 shell was in standby. **Still awaiting a deliberate glass test**: a real standby engagement
 (stop the APK at the desk → the PC BLE-drives within ~10 s → restart the APK → handback) and
-the sync feel across a driver swap (a book position following the swap). Current staged APK: **0.17** (0.16 + the chrome tweaks); **0.16 is INSTALLED** (observed
-2026-09-01 — the phone speaks the files channel).
+the sync feel across a driver swap (a book position following the swap). Current staged APK:
+**0.18** (Files, the chrome tweaks, Torrents, the keyboard); **0.16 is the last build observed
+INSTALLED** (2026-09-01 — the phone speaks the files channel).

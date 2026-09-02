@@ -8,7 +8,7 @@ package wm.damage.core.geom
  * full 640x480, which is the assumption Adam chose to build on for now.
  *
  * Cell geometry is DESIGN.md §2.3, with the status bar rebalanced for the
- * compass tape per §4.5b: op 160 · status 132 · thru 128 · tape 100 · link 120.
+ * compass tape per §4.5b: op 128 · status 132 · thru 128 · tape 100 · link 120 (on the 608 px inset bar).
  * Every x/w is a multiple of 4 and every y/h a multiple of 2 by construction —
  * `GeometryTest.layoutTilesAndAlignsAcrossSafeRects` asserts it for a sweep
  * of safe rects, not just the default.

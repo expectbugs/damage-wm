@@ -1,6 +1,6 @@
-# Torrents on glass — design + plan (2026-09-01)
+# Torrents on glass — design + build record (2026-09-01)
 
-**Status: DESIGN SETTLED with Adam 2026-09-01 (evening); BUILT the same night and taken through a four-round review loop (`HANDOFF.md` §23; battery green after round 4 — core 221 · selfcheck 89 · 26 snapshots · lint 0).** The second
+**Status: DESIGN SETTLED with Adam 2026-09-01 (evening); BUILT the same night and taken through a four-round review loop (`HANDOFF.md` §23.1–§23.4, ~114 findings, every one verified before a fix; PAUSED at Adam's word, not converged — the next pass starts from `980d832..HEAD`; battery green after round 4 — core 221 · desktop 9 · selfcheck 89 · 26 snapshots · lint 0; APK 18/0.18 staged, 0.16 the last observed installed).** The second
 window of the app wave after Files (`EXPLOSION.md` §20's wow order: Games · **Torrents** ·
 Files ✅ · Music · …). Not a G2CC conversion — G2CC never had a torrent window — so
 `WINDOWS.md` step 2 has nothing to mine; Reader, Tmux and Files are the precedents.
@@ -14,7 +14,8 @@ appealing as we can make it."**
 
 Precedence: `overview.md` facts · `CLAUDE.md` rules · `DESIGN.md` shell design (the keyboard
 is §4.8 there) · `EXPLOSION.md` §16 contract · `WINDOWS.md` checklist. This file is the
-window's design rationale and build plan; `IMPLEMENTATION.md` → "Torrents" is what runs.
+window's design rationale and build record; `IMPLEMENTATION.md` → "Torrents + the keyboard" is
+what runs.
 
 ---
 
@@ -31,7 +32,7 @@ window's design rationale and build plan; `IMPLEMENTATION.md` → "Torrents" is 
 | 7 | poll cadence | 2 s focused / 15 s idle, host-side, pull with a version cursor |
 | 8 | RSS / auto-watch (T.10) | **never** — *"i never automate torrenting"* |
 | 9 | Stats | session totals + free space + his TL account (ratio, points, class), **plus a list of torrents seeding for less than a week** — TL wants a week of seed time before a snatch is safe from hit-and-run penalties |
-| 10 | settings placement (general rule) | **each app's notification toggles live in that app's Settings category, never in Global** — the dead Global rows for SMS/Mail/Music go; `Notify · Damage` stays global (the WM's own) |
+| 10 | settings placement (general rule) | **each app's notification toggles live in that app's Settings category, never in Global** — the unused Global rows for SMS/Mail/Music go; `Notify · Damage` stays global (the WM's own) |
 
 Recorded so it is not re-pitched: RSS, categories on add, a shelf pipeline into `~/books`,
 magnet/URL typing, `.torrent`-file hand-off from Files, a second tracker. All rejected or
@@ -39,7 +40,7 @@ deferred by Adam in this session.
 
 ## 2. Facts the design stands on (verified 2026-09-01)
 
-**qBittorrent** — `HANDOFF.md` §23 / session memory: 5.1.4 rebuilt with the `webui` USE flag,
+**qBittorrent** (`HANDOFF.md` §23): 5.1.4 rebuilt with the `webui` USE flag,
 Web API **2.11.4** on `http://127.0.0.1:8090`, loopback only, localhost auth bypass on (the
 `damage` service runs as the same user on the same box — **no credentials anywhere in our
 code path**). Read from the 5.1.4 source, not remembered: 5.x renamed the verbs to
@@ -117,7 +118,7 @@ TRANSFERS (List, root)  ──tap──▶ transfer MENU ──Details──▶ 
   snapshots. Empty list = one honest row (`no transfers` / the state line).
 - **transfer MENU** (tap on a row; MenuSurface, Details first — from the DETAILS document the
   harmless row 0 is Refresh instead): Details · Start or Stop (which one applies) · Recheck ·
-  Open in Files (the payload path — a Files `path:` deep link) · Open on PC · Delete (keep
+  Open in Files (the torrent's content path — a Files `path:` deep link) · Open on PC · Delete (keep
   files) → confirm · **Delete + files** → confirm → a second confirm whose unrecoverable row
   sits at index 2 behind a disabled spacer (the Files purge shape). The destructive rows are
   last (§1.7).
@@ -172,7 +173,7 @@ Coalescing key = the hash. Announcements are decided **host-side, once**, so the
 and a PC standby shell agree; the announced set persists in `~/.damage/torrents.json` (hash →
 completion stamp, **kept across a removal** — a torrent that comes back with the same stamp is
 a reload, one with a new stamp a real finish); the first run after install marks every
-already-finished torrent announced (38 of them today) so nothing storms; on a later restart
+already-finished torrent announced (38 of them on 2026-09-01) so nothing storms; on a later restart
 whatever finished while the service was down announces once. A shell that reconnects asks for
 events since the last sequence it saw and replays what it missed (the host says `truncated`
 when its 200-deep ring no longer reaches back that far). A host that restarted (new epoch):
@@ -241,11 +242,14 @@ most one host interval behind — a deliberate simplification over an on-demand 
   refused login latches for the process (five failures ban the address for an hour).
 - **`TorrentLeech`**: login → cookie jar persisted in `~/.damage/tl-cookies.json` (0600),
   re-login once on a redirect to the login page, the login form, or an HTML page in place of
-  the listing JSON — **at most one login a minute** (a session dropped within a minute of a
-  login, or a maintenance page, is reported, not logged into again) and **a login the site
-  refuses latches for the process** (the qBittorrent rule: a retrying listing must never post
-  the credentials every five seconds), then the request retried once; browse / search / detail / download / account; HTML parsed with a small stdlib
-  tokenizer (no third-party parser), every expected landmark checked. Credentials come from
+  the listing JSON — **at most one login a minute, enforced inside `login()` itself so every
+  path is paced, the empty-cookie-jar path included** (a session dropped within a minute of a
+  login, or a maintenance page, is reported, not logged into again) and **a refusal latches for
+  the process only when the site answers the login POST with its login FORM** — any other
+  answer is paced, never latched (the qBittorrent rule: a retrying listing must never post the
+  credentials every five seconds; review rounds 3–4), then the request retried once; browse /
+  search / detail / download / account; HTML parsed with a small stdlib tokenizer (no
+  third-party parser), every expected landmark checked. Credentials come from
   `~/.damage/config.json` (`torrentleechUser` / `torrentleechPass`) — the standing secrets
   rule; nothing in the repo.
 - **`LocalTorrentsProvider`**: owns both clients and the poll loop (15 s idle; the fastest
@@ -278,33 +282,41 @@ most one host interval behind — a deliberate simplification over an on-demand 
 - Every dynamic string draws through `Draw.dynamic` / `Draw.fit` (torrent names are the
   wildest text this shell will ever see).
 
-## 6. Tests and gates
+## 6. Tests and gates (as built — all green at `390a25c`)
 
-- **core `TorrentsTest`**: the QbtClient against a fake HTTP server (paths, `rid` handling,
+- **core `TorrentsTest` ×7**: the QbtClient against a fake HTTP server (paths, `rid` handling,
   multipart add, 5.x verb names, error mapping); the TorrentLeech adapter against fixtures
   (listing JSON, a detail page with the real landmarks, a changed-format page → loud refusal;
   login redirect → one re-login); the local provider's event diff (done fires once, baseline
-  suppresses, error edge, sequence/epoch replay rules); the window grammar over a fake provider
-  (transfers → menu → details; browse → listing → torrent → add confirm → add called with the
-  right fid; search via keyboard gestures; the under-a-week filter); persistence round trip and
-  the continuity test (§16.4c); the remote provider through a real loopback host (the FilesTest
-  rig).
-- **core `KeyboardTest`**: `DESIGN.md` §4.8's list.
-- **`--selfcheck`**: a `ScriptedTorrents` provider drives the whole walk plus the ink budgets
-  (transfers list ≤ 15 %, keyboard measured and reported).
+  suppresses, a re-add with the same stamp is silent and a new stamp announces, the error edge,
+  sequence/epoch replay incl. the host restart); the window grammar over a fake provider
+  (transfers → menu → details, the details menu's harmless row 0; browse → listing → torrent →
+  add confirm → add called with the right fid; search via keyboard gestures; the under-a-week
+  filter); persistence round trip and the continuity test (§16.4c); the remote provider through
+  a real loopback host (the FilesTest rig), detach removing the listener.
+- **core `KeyboardTest` ×22**: the `DESIGN.md` §4.8 contract (every row sums to twelve units in
+  every layer and layout, every printable ASCII reachable, harmless rests, the row/key grammar,
+  wrap on both axes, caret editing, the abc layout) plus the round-1 pins (live rows chunk
+  8 → 4+4 and 13 is refused; a seven-row board fits every Size; uncovered glyphs display as `?`
+  without moving the caret; a long prompt stays in the box; a shell stop hands the draft back
+  and the restart has no keyboard).
+- The review rounds' later pins — refusal before the surface opens, the harmless live-row
+  heads, the failed first page's retry and the retried page landing, the login latch and the
+  paced re-login, the surrogate-safe pan, a second ask refused while a keyboard is open — all
+  sit in those two classes (they are the only test files the Torrents commits touched).
+- **`--selfcheck`** (89 checks): `ScriptedTorrents` drives the whole walk — transfers → menu →
+  details → browse → listing → page → add-confirm → keyboard search → the done notification —
+  plus the ink budgets. Measured 2026-09-01: transfers list 9.0 %, details 6.4 %, the open
+  keyboard 9–11 % (the list budget is ≤ 15 %).
 - **`--snapshot`**: scenes 15–22 (transfers, lens+menu, details, categories, listing, torrent
-  page, the keyboard at its two stages) — looked at, at true 1×.
-- `tools/lint.py` at 0, `:phone:assembleDebug` green, then `stageJar` + service restart and a
-  staged APK (bump per install).
+  page, the keyboard at its two stages) — looked at, at true 1×; 26 scenes in all.
+- `tools/lint.py` at 0, `:phone:assembleDebug` green; the jar restaged and the `damage` service
+  restarted on the round-4 build; APK 18/0.18 staged (bump per install).
 
-## 7. Build order
+## 7. Build order — shipped
 
-1. Shell: `KeyboardSurface` + `ShellServices.openKeyboard` + the Global layout row + Tmux
-   "Type…" + Files rename/new-folder through it + tests + scenes.
-2. `QbtClient` + `LocalTorrentsProvider` + `TorrentsWindow` TRANSFERS/DETAILS/menus/Stats +
-   notifications + Settings rows + Main summary (buildable and testable with the WebUI alone).
-3. `TorrentLeech` adapter + CATEGORIES/LISTING/TORRENT/search/add.
-4. `TorrentsNet` + the phone registration; desktop registration (auto + host-only), SelfCheck,
-   Snapshot, icons, the Settings notify-rows move.
-5. The battery, the deploy, the docs (`IMPLEMENTATION.md`, `DESIGN.md` §4.8, `EXPLOSION.md`
-   §19 banner, `WINDOWS.md`, `REMINDER.md`, `HANDOFF.md` §23), then the review loop.
+Built in the planned order in one pass (the keyboard + its shell wiring → `QbtClient` + the
+provider + the window → the tracker adapter + browse/search/add → `TorrentsNet` + both
+registrations + the harnesses + the Settings notify-row move → battery, deploy, docs), commit
+`28997a8`; then the review rounds `73fdf81` · `4f5e6e0` · `980d832` · `390a25c` —
+`HANDOFF.md` §23 is the record.

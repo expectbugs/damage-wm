@@ -8,9 +8,9 @@ while the APK is up); the OpenRC `damage` service is the DATA PROVIDER — conte
 last-write-wins state sync on the content port — plus a STANDBY that drives PC-direct BLE only
 while the APK is unavailable and hands the radio back when it returns.** The shell core, the
 byte-exact glass simulator, the desktop program, and the phone APK — Reader, Tmux, **Files
-(2026-09-01, the first conversion)**, Main and Settings at the app layer, the full shell
-underneath, everything on the **CFW display contract** (modes 3/6/8/9 + the 11–15 texture-cache
-wire layer, the FB lease, the capability gate).
+(2026-09-01, the first conversion)**, **Torrents (2026-09-01 evening, with the §4.8 keyboard)**,
+Main and Settings at the app layer, the full shell underneath, everything on the **CFW display
+contract** (modes 3/6/8/9 + the 11–15 texture-cache wire layer, the FB lease, the capability gate).
 
 **2026-09-01 (later) — two chrome tweaks (Adam):** the battery cell shrank to its two gauges
 (120 px, flush against the clock — the title gained 56 px), and the silent-mode clock size
@@ -36,14 +36,14 @@ Module map additions: `core.windows.files`, `core.net` (WinNet), `core.util.Exec
 
 ## The two locked decisions
 
-**Runtime: Kotlin/JVM** (open item #11). One `:core` library holds the entire
+**Runtime: Kotlin/JVM** (the first build's open item #11, closed by it). One `:core` library holds the entire
 shell — compositor, wire codecs, simulator, surfaces, Reader — and runs
 unmodified inside the desktop JVM program and the Android APK. Core uses no
 AWT and no android.*; platform text rasterization enters through
 `wm.damage.core.text.TextRasterizer` (AWT on desktop, android.graphics on the
 phone), with faces x-height-normalised to the §Type measurements on both.
 
-**The transport ↔ shell seam** (open item #12) is
+**The transport ↔ shell seam** (open item #12, likewise closed) is
 `wm.damage.core.transport.Transport`:
 
 ```
@@ -171,8 +171,9 @@ and the item-by-item log; this is the map of what it added.
 - **PC-direct BLE** (`desktop/BlueZLink.kt`, `BlueZTransport.kt`): `bluez-dbus` 0.3.5 + `dbus-java`
   5.2.0 (both MIT) on the system bus; `Device1.Connect` called raw so a refusal keeps its reason;
   MTU from `Properties.Get`; notifications from `PropertiesChanged(Value)`; `Connected=false` ends
-  the session. Unit-tested over a fake link whose far end is the firmware model; on beardos only
-  adapter enumeration was run (`--ble-info`) — the radio path waits for first light.
+  the session. Unit-tested over a fake link whose far end is the firmware model; hardware-proven at first
+  light 2026-08-30 (`HANDOFF.md` §11, the section below) and since §19 the STANDBY path — it
+  drives only while the APK is away.
 - **The seam carries the mirror**: `RemoteTransportServer` streams changed row ranges of both
   panels through one ordered outbox with events and state, so a panel update precedes the
   `done` of its flush; `RemoteTransportClient.mirror` applies them (display-only, `exact=false`).
@@ -187,9 +188,9 @@ and the item-by-item log; this is the map of what it added.
   (`replicaPort` 7403) and the phone.
 - **Host-supplied Settings rows** (`HostSetting`): the display target on both hosts — staged on
   scroll, applied on tap, reverted on double-tap; applying rebuilds the stack.
-- **Decision 6**: an ORDINARY notification arriving while the switcher wheel (or the context
-  menu) is open waits behind it; an EMERGENCY cancels the surface and shows first (the
-  2026-09-01 review rounds).
+- **Decision 6**: an ORDINARY notification arriving while the switcher wheel, the context menu
+  or the keyboard is open waits behind it; an EMERGENCY cancels the surface (the keyboard's
+  draft kept) and shows first (the 2026-09-01 review rounds).
 
 **2026-08-30 — long-press defaults off (`DESIGN.md` §1.2/§1.3 revised).** A bare long-press is a
 no-op everywhere — it is the most common accidental press, all day, gloves worst — and in silent
@@ -213,7 +214,7 @@ development environment; also serves ~/books to the phone):
 ./gradlew :desktop:run --args="--transport ble"   # PC-direct BLE only (manual)
 ./gradlew :desktop:run --args="--remote HOST"     # claim the phone's transport and drive through it — the EXPLICIT dev override
 ./gradlew :desktop:run --args="--ble-info"    # adapter enumeration only (no discovery)
-./gradlew :desktop:run --args="--selfcheck"   # the 61-check scripted gate (Files scenes incl.)
+./gradlew :desktop:run --args="--selfcheck"   # the 89-check scripted gate (Files, Torrents and keyboard walks incl.)
 ./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"  # parse every book in ~/books
 ./gradlew :desktop:run --args="--host-only"   # content host alone (books + tmux + sync, no stack ever)
@@ -223,9 +224,11 @@ development environment; also serves ~/books to the phone):
 Preview: mouse wheel scroll · left click tap · right click double-tap · press-and-hold
 long-press (release on let-go) · keys ↑/↓ Enter Backspace Space R · Tab lens · B both ·
 -/= window scale (integer nearest-neighbour, default 4×, clamped to the screen).
-The browser replica link is printed at start (`http://<host>:7403/?token=…`). Config in `~/.damage/config.json` (books dir, ports, token —
-token is generated on first run and must match `damage-secrets.properties`
-before building the APK).
+The browser replica link is printed at start (`http://<host>:7403/?token=…`). Config in
+`~/.damage/config.json` (books dir, ports, token — generated on first run and must match
+`damage-secrets.properties` before building the APK — the phone host, the cached pair
+addresses, the tmux hosts/quick keys/snippets/wait patterns, the qBittorrent URL and the
+TorrentLeech credentials; the `Config` class in `desktop/Main.kt` is the key list).
 
 Phone:
 
@@ -304,7 +307,7 @@ have caught it.** A model that errs toward permissive is worse than no model.
 
 Chrome depth, coarse scroll, Reader folders/chapters/images, per-app height, the digital clock,
 Settings directories, brightness + battery on the wire, the 4× preview — all live the same day.
-The one trap worth restating here: **the switcher was dead since first light because our source
+The one trap worth restating here: **the switcher had not worked since first light because our source
 filter discarded the unattributed events 9/10 (source 0)** — a test default that "helpfully"
 supplies what the wire omits is a model erring permissive; inject what the firmware actually
 sends. Do not reintroduce a source gate on events 9/10.
@@ -312,8 +315,8 @@ sends. Do not reintroduce a source gate on events 9/10.
 ## The APK-mission prep (2026-08-31, HANDOFF.md §13 — before any phone-radio test)
 
 What "the phone as the default driver" needs beyond shared core, mined from the G2CC Android app
-(the heavily-tested reference) and from the seam's failure model. All built and battery-green;
-none of it has met the radio yet (that is §13.2's runbook, Adam's part):
+(the heavily-tested reference) and from the seam's failure model. All built and battery-green,
+and all of it has run on the radio daily since the phone's own first light later that day (§13.2):
 
 - **The seam heartbeat** (`RemoteTransport.kt`, both ends): each side sends a bare `ping` every
   5 s; a side that has SEEN its peer speak the protocol treats 20 s of total silence as the link
@@ -357,8 +360,10 @@ best state before we move on"*), and the fourth bespoke shell surface. `wm.damag
   the session line), `torrents/properties|files|trackers`, the 5.x verbs `torrents/stop|start|
   recheck|delete`, multipart `torrents/add`, `auth/login` only when credentials exist (beardos
   bypasses auth on loopback). Every key was read from the 5.1.4 source, never remembered.
-- **`TorrentLeech`** — the tracker session (form login → cookie jar in `~/.damage/tl-cookies.json`,
-  ONE re-login on a logged-out answer), the site's own JSON listing endpoint for browse AND
+- **`TorrentLeech`** — the tracker session (form login → cookie jar in `~/.damage/tl-cookies.json`;
+  ONE re-login on a logged-out answer, paced to one login a minute inside `login()` itself on
+  every path, and a refusal latch that fires only when the site answers with its login FORM —
+  a maintenance page is paced, never latched; review round 4), the site's own JSON listing endpoint for browse AND
   search (`torrents/browse/list/…`, 35 rows a page), the torrent page parsed by a stdlib
   `Html` reader for its landmarks (info table · description · NFO · files · download link), the
   `.torrent` bytes fetched with the session and refused unless bencoded, the profile page read
@@ -396,7 +401,7 @@ best state before we move on"*), and the fourth bespoke shell surface. `wm.damag
   shell routes gestures to it, cancels it under the wheel / silent / relayout / an emergency
   (draft kept), defers ordinary notices behind it, commits a replica-typed line through it.
   Requesters: Torrents Search, Tmux "Type…", Files Rename / New folder (pre-filled).
-- **Settings**: the dead Global rows `Notify · SMS/Mail/Music` are gone — each app's toggles
+- **Settings**: the unused Global rows `Notify · SMS/Mail/Music` are gone — each app's toggles
   live in its own category from now on (`WINDOWS.md` §1); Global keeps `Notify · Damage` and
   gained `Keyboard`.
 - **Harnesses**: `ScriptedTorrents` (desktop) drives the selfcheck's torrents walk (transfers →
@@ -444,7 +449,7 @@ no `-C` attach — the G2CC Phase-5 safety shape); `wm.damage.core.windows.tmux`
   reading-size DocView read as "a different font at a different size", his words) → KEYS (verdict 4 + Left/Right,
   Adam 2026-08-31) → SNIPPETS / WINDOWS (viewing a window targets `=s:idx` — never `select-window`, which is
   an explicit Session… action) / SESSION_ACTIONS (mute · Fit pane 64×22 · select · rename ·
-  kill-confirm). **Typed text always stages a TYPE_CONFIRM** (run = literal + Enter, the G2CC
+  the `kill-session` confirm). **Typed text always stages a TYPE_CONFIRM** (run = literal + Enter, the G2CC
   2026-06-18 semantics); every provider failure rides the title notice. Settings live in the
   Settings window's **Tmux category** (verdict 6): Context rows · Alerts · Size (default 480).
 - **Shell additions**: `CanvasView.onScroll/onTap` (routed like DocView's),
@@ -453,18 +458,20 @@ no `-C` attach — the G2CC Phase-5 safety shape); `wm.damage.core.windows.tmux`
   (`"typed"`), `ShellServices.docContentHeight`. **Typed-text entry points**: the desktop
   preview (key T), the browser replica's text bar, the phone strip's `type` button — all ride
   the transport, so they reach whichever shell drives.
-- **Harnesses**: `ScriptedTmux` (deterministic provider) drives the tmux selfcheck checks
-  (selfcheck is 61 total today) and four snapshot scenes (09b–09e); `TmuxTest` holds 16 core tests (SGR, fit at both
-  height modes, cursor inversion, provider parse/edge-alerts/quoting, the wire round trip, the
-  full window grammar, persistence). Building the scenes also caught a LATENT snapshot-harness
+- **Harnesses**: `ScriptedTmux` (deterministic provider) drives the tmux selfcheck checks (part
+  of the 89-check gate) and four snapshot scenes (09b–09e); `TmuxTest.kt` holds 27 core tests in
+  six classes — `SgrTest` ×4, `TermRenderTest` ×4, `FlowRenderTest` ×6, `TmuxProviderTest` ×3,
+  `TmuxNetTest` ×1, `TmuxWindowTest` ×9 (SGR, fit at both height modes, cursor inversion, the
+  flow view, provider parse/edge-alerts/quoting, the wire round trip incl. pacing, the full
+  window grammar, the alternate-screen fallback, persistence). Building the scenes also caught a LATENT snapshot-harness
   drift: the fixed two-double-tap walk back to Main broke silently when the shelf grew folders
   — the walk now ascends deterministically and the waits are labeled.
 
-**Hardware-blocked (the on-glass items):** the flow view's default size/wrap feel (the grid
+**On-glass verdicts still owed (`REMINDER.md` item 3):** the flow view's default size/wrap feel (the grid
 retirement removed the fit-80/7.6 px question outright — Font size is a real knob now),
 quick-key order, alert-pattern tuning against real Claude sessions, ssh-host latency feel.
 The pixel path is the architecture; texture-cache glyphs stay a later optimization behind
-first-light items 19–20.
+`REMINDER.md`'s still-unmeasured items 19–20.
 
 ## User typography + per-app depth (2026-08-31 evening, Adam's ask — a §Type reversal)
 
@@ -494,7 +501,7 @@ model layers are built and green; the compositor has not adopted them yet, delib
 
 - `wire/CfwModes.kt` — `cleanup()` (11), `cacheUpdate()` (12), `drawImage()` (13),
   `drawCachedText()` (14), plus `options()` and `xAdjust()`. Every builder refuses what the
-  firmware would reject in silence: mode 13's exact 7-byte payload, mode 14's `8 + strlen`, byte 0
+  firmware would reject in silence: mode 13's exact 7-byte body, mode 14's `8 + strlen`, byte 0
   and bytes > 127 in a string, writes past the 64 KiB end, an adjust outside −10…+20.
   `batch()` now accepts sub-modes 3/6/9/13/14/15.
 - `wire/TextureCache.kt` — atlas layout: image encoding (`[w][h][RLE of exactly w*h pixels]`, no
@@ -522,10 +529,11 @@ model layers are built and green; the compositor has not adopted them yet, delib
   and version checks go through `SettingsMsg.contractVersion`.
 
 **Not adopted yet, on purpose.** The compositor still emits pixel deltas only. Turning text into
-mode-14 draws changes the emit strategy and the entire cost model, and it wants **measured** CFW
-ack latency to price it rather than the modeled 176 ms — one flash away. Mode 11 in `stop()` is
-held for the same build: its value is freeing the cache, and `stop()` is a five-round-hardened
-path not worth disturbing for nothing.
+mode-14 draws changes the emit strategy and the entire cost model. The ack curve it is priced
+against is now **measured** (`overview.md` §5.2, 2026-08-31: `ms ≈ 60 + bytes/50`); what still
+gates adoption is the on-glass check of modes 12/13/14 against the sim (`REMINDER.md` items
+19–20). Mode 11 in `stop()` is held for the same build: its value is freeing the cache, and
+`stop()` is a five-round-hardened path not worth disturbing for nothing.
 
 ## Review hardening (rounds 2–8, 2026-08-24)
 
@@ -545,7 +553,7 @@ of them are load-bearing and easy to break by accident:
   piece, then across pieces of one disparity but never across a pixel of
   another plane; a final priced pass merges neighbours whose compressed
   union is cheaper — §5.1, §8.2's "1–3 rects"), and emits whatever closes
-  the gap: nominal deltas at their disparity (split when a payload would
+  the gap: nominal deltas at their disparity (split when a delta's bytes would
   exceed a mode-8 sub-message's 16-bit length or the bytes left in the
   batch; a keyframe past the sub-message length ships bare), black stereo
   pairs for seam strips BOUNDED TO THE SCANNED AREA (the round-2 L2 fix —
@@ -585,7 +593,9 @@ of them are load-bearing and easy to break by accident:
 
 ## Verification
 
-- `./gradlew :core:test` — 191 unit/integration tests (2026-09-01 added
+- `./gradlew :core:test` — 221 unit/integration tests (2026-09-01 evening added
+  `TorrentsTest` ×7 and `KeyboardTest` ×22 — the Torrents build and its four review rounds —
+  and a `GeometryTest` pin for the chrome tweaks; 2026-09-01 added
   `SubstrateTest` ×10 — incl. the Reader CONTINUITY gate, the stamp-0 baseline pin, the
   poisoned-restore pin, the settings-echo pin — `FilesTest` ×8 incl. the pdfpage-restore and
   emergency-first pins, `ReviewRound1Test` ×6 incl. the 4-byte UTF-8 seam, `L2ProbeTest` (the
@@ -593,7 +603,8 @@ of them are load-bearing and easy to break by accident:
   peer-left-session drop) (§19 added `SyncTest` ×6: the stamped
   store's LWW, migration, the sync channel over a real loopback host, the shell's
   freshen-then-apply, the seam status probe; the flow rework added `FlowRenderTest`
-  ×6 plus the pacing/alternate-fallback window tests and the wire-pacing round trip;
+  ×6 plus the pacing/alternate-fallback window tests and the wire-pacing round trip —
+  `TmuxTest.kt` holds 27 today across its six classes;
   2026-08-31 added `TmuxTest` ×16,
   `SeamLivenessTest` ×3, `HandoverTest` ×4, `StyleTest` ×5 and the tmux freeze/bleed regressions; the refinement wave added
   `BatteryBrightnessTest`, `EpubChaptersImagesTest`, and the wire-true source-0 injections in

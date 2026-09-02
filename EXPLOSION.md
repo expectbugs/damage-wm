@@ -4,10 +4,11 @@
 ridiculous feature-creep scope explosions → heavy refinery to bring it back to reality."* Every
 idea below is deliberately included rather than pre-filtered; the refinery pass (Adam's) is what
 cuts it back. Grades are the builder's first-pass opinion **for the refinery to override**.
-⚠ **Role update 2026-09-01: the explosion and refinery are CLOSED** — §5 (Files), §16 (the
-contract), §19 (Torrents) and §20 (the verdicts + the rejected-ideas guard) are RECORDS of
-settled/built work; the remaining per-window tables are still proposals awaiting their own
-refinery pass.
+⚠ **Role update 2026-09-01/02: the explosion and refinery are CLOSED** — §5 (Files, built), §16
+(the contract, built), §19 (Torrents, built) and §20 (the verdicts + the rejected-ideas guard) are
+RECORDS of settled/built work; the remaining per-window tables are still proposals awaiting their
+own refinery pass. **Music (§3) is the next window** (Adam's choice, 2026-09-02); its refinery
+questions are still open.
 
 **Inputs:** [`CAPABILITIES.md`](CAPABILITIES.md) (what the hardware can do, graded),
 [`DESIGN.md`](DESIGN.md) §0 (what is already excluded) and §4.6 (the window contract),
@@ -45,7 +46,7 @@ from the replicas — **always staged behind the window's own confirm**) · `bac
 
 *Grown 2026-09-01 with the Files build:* `open(target)` (§16.1 deep links) ·
 `saveSubState()/restoreSubState()` (§16.4 per-item sub-records) — and `ShellServices` grew
-`openMenu` (the floating context menu), `openWindow(id, target)` (hand-off; the shell records the caller for back-to-caller), `notifyInternal(appId, thread, target)` and `icons()` (theme-icon lookup).
+`openMenu` (the floating context menu), `openWindow(id, target)` (hand-off; the shell records the caller for back-to-caller), `notifyInternal(appId, thread, target)` and `icons()` (theme-icon lookup); with Torrents (2026-09-01 evening) `openKeyboard` — the §4.8 ring-driven keyboard, a requester any window can open with a prompt and a kept draft.
 
 ### 0.3 The price list every idea is graded against
 
@@ -64,7 +65,7 @@ on that measured curve — say which is which when quoting.
 | heaviest frame yet observed | 24.6 KB | 540 ms (measured directly) |
 
 Chrome rides content flushes free (§8.3). Depth is +4 B per rect. The **texture cache is in the
-firmware but NOT in the compositor** — first-light items 19–20 gate adoption; no v1 idea may
+firmware but NOT in the compositor** — first-light items 19–20 gate adoption; no window may
 depend on it.
 
 ### 0.4 Grades
@@ -77,6 +78,12 @@ depend on it.
 | **future** | someday; parked deliberately |
 | **never** | conflicts with a decision — the row names it |
 | **PROBE** | blocked on a named probe (§17) before it can even be graded |
+
+⚠ *Since 2026-09-01 the v1 / v1.5 / v2 grades are HISTORICAL staging labels. Adam's rule for
+every window after Files is no staging — each window is built whole to its best state before the
+next (`WINDOWS.md` §1, `HANDOFF.md` §23). Read a window's grades as the builder's priority opinion
+for that window's refinery pass, never as a shipping plan; **never** and **PROBE** still mean what
+they say.*
 
 ### 0.5 The G2CC bank
 
@@ -167,6 +174,12 @@ compose-new v1 or does reply-only cover the daily loop?
 
 ## 3. MUSIC
 
+> 🎯 **NEXT — Adam's choice, 2026-09-02.** Music is the next window: the §16.10 multi-backend
+> archetype (PC library ↔ phone media) and the first real customer of the window channel's
+> still-unbuilt push / summary / arbitration slices (`HANDOFF.md` §22.1). The design discussion
+> is starting; **his per-window verdicts come first** (no verdicts, no build — `WINDOWS.md`), then
+> built whole. ⚠ **The two refinery questions at the end of this section are still UNANSWERED.**
+
 **Phone plays the audio** (G2CC decision 2026-08-05: volume is max and phone-owned); the library
 can live on the PC. Two G2CC ancestors deliberately distinct: `music.ts` (his player) and
 `media.ts` (third-party phone media via MediaSessionManager + LRCLIB lyrics). §4.5 already names
@@ -192,15 +205,16 @@ Music a notification source (phone-side, MediaSessionManager).
 | 3.12 | Output target picker (phone / PC speakers) | content host can run a player too; ambitious plumbing | future |
 | 3.13 | Song recognition ("what is playing near me") | needs the mic — much later by his word | future |
 
-**Refinery questions:** MediaSession-remote first (3.4) and grow the library later, or the full
-player day one? Does lyrics' per-line radio spend feel right on glass?
+**Refinery questions — OPEN as of 2026-09-02, not yet put to Adam:** MediaSession-remote first
+(3.4) and grow the library later, or the full player day one? Does lyrics' per-line radio spend
+feel right on glass?
 
 ---
 
 ## 4. CALENDAR
 
 > 🪓 **AXED by Adam, 2026-09-01** (*"axe the stuff I never used and don't care about"*).
-> Recorded, not deleted — do not build, do not re-propose. Ripples: reminder source 4.4 dies
+> Recorded, not deleted — do not build, do not re-propose. Ripples: reminder source 4.4 goes with it
 > (§16.5 list updated); Mail 1.17's .ics hand-off and Timers 6.11 (itself axed) are moot.
 
 *(The graded idea table was pruned with the axe — git holds it. G2CC lineage: `calendar.ts`.)*
@@ -213,8 +227,8 @@ player day one? Does lyrics' per-line radio spend feel right on glass?
 > the graded plan: PDF dual-mode (5.10, was v2), rename via typed text (5.9), EPUB→Reader
 > hand-off (5.8), trash with explicit Restore + on-glass double-confirm purge, the clipboard
 > Copy/Cut→Paste (the Move/Copy refinery question answered), per-volume capacity bars, theme
-> icons per file type. NOT shipped: 5.7 row thumbnails (the LENS shows a real thumbnail;
-> per-row = v1.5), configurable roots/trash-retention settings (`appSettings()` is empty —
+> icons per file type. NOT shipped: 5.7 per-row thumbnails (the LENS shows a real thumbnail;
+> per-row is a Files follow-up), configurable roots/trash-retention settings (`appSettings()` is empty —
 > hidden/sort live in the This-folder menu; recorded deviation).
 
 G2CC lineage: `files.ts` — tree + preview + image viewer + ops + trash; its ACTIONS level is the
@@ -254,10 +268,10 @@ delete + rename?
 ## 6. TIMERS
 
 > 🪓 **AXED by Adam, 2026-09-01** (*"never used, don't care"*). Recorded, not deleted. Ripples:
-> **§16.13 (the scheduled-work substrate) dies with it** — alarms/snooze/scheduled-send were its
-> only other consumers and all were future-graded; the Timers 6.3 notification source dies too.
+> **§16.13 (the scheduled-work substrate) goes with it** — alarms/snooze/scheduled-send were its
+> only other consumers and all were future-graded; the Timers 6.3 notification source goes too.
 
-*(Table pruned with the axe — git holds it; §16.13's scheduled-work substrate sketch died with this window. G2CC lineage: `timers.ts`.)*
+*(Table pruned with the axe — git holds it; §16.13's scheduled-work substrate sketch went with this window. G2CC lineage: `timers.ts`.)*
 
 ## 7. NOTICES
 
@@ -302,11 +316,11 @@ started:
 - **Aria and CC: covered by Tmux, permanently.** The glasses watch and approve real sessions in
   real terminals — typed text with confirm, quick keys, waiting-pattern alerts, scrollback. That
   IS the daily assistant loop, running against the real thing instead of a wrapper.
-- **Scout: parked, not dead.** It returns as *something rather different* only after everything
+- **Scout: parked, not closed.** It returns as *something rather different* only after everything
   else is built, tested and polished — and it is deliberately **not designed now**. No ideas are
   graded here, so nothing anchors what it later becomes.
 
-Ideas that died with the section stay dead unless Scout's future self re-earns them
+Ideas retired with the section stay retired unless Scout's future self re-earns them
 (model-controlled display frames, answer-prose typography, assistant-branded proactive pushes —
 Tmux's waiting-pattern alerts already do the real version of the last one). The wake-word probe
 leaves §17 with it. Anything assistant-shaped in the meantime starts life as a tmux session.
@@ -462,7 +476,7 @@ say it, not hide it)?
 
 ## 13. HEALTH
 
-> 🪓 **DEAD ENTIRELY, 2026-09-01.** The ring path was already closed (below), and the alternate
+> 🪓 **CLOSED ENTIRELY, 2026-09-01.** The ring path was already closed (below), and the alternate
 > source is gone too: Adam — *"I don't do health tracking or use Aria anymore"* (a Fitbit-via-aria
 > revival was pitched and rejected; note **aria is retired**, whatever the global config still
 > says about its services). Do not re-propose from either direction.
@@ -473,7 +487,7 @@ say it, not hide it)?
 
 > 🪓 **AXED by Adam, 2026-09-01**: *"I prefer the weather app on my phone. I check it when I wake
 > up and it doesn't really change often enough within the same day."* Recorded, not deleted.
-> ⚠ Ripple: **14.4's NWS severe-alert hedge dies with the window** — the `DESIGN.md` §4.5
+> ⚠ Ripple: **14.4's NWS severe-alert hedge goes with the window** — the `DESIGN.md` §4.5
 > emergency promise now rides on the WEA/CMAS probe alone (§17), with the phone's own alarm
 > remaining the never-the-only-path backstop, as that rule always required.
 
@@ -485,7 +499,7 @@ say it, not hide it)?
 |---|---|---|---|---|
 | **NOTES** | list + read + append-via-typed-text over ~/notes-class files | HOST | or a Files preview convention instead of a window | v2 |
 | **NAVIGATION** | big heading tape (compass mode 10 + sid 0x08 — V-graded, never exercised by us), bearing-to-saved-point via phone GPS | PHONE_APIS | the status-bar tape placeholder becomes real first; a window only if he wants one | PROBE (feed) then v2 |
-| **MONITORING** | slappy/beardos service dashboards, qBittorrent state, disk fill | HOST | Info 9.11 grown up; his infra, his call | v2 |
+| **MONITORING** | slappy/beardos service dashboards, disk fill (qBittorrent state is Torrents' now — §19) | HOST | Info 9.11 grown up; his infra, his call | v2 |
 | **CLIPBOARD** | PC clipboard → glass as a Damage notification / small window | HOST | one xclip read; weirdly useful for codes/addresses | v2 |
 | **PHOTOS** | slideshow-first viewer over a photos root | HOST | Files 5.14 as its own identity | future |
 | **HABITS/STATS** | daily checkmarks, streaks | none | §16.4 state questions apply | future |
@@ -502,7 +516,8 @@ same night with the Files conversion** — 16.1/16.2 (deep links + hand-off with
 16.4a–d (sub-records + reported-guarded tombstones, merge-load + reconciliation, both
 continuity gates in the battery), 16.5 (the signature), 16.11 (Draw.fit + MenuSurface +
 open-on-PC; no extracted confirm helper yet) are CODE; 16.10 shipped the request/blob channel
-with Files as its consumer (**push frames, summaries-over-channel, multi-backend arbitration
+with Files and Torrents as its consumers — Torrents adds version-cursor snapshots and event replay
+(`TorrentsNet`) — (**push frames, summaries-over-channel, multi-backend arbitration
 and per-backend `needs` remain open** — Music is their first real customer); 16.7 was
 re-scoped by Adam's theme-icons ruling (drawn set = fallback + release path). `WINDOWS.md`
 is the build-facing distillation.
@@ -513,7 +528,7 @@ is the build-facing distillation.
 | 16.2 | ✅ **Window hand-off — the same verb from inside**: `ShellServices.openWindow(id, target)`, and it PUSHES the back stack so double-tap returns to the caller (§1.4) | Files→Reader, Search→anything, Mail→Calendar | agreed |
 | 16.3 | ✅ **Quick-action lists**: pattern extraction from Tmux KEYS. ⚠ Placement decided: per-window USER config (quick-replies, prompts) lives in the **synced store** — SMS quick-replies must work app-alone — while PC `config.json` stays host-provider tuning only (tmux hosts, fetch credentials) | Tmux (built), Mail, SMS | agreed |
 | 16.4 | 🔴 **Cross-driver state — RAISED to Adam's TOP PRIORITY 2026-09-01**: *"an always-active session that can be continued seamlessly from every device connected to DamageWM … 100%. Any proposal must take this into account."* Two layers: the **replica** is same-session-from-anywhere (built — phone screen, browser page, desktop preview, all with input); **LWW sync** (§19, built) converges separate shells. Promoted to MUST-DO before the first conversion: **(a) per-item sub-records** `window.<id>.<item>` — whole-blob LWW clobbers cross-item edits (Reader per-book offsets, Games per-game saves); **(b) close the §19.4 startup micro-race** (the recorded debt; fix shape = post-start reconciliation pass); **(c) a per-window CONTINUITY TEST in the battery** — save on shell A → sync → restore on shell B → identical position/frame (§9.1's regression-gate philosophy applied to sync); **(d) content continuability declared per window** (Reader's copy-on-open generalized — state without bytes is useless). Honest boundary, stated to Adam: simultaneous edits to the SAME item still resolve LWW-newest; the sub-record split makes that rare and its cost a position nudge, never data loss. Put-state-where-the-data-lives (1.8) still beats replication wherever a host-owned store exists (Maildir flags, host-side feed read-marks) | everything | agreed; the foundation everything sits on |
-| 16.5 | ✅ **New notification sources stay inside the §4.5 filter's logic** — each addition is our own generated event with its own toggle in its app's Settings category; general phone-notification forwarding stays out. Live source list after the 2026-09-01 cuts: Mail, SMS, **incoming-call caller ID** (approved 2026-09-01 — "not an app, an extension of the notifications"; missed calls land in Notices), Torrents T.2, tmux waiting-alerts (built), Damage events. *(Calendar 4.4, NWS 14.4, Timers 6.3 died with their windows.)* **And the signature grows ONCE**: (source, coalesce/thread key, body, deep-link target, urgency) — coalescing-by-thread and tap-to-open are both already promised by §4.5, so one change now beats four retrofits | Mail, SMS, Torrents, Tmux, phone-calls | agreed |
+| 16.5 | ✅ **New notification sources stay inside the §4.5 filter's logic** — each addition is our own generated event with its own toggle in its app's Settings category; general phone-notification forwarding stays out. Live source list after the 2026-09-01 cuts: Mail, SMS, **incoming-call caller ID** (approved 2026-09-01 — "not an app, an extension of the notifications"; missed calls land in Notices), Torrents done-notifications (T.2, built 2026-09-01), tmux waiting-alerts (built), Damage events. *(Calendar 4.4, NWS 14.4, Timers 6.3 died with their windows.)* **And the signature grows ONCE**: (source, coalesce/thread key, body, deep-link target, urgency) — coalescing-by-thread and tap-to-open are both already promised by §4.5, so one change now beats four retrofits | Mail, SMS, Torrents, Tmux, phone-calls | agreed |
 | 16.6 | 🔴 **Faces — REWRITTEN 2026-09-01. B612 is NEVER a default for anything** (Adam, final, after repeated re-proposals: *"let it go"*) — option-only if the library carries it; the old "B612 revisit" advice here is retracted, and digit-heavy surfaces use the system face or DRAWN digits (`Icons.sevenSegClock` is the precedent, Timers 6.4 its consumer). Defaults stand: Mail/SMS/Notices/Feed-list = Fira Sans · Feed-read = Alegreya · Games-text = JetBrains Mono · everything else Clear Sans until earned. The real work item is the **curated font-library expansion** (`DESIGN.md` §Type carries the plan: sturdy-at-1× survivors of the 66 surveyed, OFL/Apache-clean for the APK, lint coverage row + x-height normalisation per face, defaults untouched) | all | ruling recorded |
 | 16.7 | ✅ **Icons** — RE-SCOPED by the theme-icons ruling (built: the desktop theme resolves at render time, `DESIGN.md` §4.7; the band-height 56 px lens icon LANDED). The quality pass now targets the DRAWN set only (fallback + release path), still front-of-wave | all | re-scoped + partly built |
 | 16.8 | ✅ **Emoji/foreign-glyph policy** — the visible tofu box is the shell-wide rule NOW (Tmux has it); the small drawn set stays v2 | SMS, Mail, Feed, Tmux (has it) | agreed |
@@ -521,7 +536,7 @@ is the build-facing distillation.
 | 16.10 | 🆕 **ONE generic window channel with MULTI-BACKEND providers** — the tmux pattern generalized instead of cloned N times: a `{"t":"win","id":…}` upgrade on the content port (pushed frames + summaries/badges + id-correlated requests), `LocalXProvider` on the PC / `RemoteXProvider` on the phone, keeper-style reconnect, staleness said with duration (§10.5). **Adaptive backends** (Adam's spec, Music the archetype): a window declares a SET of backends in preference order; `needs` becomes per-backend (the window is available if ANY backend's needs are met); the channel's staleness clock drives a settable sustained-loss threshold (a liveness decision of the seam-heartbeat class, not a timeout); **auto-switch fires only under a window-defined condition** — PC library → phone Spotify *only if actively playing*; **switchback is DELIBERATE, never automatic** (no mid-song flapping); Main's summary names the live backend (`▶ Spotify · phone`). Music therefore builds MediaSession-remote (3.4) FIRST — it is the fallback backend. Summaries ride the channel so `summary()` stays cheap (§4.6). PC-only configurations bind the Local providers directly, as tmux does today | every HOST window; Music now, Games engines later | agreed |
 | 16.11 | 🆕 **Shared kit** — a fit helper that ALWAYS draws `▸` when it clips (closed the launch-night tmux bare-clip debt and Reader's silent `drawFit` clips: unadvertised cuts become impossible by construction) · a confirm-level helper (every destructive or outbound act stages a confirm; placement per §1.7) · the one-shot notice-riding-the-title failure surface · ONE **"open on PC"** verb (content-host `xdg-open`; Calendar 4.11, Feed 11.9, Files) | all | agreed |
 | 16.12 | 🆕 **The Title contract + honest NO-TRUNCATION wording** (Adam, 2026-09-01): the absolute rule governs CONTENT; rows/titles are HANDLES elided only with an advertised, reachable path; the ellipsis ban is style, not principle. **Titles are SHORT BY DESIGN — never long enough to cut**; variable content goes to the body or a notification (which is why notifications are popups here, unlike G2CC). A `▸` in the Title = window-defect tripwire. `DESIGN.md` §2.4 r3 + §4.1 carry the full wording | all | recorded |
-| 16.13 | ~~**The scheduled-work substrate**~~ | 🪓 died with Timers (2026-09-01) — alarms/snooze/scheduled-send were its only other consumers, all future-graded. The agreed sketch (host-shell ticks, LWW `fired` stamp, duplicate-notification-never-missed-fire) stays recorded here for any revival | axed |
+| 16.13 | ~~**The scheduled-work substrate**~~ | 🪓 went with Timers (2026-09-01) — alarms/snooze/scheduled-send were its only other consumers, all future-graded. The agreed sketch (host-shell ticks, LWW `fired` stamp, duplicate-notification-never-missed-fire) stays recorded here for any revival | axed |
 
 **Agreed build order for the shared work:** the state substrate (16.4 a–d) → the window channel
 (16.10) → deep links + the notification signature together (16.1/16.5) → the kit (16.11)
@@ -537,7 +552,7 @@ In rough order of value per effort. None requires new firmware; all are additive
 | probe | unblocks | effort |
 |---|---|---|
 | ~~Ring relay watch~~ | ✅ ANSWERED negative (glasses never send `RingRawData`); ring biometrics need the ring's own link + protocol RE — §13.1, `CLAIMS.md` | done |
-| **WEA/CMAS visibility on the Pixel 10a** | the §4.5 emergency promise rides this probe ALONE (14.4 died with Weather) | an afternoon with the phone |
+| **WEA/CMAS visibility on the Pixel 10a** | the §4.5 emergency promise rides this probe ALONE (14.4 went with Weather) | an afternoon with the phone |
 | **Logger service, sid 0x0F** | live on-glass log stream — turns silent decompress trouble visible; `CAPABILITIES.md` calls it the highest-value untested lead | small transport addition |
 | **Compass feed** (mode 10 + sid 0x08) | the status-bar tape placeholder; Navigation | small; V-graded wire, never run by us |
 | **IMU enable** (EvenHub Cmd 19/20) | any opt-in head feature, someday | small; stays default-off per §7.1 |
@@ -552,14 +567,16 @@ It stays graded 🟡S in `CAPABILITIES.md` for whenever Scout's future self retu
 
 ~175 graded items at the explosion's close (54 v1 · 34 v1.5 · 40 v2 · 20 future · 2 never ·
 4 probe-gated). Everything this section once scheduled has happened: the refinery is §20, the
-§16 contract is settled AND built, and the first conversion (Files, §5) shipped through
-`WINDOWS.md`'s checklist.
+§16 contract is settled AND built, and the first conversion (Files, §5) and the first fresh
+window (Torrents, §19) shipped through `WINDOWS.md`'s checklist.
 
 ---
 
 ## 19. TORRENTS — added by Adam 2026-09-01 ("Yes! I always intended for a real qbittorrent integration")
 
-> 🔨 **DESIGN SETTLED 2026-09-01 (evening) — `TORRENTS.md` is the record; BUILD IN PROGRESS.**
+> ✅ **BUILT 2026-09-01 (evening) — `TORRENTS.md` is the record, `HANDOFF.md` §23 the build and
+> its four review rounds (paused at Adam's word); on-glass verdicts still owed (APK 0.18 staged,
+> 0.16 the last installed).**
 > Adam's verdicts supersede the grades below — and his rule for this and every later window
 > is **no v1/v1.5 staging: complete and polished before the next app.** Ships whole: T.1–T.6
 > and T.8, plus a **seeding-under-a-week list** (TL's hit-and-run window), account Stats, and
@@ -608,7 +625,7 @@ supersedes §18's counts.
 
 **🪓 Axed (recorded in place, never re-propose):** Deliveries (1.14) · Calendar (§4) · Timers
 (§6, taking §16.13 with it) · Search (§12) · **Weather** (§14 — *"I prefer the weather app on my
-phone … it doesn't change often enough within the same day"*) · **Health** (§13, now dead from
+phone … it doesn't change often enough within the same day"*) · **Health** (§13, now closed from
 both directions — ring closed AND *"I don't do health tracking or use Aria anymore"*; aria is
 retired). Scout/Aria/CC were already out (§8).
 
@@ -629,13 +646,16 @@ remote, PC live captions, chat bridges, a demos/eyecandy toy window.
 DamageWM's system, which is the intended *build excitement* order (risk still prices the actual
 sequencing per window):
 
-1. **Games** (roster first; 10b lanes on revisit)
-2. **Torrents** (§19)
+1. **Games** (roster first; 10b lanes on revisit) — not started; **Music was taken next instead
+   (Adam, 2026-09-02)**
+2. **Torrents** (§19) — ✅ **BUILT 2026-09-01 evening** (`TORRENTS.md`, `HANDOFF.md` §23; four
+   review rounds, paused at Adam's word; on-glass verdicts owed)
 3. **Files** — ✅ **BUILT (2026-09-01, the same night — the §5 banner, `HANDOFF.md` §22)**:
    the settled design shipped whole (locations + capacity bars, the context-menu grammar,
    text/image/PDF viewers, clipboard, trash+restore, typed rename, Open-on-PC, EPUB→Reader
    hand-off, theme icons) and survived an eight-round review loop run to convergence
-4. **Music** (adaptive PC-library ↔ Spotify per §16.10)
+4. **Music** (adaptive PC-library ↔ Spotify per §16.10) — 🎯 **NEXT**: design discussion
+   starting 2026-09-02; §3's refinery questions still open
 5. **Feed** + comics
 6. **Mail**
 7. **SMS** (+ caller-ID source)
