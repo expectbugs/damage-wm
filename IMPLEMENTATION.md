@@ -441,7 +441,7 @@ one window: `wm.damage.core.windows.music`.
   notice) and the snapshot scenes 30–39; `--music-check` probes the real Postgres / Qdrant /
   cache read-only (plus one viz precompute); core tests: `MusicTest`, `MusicWindowTest`,
   `MusicModeTest`, `ResolverTest`, `LyricsFetchTest`, `YouTubeTest`, `VizTest`, `EnrichTest`.
-  Battery after Music and its three reviews: core 317 · desktop 9 · selfcheck 134 · snapshots 36 · lint 0.
+  Battery after Music and its reviews (incl. review 2 of the whole codebase, 2026-09-02): core 319 · desktop 9 · selfcheck 134 · snapshots 36 · lint 0.
 
 ## Torrents + the keyboard (2026-09-01, TORRENTS.md · DESIGN.md §4.8)
 

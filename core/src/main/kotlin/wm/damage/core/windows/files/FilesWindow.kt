@@ -479,7 +479,26 @@ class FilesWindow(
             g.fillRect(r.x + 16, r.y + 14, 4, 4, Level.DIM)
             g.fillRect(r.x + 24, r.y + 14, 4, 4, Level.DIM)
             Draw.fit(g, tx, r.x + 40, r.y + 5, "This folder", Level.DIM, fRow, r.w - 200)
-            if (listState.isNotEmpty()) Draw.right(g, tx, r.right - 24, r.y + 8, listState, Level.REST, fSmall)
+            if (listState.isNotEmpty()) {
+                // BOUNDED, like the menu's detail column (review 2026-09-01 F2)
+                // and Main's first line. LATENT, not live, and said so
+                // honestly (review 2 2026-09-02): listState holds a provider's
+                // exception message as well as "listing", but every path that
+                // stores an error also clears `entries`, which leaves ONE row
+                // and the shell then draws only the lens — so today the row
+                // painter only ever sees "listing". The bound is here because
+                // an unbounded right-align of a variable string walks LEFT out
+                // of the row the moment that stops being true, and that is
+                // undamaged composed ink.
+                val stateMax = 176
+                val x0 = r.right - 24 - stateMax
+                val shown = Draw.dynamic(tx, listState, fSmall)
+                if (tx.measure(shown, fSmall) <= stateMax) {
+                    Draw.right(g, tx, r.right - 24, r.y + 8, shown, Level.REST, fSmall)
+                } else {
+                    Draw.fit(g, tx, x0, r.y + 8, shown, Level.REST, fSmall, stateMax)
+                }
+            }
             return
         }
         IconPaint.drawFile(g, services?.icons(), e.name, e.dir, r.x + 8, r.y + 6, 20, Level.DIM)

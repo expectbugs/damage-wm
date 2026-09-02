@@ -203,7 +203,30 @@ data class Config(
             } else Config()
             val fixed = if (cfg.token.isEmpty()) cfg.copy(token = newToken()) else cfg
             if (fixed != cfg || !Files.exists(p)) store(fixed)
+            warnBadMusicRoots(fixed)
             return fixed
+        }
+
+        /** `musicLibraryDirs` is used verbatim by LibraryScan (which walks it)
+         *  and MusicDb (which makes folder names relative to it). An empty
+         *  list or a relative entry is not an error either of them can report:
+         *  the scan simply finds nothing and every folder column shows an
+         *  absolute path. Say so at load — the value is NOT substituted and the
+         *  file is NOT rewritten, so what the user wrote is what runs (review 2
+         *  2026-09-02; the enrichment package's damage_config.py warns the same
+         *  way on the Python side). */
+        private fun warnBadMusicRoots(cfg: Config) {
+            if (cfg.musicLibraryDirs.isEmpty()) {
+                Log.e("config", "musicLibraryDirs is EMPTY in ${path()} — the library scan will " +
+                    "walk nothing and folder names will show as absolute paths; the catalog still " +
+                    "comes from the ${cfg.musicDb} database")
+                return
+            }
+            val relative = cfg.musicLibraryDirs.filterNot { it.startsWith("/") }
+            if (relative.isNotEmpty()) {
+                Log.e("config", "musicLibraryDirs entries are not absolute paths: $relative — " +
+                    "the scan skips what it cannot resolve and folder names stay absolute")
+            }
         }
 
         fun store(cfg: Config) {

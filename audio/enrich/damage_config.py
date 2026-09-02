@@ -62,8 +62,14 @@ def load_music_config() -> MusicConfig:
     if isinstance(dirs, list) and dirs and all(isinstance(d, str) and d.startswith("/") for d in dirs):
         cfg.library_dirs = dirs
     elif dirs is not None:
+        # the Kotlin Config does NOT substitute — it logs the same problem and
+        # runs with what the file says (desktop/.../Main.kt warnBadMusicRoots).
+        # The two sides disagree deliberately: a batch pass walking the wrong
+        # roots would enrich the wrong files, while the shell only loses folder
+        # names. (Corrected 2026-09-02: this note used to claim both applied
+        # the same rule, and the Kotlin side applied none at all.)
         print(f"[config] musicLibraryDirs invalid ({dirs!r}) — using "
-              f"{cfg.library_dirs} (the Kotlin Config applies the same rule)", flush=True)
+              f"{cfg.library_dirs}; the Kotlin Config warns and keeps yours", flush=True)
 
     cache = raw.get("musicLegacyCache")
     if isinstance(cache, str) and cache.startswith("/"):

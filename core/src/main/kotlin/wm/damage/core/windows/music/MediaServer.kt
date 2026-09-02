@@ -151,15 +151,24 @@ class MediaServer(
                 head.append("\r\n")
                 out.write(head.toString().toByteArray(Charsets.ISO_8859_1))
                 if (req.method == "GET" && len > 0) {
-                    Files.newInputStream(file).use { s ->
-                        var skip = first
-                        while (skip > 0) { val n = s.skip(skip); if (n <= 0) break; skip -= n }
-                        val buf = ByteArray(64 * 1024)
+                    // POSITION the channel — a skip() loop is allowed to return
+                    // a short count, and breaking out of it then streams from
+                    // the wrong offset under a Content-Range header that says
+                    // otherwise: silently wrong audio, which is worse than an
+                    // error. LATENT under the old code, not live
+                    // (ChannelInputStream.skip seeks fully for a regular file):
+                    // this removes the class rather than relying on that.
+                    // Round9Test pins the contract (review 2 2026-09-02).
+                    Files.newByteChannel(file).use { ch ->
+                        ch.position(first)
+                        val bb = java.nio.ByteBuffer.allocate(64 * 1024)
                         var left = len
                         while (left > 0) {
-                            val n = s.read(buf, 0, minOf(buf.size.toLong(), left).toInt())
-                            if (n < 0) break
-                            out.write(buf, 0, n)
+                            bb.clear()
+                            bb.limit(minOf(bb.capacity().toLong(), left).toInt())
+                            val n = ch.read(bb)
+                            if (n <= 0) break
+                            out.write(bb.array(), 0, n)
                             left -= n
                         }
                     }

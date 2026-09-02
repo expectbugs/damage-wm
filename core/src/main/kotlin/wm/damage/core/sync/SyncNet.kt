@@ -142,7 +142,7 @@ object SyncNet {
             } catch (e: Exception) {
                 try { sock.close() } catch (c: Exception) { /* closing */ }
             }
-        }, "sync-sender-${sock.inetAddress}")
+        }, "sync-sender-${sock.inetAddress}").apply { isDaemon = true }
         sender.start()
         peer.store.addListener(listener)
         Log.i("sync-host", "peer ${sock.inetAddress} attached to the sync channel")

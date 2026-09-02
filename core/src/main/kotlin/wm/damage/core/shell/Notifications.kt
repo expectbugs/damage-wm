@@ -325,7 +325,11 @@ class Notifications(private val text: TextRasterizer) {
                 if (yy < box.bottom) g.fillRect(full.x, yy, full.w, 2, Level.HOT)
             }
             if (box.h >= 30) drawStr(g, full.x + 16, full.y + 12, "EMERGENCY ALERT", Level.HOT, fSmall)
-            if (box.h >= 56) drawStr(g, full.x + 16, full.y + 32, n.body, Level.HOT, fBig)
+            // FITTED: the band is 608 px and the body is external text — an
+            // unbounded draw at fBig walks off the band into undamaged pixels
+            // (review 2 2026-09-02, the same class as the source line below)
+            if (box.h >= 56) Draw.fit(g, text, full.x + 16, full.y + 32,
+                Draw.dynamic(text, n.body, fBig), Level.HOT, fBig, full.w - 32, Level.HOT)
             return box
         }
 
@@ -334,11 +338,17 @@ class Notifications(private val text: TextRasterizer) {
         // top rule + source line
         g.fillRect(full.x, full.y + 16, full.w, 2, lv(Level.DIM))
         if (box.h >= 16) {
-            drawStr(g, full.x + 8, full.y + 2, n.source, lv(Level.HEAD), fSmall)
+            val tw = text.measure(n.timeHHMM, fTiny)
+            // the source is a HANDLE and shares its line with the queue badge
+            // and the clock: fit it to the room before whichever comes first,
+            // or "DAMAGE · compositor" overprints both (every internal source
+            // is long enough to reach the badge — review 2 2026-09-02)
+            val srcEnd = if (queue.isEmpty()) full.right - 8 - tw - 6 else full.x + full.w / 2 - 16
+            Draw.fit(g, text, full.x + 8, full.y + 2, Draw.dynamic(text, n.source, fSmall),
+                lv(Level.HEAD), fSmall, srcEnd - (full.x + 8), lv(Level.DIM))
             if (queue.isNotEmpty()) {
                 drawStr(g, full.x + full.w / 2 - 12, full.y + 4, "+${queue.size}", lv(Level.DIM), fTiny)
             }
-            val tw = text.measure(n.timeHHMM, fTiny)
             drawStr(g, full.right - 8 - tw, full.y + 4, n.timeHHMM, lv(Level.DIM), fTiny)
         }
         val lines = bodyLines(n, l)
