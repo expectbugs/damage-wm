@@ -741,5 +741,51 @@ owned"); the phone speaker is an allowed output; every window works at all four 
 today with Adam's go: `REINDEX DATABASE g2cc` + `ALTER DATABASE g2cc REFRESH COLLATION VERSION`
 (2.42 → 2.43; the other databases still carry their old versions — other projects' call).
 
-**Next:** the build itself, in a fresh session — `MUSIC.md` §13 is the kickoff. Then the review
-loop, then on-glass verdicts (and the still-owed Torrents/keyboard verdicts with APK 0.18).
+### 24.1 The build (2026-09-02/03, overnight, autonomous — six commits, the battery green at each)
+
+| milestone | commit | what landed |
+|---|---|---|
+| M1 host foundation | `36343dc` | `MusicModel` (types + the two contracts), the `Db` seam + `PgDb` (pgjdbc 42.7.13 over the Unix socket via junixsocket 2.11.1, peer auth), `MusicDb` (every query + the additive `lyrics.source/track_id` migration recorded in `damage_schema`), `Qdrant`, `MediaCache` + transcoder, `MediaServer` (:7404, Range), `Art`, `LibraryScan`, `LocalMusicLibrary`, `MusicNet` (service + remote with disk caches), the `WinNet` PUSH slice; `--music-check` passed against the real DB |
+| M2 window | `2acf432` | `MusicWindow` (every level at four heights), `QueueEngine`, `PlayerCore` + `SimMusicPlayer` + `MirrorMusicPlayer`, `LyricsSync`; `ScriptedMusic`, the selfcheck walk, snapshot scenes 30–37; the six delegated leaf modules (Resolver + ClaudeOneShot + EmbedQuery, LyricsFetch, YouTube, Viz, `audio/` + viz.py + Enrich, MusicListener + SpotifyRemote) |
+| M3 shell | `fc2fa99` | `Mode.EXCLUSIVE` (`DESIGN.md` §4.9) and Music Mode's per-height surface stack; `MusicModeTest`; selfcheck at 480/Bars + 288/Scope; scenes 38–39 |
+| M4 APK | `67d65b8` | `AndroidMusicPlayer` (ExoPlayer + media3 session over a ForwardingPlayer), `TrackCache`, media3 1.5.1, the manifest's mediaPlayback type, `Prefs.mediaPort`, the service registration, the Global **Phone notifications** switch, the strip's `music access` grant; APK 19/0.19 |
+| M5 host features | `72cae3d` | the lyric-sources choice pushed to the host (one fetch chain per choice; a source FAULT throws, a MISS stands until the sources widen), `Enrich` + `LyricsFetch` wired, `musicAudioDir`; `--music-check` runs the deterministic lanes and one real viz precompute |
+| M6 docs + staging | (see git log) | this record, `MUSIC.md` corrections, `IMPLEMENTATION.md` Music, `DAILY.md` Music, `REMINDER.md`, `WINDOWS.md` (five precedents), memory; jar + APK staged, the service restarted |
+
+**The battery at M5 (all green):** core **315** tests (was 221 before Music) · desktop 9 ·
+selfcheck **134** checks · snapshots **36** · epub-check clean · lint 0 · `--music-check` all
+pass against the real `g2cc` (2,981 tracks, catalog 1,440 KB in ~70 ms, legacy cache 20/20,
+Qdrant 2,981 points, lanes 1 answer, one viz blob) · `:phone:assembleDebug` 0.19.
+
+**Delegation:** six Opus agents in isolated worktrees, each with the fixed interfaces
+(`Plugins.kt`, `MusicModel.kt`) and its own tests: LyricsFetch ×24 · YouTube ×13 · Resolver ×19 ·
+Viz ×12 · Enrich ×11 · SpotifyRemote (compile-gated, no JVM test possible). Their findings that
+changed the plan: `--bare` cannot authenticate an OAuth login (measured — the one-shot runs
+without it); LRCLIB's search returns whole rows with lyrics inline; NetEase's public search is
+rate-limited per address and needs its three cookies; the Musixmatch route answers a captcha
+401 from here (behind the toggle, off); the hearing-limiter notice text is modeled on AOSP's
+strings and logged verbatim on first sight; `PlaybackState.getLastPositionUpdateTime()` is an
+`elapsedRealtime` instant.
+
+**Decisions made inside the plan (recorded so they are not re-litigated):**
+- Postgres from core through a `Db` seam; the JDBC driver is :desktop-only — the APK never carries it.
+- `MediaServer` is a ServerSocket HTTP/1.1 server in core (no `com.sun.net.httpserver` — Android-clean); a malformed Range answers 200 with the whole file.
+- Profiles: High = Opus 128 k mono / 192 k stereo, Standard = 96 k, Saver = 48 k, Lossless = passthrough; cache dirs `<quality>-<mono|stereo>-<loudnorm|flat>`; the legacy G2CC cache IS `standard-mono-loudnorm`, read in place (20/20 sampled keys map).
+- `--music-check` applies the one additive migration (the service does at every start) and says so; everything else it does is read-only, plus one viz blob into our own cache dir.
+- The catalog is one JSON blob (1,440 KB for 2,981 tracks, built in ~70 ms), cached on the phone; its version is a SHA-1 over table counts and max timestamps.
+- The card repaints on a 5 s pace while focused (a lens repaint is a few hundred bytes; 1 Hz would be ~10 % link duty); Music Mode's card every 5 % of progress; lyrics on line change, the visualizer at its own rate — every surface one rect.
+- Track-change notices fire only while the Music window is NOT on screen (the card shows the change there); verdict 10's default stays on.
+- Seek rests on "+10 s"; Replace-queue-while-playing confirms; Save-over asks twice; Delete playlist is Cancel-first with the unrecoverable row at index 2; a replica-typed line is an Ask staged behind a confirm.
+- yt-dlp grabs as `opus` (the indexer's extension set has no webm), with `--embed-metadata --max-filesize 300m --newline --progress --print after_move:filepath`, the URL after `--`.
+- The media3 session sits over a `ForwardingPlayer`: next/previous route to OUR queue (ExoPlayer holds one item). Auto output refuses to start with no external output; the speaker plays only when chosen. Boost = `LoudnessEnhancer` gain 2000·log10(pct/100) mB, capped at 1200; off on every open and stop.
+- The desktop mirror hands the phone's player record back byte-equal (no LWW re-stamp) and refuses every transport command with "playback needs the phone".
+- Exclusive mode restores only when its window is registered on the restoring host.
+- The scripted viz data spans seven minutes — a renderer past the end of its data paints the resting form by design (a 30 s blob left the first Music Mode scenes flat).
+
+**Measured vs modeled:** everything about glass is still MODELED — the Music Mode ink (10.9 % at
+480 with Bars, 6.3 % at 288 with Scope) and every latency come from the byte-exact sim. The
+Bluetooth lyric offset, the achievable visualizer rate, the limiter's real notice and the Spotify
+cold start are the phone's measured items (`MUSIC.md` §12, `DAILY.md` Music).
+
+**Next:** install 0.19 + the grants (`DAILY.md`), the measured items, then the review loop
+(`REVIEW.md`) over `36343dc..HEAD` — and the still-owed Torrents/keyboard on-glass verdicts.

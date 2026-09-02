@@ -106,6 +106,16 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
             wm.damage.core.windows.torrents TORRENTS (2026-09-01): QbtClient (Web
                                       API 2.11), the TorrentLeech adapter + Html
                                       reader, Local/Remote providers, TorrentsNet
+            wm.damage.core.windows.music   MUSIC (2026-09-02): MusicModel (types +
+                                      the MusicLibrary/MusicPlayer contracts), the
+                                      Db seam + MusicDb (every SQL), Qdrant,
+                                      MediaCache/transcoder + MediaServer (Range),
+                                      Art, LibraryScan, LocalMusicLibrary + MusicNet
+                                      (service + remote with disk caches, push
+                                      frames), QueueEngine, PlayerCore + Sim/Mirror
+                                      players, LyricsSync, Viz renderers, Resolver +
+                                      ClaudeOneShot + EmbedQuery, LyricsFetch,
+                                      YouTube, Enrich, MusicWindow (+ Music Mode)
             wm.damage.core.net        WinNet — the §16.10 generic window
                                       channel (wreq/wres + raw blob answers)
             wm.damage.core.sync       SyncNet/RemoteSync — LWW state sync
@@ -117,7 +127,11 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
                                       + the win/icon dispatch (2026-09-01)
 desktop/    AWT rasterizer · Swing lens preview (integer-scaled, default 4x;
             keyboard + mouse = ring) · CLI · ThemeIcons (Papirus-Dark from
-            xfconf, rsvg-convert, mem+disk cache, serves the phone)
+            xfconf, rsvg-convert, mem+disk cache, serves the phone) · PgDb
+            (pgjdbc over the Unix socket) · MusicPlugins · MusicCheck ·
+            ScriptedMusic
+audio/      the enrichment package taken over from G2CC (Adam's code) +
+            viz.py (the DVIZ visualizer blobs) — run on G2CC's venv for now
 phone/      Android app: foreground ShellService, on-screen lens view (touch =
             ring), AndroidText (bundled OFL/Apache fonts), BleTransport (LIVE
             on hardware since 2026-08-31), transport seam server, wakelock +
@@ -349,6 +363,79 @@ and all of it has run on the radio daily since the phone's own first light later
 - Compass, IMU, wear detection: per `DESIGN.md` (§7) — compass cell draws a
   placeholder until the mode-10 feed exists; head tracking defaults OFF.
 - ~~Texture caching (Babcock's in-progress firmware work)~~ — **it shipped**, see below.
+
+## Music (2026-09-02/03, MUSIC.md · DESIGN.md §4.9) — the phone plays, the PC serves
+
+The third app-wave window, built whole overnight (M1–M6, `HANDOFF.md` §24). The G2CC music
+SYSTEM is Damage's now: Postgres `g2cc`, Qdrant `g2cc_music`, the 8.1 GB transcode cache read
+in place, the enrichment package (copied into `audio/`, his own code), yt-dlp. Two contracts,
+one window: `wm.damage.core.windows.music`.
+
+- **The library (PC)** — `MusicDb` holds every query (the catalog in one blob: tracks joined
+  with their `track_meta` profile + lyric/art bits, artists and albums grouped
+  case-insensitively, playlists, the vocabulary, the recent ids; search; the lane queries; the
+  playlist CRUD with the adaptive guard; lyrics by the additive `track_id` link or the legacy
+  key; play history; the library walk's upserts) against a `Db` seam — the driver (`PgDb`:
+  pgjdbc + junixsocket, peer auth) lives in :desktop so the APK never carries JDBC. `Qdrant`
+  (search / recommend / retrieve), `MediaCache` (profiles `<quality>-<mono|stereo>-<loudnorm|
+  flat>`, the legacy cache = `standard-mono-loudnorm`, one ffmpeg at a time, `.part` +
+  atomic move, a resumable pre-transcode job), `MediaServer` (a ServerSocket HTTP/1.1 server:
+  `GET /track/<id>?token=&profile=`, 200/206 with `Accept-Ranges`, a malformed Range answers
+  the whole file), `Art` (ffmpeg extracts the embedded picture as raw gray, box-sampled; folder
+  images; `.none` markers), `LibraryScan` (ffprobe, format + stream tags, incremental, deletion
+  scoped to walked roots), `LocalMusicLibrary` (composes them + the leaf modules; the catalog
+  is a cached field, refreshed on a fingerprint), `MusicService`/`RemoteMusicLibrary`
+  (`MusicNet.kt` — every op on the `music` window channel; the catalog behind a version
+  cursor; art/viz/lyrics cached per track on the phone; the §16.10 PUSH slice's first use:
+  catalog bumps and grab progress as unsolicited `wpush` frames — `WinNet` gained
+  `WinService.Push`).
+- **The leaf modules** (delegated, interfaces fixed in `Plugins.kt`): `Resolver` (the three
+  lanes — deterministic per `resolver.ts`'s semantics, the strict-JSON plan through
+  `ClaudeOneShot`, the embedding lane through `EmbedQuery` + Qdrant), `LyricsFetch` (tags ·
+  `.lrc` · LRCLIB · NetEase · the Musixmatch route behind the toggle; a FAULT throws, a MISS is
+  null), `YouTube` (yt-dlp search + the audio-only grab with streamed progress), `Viz`
+  (Bars · Scope · Pulse · Meter — pure, one rect per frame, measured ink budgets), `Enrich`
+  (the passes per track + `viz.py`), and on the phone `MusicListener` + `SpotifyRemote`.
+- **The player logic** — `QueueEngine` (pure: modes, next/prev, shuffle-keeps-current, the
+  low-water fill request, remove/move/insert, `qid` identity, JSON) and `PlayerCore` (the
+  transport rules: prev ≥ 3 s restarts, a skip before 80 % is `skipped`, never auto-play on
+  restore; the radio / library-random fill; sleep as a deadline checked on ticks; the boost
+  that dies with the track; hold-my-volume — a drop ≥ 25 points not ours is the limiter,
+  re-set at most 3× in 10 min, then said; prefetch bookkeeping; the Spotify fallback state
+  machine, switchback deliberate) over a `Sink` — `SimMusicPlayer` (tests, selfcheck),
+  `AndroidMusicPlayer` (ExoPlayer + a media3 `MediaSession` over a `ForwardingPlayer` so the
+  buds' next/previous move OUR queue; audio focus; a 60–300 s load control; `setPreferredAudioDevice`
+  with Auto refusing to start without an external output; the volume broadcast + a 1 s poll;
+  `LoudnessEnhancer` boost; `TrackCache` prefetch; `SpotifyRemote`; the listener's notice),
+  and `MirrorMusicPlayer` (the desktop: shows the synced record, refuses transport loudly, hands
+  the record back byte-equal).
+- **The window** — QUEUE (the lens is the Now Playing card: 56 px art, title, artist — album,
+  a 12-block bar + m:ss / m:ss, the state glyph drawn, the PC/Spotify badge, the boost/sleep
+  badge; the cursor rests on the current entry and follows `qid`) → the row menu / the
+  wrap-end Music menu (§8.2) → BROWSE (artists → artist → tracks, albums, moods & genres,
+  playlists → playlist with edit mode, collections as a folder tree, recent, search and
+  YouTube through the keyboard) · LYRICS (a canvas: the current line bright, the scheduler
+  flushing a line ahead of its stamp, scroll = ±50 ms per output device, plain pages) · SEEK ·
+  VOLUME (live) · TRACK INFO · MUSIC MODE (the shell's exclusive mode: card / lyrics / visualizer
+  / queue peek / clock / PC link stacked per height). Ask plays through the lanes with the
+  honest lane line; Search → results (→ "Search YouTube for this"); a grab stages a confirm,
+  its progress rides the title, its done notification deep-links `t:<id>` and offers Play now /
+  Play next. Confirms: Replace-queue-while-playing · Clear · Delete playlist (Cancel-first,
+  the unrecoverable row at index 2) · Save over (asked twice). Settings → Music: the six
+  notify toggles, Volume, Volume boost, Hold my volume, Output, Quality, Channels,
+  Normalization, Default mode, Prefetch, Lyrics offset, Lyrics sources, Visualizer + rate,
+  the six Music Mode surfaces, Spotify fallback, Sleep, Pre-transcode, Rescan, Size. Global
+  gained **Phone notifications** (off — errors go to glass notices and the log).
+- **The shell's EXCLUSIVE mode** (`DESIGN.md` §4.9): `enterExclusive`/`exitExclusive`,
+  `paintExclusive(g, safe, full)` returning one rect per surface, notices in the silent form,
+  persisted and restored with the window.
+- **Harnesses**: `ScriptedMusic` drives the selfcheck walk (empty queue → browse → artist →
+  play → the card → the row menu → the Music menu → Ask through the keyboard → lyrics →
+  Music Mode at 480/Bars and 288/Scope with the swallow test → the off-screen track-change
+  notice) and the snapshot scenes 30–39; `--music-check` probes the real Postgres / Qdrant /
+  cache read-only (plus one viz precompute); core tests: `MusicTest`, `MusicWindowTest`,
+  `MusicModeTest`, `ResolverTest`, `LyricsFetchTest`, `YouTubeTest`, `VizTest`, `EnrichTest`.
+  Battery after Music: core 315 · desktop 9 · selfcheck 134 · snapshots 36 · lint 0.
 
 ## Torrents + the keyboard (2026-09-01, TORRENTS.md · DESIGN.md §4.8)
 

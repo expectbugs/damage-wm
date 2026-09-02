@@ -1,8 +1,10 @@
 # Music on glass — design record (2026-09-02)
 
-**Status: DESIGN SETTLED 2026-09-02 (two rounds of verdicts); §4 holds one open item (the
-Postgres collation refresh, Adam's go) — otherwise ready for the overnight build; NOT BUILT.** The window is built whole on Adam's rule (no v1/v1.5 staging), as an overnight
-autonomous build once §4 is closed, then the review loop (`REVIEW.md`). `EXPLOSION.md` §3 is
+**Status: BUILT 2026-09-02/03 in the overnight autonomous session (M1–M6, a commit per
+milestone with the battery green — `HANDOFF.md` §24 is the build record with the as-built
+numbers and the decisions made inside this plan); §4 is closed (the collation refresh ran
+with Adam's go on 2026-09-02).** The window was built whole on Adam's rule (no v1/v1.5
+staging); next is the review loop (`REVIEW.md`) and the on-phone checks in §12. `EXPLOSION.md` §3 is
 the idea record; `/home/user/G2CC/docs/MUSIC_SPEC.md` is the previous player's decision record
 (read for facts and lessons, never for code — the G2CC music *system* is now Damage's, its code
 is ported, not pasted).
@@ -248,9 +250,17 @@ core/src/main/kotlin/wm/damage/core/windows/music/
                        (phone side: catalog/art/viz/lyrics caches on disk, version cursors)
   MirrorMusicPlayer.kt desktop: a MusicPlayer with no sink — shows the synced record, refuses
                        transport commands LOUDLY ("playback needs the phone")
+  (as built, 2026-09-02, also:) Db.kt (the SQL seam core talks to; PgDb in :desktop) ·
+                       Rules.kt (the queue post-processing every lane applies) · Plugins.kt
+                       (AskResolver / LyricsFetcher / YtClient / Ingester — the leaf modules'
+                       fixed interfaces) · LibraryScan.kt · PlayerCore.kt (the player LOGIC
+                       shared by the phone and the in-memory SimMusicPlayer) · ClaudeOneShot.kt
+                       + EmbedQuery.kt (the lane-2/3 subprocesses)
 phone/src/main/kotlin/wm/damage/phone/music/
-  AndroidMusicPlayer.kt  ExoPlayer sink + media3 MediaSession + audio focus + output routing +
-                         volume sync + HoldVolume + Boost (LoudnessEnhancer) + sleep + prefetch
+  AndroidMusicPlayer.kt  PlayerCore over an ExoPlayer sink + media3 MediaSession (a
+                         ForwardingPlayer routes the buds' next/previous to OUR queue) + audio
+                         focus + output routing + volume sync + HoldVolume + Boost
+                         (LoudnessEnhancer) + sleep + prefetch (as built)
   MusicListener.kt       NotificationListenerService: active media sessions (Spotify) + the
                          system "volume lowered" notice
   SpotifyRemote.kt       MediaController over Spotify's session; cold start via its media
@@ -405,7 +415,8 @@ the desktop mirror; face Clear Sans; icon `multimedia-audio-player` (drawn fallb
 `preferredHeight` 480; short title `Music`.
 
 ### 8.1 Levels (all at 288/352/416/480 — the list kit pans; rows above/below the 64 px lens band
-are 2+2 · 3+3 · 4+4 · 6+6; the card is designed for the band at every size)
+are 2+2 · 3+3 · 4+4 · 5+5 (the as-built `Layout` at each height; the plan's 6+6 was off by
+one); the card is designed for the band at every size)
 ```
 QUEUE (List, root) ──tap row──▶ ROW MENU (MenuSurface)  ──▶ back to QUEUE
   │ wrap-end row = MENU ──▶ Menu rows (§8.2)
@@ -496,9 +507,11 @@ keys/paths; `MediaServer` per §6.3; the library walk (`AUDIO_EXTS` .mp3 .flac .
 Lane 1 deterministic (port of `resolver.ts` semantics: exact artist/album/playlist, vocab words,
 token search; post-processing: 'sound effects' excluded unless named, 'spoken word' excluded from
 shuffle-class lanes, dupe-cluster dedupe with the higher-fidelity file winning, mild artist-spread
-shuffle, size cap `queueSize` 25 except finite album/playlist sets). Lane 2: `claude -p --bare
---model <cfg> --effort <cfg>` with tools denied (read `claude --help` and G2CC's exact one-shot
-invocation for the flag set), env scrubbed, a strict-JSON prompt (artists/albums/genres/moods/
+shuffle, size cap `queueSize` 25 except finite album/playlist sets). Lane 2: `claude -p --tools ""
+--no-session-persistence --model <cfg> --effort <cfg> --system-prompt …` — **not `--bare`**
+(measured 2026-09-02: `--bare` reads only `ANTHROPIC_API_KEY`, and Adam's CLI is signed in over
+OAuth, so it answers "Not logged in" with exit 0; `ClaudeOneShot` keeps `bare` as an off-by-default
+flag and judges the lane by parseability, never by the exit code), env scrubbed, a strict-JSON prompt (artists/albums/genres/moods/
 styles/energy/free text) that lane 1 then executes; any failure or non-JSON → lane 3 → lane 1
 random. Lane 3: `embed_query` (stdin text → 384-dim JSON, ~3.5 s cold) → Qdrant search. Every
 result carries the lane + label + detail line. Radio = Qdrant `recommend` from the last 3 played
@@ -524,9 +537,12 @@ transcode for the current profile. A Damage-owned venv is a later chore (`DAILY.
 `pip freeze` of G2CC's).
 
 ### 9.6 YouTube (`YouTube`)
-`yt-dlp "ytsearch10:<q>" --dump-json --flat-playlist` → results; grab = `yt-dlp -f bestaudio -x
---audio-format best --no-playlist -o "<YouTube dir>/%(title)s [%(id)s].%(ext)s" <url>`, explicit
-request only; then §9.5 ingest; job state pushed on the channel. Never the first result unasked.
+`yt-dlp --no-download --flat-playlist --dump-json "ytsearch10:<q>"` → results; grab = `yt-dlp -f
+bestaudio -x --audio-format opus --embed-metadata --no-playlist --max-filesize 300m --no-simulate
+--newline --progress --print after_move:filepath -o "<YouTube dir>/%(title)s [%(id)s].%(ext)s" --
+<url>` (as built: `opus`, not `best` — the indexer's extension set has no webm; every flag verified
+against `--help` 2026.06.09), explicit request only; then §9.5 ingest; job state pushed on the
+channel. Never the first result unasked.
 
 ### 9.7 Config keys (`desktop/Main.kt` `Config`, `~/.damage/config.json`)
 `musicDb` (g2cc) · `musicSocketDir` (/run/postgresql) · `musicQdrant` (http://127.0.0.1:6333) ·

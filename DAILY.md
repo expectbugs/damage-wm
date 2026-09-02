@@ -41,6 +41,33 @@ APKs matter: a pre-0.15 APK cannot be status-probed (the PC conservatively stays
 and a pre-0.10 one carries no sync client, so state does not flow until it is updated. 0.16
 being installed also unblocks Reader's transitional legacy-offsets cleanup (`REMINDER.md` Next 2).
 
+## Music (2026-09-02, `MUSIC.md`) — the phone plays, the PC serves
+
+| piece | job |
+|---|---|
+| **beardos `damage` service** | the music LIBRARY: Postgres `g2cc` over the Unix socket (peer auth, no password), Qdrant `g2cc_music`, the transcode cache (`~/.g2cc/media-cache` read in place as the Standard profile, `~/.damage/media-cache/<profile>/` for the rest), art + viz blobs, the resolver lanes (a `claude -p` one-shot for Ask, `audio/enrich/embed_query.py` on G2CC's venv for the embedding lane), yt-dlp, the enrichment passes; the **media endpoint on :7404** (`GET /track/<id>?token=&profile=`, Range-capable) next to the window channel on :7401 |
+| **phone APK** | the PLAYER: ExoPlayer + a media session (bud taps: single = play/pause, double = next, triple = previous, from anywhere), the catalog/art/viz/lyrics cached on disk, the next 3 tracks prefetched, hold-my-volume, boost, sleep, Spotify as the fallback |
+
+**One-time phone grants (0.19):** open the app → **`music access`** on the strip → allow
+*Damage music* notification access (Spotify's session + the OS volume-lowered notice ride on
+it; the window says "grant notification access on the phone" until then). No RECORD_AUDIO
+is asked, ever. Then in Settings → Music pick the Output (Auto follows the buds; the phone
+speaker plays only when chosen).
+
+**Checks owed on the phone (`MUSIC.md` §12, measured items):** the first real
+hearing-limiter trigger at work — every volume change is logged with its cause and every
+system notification from the system packages is logged with its text, so the matcher in
+`MusicListener.rules` can be corrected from evidence; the Spotify cold start (does Spotify
+publish a media browser service on this phone?); the Bluetooth lyric offset (Lyrics → scroll
+nudges ±50 ms per output, remembered); the achievable visualizer rate on glass.
+
+**The venv:** the enrichment package runs on G2CC's `/home/user/G2CC/audio/venv` until Damage
+owns one — `audio/requirements-frozen.txt` is its `pip freeze` (224 pins). `--music-check`
+runs every read-only probe against the real database and computes one viz blob.
+
+**Deploy is unchanged**: `./gradlew :desktop:stageJar && sudo rc-service damage restart`
+(the media endpoint binds with the service); the APK by `:phone:stageApk` from the setup page.
+
 ## Ops crib
 
 - `sudo rc-service damage start|stop|status` — the PC side. **Stop it before any

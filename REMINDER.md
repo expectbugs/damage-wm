@@ -49,11 +49,12 @@ contract, §20 refinery verdicts, the chosen window's section). Standing referen
    legacy-offsets dual-write in `ReaderWindow` — the fields are marked; `restoreStateLive`'s
    `liveMapApply` mechanics go with them (update `SubstrateTest`'s migration pin). A clean first
    task for a fresh session.
-3. **The next window: MUSIC — design SETTLED, plan WRITTEN, build NOT started** (`MUSIC.md`:
-   §1 = 29 binding verdicts from Adam 2026-09-02, §2 verified facts, §3 the design, §5–§12 the
-   full build plan with module map, contracts, six milestones and the traps, §13 the kickoff).
-   The build runs in a FRESH session, autonomously overnight, milestone by milestone with a
-   commit after each; then the review loop (`REVIEW.md`). Do not re-open the verdicts.
+3. **MUSIC — BUILT overnight 2026-09-02/03** (`MUSIC.md` §1 = the 29 binding verdicts; M1–M6
+   committed one milestone at a time with the battery green; `HANDOFF.md` §24 = the build record
+   + the decisions made inside the plan). What waits: **install APK 0.19**, the one-time
+   notification-access grant (`DAILY.md` → Music), the on-phone measured items (`MUSIC.md` §12:
+   the limiter's real notice text, the Spotify cold start, the Bluetooth lyric offset, the
+   visualizer rate on glass), then the review loop (`REVIEW.md`) from the M1 commit forward.
 4. **The icon-quality pass** (front of the app wave): one drawn icon per app at 20 px + 56 px —
    the drawn set is the fallback and the release path (theme icons are personal-lane only).
 5. **Watch-items:** the left-lens seam residue (a one-shot early-burst tear — if it recurs

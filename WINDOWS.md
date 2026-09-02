@@ -12,7 +12,7 @@ as code), and the G2CC original (`/home/user/G2CC/server/src/windows/<app>.ts`) 
 interaction facts only, no code taken** (clean-room rule, `CLAUDE.md`) — when one exists
 (Torrents had none; step 2 then has nothing to mine).
 
-**The four worked precedents:** `ReaderWindow` (List → Document → Actions, async content,
+**The five worked precedents:** `ReaderWindow` (List → Document → Actions, async content,
 per-item sub-records, images), `TmuxWindow` (Canvas, a live provider over the content port,
 quick keys, typed text with confirm, alerts), **`FilesWindow`** (2026-09-01 — the
 tap-=-context-menu grammar via `MenuSurface`, the §16.10 window channel via
@@ -20,8 +20,14 @@ tap-=-context-menu grammar via `MenuSurface`, the §16.10 window channel via
 discipline, `Draw.fit`/`dn()` display hygiene), and **`TorrentsWindow`** (2026-09-01 evening,
 `TORRENTS.md` — no G2CC original, built whole; the keyboard as a requester, version-cursor
 snapshots + event replay over the channel's blob lane, a LIVE list whose cursor follows row
-identity, announcements decided host-side once). Read them before writing a fifth — Files and
-Torrents are the worked examples of MenuSurface and WinNet, Torrents of the keyboard.
+identity, announcements decided host-side once), and **`MusicWindow`** (2026-09-02,
+`MUSIC.md` — a window written once against two core contracts, `MusicLibrary` + `MusicPlayer`,
+so the same code runs with the phone's ExoPlayer or the desktop's read-only mirror; the
+window channel's PUSH slice, a second endpoint (:7404) for media bytes, per-height layouts
+for every level and for a whole-panel EXCLUSIVE mode — `DESIGN.md` §4.9 — and a per-app
+Settings category of thirty rows). Read them before writing a sixth — Files and Torrents are
+the worked examples of MenuSurface and WinNet, Torrents of the keyboard, Music of a
+two-host contract, push frames and the exclusive mode.
 
 ---
 
