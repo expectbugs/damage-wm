@@ -49,11 +49,11 @@ contract, §20 refinery verdicts, the chosen window's section). Standing referen
    legacy-offsets dual-write in `ReaderWindow` — the fields are marked; `restoreStateLive`'s
    `liveMapApply` mechanics go with them (update `SubstrateTest`'s migration pin). A clean first
    task for a fresh session.
-3. **The next window: MUSIC** (`EXPLOSION.md` §3; the §16.10 multi-backend customer — PC library
-   ↔ Spotify — and the first real user of the window channel's still-unbuilt push / summary /
-   arbitration slices, `HANDOFF.md` §22.1). The design discussion is starting, no verdicts yet;
-   Adam's per-window refinery verdicts come first (no verdicts, no build), then built whole per
-   `WINDOWS.md`. Games (roster first) is the other survivor at the top of the §20 wow order.
+3. **The next window: MUSIC — design SETTLED, plan WRITTEN, build NOT started** (`MUSIC.md`:
+   §1 = 29 binding verdicts from Adam 2026-09-02, §2 verified facts, §3 the design, §5–§12 the
+   full build plan with module map, contracts, six milestones and the traps, §13 the kickoff).
+   The build runs in a FRESH session, autonomously overnight, milestone by milestone with a
+   commit after each; then the review loop (`REVIEW.md`). Do not re-open the verdicts.
 4. **The icon-quality pass** (front of the app wave): one drawn icon per app at 20 px + 56 px —
    the drawn set is the fallback and the release path (theme icons are personal-lane only).
 5. **Watch-items:** the left-lens seam residue (a one-shot early-burst tear — if it recurs

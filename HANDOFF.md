@@ -725,3 +725,21 @@ pitch at 288, the highlight, the text-line pan, stay-in-row), the transfers list
 done-notification, browse/search/add against the live tracker; the resumed review pass; the
 Reader transitional cleanup (unblocked); then the next window — Music, design discussion and
 verdicts before code.
+
+## 24. Music — the design settled and the build planned (2026-09-02, after the docs sweep)
+
+Two rounds of verdicts with Adam (`MUSIC.md` §1, 29 rows), the facts verified read-only
+(§2: G2CC's music system is taken over whole — Postgres `g2cc`, Qdrant, the 8.1 GB cache,
+the enrichment package, yt-dlp; the phone plays, the PC serves), and the full build plan
+written at max effort (§5–§13: module map, the `MusicLibrary`/`MusicPlayer` contracts, the
+window channel + a Range-capable media endpoint on a new `mediaPort` 7404, the APK sink with
+hold-my-volume and boost, Music Mode as a shell `Mode.EXCLUSIVE`, the lyric scheduler on the
+phone's real position, precomputed visualizer data, six milestones with a commit after each).
+Decisions that reverse older records: volume is adjustable and synced (not "max + phone-
+owned"); the phone speaker is an allowed output; every window works at all four heights
+(`WINDOWS.md` §1); the APK stops posting errors to the phone (Global toggle, off). Also run
+today with Adam's go: `REINDEX DATABASE g2cc` + `ALTER DATABASE g2cc REFRESH COLLATION VERSION`
+(2.42 → 2.43; the other databases still carry their old versions — other projects' call).
+
+**Next:** the build itself, in a fresh session — `MUSIC.md` §13 is the kickoff. Then the review
+loop, then on-glass verdicts (and the still-owed Torrents/keyboard verdicts with APK 0.18).
