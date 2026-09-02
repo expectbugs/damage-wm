@@ -24,6 +24,7 @@ import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.DocModel
 import wm.damage.core.shell.Draw
 import wm.damage.core.shell.HostSetting
+import wm.damage.core.shell.KeyboardSurface
 import wm.damage.core.shell.ListModel
 import wm.damage.core.shell.MenuSurface
 import wm.damage.core.shell.ShellServices
@@ -90,6 +91,8 @@ class FilesWindow(
     private var showHidden = false
     private var clip: Pair<ClipVerb, String>? = null   // verb, absolute path
     private var nameArmed: Pair<NameFor, String>? = null
+    /** §4.8 keyboard drafts kept across a cancel, per (purpose, target). */
+    private val nameDrafts = HashMap<String, String>()
 
     /** One filesystem op at a time (G2CC rule) — a second request is refused
      *  loudly, never queued invisibly. */
@@ -101,6 +104,9 @@ class FilesWindow(
     private var statSeq = 0
     /** Ascend's restored cursor, re-applied when the listing lands (R2#20d). */
     private var pendingBrowseCursor: Int? = null
+    /** A `path:` deep link's file name: the cursor lands on it when the
+     *  listing arrives (Torrents → "Open in Files", 2026-09-01). */
+    private var pendingSelectName: String? = null
 
     /** The Reader hand-off prefix and the title's ~-shortening both come from
      *  the HOST's own home (review Fi#15: the phone's local user.home mangled
@@ -222,6 +228,32 @@ class FilesWindow(
     }
 
     override fun onRegistered(ctx: ShellServices) { services = ctx }
+
+    /** §16.1 deep link: `path:<absolute>` opens the browser at that folder,
+     *  or at the file's folder with the cursor on the file (Torrents' "Open
+     *  in Files" at a payload path). Resolved by the host when the listing
+     *  arrives; a path that does not list shows the provider's error. */
+    override fun open(target: String): Boolean {
+        if (!target.startsWith("path:")) return false
+        val raw = target.removePrefix("path:").trimEnd('/')
+        if (raw.isEmpty() || !raw.startsWith("/")) return false
+        val hasExt = raw.substringAfterLast('/').contains('.')
+        val dir = if (hasExt) raw.substringBeforeLast('/').ifEmpty { "/" } else raw
+        pendingOpenView = null
+        viewer = null
+        nameArmed = null
+        location = locations.firstOrNull { it.kind != "trash" && dir.startsWith(it.path) }
+            ?: FLocation("Path", dir, "path", 0, 0)
+        browseStack.clear()
+        cwd = dir
+        browseModel.cursor = 0
+        entries = emptyList()
+        listState = "listing"
+        pendingSelectName = if (hasExt) raw.substringAfterLast('/') else null
+        level = Level_.BROWSE
+        refreshList()
+        return true
+    }
 
     override fun onActivate(ctx: ShellServices) {
         services = ctx
@@ -417,6 +449,11 @@ class FilesWindow(
                     browseModel.cursor = it.coerceIn(0, n - 1)
                     pendingBrowseCursor = null
                 }
+                pendingSelectName?.let { name ->
+                    val idx = rows().indexOfFirst { it?.name == name }
+                    if (idx >= 0) browseModel.cursor = idx
+                    pendingSelectName = null
+                }
                 if (browseModel.cursor >= n) browseModel.cursor = 0
                 services?.requestRender(this@FilesWindow)
             }
@@ -544,11 +581,7 @@ class FilesWindow(
         add("Copy") { clip = ClipVerb.COPY to path; services?.requestRender(this) }
         add("Cut") { clip = ClipVerb.CUT to path; services?.requestRender(this) }
         if (e.dir && clip != null) add("Paste here", dn(clip!!.second.substringAfterLast('/'))) { paste(path) }
-        add("Rename") {
-            nameArmed = NameFor.RENAME to path
-            setNotice("type the new name (phone strip / replica)")
-            services?.requestRender(this)
-        }
+        add("Rename") { askName(NameFor.RENAME, path, e.name) }
         add("Stats") { openStats(path, e) }
         add("Delete", "to trash") { confirmTrash(path, e.name) }
         services?.openMenu(MenuSurface.Spec(dn(e.name), items, onCommit = { idx -> acts.getOrNull(idx)?.invoke() }))
@@ -561,11 +594,7 @@ class FilesWindow(
             items.add(MenuSurface.Item(label, detail))
             acts.add(act)
         }
-        add("New folder") {
-            nameArmed = NameFor.MKDIR to cwd
-            setNotice("type the folder name (phone strip / replica)")
-            services?.requestRender(this)
-        }
+        add("New folder") { askName(NameFor.MKDIR, cwd, "") }
         if (clip != null) add("Paste here", dn(clip!!.second.substringAfterLast('/'))) { paste(cwd) }
         add("Sort", sort.name.lowercase()) {
             sort = Sort.entries[(sort.ordinal + 1) % Sort.entries.size]
@@ -579,6 +608,27 @@ class FilesWindow(
         add("Stats", "this folder") { openStats(cwd, null) }
         services?.openMenu(MenuSurface.Spec(dn(shortPath(cwd)), items,
             onCommit = { idx -> acts.getOrNull(idx)?.invoke() }))
+    }
+
+    /** Rename / new folder through the §4.8 keyboard (2026-09-01), pre-filled
+     *  with the current name; the commit runs the SAME confirm path a replica
+     *  line takes ([onTypedText]), and a cancel keeps the draft for the next
+     *  ask. The arm stays set either way, so a replica line still works. */
+    private fun askName(what: NameFor, target: String, initial: String) {
+        nameArmed = what to target
+        val key = "${what.name}:$target"
+        val opened = services?.openKeyboard(KeyboardSurface.Spec(
+            title = if (what == NameFor.RENAME) "rename" else "new folder",
+            initial = nameDrafts[key] ?: initial,
+            onCommit = { line ->
+                nameDrafts.remove(key)
+                if (nameArmed == null) nameArmed = what to target   // a relist may have disarmed
+                onTypedText(line)
+            },
+            onCancel = { d -> nameDrafts[key] = d },
+        ), owner = this) == true
+        if (!opened) setNotice("type the ${if (what == NameFor.RENAME) "new" else "folder"} name (phone strip / replica)")
+        services?.requestRender(this)
     }
 
     private fun openEntry(e: FEntry) {

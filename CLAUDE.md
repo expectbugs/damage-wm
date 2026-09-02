@@ -57,8 +57,9 @@ tmux + last-write-wins state sync) plus a STANDBY that drives PC-direct BLE only
 is unavailable and hands back on its return. The PC never claims in daily use** (`--transport
 remote` keeps the claim path as the explicit dev override). `REMINDER.md` is the orientation
 file; `HANDOFF.md` §19–§22 the current records; `DAILY.md` the ops crib; `IMPLEMENTATION.md`
-what runs and how. App layer: **Main · Settings · Reader · Tmux · Files** (Files landed
-2026-09-01 with the whole §16 shared machinery — `HANDOFF.md` §22).
+what runs and how. App layer: **Main · Settings · Reader · Tmux · Files · Torrents** (Files landed
+2026-09-01 with the whole §16 shared machinery — `HANDOFF.md` §22; Torrents + the §4.8
+keyboard the same evening — `TORRENTS.md`, `HANDOFF.md` §23).
 
 Adam's stated methodology governs **the app layer**:
 
@@ -78,8 +79,8 @@ original for interaction facts only (`/home/user/G2CC/server/src/windows/`, read
 precedents** — Files is the only worked example of MenuSurface and the window channel.
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(191 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
-over a fake link), `desktop --selfcheck` (61 checks), `desktop --snapshot DIR` (look at the lens
+(213 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
+over a fake link), `desktop --selfcheck` (89 checks), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.
 Radio use is normal now (post-flash); deploying = `./gradlew :desktop:stageJar && sudo
 rc-service damage restart` (`DAILY.md`) — since §19 the PC never claims, so a PC deploy never

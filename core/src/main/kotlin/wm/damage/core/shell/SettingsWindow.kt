@@ -96,9 +96,14 @@ class SettingsWindow(
         Entry("Diag overlay", { if (get().diagOverlay) "on (bring-up)" else "off" }, { s, d ->
             s.copy(diagOverlay = d > 0)
         }),
-        Entry("Notify · SMS", { onOff(get().notifySms) }, { s, d -> s.copy(notifySms = d > 0) }),
-        Entry("Notify · Mail", { onOff(get().notifyMail) }, { s, d -> s.copy(notifyMail = d > 0) }),
-        Entry("Notify · Music", { onOff(get().notifyMusic) }, { s, d -> s.copy(notifyMusic = d > 0) }),
+        // Notification toggles live in each APP's category (Adam, 2026-09-01 —
+        // `WINDOWS.md` §1); Global keeps only the WM's own events
+        Entry("Notify · Damage", { onOff(get().notifyDamage) }, { s, d -> s.copy(notifyDamage = d > 0) }),
+        // §4.8 the keyboard's layout
+        Entry("Keyboard", { get().keyboardLayout }, { s, d ->
+            val ks = ShellSettings.KEYBOARDS
+            s.copy(keyboardLayout = ks[(ks.indexOf(s.keyboardLayout).coerceAtLeast(0) + d).mod(ks.size)])
+        }),
     )
 
     private fun onOff(b: Boolean) = if (b) "on" else "off"

@@ -15,6 +15,7 @@ import wm.damage.core.gfx.IconKind
 import wm.damage.core.gfx.Level
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.HostSetting
+import wm.damage.core.shell.KeyboardSurface
 import wm.damage.core.shell.ListModel
 import wm.damage.core.shell.ShellServices
 import wm.damage.core.shell.WindowView
@@ -100,6 +101,8 @@ class TmuxWindow(
     private var typed: String? = null
     private var typedPurpose = TypedPurpose.SEND
     private var typedReturn = Level_.LIVE
+    /** The §4.8 keyboard's draft, kept across a cancel (Adam: draft kept). */
+    private var typedDraft = ""
     /** Rename armed from Session… — the NEXT typed line is the new name. */
     private var renameArmed = false
 
@@ -419,7 +422,7 @@ class TmuxWindow(
     }
 
     private fun keysRows(): List<String> =
-        cfg.quickKeys.map { prettyKey(it) } + listOf("Snippets…", "Type (phone/PC keyboard)", "Windows…", "Session…")
+        cfg.quickKeys.map { prettyKey(it) } + listOf("Snippets…", "Type…", "Windows…", "Session…")
 
     private fun keysCommit(i: Int) {
         val t = target ?: return
@@ -432,8 +435,26 @@ class TmuxWindow(
             }
             i == qk.size -> { level = Level_.SNIPPETS; snipModel.cursor = 0 }
             i == qk.size + 1 -> {
-                notice = "type on the phone strip, browser page or desktop preview — it stages here"
-                services?.requestRender(this)
+                // the §4.8 keyboard (2026-09-01): the composed line still stages
+                // TYPE_CONFIRM exactly like a replica-typed one; the quick keys
+                // ride along as the LIVE row (a composed line cannot carry an Esc)
+                val opened = services?.openKeyboard(KeyboardSurface.Spec(
+                    title = "type → ${t.label}", initial = typedDraft,
+                    extra = qk.map { KeyboardSurface.ExtraKey(prettyKey(it), it) },
+                    onCommit = { line ->
+                        typedDraft = ""
+                        if (line.isNotBlank() && !onTypedText(line)) {
+                            notice = "typed text not accepted here"
+                            services?.requestRender(this)
+                        }
+                    },
+                    onCancel = { d -> typedDraft = d },
+                    onExtra = { key -> busy("sending ${prettyKey(key)}") { provider.sendKeys(t, listOf(key)) } },
+                ), owner = this) == true
+                if (!opened) {
+                    notice = "type on the phone strip, browser page or desktop preview — it stages here"
+                    services?.requestRender(this)
+                }
             }
             i == qk.size + 2 -> {
                 busy("listing windows") {

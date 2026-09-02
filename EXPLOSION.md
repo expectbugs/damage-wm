@@ -559,6 +559,17 @@ It stays graded 🟡S in `CAPABILITIES.md` for whenever Scout's future self retu
 
 ## 19. TORRENTS — added by Adam 2026-09-01 ("Yes! I always intended for a real qbittorrent integration")
 
+> 🔨 **DESIGN SETTLED 2026-09-01 (evening) — `TORRENTS.md` is the record; BUILD IN PROGRESS.**
+> Adam's verdicts supersede the grades below — and his rule for this and every later window
+> is **no v1/v1.5 staging: complete and polished before the next app.** Ships whole: T.1–T.6
+> and T.8, plus a **seeding-under-a-week list** (TL's hit-and-run window), account Stats, and
+> **search through the new on-glass keyboard** (`DESIGN.md` §4.8). 🪓 Cut by him: T.7 (shelf
+> glue — everything stays in `~/Downloads`), T.9 (categories), T.10 (RSS — *"i never automate
+> torrenting"*), T.11 (a second tracker — TorrentLeech only this iteration), T.12 and any
+> magnet/URL typing. Refinery questions answered: TorrentLeech; browse AND search;
+> delete-with-data from glass behind a double confirm. Notification toggles live in
+> Settings → Torrents — the general rule from now on (`WINDOWS.md` §1).
+
 **His spec, verbatim intent:** *"the ability to log into and browse my private torrent site and
 add torrents to qbittorrent all within G2. Especially useful for things like linux distros I
 want to try and other large downloads better done via torrent."* qBittorrent already runs on

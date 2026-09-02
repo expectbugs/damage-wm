@@ -93,6 +93,8 @@ class Shell(
     val notifications = Notifications(chromeText)
     private val switcher = Switcher(chromeText, { iconSource })
     private val menu = MenuSurface(chromeText)
+    /** §4.8 the keyboard (2026-09-01) — routed like the menu while open. */
+    private val keyboard = KeyboardSurface(chromeText)
 
     /** The host's theme-icon source (2026-09-01) — set before start; every
      *  icon call site falls back to the drawn set when null or on a miss. */
@@ -101,6 +103,9 @@ class Shell(
     /** Test/introspection: is the floating context menu open, and whose? */
     val menuIsOpen: Boolean get() = menu.open
     val menuTitle: String? get() = menu.current()?.title
+    val keyboardIsOpen: Boolean get() = keyboard.open
+    val keyboardTitle: String? get() = keyboard.current()?.title
+    fun keyboardDraft(): String = keyboard.draft
 
     /** An async icon resolve completed: repaint so the theme bitmap replaces
      *  the drawn fallback (posted by the host's IconSource hook). */
@@ -214,6 +219,14 @@ class Shell(
             // entry menu) is closed PROPERLY first — restore + onClose — or
             // its pixels become the new menu's "under" and get painted back
             // on cancel (review 2026-09-01 F1)
+            // the keyboard is a modal input surface (§4.8): an async menu
+            // landing over it would disturb typing — refuse, the caller says
+            // it as a notice. A requester's own menu (Files' rename confirm)
+            // runs from the keyboard's commit, AFTER it closed
+            if (keyboard.open) {
+                Log.w("shell", "openMenu refused: the keyboard is open")
+                return false
+            }
             if (menu.open) cancelMenu()
             settleSlidesForOverlay()
             // decision-6 semantics: the menu owns the screen like the wheel —
@@ -231,6 +244,41 @@ class Shell(
             menu.openWith(spec)
             updatePlanes()
             paintMenu()
+            return true
+        }
+
+        override fun openKeyboard(spec: KeyboardSurface.Spec, owner: DamageWindow?): Boolean {
+            // LOOP-ONLY (§4.8): the same refusal rules as openMenu
+            if (mode != Mode.WINDOW || switcher.open) {
+                Log.w("shell", "openKeyboard refused: mode=$mode switcher=${switcher.open}")
+                return false
+            }
+            if (owner != null && owner !== current) {
+                Log.i("shell", "openKeyboard refused: '${owner.id}' is not the focused window")
+                return false
+            }
+            if (menu.open) {
+                // a menu commit that wants the keyboard runs after the menu
+                // closed; anything else asking under an open menu is an async
+                // completion that must not steal the screen
+                Log.w("shell", "openKeyboard refused: a menu is open")
+                return false
+            }
+            if (keyboard.open) cancelKeyboard()
+            settleSlidesForOverlay()
+            if (notifications.active) {
+                if (notifications.furlingOut) {
+                    notifications.restoreUnderFinished(comp.composed)?.let { comp.damage(it) }
+                    notifications.abandonFurl()
+                } else {
+                    liftNotificationBox()
+                    notifications.requeueCurrent()
+                }
+                boxLifted = false
+            }
+            keyboard.openWith(spec, settings.keyboardLayout)
+            updatePlanes()
+            paintKeyboard()
             return true
         }
 
@@ -617,6 +665,13 @@ class Shell(
         if (trimmed.isEmpty()) return
         // the menu owns the screen like the wheel does — a typed line landing
         // under it would open confirm surfaces OVER it (review 2026-09-01 F3)
+        // the keyboard is open (§4.8): the replica's line IS the draft — a real
+        // keyboard beat the ring to it — and it commits through the same path
+        if (keyboard.open) {
+            keyboard.setDraft(trimmed)
+            commitKeyboard(trimmed)
+            return
+        }
         val w = if (mode == Mode.WINDOW && !switcher.open && !menu.open) current else null
         val accepted = try {
             w?.onTypedText(trimmed) ?: false
@@ -739,6 +794,18 @@ class Shell(
                 EvenHubMsg.EV_SCROLL_BOTTOM -> { menu.scroll(1); paintMenu() }
                 EvenHubMsg.EV_CLICK -> commitMenu()
                 EvenHubMsg.EV_DOUBLE_CLICK, EvenHubMsg.EV_RING_LONG_PRESS -> cancelMenu()
+            }
+            return
+        }
+        // The keyboard open (§4.8): row/key stages — the chord block above
+        // still runs first, so the wheel opens OVER it (a cancel, draft kept)
+        if (keyboard.open) {
+            when (type) {
+                EvenHubMsg.EV_SCROLL_TOP -> { keyboard.scroll(-1); paintKeyboard() }
+                EvenHubMsg.EV_SCROLL_BOTTOM -> { keyboard.scroll(1); paintKeyboard() }
+                EvenHubMsg.EV_CLICK -> tapKeyboard()
+                EvenHubMsg.EV_DOUBLE_CLICK, EvenHubMsg.EV_RING_LONG_PRESS ->
+                    if (keyboard.back()) paintKeyboard() else cancelKeyboard()
             }
             return
         }
@@ -996,6 +1063,90 @@ class Shell(
         scheduleSave()
     }
 
+    // ------------------------------------------------------------------ keyboard (§4.8)
+    private fun paintKeyboard() {
+        keyboard.paint(comp.composed, layout)?.let { comp.damage(it) }
+        chromeDirty = true
+    }
+
+    /** Close + restore what the keyboard covered; a box that waited behind it
+     *  shows with its grace (the menu's decision-6 shape). */
+    private fun closeKeyboardSurface(restore: Boolean): KeyboardSurface.Spec? {
+        if (!keyboard.open) return null
+        val s = keyboard.close()
+        if (restore) {
+            val r = keyboard.restoreUnderFinished(comp.composed)
+            if (r != null) comp.damage(r) else composeContent()
+        } else {
+            keyboard.invalidateUnder()
+        }
+        updatePlanes()
+        if (notifications.showNextIfIdle()) {
+            updatePlanes()
+            paintNotification()
+            if (mode != Mode.SILENT) scheduleGrace()
+        }
+        chromeDirty = true
+        return s
+    }
+
+    private fun tapKeyboard() {
+        when (val t = keyboard.tap()) {
+            is KeyboardSurface.Tap.Commit -> commitKeyboard(t.text)
+            is KeyboardSurface.Tap.Extra -> {
+                val s = keyboard.current()
+                try {
+                    s?.onExtra?.invoke(t.id)
+                } catch (e: Exception) {
+                    Log.e("shell", "keyboard live key failed", e)
+                    services.notifyInternal("keyboard", "key failed: ${e.message}")
+                }
+                paintKeyboard()
+            }
+            KeyboardSurface.Tap.None -> paintKeyboard()
+        }
+        scheduleSave()
+    }
+
+    private fun commitKeyboard(text: String) {
+        val s = closeKeyboardSurface(restore = true) ?: return
+        try {
+            s.onCommit(text)
+        } catch (e: Exception) {
+            Log.e("shell", "keyboard commit failed", e)
+            services.notifyInternal("keyboard", "typed text failed: ${e.message}")
+        }
+        composeContent()
+        scheduleSave()
+    }
+
+    /** The cancel path (double-tap at ROW, the wheel, an emergency): the
+     *  draft goes back to the requester — kept, per Adam's verdict. */
+    private fun cancelKeyboard() {
+        val draft = keyboard.draft
+        val s = closeKeyboardSurface(restore = true) ?: return
+        try {
+            s.onCancel?.invoke(draft)
+        } catch (e: Exception) {
+            Log.e("shell", "keyboard cancel handler failed", e)
+        }
+        scheduleSave()
+    }
+
+    /** Drop the keyboard WITHOUT restoring (the whole surface repaints —
+     *  silent entry, a relayout): the draft still goes back. */
+    private fun dropKeyboard() {
+        if (!keyboard.open) return
+        val draft = keyboard.draft
+        val s = keyboard.close()
+        keyboard.invalidateUnder()
+        try {
+            s?.onCancel?.invoke(draft)
+        } catch (e: Exception) {
+            Log.e("shell", "keyboard cancel handler failed", e)
+        }
+    }
+
     /** §16.1: run [w].open(target) on the commit path; unresolvable or
      *  unsupported targets are reported LOUDLY, never swallowed. */
     private fun tryOpenTarget(w: DamageWindow, target: String) {
@@ -1046,6 +1197,7 @@ class Shell(
 
     private fun enterSilent() {
         mode = Mode.SILENT
+        dropKeyboard()                    // silent repaints everything itself (§4.8)
         if (menu.open) {
             val s = menu.close()          // silent repaints everything itself
             menu.invalidateUnder()
@@ -1079,6 +1231,7 @@ class Shell(
     // ------------------------------------------------------------------ switcher
     private fun openSwitcher() {
         if (menu.open) cancelMenu()       // the wheel displaces the menu (§16.11)
+        if (keyboard.open) cancelKeyboard()   // … and the keyboard (§4.8, draft kept)
         settleSlidesForOverlay()
         // decision 6 (HANDOFF.md §8.1): the wheel owns the screen. A box on
         // screen goes back to the queue unread, unshown until the wheel closes;
@@ -1179,7 +1332,7 @@ class Shell(
             }
             return
         }
-        if ((menu.open || switcher.open) && n.emergency) {
+        if ((menu.open || switcher.open || keyboard.open) && n.emergency) {
             // §4.5: "an emergency alert cancels any pending confirm rather
             // than stacking on it" — a menu can sit open indefinitely, so an
             // emergency must not wait behind it (review 2026-09-01 F8); the
@@ -1187,6 +1340,7 @@ class Shell(
             // (R3s#3). Losing a surface is safe, a missed alert is not.
             if (switcher.open) cancelSwitcher()
             if (menu.open) cancelMenu()
+            if (keyboard.open) cancelKeyboard()   // losing a draft's surface is safe; it comes back pre-filled
             // and the close must not seat a QUEUED ordinary box ahead of the
             // alert — park it back unread; post() seats emergencies at the
             // queue HEAD (R2#3), so the alert really does show next
@@ -1195,7 +1349,7 @@ class Shell(
                 notifications.requeueCurrent()
                 boxLifted = false
             }
-        } else if (switcher.open || menu.open) {
+        } else if (switcher.open || menu.open || keyboard.open) {
             // decision 6: wait behind the wheel — and behind the context menu
             // (§16.11) — queued unshown until the surface closes
             notifications.post(n, layout, show = false)
@@ -1561,6 +1715,7 @@ class Shell(
         chrome.invalidate()
         kit.resetRail()
         slides = emptyList()
+        dropKeyboard()                    // the geometry under it changed (§4.8)
         if (menu.open) {
             val s = menu.close()          // the geometry under it changed
             menu.invalidateUnder()
@@ -1749,6 +1904,10 @@ class Shell(
             menu.invalidateUnder()        // recapture over the fresh content
             paintMenu()
         }
+        if (keyboard.open) {
+            keyboard.invalidateUnder()
+            paintKeyboard()
+        }
         updatePlanes()
         if (notifications.active) paintNotification()
         chromeDirty = true
@@ -1795,13 +1954,17 @@ class Shell(
             // is not the focus — and this full-content-width plane-0 band runs
             // through the wheel's rows, which dragged the whole width forward,
             // background included (Adam's report).
-            if (!switcher.open && !menu.open && focusedView() is WindowView.ListView) {
+            if (!switcher.open && !menu.open && !keyboard.open && focusedView() is WindowView.ListView) {
                 planes.add(Compositor.PlaneRegion(layout.lens, 0))          // lens comes forward
             }
             if (menu.open) {
                 // the menu owns the depth story while open (the §4.3 wheel
                 // lesson applied): its box is the only plane-0 region
                 menu.rect(layout)?.let { planes.add(Compositor.PlaneRegion(it, 0)) }
+            }
+            if (keyboard.open) {
+                // the keyboard owns the depth story while open (§4.8): plane 0
+                keyboard.rect(layout)?.let { planes.add(Compositor.PlaneRegion(it, 0)) }
             }
             if (switcher.open) {
                 planes.add(Compositor.PlaneRegion(layout.switcherPanel, d)) // neighbours with content
@@ -2078,7 +2241,7 @@ class Shell(
             dirtyAt = rows.mapIndexedNotNull { i, w -> if (w.dirty) i else null }.toSet(),
             stackDepth = when (mode) {
                 Mode.MAIN -> 1
-                Mode.WINDOW -> 1 + (current?.levelDepth() ?: 1) + (if (menu.open) 1 else 0)
+                Mode.WINDOW -> 1 + (current?.levelDepth() ?: 1) + (if (menu.open || keyboard.open) 1 else 0)
                 Mode.SILENT -> 1
             },
             op = opText,

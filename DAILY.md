@@ -66,6 +66,16 @@ and a pre-0.10 one carries no sync client, so state does not flow until it is up
   this PC service (or `--host-only`) — content port :7401.
 - If the pair "scans forever" while the phone says Connected: the stale-ACL recovery is still
   **toggle phone Bluetooth** (the scan now fails loudly and rides the ON edge back in).
+- **Torrents (2026-09-01, `TORRENTS.md`):** the window reads qBittorrent's Web API on
+  `http://127.0.0.1:8090` (loopback only, localhost auth bypass — no credentials in our path) and
+  the TorrentLeech account from `~/.damage/config.json` (`torrentleechUser` / `torrentleechPass`;
+  `qbtUrl`, and `qbtUser`/`qbtPass` only if the bypass is ever turned off). The Web UI came with
+  the `webui` USE flag rebuild (`/etc/portage/package.use/60-qbittorrent`); qBittorrent's own
+  Web UI login (`admin` + the password in `~/.config/qBittorrent/webui-credentials.txt`) exists
+  only because qBittorrent refuses to start the Web UI without one. ⚠ qBittorrent is the GUI app in
+  the X session, not a service: if it is not running, the window says `qBittorrent unreachable Ns`
+  and everything else keeps working. The tracker session cookie lives in `~/.damage/tl-cookies.json`;
+  the announced-set (which downloads were already announced as done) in `~/.damage/torrents.json`.
 
 ## What was verified vs what awaits glass
 

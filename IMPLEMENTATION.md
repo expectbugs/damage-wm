@@ -96,17 +96,22 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
             wm.damage.core.shell      Shell orchestrator, input grammar, chrome,
                                       Main, switcher, notifications, silent mode,
                                       ContentKit (lens/list/document), slides,
-                                      persistence, settings
+                                      persistence, settings, MenuSurface, the
+                                      §4.8 KeyboardSurface (2026-09-01)
             wm.damage.core.windows.reader  Reader + EPUB extraction
             wm.damage.core.windows.files   FILES (2026-09-01): the window, the
                                       Local/Remote providers, FilesService on
                                       the win channel, trash manifest
             wm.damage.core.windows.tmux    Tmux window + providers + TmuxNet
+            wm.damage.core.windows.torrents TORRENTS (2026-09-01): QbtClient (Web
+                                      API 2.11), the TorrentLeech adapter + Html
+                                      reader, Local/Remote providers, TorrentsNet
             wm.damage.core.net        WinNet — the §16.10 generic window
                                       channel (wreq/wres + raw blob answers)
             wm.damage.core.sync       SyncNet/RemoteSync — LWW state sync
             wm.damage.core.util       Log · Exec (deadlock-proof subprocess
-                                      runner — stderr drains concurrently)
+                                      runner — stderr drains concurrently) · Http
+                                      (HttpURLConnection, no timeouts, multipart)
             wm.damage.core.content    library providers: local dir, TCP host,
                                       remote client with copy-on-open caching;
                                       + the win/icon dispatch (2026-09-01)
@@ -341,6 +346,64 @@ none of it has met the radio yet (that is §13.2's runbook, Adam's part):
 - Compass, IMU, wear detection: per `DESIGN.md` (§7) — compass cell draws a
   placeholder until the mode-10 feed exists; head tracking defaults OFF.
 - ~~Texture caching (Babcock's in-progress firmware work)~~ — **it shipped**, see below.
+
+## Torrents + the keyboard (2026-09-01, TORRENTS.md · DESIGN.md §4.8)
+
+The second app-wave window, built whole on Adam's rule (*"every app … completely built to its
+best state before we move on"*), and the fourth bespoke shell surface. `wm.damage.core.windows.torrents`:
+
+- **`QbtClient`** — qBittorrent Web API **2.11** over `HttpURLConnection` (core runs in the APK;
+  no `java.net.http`): `sync/maindata` (rid 0, always full — one request carries the list and
+  the session line), `torrents/properties|files|trackers`, the 5.x verbs `torrents/stop|start|
+  recheck|delete`, multipart `torrents/add`, `auth/login` only when credentials exist (beardos
+  bypasses auth on loopback). Every key was read from the 5.1.4 source, never remembered.
+- **`TorrentLeech`** — the tracker session (form login → cookie jar in `~/.damage/tl-cookies.json`,
+  ONE re-login on a logged-out answer), the site's own JSON listing endpoint for browse AND
+  search (`torrents/browse/list/…`, 35 rows a page), the torrent page parsed by a stdlib
+  `Html` reader for its landmarks (info table · description · NFO · files · download link), the
+  `.torrent` bytes fetched with the session and refused unless bencoded, the profile page read
+  for five stats and nothing else. **Format drift is a loud `TlException("format changed: …")`**
+  — never an empty list. The 40-category tree (9 groups) is a constant with its lineage.
+- **`LocalTorrentsProvider`** (PC) — the poll loop (15 s idle; the fastest focused party sets
+  the pace — the local shell and the phone are tracked separately), snapshot diffing into
+  EVENTS (done / error / added / removed) with a monotonic sequence + a per-process epoch, the
+  persisted announced set (`~/.damage/torrents.json`: a first run baselines silently, a restart
+  announces what finished while the service was down, nothing announces twice), `xdg-open`.
+- **`TorrentsNet`** — `TorrentsService` on the §16.10 window channel (`snap` with a version
+  cursor: unchanged = no blob; events since a sequence within an epoch; every op) and
+  `RemoteTorrentsProvider` (phone): its own paced poll (2 s focused / 15 s idle, woken by
+  attach and focus), event replay, the channel's staleness first, the host's second.
+- **`TorrentsWindow`** — TRANSFERS (activity sort: errors first, then downloads, checking,
+  seeds, stopped; six filters incl. **seeding < 1 week** for TL's hit-and-run rule; rows =
+  icon · name · 10-block bar · state word, the LENS carries the live numbers + a 12-block bar +
+  an 8-column speed history) → the transfer MENU (Details · Start/Stop · Recheck · Open in
+  Files (a `path:` deep link Files now accepts) · Open on PC · Delete · Delete with files behind
+  a double confirm) → DETAILS (a document: state, speeds, ratio, peers, dates, paths, the file
+  list) · the wrap-end Torrents MENU (Browse · Search via the keyboard · recents · Filter · Sort ·
+  Seeding < 1 week · Refresh · Stats) → CATEGORIES (Newest + 40 rows with group icons) →
+  LISTING (endless pages, a loading pseudo-row, paced retry in place, FL mark, seeders/leechers
+  with drawn arrows) → TORRENT (a document: info, description, NFO in mono, files) → the add
+  MENU (Add / Add stopped behind a confirm, Open on PC). Notifications `torrent · done/error`
+  deep-link to `t:<hash>` and are gated by Settings → Torrents (Notify · done / errors / Poll /
+  Size). `open("t:<hash>")` and `open("tl:<fid>")` synthesize the level path. A replica-typed
+  line searches. Face Fira Sans; icon theme `qbittorrent` with a drawn fallback.
+- **`KeyboardSurface`** (`shell/`) — DESIGN.md §4.8: the wireframe keyboard, row-then-key with
+  wrap on both axes, stay-in-row after typing, QWERTY/abc from Settings → Global → Keyboard,
+  the symbol layer, Shift once/lock, caret editing (←/→/Del/Clear), a panning text line that
+  marks its cut, an optional requester row of LIVE keys (Tmux's quick keys), the draft handed
+  back on cancel. `ShellServices.openKeyboard(spec, owner)` — the menu's refusal rules; the
+  shell routes gestures to it, cancels it under the wheel / silent / relayout / an emergency
+  (draft kept), defers ordinary notices behind it, commits a replica-typed line through it.
+  Requesters: Torrents Search, Tmux "Type…", Files Rename / New folder (pre-filled).
+- **Settings**: the dead Global rows `Notify · SMS/Mail/Music` are gone — each app's toggles
+  live in its own category from now on (`WINDOWS.md` §1); Global keeps `Notify · Damage` and
+  gained `Keyboard`.
+- **Harnesses**: `ScriptedTorrents` (desktop) drives the selfcheck's torrents walk (transfers →
+  menu → details → browse → listing → page → add-confirm → keyboard search → the done
+  notification, plus the ink budgets: transfers 9.0 %, details 6.5 %) and the snapshot scenes
+  15–22; `TorrentsTest` ×7 (the client against a fake Web API, the adapter against fixtures incl.
+  drift and expiry, the provider's diff/baseline/persistence, the window grammar, persistence +
+  continuity, the remote provider over a real loopback host) and `KeyboardTest` ×14.
 
 ## Tmux (2026-08-31, TMUX.md — all refinery verdicts locked, built in one pass)
 

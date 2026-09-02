@@ -26,6 +26,12 @@ text/image/PDF viewers, a clipboard slot, trash with restore, typed rename, EPUB
 links — riding new shared machinery (a per-item last-write-wins state-sync substrate, a
 generic window channel, the notification signature, theme icons resolved from the desktop
 theme) and an **eight-round adversarial review loop run to convergence** (79→…→0 findings).
+**Then the same evening, TORRENTS and the KEYBOARD** (`TORRENTS.md`, `DESIGN.md` §4.8): his
+qBittorrent transfers and TorrentLeech account on glass — an activity-sorted list with block
+bars and a live lens, a details document, browse by category and search, a torrent page with
+Add behind a confirm, done-notifications decided once host-side, a seeding-under-a-week list
+for the tracker's rules — and a ring-driven wireframe keyboard (row, then key) that Torrents,
+Tmux and Files all ask for.
 [`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run; `HANDOFF.md` §10–§22 are the
 install / first-light / refinement / launch-day / app-wave records; `DAILY.md` is the ops
 crib; [`WINDOWS.md`](WINDOWS.md) the conversion checklist; `EXPLOSION.md` the graded app
@@ -38,6 +44,7 @@ backlog + refinery verdicts; `REFINEMENT.md` and `TMUX.md` the design logs.
 | **[`REMINDER.md`](REMINDER.md)** | orientation — project state, what is next, and what is still unmeasured |
 | [`WINDOWS.md`](WINDOWS.md) | how a G2CC app becomes a DamageWM window — the current phase's build checklist |
 | [`EXPLOSION.md`](EXPLOSION.md) | the graded app backlog, the §16 contract record, the refinery verdicts |
+| [`TORRENTS.md`](TORRENTS.md) | the Torrents window: verdicts, the verified qBittorrent and TorrentLeech facts, the design, the plan |
 | [`DAILY.md`](DAILY.md) | the daily-driver ops crib: services, ports, deploys, recovery |
 | [`REFINEMENT.md`](REFINEMENT.md) | the post-first-light refinement log: every ask, its analysis, and what shipped |
 | [`IMPLEMENTATION.md`](IMPLEMENTATION.md) | the built first stage: modules, the transport seam, how to run and verify |
@@ -61,9 +68,9 @@ The design is shaped by three facts about this display, and most of it follows f
 ## Building and verifying
 
 ```
-./gradlew :core:test                                  # 191 tests, incl. the per-lens oracle
+./gradlew :core:test                                  # 213 tests, incl. the per-lens oracle
 ./gradlew :desktop:test                               # 9 tests: the BlueZ glue over a fake link
-./gradlew :desktop:run --args="--selfcheck"           # the 61-check whole-stack gate
+./gradlew :desktop:run --args="--selfcheck"           # the 89-check whole-stack gate
 ./gradlew :desktop:run --args="--snapshot DIR"        # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"          # parse every book; chapters + image decode
 ./gradlew :desktop:run --args="--transport ble"       # PC-direct BLE (the at-the-desk fallback)

@@ -42,6 +42,7 @@ object IconNames {
         IconKind.CALENDAR -> listOf("office-calendar", "x-office-calendar")
         IconKind.TIMER -> listOf("preferences-system-time", "alarm-clock")
         IconKind.SCOUT -> listOf("system-search")
+        IconKind.TORRENTS -> listOf("qbittorrent", "transmission", "deluge", "network-transmit-receive", "folder-download")
     }
 
     /** Extension → mimetype-icon fallback chain for file rows ("like a real

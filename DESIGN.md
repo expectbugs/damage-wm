@@ -750,7 +750,8 @@ choice overrides the global for that app only. Reader's Size row is the first in
 | **Font** | system face and size; per-window content override (§Type — defaults are locked, this is for tuning) |
 | **Head tracking** | default OFF (§7.1) |
 | **Long-press** | **off** (default — §1.2 revised 2026-08-30: a bare long-press is a no-op; the §1.3 chord opens the switcher) / switcher |
-| **Notification sources** | §4.5 |
+| **Notification sources** | only `Notify · Damage` here — **each app's toggles live in that app's own category** (Adam, 2026-09-01; §4.5) |
+| **Keyboard** | qwerty / abc — the §4.8 keyboard's layout |
 | **Battery alert** | off / on / escalating — the ≤ 20 % pulse (§4.1) |
 | **Profiler / diagnostics** | status-bar profiler, mode-7 overlay (§9.2) |
 
@@ -1248,6 +1249,13 @@ Origin splits usefully:
 | **PC-side** (no phone involved) | Mail (Maildir + mbsync on beardos), Damage-specific events |
 | **Phone-side** (via the bridge) | SMS/MMS, Music (MediaSessionManager), emergency alerts |
 
+🔑 **Where the toggles live (Adam, 2026-09-01):** every source that belongs to an app has its
+on/off row **in that app's Settings category** — Tmux → Alerts, Torrents → Notify · done /
+Notify · errors — never in Global. Global keeps `Notify · Damage` only, because the WM's own
+events belong to no app. The window gates its own `notifyInternal` calls on its rows; the shell
+filter (`noticeAllowed`) keeps the historical SMS/Mail/Music fields for the apps still to come,
+which will carry their rows when they exist.
+
 #### 🔴 Emergency alerts — the one genuinely unverified piece
 
 Tornado warnings and the like must come through. **Whether a normal Android app can see WEA/CMAS
@@ -1500,6 +1508,86 @@ Three shell surfaces/mechanisms designed during the app-contract session (`HANDO
   the PC rasterizes, the phone fetches over the content port, both cache) with the drawn
   `IconKind` set as the FALLBACK and the release path — third-party icon assets never enter the
   repo, the APK, or a release. Main's focused lens takes the 56 px band-height icon (§4.5b).
+
+---
+
+### 4.8 The keyboard — a wireframe keyboard driven by the ring (2026-09-01, Adam's design)
+
+Adam, 2026-09-01: *"now would be a good time to also implement a Universal Keyboard into
+DamageWM, one that can be brought up when needed and used via the Ring. I suggest a picture of
+a keyboard with an arrow to select row then key, with all regular keys and special keys
+available. Should be implemented globally and activated when requested."* His verdicts the same
+evening: **stay in the row after typing** · **QWERTY, with a Settings option for other layouts**
+· **no history row** · **the draft is kept on cancel** · **key outlines — "an image of an actual
+keyboard wireframe-style where I can move the highlight to select the key."**
+
+**What it is.** The fourth bespoke shell surface (§0: no generic overlay abstraction — the
+wheel, the notification box, the context menu and the keyboard are each their own design). A
+window asks for it (`ShellServices.openKeyboard`); it never opens on a gesture, so §1's
+grammar is untouched. Requesters today: Torrents (search), Tmux ("Type…" — the composed line
+still stages its run confirm), Files (rename / new folder, pre-filled with the current name).
+The phone strip, the browser page and the desktop preview remain the fast paths; the keyboard
+is the pocket-stays-closed path.
+
+**Grammar — two stages, wrap on both axes:**
+
+| stage | scroll | tap | double-tap |
+|---|---|---|---|
+| **ROW** (opens here, on the home row) | moves the row highlight, wrapping | enters the row, cursor on its FIRST key | closes the keyboard — cancel, **draft kept** (the requester receives it and pre-fills the next open) |
+| **KEY** | moves the key highlight along the row, wrapping — no key is ever more than half a row away | types the key (or acts: Shift, Symbols, Backspace, ↵) and **stays in the row** — same-row runs are the common case | back to ROW |
+
+`↵` commits (the keyboard closes, the requester receives the text). A bare long-press is the
+§1.2 no-op; the §1.3 chord opens the wheel over the keyboard, which cancels it (draft kept).
+Silent mode, a relayout, and an emergency cancel it the same way; ordinary notices wait behind
+it (decision 6, as for the menu). A typed line from a replica while the keyboard is open
+**becomes the draft and commits** — a real keyboard beat the ring to it.
+
+**Misfire tolerance (§1.7), by placement:** every row's first key is harmless (`1`, `q`, `a`,
+`⇧`, `?123`); `↵` sits at the END of the home row, `Clear` at the END of the bottom row —
+never index 0/1, never a rest position. A stray tap types a letter, undone by `⌫`.
+
+**Layout** (12 units of 48 px = 576 px, centred in the content area; row pitch adapts to the
+height mode — 48 px at 480, down to 30 px at 288 — so the keyboard fits every Size):
+
+```
+ text line:  prompt ·  draft with caret  (pans, never cuts — the cut is marked and reachable)
+ 1 2 3 4 5 6 7 8 9 0 ⌫⌫
+ q w e r t y u i o p - /
+ a s d f g h j k l ' ↵↵
+ ⇧⇧ z x c v b n m , . _
+ ?123 ␣␣␣␣␣ ← → Del Clear
+ [ requester row: e.g. Tmux's Esc · Tab · Ctrl-C · ↑ · ↓ — live keys, sent as they are tapped ]
+```
+
+Shift: one tap = the next key capitalized, a second tap = caps lock, a third = off. `?123`
+swaps the three letter rows for the symbol layer (`! @ # $ % ^ & * ( ) [ ]` / `+ = { } ; : " <
+> ~ ↵` / `abc ` + `` ` \ | ? ` — every printable ASCII character reachable exactly once across
+the two layers; `KeyboardTest` pins that). `←`/`→` move the caret, `Del` deletes forward,
+`Clear` empties the draft. The **requester row** is optional and belongs to the caller: Tmux
+supplies its quick keys so a terminal gets its specials where a composed line cannot carry
+them; Torrents and Files supply none.
+
+**Layouts.** Settings → Global → `Keyboard`: **qwerty** (default) · **abc** (three alphabetic
+rows). Same specials, same geometry.
+
+**Look — a wireframe.** Every key is a 2 px outline on the 4×2 grid with its label centred; the
+surface is a HOLE like the menu (the content under it is captured and restored). Brightness
+carries focus: at the ROW stage the focused row's outlines and labels rise to BODY (the rest
+FAINT/DIM) with a `▸` at the row's left edge; at the KEY stage the focused key's outline and
+label go to HEAD, its row BODY, the other rows FAINT/DIM. Latched modifiers show at HEAD. The
+outlines' cost is paid ONCE when the keyboard opens (one flush of the box); afterwards a
+scroll repaints two key cells and a keypress repaints the text line — all well inside the
+~100 ms class. **Measured (selfcheck, 2026-09-01): the open keyboard is 9–11 % ink** over the whole
+panel (the transfers list behind it sets the rest) — the wireframe costs less than a dense list.
+
+**Depth.** Plane 0, forward of the content, like the menu and the notification box (§3.1).
+
+**Cost and persistence.** Nothing persists in the shell; the draft belongs to the requester
+(Torrents saves its search draft in its record). The keyboard adds one back-stack segment to
+the bottom divider while open (§4.6's depth rail).
+
+**Not in this design, deliberately:** a history/suggestions row (Adam: no), predictive text,
+per-window key remaps, a gesture to open it (§1 is not negotiable).
 
 ---
 

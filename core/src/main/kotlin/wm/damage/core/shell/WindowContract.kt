@@ -226,6 +226,19 @@ interface ShellServices {
         return false
     }
 
+    /**
+     * §4.8 the keyboard (Adam, 2026-09-01): open the ring-driven wireframe
+     * keyboard over the focused window's content with [spec]'s prompt and
+     * draft; `Enter` runs [KeyboardSurface.Spec.onCommit] AFTER the keyboard
+     * closed, a cancel hands the draft back through `onCancel`. Same refusal
+     * rules as [openMenu] (WINDOW mode, no wheel, no open menu, [owner] must
+     * be focused); false = say it another way (a notice). LOOP-ONLY.
+     */
+    fun openKeyboard(spec: KeyboardSurface.Spec, owner: DamageWindow? = null): Boolean {
+        wm.damage.core.util.Log.w("shell", "openKeyboard: not supported by this host")
+        return false
+    }
+
     /** The host's theme-icon source (2026-09-01, Adam: use the desktop theme's
      *  icons "for everything in DamageWM that uses icons"), or null — callers
      *  fall back to the drawn set. */

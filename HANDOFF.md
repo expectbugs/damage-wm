@@ -526,3 +526,55 @@ counts already-read queue entries; the content-port pre-auth hello read has no t
 path death is bounded by keepAlive and the write path's own retransmission); the L2 seam
 repair is same-batch in the USUAL case — under exact budget exhaustion it rides the next
 flush via `residual`, a one-flush transient.
+
+## 23. Torrents + the keyboard (2026-09-01, evening) — `TORRENTS.md`, `DESIGN.md` §4.8
+
+The second app-wave window, on Adam's new rule for every window after Files: **no v1/v1.5
+staging — complete and polished before the next app.** The session, in order:
+
+- **qBittorrent's Web API was not compiled in.** Rebuilt `net-p2p/qbittorrent-5.1.4` with the
+  `webui` USE flag (`/etc/portage/package.use/60-qbittorrent`; the Gentoo ebuild builds the GUI
+  variant with `-DWEBUI=ON` when both flags are set, plus an unused `qbittorrent-nox` and an init
+  script left out of every runlevel). His GUI (36 days up) was stopped with SIGTERM twice, the
+  config edited while it was down, and it was relaunched detached in his X session:
+  `WebUI\Enabled=true`, `Address=127.0.0.1`, `Port=8090` (8080 is Caddy), `LocalHostAuth=false`.
+  qBittorrent refuses to start the Web UI without a password, so `admin` + a random PBKDF2
+  (its own format, verified in `src/base/utils/password.cpp`) went in; the plaintext sits in
+  `~/.config/qBittorrent/webui-credentials.txt` (0600) and nothing on beardos needs it. Verified:
+  API 2.11.4, 38 torrents, loopback only, no auth from localhost.
+- **TorrentLeech probed live, read-only, one login** — the facts in `TORRENTS.md` §2: a JSON
+  listing endpoint for browse AND search, the 40-category tree from the site's JS bundle, the
+  torrent page's landmarks, the profile stats. ⚠ The profile page shows the passkey and e-mail
+  in plain text; the probe's dump was deleted and the adapter reads five stats and stores
+  nothing else. Credentials went into `~/.damage/config.json` only.
+- **The design record first** (`TORRENTS.md`, `DESIGN.md` §4.8, the `EXPLOSION.md` §19 banner,
+  `WINDOWS.md` §1's new rule): his verdicts — TorrentLeech only; browse and search; delete
+  keep-files behind one confirm, with-data behind two; done = the finished edge, announced for
+  every torrent, toggles in Settings → Torrents; no magnet/URL typing, no Files hand-off, no
+  categories, no shelf glue, **no RSS ever**; everything lands in `~/Downloads`; 2 s / 15 s
+  polling; Stats plus a **seeding-under-a-week list** (TL's hit-and-run window). The keyboard:
+  row-then-key, **stay in the row after typing**, QWERTY + an abc Settings option, **no history
+  row**, **the draft kept on cancel**, **outlines** — *"an image of an actual keyboard
+  wireframe-style where I can move the highlight to select the key."* And the general rule:
+  **each app's notification toggles live in its own Settings category, never in Global.**
+- **Built**: `KeyboardSurface` + the shell wiring (`openKeyboard`, gesture routing, planes,
+  depth rail, wheel/silent/relayout/emergency cancels with the draft kept, a replica line
+  commits through it) + Settings → Global → Keyboard + Tmux "Type…" (its quick keys as the
+  live row) + Files rename/new-folder pre-filled; `QbtClient` (API 2.11 — the 5.x verbs, keys
+  read from source), `TorrentLeech` (+ a stdlib `Html` reader; every parse refuses drift
+  loudly), `LocalTorrentsProvider` (poll loop, event diff, the persisted announced set, epoch +
+  sequence), `TorrentsNet` (the win channel: version-cursor snapshots, event replay),
+  `TorrentsWindow` (five levels, three menus, two documents, six filters, the speed history),
+  `ScriptedTorrents`, `IconKind.TORRENTS`, the Files `path:` deep link, registration on both
+  hosts, SelfCheck + Snapshot walks. The dead Global notify rows are gone.
+- **What the harnesses caught**: the transfers cursor was a bare index into a LIVE list — an
+  add under the wrap-end menu row moved the menu away from the cursor (the selfcheck's second
+  menu visit), and the first fix chased an empty list's menu row to the end (the core test).
+  The cursor now follows its row's identity (hash, or the menu row) across snapshots.
+- **Measured (selfcheck)**: transfers list 9.0 % ink, details 6.4 %, the open keyboard 9–11 %.
+  Battery at hand-off: core **213** · desktop 9 · selfcheck **89** · snapshots 26
+  (8 new, looked at) · lint 0 · design shots byte-identical. APK **18/0.18** staged.
+
+**Next (`REMINDER.md`):** the review loop over this build (the Files precedent: fresh
+reviewers, verify each finding, fix, repeat to convergence), then on-glass verdicts for the
+keyboard's feel (row pitch at 288, the highlight, the text-line pan) and the transfers list.

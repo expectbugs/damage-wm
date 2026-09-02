@@ -47,6 +47,10 @@ These are the non-negotiables, each with its authority:
   staleness is said with duration (`PC unreachable 40s`); a missing need marks the window
   unavailable in Main and says why (§10.5). No timeouts anywhere — pacing loops and liveness
   decisions only.
+- **Notification toggles live in the app's own Settings category** (Adam, 2026-09-01: *"each
+  app's notification settings [go] within that app's category in the settings app, rather than
+  within Global"*). The window gates its own `notifyInternal` calls on its rows (the Tmux
+  `Alerts` shape); Global keeps only `Notify · Damage`, the WM's own events.
 - **`summary()` is cheap and side-effect-free** — it reads cached state pushed by the provider,
   never spawns work (the G2CC preview/view lesson, §4.6).
 - **Preview is a render, never an activation** (§4.3 rule 1): lifecycle hooks run on commit only;
@@ -129,6 +133,10 @@ them:
    ('?'-substitutes uncoverable glyphs), `MenuSurface`, open-on-PC via the channel. The
    confirm-level helper is NOT yet extracted — windows stage confirms by hand (the Tmux
    TYPE_CONFIRM / Files menu shapes).
+5. **The keyboard** (`DESIGN.md` §4.8, 2026-09-01): `services.openKeyboard(spec, owner)` — a
+   ring-driven wireframe keyboard, row-then-key, QWERTY/abc from Settings; the requester gets
+   `onCommit(text)` / `onCancel(draft)` and may supply a row of live keys. Torrents (search),
+   Tmux (Type…) and Files (rename / new folder) ride it; typed replica lines still work.
 - **Icons**: theme icons resolve automatically; the drawn-set quality pass (fallback + release
   path) is queued at the front of the app wave.
 - **Independent backlog**: the curated font-library expansion (§16.6; B612 never a default).

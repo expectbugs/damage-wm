@@ -74,6 +74,9 @@ object Snapshot {
             wm.damage.core.windows.files.LocalFilesProvider(books, tmp.resolve("trash"), AwtImages()),
             scope, AwtImages(), initialBooksDir = cfg.booksDir)
         shell.register(filesWin)
+        val torrentsScripted = ScriptedTorrents()
+        val torrentsWin = wm.damage.core.windows.torrents.TorrentsWindow(text, torrentsScripted, scope)
+        shell.register(torrentsWin)
         shell.start()
         iconsSettled()   // the first wave of resolves lands before any scene
         settle(shell)
@@ -194,6 +197,66 @@ object Snapshot {
         repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → locations → Main
         settle(shell)
         repeat(2) { shell.postGesture(EvenHubMsg.EV_SCROLL_TOP) }      // cursor home
+        settle(shell)
+
+        // Torrents (TORRENTS.md, 2026-09-01): the transfers with block bars
+        // and the live lens, the transfer menu, the details document, the
+        // tracker's categories and a listing, a torrent page, and the §4.8
+        // keyboard opened by Search
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → Torrents row
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("torrents transfers") { torrentsWin.title() == "transfers" }
+        iconsSettled()
+        save(sim, out, "15-torrents-transfers")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // the transfer menu
+        waitFor("torrents menu") { shell.menuIsOpen }
+        settle(shell)
+        save(sim, out, "16-torrents-menu")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // Details
+        waitFor("torrents details") { torrentsWin.title() == "details" }
+        settle(shell)
+        save(sim, out, "17-torrents-details")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → transfers
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)        // wrap to the Torrents menu row
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the Torrents menu") { shell.menuIsOpen && shell.menuTitle == "torrents" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // Browse TorrentLeech
+        waitFor("categories") { torrentsWin.title() == "browse" }
+        iconsSettled()
+        save(sim, out, "18-torrents-categories")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // Newest
+        waitFor("listing") { torrentsWin.title() == "newest" && torrentsScripted.ops.any { it.startsWith("browse:0:1") } }
+        iconsSettled()
+        save(sim, out, "19-torrents-listing")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // the torrent page
+        waitFor("torrent page") { torrentsWin.title() == "torrent" }
+        settle(shell)
+        save(sim, out, "20-torrents-page")
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → transfers (cursor still on the menu row)
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the Torrents menu again") { shell.menuIsOpen && shell.menuTitle == "torrents" }
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // → Search TorrentLeech
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the keyboard") { shell.keyboardIsOpen }
+        settle(shell)
+        save(sim, out, "21-keyboard-rows")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)        // → the qwerty row
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // enter it
+        repeat(6) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → 'u'
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // types 'u'
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // highlight on 'i'
+        waitFor("typed") { shell.keyboardDraft() == "u" }
+        settle(shell)
+        save(sim, out, "22-keyboard-keys")
+        repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // KEY → ROW → cancel (draft kept)
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // transfers → Main
+        settle(shell)
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_TOP) }      // cursor home
         settle(shell)
 
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // silent

@@ -10,7 +10,7 @@ import kotlin.math.sin
  * Drawing rules (§2.4 rule 9, also the compression rules): thick strokes,
  * closed forms, no hairlines, few levels, solid fills.
  */
-enum class IconKind { TERMINAL, CALENDAR, MUSIC, TIMER, SMS, READER, FILES, NOTICES, SCOUT, SETTINGS, MAIL }
+enum class IconKind { TERMINAL, CALENDAR, MUSIC, TIMER, SMS, READER, FILES, NOTICES, SCOUT, SETTINGS, MAIL, TORRENTS }
 
 object Icons {
     private const val BG = 0
@@ -246,6 +246,20 @@ object Icons {
                     s.fillRect(px - t, py - t, 2 * t + 1, 2 * t + 1, lv)
                 }
                 s.fillRect(x + w / 2 - t / 2, y + h / 2 - t / 2, t + 1, t + 1, lv)
+            }
+            IconKind.TORRENTS -> {
+                // a download: a bold arrow into a tray — thick strokes, closed
+                // forms (§2.4 r9); reads at 20 px and 56 px alike
+                val cx = x + w / 2
+                val stem = maxOf(2, w / 6)
+                val headH = h * 5 / 12
+                val trayY = y + h * 3 / 4
+                s.fillRect(cx - stem / 2, y, stem, h / 2, lv)
+                s.fillPolygon(intArrayOf(cx - w * 3 / 8, cx + w * 3 / 8, cx),
+                    intArrayOf(y + h / 2 - headH / 3, y + h / 2 - headH / 3, y + h / 2 + headH * 2 / 3), lv)
+                s.fillRect(x + w / 8, trayY, w - w / 4, maxOf(2, h / 8), lv)
+                s.fillRect(x + w / 8, trayY - h / 8, maxOf(2, w / 10), h / 8, lv)
+                s.fillRect(x + w - w / 8 - maxOf(2, w / 10), trayY - h / 8, maxOf(2, w / 10), h / 8, lv)
             }
             IconKind.MAIL -> {
                 s.fillRect(x, y, w, h, lv)

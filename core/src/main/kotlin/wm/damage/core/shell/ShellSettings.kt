@@ -56,6 +56,10 @@ data class ShellSettings(
      *  older build ignores it. */
     val silentClock: String = "large",
 
+    /** The §4.8 keyboard's layout (2026-09-01): "qwerty" (default) or "abc".
+     *  Additive field — an older build ignores it. */
+    val keyboardLayout: String = "qwerty",
+
     /** Head tracking — default OFF (§7.1: "that would get old FAST"). */
     val headTracking: Boolean = false,
 
@@ -121,6 +125,7 @@ data class ShellSettings(
         fontStyle = if (fontStyle in STYLES) fontStyle else "default",
         appStyles = appStyles.mapValues { it.value.clamped() },
         silentClock = if (silentClock in SILENT_CLOCKS) silentClock else "large",
+        keyboardLayout = if (keyboardLayout in KEYBOARDS) keyboardLayout else "qwerty",
     )
 
     companion object {
@@ -137,6 +142,9 @@ data class ShellSettings(
 
         /** Silent-clock sizes (§1.5, 2026-09-01). */
         val SILENT_CLOCKS = listOf("large", "medium", "small")
+
+        /** Keyboard layouts (§4.8, 2026-09-01). */
+        val KEYBOARDS = listOf("qwerty", "abc")
         fun fromJson(o: JsonObject?): ShellSettings =
             if (o == null) ShellSettings()
             else try {

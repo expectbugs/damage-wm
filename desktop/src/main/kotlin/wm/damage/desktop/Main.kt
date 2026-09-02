@@ -110,7 +110,25 @@ data class Config(
     val tmuxQuickKeys: List<String> = listOf(),
     val tmuxSnippets: List<String> = listOf(),
     val tmuxWaitPatterns: List<String> = listOf(),
+    /** Torrents (TORRENTS.md, 2026-09-01): qBittorrent's Web API on this box
+     *  — loopback with the localhost auth bypass, so the credentials stay
+     *  empty; and the TorrentLeech account (the standing secrets rule: this
+     *  file only, never the repo). */
+    val qbtUrl: String = "http://127.0.0.1:8090",
+    val qbtUser: String = "",
+    val qbtPass: String = "",
+    val torrentleechUser: String = "",
+    val torrentleechPass: String = "",
 ) {
+    /** The PC-side torrents provider: qBittorrent over loopback + the tracker
+     *  session (null tracker = browse/search say so loudly). */
+    fun torrentsProvider(scope: CoroutineScope): wm.damage.core.windows.torrents.LocalTorrentsProvider =
+        wm.damage.core.windows.torrents.LocalTorrentsProvider(
+            wm.damage.core.windows.torrents.QbtClient(qbtUrl, qbtUser, qbtPass),
+            if (torrentleechUser.isNotEmpty()) wm.damage.core.windows.torrents.TorrentLeech(
+                torrentleechUser, torrentleechPass, Path.of(dataDir).resolve("tl-cookies.json")) else null,
+            Path.of(dataDir), scope)
+
     fun tmuxHostList(): List<wm.damage.core.windows.tmux.TmuxHostCfg> =
         listOf(wm.damage.core.windows.tmux.TmuxHostCfg(localHostLabel())) + tmuxHosts
 
@@ -225,12 +243,14 @@ private suspend fun hostOnly(cfg: Config) {
     val filesProvider = wm.damage.core.windows.files.LocalFilesProvider(
         Path.of(cfg.booksDir), Path.of(cfg.dataDir).resolve("trash"), AwtImages())
     val themeIcons = ThemeIcons(AwtImages(), Path.of(cfg.dataDir).resolve("icons"))
+    val torrents = cfg.torrentsProvider(scope)
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
         tmux = tmux, sync = wm.damage.core.sync.SyncPeer(store),
-        win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider)),
+        win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider),
+            "torrents" to wm.damage.core.windows.torrents.TorrentsService(torrents)),
         icons = themeIcons)
     host.start()
-    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync + files + icons on :${cfg.contentPort}; Ctrl-C to stop")
+    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync + files + torrents + icons on :${cfg.contentPort}; Ctrl-C to stop")
     kotlinx.coroutines.awaitCancellation()
 }
 
@@ -259,6 +279,9 @@ class DesktopStack(
     private val files: wm.damage.core.windows.files.FilesProvider? = null,
     /** Theme icons (2026-09-01) — process-wide, also serves the phone. */
     private val themeIcons: ThemeIcons? = null,
+    /** The process-wide torrents provider (TORRENTS.md) — qBittorrent + the
+     *  tracker; also served to the phone through the content host. */
+    private val torrents: wm.damage.core.windows.torrents.TorrentsProvider? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private fun ble(): Transport = BlueZTransport(BlueZDbus(), scope,
@@ -291,6 +314,7 @@ class DesktopStack(
             shell.register(wm.damage.core.windows.files.FilesWindow(text, it, scope, AwtImages(),
                 initialBooksDir = cfg.booksDir))
         }
+        torrents?.let { shell.register(wm.damage.core.windows.torrents.TorrentsWindow(text, it, scope)) }
         shell.hostSettings = listOf(
             HostSetting("Target", MODES, current = { mode }, apply = { v -> onSwitch(v) }),
         )
@@ -371,9 +395,15 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
 
     // The PC always serves its library + tmux + sync + files + icons — the
     // DATA PROVIDER role (§19.1) — whoever is driving the glasses.
+    // The process-wide torrents provider (TORRENTS.md): the local window and
+    // the phone's (over the win channel) share its poll loop and event log,
+    // so a done-announcement is decided once
+    val torrentsProvider = cfg.torrentsProvider(tmuxScope)
+
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
         tmux = tmuxProvider, sync = syncPeer,
-        win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider)),
+        win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider),
+            "torrents" to wm.damage.core.windows.torrents.TorrentsService(torrentsProvider)),
         icons = themeIcons)
     var hostBound = true
     try {
@@ -432,7 +462,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     }
     build = { m -> DesktopStack(cfg, m, remoteHost, text, onStatus = { keeperStatus.set(it) },
         onSwitch = { switchTo(it) }, tmux = tmuxProvider, sharedStore = store,
-        files = filesProvider, themeIcons = themeIcons) }
+        files = filesProvider, themeIcons = themeIcons, torrents = torrentsProvider) }
 
     if (mode != "auto") {
         val first = build(mode)

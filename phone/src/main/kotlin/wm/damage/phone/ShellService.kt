@@ -83,6 +83,7 @@ class ShellService : Service() {
     private var replica: ReplicaServer? = null
     private var tmuxProvider: RemoteTmuxProvider? = null
     private var filesProvider: wm.damage.core.windows.files.RemoteFilesProvider? = null
+    private var torrentsProvider: wm.damage.core.windows.torrents.RemoteTorrentsProvider? = null
     private var remoteIcons: RemoteIcons? = null
     private var remoteSync: wm.damage.core.sync.RemoteSync? = null
     @Volatile var remoteDriving = false
@@ -245,6 +246,14 @@ class ShellService : Service() {
             prefs.host, prefs.contentPort, prefs.token, scope)
         filesProvider = fp
         sh.register(wm.damage.core.windows.files.FilesWindow(text, fp, scope, AndroidImages()))
+        // Torrents (2026-09-01, TORRENTS.md): qBittorrent + TorrentLeech live on
+        // the PC; the phone polls the host through the window channel at its
+        // own pacing (2 s focused / 15 s idle) and shows the host's own
+        // staleness when qBittorrent is down. App-alone: honestly unavailable.
+        val torp = wm.damage.core.windows.torrents.RemoteTorrentsProvider(
+            prefs.host, prefs.contentPort, prefs.token, scope)
+        torrentsProvider = torp
+        sh.register(wm.damage.core.windows.torrents.TorrentsWindow(text, torp, scope))
         val ri = RemoteIcons(prefs.host, prefs.contentPort, prefs.token,
             dataDir.resolve("icons"), scope, onLoaded = { sh.requestRepaint() })
         remoteIcons = ri
@@ -372,6 +381,8 @@ class ShellService : Service() {
         try { tmuxProvider?.close() } catch (e: Exception) { Log.w("service", "tmux provider close: ${e.message}") }
         tmuxProvider = null
         try { filesProvider?.close() } catch (e: Exception) { Log.w("service", "files provider close: ${e.message}") }
+        try { torrentsProvider?.close() } catch (e: Exception) { Log.w("service", "torrents provider close: ${e.message}") }
+        torrentsProvider = null
         filesProvider = null
         try { remoteIcons?.close() } catch (e: Exception) { Log.w("service", "icons close: ${e.message}") }
         remoteIcons = null
