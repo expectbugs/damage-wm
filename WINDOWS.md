@@ -56,6 +56,15 @@ These are the non-negotiables, each with its authority:
   app's notification settings [go] within that app's category in the settings app, rather than
   within Global"*). The window gates its own `notifyInternal` calls on its rows (the Tmux
   `Alerts` shape); Global keeps only `Notify · Damage`, the WM's own events.
+- 🔴 **Every window works well at all four heights — 288 / 352 / 416 / 480 — and its size is
+  adjustable in Settings** (Adam, 2026-09-02: *"ALL of the apps should work well at each of those
+  four sizes, and the size of each app should be adjustable in the settings. This is important."*).
+  Each level's layout is specified per height in the window's design record (rows above/below the
+  lens, document lines, canvas stacks); the per-app Size row is not optional; the snapshot scenes
+  cover 288 and 480 at least.
+- **Nothing specific to Adam's current setup is baked in** (2026-09-02, the Music verdicts):
+  what is a preference today (mono, one earbud, a work-day fit) is a Settings row with his value
+  as the default; release defaults are chosen later in a global pass.
 - **`summary()` is cheap and side-effect-free** — it reads cached state pushed by the provider,
   never spawns work (the G2CC preview/view lesson, §4.6).
 - **Preview is a render, never an activation** (§4.3 rule 1): lifecycle hooks run on commit only;
