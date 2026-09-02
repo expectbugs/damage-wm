@@ -130,17 +130,17 @@ class ScriptedMusic : MusicLibrary {
         return wm.damage.core.windows.music.Art.pack(g, px * px)
     }
     override fun viz(trackId: Int): VizData? {
-        val bands = 24; val fps = 20; val frames = 20 * 30
+        val bands = 24; val fps = 20; val frames = 20 * 420          // seven minutes: longer than any scripted track
         val packed = ByteArray((frames * bands + 1) / 2)
         for (i in 0 until frames * bands) {
             val f = i / bands; val b = i % bands
             val n = ((8 + 7 * Math.sin(f * 0.3 + b * 0.5)).toInt()).coerceIn(0, 15)
             if (i and 1 == 0) packed[i shr 1] = (n shl 4).toByte() else packed[i shr 1] = (packed[i shr 1].toInt() or n).toByte()
         }
-        val rmsN = 30 * 50
+        val rmsN = 420 * 50
         val rms = ByteArray((rmsN + 1) / 2)
         for (i in 0 until rmsN) { val n = ((8 + 7 * Math.sin(i * 0.1)).toInt()).coerceIn(0, 15); if (i and 1 == 0) rms[i shr 1] = (n shl 4).toByte() else rms[i shr 1] = (rms[i shr 1].toInt() or n).toByte() }
-        return VizData(fps, bands, frames, packed, rmsN, rms, IntArray(60) { it * 500 })
+        return VizData(fps, bands, frames, packed, rmsN, rms, IntArray(840) { it * 500 })
     }
     override fun ytSearch(q: String): List<YtResult> {
         ops.add("yt:$q")

@@ -102,6 +102,7 @@ class Shell(
 
     /** Test/introspection: is the floating context menu open, and whose? */
     val menuIsOpen: Boolean get() = menu.open
+    val switcherIsOpen: Boolean get() = switcher.open
     val menuTitle: String? get() = menu.current()?.title
     val keyboardIsOpen: Boolean get() = keyboard.open
     val keyboardTitle: String? get() = keyboard.current()?.title
@@ -122,7 +123,11 @@ class Shell(
     private lateinit var settingsWindow: SettingsWindow
     private val main = MainSurface(chromeText, { mainRows() }, { commitWindow(it) }, { settings.presence }, { iconSource })
 
-    private enum class Mode { MAIN, WINDOW, SILENT }
+    /** EXCLUSIVE (§4.9, 2026-09-02 — Music Mode): the focused window paints the
+     *  whole panel; input is swallowed except double-tap (silent's path). */
+    private enum class Mode { MAIN, WINDOW, SILENT, EXCLUSIVE }
+    /** The two quiet modes share the notification form and the input law. */
+    private val quiet: Boolean get() = mode == Mode.SILENT || mode == Mode.EXCLUSIVE
     private var mode = Mode.MAIN
     private var current: DamageWindow? = null
 
@@ -289,6 +294,9 @@ class Shell(
         }
 
         override fun icons(): wm.damage.core.gfx.IconSource? = iconSource
+
+        override fun enterExclusive(window: DamageWindow): Boolean = enterExclusiveMode(window)
+        override fun exitExclusive() = exitExclusiveMode()
 
         override fun openWindow(id: String, target: String?): Boolean {
             // LOOP-ONLY by contract (§16.2): callers are gesture/commit
@@ -514,11 +522,17 @@ class Shell(
                 current!!.onActivate(services)
             }
             if (restoredMode == Mode.SILENT.name) mode = Mode.SILENT
+            // an EXCLUSIVE restore needs its window registered on this host
+            // (a driver swap to a host without it lands in the window, or Main)
+            if (restoredMode == Mode.EXCLUSIVE.name && current != null) {
+                mode = Mode.EXCLUSIVE
+                try { current!!.onExclusive(true) } catch (e: Exception) { Log.e("shell", "onExclusive at restore", e) }
+            }
             syncLayout()   // §2: a restored window brings its preferred height
             composeFullSurface()
             comp.requestKeyframe()
             if (notifications.showNextIfIdle()) {
-                if (mode == Mode.SILENT) scheduleSilentDismiss() else scheduleGrace()
+                if (quiet) scheduleSilentDismiss() else scheduleGrace()
                 updatePlanes()   // the restored box enters the plane map now (round 3 S3)
             }
 
@@ -634,7 +648,8 @@ class Shell(
                     is Msg.SilentTick -> handleSilentTick(m.gen)
                     is Msg.SaveTick -> if (m.gen == saveGen) saveAll()
                     is Msg.Notice -> handleNotice(m.n)
-                    is Msg.Invalidate -> if (mode != Mode.SILENT) { syncLayout(); composeContent() }
+                    is Msg.Invalidate -> if (mode == Mode.EXCLUSIVE) paintExclusiveDelta()
+                        else if (mode != Mode.SILENT) { syncLayout(); composeContent() }
                     is Msg.Run -> m.action()
                     is Msg.Shutdown -> {
                         running = false
@@ -694,6 +709,7 @@ class Shell(
         if (!accepted) {
             val where = when {
                 mode == Mode.SILENT -> "the shell is in silent mode"
+                mode == Mode.EXCLUSIVE -> "${current?.name ?: "a window"} owns the screen (double-tap leaves it)"
                 switcher.open -> "the switcher is open"
                 menu.open -> "a menu is open — close it first"
                 w == null -> "no window is focused"
@@ -750,8 +766,15 @@ class Shell(
             main.resting = false
             if (mode == Mode.MAIN) composeContent()
         }
-        if (notifications.active && !notifications.focused && mode != Mode.SILENT) scheduleGrace()
+        if (notifications.active && !notifications.focused && !quiet) scheduleGrace()
 
+        // EXCLUSIVE (§4.9): the same law as silent — everything swallowed
+        // except double-tap, which returns to the window; the chord never arms
+        if (mode == Mode.EXCLUSIVE) {
+            chordArmedAtMs = 0L
+            if (type == EvenHubMsg.EV_DOUBLE_CLICK) exitExclusiveMode()
+            return
+        }
         // SILENT: everything swallowed except double-tap (§1.5 — the gloves
         // fix). A long-press never arms the chord here (Adam, 2026-08-30):
         // gloves-on is exactly where accidental presses are the most common,
@@ -1015,6 +1038,7 @@ class Shell(
             }
             Mode.MAIN -> enterSilent()
             Mode.SILENT -> exitSilent()
+            Mode.EXCLUSIVE -> exitExclusiveMode()
         }
         scheduleSave()
     }
@@ -1022,7 +1046,80 @@ class Shell(
     private fun focusedView(): WindowView? = when (mode) {
         Mode.MAIN -> main.view()
         Mode.WINDOW -> current?.view()
-        Mode.SILENT -> null
+        Mode.SILENT, Mode.EXCLUSIVE -> null
+    }
+
+    // ------------------------------------------------------------------ exclusive (§4.9)
+    /** The focused window paints the WHOLE panel; one flush of everything. */
+    private fun paintExclusiveFull() {
+        val w = current ?: return
+        comp.composed.fillRect(Rect(0, 0, comp.width, comp.height), Level.BG)
+        try {
+            w.paintExclusive(comp.composed, layout.safe, full = true)
+        } catch (e: Exception) {
+            Log.e("shell", "paintExclusive of ${w.id} failed", e)
+            setStatus("ERROR ${e.message ?: e::class.simpleName}")
+        }
+        comp.planes = emptyList()
+        comp.damageAll()
+        if (notifications.active) { notifications.invalidateUnder(); paintNotification() }
+    }
+
+    /** Only the surfaces that moved — one rect each (the fid budget). */
+    private fun paintExclusiveDelta() {
+        val w = current ?: return
+        val rects = try {
+            w.paintExclusive(comp.composed, layout.safe, full = false)
+        } catch (e: Exception) {
+            Log.e("shell", "paintExclusive of ${w.id} failed", e)
+            setStatus("ERROR ${e.message ?: e::class.simpleName}")
+            emptyList()
+        }
+        if (rects.isEmpty()) return
+        for (r in rects) comp.damage(r)
+        // the small notice box rides on top; its under-snapshot is only ever
+        // used by a furl, which the quiet modes follow with a full repaint
+        if (notifications.active) paintNotification()
+    }
+
+    private fun enterExclusiveMode(w: DamageWindow): Boolean {
+        if (mode != Mode.WINDOW || switcher.open || current !== w) {
+            Log.w("shell", "enterExclusive('${w.id}') refused: mode=$mode switcher=${switcher.open} focused=${current?.id}")
+            return false
+        }
+        dropKeyboard()
+        if (menu.open) {
+            val s = menu.close()
+            menu.invalidateUnder()
+            try { s?.onClose?.invoke() } catch (e: Exception) { Log.e("shell", "menu close on exclusive", e) }
+        }
+        settleSlidesForOverlay()
+        slides = emptyList()
+        notifications.requeueCurrent()   // the small form shows it again, auto-dismissing (§1.5)
+        mode = Mode.EXCLUSIVE
+        try { w.onExclusive(true) } catch (e: Exception) { Log.e("shell", "onExclusive(true) of ${w.id}", e) }
+        paintExclusiveFull()
+        if (notifications.showNextIfIdle()) {
+            paintNotification()
+            scheduleSilentDismiss()
+        }
+        scheduleSave()
+        return true
+    }
+
+    private fun exitExclusiveMode() {
+        if (mode != Mode.EXCLUSIVE) return
+        mode = Mode.WINDOW
+        current?.let { w -> try { w.onExclusive(false) } catch (e: Exception) { Log.e("shell", "onExclusive(false) of ${w.id}", e) } }
+        notifications.requeueCurrent()
+        composeFullSurface()
+        comp.requestKeyframe()
+        if (notifications.showNextIfIdle()) {
+            updatePlanes()
+            paintNotification()
+            scheduleGrace()
+        }
+        scheduleSave()
     }
 
     // ------------------------------------------------------------------ menu
@@ -1046,7 +1143,7 @@ class Shell(
         if (notifications.showNextIfIdle()) {
             updatePlanes()
             paintNotification()
-            if (mode != Mode.SILENT) scheduleGrace()
+            if (!quiet) scheduleGrace()
         }
         chromeDirty = true
         return s
@@ -1098,7 +1195,7 @@ class Shell(
         if (notifications.showNextIfIdle()) {
             updatePlanes()
             paintNotification()
-            if (mode != Mode.SILENT) scheduleGrace()
+            if (!quiet) scheduleGrace()
         }
         chromeDirty = true
         return s
@@ -1182,6 +1279,11 @@ class Shell(
         // an EXPLICIT navigation ends any pending hand-off return (§16.2);
         // openWindow re-sets it right after when IT is the caller
         backTarget = null
+        if (mode == Mode.EXCLUSIVE) {
+            // a commit from under exclusive mode (a synced hand-off): leave it first
+            mode = Mode.WINDOW
+            current?.let { c -> try { c.onExclusive(false) } catch (e: Exception) { Log.e("shell", "onExclusive(false)", e) } }
+        }
         if (switcher.open) {
             switcher.close()
             previewPainted = null
@@ -1335,7 +1437,7 @@ class Shell(
             Log.i("shell", "notification from '${n.source}' filtered by settings (§4.5)")
             return
         }
-        if (mode == Mode.SILENT) {
+        if (quiet) {   // silent AND exclusive: the small form, auto-dismissing (verdict 23)
             val shown = notifications.current
             notifications.post(n, layout)
             notifications.showNextIfIdle()
@@ -1421,7 +1523,7 @@ class Shell(
      *  restore it strip by strip (§4.5 "furl in reverse ... then restore"). */
     private fun paintNotification() {
         val n = notifications.current ?: return
-        val silent = mode == Mode.SILENT
+        val silent = quiet
         val full = notifications.fullRect(n, layout, silent)
         notifications.captureUnder(comp.composed, full)
         val box = notifications.paint(comp.composed, layout, silent)
@@ -1430,7 +1532,7 @@ class Shell(
 
     private fun handleGrace(gen: Int) {
         if (gen != graceGen) return
-        if (mode == Mode.SILENT) return                  // §4.5 rule 4
+        if (quiet) return                                // §4.5 rule 4
         if (switcher.open) { scheduleGrace(); return }   // never steal the wheel's gestures
         if (notifications.active && !notifications.focused) {
             notifications.takeFocus()
@@ -1440,10 +1542,11 @@ class Shell(
     }
 
     private fun handleSilentTick(gen: Int) {
-        if (gen != silentDismissGen || mode != Mode.SILENT || !notifications.active) return
+        if (gen != silentDismissGen || !quiet || !notifications.active) return
         // silent boxes auto-dismiss after 5 s and STAY UNREAD (§4.5 —
         // deliberate divergence from G2CC's mark-at-display)
         notifications.dropSilent()
+        if (mode == Mode.EXCLUSIVE) { paintExclusiveFull(); if (notifications.active) scheduleSilentDismiss(); return }
         val c = wallClock()
         SilentMode.paintAll(comp.composed, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c))
         comp.damageAll()
@@ -1455,6 +1558,7 @@ class Shell(
 
     // ------------------------------------------------------------------ ticks
     private fun handleMinute() {
+        if (mode == Mode.EXCLUSIVE) { paintExclusiveDelta(); return }   // the window's own clock surface
         if (mode == Mode.SILENT) {
             val c = wallClock()
             SilentMode.paintClock(comp.composed, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c))
@@ -1715,7 +1819,7 @@ class Shell(
      *  should be in RIGHT NOW — the focused window's preferred height when it
      *  declares one, else the global Size setting. */
     private fun effectiveLayout(): Layout {
-        val h = (if (mode == Mode.WINDOW) current?.preferredHeight else null) ?: settings.heightMode
+        val h = (if (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) current?.preferredHeight else null) ?: settings.heightMode
         return if (h >= Geometry.PANEL_H) Layout()
         else Layout().withHeightMode(h, wm.damage.core.geom.VPos.TOP)
     }
@@ -1889,6 +1993,7 @@ class Shell(
 
     /** Repaint chrome + content from scratch (mode changes, boot, relayout). */
     private fun composeFullSurface() {
+        if (mode == Mode.EXCLUSIVE) { paintExclusiveFull(); return }
         if (mode == Mode.SILENT) {
             val c = wallClock()
             SilentMode.paintAll(comp.composed, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c))
@@ -1904,6 +2009,7 @@ class Shell(
 
     /** Repaint the content area for the current mode + overlays. */
     private fun composeContent() {
+        if (mode == Mode.EXCLUSIVE) { paintExclusiveFull(); return }
         if (mode == Mode.SILENT) return
         slides = emptyList()
         notifications.invalidateUnder()   // the content beneath is repainting
@@ -1947,7 +2053,7 @@ class Shell(
     private fun updatePlanes() {
         val d = settings.depth
         val planes = ArrayList<Compositor.PlaneRegion>()
-        if (d != 0 && mode != Mode.SILENT) {
+        if (d != 0 && !quiet) {
             // Chrome sits at the BACK of the ladder (§3.1 revised 2026-08-31,
             // REFINEMENT.md §1 — Adam: the bars "as far back as depth allows",
             // behind the content plane, never sharing the selection's plane):
@@ -2115,7 +2221,7 @@ class Shell(
         // 3. notification unfurl/furl, always on top; the furl restores the
         //    content beneath from the under snapshot, strip by strip
         if (notifications.animating) {
-            val silent = mode == Mode.SILENT
+            val silent = quiet
             val n0 = notifications.current
             if (n0 != null) {
                 val full = notifications.fullRect(n0, layout, silent)
@@ -2134,11 +2240,14 @@ class Shell(
                 // the old box is gone: put back what it covered BEFORE any next
                 // box paints (queue-advance included); the plane-map diff in
                 // updatePlanes re-renders its region and cleans its old seams
-                if (mode == Mode.SILENT) {
+                if (quiet) {
                     notifications.invalidateUnder()
-                    val c = wallClock()
-                    SilentMode.paintAll(comp.composed, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c))
-                    comp.damageAll()
+                    if (mode == Mode.EXCLUSIVE) paintExclusiveFull()
+                    else {
+                        val c = wallClock()
+                        SilentMode.paintAll(comp.composed, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c))
+                        comp.damageAll()
+                    }
                 } else {
                     val restored = notifications.restoreUnderFinished(comp.composed)
                     if (restored != null) comp.damage(restored) else composeContent()
@@ -2146,10 +2255,10 @@ class Shell(
                 updatePlanes()
             }
             if (notifications.current != null) {
-                if (!more && !notifications.focused && mode != Mode.SILENT) scheduleGrace()
+                if (!more && !notifications.focused && !quiet) scheduleGrace()
                 if (notifications.current !== n0) {
                     updatePlanes()
-                    if (mode == Mode.SILENT) scheduleSilentDismiss()
+                    if (quiet) scheduleSilentDismiss()
                 }
                 paintNotification()
             }
@@ -2161,7 +2270,7 @@ class Shell(
         }
 
         // 4. chrome rides along with content, or flushes alone on the idle tick
-        if (chromeDirty && mode != Mode.SILENT && (comp.hasPending || animated || chromeIdleFlush)) {
+        if (chromeDirty && !quiet && (comp.hasPending || animated || chromeIdleFlush)) {
             // One rect per BAR, never one per cell (§2.4 rule 2)
             val cells = chrome.sync(comp.composed, layout, chromeState())
             val top = cells.filter { it.y < layout.topDivider.bottom }
@@ -2223,7 +2332,7 @@ class Shell(
         val st = transport.state.value
         val rows = mainRows()
         val at = when (mode) {
-            Mode.WINDOW -> rows.indexOf(current).coerceAtLeast(0)
+            Mode.WINDOW, Mode.EXCLUSIVE -> rows.indexOf(current).coerceAtLeast(0)
             else -> rows.indexOf(main.focusedWindow()).coerceAtLeast(0)
         }
         val previewTarget = if (switcher.open) switcher.selected() else null
@@ -2257,7 +2366,7 @@ class Shell(
             stackDepth = when (mode) {
                 Mode.MAIN -> 1
                 Mode.WINDOW -> 1 + (current?.levelDepth() ?: 1) + (if (menu.open || keyboard.open) 1 else 0)
-                Mode.SILENT -> 1
+                Mode.SILENT, Mode.EXCLUSIVE -> 1
             },
             op = opText,
             status = statusText,
@@ -2285,7 +2394,9 @@ class Shell(
     private var glassesBattery: Chrome.Battery? = null
 
     /** The active window's id, or null at Main/silent — test introspection. */
-    fun currentWindowId(): String? = if (mode == Mode.WINDOW) current?.id else null
+    fun currentWindowId(): String? = if (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) current?.id else null
+    /** Test introspection: is the shell in exclusive mode (§4.9)? */
+    val exclusiveMode: Boolean get() = mode == Mode.EXCLUSIVE
 
     /** Which quiescence conditions are unmet — for a failed settle's message
      *  and the replica status line. Empty = quiescent. */
@@ -2421,7 +2532,7 @@ class Shell(
                 }
                 // repaint only when the change is on screen; the wheel owns the
                 // screen while open (§4.3) and a parked window paints on focus
-                if (mode == Mode.WINDOW && current === w && !switcher.open) {
+                if ((mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) && current === w && !switcher.open) {
                     syncLayout()
                     composeFullSurface()
                 }

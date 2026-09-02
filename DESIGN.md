@@ -211,7 +211,8 @@ device whose **only power control is the case, which stays home during the workd
 | a seconds readout at 1 Hz | 3,600 | rejected |
 
 Temporary popup notifications still appear. **All input swallowed except double-tap**, which
-returns to Main.
+returns to Main. **The same law runs a window's exclusive mode** (§4.9, Music Mode): everything
+swallowed except double-tap, which returns to the window; notices in this small form.
 
 🔑 **This completes the gloves fix.** `overview.md` §6: glove-induced ring long-press → "End
 Feature?" → app ended, or a second long-press → Firmware Menu → Silent Mode. The dialog no longer
@@ -1606,6 +1607,40 @@ back-stack segment to the bottom divider while open (§4.6's depth rail).
 per-window key remaps, a gesture to open it (§1 is not negotiable).
 
 ---
+
+### 4.9 Exclusive mode — a window owns the whole panel (2026-09-02, Music Mode)
+
+`MUSIC.md` verdict 16 (*"Silent Mode with music décor"*) needed a shell mode between WINDOW
+and SILENT: the focused window paints the **whole panel** — no bars, no dividers, no rail —
+and the ring is **swallowed except double-tap, which returns to the window** (the §1.5 path
+generalized: a long-press never arms the chord, so the chord cannot fire; the temple's stray
+event 9 is harmless here for the same reason). Temporary notices still show, in silent mode's
+small auto-dismissing form (verdict 23). No menu, no keyboard, no switcher inside it.
+
+**Contract** (`WindowContract.kt`): `ShellServices.enterExclusive(window)` (LOOP-ONLY; refused
+unless the window is focused) / `exitExclusive()`; the window implements
+`paintExclusive(g, safe, full): List<Rect>` — the layout's **safe rect at the window's own
+height** (every Size works: Music Mode stacks its surfaces at 480 and shortens them at 288) —
+returning **one rect per surface that changed** (the fid budget: a visualizer painted bar by
+bar would be silently skipped), and `onExclusive(on)` to start and stop its own pacing (a
+visualizer's frame ticks, a lyric scheduler). The shell calls a full paint on entry, on a
+relayout, after every notice dismissal and on a live-synced record; a delta paint on every
+`requestRender` and on the minute tick (the window's clock surface, if it has one).
+
+**Persistence:** the mode is saved like SILENT (`shell.state.mode = EXCLUSIVE` + the window
+id) and **restores only when that window is registered on the restoring host** — a driver
+swap to a host without it lands in the window's root or Main, loudly normal.
+
+**Music Mode's surfaces** (`MUSIC.md` §8.3, each on/off in Settings → Music): the Now Playing
+card (art 120 px at 416/480, 56 px at 288/352 · title · artist · album · a 20-block bar — it
+repaints on track change and every 5 % of progress), the lyrics (the remainder in whole 22 px
+lines: 3 at 288 … up to 9 at 480, the current line HEAD-bright, the scheduler flushing a line
+ahead of its stamp), the visualizer strip (608 × 48 at 288/352, × 64 at 416/480, at the bottom,
+Bars · Scope · Pulse · Meter at 4/8/12 Hz — each frame ONE rect), the queue peek (next two,
+above the strip), the seven-segment **medium** clock top-right, and the PC link line under it.
+Measured on the sim (`--selfcheck`, 2026-09-02): Music Mode at 480 with Bars is under the
+30 % canvas note; the achievable visualizer rate on glass and the Bluetooth lyric offset
+are **measured items**, not modeled here (`MUSIC.md` §12).
 
 ## 5. Compositor engine
 

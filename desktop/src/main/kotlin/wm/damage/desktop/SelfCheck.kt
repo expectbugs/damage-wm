@@ -510,6 +510,44 @@ object SelfCheck {
         check("Music lyrics ink <= 25% (was ${"%.1f".format(inkLyrics * 100)}%)", inkLyrics <= 0.25)
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // → queue
         awaitTrue("back from lyrics") { musicWin.levelDepth() == 1 }
+        // Music Mode (§8.3 / DESIGN §4.9) at 480 with Bars, then at 288 with Scope: the
+        // shell's exclusive mode swallows everything but double-tap; notices show small
+        shell.services.runOnShell {
+            musicWin.appSettings().first { it.name == "Visualizer" }.apply("Bars")
+            musicWin.appSettings().first { it.name == "Music Mode · visualizer" }.apply("on")
+            musicWin.appSettings().first { it.name == "Music Mode · queue peek" }.apply("on")
+        }
+        for ((h, viz) in listOf(480 to "Bars", 288 to "Scope")) {
+            shell.services.runOnShell {
+                musicWin.appSettings().first { it.name == "Size" }.apply("$h")
+                musicWin.appSettings().first { it.name == "Visualizer" }.apply(viz)
+            }
+            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)               // → Main (the Size applies on the next focus)
+            awaitTrue("Music → Main ($h)") { shell.currentWindowId() == null }
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+            awaitTrue("Music at $h") { shell.currentWindowId() == "music" }
+            musicMenuRow()
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+            awaitTrue("the Music menu ($h)") { shell.menuIsOpen && shell.menuTitle == "music" }
+            repeat(13) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → Music Mode
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+            awaitTrue("Music Mode enters at $h") { shell.exclusiveMode }
+            settle(shell, "music-mode-$h")
+            val inkMm = Pack.inkFraction(shell.comp.composed)
+            check("Music Mode at $h with $viz painted within the canvas note (was ${"%.1f".format(inkMm * 100)}%)", inkMm in 0.005..0.30)
+            shell.postGesture(EvenHubMsg.EV_CLICK)                      // swallowed
+            shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)              // swallowed
+            shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)            // swallowed, never arms
+            settle(shell, "music-mode-swallow-$h")
+            check("Music Mode swallows tap/scroll/long-press at $h", shell.exclusiveMode && !shell.menuIsOpen && !shell.switcherIsOpen)
+            shell.postNotice(wm.damage.core.shell.Notifications.Notice("SMS · TEST", "mm$h", "a notice over music mode", "14:32"))
+            awaitTrue("a notice shows over Music Mode ($h)") { shell.notifications.active }
+            awaitTrue("and auto-dismisses ($h)") { !shell.notifications.active }
+            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)               // exits to the window
+            awaitTrue("double-tap leaves Music Mode ($h)") { !shell.exclusiveMode && shell.currentWindowId() == "music" }
+            settle(shell, "music-mode-exit-$h")
+        }
+        shell.services.runOnShell { musicWin.appSettings().first { it.name == "Size" }.apply("global") }
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // → Main
         awaitTrue("Music → Main") { shell.currentWindowId() == null }
         musicPlayer.next()                                              // off-screen: the track-change notice

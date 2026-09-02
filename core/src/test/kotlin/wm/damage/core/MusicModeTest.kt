@@ -120,7 +120,8 @@ class MusicModeTest {
             // the Music menu → Music Mode (row 13)
             awaitTrue("quiet") { r.shell.isQuiescent() }
             val rows = r.player.state.queue.size + 1
-            val cursor = r.win.saveState()["stack"]!!.let { kotlinx.serialization.json.jsonArray(it) }.let { 0 }
+            val cursor = (r.win.saveState()["stack"] as kotlinx.serialization.json.JsonArray)[0].let { it as kotlinx.serialization.json.JsonObject }["cursor"]
+                .let { (it as kotlinx.serialization.json.JsonPrimitive).content.toInt() }
             repeat((rows - 1 - cursor).mod(rows)) { r.g(EvenHubMsg.EV_SCROLL_BOTTOM) }
             r.g(EvenHubMsg.EV_CLICK)
             awaitTrue("the music menu") { r.shell.menuIsOpen && r.shell.menuTitle == "music" }
@@ -150,10 +151,11 @@ class MusicModeTest {
             // a delta paint: a track change repaints ≤ one rect per surface, all on the grid, inside the panel
             val g = Gray8(Geometry.PANEL_W, Geometry.PANEL_H)
             val safe = r.shell.comp.composed.let { Rect(0, 0, it.w, height) }
-            val full = r.win.paintExclusive(g, safe, full = true)
-            assertEquals(listOf(safe), full)
-            r.player.next()
             awaitTrue("quiet 4") { r.shell.isQuiescent() }
+            val full = r.win.paintExclusive(g, safe, full = true)        // resets every surface's key
+            assertEquals(listOf(safe), full)
+            assertTrue(r.win.paintExclusive(g, safe, full = false).isEmpty(), "nothing moved: no rect")
+            r.skew += 30_000                                              // 30 s on: the card's 5 % bucket moved
             val delta = r.win.paintExclusive(g, safe, full = false)
             assertTrue(delta.size in 1..6, "delta rects ${delta.size}")
             for (rect in delta) {

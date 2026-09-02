@@ -38,3 +38,5 @@ desktop/snapshots/
 
 # Kotlin daemon session/error scratch (build-time noise)
 .kotlin/
+# agent worktrees (a session's delegation)
+.claude/worktrees/

@@ -343,6 +343,34 @@ object Snapshot {
         waitFor("music at 288") { musicWin.title().startsWith("queue") }
         iconsSettled()
         save(sim, out, "36-music-queue-288")
+        // Music Mode (§8.3): the stacked surfaces at 480 with Bars, the short stack at 288 with Scope
+        shell.services.runOnShell {
+            musicWin.appSettings().first { it.name == "Music Mode · visualizer" }.apply("on")
+            musicWin.appSettings().first { it.name == "Music Mode · queue peek" }.apply("on")
+        }
+        for ((h, viz) in listOf(480 to "Bars", 288 to "Scope")) {
+            shell.services.runOnShell {
+                musicWin.appSettings().first { it.name == "Size" }.apply("$h")
+                musicWin.appSettings().first { it.name == "Visualizer" }.apply(viz)
+            }
+            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)  // → Main
+            settle(shell)
+            shell.postGesture(EvenHubMsg.EV_CLICK)         // → Music at h
+            waitFor("music at $h") { shell.currentWindowId() == "music" }
+            musicMenuRow()
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+            waitFor("the music menu ($h)") { shell.menuIsOpen && shell.menuTitle == "music" }
+            repeat(13) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+            waitFor("music mode ($h)") { shell.exclusiveMode }
+            iconsSettled()
+            waitFor("art + viz + lyrics landed ($h)") { shell.isQuiescent() }
+            settle(shell)
+            save(sim, out, if (h == 480) "38-music-mode-480-bars" else "39-music-mode-288-scope")
+            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)  // exits to the window
+            waitFor("music mode exit ($h)") { !shell.exclusiveMode }
+            settle(shell)
+        }
         shell.services.runOnShell { musicWin.appSettings().first { it.name == "Size" }.apply("global") }
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Main
         settle(shell)

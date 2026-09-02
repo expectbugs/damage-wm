@@ -159,6 +159,7 @@ class MusicWindow(
     private var quality = AudioProfile.Quality.HIGH
 
     // art + lyrics caches (window-side, per track id)
+    /** Keyed `id * 1000 + px` — the card's 56 px and Music Mode's 120 px. */
     private val artCache = HashMap<Int, Gray8?>()
     private val artPending = HashSet<Int>()
     private var lyricsFor = -1
@@ -761,7 +762,7 @@ class MusicWindow(
      *  the others) · the state glyph · the link badge · the boost badge. */
     private fun paintCard(g: Gray8, r: Rect, e: QueueEntry, idx: Int) {
         val t = e.track
-        val art = artCache[t.id]
+        val art = artCache[t.id * 1000 + 56]
         if (art != null) g.blit(art, Rect(0, 0, art.w, art.h), r.x + 4, r.y + 4)
         else IconPaint.draw(g, services?.icons(), IconNames.forKind(IconKind.MUSIC), r.x + 8, r.y + 4, 56, IconKind.MUSIC, Level.HEAD)
         val x0 = r.x + 68
@@ -791,19 +792,7 @@ class MusicWindow(
         val want = ArrayList<Int>()
         st.entry?.track?.id?.let { want.add(it) }
         (rows(top).getOrNull(top.model.cursor) as? Row.Entry)?.e?.track?.id?.let { want.add(it) }
-        for (id in want.distinct()) {
-            if (artCache.containsKey(id) || id in artPending) continue
-            artPending.add(id)
-            bg.launch(Dispatchers.IO) {
-                val a = try { library.art(id, 56) } catch (e: Exception) { Log.w("music", "art for $id: ${e.message}"); null }
-                onShell {
-                    artPending.remove(id)
-                    artCache[id] = a?.let { Art.unpack(it, 56, 56) }
-                    if (artCache.size > 64) artCache.keys.take(16).forEach { artCache.remove(it) }
-                    if (a != null && (active || exclusive)) render()
-                }
-            }
-        }
+        for (id in want.distinct()) demandArtPx(id, 56)
     }
 
     private fun lineH(f: FontSpec): Int {
@@ -1332,19 +1321,267 @@ class MusicWindow(
         Draw.fit(g, tx, Geometry.snapX(cx - 160), r.y + r.h / 2 + 28, sub, Level.DIM, fSmall, 320)
     }
 
-    // ================================================================ Music Mode (§8.3; the shell's exclusive mode lands with M3)
+    // ================================================================ Music Mode (§8.3)
     private fun enterMusicMode(): Boolean {
         val ok = services?.enterExclusive(this) == true
         if (!ok) setNotice("Music Mode is not available on this host")
         return ok
     }
 
-    override fun onExclusive(on: Boolean) {
-        exclusive = on
-        if (on) { player.setFocused(true); loadLyrics() } else if (!active) player.setFocused(false)
+
+    // ================================================================ Music Mode — the exclusive surfaces (§8.3)
+    private class MmLayout(val safe: Rect, val card: Rect?, val artPx: Int, val lyrics: Rect?, val lyricLines: Int,
+        val viz: Rect?, val peek: Rect?, val clock: Rect?, val link: Rect?)
+
+    private var mmLayoutCache: MmLayout? = null
+    private var mmCardKey: Any? = null
+    private var mmLyricsKey: Any? = null
+    private var mmClockKey: Any? = null
+    private var mmPeekKey: Any? = null
+    private var mmLinkKey: Any? = null
+    private var mmVizDue = false
+    private var mmVizGen = 0
+    private val vizCache = HashMap<Int, VizData?>()
+    private val vizPending = HashSet<Int>()
+
+    /** Per height (§8.3): the card on top (large art at 416/480), the clock
+     *  + PC link in its top-right, the visualizer strip at the bottom, the
+     *  queue peek above it, the lyrics taking the rest in whole lines. Every
+     *  rect sits on the 4×2 grid. */
+    private fun mmLayout(safe: Rect): MmLayout {
+        mmLayoutCache?.let { if (it.safe == safe) return it }
+        val on = mmSurfaces().toSet()
+        val big = safe.h >= 416
+        val x = Geometry.snapX(safe.x + 16)
+        val w = Geometry.snapX(safe.w - 32)
+        var y = Geometry.snapY(safe.y + 8)
+        var bottom = Geometry.snapY(safe.bottom - 8)
+        val clock = if ("clock" in on) Rect(Geometry.snapX(safe.right - 16 - 112), y, 112, 34) else null
+        val link = if ("link" in on) Rect(Geometry.snapX(safe.right - 16 - 160), Geometry.snapY(y + (if (clock != null) 38 else 0)), 160, 20) else null
+        val artPx = if (big) 120 else 56
+        val card = if ("card" in on) {
+            val h = if (big) 136 else if (safe.h >= 352) 88 else 72
+            Rect(x, y, w, h).also { y += h + 8 }
+        } else {
+            if (clock != null || link != null) y += 64
+            null
+        }
+        val viz = if ("viz" in on && vizName != "Off") {
+            val h = if (big) 64 else 48
+            Rect(x, Geometry.snapY(bottom - h), w, h).also { bottom -= h + 8 }
+        } else null
+        val peek = if ("peek" in on && bottom - y >= 100) Rect(x, Geometry.snapY(bottom - 44), w, 44).also { bottom -= 52 } else null
+        val lh = lineH(fLyric)
+        val lyricLines = if ("lyrics" in on) ((bottom - y - 4) / lh).coerceIn(0, 9) else 0
+        val lyrics = if (lyricLines >= 1) Rect(x, y, w, Geometry.snapY(lyricLines * lh + 4)) else null
+        return MmLayout(safe, card, artPx, lyrics, lyricLines, viz, peek, clock, link).also { mmLayoutCache = it }
     }
 
-    private fun exclusiveTick(posMs: Long) { /* the surfaces repaint on their own pacing — M3 */ }
+    private fun mmClockText(): Pair<Int, Int> {
+        val t = java.time.Instant.ofEpochMilli(clock()).atZone(java.time.ZoneId.systemDefault()).toLocalTime()
+        return t.hour to t.minute
+    }
+
+    private fun demandViz() {
+        val id = st.track?.id ?: return
+        if (vizCache.containsKey(id) || id in vizPending) return
+        vizPending.add(id)
+        bg.launch(Dispatchers.IO) {
+            val v = try { library.viz(id) } catch (e: Exception) { Log.w("music", "viz for $id: ${e.message}"); null }
+            onShell {
+                vizPending.remove(id)
+                vizCache[id] = v
+                if (vizCache.size > 8) vizCache.keys.take(2).forEach { vizCache.remove(it) }
+                if (exclusive) { mmVizDue = true; render() }
+            }
+        }
+    }
+
+    override fun onExclusive(on: Boolean) {
+        exclusive = on
+        mmLayoutCache = null
+        mmCardKey = null; mmLyricsKey = null; mmClockKey = null; mmPeekKey = null; mmLinkKey = null
+        val gen = ++mmVizGen
+        if (on) {
+            player.setFocused(true)
+            loadLyrics()
+            scheduleLyricFlush()
+            // the visualizer's frame ticks — a paced loop with a generation
+            // stamp, running only while the mode is on and a track plays
+            if (vizName != "Off" && mmViz) bg.launch {
+                while (exclusive && gen == mmVizGen) {
+                    delay((1000L / vizRate.coerceIn(1, 30)))
+                    if (gen != mmVizGen) break
+                    onShell { if (exclusive && gen == mmVizGen && st.play == PlayState.PLAYING) { mmVizDue = true; render() } }
+                }
+            }
+        } else {
+            if (!active) player.setFocused(false)
+        }
+    }
+
+    private fun exclusiveTick(posMs: Long) {
+        // the card follows progress in 5 % steps; the lyrics have their own scheduler
+        val dur = st.durMs.takeIf { it > 0 } ?: st.track?.durMs?.toLong() ?: 0L
+        val bucket = if (dur > 0) (posMs * 20 / dur).toInt() else 0
+        val key = mmCardKey as? List<*>
+        if (key == null || key.getOrNull(2) != bucket) render()
+    }
+
+    private fun mmCardKeyNow(): List<Any?> {
+        val dur = st.durMs.takeIf { it > 0 } ?: st.track?.durMs?.toLong() ?: 0L
+        val pos = player.positionMs()
+        return listOf(st.track?.id, st.play, if (dur > 0) (pos * 20 / dur).toInt() else 0, st.boost, st.sleep.kind, st.backend, artCache.containsKey(mmArtKey()))
+    }
+
+    private fun mmArtKey(): Int = (st.track?.id ?: -1) * 1000 + (mmLayoutCache?.artPx ?: 56)
+
+    override fun paintExclusive(g: Gray8, safe: Rect, full: Boolean): List<Rect> {
+        val l = mmLayout(safe)
+        val out = ArrayList<Rect>()
+        demandArtPx(l.artPx)
+        if (l.viz != null) demandViz()
+        // card
+        val cardKey = mmCardKeyNow()
+        val cardPainted = l.card != null && (full || cardKey != mmCardKey)
+        if (cardPainted) { mmCardKey = cardKey; paintMmCard(g, l); out.add(l.card!!) }
+        // the clock + link ride INSIDE the card's band: a card repaint fills
+        // their pixels, so they repaint with it; alone, on their own keys
+        val clockKey = mmClockText()
+        if (l.clock != null && (full || clockKey != mmClockKey || (cardPainted && l.card!!.overlaps(l.clock)))) {
+            mmClockKey = clockKey
+            g.fillRect(l.clock, Level.BG)
+            Icons.sevenSegClockMedium(g, l.clock.x + 4, l.clock.y + 2, clockKey.first, clockKey.second)
+            if (out.none { it.contains(l.clock) }) out.add(l.clock)
+        }
+        val linkKey = linkBadge()
+        if (l.link != null && (full || linkKey != mmLinkKey || (cardPainted && l.card!!.overlaps(l.link)))) {
+            mmLinkKey = linkKey
+            g.fillRect(l.link, Level.BG)
+            Draw.right(g, tx, l.link.right - 4, l.link.y + 2, dn(linkKey, fSmall), if (st.pcLink.up && stateLine.isEmpty()) Level.DIM else Level.MID, fSmall)
+            if (out.none { it.contains(l.link) }) out.add(l.link)
+        }
+        // lyrics: the current line index + the load state
+        val lyricsKey = listOf(lyricsFor, lyricsState, if (lyricsState == "synced") currentLyricLine() else lyricsPlainPage, st.track?.id)
+        if (l.lyrics != null && (full || lyricsKey != mmLyricsKey)) { mmLyricsKey = lyricsKey; paintMmLyrics(g, l); out.add(l.lyrics) }
+        // queue peek
+        val peekKey = st.queue.drop(st.index + 1).take(2).map { it.qid }
+        if (l.peek != null && (full || peekKey != mmPeekKey)) { mmPeekKey = peekKey; paintMmPeek(g, l); out.add(l.peek) }
+        // the visualizer: one rect per frame, on its own pacing
+        if (l.viz != null && (full || mmVizDue)) {
+            mmVizDue = false
+            val r = Viz.byName(vizName)
+            if (r != null) {
+                val painted = try { r.paint(g, l.viz, vizCache[st.track?.id ?: -1], player.positionMs()) } catch (e: Exception) {
+                    Log.e("music", "visualizer $vizName failed", e); l.viz
+                }
+                out.add(painted)
+            }
+        }
+        return if (full) listOf(safe) else out
+    }
+
+    private fun demandArtPx(px: Int) { st.track?.id?.let { demandArtPx(it, px) } }
+
+    private fun demandArtPx(id: Int, px: Int) {
+        val key = id * 1000 + px
+        if (artCache.containsKey(key) || key in artPending) return
+        artPending.add(key)
+        bg.launch(Dispatchers.IO) {
+            val a = try { library.art(id, px) } catch (e: Exception) { Log.w("music", "art for $id@$px: ${e.message}"); null }
+            onShell {
+                artPending.remove(key)
+                artCache[key] = a?.let { Art.unpack(it, px, px) }
+                if (artCache.size > 64) artCache.keys.take(16).forEach { artCache.remove(it) }
+                if (a != null && (active || exclusive)) render()
+            }
+        }
+    }
+
+    private fun paintMmCard(g: Gray8, l: MmLayout) {
+        val r = l.card ?: return
+        g.fillRect(r, Level.BG)
+        val t = st.track
+        val big = l.artPx >= 120
+        val fTitle = if (big) FontSpec(Face.SYSTEM, 26, bold = true) else fHead
+        val fLine = if (big) FontSpec(Face.SYSTEM, 18) else fBody
+        val rightPad = (if (l.clock != null) 128 else 0) + (if (l.link != null && l.clock == null) 176 else 0)
+        if (t == null) {
+            Draw.fit(g, tx, r.x + 4, r.y + 8, if (st.backend == Backend.SPOTIFY) "Spotify on the phone" else "nothing playing", Level.DIM, fTitle, r.w - 8 - rightPad)
+            Draw.fit(g, tx, r.x + 4, r.y + 8 + lineH(fTitle), "double-tap leaves Music Mode", Level.DIM, fSmall, r.w - 8)
+            return
+        }
+        val art = artCache[t.id * 1000 + l.artPx]
+        val ay = r.y + (r.h - l.artPx) / 2 / 2 * 2
+        if (art != null) g.blit(art, Rect(0, 0, art.w, art.h), r.x, ay)
+        else IconPaint.draw(g, services?.icons(), IconNames.forKind(IconKind.MUSIC), r.x + 4, ay, l.artPx.coerceAtMost(56), IconKind.MUSIC, Level.HEAD)
+        val x0 = r.x + l.artPx + 16
+        val tw = r.w - l.artPx - 16 - rightPad
+        // text stacks from the top; the bar and its line sit on the card's
+        // BOTTOM edge, so the real font metrics never push them out of the rect
+        var ty = r.y + (if (big) 4 else 2)
+        Draw.fit(g, tx, x0, ty, dn(t.title, fTitle), Level.HEAD, fTitle, tw)
+        ty += lineH(fTitle)
+        Draw.fit(g, tx, x0, ty, dn(if (big) t.artist.ifEmpty { "—" } else Fmt.artistAlbum(t).ifEmpty { "—" }, fLine), Level.BODY, fLine, tw)
+        ty += lineH(fLine)
+        if (big) Draw.fit(g, tx, x0, ty, dn(t.album.ifEmpty { st.label }, fLine), Level.DIM, fLine, tw)
+        val y = if (big) r.bottom - 36 else r.bottom - 14
+        val dur = st.durMs.takeIf { it > 0 } ?: t.durMs.toLong()
+        val pos = player.positionMs().coerceIn(0, maxOf(0, dur))
+        val barW = if (big) 200 else 144
+        stateGlyph(g, x0, y, Level.MID)
+        Icons.blocks(g, x0 + 16, y + 2, barW, 6, if (dur > 0) pos.toDouble() / dur else 0.0, n = 20, level = Level.of(6))
+        val times = "${Fmt.mmss(pos)} / ${Fmt.mmss(dur)}"
+        val rest = listOf("${st.index + 1}/${st.queue.size}", st.mode.label,
+            if (st.boost > 100) "+${st.boost}%" else "", if (st.sleep.kind != Sleep.Kind.OFF) "sleep ${st.sleep.label(clock())}" else "").filter { it.isNotEmpty() }
+        val afterBar = r.w - (x0 - r.x) - 16 - barW - 12 - rightPad
+        if (big) {
+            Draw.fit(g, tx, x0 + 16 + barW + 12, y - 2, times, Level.DIM, fSmall, afterBar)
+            Draw.fit(g, tx, x0, y + 16, dn(rest.joinToString(" · "), fSmall), Level.DIM, fSmall, tw)
+        } else {
+            Draw.fit(g, tx, x0 + 16 + barW + 12, y - 2, dn((listOf(times) + rest).joinToString(" · "), fSmall), Level.DIM, fSmall, afterBar)
+        }
+    }
+
+    private fun paintMmLyrics(g: Gray8, l: MmLayout) {
+        val r = l.lyrics ?: return
+        g.fillRect(r, Level.BG)
+        val lh = lineH(fLyric)
+        val x = r.x
+        val w = r.w
+        var y = r.y + 2
+        when {
+            st.track == null -> {}
+            lyricsState == "loading" -> Draw.fit(g, tx, x, y, "looking up lyrics", Level.DIM, fBody, w)
+            lyricsState == "none" -> Draw.fit(g, tx, x, y, "no lyrics", Level.DIM, fBody, w)
+            lyricsState.startsWith("failed") -> Draw.fit(g, tx, x, y, dn(lyricsState, fBody), Level.DIM, fBody, w)
+            lyricsState == "plain" -> {
+                val page = lyricsPlain?.getOrNull(lyricsPlainPage) ?: emptyList()
+                for (line in page.take(l.lyricLines)) { Draw.fit(g, tx, x, y, dn(line, fLyricDim), Level.BODY, fLyricDim, w); y += lh }
+            }
+            else -> {
+                val p = lyricsParsed ?: return
+                val cur = currentLyricLine()
+                val before = if (l.lyricLines >= 5) 2 else if (l.lyricLines >= 3) 1 else 0
+                for (i in LyricsSync.window(p.lines, maxOf(0, cur), before, l.lyricLines)) {
+                    val isCur = i == cur
+                    val f = if (isCur) fLyric else fLyricDim
+                    val lv = when { isCur -> Level.HEAD; i < cur -> Level.DIM; else -> Level.BODY }
+                    val m = tx.metrics(f)
+                    Draw.fit(g, tx, x, y + (lh - (m.ascent + m.descent)) / 2, dn(p.lines[i].text.ifEmpty { "-" }, f), lv, f, w)
+                    y += lh
+                }
+            }
+        }
+    }
+
+    private fun paintMmPeek(g: Gray8, l: MmLayout) {
+        val r = l.peek ?: return
+        g.fillRect(r, Level.BG)
+        val next = st.queue.drop(st.index + 1).take(2)
+        if (next.isEmpty()) { Draw.fit(g, tx, r.x, r.y + 2, if (st.mode == Mode.RADIO || st.mode == Mode.LIBRARY_RANDOM) "then: ${st.mode.label}" else "last in the queue", Level.DIM, fSmall, r.w); return }
+        next.forEachIndexed { i, e -> Draw.fit(g, tx, r.x, r.y + 2 + i * 20, dn("${if (i == 0) "next" else "then"}: ${Fmt.titleArtist(e.track)}", fBody), if (i == 0) Level.BODY else Level.DIM, fBody, r.w) }
+    }
 
     // ================================================================ settings (§8.4)
     private fun onOff(b: Boolean) = if (b) "on" else "off"
