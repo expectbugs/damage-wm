@@ -1,6 +1,6 @@
 # Torrents on glass — design + plan (2026-09-01)
 
-**Status: DESIGN SETTLED with Adam 2026-09-01 (evening); BUILT the same night (`HANDOFF.md` §23; battery green — core 213 · selfcheck 89 · 26 snapshots); the review loop is next.** The second
+**Status: DESIGN SETTLED with Adam 2026-09-01 (evening); BUILT the same night (`HANDOFF.md` §23; battery green — core 219 · selfcheck 89 · 26 snapshots); the review loop is next.** The second
 window of the app wave after Files (`EXPLOSION.md` §20's wow order: Games · **Torrents** ·
 Files ✅ · Music · …). Not a G2CC conversion — G2CC never had a torrent window — so
 `WINDOWS.md` step 2 has nothing to mine; Reader, Tmux and Files are the precedents.
@@ -100,11 +100,12 @@ TRANSFERS (List, root)  ──tap──▶ transfer MENU ──Details──▶ 
 ```
 
 - **TRANSFERS** — rows: 20 px category icon · name (fit) · a 10-block progress bar · a short
-  state word (`↓ 1.2 MB/s`, `seeding`, `stopped`, `error`, `checking`) in small bold. The
-  periphery stays still: speeds live in the **lens**, rows show only the quantized bar and the
-  state word, so a 2 s poll repaints at most the lens and the rows whose block or state changed.
-  Lens (focused): 56 px icon · name bold · one detail line (`47% · 1.2 MB/s ↓ 0.3 ↑ · 12 m left
-  · 34 peers`, or for a seed `seeding · ratio 2.31 · 6d 3h seeded · 145 peers`) · a 12-block bar
+  state word (`1.2 MB/s` while downloading, `seeding`, `stopped`, `error`, `checking`, `stalled`)
+  in small bold. The periphery stays still: speeds live in the **lens**, rows show only the
+  quantized bar and the state word, so a 2 s poll repaints at most the lens and the rows whose
+  block or state changed. Lens (focused): 56 px icon · name bold · one detail line (`47% ·
+  1.2 MB/s down · 0.3 MB/s up · 12 m left · 34 peers`, or for a seed `seeding · ratio 2.31 ·
+  6d 3h seeded · 420 KB/s up`) · a 12-block bar
   · an 8-column speed history (the last 8 polls, quantized to 2 px steps). Sort default =
   ACTIVITY: **errors first** (they need attention), then downloads (by progress desc),
   checking, seeds (completed desc), stopped; NAME / ADDED / PROGRESS / SIZE on the Torrents
@@ -124,19 +125,22 @@ TRANSFERS (List, root)  ──tap──▶ transfer MENU ──Details──▶ 
   keyboard) · a recent search per row (up to 5, newest first — Adam wanted no history row in
   the keyboard; the recents live here) · Filter (cycles) · Sort (cycles) · Seeding < 1 week ·
   Refresh · Stats.
-- **DETAILS** (Document): name · state + progress · speeds + ETA · ratio + up/down totals ·
-  seeds/peers · added / completed · save path · tracker · category/tags · then `Files (n)` with
-  every file as `name · size · nn%`. Wrapped at the live content width; relayout on font/size
-  change; tap → the same actions menu (minus Details).
+- **DETAILS** (Document): name · state + progress · speeds (+ ETA while downloading) · ratio +
+  up/down totals · seeds/peers · added / completed · save path · tracker · category/tags · then
+  `Files (n)` with every file as `name · size · nn%`. Wrapped at the live content width;
+  relayout on font/size change; tap → the same actions menu with Refresh (the file list) as
+  its harmless first row in place of Details.
 - **CATEGORIES** (List): `Newest` first, then the 40 categories as `Group · Name` rows with a
   group icon (tv/film/game/app/book/music/education/animation/foreign) — the table is core's
   constant, never a provider call. Wrap-end row = the Browse menu (Search…, recents, Account;
   Sort and Refresh only inside a LISTING).
 - **LISTING** (List; a category, or search results): name (fit) · size · `↑seeders ↓leechers`
   · a `FL` mark for freeleech; the lens adds snatches, age, category, tags. **Endless paging**:
-  a listing near its loaded end fetches the next page (35/page) off-loop and appends; a dim
-  `loading…` pseudo-row shows while a page is in flight; a failed page shows the failure in
-  place and retries on a 5 s pacing (the Files viewer precedent — never a silent end).
+  the next page (35/page) is fetched off-loop when the CURSOR comes within eight rows of the
+  loaded end (never from a painted row — the panning list wraps its tail rows above the
+  cursor); a dim `loading…` pseudo-row shows while a page is in flight; a failed page shows
+  the failure in place and retries on a 5 s pacing (the Files viewer precedent — never a
+  silent end).
 - **TORRENT** (Document, a tracker item): name · category · size · seeders/leechers ·
   snatches · added · uploader · tags · freeleech · `Description` + the text · `NFO` (mono) ·
   `Files (n)`. Tap → **add MENU**: Add to qBittorrent → confirm (`Add '<name>'? Cancel / Add →
@@ -183,18 +187,23 @@ idle is always 15 s) · `Size` (global / 288 / 352 / 416 / 480). Font / Font siz
 
 ### 3.4 Main summary (cheap, cached — §4.6)
 
-Line 1: `2 downloading · 1.2 MB/s` (or `31 seeding` when nothing downloads, `idle` when
-empty); line 2: `31 seeding · 5 stopped · 1 error`; `progress` = the most advanced active
+Line 1: `2 downloading · 1.2 MB/s` (or `31 seeding · 420 KB/s up` when nothing downloads,
+`idle` when empty); line 2: `31 seeding · 5 stopped · 1 error`; `progress` = the most advanced active
 download (drives Main's block bar); `more` while transfers exist. A provider state line (`PC
 unreachable 40s`, `qBittorrent unreachable 12s`, `TorrentLeech: login failed`) replaces line 1
 — staleness is said with duration (§10.5).
 
 ### 3.5 State
 
-`window.torrents` (main record, synced): level · cursors · filter · sort · open hash · browse
-category · search query + recents · the settings rows · the keyboard draft. Nothing here has
-per-item state, so no sub-records. `open("t:<hash>")` and `open("tl:<fid>")` synthesize the
-level path so back behaves as if navigated by hand (§16.1).
+`window.torrents` (main record, synced): level · cursors (the transfers cursor also by the
+row's hash, so a restore lands on the same torrent after the list reorders) · filter · sort ·
+open hash · browse category · search query + recents · the settings rows · the keyboard draft.
+Restored positions wait for their content (a document's top for both the transfer and its
+file list; a listing cursor for its page; the transfers row for the first snapshot, once).
+A live-synced record reloads its open document at once only while the window is focused;
+unfocused, on the next activation. Nothing here has per-item state, so no sub-records.
+`open("t:<hash>")` and `open("tl:<fid>")` synthesize the level path so back behaves as if
+navigated by hand (§16.1).
 
 ## 4. Providers (§16.10)
 
@@ -226,8 +235,9 @@ most one host interval behind — a deliberate simplification over an on-demand 
   triggers one login attempt when credentials are configured (they are not, on beardos) and a
   refused login latches for the process (five failures ban the address for an hour).
 - **`TorrentLeech`**: login → cookie jar persisted in `~/.damage/tl-cookies.json` (0600),
-  re-login once on a redirect to the login page or a non-JSON answer, then the request retried
-  once; browse / search / detail / download / account; HTML parsed with a small stdlib
+  re-login once on a redirect to the login page, the login form, or an HTML page in place of
+  the listing JSON (re-logins paced to one a minute — a maintenance page is reported, not
+  logged into), then the request retried once; browse / search / detail / download / account; HTML parsed with a small stdlib
   tokenizer (no third-party parser), every expected landmark checked. Credentials come from
   `~/.damage/config.json` (`torrentleechUser` / `torrentleechPass`) — the standing secrets
   rule; nothing in the repo.

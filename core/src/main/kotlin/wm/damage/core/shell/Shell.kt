@@ -264,6 +264,12 @@ class Shell(
                 Log.w("shell", "openKeyboard refused: a menu is open")
                 return false
             }
+            // a spec the surface refuses (too many live keys) is a caller
+            // defect: say it, return false, touch nothing (R2-K2)
+            if (spec.extra.size > KeyboardSurface.MAX_EXTRA) {
+                Log.e("shell", "openKeyboard refused: ${spec.extra.size} live keys, the keyboard holds ${KeyboardSurface.MAX_EXTRA}")
+                return false
+            }
             if (keyboard.open) cancelKeyboard()
             settleSlidesForOverlay()
             if (notifications.active) {
@@ -633,6 +639,10 @@ class Shell(
                     is Msg.Shutdown -> {
                         running = false
                         dropKeyboard()    // the draft goes back to its requester BEFORE the save (review 2026-09-01 K5)
+                        // the focused window's session-bound state ends with the
+                        // session (a focused poll pace, a pane subscription) —
+                        // start() re-activates the restored window (R2-W13)
+                        try { current?.onDeactivate() } catch (e: Exception) { Log.e("shell", "onDeactivate at shutdown", e) }
                         saveAll()
                         m.done.complete(Unit)
                     }

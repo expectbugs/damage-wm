@@ -203,6 +203,7 @@ class FilesWindow(
                 // the lone placeholder wraps the cursor to 0 via mod(1) — the
                 // restore re-applies when the listing lands
                 pendingBrowseCursor = cursor
+                pendingSelectName = null  // an ascend during a deep link's listing gap (R2-K5)
                 entries = emptyList()     // Fi#4
                 listState = "listing"
                 nameArmed = null          // Fi#16
@@ -212,6 +213,7 @@ class FilesWindow(
                 // stack lost (a restore): ascend by path
                 cwd = cwd.substringBeforeLast('/').ifEmpty { "/" }
                 browseModel.cursor = 0
+                pendingSelectName = null  // (R2-K5)
                 entries = emptyList()     // Fi#4
                 listState = "listing"
                 nameArmed = null          // Fi#16
@@ -235,9 +237,13 @@ class FilesWindow(
      *  arrives; a path that does not list shows the provider's error. */
     override fun open(target: String): Boolean {
         if (!target.startsWith("path:")) return false
-        val raw = target.removePrefix("path:").trimEnd('/')
-        if (raw.isEmpty() || !raw.startsWith("/")) return false
-        val hasExt = raw.substringAfterLast('/').contains('.')
+        val given = target.removePrefix("path:")
+        if (!given.startsWith("/")) return false
+        // a trailing slash says "a folder" outright (a dotted folder name
+        // would otherwise read as a file); "/" itself is the root (R2-K6)
+        val isDir = given.endsWith("/")
+        val raw = given.trimEnd('/').ifEmpty { "/" }
+        val hasExt = !isDir && raw != "/" && raw.substringAfterLast('/').contains('.')
         val dir = if (hasExt) raw.substringBeforeLast('/').ifEmpty { "/" } else raw
         pendingOpenView = null
         viewer = null

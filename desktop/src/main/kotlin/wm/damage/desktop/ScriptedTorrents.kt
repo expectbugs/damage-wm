@@ -121,7 +121,7 @@ class ScriptedTorrents : TorrentsProvider {
     /** The site's UTC timestamp text, [hoursAgo] before now. */
     private fun stamp(hoursAgo: Int): String =
         java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).minusHours(hoursAgo.toLong())
-            .withSecond(5).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+            .withSecond(0).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
 
     private val names = listOf("Ubuntu 26.04 Desktop amd64", "Fedora Workstation 44 Live x86_64", "Debian 13 DVD amd64",
         "Gentoo LiveGUI USB 2026", "Arch Linux 2026.09.01 ISO", "openSUSE Tumbleweed DVD", "Linux Mint 23 Cinnamon",

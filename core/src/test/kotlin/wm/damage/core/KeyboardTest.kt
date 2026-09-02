@@ -269,16 +269,65 @@ class KeyboardTest {
         kb.paint(g, l)
     }
 
+    /** The x of the caret bar (a HEAD-level 2 px column) in the text line, or -1. */
+    private fun caretX(g: Gray8, kb: KeyboardSurface, l: Layout): Int {
+        val box = kb.rect(l)!!
+        for (x in box.x until box.right) {
+            var head = 0
+            for (y in box.y + 8 until box.y + 40) if (g[x, y] == wm.damage.core.gfx.Level.HEAD) head++
+            if (head >= 12) return x
+        }
+        return -1
+    }
+
     @Test
     fun aLongPromptIsFittedAndTheDraftStillPaints() {
         val (kb, _) = opened("draft")
         kb.close()
         kb.openWith(KeyboardSurface.Spec("type -> " + "x".repeat(200), "draft", onCommit = {}), "qwerty")
         val g = Gray8(640, 480)
-        val box = kb.paint(g, Layout())!!
+        val l = Layout()
+        val box = kb.paint(g, l)!!
         for (y in 0 until 480) for (x in 0 until 640) {
             if (!(x in box.x until box.right && y in box.y until box.bottom)) assertEquals(0, g[x, y], "ink outside the box at $x,$y")
         }
+        // the caret painted, to the right of the fitted prompt's third of the line
+        val cx = caretX(g, kb, l)
+        assertTrue(cx > box.x + KeyboardSurface.UNITS * KeyboardSurface.UNIT / 3, "caret at $cx")
+    }
+
+    @Test
+    fun aPannedDraftKeepsTheCaretInsideTheFittedTextNeverPastTheMark() {
+        val (kb, _) = opened("a".repeat(80))
+        repeat(10) { kb.tapKind(KeyboardSurface.Kind.LEFT) }     // the caret 10 glyphs before the end
+        val g = Gray8(640, 480)
+        val l = Layout()
+        val box = kb.paint(g, l)!!
+        val cx = caretX(g, kb, l)
+        val right = box.x + (box.w - KeyboardSurface.UNITS * KeyboardSurface.UNIT) / 2 / 4 * 4 + KeyboardSurface.UNITS * KeyboardSurface.UNIT
+        // Draw.fit keeps 14 px for its mark at the line's end and the caret sits
+        // at or before the last drawn glyph — so it never enters the mark zone
+        assertTrue(cx in 0..(right - 18), "the caret ($cx) sits inside the fitted text, before the tail's mark (right=$right)")
+    }
+
+    @Test
+    fun tooManyLiveKeysAreRefusedBeforeAnythingOpensAndHarmlessKeysHeadEachRow() {
+        val kb = KeyboardSurface(FakeText())
+        val thirteen = (1..13).map { KeyboardSurface.ExtraKey("k$it", "id$it") }
+        kotlin.test.assertFailsWith<IllegalArgumentException> {
+            kb.openWith(KeyboardSurface.Spec("x", "", thirteen, onCommit = {}), "qwerty")
+        }
+        assertFalse(kb.open)                                     // nothing half-open
+        // a config whose harmless keys are not first: both rows still rest on one
+        val mixed = listOf("Enter", "C-c", "C-d", "C-z", "C-l", "Escape", "Tab").map {
+            KeyboardSurface.ExtraKey(it, it, harmless = it == "Escape" || it == "Tab")
+        }
+        val rows = KeyboardSurface.buildRows("qwerty", false, mixed)
+        assertEquals(7, rows.size)
+        assertEquals("Escape", rows[5][0].id)
+        assertEquals("Tab", rows[6][0].id)
+        assertEquals(7, rows[5].size + rows[6].size)
+        assertEquals(KeyboardSurface.UNITS, rows[5].sumOf { it.span }); assertEquals(KeyboardSurface.UNITS, rows[6].sumOf { it.span })
     }
 
     @Test

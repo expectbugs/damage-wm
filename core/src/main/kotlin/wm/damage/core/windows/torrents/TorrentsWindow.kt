@@ -136,6 +136,7 @@ class TorrentsWindow(
      *  paint clamps a cursor/top against an EMPTY list or a two-line
      *  placeholder document, so they are re-applied when the bytes land. */
     private var pendingTransHash: String? = null
+    private var pendingTransIndex: Int? = null
     private var pendingListCursor: Int? = null
     private var pendingDocTop: Int? = null
     private var pendingTlDocTop: Int? = null
@@ -161,11 +162,10 @@ class TorrentsWindow(
 
     private fun dn(s: String, f: FontSpec = fRow): String = Draw.dynamic(tx, s, f)
 
-    /** Menu-bound strings are drawn by MenuSurface in the SYSTEM face through
-     *  the raw rasterizer — sanitize against THAT, not this window's face
-     *  (review 2026-09-01 W13). */
-    private val fMenu = FontSpec(Face.SYSTEM, 17)
-    private fun dm(s: String): String = Draw.dynamic(text, s, fMenu)
+    /** Menu-bound strings go RAW: MenuSurface sanitizes every title, label
+     *  and detail against its own rasterizer and the spec it draws with
+     *  (review 2026-09-01 R2-W6 — this window cannot know the chrome face). */
+    private fun dm(s: String): String = s
 
     // ================================================================ provider glue
     private val listener = object : TorrentsProvider.Listener {
@@ -207,15 +207,34 @@ class TorrentsWindow(
         updateHistory(s)
         val after = rows()
         val want = pendingTransHash
+        val wantIdx = pendingTransIndex
+        if (s.transfers.isNotEmpty()) {
+            // ONE shot (R2-W3): a restored row that is not in this snapshot
+            // (filtered out, gone) must not steer the cursor minutes later
+            pendingTransHash = null
+            pendingTransIndex = null
+        }
         transModel.cursor = when {
-            want != null && after.any { it?.hash == want } -> {
-                pendingTransHash = null   // the restored row is here now (W4)
-                after.indexOfFirst { it?.hash == want }
-            }
+            want != null && after.any { it?.hash == want } -> after.indexOfFirst { it?.hash == want }
+            wantIdx != null && s.transfers.isNotEmpty() -> wantIdx.coerceIn(0, after.size - 1)
             onMenu -> after.size - 1
             onHash != null -> after.indexOfFirst { it?.hash == onHash }.takeIf { it >= 0 }
                 ?: transModel.cursor.coerceIn(0, after.size - 1)
             else -> transModel.cursor.coerceIn(0, after.size - 1)
+        }
+        applyPendingDocTop()
+    }
+
+    /** A restored document position waits for BOTH the transfer (the header)
+     *  and its file list — applied against the placeholder it would be
+     *  clamped away (R2-W4). */
+    private fun applyPendingDocTop() {
+        val top = pendingDocTop ?: return
+        val h = openHash ?: return
+        if (currentTransfer(h) != null && detail != null) {
+            docModel.topLine = top
+            pendingDocTop = null
+            detailCache = null
         }
     }
 
@@ -296,7 +315,11 @@ class TorrentsWindow(
         Level_.DETAILS -> WindowView.DocView(docModel, { detailLines().size }, lineH(fBody),
             ::paintDetailLine, {
                 val t = openHash?.let { currentTransfer(it) }
-                if (t != null) openTransferMenu(t, fromDetails = true) else setNotice("this transfer is gone")
+                when {
+                    t != null -> openTransferMenu(t, fromDetails = true)
+                    snap == null -> setNotice("still connecting to the host")
+                    else -> setNotice("this transfer is gone")
+                }
             },
             stepLines = { 5 })
         Level_.CATEGORIES -> WindowView.ListView(catModel, { catRows().size },
@@ -358,14 +381,30 @@ class TorrentsWindow(
 
     override fun back(): Boolean = when (level) {
         Level_.TRANSFERS -> false
-        Level_.DETAILS -> { level = Level_.TRANSFERS; detailSeq++; true }
+        Level_.DETAILS -> {
+            level = Level_.TRANSFERS
+            if (detailState == "loading") services?.setOperation("idle")   // the abandoned load's word (R2-W9)
+            detailSeq++
+            true
+        }
         Level_.CATEGORIES -> { level = Level_.TRANSFERS; true }
         Level_.LISTING -> {
             listSeq++
+            // a page in flight is abandoned here: its flags must not outlive
+            // it or a re-entered listing says "loading more" forever (R2-W8)
+            if (listingLoading) services?.setOperation("idle")
+            listingLoading = false
+            listingState = ""
+            listingRetryAt = 0L
             level = if (listingFromTransfers) Level_.TRANSFERS else Level_.CATEGORIES
             true
         }
-        Level_.TORRENT -> { level = Level_.LISTING; tlSeq++; true }
+        Level_.TORRENT -> {
+            level = Level_.LISTING
+            if (tlDetailState == "loading") services?.setOperation("idle")
+            tlSeq++
+            true
+        }
     }
 
     override fun onLayoutChanged() { invalidateDocs() }
@@ -402,7 +441,17 @@ class TorrentsWindow(
             target.startsWith("tl:") -> {
                 val fid = target.removePrefix("tl:")
                 if (fid.isEmpty()) return false
-                if (level != Level_.LISTING) { listingFromTransfers = true; level = Level_.LISTING }
+                if (level != Level_.LISTING) {
+                    listingFromTransfers = true
+                    // a fresh, EMPTY listing under the page (R2-W8): back lands on
+                    // "Newest" loading from page 1, never on stale flags
+                    listingCat = null; listingQuery = null
+                    listing.clear(); listingTotal = -1; listingPage = 0
+                    listingLoading = false; listingState = ""; listingRetryAt = 0L
+                    listSeq++
+                    listModel.cursor = 0
+                    level = Level_.LISTING
+                }
                 openTorrent(fid)
                 return true
             }
@@ -647,8 +696,8 @@ class TorrentsWindow(
                 null to (e.message ?: "details failed")
             }
             onShell {
-                services?.setOperation("idle")    // even for a stale answer (review W11)
-                if (seq != detailSeq) return@onShell   // the user moved on
+                if (seq != detailSeq) return@onShell   // superseded: back() or a newer load owns the op word (R2-W9)
+                services?.setOperation("idle")
                 if (err != null) {
                     detailState = err
                     setNotice(err)
@@ -657,7 +706,7 @@ class TorrentsWindow(
                     detail = d
                 }
                 detailCache = null
-                pendingDocTop?.let { docModel.topLine = it; pendingDocTop = null }   // the content is here (W4)
+                applyPendingDocTop()
                 services?.requestRender(this@TorrentsWindow)
             }
         }
@@ -782,7 +831,7 @@ class TorrentsWindow(
             }
             else -> {
                 Draw.fit(g, tx, r.x + 72, r.y + 6, "Browse", Level.HEAD, fHead, r.w - 88)
-                Draw.fit(g, tx, r.x + 72, r.y + 32, "search · sort · refresh · account", Level.BODY, fBody, r.w - 88)
+                Draw.fit(g, tx, r.x + 72, r.y + 32, "search · recent searches · account", Level.BODY, fBody, r.w - 88)
             }
         }
     }
@@ -812,12 +861,31 @@ class TorrentsWindow(
 
     private val listingMore: Boolean get() = listingTotal < 0 || listing.size < listingTotal
 
+    private var listingRowsKey: Triple<Int, Boolean, Boolean>? = null
+    private var listingRowsCache: List<LRow> = emptyList()
+
+    /** Cached by (size, loading, more/state) — called per row paint (R2-W1). */
     private fun listingRows(): List<LRow> {
-        val out = ArrayList<LRow>(listing.size + 2)
-        for (it in listing) out.add(LRow.Item(it))
-        if (listingLoading || listingMore || listingState.isNotEmpty()) out.add(LRow.Loading)
-        out.add(LRow.Menu)
-        return out
+        val tail = listingLoading || listingMore || listingState.isNotEmpty()
+        val key = Triple(listing.size, listingLoading, tail)
+        if (listingRowsKey != key) {
+            val out = ArrayList<LRow>(listing.size + 2)
+            for (it in listing) out.add(LRow.Item(it))
+            if (tail) out.add(LRow.Loading)
+            out.add(LRow.Menu)
+            listingRowsCache = out
+            listingRowsKey = key
+        }
+        return listingRowsCache
+    }
+
+    /** Demand the next page from the CURSOR's position — never from a row
+     *  being painted: the panning list wraps its tail rows ABOVE the cursor,
+     *  so a paint-time demand from the Loading row fetched every page of a
+     *  category while the cursor sat on row 0 (R2-W1, the L1 class). */
+    private fun demandPageIfNear() {
+        if (listingLoading || !listingMore) return
+        if (listModel.cursor >= listing.size - 8) loadNextPage()   // honours the 5 s pacing itself
     }
 
     private fun loadNextPage() {
@@ -838,8 +906,8 @@ class TorrentsWindow(
                 null to (e.message ?: "listing failed")
             }
             onShell {
+                if (seq != listSeq) return@onShell    // superseded; openListing/back reset the flags (R2-W8/W9)
                 services?.setOperation("idle")
-                if (seq != listSeq) return@onShell    // a superseded listing; openListing reset its own flags
                 listingLoading = false
                 if (err != null || p == null) {
                     listingState = err ?: "listing failed"
@@ -893,8 +961,7 @@ class TorrentsWindow(
         when (val row = rows.getOrNull(i)) {
             is LRow.Item -> {
                 val it = row.it
-                // demand the next page as the cursor nears the loaded end
-                if (i >= listing.size - 8 && listingMore && !listingLoading) loadNextPage()
+                demandPageIfNear()
                 IconPaint.draw(g, services?.icons(), groupIcons(groupOf(it.categoryId)), r.x + 8, r.y + 6, 20, IconKind.TORRENTS, Level.DIM)
                 Draw.fit(g, tx, r.x + 40, r.y + 5, dn(it.name), Level.BODY, fRow, r.w - 40 - 236)
                 var x = r.right - 24
@@ -915,8 +982,9 @@ class TorrentsWindow(
                 }
                 Draw.fit(g, tx, r.x + 40, r.y + 5, s, Level.REST, fRow, r.w - 64)
                 // the paced retry lives HERE too (review W7): an empty listing
-                // has no item row to demand the next page from
-                if (!listingLoading && listingMore) loadNextPage()   // loadNextPage honours the 5 s pacing itself
+                // has no item row to demand from — but only when the CURSOR is
+                // on this row or the listing is empty (R2-W1)
+                if (listing.isEmpty() || listModel.cursor >= listing.size) demandPageIfNear()
             }
             is LRow.Menu -> {
                 Draw.fit(g, tx, r.x + 40, r.y + 5, "Browse", Level.DIM, fRow, r.w - 64)
@@ -968,13 +1036,16 @@ class TorrentsWindow(
             acts.add(act)
         }
         add("Search TorrentLeech", "keyboard") { openSearch() }
-        for (q in recents.take(5)) add("Search", dn(q, fSmall)) { openListing(null, q) }
-        add("Sort", tlSort) {
-            val i = TorrentLeech.SORTS.indexOf(tlSort)
-            tlSort = TorrentLeech.SORTS[(i + 1) % TorrentLeech.SORTS.size]
-            if (level == Level_.LISTING) openListing(listingCat, listingQuery)
+        for (q in recents.take(5)) add("Search", q) { openListing(null, q) }
+        if (level == Level_.LISTING) {
+            // rows that act on a listing exist only inside one (R2-W7)
+            add("Sort", tlSort) {
+                val i = TorrentLeech.SORTS.indexOf(tlSort)
+                tlSort = TorrentLeech.SORTS[(i + 1) % TorrentLeech.SORTS.size]
+                openListing(listingCat, listingQuery)
+            }
+            add("Refresh") { openListing(listingCat, listingQuery) }
         }
-        add("Refresh") { if (level == Level_.LISTING) openListing(listingCat, listingQuery) }
         add("Account", "TorrentLeech") { openStats() }
         services?.openMenu(MenuSurface.Spec("browse", items, onCommit = { idx -> acts.getOrNull(idx)?.invoke() }))
     }
@@ -1022,8 +1093,8 @@ class TorrentsWindow(
                 null to (e.message ?: "torrent page failed")
             }
             onShell {
+                if (seq != tlSeq) return@onShell      // superseded (R2-W9)
                 services?.setOperation("idle")
-                if (seq != tlSeq) return@onShell
                 if (err != null) {
                     tlDetailState = err
                     setNotice(err)
@@ -1224,6 +1295,7 @@ class TorrentsWindow(
     override fun saveState(): JsonObject = buildJsonObject {
         put("level", level.name)
         put("cursor", transModel.cursor)
+        rows().getOrNull(transModel.cursor)?.hash?.let { put("cursorHash", it) }   // the row, not the index (R2-W2)
         put("catCursor", catModel.cursor)
         put("listCursor", listModel.cursor)
         put("docTop", docModel.topLine)
@@ -1290,10 +1362,15 @@ class TorrentsWindow(
         // restored one (review W3 — the Files R4/R5 class)
         detailSeq++; listSeq++; tlSeq++
         // positions re-apply when their content lands (W4): the first paint
-        // would clamp them against an empty list or a placeholder document
-        pendingTransHash = openHash?.takeIf { level == Level_.TRANSFERS || level == Level_.DETAILS }
-            ?: rows().getOrNull(transModel.cursor)?.hash
+        // would clamp them against an empty list or a placeholder document.
+        // The transfers cursor restores by the ROW it was on (its hash) — the
+        // details' hash only when the details ARE the level (R2-W2) — with
+        // the saved index as the fallback for a row that is gone
+        pendingTransHash = if (level == Level_.DETAILS) openHash
+            else state["cursorHash"]?.jsonPrimitive?.contentOrNull
+        pendingTransIndex = transModel.cursor
         pendingListCursor = listModel.cursor.takeIf { level == Level_.LISTING || level == Level_.TORRENT }
+        listingRetryAt = 0L
         pendingDocTop = docModel.topLine.takeIf { level == Level_.DETAILS && it > 0 }
         pendingTlDocTop = tlDocModel.topLine.takeIf { level == Level_.TORRENT && it > 0 }
         invalidateDocs()
@@ -1305,13 +1382,22 @@ class TorrentsWindow(
      *  focused one and would otherwise sit on a header with no file list
      *  until the user leaves and returns (review 2026-09-01 W2). */
     override fun restoreStateLive(state: JsonObject) {
+        val keepDetail = detail?.takeIf { it.hash == state["openHash"]?.jsonPrimitive?.contentOrNull }
+        val keepPage = tlDetail?.takeIf { it.fid == state["openFid"]?.jsonPrimitive?.contentOrNull }
         restoreState(state)
-        if (services == null) return
+        if (active) provider.setFocused(true, pollMs)            // a synced Poll change applies now (R2-W15)
+        // the same item's content survives the apply: only the position moves
+        if (keepDetail != null) { detail = keepDetail; detailState = ""; applyPendingDocTop() }
+        if (keepPage != null) { tlDetail = keepPage; tlDetailState = ""; pendingTlDocTop?.let { tlDocModel.topLine = it; pendingTlDocTop = null } }
+        // an UNFOCUSED window reloads on its next activation, not on every
+        // peer save (R2-W5): a tracker page per save, and op words painted
+        // onto whoever is focused, were the cost of reloading blind
+        if (services == null || !active) return
         needsReload = false
         when (level) {
-            Level_.DETAILS -> openHash?.let { loadDetail(it) }
+            Level_.DETAILS -> if (keepDetail == null) openHash?.let { loadDetail(it) }
             Level_.LISTING -> loadNextPage()
-            Level_.TORRENT -> openFid?.let { loadTorrent(it) }
+            Level_.TORRENT -> if (keepPage == null) openFid?.let { loadTorrent(it) }
             else -> {}
         }
     }

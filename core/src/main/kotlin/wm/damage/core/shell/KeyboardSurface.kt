@@ -32,19 +32,23 @@ import wm.damage.core.text.TextRasterizer
 class KeyboardSurface(private val text: TextRasterizer) {
 
     /** A requester-supplied LIVE key (Tmux's quick keys): tapping it calls
-     *  [Spec.onExtra] at once and the keyboard stays open. */
-    class ExtraKey(val label: String, val id: String)
+     *  [Spec.onExtra] at once and the keyboard stays open. [harmless] keys
+     *  (Esc, Tab, arrows) are seated at the head of each live row so its rest
+     *  position never sends anything consequential (§1.7). */
+    class ExtraKey(val label: String, val id: String, val harmless: Boolean = false)
 
     class Spec(
         /** The prompt, drawn small in the text line — short by design. */
         val title: String,
         val initial: String = "",
-        /** An optional sixth row of live keys; the first one must be harmless. */
+        /** Optional live keys: up to six make one row, up to twelve two rows;
+         *  more is refused by [openWith] (loudly, before anything opens). */
         val extra: List<ExtraKey> = emptyList(),
         /** Runs on the shell loop AFTER the keyboard closed. */
         val onCommit: (String) -> Unit,
-        /** Cancel path (double-tap at ROW, wheel, silent, relayout, an
-         *  emergency): the draft the requester should pre-fill next time. */
+        /** Every cancel path (double-tap at ROW, the wheel, silent mode, a
+         *  relayout, an emergency, a shell stop, a session restart, a window
+         *  commit): the draft the requester should pre-fill next time. */
         val onCancel: ((String) -> Unit)? = null,
         /** A live key was tapped (the keyboard stays open). */
         val onExtra: ((String) -> Unit)? = null,
@@ -90,6 +94,10 @@ class KeyboardSurface(private val text: TextRasterizer) {
 
     // ------------------------------------------------------------------ model
     fun openWith(s: Spec, layout: String) {
+        // refused BEFORE any state changes (review 2026-09-01 R2-K2): a throw
+        // after `open = true` left a half-open surface every paint tripped on
+        require(s.extra.size <= MAX_EXTRA) { "a keyboard holds at most $MAX_EXTRA live keys, got ${s.extra.size}" }
+        coverCache.clear()                  // the chrome face can change between opens (R2-K7)
         spec = s
         layoutName = if (layout in LAYOUTS) layout else "qwerty"
         buf.setLength(0)
@@ -376,7 +384,11 @@ class KeyboardSurface(private val text: TextRasterizer) {
         val d = display(draft, fDraft)
         // the visible window: from `start` so that the head up to the caret fits
         var start = 0
-        val headMax = avail - 14
+        // the head [start, caret) must fit AFTER the pan shifts the text by
+        // 16 px and Draw.fit keeps 14 px for its mark: bound it against the
+        // post-pan fit (review 2026-09-01 R2-K1 — glyphs before the caret
+        // were cut and the caret drawn past the mark)
+        val headMax = avail - 30
         if (text.measure(d.substring(0, caret), fDraft) > headMax) {
             // smallest start whose [start, caret) fits — monotone, binary search
             var a = 0
@@ -394,9 +406,9 @@ class KeyboardSurface(private val text: TextRasterizer) {
         val shown = d.substring(start)
         val cut = Draw.fit(g, text, dx, dy, shown, Level.BODY, fDraft, right - dx - 4)
         val caretX = (dx + text.measure(d.substring(start, caret), fDraft)).coerceAtMost(right - 4)
-        // the caret: a 2 px bar at HEAD, tall as the line
+        // the caret: a 2 px bar at HEAD, tall as the line (a cut TAIL past it
+        // is marked by Draw.fit itself)
         g.fillRect(caretX / 2 * 2, dy, 2, dm.lineHeight, Level.HEAD)
-        if (cut) Unit   // the tail's cut is already marked by Draw.fit
     }
 
     companion object {
@@ -444,8 +456,22 @@ class KeyboardSurface(private val text: TextRasterizer) {
                 // requester must cap what it sends, never lose keys silently
                 // (review 2026-09-01 K1: Tmux's 14 defaults lost Tab and q)
                 require(extra.size <= MAX_EXTRA) { "a keyboard live row holds at most $MAX_EXTRA keys, got ${extra.size}" }
-                val chunks = if (extra.size <= 6) listOf(extra) else
-                    listOf(extra.take((extra.size + 1) / 2), extra.drop((extra.size + 1) / 2))
+                // every live row's HEAD (its rest position) is a harmless key
+                // when the requester marked enough of them (R2-K3): heads first,
+                // then the rest fills the rows in the requester's order
+                val heads = extra.filter { it.harmless }
+                val rest = extra.filter { !it.harmless }
+                val rowsWanted = if (extra.size <= 6) 1 else 2
+                val size1 = if (rowsWanted == 1) extra.size else (extra.size + 1) / 2
+                val ordered = ArrayList<ExtraKey>(extra.size)
+                val pool = ArrayDeque(heads.drop(rowsWanted) + rest)
+                for (r in 0 until rowsWanted) {
+                    val head = heads.getOrNull(r)
+                    val target = if (r == 0) size1 else extra.size - size1
+                    if (head != null) ordered.add(head)
+                    while (ordered.size < (if (r == 0) target else extra.size) && pool.isNotEmpty()) ordered.add(pool.removeFirst())
+                }
+                val chunks = if (rowsWanted == 1) listOf(ordered) else listOf(ordered.take(size1), ordered.drop(size1))
                 for (chunk in chunks) {
                     val n = chunk.size
                     val span = UNITS / n

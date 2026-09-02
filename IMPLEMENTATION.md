@@ -391,8 +391,8 @@ best state before we move on"*), and the fourth bespoke shell surface. `wm.damag
 - **`KeyboardSurface`** (`shell/`) — DESIGN.md §4.8: the wireframe keyboard, row-then-key with
   wrap on both axes, stay-in-row after typing, QWERTY/abc from Settings → Global → Keyboard,
   the symbol layer, Shift once/lock, caret editing (←/→/Del/Clear), a panning text line that
-  marks its cut, an optional requester row of LIVE keys (Tmux's quick keys), the draft handed
-  back on cancel. `ShellServices.openKeyboard(spec, owner)` — the menu's refusal rules; the
+  marks its cut, up to two requester rows of LIVE keys (Tmux's non-character quick keys,
+  harmless ones at each row's head), the draft handed back on cancel. `ShellServices.openKeyboard(spec, owner)` — the menu's refusal rules; the
   shell routes gestures to it, cancels it under the wheel / silent / relayout / an emergency
   (draft kept), defers ordinary notices behind it, commits a replica-typed line through it.
   Requesters: Torrents Search, Tmux "Type…", Files Rename / New folder (pre-filled).
@@ -404,7 +404,7 @@ best state before we move on"*), and the fourth bespoke shell surface. `wm.damag
   notification, plus the ink budgets: transfers 9.0 %, details 6.4 %) and the snapshot scenes
   15–22; `TorrentsTest` ×7 (the client against a fake Web API, the adapter against fixtures incl.
   drift and expiry, the provider's diff/baseline/persistence, the window grammar, persistence +
-  continuity, the remote provider over a real loopback host) and `KeyboardTest` ×14.
+  continuity, the remote provider over a real loopback host) and `KeyboardTest` ×20.
 
 ## Tmux (2026-08-31, TMUX.md — all refinery verdicts locked, built in one pass)
 

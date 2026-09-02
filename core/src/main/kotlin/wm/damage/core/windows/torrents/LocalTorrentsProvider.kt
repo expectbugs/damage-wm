@@ -63,6 +63,8 @@ class LocalTorrentsProvider(
     @Volatile private var running = true
     private val pollMutex = Mutex()
     private var qbtVersion = ""
+    private var narratedFirst = false      // before the loop launches (R2-P11)
+    private var lastOfflineMsg = ""
 
     init {
         if (Files.isRegularFile(announcedPath)) try {
@@ -150,7 +152,9 @@ class LocalTorrentsProvider(
             // existed (it finished while the service was down); on a true
             // first run everything already finished is recorded silently
             for (t in ts) {
-                if (t.finished && t.completedOn > 0 && !announced.containsKey(t.hash)) {
+                // the same stamp rule as every later poll (R2-P4): a hash that
+                // finished AGAIN while the service was down carries a new stamp
+                if (t.finished && t.completedOn > 0 && announced[t.hash] != t.completedOn) {
                     if (announcedLoaded) fresh.add(ev("done", t, now))
                     announced[t.hash] = t.completedOn
                     announcedChanged = true
@@ -228,19 +232,24 @@ class LocalTorrentsProvider(
 
     private fun offline(e: Exception) {
         val now = clock()
-        if (offlineSince == 0L) {
-            offlineSince = now
-            Log.w("torrents", "qBittorrent unreachable: ${e.message}")
+        val msg = e.message ?: e.toString()
+        if (offlineSince == 0L) offlineSince = now
+        // the REASON is logged whenever it changes, not once per outage (R2-P2):
+        // "connection refused" at boot followed by a refused login must show both
+        if (msg != lastOfflineMsg) {
+            lastOfflineMsg = msg
+            Log.w("torrents", "qBittorrent unreachable: $msg")
         }
-        setState("qBittorrent unreachable ${(now - offlineSince) / 1000}s")
+        // a refused login is its own state — never mistaken for a link outage
+        setState(if (msg.contains("login refused")) "qBittorrent login refused - check qbtUser/qbtPass"
+            else "qBittorrent unreachable ${(now - offlineSince) / 1000}s")
     }
-
-    private var narratedFirst = false
 
     private fun online() {
         if (offlineSince != 0L) {
             Log.i("torrents", "qBittorrent reachable again")
             offlineSince = 0L
+            lastOfflineMsg = ""
         }
         if (!narratedFirst) {
             // one line per process for the service log (DAILY.md): the ops

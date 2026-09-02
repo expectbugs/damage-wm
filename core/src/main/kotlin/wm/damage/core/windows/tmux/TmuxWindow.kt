@@ -443,12 +443,19 @@ class TmuxWindow(
                 // so the row's rest position is never Enter or Ctrl-C (§1.7,
                 // review 2026-09-01 K2), capped at what the keyboard holds
                 val harmless = listOf("Escape", "Tab", "Up", "Down", "Left", "Right", "Home", "End", "PageUp", "PageDown")
-                val live = qk.filter { it.length > 1 }.let { ks ->
-                    ks.filter { it in harmless }.sortedBy { harmless.indexOf(it) } + ks.filter { it !in harmless }
-                }.take(KeyboardSurface.MAX_EXTRA)
+                val multi = qk.filter { it.length > 1 }
+                val live = (multi.filter { it in harmless }.sortedBy { harmless.indexOf(it) } + multi.filter { it !in harmless })
+                    .take(KeyboardSurface.MAX_EXTRA)
+                if (multi.size > live.size) {
+                    // never silently (R2-K4): a config with more quick keys than the
+                    // keyboard holds is told which ones stayed off it
+                    val off = multi.drop(live.size).joinToString(", ") { prettyKey(it) }
+                    Log.w("tmux", "quick keys beyond the keyboard's ${KeyboardSurface.MAX_EXTRA}: $off")
+                    notice = "not on the keyboard: $off"
+                }
                 val opened = services?.openKeyboard(KeyboardSurface.Spec(
                     title = "type -> ${t.label}", initial = typedDraft,
-                    extra = live.map { KeyboardSurface.ExtraKey(prettyKey(it), it) },
+                    extra = live.map { KeyboardSurface.ExtraKey(prettyKey(it), it, harmless = it in harmless) },
                     onCommit = { line ->
                         typedDraft = ""
                         if (line.isNotBlank() && !onTypedText(line)) {

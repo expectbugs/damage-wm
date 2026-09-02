@@ -57,6 +57,9 @@ class TorrentLeech(
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val cookies = LinkedHashMap<String, String>()
     private val lock = Any()
+    /** Re-logins are PACED (R2-P3): a site that answers a page instead of the
+     *  listing for a while (maintenance) must not get a fresh login per retry. */
+    private var lastLoginAt = 0L
 
     init {
         cookieFile?.let { f ->
@@ -94,9 +97,13 @@ class TorrentLeech(
     }
 
     private fun expiresInPast(s: String): Boolean = try {
-        java.time.ZonedDateTime.parse(s, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME)
+        // PHP's Netscape form ("Thu, 01-Jan-1970 00:00:01 GMT") differs from
+        // RFC 1123 only by the hyphens (R2-P5)
+        val norm = s.trim().replace(Regex("(\\d{2})-([A-Za-z]{3})-(\\d{4})"), "$1 $2 $3")
+        java.time.ZonedDateTime.parse(norm, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME)
             .toInstant().isBefore(java.time.Instant.now())
     } catch (e: Exception) {
+        Log.w("torrentleech", "cookie Expires not understood: '$s'")
         false
     }
 
@@ -135,6 +142,7 @@ class TorrentLeech(
     fun login() {
         if (user.isEmpty() || pass.isEmpty()) throw TlException("TorrentLeech credentials are not configured")
         synchronized(lock) {
+            lastLoginAt = System.currentTimeMillis()
             cookies.clear()
             val body = Http.formEncode(mapOf("username" to user, "password" to pass)).toByteArray(Charsets.UTF_8)
             val r = Http.request("POST", "$base/user/account/login/", headers(), body,
@@ -173,7 +181,15 @@ class TorrentLeech(
             val htmlOnJson = wantJson && r.status == 200 && r.contentType.contains("text/html", ignoreCase = true)
             if (looksLoggedOut(r) || htmlOnJson) {
                 if (!retry) throw TlException("TorrentLeech session refused after re-login ($path)")
-                Log.i("torrentleech", "session expired - logging in again")
+                // a GENUINE logout (the login form, a redirect to it) is answered
+                // with one login per request; a page that is NOT the login form
+                // (maintenance) gets a login at most once a minute and is
+                // otherwise reported as what it is (R2-P3)
+                val genuine = looksLoggedOut(r)
+                val paced = System.currentTimeMillis() - lastLoginAt < RELOGIN_PACING_MS
+                if (!genuine && paced) throw TlException(
+                    "TorrentLeech answered a page in place of the listing (logged out, or down for maintenance)")
+                Log.i("torrentleech", if (genuine) "session expired - logging in again" else "a page in place of the listing - logging in again")
                 login()
                 return get(path, retry = false, wantJson = wantJson)
             }
@@ -255,8 +271,11 @@ class TorrentLeech(
         val tags = row("Tags").split('\n').map { it.trim() }.filter { it.isNotEmpty() }
         val seeders = row("Seeders").filter { it.isDigit() }.toIntOrNull() ?: 0
         val leechers = row("Leechers").filter { it.isDigit() }.toIntOrNull() ?: 0
-        val description = Html.element(html, "class", "torrent-info-details")?.let { Html.text(it) }
-            ?.trim()?.replace(Regex("\n{3,}"), "\n\n") ?: ""
+        // the description block carries the rating widget on the live page
+        // ("0 / Your Rating") — dropped before the text (R2-P7)
+        val description = Html.element(html, "class", "torrent-info-details")
+            ?.let { Html.without(it, "class", "imdb-info") }?.let { Html.without(it, "id", "user_rating") }
+            ?.let { Html.text(it) }?.trim()?.replace(Regex("\n{3,}"), "\n\n") ?: ""
         val nfo = Html.element(html, "id", "nfo_text")?.let { Html.text(it, pre = true) }?.trim() ?: ""
         val files = ArrayList<TlFile>()
         Html.element(html, "id", "torrent-files-panel")?.let { panel ->
@@ -312,6 +331,8 @@ class TorrentLeech(
 
     companion object {
         val SORTS = listOf("added", "seeders", "size", "name")
+        /** A re-login is attempted at most once a minute (R2-P3). */
+        const val RELOGIN_PACING_MS = 60_000L
 
         /** The site's category tree — read from its JS bundle 2026-09-01
          *  (40 categories in 9 groups). An id outside this table is shown
@@ -366,17 +387,19 @@ object Html {
     fun stripComments(html: String): String =
         Regex("<!--.*?-->", RegexOption.DOT_MATCHES_ALL).replace(html, "")
 
+    private fun isHex(c: Char) = c in '0'..'9' || c in 'a'..'f' || c in 'A'..'F'
+
     /** `%XX` decoding only: a URL path segment keeps its '+' (the form
-     *  decoder's plus-is-space rule does not apply to paths). */
+     *  decoder's plus-is-space rule does not apply to paths). Exactly two hex
+     *  digits, never a signed number (R2-P6). */
     fun percentDecode(s: String): String {
         if (!s.contains('%')) return s
         val out = java.io.ByteArrayOutputStream(s.length)
         var i = 0
         while (i < s.length) {
             val c = s[i]
-            if (c == '%' && i + 2 < s.length + 0 && i + 2 <= s.length - 1) {
-                val h = s.substring(i + 1, i + 3).toIntOrNull(16)
-                if (h != null) { out.write(h); i += 3; continue }
+            if (c == '%' && i + 2 < s.length && isHex(s[i + 1]) && isHex(s[i + 2])) {
+                out.write(s.substring(i + 1, i + 3).toInt(16)); i += 3; continue
             }
             val b = c.toString().toByteArray(Charsets.UTF_8)
             out.write(b, 0, b.size)
@@ -399,6 +422,12 @@ object Html {
             val end = closeOf(html, tag, m.range.last + 1) ?: return html.substring(start)
             return html.substring(start, end)
         }
+    }
+
+    /** [fragment] with the first element whose [attr] equals [value] removed. */
+    fun without(fragment: String, attr: String, value: String): String {
+        val el = element(fragment, attr, value) ?: return fragment
+        return fragment.replaceFirst(el, "")
     }
 
     /** The index just past the close tag matching an open tag of [tag]

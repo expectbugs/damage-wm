@@ -30,7 +30,9 @@ import wm.damage.core.util.Log
  * [LocalTorrentsProvider] to the wire; [RemoteTorrentsProvider] is the phone
  * side, polling `snap` on its own pacing (focused / idle) with a VERSION
  * cursor — an unchanged snapshot answers with no blob — and replaying the
- * events it missed by sequence within the host's epoch.
+ * events it missed by sequence within the host's epoch (a host restart's
+ * new epoch is replayed from its start to a phone that was connected before;
+ * a phone's first contact adopts the current sequence).
  */
 private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
@@ -160,7 +162,10 @@ class RemoteTorrentsProvider(
     }
 
     /** One `snap` round: the host says whether the snapshot changed (blob)
-     *  and which events happened since our sequence. */
+     *  and which events happened since our sequence. Serialized: the loop
+     *  and a caller's explicit poll must not interleave their cursor updates
+     *  (R2-P1). */
+    @Synchronized
     fun pollOnce() {
         val cur = snap
         val a = try {

@@ -1537,7 +1537,8 @@ is the pocket-stays-closed path.
 | **KEY** | moves the key highlight along the row, wrapping — no key is ever more than half a row away | types the key (or acts: Shift, Symbols, Backspace, ↵) and **stays in the row** — same-row runs are the common case | back to ROW |
 
 `↵` commits (the keyboard closes, the requester receives the text). A bare long-press is the
-§1.2 no-op; the §1.3 chord opens the wheel over the keyboard, which cancels it (draft kept).
+§1.2 no-op (with "Long-press: switcher" set it cancels the keyboard, as it cancels the menu);
+the §1.3 chord opens the wheel over the keyboard, which cancels it (draft kept).
 Silent mode, a relayout, and an emergency cancel it the same way; ordinary notices wait behind
 it (decision 6, as for the menu). A typed line from a replica while the keyboard is open
 **becomes the draft and commits** — a real keyboard beat the ring to it.

@@ -572,7 +572,7 @@ staging — complete and polished before the next app.** The session, in order:
   menu visit), and the first fix chased an empty list's menu row to the end (the core test).
   The cursor now follows its row's identity (hash, or the menu row) across snapshots.
 - **Measured (selfcheck)**: transfers list 9.0 % ink, details 6.4 %, the open keyboard 9–11 %.
-  Battery at hand-off: core **213** · desktop 9 · selfcheck **89** · snapshots 26
+  Battery at hand-off: core **219** · desktop 9 · selfcheck **89** · snapshots 26
   (8 new, looked at) · lint 0 · design shots byte-identical. APK **18/0.18** staged.
 
 ### 23.1 The review loop — round 1 (2026-09-01, night)
@@ -622,6 +622,40 @@ host-restart replay; the details menu's harmless row 0; detach removes the liste
 Size; uncovered glyphs display as `?` without moving the caret; a long prompt stays in the
 box; a shell stop hands the draft back and the restart has no keyboard).
 
-**Next (`REMINDER.md`):** round 2 — fresh eyes on the round-1 fix diff — until a round finds
+### 23.2 Round 2 — the round-1 fix diff, fresh eyes (2026-09-01, late)
+
+Three reviewers over `28997a8..73fdf81` only. Two HIGH findings, both in the window, both
+real: **the listing fetched every page of a category while the cursor rested on row 0** —
+the panning list wraps its tail rows above the cursor, so the paint-time page demand from the
+Loading row re-fired on every repaint (an unbounded chain of tracker requests; paging now
+follows the CURSOR, never a painted row, and the row list is cached); and **a restored
+transfers cursor was steered by a stale details hash** (or lost when the snapshot came late) —
+the row's hash is saved as `cursorHash`, restored one-shot with the index as the fallback.
+The rest, all verified and fixed: a live-synced record now reloads only while focused (an
+unfocused window was refetching a tracker page per peer save and painting its op word onto
+whoever was focused) and keeps an unchanged document's content; a restored document top waits
+for both the transfer and its file list; `back()` clears an abandoned page's flags and the op
+word; the `tl:` deep link enters a clean listing; MenuSurface sanitizes its own strings with
+its own rasterizer and specs (the caller's face is not the chrome's); Sort/Refresh only inside
+a listing; the shell's shutdown deactivates the focused window; the stack stop detaches in a
+`finally`. Keyboard: the pan bound accounts for the shifted text (glyphs before the caret were
+cut and the caret drawn past the mark); a too-long live row is refused BEFORE the surface
+opens (the throw after `open = true` left a half-open keyboard); each live row is headed by a
+requester-marked harmless key; Tmux says which quick keys stayed off the keyboard; the cover
+cache is cleared per open. Files: the deep link clears its pending select on every ascend,
+accepts `/` and a trailing-slash folder. Providers: `pollOnce` is serialized; a refused login
+has its own state line and its reason is logged when it changes; a maintenance page in place
+of the listing is reported, with re-logins paced to one a minute (a genuine login form still
+gets one login per request); the baseline uses the stamp rule; the percent-decoder wants two
+hex digits; PHP's hyphenated `Expires` is understood; the rating widget leaves the
+description. Doc mismatches corrected in `TORRENTS.md` / `DESIGN.md` §4.8 /
+`IMPLEMENTATION.md`. Accepted, recorded: one "remote" focus key for all channel connections
+(a stale connection's end drops the live driver's pace for at most one poll interval); the
+keyboard's 576 px key field assumes the full-width content area (a narrower calibrated safe
+rect is not configured today).
+Battery after round 2: core **219** · desktop 9 · selfcheck 89 · snapshots 26 (refreshed) ·
+lint 0; the service runs the round-2 jar, APK 18/0.18 re-staged.
+
+**Next (`REMINDER.md`):** round 3 — fresh eyes on the round-2 fix diff — until a round finds
 nothing real; then on-glass verdicts for the keyboard's feel (row pitch at 288, the highlight,
 the text-line pan) and the transfers list.

@@ -200,6 +200,8 @@ class TorrentsTest {
         val server: HttpServer = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         val requests = CopyOnWriteArrayList<String>()
         @Volatile var expireOnce = false
+        /** The next listing answers a plain page (no login form): maintenance. */
+        @Volatile var pageOnce = false
         @Volatile var listingBody: String = LISTING
         @Volatile var detailBody: String = DETAIL
         val base get() = "http://127.0.0.1:${server.address.port}"
@@ -255,6 +257,11 @@ SHA256: abc</pre>
                     !loggedIn || expireOnce -> {
                         expireOnce = false
                         reply(x, 200, LOGIN_FORM.toByteArray(), mapOf("Content-Type" to "text/html; charset=UTF-8"))
+                    }
+                    pageOnce && path.startsWith("/torrents/browse/list/") -> {
+                        pageOnce = false
+                        reply(x, 200, "<html><body><h1>Back soon</h1><p>maintenance</p></body></html>".toByteArray(),
+                            mapOf("Content-Type" to "text/html; charset=UTF-8"))
                     }
                     path.startsWith("/torrents/browse/list/") -> reply(x, 200, listingBody.toByteArray(), mapOf("Content-Type" to "application/json"))
                     path.startsWith("/torrent/") -> reply(x, 200, detailBody.toByteArray(), mapOf("Content-Type" to "text/html; charset=UTF-8"))
@@ -325,12 +332,16 @@ SHA256: abc</pre>
                 site.listingBody = """{"numFound":1,"perPage":35,"page":1,"torrentList":[{"id":"1","title":"renamed keys"}]}"""
                 val e4 = assertFailsWith<TorrentLeech.TlException> { tl.list(null, null, 1, "added") }
                 assertTrue(e4.message!!.contains("fid/name"), e4.message)
-                // an HTML answer on the JSON endpoint is a refused session: one re-login, then the retry
-                val loginsBefore = site.requests.count { it.startsWith("POST /user/account/login/") }
+                // a PAGE in place of the JSON (no login form — maintenance) is a
+                // refused session too: but re-logins are paced, so within the
+                // minute after the last login it is reported, not re-logged
                 site.listingBody = FakeTl.LISTING
-                site.expireOnce = true
-                assertEquals(2, tl.list(null, null, 1, "added").items.size)
-                assertEquals(loginsBefore + 1, site.requests.count { it.startsWith("POST /user/account/login/") })
+                site.pageOnce = true
+                val loginsBefore = site.requests.count { it.startsWith("POST /user/account/login/") }
+                val e5 = assertFailsWith<TorrentLeech.TlException> { tl.list(null, null, 1, "added") }
+                assertTrue(e5.message!!.contains("a page in place of the listing"), e5.message)
+                assertEquals(loginsBefore, site.requests.count { it.startsWith("POST /user/account/login/") })
+                assertEquals(2, tl.list(null, null, 1, "added").items.size)   // the site is back: no login needed
                 // a second instance reuses the persisted session — no new login
                 val logins = site.requests.count { it.startsWith("POST /user/account/login/") }
                 site.listingBody = FakeTl.LISTING

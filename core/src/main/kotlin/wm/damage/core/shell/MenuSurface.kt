@@ -130,7 +130,11 @@ class MenuSurface(private val text: TextRasterizer) {
         // bracketing rules — the shell's motif
         g.fillRect(box.x, box.y, box.w, 2, Level.DIM)
         g.fillRect(box.x, box.bottom - 2, box.w, 2, Level.DIM)
-        Draw.fit(g, text, box.x + 8, box.y + 4, s.title.uppercase(), Level.DIM, fTitle, box.w - 16)
+        // every string here is DYNAMIC (file names, torrent names, tracker
+        // text): sanitized against THIS surface's rasterizer and the exact
+        // spec it draws with — the chrome face and weight can differ from the
+        // caller's (review 2026-09-01 R2-W6)
+        Draw.fit(g, text, box.x + 8, box.y + 4, Draw.dynamic(text, s.title.uppercase(), fTitle), Level.DIM, fTitle, box.w - 16)
         g.fillRect(box.x + 8, box.y + TITLE_H, box.w - 16, 2, Level.FAINT)
 
         val rows = visibleRows(l, s.items.size)
@@ -156,9 +160,9 @@ class MenuSurface(private val text: TextRasterizer) {
             // the damage rect and the plane-0 region — undamaged composed ink
             // the mirror check cannot see, shipped as garbage later
             val detailMax = (box.w / 2 - 12).coerceAtLeast(0)
-            val detailShown = if (it.detail.isEmpty()) "" else fitEnd(it.detail, fDetail, detailMax)
+            val detailShown = if (it.detail.isEmpty()) "" else fitEnd(Draw.dynamic(text, it.detail, fDetail), fDetail, detailMax)
             val detailW = if (detailShown.isEmpty()) 0 else text.measure(detailShown, fDetail) + 8
-            Draw.fit(g, text, box.x + 20, y + 2, it.label, lv, fRow, box.w - 28 - detailW)
+            Draw.fit(g, text, box.x + 20, y + 2, Draw.dynamic(text, it.label, fRow), lv, fRow, box.w - 28 - detailW)
             if (detailShown.isNotEmpty()) {
                 Draw.right(g, text, box.right - 8, y + 6, detailShown, if (focusedRow) Level.MID else Level.DIM, fDetail)
             }

@@ -79,7 +79,9 @@ data class TorrentEvent(val seq: Long, val kind: String, val hash: String, val n
 data class Snapshot(
     /** Bumps whenever the transfer list or the session line changed. */
     val version: Long,
-    /** The host process' identity: a new epoch means a restart (no event replay). */
+    /** The host process' identity: a new epoch means the host restarted — its
+     *  fresh log is replayed to a driver that was attached before, while a
+     *  driver's first contact adopts the current sequence (no history replay). */
     val epoch: Long,
     val atMs: Long,
     val transfers: List<Transfer>,

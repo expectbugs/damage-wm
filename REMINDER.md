@@ -28,15 +28,15 @@ the chosen window's section). Standing references: `overview.md` (facts), `CLAIM
 verdicts, the verified qBittorrent 2.11 + TorrentLeech facts, the design) and `DESIGN.md` §4.8
 (the ring-driven wireframe keyboard — row then key, draft kept, QWERTY/abc); `HANDOFF.md` §23 is
 the record. qBittorrent on beardos now has its Web API on 127.0.0.1:8090 (rebuilt with USE
-`webui`; `DAILY.md`). Battery at HEAD: core **213** · desktop 9 · selfcheck **89** ·
+`webui`; `DAILY.md`). Battery at HEAD: core **219** · desktop 9 · selfcheck **89** ·
 snapshots 26 · lint 0. **APK 18/0.18 staged** (0.16 installed — 0.17 was never installed; 0.18
 carries Files, the chrome tweaks, Torrents and the keyboard).
 
 ## 🚀 Next
 
-0. **The review loop over the Torrents + keyboard build** — round 1 done (`HANDOFF.md`
-   §23.1: ~55 findings, all verified, the real ones fixed); continue with fresh eyes on each
-   round's fix diff until a round finds nothing. Then the on-glass verdicts: the keyboard's
+0. **The review loop over the Torrents + keyboard build** — rounds 1 and 2 done
+   (`HANDOFF.md` §23.1–§23.2: ~55 then ~30 findings, all verified, the real ones fixed);
+   continue with fresh eyes on each round's fix diff until a round finds nothing. Then the on-glass verdicts: the keyboard's
    feel (row pitch at 288, the highlight, the text-line pan, stay-in-row), the transfers list,
    the done notification on a real finish.
 
