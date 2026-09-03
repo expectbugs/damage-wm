@@ -970,7 +970,11 @@ menu rows by COUNTING notches; one new row moved everything. `Shell.menuLabels` 
 are now exposed and every harness picks rows **by name**. An unbounded wait added to the test rig
 hung the suite once — every wait in a harness is bounded, loudly.
 
-**Battery (all green, measured):** core **319** · desktop 9 · selfcheck **139** (four new Music checks) ·
+**Battery (all green, measured):** core **319** · desktop 9 · selfcheck **139** (the count is
+PASS lines — 57 `check(` assertions plus the `awaitTrue` convergence waits, several of each
+inside the two-height Music Mode loop; it was 134 before this change, which added one `check`,
+the queue-level ink, and moved which waits announce themselves when the harness started picking
+menu rows by name) ·
 epub-check clean · `--music-check` all pass · lint 0 · **APK 22/0.22 staged** (the first build
 carrying the Now Playing root and both player fixes; 0.21 superseded). Snapshots renamed
 `30-music-nowplaying-480` / `36-music-nowplaying-288`.
