@@ -286,7 +286,11 @@ abstract class PlayerCore(
         try { sink.stop() } catch (e: Exception) { Log.w("player", "stop: ${e.message}") }
         play = PlayState.STOPPED
         lastPos = 0          // stop = restart-from-top semantics
-        if (curBoost != 100) { curBoost = 100; try { sink.setBoostPct(100) } catch (e: Exception) { /* logged above */ }; emit(PlayerEvent.BoostOff) }
+        if (curBoost != 100) {
+            curBoost = 100
+            try { sink.setBoostPct(100) } catch (e: Exception) { Log.w("player", "boost off on stop: ${e.message}") }
+            emit(PlayerEvent.BoostOff)
+        }
         changed()
     }
 
@@ -399,6 +403,11 @@ abstract class PlayerCore(
         ourVolume = v
         heldVolume = v
         volume = v
+        // the quiet notice says "scroll here to raise it": doing so must ARM
+        // the notice again, exactly as an observed rise does. Without this the
+        // latch stayed set for the rest of the run and a later drop back under
+        // 10 % played silently with nothing said (review 2026-09-03).
+        if (v > QUIET_PCT) quietWarned = false
         try { sink.setVolumePct(v) } catch (e: Exception) { fail("volume", e) }
         changed()
     }

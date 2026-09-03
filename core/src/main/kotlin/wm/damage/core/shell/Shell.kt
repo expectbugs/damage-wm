@@ -448,7 +448,9 @@ class Shell(
             // ignores (no sub-record support) or failed to restore stay
             // protected — "didn't load it" is never a removal
             try {
-                subReported.getOrPut(w.id) { HashSet() }.addAll(w.saveSubState().keys)
+                // an empty blob is the tombstone, never a held record (see saveAll)
+                subReported.getOrPut(w.id) { HashSet() }
+                    .addAll(w.saveSubState().filterValues { it.isNotEmpty() }.keys)
             } catch (e: Exception) {
                 Log.e("shell", "saveSubState of ${w.id} at restore failed", e)
             }
@@ -1021,6 +1023,9 @@ class Shell(
     /** Per window: the sub-record keys its saveSubState has REPORTED this
      *  session — the only keys the tombstone sweep may remove (F2c/d). */
     private val subReported = HashMap<String, MutableSet<String>>()
+
+    /** Sub-keys already reported as wrongly-empty — one loud line each. */
+    private val emptySubSaid = HashSet<String>()
 
     private fun backFocused() {
         when (mode) {
@@ -2573,7 +2578,19 @@ class Shell(
                 // tombstoned (review 2026-09-01 F2c/d): a failed restore, or a
                 // build that does not speak sub-records, must never turn
                 // "didn't load it" into a fresh-stamped removal of real data.
-                val subs = w.saveSubState()
+                // an EMPTY blob IS the tombstone: a window that returns one is
+                // reporting a removal it did not mean, and the key is syncable
+                // — refuse it loudly rather than fresh-stamp a deletion of the
+                // peer's real record (review 2026-09-03, the Music mirror)
+                val subs = w.saveSubState().filter { (sk, blob) ->
+                    // said ONCE per key per session: saveAll runs every couple
+                    // of seconds and a standing defect must not become a stream
+                    blob.isNotEmpty().also {
+                        if (!it && emptySubSaid.add("${w.id}.$sk"))
+                            Log.e("shell", "${w.id}.saveSubState() reported '$sk' as an EMPTY " +
+                                "object — that is the removal tombstone, not a record; refused")
+                    }
+                }
                 val prefix = "window.${w.id}."
                 val reported = subReported.getOrPut(w.id) { HashSet() }
                 reported.addAll(subs.keys)

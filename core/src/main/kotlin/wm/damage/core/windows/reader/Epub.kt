@@ -337,22 +337,87 @@ object Epub {
         }
     }
 
+    /**
+     * The Windows-1252 characters authors write as `&#145;`..`&#151;` — curly
+     * quotes, dashes, the bullet. HTML5 mandates this remap for numeric
+     * references in 0x80..0x9F, and skipping it is why Adam's real shelf held
+     * **14,315** C1 control code points (U+0092 x2362, U+0093/94 x10,577,
+     * U+0097 x1345 ...) that NO font can draw — every one a tofu box in the
+     * middle of a sentence (review 2026-09-03). Code points the range leaves
+     * undefined stay U+FFFD, exactly as the spec says.
+     */
+    private val CP1252 = mapOf(
+        0x80 to '\u20AC', 0x82 to '\u201A', 0x83 to '\u0192', 0x84 to '\u201E', 0x85 to '\u2026',
+        0x86 to '\u2020', 0x87 to '\u2021', 0x88 to '\u02C6', 0x89 to '\u2030', 0x8A to '\u0160',
+        0x8B to '\u2039', 0x8C to '\u0152', 0x8E to '\u017D', 0x91 to '\u2018', 0x92 to '\u2019',
+        0x93 to '\u201C', 0x94 to '\u201D', 0x95 to '\u2022', 0x96 to '\u2013', 0x97 to '\u2014',
+        0x98 to '\u02DC', 0x99 to '\u2122', 0x9A to '\u0161', 0x9B to '\u203A', 0x9C to '\u0153',
+        0x9E to '\u017E', 0x9F to '\u0178',
+    )
+
     /** A numeric reference to a string — out-of-range or surrogate code points
      *  degrade to U+FFFD instead of throwing the whole book away (one bad
      *  entity killed an entire load in review round 1). */
     private fun codepoint(cp: Int?): String? = when {
         cp == null -> null
         cp in 0xD800..0xDFFF -> "\uFFFD"          // a lone surrogate is not text
+        cp in 0x80..0x9F -> (CP1252[cp] ?: '\uFFFD').toString()
         cp in 1 until 0x110000 -> String(Character.toChars(cp))
         else -> "\uFFFD"
     }
 
     /** Collapse markup whitespace but keep paragraph structure. */
     private fun normalize(s: String): String {
-        val paragraphs = s.replace("\r\n", "\n").replace('\r', '\n')
+        val paragraphs = fold(s).replace("\r\n", "\n").replace('\r', '\n')
             .split(Regex("\n\\s*\n"))
             .map { it.replace(Regex("[ \t ]+"), " ").replace(Regex(" ?\n ?"), " ").trim() }
             .filter { it.isNotEmpty() }
         return paragraphs.joinToString("\n\n")
     }
+
+    /**
+     * Fold the characters NONE of the four locked §Type faces can draw onto
+     * what they mean. Measured across the real 58-book shelf on 2026-09-03,
+     * where Alegreya could not draw 14,365 code points of ordinary prose:
+     *
+     *  - **U+0080..U+009F (14,315x)** — C1 CONTROLS that are really
+     *    Windows-1252 punctuation. Byte-level check: the files hold `C2 97`
+     *    (the UTF-8 encoding of U+0097) exactly where an em dash belongs, next
+     *    to correctly-encoded `E2 80 99` quotes in the same sentence — the
+     *    books were transcoded cp1252-as-latin-1 before they ever reached us.
+     *    C1 controls have no meaning in book text, so [CP1252] is the only
+     *    reading; it is the same table HTML5 mandates for numeric references,
+     *    applied to the characters as well as to `&#151;`.
+     *  - **U+2011 NON-BREAKING HYPHEN (284x)** -> "-". Missing from Clear Sans,
+     *    Fira Sans, Alegreya AND JetBrains Mono; it is a hyphen.
+     *  - the **zero-width formatters** (U+200B..U+200F, U+2060, U+FEFF; 40x)
+     *    are DROPPED: they are invisible by definition, so a '?' substitute
+     *    would add junk the source never had.
+     *
+     * Everything else a face cannot draw keeps Draw.dynamic's visible '?' and
+     * its one log line — fidelity loss is never silent.
+     */
+    private fun fold(s: String): String {
+        if (s.none { needsFold(it) }) return s
+        val out = StringBuilder(s.length)
+        for (c in s) when {
+            c in ZERO_WIDTH -> {}
+            c == '\u2011' -> out.append('-')
+            c.code in 0x80..0x9F -> out.append(CP1252[c.code] ?: '\uFFFD')
+            else -> out.append(c)
+        }
+        if (foldWarned.compareAndSet(false, true)) {
+            Log.i("epub", "folded characters no locked face can draw (mojibake C1 punctuation, " +
+                "U+2011, zero-width formatters) \u2014 see Epub.fold")
+        }
+        return out.toString()
+    }
+
+    private fun needsFold(c: Char): Boolean =
+        c.code in 0x80..0x9F || c == '\u2011' || c in ZERO_WIDTH
+
+    private val foldWarned = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    private val ZERO_WIDTH = setOf(
+        '\u200B', '\u200C', '\u200D', '\u200E', '\u200F', '\u2060', '\uFEFF')
 }

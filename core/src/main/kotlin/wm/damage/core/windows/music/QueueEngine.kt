@@ -182,7 +182,10 @@ class QueueEngine(private val random: java.util.Random = java.util.Random()) {
                     TrackRef(e["id"]?.jsonPrimitive?.intOrNull ?: return@forEach, e["title"]?.jsonPrimitive?.contentOrNull ?: "",
                         e["artist"]?.jsonPrimitive?.contentOrNull ?: "", e["album"]?.jsonPrimitive?.contentOrNull ?: "",
                         e["dur"]?.jsonPrimitive?.intOrNull ?: 0)))
-            } catch (e: Exception) { /* a torn row is dropped; the rest of the queue survives */ }
+            } catch (e: Exception) {
+                // the rest of the queue survives a torn row, but the loss is SAID
+                wm.damage.core.util.Log.w("queue", "unreadable queue row dropped: ${e.message}")
+            }
         }
         nextQid = maxOf(o["nextQid"]?.jsonPrimitive?.longOrNull ?: 1L, (list.maxOfOrNull { it.qid } ?: 0L) + 1)
         index = (o["index"]?.jsonPrimitive?.intOrNull ?: 0).coerceIn(0, maxOf(0, list.size - 1))

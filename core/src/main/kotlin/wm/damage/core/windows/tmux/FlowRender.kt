@@ -75,7 +75,18 @@ class FlowRender(private val text: TextRasterizer) {
         slot?.let { if (it.key.first === lines && it.key.second == widthPx && it.key.third == epoch) return it.lines }
         val out = ArrayList<DLine>(lines.size + 8)
         for (line in lines) {
-            val runs = Sgr.parseRuns(line)
+            // SANITIZE before wrapping, the way the Files viewer does: terminal
+            // output is external text, and JetBrains Mono has no glyph for a
+            // fair amount of what a modern TUI prints — the live panes on this
+            // machine carry U+23BF/U+23F5/U+2722/U+273B from Claude Code's own
+            // interface (review 2026-09-03). Raw, those were silent tofu boxes.
+            // Doing it HERE (not at draw time) keeps measure and draw on the
+            // same string, so the wrap stays exact.
+            val runs = Sgr.parseRuns(line).map { r ->
+                if (r.text.isEmpty()) r
+                else Sgr.Run(wm.damage.core.shell.Draw.dynamic(text, r.text, spec(r.flags and Sgr.BOLD != 0)),
+                    r.fg, r.bg, r.flags)
+            }
             val plain = runs.joinToString("") { it.text }
             if (isRule(plain)) { out.add(DLine.Rule); continue }
             wrapStyled(runs, widthPx, out)

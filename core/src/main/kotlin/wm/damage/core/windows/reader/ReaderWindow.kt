@@ -673,7 +673,11 @@ class ReaderWindow(
         // chopped the descenders when they did not)
         val m = tx.metrics(f)
         val off = ((lineH - (m.ascent + m.descent)) / 2).coerceAtLeast(0)
-        tx.draw(g, (r.x + 16) / 4 * 4, (r.y + off) / 2 * 2, line.text, f, lv)
+        // the book's own prose is dynamic text too: substitute-not-tofu, and
+        // FIT it — the wrap measured the raw string, so a substituted glyph of a
+        // different width must be marked rather than pushed past the line rect
+        // (review 2026-09-03). maxW is exactly the wrap width (docContentWidth).
+        drawFit(g, r.x + 16, r.y + off, line.text, lv, f, r.w - 32)
     }
 
     // ------------------------------------------------------------------ actions
@@ -953,12 +957,18 @@ class ReaderWindow(
     /** Through the shared kit (§16.11, 2026-09-01): a cut is ADVERTISED with
      *  the drawn mark, never silent. The explicit tri calls some rows add on
      *  measured overflow stay (they mark at a custom spot); this closes the
-     *  silent-clip paths (chapter and action rows). */
+     *  silent-clip paths (chapter and action rows).
+     *
+     *  Every string here is DYNAMIC — book titles, authors, chapter names out
+     *  of an EPUB's own toc — so it goes through Draw.dynamic like Main, the
+     *  notification box and every other surface: a glyph Alegreya or Clear Sans
+     *  cannot draw becomes a visible '?' and one log line, never silent tofu
+     *  (review 2026-09-03: the Reader was the one window still drawing raw). */
     private fun drawFit(g: Gray8, x: Int, y: Int, s: String, lv: Int, f: FontSpec, maxW: Int) {
-        wm.damage.core.shell.Draw.fit(g, tx, x, y, s, lv, f, maxW)
+        wm.damage.core.shell.Draw.fit(g, tx, x, y, wm.damage.core.shell.Draw.dynamic(tx, s, f), lv, f, maxW)
     }
 
     private fun drawRight(g: Gray8, xRight: Int, y: Int, s: String, lv: Int, f: FontSpec) {
-        wm.damage.core.shell.Draw.right(g, tx, xRight, y, s, lv, f)
+        wm.damage.core.shell.Draw.right(g, tx, xRight, y, wm.damage.core.shell.Draw.dynamic(tx, s, f), lv, f)
     }
 }

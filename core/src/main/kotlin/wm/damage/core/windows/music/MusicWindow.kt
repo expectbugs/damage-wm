@@ -403,8 +403,23 @@ class MusicWindow(
     private fun reloadTop() {
         val f = top
         when (f.kind) {
-            Kind.PLAYLIST, Kind.RESULTS, Kind.YT, Kind.RECENT -> if (f.tracks == null && f.yt == null) load(f)
+            Kind.PLAYLIST, Kind.RESULTS, Kind.YT, Kind.RECENT -> ensureLoaded(f)
             Kind.LYRICS -> loadLyrics()
+            else -> {}
+        }
+    }
+
+    /** A level whose rows come from the host holds nothing until [load] runs.
+     *  push() loads on the way in, but a RESTORED stack loads only its TOP —
+     *  so backing into a restored PLAYLIST / RESULTS / YT / RECENT level found
+     *  it empty forever, showing one bare menu row (review 2026-09-03). Called
+     *  on the way back down too; a frame that already holds rows, is loading,
+     *  or FAILED (its "tap to retry" row) is untouched. */
+    private fun ensureLoaded(f: Frame) {
+        if (f.loading || f.error.isNotEmpty()) return
+        when (f.kind) {
+            Kind.PLAYLIST, Kind.RESULTS, Kind.RECENT -> if (f.tracks == null) load(f)
+            Kind.YT -> if (f.yt == null) load(f)
             else -> {}
         }
     }
@@ -487,6 +502,7 @@ class MusicWindow(
         if (f.loading) services?.setOperation("idle")
         if (f.kind == Kind.LYRICS) lyricsGen++
         queueFrame?.let { q -> if (top.kind == Kind.QUEUE) q.model.cursor = q.model.cursor.coerceIn(0, maxOf(0, rows(q).size - 1)) }
+        ensureLoaded(top)          // a RESTORED level below the top has never loaded
         return true
     }
 
@@ -1994,8 +2010,20 @@ class MusicWindow(
         if (active) { needsReload = false; reloadTop() }
     }
 
-    /** The player's synced record (§6.2): `window.music.player`. */
-    override fun saveSubState(): Map<String, JsonObject> = mapOf("player" to player.persist())
+    /**
+     * The player's synced record (§6.2): `window.music.player`.
+     *
+     * An EMPTY record is never reported. The shell reads an absent sub-key as
+     * "removed" and an empty blob as the removal TOMBSTONE (§16.4a), and the
+     * desktop MIRROR holds exactly that empty record until the phone's first
+     * push arrives — publishing it fresh-stamped a removal of the phone's real
+     * queue into a SYNCABLE key (review 2026-09-03). Nothing to report is not
+     * the same as a removal.
+     */
+    override fun saveSubState(): Map<String, JsonObject> {
+        val rec = player.persist()
+        return if (rec.isEmpty()) emptyMap() else mapOf("player" to rec)
+    }
 
     override fun restoreSubState(subKey: String, state: JsonObject) {
         if (subKey != "player" || state.isEmpty()) return

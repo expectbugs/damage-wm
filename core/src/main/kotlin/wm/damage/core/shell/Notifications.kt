@@ -297,7 +297,7 @@ class Notifications(private val text: TextRasterizer) {
         }
         if (silent) {
             val cx = l.safe.x + l.safe.w / 2
-            return Rect(Geometry.snapX(cx - 100), Geometry.snapY(l.content.y + l.content.h / 2 - 28), 200, 56)
+            return Rect(Geometry.snapX(cx - SILENT_W / 2), Geometry.snapY(l.content.y + l.content.h / 2 - 28), SILENT_W, 56)
         }
         val lines = bodyLines(n, l).size.coerceIn(1, 3)
         val h = 16 + 2 + 6 + lines * 24 + 6 + 2
@@ -307,11 +307,20 @@ class Notifications(private val text: TextRasterizer) {
 
     private fun maxLinesFor(n: Notice) = if (n.emergency) 1 else 3
 
-    /** Wrapped against the box's fixed width (248 max, §4.5) — NOT fullRect,
-     *  whose height depends on this count (that cycle was a real stack
-     *  overflow, caught by the first selfcheck run). */
-    fun bodyLines(n: Notice, l: Layout): List<String> =
-        Wrap.wrap(n.body, fBody, text, l.notificationMax.w - 16)
+    /** Wrapped against the box's fixed width — NOT fullRect, whose height
+     *  depends on this count (that cycle was a real stack overflow, caught by
+     *  the first selfcheck run).
+     *
+     *  ⚠ The width is per FORM (review 2026-09-03): the window box is 248 px,
+     *  the silent one only [SILENT_W]. Wrapping the silent form to the window
+     *  width ran its body up to 40 px past its own box — cut on the glass with
+     *  no mark, and the part outside the damaged rect was ink in `composed`
+     *  that nothing would ever send. */
+    fun bodyLines(n: Notice, l: Layout, silent: Boolean = false): List<String> =
+        Wrap.wrap(n.body, fBody, text, bodyWidth(l, silent))
+
+    private fun bodyWidth(l: Layout, silent: Boolean): Int =
+        (if (silent) SILENT_W else l.notificationMax.w) - 16
 
     /** Paint the current box (full or partially unfurled) over the content. */
     fun paint(g: Gray8, l: Layout, silent: Boolean): Rect? {
@@ -351,13 +360,32 @@ class Notifications(private val text: TextRasterizer) {
             }
             drawStr(g, full.right - 8 - tw, full.y + 4, n.timeHHMM, lv(Level.DIM), fTiny)
         }
-        val lines = bodyLines(n, l)
+        val lines = bodyLines(n, l, silent)
         val visible = maxLinesFor(n)
+        // FITTED, not drawn raw: the wrap above already fits this form's width,
+        // and the fit is what makes a residue impossible rather than a matter
+        // of the two widths agreeing (review 2026-09-03)
+        var lastY = -1
+        var drawn = 0
+        // the silent box holds exactly ONE body line by height: when more
+        // exist, reserve the continuation mark's own room so it can never
+        // land on the tail of the text
+        val markRoom = if (silent && lines.size > 1) 16 else 0
         for (i in 0 until visible) {
             val idx = scroll + i
             if (idx >= lines.size) break
             val y = full.y + 24 + i * 24
-            if (y + 20 <= box.bottom) drawStr(g, full.x + 8, y, lines[idx], lv(Level.BODY), fBody)
+            if (y + 20 > box.bottom) break
+            Draw.fit(g, text, full.x + 8, y, Draw.dynamic(text, lines[idx], fBody),
+                lv(Level.BODY), fBody, full.w - 16 - markRoom, lv(Level.DIM))
+            lastY = y
+            drawn++
+        }
+        // the SILENT form shows one line and has no scroll rule to advertise
+        // the rest: mark the cut, never hide it (§2.4 r3 — the box is still in
+        // the queue and shows in full on wake)
+        if (silent && lastY >= 0 && scroll + drawn < lines.size) {
+            wm.damage.core.gfx.Icons.tri(g, full.right - 14, lastY + 5, 11, lv(Level.DIM))
         }
         // bottom rule carries scroll position within the message (§4.5)
         if (box.h >= full.h) {
@@ -369,6 +397,13 @@ class Notifications(private val text: TextRasterizer) {
             }
         }
         return box
+    }
+
+    companion object {
+        /** The silent/exclusive box's width (§1.5) — narrower than the window
+         *  form's [Layout.notificationMax], which is why [bodyLines] must know
+         *  which form it is wrapping for. */
+        const val SILENT_W = 200
     }
 
     private fun drawStr(g: Gray8, x: Int, y: Int, s: String, lv: Int, f: FontSpec) {

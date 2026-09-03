@@ -491,8 +491,16 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             for ((own, cells) in byOwner) {
                 when {
                     own == OWNER_SEAM -> (if (left) blacksL else blacksR).addAll(seamStrips(left, cells, inArea))
+                    // coarsen() unions by row bands and knows nothing about the
+                    // plane map, so a coarsened REMAINDER rect can span a plane
+                    // region — and a d=0 delta over it paints that region's
+                    // pixels un-shifted on both lenses, outside the scanned
+                    // area, with belief and glass agreeing on the wrong thing
+                    // (review 2026-09-03). Keep only the plane-0 pieces.
                     own == OWNER_REMAINDER -> for (r in coarsen(rectsOf(cells), COARSE_MAX)) {
-                        deltas.getOrPut(r to 0) { Planned.Delta(r, 0, own) }
+                        for (piece in remainderPieces(r)) {
+                            deltas.getOrPut(piece to 0) { Planned.Delta(piece, 0, own) }
+                        }
                     }
                     else -> {
                         val piece = pieces[own.toInt()]
@@ -549,6 +557,12 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
 
     private fun dedupe(rects: List<Rect>): List<Rect> = rects.distinct()
 
+    /** The plane-0 parts of [r] — the whole rect when it touches no region.
+     *  Every REMAINDER delta ships at d=0, so it may hold no region's pixels. */
+    private fun remainderPieces(r: Rect): List<Rect> =
+        if (planes.none { it.rect.overlaps(r) }) listOf(r)
+        else splitByPlanes(r).filter { !inRegion(it) }
+
     /**
      * §5.1/§8.2: merge planned deltas toward [target] rects — within an
      * owner piece first (a union inside the piece is always correct), then
@@ -563,12 +577,19 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         val groups = LinkedHashMap<Short, ArrayList<Rect>>()
         val dOf = HashMap<Short, Int>()
         for (p in deltas) { groups.getOrPut(p.owner) { ArrayList() }.add(p.rect); dOf[p.owner] = p.d }
-        // 1. within owners, proportionally (a piece is one plane: always safe)
+        // 1. within owners, proportionally. A piece is ONE plane and every one
+        //    of its rects lies inside piece.rect, so any union of them is safe.
+        //    The REMAINDER is not a rectangle: two gutter rects on either side
+        //    of a box merge into a full-width delta that carries the box's
+        //    pixels at d=0 (review 2026-09-03) — it gets the same predicate
+        //    step 2 and price() already use.
         var total = deltas.size
         val out = ArrayList<Planned.Delta>()
         for ((own, rects) in groups) {
             val share = maxOf(1, (target.toLong() * rects.size / total).toInt())
-            for (r in mergeToBudget(rects, share) { true }) out.add(Planned.Delta(r, dOf.getValue(own), own))
+            val ok: (Rect) -> Boolean =
+                if (own == OWNER_REMAINDER) { u -> planes.none { it.rect.overlaps(u) } } else { _ -> true }
+            for (r in mergeToBudget(rects, share, ok)) out.add(Planned.Delta(r, dOf.getValue(own), own))
         }
         if (out.size <= target) return price(out)
         // 2. across owners of one disparity — only where the union holds no
