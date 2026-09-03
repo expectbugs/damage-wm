@@ -371,9 +371,15 @@ Where is the line between Info and the status bar (glance vs check is the §4.1 
 
 G2CC lineage: `games.ts` — rpg-cli, chess vs Stockfish, Universal Paperclips, Blackjack, FF1.
 The *"$5 turn"* stray-tap lesson (§1.7's cursor-rest discipline) was paid here. **Licensing rule
-carried from `CLAUDE.md`:** the FF1 ROM and Universal Paperclips stay out of any release —
-personal-only rows. **Honesty rule:** dense full-frame is a measured 2–4 fps; anything needing
-more sustained is out of reach and says so up front (§4.6's "whole story for games").
+carried from `CLAUDE.md`, REVISED 2026-09-02 (Adam):** the *work* never ships; the *window that
+drives it* may. Paperclips is fetched from decisionproblem.com at run time and hash-pinned (and
+Damage generates its DOM from element ids rather than shipping the author's markup); FF1 is the
+standard emulation posture — the user rips their own cartridge and only Adam's bridge ships,
+`gen_data.py` rather than the ROM-derived `data/*.json`. **Neither is a personal-only row any
+more.** The older blanket "both stay out of any release" conflated a freely-published web game
+with a cartridge ROM — do not reinstate it. **Honesty rule:** dense full-frame is a measured
+2–4 fps; anything needing more sustained is out of reach and says so up front (§4.6's "whole
+story for games").
 
 **Declares:** List (games hub) → per-game Canvas/List · needs **HOST** (engines run PC-side) ·
 face n/a (drawn boards) / JetBrains Mono for text games · height: per-game (`preferredHeight`) ·
@@ -389,8 +395,8 @@ state: per-game saves via the blob · settings: per-game rows.
 | 10.6 | Blackjack (drawn cards; G2CC port of the rules, our rendering) | the $5-turn lesson enforced: Hit/Stand never at cursor rest | v1.5 |
 | 10.7 | Minesweeper / solitaire class (drawn, per-cell deltas) | same economics as 2048 | v2 |
 | 10.8 | rpg-cli dungeon (its text UI through List/Document) | | v2 |
-| 10.9 | **FF1 via the emulator** — Canvas at native 256×240 centred (integer 1× only; 416-px content rules out 2×) | personal-only; turn-based JRPG survives 2–4 fps; whether the compositor's translation rule catches overworld scrolls is a measurement to run, not assume | v2 |
-| 10.10 | Universal Paperclips | personal-only; mostly numbers = cheap list, its own weird fit | v2 |
+| 10.9 | **FF1 via the emulator** — Canvas at native 256×240 centred (integer 1× only; 416-px content rules out 2×) | shippable: user-supplied ROM (2026-09-02); turn-based JRPG survives 2–4 fps; whether the compositor's translation rule catches overworld scrolls is a measurement to run, not assume | v2 |
+| 10.10 | Universal Paperclips | shippable: engine fetched at run time, DOM generated (2026-09-02); mostly numbers = cheap list, its own weird fit | v2 |
 | 10.11 | Wordle-class daily word (typed guesses) | typed text exists; five drawn tiles | v2 |
 | 10.12 | Roguelike (native, glyph grid, per-cell deltas) | JBM grid; damage-tiny | future |
 | 10.13 | ~~Game Boy emulation~~ **emulated titles, curated by PACE** | 🔴 REFRAMED 2026-09-01 (Adam: "Game Boy is not a game, it is a system") — "never" belongs to sustained refresh cadence, not silicon; specific titles work when built the FF1 way. See the 2026-09-01 block below | per-title (screener-gated) |

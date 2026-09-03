@@ -120,8 +120,24 @@ and it is GPL-3.0.
   **That is retracted; the design does not need it.** Do not act on it.
 - ✅ **G2CC is Adam's own and its licence is his** — borrow from it heavily. It is more mature,
   tested, and in daily use.
-- ❌ Keep anything he does not control out of any release, as G2CC already does: Universal
-  Paperclips, the FF1 ROM, Even's SDK, third-party fonts with unclear terms.
+- ❌ **Never redistribute someone else's work — but the WINDOW that drives it MAY ship.**
+  **Revised 2026-09-02 (Adam); supersedes the older blanket "Universal Paperclips and the FF1
+  ROM stay out of any release", which conflated the two.** Distribution is the axis, not
+  implementation: a client that drives a third party's game is the browser posture — the browser
+  vendor ships a client and the *user's* machine fetches the work. Two shapes, both already
+  exercised in G2CC:
+  - **Universal Paperclips** — fetch-not-vendor. The engine is pulled from decisionproblem.com
+    at run time and SHA-256-pinned (`G2CC games/paperclips/fetch.mjs`), never committed. Damage
+    must go one step further than G2CC and **generate the DOM from a list of element ids**
+    rather than ship Frank Lantz's markup: G2CC still tracks `games/paperclips/index.html`,
+    which carries his interface copy. Damage reads globals and calls global functions — it needs
+    the ids, not the page.
+  - **FF1** — the standard emulation posture (Adam's, the same as his libretro-Zomboid mod): the
+    user rips their own cartridge, only his bridge ships (`rom/` is already gitignored in G2CC).
+    ROM-*derived* output counts as the work too — ship `gen_data.py`, gitignore `data/*.json`,
+    and check the vendored `reference/` disassembly's own licence before republishing it.
+  Unconditional, because no acquisition path rescues them: **Even's SDK, third-party fonts with
+  unclear terms**, and any `faceclaw`/`g2flash` code (the clean-room rule above).
 - **Why it matters now:** a public release is intended, and compensation is on the table. GPL-3.0
   attaching to the whole derived work would foreclose options that are currently open. The cost of
   keeping the boundary clean is zero *before* the compositor exists and near-unfixable after.

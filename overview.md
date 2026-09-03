@@ -1718,8 +1718,12 @@ not need the implementation. An off-the-cuff public comment saying Damage would 
 code from FaceClaw"* is **retracted**.
 
 What Damage *does* borrow heavily is **G2CC** — Adam's own, licence his to set, and far more mature:
-shipped, tested, and in daily use. Anything he does not control (Universal Paperclips, the FF1 ROM,
-Even's SDK) stays out of any release exactly as it already does in G2CC.
+shipped, tested, and in daily use. Anything he does not control stays out of any release exactly as
+it already does in G2CC — but note the 2026-09-02 refinement (`CLAUDE.md`): the line is
+**redistribution, not implementation**, so the *window* that drives a third party's game may ship
+while the game itself never does. Universal Paperclips is fetched from the author's site at run time
+and hash-pinned; FF1 runs on a ROM the user rips from their own cartridge. **Even's SDK and
+third-party fonts with unclear terms have no such path and stay out unconditionally.**
 
 **Why the timing matters:** a public, cross-platform release is now intended (§10 of `DESIGN.md`)
 and compensation is a live possibility. GPL-3.0 attaching to the whole derived work would foreclose
