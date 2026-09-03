@@ -9,7 +9,10 @@ findings (~55 · ~30 · ~15 · ~14), **PAUSED at Adam's word, not converged** �
 §23.1–§23.4 (round commits `73fdf81`, `4f5e6e0`, `980d832`, `390a25c`; its accepted-not-fixed
 items are recorded in §23.2 and §23.4); its round-4 diff is `980d832..390a25c`. The Music loop
 (2026-09-02) — review round 1 (27 findings, `4565f35`) and two ultrareview runs (8 findings +
-a hidden notice gate) — is `HANDOFF.md` §24.2–§24.3. How a round runs: the Adam quote in
+a hidden notice gate) — is `HANDOFF.md` §24.2–§24.3. The **whole-codebase review of 2026-09-03**
+— ten verified defects, each reproduced before its fix and each pinned by a test confirmed to
+FAIL against the unfixed tree, plus the belief-vs-truth oracle that found the invisible ones —
+is `HANDOFF.md` §25 (commit `1f9fa4d`; pins in `Review20260903Test`). How a round runs: the Adam quote in
 `HANDOFF.md` §21 and the §22.2 discipline — every finding verified against the code before a
 fix, a test pin per fix, the whole battery green, the next round over the previous round's own diff.
 

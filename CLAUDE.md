@@ -63,11 +63,12 @@ and shell, always, while it is up; the OpenRC `damage` service is the DATA PROVI
 tmux + last-write-wins state sync) plus a STANDBY that drives PC-direct BLE only while the APK
 is unavailable and hands back on its return. The PC never claims in daily use** (`--transport
 remote` keeps the claim path as the explicit dev override). `REMINDER.md` is the orientation
-file; `HANDOFF.md` §19–§24 the current records; `DAILY.md` the ops crib; `IMPLEMENTATION.md`
+file; `HANDOFF.md` §19–§25 the current records; `DAILY.md` the ops crib; `IMPLEMENTATION.md`
 what runs and how. App layer: **Main · Settings · Reader · Tmux · Files · Torrents · Music** (Files landed
 2026-09-01 with the whole §16 shared machinery — `HANDOFF.md` §22; Torrents + the §4.8
 keyboard the same evening — `TORRENTS.md`, `HANDOFF.md` §23; Music overnight 2026-09-01/02 —
-`MUSIC.md`, `HANDOFF.md` §24, the shell's exclusive mode `DESIGN.md` §4.9).
+`MUSIC.md`, `HANDOFF.md` §24, the shell's exclusive mode `DESIGN.md` §4.9). A whole-codebase
+review followed on 2026-09-03 — ten verified defects fixed and pinned, `HANDOFF.md` §25.
 
 Adam's stated methodology governs **the app layer**:
 
@@ -93,7 +94,7 @@ Damage` and the APK-wide `Phone notifications` switch, and the shell never gates
 source on a hidden field — a Global row that disappears leaves a persisted value nothing can undo).
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(319 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
+(329 tests, including the per-lens oracle and the §25 review pins), `./gradlew :desktop:test` (9 tests: the BlueZ glue
 over a fake link), `desktop --selfcheck` (139 checks), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `desktop --music-check` (the real library, read-only bar the additive schema migration),
 `python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.
@@ -102,10 +103,11 @@ rc-service damage restart` (`DAILY.md`) — since §19 the PC never claims, so a
 touches the display at all. Stop the service before any `:desktop:run` dev session (one set of
 ports; and `ble`/`remote` dev modes are a second central/driver). `IMPLEMENTATION.md` → "Review
 hardening" lists the mechanisms that are load-bearing and easy to break by accident — the
-compositor's per-lens truth/shadow model, the transport's session-epoch sweep, the shell's
+compositor's per-lens truth/shadow model (including the §25 rule that a plane-0 delta may hold
+no other plane's pixels), the transport's session-epoch sweep, the shell's
 start/stop mutex. Do not re-introduce nominal-only seam guessing in the compositor: a pixel
 simulation against the firmware model is the only judge of stereo output, and `LensOracleTest`,
-`Round6Test`, `Round7Test` encode what earlier reviews caught.
+`Round6Test`, `Round7Test`, `Review20260903Test` encode what earlier reviews caught.
 
 ---
 

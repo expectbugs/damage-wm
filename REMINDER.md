@@ -1,13 +1,44 @@
 # Where we are, and what to do next
 
-**Updated 2026-09-03: the Music window's root is now NOW PLAYING, and the "it played but I heard
-nothing" bug is understood.** Adam drove the new windows for real: Tmux, Files and Torrents all
-worked; Music played four tracks end to end and made no sound. The cause was measured, not
-guessed — the transcode cache showed song-length gaps (so the queue really was advancing) and the
-synced player record read `volume: 8`. **The phone's media stream was at 8 %.** Damage never sets
-that level (only the ring's Volume canvas, the Settings row and the limiter's restore write it,
-all upward or user-driven); it read 8 % and played into it. The defect was that *nothing said so*.
-`HANDOFF.md` §24.4 is the full record.
+**Updated 2026-09-03 (late): a WHOLE-CODEBASE REVIEW shipped — ten verified defects, each
+reproduced before it was fixed and each pinned by a test that fails without its fix**
+(`core/.../Review20260903Test.kt`, `HANDOFF.md` §25). Commits `1f9fa4d` (the fixes) and
+`c400d0b` (APK 23/0.23), both pushed; the `damage` service was restarted onto the review
+build and the phone reattached to all five channels.
+
+The technique worth keeping: the mirror/divergence check compares the compositor's BELIEF to
+the GLASS, so a bug that writes wrong pixels into the shadow **and sends them** is invisible
+to it. The review's oracle recomputes the per-lens **truth** of `comp.composed` under
+`comp.planes` and compares that to `comp.expectedLens()` after every settle; a 900-step
+random-gesture walk with that assertion is what found the notification overrun. ⚠ Split the
+panel by plane **pieces**, not raw plane rects, or the oracle reports false pixels at the
+lens edges.
+
+What it changed, in one line each — the detail is `HANDOFF.md` §25:
+
+1. **Compositor** — a plane-0 delta could carry another plane's pixels (two unguarded merge
+   paths). Wrong shift on both lenses, outside the scanned area, belief and glass agreeing on
+   the wrong thing. Guarded; rect economy unchanged.
+2. **Notifications** — the silent/exclusive box is 200 px but its body was wrapped to the
+   248 px window form: 240 px painted outside the damaged rect. `SILENT_W` + per-form
+   `bodyLines` + fitted draws.
+3. **Reader** — `Epub.fold` maps the C1 mojibake range through Windows-1252, folds U+2011 and
+   drops zero-width formatters; every dynamic string now goes through `Draw.dynamic`. Measured
+   on the real 58-book shelf: **14,365 undrawable code points → 50**.
+4. **Tmux** — `FlowRender` sanitizes at layout time (the live panes carry Claude Code's own
+   TUI glyphs, which JetBrains Mono lacks).
+5. **Music** — a restored level below the top now loads on the way back; the desktop mirror no
+   longer publishes an empty player record (that is the shell's removal TOMBSTONE, on a
+   syncable key); the quiet-stream notice re-arms when you raise the volume it told you to.
+
+**Before it, the same day: the Music window's root became NOW PLAYING, and the "it played but I
+heard nothing" bug was understood.** Adam drove the new windows for real: Tmux, Files and
+Torrents all worked; Music played four tracks end to end and made no sound. The cause was
+measured, not guessed — the transcode cache showed song-length gaps (so the queue really was
+advancing) and the synced player record read `volume: 8`. **The phone's media stream was at
+8 %.** Damage never sets that level (only the ring's Volume canvas, the Settings row and the
+limiter's restore write it, all upward or user-driven); it read 8 % and played into it. The
+defect was that *nothing said so*. `HANDOFF.md` §24.4 is the full record.
 
 Three things came out of it:
 
@@ -36,27 +67,28 @@ Files / Torrents / Music are the worked precedents (`WINDOWS.md`).
 **State of the world:** the phone APK is the primary driver (`HANDOFF.md` §19 — radio + shell
 while it is up); the OpenRC `damage` service is the data provider (content + tmux + sync + the
 window channel on :7401, seam :7402, replica :7403, the media endpoint :7404) plus a standby that
-BLE-drives only while the APK is away. Battery at HEAD: core **319** · desktop 9 ·
-selfcheck **139** · snapshots 36 · epub-check clean · lint 0 · `--music-check` all pass against
-the real library. **APK 22/0.22 is STAGED and is the one to install** — it is the first APK that
-contains the Now Playing root and both phone-side fixes; 0.21 and everything before it are
-superseded. **0.16 is still the last build observed INSTALLED** (2026-09-01). The jar and the
-service run the 2026-09-02 build; redeploy with `./gradlew :desktop:stageJar && sudo rc-service
-damage restart` (never touches the display — the PC does not claim). ⚠ One central at a time:
-stop the service before any `:desktop:run` dev session; G2CC's Android bridge stays Disconnected.
+BLE-drives only while the APK is away. Battery at HEAD: core **329** · desktop 9 ·
+selfcheck **139** · snapshots 36 · epub-check 58/58 · lint 0 · `--music-check` all pass against
+the real library. **APK 23/0.23 is STAGED and is the one to install** — the first APK carrying
+the review fixes; 0.22 and everything before it are superseded. **0.16 is still the last build
+observed INSTALLED** (2026-09-01). The jar and the service **run the review build** (restarted
+2026-09-03 16:14, phone reattached to files/torrents/music/tmux/sync); redeploy with
+`./gradlew :desktop:stageJar && sudo rc-service damage restart` (never touches the display — the
+PC does not claim). ⚠ One central at a time: stop the service before any `:desktop:run` dev
+session; G2CC's Android bridge stays Disconnected.
 
-📍 **Start here, in this order:** this file → `HANDOFF.md` §19–§24 (the topology contract, the
-build records, §24.4 the silent-playback diagnosis + the Now Playing root) → `DAILY.md` (ops crib)
-→ `IMPLEMENTATION.md` (what runs) → for the next conversion: `WINDOWS.md` (the checklist) +
+📍 **Start here, in this order:** this file → `HANDOFF.md` §19–§25 (the topology contract, the
+build records, §24.4 the silent-playback diagnosis + the Now Playing root, §25 the review) →
+`DAILY.md` (ops crib) → `IMPLEMENTATION.md` (what runs) → for the next conversion: `WINDOWS.md` (the checklist) +
 `EXPLOSION.md` (§16 contract, §20 refinery verdicts, the chosen window's section). Standing
 references: `overview.md` (facts), `CLAIMS.md` (grades), `CLAUDE.md` (rules), `DESIGN.md` (the
 shell).
 
 ## 🚀 Next
 
-1. **Install APK 0.22 and use Music.** It carries the Now Playing root and both fixes. Then the
-   one-time grants (`DAILY.md` → Music: `music access` on the strip, notification access) and the
-   on-phone measured items (the limiter's real notice text, the Spotify cold start, the Bluetooth
+1. **Install APK 0.23 and use Music.** It carries the Now Playing root, both phone-side fixes
+   and the whole-codebase review. Then the one-time grants (`DAILY.md` → Music: `music access`
+   on the strip, notification access) and the on-phone measured items (the limiter's real notice text, the Spotify cold start, the Bluetooth
    lyric offset, the visualizer rate on glass). Judge Now Playing on glass — it measures **14.0 %
    ink** at 480 against the 15 % list budget with the harness's synthetic art, so a real album
    cover may trip it; the answers then are smaller art or reclassifying the surface as a canvas
@@ -81,7 +113,11 @@ shell).
    task for a fresh session.
 5. **The icon-quality pass** (front of the app wave): one drawn icon per app at 20 px + 56 px —
    the drawn set is the fallback and the release path (theme icons are personal-lane only).
-6. **Watch-items:** the left-lens seam residue (a one-shot early-burst tear — if it recurs
+6. **What the 2026-09-03 review did NOT cover** (`HANDOFF.md` §25.3): the seam / replica /
+   `RemoteTransport` plumbing, the firmware simulator and most of the phone module were read at
+   a scanning level only, and nothing was tested on the actual glasses. A next review round
+   starts there, not by re-reading the core.
+7. **Watch-items:** the left-lens seam residue (a one-shot early-burst tear — if it recurs
    after a handover, harden session start); the ~20 s silent-loss window (tighten the seam
    heartbeat constants only if it feels long in practice); and the media endpoint logs nothing on
    a successful request, so "did the phone fetch audio?" is only answerable from cache mtimes.

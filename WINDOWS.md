@@ -207,3 +207,21 @@ All four rows of the agreed build order are CODE, and so is the keyboard that fo
 - **Refusing after a surface is open** — validate a spec BEFORE `open = true` (the half-open
   keyboard); and close a surface before running its requester's callback (the keyboard commit
   closes and restores first, then `onCommit`, so the callback may open the next level or menu).
+- **A RESTORED level below the top that never loads** (review 2026-09-03, `HANDOFF.md` §25 #7).
+  `restoreState` reloads the TOP only; a deeper level restored with no rows shows one bare menu
+  row forever. Load on the way back (`MusicWindow.ensureLoaded`); Files and Torrents each carry
+  their own version of this.
+- **`saveSubState()` returning an EMPTY blob** (§25 #8). An empty object IS the §16.4a removal
+  TOMBSTONE and the sub-keys are syncable, so reporting one fresh-stamps a deletion of the
+  PEER's real record. Report nothing instead. (The shell now refuses one loudly as a backstop.)
+- **A surface whose WRAP width differs from its DRAW bound** (§25 #3). The silent notice box is
+  200 px; its body was wrapped to the 248 px window box and drawn unbounded — cut on the glass
+  with no mark, and undamaged ink in `composed` that a later keyframe reveals. Wrap and bound
+  to the same number, and fit.
+- **Dynamic text drawn without `Draw.dynamic`** (§25 #5–6). A glyph the face lacks is silent
+  tofu. Sanitise at WRAP time when the window wraps (so measure and draw agree), at draw time
+  otherwise. Measured reality: the real book shelf and the live tmux panes both carry glyphs
+  the locked faces cannot draw.
+- **A once-per-run notice whose own remedy does not re-arm it** (§25 #9). The quiet-stream
+  notice told the user to raise the volume; raising it left the latch set, so the next silent
+  start said nothing.

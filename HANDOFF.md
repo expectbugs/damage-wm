@@ -5,6 +5,7 @@ lessons and measured facts behind the current state.**
 
 | § | what | status |
 |---|---|---|
+| **25** | **The whole-codebase review (2026-09-03, late): ten verified defects, each reproduced before its fix and each pinned by a test that fails without it — plus the belief-vs-truth oracle that found the invisible ones** | **current** |
 | **24** | **Music (2026-09-02): the design verdicts + plan, the overnight build — M1–M6, six commits, the shell's EXCLUSIVE mode (§24.1) — then review round 1 (§24.2) and two ultrareview runs (§24.3), all the same day; §24.4 the silent-playback session and the NOW PLAYING root (2026-09-03)** | **current** |
 | 23 | Torrents + the keyboard (2026-09-01, evening): the second conversion, built whole, + a 4-round review loop — PAUSED at Adam's word, not converged; its round-4 diff is `980d832..390a25c` | current |
 | 22 | The overnight build (2026-09-01): §16 machinery + FILES + the 8-round review loop, run to convergence | current |
@@ -749,14 +750,14 @@ today with Adam's go: `REINDEX DATABASE g2cc` + `ALTER DATABASE g2cc REFRESH COL
 | M1 host foundation | `36343dc` | `MusicModel` (types + the two contracts), the `Db` seam + `PgDb` (pgjdbc 42.7.13 over the Unix socket via junixsocket 2.11.1, peer auth), `MusicDb` (every query + the additive `lyrics.source/track_id` migration recorded in `damage_schema`), `Qdrant`, `MediaCache` + transcoder, `MediaServer` (:7404, Range), `Art`, `LibraryScan`, `LocalMusicLibrary`, `MusicNet` (service + remote with disk caches), the `WinNet` PUSH slice; `--music-check` passed against the real DB |
 | M2 window | `2acf432` | `MusicWindow` (every level at four heights), `QueueEngine`, `PlayerCore` + `SimMusicPlayer` + `MirrorMusicPlayer`, `LyricsSync`; `ScriptedMusic`, the selfcheck walk, snapshot scenes 30–37; the six delegated leaf modules (Resolver + ClaudeOneShot + EmbedQuery, LyricsFetch, YouTube, Viz, `audio/` + viz.py + Enrich, MusicListener + SpotifyRemote) |
 | M3 shell | `fc2fa99` | `Mode.EXCLUSIVE` (`DESIGN.md` §4.9) and Music Mode's per-height surface stack; `MusicModeTest`; selfcheck at 480/Bars + 288/Scope; scenes 38–39 |
-| M4 APK | `67d65b8` | `AndroidMusicPlayer` (ExoPlayer + media3 session over a ForwardingPlayer), `TrackCache`, media3 1.5.1, the manifest's mediaPlayback type, `Prefs.mediaPort`, the service registration, the Global **Phone notifications** switch, the strip's `music access` grant; APK 19/0.19 (20/0.20 after §24.2, 21/0.21 after §24.3, 22/0.22 after §24.4) |
+| M4 APK | `67d65b8` | `AndroidMusicPlayer` (ExoPlayer + media3 session over a ForwardingPlayer), `TrackCache`, media3 1.5.1, the manifest's mediaPlayback type, `Prefs.mediaPort`, the service registration, the Global **Phone notifications** switch, the strip's `music access` grant; APK 19/0.19 (20/0.20 after §24.2, 21/0.21 after §24.3, 22/0.22 after §24.4, 23/0.23 after §25) |
 | M5 host features | `72cae3d` | the lyric-sources choice pushed to the host (one fetch chain per choice; a source FAULT throws, a MISS stands until the sources widen), `Enrich` + `LyricsFetch` wired, `musicAudioDir`; `--music-check` runs the deterministic lanes and one real viz precompute |
 | M6 docs + staging | `178603f` | this record, `MUSIC.md` corrections, `IMPLEMENTATION.md` Music, `DAILY.md` Music, `REMINDER.md`, `WINDOWS.md` (five precedents), memory; jar + APK staged, the service restarted |
 
 **The battery at M5 (all green):** core **315** tests (was 221 before Music) · desktop 9 ·
 selfcheck **134** checks · snapshots **36** · epub-check clean · lint 0 · `--music-check` all
 pass against the real `g2cc` (2,981 tracks, catalog 1,440 KB in ~70 ms, legacy cache 20/20,
-Qdrant 2,981 points, lanes 1 answer, one viz blob) · `:phone:assembleDebug` 0.19 (0.20 after §24.2, 0.21 after §24.3, 0.22 after §24.4).
+Qdrant 2,981 points, lanes 1 answer, one viz blob) · `:phone:assembleDebug` 0.19 (0.20 after §24.2, 0.21 after §24.3, 0.22 after §24.4, 0.23 after §25).
 
 **Delegation:** six Opus agents in isolated worktrees, each with the fixed interfaces
 (`Plugins.kt`, `MusicModel.kt`) and its own tests: LyricsFetch ×24 · YouTube ×13 · Resolver ×19 ·
@@ -975,8 +976,9 @@ PASS lines — 57 `check(` assertions plus the `awaitTrue` convergence waits, se
 inside the two-height Music Mode loop; it was 134 before this change, which added one `check`,
 the queue-level ink, and moved which waits announce themselves when the harness started picking
 menu rows by name) ·
-epub-check clean · `--music-check` all pass · lint 0 · **APK 22/0.22 staged** (the first build
-carrying the Now Playing root and both player fixes; 0.21 superseded). Snapshots renamed
+epub-check clean · `--music-check` all pass · lint 0 · **APK 22/0.22 staged** — the first build
+carrying the Now Playing root and both player fixes; 0.21 superseded, and 0.22 in turn by
+23/0.23 with §25. Snapshots renamed
 `30-music-nowplaying-480` / `36-music-nowplaying-288`.
 
 ### The review pass on the new code (same session)
@@ -1018,3 +1020,134 @@ so the painter may call it.
 ⚠ **Watch:** Now Playing measures **14.0 % ink** at 480 with the harness's synthetic art, against
 the 15 % list budget. Real album art may trip it; the answers if it does are smaller art or
 reclassifying the surface as a canvas (Music Mode's note allows 30 %).
+
+
+## 25. The whole-codebase review (2026-09-03, late)
+
+Adam: *"run a full, deep, thorough code review of this entire project top to bottom … then
+verify each one is really an issue … then fix it … then double check each and every fix."*
+Every finding below was **reproduced before it was fixed**, and every pin in
+`core/src/test/kotlin/wm/damage/core/Review20260903Test.kt` was **confirmed to FAIL against
+the unfixed tree** and pass against the fixed one. Commits `1f9fa4d` (fixes) and `c400d0b`
+(APK 23/0.23), pushed; the service was restarted onto the build.
+
+### 25.1 The oracle — how the invisible ones were found
+
+The mirror/divergence check (§8.2) compares the compositor's **belief** to the **glass**. A
+bug that writes wrong pixels into the shadow *and sends them* makes the two agree, and the
+check is blind to it. The review's oracle instead recomputes the per-lens **truth** of
+`comp.composed` under `comp.planes` — split the panel by every plane, keep the pieces that lie
+in a region, paint each at its own shift, far first, exactly as `Compositor.renderTruth` does —
+and asserts it equals `comp.expectedLens(left)` after every settle. A 900-step random-gesture
+walk with that assertion found #2 below.
+
+⚠ **Split by plane PIECES, not raw plane rects.** A naive oracle that shifts whole regions
+reports ~32 false pixels at the lens-band edges, because the lens rows belong to the lens
+plane and are never painted at the content plane's shift. That false positive cost a pass;
+do not re-introduce it.
+
+Reusable as-is: the walk drove Reader and Music through ~1,600 random gestures with the
+invariant, plus quiescence and a no-ERROR-status check, and both came back clean after the
+fixes.
+
+### 25.2 The ten findings
+
+1–2. **A plane-0 delta could carry another plane's pixels** — `Compositor`. Two unguarded
+   paths: `partition()` step 1 merged the two plane-0 GUTTER rects with a `{ true }` predicate
+   into one full-width `d=0` box across the content plane, and `coarsen()` unioned REMAINDER
+   rects by row band with no knowledge of the plane map at all. Those pixels land at the wrong
+   shift on **both** lenses, outside the scanned `area`, so the repair loop never sees them —
+   and belief and glass agree on the wrong thing, so nothing reports it. This is exactly what
+   `partition()`'s own round-6 comment says must never happen. Fixed with `remainderPieces()`
+   (split by planes, keep the plane-0 parts) and the same predicate step 2 and `price()`
+   already used. **Rect economy unchanged** — measured 8 bytes *cheaper* over boot + open +
+   25 notches. Reachable but rare in the daily shell (the remainder seldom has >1 rect); a
+   latent hole in the mechanism, closed.
+
+3. **The silent notice body was wrapped to the WINDOW box's width** — `Notifications`. The
+   silent/exclusive box is 200 px; `bodyLines` always wrapped to `notificationMax.w − 16`
+   (232 px) and `paint` drew the body unbounded at `full.x + 8`. Result: up to 40 px past the
+   box — cut on the glass with no continuation mark (NO TRUNCATION), and the part outside the
+   damaged rect was ink in `composed` nothing would ever send, which surfaces later at a
+   keyframe (the "undamaged composed ink" class already fixed twice elsewhere). Measured end
+   to end: 240 lit px outside the box; the sim glass showed 110 of the 230 px `composed` held.
+   Fixed: `Notifications.SILENT_W`, `bodyLines(n, l, silent)`, fitted draws, and a drawn mark
+   when the silent form's one line is not the whole body.
+
+4. **The Reader shipped tofu for 14,315 characters of Adam's real shelf** — `Epub`. Numeric
+   references in 0x80–0x9F skipped the Windows-1252 remap HTML5 mandates, *and* the files
+   literally hold those code points: a byte check found `C2 97` (UTF-8 for U+0097) exactly
+   where an em dash belongs, beside correctly-encoded `E2 80 99` quotes in the same sentence —
+   the books were transcoded cp1252-as-latin-1 long before we saw them. `Epub.fold` now maps
+   the C1 range through `CP1252`, folds **U+2011** (284×, missing from all four locked faces)
+   to `-`, and drops the zero-width formatters (40×, invisible by definition, so a `?` would
+   add junk). Character offsets are unaffected by the remap; the drops are ≤40 shelf-wide and
+   Adam's one saved position still lands on the same sentence (checked).
+
+5. **The Reader was the last window drawing dynamic text raw** — `ReaderWindow`. Book titles,
+   authors, EPUB toc chapter names and the prose itself bypassed `Draw.dynamic`, so an
+   uncoverable glyph was silent tofu with no log. Now routed like every other surface, and
+   `paintBookLine` is fitted (the wrap measured the raw string, so a substituted glyph of a
+   different width must be marked, not pushed past the line rect). **Measured on the real
+   58-book shelf: 14,365 undrawable code points → 50** (2 Hebrew letters, 48 U+FFFD already in
+   the source — all now a visible `?` plus one log line).
+
+6. **The flow renderer drew terminal output raw** — `FlowRender`. The live tmux panes on
+   beardos carry U+23BF / U+23F5 / U+2722 / U+273B from Claude Code's own TUI; JetBrains Mono
+   has none of them. Sanitized at **layout** time (the Files viewer's shape) so measure and
+   draw stay on the same string and the wrap stays exact. `TermRender` was already correct —
+   it draws a deliberate hollow box for an uncovered glyph.
+
+7. **A restored level below the top never loaded** — `MusicWindow`. `restoreState` set
+   `needsReload` from `top.kind` only, and `back()` loaded nothing, so a restored stack of
+   `[NOWPLAYING, PLAYLIST, INFO]` backed into a playlist level showing one bare menu row —
+   forever. `ensureLoaded()` now runs on the way back. Files and Torrents already handled this
+   class explicitly; Music was the outlier.
+
+8. **The desktop mirror published a removal TOMBSTONE for the player record** — `MusicWindow`
+   + `Shell`. `MirrorMusicPlayer.persist()` is `{}` until the phone's first record arrives,
+   and `saveSubState` reported it. An empty blob **is** the shell's §16.4a tombstone, and
+   `window.music.player` is syncable — so on a store without the key the desktop wrote `{}` at
+   a fresh stamp and LWW would push a deletion of the phone's real queue. Verified end to end
+   into the store. Fixed at the window (never report an empty record) and closed as a class in
+   the shell (an empty sub-record is refused loudly, once per key per session).
+
+9. **The quiet-stream latch ignored its own remedy** — `PlayerCore`. The notice says *"scroll
+   here to raise it"*, but `setVolume` did not clear `quietWarned`, so after raising and later
+   dropping back under 10 % a new track played silently with nothing said — contradicting the
+   documented "cleared when playback stops or the level comes back up".
+
+10. **Two catch-and-swallow blocks** — `QueueEngine.fromJson`'s torn row (dropped with no log)
+   and `PlayerCore.stop`'s boost reset, whose comment claimed it was "logged above" when it
+   was not. Both made loud.
+
+### 25.3 What the review checked and found clean
+
+Read in depth: geometry, the compositor, the transport brain (`CfwTransportBase`, `Emit`), the
+wire layer, gfx/codec, text/style, every shell surface, Reader, Music (window, player core,
+queue engine, mirror), and the phone's `ShellService` / `AndroidMusicPlayer`. Verified live on
+this machine, not just in fixtures: the real 58-book shelf, the real tmux (4 sessions, a
+58-line capture flow-rendered), the real filesystem (9 locations), the live qBittorrent (39
+transfers), and the real Postgres music library.
+
+Explicitly checked and **not** defects: no timeouts anywhere in the tree; every subprocess goes
+through `ProcessBuilder(list)` with no shell; all `MusicDb` SQL is parameterized (`$col` and
+`$order` come from fixed literal lists); every network surface is token-gated; the 24 EPUB
+images that fail to decode are all SVG, which `--epub-check` already reports honestly; the
+`wide`-flush pipeline depth matches §8.2's intent; `TermRender`'s tofu box is deliberate.
+
+One earlier hypothesis was **retracted after testing it**: the transient belief/`composed`
+disagreement a walk sees is chrome legitimately waiting for the 5 s idle flush (§8.3), not a
+defect — only divergence that survives that window counts.
+
+⚠ **The honest boundary of this pass.** The seam / replica / `RemoteTransport` plumbing, the
+firmware simulator, and most of the phone module were read at a SCANNING level, not line by
+line — they carry their own suites (`SeamMirrorTest`, `SeamSessionTest`, `HandoverTest`,
+`PathTransportTest`, `ReplicaServerTest`, `LensOracleTest`) and prior review rounds. Nothing
+here was tested on the actual glasses: the pass ran against the byte-exact firmware model and
+this machine's real services. A future round should start there rather than re-reading the
+core.
+
+**Battery after the fixes:** core **329** (+10 pins) · desktop 9 · selfcheck **139** ·
+snapshots 36 · epub-check 58/58 · `--music-check` all pass · lint 0 + selftest · APK builds and
+carries the fixes. **APK 23/0.23 staged**; 0.16 is still the last observed installed.

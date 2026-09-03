@@ -445,7 +445,9 @@ one window: `wm.damage.core.windows.music`.
   notice) and the snapshot scenes 30–39; `--music-check` probes the real Postgres / Qdrant /
   cache read-only (plus one viz precompute); core tests: `MusicTest`, `MusicWindowTest`,
   `MusicModeTest`, `ResolverTest`, `LyricsFetchTest`, `YouTubeTest`, `VizTest`, `EnrichTest`.
-  Battery at the Now Playing root (2026-09-03): core 319 · desktop 9 · selfcheck 139 · snapshots 36 · lint 0.
+  Battery at the Now Playing root (2026-09-03): core 319 · desktop 9 · selfcheck 139 ·
+  snapshots 36 · lint 0. After the same day's whole-codebase review (`HANDOFF.md` §25):
+  core **329** (+10 pins in `Review20260903Test`), the rest unchanged.
 
 ## Torrents + the keyboard (2026-09-01, TORRENTS.md · DESIGN.md §4.8)
 
@@ -649,7 +651,15 @@ of them are load-bearing and easy to break by accident:
   rect budget (coarsened by row bands first so merging stays cheap; within a
   piece, then across pieces of one disparity but never across a pixel of
   another plane; a final priced pass merges neighbours whose compressed
-  union is cheaper — §5.1, §8.2's "1–3 rects"), and emits whatever closes
+  union is cheaper — §5.1, §8.2's "1–3 rects"). ⚠ **That "never across another
+  plane" rule binds the plane-0 REMAINDER group too** — it is not a rectangle,
+  so `coarsen()` and `partition()`'s within-owner merge can both union across a
+  region unless guarded (`remainderPieces()`; review 2026-09-03, `HANDOFF.md`
+  §25 #1–2). A flat delta carrying a region's pixels paints them at the wrong
+  shift on BOTH lenses, outside the scanned area — and belief and glass then
+  agree on the wrong thing, so the divergence check cannot see it. The oracle
+  that can: recompute the per-lens truth of `composed` under `planes` and
+  compare it to `expectedLens()` (§25.1), and emits whatever closes
   the gap: nominal deltas at their disparity (split when a delta's bytes would
   exceed a mode-8 sub-message's 16-bit length or the bytes left in the
   batch; a keyframe past the sub-message length ships bare), black stereo
@@ -688,9 +698,36 @@ of them are load-bearing and easy to break by accident:
   (`RemoteContent.withHost`) with attempt ordering; local disk failures never
   read as "PC gone"; the cache keeps the listing's real extension.
 
+Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md` §25):
+
+- **A surface's WRAP width and its DRAW bound must be the same number.**
+  `Notifications` wrapped the silent form's body to the window form's box and
+  drew it unbounded: ink outside the damaged rect, which nothing sends and a
+  later keyframe reveals. `SILENT_W` + `bodyLines(n, l, silent)` + fitted
+  draws. The same class was fixed twice before (MenuSurface's detail,
+  SettingsWindow's value) — check it in every new surface.
+- **Dynamic text goes through `Draw.dynamic`, everywhere, without exception.**
+  A glyph the face lacks is a visible `?` and one log line, never silent tofu.
+  Sanitise at WRAP time when the caller wraps (`FlowRender`, the Files viewer)
+  so measure and draw agree; at draw time otherwise (`Draw.fit(…, dynamic(…))`).
+  `Epub.fold` handles what no locked face can draw at the extraction boundary
+  — the cp1252 mojibake range, U+2011, the zero-width formatters.
+- **A window with async levels must load a RESTORED level it did not push.**
+  `restoreState` only reloads the top; `back()` calls `ensureLoaded()`
+  (`MusicWindow`). Files and Torrents each have their own version of this.
+- **`saveSubState()` never reports an EMPTY blob.** An empty object is the
+  §16.4a removal TOMBSTONE, and the sub-keys are syncable: reporting one
+  fresh-stamps a deletion of the peer's real record. The shell refuses one
+  loudly (once per key per session) as a backstop.
+
 ## Verification
 
-- `./gradlew :core:test` — **319** unit/integration tests (2026-09-02's whole-codebase review 2
+- `./gradlew :core:test` — **329** unit/integration tests (2026-09-03's whole-codebase
+  review added `Review20260903Test` ×10 — one pin per verified defect, each confirmed to
+  FAIL against the unfixed tree: the compositor's two plane-guard paths, the silent notice
+  box, the cp1252 entity remap, the extractor's fold, the Reader's and the flow
+  renderer's glyph substitution, Music's restored-level load, the mirror tombstone and
+  the quiet-stream latch; 2026-09-02's whole-codebase review 2
   added `Round9Test` ×2 — the notification source fit and the media endpoint's range contract;
   2026-09-01/02 added the Music set:
   `MusicTest` ×8, `MusicWindowTest` ×7, `MusicModeTest` ×2, `ResolverTest` ×19, `LyricsFetchTest`

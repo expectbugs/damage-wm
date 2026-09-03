@@ -5,7 +5,8 @@ milestone with the battery green — `HANDOFF.md` §24 is the build record with 
 numbers and the decisions made inside this plan); §4 is closed (the collation refresh ran
 with Adam's go on 2026-09-02).** The window was built whole on Adam's rule (no v1/v1.5
 staging); reviewed three ways the same day — round 1 (`HANDOFF.md` §24.2) and two ultrareview runs
-(§24.3); what remains is the on-phone checks (`DAILY.md` → Music). `EXPLOSION.md` §3 is
+(§24.3), and again inside the 2026-09-03 whole-codebase review (§25, three more Music
+defects); what remains is the on-phone checks (`DAILY.md` → Music). `EXPLOSION.md` §3 is
 the idea record; `/home/user/G2CC/docs/MUSIC_SPEC.md` is the previous player's decision record
 (read for facts and lessons, never for code — the G2CC music *system* is now Damage's, its code
 is ported, not pasted).
@@ -649,7 +650,11 @@ records which).
    freeze), `WINDOWS.md` (five precedents), memory; APK 19/0.19 staged; jar staged; service
    restarted. (Review round 1 followed the same morning — `HANDOFF.md` §24.2, APK 20/0.20 — and
    two ultrareview runs the same afternoon — §24.3, APK 21/0.21; then §24.4 on 2026-09-03 — the
-   silent-playback diagnosis, the two player fixes and the NOW PLAYING root, APK 22/0.22.)
+   silent-playback diagnosis, the two player fixes and the NOW PLAYING root, APK 22/0.22;
+   then the whole-codebase review the same day — §25, APK 23/0.23, which fixed three more
+   Music defects: a restored level below the top never loaded, the desktop mirror published
+   an empty player record as a removal tombstone, and the quiet-stream notice did not re-arm
+   when the volume it named was raised.)
 
 Delegation guide (token budget): M1's DAO/transcode/stream, M5's `LyricsFetch`, `YouTube`,
 `viz.py` and the lane-1 `Resolver` port, M3's `Viz` renderers and M4's `SpotifyRemote` are leaf

@@ -34,11 +34,11 @@ ever needs redoing: (1) sideload from the setup page, grant Bluetooth ×2 + noti
 battery exemption; (2) 🔴 keep the G2CC bridge app Disconnected (a second central); (3) phone
 first light with NOTHING on beardos holding the pair (`sudo rc-service damage stop`), flip
 Target → glasses; (4) `sudo rc-service damage start` → the log says "standby up (§19)" and the
-phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.22 is the
+phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.23 is the
 staged build: Files + theme icons + the sync client + Torrents + the keyboard + every
 2026-09-01 review fix + the chrome tweaks (the Silent-clock size row included) + Music + its
-three reviews + the 2026-09-03 Now Playing root and the two player fixes; 0.16 is the last build
-observed installed**). Why old
+three reviews + the 2026-09-03 Now Playing root and the two player fixes + that day's
+whole-codebase review (`HANDOFF.md` §25); 0.16 is the last build observed installed**). Why old
 APKs matter: a pre-0.15 APK cannot be status-probed (the PC conservatively stays out — fine)
 and a pre-0.10 one carries no sync client, so state does not flow until it is updated. 0.16
 being installed also unblocks Reader's transitional legacy-offsets cleanup (`REMINDER.md` Next 2).
@@ -50,7 +50,7 @@ being installed also unblocks Reader's transitional legacy-offsets cleanup (`REM
 | **beardos `damage` service** | the music LIBRARY: Postgres `g2cc` over the Unix socket (peer auth, no password), Qdrant `g2cc_music`, the transcode cache (`~/.g2cc/media-cache` read in place as the Standard profile, `~/.damage/media-cache/<profile>/` for the rest), art + viz blobs, the resolver lanes (a `claude -p` one-shot for Ask, `audio/enrich/embed_query.py` on G2CC's venv for the embedding lane), yt-dlp, the enrichment passes; the **media endpoint on :7404** (`GET /track/<id>?token=&profile=`, Range-capable) next to the window channel on :7401 |
 | **phone APK** | the PLAYER: ExoPlayer + a media session (bud taps: single = play/pause, double = next, triple = previous, from anywhere), the catalog/art/viz/lyrics cached on disk, the next 3 tracks prefetched, hold-my-volume, boost, sleep, Spotify as the fallback |
 
-**One-time phone grants (0.22):** open the app → **`music access`** on the strip → allow
+**One-time phone grants (0.23):** open the app → **`music access`** on the strip → allow
 *Damage music* notification access (Spotify's session + the OS volume-lowered notice ride on
 it; the window says "grant notification access on the phone" until then). No RECORD_AUDIO
 is asked, ever. Then in Settings → Music pick the Output (Auto follows the buds; the phone
@@ -124,7 +124,7 @@ schema, and a phone-side record (`window.tmux`) crossed and applied store-direct
 shell was in standby. **Still awaiting a deliberate glass test**: a real standby engagement
 (stop the APK at the desk → the PC BLE-drives within ~10 s → restart the APK → handback) and
 the sync feel across a driver swap (a book position following the swap). Current staged APK:
-**0.22** (Files, the chrome tweaks, Torrents, the keyboard, Music + its three reviews, and the
+**0.23** (Files, the chrome tweaks, Torrents, the keyboard, Music + its three reviews, the
 2026-09-03 Now Playing root + the quiet-stream notice + the stable-identity output restore —
-`HANDOFF.md` §24.4); **0.16 is the last build observed INSTALLED** (2026-09-01 — the phone speaks
-the files channel).
+`HANDOFF.md` §24.4 — and that day's whole-codebase review, §25); **0.16 is the last build
+observed INSTALLED** (2026-09-01 — the phone speaks the files channel).
