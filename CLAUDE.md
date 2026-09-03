@@ -94,7 +94,7 @@ source on a hidden field — a Global row that disappears leaves a persisted val
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
 (319 tests, including the per-lens oracle), `./gradlew :desktop:test` (9 tests: the BlueZ glue
-over a fake link), `desktop --selfcheck` (134 checks), `desktop --snapshot DIR` (look at the lens
+over a fake link), `desktop --selfcheck` (139 checks), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `desktop --music-check` (the real library, read-only bar the additive schema migration),
 `python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.
 Radio use is normal now (post-flash); deploying = `./gradlew :desktop:stageJar && sudo

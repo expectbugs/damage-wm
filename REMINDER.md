@@ -1,82 +1,90 @@
 # Where we are, and what to do next
 
-**Updated 2026-09-02 (afternoon): MUSIC IS BUILT AND REVIEWED** — the third G2CC→DamageWM conversion,
-built whole overnight in an autonomous session (M1–M6 of `MUSIC.md` §11, a commit per milestone
-with the battery green at each; `HANDOFF.md` §24.1 is the build record with every decision made
-inside the plan). The G2CC music SYSTEM is Damage's now (Postgres `g2cc`, Qdrant, the 8.1 GB
-cache read in place, the enrichment package copied into `audio/`, yt-dlp); the PHONE plays
-(ExoPlayer + a media session — the buds' taps drive the queue from anywhere), the PC serves
-(the window channel + a media endpoint on :7404); the window is written once against two core
-contracts so the desktop runs a read-only mirror of the phone's player; **Music Mode is a new
-shell mode** (`DESIGN.md` §4.9, EXCLUSIVE: the window paints the whole panel, only double-tap
-leaves). Reviewed three ways the same day: review round 1 (`4565f35`, 27 findings), ultrareview
-run 1 (`d6bb08b`, 3) and run 2 (the closing commit, 5 + a hidden Music notice gate) — `HANDOFF.md`
-§24.2–§24.3; every finding verified before its fix.
+**Updated 2026-09-03: the Music window's root is now NOW PLAYING, and the "it played but I heard
+nothing" bug is understood.** Adam drove the new windows for real: Tmux, Files and Torrents all
+worked; Music played four tracks end to end and made no sound. The cause was measured, not
+guessed — the transcode cache showed song-length gaps (so the queue really was advancing) and the
+synced player record read `volume: 8`. **The phone's media stream was at 8 %.** Damage never sets
+that level (only the ring's Volume canvas, the Settings row and the limiter's restore write it,
+all upward or user-driven); it read 8 % and played into it. The defect was that *nothing said so*.
+`HANDOFF.md` §24.4 is the full record.
 
-Before it (2026-09-01): **TORRENTS + the keyboard** (`TORRENTS.md`, `DESIGN.md` §4.8,
-`HANDOFF.md` §23 — four review rounds, paused at Adam's word, not converged; resume from
-`980d832..390a25c`) and **FILES** with the whole EXPLOSION §16 machinery under it (`HANDOFF.md` §22,
-eight review rounds to convergence). Reader / Tmux / Files / Torrents / Music are the worked
-precedents (`WINDOWS.md`).
+Three things came out of it:
+
+1. **A quiet-stream notice** — `PlayerEvent.QuietStream` fires when playback starts at or below
+   `PlayerCore.QUIET_PCT` (10 %), once per playback RUN, on glass and as a notification when the
+   window is off screen.
+2. **The output is restored by STABLE identity** — `AudioDeviceInfo.getId()` is a per-connection
+   handle that changes on reconnect and gets reused, and the old code ignored the sink's refusal.
+   The record now carries `outputName` + `outputKind`; an ambiguous or absent match refuses
+   loudly to Auto instead of routing to whatever inherited the number.
+3. 🔴 **Verdict 4 REVERSED (Adam): NOW PLAYING is the root, the queue is a menu row.** *"the main
+   screen should be a useful, really nice looking Now Playing screen … what is playing and where
+   in the song it is and what the volume level is at."* A canvas, TOP-aligned (his fit loses the
+   bottom): art 160/120/88 px by height + title + artist — album + badges · the state glyph,
+   elapsed, progress, total · the media level (drawn **HOT at or below 10 %**) with the queue
+   position · the current synced lyric line when one is loaded. **Scroll = volume live, tap = the
+   Music menu**, no cursor. `MUSIC.md` verdict 4 records the reversal — do not reinstate the
+   queue root. A review pass over that new code found and fixed seven more issues
+   (`HANDOFF.md` §24.4).
+
+Before it: **MUSIC** built whole overnight 2026-09-01/02 and reviewed three ways (`MUSIC.md`,
+`HANDOFF.md` §24.1–§24.3); **TORRENTS + the §4.8 keyboard** and **FILES** with the whole
+EXPLOSION §16 machinery on 2026-09-01 (`TORRENTS.md`, `HANDOFF.md` §22–§23). Reader / Tmux /
+Files / Torrents / Music are the worked precedents (`WINDOWS.md`).
 
 **State of the world:** the phone APK is the primary driver (`HANDOFF.md` §19 — radio + shell
 while it is up); the OpenRC `damage` service is the data provider (content + tmux + sync + the
-window channel on :7401, seam :7402, replica :7403, the media endpoint :7404) plus a standby
-that BLE-drives only while the APK is away. Battery at HEAD: core **317** · desktop 9 ·
-selfcheck **134** · snapshots 36 · epub-check clean · lint 0 · `--music-check` all pass against
-the real library. **APK 21/0.21 is STAGED** (the setup page + `~/.damage/damage-wm.apk`; the jar
-and the service run the same closing build). **0.16 is the last build observed INSTALLED**
-(2026-09-01); 0.17–0.20 were never installed and 0.21 supersedes them (Files, the chrome tweaks +
-the Silent-clock size row, Torrents, the keyboard, every 2026-09-01 review fix, Music + its three
-reviews — `HANDOFF.md` §24.2–§24.3). Deploys: `./gradlew
-:desktop:stageJar && sudo rc-service damage restart` (never touches the display — the PC does
-not claim). ⚠ One central at a time: stop the service before any `:desktop:run` dev session;
-G2CC's Android bridge stays Disconnected.
+window channel on :7401, seam :7402, replica :7403, the media endpoint :7404) plus a standby that
+BLE-drives only while the APK is away. Battery at HEAD: core **319** · desktop 9 ·
+selfcheck **139** · snapshots 36 · epub-check clean · lint 0 · `--music-check` all pass against
+the real library. **APK 22/0.22 is STAGED and is the one to install** — it is the first APK that
+contains the Now Playing root and both phone-side fixes; 0.21 and everything before it are
+superseded. **0.16 is still the last build observed INSTALLED** (2026-09-01). The jar and the
+service run the 2026-09-02 build; redeploy with `./gradlew :desktop:stageJar && sudo rc-service
+damage restart` (never touches the display — the PC does not claim). ⚠ One central at a time:
+stop the service before any `:desktop:run` dev session; G2CC's Android bridge stays Disconnected.
 
 📍 **Start here, in this order:** this file → `HANDOFF.md` §19–§24 (the topology contract, the
-overnight record, the Torrents + keyboard record) → `DAILY.md` (ops crib) → `IMPLEMENTATION.md`
-(what runs) → for the next conversion: `WINDOWS.md` (the checklist) + `EXPLOSION.md` (§16
-contract, §20 refinery verdicts, the chosen window's section). Standing references: `overview.md`
-(facts), `CLAIMS.md` (grades), `CLAUDE.md` (rules), `DESIGN.md` (the shell).
+build records, §24.4 the silent-playback diagnosis + the Now Playing root) → `DAILY.md` (ops crib)
+→ `IMPLEMENTATION.md` (what runs) → for the next conversion: `WINDOWS.md` (the checklist) +
+`EXPLOSION.md` (§16 contract, §20 refinery verdicts, the chosen window's section). Standing
+references: `overview.md` (facts), `CLAIMS.md` (grades), `CLAUDE.md` (rules), `DESIGN.md` (the
+shell).
 
 ## 🚀 Next
 
-1. **The next window.** Adam picks from `EXPLOSION.md` §20's wow order — **Games** (#1, roster
+1. **Install APK 0.22 and use Music.** It carries the Now Playing root and both fixes. Then the
+   one-time grants (`DAILY.md` → Music: `music access` on the strip, notification access) and the
+   on-phone measured items (the limiter's real notice text, the Spotify cold start, the Bluetooth
+   lyric offset, the visualizer rate on glass). Judge Now Playing on glass — it measures **14.0 %
+   ink** at 480 against the 15 % list budget with the harness's synthetic art, so a real album
+   cover may trip it; the answers then are smaller art or reclassifying the surface as a canvas
+   (Music Mode's note allows 30 %).
+2. **The next window.** Adam picks from `EXPLOSION.md` §20's wow order — **Games** (#1, roster
    first; skipped once for Music) or **Feed + comics** (#5) — then the per-window refinery verdicts
-   BEFORE code, then the `WINDOWS.md` checklist with Music (`MUSIC.md`, `HANDOFF.md` §24) as the
-   latest worked precedent. Built whole, no staging; its notification toggles in its own category.
-2. **Install 0.21, grant `music access` (`DAILY.md` → Music), then on-glass verdicts for Music,
-   Torrents and the keyboard**: Music's measured items first (`DAILY.md` → Music, the list;
-   `HANDOFF.md` §24.1 "Measured vs modeled"); the keyboard's feel
-   (row pitch at 288, the highlight, the text-line pan, stay-in-row, the Tmux live rows), the
-   transfers list and lens, a real done-notification, browse / search / add against the live
-   tracker (the first real add is the first real download through the adapter). Then the
-   resumed review pass from `980d832..HEAD` — round 4 still found real defects in round 3's
-   fixes. Still owed on glass from before: Files (the menu grammar feel, viewers, the thumbnail
-   lens, theme icons at 20/56 px), the night wave (the tmux flow view, fonts previewed in their
-   own faces, per-app depth), and the live checks — the standby drill (stop the APK at the desk
-   → the PC BLE-drives → restart → handback) and a book position following a driver swap.
-3. **The Reader transitional cleanup** (UNBLOCKED — 0.16 is installed): remove the
+   BEFORE code, then the `WINDOWS.md` checklist with Music as the latest worked precedent. Built
+   whole, no staging; its notification toggles in its own category. ⚠ Games' licensing rule was
+   revised 2026-09-02 (`CLAUDE.md` clean-room): the work never ships, the WINDOW that drives it
+   may — Paperclips fetched from the author's site at run time (and Damage generates the DOM from
+   element ids rather than shipping his markup), FF1 on a ROM the user rips themselves.
+3. **On-glass verdicts still owed** for Torrents and the keyboard (the transfers list and lens, a
+   real done-notification, browse / search / add against the live tracker; the keyboard's row
+   pitch at 288, the highlight, stay-in-row), for Files (the menu grammar, viewers, the thumbnail
+   lens, theme icons at 20/56 px), and the live checks — the standby drill (stop the APK at the
+   desk → the PC BLE-drives → restart → handback) and a book position following a driver swap.
+   Then the resumed Torrents review pass from `980d832..HEAD` — round 4 still found real defects
+   in round 3's fixes.
+4. **The Reader transitional cleanup** (UNBLOCKED — 0.16 is installed): remove the
    legacy-offsets dual-write in `ReaderWindow` — the fields are marked; `restoreStateLive`'s
    `liveMapApply` mechanics go with them (update `SubstrateTest`'s migration pin). A clean first
    task for a fresh session.
-4. **MUSIC — BUILT overnight 2026-09-01/02** (`MUSIC.md` §1 = the 29 binding verdicts; M1–M6
-   committed one milestone at a time with the battery green; `HANDOFF.md` §24 = the build record
-   + the decisions made inside the plan). **Review round 1 ran 2026-09-02** (`HANDOFF.md`
-   §24.2: 10 ranked + 17 one-line findings, every one verified before a fix, all fixed — among
-   them two the APK could not have played without: cleartext HTTP and the boot foreground type).
-   **Ultrareview** (the cloud multi-agent review, two runs over synthetic base branches because
-   the whole build is 17 k lines against its 8 k cap) found 8 more the same afternoon
-   (`HANDOFF.md` §24.3) — among them Spotify's cold start blocked by package visibility and a
-   Radio fill stepping past a user's pick. What waits: **install APK 0.21**, the one-time
-   notification-access grant (`DAILY.md` → Music), the on-phone measured items (`DAILY.md` →
-   Music: the limiter's real notice text, the Spotify cold start, the Bluetooth lyric offset, the
-   visualizer rate on glass). A further review pass is optional — three passes converged on nits.
-4. **The icon-quality pass** (front of the app wave): one drawn icon per app at 20 px + 56 px —
+5. **The icon-quality pass** (front of the app wave): one drawn icon per app at 20 px + 56 px —
    the drawn set is the fallback and the release path (theme icons are personal-lane only).
-5. **Watch-items:** the left-lens seam residue (a one-shot early-burst tear — if it recurs
+6. **Watch-items:** the left-lens seam residue (a one-shot early-burst tear — if it recurs
    after a handover, harden session start); the ~20 s silent-loss window (tighten the seam
-   heartbeat constants only if it feels long in practice).
+   heartbeat constants only if it feels long in practice); and the media endpoint logs nothing on
+   a successful request, so "did the phone fetch audio?" is only answerable from cache mtimes.
 
 ## 🔴 Still unmeasured on glass
 

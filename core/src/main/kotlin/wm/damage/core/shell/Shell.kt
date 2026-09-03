@@ -104,6 +104,12 @@ class Shell(
     val menuIsOpen: Boolean get() = menu.open
     val switcherIsOpen: Boolean get() = switcher.open
     val menuTitle: String? get() = menu.current()?.title
+
+    /** The open menu's row labels, and where its cursor rests — test/harness
+     *  reach so a script can select a row BY NAME instead of counting notches
+     *  (2026-09-03: adding one row silently broke five tests that counted). */
+    val menuLabels: List<String> get() = menu.current()?.items?.map { it.label } ?: emptyList()
+    val menuCursor: Int get() = menu.cursor
     val keyboardIsOpen: Boolean get() = keyboard.open
     val keyboardTitle: String? get() = keyboard.current()?.title
     fun keyboardDraft(): String = keyboard.draft

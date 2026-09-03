@@ -72,6 +72,9 @@ abstract class PlayerCore(
     @Volatile protected var volume = 50
     @Volatile protected var curBoost = 100
     @Volatile protected var curOutput = Output.AUTO
+    /** The chosen output's stable identity — see [Output]. */
+    @Volatile protected var curOutputName = ""
+    @Volatile protected var curOutputKind = ""
     @Volatile protected var curSleep = Sleep.OFF
     @Volatile protected var curHold = true
     @Volatile protected var curProfile = AudioProfile.DEFAULT
@@ -102,6 +105,10 @@ abstract class PlayerCore(
     /** The user's held level for the limiter rule. */
     protected var heldVolume = -1
     private val resets = ArrayDeque<Long>()
+    /** The quiet-stream notice fires once per playback RUN — a per-track
+     *  notice would nag every four minutes. Cleared when playback stops or
+     *  the level comes back up. */
+    private var quietWarned = false
     private var lastPersistPos = 0L
     @Volatile private var pcDownSince = 0L
 
@@ -160,6 +167,7 @@ abstract class PlayerCore(
             changed(); return
         }
         play = if (playNow) PlayState.PLAYING else PlayState.PAUSED
+        if (playNow) warnIfQuiet()
         lastPos = startMs; lastPosAt = clock()
         historyStart = clock(); historyTrack = t
         problem = ""
@@ -167,6 +175,22 @@ abstract class PlayerCore(
         prefetchAhead()
         maybeFill("open")
         changed()
+    }
+
+    /**
+     * Playing into a stream too quiet to hear is INDISTINGUISHABLE on glass
+     * from playing normally: the state is right, the position advances, the
+     * queue moves on. It happened for real on 2026-09-02 — four tracks end to
+     * end at 8 % — so it is now SAID. Once per run; [volume] is the phone's
+     * own media level, read from the sink, never set by us at boot.
+     */
+    private fun warnIfQuiet() {
+        if (curBackend != Backend.LIBRARY) return          // Spotify owns its own level
+        if (volume > QUIET_PCT) { quietWarned = false; return }
+        if (quietWarned) return
+        quietWarned = true
+        Log.w("player", "playback started at $volume% media volume — that will not be audible")
+        emit(PlayerEvent.QuietStream(volume))
     }
 
     private fun closeHistory(cause: String) {
@@ -196,7 +220,7 @@ abstract class PlayerCore(
         if (curBackend == Backend.SPOTIFY) { spotifyCmd("play"); return@post }
         when (play) {
             PlayState.PLAYING -> {}
-            PlayState.PAUSED -> { try { sink.play() } catch (e: Exception) { fail("play", e); return@post }; play = PlayState.PLAYING; changed() }
+            PlayState.PAUSED -> { try { sink.play() } catch (e: Exception) { fail("play", e); return@post }; play = PlayState.PLAYING; warnIfQuiet(); changed() }
             PlayState.STOPPED -> if (!engine.isEmpty) openCurrent(lastPos, true, "play") else emit(PlayerEvent.Error("nothing queued"))
         }
     }
@@ -238,6 +262,7 @@ abstract class PlayerCore(
     }
 
     private fun endOfQueue(cause: String) {
+        quietWarned = false
         closeHistory(cause)
         try { sink.stop() } catch (e: Exception) { Log.w("player", "stop at queue end: ${e.message}") }
         play = PlayState.STOPPED
@@ -256,6 +281,7 @@ abstract class PlayerCore(
 
     override fun stop() = post {
         if (curBackend == Backend.SPOTIFY) { spotifyCmd("pause"); return@post }
+        quietWarned = false
         closeHistory("stop")
         try { sink.stop() } catch (e: Exception) { Log.w("player", "stop: ${e.message}") }
         play = PlayState.STOPPED
@@ -396,6 +422,7 @@ abstract class PlayerCore(
         val limiter = curHold && heldVolume > 0 && drop >= LIMITER_DROP && cause != "user-button"
         Log.i("player", "volume $volume → $v observed ($cause${if (limiter) ", limiter suspected" else ""})")
         volume = v
+        if (v > QUIET_PCT) quietWarned = false
         if (limiter) restoreHeld("drop of $drop") else { heldVolume = v; changed() }
     }
 
@@ -435,8 +462,27 @@ abstract class PlayerCore(
 
     override fun setOutput(id: String) = post {
         val ok = try { sink.setOutput(id) } catch (e: Exception) { fail("output", e); false }
-        if (ok) { curOutput = id; problem = ""; changed() }
-        else emit(PlayerEvent.Error("output '$id' refused"))
+        if (ok) {
+            curOutput = id
+            // remember what it IS, not only which handle it had today
+            val o = if (id == Output.AUTO) null else safeOutputs().firstOrNull { it.id == id }
+            curOutputName = o?.name ?: ""
+            curOutputKind = o?.kind ?: ""
+            problem = ""
+            changed()
+        } else emit(PlayerEvent.Error("output '$id' refused"))
+    }
+
+    /** A restored output that no longer exists: say so and fall back to Auto
+     *  rather than leave the UI naming a device nothing is routed to (review
+     *  2026-09-02 — `onRestored` used to ignore the sink's refusal). */
+    protected fun outputRestoreFailed() {
+        val was = curOutputName.ifEmpty { curOutput }
+        curOutput = Output.AUTO
+        curOutputName = ""
+        curOutputKind = ""
+        emit(PlayerEvent.OutputGone(was))
+        changed()
     }
 
     override fun outputs(): List<Output> = safeOutputs()
@@ -558,6 +604,8 @@ abstract class PlayerCore(
         put("prefetch", prefetchN)
         put("spotifyFallback", curSpotifyFallback)
         put("output", curOutput)
+        put("outputName", curOutputName)
+        put("outputKind", curOutputKind)
     }
 
     override fun restore(o: JsonObject) = post {
@@ -574,6 +622,10 @@ abstract class PlayerCore(
             prefetchN = o["prefetch"]?.jsonPrimitive?.intOrNull ?: 3
             curSpotifyFallback = o["spotifyFallback"]?.jsonPrimitive?.booleanOrNull ?: true
             curOutput = o["output"]?.jsonPrimitive?.contentOrNull ?: Output.AUTO
+            // the STABLE half of the identity: Android's device id is a
+            // per-connection handle and is worthless a session later
+            curOutputName = o["outputName"]?.jsonPrimitive?.contentOrNull ?: ""
+            curOutputKind = o["outputKind"]?.jsonPrimitive?.contentOrNull ?: ""
             // NEVER auto-play on boot: a restored queue is STAGED (a tap or Play starts it)
             play = PlayState.STOPPED
             onRestored()
@@ -600,6 +652,9 @@ abstract class PlayerCore(
     companion object {
         const val PREV_RESTART_MS = 3_000L
         const val RADIO_BATCH = 10
+        /** At or below this the media stream is not going to be heard: an
+         *  8 % session is what put this here (2026-09-02). */
+        const val QUIET_PCT = 10
         /** max(3 volume steps ≈ 20 % of a 15-step stream, 25 % of range). */
         const val LIMITER_DROP = 25
         const val RESET_MAX = 3

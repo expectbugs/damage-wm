@@ -325,13 +325,45 @@ class MusicWindowTest {
         fun back() = shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
         fun down() = shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
         fun up() = shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)
-        /** Scroll the QUEUE cursor onto its wrap-end menu row, wherever it rests. */
+        /** The root is NOW PLAYING since 2026-09-03: a tap there IS the Music
+         *  menu (the queue is a level inside it), so no cursor walk is needed. */
+        /** Bounded like the outer class's — an unbounded spin in here hung the
+         *  whole suite once (2026-09-03). */
+        private suspend fun until(what: String, ms: Long = 20_000, cond: () -> Boolean) {
+            val t0 = System.currentTimeMillis()
+            while (!cond() && System.currentTimeMillis() - t0 < ms) delay(20)
+            assertTrue(cond(), "did not converge: $what")
+        }
         suspend fun toMenuRow() {
-            while (!shell.isQuiescent()) delay(20)
-            val st = win.saveState()["stack"]!!.jsonArray[0].jsonObject
-            val cursor = st["cursor"]?.jsonPrimitive?.contentOrNull?.toInt() ?: 0
-            val rows = maxOf(1, player.state.queue.size) + 1
-            repeat((rows - 1 - cursor).mod(rows)) { down() }
+            until("quiescent") { shell.isQuiescent() }
+        }
+        /** Open the Music menu and land on the row LABELLED [label] — by name,
+         *  never by counting notches, so a new menu row cannot silently move
+         *  what a test selects (2026-09-03). */
+        suspend fun menuPick(label: String) {
+            if (!shell.menuIsOpen) {
+                // the Music menu lives at the ROOT: a tap inside a level opens
+                // that level's own menu, so come back up first
+                // SETTLE between backs: reading levelDepth() before the loop
+                // has processed the previous back over-backs, and a back at
+                // depth 1 leaves the window entirely (2026-09-03)
+                until("settled before backing out") { shell.isQuiescent() }
+                var n = 0
+                while (win.levelDepth() > 1 && n++ < 8) {
+                    back()
+                    until("back settled") { shell.isQuiescent() }
+                }
+                // BOUNDED like every other wait in this file: an unbounded
+                // spin here hung the whole suite once (2026-09-03)
+                until("root quiescent before the menu") { shell.isQuiescent() }
+                tap()
+                until("the Music menu opened for '$label' (depth ${win.levelDepth()}, title ${win.title()})") { shell.menuIsOpen }
+            }
+            val i = shell.menuLabels.indexOfFirst { it == label || it.startsWith(label) }
+            assertTrue(i >= 0, "menu row '$label' not in ${shell.menuLabels}")
+            val n = shell.menuLabels.size
+            repeat((i - shell.menuCursor).mod(n)) { down() }
+            tap()
         }
         suspend fun backToMain() {
             var n = 0
@@ -396,8 +428,9 @@ class MusicWindowTest {
             awaitTrue("music opens empty") { r.win.title() == "music" && r.shell.currentWindowId() == "music" }
             assertEquals("idle", r.win.summary().line)
             assertTrue(lib.ops.contains("focus:true"))
-            // the empty row → Browse → Artists → Pink Floyd → All tracks → Play now
-            r.tap(); awaitTrue("browse") { r.win.title() == "browse" }
+            // the ROOT is Now Playing (2026-09-03): a tap opens the Music menu
+            // → Browse → Artists → Pink Floyd → All tracks → Play now
+            r.menuPick("Browse"); awaitTrue("browse") { r.win.title() == "browse" }
             r.tap(); awaitTrue("artists") { r.win.title() == "artists" }
             r.tap(); awaitTrue("artist") { r.win.title() == "Pink Floyd" }
             r.tap(); awaitTrue("set menu") { r.shell.menuIsOpen && r.shell.menuTitle == "Pink Floyd" }
@@ -406,35 +439,33 @@ class MusicWindowTest {
             assertEquals(1, player.state.track!!.id)
             awaitTrue("the summary follows the player") { r.win.summary().line.startsWith("playing · Time") }
             repeat(3) { r.back() }
-            awaitTrue("back at the queue") { r.win.title().startsWith("queue 1/2") && r.win.levelDepth() == 1 }
-            // the cursor rests on the current entry; the row menu opens with Pause first
+            awaitTrue("back at Now Playing") { r.win.title() == "now playing" && r.win.levelDepth() == 1 }
+            // the queue is a LEVEL now: open it from the menu, and the cursor
+            // rests on the current entry; the row menu opens with Pause first
+            r.menuPick("Queue")
+            awaitTrue("the queue level") { r.win.title().startsWith("queue 1/2") && r.win.levelDepth() == 2 }
             r.tap(); awaitTrue("entry menu") { r.shell.menuIsOpen && r.shell.menuTitle == "Time" }
             r.tap(); awaitTrue("paused") { player.state.play == PlayState.PAUSED }
             // the second row: Play from here
             r.down(); r.tap(); awaitTrue("row 2 menu") { r.shell.menuIsOpen && r.shell.menuTitle == "Money" }
             r.tap(); awaitTrue("play from here") { player.state.index == 1 && player.state.play == PlayState.PLAYING }
             // one up from the top wraps to the Music menu; Ask via the keyboard (a replica line commits the draft)
-            r.toMenuRow(); r.tap()
-            awaitTrue("music menu") { r.shell.menuIsOpen && r.shell.menuTitle == "music" }
-            repeat(4) { r.down() }; r.tap()                            // Ask
+            r.menuPick("Ask")
             awaitTrue("keyboard") { r.shell.keyboardIsOpen && r.shell.keyboardTitle == "ask for music" }
             r.transport.injectText("hard metal")
             awaitTrue("the ask played the vocab lane") { player.state.label == "metal" && player.state.queue.size == 2 && player.state.track!!.id == 3 }
             assertTrue(lib.ops.contains("ask:hard metal"))
             // Lyrics: the current track has none → the honest line
-            r.toMenuRow(); r.tap(); awaitTrue("menu again") { r.shell.menuIsOpen && r.shell.menuTitle == "music" }
-            repeat(10) { r.down() }; r.tap()                           // Lyrics
+            r.menuPick("Lyrics")
             awaitTrue("lyrics level") { r.win.title() == "lyrics" && r.win.levelDepth() == 2 }
             r.back(); awaitTrue("back from lyrics") { r.win.levelDepth() == 1 }
             // Seek: rest on +10 s; tap seeks
-            r.toMenuRow(); r.tap(); awaitTrue("menu 3") { r.shell.menuIsOpen && r.shell.menuTitle == "music" }
-            repeat(11) { r.down() }; r.tap()                           // Seek
+            r.menuPick("Seek")
             awaitTrue("seek") { r.win.title() == "seek" }
             r.tap(); awaitTrue("sought +10 s") { player.positionMs() >= 10_000 }
             r.back()
             // Playlists → Hard Stuff → Play at random (a replace while playing CONFIRMS)
-            r.toMenuRow(); r.tap(); awaitTrue("menu 4") { r.shell.menuIsOpen && r.shell.menuTitle == "music" }
-            repeat(6) { r.down() }; r.tap()                            // Playlists
+            r.menuPick("Playlists")
             awaitTrue("playlists") { r.win.title() == "playlists" }
             r.tap(); awaitTrue("playlist rows") { r.win.title() == "Hard Stuff" && r.win.saveState()["stack"]!!.jsonArray.size == 3 }
             awaitTrue("rows loaded") { r.shell.isQuiescent() }
@@ -444,9 +475,8 @@ class MusicWindowTest {
             r.up(); r.tap(); awaitTrue("playlist menu") { r.shell.menuIsOpen && r.shell.menuTitle == "Hard Stuff" }
             r.back()
             // Save queue as playlist: an existing name asks TWICE
-            r.back(); r.back(); awaitTrue("queue again") { r.win.levelDepth() == 1 }
-            r.toMenuRow(); r.tap(); awaitTrue("menu 5") { r.shell.menuIsOpen && r.shell.menuTitle == "music" }
-            repeat(12) { r.down() }; r.tap()                           // Save queue as playlist
+            r.back(); r.back(); awaitTrue("back at Now Playing") { r.win.levelDepth() == 1 }
+            r.menuPick("Save queue as playlist")
             awaitTrue("name keyboard") { r.shell.keyboardIsOpen && r.shell.keyboardTitle == "playlist name" }
             r.transport.injectText("hard stuff")
             awaitTrue("first confirm") { r.shell.menuIsOpen && (r.shell.menuTitle ?: "").startsWith("'hard stuff' exists") }
@@ -456,8 +486,7 @@ class MusicWindowTest {
             r.down(); r.down(); r.tap()
             awaitTrue("saved over") { lib.ops.any { it.startsWith("save:hard stuff:[") && it.endsWith("]:true") } }
             // a YouTube result grab stages a confirm; the done push offers the track
-            r.toMenuRow(); r.tap(); awaitTrue("menu 6") { r.shell.menuIsOpen && r.shell.menuTitle == "music" }
-            repeat(5) { r.down() }; r.tap()                            // Browse
+            r.menuPick("Browse")
             awaitTrue("browse 2") { r.win.title() == "browse" }
             repeat(7) { r.down() }; r.tap()                            // YouTube
             awaitTrue("yt keyboard") { r.shell.keyboardIsOpen && r.shell.keyboardTitle == "search youtube" }
@@ -506,8 +535,9 @@ class MusicWindowTest {
             awaitTrue("music opens") { r.shell.currentWindowId() == "music" }
             player.playQueue(lib.tracks.map { it.ref() }, 2, Mode.QUEUE, "all")
             awaitTrue("playing") { r.win.summary().line.startsWith("playing · Dragula") }
-            r.tap(); awaitTrue("entry menu") { r.shell.menuIsOpen }
-            r.down(); r.tap()                                          // Track info
+            // the root is Now Playing (2026-09-03): the CURRENT track's info is
+            // a Music-menu row, picked by name
+            r.menuPick("Track info")
             awaitTrue("info") { r.win.title() == "track" && r.win.levelDepth() == 2 }
             val saved = r.win.saveState()
             val sub = r.win.saveSubState()["player"]!!

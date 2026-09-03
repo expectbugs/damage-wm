@@ -415,10 +415,14 @@ one window: `wm.damage.core.windows.music`.
   `LoudnessEnhancer` boost; `TrackCache` prefetch; `SpotifyRemote`; the listener's notice),
   and `MirrorMusicPlayer` (the desktop: shows the synced record, refuses transport loudly, hands
   the record back byte-equal).
-- **The window** — QUEUE (the lens is the Now Playing card: 56 px art, title, artist — album,
-  a 12-block bar + m:ss / m:ss, the state glyph drawn, the PC/Spotify badge, the boost/sleep
-  badge; the cursor rests on the current entry and follows `qid`) → the row menu / the
-  wrap-end Music menu (§8.2) → BROWSE (artists → artist → tracks, albums, moods & genres,
+- **The window** — NOW PLAYING (the root since 2026-09-03, verdict 4 reversed: a canvas, not a
+  list — art 160/120/88 px by height, title, artist — album, the PC/Spotify and boost/sleep
+  badges, the state glyph + elapsed / progress / total, the media level with the queue position
+  (drawn HOT at or below `PlayerCore.QUIET_PCT` = 10 %), and the current synced lyric line when
+  one is loaded and it fits. **Scroll = volume live, tap = the Music menu**, no cursor) → the
+  Music menu (§8.2) → QUEUE (a level now: rows + the row menu; opens RESTING on the current
+  entry and follows `qid`; its own wrap-end row is the menu) · TRACK INFO for the current
+  track · BROWSE (artists → artist → tracks, albums, moods & genres,
   playlists → playlist with edit mode, collections as a folder tree, recent, search and
   YouTube through the keyboard) · LYRICS (a canvas: the current line bright, the scheduler
   flushing a line ahead of its stamp, scroll = ±50 ms per output device, plain pages) · SEEK ·
@@ -441,7 +445,7 @@ one window: `wm.damage.core.windows.music`.
   notice) and the snapshot scenes 30–39; `--music-check` probes the real Postgres / Qdrant /
   cache read-only (plus one viz precompute); core tests: `MusicTest`, `MusicWindowTest`,
   `MusicModeTest`, `ResolverTest`, `LyricsFetchTest`, `YouTubeTest`, `VizTest`, `EnrichTest`.
-  Battery after Music and its reviews (incl. review 2 of the whole codebase, 2026-09-02): core 319 · desktop 9 · selfcheck 134 · snapshots 36 · lint 0.
+  Battery at the Now Playing root (2026-09-03): core 319 · desktop 9 · selfcheck 139 · snapshots 36 · lint 0.
 
 ## Torrents + the keyboard (2026-09-01, TORRENTS.md · DESIGN.md §4.8)
 
@@ -686,7 +690,9 @@ of them are load-bearing and easy to break by accident:
 
 ## Verification
 
-- `./gradlew :core:test` — 317 unit/integration tests (2026-09-01/02 added the Music set:
+- `./gradlew :core:test` — **319** unit/integration tests (2026-09-02's whole-codebase review 2
+  added `Round9Test` ×2 — the notification source fit and the media endpoint's range contract;
+  2026-09-01/02 added the Music set:
   `MusicTest` ×8, `MusicWindowTest` ×7, `MusicModeTest` ×2, `ResolverTest` ×19, `LyricsFetchTest`
   ×24, `YouTubeTest` ×13, `VizTest` ×12, `EnrichTest` ×11 — plus `--music-check` against the real
   library, not part of the suite; 2026-09-01 evening added

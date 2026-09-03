@@ -5,7 +5,7 @@ lessons and measured facts behind the current state.**
 
 | § | what | status |
 |---|---|---|
-| **24** | **Music (2026-09-02): the design verdicts + plan, the overnight build — M1–M6, six commits, the shell's EXCLUSIVE mode (§24.1) — then review round 1 (§24.2) and two ultrareview runs (§24.3), all the same day** | **current** |
+| **24** | **Music (2026-09-02): the design verdicts + plan, the overnight build — M1–M6, six commits, the shell's EXCLUSIVE mode (§24.1) — then review round 1 (§24.2) and two ultrareview runs (§24.3), all the same day; §24.4 the silent-playback session and the NOW PLAYING root (2026-09-03)** | **current** |
 | 23 | Torrents + the keyboard (2026-09-01, evening): the second conversion, built whole, + a 4-round review loop — PAUSED at Adam's word, not converged; its round-4 diff is `980d832..390a25c` | current |
 | 22 | The overnight build (2026-09-01): §16 machinery + FILES + the 8-round review loop, run to convergence | current |
 | **21** | The live refinery + Files chosen + the settled Files design (2026-09-01) | current |
@@ -749,14 +749,14 @@ today with Adam's go: `REINDEX DATABASE g2cc` + `ALTER DATABASE g2cc REFRESH COL
 | M1 host foundation | `36343dc` | `MusicModel` (types + the two contracts), the `Db` seam + `PgDb` (pgjdbc 42.7.13 over the Unix socket via junixsocket 2.11.1, peer auth), `MusicDb` (every query + the additive `lyrics.source/track_id` migration recorded in `damage_schema`), `Qdrant`, `MediaCache` + transcoder, `MediaServer` (:7404, Range), `Art`, `LibraryScan`, `LocalMusicLibrary`, `MusicNet` (service + remote with disk caches), the `WinNet` PUSH slice; `--music-check` passed against the real DB |
 | M2 window | `2acf432` | `MusicWindow` (every level at four heights), `QueueEngine`, `PlayerCore` + `SimMusicPlayer` + `MirrorMusicPlayer`, `LyricsSync`; `ScriptedMusic`, the selfcheck walk, snapshot scenes 30–37; the six delegated leaf modules (Resolver + ClaudeOneShot + EmbedQuery, LyricsFetch, YouTube, Viz, `audio/` + viz.py + Enrich, MusicListener + SpotifyRemote) |
 | M3 shell | `fc2fa99` | `Mode.EXCLUSIVE` (`DESIGN.md` §4.9) and Music Mode's per-height surface stack; `MusicModeTest`; selfcheck at 480/Bars + 288/Scope; scenes 38–39 |
-| M4 APK | `67d65b8` | `AndroidMusicPlayer` (ExoPlayer + media3 session over a ForwardingPlayer), `TrackCache`, media3 1.5.1, the manifest's mediaPlayback type, `Prefs.mediaPort`, the service registration, the Global **Phone notifications** switch, the strip's `music access` grant; APK 19/0.19 (20/0.20 after §24.2, 21/0.21 after §24.3) |
+| M4 APK | `67d65b8` | `AndroidMusicPlayer` (ExoPlayer + media3 session over a ForwardingPlayer), `TrackCache`, media3 1.5.1, the manifest's mediaPlayback type, `Prefs.mediaPort`, the service registration, the Global **Phone notifications** switch, the strip's `music access` grant; APK 19/0.19 (20/0.20 after §24.2, 21/0.21 after §24.3, 22/0.22 after §24.4) |
 | M5 host features | `72cae3d` | the lyric-sources choice pushed to the host (one fetch chain per choice; a source FAULT throws, a MISS stands until the sources widen), `Enrich` + `LyricsFetch` wired, `musicAudioDir`; `--music-check` runs the deterministic lanes and one real viz precompute |
 | M6 docs + staging | `178603f` | this record, `MUSIC.md` corrections, `IMPLEMENTATION.md` Music, `DAILY.md` Music, `REMINDER.md`, `WINDOWS.md` (five precedents), memory; jar + APK staged, the service restarted |
 
 **The battery at M5 (all green):** core **315** tests (was 221 before Music) · desktop 9 ·
 selfcheck **134** checks · snapshots **36** · epub-check clean · lint 0 · `--music-check` all
 pass against the real `g2cc` (2,981 tracks, catalog 1,440 KB in ~70 ms, legacy cache 20/20,
-Qdrant 2,981 points, lanes 1 answer, one viz blob) · `:phone:assembleDebug` 0.19 (0.20 after §24.2, 0.21 after §24.3).
+Qdrant 2,981 points, lanes 1 answer, one viz blob) · `:phone:assembleDebug` 0.19 (0.20 after §24.2, 0.21 after §24.3, 0.22 after §24.4).
 
 **Delegation:** six Opus agents in isolated worktrees, each with the fixed interfaces
 (`Plugins.kt`, `MusicModel.kt`) and its own tests: LyricsFetch ×24 · YouTube ×13 · Resolver ×19 ·
@@ -907,3 +907,110 @@ Three passes in one day converged on nits: a further pass is optional, not owed.
 **Battery at close (all green, measured):** core **317** · desktop 9 · selfcheck 134 · snapshots
 36 · epub-check clean · lint 0 · `:phone:assembleDebug` **0.21**; jar + APK staged, the service
 restarted on the closing build.
+
+---
+
+## §24.4 The silent-playback session, and the NOW PLAYING root (2026-09-03)
+
+**What Adam reported:** Music "did not play music. It seemed to think it was playing, but no
+sound came out of my earbud." Tmux, Files and Torrents all worked.
+
+**What actually happened — measured from his own machine, not inferred:**
+
+- `~/.damage/media-cache/high-mono-loudnorm/` held **ten tracks transcoded 18:22–18:38**, the
+  last three **3.5 and 5 minutes apart** — song-length gaps, so the queue advanced in real time.
+- The synced player record (`window.music.player`, stamped 18:50:30) read `play: PAUSED`,
+  `engine.index: 3` of a 55-track "Power Metal" queue, `posMs: 146651`, `output: 'auto'`,
+  `profile: high-mono-loudnorm`, `holdVolume: true` — and **`volume: 8`**.
+
+So the whole chain worked: the PC served, the phone downloaded and decoded, four tracks played
+end to end, and the state was accurate. **The phone's media stream was at 8 %** — on Android's
+curve roughly step 1 of 15, against loudnorm'd −16 LUFS content. Inaudible.
+
+**Damage did not set it there.** Only three paths write the system volume (the ring's Volume
+canvas, the Settings row, the limiter's restore) and all are user-driven or upward-only;
+`PlayerCore.restore` deliberately never applies a persisted volume — the level is the phone's
+own truth, read from the sink at start. It read 8 % and played into it.
+
+**The defect was that nothing said so**, on a device whose whole premise is that you are not
+looking at your phone. Three fixes:
+
+1. **`PlayerEvent.QuietStream`** — playback starting at or below `PlayerCore.QUIET_PCT` (10 %)
+   raises a notice on glass, once per playback RUN (a per-track notice would nag every four
+   minutes); the latch clears on stop, on queue end, and when the level comes back up.
+2. **The output is restored by STABLE identity.** `onRestored()` matched a saved output by
+   `AudioDeviceInfo.getId()` — a per-connection handle that changes on every reconnect and gets
+   reused for other devices — and ignored `setOutput`'s `false` return, so a stale id silently
+   selected nothing while the UI kept naming the device. The record now carries `outputName` +
+   `outputKind`, matching is name+kind first, and a miss raises `PlayerEvent.OutputGone` and
+   falls back to Auto. (It did not cause this session — his record said `auto`.)
+3. **The media endpoint logs nothing on success**, so "did the phone ever fetch audio?" was not
+   answerable from the PC log; it had to be inferred from cache mtimes. Noted, not yet fixed.
+
+### The root is NOW PLAYING (verdict 4 reversed)
+
+Adam, the same session: *"lets put the queue as a menu option rather than the main screen …
+the main screen should be a useful, really nice looking Now Playing screen. That way i can see
+what is playing and where in the song it is and what the volume level is at etc."*
+
+`Kind.NOWPLAYING` is the root frame; `Kind.QUEUE` became a pushed level reached from a **Queue**
+menu row (a **Track info** row joined it, since the current track's info used to be one tap away
+on the queue row menu). The root is a Canvas: **scroll = volume live, tap = the Music menu**,
+no cursor. Four TOP-aligned bands (Adam's fit loses the bottom): identity with art at
+160/120/88 px by height · elapsed/progress/total · the level with the queue position, **drawn
+HOT at or below 10 %** so the 8 % session announces itself without a notice at all · the current
+synced lyric line when one is loaded and it fits.
+
+Everything that addressed the queue by POSITION now addresses it by KIND (`queueFrame`), a
+pre-2026-09-03 record with `QUEUE` at position 0 maps onto the new root, and the deep link
+`t:<id>` opens the queue level rather than moving a cursor the root no longer has.
+
+**Harness lesson:** five tests and the whole selfcheck Music section broke because they selected
+menu rows by COUNTING notches; one new row moved everything. `Shell.menuLabels` / `menuCursor`
+are now exposed and every harness picks rows **by name**. An unbounded wait added to the test rig
+hung the suite once — every wait in a harness is bounded, loudly.
+
+**Battery (all green, measured):** core **319** · desktop 9 · selfcheck **139** (four new Music checks) ·
+epub-check clean · `--music-check` all pass · lint 0 · **APK 22/0.22 staged** (the first build
+carrying the Now Playing root and both player fixes; 0.21 superseded). Snapshots renamed
+`30-music-nowplaying-480` / `36-music-nowplaying-288`.
+
+### The review pass on the new code (same session)
+
+Seven issues in what had just been written; all verified, all fixed:
+
+1. **The output restore matched ANY same-kind device** as its second fallback —
+   with the earbud and the glasses both "bluetooth" that is a coin flip, which is
+   the very defect the change replaced. It now takes an exact product-name+kind
+   match, accepts a same-kind device ONLY when the saved name *was* the kind label
+   (no product name was available) and exactly one exists, and otherwise refuses
+   loudly to Auto, clearing `preferredDevice` on the way.
+2. **The queue level opened on row 0** instead of resting on the current track —
+   `push()`'s cursor table had no QUEUE branch, so §8.1's "at rest the cursor sits
+   on the current track" was lost when the queue stopped being the root. It rests
+   again, and seeds `cursorSetByMe` so the follow-the-identity logic does not read
+   the fresh frame as "the user moved".
+3. **The Queue menu row could stack a second QUEUE frame** on top of the one
+   already showing (the queue level's own wrap-end row reaches that menu). Guarded.
+4. **`QuietStream` and `OutputGone` were title notices only** — invisible when
+   playback starts from an earbud tap with Music off screen, which is exactly when
+   a silent stream is hardest to explain. Both now follow the `Error` idiom: the
+   notice on screen, a notification when not.
+5. **My `QUIET_PCT` doc comment displaced `LIMITER_DROP`'s**, leaving one constant
+   documented as the other. Restored.
+6. **The queue position was an unbounded right-align** (the F2 class, twice fixed
+   elsewhere): a long mode label with a big queue walks left over the level
+   readout. Measured, then fitted.
+7. **A dead branch and a wasted fetch:** the empty-state's "stopped" arm is
+   unreachable (`entry` is `queue[index]`, so a stopped player with rows paints the
+   full surface), and `npArtPx` started at 96 while the shipped 480 height wants
+   160 — one wasted art request per session. Both corrected.
+
+Also dispelled by reading rather than assumed: the desktop mirror cannot emit the
+new events (`MirrorMusicPlayer` does not extend `PlayerCore`), player events already
+marshal to the shell loop, and `AndroidMusicPlayer.positionMs()` is off-thread safe,
+so the painter may call it.
+
+⚠ **Watch:** Now Playing measures **14.0 % ink** at 480 with the harness's synthetic art, against
+the 15 % list budget. Real album art may trip it; the answers if it does are smaller art or
+reclassifying the surface as a canvas (Music Mode's note allows 30 %).

@@ -47,8 +47,10 @@ import wm.damage.core.util.Log
  * MUSIC — `MUSIC.md` (design settled with Adam 2026-09-02, 29 verdicts):
  * the G2CC music system taken over whole, played on the PHONE, on glass.
  *
- *   QUEUE (List, root; the lens is the Now Playing CARD) ──tap row──▶ row MENU
- *      │ wrap-end row = the Music MENU (§8.2)
+ *   NOW PLAYING (Canvas, root — 2026-09-03, verdict 4 REVERSED: the queue was
+ *   the root and is now a menu row) ──tap──▶ the Music MENU (§8.2)
+ *      │ scroll = the volume, live; there is no cursor on this surface
+ *      ├─ QUEUE (List) ──tap row──▶ row MENU · its own wrap-end row = the menu
  *      ├─ BROWSE → ARTISTS → ARTIST (albums + all) → tracks · ALBUMS → ALBUM ·
  *      │   MOODS & GENRES → term · PLAYLISTS → PLAYLIST · COLLECTIONS (folders) ·
  *      │   RECENT · SEARCH (keyboard) → RESULTS · YOUTUBE (keyboard) → results → grab
@@ -74,7 +76,7 @@ class MusicWindow(
 
     private val tx = styledText(text)
 
-    private enum class Kind { QUEUE, BROWSE, ARTISTS, ARTIST, ALBUMS, ALBUM, VOCAB, TERM, PLAYLISTS, PLAYLIST, FOLDER, RECENT, RESULTS, YT, INFO, LYRICS, SEEK, VOLUME }
+    private enum class Kind { NOWPLAYING, QUEUE, BROWSE, ARTISTS, ARTIST, ALBUMS, ALBUM, VOCAB, TERM, PLAYLISTS, PLAYLIST, FOLDER, RECENT, RESULTS, YT, INFO, LYRICS, SEEK, VOLUME }
 
     /** One level on the back stack. Rows derive from the catalog (cheap,
      *  cached per catalog version + player state) or from an async load. */
@@ -112,9 +114,15 @@ class MusicWindow(
 
     private class DocLine(val s: String, val f: FontSpec, val lv: Int, val indent: Int = 0)
 
-    private val stack = ArrayList<Frame>().apply { add(Frame(Kind.QUEUE)) }
+    private val stack = ArrayList<Frame>().apply { add(Frame(Kind.NOWPLAYING)) }
     private val top: Frame get() = stack.last()
     private val root: Frame get() = stack.first()
+
+    /** The QUEUE frame when one is open. Since 2026-09-03 the root is NOW
+     *  PLAYING and the queue is a pushed level (Adam: "put the queue as a
+     *  menu option rather than the main screen"), so every piece of cursor
+     *  bookkeeping addresses the queue frame by kind, never by position. */
+    private val queueFrame: Frame? get() = stack.lastOrNull { it.kind == Kind.QUEUE }
 
     private var services: ShellServices? = null
     private var registered = false
@@ -223,7 +231,16 @@ class MusicWindow(
         val before = st
         st = s
         // the queue cursor follows its row's IDENTITY across a reorder
-        val r = root
+        val r = queueFrame
+        if (r == null) {
+            // no queue level open: only the Now Playing surface cares, and it
+            // has no cursor — repaint and be done
+            invalidateRows()
+            if (before.entry?.qid != s.entry?.qid) { lyricsGen++; if (top.kind == Kind.LYRICS || exclusive) loadLyrics() }
+            if (s.problem.isNotEmpty() && s.problem != before.problem) setNotice(s.problem)
+            if (active || exclusive) render()
+            return
+        }
         val rowsBefore = r.rowsCache
         val onQid = (rowsBefore?.getOrNull(r.model.cursor) as? Row.Entry)?.e?.qid
         val onMenu = rowsBefore != null && r.model.cursor == rowsBefore.size - 1 && rowsBefore.size > 1
@@ -241,7 +258,7 @@ class MusicWindow(
             onQid != null -> after.indexOfFirst { (it as? Row.Entry)?.e?.qid == onQid }.takeIf { it >= 0 } ?: r.model.cursor.coerceIn(0, maxOf(0, after.size - 1))
             else -> r.model.cursor.coerceIn(0, maxOf(0, after.size - 1))
         }
-        if (userMoved && !(trackChanged && !userMoved)) r.model.cursor = rest else setRootCursor(rest)
+        if (userMoved && !(trackChanged && !userMoved)) r.model.cursor = rest else setQueueCursor(rest)
         if (trackChanged) { lyricsGen++; if (top.kind == Kind.LYRICS || exclusive) loadLyrics() }
         if (s.problem.isNotEmpty() && s.problem != before.problem) setNotice(s.problem)
         if (active || exclusive) render()
@@ -251,8 +268,11 @@ class MusicWindow(
      *  user scrolled away, and a track change must not yank it back under
      *  them (it rests on the current entry on ENTRY, §8.1). */
     private var cursorSetByMe = -1
-    private val userMovedCursor: Boolean get() = root.model.cursor != cursorSetByMe
-    private fun setRootCursor(i: Int) { root.model.cursor = i; cursorSetByMe = i }
+    private val userMovedCursor: Boolean get() {
+        val q = queueFrame ?: return false
+        return q.model.cursor != cursorSetByMe
+    }
+    private fun setQueueCursor(i: Int) { queueFrame?.let { it.model.cursor = i }; cursorSetByMe = i }
 
     private fun currentRowIndex(rows: List<Row>): Int = rows.indexOfFirst { (it as? Row.Entry)?.idx == st.index }.coerceAtLeast(0)
 
@@ -260,7 +280,7 @@ class MusicWindow(
         // the card repaints on a coarse pace (5 s while focused — a lens
         // repaint is a few hundred bytes; 1 Hz would be a 10 % link duty)
         val now = clock()
-        if (top.kind == Kind.QUEUE && active && now - lastCardRepaint >= CARD_PACE_MS) { lastCardRepaint = now; render() }
+        if ((top.kind == Kind.QUEUE || top.kind == Kind.NOWPLAYING) && active && now - lastCardRepaint >= CARD_PACE_MS) { lastCardRepaint = now; render() }
         if (top.kind == Kind.SEEK && active) render()
         if (top.kind == Kind.LYRICS) scheduleLyricFlush()
         if (exclusive) exclusiveTick(posMs)
@@ -283,6 +303,22 @@ class MusicWindow(
             is PlayerEvent.LimiterKeeps -> services?.notifyInternal("music", dn(e.detail, fBody), appId = id, thread = "limiter")
             PlayerEvent.BoostOff -> setNotice("boost off")
             is PlayerEvent.BoostLoud -> setNotice("max volume and boost ${e.boost}% — loud")
+            // the 2026-09-02 silent session: playing into a stream nobody can
+            // hear looks exactly like playing, so it is SAID on glass
+            // both follow the Error idiom: the title notice while the window is
+            // on screen, a notification when it is NOT — playback can start from
+            // an earbud tap with Music nowhere in sight, which is exactly when a
+            // silent stream is hardest to explain (review 2026-09-03)
+            is PlayerEvent.QuietStream -> {
+                setNotice("phone volume ${e.pct}% — nothing will be audible; scroll here to raise it")
+                if (!active && !exclusive) services?.notifyInternal("music",
+                    "playing at ${e.pct}% phone volume — turn it up", appId = id, thread = "quiet")
+            }
+            is PlayerEvent.OutputGone -> {
+                setNotice("output \"${dn(e.name, fSmall)}\" is not here — back to Auto")
+                if (!active && !exclusive) services?.notifyInternal("music",
+                    "output \"${dn(e.name, fBody)}\" is not here — back to Auto", appId = id, thread = "output")
+            }
             is PlayerEvent.SleepEnded -> services?.notifyInternal("music", dn(e.detail, fBody), appId = id, thread = "sleep")
             is PlayerEvent.BackendChanged -> if (e.automatic) services?.notifyInternal("music", "PC unreachable — switched to Spotify", appId = id, thread = "backend")
                 else setNotice(if (e.backend == Backend.SPOTIFY) "Spotify on the phone" else "back to the PC library")
@@ -351,7 +387,7 @@ class MusicWindow(
         library.setFocused(true, CARD_PACE_MS)
         st = player.state
         invalidateRows()
-        if (top.kind == Kind.QUEUE) setRootCursor(root.pendingCursor ?: currentRowIndex(rows(root)))
+        queueFrame?.let { q -> if (top.kind == Kind.QUEUE) setQueueCursor(q.pendingCursor ?: currentRowIndex(rows(q))) }
         bg.launch(Dispatchers.IO) { try { library.refreshCatalog() } catch (e: Exception) { Log.w("music", "catalog refresh: ${e.message}") } }
         if (needsReload) { needsReload = false; reloadTop() }
         if (top.kind == Kind.LYRICS) loadLyrics()
@@ -381,6 +417,13 @@ class MusicWindow(
                 { openTrackMenu(cat.track(f.key.toIntOrNull() ?: -1)?.ref() ?: TrackRef(f.key.toIntOrNull() ?: 0, f.key)) }, stepLines = { 5 })
             Kind.LYRICS -> { demandLyrics(); WindowView.CanvasView(::paintLyrics, onScroll = ::nudgeLyrics, onTap = ::openLyricsMenu) }
             Kind.VOLUME -> WindowView.CanvasView(::paintVolume, onScroll = { d -> player.setVolume(st.volume + d * 5, "ring"); render() }, onTap = { back(); render() })
+            // the ROOT (2026-09-03): everything worth glancing at, and the
+            // ring's two continuous gestures do the two continuous things —
+            // scroll is the volume (the 8 % session's lesson: the level must
+            // be both visible AND reachable without a menu), tap is the menu
+            Kind.NOWPLAYING -> { demandArt(); WindowView.CanvasView(::paintNowPlaying,
+                onScroll = { d -> player.setVolume(st.volume + d * 5, "ring"); render() },
+                onTap = { openMenu() }) }
             else -> {
                 demandArt()
                 WindowView.ListView(f.model, { rows(f).size }, { g, i, r, dim -> paintRow(f, g, i, r) }, { g, r, i -> paintLens(f, g, r, i) }, { i -> commit(f, i) })
@@ -393,7 +436,8 @@ class MusicWindow(
         if (n != null && clock() < noticeUntil) return n
         val f = top
         return when (f.kind) {
-            Kind.QUEUE -> if (st.queue.isEmpty()) "music" else "queue ${st.index + 1}/${st.queue.size}"
+            Kind.NOWPLAYING -> if (st.entry == null) "music" else "now playing"
+            Kind.QUEUE -> if (st.queue.isEmpty()) "queue" else "queue ${st.index + 1}/${st.queue.size}"
             Kind.BROWSE -> "browse"
             Kind.ARTISTS -> "artists"
             Kind.ARTIST -> dn(f.key, fSmall)
@@ -442,7 +486,7 @@ class MusicWindow(
         f.seq++
         if (f.loading) services?.setOperation("idle")
         if (f.kind == Kind.LYRICS) lyricsGen++
-        if (top.kind == Kind.QUEUE) { root.model.cursor = root.model.cursor.coerceIn(0, maxOf(0, rows(root).size - 1)) }
+        queueFrame?.let { q -> if (top.kind == Kind.QUEUE) q.model.cursor = q.model.cursor.coerceIn(0, maxOf(0, rows(q).size - 1)) }
         return true
     }
 
@@ -467,11 +511,19 @@ class MusicWindow(
                 // resolve BEFORE touching the stack: a refused target leaves the
                 // levels as they were (the half-open-keyboard lesson)
                 val tid = target.removePrefix("t:").toIntOrNull() ?: return false
-                val i = rows(root).indexOfFirst { (it as? Row.Entry)?.e?.track?.id == tid }
-                if (i < 0 && cat.track(tid) == null && st.queue.none { it.track.id == tid }) return false
+                val queued = st.queue.indexOfFirst { it.track.id == tid }
+                if (queued < 0 && cat.track(tid) == null) return false
                 for (f in stack.drop(1)) f.seq++
                 stack.subList(1, stack.size).clear()
-                if (i >= 0) { root.model.cursor = i; cursorSetByMe = -1; return true }   // a deliberate jump: a later track change leaves it
+                if (queued >= 0) {
+                    // the queue is a LEVEL now (2026-09-03): open it and land
+                    // on the row rather than moving a cursor the root no longer has
+                    push(Frame(Kind.QUEUE))
+                    val q = queueFrame ?: return true
+                    val i = rows(q).indexOfFirst { (it as? Row.Entry)?.e?.track?.id == tid }
+                    if (i >= 0) { q.model.cursor = i; cursorSetByMe = -1 }   // a deliberate jump: a later track change leaves it
+                    return true
+                }
                 push(Frame(Kind.INFO, "$tid"))
                 return true
             }
@@ -499,6 +551,10 @@ class MusicWindow(
         stack.add(f)
         f.model.cursor = when (f.kind) {
             Kind.SEEK -> 3          // "+10 s": a harmless rest (§1.7)
+            // §8.1: the queue opens RESTING on the current track. That was the
+            // ROOT's behaviour until 2026-09-03 and it has to survive the move
+            // to a pushed level — otherwise opening Queue always lands on row 0
+            Kind.QUEUE -> currentRowIndex(rows(f)).also { cursorSetByMe = it }
             else -> 0
         }
         if (f.kind == Kind.PLAYLIST || f.kind == Kind.RESULTS || f.kind == Kind.YT || f.kind == Kind.RECENT) load(f)
@@ -508,7 +564,8 @@ class MusicWindow(
     private fun invalidateRows() { for (f in stack) f.rowsCache = null }
 
     private fun rowsKey(f: Frame): Any = listOf(catalogVersion, f.kind, f.key, f.edit, f.loading, f.error, f.tracks?.size, f.yt?.size,
-        if (f.kind == Kind.QUEUE) st.queue.size * 31 + st.index else 0, if (f.kind == Kind.QUEUE) st.queue.hashCode() else 0)
+        if (f.kind == Kind.QUEUE || f.kind == Kind.NOWPLAYING) st.queue.size * 31 + st.index else 0,
+        if (f.kind == Kind.QUEUE || f.kind == Kind.NOWPLAYING) st.queue.hashCode() else 0)
 
     private fun rows(f: Frame): List<Row> {
         val k = rowsKey(f)
@@ -810,6 +867,12 @@ class MusicWindow(
      *  the loop, never from a paint (the L1 class). */
     private fun demandArt() {
         if (!active && !exclusive) return      // a switcher PREVIEW renders this window too — never a request from a render
+        // Now Playing draws the current track's art LARGE (2026-09-03); every
+        // list surface keeps the 56 px lens size
+        if (top.kind == Kind.NOWPLAYING) {
+            st.entry?.track?.id?.let { demandArtPx(it, nowPlayingArtPx()) }
+            return
+        }
         val want = ArrayList<Int>()
         st.entry?.track?.id?.let { want.add(it) }
         (rows(top).getOrNull(top.model.cursor) as? Row.Entry)?.e?.track?.id?.let { want.add(it) }
@@ -964,6 +1027,15 @@ class MusicWindow(
         rows.add(item("Next") { player.next() })
         rows.add(item("Previous", "3 s in restarts") { player.prev() })
         rows.add(item("Volume", "${st.volume}%") { push(Frame(Kind.VOLUME)) })
+        // the queue moved off the root on 2026-09-03 (Adam) — it lives here
+        // the queue level's OWN wrap-end row opens this menu, so guard against
+        // stacking a second QUEUE frame on top of the one already showing
+        rows.add(item("Queue", if (st.queue.isEmpty()) "empty" else "${st.index + 1}/${st.queue.size} · ${st.label.ifEmpty { st.mode.label }}") {
+            if (top.kind != Kind.QUEUE) push(Frame(Kind.QUEUE))
+        })
+        // the root is Now Playing, so the CURRENT track's info belongs here —
+        // it used to be one tap away on the queue row menu
+        st.track?.let { t -> rows.add(item("Track info", dn(t.title, fSmall)) { push(Frame(Kind.INFO, "${t.id}")) }) }
         rows.add(item("Ask", "keyboard") { openAsk() })
         rows.add(item("Browse") { push(Frame(Kind.BROWSE)) })
         rows.add(item("Playlists", "${cat.playlists.size}") { push(Frame(Kind.PLAYLISTS)) })
@@ -1360,6 +1432,131 @@ class MusicWindow(
     }
 
     // ================================================================ volume (canvas: scroll adjusts live, tap keeps)
+    /**
+     * NOW PLAYING — the window's root since 2026-09-03 (Adam: "the main screen
+     * should be a useful, really nice looking Now Playing screen … what is
+     * playing and where in the song it is and what the volume level is at").
+     * The queue moved to a menu level.
+     *
+     * One canvas, five bands, all on the 4x2 grid, laid out from the top so a
+     * shorter height (the §12 ladder) drops the tail rather than the head:
+     *
+     *   art + title + artist/album + badges     (the identity)
+     *   ▶  1:23 ████████░░░░░░  4:56            (where in the song)
+     *   vol ██████░░░░  42%      4/55 · Shuffle (the level, and the queue)
+     *   the current lyric line, dim             (only when it fits and exists)
+     *
+     * Ink stays list-class (~15 %): the art is the only dense element and it
+     * is capped at 96 px. Scroll adjusts the volume live; tap opens the menu.
+     */
+    private fun paintNowPlaying(g: Gray8, r: Rect) {
+        g.fillRect(r, Level.BG)
+        val e = st.entry
+        if (e == null) {
+            // `entry` is queue[index], so this is reached ONLY with an empty
+            // queue — a STOPPED player with rows still paints the full surface
+            // (with the stop glyph), which is the more useful screen
+            val msg = "nothing queued"
+            val mw = tx.measure(msg, fBig)
+            tx.draw(g, Geometry.snapX(r.x + (r.w - mw) / 2), Geometry.snapY(r.y + r.h / 3), msg, fBig, Level.HEAD)
+            val sub = "tap for Ask or Browse"
+            Draw.fit(g, tx, Geometry.snapX(r.x + (r.w - tx.measure(sub, fSmall)) / 2), r.y + r.h / 3 + 48, sub, Level.DIM, fSmall, r.w - 32)
+            return
+        }
+        val t = e.track
+        // record the size for demandArt (which runs from view(), on the loop);
+        // a paint NEVER launches work of its own — the L1 class
+        val artPx = when { r.h >= 380 -> 160; r.h >= 300 -> 120; else -> 88 }
+        npArtPx = artPx
+        val x = Geometry.snapX(r.x + 16)
+        val right = r.right - 16
+        // TOP-aligned, always: Adam's fit loses the BOTTOM of the panel
+        // (§12 sizes), so the identity sits high and the tail is what a
+        // shorter height drops
+        var y = Geometry.snapY(r.y + 12)
+
+        // ---- identity: art, and the title block centred against it
+        val art = artCache[t.id * 1000 + artPx]
+        if (art != null) g.blit(art, Rect(0, 0, art.w, art.h), x, y)
+        else IconPaint.draw(g, services?.icons(), IconNames.forKind(IconKind.MUSIC), x, y, artPx, IconKind.MUSIC, Level.DIM)
+        val tx0 = Geometry.snapX(x + artPx + 20)
+        val tw = right - tx0
+        val fTitle = if (artPx >= 160) fBig else fHead
+        val titleH = lineH(fTitle)
+        val block = titleH + lineH(fBody) + (if (artPx >= 120) lineH(fSmall) else 0)
+        var ty = Geometry.snapY(y + ((artPx - block) / 2).coerceAtLeast(0))
+        Draw.fit(g, tx, tx0, ty, dn(t.title, fTitle), Level.HEAD, fTitle, tw)
+        ty = Geometry.snapY(ty + titleH + 4)
+        Draw.fit(g, tx, tx0, ty, dn(Fmt.artistAlbum(t).ifEmpty { "—" }, fBody), Level.BODY, fBody, tw)
+        if (artPx >= 120) {
+            ty = Geometry.snapY(ty + lineH(fBody) + 4)
+            val badges = listOfNotNull(
+                linkBadge().takeIf { it.isNotEmpty() },
+                "boost +${st.boost}%".takeIf { st.boost > 100 },
+                "sleep ${st.sleep.label(clock())}".takeIf { st.sleep.kind != Sleep.Kind.OFF },
+            ).joinToString("  ·  ")
+            if (badges.isNotEmpty()) Draw.fit(g, tx, tx0, ty, badges, Level.DIM, fSmall, tw)
+        }
+        y = Geometry.snapY(y + artPx + 28)
+
+        // ---- where in the song: elapsed · bar · total, full width
+        val dur = st.durMs.takeIf { it > 0 } ?: t.durMs.toLong()
+        val pos = player.positionMs().coerceIn(0, maxOf(0, dur))
+        stateGlyph(g, x, y + 4, Level.MID)
+        val posS = Fmt.mmss(pos)
+        val durS = Fmt.mmss(dur)
+        tx.draw(g, Geometry.snapX(x + 24), Geometry.snapY(y), posS, fSmall, Level.BODY)
+        Draw.right(g, tx, right, y, durS, Level.DIM, fSmall)
+        val barX = Geometry.snapX(x + 24 + tx.measure(posS, fSmall) + 14)
+        val barW = Geometry.snapX(right - tx.measure(durS, fSmall) - 14 - barX)
+        if (barW > 60) Icons.blocks(g, barX, Geometry.snapY(y + 6), barW, 10,
+            if (dur > 0) pos.toDouble() / dur else 0.0, n = barW / 12, level = Level.of(8))
+        y = Geometry.snapY(y + 40)
+
+        // ---- the level, and where we are in the queue
+        val quiet = st.volume <= PlayerCore.QUIET_PCT
+        val volLv = if (quiet) Level.HOT else Level.BODY
+        tx.draw(g, x, Geometry.snapY(y), "vol", fSmall, Level.DIM)
+        val vX = Geometry.snapX(x + 40)
+        val vW = if (r.w >= 500) 240 else 160
+        // the 8 % session (2026-09-02): a level this low is HOT, not dim — the
+        // one number whose absence made a working player look broken
+        Icons.blocks(g, vX, Geometry.snapY(y + 6), vW, 10, st.volume / 100.0, n = 10, level = if (quiet) Level.HOT else Level.of(8))
+        val volEnd = Geometry.snapX(vX + vW + 14) + tx.measure("${st.volume}%", fSmall)
+        tx.draw(g, Geometry.snapX(vX + vW + 14), Geometry.snapY(y), "${st.volume}%", fSmall, volLv)
+        val qPos = if (st.queue.isEmpty()) st.mode.label else "${st.index + 1} of ${st.queue.size}  ·  ${st.mode.label}"
+        // BOUNDED: an unbounded right-align walks LEFT over the level readout
+        // with a long mode label and a big queue (the F2 class, review 2026-09-03)
+        val qMax = right - (volEnd + 16)
+        if (tx.measure(qPos, fSmall) <= qMax) Draw.right(g, tx, right, y, qPos, Level.DIM, fSmall)
+        else Draw.fit(g, tx, Geometry.snapX(volEnd + 16), y, qPos, Level.DIM, fSmall, qMax)
+        y = Geometry.snapY(y + 40)
+
+        // ---- the current lyric line, when there is one and it fits
+        if (y + lineH(fLyric) <= r.bottom - 8) {
+            val line = nowPlayingLyric()
+            if (line.isNotEmpty()) Draw.fit(g, tx, x, y, dn(line, fLyric), Level.MID, fLyric, r.w - 32)
+        }
+    }
+
+    /** The art size Now Playing draws at, learned from the last paint — one
+     *  field, so the painter and the demand cannot disagree and leave the icon
+     *  fallback up forever. Seeded at the size the SHIPPED global height (480)
+     *  wants, so the common case demands the right art on the first pass; a
+     *  shorter height costs one wasted fetch and one frame of the fallback,
+     *  then the demand lands. */
+    private var npArtPx = 160
+    private fun nowPlayingArtPx(): Int = npArtPx
+
+    /** The synced lyric line for the position — only from lyrics ALREADY
+     *  loaded for this track (a paint never fetches: the L1 class), and only
+     *  when the Lyrics level or Music Mode put them there. */
+    private fun nowPlayingLyric(): String {
+        if (lyricsFor != (st.track?.id ?: -1)) return ""
+        val p = lyricsParsed ?: return ""
+        return p.lines.getOrNull(currentLyricLine())?.text ?: ""
+    }
+
     private fun paintVolume(g: Gray8, r: Rect) {
         g.fillRect(r, Level.BG)
         val cx = r.x + r.w / 2
@@ -1728,13 +1925,18 @@ class MusicWindow(
     override fun restoreState(state: JsonObject) {
         for (f in stack) f.seq++
         stack.clear()
-        stack.add(Frame(Kind.QUEUE))
+        stack.add(Frame(Kind.NOWPLAYING))
         (state["stack"] as? JsonArray)?.forEachIndexed { i, el ->
             try {
                 val o = el.jsonObject
                 val kind = Kind.entries.firstOrNull { it.name == o["kind"]?.jsonPrimitive?.contentOrNull } ?: return@forEachIndexed
-                val f = if (i == 0 && kind == Kind.QUEUE) stack[0] else Frame(kind, o["key"]?.jsonPrimitive?.contentOrNull ?: "")
-                if (f !== stack[0]) { if (kind == Kind.QUEUE) return@forEachIndexed; stack.add(f) }
+                // records written before 2026-09-03 have QUEUE at position 0.
+                // The root is NOW PLAYING; a leading QUEUE is dropped rather
+                // than re-seated, so an old record lands on the new root
+                // instead of one level deep in a list it never chose.
+                if (i == 0 && kind == Kind.QUEUE) return@forEachIndexed
+                val f = if (i == 0 && kind == Kind.NOWPLAYING) stack[0] else Frame(kind, o["key"]?.jsonPrimitive?.contentOrNull ?: "")
+                if (f !== stack[0]) { if (kind == Kind.NOWPLAYING) return@forEachIndexed; stack.add(f) }
                 f.pendingCursor = o["cursor"]?.jsonPrimitive?.intOrNull
                 f.pendingQid = o["qid"]?.jsonPrimitive?.longOrNull
                 f.doc.topLine = o["top"]?.jsonPrimitive?.intOrNull ?: 0
@@ -1780,7 +1982,10 @@ class MusicWindow(
         invalidateRows()
         // a restored queue cursor resolves NOW when the player's record is at hand (a boot
         // or keeper restart would otherwise wait for the next state push)
-        root.pendingQid?.let { q -> rows(root).indexOfFirst { (it as? Row.Entry)?.e?.qid == q }.takeIf { it >= 0 }?.let { setRootCursor(it); root.pendingQid = null; root.pendingCursor = null } }
+        queueFrame?.let { qf ->
+            qf.pendingQid?.let { q -> rows(qf).indexOfFirst { (it as? Row.Entry)?.e?.qid == q }.takeIf { it >= 0 }
+                ?.let { setQueueCursor(it); qf.pendingQid = null; qf.pendingCursor = null } }
+        }
         needsReload = top.kind in listOf(Kind.PLAYLIST, Kind.RESULTS, Kind.YT, Kind.RECENT, Kind.LYRICS)
     }
 

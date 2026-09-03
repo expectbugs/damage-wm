@@ -126,15 +126,19 @@ object SelfCheck {
         val musicPlayer = wm.damage.core.windows.music.SimMusicPlayer(musicLib, musicClock)
         val musicWin = wm.damage.core.windows.music.MusicWindow(text, musicLib, musicPlayer, scope, clock = musicClock)
         shell.register(musicWin)
-        /** Scroll the queue cursor onto its wrap-end Music menu row wherever
-         *  it rests (the cursor follows the current entry, or the user). */
-        suspend fun musicMenuRow() {
-            settle(shell, "music-menu-row-seek")
-            val st = musicWin.saveState()["stack"]!!.jsonArray[0].jsonObject
-            val cursor = st["cursor"]?.jsonPrimitive?.contentOrNull?.toInt() ?: 0
-            val rows = maxOf(1, musicPlayer.state.queue.size) + 1
-            repeat((rows - 1 - cursor).mod(rows)) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
-            settle(shell, "music-menu-row")
+        /** Open the Music menu (from the root) and commit the row LABELLED
+         *  [label] — by name, never by counting notches, so a new row cannot
+         *  silently move what the harness selects. */
+        suspend fun musicMenu(label: String) {
+            settle(shell, "music-root-before-$label")
+            if (!shell.menuIsOpen) {
+                shell.postGesture(EvenHubMsg.EV_CLICK)
+                awaitTrue("the Music menu for '$label'") { shell.menuIsOpen }
+            }
+            val i = shell.menuLabels.indexOfFirst { it == label || it.startsWith(label) }
+            if (i < 0) { failures.add("Music menu row '$label' not in ${shell.menuLabels}"); return }
+            repeat((i - shell.menuCursor).mod(shell.menuLabels.size)) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+            shell.postGesture(EvenHubMsg.EV_CLICK)
         }
 
         val flushFails = java.util.concurrent.atomic.AtomicInteger()   // same cross-thread read as `faults`
@@ -452,19 +456,19 @@ object SelfCheck {
         repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_TOP) }      // Main cursor back to Reader
         settle(shell, "main-back-to-reader-row-2")
 
-        // ---- Music (MUSIC.md, 2026-09-02): the queue-with-card root, browse →
-        // artist → play through the set menu, the row menu, the Music menu, Ask
-        // through the keyboard (a replica line commits the draft), lyrics,
-        // seek, a playlist, and the track-change notice off-screen
+        // ---- Music (MUSIC.md): the NOW PLAYING root (2026-09-03 — the queue
+        // became a menu level), browse → artist → play through the set menu,
+        // the queue level and its row menu, Ask through the keyboard (a replica
+        // line commits the draft), lyrics, and the track-change notice off-screen
         repeat(4) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // Reader → Tmux → Files → Torrents → Music
         settle(shell, "main-to-music-row")
         shell.postGesture(EvenHubMsg.EV_CLICK)
-        awaitTrue("Music opens at the empty queue") { musicWin.title() == "music" }
+        awaitTrue("Music opens at Now Playing") { musicWin.title() == "music" }
         settle(shell, "music-empty")
-        check("the empty queue summary is honest", musicWin.summary().line == "idle")
+        check("the idle Now Playing summary is honest", musicWin.summary().line == "idle")
         val inkMusicEmpty = Pack.inkFraction(shell.comp.composed)
-        check("Music empty queue ink <= 15% list budget (was ${"%.1f".format(inkMusicEmpty * 100)}%)", inkMusicEmpty <= 0.15)
-        shell.postGesture(EvenHubMsg.EV_CLICK)                          // the empty row → Browse
+        check("Music idle Now Playing ink <= 15% (was ${"%.1f".format(inkMusicEmpty * 100)}%)", inkMusicEmpty <= 0.15)
+        musicMenu("Browse")                                             // the root's tap IS the menu
         awaitTrue("Browse opens") { musicWin.title() == "browse" }
         shell.postGesture(EvenHubMsg.EV_CLICK)                          // Artists
         awaitTrue("Artists list") { musicWin.title() == "artists" }
@@ -477,21 +481,25 @@ object SelfCheck {
         awaitTrue("the set menu opens, Play now first") { shell.menuIsOpen }
         shell.postGesture(EvenHubMsg.EV_CLICK)                          // Play now
         awaitTrue("the queue plays") { musicPlayer.state.play == wm.damage.core.windows.music.PlayState.PLAYING }
-        repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }     // → queue
-        awaitTrue("back at the queue with the card") { musicWin.levelDepth() == 1 && musicWin.title().startsWith("queue") }
-        settle(shell, "music-queue")
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }     // → Now Playing
+        awaitTrue("back at Now Playing") { musicWin.levelDepth() == 1 && musicWin.title() == "now playing" }
+        settle(shell, "music-nowplaying")
         val inkCard = Pack.inkFraction(shell.comp.composed)
-        check("Music queue + card ink <= 15% (was ${"%.1f".format(inkCard * 100)}%)", inkCard <= 0.15)
+        check("Music Now Playing ink <= 15% (was ${"%.1f".format(inkCard * 100)}%)", inkCard <= 0.15)
         check("the summary reads the player", musicWin.summary().line.startsWith("playing · "))
+        // the QUEUE is a menu level now (2026-09-03), and its rows keep the row menu
+        musicMenu("Queue")
+        awaitTrue("the queue level opens") { musicWin.title().startsWith("queue") && musicWin.levelDepth() == 2 }
+        settle(shell, "music-queue")
+        val inkQueue = Pack.inkFraction(shell.comp.composed)
+        check("Music queue level ink <= 15% (was ${"%.1f".format(inkQueue * 100)}%)", inkQueue <= 0.15)
         shell.postGesture(EvenHubMsg.EV_CLICK)                          // tap the current row = its menu, Pause first
         awaitTrue("the row menu opens") { shell.menuIsOpen }
         shell.postGesture(EvenHubMsg.EV_CLICK)                          // Pause
         awaitTrue("paused from the row menu") { musicPlayer.state.play == wm.damage.core.windows.music.PlayState.PAUSED }
-        musicMenuRow()                                                  // the wrap-end Music menu row
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        awaitTrue("the wrap-end row opens the Music menu") { shell.menuIsOpen && shell.menuTitle == "music" }
-        repeat(4) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → Ask
-        shell.postGesture(EvenHubMsg.EV_CLICK)
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // queue → Now Playing
+        awaitTrue("back out of the queue") { musicWin.levelDepth() == 1 }
+        musicMenu("Ask")
         awaitTrue("Ask opens the keyboard") { shell.keyboardIsOpen }
         transport.injectText("aggressive metal")                        // a replica line IS the draft and commits
         awaitTrue("the ask played the vocab lane") {
@@ -501,11 +509,7 @@ object SelfCheck {
         // lyrics through the Music menu: the first track ("Time") has synced lyrics
         musicPlayer.playQueue(listOf(musicLib.catalog().tracks[0].ref()), 0, wm.damage.core.windows.music.Mode.QUEUE, "Time")
         awaitTrue("Time plays") { musicPlayer.state.track?.id == 1 }
-        musicMenuRow()
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        awaitTrue("the Music menu again") { shell.menuIsOpen && shell.menuTitle == "music" }
-        repeat(10) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }  // → Lyrics
-        shell.postGesture(EvenHubMsg.EV_CLICK)
+        musicMenu("Lyrics")
         awaitTrue("Lyrics opens") { musicWin.title() == "lyrics" }
         settle(shell, "music-lyrics")
         musicSkew += 6_000
@@ -513,7 +517,7 @@ object SelfCheck {
         settle(shell, "music-lyrics-advance")
         val inkLyrics = Pack.inkFraction(shell.comp.composed)
         check("Music lyrics ink <= 25% (was ${"%.1f".format(inkLyrics * 100)}%)", inkLyrics <= 0.25)
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // → queue
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // → Now Playing
         awaitTrue("back from lyrics") { musicWin.levelDepth() == 1 }
         // Music Mode (§8.3 / DESIGN §4.9) at 480 with Bars, then at 288 with Scope: the
         // shell's exclusive mode swallows everything but double-tap; notices show small
@@ -531,11 +535,7 @@ object SelfCheck {
             awaitTrue("Music → Main ($h)") { shell.currentWindowId() == null }
             shell.postGesture(EvenHubMsg.EV_CLICK)
             awaitTrue("Music at $h") { shell.currentWindowId() == "music" }
-            musicMenuRow()
-            shell.postGesture(EvenHubMsg.EV_CLICK)
-            awaitTrue("the Music menu ($h)") { shell.menuIsOpen && shell.menuTitle == "music" }
-            repeat(13) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → Music Mode
-            shell.postGesture(EvenHubMsg.EV_CLICK)
+            musicMenu("Music Mode")
             awaitTrue("Music Mode enters at $h") { shell.exclusiveMode }
             settle(shell, "music-mode-$h")
             val inkMm = Pack.inkFraction(shell.comp.composed)

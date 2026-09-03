@@ -354,9 +354,38 @@ class AndroidMusicPlayer(
     }
 
     override fun onRestored() {
-        // sink-side settings re-applied after a restore: the output is chosen
-        // again by id when present; the volume is NOT touched (the phone's own)
-        if (curOutput != Output.AUTO) androidSink.setOutput(curOutput)
+        // Sink-side settings re-applied after a restore; the volume is NOT
+        // touched (it is the phone's own). The output is matched on its STABLE
+        // identity — product name + kind — because AudioDeviceInfo.getId() is a
+        // per-connection handle that changes on every reconnect and gets reused
+        // for other devices. Matching on the id alone either silently selected
+        // nothing (the refusal was dropped on the floor) or pinned playback to
+        // whatever inherited the number (review 2026-09-02).
+        if (curOutput == Output.AUTO) return
+        val devices = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        // exact identity first: the product name AND the kind
+        var matches = devices.filter { curOutputName.isNotEmpty() && it.productName?.toString() == curOutputName && kindOf(it) == curOutputKind }
+        if (matches.isEmpty() && curOutputName.isNotEmpty() && curOutputName == curOutputKind) {
+            // the saved device had no product name, so its name IS the kind
+            // label — accept a same-kind device only when there is exactly ONE.
+            // Matching "any bluetooth output" would re-create the very defect
+            // this replaced: with the earbud AND the glasses connected it is a
+            // coin flip which one the music goes to (review 2026-09-03).
+            matches = devices.filter { kindOf(it) == curOutputKind }
+        }
+        val d = matches.singleOrNull()
+        if (d == null) {
+            val why = if (matches.size > 1) "is ambiguous (${matches.size} ${curOutputKind} outputs)" else "is not here"
+            Log.w("music-android", "saved output '${curOutputName.ifEmpty { curOutput }}' ($curOutputKind) $why — Auto")
+            preferredDevice = null
+            exo?.setPreferredAudioDevice(null)
+            outputRestoreFailed()
+            return
+        }
+        preferredDevice = d
+        exo?.setPreferredAudioDevice(d)
+        curOutput = "${d.id}"                  // the handle it has THIS session
+        Log.i("music-android", "output restored: ${d.productName} (${kindOf(d)}) as id ${d.id}")
     }
 
     override fun close() {

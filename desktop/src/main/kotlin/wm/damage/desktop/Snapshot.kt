@@ -87,13 +87,18 @@ object Snapshot {
         val musicPlayer = wm.damage.core.windows.music.SimMusicPlayer(musicLib, musicClock)
         val musicWin = wm.damage.core.windows.music.MusicWindow(text, musicLib, musicPlayer, scope, clock = musicClock)
         shell.register(musicWin)
-        suspend fun musicMenuRow() {
-            settle(shell)
-            val st = musicWin.saveState()["stack"]!!.jsonArray[0].jsonObject
-            val cursor = st["cursor"]?.jsonPrimitive?.contentOrNull?.toInt() ?: 0
-            val rows = maxOf(1, musicPlayer.state.queue.size) + 1
-            repeat((rows - 1 - cursor).mod(rows)) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
-            settle(shell)
+        /** Open the Music menu (from the NOW PLAYING root, 2026-09-03) and
+         *  commit the row LABELLED [label] — by name, never by counting. */
+        suspend fun musicMenu(label: String) {
+            settle(shell, "music-menu-$label")
+            if (!shell.menuIsOpen) {
+                shell.postGesture(EvenHubMsg.EV_CLICK)
+                waitFor("the Music menu for '$label'") { shell.menuIsOpen }
+            }
+            val i = shell.menuLabels.indexOfFirst { it == label || it.startsWith(label) }
+            if (i < 0) { failures.add("Music menu row '$label' not in ${shell.menuLabels}"); return }
+            repeat((i - shell.menuCursor).mod(shell.menuLabels.size)) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+            shell.postGesture(EvenHubMsg.EV_CLICK)
         }
         shell.start()
         iconsSettled()   // the first wave of resolves lands before any scene
@@ -288,17 +293,18 @@ object Snapshot {
         // shows on the card, not as a notice
         musicPlayer.playQueue(musicLib.catalog().tracks.take(6).map { it.ref() }, 0, wm.damage.core.windows.music.Mode.QUEUE, "Pink Floyd")
         musicSkew += 65_000                                             // 1:05 into "Time"
-        waitFor("music queue") { musicWin.title().startsWith("queue") }
+        waitFor("now playing") { musicWin.title() == "now playing" }
         iconsSettled()
-        waitFor("the card's art arrived") { shell.isQuiescent() }
+        waitFor("the art arrived") { shell.isQuiescent() }
         settle(shell)
-        save(sim, out, "30-music-queue-480")
-        musicMenuRow()
+        save(sim, out, "30-music-nowplaying-480")
+        settle(shell)
         shell.postGesture(EvenHubMsg.EV_CLICK)
         waitFor("the music menu") { shell.menuIsOpen && shell.menuTitle == "music" }
         settle(shell)
         save(sim, out, "31-music-menu")
-        repeat(5) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → Browse
+        val bi = shell.menuLabels.indexOfFirst { it.startsWith("Browse") }
+        repeat((bi - shell.menuCursor).mod(shell.menuLabels.size)) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
         shell.postGesture(EvenHubMsg.EV_CLICK)
         waitFor("browse") { musicWin.title() == "browse" }
         iconsSettled()
@@ -309,22 +315,14 @@ object Snapshot {
         waitFor("an artist") { musicWin.levelDepth() == 4 }
         iconsSettled()
         save(sim, out, "33-music-artist")
-        repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → queue
-        musicMenuRow()
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        waitFor("the music menu 2") { shell.menuIsOpen && shell.menuTitle == "music" }
-        repeat(10) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }  // → Lyrics
-        shell.postGesture(EvenHubMsg.EV_CLICK)
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → Now Playing
+        musicMenu("Lyrics")
         waitFor("lyrics") { musicWin.title() == "lyrics" }
         waitFor("lyrics loaded") { shell.isQuiescent() }
         settle(shell)
         save(sim, out, "34-music-lyrics")
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → queue
-        musicMenuRow()
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        waitFor("the music menu 3") { shell.menuIsOpen && shell.menuTitle == "music" }
-        repeat(5) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → Browse
-        shell.postGesture(EvenHubMsg.EV_CLICK)
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Now Playing
+        musicMenu("Browse")
         waitFor("browse 2") { musicWin.title() == "browse" }
         repeat(7) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → YouTube
         shell.postGesture(EvenHubMsg.EV_CLICK)
@@ -340,9 +338,10 @@ object Snapshot {
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Main
         settle(shell)
         shell.postGesture(EvenHubMsg.EV_CLICK)             // → Music at 288
-        waitFor("music at 288") { musicWin.title().startsWith("queue") }
+        waitFor("music at 288") { musicWin.title() == "now playing" }
         iconsSettled()
-        save(sim, out, "36-music-queue-288")
+        settle(shell)
+        save(sim, out, "36-music-nowplaying-288")
         // Music Mode (§8.3): the stacked surfaces at 480 with Bars, the short stack at 288 with Scope
         shell.services.runOnShell {
             musicWin.appSettings().first { it.name == "Music Mode · visualizer" }.apply("on")
@@ -357,11 +356,7 @@ object Snapshot {
             settle(shell)
             shell.postGesture(EvenHubMsg.EV_CLICK)         // → Music at h
             waitFor("music at $h") { shell.currentWindowId() == "music" }
-            musicMenuRow()
-            shell.postGesture(EvenHubMsg.EV_CLICK)
-            waitFor("the music menu ($h)") { shell.menuIsOpen && shell.menuTitle == "music" }
-            repeat(13) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
-            shell.postGesture(EvenHubMsg.EV_CLICK)
+            musicMenu("Music Mode")
             waitFor("music mode ($h)") { shell.exclusiveMode }
             iconsSettled()
             waitFor("art + viz + lyrics landed ($h)") { shell.isQuiescent() }
@@ -398,10 +393,10 @@ object Snapshot {
         tmp.toFile().deleteRecursively()
     }
 
-    private suspend fun settle(shell: Shell) {
+    private suspend fun settle(shell: Shell, where: String = "?") {
         val t0 = System.currentTimeMillis()
         while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 15_000) delay(20)
-        if (!shell.isQuiescent()) failures.add("shell did not settle — snapshots may show mid-states")
+        if (!shell.isQuiescent()) failures.add("shell did not settle at '$where' — snapshots may show mid-states")
         delay(50)
     }
 

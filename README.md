@@ -41,7 +41,8 @@ backlog + refinery verdicts; `REFINEMENT.md` and `TMUX.md` the design logs.
 system taken over (Postgres, Qdrant, the transcode cache, the enrichment package, yt-dlp), the
 phone as the player (ExoPlayer + a media session — earbud taps drive the queue from anywhere,
 hold-my-volume, boost, sleep, prefetch, Spotify as the fallback), the PC as the library over the
-window channel + a Range-capable media endpoint, a queue-with-card window with browse, Ask through
+window channel + a Range-capable media endpoint, a **Now Playing** window (2026-09-03) with the
+queue one menu row down, browse, Ask through
 three resolver lanes, synced lyrics, YouTube grabs with full ingest, playlists edited on glass,
 and **Music Mode** — a new EXCLUSIVE shell mode (`DESIGN.md` §4.9) stacking card, lyrics,
 visualizer, queue peek and clock per height.

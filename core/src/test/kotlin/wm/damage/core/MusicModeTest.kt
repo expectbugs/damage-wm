@@ -117,15 +117,15 @@ class MusicModeTest {
             r.shell.services.runOnShell { r.win.appSettings().first { it.name == "Visualizer" }.apply("Bars"); r.win.appSettings().first { it.name == "Music Mode · visualizer" }.apply("on"); r.win.appSettings().first { it.name == "Music Mode · queue peek" }.apply("on") }
             r.player.playQueue(r.lib.tracks.map { it.ref() }, 0, Mode.QUEUE, "test")
             awaitTrue("playing") { r.player.state.play == PlayState.PLAYING }
-            // the Music menu → Music Mode (row 13)
+            // the Music menu → Music Mode. The root is NOW PLAYING since
+            // 2026-09-03, so a tap there IS the menu; the row is picked BY
+            // NAME, never by counting notches
             awaitTrue("quiet") { r.shell.isQuiescent() }
-            val rows = r.player.state.queue.size + 1
-            val cursor = (r.win.saveState()["stack"] as kotlinx.serialization.json.JsonArray)[0].let { it as kotlinx.serialization.json.JsonObject }["cursor"]
-                .let { (it as kotlinx.serialization.json.JsonPrimitive).content.toInt() }
-            repeat((rows - 1 - cursor).mod(rows)) { r.g(EvenHubMsg.EV_SCROLL_BOTTOM) }
             r.g(EvenHubMsg.EV_CLICK)
             awaitTrue("the music menu") { r.shell.menuIsOpen && r.shell.menuTitle == "music" }
-            repeat(13) { r.g(EvenHubMsg.EV_SCROLL_BOTTOM) }
+            val i = r.shell.menuLabels.indexOfFirst { it.startsWith("Music Mode") }
+            assertTrue(i >= 0, "Music Mode not in ${r.shell.menuLabels}")
+            repeat((i - r.shell.menuCursor).mod(r.shell.menuLabels.size)) { r.g(EvenHubMsg.EV_SCROLL_BOTTOM) }
             r.g(EvenHubMsg.EV_CLICK)
             awaitTrue("exclusive") { r.shell.exclusiveMode }
             awaitTrue("quiet 2") { r.shell.isQuiescent() }

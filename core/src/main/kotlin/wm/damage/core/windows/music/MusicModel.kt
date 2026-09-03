@@ -165,6 +165,11 @@ data class Sleep(val kind: Kind = Kind.OFF, val deadlineMs: Long = 0, val minute
 /** An audio output the phone can route to (Output…): "auto" = the current
  *  route; the speaker plays only when chosen (verdict 2 + §7). */
 @Serializable
+/** An output device. [id] is Android's `AudioDeviceInfo.getId()`, which is a
+ *  PER-CONNECTION handle: it changes on reconnect and across reboots, and the
+ *  small integers get reused. Persist [name] + [kind] and match on those
+ *  (review 2026-09-02) — an id alone silently restores the wrong device or
+ *  none at all. */
 data class Output(val id: String, val name: String, val kind: String = "") {
     companion object {
         const val AUTO = "auto"
@@ -245,6 +250,13 @@ sealed class PlayerEvent {
     data class LimiterKeeps(val detail: String) : PlayerEvent()
     object BoostOff : PlayerEvent()
     data class BoostLoud(val volume: Int, val boost: Int) : PlayerEvent()
+    /** Playback started into a media stream so quiet it will not be heard.
+     *  2026-09-02: a real session played four tracks end to end at 8 % and
+     *  looked perfect on glass — the state was right, the queue advanced,
+     *  and nothing said the level was near zero (`HANDOFF.md` §24.4). */
+    data class QuietStream(val pct: Int) : PlayerEvent()
+    /** A saved output could not be re-selected on this session's devices. */
+    data class OutputGone(val name: String) : PlayerEvent()
     data class SleepEnded(val detail: String) : PlayerEvent()
     data class BackendChanged(val backend: Backend, val automatic: Boolean) : PlayerEvent()
     data class PcUnreachable(val sinceMs: Long) : PlayerEvent()

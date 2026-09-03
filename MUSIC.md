@@ -17,7 +17,7 @@ is ported, not pasted).
 | 1 | Library source | **The G2CC music system is Damage's now** — Postgres `g2cc` tables, the Qdrant `g2cc_music` collection, the media cache, the Python enrichment + embedding pipeline, yt-dlp. Taken over entirely, improved where we can. G2CC itself is retired and never returns. |
 | 2 | Where audio plays | **The phone.** Earbuds by default, with an Output option for anything connected to the phone, including the phone speaker. **Never the PC.** |
 | 3 | Backends | PC library primary; **Spotify on the phone** as the selectable fallback (also the automatic fallback when the PC is unreachable). Other apps maybe later. Desktop Spotify: never. |
-| 4 | Root view | **Queue-with-card**: the queue is the list, the lens is the Now Playing card; **Menu is the last row** so one scroll up from the top wraps to it. |
+| 4 | Root view | 🔴 **REVERSED 2026-09-03 (Adam, after living with it): the root is a NOW PLAYING screen and the queue is a menu row.** *"Lets put the queue as a menu option rather than the main screen … the main screen should be a useful, really nice looking Now Playing screen. That way i can see what is playing and where in the song it is and what the volume level is at etc."* The original verdict — queue-as-list with the Now Playing card as the lens, Menu on the wrap-end row — is superseded; do not reinstate it. |
 | 5 | Ask (fuzzy requests) | Keep the language-model lane: **the latest Claude Opus at low or medium effort** via the CLI one-shot, with the deterministic and embedding lanes as the instant fallback. Same model for enriching new tracks. |
 | 6 | Lyrics | **In, and much better synced than G2CC** (learn from the open-source players). Sources: LRCLIB, embedded tags, `.lrc` beside tracks, the community fetchers; manual search on the keyboard. |
 | 7 | YouTube | **In**: a search whose results are listed for Adam to pick from (never the first hit), audio-only grab into `~/Music/YouTube/`, then **fully ingested** — indexed, transcoded, enriched, lyrics, embeddings — like any track. Offered when a search finds nothing in the library, and from Browse. |
@@ -100,12 +100,20 @@ radio is not the default.
   before the queue ends. The card and Music Mode show the PC link state and its staleness age.
 
 ### 3.2 The window (`MusicWindow`, id `music`)
-- **ROOT = the queue (List)**: rows = queue tracks (`▶` on the current); at rest the cursor sits on
-  the current track; the **lens is the Now Playing card** (art, title, artist, album, a coarse bar,
-  m:ss/m:ss, queue position, mode, PC link). Scrolling previews other rows in the same card.
-  Tap on a row → row menu (Play from here · Play next · Remove · Move up/down · Add to playlist…);
-  the current row is never removable. **The wrap-end row is Menu.**
-- **Menu** (as built): Pause/Resume · Next · Previous · Volume… · Ask… (keyboard) · Browse ·
+- 🔴 **ROOT = NOW PLAYING (Canvas)** — reversed from the queue-with-card root on 2026-09-03
+  (verdict 4). One screen, TOP-aligned (Adam's fit loses the bottom), painted in four bands:
+  **art + title + artist — album + badges** (the identity; art 160/120/88 px by height) ·
+  **▶ elapsed · progress bar · total** (where in the song) · **vol · level bar · % and the queue
+  position + mode** (the level, drawn HOT at or below 10 % — the 2026-09-02 silent session) ·
+  **the current synced lyric line** when one is loaded and it fits.
+  **Scroll = volume, live. Tap = the Music menu. Double-tap = back to Main.** There is no cursor
+  on this surface.
+- **QUEUE (List)** is now a menu row one level down: rows = queue tracks (`▶` on the current); at
+  rest the cursor sits on the current track. Tap on a row → row menu (Play from here · Play next ·
+  Remove · Move up/down · Add to playlist…); the current row is never removable. Its own wrap-end
+  row is still Menu.
+- **Menu** (as built): Pause/Resume · Next · Previous · Volume… · **Queue** · **Track info** ·
+  Ask… (keyboard) · Browse ·
   Playlists · Moods & genres · Search… (keyboard) · Mode (Queue / Shuffle / Radio / Library
   random) · Lyrics · Seek… · Save queue as playlist · Music Mode · Output… · Sleep… · Shuffle the
   rest · Clear queue · Stop · (when applicable) Back to PC library · Switch to Spotify.
@@ -448,8 +456,9 @@ the desktop mirror; face Clear Sans; icon `multimedia-audio-player` (drawn fallb
 are 2+2 · 3+3 · 4+4 · 5+5 (the as-built `Layout` at each height; the plan's 6+6 was off by
 one); the card is designed for the band at every size)
 ```
-QUEUE (List, root) ──tap row──▶ ROW MENU (MenuSurface)  ──▶ back to QUEUE
-  │ wrap-end row = MENU ──▶ Menu rows (§8.2)
+NOW PLAYING (Canvas, root; scroll = volume) ──tap──▶ MENU (MenuSurface, §8.2)
+  ├─ QUEUE (List) ──tap row──▶ ROW MENU  ──▶ back to QUEUE
+  │    wrap-end row = MENU
   ├─ BROWSE (List) → ARTISTS → ARTIST (albums + all tracks) → TRACKS
   │                 → ALBUMS → ALBUM → tracks · MOODS & GENRES → vocab word → tracks
   │                 → PLAYLISTS → PLAYLIST (rows; row 0 = "Play at random") → row menu
@@ -639,7 +648,8 @@ records which).
    notification access; the volume probe; Spotify cold-start check; the mediaPort; the venv
    freeze), `WINDOWS.md` (five precedents), memory; APK 19/0.19 staged; jar staged; service
    restarted. (Review round 1 followed the same morning — `HANDOFF.md` §24.2, APK 20/0.20 — and
-   two ultrareview runs the same afternoon — §24.3, APK 21/0.21.)
+   two ultrareview runs the same afternoon — §24.3, APK 21/0.21; then §24.4 on 2026-09-03 — the
+   silent-playback diagnosis, the two player fixes and the NOW PLAYING root, APK 22/0.22.)
 
 Delegation guide (token budget): M1's DAO/transcode/stream, M5's `LyricsFetch`, `YouTube`,
 `viz.py` and the lane-1 `Resolver` port, M3's `Viz` renderers and M4's `SpotifyRemote` are leaf
