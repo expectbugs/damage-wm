@@ -22,6 +22,7 @@ import wm.damage.core.gfx.IconNames
 import wm.damage.core.gfx.IconPaint
 import wm.damage.core.gfx.Icons
 import wm.damage.core.gfx.Level
+import wm.damage.core.shell.ActivationSource
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.DocModel
 import wm.damage.core.shell.Draw
@@ -309,9 +310,12 @@ class TorrentsWindow(
         provider.snapshot()?.let { applySnapshot(it) }
     }
 
-    override fun onActivate(ctx: ShellServices) {
+    override fun onActivate(ctx: ShellServices, from: ActivationSource) {
         services = ctx
         active = true
+        // Adam's rule, 2026-09-04 (HOLDEM.md §3): from MAIN, the transfers
+        // list — the window's root — never a tracker page left open.
+        if (from == ActivationSource.MAIN) goRoot()
         provider.snapshot()?.let { s -> if (snap !== s) applySnapshot(s) }
         provider.setFocused(true, pollMs)
         provider.refresh()
@@ -329,6 +333,22 @@ class TorrentsWindow(
     override fun onDeactivate() {
         active = false
         provider.setFocused(false, pollMs)
+    }
+
+    /** MAIN entry: up to the transfers list, abandoning any load in flight
+     *  the way back() does — its op word ends here, not with an answer for a
+     *  level nobody is on. */
+    private fun goRoot() {
+        if (level == Level_.TRANSFERS) return
+        if (detailState == "loading" || listingLoading || tlDetailState == "loading") services?.setOperation("idle")
+        detailSeq++; listSeq++; tlSeq++
+        listingLoading = false
+        listingState = ""
+        listingRetryAt = 0L
+        detailState = ""
+        tlDetailState = ""
+        needsReload = false
+        level = Level_.TRANSFERS
     }
 
     // ================================================================ contract

@@ -27,6 +27,7 @@ import wm.damage.core.gfx.IconNames
 import wm.damage.core.gfx.IconPaint
 import wm.damage.core.gfx.Icons
 import wm.damage.core.gfx.Level
+import wm.damage.core.shell.ActivationSource
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.DocModel
 import wm.damage.core.shell.Draw
@@ -379,9 +380,13 @@ class MusicWindow(
         bg.launch(Dispatchers.IO) { try { library.setLyricsSources(v) } catch (e: Exception) { Log.w("music", "lyric sources: ${e.message}") } }
     }
 
-    override fun onActivate(ctx: ShellServices) {
+    override fun onActivate(ctx: ShellServices, from: ActivationSource) {
         services = ctx
         active = true
+        // Adam's rule, 2026-09-04 (HOLDEM.md §3). ⚠ NOW PLAYING *is* the
+        // Music root (HANDOFF.md §24.4 reversed verdict 4) — Main entry goes
+        // there, never to a browse list.
+        if (from == ActivationSource.MAIN) goRoot()
         pushLyricsSources()
         player.setFocused(true)
         library.setFocused(true, CARD_PACE_MS)
@@ -398,6 +403,15 @@ class MusicWindow(
         active = false
         player.setFocused(false)
         library.setFocused(false, 0)
+    }
+
+    /** MAIN entry: pop the whole stack back to the NOW PLAYING root, running
+     *  each level's own teardown (its sequence bump, its op word, the lyric
+     *  generation) rather than dropping frames on the floor. */
+    private fun goRoot() {
+        var guard = 0
+        while (stack.size > 1 && guard++ < 64) back()
+        if (stack.size > 1) Log.w("music", "goRoot: the level stack would not unwind (${stack.size} frames)")
     }
 
     private fun reloadTop() {

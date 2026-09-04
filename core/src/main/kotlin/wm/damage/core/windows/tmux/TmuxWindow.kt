@@ -13,6 +13,7 @@ import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.IconKind
 import wm.damage.core.gfx.Level
+import wm.damage.core.shell.ActivationSource
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.HostSetting
 import wm.damage.core.shell.KeyboardSurface
@@ -197,14 +198,40 @@ class TmuxWindow(
      *  the G2CC orphan-poll lesson; onDeactivate unsubscribed on purpose). */
     private var active = false
 
-    override fun onActivate(ctx: ShellServices) {
+    override fun onActivate(ctx: ShellServices, from: ActivationSource) {
         services = ctx
         active = true
+        // Adam's rule, 2026-09-04 (HOLDEM.md §3): "going to Tmux from Main
+        // should present a list of sessions, but Switcher to Tmux should go
+        // directly into the last session where I left off".
+        if (from == ActivationSource.MAIN) goRoot()
         // the subscription keys to the TARGET, not the level (R6#1): parking
         // at a DEEP level (Snippets, Session…, a confirm) unsubscribed, and
         // returning + backing to LIVE re-armed nothing — a silently frozen
         // pane. While a target exists, focus re-arms it.
         if (target != null) resubscribe()
+    }
+
+    /** MAIN entry: the session list. Leaving the session releases the capture
+     *  subscription exactly as back() does (R4#2 — a parked target is an
+     *  orphan 1 Hz poll); the session we were in is remembered only as the
+     *  list cursor, so one tap resumes it. */
+    private fun goRoot() {
+        if (level == Level_.SESSIONS) return
+        val t = target
+        target = null
+        frame = null
+        histRaw = null
+        histLoading = false
+        histOffset = 0
+        typed = null
+        renameArmed = false
+        provider.subscribe(listener, null)
+        level = Level_.SESSIONS
+        if (t != null) {
+            val i = sessions.indexOfFirst { it.host == t.host && it.name == t.session }
+            if (i >= 0) sesModel.cursor = i
+        }
     }
 
     override fun onDeactivate() {

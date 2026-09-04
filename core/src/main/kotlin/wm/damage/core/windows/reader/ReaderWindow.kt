@@ -17,6 +17,7 @@ import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.IconKind
 import wm.damage.core.gfx.Icons
 import wm.damage.core.gfx.Level
+import wm.damage.core.shell.ActivationSource
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.DocModel
 import wm.damage.core.shell.HostSetting
@@ -343,11 +344,33 @@ class ReaderWindow(
         services = ctx
     }
 
-    override fun onActivate(ctx: ShellServices) {
+    override fun onActivate(ctx: ShellServices, from: ActivationSource) {
         services = ctx
+        // Adam's rule, 2026-09-04 (HOLDEM.md §3): from MAIN the window shows
+        // its ROOT — the shelf — while the reading position stays exactly
+        // where it is (it lives in the per-book sub-records, so tapping the
+        // book again lands on the same line). Every other source resumes.
+        if (from == ActivationSource.MAIN) goRoot()
         // always re-scan on activation (round 3 R2): the scan is what keeps
         // the host-link banner truthful, and the shelf stays up while it runs
         refreshLibrary()
+    }
+
+    /** MAIN entry: up to the shelf, keeping the folder we were browsing (the
+     *  folder IS part of the library level, not a level below it) and keeping
+     *  the open book, so one tap returns to the page. */
+    private fun goRoot() {
+        if (level == Level_.LIBRARY) return
+        if (level == Level_.BOOK || level == Level_.ACTIONS) rememberPosition()
+        if (level == Level_.CHAPTERS && !chaptersReturnToBook) {
+            // the FIRST-OPEN picker: no position exists yet, and back() from
+            // here cancels the open — do exactly that
+            book = null
+            openingId = null
+        }
+        chaptersReturnToBook = false
+        level = Level_.LIBRARY
+        services?.setOperation("idle")
     }
 
     private var fontScale = 1.0

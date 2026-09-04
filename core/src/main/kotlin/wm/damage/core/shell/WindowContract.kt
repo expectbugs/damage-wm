@@ -6,6 +6,23 @@ import wm.damage.core.gfx.IconKind
 import wm.damage.core.geom.Rect
 
 /**
+ * WHY the shell is focusing a window — Adam's general rule, 2026-09-04
+ * (`HOLDEM.md` §3, verdict 35): *"Going to Games from the switcher should
+ * auto-resume… Going to Games from Main should present the Games List…
+ * Similarly, going to Tmux from Main should present a list of sessions, but
+ * Switcher to Tmux should go directly into the last session where I left
+ * off."*
+ *
+ *  - [SWITCHER]  resume the level the window is on. The pre-2026-09-04 behaviour.
+ *  - [MAIN]      go to the window's ROOT level (its chooser). Per-item state is
+ *                KEPT — the entry point moves, the stored item state does not.
+ *  - [DEEP_LINK] a hand-off or a notice tap: [DamageWindow.open] decides, and
+ *                with no target the window stays where it is.
+ *  - [RESTORE]   shell start-up. Resumes, like [SWITCHER].
+ */
+enum class ActivationSource { SWITCHER, MAIN, DEEP_LINK, RESTORE }
+
+/**
  * What a window declares to the shell — DESIGN.md §4.6's contract table:
  * mode (via its current view), title, summary, icon, dirty, state blob, actions
  * (a LEVEL reached by wrapping, not a region), and what it NEEDS (§10.5).
@@ -104,9 +121,19 @@ abstract class DamageWindow(val id: String, val name: String, val icon: IconKind
      *  restore — the services handle for background completions. */
     open fun onRegistered(ctx: ShellServices) {}
 
-    /** Lifecycle. Preview is a RENDER, never an ACTIVATION (§4.3 rule 1):
-     *  activate() runs ONLY on commit — never while the switcher previews. */
-    open fun onActivate(ctx: ShellServices) {}
+    /**
+     * Lifecycle. Preview is a RENDER, never an ACTIVATION (§4.3 rule 1):
+     * activate() runs ONLY on commit — never while the switcher previews.
+     *
+     * [from] is Adam's general rule of 2026-09-04 (`HOLDEM.md` §3):
+     * **switcher = resume, Main = the window's root list.** A window with
+     * more than one base function presents its chooser when entered from
+     * MAIN and stays exactly where it was for every other source. The rule
+     * changes the ENTRY POINT only — per-item state (a reading offset, a
+     * running tournament, a queue) is never discarded, so navigating back
+     * down lands where it was (§9.1 is not weakened).
+     */
+    open fun onActivate(ctx: ShellServices, from: ActivationSource) {}
     open fun onDeactivate() {}
 
     /** The shell layout changed (size mode / safe rect): re-derive any cached

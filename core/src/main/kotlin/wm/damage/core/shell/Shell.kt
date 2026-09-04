@@ -128,7 +128,7 @@ class Shell(
     private val windows = ArrayList<DamageWindow>()
     private val recency = ArrayList<DamageWindow>()          // most recent first
     private lateinit var settingsWindow: SettingsWindow
-    private val main = MainSurface(chromeText, { mainRows() }, { commitWindow(it) }, { settings.presence }, { iconSource })
+    private val main = MainSurface(chromeText, { mainRows() }, { commitWindow(it, ActivationSource.MAIN) }, { settings.presence }, { iconSource })
 
     /** EXCLUSIVE (§4.9, 2026-09-02 — Music Mode): the focused window paints the
      *  whole panel; input is swallowed except double-tap (silent's path). */
@@ -317,7 +317,7 @@ class Shell(
             // off (one level — B→C after A→B returns to B, then Main). Cleared
             // by any EXPLICIT navigation (Main commit, switcher commit).
             val caller = if (mode == Mode.WINDOW) current else null
-            commitWindow(w)
+            commitWindow(w, ActivationSource.DEEP_LINK)
             if (w !== caller) backTarget = caller?.takeIf { it !== w }
             if (target != null) tryOpenTarget(w, target)
             return true
@@ -528,7 +528,7 @@ class Shell(
                 mode = Mode.WINDOW
                 recency.remove(current)
                 recency.add(0, current!!)
-                current!!.onActivate(services)
+                current!!.onActivate(services, ActivationSource.RESTORE)
             }
             if (restoredMode == Mode.SILENT.name) mode = Mode.SILENT
             // an EXCLUSIVE restore needs its window registered on this host
@@ -894,7 +894,7 @@ class Shell(
                         services.notifyInternal("shell",
                             "that notice's app (${n.appId}) is not available on this device")
                     } else {
-                        commitWindow(w)
+                        commitWindow(w, ActivationSource.DEEP_LINK)
                         // §16.1: tap = commit + activate + open AT the item
                         n.target?.let { tryOpenTarget(w, it) }
                     }
@@ -1037,8 +1037,9 @@ class Shell(
                     if (ret != null) {
                         // the §16.2 promise: back from a handed-off window's
                         // root returns to the CALLER (Files → Reader → back
-                        // lands in Files), not Main
-                        commitWindow(ret)
+                        // lands in Files), not Main — a RESUME of the caller,
+                        // which is sitting exactly where it handed off
+                        commitWindow(ret, ActivationSource.SWITCHER)
                         return
                     }
                     w.onDeactivate()
@@ -1287,7 +1288,9 @@ class Shell(
     }
 
     // ------------------------------------------------------------------ modes
-    private fun commitWindow(w: DamageWindow) {
+    /** Focus [w]. [from] carries WHY (§HOLDEM.md §3, Adam 2026-09-04): the
+     *  switcher and a hand-off RESUME, Main asks for the window's root list. */
+    private fun commitWindow(w: DamageWindow, from: ActivationSource) {
         // an EXPLICIT navigation ends any pending hand-off return (§16.2);
         // openWindow re-sets it right after when IT is the caller
         backTarget = null
@@ -1306,6 +1309,9 @@ class Shell(
         }
         dropKeyboard()                    // never carried into another window (§4.8)
         if (w === current && mode == Mode.WINDOW) {
+            // already focused: no re-activation (§4.3) — but Main still MEANS
+            // "show me the root list", so the navigation happens either way
+            if (from == ActivationSource.MAIN) w.onActivate(services, from)
             composeContent()      // e.g. committing the switcher to the current
             return                // window must still erase the panel
         }
@@ -1315,7 +1321,7 @@ class Shell(
         recency.remove(w)
         recency.add(0, w)
         w.dirty = false
-        w.onActivate(services)
+        w.onActivate(services, from)
         // activation auto-marks that app's notifications read (§4.5) — commit
         // only; preview never does this
         notifications.markAppRead(w.id)
@@ -1394,7 +1400,7 @@ class Shell(
             syncLayout()          // §2: back to the global height with Main
             composeContent()      // §4.3: the preview already painted the rest;
         } else {                  // this erases the panel region
-            commitWindow(target)  // marks that app's notices read (§4.5) BEFORE
+            commitWindow(target, ActivationSource.SWITCHER)  // marks notices read (§4.5) BEFORE
         }                         // the queue is shown: a box for the app just
         // entered is not shown as new (round 1, f6)
         val shown = notifications.showNextIfIdle()   // a box that waited behind the wheel

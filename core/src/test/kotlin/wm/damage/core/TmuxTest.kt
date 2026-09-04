@@ -526,7 +526,7 @@ class TmuxWindowTest {
         // three-level gate re-armed nothing: back to LIVE = a silently
         // frozen pane
         val (w, p, svc) = build()
-        w.onActivate(svc)
+        w.onActivate(svc, wm.damage.core.shell.ActivationSource.SWITCHER)
         p.pushStatus(session("claude"))
         (w.view() as WindowView.ListView).onCommit(0)      // open → LIVE, subscribed
         (w.view() as WindowView.CanvasView).onTap!!()      // → KEYS
@@ -534,9 +534,39 @@ class TmuxWindowTest {
         keys.onCommit(TmuxConfig.DEFAULT_QUICK_KEYS.size + 3)   // → Session…
         w.onDeactivate()                                    // park: unsubscribes
         assertEquals(null, p.subscribed.last(), "parking unsubscribes")
-        w.onActivate(svc)                                   // return, still deep
+        w.onActivate(svc, wm.damage.core.shell.ActivationSource.SWITCHER)                                   // return, still deep
         assertEquals(TmuxTarget("local", "claude"), p.subscribed.last(),
             "focus re-arms the subscription while a target exists (R6#1)")
+    }
+
+    @Test
+    fun mainEntryShowsTheSessionListAndReleasesTheCapture() {
+        // Adam, 2026-09-04 (HOLDEM.md §3): "going to Tmux from Main should
+        // present a list of sessions, but Switcher to Tmux should go directly
+        // into the last session where I left off".
+        val (w, p, svc) = build()
+        w.onActivate(svc, wm.damage.core.shell.ActivationSource.SWITCHER)
+        p.pushStatus(session("alpha"), session("claude"))
+        (w.view() as WindowView.ListView).onCommit(1)      // open claude → LIVE
+        assertEquals(TmuxTarget("local", "claude"), p.subscribed.last())
+        assertEquals("claude", w.title())
+
+        // the switcher RESUMES the pane
+        w.onDeactivate()
+        w.onActivate(svc, wm.damage.core.shell.ActivationSource.SWITCHER)
+        assertEquals("claude", w.title(), "the switcher must resume the session")
+        assertEquals(TmuxTarget("local", "claude"), p.subscribed.last())
+
+        // Main lands on the session list, with the capture released and the
+        // cursor on the session we came out of (one tap back down)
+        w.onDeactivate()
+        w.onActivate(svc, wm.damage.core.shell.ActivationSource.MAIN)
+        assertEquals("sessions", w.title(), "Main entry must show the session list")
+        assertEquals(1, w.levelDepth())
+        assertEquals(null, p.subscribed.last(), "the session list holds no capture loop")
+        (w.view() as WindowView.ListView).let { v ->
+            assertEquals(1, v.model.cursor, "the cursor rests on the session we left")
+        }
     }
 
     @Test
@@ -546,7 +576,7 @@ class TmuxWindowTest {
         // the three-level gate kept the orphan poll at Session… and
         // re-stamped level=live over the peer's newer record
         val (w, p, svc) = build()
-        w.onActivate(svc)
+        w.onActivate(svc, wm.damage.core.shell.ActivationSource.SWITCHER)
         p.pushStatus(session("claude"))
         (w.view() as WindowView.ListView).onCommit(0)      // open → LIVE
         (w.view() as WindowView.CanvasView).onTap!!()      // → KEYS

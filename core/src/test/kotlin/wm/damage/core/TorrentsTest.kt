@@ -517,6 +517,17 @@ SHA256: abc</pre>
         override fun openOnPc(target: String) { ops.add("open:$target") }
     }
 
+    private object TorrentsProbeServices : wm.damage.core.shell.ShellServices {
+        override fun requestRender(window: wm.damage.core.shell.DamageWindow) {}
+        override fun setOperation(op: String) {}
+        override fun notifyInternal(source: String, body: String, urgent: Boolean,
+            appId: String?, thread: String, target: String?) {}
+        override fun openWindow(id: String, target: String?): Boolean = false
+        override fun runOnShell(action: () -> Unit) = action()
+        override fun docContentWidth(): Int = 560
+        override fun docContentHeight(): Int = 384
+    }
+
     private class Rig(tmp: Path, val fake: FakeTorrents = FakeTorrents()) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val store = Persistence(tmp.resolve("state.json"))
@@ -530,6 +541,35 @@ SHA256: abc</pre>
         fun back() = shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
         fun down() = shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
         fun up() = shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)
+    }
+
+    @Test
+    fun mainEntryShowsTheTransfersListAndTheSwitcherResumesTheLevel(): Unit = runBlocking {
+        // Adam's general rule, 2026-09-04 (HOLDEM.md §3).
+        val tmp = Files.createTempDirectory("damage-torrents-activation")
+        val r = Rig(tmp)
+        try {
+            r.start()
+            awaitTrue("transfers open") { r.win.title() == "transfers" }
+            r.tap()
+            awaitTrue("menu") { r.shell.menuIsOpen }
+            r.tap()
+            awaitTrue("details") { r.win.title() == "details" }
+
+            // the switcher RESUMES the open document
+            r.win.onDeactivate()
+            r.win.onActivate(TorrentsProbeServices, wm.damage.core.shell.ActivationSource.SWITCHER)
+            assertEquals("details", r.win.title(), "the switcher must resume the level")
+
+            // MAIN goes back to the transfers list
+            r.win.onDeactivate()
+            r.win.onActivate(TorrentsProbeServices, wm.damage.core.shell.ActivationSource.MAIN)
+            assertEquals("transfers", r.win.title(), "Main entry must land on the transfers list")
+            assertEquals(1, r.win.levelDepth())
+            r.stop()
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
     }
 
     @Test

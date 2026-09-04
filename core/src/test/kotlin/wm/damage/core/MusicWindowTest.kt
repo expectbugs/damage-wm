@@ -59,6 +59,48 @@ class MusicWindowTest {
     private fun t(id: Int, artist: String = "A", dur: Int = 200_000) = TrackRef(id, "T$id", artist, "Al", dur)
 
     // =========================================================== the queue engine
+    private object MusicProbeServices : wm.damage.core.shell.ShellServices {
+        override fun requestRender(window: wm.damage.core.shell.DamageWindow) {}
+        override fun setOperation(op: String) {}
+        override fun notifyInternal(source: String, body: String, urgent: Boolean,
+            appId: String?, thread: String, target: String?) {}
+        override fun openWindow(id: String, target: String?): Boolean = false
+        override fun runOnShell(action: () -> Unit) = action()
+        override fun docContentWidth(): Int = 560
+        override fun docContentHeight(): Int = 384
+    }
+
+    @Test
+    fun mainEntryReturnsToNowPlayingNotABrowseList(): Unit = runBlocking {
+        // Adam's general rule, 2026-09-04 (HOLDEM.md §3) — with the Music
+        // trap: NOW PLAYING *is* the root (HANDOFF.md §24.4 reversed verdict
+        // 4), so Main entry goes there and never to a chooser.
+        val tmp = Files.createTempDirectory("damage-music-activation")
+        val r = Rig(tmp)
+        try {
+            r.start()
+            r.toMenuRow()
+            r.menuPick("Browse")
+            r.toMenuRow()
+            assertEquals("browse", r.win.title(), "the test never reached a deep level")
+
+            // the switcher RESUMES the level
+            r.win.onDeactivate()
+            r.win.onActivate(MusicProbeServices, wm.damage.core.shell.ActivationSource.SWITCHER)
+            assertEquals("browse", r.win.title(), "the switcher must resume the level")
+
+            // MAIN pops the whole stack back to the root
+            r.win.onDeactivate()
+            r.win.onActivate(MusicProbeServices, wm.damage.core.shell.ActivationSource.MAIN)
+            assertEquals(1, r.win.levelDepth(), "Main entry must land on the Music root")
+            assertTrue(r.win.title() == "music" || r.win.title() == "now playing",
+                "the Music root is NOW PLAYING, not a browse list: ${r.win.title()}")
+            r.stop()
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
     @Test
     fun queueEngineModesIdentityAndFill() {
         val q = QueueEngine(java.util.Random(1))

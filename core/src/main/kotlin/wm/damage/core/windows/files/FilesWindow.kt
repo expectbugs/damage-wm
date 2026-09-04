@@ -20,6 +20,7 @@ import wm.damage.core.gfx.IconPaint
 import wm.damage.core.gfx.Icons
 import wm.damage.core.gfx.ImageDecoder
 import wm.damage.core.gfx.Level
+import wm.damage.core.shell.ActivationSource
 import wm.damage.core.shell.DamageWindow
 import wm.damage.core.shell.DocModel
 import wm.damage.core.shell.Draw
@@ -263,8 +264,11 @@ class FilesWindow(
         return true
     }
 
-    override fun onActivate(ctx: ShellServices) {
+    override fun onActivate(ctx: ShellServices, from: ActivationSource) {
         services = ctx
+        // Adam's rule, 2026-09-04 (HOLDEM.md §3): from MAIN, the LOCATIONS
+        // list — the window's chooser — rather than whatever folder was open.
+        if (from == ActivationSource.MAIN) goRoot()
         when (level) {
             Level_.LOCATIONS -> refreshLocations()
             // while a restore's pdf open is in flight, hold the refresh: its
@@ -275,6 +279,23 @@ class FilesWindow(
             Level_.TRASH -> refreshTrash()
             Level_.VIEW -> {}
         }
+    }
+
+    /** MAIN entry: straight to the locations list, dropping the same
+     *  in-flight bookkeeping back() drops on the way up (a pending restore
+     *  open, an armed rename, a queued cursor) so nothing lands later on a
+     *  level the user has left. `cwd` itself is untouched — the locations
+     *  list is the way back down. */
+    private fun goRoot() {
+        if (level == Level_.LOCATIONS) return
+        pendingOpenView = null
+        pendingBrowseCursor = null
+        pendingSelectName = null
+        nameArmed = null
+        viewer = null
+        browseStack.clear()
+        level = Level_.LOCATIONS
+        refreshLocations()
     }
 
     override fun onLayoutChanged() {

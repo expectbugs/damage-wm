@@ -44,6 +44,19 @@ import wm.damage.core.wire.EvenHubMsg
  */
 class FilesTest {
 
+    /** Minimal services for the direct-activation checks (the rig's window is
+     *  registered in a real shell; these calls only exercise the window). */
+    private object FilesProbeServices : wm.damage.core.shell.ShellServices {
+        override fun requestRender(window: wm.damage.core.shell.DamageWindow) {}
+        override fun setOperation(op: String) {}
+        override fun notifyInternal(source: String, body: String, urgent: Boolean,
+            appId: String?, thread: String, target: String?) {}
+        override fun openWindow(id: String, target: String?): Boolean = false
+        override fun runOnShell(action: () -> Unit) = action()
+        override fun docContentWidth(): Int = 560
+        override fun docContentHeight(): Int = 384
+    }
+
     private fun freePort(): Int = ServerSocket(0).use { it.localPort }
 
     private var dump: () -> String = { "" }
@@ -102,6 +115,33 @@ class FilesTest {
         fun back() = shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
         fun down() = shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
         fun up() = shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)
+    }
+
+    @Test
+    fun mainEntryShowsTheLocationsListAndTheSwitcherResumesTheFolder(): Unit = runBlocking {
+        // Adam's general rule, 2026-09-04 (HOLDEM.md §3).
+        val tmp = Files.createTempDirectory("damage-files-activation")
+        val r = Rig(tmp)
+        try {
+            r.start()
+            awaitTrue("locations listed") { r.win.summary().line == "1 locations" }
+            r.tap()                                     // enter SC
+            awaitTrue("browse lists the root") { r.win.title().endsWith("sc-root") }
+
+            // the switcher RESUMES the open folder
+            r.win.onDeactivate()
+            r.win.onActivate(FilesProbeServices, wm.damage.core.shell.ActivationSource.SWITCHER)
+            assertTrue(r.win.title().endsWith("sc-root"), "the switcher must resume the folder")
+
+            // MAIN goes to the locations list
+            r.win.onDeactivate()
+            r.win.onActivate(FilesProbeServices, wm.damage.core.shell.ActivationSource.MAIN)
+            assertEquals("locations", r.win.title(), "Main entry must land on the locations list")
+            assertEquals(1, r.win.levelDepth())
+            r.stop()
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
     }
 
     @Test
