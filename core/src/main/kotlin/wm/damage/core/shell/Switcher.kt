@@ -124,8 +124,15 @@ class Switcher(
 
         // band geometry at rest: above 44 · centre 88 · below 44 (§4.3); while
         // spinning, the boundary between bands slides by frac of a band.
-        val bandTop = p.y + (44 * (1 - frac)).toInt() / 2 * 2
-        val bandBot = p.y + 132 - (44 * frac).toInt() / 2 * 2
+        // The centre band holds the icon and the name's MEASURED ascent
+        // (review §28 #11): 88 is exactly what Clear Sans 21 bold needs at
+        // 100 %, and under the global font scale the name's baseline fell
+        // below the lower rule and the lower neighbour's descenders ran past
+        // the panel — outside the wheel's damage rect.
+        val bandH = maxOf(88, (64 + text.metrics(fBig).ascent + 1) / 2 * 2)
+        val small = ((p.h - bandH) / 2) / 2 * 2
+        val bandTop = p.y + (small * (1 - frac)).toInt() / 2 * 2
+        val bandBot = bandTop + bandH
 
         // quantised tiers: centre full, neighbours ~50 %, edges ~25 % (§4.3)
         val dimLv = Level.of(4)
@@ -161,8 +168,9 @@ class Switcher(
         text.draw(g, lx / 4 * 4, (iconY + 60) / 2 * 2, name, fBig, Level.HOT)
         if (name != ce.name) Icons.tri(g, p.right - 14, iconY + 64, 11, Level.DIM)
         if (ce.dirty) g.fillRect((lx + tw + 8).coerceAtMost(p.right - 8), iconY + 66, 4, 10, Level.HOT)
-        // below neighbour
-        if (n > 2) paintSmall(g, p, entryAt(1), p.bottom - 24, dimLv)
+        // below neighbour — inside the panel whatever the face's ink
+        val smallInk = text.metrics(fBody).let { it.ascent + it.descent }
+        if (n > 2) paintSmall(g, p, entryAt(1), minOf(p.bottom - 24, p.bottom - 2 - smallInk), dimLv)
         return p
     }
 

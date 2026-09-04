@@ -24,7 +24,17 @@ import wm.damage.core.geom.Rect
  * `check()` proves it — an unaligned box is rejected by the firmware in
  * SILENCE, leaving the previous frame up.
  */
-class TableLayout(val content: Rect, val panelHeight: Int) {
+class TableLayout(
+    val content: Rect,
+    val panelHeight: Int,
+    /** The status band's height — the caller sizes it from the MEASURED ink
+     *  of the face it draws there (review §28 #9); null (the geometry tests)
+     *  = the design's 22/24, and a value below those floors is raised to
+     *  them. Even values only. */
+    statusH: Int? = null,
+    /** Your line's band (tier ≥ 2), the same way; null = the design's 24. */
+    lineH: Int? = null,
+) {
 
     val card: CardArt.Size = CardArt.Size.forHeight(panelHeight)
 
@@ -59,8 +69,8 @@ class TableLayout(val content: Rect, val panelHeight: Int) {
     init {
         val pad = 4
         val gap = 4
-        val statusH = if (tier >= 2) 24 else 22
-        val lineH = if (tier >= 2) 24 else 0
+        val statusH = maxOf(if (tier >= 2) 24 else 22, statusH ?: 0)
+        val lineH = if (tier >= 2) maxOf(24, lineH ?: 0) else 0
         // 52, not 44: the history draws three lines at the tiny face, whose
         // MEASURED ink is 17 px, and 44 forced a 14 px pitch that ran the
         // descenders of each line into the tops of the next (review pass 3,

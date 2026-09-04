@@ -230,7 +230,15 @@ class FilesWindow(
         }
     }
 
-    override fun onRegistered(ctx: ShellServices) { services = ctx }
+    override fun onRegistered(ctx: ShellServices) {
+        services = ctx
+        // the Main lens read "0 locations" from boot until the window was
+        // first opened — a count of a list nobody had asked for (review §28
+        // #5). A QUIET listing at registration: no op-cell narration, no
+        // notice, no navSeq bump (a restore's own open must not be cancelled
+        // by it), and its result yields to anything newer.
+        refreshLocations(quiet = true)
+    }
 
     /** §16.1 deep link: `path:<absolute>` opens the browser at that folder,
      *  or at the file's folder with the cursor on the file (Torrents' "Open
@@ -337,10 +345,12 @@ class FilesWindow(
     }
 
     // ============================================================== locations
-    private fun refreshLocations() {
-        val seq = ++navSeq
-        listState = "listing"
-        services?.setOperation("listing locations")
+    private fun refreshLocations(quiet: Boolean = false) {
+        val seq = if (quiet) navSeq else ++navSeq
+        if (!quiet) {
+            listState = "listing"
+            services?.setOperation("listing locations")
+        }
         bg.launch(Dispatchers.IO) {
             val (locs, err) = try {
                 provider.locations() to null
@@ -357,9 +367,11 @@ class FilesWindow(
                     locs.firstOrNull { it.kind == "books" }?.let { booksDir = it.path }
                     locs.firstOrNull { it.kind == "home" }?.let { hostHome = it.path }
                 }
-                listState = err ?: ""
-                if (err != null) setNotice(err)
-                services?.setOperation("idle")
+                if (!quiet) {
+                    listState = err ?: ""
+                    if (err != null) setNotice(err)
+                    services?.setOperation("idle")
+                }
                 services?.requestRender(this@FilesWindow)
             }
         }

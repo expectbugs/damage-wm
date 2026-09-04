@@ -65,7 +65,7 @@ and shell, always, while it is up; the OpenRC `damage` service is the DATA PROVI
 tmux + last-write-wins state sync) plus a STANDBY that drives PC-direct BLE only while the APK
 is unavailable and hands back on its return. The PC never claims in daily use** (`--transport
 remote` keeps the claim path as the explicit dev override). `REMINDER.md` is the orientation
-file; `HANDOFF.md` §19–§27 the current records; `DAILY.md` the ops crib; `IMPLEMENTATION.md`
+file; `HANDOFF.md` §19–§28 the current records; `DAILY.md` the ops crib; `IMPLEMENTATION.md`
 what runs and how. App layer: **Main · Settings · Reader · Tmux · Files · Torrents · Music ·
 Games** (Files landed
 2026-09-01 with the whole §16 shared machinery — `HANDOFF.md` §22; Torrents + the §4.8
@@ -83,6 +83,17 @@ three of the six were the same defect: **a rect a paint returns is a promise.** 
 the face's MEASURED ink (`ascent + descent`), never from a line height or a constant — ink
 outside a declared damage rect goes into `composed`, is never sent, and the belief and the glass
 then agree while the composed frame quietly diverges.
+**A third review on 2026-09-04 (late) — `HANDOFF.md` §28 — read the whole tree again and then
+drove the whole system LIVE through the browser replica at all four heights and up the font
+ladder: eleven verified defects, five of them that same rule applied to the shell's own chrome
+(the menu, the notification box, the wheel) and to the Hold'em bands, which all measured nothing
+and broke the moment the face grew.** The rest: the Hold'em pacer stalled after a back-and-return,
+the Reader could not open a book at 115 % or 130 %, an unreadable `config.json` was replaced with
+defaults, tmux never alerted for a pane that had not filled its screen. 🔴 **Live-drive the real
+program before calling a round done** (§28.2 — the scratch-home sim instance plus the replica
+WebSocket driver): the harnesses use scripted providers and the oracle sees only what they visit;
+the live walk runs the real tmux server, shelf, qBittorrent and library under the real grammar,
+and it is what found the last five.
 
 Adam's stated methodology governs **the app layer**:
 
@@ -110,9 +121,9 @@ Damage` and the APK-wide `Phone notifications` switch, and the shell never gates
 source on a hidden field — a Global row that disappears leaves a persisted value nothing can undo).
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(421 tests, including the per-lens oracle, the §25/§26/§27 review pins and the random-gesture
-oracle walk), `./gradlew :desktop:test` (9 tests: the BlueZ glue
-over a fake link), `desktop --selfcheck` (189 checks, the truth oracle on every settle), `desktop --snapshot DIR` (look at the lens
+(430 tests, including the per-lens oracle, the §25/§26/§27/§28 review pins and the random-gesture
+oracle walk), `./gradlew :desktop:test` (11 tests: the BlueZ glue
+over a fake link and the config file's safety), `desktop --selfcheck` (189 checks, the truth oracle on every settle), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `desktop --music-check` (the real library, read-only bar the additive schema migration),
 `desktop --games-check` (the Hold'em ecology over hundreds of simulated tournaments — pure
 in-memory, touches nothing), `python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.

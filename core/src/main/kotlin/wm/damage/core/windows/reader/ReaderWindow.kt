@@ -145,17 +145,28 @@ class ReaderWindow(
     private var services: ShellServices? = null
     private var wrappedWidth = 0
 
-    /** Reader content face: Alegreya (locked). Line height 30 px — even (§2.4
-     *  r7). ⚠ Was 24, which CHOPPED DESCENDERS (2026-08-31): Alegreya's
-     *  x-height normalisation lands the em at ~20 px, whose ascent+descent is
-     *  28 rows — five more than a 24 px box drawn 2 px down could hold, and
-     *  the scroll path renders each line into a buffer exactly one box tall.
-     *  The face and size stay exactly as they were; only the box grew. */
+    /** Reader content face: Alegreya (locked). The line box is MEASURED per
+     *  layout ([lineBox]) — the face's ascent + descent plus [LINE_LEADING],
+     *  on the 2 px grid: 30 rows at the design size (Alegreya's x-height
+     *  normalisation lands the em at ~20 px, whose ink is 28 rows).
+     *  ⚠ It was a constant 30 until review §28 #2, with a guard that REFUSED
+     *  any layout whose ink exceeded it — and at 115 % the ink is 34, at
+     *  130 % 36, so two of the four rungs of the size ladder could not open a
+     *  book at all ("could not open …" on every title). Before that it was
+     *  24, which chopped descenders (2026-08-31): the scroll path renders
+     *  each line into a buffer exactly one box tall. */
     private val fBody = FontSpec(Face.READER, 17)
     private val fBodyB = FontSpec(Face.READER, 17, bold = true)
     private val fSmall = FontSpec(Face.SYSTEM, 13, bold = true)
     private val fRow = FontSpec(Face.SYSTEM, 18)
-    private val lineH = 30
+
+    /** The line box for the CURRENT metrics: the taller of the two weights'
+     *  ascent + descent, plus the leading, rounded UP to the 2 px grid (§2.4
+     *  r7 — a doc slide shifts whole line boxes by mode 9). */
+    private fun lineBox(): Int {
+        val ink = listOf(fBody, fBodyB).maxOf { f -> tx.metrics(f).let { it.ascent + it.descent } }
+        return (ink + LINE_LEADING + 1) / 2 * 2
+    }
 
     private class Loaded(
         val meta: BookMeta,
@@ -165,6 +176,10 @@ class ReaderWindow(
         val width: Int,
         /** The font scale the wrap was measured at (round 4 #10). */
         val scale: Double,
+        /** The line box this layout was measured for — the view, the image
+         *  strips and the paint all read it from here, so a rescale mid-read
+         *  cannot draw a new box over an old layout. */
+        val lineH: Int,
         /** Decoded, scaled, 16-level-quantized ebook images (2026-08-31),
          *  each padded to whole line boxes so image LINES blit exact strips. */
         val imgs: List<Gray8> = emptyList(),
@@ -200,7 +215,7 @@ class ReaderWindow(
         Level_.BOOK -> {
             val b = book
             if (b == null) libView()
-            else WindowView.DocView(docModel, { b.lines.size }, lineH,
+            else WindowView.DocView(docModel, { b.lines.size }, b.lineH,
                 { g, i, r -> paintBookLine(g, b, i, r) }, { level = Level_.ACTIONS },
                 { scrollLines }, { scrollAccel })
         }
@@ -342,6 +357,11 @@ class ReaderWindow(
 
     override fun onRegistered(ctx: ShellServices) {
         services = ctx
+        // the Main lens read "library loading" from boot until the window
+        // was first opened — a claim about a scan nobody had started (review
+        // §28 #5). Scan now; the activation re-scan below is skipped while
+        // this one is still in flight.
+        refreshLibrary()
     }
 
     override fun onActivate(ctx: ShellServices, from: ActivationSource) {
@@ -353,7 +373,8 @@ class ReaderWindow(
         if (from == ActivationSource.MAIN) goRoot()
         // always re-scan on activation (round 3 R2): the scan is what keeps
         // the host-link banner truthful, and the shelf stays up while it runs
-        refreshLibrary()
+        // — unless one is in flight already (the registration scan)
+        if (!scanInFlight) refreshLibrary()
     }
 
     /**
@@ -433,8 +454,12 @@ class ReaderWindow(
     }
 
     // ------------------------------------------------------------------ library
+    /** A shelf scan is running; set and cleared on the shell loop. */
+    private var scanInFlight = false
+
     private fun refreshLibrary() {
         libraryState = "loading"
+        scanInFlight = true
         val keep = library          // a failed re-scan keeps the shelf we have
         bg.launch(Dispatchers.IO) {
             var lib: List<BookMeta> = keep
@@ -447,6 +472,7 @@ class ReaderWindow(
                 state = "library error: ${e.message}"
             }
             services?.runOnShell {
+                scanInFlight = false
                 library = lib
                 libraryState = state
                 services?.requestRender(this@ReaderWindow)
@@ -580,15 +606,16 @@ class ReaderWindow(
     private fun layoutBook(meta: BookMeta, b: Epub.Book): Loaded {
         val width = (services?.docContentWidth() ?: 560).coerceAtLeast(120)
         val scale = fontScale
-        // The descender guard (2026-08-31): a document face whose vertical
-        // extent exceeds its line box gets clipped by the scroll path's
-        // per-line buffers — LOUDLY refuse the layout instead of chopping
-        // glyphs on glass. Checked for both weights at the current scale.
+        // The line box follows the face at THIS scale (§28 #2). The descender
+        // guard stays as a check on the arithmetic: a box that cannot hold
+        // its own ink would be clipped by the scroll path's per-line buffers,
+        // and that is refused LOUDLY rather than chopped on glass.
+        val lineH = lineBox()
         for (f in listOf(fBody, fBodyB)) {
             val m = tx.metrics(f)
             if (m.ascent + m.descent > lineH) throw wm.damage.core.geom.LintError(
                 "Reader line box $lineH px cannot hold ${f.face} ascent ${m.ascent} + descent ${m.descent} — " +
-                    "descenders would be chopped (grow lineH or shrink the face)")
+                    "descenders would be chopped (the box is measured; this is a metrics defect)")
         }
         val lines = ArrayList<Loaded.Line>(b.text.length / 40)
         val imgs = ArrayList<Gray8>()
@@ -598,7 +625,7 @@ class ReaderWindow(
             // scrolling, slides, damage and character offsets all just work
             val imgPath = Epub.imagePath(para)
             if (imgPath != null) {
-                if (!layoutImage(b, imgPath, paraStart, width, lines, imgs)) {
+                if (!layoutImage(b, imgPath, paraStart, width, lineH, lines, imgs)) {
                     lines.add(Loaded.Line("[image: ${imgPath.substringAfterLast('/')}]", paraStart, false))
                 }
                 lines.add(Loaded.Line("", paraStart + para.length, false))
@@ -626,7 +653,7 @@ class ReaderWindow(
         // page numbers count against the LIVE content height (§2.2b: nothing
         // hardcodes a 480-derived number) — 384 is only the no-services default
         val perPage = maxOf(1, (services?.docContentHeight() ?: 384) / lineH)
-        return Loaded(meta, b, lines, perPage, width, scale, imgs)
+        return Loaded(meta, b, lines, perPage, width, scale, lineH, imgs)
     }
 
     private var warnedNoDecoder = false
@@ -635,7 +662,7 @@ class ReaderWindow(
      *  levels (NO dithering — the standing rule) and pad to whole line boxes.
      *  False = no image (the caller adds a visible placeholder line). */
     private fun layoutImage(
-        b: Epub.Book, zipPath: String, offset: Int, width: Int,
+        b: Epub.Book, zipPath: String, offset: Int, width: Int, lineH: Int,
         lines: MutableList<Loaded.Line>, imgs: MutableList<Gray8>,
     ): Boolean {
         val dec = images ?: run {
@@ -691,7 +718,7 @@ class ReaderWindow(
         if (line.img >= 0) {
             val im = b.imgs.getOrNull(line.img) ?: return
             val x = ((r.x + (r.w - im.w).coerceAtLeast(0) / 2) / 4) * 4
-            g.blit(im, Rect(0, line.imgRow * lineH, im.w, lineH), x, r.y)
+            g.blit(im, Rect(0, line.imgRow * b.lineH, im.w, b.lineH), x, r.y)
             return
         }
         if (line.text.isEmpty()) return
@@ -701,7 +728,7 @@ class ReaderWindow(
         // the hardcoded +2 assumed the glyphs fit, which is exactly what
         // chopped the descenders when they did not)
         val m = tx.metrics(f)
-        val off = ((lineH - (m.ascent + m.descent)) / 2).coerceAtLeast(0)
+        val off = ((b.lineH - (m.ascent + m.descent)) / 2).coerceAtLeast(0)
         // the book's own prose is dynamic text too: substitute-not-tofu, and
         // FIT it — the wrap measured the raw string, so a substituted glyph of a
         // different width must be marked rather than pushed past the line rect
@@ -999,5 +1026,10 @@ class ReaderWindow(
 
     private fun drawRight(g: Gray8, xRight: Int, y: Int, s: String, lv: Int, f: FontSpec) {
         wm.damage.core.shell.Draw.right(g, tx, xRight, y, wm.damage.core.shell.Draw.dynamic(tx, s, f), lv, f)
+    }
+
+    companion object {
+        /** Rows of leading in a line box beyond the face's own ink. */
+        const val LINE_LEADING = 2
     }
 }

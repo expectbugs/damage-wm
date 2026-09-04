@@ -69,8 +69,23 @@ class HoldemView(private val tx: TextRasterizer) {
     var layout: TableLayout? = null
         private set
 
+    /** A face's drawn extent: ascent + descent. */
+    private fun ink(f: FontSpec) = tx.metrics(f).let { it.ascent + it.descent }
+
+    private fun evenUp(v: Int) = (v + 1) / 2 * 2
+
     fun paint(g: Gray8, rect: Rect, m: Model) {
-        val t = TableLayout(rect, rect.h + 64)
+        // the status band and your line are sized from the MEASURED ink of
+        // the faces they carry (review §28 #9): under a per-app font scale
+        // the 24 px design band held a 33 px status line, whose lower third
+        // fell into the hole-card plane and was drawn shifted — a cut through
+        // the text on every frame. MEASURED at 100 %: Clear Sans 17 bold inks
+        // 25 rows, so the band is 30 there (the design's 24 held that line
+        // only by lending its descent to the gap below; the seat strip gives
+        // up the six rows), and your line's 12 px face inks 19, so that band
+        // stays the design's 24.
+        val t = TableLayout(rect, rect.h + 64,
+            statusH = evenUp(ink(fStatusBig) + 4), lineH = evenUp(ink(fSmall) + 4))
         layout = t
         g.fillRect(rect, Level.BG)
         paintSeats(g, t, m)
@@ -139,7 +154,11 @@ class HoldemView(private val tx: TextRasterizer) {
             }
         }
         Draw.fit(g, tx, x + markW, y, Draw.dynamic(tx, s.who.name, fName), nameLv, fName, w - markW)
-        y += 17
+        // the row pitches follow the MEASURED ink (review §28 #9): 17/16/15
+        // are what the design faces need at 100 % — ink 23/22/19 less the
+        // leading a row can lend the next — and under a per-app scale the
+        // fixed pitches ran every descender into the caps of the row below
+        y += maxOf(17, ink(fName) - 6)
 
         if (gone) {
             tx.draw(g, x, y, "out", fSmall, Level.FAINT)
@@ -169,10 +188,12 @@ class HoldemView(private val tx: TextRasterizer) {
                 }
             }
         }
-        y += 16
+        y += maxOf(16, ink(fStack) - 6)
 
         val inspected = m.cursor == s.index
-        if (t.showsLastAction) {
+        // a line that would run past the cell's bottom is DROPPED, never
+        // drawn over the band below (the lens-ladder rule, WINDOWS.md §5)
+        if (t.showsLastAction && y + ink(fSmall) <= cell.bottom) {
             val shown = m.v.result?.shown ?: emptySet()
             if (inspected) {
                 // inspecting a seat is a question, so it gets an answer: what
@@ -182,7 +203,7 @@ class HoldemView(private val tx: TextRasterizer) {
                 val line = when {
                     c == null -> "you"
                     c.career.handsVsYou == 0 -> "no hands together"
-                    c.career.handsVsYou < READ_HANDS -> "${c.career.handsVsYou} hands"
+                    c.career.handsVsYou < READ_HANDS -> hands(c.career.handsVsYou)
                     else -> "vp ${(c.career.vpip * 100).toInt()} · ag ${"%.1f".format(c.career.aggression)}"
                 }
                 Draw.fit(g, tx, x, y, line, Level.MID, fSmall, w)
@@ -197,16 +218,17 @@ class HoldemView(private val tx: TextRasterizer) {
                 val act = if (s.folded) "folded" else s.lastAction
                 if (act.isNotEmpty()) Draw.fit(g, tx, x, y, act, if (dim) Level.REST else Level.DIM, fSmall, w)
             }
-            y += 15
+            y += maxOf(15, ink(fSmall) - 4)
         }
         // §9.2 left "actual backs at 480" as a CONSIDERATION and the mark won
         // it at every rung: two 72x100 backs per seat is ten lit rectangles
         // carrying no information, which is the ink trap that section names.
+        // It sits under the name's ink, wherever the scale puts that.
         if (!s.folded && s.cards.isNotEmpty()) {
-            CardArt.holdingMark(g, cell.right - 22, cell.y + 20, 16, 10, 2,
+            CardArt.holdingMark(g, cell.right - 22, cell.y + maxOf(20, ink(fName) - 3), 16, 10, 2,
                 if (dim) Level.REST else Level.MID)
         }
-        if (t.showsObservedStats && m.showStats) {
+        if (t.showsObservedStats && m.showStats && y + ink(fTiny) <= cell.bottom) {
             val c = m.cast[s.index]
             // §7.7: the read is EARNED. Below the threshold there is nothing
             // honest to say, so the line stays empty rather than printing
@@ -244,8 +266,11 @@ class HoldemView(private val tx: TextRasterizer) {
         val r = t.status
         val me = m.v.seats.getOrNull(m.mySeat)
         val result = m.v.result
+        // the band was sized for fStatusBig's ink (+4): the text rides 2 px
+        // down from its top, exactly the design's placement at 100 %
+        val by = r.y + 2
         if (m.note.isNotEmpty()) {
-            Draw.fit(g, tx, r.x, r.y + 2, Draw.dynamic(tx, m.note, fStatusBig), Level.HOT, fStatusBig, r.w)
+            Draw.fit(g, tx, r.x, by, Draw.dynamic(tx, m.note, fStatusBig), Level.HOT, fStatusBig, r.w)
             return
         }
         if (result != null) {
@@ -256,9 +281,9 @@ class HoldemView(private val tx: TextRasterizer) {
             // the tail says — the confirm's notice is gone after four seconds
             // and nothing else on the table admits you are leaving.
             val tail = if (m.leaving) "tap to leave" else "tap to deal"
-            Draw.fit(g, tx, r.x, r.y + 2, Draw.dynamic(tx, result.line, fStatusBig),
+            Draw.fit(g, tx, r.x, by, Draw.dynamic(tx, result.line, fStatusBig),
                 Level.HEAD, fStatusBig, r.w - tx.measure(tail, fSmall) - 16)
-            Draw.right(g, tx, r.right, r.y + 4, tail, Level.DIM, fSmall)
+            Draw.right(g, tx, r.right, by + 2, tail, Level.DIM, fSmall)
             return
         }
         val parts = ArrayList<String>(4)
@@ -280,9 +305,9 @@ class HoldemView(private val tx: TextRasterizer) {
         val lx = r.x
         // the line carries a character NAME: sanitize it like any other
         // dynamic string, or a glyph the face lacks is silent tofu
-        Draw.fit(g, tx, lx, r.y + 2, Draw.dynamic(tx, left, fStatus),
+        Draw.fit(g, tx, lx, by, Draw.dynamic(tx, left, fStatus),
             if (m.v.toAct == m.mySeat) Level.HEAD else Level.BODY, fStatus, r.right - lx - bw)
-        Draw.right(g, tx, r.right, r.y + 4, blinds, Level.DIM, fSmall)
+        Draw.right(g, tx, r.right, by + 2, blinds, Level.DIM, fSmall)
     }
 
     // ------------------------------------------------------------------ you
@@ -336,6 +361,12 @@ class HoldemView(private val tx: TextRasterizer) {
         /** Hands together before a seat's observed stats mean anything — the
          *  same threshold the bot's own read uses (§7.6). */
         const val READ_HANDS = 50
+
+        /** "1 hand", "12 hands" — the seat cell read "1 hands" on glass
+         *  (review §28 #6), the same class as "You checks". */
+        fun hands(n: Int): String = plural(n, "hand")
+
+        fun plural(n: Int, noun: String): String = if (n == 1) "1 $noun" else "$n ${noun}s"
     }
 
     /** Lit fraction of [rect] — the §9.2 ink target (≈8 % at 288, ≈10 % at

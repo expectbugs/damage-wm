@@ -53,6 +53,20 @@ class MenuSurface(private val text: TextRasterizer) {
     private val fRow = FontSpec(Face.SYSTEM, 17)
     private val fDetail = FontSpec(Face.SYSTEM, 13)
 
+    /**
+     * The box's vertical rhythm, MEASURED from the chrome face (review §28
+     * #7). The design numbers — an 18 px title band and a 24 px row pitch —
+     * are what Clear Sans 13 bold / 17 fit at 100 %, and they are kept there
+     * exactly; under the global font scale the title's baseline fell below
+     * its own rule and the rows' descenders ran into the next row's caps, so
+     * the band and the pitch follow the ink from here up. Even values only
+     * (the box is a damage rect).
+     */
+    private fun titleH(): Int = maxOf(TITLE_H, evenUp(4 + text.metrics(fTitle).ascent - 2))
+    private fun rowH(): Int = maxOf(ROW_H, evenUp(text.metrics(fRow).let { it.ascent + it.descent } - 1))
+    private fun chromeH(): Int = titleH() + 4 + 8
+    private fun evenUp(v: Int): Int = (v + 1) / 2 * 2
+
     fun openWith(s: Spec) {
         require(s.items.isNotEmpty()) { "a menu needs at least one item" }
         spec = s
@@ -85,13 +99,13 @@ class MenuSurface(private val text: TextRasterizer) {
     /** Rows that fit the content area, given the box chrome. */
     private fun visibleRows(l: Layout, n: Int): Int {
         val maxH = l.content.h - 32
-        return minOf(n, maxOf(1, (maxH - CHROME_H) / ROW_H))
+        return minOf(n, maxOf(1, (maxH - chromeH()) / rowH()))
     }
 
     fun rect(l: Layout): Rect? {
         val s = spec ?: return null
         val rows = visibleRows(l, s.items.size)
-        val h = Geometry.snapY(CHROME_H + rows * ROW_H)
+        val h = Geometry.snapY(chromeH() + rows * rowH())
         val cx = l.safe.x + l.safe.w / 2
         val cy = l.content.y + l.content.h / 2
         return Rect(Geometry.snapX(cx - W / 2), Geometry.snapY(cy - h / 2), W, h)
@@ -135,7 +149,9 @@ class MenuSurface(private val text: TextRasterizer) {
         // spec it draws with — the chrome face and weight can differ from the
         // caller's (review 2026-09-01 R2-W6)
         Draw.fit(g, text, box.x + 8, box.y + 4, Draw.dynamic(text, s.title.uppercase(), fTitle), Level.DIM, fTitle, box.w - 16)
-        g.fillRect(box.x + 8, box.y + TITLE_H, box.w - 16, 2, Level.FAINT)
+        val titleH = titleH()
+        val rowH = rowH()
+        g.fillRect(box.x + 8, box.y + titleH, box.w - 16, 2, Level.FAINT)
 
         val rows = visibleRows(l, s.items.size)
         // the pan window follows the cursor
@@ -144,7 +160,7 @@ class MenuSurface(private val text: TextRasterizer) {
         for (i in 0 until rows) {
             val idx = top + i
             val it = s.items.getOrNull(idx) ?: break
-            val y = box.y + TITLE_H + 4 + i * ROW_H
+            val y = box.y + titleH + 4 + i * rowH
             val focusedRow = idx == cursor
             val lv = when {
                 !it.enabled -> Level.REST
@@ -169,7 +185,7 @@ class MenuSurface(private val text: TextRasterizer) {
         }
         if (s.items.size > rows) {
             // more rows exist above/below the pan window — advertise, never hide
-            if (top > 0) g.fillRect(box.x + box.w / 2 - 8, box.y + TITLE_H + 2, 16, 2, Level.MID)
+            if (top > 0) g.fillRect(box.x + box.w / 2 - 8, box.y + titleH + 2, 16, 2, Level.MID)
             if (top + rows < s.items.size) g.fillRect(box.x + box.w / 2 - 8, box.bottom - 6, 16, 2, Level.MID)
         }
         return box
@@ -201,6 +217,7 @@ class MenuSurface(private val text: TextRasterizer) {
 
     companion object {
         const val W = 248                      // ×4 ✓ — the notification box's width
+        /** The 100 % rhythm — the FLOOR of the measured values above. */
         const val ROW_H = 24
         const val TITLE_H = 18
         const val CHROME_H = TITLE_H + 4 + 8   // title + rule gap + bottom pad (kept even)

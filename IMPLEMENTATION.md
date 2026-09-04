@@ -251,7 +251,7 @@ development environment; also serves ~/books to the phone):
 ./gradlew :desktop:run --args="--games-check" # the Hold'em ecology over hundreds of simulated tournaments (pure in-memory; add `deep` for a longer run)
 ./gradlew :desktop:run --args="--card-render" # the card sheets into design/shots/cards/ at true 1x
 ./gradlew :desktop:run --args="--host-only"   # content host alone (books + tmux + sync, no stack ever)
-./gradlew :desktop:test                       # 9 tests: the BlueZ glue over the fake link
+./gradlew :desktop:test                       # 11 tests: the BlueZ glue over the fake link + the config file's safety
 ```
 
 Preview: mouse wheel scroll · left click tap · right click double-tap · press-and-hold
@@ -259,7 +259,8 @@ long-press (release on let-go) · keys ↑/↓ Enter Backspace Space R · Tab le
 -/= window scale (integer nearest-neighbour, default 4×, clamped to the screen).
 The browser replica link is printed at start (`http://<host>:7403/?token=…`). Config in
 `~/.damage/config.json` (books dir, ports, token — generated on first run and must match
-`damage-secrets.properties` before building the APK — the phone host, the cached pair
+`damage-secrets.properties` before building the APK; an UNREADABLE file — a stray comma in a
+hand edit — runs defaults for that start with a loud log line and is never rewritten — the phone host, the cached pair
 addresses, the tmux hosts/quick keys/snippets/wait patterns, the qBittorrent URL and the
 TorrentLeech credentials, the `music*` keys of `MUSIC.md` §9.7 and `mediaPort`; the `Config`
 class in `desktop/Main.kt` is the key list).
@@ -713,6 +714,25 @@ agents per subsystem, every candidate verified by trace, timing or pixel
 simulation before a fix) found and fixed ~70 real defects. The mechanisms that came out
 of them are load-bearing and easy to break by accident:
 
+- 🆕 **The shell's own surfaces measure their rhythm from the chrome face**
+  (2026-09-04 late, `HANDOFF.md` §28.2): the menu's title band and row pitch
+  (`MenuSurface.titleH()/rowH()`), the notification box's source band, body
+  pitch and visible-line count (`Notifications.srcH()/pitch()/roomFor()`),
+  and the wheel's centre band (`Switcher.paint`'s `bandH`). The design
+  numbers are the FLOOR, so 100 % is pixel-identical; above it the scale cap
+  below is no longer the only thing between a grown face and undamaged ink.
+  The Hold'em table does the same for its status band, your line and the
+  seat rows (`TableLayout(statusH, lineH)`, `HoldemView.paintSeat`). Do not
+  put a pitch constant back in any of them.
+- 🆕 **A generation bump and its in-flight flag are ONE operation**
+  (`GamesWindow.cancelPacer`, §28.1): whoever invalidates a pending decision
+  also clears `thinking`, and a superseded completion never touches it.
+  Split, the table stalled until a tap.
+- 🆕 **Windows scan their root at registration, quietly** (Reader's shelf,
+  Files' locations — §28.1): Main's lens must never describe a scan nobody
+  started. No op-cell narration, no notice, no `navSeq` bump from that path.
+- 🆕 **`Config.load` never writes back an unreadable file** (§28.1): the
+  defaults run for that start only, loudly, and the file is left to fix.
 - 🆕 **Chrome text is placed from MEASURED ink and its scale is capped to its
   bar** (2026-09-05). §4.2's font ladder reaches 130 % and scales chrome too,
   but §2.3's bars are a fixed 32 px and 28 px. `Chrome.fitY` reduces each
@@ -809,7 +829,12 @@ Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md
 
 ## Verification
 
-- `./gradlew :core:test` — **421** unit/integration tests (2026-09-05's whole-codebase review
+- `./gradlew :core:test` — **430** unit/integration tests (2026-09-04-late's third
+  whole-codebase review — `HANDOFF.md` §28 — added `Review28Test.kt`: five classes, one pin per
+  verified defect, each run against the unfixed tree and watched to fail — the two pacer stalls,
+  the book at 130 %, the tmux line inside its rect, the Main lenses before activation, the scaled
+  menu, status band and wheel inside their rects, the tmux script's blank filter; 2026-09-05's
+  whole-codebase review
   added `OracleWalkTest` — a seeded random walk of the §1 grammar over a real shell at all four
   heights, asserting belief = glass = per-lens TRUTH after every settle, with its own
   surface-coverage gate — and `Review20260905Test`, the cash-out net pin; 2026-09-04's Games build added
@@ -849,7 +874,8 @@ Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md
   `WheelAndHostSettingsTest`, `SeamMirrorTest`, `SeamSessionTest`,
   `ReplicaServerTest`, `PathTransportTest`, the review rounds' regression
   tests inside them, and `LongPressTest` — the 2026-08-30 grammar); `./gradlew :desktop:test` — the BlueZ glue over a fake
-  link (9). The first stage's 47: RLE parity against the
+  link, and `ConfigTest` — an unreadable `config.json` is left untouched, a tokenless one is
+  completed (11). The first stage's 47: RLE parity against the
   Python reference implementation, CRC vectors, the geometry/fid rule fixtures
   shared with `tools/lint.py --selftest`, full pipeline round trips through
   the sim (stereo divergence per lens, mode-8 scroll batches, duplicate-fid

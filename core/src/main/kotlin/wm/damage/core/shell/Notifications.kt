@@ -122,6 +122,21 @@ class Notifications(private val text: TextRasterizer) {
     private val fBody = FontSpec(Face.SYSTEM, 17)
     private val fBig = FontSpec(Face.SYSTEM, 21, bold = true)
 
+    /**
+     * The box's vertical rhythm, MEASURED from the chrome face (review §28
+     * #10, the menu's rule applied here): a 16 px source band and a 24 px
+     * body pitch are what Clear Sans 13 bold / 17 fit at 100 %, and they stay
+     * exactly that there; under the global font scale the source line's
+     * baseline fell below its rule and the body lines ran into each other.
+     * Even values only (the box is a damage rect). The line count follows
+     * from the room the layout gives the box, never the other way round.
+     */
+    private fun srcH(): Int = maxOf(16, evenUp(2 + text.metrics(fSmall).ascent - 2))
+    private fun pitch(): Int = maxOf(24, evenUp(text.metrics(fBody).let { it.ascent + it.descent } - 1))
+    private fun evenUp(v: Int): Int = (v + 1) / 2 * 2
+    /** Body lines the WINDOW form can show inside [Layout.notificationMax]. */
+    private fun roomFor(l: Layout): Int = ((l.notificationMax.h - srcH() - 16) / pitch()).coerceIn(1, 3)
+
     val active: Boolean get() = current != null
     val animating: Boolean get() = (current != null && unfurl < 4) || furling
     /** Mid-furl: the under snapshot is being consumed strip by strip. */
@@ -265,7 +280,7 @@ class Notifications(private val text: TextRasterizer) {
     fun scrollBody(delta: Int, l: Layout) {
         val n = current ?: return
         val lines = bodyLines(n, l)
-        val visible = maxLinesFor(n)
+        val visible = maxLinesFor(n, l)
         scroll = (scroll + delta).coerceIn(0, maxOf(0, lines.size - visible))
     }
 
@@ -297,15 +312,16 @@ class Notifications(private val text: TextRasterizer) {
         }
         if (silent) {
             val cx = l.safe.x + l.safe.w / 2
-            return Rect(Geometry.snapX(cx - SILENT_W / 2), Geometry.snapY(l.content.y + l.content.h / 2 - 28), SILENT_W, 56)
+            val h = srcH() + 8 + pitch() + 8                      // 56 at 100 %
+            return Rect(Geometry.snapX(cx - SILENT_W / 2), Geometry.snapY(l.content.y + l.content.h / 2 - h / 2), SILENT_W, h)
         }
-        val lines = bodyLines(n, l).size.coerceIn(1, 3)
-        val h = 16 + 2 + 6 + lines * 24 + 6 + 2
+        val lines = bodyLines(n, l).size.coerceIn(1, roomFor(l))
+        val h = srcH() + 2 + 6 + lines * pitch() + 6 + 2
         val m = l.notificationMax
         return Rect(m.x, m.y, m.w, h)
     }
 
-    private fun maxLinesFor(n: Notice) = if (n.emergency) 1 else 3
+    private fun maxLinesFor(n: Notice, l: Layout) = if (n.emergency) 1 else roomFor(l)
 
     /** Wrapped against the box's fixed width — NOT fullRect, whose height
      *  depends on this count (that cycle was a real stack overflow, caught by
@@ -344,8 +360,10 @@ class Notifications(private val text: TextRasterizer) {
 
         val bright = if (focused) 1.0 else 0.6           // dim until focus (§4.5)
         fun lv(base: Int) = (base * bright).toInt()
+        val srcH = srcH()
+        val pitch = pitch()
         // top rule + source line
-        g.fillRect(full.x, full.y + 16, full.w, 2, lv(Level.DIM))
+        g.fillRect(full.x, full.y + srcH, full.w, 2, lv(Level.DIM))
         if (box.h >= 16) {
             val tw = text.measure(n.timeHHMM, fTiny)
             // the source is a HANDLE and shares its line with the queue badge
@@ -361,7 +379,7 @@ class Notifications(private val text: TextRasterizer) {
             drawStr(g, full.right - 8 - tw, full.y + 4, n.timeHHMM, lv(Level.DIM), fTiny)
         }
         val lines = bodyLines(n, l, silent)
-        val visible = maxLinesFor(n)
+        val visible = if (silent) 1 else maxLinesFor(n, l)
         // FITTED, not drawn raw: the wrap above already fits this form's width,
         // and the fit is what makes a residue impossible rather than a matter
         // of the two widths agreeing (review 2026-09-03)
@@ -374,8 +392,8 @@ class Notifications(private val text: TextRasterizer) {
         for (i in 0 until visible) {
             val idx = scroll + i
             if (idx >= lines.size) break
-            val y = full.y + 24 + i * 24
-            if (y + 20 > box.bottom) break
+            val y = full.y + srcH + 8 + i * pitch
+            if (y + pitch - 4 > box.bottom) break
             Draw.fit(g, text, full.x + 8, y, Draw.dynamic(text, lines[idx], fBody),
                 lv(Level.BODY), fBody, full.w - 16 - markRoom, lv(Level.DIM))
             lastY = y

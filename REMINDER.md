@@ -1,6 +1,33 @@
 # Where we are, and what to do next
 
-**Updated 2026-09-05: A WHOLE-CODEBASE REVIEW SHIPPED — six verified defects, and the
+**Updated 2026-09-04 (late): a THIRD whole-codebase review, and the first full LIVE walk of the
+system — eleven verified defects, all fixed and pinned.** `HANDOFF.md` §28 is the record. The
+reading found the Hold'em pacer STALLING after a back-and-return inside one bot's pace (the table
+sat until a tap, which then skipped the pacing), the Reader unable to open ANY book at 115 % or
+130 % (a constant 30 px line box with a guard that refused the measured 34/36), an unreadable
+`config.json` being REPLACED with defaults (credentials and tmux hosts gone on the next start),
+Main describing scans nobody had started, and a tmux line inked past its rect. Then the program
+was driven live through the browser replica — every window, all four heights, the 130 % ladder,
+Alegreya chrome, menus, notices, the wheel, the keyboard, silent mode, a Hold'em hand through a
+cash-out — and that found what the reading could not: **every chrome surface with a hand-picked
+rhythm (the menu, the notification box, the switcher) broke at the top of the font ladder, the
+Hold'em status line was cut by the hole-card plane under a per-app scale, and tmux never alerted
+for a pane that had not filled its screen** (`capture-pane | tail -5` was five blank rows). All
+now measure the face with the design numbers as the floor — 100 % is pixel-identical — and the
+alert fires. ⚠ **None of it is deployed yet**: the tree is pushed, the service still runs the §27
+build and 0.27 is the staged APK; §28.5 lists the two deploy steps.
+
+**Battery at HEAD:** core **430** · desktop **11** · selfcheck **189** (oracle 282 runs) ·
+snapshots 49 (three consecutive clean runs) · `--games-check` · `--music-check` ·
+`--epub-check` 58/58 · `--card-render` · lint 21 rules / 0 + selftest.
+
+**Picking this up in a fresh session:** `CLAUDE.md` → this file → `HANDOFF.md` §19–§28, then
+**§28.5**. The live-walk driver (§28.2) is the instrument to rebuild first; it is the only one
+that runs the real providers under the real grammar.
+
+---
+
+**Before it, 2026-09-05: A WHOLE-CODEBASE REVIEW SHIPPED — six verified defects, and the
 belief-vs-truth oracle is now a STANDING GATE.** `HANDOFF.md` §27 is the record. What it found:
 
 1. **A Games cash-out was booked as a total loss** — `prize − myStake` with no credit for the
@@ -43,13 +70,10 @@ with this review's fixes (the setup page) and the `damage` service was restarted
 build 2026-09-05, coming up `standby up (§19)` with the phone reattached to its channels.
 **0.16 is still the last build observed installed — installing 0.27 is the one manual step.**
 
-**Battery at HEAD:** core **421** · desktop **9** · selfcheck **189** (oracle 279 runs) ·
+**Battery at that commit:** core 421 · desktop 9 · selfcheck 189 (oracle 279 runs) ·
 snapshots 49 (eight consecutive clean runs) · `--games-check` · `--music-check` ·
 `--epub-check` 58/58 · `--card-render` · lint 21 rules / 0 + selftest · `verify_cfw.py`.
-
-**Picking this up in a fresh session:** `CLAUDE.md` → this file → `HANDOFF.md` §19–§27, then
-**§27.7**, which lists the entry battery, what is owed, and what is worth doing first with the
-glasses in hand.
+(The current numbers are at the top of this file.)
 
 ---
 
@@ -134,14 +158,16 @@ Files / Torrents / Music are the worked precedents (`WINDOWS.md`).
 **State of the world:** the phone APK is the primary driver (`HANDOFF.md` §19 — radio + shell
 while it is up); the OpenRC `damage` service is the data provider (content + tmux + sync + the
 window channel on :7401, seam :7402, replica :7403, the media endpoint :7404) plus a standby that
-BLE-drives only while the APK is away. Battery at HEAD: core **421** · desktop 9 ·
+BLE-drives only while the APK is away. Battery at HEAD: core **430** · desktop **11** ·
 selfcheck **189** · snapshots 49 · epub-check 58/58 · lint 0 · `--music-check` and
 `--games-check` all pass. ✅ **The jar and the `damage` service RUN THE GAMES BUILD**
 (deployed 2026-09-04 13:07; `standby up (§19)` in the log, the phone reattached to all five
 channels — files, tmux, music, torrents, sync — and the PC claimed nothing, so the display was
 never touched). **APK 27/0.27 is STAGED and is the one to install** — Games plus all three
 review cycles plus the whole 2026-09-05 review (§27); 0.26 and everything before it are
-superseded, and the service now runs the review build too (restarted 2026-09-05). **0.16 is still the last build observed INSTALLED**
+superseded, and the service now runs the review build too (restarted 2026-09-05). ⚠ **The
+2026-09-04-late review (§28) is in the tree and pushed but NOT staged on either side** — the next
+stage is 0.28 plus a `stageJar && rc-service damage restart`. **0.16 is still the last build observed INSTALLED**
 (2026-09-01). Redeploy the PC side with
 `./gradlew :desktop:stageJar && sudo rc-service damage restart` (never touches the display — the
 PC does not claim). ⚠ One central at a time: stop the service before any `:desktop:run` dev
@@ -157,9 +183,11 @@ shell).
 
 ## 🚀 Next
 
-1. **Install the APK and play Hold'em on glass.** Both sides are already deployed: the service
-   runs the review build (restarted 2026-09-05, `standby up (§19)`, the phone reattached) and
-   **27/0.27** — Games, all three review cycles and the whole 2026-09-05 review — is staged.
+1. **Deploy §28, then install the APK and play Hold'em on glass.** The service runs the §27
+   build (restarted 2026-09-05, `standby up (§19)`, the phone reattached) and **27/0.27** — Games,
+   all three review cycles and the whole 2026-09-05 review — is staged; the 2026-09-04-late
+   review (§28: the pacer stall, the Reader at 115/130 %, the chrome rhythm, the tmux alert)
+   still needs `./gradlew :desktop:stageJar && sudo rc-service damage restart` and a 0.28 stage.
    Download it from the G2CC setup page's `/damage-apk` and install over the top;
    `MY_PACKAGE_REPLACED` restarts the phone service itself. What is
    owed on glass: the card art at all four rungs, the hole-card
@@ -199,8 +227,10 @@ shell).
    for its RISK SURFACES rather than end to end: the music / torrents / tmux provider leaves and
    the desktop harnesses — command construction (all through POSIX `shq`), SQL (every
    interpolation is from a literal list; all data is parameterised), credential handling, HTTP
-   framing. Still true: **nothing has been tested on the actual glasses.** A next round starts at
-   the leaves, or on glass — not by re-reading the core.
+   framing. ✅ 2026-09-04 (late) then read the leaves end to end as well — every window, the
+   Hold'em engine and kit, the desktop harnesses, the phone module, the Python tooling — and
+   DROVE the program live (`HANDOFF.md` §28). Still true: **nothing has been tested on the actual
+   glasses.** A next round starts on glass, or with the live driver against a fresh build.
 8. **Watch-items:** the left-lens seam residue (a one-shot early-burst tear — if it recurs
    after a handover, harden session start); the ~20 s silent-loss window (tighten the seam
    heartbeat constants only if it feels long in practice); and the media endpoint logs nothing on

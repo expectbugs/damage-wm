@@ -299,3 +299,22 @@ All four rows of the agreed build order are CODE, and so is the keyboard that fo
   UNFIXED tree and watch it fail; if the assertion is a return value that did not change, assert
   the thing that did (a log line, a state transition, a drawn pixel). And do not let a comment
   claim a pin reproduces a race it cannot — say what it actually locks.
+- 🔴 **A pitch constant in a CHROME surface is the same defect as one in a window** (`HANDOFF.md`
+  §28.2). The menu, the notification box and the wheel each carried a title band, a row pitch or a
+  centre band sized for the chrome face at 100 %, and every one of them put ink outside its own
+  damage rect at the top of the font ladder. Measure the face; keep the design number as the
+  FLOOR so 100 % does not move. And test with a rasterizer whose ink FOLLOWS the size
+  (`ScalingText` in `Review28Test`) — `FakeText`'s constant 12+4 metrics cannot see this class.
+- **A generation bump and its in-flight flag go together** (§28.1). `pacerGen++` without
+  `thinking = false` left nobody able to re-arm the pacer: the re-entry's pump was refused by the
+  flag, and the stale completion, seeing the bumped generation, returned without pumping. One
+  `cancelPacer()`; a superseded completion never touches the flag.
+- **Main's lens must not describe a scan nobody started** (§28.1). "library loading" and
+  "0 locations" from boot until the window was first opened. Scan the root at registration —
+  QUIETLY: no op-cell line, no notice, no `navSeq` bump that could cancel a restore's own open —
+  and skip the activation re-scan while it is in flight.
+- **`capture-pane -p | tail -N` sees the blank rows at the bottom of a pane** (§28.2). Drop
+  blanks before the tail, or every short pane reads as empty — no wait alert, no last line.
+- **Blind gesture scripts drift.** A live walk that assumes where the Main or Settings cursor
+  rests changes the wrong rows within a dozen steps (§28.2 changed five settings by accident).
+  Snap, look, then act — or ask the shell (`menuLabels`, `rootRow`) rather than counting.

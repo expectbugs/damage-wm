@@ -202,6 +202,22 @@ class GamesWindow(
         services?.runOnShell(action) ?: action()
     }
 
+    /**
+     * Invalidate the decision in flight. 🔴 The generation bump and the
+     * `thinking` flag go TOGETHER (review §28 #1): whoever bumps the
+     * generation owns the next pump, so the flag it cleared can be re-armed
+     * at once. An earlier version bumped the generation here and left the
+     * stale completion to clear the flag — and that completion, seeing the
+     * bumped generation, returned without pumping. Back out of the table and
+     * come straight back inside one bot's pace, or leave for another window
+     * and return, and the table sat on "Roy G. …" until a tap, which then
+     * SKIPPED the pacing for the rest of the street.
+     */
+    private fun cancelPacer() {
+        pacerGen++
+        thinking = false
+    }
+
     private fun dn(s: String, f: FontSpec = fRow): String = Draw.dynamic(tx, s, f)
 
     private fun lineH(f: FontSpec) = tx.metrics(f).lineHeight
@@ -242,7 +258,7 @@ class GamesWindow(
         // 🔴 verdict 27: the world stops when he leaves. The pacer's
         // generation is bumped so an answer already in flight is dropped
         // rather than applied to a window nobody is looking at.
-        pacerGen++
+        cancelPacer()
         acting = null
     }
 
@@ -255,7 +271,7 @@ class GamesWindow(
         // Reader precedent resets its folder and cursor the same way.
         gamesModel.cursor = 0
         standFrom = null
-        pacerGen++
+        cancelPacer()
         acting = null
     }
 
@@ -331,7 +347,7 @@ class GamesWindow(
         Level_.GAMES -> false
         // 🔴 double-tap NEVER cashes out (§10.1): backing out of the window
         // leaves the table exactly as it is
-        Level_.TABLE -> { pacerGen++; acting = null; level = Level_.GAMES; true }
+        Level_.TABLE -> { cancelPacer(); acting = null; level = Level_.GAMES; true }
         Level_.STANDINGS -> {
             level = standFrom?.takeIf { it == Level_.TABLE && table != null } ?: Level_.GAMES
             standFrom = null
@@ -741,8 +757,12 @@ class GamesWindow(
             }
             if (pace > 0) delay(pace)
             onShell {
+                // SUPERSEDED: whoever bumped the generation cleared `thinking`
+                // and owns the next pump (`cancelPacer`). Touching the flag
+                // here would unset a NEWER decision's own claim on it.
+                if (gen != pacerGen) return@onShell
                 thinking = false
-                if (gen != pacerGen || table !== t || !active || level != Level_.TABLE) return@onShell
+                if (table !== t || !active || level != Level_.TABLE) return@onShell
                 if (revealing) {
                     revealed = (revealed + 1).coerceAtMost(t.view().board.size)
                     services?.requestRender(this@GamesWindow)
@@ -896,7 +916,7 @@ class GamesWindow(
      * bankrolls and nothing was left to pay them from.
      */
     private fun playOutWithoutMe(t: HoldemTable) {
-        pacerGen++
+        cancelPacer()
         acting = null
         skipping = false
         val field = HashMap(cast)
@@ -1103,7 +1123,7 @@ class GamesWindow(
             level = Level_.STANDINGS
             standModel.cursor = 0
         }
-        add("Hand history", "${v.history.size} lines") { level = Level_.HISTORY; histDoc.topLine = 0 }
+        add("Hand history", HoldemView.plural(v.history.size, "line")) { level = Level_.HISTORY; histDoc.topLine = 0 }
         // the floating menu covers the middle of the table (§9.3), so the two
         // numbers a decision needs ride in its TITLE — found by looking at the
         // live screen with the menu up
@@ -1314,7 +1334,7 @@ class GamesWindow(
         }
         if (c.id != ME) bits.add("${c.livesLeft}/${c.livesTotal} lives")
         val h2h = if (c.career.handsVsYou > 0)
-            "${c.career.handsVsYou} hands with you · vpip ${(c.career.vpip * 100).toInt()}%"
+            "${HoldemView.hands(c.career.handsVsYou)} with you · vpip ${(c.career.vpip * 100).toInt()}%"
         else "you have not played them"
         tx.draw(g, r.x + 8, r.y + LENS_1, dn(c.name, fLensHead), fLensHead, Level.HEAD)
         Draw.fit(g, tx, r.x + 8, r.y + LENS_2, bits.joinToString(" · "), Level.BODY, fLensBody, r.w - 16)
@@ -1366,7 +1386,7 @@ class GamesWindow(
         }
         line("")
         line("career", fHead, Level.HEAD)
-        line("${c.career.tournaments} tournaments · ${c.career.wins} won")
+        line("${HoldemView.plural(c.career.tournaments, "tournament")} · ${c.career.wins} won")
         if (c.career.tournaments > 0) line("average finish ${"%.2f".format(c.career.avgFinish)}")
         line("lifetime net ${Money.fmt(c.career.lifetimeNet)}")
         if (c.id != ME) {
@@ -1374,7 +1394,7 @@ class GamesWindow(
             line("you and them", fHead, Level.HEAD)
             if (c.career.handsVsYou == 0) line("no hands together yet", fDoc, Level.DIM)
             else {
-                line("${c.career.handsVsYou} hands played")
+                line("${HoldemView.hands(c.career.handsVsYou)} played")
                 // measured over hands YOU sat through — the read you would be
                 // keeping in your head at a real table (§7.7)
                 line("they play ${(c.career.vpip * 100).toInt()}% of hands against you")
@@ -1581,14 +1601,13 @@ class GamesWindow(
         notifyReturn = state["notifyReturn"]?.jsonPrimitive?.booleanOrNull ?: false
         heightPref = state["height"]?.jsonPrimitive?.intOrNull?.takeIf { it in ShellSettings.HEIGHTS }
         // a level that needs a table has none until the sub-record lands; the
-        // reconciliation below runs after every sub-restore
-        pacerGen++
+        // reconciliation below runs after every sub-restore. A decision in
+        // flight when the shell stopped never gets its `runOnShell` back, and
+        // a latched `thinking` would leave the table frozen for good: a
+        // restore is a new session, and `cancelPacer` clears both.
+        cancelPacer()
         acting = null
         skipping = false
-        // a decision in flight when the shell stopped never gets its
-        // `runOnShell` back, and a latched `thinking` would leave the table
-        // frozen for good. A restore is a new session: clear it.
-        thinking = false
         lastSettledHand = -1
         charCache = null
         bankCache = null
@@ -1641,6 +1660,10 @@ class GamesWindow(
     }
 
     override fun restoreSubState(subKey: String, state: JsonObject) {
+        // a table arriving from a peer REPLACES the one a decision may be in
+        // flight for: that decision is void, and the new table needs its own
+        // pump once the level is reconciled (review §28 #1)
+        if (subKey == "table") cancelPacer()
         if (state.isEmpty()) {
             // the removal tombstone
             when {
@@ -1660,6 +1683,7 @@ class GamesWindow(
             subKey.startsWith("char.") -> Character.load(state)?.let { roster.put(it) }
         }
         reconcileLevel()
+        if (subKey == "table" && active && level == Level_.TABLE) pump()
     }
 
     /** §16.1: `char:<id>` opens a character; `table` opens the live table. */

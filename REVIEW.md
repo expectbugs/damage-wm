@@ -25,7 +25,14 @@ a STANDING gate (`--selfcheck` runs it on every settle; `OracleWalkTest` runs it
 random walk at all four heights) — is `HANDOFF.md` §27, with the pins in `Review20260905Test` and
 the deviations in `HOLDEM.md` §17.2d and `MUSIC.md` §8.3. Its lesson: **a rect a paint returns is
 a promise, and ink outside it is invisible to every check that compares belief to glass** — only
-an independent truth catches it. Two of that round's findings were in the TESTS — a pin that passed with and without its
+an independent truth catches it. The **third whole-codebase review of 2026-09-04 (late)** — six
+defects by reading (the Hold'em pacer stall, the Reader refusing every book at 115/130 %, an
+unreadable config replaced with defaults, Main's lenses before activation, a tmux line past its
+rect, grammar) and five more by driving the whole program LIVE through the browser replica (the
+menu, the notification box and the wheel all broke at the top of the font ladder; the Hold'em
+status line was cut by the hole plane; tmux never alerted for a pane that had not filled its
+screen) — is `HANDOFF.md` §28, pins in `Review28Test` (five classes) and the desktop
+`ConfigTest`, every one run against the unfixed tree. Two of that round's findings were in the TESTS — a pin that passed with and without its
 fix, and a pin whose comment claimed to reproduce a race it cannot — which is why every pin across
 the three cycles was run against the unfixed tree before it was kept. Its lesson worth carrying:
 two review passes over the code missed a menu row that could never succeed and a drawn mark that

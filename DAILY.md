@@ -40,7 +40,8 @@ staged build: Files + theme icons + the sync client + Torrents + the keyboard + 
 three reviews + the 2026-09-03 Now Playing root and the two player fixes + that day's
 whole-codebase review (`HANDOFF.md` §25) + **Games · Hold'em** and the shell's
 switcher-resume / Main-root rule and all three of its review cycles (`HANDOFF.md` §26); 0.16 is
-the last build observed installed**). Why old
+the last build observed installed**). ⚠ The 2026-09-04-late review (`HANDOFF.md` §28) is NOT in
+0.27 or in the running service — its next stage is 0.28 plus a PC redeploy. Why old
 APKs matter: a pre-0.15 APK cannot be status-probed (the PC conservatively stays out — fine)
 and a pre-0.10 one carries no sync client, so state does not flow until it is updated. 0.16
 being installed also unblocks Reader's transitional legacy-offsets cleanup (`REMINDER.md` Next 2).
@@ -100,7 +101,13 @@ runs every read-only probe against the real database and computes one viz blob.
   the setup page, install over; `MY_PACKAGE_REPLACED` restarts the phone service by itself.
 - Tmux/knobs: `~/.damage/config.json` (`tmuxHosts` — add slappy back when it is actually on —
   `tmuxQuickKeys`, `tmuxSnippets`, `tmuxWaitPatterns`); on-glass settings live in
-  Settings → Tmux. Every HOST-need window on the phone (Tmux, Files, Torrents, Reader content,
+  Settings → Tmux. Since §28 the wait alert works for ANY pane — before it, a session that had
+  not filled its screen (one created from the glasses, a short command) never alerted and its
+  sessions lens showed no last line.
+- **Hand-editing `config.json`** is safe since §28: an unreadable file (a stray comma) is left
+  exactly as it is and the service runs on defaults for that start with a loud log line — before
+  that it was REPLACED with defaults, credentials and tmux hosts included. Fix the file and
+  restart. Every HOST-need window on the phone (Tmux, Files, Torrents, Reader content,
   Music) rides this PC service (or `--host-only`) — content port :7401, plus the media endpoint
   :7404 for Music.
 - If the pair "scans forever" while the phone says Connected: the stale-ACL recovery is still
@@ -132,7 +139,8 @@ the sync feel across a driver swap (a book position following the swap). Current
 shell's switcher-resume / Main-root rule and all three review cycles, §26, **and the 2026-09-05
 whole-codebase review, §27** — the Music Mode card, the chrome font ladder, the Games cash-out
 and the truth-oracle gate); **0.16 is the last build observed INSTALLED** (2026-09-01 — the
-phone speaks the files channel), so **0.27 is the one to install**.
+phone speaks the files channel), so **0.27 is the one to install** — and the 2026-09-04-late
+review (§28) still needs staging as 0.28.
 ✅ Both sides are deployed as of 2026-09-05: `:phone:stageApk` put 0.27 on the setup page and
 `./gradlew :desktop:stageJar && sudo rc-service damage restart` put the service on the review
 build (it never touches the display; the PC does not claim). The log came up `standby up (§19)`

@@ -1153,22 +1153,50 @@ passed or hung by luck. The scene now acts every time it is his turn, choosing t
 BY NAME, and both harnesses pin the world seed the way `--games-check` always did. See
 `HANDOFF.md` §27.6; the scene labelled `50-games-showdown` is a real showdown again.
 
+### 17.2e The third whole-codebase review and the live walk (2026-09-04, late)
+
+`HANDOFF.md` §28 is the record; the Games items:
+
+- 🔴 **The pacer stalled after a back-and-return inside one bot's pace** — and after leaving for
+  another window and coming back, and after a peer's table record replaced the live one. Every
+  invalidation bumped the generation and left the stale completion to clear `thinking`; that
+  completion, seeing the bumped generation, returned without pumping, and the re-entry's own pump
+  had already been refused by the flag. The table sat on "Roy G. …" until a tap, and the tap
+  SKIPPED the pacing for the street. `cancelPacer()` clears both together; a superseded completion
+  never touches the flag; a replaced table re-pumps. Two pins drive it through the real shell.
+- 🔴 **The status line was cut by the hole-card plane under a per-app scale.** The status band was
+  a 24 px constant; at 130 % the 33 px line ran into the plane-0 region the window declares for
+  the hole cards, whose pixels render unshifted while the rest shift with the content plane — a
+  horizontal cut through the text, seen live at 480, 416 and 352. `TableLayout` now takes the
+  status band and your line from the MEASURED ink (30 and 24 at 100 %: Clear Sans 17 bold inks
+  25 rows, and the design's 24 held that line only by lending its descent to the gap — the seat
+  strip gives up the six rows), the seat rows' pitches follow the ink, a seat line that would run
+  past its cell is dropped rather than drawn over the band below, and the holding mark sits under
+  the name's ink wherever the scale puts it. `Review28PaintTest` paints the table at 130 % on a
+  rasterizer whose ink follows the size and asserts the two rows above the hole band stay dark.
+- "1 hands", "1 tournaments", "1 lines" — the "You checks" class, on the seat inspect line, the
+  standings lens, the character page and the action menu. `HoldemView.plural`.
+- Verified and left alone: the action menu's title, the sizing ladder, the Custom keyboard, the
+  showdown line, the cash-out through "fold and leave" and the settlement all read right live at
+  480/416/352/288, at 100 % and 130 %.
+
 ### 17.3 The battery, after the build
 
-`./gradlew :core:test` **421** · `./gradlew :desktop:test` **9** · `desktop --selfcheck` **189**
+`./gradlew :core:test` **430** · `./gradlew :desktop:test` **11** · `desktop --selfcheck` **189**
 checks · `desktop --games-check` (a new harness — the ecology over hundreds of simulated
 tournaments) · `desktop --snapshot` **13 Games scenes** among 49 · `desktop --card-render` (the
 card sheets in `design/shots/cards/`) · `desktop --epub-check` · `desktop --music-check` ·
-`python3 tools/lint.py` **21 rules, 0 findings** · `./gradlew :phone:assembleDebug` (APK
-**26 / 0.26**).
+`python3 tools/lint.py` **21 rules, 0 findings** · `./gradlew :phone:assembleDebug` (the staged
+APK is **27 / 0.27**; §17.2e's fixes are not in it yet).
 
 ### 17.4 Still open
 
 - **On-glass verdicts.** Everything above was judged on the byte-exact simulator at true 1× and
   through the browser replica. The card art, the depth of the hole-card plane, the arc stagger and
-  the pacing all want Adam's eye on the real panel. ✅ Both sides are now DEPLOYABLE and one of
-  them is deployed: the `damage` service runs the review build (restarted 2026-09-05) and APK
-  **27/0.27** is staged — installing it is the single step left before Hold'em is on the glass.
+  the pacing all want Adam's eye on the real panel. ✅ Both sides are DEPLOYABLE: the `damage`
+  service runs the 2026-09-05 review build and APK **27/0.27** is staged — but neither carries
+  §17.2e yet (a `stageJar && rc-service damage restart` and a 0.28 stage first), and installing
+  the APK is still the single step before Hold'em is on the glass.
 - **The background-economy ratio** is tuned to `--games-check`'s measurement, not to a season of
   Adam's own play. The money-supply curve it prints is the thing to watch.
 - **Later games.** The kit (`windows/games/kit/`) is built for blackjack, hearts and gin and none

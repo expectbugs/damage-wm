@@ -198,18 +198,32 @@ data class Config(
 
         fun load(): Config {
             val p = path()
-            val cfg = if (Files.exists(p)) {
-                try {
+            if (Files.exists(p)) {
+                val cfg = try {
                     json.decodeFromString(serializer(), Files.readString(p))
                 } catch (e: Exception) {
-                    Log.e("config", "unreadable ${p} — using defaults", e)
-                    Config()
+                    // 🔴 NEVER written back. An earlier version fell back to
+                    // `Config()` and then stored it because the fresh token
+                    // differed — so one stray comma in a hand edit replaced
+                    // the whole file, tracker credentials and tmux hosts
+                    // included, with defaults on the next start (review §28
+                    // #4). The defaults run for THIS start only, under a
+                    // token nothing else knows, and the file is left for the
+                    // person to fix; the Python side (audio/enrich/
+                    // damage_config.py) refuses outright for the same reason.
+                    Log.e("config", "unreadable $p — running on DEFAULTS for this start and " +
+                        "leaving the file untouched: fix it and restart", e)
+                    return Config(token = newToken()).also { warnBadMusicRoots(it) }
                 }
-            } else Config()
-            val fixed = if (cfg.token.isEmpty()) cfg.copy(token = newToken()) else cfg
-            if (fixed != cfg || !Files.exists(p)) store(fixed)
-            warnBadMusicRoots(fixed)
-            return fixed
+                val fixed = if (cfg.token.isEmpty()) cfg.copy(token = newToken()) else cfg
+                if (fixed != cfg) store(fixed)
+                warnBadMusicRoots(fixed)
+                return fixed
+            }
+            val fresh = Config(token = newToken())
+            store(fresh)
+            warnBadMusicRoots(fresh)
+            return fresh
         }
 
         /** `musicLibraryDirs` is used verbatim by LibraryScan (which walks it)

@@ -1491,3 +1491,151 @@ Read `CLAUDE.md` → `REMINDER.md` → `HANDOFF.md` §19–§27 in that order, t
   first thing worth doing with the glasses in hand — the four heights, the 130 % ladder, Music Mode
   and a Hold'em hand, in that order.
 - The open items are §26.6 and §27.5; nothing in this round is half-finished.
+
+## 28. The third whole-codebase review, and the first full LIVE walk (2026-09-04, late)
+
+Adam's ask, verbatim in spirit: read everything, verify every candidate before touching it, fix
+what is real, review the fixes, then **test the whole system live exactly as a user would** — every
+window, the edge cases, all four heights — fix what that finds, review those fixes, and only then
+update every document and push. This section is that record. Eleven verified defects; every fix
+carries a pin that was run against the UNFIXED tree and watched to fail (`Review28Test.kt` — five
+classes — and the desktop `ConfigTest`).
+
+### 28.1 What the reading found (and what it did not)
+
+The reading covered `core/` end to end (shell, compositor, wire, sim, transports, every window
+including the 25 music files, the Hold'em engine, bot, roster and kit), `desktop/` end to end
+(the harnesses included), `phone/` end to end, and the Python tooling (`tools/`, `design/`,
+`audio/`). Six candidates survived verification; the rest were intended design or
+misunderstandings, recorded in the session notes and not here. The verified ones:
+
+1. 🔴 **The Hold'em pacer STALLED after a back-and-return inside one bot's pace** — and after
+   leaving for another window and coming back, and after a peer's table record replaced the live
+   one. Every invalidation bumped `pacerGen` and left the stale completion to clear `thinking`;
+   that completion, seeing the bumped generation, returned without pumping, and the re-entry's
+   own `pump()` had already been refused by the still-set flag. The table sat on "Roy G. …"
+   until a tap — and that tap SKIPPED the pacing for the rest of the street. `cancelPacer()` now
+   bumps the generation AND clears the flag together, a superseded completion never touches the
+   flag, and a replaced table re-pumps. Two pins reproduce the stall through the real shell
+   (`Review28Test`), both failing on the old tree in 15 s of nothing happening.
+2. 🔴 **The Reader could not open a book at 115 % or 130 %.** The line box was a constant 30 with a
+   guard that REFUSED any layout whose measured ink exceeded it. Measured on the real rasterizer:
+   Alegreya 17 inks 28 rows at 100 %, **34 at 115 %, 36 at 130 %** — two of the four rungs of the
+   size ladder threw `LintError` off-loop and every title said "could not open …". The box now
+   follows the face (`lineBox()`, carried in the loaded layout so a rescale mid-read cannot draw a
+   new box over an old layout); 30 at 100 % exactly.
+3. **Tmux's staleness line inked past its content rect.** `rect.bottom - 20` under JetBrains Mono
+   14, whose ink is exactly 20 at 100 % — 22 at 115 %, 25 at 130 %: the §27 class, on a line that
+   only appears when a host is down. Placed from the measured ink.
+4. 🔴 **An unreadable `config.json` was REPLACED with defaults.** One stray comma in a hand edit →
+   the desktop fell back to `Config()`, minted a token, saw the result differ, and STORED it: the
+   TorrentLeech credentials, the tmux hosts and the phone's token gone on the next start. The
+   Python side (`audio/enrich/damage_config.py`) already refused outright for this reason. The
+   defaults now run for that start only and the file is left for the person to fix.
+5. **Main described scans nobody had started.** The Reader's lens read "library loading" and Files'
+   "0 locations" from boot until each window was first opened — neither scanned at registration.
+   Both do now, quietly (no op-cell narration, no notice, no `navSeq` bump), and the activation
+   re-scan is skipped while the registration scan is in flight.
+6. "1 hands", "1 tournaments", "1 lines" — the "You checks" class, on the seat inspect line, the
+   standings lens, the character page and the action menu.
+
+Also verified and left alone: Music's scroll-up = quieter (the same direction as every Settings
+row — the shell's grammar, not a defect); the transport's narrow late-FlushDone race (harmless);
+the silent small clock (already placed by `fitY`).
+
+### 28.2 The live walk — the instrument, and what only it found
+
+**How it was driven.** The desktop program in `--transport sim --no-preview` under a SCRATCH home
+(`java -Duser.home=<scratch> -jar desktop/build/libs/damage.jar`, ports 7501–7504, a throwaway
+token, `tmuxHosts` carrying a deliberately dead host so the staleness line is exercised), the real
+shelf and the real tmux server and library behind it. A 150-line Python driver with no
+dependencies speaks the browser replica's WebSocket (`/ws?token=…`), sends the ring grammar as
+`{"t":"input","ev":"tap|double|up|down|hold|release"}` and typed lines as `{"t":"text"}`, decodes the
+binary panel frames (`[arm][y0][rows][rows×320]`) into 4-bit rows and writes true-1× PNGs. Every
+surface was then LOOKED AT, at 1×. Two lessons of the method: **snap between steps** — a script
+that assumes where the Main or Settings cursor rests drifts (the rest rows are not where a
+counter says), and blind runs of it changed five settings by accident; and **the scale ladder is
+where the constants hide** — every drawing defect below was invisible at 100 %.
+
+**What it found**, each verified by reading the code, then fixed, then re-driven on a rebuilt jar:
+
+7. 🔴 **Every chrome surface with a hand-picked vertical rhythm broke at the top of the font
+   ladder — the MENU, the NOTIFICATION BOX and the SWITCHER.** The menu's 18 px title band and
+   24 px row pitch put the title's baseline below its own rule and the last row's ink past the box
+   (220 px outside the damage rect at 120 % chrome); the notification's 16 px source band and
+   24 px pitch did the same, with three body lines that no longer fit the 104 px ceiling; the
+   wheel's 88 px centre band dropped the name's baseline below the lower rule and the lower
+   neighbour's descenders past the panel (440 px outside). All three now measure the chrome face
+   — `MenuSurface.titleH()/rowH()`, `Notifications.srcH()/pitch()/roomFor()`, the wheel's
+   `bandH` — with the design numbers as the floor, so **100 % is pixel-identical** and the chrome
+   scale cap (§27) is no longer the only thing standing between a scaled face and undamaged ink.
+   The §27 rule, restated for chrome: *a rect a paint returns is a promise* applies to the shell's
+   own surfaces exactly as it does to a window's.
+8. 🔴 **Tmux never alerted for a pane that had not filled its screen.** The per-host status
+   script took `capture-pane -p | tail -5`, and `capture-pane -p` prints the whole visible pane —
+   trailing empty rows included — so a session just created from the glasses, or any short
+   command, produced five blank lines: the wait patterns never matched and the sessions lens showed
+   no last line. Only the full-screen Claude sessions on beardos ever worked, which is why nothing
+   noticed. Blank rows are dropped before the tail now; the live re-test raised the notification
+   ("g2-1 wants input") that the first attempt had silently not.
+9. 🔴 **The Hold'em status line was CUT by the hole-card plane under a per-app scale.** The status
+   band was a 24 px constant; at 130 % its 33 px line ran into the region the window declares as
+   plane 0 (`holePlane`), whose pixels render unshifted while the rest shift with the content
+   plane — a horizontal cut through the text on every frame, at 480, 416 and 352. The band and
+   your line are sized from the measured ink (`TableLayout(statusH, lineH)`; the status band is
+   30 at 100 % — Clear Sans 17 bold inks 25, and the design's 24 held it only by lending its
+   descent to the gap; the seat strip gives up the six rows), the seat rows' pitches follow the
+   ink, a seat line that would run past its cell is dropped rather than drawn over the band below,
+   and the holding mark sits under the name's ink wherever the scale puts it.
+10. **The notification box at 130 %** — item 7's third member, listed separately because it was
+    found last: two lines now fit where three no longer do, and the bottom rule carries the
+    scroll position as before.
+11. **The switcher at 130 %** — item 7's second member, verified by measuring the rows of the
+    PNG: the name's ink ends two rows above the band rule at both scales.
+
+**What the walk covered, clean:** Main (every lens, wrap, resting state), Reader (shelf, folders,
+the chapter picker, a cover image, pages, scroll, actions, at 480/288 and at 130 %), Tmux (sessions,
+the live pane with the staleness line, history, keys, a new session created from the glasses, a
+typed line behind its confirm), Files (locations, browse, the context menu, at 480/288), Torrents
+(transfers, the transfer menu, details, the window menu, browse), Music (Now Playing idle, the
+whole menu, browse, artists, an artist, the set menu, volume, Music Mode idle, lyrics idle),
+Games (root, the scoreboard lens, bankroll and its menu, tables, the buy-in confirm, a full hand
+with call/raise through the sizing ladder and the Custom keyboard, showdown, inspect, standings, a
+character, hand history, a cash-out through "fold and leave", the play-out settlement), Settings
+(categories, every Global row, live adjust with staging), silent mode with the large and medium
+clocks, the switcher spun and cancelled, the keyboard, a notification arriving and taking focus,
+the 130 % ladder and Alegreya as the chrome face — with **zero divergence reports across four
+instance logs**.
+
+### 28.3 Pins, and the vacuity check
+
+Every pin was run twice: once against the fixed tree (PASS) and once with its fix stashed (FAIL),
+because §26.5 found a pin that passed both ways. `Review28Test` (the two pacer stalls),
+`Review28ScaleTest` (the book at 130 %, the tmux line inside its rect — both on a `ScalingText`
+whose ink follows the size, the blind spot `FakeText`'s constant 12+4 metrics leave), `Review28MainLensTest`
+(both lenses count before the windows open), `Review28PaintTest` (the scaled menu inside its box
+with the title above the rule; the scaled status line out of the hole plane; the tmux script's
+blank filter), `Review28SwitcherTest` (the scaled wheel inside its panel), and the desktop
+`ConfigTest` (an unreadable file left untouched; a tokenless one completed).
+
+### 28.4 Battery
+
+core **430** · desktop **11** · selfcheck **189** (the oracle on every settle, 282 runs) ·
+snapshots 49 × three consecutive clean runs · `--games-check` · `--music-check` ·
+`--epub-check` 58/58 · `--card-render` · `python3 tools/lint.py` 21 rules / 0 findings +
+selftest · `:phone:assembleDebug`.
+
+### 28.5 Where the next session picks up
+
+Read `CLAUDE.md` → `REMINDER.md` → `HANDOFF.md` §19–§28, then:
+
+- **Nothing from this round is deployed.** The `damage` service still runs the §27 build and
+  **0.27** is the staged APK; this round's fixes are in the tree and pushed only. Deploying is
+  `./gradlew :desktop:stageJar && sudo rc-service damage restart` (never touches the display)
+  and a versionCode bump + `:phone:stageApk` for **0.28**. **0.16 is still the last APK observed
+  INSTALLED.**
+- The live-walk driver is worth keeping as a standing instrument next to the harnesses: it is the
+  only one that runs the REAL providers (the tmux server, the shelf, qBittorrent, Postgres) under
+  the real grammar, and it is what found items 7–11. Its shape is in §28.2; rebuild it in ten
+  minutes rather than script blind.
+- Open items are §26.6, §27.5 and the deploy above; nothing in this round is half-finished.

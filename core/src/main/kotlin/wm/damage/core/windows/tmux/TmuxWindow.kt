@@ -376,8 +376,13 @@ class TmuxWindow(
         if (f.alternate) renderer.render(g, rect, f, wantContext)
         else flow.renderTail(g, rect, f)
         if (provState.isNotEmpty()) {
-            // the staleness surface (§10.5): the view stays, the trouble is SAID
-            drawFit(g, rect.x + 16, rect.bottom - 20, provState, Level.HOT, fSmall, rect.w - 32)
+            // the staleness surface (§10.5): the view stays, the trouble is SAID.
+            // Placed from the face's MEASURED ink, never a constant: JetBrains
+            // Mono 14 inks exactly 20 rows at 100 %, and `rect.bottom - 20`
+            // ran 2 rows past the content rect at 115 % and 5 at 130 % —
+            // ink outside the damaged rect, the §27 class (review §28 #3)
+            val ink = tx.metrics(fSmall).let { it.ascent + it.descent }
+            drawFit(g, rect.x + 16, rect.bottom - ink, provState, Level.HOT, fSmall, rect.w - 32)
         }
     }
 

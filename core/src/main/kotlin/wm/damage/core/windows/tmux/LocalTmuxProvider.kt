@@ -375,12 +375,21 @@ class LocalTmuxProvider(
         const val STUCK_NARRATE_S = 15L
 
         /** The per-host status script: the session table, then per-session
-         *  tails. `while IFS= read` keeps names with spaces whole. */
+         *  tails. `while IFS= read` keeps names with spaces whole.
+         *
+         *  🔴 Blank rows are dropped BEFORE the tail is taken (review §28 #8):
+         *  `capture-pane -p` prints the whole visible pane, trailing empty
+         *  rows included, so for any pane that has not filled its screen — a
+         *  session just created from the glasses, a short command — `tail -5`
+         *  was five empty lines. The wait patterns then never matched
+         *  ("Do you want to continue? y/n" sat on screen with no alert) and
+         *  the sessions lens showed no last line. Only the six full-screen
+         *  Claude sessions on beardos ever worked. */
         val STATUS_SCRIPT = """
             tmux list-sessions -F '#{session_name}	#{session_windows}	#{?session_attached,1,0}	#{session_activity}' 2>/dev/null || true
             tmux list-sessions -F '#{session_name}' 2>/dev/null | while IFS= read -r s; do
               printf '$TAIL_MARK%s\n' "${'$'}s"
-              tmux capture-pane -p -t "=${'$'}s:" 2>/dev/null | tail -5 || true
+              tmux capture-pane -p -t "=${'$'}s:" 2>/dev/null | grep -v '^[[:space:]]*${'$'}' | tail -5 || true
             done
         """.trimIndent()
 
