@@ -46,6 +46,25 @@ object Money {
     fun bb(chips: Int, bigBlind: Int): String =
         if (bigBlind <= 0) "" else "${(chips.toDouble() / bigBlind).let { if (it >= 10) it.toInt().toString() else "%.1f".format(it) }}bb"
 
+    /**
+     * A drawn CHIP STACK (`HOLDEM.md` §9.2, the 480 rung: *"drawn chip stacks
+     * in place of bare numbers"*). Height is logarithmic in big blinds, so a
+     * $4,000 bet is a taller stack than $400 without being ten times taller —
+     * and it caps, because the point is "a lot" and not an exact count.
+     *
+     * Bars are horizontal runs, which is what the RLE wants (§2.4 r9).
+     */
+    fun chipStack(g: Gray8, x: Int, y: Int, w: Int, amount: Int, bigBlind: Int, lv: Int,
+        maxChips: Int = 5): Int {
+        if (amount <= 0 || bigBlind <= 0) return 0
+        val bb = amount.toDouble() / bigBlind
+        val n = (1 + kotlin.math.log2(bb.coerceAtLeast(1.0))).toInt().coerceIn(1, maxChips)
+        for (i in 0 until n) {
+            g.fillRect(x, y - i * 4, w, 2, if (i == n - 1) lv else Level.of((lv / 17 * 2 / 3).coerceAtLeast(2)))
+        }
+        return n * 4
+    }
+
     // ================================================================ seven segment
     /** A digit cell's metrics. Every dimension is even so the drawn extent
      *  lands on the damage grid (`Geometry` Y_STEP = 2). */

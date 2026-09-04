@@ -101,6 +101,9 @@ class Character(
         }
 
         companion object {
+            /** How far the trait roll is pushed away from the middle. */
+            private const val STRETCH = 1.9
+
             fun load(o: JsonObject?): Traits {
                 fun d(k: String, dflt: Double) = o?.get(k)?.jsonPrimitive?.doubleOrNull ?: dflt
                 return Traits(d("ti", 0.5), d("ag", 0.5), d("bl", 0.2), d("di", 0.5),
@@ -108,15 +111,17 @@ class Character(
             }
 
             /**
-             * Roll a sheet from a key. Every dial is a mix of a uniform draw
-             * and a centre pull, so the population clusters around competent
-             * with real extremes at the edges — six uniform dials would make
-             * every character an average of nothing.
+             * Roll a sheet from a key. Two uniforms averaged and then STRETCHED
+             * about the centre: the population clusters around competent while
+             * still producing real rocks and real maniacs. Three uniforms
+             * averaged (the first version) clustered so tightly that a whole
+             * measured roster came out as one archetype — `--games-check` read
+             * 18 rocks out of 28 and a VPIP spread of seven points.
              */
             fun roll(seed: Long, key: Long): Traits {
                 val r = Rng.stream(seed, key)
-                fun dial(): Double = ((r.nextDouble() + r.nextDouble() + r.nextDouble()) / 3.0)
-                    .let { 0.08 + it * 0.84 }
+                fun dial(): Double = ((r.nextDouble() + r.nextDouble()) / 2.0)
+                    .let { 0.5 + (it - 0.5) * STRETCH }.coerceIn(0.04, 0.96)
                 return Traits(
                     tightness = dial(),
                     aggression = dial(),

@@ -270,6 +270,9 @@ class ShellService : Service() {
         mp[0] = player
         musicPlayer = player
         sh.register(wm.damage.core.windows.music.MusicWindow(text, ml, player, scope))
+        // Games is pure Kotlin — no provider, no channel, no `needs`. Its whole
+        // world lives in its own synced records (HOLDEM.md §11.1).
+        sh.register(wm.damage.core.windows.games.GamesWindow(text, scope))
         val ri = RemoteIcons(prefs.host, prefs.contentPort, prefs.token,
             dataDir.resolve("icons"), scope, onLoaded = { sh.requestRepaint() })
         remoteIcons = ri

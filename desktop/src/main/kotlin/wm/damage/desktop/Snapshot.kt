@@ -87,6 +87,17 @@ object Snapshot {
         val musicPlayer = wm.damage.core.windows.music.SimMusicPlayer(musicLib, musicClock)
         val musicWin = wm.damage.core.windows.music.MusicWindow(text, musicLib, musicPlayer, scope, clock = musicClock)
         shell.register(musicWin)
+        val gamesWin = wm.damage.core.windows.games.GamesWindow(text, scope)
+        shell.register(gamesWin)
+        /** Open the Games menu row LABELLED [label] — by name, never by counting. */
+        suspend fun gamesMenu(label: String) {
+            settle(shell, "games-menu-$label")
+            val i = shell.menuLabels.indexOfFirst { it == label || it.startsWith(label) }
+            if (i < 0) { failures.add("Games menu row '$label' not in ${shell.menuLabels}"); return }
+            repeat((i - shell.menuCursor).mod(shell.menuLabels.size)) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+            settle(shell, "games-menu-$label-committed")
+        }
         /** Open the Music menu (from the NOW PLAYING root, 2026-09-03) and
          *  commit the row LABELLED [label] — by name, never by counting. */
         suspend fun musicMenu(label: String) {
@@ -382,6 +393,107 @@ object Snapshot {
         repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }    // → categories → Main
         settle(shell)
         shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // cursor home (Reader)
+        settle(shell)
+
+        // ---------------------------------------------------------------- Games
+        // Walk Main's cursor by COMMITTING and checking rather than by counting
+        // rows: the row order is the registration order and one new window
+        // silently shifts every count (the 2026-09-03 menu-row lesson).
+        suspend fun toMain() {
+            var guard = 0
+            while (shell.currentWindowId() != null && guard++ < 10) {
+                shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+                settle(shell, "back-to-main")
+            }
+        }
+        suspend fun toWindow(id: String) {
+            toMain()
+            for (k in 0 until 12) {
+                shell.postGesture(EvenHubMsg.EV_CLICK)
+                settle(shell, "commit-$id")
+                if (shell.currentWindowId() == id) return
+                toMain()
+                shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+                settle(shell)
+            }
+            failures.add("could not reach the '$id' window from Main")
+        }
+        /** Rest the Games-root cursor on the row NAMED [label] — by name,
+         *  never by counting: the root gained a row once already. */
+        suspend fun gamesRow(label: String) {
+            for (k in 0 until 8) {
+                settle(shell, "games-row-$label")
+                if (gamesWin.rootRow == label) return
+                shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+            }
+            failures.add("the Games root has no '$label' row (rest: ${gamesWin.rootRow})")
+        }
+
+        toWindow("games")
+        waitFor("the games root") { shell.currentWindowId() == "games" && gamesWin.levelName == "GAMES" }
+        iconsSettled()
+        settle(shell)
+        save(sim, out, "40-games-root")
+
+        // the Bankroll row's lens carries the drawn seven-segment scoreboard
+        gamesRow("Bankroll")
+        settle(shell)
+        save(sim, out, "41-games-bankroll-lens")
+
+        // sit down at Regular and play to Adam's first decision
+        gamesRow("Hold'em")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // → the table select
+        waitFor("the table list") { gamesWin.levelName == "TABLES" }
+        settle(shell)
+        save(sim, out, "42-games-tables")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // Regular
+        waitFor("the buy-in confirm") { shell.menuIsOpen }
+        save(sim, out, "43-games-buyin")
+        gamesMenu("Sit down")
+        waitFor("your first decision") { gamesWin.isMyTurn }
+        settle(shell)
+        save(sim, out, "44-games-table-480")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // the action level
+        waitFor("the action menu") { shell.menuIsOpen }
+        save(sim, out, "45-games-actions")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // row 0 → the confirm
+        waitFor("the confirm") { shell.menuIsOpen && shell.menuLabels.firstOrNull() == "Cancel" }
+        save(sim, out, "46-games-confirm")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // cancel
+        settle(shell)
+
+        // the standings, and one character's career
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → the games root
+        waitFor("back at the games root") { gamesWin.levelName == "GAMES" }
+        gamesRow("Standings")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the standings") { gamesWin.levelName == "STANDINGS" }
+        settle(shell)
+        save(sim, out, "48-games-standings")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("a character") { gamesWin.levelName == "CHARACTER" }
+        settle(shell)
+        save(sim, out, "49-games-character")
+        repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }
+        waitFor("the games root again") { gamesWin.levelName == "GAMES" }
+        settle(shell)
+
+        // the same table at 288 — the tight rung of the ladder
+        shell.services.runOnShell { gamesWin.appSettings().first { it.name == "Size" }.apply("288") }
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Main
+        settle(shell)
+        toWindow("games")
+        waitFor("games at 288") { shell.currentWindowId() == "games" }
+        settle(shell)
+        gamesRow("Hold'em")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // → the live table
+        waitFor("the table at 288") { gamesWin.levelName == "TABLE" }
+        settle(shell)
+        save(sim, out, "47-games-table-288")
+        shell.services.runOnShell { gamesWin.appSettings().first { it.name == "Size" }.apply("global") }
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+        settle(shell)
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
         settle(shell)
 
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // silent

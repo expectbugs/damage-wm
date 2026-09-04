@@ -2099,6 +2099,22 @@ class Shell(
             if (!switcher.open && !menu.open && !keyboard.open && focusedView() is WindowView.ListView) {
                 planes.add(Compositor.PlaneRegion(layout.lens, 0))          // lens comes forward
             }
+            // a window's own depth regions (HOLDEM.md §9.2: the hole cards
+            // come forward). Validated here, not trusted: an unaligned or
+            // escaping box is rejected by the firmware in SILENCE
+            if (mode == Mode.WINDOW && !switcher.open && !menu.open && !keyboard.open) {
+                current?.let { w ->
+                    for ((r, plane) in w.contentPlanes(layout.content)) {
+                        val errs = wm.damage.core.geom.Geometry.checkRect(r, "${w.id} depth region")
+                        if (errs.isNotEmpty() || !layout.content.contains(r)) {
+                            Log.e("shell", "window ${w.id} asked for an illegal depth region $r " +
+                                "(content ${layout.content}): ${errs.joinToString("; ")}")
+                            continue
+                        }
+                        planes.add(Compositor.PlaneRegion(r, ((plane / 4).coerceIn(0, 4)) * 4))
+                    }
+                }
+            }
             if (menu.open) {
                 // the menu owns the depth story while open (the §4.3 wheel
                 // lesson applied): its box is the only plane-0 region

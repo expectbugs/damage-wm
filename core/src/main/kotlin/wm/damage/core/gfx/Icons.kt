@@ -10,7 +10,7 @@ import kotlin.math.sin
  * Drawing rules (§2.4 rule 9, also the compression rules): thick strokes,
  * closed forms, no hairlines, few levels, solid fills.
  */
-enum class IconKind { TERMINAL, CALENDAR, MUSIC, TIMER, SMS, READER, FILES, NOTICES, SCOUT, SETTINGS, MAIL, TORRENTS }
+enum class IconKind { TERMINAL, CALENDAR, MUSIC, TIMER, SMS, READER, FILES, NOTICES, SCOUT, SETTINGS, MAIL, TORRENTS, GAMES }
 
 object Icons {
     private const val BG = 0
@@ -260,6 +260,19 @@ object Icons {
                 s.fillRect(x + w / 8, trayY, w - w / 4, maxOf(2, h / 8), lv)
                 s.fillRect(x + w / 8, trayY - h / 8, maxOf(2, w / 10), h / 8, lv)
                 s.fillRect(x + w - w / 8 - maxOf(2, w / 10), trayY - h / 8, maxOf(2, w / 10), h / 8, lv)
+            }
+            IconKind.GAMES -> {
+                // a card PAIR, fanned: one outline card behind a filled one,
+                // which is the window's own colour language (HOLDEM.md
+                // verdict 7) shrunk to an icon
+                val cw = w * 5 / 8
+                val ch = h * 7 / 8
+                s.outlineRect(x, y + h - ch, cw, ch, lv, t - 1)
+                s.fillRect(x + w - cw, y, cw, ch, lv)
+                s.fillRect(x + w - cw + t, y + t, cw - 2 * t, ch - 2 * t, BG)
+                s.fillPolygon(
+                    intArrayOf(x + w - cw / 2, x + w - t, x + w - cw / 2, x + w - cw + t),
+                    intArrayOf(y + t * 2, y + ch / 2, y + ch - t * 2, y + ch / 2), lv)
             }
             IconKind.MAIL -> {
                 s.fillRect(x, y, w, h, lv)

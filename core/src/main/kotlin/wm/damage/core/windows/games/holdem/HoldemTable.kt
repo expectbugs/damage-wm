@@ -143,6 +143,17 @@ class HoldemTable private constructor(
         val sb = spec.sbAt(level)
         val bb = spec.bbAt(level)
         val active = activeSeats()
+        if (active.size <= 1) {
+            // the tournament is OVER: there is no hand to deal, and dealing
+            // one would post a small AND a big blind against the winner's own
+            // stack — `nextActive` wraps to the only seat left, so both blinds
+            // land on the same player and the final stack reads wrong
+            val seats = occupants.indices.map { i ->
+                Seats.Seat(i, occupants[i], handStacks[i], busted = bustedAt[i] != 0)
+            }
+            return View(handNo, level, sb, bb, button, button, button, seats, emptyList(),
+                Street.SHOWDOWN, null, 0, bb, 0, List(n) { false }, null, emptyList())
+        }
         val stack = handStacks.copyOf()
         val committed = IntArray(n)          // this street
         val contributed = IntArray(n)        // this hand
@@ -491,6 +502,9 @@ class HoldemTable private constructor(
      * that leaves one player, i.e. the tournament is over.
      */
     fun nextHand(): Boolean {
+        // a finished tournament has no next hand — say so rather than throwing
+        // about a result that was never going to exist
+        if (activeSeats().size <= 1) return false
         val v = view()
         if (v.result == null) throw IllegalStateException("the hand is not over yet (${v.street})")
         // the stacks THIS hand started with decide the order of a double

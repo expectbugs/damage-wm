@@ -136,6 +136,21 @@ abstract class DamageWindow(val id: String, val name: String, val icon: IconKind
     open fun onActivate(ctx: ShellServices, from: ActivationSource) {}
     open fun onDeactivate() {}
 
+    /**
+     * §3 depth: extra plane regions this window wants INSIDE the content area,
+     * as (rect, disparity) pairs. `HOLDEM.md` §9.2 is the first user — the
+     * table sits at the content plane and **your hole cards come forward to
+     * plane 0**, so your own hand reads as yours without lighting one extra
+     * pixel.
+     *
+     * Called on the loop while this window is FOCUSED and no overlay owns the
+     * depth story (the §4.3 wheel lesson: the switcher, the menu and the
+     * keyboard each own it outright while open). Every rect must be grid-legal
+     * and wholly inside [content]; disparity is snapped to the 4 px ladder. An
+     * illegal region is refused LOUDLY and dropped — never silently clamped.
+     */
+    open fun contentPlanes(content: Rect): List<Pair<Rect, Int>> = emptyList()
+
     /** The shell layout changed (size mode / safe rect): re-derive any cached
      *  wraps — stale widths would overrun line rects (§2.2b, NO TRUNCATION). */
     open fun onLayoutChanged() {}

@@ -52,7 +52,8 @@ import wm.damage.core.windows.reader.ReaderWindow
  * serves `booksDir` + tmux + sync, and a session keeper restarts any running
  * session after every link end. Other entry points:
  *
- *   --selfcheck · --snapshot DIR · --epub-check · --music-check · --card-render DIR
+ *   --selfcheck · --snapshot DIR · --epub-check · --music-check · --games-check [deep]
+ *   --card-render DIR
  *   --host-only · --ble-info
  *
  * `--no-preview` runs any transport mode headless (no Swing, no X) — the
@@ -68,6 +69,7 @@ fun main(args: Array<String>) {
         "--selfcheck" in args -> SelfCheck.run(cfg)
         "--epub-check" in args -> epubCheck(cfg)
         "--music-check" in args -> MusicCheck.run(cfg)
+        "--games-check" in args -> GamesCheck.run(cfg, deep = "deep" in args)
         "--card-render" in args -> CardSheet.run(cfg,
             Path.of(args.getOrNull(args.indexOf("--card-render") + 1) ?: "design/shots/cards"))
         "--snapshot" in args -> Snapshot.run(cfg,
@@ -413,6 +415,9 @@ class DesktopStack(
         // through the synced record and cannot play — it says so loudly
         music?.let { musicWindow = wm.damage.core.windows.music.MusicWindow(text, it,
             wm.damage.core.windows.music.MirrorMusicPlayer(), scope, mirror = true).also(shell::register) }
+        // Games (HOLDEM.md): pure Kotlin, no host — the first window in this
+        // system that needs nothing outside itself
+        shell.register(wm.damage.core.windows.games.GamesWindow(text, scope))
         shell.hostSettings = listOf(
             HostSetting("Target", MODES, current = { mode }, apply = { v -> onSwitch(v) }),
         )

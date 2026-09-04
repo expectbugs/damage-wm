@@ -200,8 +200,9 @@ class HoldemBotTest {
             val cast = (0 until n).map { character("x", t) }
             var voluntary = 0
             var chances = 0
-            var table = HoldemTable.start(HoldemRules.Table.REGULAR, 5150, who(n), IntArray(n) { 5000 })
-            repeat(60) { hand ->
+            val table = HoldemTable.start(HoldemRules.Table.REGULAR, 5150, who(n), IntArray(n) { 5000 })
+            var hand = 0
+            while (hand++ < 60 && table.activeSeats().size > 1) {
                 var guard = 0
                 val acted = HashSet<Int>()
                 while (table.view().toAct != null && guard++ < 200) {
@@ -214,7 +215,7 @@ class HoldemBotTest {
                         if (d.kind != ActionLevel.Kind.FOLD && d.kind != ActionLevel.Kind.CHECK) voluntary++
                     }
                 }
-                if (!table.nextHand()) return@repeat
+                if (!table.nextHand()) break
             }
             return if (chances == 0) 0.0 else voluntary.toDouble() / chances
         }
@@ -222,6 +223,27 @@ class HoldemBotTest {
         val loose = vpip(balanced.copy(tightness = 0.05, aggression = 0.8, bluffFreq = 0.4))
         println("VPIP tight=$tight loose=$loose")
         assertTrue(loose > tight + 0.15, "the dials must reach the table: tight=$tight loose=$loose")
+    }
+
+    @Test
+    fun backgroundTournamentsRunFastEnoughToHideInAThinkingGap() {
+        // §7.5: they run in the gaps between Adam's own decisions, off-loop.
+        // What matters is the ORDER of magnitude — a background game must cost
+        // a fraction of the seconds he spends on one hand, not minutes.
+        val roster = wm.damage.core.windows.games.roster.Roster(worldSeed = 4242)
+        roster.ensurePopulation()
+        val t0 = System.currentTimeMillis()
+        var games = 0
+        var hands = 0
+        repeat(5) {
+            wm.damage.core.windows.games.roster.Background.playTournament(roster)?.let {
+                games++; hands += it.hands
+            }
+        }
+        val ms = System.currentTimeMillis() - t0
+        println("background: $games tournaments, $hands hands, ${ms}ms (${ms / maxOf(1, games)}ms each)")
+        assertTrue(games > 0, "the room could not fill a single table")
+        assertTrue(ms / maxOf(1, games) < 20_000, "a background tournament took ${ms / games}ms")
     }
 
     @Test

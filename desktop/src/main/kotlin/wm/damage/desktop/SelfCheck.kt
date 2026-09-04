@@ -126,6 +126,8 @@ object SelfCheck {
         val musicPlayer = wm.damage.core.windows.music.SimMusicPlayer(musicLib, musicClock)
         val musicWin = wm.damage.core.windows.music.MusicWindow(text, musicLib, musicPlayer, scope, clock = musicClock)
         shell.register(musicWin)
+        val gamesWin = wm.damage.core.windows.games.GamesWindow(text, scope)
+        shell.register(gamesWin)
         /** Open the Music menu (from the root) and commit the row LABELLED
          *  [label] — by name, never by counting notches, so a new row cannot
          *  silently move what the harness selects. */
@@ -562,12 +564,11 @@ object SelfCheck {
         settle(shell, "music-notice-grace")
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // dismiss
         awaitTrue("the music notice dismisses") { !shell.notifications.active }
-        repeat(4) { shell.postGesture(EvenHubMsg.EV_SCROLL_TOP) }      // Main cursor back to Reader
-        settle(shell, "main-back-to-reader-row-3")
+        gamesChecks(shell, gamesWin)
 
         // ---- persistence round trip: leave a BOOK open, restart, land back in it
-        shell.postGesture(EvenHubMsg.EV_CLICK)              // back into reader (library)
-        awaitTrue("reader reopens") { shell.isQuiescent() }
+        toWindow(shell, "reader")
+        awaitTrue("reader reopens") { shell.currentWindowId() == "reader" && shell.isQuiescent() }
         shell.postGesture(EvenHubMsg.EV_CLICK)              // open the book again
         awaitTrue("book reopens before shutdown") { reader.levelDepth() >= 2 }
         settle(shell, "pre-shutdown")
@@ -606,6 +607,108 @@ object SelfCheck {
         val flags = sim.flags(Arm.LEFT).filterValues { it }
         check("no sticky diagnostic flags (were $flags)", flags.isEmpty())
         scope.cancel()
+    }
+
+
+    /**
+     * The GAMES window (`HOLDEM.md`). Its own function, not because it is
+     * separable but because `script()` had reached the JVM's 64 KB method
+     * limit — the compiler says "Method too large" and the build fails, which
+     * is at least loud.
+     */
+    private suspend fun gamesChecks(shell: Shell, gamesWin: wm.damage.core.windows.games.GamesWindow) {
+        // Walk Main by COMMITTING and checking, never by counting rows: the
+        // row order is the registration order and one new window shifts every
+        // count (the 2026-09-03 menu-row lesson, applied to Main).
+        suspend fun gamesRow(label: String) {
+            for (k in 0 until 8) {
+                settle(shell, "games-row-$label")
+                if (gamesWin.rootRow == label) return
+                shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+            }
+            failures.add("the Games root has no '$label' row (rest ${gamesWin.rootRow})")
+        }
+
+        toWindow(shell, "games")
+        awaitTrue("Games opens at its root list") {
+            shell.currentWindowId() == "games" && gamesWin.levelName == "GAMES"
+        }
+        check("a fresh bankroll is the base \$1,000 (verdict 13)", gamesWin.bankroll.cash == 1_000)
+        check("the room fills to the design's roster (§7.5)", gamesWin.roster.characters.size >= 30)
+        gamesRow("Hold'em")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("the table-select level opens") { gamesWin.levelName == "TABLES" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Regular
+        awaitTrue("the buy-in stages a confirm") { shell.menuIsOpen }
+        run {
+            val i = shell.menuLabels.indexOfFirst { it.startsWith("Sit down") }
+            check("the buy-in confirm offers Sit down (${shell.menuLabels})", i >= 0)
+            repeat((i - shell.menuCursor).coerceAtLeast(0)) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+            settle(shell, "buyin-cursor")
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+        }
+        awaitTrue("the table opens and the bots act") { gamesWin.tableRunning }
+        check("the entry AND its visible fee left the bankroll (verdict 24)",
+            gamesWin.bankroll.cash == 1_000 - 200 - 10 && gamesWin.bankroll.feesPaid == 10)
+        check("six seats, all in play (verdict 10)", gamesWin.seatsLeft == 6)
+        awaitTrue("the pacer reaches your first decision") { gamesWin.isMyTurn }
+        settle(shell, "games-your-turn")
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // the action level
+        awaitTrue("your move opens the action level") { shell.menuIsOpen }
+        check("row 0 is the contextual give-up row (verdict 33)",
+            shell.menuLabels.firstOrNull() == "Check" || shell.menuLabels.firstOrNull() == "Fold")
+        check("one notch UP from rest is harmless (§10.2)",
+            shell.menuLabels.lastOrNull() == "Hand history")
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // row 0
+        awaitTrue("every action stages a confirm (verdict 32)") {
+            shell.menuIsOpen && shell.menuLabels.firstOrNull() == "Cancel"
+        }
+        check("the cursor rests on Cancel", shell.menuCursor == 0)
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+        settle(shell, "games-confirm-cursor")
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // confirm
+        awaitTrue("the confirmed action reaches the engine") { !shell.menuIsOpen }
+        settle(shell, "games-acted")
+        // 🔴 double-tap NEVER cashes out (§10.1)
+        val chipsBefore = gamesWin.myStack
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+        awaitTrue("double-tap backs out to the Games list") { gamesWin.levelName == "GAMES" }
+        check("backing out leaves the table running — it never cashes out",
+            gamesWin.tableRunning && gamesWin.myStack == chipsBefore)
+        gamesRow("Standings")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("the standings open") { gamesWin.levelName == "STANDINGS" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("a character's career opens") { gamesWin.levelName == "CHARACTER" }
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+        settle(shell, "games-standings")
+        toMain(shell)
+
+    }
+
+    /** Walk Main by COMMITTING and checking, never by counting rows: the row
+     *  order is the registration order and one new window shifts every count
+     *  (the 2026-09-03 menu-row lesson, applied to Main — adding Games broke
+     *  two Reader checks that counted notches). */
+    private suspend fun toMain(shell: Shell) {
+        var guard = 0
+        while (shell.currentWindowId() != null && guard++ < 10) {
+            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            settle(shell, "back-to-main")
+        }
+    }
+
+    private suspend fun toWindow(shell: Shell, id: String) {
+        toMain(shell)
+        for (k in 0 until 12) {
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+            settle(shell, "commit-$id")
+            if (shell.currentWindowId() == id) return
+            toMain(shell)
+            shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+            settle(shell, "next-row")
+        }
+        failures.add("could not reach the '$id' window from Main")
     }
 
     private fun inkStill(shell: Shell, expected: Double): Boolean =

@@ -356,10 +356,16 @@ class ReaderWindow(
         refreshLibrary()
     }
 
-    /** MAIN entry: up to the shelf, keeping the folder we were browsing (the
-     *  folder IS part of the library level, not a level below it) and keeping
-     *  the open book, so one tap returns to the page. */
+    /**
+     * MAIN entry: up to the SHELF ROOT. The folder resets too — `levelDepth()`
+     * counts a subfolder as a level below the library, so leaving one open
+     * would land Main's entry at depth 2 and one double-tap would ascend the
+     * folder instead of leaving the window. The open book and its reading
+     * position are untouched; they live in the per-book sub-records.
+     */
     private fun goRoot() {
+        folder = ""
+        libModel.cursor = 0
         if (level == Level_.LIBRARY) return
         if (level == Level_.BOOK || level == Level_.ACTIONS) rememberPosition()
         if (level == Level_.CHAPTERS && !chaptersReturnToBook) {

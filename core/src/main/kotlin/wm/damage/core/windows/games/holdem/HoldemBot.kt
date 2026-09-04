@@ -56,7 +56,20 @@ object HoldemBot {
         val form: Double,
         /** 0 = first to act, 1 = last. */
         val position: Double,
+        /**
+         * 🔑 §7.6: the OBSERVED loose-ness of the opponent this character has
+         * a real read on — their VPIP over hands actually played together, or
+         * 0.5 when there is no read yet. This is how `observance` reaches Adam
+         * for free: his stats are tracked like everyone else's, so a character
+         * who has sat through 300 hands with him starts folding to his bluffs
+         * through machinery that already exists. No player-modelling special
+         * case, and 🔴 no planted tell (verdict 37) — the read is EARNED.
+         */
+        val read: Double = NO_READ,
     )
+
+    /** "I have no read on you" — the neutral value, which shifts nothing. */
+    const val NO_READ = 0.5
 
     /** How hard the blinds are pressing: 1 at 5bb, 0 at 20bb and above. */
     fun pressure(bbDepth: Double): Double = ((20.0 - bbDepth) / 15.0).coerceIn(0.0, 1.0)
@@ -78,11 +91,16 @@ object HoldemBot {
     fun modulate(t: Character.Traits, s: Spot, rng: Rng.Stream): Dials {
         val moodBadness = (-s.mood).coerceIn(0.0, 1.0)
         val noise = rng.nextNoise() * (1.0 - t.consistency) * NOISE_SPAN
+        // a LOOSER opponent means a weaker range, so the read widens this
+        // character rather than narrowing them — scaled by how much they
+        // notice at all
+        val readShift = t.observance * (s.read - NO_READ) * OBSERVE
         val tight = (t.tightness
             + (1.0 - t.discipline) * pressure(s.bbDepth) * SCARED_MONEY
             - bravado(s.stackRatio) * HEADROOM
             + t.tiltSign * t.moodiness * moodBadness * TILT
             - s.position * POSITION
+            - readShift
             + noise).coerceIn(0.02, 0.98)
         val aggr = (t.aggression
             // the same tilt, read the other way: a loose-aggressive tilt
@@ -91,7 +109,9 @@ object HoldemBot {
             + bravado(s.stackRatio) * HEADROOM * 0.5
             + s.form * FORM
             + noise * 0.5).coerceIn(0.02, 0.98)
-        val bluff = (t.bluffFreq * (0.6 + 0.8 * s.position)).coerceIn(0.0, 0.6)
+        // and they bluff a loose caller LESS: the same read, the other way up
+        val bluff = (t.bluffFreq * (0.6 + 0.8 * s.position) *
+            (1.0 - t.observance * (s.read - NO_READ) * OBSERVE_BLUFF)).coerceIn(0.0, 0.6)
         return Dials(tight, aggr, bluff, t.stackCourage, noise)
     }
 
@@ -165,7 +185,7 @@ object HoldemBot {
      * [Equity.CHEAP_ROLLOUTS] for the background economy (§7.5).
      */
     fun decide(table: HoldemTable, seat: Int, c: Character,
-        rollouts: Int = Equity.LIVE_ROLLOUTS): Decision {
+        rollouts: Int = Equity.LIVE_ROLLOUTS, read: Double = NO_READ): Decision {
         val v = table.view()
         require(v.toAct == seat) { "seat $seat is not to act (it is ${v.toAct})" }
         val s = v.seats[seat]
@@ -183,6 +203,7 @@ object HoldemBot {
             mood = c.mood,
             form = c.form,
             position = positionOf(v, seat),
+            read = read.coerceIn(0.0, 1.0),
         )
         val dials = modulate(c.traits, spot, rng)
         val toCall = maxOf(0, v.currentBet - s.committed)
@@ -237,8 +258,9 @@ object HoldemBot {
     }
 
     /** Apply a decision to the table. */
-    fun play(table: HoldemTable, seat: Int, c: Character, rollouts: Int = Equity.LIVE_ROLLOUTS): Decision {
-        val d = decide(table, seat, c, rollouts)
+    fun play(table: HoldemTable, seat: Int, c: Character, rollouts: Int = Equity.LIVE_ROLLOUTS,
+        read: Double = NO_READ): Decision {
+        val d = decide(table, seat, c, rollouts, read)
         when (d.kind) {
             ActionLevel.Kind.BET, ActionLevel.Kind.RAISE, ActionLevel.Kind.ALL_IN ->
                 table.act(d.kind, d.to)
@@ -259,4 +281,6 @@ object HoldemBot {
     private const val READ_NOISE = 0.10
     private const val BLUFF_RAISE = 0.5
     private const val PUSH_FOLD_BB = 10.0
+    private const val OBSERVE = 0.35
+    private const val OBSERVE_BLUFF = 1.4
 }
