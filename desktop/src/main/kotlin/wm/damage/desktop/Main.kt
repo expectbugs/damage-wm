@@ -52,7 +52,8 @@ import wm.damage.core.windows.reader.ReaderWindow
  * serves `booksDir` + tmux + sync, and a session keeper restarts any running
  * session after every link end. Other entry points:
  *
- *   --selfcheck · --snapshot DIR · --epub-check · --host-only · --ble-info
+ *   --selfcheck · --snapshot DIR · --epub-check · --music-check · --card-render DIR
+ *   --host-only · --ble-info
  *
  * `--no-preview` runs any transport mode headless (no Swing, no X) — the
  * all-day OpenRC service mode (DAILY.md); views are the replicas.
@@ -67,6 +68,8 @@ fun main(args: Array<String>) {
         "--selfcheck" in args -> SelfCheck.run(cfg)
         "--epub-check" in args -> epubCheck(cfg)
         "--music-check" in args -> MusicCheck.run(cfg)
+        "--card-render" in args -> CardSheet.run(cfg,
+            Path.of(args.getOrNull(args.indexOf("--card-render") + 1) ?: "design/shots/cards"))
         "--snapshot" in args -> Snapshot.run(cfg,
             Path.of(args.getOrNull(args.indexOf("--snapshot") + 1) ?: "snapshots"))
         "--ble-info" in args -> bleInfo()
