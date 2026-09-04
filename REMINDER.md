@@ -14,8 +14,9 @@ rhythm (the menu, the notification box, the switcher) broke at the top of the fo
 Hold'em status line was cut by the hole-card plane under a per-app scale, and tmux never alerted
 for a pane that had not filled its screen** (`capture-pane | tail -5` was five blank rows). All
 now measure the face with the design numbers as the floor — 100 % is pixel-identical — and the
-alert fires. ⚠ **None of it is deployed yet**: the tree is pushed, the service still runs the §27
-build and 0.27 is the staged APK; §28.5 lists the two deploy steps.
+alert fires. ✅ **Deployed 2026-09-04 18:16**: the `damage` service runs this build (`standby up
+(§19)`, the phone reattached to every channel) and APK **28/0.28** is staged on the setup page.
+**0.16 is still the last APK observed installed** — installing 0.28 is the one manual step.
 
 **Battery at HEAD:** core **430** · desktop **11** · selfcheck **189** (oracle 282 runs) ·
 snapshots 49 (three consecutive clean runs) · `--games-check` · `--music-check` ·
@@ -164,10 +165,8 @@ selfcheck **189** · snapshots 49 · epub-check 58/58 · lint 0 · `--music-chec
 (deployed 2026-09-04 13:07; `standby up (§19)` in the log, the phone reattached to all five
 channels — files, tmux, music, torrents, sync — and the PC claimed nothing, so the display was
 never touched). **APK 27/0.27 is STAGED and is the one to install** — Games plus all three
-review cycles plus the whole 2026-09-05 review (§27); 0.26 and everything before it are
-superseded, and the service now runs the review build too (restarted 2026-09-05). ⚠ **The
-2026-09-04-late review (§28) is in the tree and pushed but NOT staged on either side** — the next
-stage is 0.28 plus a `stageJar && rc-service damage restart`. **0.16 is still the last build observed INSTALLED**
+review cycles plus the whole 2026-09-05 review (§27); superseded in turn by **28/0.28**, staged
+2026-09-04 18:16 with the §28 review, the same moment the service was restarted onto it. **0.16 is still the last build observed INSTALLED**
 (2026-09-01). Redeploy the PC side with
 `./gradlew :desktop:stageJar && sudo rc-service damage restart` (never touches the display — the
 PC does not claim). ⚠ One central at a time: stop the service before any `:desktop:run` dev
@@ -183,11 +182,11 @@ shell).
 
 ## 🚀 Next
 
-1. **Deploy §28, then install the APK and play Hold'em on glass.** The service runs the §27
-   build (restarted 2026-09-05, `standby up (§19)`, the phone reattached) and **27/0.27** — Games,
-   all three review cycles and the whole 2026-09-05 review — is staged; the 2026-09-04-late
-   review (§28: the pacer stall, the Reader at 115/130 %, the chrome rhythm, the tmux alert)
-   still needs `./gradlew :desktop:stageJar && sudo rc-service damage restart` and a 0.28 stage.
+1. **Install the APK and play Hold'em on glass.** Both sides are deployed: the service runs the
+   §28 build (restarted 2026-09-04 18:16, `standby up (§19)`, the phone reattached) and
+   **28/0.28** — Games, all three review cycles, the 2026-09-05 review and the 2026-09-04-late
+   review (the pacer stall, the Reader at 115/130 %, the chrome rhythm, the tmux alert) — is
+   staged.
    Download it from the G2CC setup page's `/damage-apk` and install over the top;
    `MY_PACKAGE_REPLACED` restarts the phone service itself. What is
    owed on glass: the card art at all four rungs, the hole-card

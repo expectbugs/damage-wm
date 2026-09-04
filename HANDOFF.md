@@ -1629,11 +1629,11 @@ selftest · `:phone:assembleDebug`.
 
 Read `CLAUDE.md` → `REMINDER.md` → `HANDOFF.md` §19–§28, then:
 
-- **Nothing from this round is deployed.** The `damage` service still runs the §27 build and
-  **0.27** is the staged APK; this round's fixes are in the tree and pushed only. Deploying is
-  `./gradlew :desktop:stageJar && sudo rc-service damage restart` (never touches the display)
-  and a versionCode bump + `:phone:stageApk` for **0.28**. **0.16 is still the last APK observed
-  INSTALLED.**
+- ✅ **Both sides are deployed (2026-09-04, 18:16):** `stageJar && rc-service damage restart`
+  put the service on this build — it came up `standby up (§19)` with the phone reattached to the
+  sync, tmux, files, torrents and music channels, and touched nothing on glass — and APK
+  **28/0.28** is staged on the setup page (`~/.damage/damage-wm.apk`). **0.16 is still the last
+  APK observed INSTALLED** — installing 0.28 is the one manual step left.
 - The live-walk driver is worth keeping as a standing instrument next to the harnesses: it is the
   only one that runs the REAL providers (the tmux server, the shelf, qBittorrent, Postgres) under
   the real grammar, and it is what found items 7–11. Its shape is in §28.2; rebuild it in ten

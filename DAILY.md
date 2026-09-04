@@ -40,8 +40,8 @@ staged build: Files + theme icons + the sync client + Torrents + the keyboard + 
 three reviews + the 2026-09-03 Now Playing root and the two player fixes + that day's
 whole-codebase review (`HANDOFF.md` §25) + **Games · Hold'em** and the shell's
 switcher-resume / Main-root rule and all three of its review cycles (`HANDOFF.md` §26); 0.16 is
-the last build observed installed**). ⚠ The 2026-09-04-late review (`HANDOFF.md` §28) is NOT in
-0.27 or in the running service — its next stage is 0.28 plus a PC redeploy. Why old
+the last build observed installed**; **0.28**, staged 2026-09-04 18:16, adds the 2026-09-04-late
+review — `HANDOFF.md` §28 — and the service runs that build too). Why old
 APKs matter: a pre-0.15 APK cannot be status-probed (the PC conservatively stays out — fine)
 and a pre-0.10 one carries no sync client, so state does not flow until it is updated. 0.16
 being installed also unblocks Reader's transitional legacy-offsets cleanup (`REMINDER.md` Next 2).
@@ -139,8 +139,9 @@ the sync feel across a driver swap (a book position following the swap). Current
 shell's switcher-resume / Main-root rule and all three review cycles, §26, **and the 2026-09-05
 whole-codebase review, §27** — the Music Mode card, the chrome font ladder, the Games cash-out
 and the truth-oracle gate); **0.16 is the last build observed INSTALLED** (2026-09-01 — the
-phone speaks the files channel), so **0.27 is the one to install** — and the 2026-09-04-late
-review (§28) still needs staging as 0.28.
+phone speaks the files channel), so **0.28 is the one to install** — staged 2026-09-04 18:16
+with the 2026-09-04-late review (§28), the same moment the service was restarted onto it
+(`standby up (§19)`, the phone reattached to every channel).
 ✅ Both sides are deployed as of 2026-09-05: `:phone:stageApk` put 0.27 on the setup page and
 `./gradlew :desktop:stageJar && sudo rc-service damage restart` put the service on the review
 build (it never touches the display; the PC does not claim). The log came up `standby up (§19)`

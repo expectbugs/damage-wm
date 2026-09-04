@@ -1187,16 +1187,15 @@ checks · `desktop --games-check` (a new harness — the ecology over hundreds o
 tournaments) · `desktop --snapshot` **13 Games scenes** among 49 · `desktop --card-render` (the
 card sheets in `design/shots/cards/`) · `desktop --epub-check` · `desktop --music-check` ·
 `python3 tools/lint.py` **21 rules, 0 findings** · `./gradlew :phone:assembleDebug` (the staged
-APK is **27 / 0.27**; §17.2e's fixes are not in it yet).
+APK is **28 / 0.28**, §17.2e included).
 
 ### 17.4 Still open
 
 - **On-glass verdicts.** Everything above was judged on the byte-exact simulator at true 1× and
   through the browser replica. The card art, the depth of the hole-card plane, the arc stagger and
-  the pacing all want Adam's eye on the real panel. ✅ Both sides are DEPLOYABLE: the `damage`
-  service runs the 2026-09-05 review build and APK **27/0.27** is staged — but neither carries
-  §17.2e yet (a `stageJar && rc-service damage restart` and a 0.28 stage first), and installing
-  the APK is still the single step before Hold'em is on the glass.
+  the pacing all want Adam's eye on the real panel. ✅ Both sides are deployed (2026-09-04
+  18:16): the `damage` service runs the §17.2e build and APK **28/0.28** is staged — installing
+  it is the single step left before Hold'em is on the glass.
 - **The background-economy ratio** is tuned to `--games-check`'s measurement, not to a season of
   Adam's own play. The money-supply curve it prints is the thing to watch.
 - **Later games.** The kit (`windows/games/kit/`) is built for blackjack, hearts and gin and none
