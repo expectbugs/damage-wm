@@ -148,16 +148,12 @@ class HoldemView(private val tx: TextRasterizer) {
         }
         y += 16
 
-        // the holding: a small MARK below the top rung, real backs at 480
-        if (t.showsOpponentBacks && !s.folded && s.cards.isNotEmpty()) {
-            // nothing here yet — the backs ride in the seat cell only when the
-            // cell is tall enough for them, which the ladder decides below
-        }
         if (t.showsLastAction) {
             val shown = m.v.result?.shown ?: emptySet()
             if (s.index in shown && s.cards.isNotEmpty()) {
-                tx.draw(g, x, y, s.cards.joinToString(" ") { it.code }, fSmall,
-                    if (dim) Level.DIM else Level.HEAD)
+                // the showdown: the cards themselves replace the last action
+                Draw.fit(g, tx, x, y, s.cards.joinToString(" ") { it.code },
+                    if (dim) Level.DIM else Level.HEAD, fSmall, w)
             } else {
                 // nothing to say is drawn as nothing: a dash under every seat
                 // that has not acted yet is five cells of noise (the first
@@ -167,7 +163,9 @@ class HoldemView(private val tx: TextRasterizer) {
             }
             y += 15
         }
-        // the holding mark sits beside the stack when there is no room for a line
+        // §9.2 left "actual backs at 480" as a CONSIDERATION and the mark won
+        // it at every rung: two 72x100 backs per seat is ten lit rectangles
+        // carrying no information, which is the ink trap that section names.
         if (!s.folded && s.cards.isNotEmpty()) {
             CardArt.holdingMark(g, cell.right - 22, cell.y + 20, 16, 10, 2,
                 if (dim) Level.REST else Level.MID)
@@ -225,7 +223,7 @@ class HoldemView(private val tx: TextRasterizer) {
         val toCall = if (me != null) maxOf(0, m.v.currentBet - me.committed) else 0
         if (m.v.toAct == m.mySeat && toCall > 0) parts.add("to call ${Money.compact(toCall)}")
         else if (m.v.toAct == m.mySeat) parts.add("your move")
-        else if (m.acting != null) parts.add("${m.v.seats[m.acting].who.name}…")
+        else if (m.acting != null) parts.add("${m.v.seats[m.acting].who.name} …")
         if (me != null) parts.add("you ${Money.compact(me.stack)}")
         val left = parts.joinToString(" · ")
         val blinds = "${Money.compact(m.v.sb)}/${Money.compact(m.v.bb)}" +
@@ -236,7 +234,9 @@ class HoldemView(private val tx: TextRasterizer) {
             Money.chipStack(g, r.x, r.y + r.h - 4, 14, m.v.pot, m.v.bb, Level.MID)
             lx += 22
         }
-        Draw.fit(g, tx, lx, r.y + 2, left,
+        // the line carries a character NAME: sanitize it like any other
+        // dynamic string, or a glyph the face lacks is silent tofu
+        Draw.fit(g, tx, lx, r.y + 2, Draw.dynamic(tx, left, fStatus),
             if (m.v.toAct == m.mySeat) Level.HEAD else Level.BODY, fStatus, r.right - lx - bw)
         Draw.right(g, tx, r.right, r.y + 4, blinds, Level.DIM, fSmall)
     }

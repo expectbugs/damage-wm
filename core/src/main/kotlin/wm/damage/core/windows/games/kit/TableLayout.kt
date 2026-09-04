@@ -42,9 +42,6 @@ class TableLayout(val content: Rect, val panelHeight: Int) {
     val showsYourLine: Boolean get() = tier >= 2
     val showsHistory: Boolean get() = tier >= 3
     val showsChipStacks: Boolean get() = tier >= 3
-    /** Drawn card BACKS for opponents only at the top rung — five seats × two
-     *  backs is ten lit rectangles carrying no information (§9.2). */
-    val showsOpponentBacks: Boolean get() = tier >= 3
 
     /** The five opponent cells (6-max minus you). */
     val seats: Rect

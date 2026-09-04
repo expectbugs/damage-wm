@@ -106,6 +106,9 @@ class GamesWindow(
     private var inspect = -1
     private var acting: Int? = null
     private var openChar: String? = null
+    /** Where Standings was opened from, so back returns there (the action
+     *  level offers it from the table). */
+    private var standFrom: Level_? = null
     /** Background tournaments still owed for the tournament Adam is playing. */
     private var bgOwed = 0
     private var bgLastHand = -99
@@ -127,6 +130,8 @@ class GamesWindow(
     private var noticeUntil = 0L
     private var pacerGen = 0
     private var thinking = false
+    /** §10.1's skip: the pace is bypassed until it is Adam's turn again. */
+    private var skipping = false
 
     private val fRow = FontSpec(Face.SYSTEM, 18)
     private val fRowB = FontSpec(Face.SYSTEM, 18, bold = true)
@@ -150,6 +155,8 @@ class GamesWindow(
     val handNumber: Int get() = table?.view()?.handNo ?: -1
     val boardShown: Int get() = revealed
     val levelName: String get() = level.name
+    /** Adam's net worth as the standings show it: bankroll plus his stack. */
+    val myWorth: Int get() = bankroll.cash + (table?.stackOf(mySeat) ?: 0)
     /** The Games-root row the cursor rests on, BY NAME. */
     val rootRow: String get() = rowLabel(gamesRows()[gamesModel.cursor.mod(gamesRows().size)]).first
 
@@ -176,8 +183,11 @@ class GamesWindow(
 
     // ================================================================ lifecycle
     override fun onRegistered(ctx: ShellServices) {
+        // 🔴 NO world seeding here. `onRegistered` runs BEFORE the sub-records
+        // arrive, so populating would mint 35 characters against a fresh clock
+        // seed; the restore then overwrites the ids it has and leaves the rest
+        // behind as strangers with full bankrolls — free money on every start.
         services = ctx
-        seedWorld()
     }
 
     override fun onActivate(ctx: ShellServices, from: ActivationSource) {
@@ -193,6 +203,7 @@ class GamesWindow(
 
     override fun onDeactivate() {
         active = false
+        skipping = false
         // 🔴 verdict 27: the world stops when he leaves. The pacer's
         // generation is bumped so an answer already in flight is dropped
         // rather than applied to a window nobody is looking at.
@@ -277,8 +288,14 @@ class GamesWindow(
         // 🔴 double-tap NEVER cashes out (§10.1): backing out of the window
         // leaves the table exactly as it is
         Level_.TABLE -> { pacerGen++; acting = null; level = Level_.GAMES; true }
-        Level_.TABLES, Level_.STANDINGS, Level_.BANKROLL -> { level = Level_.GAMES; true }
-        Level_.CHARACTER -> { openChar = null; level = Level_.STANDINGS; true }
+        Level_.STANDINGS -> {
+            level = standFrom?.takeIf { it == Level_.TABLE && table != null } ?: Level_.GAMES
+            standFrom = null
+            if (level == Level_.TABLE) pump()
+            true
+        }
+        Level_.TABLES, Level_.BANKROLL -> { level = Level_.GAMES; true }
+        Level_.CHARACTER -> { openChar = null; charCache = null; level = Level_.STANDINGS; true }
         Level_.HISTORY -> { level = if (table != null) Level_.TABLE else Level_.GAMES; pump(); true }
     }
 
@@ -339,8 +356,8 @@ class GamesWindow(
                 // the SCOREBOARD (§4): cash · tournaments won · Loser Count, in
                 // the seven-segment digits the silent clock already uses
                 val s = Money.Seg.MEDIUM
-                val w = Money.scoreboard(Gray8(1, 1), tx, 0, 0, s, bankroll.cash,
-                    bankroll.tournamentsWon, bankroll.loserCount, captions = false)
+                val w = Money.scoreboardWidth(tx, s, bankroll.cash,
+                    bankroll.tournamentsWon, bankroll.loserCount)
                 val x = r.x + (r.w - w) / 2
                 Money.scoreboard(g, tx, (x / 4) * 4, r.y + 6, s, bankroll.cash,
                     bankroll.tournamentsWon, bankroll.loserCount)
@@ -359,8 +376,8 @@ class GamesWindow(
             else -> {
                 tx.draw(g, r.x + 8, r.y + 8, label, fRowB, Level.HEAD)
                 val line = when (row) {
-                    GRow.Standings -> roster.standings().take(3)
-                        .joinToString(" · ") { "${dn(it.name, fLens)} ${Money.compact(it.worth)}" }
+                    GRow.Standings -> standRows().take(3)
+                        .joinToString(" · ") { "${dn(it.name, fLens)} ${Money.compact(worthOf(it))}" }
                     else -> "font, size, confirm, bot pace, notifications"
                 }
                 Draw.fit(g, tx, r.x + 8, r.y + 34, line, Level.DIM, fLens, r.w - 16)
@@ -374,7 +391,7 @@ class GamesWindow(
                 if (table != null) { level = Level_.TABLE; inspect = -1; pump() }
                 else { level = Level_.TABLES; tablesModel.cursor = 0 }
             }
-            GRow.Standings -> { level = Level_.STANDINGS; standModel.cursor = 0 }
+            GRow.Standings -> { standFrom = Level_.GAMES; level = Level_.STANDINGS; standModel.cursor = 0 }
             GRow.BankrollRow -> { level = Level_.BANKROLL; bankDoc.topLine = 0; bankCache = null }
             GRow.SettingsRow ->
                 if (services?.openWindow("settings") != true) setNotice("Settings is not available here")
@@ -482,16 +499,17 @@ class GamesWindow(
     private fun startTournament(spec: HoldemRules.Table, entry: Int) {
         val fee = HoldemRules.fee(entry)
         if (!bankroll.take(entry + fee)) { setNotice("not enough for the entry and the fee"); return }
-        bankroll.payFee(fee)
-        bankroll.tournamentsPlayed++
         roster.ensurePopulation()
-        val seated = roster.seat(spec, HoldemRules.MAX_SEATS - 1, key = roster.gameNo.toLong())
+        val seated = roster.seat(spec, HoldemRules.MAX_SEATS - 1, key = roster.gameNo.toLong(),
+            exclude = setOf(ME))
         if (seated.size < 1) {
+            // nothing was spent: the fee is recorded only once a seat is real
             bankroll.add(entry + fee)
-            bankroll.tournamentsPlayed--
             setNotice("nobody in the room can afford that table")
             return
         }
+        bankroll.payFee(fee)
+        bankroll.tournamentsPlayed++
         // Adam takes a seat among them, at a position the world chooses
         val seedRng = Rng.stream(roster.worldSeed, 0x5EA7, roster.gameNo.toLong())
         mySeat = seedRng.nextInt(seated.size + 1)
@@ -518,6 +536,7 @@ class GamesWindow(
         acting = null
         bgOwed = Background.owedFor(roster.worldSeed, roster.gameNo)
         bgLastHand = -99
+        syncMe()
         level = Level_.TABLE
         Log.i("games", "sat down at ${spec.label} for ${Money.fmt(entry)} " +
             "(+${Money.fmt(fee)} fee) against ${seated.size}")
@@ -566,20 +585,16 @@ class GamesWindow(
         }
     }
 
-    /** Run the bots on at full speed until it is Adam's turn again — the skip
-     *  §10.1 gives to both gestures while the table is pacing. */
+    /**
+     * §10.1's SKIP: get on with it. It does not run the bots on the shell loop
+     * — a Monte-Carlo decision is ~25 ms and a whole street of them would
+     * freeze the panel for most of a second. It clears the PACE instead, so
+     * every decision still computes off-loop and applies in the same order,
+     * and the hand plays out exactly as watching it would have.
+     */
     private fun skipToMe() {
-        val t = table ?: return
-        pacerGen++
-        acting = null
-        var guard = 0
-        while (guard++ < 400) {
-            val v = t.view()
-            val seat = v.toAct ?: break
-            if (seat == mySeat) break
-            if (!playBot(t, seat)) break
-        }
-        revealed = t.view().board.size
+        if (table == null) return
+        skipping = true
         services?.requestRender(this)
         pump()
     }
@@ -599,9 +614,10 @@ class GamesWindow(
         if (thinking) return
         val v = t.view()
         if (v.result != null) {
+            skipping = false
             // a showdown STAYS UP until you act (verdict 29). Reveal the rest
             // of the board first so the finale is not one flat jump.
-            if (revealed < v.board.size) { schedule(t); return }
+            if (revealed < v.board.size) { schedule(t, v, null); return }
             maybeBackground()
             return
         }
@@ -611,67 +627,64 @@ class GamesWindow(
             // and leaving it lit marks a folded seat as live under your own
             // decision (the first table render, 2026-09-04)
             acting = null
+            skipping = false
             revealed = v.board.size
             return
         }
-        if (revealed < v.board.size) { schedule(t); return }
-        schedule(t)
+        if (revealed < v.board.size) { schedule(t, v, null); return }
+        schedule(t, v, seat)
     }
 
-    private fun schedule(t: HoldemTable) {
+    /**
+     * Hand ONE step to the background: either a board card to turn over or one
+     * seat's decision.
+     *
+     * 🔴 Everything the coroutine needs is captured HERE, on the loop.
+     * `revealed`, `cast`, `mySeat` and the pace are loop-owned fields; reading
+     * them from the decision thread is the same reader race `WINDOWS.md` §5
+     * puts first, running the other way.
+     */
+    private fun schedule(t: HoldemTable, v: HoldemTable.View, seat: Int?) {
         val gen = ++pacerGen
         thinking = true
+        val character = seat?.let { cast[it] }
+        val read = character?.let { readOf(it) } ?: HoldemBot.NO_READ
+        val pace = if (skipping) 0L else paceMs
+        val revealing = seat == null
+        if (seat != null && character == null) {
+            thinking = false
+            setNotice("seat $seat has nobody to play it — the hand is paused")
+            Log.e("games", "seat $seat has no character; the table cannot continue")
+            return
+        }
         bg.launch(Dispatchers.Default) {
-            val v = t.view()
-            val seat = v.toAct
-            val needReveal = revealed < v.board.size
-            // compute the decision off-loop; the table is stable because only
-            // the loop mutates it and Adam cannot act while a bot is to act
-            val decision = if (needReveal || seat == null || seat == mySeat) null else {
-                val c = cast[seat]
-                if (c == null) null else try {
-                    HoldemBot.decide(t, seat, c, Equity.LIVE_ROLLOUTS, readOf(c))
-                } catch (e: Exception) {
-                    Log.e("games", "seat $seat could not decide", e)
-                    null
-                }
+            val decision = if (revealing || character == null) null else try {
+                HoldemBot.decide(t, seat!!, character, Equity.LIVE_ROLLOUTS, read)
+            } catch (e: Exception) {
+                Log.e("games", "seat $seat could not decide", e)
+                null
             }
-            if (paceMs > 0) delay(paceMs)
+            if (pace > 0) delay(pace)
             onShell {
                 thinking = false
                 if (gen != pacerGen || table !== t || !active || level != Level_.TABLE) return@onShell
-                if (needReveal) {
+                if (revealing) {
                     revealed = (revealed + 1).coerceAtMost(t.view().board.size)
                     services?.requestRender(this@GamesWindow)
                     pump()
                     return@onShell
                 }
-                if (seat == null) return@onShell
                 if (decision == null) {
                     setNotice("a seat could not act — the hand is paused")
                     return@onShell
                 }
                 acting = seat
-                applyDecision(t, seat, decision)
+                if (!applyDecision(t, seat!!, decision)) return@onShell
                 revealed = revealed.coerceAtMost(t.view().board.size)
                 if (!dealAnim) revealed = t.view().board.size
                 services?.requestRender(this@GamesWindow)
                 pump()
             }
-        }
-    }
-
-    /** One bot action, on the loop. Returns false when it could not act. */
-    private fun playBot(t: HoldemTable, seat: Int): Boolean {
-        val c = cast[seat] ?: return false
-        return try {
-            val d = HoldemBot.decide(t, seat, c, Equity.LIVE_ROLLOUTS, readOf(c))
-            applyDecision(t, seat, d)
-            true
-        } catch (e: Exception) {
-            Log.e("games", "seat $seat could not act", e)
-            setNotice("a seat could not act — the hand is paused")
-            false
         }
     }
 
@@ -681,14 +694,23 @@ class GamesWindow(
     private fun readOf(c: Character): Double =
         if (c.career.handsVsYou >= READ_HANDS) c.career.vpip else HoldemBot.NO_READ
 
-    private fun applyDecision(t: HoldemTable, seat: Int, d: HoldemBot.Decision) {
+    /** Apply a bot's decision on the loop. A refusal is LOUD and pauses the
+     *  hand rather than propagating out of the pacer's completion. */
+    private fun applyDecision(t: HoldemTable, seat: Int, d: HoldemBot.Decision): Boolean {
         val before = t.view()
-        recordAgainstYou(before, seat, d)
-        when (d.kind) {
-            ActionLevel.Kind.BET, ActionLevel.Kind.RAISE, ActionLevel.Kind.ALL_IN -> t.act(d.kind, d.to)
-            else -> t.act(d.kind)
+        try {
+            recordAgainstYou(before, seat, d)
+            when (d.kind) {
+                ActionLevel.Kind.BET, ActionLevel.Kind.RAISE, ActionLevel.Kind.ALL_IN -> t.act(d.kind, d.to)
+                else -> t.act(d.kind)
+            }
+        } catch (e: Exception) {
+            Log.e("games", "seat $seat's action was refused by the rules", e)
+            setNotice("a seat could not act — the hand is paused")
+            return false
         }
         afterAction(t)
+        return true
     }
 
     /**
@@ -738,6 +760,9 @@ class GamesWindow(
                 if (!s.busted && s.contributed > 0 && s.stack == 0) c.career.youKnockedOut++
             }
         }
+        syncMe()
+        charCache = null
+        bankCache = null
         // verdict 30: OFF by default, and in Games' own Settings category
         if (notifyBust) {
             for ((seat, c) in cast) {
@@ -764,27 +789,45 @@ class GamesWindow(
         revealed = 0
         inspect = -1
         acting = null
-        if (!running) { finishTournament(t); return }
+        if (!running) { finishTournament(t, HashMap(cast), mySeat); return }
         if (!stillIn || !t.inPlay(mySeat)) { playOutWithoutMe(t); return }
         maybeBackground()
         services?.requestRender(this)
         pump()
     }
 
-    /** Adam is out but the table is not: verdict 11 — **the remaining
-     *  characters play the tournament out**, which is what keeps the economy
-     *  conserved and lands the winner's cashflow where it belongs. */
+    /**
+     * Adam is out but the table is not: verdict 11 — **the remaining
+     * characters play the tournament out**, which is what keeps the economy
+     * conserved and lands the winner's cashflow where it belongs (verdict 23
+     * depends on it).
+     *
+     * 🔴 The table is HANDED OFF first. Playing it out takes seconds of bot
+     * decisions on a background thread, and a `HoldemTable` being acted on off
+     * the loop must not also be painted by it — `view()` would replay a log
+     * another thread is appending to.
+     */
     private fun playOutWithoutMe(t: HoldemTable) {
         setNotice("you are out — the table plays on")
         pacerGen++
         thinking = true
+        val field = HashMap(cast)
+        val seat = mySeat
+        table = null
+        cast.clear()
+        acting = null
+        skipping = false
+        if (level == Level_.TABLE || level == Level_.HISTORY) level = Level_.GAMES
+        services?.requestRender(this)
         bg.launch(Dispatchers.Default) {
-            try { Background.playOut(t, HashMap(cast), Equity.CHEAP_ROLLOUTS) } catch (e: Exception) {
+            try {
+                Background.playOut(t, field, Equity.CHEAP_ROLLOUTS)
+            } catch (e: Exception) {
                 Log.e("games", "the table could not be played out", e)
             }
             onShell {
                 thinking = false
-                if (table === t) finishTournament(t)
+                finishTournament(t, field, seat)
             }
         }
     }
@@ -795,57 +838,90 @@ class GamesWindow(
      * them home. A cash-out has already moved its own chips off the table
      * (verdict 11), so what is left is exactly the prize.
      */
-    private fun finishTournament(t: HoldemTable) {
+    private fun finishTournament(t: HoldemTable, field: Map<Int, Character>, seat: Int) {
         val v = t.view()
         val winner = t.winner()
         val prize = v.seats.sumOf { it.stack }
-        val myPlace = t.finishPlace(mySeat) ?: 1
-        if (winner == mySeat) {
+        val myPlace = t.finishPlace(seat) ?: 1
+        if (winner == seat) {
             bankroll.add(prize)
             bankroll.tournamentsWon++
             if (notifyWin) services?.notifyInternal("games",
                 "you won the ${t.spec.label} table · ${Money.fmt(prize)}",
                 appId = id, thread = "won")
         } else if (winner != null) {
-            cast[winner]?.let { it.bankroll += prize }
+            field[winner]?.let { it.bankroll += prize }
         }
         // careers and mood for the whole field, then the roster's own lives
         // machinery — the same settlement a background game runs (§7.5)
-        val field = v.seats.size
-        for ((seat, c) in cast) {
-            val place = t.finishPlace(seat) ?: 1
+        val fieldSize = v.seats.size
+        for ((s, c) in field) {
+            val place = t.finishPlace(s) ?: 1
             c.career.tournaments++
             c.career.finishSum += place
             if (place == 1) c.career.wins++
-            Mood.afterTournament(c, place, field, if (place == 1) prize else 0)
+            Mood.afterTournament(c, place, fieldSize, if (place == 1) prize else 0)
         }
         val meC = me()
         meC.career.tournaments++
         meC.career.finishSum += myPlace
         if (myPlace == 1) meC.career.wins++
-        meC.career.lifetimeNet += (if (winner == mySeat) prize else 0) - myStake
-        meC.bankroll = bankroll.cash
+        meC.career.lifetimeNet += (if (winner == seat) prize else 0) - myStake
         roster.gameNo++
-        for (c in cast.values) roster.settleBroke(c)
+        for (c in field.values) roster.settleBroke(c)
         roster.tick()
         roster.ensurePopulation()
         Log.i("games", "the ${t.spec.label} table is done: " +
-            "${if (winner == mySeat) "you" else cast[winner]?.name ?: "?"} took ${Money.fmt(prize)}")
-        table = null
+            "${if (winner == seat) "you" else field[winner]?.name ?: "?"} took ${Money.fmt(prize)}")
+        if (table === t) table = null
         cast.clear()
         myStake = 0
         lastSettledHand = -1
-        level = Level_.GAMES
-        setNotice(if (winner == mySeat) "you win ${Money.fmt(prize)}" else "you finished ${ordinal(myPlace)}")
+        skipping = false
+        acting = null
+        if (level == Level_.TABLE || level == Level_.HISTORY) level = Level_.GAMES
+        syncMe()
+        charCache = null
+        bankCache = null
+        setNotice(if (winner == seat) "you win ${Money.fmt(prize)}" else "you finished ${ordinal(myPlace)}")
         offerRefillIfBroke()
         services?.requestRender(this)
+    }
+
+    /**
+     * Verdict 25: Adam is a roster character, so the standings must show the
+     * money he actually has — the bankroll plus whatever is in front of him.
+     * It is DERIVED at read time rather than stored: his stack moves every
+     * hand, and a copy would be stale between them.
+     */
+    private fun worthOf(c: Character): Int =
+        if (c.id == ME) bankroll.cash + (table?.stackOf(mySeat) ?: 0) else c.worth
+
+    /** The persisted copy, for peers and for the record — kept in step at
+     *  every point the number actually changes. */
+    private fun syncMe() {
+        me().bankroll = worthOf(me())
     }
 
     private fun ordinal(n: Int): String = when (n) {
         1 -> "1st"; 2 -> "2nd"; 3 -> "3rd"; else -> "${n}th"
     }
 
-    /** §7.5's ratio, spent between Adam's own hands. */
+    /**
+     * §7.5's ratio, spent between Adam's own hands.
+     *
+     * 🔴 It runs ON THE SHELL LOOP, deliberately. A background tournament
+     * structurally mutates the roster — new births, characters moving between
+     * lives — and doing that on a background thread while the loop paints the
+     * standings or reads a summary is a `ConcurrentModificationException`
+     * inside a paint, which is the L1 class this project has met before.
+     * Measured cost: 16–80 ms, once every [BG_EVERY] hands of Adam's. The
+     * design's "the CPU spends none" is about WALL CLOCK — he is thinking —
+     * and a frame here already costs 100–140 ms.
+     *
+     * Characters seated at Adam's table are excluded: seating one twice would
+     * debit a second buy-in from a bankroll already committed.
+     */
     private fun maybeBackground() {
         val t = table ?: return
         if (bgOwed <= 0 || thinking) return
@@ -853,24 +929,25 @@ class GamesWindow(
         if (v.handNo - bgLastHand < BG_EVERY) return
         bgLastHand = v.handNo
         bgOwed--
-        thinking = true
-        bg.launch(Dispatchers.Default) {
-            val s = try { Background.playTournament(roster) } catch (e: Exception) {
-                Log.e("games", "a background tournament failed", e); null
-            }
-            onShell {
-                thinking = false
-                s?.let { Log.i("games", "background: ${it.spec.label}, ${it.hands} hands, ${it.winner} won") }
-                if (notifyReturn && s != null) {
-                    for (c in roster.characters) if (c.returnsAt == roster.gameNo &&
-                        c.state == Character.State.PLAYING) {
-                        services?.notifyInternal("games", "${dn(c.name, fSmall)} is back at the tables",
-                            appId = id, thread = "return:${c.id}")
-                    }
+        val busy = cast.values.map { it.id }.toSet() + ME
+        val before = roster.characters.filter { it.state != Character.State.PLAYING }.map { it.id }.toSet()
+        val s = try {
+            Background.playTournament(roster, Equity.CHEAP_ROLLOUTS, busy)
+        } catch (e: Exception) {
+            Log.e("games", "a background tournament failed", e)
+            null
+        } ?: return
+        Log.i("games", "background: ${s.spec.label}, ${s.hands} hands, ${s.winner} won " +
+            "${Money.fmt(s.prize)}")
+        if (notifyReturn) {
+            for (c in roster.characters) {
+                if (c.state == Character.State.PLAYING && c.id in before) {
+                    services?.notifyInternal("games", "${dn(c.name, fSmall)} is back at the tables",
+                        appId = id, thread = "return:${c.id}", target = "char:${c.id}")
                 }
-                pump()
             }
         }
+        charCache = null
     }
 
     // ================================================================ action levels
@@ -890,11 +967,18 @@ class GamesWindow(
             items.add(MenuSurface.Item(label, detail)); acts.add(act)
         }
         for (a in legal) when (a.kind) {
-            ActionLevel.Kind.BET, ActionLevel.Kind.RAISE -> add(a.label + " ->", "sizes") { openSizing() }
+            // "Bet →" as §10.2 writes it. Proven drawable: `tools/lint.py
+            // --codepoint →` reports U+2192 present in all four locked faces,
+            // and SYM002 keeps it that way.
+            ActionLevel.Kind.BET, ActionLevel.Kind.RAISE -> add(a.label + " →", "sizes") { openSizing() }
             else -> add(a.label, a.detail) { stage(a) }
         }
         add("Cash out", "and leave") { confirmCashOut() }
-        add("Standings", "${roster.characters.size}") { level = Level_.STANDINGS; standModel.cursor = 0 }
+        add("Standings", "${roster.characters.size}") {
+            standFrom = Level_.TABLE
+            level = Level_.STANDINGS
+            standModel.cursor = 0
+        }
         add("Hand history", "${v.history.size} lines") { level = Level_.HISTORY; histDoc.topLine = 0 }
         if (services?.openMenu(MenuSurface.Spec("your move", items,
                 onCommit = { i -> acts.getOrNull(i)?.invoke() }), owner = this) != true) {
@@ -999,25 +1083,29 @@ class GamesWindow(
             setNotice(e.message ?: "cannot cash out mid-hand"); return
         }
         bankroll.add(chips)
+        bankCache = null
         setNotice("cashed out ${Money.fmt(chips)}")
         playOutWithoutMe(t)
+        syncMe()
     }
 
     // ================================================================ standings
-    private fun standRows(): List<Character> = roster.standings()
+    private fun standRows(): List<Character> = roster.characters.sortedWith(
+        compareByDescending<Character> { worthOf(it) }.thenBy { it.name })
 
     private fun paintStandRow(g: Gray8, i: Int, r: Rect, dim: Boolean) {
         val c = standRows().getOrNull(i) ?: return
         val lv = if (dim) Level.REST else Level.BODY
         val mine = c.id == ME
-        Draw.fit(g, tx, r.x + 8, r.y + 5, dn(c.name, fRow), if (mine && !dim) Level.HEAD else lv,
-            if (mine) fRowB else fRow, r.w - 200)
+        val f = if (mine) fRowB else fRow
+        Draw.fit(g, tx, r.x + 8, r.y + 5, dn(c.name, f), if (mine && !dim) Level.HEAD else lv,
+            f, r.w - 200)
         val mark = when (c.state) {
             Character.State.PLAYING -> ""
             Character.State.BETWEEN_LIVES -> " · away"
             Character.State.RETIRED -> " · retired"
         }
-        Draw.right(g, tx, r.right - 8, r.y + 8, Money.compact(c.worth) + mark,
+        Draw.right(g, tx, r.right - 8, r.y + 8, Money.compact(worthOf(c)) + mark,
             if (dim) Level.REST else Level.DIM, fSmall)
     }
 
@@ -1025,7 +1113,7 @@ class GamesWindow(
         val c = standRows().getOrNull(i) ?: return
         tx.draw(g, r.x + 8, r.y + 6, dn(c.name, fRowB), fRowB, Level.HEAD)
         val bits = ArrayList<String>()
-        bits.add(Money.fmt(c.worth))
+        bits.add(Money.fmt(worthOf(c)))
         if (c.career.tournaments > 0) {
             bits.add("${c.career.wins}/${c.career.tournaments} won")
             bits.add("avg ${"%.1f".format(c.career.avgFinish)}")
@@ -1065,7 +1153,7 @@ class GamesWindow(
         fun line(s: String, f: FontSpec = fDoc, lv: Int = Level.BODY) = out.add(DocLine(s, f, lv))
         line(c.name, fHead, Level.HEAD)
         line("")
-        line("net worth ${Money.fmt(c.worth)}")
+        line("net worth ${Money.fmt(worthOf(c))}")
         if (c.id != ME) {
             // 🔴 the trait SHEET is never displayed (§7.7): only the wealth
             // BAND, which is a circumstance, and a coarse archetype when the
@@ -1153,7 +1241,7 @@ class GamesWindow(
 
     private fun doRefill() {
         bankroll.refill()
-        me().bankroll = bankroll.cash
+        syncMe()
         bankCache = null
         setNotice("refilled · Loser Count ${bankroll.loserCount}")
         services?.requestRender(this)
@@ -1263,6 +1351,11 @@ class GamesWindow(
         // reconciliation below runs after every sub-restore
         pacerGen++
         acting = null
+        skipping = false
+        // a decision in flight when the shell stopped never gets its
+        // `runOnShell` back, and a latched `thinking` would leave the table
+        // frozen for good. A restore is a new session: clear it.
+        thinking = false
         lastSettledHand = -1
         charCache = null
         bankCache = null

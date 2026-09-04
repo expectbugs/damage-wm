@@ -38,9 +38,14 @@ class ScriptedTmux : TmuxProvider {
         lines.add("$e[32m+ 140 tests completed$e[0m")
         lines.add("$e[31m- 0 failed$e[0m")
         lines.add("$e[7m main  damage-wm  28s $e[0m")
+        // The FIXTURE deliberately carries glyphs the locked faces lack: it
+        // is what proves the flow renderer replaces a rule with a drawn one
+        // and sanitizes the rest (§25 #4).
+        // lint:allow-symbols
         lines.add("─".repeat(64))
         for (i in 1..13) lines.add("row $i · mode-8 batches ride one flush per frame")
         lines.add("")
+        // the same fixture rule — lint:allow-symbols
         lines.add("$e[38;5;245m❯$e[0m ")
         return PaneFrame(lines, 80, 22, cursorX = 2, cursorY = 21,
             cursorVisible = true, alternate = false, capturedAtMs = 0)

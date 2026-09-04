@@ -354,7 +354,7 @@ class GamesKitTest {
         assertTrue(!t(288).showsLastAction && !t(288).showsArc && !t(288).showsHistory)
         assertTrue(t(352).showsLastAction && !t(352).showsArc)
         assertTrue(t(416).showsArc && t(416).showsYourLine && !t(416).showsHistory)
-        assertTrue(t(480).showsHistory && t(480).showsChipStacks && t(480).showsOpponentBacks)
+        assertTrue(t(480).showsHistory && t(480).showsChipStacks)
     }
 
     // ================================================================ CardArt

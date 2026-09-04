@@ -66,7 +66,6 @@ object GamesCheck {
         for (c in roster.characters) lastState[c.id] = c.state
 
         val t0 = System.currentTimeMillis()
-        val firstSeen = HashMap<String, Int>()
         repeat(games) { g ->
             val before = roster.characters.associate { it.id to it.bankroll }
             val s = Background.playTournament(roster) { seat, view, d ->
@@ -84,10 +83,8 @@ object GamesCheck {
             lenByTable.getOrPut(s.spec) { ArrayList() }.add(s.hands)
             for ((id, place) in s.places) {
                 entered[id] = (entered[id] ?: 0) + 1
-                firstSeen.putIfAbsent(id, g)
                 val delta = (roster.get(id)?.bankroll ?: 0) - (before[id] ?: 0)
                 if (delta > 0) won[id] = (won[id] ?: 0) + delta else spent[id] = (spent[id] ?: 0) - delta
-                if (place == 1) Unit
             }
             // refills: a character whose state left BETWEEN_LIVES/RETIRED had
             // their bankroll set back to generalWealth by the roster

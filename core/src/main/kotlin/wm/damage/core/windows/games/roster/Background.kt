@@ -54,15 +54,17 @@ object Background {
      * a real state (everyone between lives), not a failure.
      */
     fun playTournament(roster: Roster, rollouts: Int = Equity.CHEAP_ROLLOUTS,
+        /** Characters already seated elsewhere — Adam's opponents. */
+        busy: Set<String> = emptySet(),
         onAction: ((seat: Int, view: HoldemTable.View, decision: HoldemBot.Decision) -> Unit)? = null): Summary? {
         val rng = Rng.stream(roster.worldSeed, 0xBEE, roster.gameNo.toLong())
-        val pool = roster.available()
+        val pool = roster.available().filter { it.id !in busy }
         if (pool.size < 2) return null
         // the table is chosen by whoever is feeling brave: pick a leader, then
         // fill from everyone who can afford the same room (§7.4)
         val leader = pool[rng.nextInt(pool.size)]
         val spec = roster.pickTable(leader, rng)
-        val seated = roster.seat(spec, HoldemRules.MAX_SEATS, key = 0xC0DE)
+        val seated = roster.seat(spec, HoldemRules.MAX_SEATS, key = 0xC0DE, exclude = busy)
         if (seated.size < 2) {
             // give the stakes back — nobody sat down
             for (s in seated) s.who.bankroll += s.stake + s.fee

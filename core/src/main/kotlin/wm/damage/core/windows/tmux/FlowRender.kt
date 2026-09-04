@@ -285,6 +285,9 @@ class FlowRender(private val text: TextRasterizer) {
 
         /** Characters a separator line is made of (box-drawing horizontals +
          *  the ASCII rules CLI tools draw). */
+        // These are characters to RECOGNISE in a pane, never to draw: a
+        // matching line is replaced by a drawn rule (TMUX.md §18).
+        // lint:allow-symbols
         private const val RULE_CHARS = "─━═╌╍┄┅┈┉—-=_"
     }
 }

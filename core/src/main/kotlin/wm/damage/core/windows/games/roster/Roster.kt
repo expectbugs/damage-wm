@@ -60,7 +60,7 @@ class Roster(
         // characters leave, fresh entrants replace them at the bottom"). The
         // hard cap stops a wave of returns from diluting the cast (§7.5).
         while (available().size < target && byId.size < target * 3 / 2) {
-            val c = birth(worldSeed, born++)
+            val c = birth(worldSeed, born++, byId.values.map { it.name }.toSet())
             byId[c.id] = c
         }
     }
@@ -75,14 +75,18 @@ class Roster(
      * Returns the seated characters paired with their buy-in. Money leaves
      * their bankroll here: entry plus fee (verdict 24 applies to everyone).
      */
-    fun seat(spec: HoldemRules.Table, count: Int, key: Long): List<Seated> {
+    fun seat(spec: HoldemRules.Table, count: Int, key: Long,
+        /** Characters who are ALREADY at a table — Adam's, usually. Seating
+         *  one of them twice would debit a second buy-in from a bankroll that
+         *  is already committed, and two threads would mutate one character. */
+        exclude: Set<String> = emptySet()): List<Seated> {
         val rng = Rng.stream(worldSeed, gameNo.toLong(), key)
         // the sort key is drawn ONCE per character. Calling ambition() inside
         // the comparator draws a fresh number on every comparison, which is an
         // inconsistent comparator — undefined order at best, and TimSort
         // refuses some inputs outright with "comparison method violates its
         // general contract".
-        val keyed = available().filter { canAfford(it, spec) }
+        val keyed = available().filter { it.id !in exclude && canAfford(it, spec) }
             .map { it to ambition(it, rng) + tierFit(it, spec) }
         val pool = keyed.sortedByDescending { it.second }.map { it.first }
         val out = ArrayList<Seated>(count)
@@ -193,14 +197,21 @@ class Roster(
         if (c.livesLeft > 1) {
             c.livesLeft--
             c.state = Character.State.BETWEEN_LIVES
-            c.returnsAt = gameNo + Mood.downtime(c)
+            val away = Mood.downtime(c)
+            c.returnsAt = gameNo + away
+            // the cool-off is applied HERE, where the length of the break is
+            // known. `tick()` cannot recompute it — it never knew what game
+            // they left on — and an earlier version fed it a made-up number.
+            Mood.coolOff(c, away)
         } else {
             c.livesLeft = 0
             c.state = Character.State.RETIRED
             // richer characters have more outside income, so they come back
             // sooner — the wealth-based recovery
             val wait = (RETIRE_BASE * 10_000.0 / c.generalWealth.coerceAtLeast(500)).toInt()
-            c.returnsAt = gameNo + wait.coerceIn(RETIRE_MIN, RETIRE_MAX)
+                .coerceIn(RETIRE_MIN, RETIRE_MAX)
+            c.returnsAt = gameNo + wait
+            Mood.coolOff(c, wait)
             Log.i("games", "${c.name} is out of lives — back around game ${c.returnsAt}")
         }
     }
@@ -209,8 +220,6 @@ class Roster(
     fun tick() {
         for (c in byId.values) {
             if (c.state == Character.State.PLAYING || gameNo < c.returnsAt) continue
-            val break_ = (gameNo - (c.returnsAt - 1)).coerceAtLeast(1)
-            Mood.coolOff(c, break_)
             c.bankroll = c.generalWealth
             if (c.state == Character.State.RETIRED) {
                 // a returning character comes back with a FRESH life
@@ -281,7 +290,7 @@ class Roster(
          * structure: 1–2 lives are extras who bust and vanish, 3–6 are
          * regulars, 8–12 are institutions.
          */
-        fun birth(worldSeed: Long, n: Int): Character {
+        fun birth(worldSeed: Long, n: Int, taken: Set<String> = emptySet()): Character {
             val r = Rng.stream(worldSeed, 0x60D, n.toLong())
             val u = r.nextDouble()
             val wealth = (500 + (9_500 * u * u * u).toInt()) / 100 * 100
@@ -289,7 +298,7 @@ class Roster(
             val lives = (1 + (12 * Math.pow(lv, 2.2)).toInt()).coerceIn(1, 12)
             return Character(
                 id = "c$n",
-                name = nameFor(worldSeed, n),
+                name = nameFor(worldSeed, n, taken),
                 traits = Character.Traits.roll(worldSeed, 0xF00D + n.toLong()),
                 generalWealth = wealth,
                 livesTotal = lives,
@@ -308,11 +317,23 @@ class Roster(
         private const val INITIALS = "ABCDEFGHJKLMNPRSTVW"
         private const val NAME_KEY = 0x4E414D45L
 
-        fun nameFor(worldSeed: Long, n: Int): String {
+        /**
+         * A name nobody in the room already has. 50 given names against 19
+         * initials is 950 combinations, and 52 draws from 950 collide about
+         * three times in four — two "Steve K."s in the standings is a bug in
+         * a cast that is supposed to be memorable.
+         */
+        fun nameFor(worldSeed: Long, n: Int, taken: Set<String> = emptySet()): String {
             val r = Rng.stream(worldSeed, NAME_KEY, n.toLong())
-            val first = NAMES[r.nextInt(NAMES.size)]
-            val i = INITIALS[r.nextInt(INITIALS.length)]
-            return "$first $i."
+            var last = ""
+            repeat(24) {
+                val name = "${NAMES[r.nextInt(NAMES.size)]} ${INITIALS[r.nextInt(INITIALS.length)]}."
+                last = name
+                if (name !in taken) return name
+            }
+            // the room is improbably full of this name: number it rather than
+            // ship a duplicate
+            return "$last $n"
         }
     }
 }

@@ -7,6 +7,7 @@ nothing. This file is rule 1 of that gate; the geometry and budget rules land be
 as the compositor is built.
 
     SYM001  a drawn string contains a codepoint the target face cannot render
+    SYM002  a KOTLIN string literal contains one (the shell's own drawing code)
 
 Usage:
     tools/lint.py [PATH ...]              lint files/dirs (default: the whole repo)
@@ -36,6 +37,18 @@ LOCKED_FACES = {
 # formatting, not glyphs, and are never drawn.
 ALWAYS_OK = set(range(0x20, 0x7F)) | set(range(0xA0, 0x100))
 PRAGMA = "lint:allow-symbols"
+
+
+def _pragma_at(lines: list[str], lineno: int) -> bool:
+    """The pragma on the string's own line, or on the line above it.
+
+    A one-line escape hatch forces the reason onto the end of a long literal,
+    where it is unreadable; the line above is where an explanation actually
+    fits, and every current use of it is a paragraph."""
+    for n in (lineno, lineno - 1):
+        if 1 <= n <= len(lines) and PRAGMA in lines[n - 1]:
+            return True
+    return False
 
 # Only strings that actually reach a text-drawing call can produce tofu. Checking every
 # literal in the repo instead floods the report with log lines and docstrings and trains
@@ -134,7 +147,7 @@ def check_file(path: Path, cov: dict[str, set[int]], every: bool = False) -> lis
 
     findings, seen = [], set()
     for lineno, text in _string_literals(tree, every):
-        if lineno <= len(lines) and PRAGMA in lines[lineno - 1]:
+        if _pragma_at(lines, lineno):
             continue
         for ch in text:
             cp = ord(ch)
@@ -150,6 +163,96 @@ def check_file(path: Path, cov: dict[str, set[int]], every: bool = False) -> lis
                     f"{', '.join(missing)}\n"
                     f"    -> draw it as a shape; only plain text goes through the font "
                     f"(DESIGN.md §Type)")
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# SYM002 — the same rule, applied to the KOTLIN that actually ships.
+#
+# Every pixel the glasses show is now drawn by Kotlin, and a glyph the face
+# lacks is SILENT TOFU: `Draw.dynamic` substitutes a visible '?' where it is
+# used, and where it is not the box just appears. SYM001 has always covered
+# `design/render_shots.py`; this covers the shell.
+#
+# Scope is deliberately every string literal in `core/`, `desktop/` and
+# `phone/` rather than only the ones reaching a draw call: Kotlin has no single
+# drawing function to key on (each window has its own helpers), and a string
+# that starts as a log line reaches the glass the moment someone hands it to
+# `setNotice`. `lint:allow-symbols` on the line is the escape hatch.
+KOTLIN_ROOTS = ("core/src/main", "desktop/src/main", "phone/src/main")
+
+
+def _kotlin_strings(src: str):
+    """(line, text) for every string literal, comments and KDoc skipped.
+
+    A character walk rather than a regex: Kotlin comments contain apostrophes
+    and quotes, and a regex over the raw text reports half the prose in this
+    repo as string content."""
+    out, i, line, n = [], 0, 1, len(src)
+    while i < n:
+        c = src[i]
+        if c == "\n":
+            line += 1; i += 1; continue
+        if c == "/" and i + 1 < n and src[i + 1] == "/":
+            while i < n and src[i] != "\n":
+                i += 1
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "*":
+            i += 2
+            while i + 1 < n and not (src[i] == "*" and src[i + 1] == "/"):
+                if src[i] == "\n":
+                    line += 1
+                i += 1
+            i += 2
+            continue
+        if src.startswith('"""', i):
+            start, i = line, i + 3
+            buf = []
+            while i < n and not src.startswith('"""', i):
+                if src[i] == "\n":
+                    line += 1
+                buf.append(src[i]); i += 1
+            i += 3
+            out.append((start, "".join(buf)))
+            continue
+        if c == '"':
+            start, i = line, i + 1
+            buf = []
+            while i < n and src[i] != '"':
+                if src[i] == "\\" and i + 1 < n:
+                    buf.append(src[i + 1]); i += 2; continue
+                if src[i] == "\n":
+                    line += 1
+                    break
+                buf.append(src[i]); i += 1
+            i += 1
+            out.append((start, "".join(buf)))
+            continue
+        i += 1
+    return out
+
+
+def check_kotlin(path: Path, cov: dict[str, set[int]]) -> list[str]:
+    src = path.read_text(encoding="utf-8", errors="replace")
+    lines = src.splitlines()
+    findings, seen = [], set()
+    for lineno, text in _kotlin_strings(src):
+        if _pragma_at(lines, lineno):
+            continue
+        for ch in text:
+            cp = ord(ch)
+            if cp in ALWAYS_OK or cp < 0x20 or 0x7F <= cp < 0xA0 or (lineno, cp) in seen:
+                continue
+            missing = sorted(f for f, cps in cov.items() if cp not in cps)
+            if missing:
+                seen.add((lineno, cp))
+                name = unicodedata.name(ch, "?")
+                findings.append(
+                    f"{path}:{lineno}: SYM002 {ch!r} U+{cp:04X} ({name}) "
+                    f"is missing from {len(missing)}/{len(cov)} locked faces: "
+                    f"{', '.join(missing)}\n"
+                    f"    -> draw it as a shape, or use an ASCII form; a glyph the face "
+                    f"lacks is silent tofu on the glass (DESIGN.md §Type)")
     return findings
 
 
@@ -280,6 +383,25 @@ def selftest() -> int:
     t4 = G.FidTracker(); t4.keyframe()
     cases.append(("FID003 range", t4.delta(0xFFFF), "FID003"))
 
+    # SYM002 needs a file and the real cmaps; the interesting half is the
+    # SCANNER — a regex over Kotlin reports half this repo's prose as string
+    # content, so the walk that skips comments is what is proved here.
+    import tempfile
+    kt = ('/* a block comment with \u2508 in it */\n'
+          '// a line comment with \u276f in it\n'
+          'val a = "safe text"\n'
+          'val b = "tofu \u2508 here"\n')
+    with tempfile.NamedTemporaryFile("w", suffix=".kt", delete=False) as f:
+        f.write(kt)
+        tmp = Path(f.name)
+    try:
+        found = check_kotlin(tmp, load_coverage())
+        cases.append(("SYM002 kotlin literal", found, "SYM002"))
+        cases.append(("SYM002 skips comments",
+                      ["ok"] if len(found) == 1 and ":4:" in found[0] else [], "ok"))
+    finally:
+        tmp.unlink()
+
     ok = True
     for label, got, expect in cases:
         hit = any(expect in g for g in got)
@@ -339,6 +461,15 @@ def main() -> int:
         files = [f for f in files if not any(k in str(f) for k in skip)]
 
     findings = [f for path in files for f in check_file(path, cov, args.all_strings)]
+    kt: list[Path] = []
+    if not args.paths:
+        root = Path(__file__).resolve().parent.parent
+        for r in KOTLIN_ROOTS:
+            kt.extend(sorted((root / r).rglob("*.kt")))
+    else:
+        for r in roots:
+            kt.extend(sorted(r.rglob("*.kt")) if r.is_dir() else ([r] if r.suffix == ".kt" else []))
+    findings += [f for path in kt for f in check_kotlin(path, cov)]
     if not args.paths and not args.no_geometry:
         root = Path(__file__).resolve().parent.parent
         findings += check_design_table(root / "DESIGN.md")
@@ -347,7 +478,8 @@ def main() -> int:
     for f in findings:
         print(f)
     scope = "all string literals" if args.all_strings else f"strings passed to {sorted(DRAW_FUNCS)}"
-    print(f"lint: {len(files)} file(s), {len(findings)} finding(s)   [scope: {scope}]")
+    print(f"lint: {len(files)} python + {len(kt)} kotlin file(s), {len(findings)} finding(s)   "
+          f"[scope: {scope}, and every kotlin literal]")
     return 1 if findings else 0
 
 

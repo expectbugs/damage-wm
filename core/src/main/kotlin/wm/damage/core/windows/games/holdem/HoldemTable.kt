@@ -113,7 +113,12 @@ class HoldemTable private constructor(
     }
 
     // ------------------------------------------------------------------ derived
-    private var cache: View? = null
+    /** The derived view. VOLATILE because a bot decision computes OFF the
+     *  shell loop (`GamesWindow.schedule`) while the loop may read the same
+     *  table: the value is identical either way — `replay()` is a pure
+     *  function of state nothing mutates while a decision is in flight — but
+     *  the publication has to be real, not assumed. */
+    @Volatile private var cache: View? = null
 
     fun view(): View = cache ?: replay().also { cache = it }
 
@@ -143,6 +148,12 @@ class HoldemTable private constructor(
         val sb = spec.sbAt(level)
         val bb = spec.bbAt(level)
         val active = activeSeats()
+        // the BUTTON must sit on a live seat. `nextHand` keeps it there, but
+        // `cashOut` can empty the seat it is on mid-tournament, and heads-up
+        // that seat posts the small blind — the blinds would land on a player
+        // who is not in the hand.
+        val button = if (bustedAt[this.button] == 0 || active.isEmpty()) this.button
+        else nextActive(this.button)
         if (active.size <= 1) {
             // the tournament is OVER: there is no hand to deal, and dealing
             // one would post a small AND a big blind against the winner's own
@@ -546,6 +557,10 @@ class HoldemTable private constructor(
         val chips = v.seats[seat].stack
         handStacks[seat] = 0
         bustedAt[seat] = bustedAt.max() + 1
+        // the button cannot stay on an empty seat — heads-up it posts the
+        // small blind, so the next hand would post a blind for a player who
+        // has left
+        if (button == seat && activeSeats().isNotEmpty()) button = nextActive(seat)
         log.clear()
         invalidate()
         return chips

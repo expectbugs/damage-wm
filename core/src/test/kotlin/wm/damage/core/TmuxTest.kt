@@ -562,7 +562,7 @@ class TmuxWindowTest {
         w.onDeactivate()
         w.onActivate(svc, wm.damage.core.shell.ActivationSource.MAIN)
         assertEquals("sessions", w.title(), "Main entry must show the session list")
-        assertEquals(1, w.levelDepth())
+        assertEquals(1, w.levelDepth(), "MAIN entry lands at depth 1 in every window")
         assertEquals(null, p.subscribed.last(), "the session list holds no capture loop")
         (w.view() as WindowView.ListView).let { v ->
             assertEquals(1, v.model.cursor, "the cursor rests on the session we left")

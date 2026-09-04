@@ -171,6 +171,20 @@ class SettingsWindow(
         )
     }
 
+    /** Adam's rule, 2026-09-04 (`HOLDEM.md` §3): Main shows the window's ROOT.
+     *  Settings has categories, so its root is the category list — leaving it
+     *  inside "Music" because that is where it was last is the same surprise
+     *  the rule exists to remove. */
+    override fun onActivate(ctx: ShellServices, from: ActivationSource) {
+        if (from != ActivationSource.MAIN) return
+        adjusting = null
+        revertTo = null
+        stagedSize = null
+        stagedHost = null
+        openCat = -1
+        catModel.cursor = 0
+    }
+
     override fun title(): String =
         if (openCat < 0) "" else cats().getOrNull(openCat)?.name?.lowercase() ?: ""
 

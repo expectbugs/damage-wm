@@ -644,7 +644,8 @@ class LyricsFetch(
 
     private fun readWhole(f: Path): String {
         val s = Files.readAllBytes(f).toString(Charsets.UTF_8)
-        return if (s.startsWith("﻿")) s.substring(1) else s
+        // a byte-order mark being STRIPPED, never drawn — lint:allow-symbols
+        return if (s.startsWith("\uFEFF")) s.substring(1) else s
     }
 
     private fun json(source: String, body: String): JsonElement =

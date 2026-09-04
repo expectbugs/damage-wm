@@ -250,6 +250,9 @@ class ActivationTest {
             // the book again lands on the same line
             reader.onActivate(svc, ActivationSource.MAIN)
             assertTrue(reader.title().startsWith("library"), "Main entry must land on the shelf")
+            assertEquals(1, reader.levelDepth(),
+                "MAIN entry lands at depth 1 in every window — a subfolder is a level, so one " +
+                    "double-tap must leave the window rather than ascend it")
             val off = reader.saveSubState()["book.$id"]?.get("off")?.jsonPrimitive?.intOrNull
             assertTrue(off != null && off > 0, "the reading offset was discarded by a Main entry (off=$off)")
 

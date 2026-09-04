@@ -224,6 +224,14 @@ object Money {
         return cx - x - GROUP_GAP
     }
 
+    /** The drawn WIDTH of [scoreboard] — measured, not rendered into a
+     *  throwaway surface, because a lens paints on every frame. */
+    fun scoreboardWidth(tx: TextRasterizer, s: Seg, cash: Int, won: Int, lost: Int): Int {
+        val cash_ = dollarWidth(s) + s.gap + digitsWidth(group(cash), s)
+        return cash_ + GROUP_GAP + digitsWidth(won.toString(), s) +
+            GROUP_GAP + digitsWidth(lost.toString(), s)
+    }
+
     /** The whole drawn extent of [scoreboard], captions included. */
     fun scoreboardHeight(s: Seg, captions: Boolean = true): Int =
         if (captions) s.h + 3 + 14 else s.h
