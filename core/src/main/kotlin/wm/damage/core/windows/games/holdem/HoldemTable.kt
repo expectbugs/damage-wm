@@ -249,7 +249,15 @@ class HoldemTable private constructor(
 
         var li = 0
         var guard = 0
-        while (guard++ < 4096) {
+        // every iteration either breaks, advances a street (four times at
+        // most) or consumes one action, so this cannot be reached by a legal
+        // record. Reaching it means the rules and the log disagree in a way
+        // the checks below would not catch — and a PARTIAL replay shown as a
+        // hand is exactly the silent failure this file exists to prevent.
+        while (true) {
+            if (guard++ > log.size + 64) throw IllegalStateException(
+                "hand $handNo replay did not terminate after $guard steps over " +
+                    "${log.size} action(s) — the record and the rules disagree")
             if (roundClosed()) turn = null
             if (turn == null) {
                 if (street == Street.SHOWDOWN || liveCount() <= 1) break
@@ -270,13 +278,13 @@ class HoldemTable private constructor(
                 ActionLevel.Kind.FOLD -> {
                     folded[t] = true
                     last[t] = "fold"
-                    history.add("${street.label}: ${occupants[t].name} folds")
+                    history.add("${street.label}: ${says(t, "folds", "fold")}")
                 }
                 ActionLevel.Kind.CHECK -> {
                     if (committed[t] != currentBet) throw IllegalStateException(
                         "hand $handNo action $li: seat $t cannot check facing a bet")
                     last[t] = "check"
-                    history.add("${street.label}: ${occupants[t].name} checks")
+                    history.add("${street.label}: ${says(t, "checks", "check")}")
                 }
                 ActionLevel.Kind.NAV -> throw IllegalStateException(
                     "hand $handNo action $li: NAV is not a table action")
@@ -306,7 +314,18 @@ class HoldemTable private constructor(
                             "raise ${Money.fmt(target)}"
                         else -> "bet ${Money.fmt(target)}"
                     }
-                    history.add("${street.label}: ${occupants[t].name} ${last[t]}")
+                    // the sentence, not the seat cell's terse verb: "Roy G.
+                    // raises to $37" reads as a hand history, "raise $37" does
+                    // not, and the human takes the second person
+                    val amt = Money.fmt(target)
+                    val phrase = when {
+                        allIn[t] -> says(t, "is all-in for $amt", "are all-in for $amt")
+                        !raised -> says(t, "calls $amt", "call $amt")
+                        street == Street.PREFLOP || a.kind == ActionLevel.Kind.RAISE ->
+                            says(t, "raises to $amt", "raise to $amt")
+                        else -> says(t, "bets $amt", "bet $amt")
+                    }
+                    history.add("${street.label}: $phrase")
                 }
             }
             acted[t] = true
@@ -366,15 +385,27 @@ class HoldemTable private constructor(
     }
 
     private fun resultLine(s: Pots.Settlement, scores: Map<Int, Int>, live: List<Int>): String {
-        if (live.size == 1) return "${occupants[live[0]].name} wins ${Money.fmt(s.won[live[0]] ?: 0)}"
+        if (live.size == 1) return says(live[0], "wins", "win") +
+            " ${Money.fmt(s.won[live[0]] ?: 0)}"
         val best = s.won.entries.maxByOrNull { it.value } ?: return "no winner"
         val bestScore = live.maxOfOrNull { scores[it] ?: 0 } ?: 0
         val tied = live.filter { (scores[it] ?: -1) == bestScore }
         val hand = HandEval.describe(bestScore)
         return if (tied.size > 1)
             "${tied.joinToString(" and ") { occupants[it].name }} split ${Money.fmt(s.total)} with $hand"
-        else "${occupants[best.key].name} wins ${Money.fmt(best.value)} with $hand"
+        else says(best.key, "wins", "win") + " ${Money.fmt(best.value)} with $hand"
     }
+
+    /**
+     * A sentence about a seat, in the right PERSON. `Occupant.human` is on the
+     * contract already, so the engine can say "You check" and "Roy G. checks"
+     * without knowing anything about the shell. The first live session read
+     * "You checks" and "You wins $412" straight off the glass (review pass 4,
+     * 2026-09-04); the seat cell keeps the terse verb (`lastAction`) — this is
+     * only for the sentences.
+     */
+    private fun says(seat: Int, third: String, second: String): String =
+        "${occupants[seat].name} ${if (occupants[seat].human) second else third}"
 
     /** A seat list good enough for [Seats.orderFrom]'s busted test. */
     private fun seatsForOrder(): List<Seats.Seat> = occupants.indices.map { i ->
@@ -640,6 +671,12 @@ class HoldemTable private constructor(
                 // order produces nonsense quietly, which is the one thing
                 // this file exists not to do
                 if (stacks.any { it < 0 }) return null
+                // a seat that is still IN holds chips, always: `start` requires
+                // it, `nextHand` busts anyone who hits zero and `cashOut` marks
+                // the seat out as it empties it. A record that breaks the
+                // invariant would post blinds of nothing and deal a hand
+                // nobody can win
+                if (stacks.indices.any { busted[it] == 0 && stacks[it] <= 0 }) return null
                 if (busted.any { it < 0 || it > who.size }) return null
                 if (busted.filter { it != 0 }.let { it.size != it.toSet().size }) return null
                 val log = ArrayList<Act>()

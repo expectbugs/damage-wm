@@ -61,7 +61,12 @@ class TableLayout(val content: Rect, val panelHeight: Int) {
         val gap = 4
         val statusH = if (tier >= 2) 24 else 22
         val lineH = if (tier >= 2) 24 else 0
-        val histH = if (tier >= 3) 44 else 0
+        // 52, not 44: the history draws three lines at the tiny face, whose
+        // MEASURED ink is 17 px, and 44 forced a 14 px pitch that ran the
+        // descenders of each line into the tops of the next (review pass 3,
+        // 2026-09-04 — the same class as the lens ladder). The seat strip pays
+        // the 8 px and still clears its four rows.
+        val histH = if (tier >= 3) HIST_H else 0
         val bands = 4 + (if (lineH > 0) 1 else 0) + (if (histH > 0) 1 else 0)
         val avail = content.h - 2 * pad
         val fixed = card.h + statusH + card.h + lineH + histH
@@ -133,6 +138,9 @@ class TableLayout(val content: Rect, val panelHeight: Int) {
 
     companion object {
         const val MIN_SEAT_H = 32
+        /** The 480 rung's history band: three lines at the measured 17 px ink
+         *  plus a row of leading. */
+        const val HIST_H = 52
         /** How far the arc lifts the middle seats (tier ≥ 2). */
         const val ARC_RISE = 12
     }

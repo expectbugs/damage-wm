@@ -244,7 +244,7 @@ development environment; also serves ~/books to the phone):
 ./gradlew :desktop:run --args="--transport ble"   # PC-direct BLE only (manual)
 ./gradlew :desktop:run --args="--remote HOST"     # claim the phone's transport and drive through it — the EXPLICIT dev override
 ./gradlew :desktop:run --args="--ble-info"    # adapter enumeration only (no discovery)
-./gradlew :desktop:run --args="--selfcheck"   # the 160-check scripted gate (Files, Torrents, keyboard, Music and Games walks incl.)
+./gradlew :desktop:run --args="--selfcheck"   # the 162-check scripted gate (Files, Torrents, keyboard, Music and Games walks incl.)
 ./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"  # parse every book in ~/books
 ./gradlew :desktop:run --args="--music-check" # the real g2cc library, read-only bar the additive schema migration: counts, the catalog, lanes, cache keys, Qdrant, one viz blob
@@ -777,7 +777,7 @@ Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md
 
 ## Verification
 
-- `./gradlew :core:test` — **414** unit/integration tests (2026-09-04's Games build added
+- `./gradlew :core:test` — **418** unit/integration tests (2026-09-04's Games build added
   `ActivationTest` ×6 — the shell's switcher-resume / Main-root rule across every window —
   `GamesKitTest`, `HoldemEngineTest` (incl. the 3,000-scenario side-pot oracle and the
   2,000-hand ranking corpus), `HoldemBotTest`, `GamesWindowTest`, `GamesReview20260904Test` ×14
@@ -824,7 +824,7 @@ Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md
   with no pixel change, stop-during-start, same-instance transport restart).
 - `--selfcheck` — the whole stack scripted end to end with real fonts,
   asserting ink budgets, input grammar, persistence byte-behaviour, and zero
-  faults/failed flushes/sticky flags. **160 checks.** ⚠ Its Games checks live in an extracted
+  faults/failed flushes/sticky flags. **162 checks.** ⚠ Its Games checks live in an extracted
   `gamesChecks()` — inline, the method passed the JVM's 64 KB method limit and would not
   compile. Split the next window's checks the same way.
 - `--games-check` — the Hold'em ecology over hundreds of simulated tournaments, in memory,
@@ -832,6 +832,10 @@ Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md
   supply stay flat (compounding growth is the failure it exists to catch).
 - `--card-render` — the card sheets at every ladder rung into `design/shots/cards/`, at true 1×.
   🔴 Never judge card art scaled up: at 2× a detached stem and a merged pip both look fine.
+- 🆕 **Two type-ladder checks inside `--selfcheck`** measure against the REAL rasterizer: the
+  three-line lens at 2/28/48 in a 64 px box, and the 480 table's history band. Both of those
+  ladders shipped wrong once by being picked rather than measured (`HOLDEM.md` §17.2, §17.2b),
+  and both checks were confirmed to FAIL against the numbers they replaced.
 - `--snapshot` — renders what the LEFT LENS PANEL holds (post-wire truth,
   through pack → RLE → deflate → fragmenting → sim firmware → shadow), at
   true 1x. This harness caught the stereo vacated-strip ghost within minutes

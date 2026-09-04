@@ -109,6 +109,9 @@ class Shell(
      *  reach so a script can select a row BY NAME instead of counting notches
      *  (2026-09-03: adding one row silently broke five tests that counted). */
     val menuLabels: List<String> get() = menu.current()?.items?.map { it.label } ?: emptyList()
+    /** The open menu's DETAIL column — a row's warning often lives here rather
+     *  than in its label (the Games refill confirm, review pass 3). */
+    val menuDetails: List<String> get() = menu.current()?.items?.map { it.detail } ?: emptyList()
     val menuCursor: Int get() = menu.cursor
     val keyboardIsOpen: Boolean get() = keyboard.open
     val keyboardTitle: String? get() = keyboard.current()?.title
@@ -410,6 +413,7 @@ class Shell(
         // stay "reported" — saveAll would tombstone the real record and sync
         // the removal fleet-wide, exactly what the guard exists to prevent
         subReported.clear()
+        badPlaneSaid.clear()          // a new session re-reports a bad region once
 
         // restore persisted state (§9.1: survives WM restart) BEFORE the loop
         persistence.load()
@@ -1026,6 +1030,11 @@ class Shell(
 
     /** Sub-keys already reported as wrongly-empty — one loud line each. */
     private val emptySubSaid = HashSet<String>()
+
+    /** Illegal depth regions already reported this session (§3,
+     *  `DamageWindow.contentPlanes`) — the complaint is loud once, not once a
+     *  frame. */
+    private val badPlaneSaid = HashSet<String>()
 
     private fun backFocused() {
         when (mode) {
@@ -2105,15 +2114,20 @@ class Shell(
             if (mode == Mode.WINDOW && !switcher.open && !menu.open && !keyboard.open) {
                 current?.let { w ->
                     val want = w.contentPlanes(layout.content)
-                    if (want.size > MAX_WINDOW_PLANES) {
+                    if (want.size > MAX_WINDOW_PLANES && badPlaneSaid.add("${w.id}#${want.size}")) {
                         Log.e("shell", "window ${w.id} asked for ${want.size} depth regions; " +
                             "the budget is $MAX_WINDOW_PLANES — the rest are dropped")
                     }
                     for ((r, plane) in want.take(MAX_WINDOW_PLANES)) {
                         val errs = wm.damage.core.geom.Geometry.checkRect(r, "${w.id} depth region")
                         if (errs.isNotEmpty() || !layout.content.contains(r)) {
-                            Log.e("shell", "window ${w.id} asked for an illegal depth region $r " +
-                                "(content ${layout.content}): ${errs.joinToString("; ")}")
+                            // LOUD, but not once per frame: updatePlanes runs on
+                            // every compose, and an unbounded repeat of the same
+                            // line is its own failure mode (review pass 3)
+                            if (badPlaneSaid.add("${w.id}@$r")) {
+                                Log.e("shell", "window ${w.id} asked for an illegal depth region $r " +
+                                    "(content ${layout.content}): ${errs.joinToString("; ")}")
+                            }
                             continue
                         }
                         planes.add(Compositor.PlaneRegion(r, ((plane / 4).coerceIn(0, 4)) * 4))

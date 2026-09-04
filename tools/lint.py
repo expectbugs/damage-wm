@@ -187,12 +187,30 @@ def _kotlin_strings(src: str):
 
     A character walk rather than a regex: Kotlin comments contain apostrophes
     and quotes, and a regex over the raw text reports half the prose in this
-    repo as string content."""
+    repo as string content.
+
+    CHAR literals are skipped whole. `'"'` is legal Kotlin (Journal.kt writes
+    three of them) and without this the quote inside it opens a string, which
+    flips the string/code parity for the whole rest of the file — code read as
+    literals and literals read as code, i.e. both false positives and false
+    negatives in a build gate (review pass 3, 2026-09-04)."""
     out, i, line, n = [], 0, 1, len(src)
     while i < n:
         c = src[i]
         if c == "\n":
             line += 1; i += 1; continue
+        if c == "'":
+            j = i + 1
+            if j < n and src[j] == "\\":
+                j += 1
+            j += 1                                   # the character itself
+            if j < n and src[j] == "'":
+                i = j + 1
+                continue
+            # not a char literal after all (it cannot be anything else outside
+            # a string or comment, but never consume past the line if it is)
+            i += 1
+            continue
         if c == "/" and i + 1 < n and src[i + 1] == "/":
             while i < n and src[i] != "\n":
                 i += 1
@@ -390,7 +408,12 @@ def selftest() -> int:
     kt = ('/* a block comment with \u2508 in it */\n'
           '// a line comment with \u276f in it\n'
           'val a = "safe text"\n'
-          'val b = "tofu \u2508 here"\n')
+          'val b = "tofu \u2508 here"\n'
+          # a CHAR literal holding a quote, with a real literal after it ON
+          # THE SAME LINE: without the walker's char branch the quote inside
+          # it opens a string, the parity flips, and line 5's tofu is read as
+          # CODE and never reported (Journal.kt writes three of these)
+          "val q = '\"'; val c = \"and \u2508 after a char literal\"\n")
     with tempfile.NamedTemporaryFile("w", suffix=".kt", delete=False) as f:
         f.write(kt)
         tmp = Path(f.name)
@@ -398,7 +421,11 @@ def selftest() -> int:
         found = check_kotlin(tmp, load_coverage())
         cases.append(("SYM002 kotlin literal", found, "SYM002"))
         cases.append(("SYM002 skips comments",
-                      ["ok"] if len(found) == 1 and ":4:" in found[0] else [], "ok"))
+                      ["ok"] if any(":4:" in g for g in found) and
+                      not any(":1:" in g or ":2:" in g for g in found) else [], "ok"))
+        # the char-literal branch: line 5's literal must still be scanned
+        cases.append(("SYM002 past a char literal",
+                      ["ok"] if any(":5:" in g for g in found) else [], "ok"))
     finally:
         tmp.unlink()
 

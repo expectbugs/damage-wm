@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -12,6 +13,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonObject
 import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.IconKind
@@ -102,6 +104,9 @@ class GamesWindow(
     private val cast = HashMap<Int, Character>()
     /** Chips Adam put in at the door, so a cash-out reports a real net. */
     private var myStake = 0
+    /** Seat → what that bot paid at the door (stake + fee), so the settlement
+     *  records a NET lifetime figure rather than a gross one. */
+    private val castStake = HashMap<Int, Int>()
     private var revealed = 0
     private var inspect = -1
     private var acting: Int? = null
@@ -163,6 +168,8 @@ class GamesWindow(
     val handIsComplete: Boolean get() = table?.view()?.result != null
     val seatsLeft: Int get() = table?.view()?.activeSeats?.size ?: 0
     val myStack: Int get() = table?.stackOf(mySeat) ?: 0
+    /** What you have put into THIS hand — 0 out of the blinds, before you act. */
+    val myContributed: Int get() = table?.view()?.seats?.getOrNull(mySeat)?.contributed ?: 0
     val handNumber: Int get() = table?.view()?.handNo ?: -1
     val boardShown: Int get() = revealed
     val levelName: String get() = level.name
@@ -422,8 +429,12 @@ class GamesWindow(
             }
             GRow.Standings -> { standFrom = Level_.GAMES; level = Level_.STANDINGS; standModel.cursor = 0 }
             GRow.BankrollRow -> { level = Level_.BANKROLL; bankDoc.topLine = 0; bankCache = null }
+            // §16.1: the row promises the GAMES category, so it deep-links to
+            // it. Landing on whatever category Settings was last left in is
+            // the same surprise the activation rule exists to remove.
             GRow.SettingsRow ->
-                if (services?.openWindow("settings") != true) setNotice("Settings is not available here")
+                if (services?.openWindow("settings", "cat:Games") != true)
+                    setNotice("Settings is not available here")
             null -> {}
         }
     }
@@ -558,6 +569,7 @@ class GamesWindow(
         val occupants = ArrayList<Seats.Occupant>(seated.size + 1)
         val stacks = ArrayList<Int>(seated.size + 1)
         cast.clear()
+        castStake.clear()
         var si = 0
         for (i in 0..seated.size) {
             if (i == mySeat) {
@@ -568,6 +580,7 @@ class GamesWindow(
                 occupants.add(Seats.Occupant(s.who.id, s.who.name, human = false))
                 stacks.add(s.stake)
                 cast[i] = s.who
+                castStake[i] = s.stake + s.fee
             }
         }
         myStake = entry
@@ -599,7 +612,7 @@ class GamesWindow(
             cursor = inspect, showStats = true, archetypes = archetypes,
             handsToLevel = HoldemRules.handsToNextLevel(v.handNo),
             note = if (n != null && clock() < noticeUntil) n else "",
-            acting = acting))
+            acting = acting, leaving = cashOutPending))
     }
 
     /** §10.1: scroll SKIPS the pacing while bots act, and moves a seat-inspect
@@ -869,6 +882,8 @@ class GamesWindow(
         val seat = mySeat
         table = null
         cast.clear()
+        // castStake is NOT cleared here: `finishTournament` reads it when the
+        // played-out table comes back, and it is cleared there
         acting = null
         skipping = false
         if (level == Level_.TABLE || level == Level_.HISTORY) level = Level_.GAMES
@@ -894,9 +909,18 @@ class GamesWindow(
      */
     private fun finishTournament(t: HoldemTable, field: Map<Int, Character>, seat: Int) {
         val v = t.view()
-        val winner = t.winner()
         val prize = v.seats.sumOf { it.stack }
-        val myPlace = t.finishPlace(seat) ?: 1
+        // 🔴 A PLACE FOR EVERY SEAT, never "unfinished means first". Normally
+        // exactly one seat has no finishing order — the winner — but a table
+        // that stopped early (a `playOut` that reported a stall) leaves
+        // several, and `finishPlace(s) ?: 1` then handed EACH of them first
+        // place and the whole prize with it: money printed and careers
+        // corrupted on an error path (review pass 3, 2026-09-04). Ranking the
+        // survivors by chips gives one winner in both cases, so the prize
+        // moves exactly once and the economy stays conserved.
+        val placeOf = placesFor(t, v)
+        val winner = placeOf.entries.firstOrNull { it.value == 1 }?.key
+        val myPlace = placeOf[seat] ?: 1
         if (winner == seat) {
             bankroll.add(prize)
             bankroll.tournamentsWon++
@@ -905,16 +929,22 @@ class GamesWindow(
                 appId = id, thread = "won")
         } else if (winner != null) {
             field[winner]?.let { it.bankroll += prize }
+                ?: Log.e("games", "seat $winner won ${Money.fmt(prize)} with nobody to pay it to")
         }
         // careers and mood for the whole field, then the roster's own lives
         // machinery — the same settlement a background game runs (§7.5)
         val fieldSize = v.seats.size
         for ((s, c) in field) {
-            val place = t.finishPlace(s) ?: 1
+            val place = placeOf[s] ?: 1
             c.career.tournaments++
             c.career.finishSum += place
             if (place == 1) c.career.wins++
-            Mood.afterTournament(c, place, fieldSize, if (place == 1) prize else 0)
+            // the NET, not the gross: what came back minus what went in at the
+            // door, exactly as `Background.settle` records it. Passing the
+            // gross prize for a win and 0 for a loss made every bot who ever
+            // sat with Adam show a rising lifetime net (review pass 3).
+            Mood.afterTournament(c, place, fieldSize,
+                (if (place == 1) prize else 0) - (castStake[s] ?: 0))
         }
         val meC = me()
         meC.career.tournaments++
@@ -929,6 +959,7 @@ class GamesWindow(
             "${if (winner == seat) "you" else field[winner]?.name ?: "?"} took ${Money.fmt(prize)}")
         if (table === t) table = null
         cast.clear()
+        castStake.clear()
         myStake = 0
         lastSettledHand = -1
         cashOutPending = false
@@ -941,6 +972,23 @@ class GamesWindow(
         setNotice(if (winner == seat) "you win ${Money.fmt(prize)}" else "you finished ${ordinal(myPlace)}")
         offerRefillIfBroke()
         services?.requestRender(this)
+    }
+
+    /**
+     * A finishing place for EVERY seat. Seats that busted or cashed out carry
+     * their own order; whoever is still in is ranked by chips, so there is
+     * exactly one first place whether or not the table actually resolved.
+     */
+    private fun placesFor(t: HoldemTable, v: HoldemTable.View): Map<Int, Int> {
+        val out = HashMap<Int, Int>(v.seats.size)
+        val standing = v.seats.indices.filter { t.inPlay(it) }
+            .sortedByDescending { v.seats[it].stack }
+        for ((i, s) in standing.withIndex()) out[s] = i + 1
+        for (i in v.seats.indices) t.finishPlace(i)?.let { out[i] = it }
+        if (standing.size > 1) Log.e("games",
+            "the ${t.spec.label} table settled with ${standing.size} seats still in — " +
+                "ranking them by chips so the prize moves exactly once")
+        return out
     }
 
     /**
@@ -1086,10 +1134,17 @@ class GamesWindow(
                     v == null -> setNotice("that is not an amount")
                     v < min && v < max -> setNotice("the minimum is ${Money.fmt(min)}")
                     v > max -> setNotice("you only have ${Money.fmt(max)}")
-                    else -> stage(ActionLevel.Action(
-                        if (v >= max) ActionLevel.Kind.ALL_IN
-                        else if (t.view().currentBet > 0) ActionLevel.Kind.RAISE else ActionLevel.Kind.BET,
-                        "Raise", Money.fmt(v), v))
+                    else -> {
+                        // the verb follows the BET on the table, in the label
+                        // as well as the kind: the confirm's title carries the
+                        // label, and "Raise" over a check-through read wrong
+                        val raising = t.view().currentBet > 0
+                        stage(ActionLevel.Action(
+                            if (v >= max) ActionLevel.Kind.ALL_IN
+                            else if (raising) ActionLevel.Kind.RAISE else ActionLevel.Kind.BET,
+                            if (v >= max) "All-in" else if (raising) "Raise" else "Bet",
+                            Money.fmt(v), v))
+                    }
                 }
             }), owner = this) == true
         if (!ok) setNotice("the keyboard is not available here")
@@ -1144,7 +1199,9 @@ class GamesWindow(
     private fun confirmCashOut() {
         val t = table ?: return
         val v = t.view()
-        val live = v.result == null && !v.seats[mySeat].folded && v.seats[mySeat].contributed > 0
+        // "live" is exactly the case that has to be folded first — which is
+        // any hand that is not settled and that you have not already folded
+        val live = v.result == null && !v.seats[mySeat].folded
         val chips = t.stackOf(mySeat)
         val ok = services?.openMenu(MenuSurface.Spec(
             if (live) "Fold and cash out ${Money.fmt(chips)}?" else "Cash out ${Money.fmt(chips)}?",
@@ -1158,23 +1215,29 @@ class GamesWindow(
     private fun requestCashOut() {
         val t = table ?: return
         val v = t.view()
-        if (v.result != null || v.seats[mySeat].contributed == 0 || v.seats[mySeat].folded) {
-            doCashOut(t)
-            return
+        // a SETTLED hand: the chips are already yours, take them now
+        if (v.result != null) { doCashOut(t); return }
+        // 🔴 every other case is a LIVE hand and is folded first — including a
+        // hand nothing has been put into yet. `contributed == 0` is the
+        // commonest spot at the table (first to act, preflop, out of the
+        // blinds) and an earlier version short-circuited on it straight into
+        // `cashOut`, which refuses a live hand: the row confirmed and then
+        // printed an error, which is the same unreachable-row defect the first
+        // live session found one branch over (review pass 3, 2026-09-04).
+        if (!v.seats[mySeat].folded) {
+            if (v.toAct != mySeat) {
+                setNotice("wait for your turn to fold, then you can leave")
+                return
+            }
+            try {
+                t.act(ActionLevel.Kind.FOLD)
+            } catch (e: Exception) {
+                Log.e("games", "the fold before a cash-out was refused", e)
+                setNotice(e.message ?: "could not fold")
+                return
+            }
+            afterAction(t)
         }
-        // your hand is live: fold it, and leave the moment it is settled
-        if (v.toAct != mySeat) {
-            setNotice("wait for your turn to fold, then you can leave")
-            return
-        }
-        try {
-            t.act(ActionLevel.Kind.FOLD)
-        } catch (e: Exception) {
-            Log.e("games", "the fold before a cash-out was refused", e)
-            setNotice(e.message ?: "could not fold")
-            return
-        }
-        afterAction(t)
         cashOutPending = true
         acting = null
         setNotice("folded — cashing out when the hand ends")
@@ -1348,18 +1411,27 @@ class GamesWindow(
     }
 
     private fun confirmRefill() {
-        val ok = services?.openMenu(MenuSurface.Spec("Refill to ${Money.fmt(Bankroll.BASE)}?",
-            listOf(MenuSurface.Item("Cancel"),
-                MenuSurface.Item("Refill", "Loser Count +1")),
+        // 🔴 a refill SETS the cash to the base, so above it the money goes
+        // DOWN. "Refill to $1,000?" over $3,400 reads like a top-up and is
+        // not one (review pass 3, 2026-09-04) — the confirm says which way.
+        val over = bankroll.cash - Bankroll.BASE
+        val title = if (over > 0) "Set ${Money.fmt(bankroll.cash)} back to ${Money.fmt(Bankroll.BASE)}?"
+        else "Refill to ${Money.fmt(Bankroll.BASE)}?"
+        val detail = if (over > 0) "you LOSE ${Money.fmt(over)} · Loser Count +1"
+        else "Loser Count +1"
+        val ok = services?.openMenu(MenuSurface.Spec(title,
+            listOf(MenuSurface.Item("Cancel"), MenuSurface.Item("Refill", detail)),
             onCommit = { i -> if (i == 1) doRefill() }), owner = this) == true
         if (!ok) setNotice("could not open the confirm")
     }
 
     private fun doRefill() {
+        val over = bankroll.cash - Bankroll.BASE
         bankroll.refill()
         syncMe()
         bankCache = null
-        setNotice("refilled · Loser Count ${bankroll.loserCount}")
+        setNotice(if (over > 0) "set back to ${Money.fmt(Bankroll.BASE)} · Loser Count ${bankroll.loserCount}"
+        else "refilled · Loser Count ${bankroll.loserCount}")
         services?.requestRender(this)
     }
 
@@ -1430,6 +1502,7 @@ class GamesWindow(
         openChar?.let { put("openChar", it) }
         put("mySeat", mySeat)
         put("myStake", myStake)
+        putJsonObject("castStake") { for ((k, v) in castStake) put(k.toString(), v) }
         put("revealed", revealed)
         put("unlimitedStake", unlimitedStake)
         put("bgOwed", bgOwed)
@@ -1455,6 +1528,15 @@ class GamesWindow(
         openChar = state["openChar"]?.jsonPrimitive?.contentOrNull
         mySeat = (state["mySeat"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0)
         myStake = state["myStake"]?.jsonPrimitive?.intOrNull ?: 0
+        castStake.clear()
+        // tolerant on purpose: one malformed entry here must not take the
+        // whole main record down with it (the shell drops a record whose
+        // restore throws, and this one carries the level, the seat and every
+        // Settings value)
+        (state["castStake"] as? JsonObject)?.forEach { (k, v) ->
+            val seat = k.toIntOrNull() ?: return@forEach
+            castStake[seat] = (v as? JsonPrimitive)?.intOrNull ?: 0
+        }
         revealed = (state["revealed"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0)
         unlimitedStake = (state["unlimitedStake"]?.jsonPrimitive?.intOrNull ?: 1_000).coerceAtLeast(1)
         bgOwed = (state["bgOwed"]?.jsonPrimitive?.intOrNull ?: 0).coerceIn(0, 8)

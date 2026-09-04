@@ -1027,14 +1027,61 @@ yet" after a fixed 100 ms wait. On a loaded machine `delay` can resume long afte
 rollback ended, and it failed once during this battery. It now asserts the ORDER — the rollback
 finished, or start() has not completed — which is the invariant it was written for.
 
+### 17.2b The second review round, and the second live session (2026-09-04, later)
+
+Adam asked for the whole cycle again over everything the build touched. Two more code passes and
+a second live session found **sixteen verified defects and two coverage gaps**, each reproduced
+before it was fixed and each pinned. The five that matter:
+
+1. 🔴 **Cash out still could not succeed in the commonest spot at the table.** §17.2's fix made a
+   live hand fold first — but `requestCashOut` short-circuited on `contributed == 0` straight into
+   `HoldemTable.cashOut`, which refuses a live hand. `contributed == 0` is *first to act, preflop,
+   out of the blinds*: four hands in six. The row confirmed and then printed an error. **The same
+   defect as §17.2's, one branch over** — which is the lesson: a row that only *sometimes* works
+   is the same class of bug, and the test now walks it from exactly that spot.
+2. 🔴 **A tournament that did not resolve paid the whole prize to every seat still in.**
+   `finishPlace(seat) ?: 1` reads "no finishing order means first place", which is true of the
+   winner and of every seat at a table that stopped early — and `playOut` has two loud paths that
+   stop one. Each of them was credited the pot and recorded a win. Both settlements now rank the
+   survivors by chips, so there is exactly one first place whatever state the table stopped in and
+   the money supply stays conserved.
+3. 🔴 **The bots' lifetime net was the GROSS prize, and zero for a loss.** `Background.settle`
+   had it right (`won − stake`); the settlement at Adam's table did not, so every character who
+   ever sat with him showed a rising lifetime net. The window now persists what each seat paid at
+   the door (`castStake`) and passes the real net.
+4. 🔴 **The build gate had a blind spot.** `tools/lint.py`'s Kotlin walker did not know about
+   CHAR literals, so `'"'` — which `Journal.kt` writes three times — opened a string and flipped
+   the string/code parity for the rest of the line: code scanned as literals, literals scanned as
+   code. Both a false positive and a false negative in the rule that exists to catch silent tofu.
+   Fixed and pinned with a case that the old walker passes and the new one fails.
+5. 🔴 **The hand history was written in the wrong person.** Off the glass it read "You checks",
+   "You folds" and "You wins $412"; the bots' money lines read as headlines ("Rex G. bet $6")
+   rather than as history. `Occupant.human` was already on the contract, so the engine now says
+   "You check" and "Rex G. checks", "You raise to $37" and "Rex G. raises to $37".
+
+The rest: a refill above $1,000 SETS the cash down and the confirm said "Refill to $1,000?" like a
+top-up (it now names what you lose); the `Settings · games` root row opened Settings wherever it
+was last left rather than at the Games category (`SettingsWindow` gained a `cat:<name>` deep link);
+the history band guessed a 14 px pitch under a face whose measured ink is 17 (`HIST_H` is 52 and
+the pitch is measured — the same class as §17.2's lens, still present one file over); a pending
+cash-out was invisible once its four-second notice expired (the status tail says **tap to leave**);
+the Custom-size keyboard labelled a bet "Raise"; the button ring left a 4 px gap where the blind
+words leave 6; `updatePlanes` logged an illegal depth region once per FRAME; `replay`'s loop guard
+exited silently instead of raising; `HoldemTable.load` accepted a live seat holding no chips; and
+`castStake`'s restore could take the whole main record down with it.
+
+Two new `--selfcheck` checks measure the type ladders against the REAL rasterizer — the lens at
+2/28/48 and the history band's three lines — because both of those shipped wrong once by being
+picked rather than measured.
+
 ### 17.3 The battery, after the build
 
-`./gradlew :core:test` **414** · `./gradlew :desktop:test` **9** · `desktop --selfcheck` **160**
+`./gradlew :core:test` **418** · `./gradlew :desktop:test` **9** · `desktop --selfcheck` **162**
 checks · `desktop --games-check` (a new harness — the ecology over hundreds of simulated
 tournaments) · `desktop --snapshot` **13 Games scenes** among 49 · `desktop --card-render` (the
 card sheets in `design/shots/cards/`) · `desktop --epub-check` · `desktop --music-check` ·
 `python3 tools/lint.py` **21 rules, 0 findings** · `./gradlew :phone:assembleDebug` (APK
-**24 / 0.24**).
+**25 / 0.25**).
 
 ### 17.4 Still open
 

@@ -15,10 +15,15 @@ FAIL against the unfixed tree, plus the belief-vs-truth oracle that found the in
 is `HANDOFF.md` §25 (commit `1f9fa4d`; pins in `Review20260903Test`). The **Games build's two
 passes of 2026-09-04** — 11 + 8 verified defects, pinned in `GamesReview20260904Test` — and the
 **live session** that followed them (13 more, pinned in `GamesLive20260904Test`) are
-`HANDOFF.md` §26.2–§26.3, with the deviations list in `HOLDEM.md` §17. Its lesson worth carrying:
+`HANDOFF.md` §26.2–§26.3, with the deviations list in `HOLDEM.md` §17. Adam then asked for the
+whole cycle a SECOND time; that round — two more code passes and a second live session, **16 more
+verified defects and two coverage gaps** — is `HANDOFF.md` §26.4 and `HOLDEM.md` §17.2b. Its lesson worth carrying:
 two review passes over the code missed a menu row that could never succeed and a drawn mark that
 read as an equals sign — **driving the live grammar and looking at true-1× pixels is a different
-instrument, not a slower version of the same one.** How a round runs: the Adam quote in
+instrument, not a slower version of the same one.** The second cycle's lesson is narrower and
+sharper: **fixing a reachability defect is not finishing with it.** The cash-out row was fixed,
+pinned, and still failed in the commonest spot at the table, because the pin entered from a
+different branch than the user does. How a round runs: the Adam quote in
 `HANDOFF.md` §21 and the §22.2 discipline — every finding verified against the code before a
 fix, a test pin per fix, the whole battery green, the next round over the previous round's own diff.
 

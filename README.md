@@ -92,9 +92,9 @@ The design is shaped by three facts about this display, and most of it follows f
 ## Building and verifying
 
 ```
-./gradlew :core:test                                  # 414 tests, incl. the per-lens oracle
+./gradlew :core:test                                  # 418 tests, incl. the per-lens oracle
 ./gradlew :desktop:test                               # 9 tests: the BlueZ glue over a fake link
-./gradlew :desktop:run --args="--selfcheck"           # the 160-check whole-stack gate
+./gradlew :desktop:run --args="--selfcheck"           # the 162-check whole-stack gate
 ./gradlew :desktop:run --args="--snapshot DIR"        # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"          # parse every book; chapters + image decode
 ./gradlew :desktop:run --args="--music-check"         # the real music library, read-only (counts, catalog, lanes, cache keys, Qdrant, viz)

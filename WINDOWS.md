@@ -265,3 +265,20 @@ All four rows of the agreed build order are CODE, and so is the keyboard that fo
   rather than draw it through the one above.
 - **`onRegistered` is not the restore.** It runs before any sub-record arrives; anything it
   creates will be duplicated or orphaned by the restore that follows. Seed on activation.
+- **Fixing an unreachable row is not finishing with it — walk EVERY branch.** Games' `Cash out`
+  was fixed once (the row only opened mid-hand and the engine refused mid-hand), and the fix
+  still failed in the commonest spot of all because the code short-circuited on "nothing in the
+  pot yet" into the same refusal. The pin now enters from that exact spot. A row that works
+  *sometimes* is the same defect.
+- **`?: 1`, `?: first`, `?: the only one` — a default that is right on the happy path is an
+  assumption, not a default.** `finishPlace(seat) ?: 1` means "no finishing order = the winner",
+  which is true of one seat normally and of EVERY seat at a table that stopped early: each was
+  paid the whole prize and recorded a win. Rank instead of defaulting.
+- **A row's DETAIL is a promise.** "Settings · games" opened Settings wherever it was last left.
+  `SettingsWindow.open("cat:<name>")` is the general answer — any window can deep-link to its own
+  category with `services.openWindow("settings", "cat:<Name>")`, and back returns to the caller.
+- **A pending state needs a resting indicator, not just a notice.** A confirmed cash-out showed a
+  four-second notice and then nothing; the table's status tail now reads **tap to leave** for as
+  long as it is pending. If a gesture's MEANING has changed, the surface has to say so at rest.
+- **`Occupant.human` (or whatever your contract's equivalent is) decides the PERSON.** Sentences
+  built from a name read "You checks" and "You wins $412" straight off the glass.

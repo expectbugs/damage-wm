@@ -130,8 +130,20 @@ object Background {
         val field = cast.size
         val places = HashMap<String, Int>(field)
         var winnerName = "-"
+        // 🔴 A PLACE FOR EVERY SEAT. Normally exactly one seat has no
+        // finishing order — the winner — but a table that stopped early (the
+        // stall this file reports above) leaves several, and `?: 1` then paid
+        // the WHOLE prize to each of them and recorded a win for each: money
+        // printed on an error path (review pass 3, 2026-09-04). Ranking the
+        // survivors by chips gives exactly one first place either way.
+        val standing = cast.keys.filter { table.inPlay(it) }
+            .sortedByDescending { table.stackOf(it) }
+        val placeIn = standing.withIndex().associate { (i, s) -> s to i + 1 }
+        if (standing.size > 1) Log.e("games",
+            "a background ${spec.label} table settled with ${standing.size} seats still in — " +
+                "ranking them by chips so the prize moves exactly once")
         for ((seat, c) in cast) {
-            val place = table.finishPlace(seat) ?: 1
+            val place = table.finishPlace(seat) ?: placeIn[seat] ?: 1
             places[c.id] = place
             // winner takes the whole prize pool: a sit-and-go with no rebuys
             // is conserved, and the fee was already taken at the door

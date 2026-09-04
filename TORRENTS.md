@@ -1,6 +1,6 @@
 # Torrents on glass — design + build record (2026-09-01)
 
-**Status: DESIGN SETTLED with Adam 2026-09-01 (evening); BUILT the same night and taken through a four-round review loop (`HANDOFF.md` §23.1–§23.4, ~114 findings, every one verified before a fix; PAUSED at Adam's word, not converged — the next pass starts from `980d832..HEAD`; battery green after round 4 — core 221 · desktop 9 · selfcheck 89 · 26 snapshots · lint 0; APK 18/0.18 staged, 0.16 the last observed installed — **0.24 supersedes it** since the Music build, its three reviews, the 2026-09-03 Now Playing root and the Games build).** The second
+**Status: DESIGN SETTLED with Adam 2026-09-01 (evening); BUILT the same night and taken through a four-round review loop (`HANDOFF.md` §23.1–§23.4, ~114 findings, every one verified before a fix; PAUSED at Adam's word, not converged — the next pass starts from `980d832..HEAD`; battery green after round 4 — core 221 · desktop 9 · selfcheck 89 · 26 snapshots · lint 0; APK 18/0.18 staged, 0.16 the last observed installed — **0.25 supersedes it** since the Music build, its three reviews, the 2026-09-03 Now Playing root and the Games build).** The second
 window of the app wave after Files (`EXPLOSION.md` §20's wow order: Games · **Torrents** ·
 Files ✅ · Music · …). Not a G2CC conversion — G2CC never had a torrent window — so
 `WINDOWS.md` step 2 has nothing to mine; Reader, Tmux and Files are the precedents.
@@ -311,7 +311,7 @@ most one host interval behind — a deliberate simplification over an on-demand 
 - **`--snapshot`**: scenes 15–22 (transfers, lens+menu, details, categories, listing, torrent
   page, the keyboard at its two stages) — looked at, at true 1×; 26 scenes in all.
 - `tools/lint.py` at 0, `:phone:assembleDebug` green; the jar restaged and the `damage` service
-  restarted on the round-4 build; APK 18/0.18 staged at `390a25c` (0.24 since — see the status line; selfcheck 160 / 49 scenes at HEAD).
+  restarted on the round-4 build; APK 18/0.18 staged at `390a25c` (0.25 since — see the status line; selfcheck 162 / 49 scenes at HEAD).
 
 ## 7. Build order — shipped
 

@@ -1687,6 +1687,11 @@ Three rules that are easy to get wrong:
 **A preview is a render, never an activation** (§4.3 rule 1): the switcher's preview must not call
 `onActivate` with any source.
 
+🆕 **Settings takes a `cat:<name>` deep link (2026-09-04).** A window that offers "my settings" as
+a row calls `services.openWindow("settings", "cat:Games")` and lands in its own category, with the
+§16.2 back-to-caller still in force. Without it the row opened Settings wherever it was last left
+— the same surprise the activation rule above exists to remove.
+
 ## 5. Compositor engine
 
 All adopted 2026-08-17.

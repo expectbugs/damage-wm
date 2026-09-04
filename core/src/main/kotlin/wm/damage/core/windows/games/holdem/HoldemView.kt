@@ -50,6 +50,9 @@ class HoldemView(private val tx: TextRasterizer) {
         val note: String = "",
         /** The seat the pacer is currently showing acting, or null. */
         val acting: Int? = null,
+        /** You have asked to cash out and the hand is playing itself out —
+         *  the next tap takes the chips and hands the table over (§10.2). */
+        val leaving: Boolean = false,
     )
 
     /** A drawn chip's width in a seat cell. */
@@ -128,7 +131,7 @@ class HoldemView(private val tx: TextRasterizer) {
         if (!gone) {
             if (s.index == m.v.button) {
                 g.outlineEllipse(x, y + 2, 12, 12, if (dim) Level.DIM else Level.HEAD, 2)
-                markW = 16
+                markW = 18            // the same 6 px gap the "sb"/"bb" words leave
             } else if (s.index == m.v.sbSeat || s.index == m.v.bbSeat) {
                 val lbl = if (s.index == m.v.sbSeat) "sb" else "bb"
                 tx.draw(g, x, y + 2, lbl, fTiny, Level.DIM)
@@ -248,8 +251,11 @@ class HoldemView(private val tx: TextRasterizer) {
         if (result != null) {
             // the left fit is sized against the MEASURED right-hand string,
             // never a magic constant: a wrap width that differs from the draw
-            // bound is how text lands outside its own damage rect (§25 #3)
-            val tail = "tap to deal"
+            // bound is how text lands outside its own damage rect (§25 #3).
+            // A pending cash-out changes what the tap DOES, so it changes what
+            // the tail says — the confirm's notice is gone after four seconds
+            // and nothing else on the table admits you are leaving.
+            val tail = if (m.leaving) "tap to leave" else "tap to deal"
             Draw.fit(g, tx, r.x, r.y + 2, Draw.dynamic(tx, result.line, fStatusBig),
                 Level.HEAD, fStatusBig, r.w - tx.measure(tail, fSmall) - 16)
             Draw.right(g, tx, r.right, r.y + 4, tail, Level.DIM, fSmall)
@@ -313,11 +319,16 @@ class HoldemView(private val tx: TextRasterizer) {
 
     private fun paintHistory(g: Gray8, t: TableLayout, m: Model) {
         val r = t.history
-        val lines = m.v.history.takeLast(r.h / 14)
+        // the pitch is MEASURED, never guessed: at 14 px under a face whose
+        // ink is 17 the descenders of each line sat in the tops of the next
+        // (review pass 3, 2026-09-04)
+        val pitch = tx.metrics(fTiny).lineHeight
+        val room = (r.h / pitch).coerceAtLeast(1)
+        val lines = m.v.history.takeLast(room)
         var y = r.y
         for (l in lines) {
             Draw.fit(g, tx, r.x, y, Draw.dynamic(tx, l, fTiny), Level.DIM, fTiny, r.w)
-            y += 14
+            y += pitch
         }
     }
 

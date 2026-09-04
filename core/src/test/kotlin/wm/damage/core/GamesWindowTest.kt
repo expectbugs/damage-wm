@@ -98,6 +98,102 @@ class GamesWindowTest {
         }
     }
 
+    // ================================================================ review 3
+    /**
+     * A refill SETS the cash to the base, so above it the money goes DOWN.
+     * "Refill to $1,000?" over $3,400 reads like a top-up and is not one
+     * (review pass 3, 2026-09-04) — the confirm has to say which way.
+     */
+    @Test
+    fun refillingFromAboveTheBaseSaysWhatItCosts(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-games-refill")
+        val r = Rig(tmp)
+        try {
+            r.start()
+            r.win.bankroll.cash = 3_400
+            r.await("the games root") { r.win.title() == "games" }
+            r.down(); r.down()                                  // Bankroll
+            r.tap()
+            r.await("the bankroll level") { r.win.levelName == "BANKROLL" }
+            r.tap()                                             // the bankroll menu
+            r.await("the bankroll menu") { r.shell.menuIsOpen }
+            r.menuPick("Refill")
+            r.await("the refill confirm") { r.shell.menuIsOpen }
+            val said = r.shell.menuLabels + r.shell.menuDetails + listOfNotNull(r.shell.menuTitle)
+            assertTrue(said.any { it.contains("LOSE") } &&
+                said.any { it.contains("$3,400") },
+                "the confirm must say the money goes down, and from what: $said")
+            r.back()                                            // cancel it
+            assertEquals(3_400, r.win.bankroll.cash, "cancelling changed the cash")
+            // and below the base it reads as the top-up it is
+            r.win.bankroll.cash = 200
+            r.tap()
+            r.await("the bankroll menu again") { r.shell.menuIsOpen }
+            r.menuPick("Refill")
+            r.await("the refill confirm again") { r.shell.menuIsOpen }
+            val said2 = r.shell.menuLabels + r.shell.menuDetails + listOfNotNull(r.shell.menuTitle)
+            assertTrue(said2.none { it.contains("LOSE") },
+                "a real refill must not warn about losing anything: $said2")
+        } finally {
+            r.stop()
+        }
+    }
+
+
+    /**
+     * 🔴 The CASH OUT row is walked to a real completion, from the spot the
+     * live session could not reach: **your turn, preflop, with nothing in the
+     * pot**. `requestCashOut` short-circuited on `contributed == 0` straight
+     * into `HoldemTable.cashOut`, which refuses a live hand — so the row
+     * confirmed and then printed an error, in the commonest spot at the table
+     * (review pass 3, 2026-09-04). A row's REACHABILITY is part of its
+     * contract, and only walking it proves it.
+     */
+    @Test
+    fun cashingOutWithNothingInThePotFoldsAndLeaves(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-games-cashout")
+        val r = Rig(tmp)
+        try {
+            r.start()
+            r.sitDown()
+            val cashBefore = r.win.bankroll.cash
+            // find a turn where nothing of yours is in the pot yet — out of the
+            // blinds that is your FIRST decision, and it is 4 hands in 6
+            var found = false
+            for (hand in 0 until 12) {
+                r.await("your turn") { r.win.isMyTurn || r.win.handIsComplete || !r.win.tableRunning }
+                if (!r.win.tableRunning) break
+                if (r.win.handIsComplete) { r.tap(); continue }
+                if (r.win.myContributed == 0) { found = true; break }
+                r.tap()                                   // the action level
+                r.await("the action level") { shellMenu(r) }
+                // row 0 is the contextual give-up row: Check when checking is
+                // free, Fold when facing a bet (verdict 33) — take whichever
+                r.menuPick(if (r.shell.menuLabels.firstOrNull() == "Check") "Check" else "Fold")
+                if (shellMenu(r)) r.menuPick("Confirm")
+                r.await("the hand moves on") { !shellMenu(r) }
+            }
+            assertTrue(found, "no hand in twelve put you first to act out of the blinds")
+            val stake = r.win.myStack
+            r.tap()
+            r.await("the action level") { shellMenu(r) }
+            r.menuPick("Cash out")
+            r.await("the cash-out confirm") { shellMenu(r) }
+            assertTrue(r.shell.menuLabels.any { it.startsWith("Fold and leave") },
+                "a live hand is folded first, whatever is in the pot: ${r.shell.menuLabels}")
+            r.menuPick("Fold and leave")
+            r.await("the hand settles after your fold") { r.win.handIsComplete || !r.win.tableRunning }
+            if (r.win.tableRunning) r.tap()               // tap-to-deal fires the pending cash-out
+            r.await("the table is handed off", 60_000) { !r.win.tableRunning }
+            assertTrue(r.win.bankroll.cash >= cashBefore + stake,
+                "the chips came home: ${r.win.bankroll.cash} vs $cashBefore + $stake")
+        } finally {
+            r.stop()
+        }
+    }
+
+    private fun shellMenu(r: Rig): Boolean = r.shell.menuIsOpen
+
     // ================================================================ live
     /** The 2026-09-04 live session: coming in from Main presents the root
      *  LIST — from its first row, not from wherever the cursor was left. */

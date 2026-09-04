@@ -2,14 +2,21 @@ package wm.damage.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import wm.damage.core.geom.Layout
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.Level
+import wm.damage.core.windows.games.holdem.HoldemRules
+import wm.damage.core.windows.games.holdem.HoldemTable
+import wm.damage.core.windows.games.kit.ActionLevel
 import wm.damage.core.windows.games.kit.CardArt
 import wm.damage.core.windows.games.kit.Money
 import wm.damage.core.windows.games.kit.Seats
 import wm.damage.core.windows.games.kit.Suit
+import wm.damage.core.windows.games.roster.Background
+import wm.damage.core.windows.games.roster.Character
+import wm.damage.core.windows.games.roster.Roster
 
 /**
  * The FIRST LIVE SESSION of the Games window (2026-09-04): the whole stack
@@ -118,6 +125,77 @@ class GamesLive20260904Test {
         // and the viewer is never in their own strip
         for (v in 0 until 6) assertTrue(Seats.strip(seats, v).none { it.index == v })
         assertEquals(emptyList(), Seats.strip(seats.take(1), 0))
+    }
+
+    // ================================================================ R3
+    /**
+     * A tournament that did NOT resolve must still settle to exactly one
+     * winner. `finishPlace(seat) ?: 1` gave first place — and the whole prize
+     * — to every seat still in, so a table that stopped early paid the pot to
+     * each of them and recorded a win for each (review pass 3, 2026-09-04).
+     */
+    @Test
+    fun anUnresolvedTableStillPaysExactlyOneWinner() {
+        val roster = Roster(worldSeed = 99, gameNo = 3)
+        val cast = HashMap<Int, Character>()
+        val occ = ArrayList<Seats.Occupant>()
+        for (i in 0 until 4) {
+            val c = Character("c$i", "C$i", Character.Traits.load(null), 1_000, 3)
+            roster.put(c)
+            cast[i] = c
+            occ.add(Seats.Occupant(c.id, c.name, human = false))
+        }
+        // a table nobody has played a hand of: every seat is still in
+        val table = HoldemTable.start(HoldemRules.Table.REGULAR, 7L, occ,
+            intArrayOf(200, 200, 200, 200))
+        // only the CAST is measured: settle also runs the roster's own births
+        // and returns, which are the economy's designed money sources
+        val before = cast.values.sumOf { it.bankroll }
+        val s = Background.settle(roster, table, cast, HoldemRules.Table.REGULAR,
+            prize = 800, fees = 40, hands = 0)
+        assertEquals(1, s.places.values.count { it == 1 },
+            "exactly one first place, whatever state the table stopped in: ${s.places}")
+        assertEquals(before + 800, cast.values.sumOf { it.bankroll },
+            "the prize moved exactly once — no seat printed a second copy of it")
+        assertEquals(1, cast.values.count { it.career.wins == 1 },
+            "one win recorded, not four")
+        // and the places are a permutation of 1..4, so no two seats tie
+        assertEquals((1..4).toList(), s.places.values.sorted())
+    }
+
+    // ================================================================ R4
+    /**
+     * The hand history and the result line are SENTENCES, and Adam's seat is
+     * the second person. Off the glass they read "You checks", "You folds" and
+     * "You wins $412" (review pass 4, 2026-09-04) — and the bots' money lines
+     * read as headlines ("Rex G. bet $6") rather than as history.
+     */
+    @Test
+    fun theHandHistoryIsWrittenInTheRightPerson() {
+        val you = Seats.Occupant("you", "You", human = true)
+        val bot = Seats.Occupant("c1", "Rex G.", human = false)
+        val t = HoldemTable.start(HoldemRules.Table.REGULAR, 5L, listOf(you, bot),
+            intArrayOf(200, 200))
+        // check/call the hand down until BOTH seats have spoken on a street
+        // where the human checks — heads-up that is the flop at the latest
+        var guard = 0
+        while (t.view().toAct != null && guard++ < 24) {
+            t.act(if (t.view().toCall > 0) ActionLevel.Kind.CALL else ActionLevel.Kind.CHECK)
+        }
+        val h = t.view().history
+        assertTrue(h.any { it.contains("You check") },
+            "the human never checked, so the person is untested: $h")
+        assertTrue(h.any { it.contains("Rex G. checks") || it.contains("Rex G. calls") },
+            "the bot never spoke, so the third person is untested: $h")
+        for (line in h) {
+            assertFalse(line.contains("You checks") || line.contains("You folds") ||
+                line.contains("You calls") || line.contains("You wins") ||
+                line.contains("You raises") || line.contains("You bets"),
+                "the human takes the second person: '$line'")
+            if (line.contains("Rex G.")) assertTrue(
+                Regex("Rex G\\. (checks|folds|calls|raises to|bets|is all-in for)").containsMatchIn(line),
+                "a bot takes the third person: '$line'")
+        }
     }
 
     // ================================================================ L24

@@ -185,6 +185,28 @@ class SettingsWindow(
         catModel.cursor = 0
     }
 
+    /**
+     * §16.1 deep link: `cat:<name>` opens one category directly, so a window
+     * can offer "my settings" as a row and actually deliver them. Matched
+     * case-insensitively against the directory (`Global`, `Reader`, `Games`…).
+     * False when the category does not exist — the shell says so loudly and
+     * Settings stays where it was.
+     */
+    override fun open(target: String): Boolean {
+        val want = target.removePrefix("cat:").trim()
+        if (want.isEmpty() || !target.startsWith("cat:")) return false
+        val i = cats().indexOfFirst { it.name.equals(want, ignoreCase = true) }
+        if (i < 0) return false
+        adjusting = null
+        revertTo = null
+        stagedSize = null
+        stagedHost = null
+        openCat = i
+        catModel.cursor = i
+        model.cursor = 0
+        return true
+    }
+
     override fun title(): String =
         if (openCat < 0) "" else cats().getOrNull(openCat)?.name?.lowercase() ?: ""
 

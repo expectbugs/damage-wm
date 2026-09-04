@@ -15,7 +15,10 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import wm.damage.core.content.LocalContent
+import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Pack
+import wm.damage.core.text.Face
+import wm.damage.core.text.FontSpec
 import wm.damage.core.replica.ReplicaServer
 import wm.damage.core.shell.Persistence
 import wm.damage.core.shell.Shell
@@ -627,6 +630,24 @@ object SelfCheck {
                 shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
             }
             failures.add("the Games root has no '$label' row (rest ${gamesWin.rootRow})")
+        }
+
+        // 🔴 Type ladders are checked against the REAL rasterizer's metrics,
+        // not against a hand-picked pitch. Both of these shipped wrong once:
+        // the standings lens stacked three lines 16 px apart under fonts whose
+        // ink is 23 and 20, and the history band used a 14 px pitch under a
+        // face whose ink is 17 (the live session and review pass 3, 2026-09-04).
+        run {
+            val tx = AwtText()
+            fun ink(px: Int, bold: Boolean = false) =
+                tx.metrics(FontSpec(Face.SYSTEM, px, bold = bold)).let { it.ascent + it.descent }
+            check("the lens ladder fits its three lines (2/28/48 in a 64 px lens)",
+                2 + ink(17, bold = true) <= 28 && 28 + ink(13) <= 48 &&
+                    48 + tx.metrics(FontSpec(Face.SYSTEM, 11)).ascent <= 62)
+            val hist = wm.damage.core.windows.games.kit.TableLayout(
+                wm.damage.core.geom.Layout(Rect(0, 0, 640, 480)).content, 480).history
+            check("the 480 history band holds three MEASURED lines",
+                hist.h / tx.metrics(FontSpec(Face.SYSTEM, 11)).lineHeight >= 3)
         }
 
         toWindow(shell, "games")

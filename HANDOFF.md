@@ -1250,15 +1250,53 @@ with `JAVA_OPTS="-Duser.home=$SCRATCH"` on ports 7501/7503. Second mistake: `pgr
 runs it — and three orphaned instances then shared one state file while only the oldest held the
 replica port, so the screens under test were a stale build.
 
-### 26.4 What is owed
+### 26.4 The second cycle (2026-09-04, later) — eighteen more
+
+Adam asked for the whole thing again: *"run a complete code review … then do that a second time …
+then test the full system in the live environment thoroughly."* Two more code passes over
+everything the build touched, then a second live session. **Sixteen more verified defects, plus
+two coverage gaps** — the cash-out row had no test that walked it to a completion, and no check
+measured a type ladder against the real rasterizer — pinned in `GamesLive20260904Test`,
+`GamesWindowTest` and the selfcheck. `HOLDEM.md` §17.2b is the
+list; three of them are worth carrying past this window:
+
+- 🔴 **The same defect, one branch over.** §26.3's cash-out fix made a live hand fold first — but
+  the code short-circuited on `contributed == 0` into the engine call that refuses a live hand,
+  and `contributed == 0` is *first to act, preflop, out of the blinds*, which is four hands in
+  six. Fixing a reachability bug is not finishing with it: **walk every branch of the row**, and
+  the pin now enters from exactly that spot.
+- 🔴 **`?: 1` as "no finishing order means first".** True of the winner; also true of every seat
+  at a table that stopped early, and `playOut` has two loud paths that stop one. Each survivor
+  was credited the whole prize and recorded a win — money printed, careers corrupted, on the
+  error path of an error path. Both settlements now RANK the survivors by chips, so there is one
+  first place in either case. The general rule: **a default that is right on the happy path is
+  not a default, it is an assumption.**
+- 🔴 **The build gate had a blind spot.** `tools/lint.py`'s Kotlin string walker did not know
+  about char literals, so `'"'` — three of them in `Journal.kt` — flipped the string/code parity
+  for the rest of its line. A gate nobody has seen fail is a gate nobody trusts; a gate that
+  cannot fail on a construct the repo actually contains is worse. Pinned with a case the old
+  walker passes.
+
+The live session re-drove everything on the new build: the cash-out from the broken spot (bankroll
+$790 → $802, the table played on without me), **tap to leave** on the status tail while a
+cash-out is pending, the `Settings · games` deep link landing in the Games category, the history
+band's three measured lines, the four rungs again, a Custom raise through the §4.8 keyboard, a
+full process restart resuming the identical hand, and the switcher **resuming the table** where
+Main presents the root list. It also found the last one on the glass: the history read
+*"You checks"* and *"You wins $412"* — the engine now writes each sentence in the right person.
+
+**Battery:** core **418** · desktop **9** · selfcheck **162** · snapshots 49 · `--games-check` ·
+`--epub-check` · `--music-check` · lint 21 rules / 0 + selftest · APK **25 / 0.25** staged.
+
+### 26.5 What is owed
 
 - **On-glass verdicts.** Everything was judged on the simulator and the replica at true 1×. The
   card art, the hole-card plane depth, the arc stagger and the pacing want Adam's eye.
-- **APK 24/0.24 is staged** (`~/.damage/damage-wm.apk`, the setup page's `/damage-apk`). 0.23 is
+- **APK 25/0.25 is staged** (`~/.damage/damage-wm.apk`, the setup page's `/damage-apk`). 0.24 is
   superseded; the last version observed INSTALLED is still 0.16.
 - **The next window** is Adam's pick — `EXPLOSION.md` §20's order has Feed at #5 with Games now
   struck through as built.
 
-**Battery after this session:** core **414** · desktop **9** · selfcheck **160** · snapshots 49
+**Battery after this session:** core **418** · desktop **9** · selfcheck **162** · snapshots 49
 (13 Games) · `--games-check` all pass · `--epub-check` 58/58 · `--music-check` all pass · lint 21
 rules / 0 findings · `:phone:assembleDebug` green.
