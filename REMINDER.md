@@ -93,13 +93,18 @@ shell).
    ink** at 480 against the 15 % list budget with the harness's synthetic art, so a real album
    cover may trip it; the answers then are smaller art or reclassifying the surface as a canvas
    (Music Mode's note allows 30 %).
-2. **The next window.** Adam picks from `EXPLOSION.md` §20's wow order — **Games** (#1, roster
-   first; skipped once for Music) or **Feed + comics** (#5) — then the per-window refinery verdicts
-   BEFORE code, then the `WINDOWS.md` checklist with Music as the latest worked precedent. Built
-   whole, no staging; its notification toggles in its own category. ⚠ Games' licensing rule was
-   revised 2026-09-02 (`CLAUDE.md` clean-room): the work never ships, the WINDOW that drives it
-   may — Paperclips fetched from the author's site at run time (and Damage generates the DOM from
-   element ids rather than shipping his markup), FF1 on a ROM the user rips themselves.
+2. 🎴 **GAMES · HOLD'EM — designed, not built. `HOLDEM.md` is the plan.** Adam picked Games
+   (`EXPLOSION.md` §20 #1) on 2026-09-03 and the whole refinery pass ran in session 2026-09-03/04:
+   **36 verdicts**, the format (6-max sit-and-go, no rebuys), three tables, the shared bankroll
+   with the visible entry fee and the Loser Count, the persistent bot ecology, the card look, the
+   four-height ladder, the input grammar, the tests and a six-milestone build order. **Start at
+   `HOLDEM.md` §16 (Kickoff), and M1 first** — it is a *shell* change Adam ruled generally
+   (switcher resumes / Main shows the window's root list) plus a retrofit across Reader, Tmux,
+   Files, Torrents and Music. ⚠ Games' licensing rule was revised 2026-09-02 (`CLAUDE.md`
+   clean-room): the work never ships, the WINDOW that drives it may — Paperclips fetched from the
+   author's site at run time (and Damage generates the DOM from element ids rather than shipping
+   his markup), FF1 on a ROM the user rips themselves. Hold'em is entirely ours and needs none of
+   that. **Feed + comics** (§20 #5) is the next candidate after it.
 3. **On-glass verdicts still owed** for Torrents and the keyboard (the transfers list and lens, a
    real done-notification, browse / search / add against the live tracker; the keyboard's row
    pitch at 288, the highlight, stay-in-row), for Files (the menu grammar, viewers, the thumbnail
