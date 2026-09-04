@@ -87,6 +87,20 @@ object Seats {
         return out
     }
 
+    /**
+     * The OPPONENT STRIP: every seat but [viewer], in table order starting
+     * from the seat on the viewer's left. Busted seats stay in the list — a
+     * cell that empties must not shuffle the others along, and the rotation is
+     * by a seat index that is fixed for the tournament, so an opponent keeps
+     * the same cell from the first hand to the last.
+     */
+    fun strip(seats: List<Seat>, viewer: Int): List<Seat> {
+        val n = seats.size
+        if (n <= 1) return emptyList()
+        val v = viewer.mod(n)
+        return (1 until n).map { seats[(v + it) % n] }
+    }
+
     /** The next seat after [from] that satisfies [ok], or null. */
     fun next(seats: List<Seat>, from: Int, ok: (Seat) -> Boolean): Int? {
         val n = seats.size

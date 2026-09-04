@@ -98,6 +98,50 @@ class GamesWindowTest {
         }
     }
 
+    // ================================================================ live
+    /** The 2026-09-04 live session: coming in from Main presents the root
+     *  LIST — from its first row, not from wherever the cursor was left. */
+    @Test
+    fun comingFromMainLandsOnTheFirstRootRow(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-games-root")
+        val r = Rig(tmp)
+        try {
+            r.start()
+            r.down(); r.down()                        // Bankroll
+            r.tap()
+            r.await("the bankroll level") { r.win.levelDepth() == 2 }
+            r.back(); r.back()                        // out to Main
+            r.await("main") { r.win.levelDepth() == 1 }
+            r.tap()                                   // back into Games from Main
+            r.await("the games root") { r.win.title() == "games" }
+            assertEquals("Hold'em", r.win.rootRow,
+                "activation from Main presents the root list from its first row")
+        } finally {
+            r.stop()
+        }
+    }
+
+    /** The 2026-09-04 live session: the Hand-history document draws one small
+     *  line per entry, so the taller header needs a spacer under it or the
+     *  first entry crowds its descenders. */
+    @Test
+    fun theHandHistoryHeaderKeepsItsSpacer(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-games-hist")
+        val r = Rig(tmp)
+        try {
+            r.start()
+            r.sitDown()
+            val lines = r.win.historyDocLines
+            assertTrue(lines.size >= 2, "the history document is a header plus a body")
+            assertTrue(lines[0].startsWith("hand 1"), "line 0 is the header, got '${lines[0]}'")
+            assertEquals("", lines[1], "line 1 is the spacer under the header")
+            assertTrue(lines.drop(2).none { it.isEmpty() },
+                "only the header carries a spacer: $lines")
+        } finally {
+            r.stop()
+        }
+    }
+
     // ================================================================ grammar
     @Test
     fun theRootListSittingDownAndTheTableGrammar(): Unit = runBlocking {

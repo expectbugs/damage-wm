@@ -1151,3 +1151,114 @@ core.
 **Battery after the fixes:** core **329** (+10 pins) · desktop 9 · selfcheck **139** ·
 snapshots 36 · epub-check 58/58 · `--music-check` all pass · lint 0 + selftest · APK builds and
 carries the fixes. **APK 23/0.23 staged**; 0.16 is still the last observed installed.
+
+---
+
+## 26. Games · Hold'em — built, reviewed twice, live-tested (2026-09-04, overnight)
+
+Adam, going to bed: *"build it! This is an automated overnight build … build the whole thing
+completely and correctly and polished all the way … run a complete code review … then do that a
+second time … then test the full system in the live environment thoroughly, exactly as a user
+would … then update all relevant documentation."* This is that session's record. The design and
+its verdicts are `HOLDEM.md`; **`HOLDEM.md` §17 is the deviations list** and is the thing to read
+if you only read one part.
+
+### 26.1 What landed, milestone by milestone
+
+**M1 · the shell rule and its retrofit** (`d3da21d`). Verdict 35 is general, not a Games detail:
+*"Going to Games from the switcher should auto-resume … from Main should present the Games
+List … this should be true of any window that has multiple base functions."* `ActivationSource`
+(`SWITCHER` / `MAIN` / `DEEP_LINK` / `RESTORE`) joined `DamageWindow.onActivate`, `Shell` carries
+it through `commitWindow(w, from)`, and **all six existing windows implement root-vs-resume**.
+The retrofit's trap, found by the pins: Reader's Main entry left a *subfolder* open, which is
+depth 2, so one double-tap ascended inside the window instead of leaving it — `goRoot` has to
+reset the folder AND the cursor, and the test asserts `levelDepth() == 1` after a MAIN
+activation. Music is the exception: NOW PLAYING is its root (§24.4), so its MAIN entry is not a
+browse list.
+
+**M2 · the card kit** (`fdab57a`). `Rng` (counter-based splitmix64), `Cards`, `HandEval`, `Pots`,
+`Money`, `CardArt`, `HandFan`, `TableLayout`, `Seats`, `ActionLevel`, `Bankroll` — none of which
+mentions poker except by example, because blackjack and hearts are meant to reuse them. The
+**side-pot oracle** landed here: `pokerkit` (MIT) in a scratch venv generated 3,000 side-pot
+scenarios and 2,000 hand-ranking cases, and the *corpus* — JSON we own — is what the repo holds
+(`core/src/test/resources/holdem/`). Nothing third-party is vendored.
+
+Four generator defects had to be fixed before the corpus was worth anything, each of which would
+have "proved" our engine correct against nonsense: `str(card)` instead of `repr(card)`; sampling
+`st.bets` after each round had already reset it (the peak of `start − stacks` is the real
+contribution); a missing "show hole cards" step that left the board empty, so **every all-in hand
+scored as a chop**; and an `exactPayout` invariant that 1 scenario in 3,000 disproved, which
+became a strict rule plus an odd-chip drift bound.
+
+**M3 · the engine** (`14299c7`). Streets, blinds, button, min-raise, side pots, showdown,
+elimination — no UI at all. The persistence contract is the interesting part: the live table
+stores only `(seed, handNo, start stacks, busted order, button, actions)` and **re-derives** the
+deck, the holdings, the board, the pot and the turn by replaying the action log. A hand cannot
+drift from its own record because there is no second copy of it.
+
+**M4 + M5 · the table and the ecology** (`b9eb6b6`). The four-height table, the action / sizing /
+confirm levels, the §4.8 keyboard for a custom raise, tap-to-deal, the hand history; then
+`Character` (nine traits), `Mood`, `Roster`, `Background`, the standings, the shared bankroll and
+the Loser Count. `--games-check` landed with them and immediately paid: it found Unlimited's
+`canAfford` refusing the player his own table, fraction-of-roll Unlimited stakes inflating the
+money supply 236 %, and an `ambition()` call *inside a comparator* (a non-transitive ordering —
+`sortedWith` may throw on it).
+
+**M6 · integration.** Registration in desktop `Main.kt` and phone `ShellService.kt`, Settings →
+Games, 20 selfcheck checks, 13 snapshot scenes, the GAMES icon, `--games-check`, `--card-render`.
+`--selfcheck` had to have its Games checks extracted into `gamesChecks()` — the method passed the
+JVM's 64 KB limit and would not compile.
+
+### 26.2 The two review passes (`8aa9910`, `20f01a8`)
+
+Nineteen verified defects, each reproduced before it was fixed and each pinned in
+`GamesReview20260904Test`. The classes worth carrying forward:
+
+- **Concurrency around a loop-owned world.** Monte-Carlo decisions run off the shell loop and come
+  back through `runOnShell`; anything they touch has to be generation-stamped (`pacerGen`) or an
+  answer for a table you have left applies to the one you are looking at.
+- **Registration is not restore.** `onRegistered` runs before any sub-record arrives; populating
+  the roster there minted 35 characters against a fresh seed, and the restore then left them as
+  strangers with full bankrolls. Free money on every start.
+- **A finishing place is an ORDER, not a flag.** Two seats busting on one hand shared a place
+  until `bustedAt` became a 1-based order with the start-of-hand stack as the tie-break.
+- **The verb keys on `currentBet`, not on the street.** The big blind facing limpers was offered
+  "Bet".
+
+### 26.3 The live session — the part that found what nothing else could
+
+The real desktop program under the byte-exact simulator, in a scratch `$HOME`, driven over the
+browser replica: real gestures in, real 4bpp lens panels out, decoded to PNGs and looked at.
+Thirteen findings, all fixed and re-verified on screen; **`HOLDEM.md` §17.2 lists them.** The two
+that matter beyond their own fix:
+
+1. **Cash out was unreachable.** It lived only on the action level, which opens only mid-hand, and
+   the engine refused mid-hand — so the row existed and could never succeed. Two layers, and every
+   unit test missed both because they called `cashOut` in a state the UI cannot produce. This is
+   the general trap: **a menu row's reachability is part of its contract**, and only driving the
+   grammar proves it.
+2. **A drawn stack of horizontal bars beside a number is punctuation.** One bar read as an em-dash
+   in front of the word "pot"; two read as an equals sign between two amounts (`$198 = $2`). Three
+   geometries later the answer was round overlapping chips. Nothing in a unit test can see this,
+   and a 2× render flatters it — this is exactly what "always judge at true 1×" is for.
+
+⚠ **A process mistake worth not repeating.** `HOME=… java …` does **not** change the JVM's
+`user.home`; a stray instance briefly shared Adam's live `~/.damage`. It was stopped, the damage
+was three pristine `window.games.*` records (self-correcting), and the rest of the session ran
+with `JAVA_OPTS="-Duser.home=$SCRATCH"` on ports 7501/7503. Second mistake: `pgrep -f` matches
+**your own wrapper shell**, so a pattern that appears in your command line kills the shell that
+runs it — and three orphaned instances then shared one state file while only the oldest held the
+replica port, so the screens under test were a stale build.
+
+### 26.4 What is owed
+
+- **On-glass verdicts.** Everything was judged on the simulator and the replica at true 1×. The
+  card art, the hole-card plane depth, the arc stagger and the pacing want Adam's eye.
+- **APK 24/0.24 is staged** (`~/.damage/damage-wm.apk`, the setup page's `/damage-apk`). 0.23 is
+  superseded; the last version observed INSTALLED is still 0.16.
+- **The next window** is Adam's pick — `EXPLOSION.md` §20's order has Feed at #5 with Games now
+  struck through as built.
+
+**Battery after this session:** core **414** · desktop **9** · selfcheck **160** · snapshots 49
+(13 Games) · `--games-check` all pass · `--epub-check` 58/58 · `--music-check` all pass · lint 20
+rules / 0 findings · `:phone:assembleDebug` green.

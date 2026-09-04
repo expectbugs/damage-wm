@@ -387,7 +387,7 @@ state: per-game saves via the blob · settings: per-game rows.
 
 | # | idea | note | grade |
 |---|---|---|---|
-| 10.1 | Games hub list | | v1 |
+| 10.1 | Games hub list | ✅ **BUILT 2026-09-04** — the Games window's root: the running table, Standings, Bankroll, Settings (`HOLDEM.md` §4) | v1 |
 | 10.2 | **Chess vs Stockfish** — drawn board+pieces, scroll = square cursor, tap = select/move, confirm on capture-into-check class moves | turn-based = damage-tiny (a move repaints two squares + clocks ≈ one small flush); thick-stroke pieces per §2.4 rule 9 | v1 |
 | 10.3 | Chess: engine "thinking" in the op cell; move arrives as a delta + optional notification when parked | background completion → notify idiom | v1 |
 | 10.4 | Board depth: board at content plane, floating move-hints forward | +4 B per rect; the flagship small use of stereo outside chrome | v1.5 |
@@ -656,9 +656,13 @@ remote, PC live captions, chat bridges, a demos/eyecandy toy window.
 DamageWM's system, which is the intended *build excitement* order (risk still prices the actual
 sequencing per window):
 
-1. **Games** (roster first; 10b lanes on revisit) — not started; **Music was taken next instead
-   (Adam, 2026-09-02) and is built**. Next candidates after Music: Games (this row) or Feed +
-   comics (#5) — Adam picks.
+1. **Games** — ✅ **BUILT 2026-09-04, overnight** (`HOLDEM.md` — §17 is what was built and where
+   it departed from the design; `HANDOFF.md` §26). Texas Hold'em whole: 6-max sit-and-go, three
+   tables, the shared bankroll with its visible entry fee and Loser Count, and the persistent bot
+   ecology — the roster this row asked for first. The reusable kit under `windows/games/kit/` is
+   built for blackjack, hearts and gin; **none of them is built**, and the 10b emulation lanes are
+   still on revisit. It also shipped the shell's `ActivationSource` rule and `contentPlanes`.
+   **Feed + comics (#5) is the standing next candidate — Adam picks.**
 2. **Torrents** (§19) — ✅ **BUILT 2026-09-01 evening** (`TORRENTS.md`, `HANDOFF.md` §23; four
    review rounds, paused at Adam's word; on-glass verdicts owed)
 3. **Files** — ✅ **BUILT (2026-09-01, the same night — the §5 banner, `HANDOFF.md` §22)**:

@@ -91,7 +91,8 @@ class GamesReview20260904Test {
             if (pick.kind == ActionLevel.Kind.BET || pick.kind == ActionLevel.Kind.RAISE)
                 t.act(pick.kind, t.minRaiseTo()) else t.act(pick.kind)
         }
-        t.nextHand()
+        // the hand is SETTLED and waiting for a tap; cashing out rolls it
+        // forward itself
         val btn = t.button
         t.cashOut(btn)
         assertNotEquals(btn, t.button, "the button cannot stay on a seat that has left")

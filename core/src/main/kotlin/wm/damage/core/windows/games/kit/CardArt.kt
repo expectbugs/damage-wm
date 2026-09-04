@@ -35,7 +35,10 @@ object CardArt {
      *  near the real 0.714 card aspect. */
     data class Size(val w: Int, val h: Int) {
         val indexPx: Int get() = (h * 0.22).toInt()          // rank glyph size
-        val pipPx: Int get() = (w * 0.21).toInt()            // the corner pip
+        // 0.21 left the corner pip 10 px at the 288 rung, where a spade and a
+        // diamond are the same little lozenge; 0.25 is the smallest that
+        // separates the four shapes there (first live session, 2026-09-04)
+        val pipPx: Int get() = (w * 0.25).toInt()            // the corner pip
         val bigPip: Int get() = (w * 0.42).toInt()           // the big suit pip
         val pad: Int get() = maxOf(3, w / 12)
         val stroke: Int get() = if (w >= 64) 3 else 2
@@ -165,14 +168,18 @@ object CardArt {
             Suit.HEARTS -> heart(g, x, y, w, h, lv, up = false)
             Suit.SPADES -> {
                 heart(g, x, y, w, (h * 0.82).toInt(), lv, up = true)
-                stem(g, x, y, w, h, lv)
+                // the stem STARTS INSIDE the leaf: at 0.82h the two shapes
+                // met at a single row and integer truncation opened a gap, so
+                // the stem read as a separate blob under the pip (first live
+                // session, 2026-09-04)
+                stem(g, x, y + (h * 0.56).toInt(), w, h - (h * 0.56).toInt(), lv)
             }
             Suit.CLUBS -> {
                 val d = (w * 0.52).toInt()
                 g.fillEllipse(x + (w - d) / 2, y, d, d, lv)
                 g.fillEllipse(x, y + (h * 0.34).toInt(), d, d, lv)
                 g.fillEllipse(x + w - d, y + (h * 0.34).toInt(), d, d, lv)
-                stem(g, x, y, w, h, lv)
+                stem(g, x, y + (h * 0.46).toInt(), w, h - (h * 0.46).toInt(), lv)
             }
         }
     }
@@ -202,12 +209,15 @@ object CardArt {
         }
     }
 
-    /** The spade/club stem: a short trapezoid on the baseline. */
+    /** The spade/club stem: a trapezoid from ([x],[y]) down to the pip's
+     *  baseline, flaring into a foot. The caller starts it INSIDE the leaf or
+     *  the lobes — a stem that merely abuts them reads as a second shape. */
     private fun stem(g: Gray8, x: Int, y: Int, w: Int, h: Int, lv: Int) {
-        val sw = maxOf(2, w / 6)
-        val sh = maxOf(2, h / 5)
+        val waist = maxOf(2, w / 7)
+        val foot = maxOf(waist + 2, w / 3)
+        val cx = x + w / 2
         g.fillPolygon(
-            intArrayOf(x + w / 2 - sw / 2, x + w / 2 + sw / 2, x + w / 2 + sw, x + w / 2 - sw),
-            intArrayOf(y + h - sh, y + h - sh, y + h, y + h), lv)
+            intArrayOf(cx - waist / 2, cx + (waist + 1) / 2, cx + (foot + 1) / 2, cx - foot / 2),
+            intArrayOf(y, y, y + h, y + h), lv)
     }
 }

@@ -35,11 +35,13 @@ this file wins on rules. Its §0 lists what is *deliberately excluded* — read 
 anything, so you do not re-suggest a rejected idea.
 
 **Run `tools/lint.py` after any geometry, layout or drawn-string change.** It is the build gate from
-`DESIGN.md` §9.2b — 20 rules covering the failure modes this hardware reports as **silence**
+`DESIGN.md` §9.2b — 21 rules covering the failure modes this hardware reports as **silence**
 (unaligned rects, over-budget rect counts, fid gaps and reuse, mismatched stereo pairs, deltas with
-no keyframe, ink budgets, and glyphs the locked faces cannot render). `--selftest` fires 15 of them
-in 16 cases (GEO006 · GEO007 · BUD006 · BUD007 · SYM001 have no self-test case — the repo run
-checks those). It currently exits 0; keep it that way.
+no keyframe, ink budgets, and glyphs the locked faces cannot render). 🆕 **SYM002 (2026-09-04)
+checks EVERY Kotlin string literal**, not only the strings a Python render call passes — that is
+what the shell actually draws, and it is why the Hold'em sizing ladder says `1/2 pot` rather than
+`½ pot`. `--selftest` fires 16 of them in 18 cases (GEO006 · GEO007 · BUD006 · BUD007 · SYM001
+have no self-test case — the repo run checks those). It currently exits 0; keep it that way.
 
 **`DESIGN.md` §10 is the deployment topology** — three roles (transport / shell / content) and four
 configurations. It constrains the runtime: **the shell must run on Android and desktop, so it cannot
@@ -64,11 +66,16 @@ tmux + last-write-wins state sync) plus a STANDBY that drives PC-direct BLE only
 is unavailable and hands back on its return. The PC never claims in daily use** (`--transport
 remote` keeps the claim path as the explicit dev override). `REMINDER.md` is the orientation
 file; `HANDOFF.md` §19–§25 the current records; `DAILY.md` the ops crib; `IMPLEMENTATION.md`
-what runs and how. App layer: **Main · Settings · Reader · Tmux · Files · Torrents · Music** (Files landed
+what runs and how. App layer: **Main · Settings · Reader · Tmux · Files · Torrents · Music ·
+Games** (Files landed
 2026-09-01 with the whole §16 shared machinery — `HANDOFF.md` §22; Torrents + the §4.8
 keyboard the same evening — `TORRENTS.md`, `HANDOFF.md` §23; Music overnight 2026-09-01/02 —
 `MUSIC.md`, `HANDOFF.md` §24, the shell's exclusive mode `DESIGN.md` §4.9). A whole-codebase
 review followed on 2026-09-03 — ten verified defects fixed and pinned, `HANDOFF.md` §25.
+**Games · Hold'em landed overnight 2026-09-04** — `HOLDEM.md` (§17 = what was built and where it
+departed from the design), `HANDOFF.md` §26; it also put **`ActivationSource`** on the window
+contract (switcher = resume, Main = the window's root list) and retrofitted all six existing
+windows, and added **`contentPlanes`** so a window can name its own stereo regions.
 
 Adam's stated methodology governs **the app layer**:
 
@@ -84,20 +91,25 @@ is converting G2CC apps to DamageWM windows, one at a time**: Adam's per-window 
 verdicts first, then build against the `DamageWindow` contract
 (`core/…/shell/WindowContract.kt`) per the **`WINDOWS.md`** checklist, reading the G2CC
 original for interaction facts only (`/home/user/G2CC/server/src/windows/`, read-only) and
-`DESIGN.md` §4.6 for the mode contract. **Reader, Tmux, Files, Torrents and Music are the worked
+`DESIGN.md` §4.6 for the mode contract. **Reader, Tmux, Files, Torrents, Music and Games are the worked
 precedents** — Files and Torrents for MenuSurface and the window channel, Torrents for the §4.8
 keyboard, Music (`MUSIC.md`, built 2026-09-01/02) for a two-host contract, the channel's push
-frames and the §4.9 exclusive mode. Two of Adam's rules since Torrents bind every window: **built whole to its best state
+frames and the §4.9 exclusive mode, Games (`HOLDEM.md`, built 2026-09-04) for a window with **no
+host at all** — pure Kotlin, a CanvasView, its own stereo planes, and a reusable kit under
+`windows/games/kit/` that no later card game should have to rebuild. Two of Adam's rules since Torrents bind every window: **built whole to its best state
 before the next — no v1/v1.5 staging**; and **each app's notification toggles live in its own
 Settings category, never Global** (`WINDOWS.md` §1; Global keeps only the WM's own `Notify ·
 Damage` and the APK-wide `Phone notifications` switch, and the shell never gates an app's
 source on a hidden field — a Global row that disappears leaves a persisted value nothing can undo).
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(329 tests, including the per-lens oracle and the §25 review pins), `./gradlew :desktop:test` (9 tests: the BlueZ glue
-over a fake link), `desktop --selfcheck` (139 checks), `desktop --snapshot DIR` (look at the lens
+(414 tests, including the per-lens oracle and the §25/§26 review pins), `./gradlew :desktop:test` (9 tests: the BlueZ glue
+over a fake link), `desktop --selfcheck` (160 checks), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `desktop --music-check` (the real library, read-only bar the additive schema migration),
-`python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.
+`desktop --games-check` (the Hold'em ecology over hundreds of simulated tournaments — pure
+in-memory, touches nothing), `python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.
+After any CARD-ART change also run `desktop --card-render` and look at `design/shots/cards/` at
+true 1×.
 Radio use is normal now (post-flash); deploying = `./gradlew :desktop:stageJar && sudo
 rc-service damage restart` (`DAILY.md`) — since §19 the PC never claims, so a PC deploy never
 touches the display at all. Stop the service before any `:desktop:run` dev session (one set of

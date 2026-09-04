@@ -1,8 +1,10 @@
 # Games · Texas Hold'em — the design record and build plan
 
-**Status:** designed 2026-09-03/04 with Adam, in session. Not built. This file is to
-`GamesWindow` what `MUSIC.md` is to `MusicWindow` and `TORRENTS.md` to `TorrentsWindow`:
-the refinery verdicts first, then the design, then the build order.
+**Status: BUILT 2026-09-04** (overnight, unattended; M1–M6 plus two review passes and a live
+session — `HANDOFF.md` §26). This file is to `GamesWindow` what `MUSIC.md` is to `MusicWindow` and
+`TORRENTS.md` to `TorrentsWindow`: the refinery verdicts first, then the design, then the build
+order — and now **§17, what the build actually did and where it departed from this design.**
+Where §17 and an earlier section disagree, §17 is what runs.
 
 **Read first:** `CLAUDE.md` → `REMINDER.md` → `HANDOFF.md` §19–§25 → `WINDOWS.md` (the bar and
 the checklist) → `DESIGN.md` §1 (input), §2 (geometry), §4.6 (content modes), §6 (motion),
@@ -13,7 +15,8 @@ wins on hardware facts; `WINDOWS.md` §1 wins on what every window owes.
 built whole — Adam's no-staging rule (2026-09-01: *"completely built to its best state before we
 move on"*). Later games (blackjack, hearts, gin) are out of scope here but the kit is built for
 them. Also in scope: one **shell contract change** and its retrofit across five existing windows
-(§3) — Adam's rule, stated during this design and general to the whole system.
+(§3) — Adam's rule, stated during this design and general to the whole system. *(Six, as built:
+Settings has a root list too and got the same treatment.)*
 
 ---
 
@@ -828,6 +831,11 @@ or table. Runs N tournaments and prints:
 
 ## 14. Build order — six milestones, a commit after each
 
+> ✅ **All six landed 2026-09-04**, a commit each: `d3da21d` (M1) · `fdab57a` (M2) · `14299c7`
+> (M3) · `b9eb6b6` (M4+M5) · integration in the same wave, then `8aa9910` / `20f01a8` (the two
+> review passes) and the live-session fixes. Kept as the record of the order and its reasoning.
+
+
 **M1 · The shell rule and the retrofit (§3).** `ActivationSource` on the contract; `Shell.focus`
 carries it; all six windows implement root-vs-resume; tests for each. Lands first, independent of
 everything else, and it is Adam's general rule rather than a Games detail.
@@ -902,6 +910,10 @@ category, never Global (`WINDOWS.md` §1).
 
 ## 16. Kickoff for the build session
 
+> ✅ **Spent 2026-09-04.** Kept because a later game (blackjack, hearts, gin) starts the same
+> way — and because the "verify before starting" habit below is what makes a break attributable.
+
+
 **Read, in order:** `CLAUDE.md` · `REMINDER.md` · `HANDOFF.md` §19–§25 · `WINDOWS.md` (§1 the bar,
 §2 the contract, §3 the checklist, §4 the shared machinery, §5 the paid-for traps) · `DESIGN.md`
 §1, §2, §4.6, §4.8, §6, §9.1 · **this file** · then
@@ -921,3 +933,115 @@ touching a card.
 
 **Not in scope:** blackjack and every later card game — the kit is built for them, none of them is
 built here. Multiplayer (verdict 3). The texture cache (§2).
+
+---
+
+## 17. What was built (2026-09-04) — and where it departed from the design
+
+Built overnight in one unattended session: **M1 through M6, a commit per milestone**, then two
+full review passes (11 + 8 verified defects), then a live session driving the real program through
+the browser replica the way the ring drives it (13 more). The narrative record — what each
+milestone decided, what each review found — is `HANDOFF.md` §26. This section is the **delta**:
+what a reader of §1–§16 would otherwise get wrong.
+
+### 17.1 Deviations from the design, with the reason
+
+1. **ASCII fractions in the sizing ladder.** §10.3 writes `⅓ pot` / `½ pot` / `¾ pot`; the code
+   draws `1/3 pot` / `1/2 pot` / `3/4 pot`. U+2153 and friends are outside Latin-1 and no locked
+   face is guaranteed to carry them — an absent glyph is silent tofu on the glass. `tools/lint.py`
+   SYM002 (added in this build) now checks **every Kotlin string literal** against the four faces,
+   so this class cannot come back unnoticed.
+2. **Opponents get a holding MARK, never drawn card backs.** §9.2 left "actual backs at 480" as a
+   consideration. It lost at every rung: five seats × two backs is ten lit rectangles carrying one
+   bit of information each. `CardArt.holdingMark` draws two small bars instead.
+3. **The deal "animation" is a staged reveal, not a slide.** §9.2's mode-9 rect-copy slide was not
+   built: the board reveals card by card on the pacer (`revealed`), which is what the ack floor
+   affords and what reads as dealing. `Settings → Games → Deal animation` turns it off, and then
+   the board jumps to complete.
+4. **Big Boy is unaffordable on a fresh bankroll, on purpose.** $500 + $25 fee against a $1,000
+   start is two thirds of everything he has, so a new player is steered to Regular. Not a defect —
+   `--games-check` prints the affordability table.
+5. **Cash out is FOLD-then-leave, from a settled hand.** §10.1 said "only between hands", which is
+   a state that does not exist: the replay posts blinds the moment a seat has chips, so there is
+   always a hand dealt. The window folds you, waits for the hand to settle, then leaves — and
+   `HoldemTable.cashOut` **requires** a settled hand and rolls it forward itself, so the finished
+   hand's outcome is kept rather than discarded with the action log. The live session found this;
+   no unit test could, because every unit test called `cashOut` in a state the UI cannot reach.
+6. **"Broke" is one Regular buy-in plus its fee, not a token floor.** §7.3 left the threshold
+   open. At an $11 floor, 400 background tournaments left 8 of 35 characters able to afford
+   Regular. `Roster.brokeFor` uses `REGULAR.entry + fee`, and `--games-check` watches the money
+   supply's drift for it.
+7. **No drawn chip stack on the status line, and the seat stacks are round chips.** §9.2's "drawn
+   chip stacks in place of bare numbers" survives only in the seat cells, and only *after* the
+   amount. The live session found that a short horizontal bar stack beside a number is read as
+   punctuation — one bar is an em-dash in front of the word "pot", two bars are an equals sign
+   between two amounts. `Money.chipStack` now draws overlapping round chips (`fillEllipse`, 4 px
+   tall on a 3 px pitch, minimum two), which reads as a stack at the commonest count of all: a
+   seat that has just posted a blind.
+8. **The opponent strip reads from the seat on your left.** Not in the design. Raw seat-index
+   order put the two blinds at opposite ends of the strip on most hands. `Seats.strip` rotates by
+   `mySeat`, which is fixed for the tournament, so an opponent keeps the same cell throughout.
+9. **The Games root has a fourth row, `Settings · games`** — a deep link into the window's own
+   Settings category, so the confirm policy and the bot pace are two taps from the table.
+10. **`contentPlanes` joined the window contract.** §9.2 wanted your hole cards forward at plane 0.
+    Rather than special-case Games in the shell, `DamageWindow.contentPlanes(content)` lets any
+    window name up to `Shell.MAX_WINDOW_PLANES` (4) stereo regions; the shell validates and caps
+    them. Games returns one region — the hole-card band — and only at the table level.
+
+### 17.2 What the live session changed (2026-09-04, sim transport, browser replica)
+
+Driving the real program the way a user does found thirteen things that no unit test and no
+offline render caught. Beyond items 5, 7 and 8 above:
+
+- **The spade and club stems were detached.** The stem was drawn from the pip's baseline upward by
+  `h/5` while the leaf and lobes ended at `0.82h` and `0.86h`; integer truncation opened a one-row
+  gap, so at every ladder rung the stem read as a second blob under the pip. The stem now starts
+  *inside* the body and flares into a foot. `GamesLive20260904Test` pins every pip at every size
+  as ONE 4-connected shape.
+- **The corner pip was 10 px at the 288 rung**, where a spade and a diamond are the same little
+  lozenge. `Size.pipPx` went from `0.21×w` to `0.25×w`, the smallest that separates the four
+  shapes there.
+- **A seat's committed chips overlapped the holding mark.** Both were right-aligned into the same
+  box, so `$44` and the two-bar mark drew over each other and the amount read as the *next* seat's
+  money. The amount now sits in the left column beside the stack it came out of, bounded so it can
+  never reach the mark.
+- **Three lens lines did not fit a 64 px lens at 18/15/13 on a 6/30/46 ladder.** Measured on the
+  real rasterizer, ink (ascent + descent) is 27 px at 18 bold, 25 at 17 bold, 23 at 15, 20 at 13
+  and 17 at 11. The standings and buy-in lenses now use 17 bold / 13 / 11 at `LENS_1/2/3` = 2/28/48
+  — every ascent inside the box, only empty descent tails crossing the bottom rule — and the third
+  line is dropped rather than drawn through the second if a font scale makes the ladder too tight.
+- **The hand-history header had no spacer**, so the first entry crowded its descenders. The
+  document draws one small line per entry; a taller header needs the blank line `charLines` and
+  `bankLines` already had.
+- **The bankroll menu's refill row elided both halves.** `MenuSurface` caps a detail at half the
+  248 px box; "Refill to $1,000" + "Loser Count 1 -> 2" over-ran the label bound *and* the detail
+  bound, so both were cut with marks. It is now `Refill` + `$1,000 · count 2`.
+- **Coming in from Main landed wherever the cursor was left** — on Bankroll, not on the root list's
+  first row. `goRoot` now resets the root cursor and clears `standFrom`, matching the Reader
+  precedent from the M1 retrofit.
+- **"time(s)"** in the character sheet became `once` / `N times`.
+
+One test outside Games was fixed in the same pass: `PathTransportTest`'s
+`aStartCancelledWhileALoserRollsBackStopsTheCompletedWinner` asserted "start() has not completed
+yet" after a fixed 100 ms wait. On a loaded machine `delay` can resume long after the loser's
+rollback ended, and it failed once during this battery. It now asserts the ORDER — the rollback
+finished, or start() has not completed — which is the invariant it was written for.
+
+### 17.3 The battery, after the build
+
+`./gradlew :core:test` **414** · `./gradlew :desktop:test` **9** · `desktop --selfcheck` **160**
+checks · `desktop --games-check` (a new harness — the ecology over hundreds of simulated
+tournaments) · `desktop --snapshot` **13 Games scenes** among 49 · `desktop --card-render` (the
+card sheets in `design/shots/cards/`) · `desktop --epub-check` · `desktop --music-check` ·
+`python3 tools/lint.py` **20 rules, 0 findings** · `./gradlew :phone:assembleDebug` (APK
+**24 / 0.24**).
+
+### 17.4 Still open
+
+- **On-glass verdicts.** Everything above was judged on the byte-exact simulator at true 1× and
+  through the browser replica. The card art, the depth of the hole-card plane, the arc stagger and
+  the pacing all want Adam's eye on the real panel.
+- **The background-economy ratio** is tuned to `--games-check`'s measurement, not to a season of
+  Adam's own play. The money-supply curve it prints is the thing to watch.
+- **Later games.** The kit (`windows/games/kit/`) is built for blackjack, hearts and gin and none
+  of them is built.

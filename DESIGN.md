@@ -420,6 +420,15 @@ direction of the ladder is unchanged.
 you know something popped before you read it. **Modal depth = modal state**: a confirm dialog one
 step forward, and the depth itself says "this is blocking."
 
+🆕 **A window may name its own regions inside the content plane (2026-09-04).**
+`DamageWindow.contentPlanes(content)` returns up to `Shell.MAX_WINDOW_PLANES` (4) rects with the
+plane each should sit on; the shell validates them (grid-legal, inside the content area, capped in
+number) and folds them into the plane map. Everything above still holds — horizontal offsets only,
+never vertical, never different content per eye, small magnitudes — this only lets a window say
+*which part of itself* leans forward. Games brings your two hole cards to plane 0 and leaves the
+table at the content plane, so your own hand reads as yours without lighting one extra pixel; a
+window that returns an empty list is exactly as it was.
+
 ### 3.2 Mechanism, from source
 
 ```
@@ -1646,6 +1655,37 @@ above the strip), the seven-segment **medium** clock top-right, and the PC link 
 Measured on the sim (`--selfcheck`, 2026-09-02): Music Mode at 480 with Bars is under the
 30 % canvas note; the achievable visualizer rate on glass and the Bluetooth lyric offset
 are **measured items**, not modeled here (`MUSIC.md` §12).
+
+### 4.10 Activation source — switcher resumes, Main presents the root (2026-09-04)
+
+Adam's general rule, stated while designing Games and applied to every window:
+
+> *"Going to Games from the switcher should auto-resume … Going to Games from Main should present
+> the Games List … This should be true of any window that has multiple base functions (like
+> Reader… Similarly, going to Tmux from Main should present a list of sessions, but Switcher to
+> Tmux should go directly into the last session where I left off)."*
+
+`onActivate(ctx, from)` carries an `ActivationSource`:
+
+| source | meaning |
+|---|---|
+| `SWITCHER` | **resume** — the window is exactly where it was, including its deepest level |
+| `MAIN` | present the window's **root list** — its top level, from the first row |
+| `DEEP_LINK` | a notification tap or a hand-off; go to the target (§16.1/§16.5) |
+| `RESTORE` | the boot path — restore decides the level; activation changes nothing |
+
+Three rules that are easy to get wrong:
+
+1. **`MAIN` changes the entry POINT, never the stored state.** Deep state survives; navigating
+   back down lands exactly where it was. §9.1 is not weakened.
+2. **Resetting the level is not enough — reset the container and the cursor too.** Reader's Main
+   entry left a subfolder open, which is depth 2, so a single double-tap ascended *inside* the
+   window instead of leaving it. The pin asserts `levelDepth() == 1` after a MAIN activation.
+3. **A window whose root IS its live surface has nothing to present.** Music's root is NOW PLAYING
+   (`MUSIC.md`, `HANDOFF.md` §24.4), so its Main entry is not a browse list.
+
+**A preview is a render, never an activation** (§4.3 rule 1): the switcher's preview must not call
+`onActivate` with any source.
 
 ## 5. Compositor engine
 

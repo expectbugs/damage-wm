@@ -52,6 +52,9 @@ class HoldemView(private val tx: TextRasterizer) {
         val acting: Int? = null,
     )
 
+    /** A drawn chip's width in a seat cell. */
+    private val CHIP_W = 9
+
     private val fName = FontSpec(Face.SYSTEM, 15, bold = true)
     private val fSmall = FontSpec(Face.SYSTEM, 12)
     private val fTiny = FontSpec(Face.SYSTEM, 11)
@@ -87,7 +90,12 @@ class HoldemView(private val tx: TextRasterizer) {
 
     // ------------------------------------------------------------------ seats
     private fun paintSeats(g: Gray8, t: TableLayout, m: Model) {
-        val others = m.v.seats.filter { it.index != m.mySeat }
+        // read the strip the way you read a table: from the seat on YOUR LEFT,
+        // clockwise. Raw index order put the two blinds at opposite ends of
+        // the strip on half the hands (first live session, 2026-09-04). The
+        // rotation is by mySeat, which is fixed for the tournament, so every
+        // opponent keeps the same cell all the way through.
+        val others = Seats.strip(m.v.seats, m.mySeat)
         if (others.isEmpty()) return
         for ((i, s) in others.withIndex()) {
             paintSeat(g, t.seatCell(i, others.size), t, s, m)
@@ -134,23 +142,48 @@ class HoldemView(private val tx: TextRasterizer) {
             tx.draw(g, x, y, "out", fSmall, Level.FAINT)
             return
         }
-        // stack + what is in front of them
+        // stack + what is in front of them. Both sit in the LEFT column,
+        // beside the stack they came out of: right-aligned they landed in the
+        // same box as the holding mark and read as the NEXT seat's money
+        // (first live session, 2026-09-04).
         val stack = Money.compact(s.stack)
         tx.draw(g, x, y, stack, fStack, if (s.allIn) Level.HOT else bodyLv)
-        val inFront = if (s.committed > 0) Money.compact(s.committed) else ""
-        if (inFront.isNotEmpty()) {
-            Draw.right(g, tx, cell.right - 6, y + 2, inFront, if (dim) Level.DIM else Level.MID, fSmall)
-            // §9.2's top rung: drawn chip stacks in place of bare numbers
+        if (s.committed > 0) {
+            // the holding mark owns the cell's right edge — never draw into it
+            val bound = if (s.cards.isNotEmpty() && !s.folded) cell.right - 26 else cell.right - 6
+            val cx = x + tx.measure(stack, fStack) + 8
+            val inFront = Money.compact(s.committed)
+            Draw.fit(g, tx, cx, y + 2, inFront, if (dim) Level.DIM else Level.MID, fSmall, bound - cx)
+            // §9.2's top rung: the drawn stack rides AFTER the amount. Set
+            // BETWEEN two numbers, a two-bar stack read as an equals sign
+            // (first live session, 2026-09-04). It grows upward from the row's
+            // base, so it caps at three bars or it climbs into the name.
             if (t.showsChipStacks) {
-                Money.chipStack(g, cell.right - 22, y + 22, 16, s.committed, m.v.bb,
-                    if (dim) Level.REST else Level.MID)
+                val bx = cx + tx.measure(inFront, fSmall) + 6
+                if (bx + CHIP_W <= bound) {
+                    Money.chipStack(g, bx, y + 14, CHIP_W, s.committed, m.v.bb,
+                        if (dim) Level.REST else Level.MID, maxChips = 4)
+                }
             }
         }
         y += 16
 
+        val inspected = m.cursor == s.index
         if (t.showsLastAction) {
             val shown = m.v.result?.shown ?: emptySet()
-            if (s.index in shown && s.cards.isNotEmpty()) {
+            if (inspected) {
+                // inspecting a seat is a question, so it gets an answer: what
+                // you have actually seen them do (§7.7). The brackets alone
+                // said nothing (the first live session, 2026-09-04).
+                val c = m.cast[s.index]
+                val line = when {
+                    c == null -> "you"
+                    c.career.handsVsYou == 0 -> "no hands together"
+                    c.career.handsVsYou < READ_HANDS -> "${c.career.handsVsYou} hands"
+                    else -> "vp ${(c.career.vpip * 100).toInt()} · ag ${"%.1f".format(c.career.aggression)}"
+                }
+                Draw.fit(g, tx, x, y, line, Level.MID, fSmall, w)
+            } else if (s.index in shown && s.cards.isNotEmpty()) {
                 // the showdown: the cards themselves replace the last action
                 Draw.fit(g, tx, x, y, s.cards.joinToString(" ") { it.code },
                     if (dim) Level.DIM else Level.HEAD, fSmall, w)
@@ -233,11 +266,12 @@ class HoldemView(private val tx: TextRasterizer) {
         val blinds = "${Money.compact(m.v.sb)}/${Money.compact(m.v.bb)}" +
             if (t.tier >= 1) " · up in ${m.handsToLevel}" else ""
         val bw = tx.measure(blinds, fSmall) + 12
-        var lx = r.x
-        if (t.showsChipStacks && m.v.pot > 0) {
-            Money.chipStack(g, r.x, r.y + r.h - 4, 14, m.v.pot, m.v.bb, Level.MID)
-            lx += 22
-        }
+        // 🔴 no drawn chip stack HERE. A short horizontal stack in front of a
+        // word is punctuation, not chips — one bar read as a dash and two read
+        // as an equals sign (first live session, 2026-09-04). The status line
+        // already says the pot in figures; the drawn stacks live in the seat
+        // cells, where each one sits beside the amount it stands for.
+        val lx = r.x
         // the line carries a character NAME: sanitize it like any other
         // dynamic string, or a glyph the face lacks is silent tofu
         Draw.fit(g, tx, lx, r.y + 2, Draw.dynamic(tx, left, fStatus),

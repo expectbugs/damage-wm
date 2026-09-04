@@ -6,8 +6,9 @@ wave.** The research phase this file records closed 2026-08-17; the shell was bu
 the refinement wave 2026-08-31 (§12), the phone APK became the primary driver with the PC as
 data provider + standby the same night (§19), and 2026-09-01 brought the first G2CC window
 conversion (Files) with the shared app machinery (§22) and then Torrents + the on-glass keyboard
-(§23), and 2026-09-01/02 Music (§24 — `MUSIC.md`). App layer: Main · Settings · Reader · Tmux ·
-Files · Torrents · Music. This file
+(§23), 2026-09-01/02 Music (§24 — `MUSIC.md`) and 2026-09-04 Games · Hold'em (§26 —
+`HOLDEM.md`). App layer: Main · Settings · Reader · Tmux ·
+Files · Torrents · Music · Games. This file
 remains **the fact record** — read it with [`CLAIMS.md`](CLAIMS.md) for grades; the app wave's
 own records are `EXPLOSION.md`, `WINDOWS.md` and `TORRENTS.md`.
 ⚠ Facts below marked "our firmware is 2.2.2.20" are historical: **the pair now runs the CFW**

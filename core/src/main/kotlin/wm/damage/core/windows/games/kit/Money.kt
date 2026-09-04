@@ -52,18 +52,29 @@ object Money {
      * $4,000 bet is a taller stack than $400 without being ten times taller —
      * and it caps, because the point is "a lot" and not an exact count.
      *
-     * Bars are horizontal runs, which is what the RLE wants (§2.4 r9).
+     * Chips are horizontal runs, which is what the RLE wants (§2.4 r9).
      */
     fun chipStack(g: Gray8, x: Int, y: Int, w: Int, amount: Int, bigBlind: Int, lv: Int,
         maxChips: Int = 5): Int {
         if (amount <= 0 || bigBlind <= 0) return 0
         val bb = amount.toDouble() / bigBlind
-        val n = (1 + kotlin.math.log2(bb.coerceAtLeast(1.0))).toInt().coerceIn(1, maxChips)
-        for (i in 0 until n) {
-            g.fillRect(x, y - i * 4, w, 2, if (i == n - 1) lv else Level.of((lv / 17 * 2 / 3).coerceAtLeast(2)))
-        }
-        return n * 4
+        // 🔴 ROUND chips, overlapping. Square bars with square gaps read as
+        // punctuation next to the amount they annotate — one bar was an
+        // em-dash in front of the word "pot" and two were an equals sign
+        // between two amounts (first live session, 2026-09-04). Round ends and
+        // a 1 px overlap give a scalloped column that reads as a stack at two
+        // chips, which is the commonest case: a seat that has just posted a
+        // blind. Two is also the floor — a single chip is a dash whatever it
+        // is drawn beside.
+        val n = (1 + kotlin.math.log2(bb.coerceAtLeast(1.0))).toInt().coerceIn(2, maxOf(2, maxChips))
+        for (i in 0 until n) g.fillEllipse(x, y - i * CHIP_PITCH, w, CHIP_H, lv)
+        return (n - 1) * CHIP_PITCH + CHIP_H
     }
+
+    /** One drawn chip: 4 rows tall, stacked on a 3-row pitch so each overlaps
+     *  the one below and the column reads as continuous. */
+    const val CHIP_H = 4
+    const val CHIP_PITCH = 3
 
     // ================================================================ seven segment
     /** A digit cell's metrics. Every dimension is even so the drawn extent

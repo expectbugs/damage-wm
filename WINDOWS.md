@@ -12,7 +12,7 @@ as code), and the G2CC original (`/home/user/G2CC/server/src/windows/<app>.ts`) 
 interaction facts only, no code taken** (clean-room rule, `CLAUDE.md`) — when one exists
 (Torrents had none; step 2 then has nothing to mine).
 
-**The five worked precedents:** `ReaderWindow` (List → Document → Actions, async content,
+**The six worked precedents:** `ReaderWindow` (List → Document → Actions, async content,
 per-item sub-records, images), `TmuxWindow` (Canvas, a live provider over the content port,
 quick keys, typed text with confirm, alerts), **`FilesWindow`** (2026-09-01 — the
 tap-=-context-menu grammar via `MenuSurface`, the §16.10 window channel via
@@ -25,9 +25,15 @@ identity, announcements decided host-side once), and **`MusicWindow`** (2026-09-
 so the same code runs with the phone's ExoPlayer or the desktop's read-only mirror; the
 window channel's PUSH slice, a second endpoint (:7404) for media bytes, per-height layouts
 for every level and for a whole-panel EXCLUSIVE mode — `DESIGN.md` §4.9 — and a per-app
-Settings category of thirty rows). Read them before writing a sixth — Files and Torrents are
-the worked examples of MenuSurface and WinNet, Torrents of the keyboard, Music of a
-two-host contract, push frames and the exclusive mode.
+Settings category of thirty rows), and **`GamesWindow`** (2026-09-04, `HOLDEM.md` — the first
+window with **no host at all**: pure Kotlin, nothing outside itself, so it runs identically in
+every `DESIGN.md` §10 configuration; a `CanvasView` table at four heights; its own **stereo
+planes** via the new `contentPlanes`; a reusable game kit under `windows/games/kit/` that names
+no card game; a world that advances only while you are looking at it; and a determinism contract
+where the persisted record is an ACTION LOG the engine replays). Read them before writing a
+seventh — Files and Torrents are the worked examples of MenuSurface and WinNet, Torrents of the
+keyboard, Music of a two-host contract, push frames and the exclusive mode, Games of a
+host-free window and of a canvas that owns its own depth.
 
 ---
 
@@ -94,8 +100,23 @@ restore assumes an activation follow-up; Files/Tmux/Reader are the precedents) �
 **`saveSubState()/restoreSubState()`** (per-item records, §16.4; empty object = removal
 tombstone) · `styleTransform`/`styledText()` (route EVERY measure/draw through it) · `back()` /
 `levelDepth()` · `onTypedText(line)` (confirm-staged) · **`open(target)`** (§16.1, BUILT:
-opaque per-window target, false = loud; Files→Reader ships on it) · the lifecycle hooks
-(`onRegistered`/`onActivate`/`onDeactivate`/`onLayoutChanged`/`onFontScaleChanged`).
+opaque per-window target, false = loud; Files→Reader ships on it) ·
+🆕 **`contentPlanes(content)`** (2026-09-04 — the stereo regions this window wants inside the
+content area, up to `Shell.MAX_WINDOW_PLANES` = 4; the shell validates and caps them, and an
+empty list means "the content plane, as always". Games brings its hole cards forward with it) ·
+the lifecycle hooks
+(`onRegistered`/**`onActivate(ctx, from)`**/`onDeactivate`/`onLayoutChanged`/`onFontScaleChanged`).
+
+🆕 **`ActivationSource` (2026-09-04) — Adam's general rule, not a Games detail.** `onActivate`
+now carries where the focus came from: `SWITCHER` **resumes** exactly where the window was;
+`MAIN` presents the window's **root list**; `DEEP_LINK` goes to the target; `RESTORE` is the boot
+path and changes nothing. Every window with more than one base function implements it. Two traps
+the retrofit paid for:
+- **Reset the cursor AND the container**, not just the level. Reader's Main entry left a
+  *subfolder* open — depth 2 — so one double-tap ascended inside the window instead of leaving
+  it. Assert `levelDepth() == 1` after a MAIN activation.
+- **A window whose root IS its live surface has nothing to reset.** Music's root is NOW PLAYING
+  (`HANDOFF.md` §24.4); do not turn its Main entry into a browse list.
 
 `ShellServices`: `requestRender` · `setOperation` · `notifyInternal(source, body, urgent,
 appId, thread, target)` (§16.5 — tap = commit + activate + open(target)) ·
@@ -225,3 +246,22 @@ All four rows of the agreed build order are CODE, and so is the keyboard that fo
 - **A once-per-run notice whose own remedy does not re-arm it** (§25 #9). The quiet-stream
   notice told the user to raise the volume; raising it left the latch set, so the next silent
   start said nothing.
+- **A menu row that can never succeed** (`HANDOFF.md` §26.3, found only by driving the grammar).
+  Games' `Cash out` lived on a level that opens mid-hand, and the engine refused mid-hand: the
+  row existed, was drawn, and could not work. Every unit test called the method in a state the
+  UI cannot produce. **A row's REACHABILITY is part of its contract** — walk the grammar to the
+  row and commit it, in a test or in a live session.
+- **Trusting a generated test corpus you did not check** (§26.1). Four defects in the side-pot
+  oracle's generator would each have "proved" the engine correct against nonsense — the worst
+  left the board empty, so every all-in hand scored as a chop. Spot-check a corpus against hands
+  you can rank by hand before you trust 3,000 of them.
+- **A small drawn shape beside a number reads as punctuation** (§26.3). A one-bar chip stack was
+  an em-dash in front of the word "pot"; two bars were an equals sign between two amounts. Judge
+  every drawn glyph-scale mark at true 1×, in its real neighbours — never in isolation and never
+  scaled up.
+- **Stacking lines by a hand-picked pitch instead of by measured ink.** Three lines at 18/15/13
+  do not fit a 64 px lens: measured on the real rasterizer, ink (ascent + descent) is 27/23/20 px.
+  Size the ladder from `tx.metrics`, and if a font scale makes it too tight, DROP the last line
+  rather than draw it through the one above.
+- **`onRegistered` is not the restore.** It runs before any sub-record arrives; anything it
+  creates will be duplicated or orphaned by the restore that follows. Seed on activation.

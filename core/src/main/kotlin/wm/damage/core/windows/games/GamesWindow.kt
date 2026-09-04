@@ -115,6 +115,9 @@ class GamesWindow(
     /** The hand number already settled into moods and careers — a repaint or
      *  a second `afterAction` on the same result must not count it twice. */
     private var lastSettledHand = -1
+    /** You asked to leave while your hand was live: you folded, and the chips
+     *  come off the table the moment the hand settles (§10.2). */
+    private var cashOutPending = false
 
     // ---- settings (all window-owned; §14) -----------------------------------
     private var confirmPolicy = ActionLevel.Confirm.ALL
@@ -137,6 +140,14 @@ class GamesWindow(
     private val fRowB = FontSpec(Face.SYSTEM, 18, bold = true)
     private val fSmall = FontSpec(Face.SYSTEM, 13)
     private val fLens = FontSpec(Face.SYSTEM, 15)
+    // The 64 px lens holds three lines only at these sizes. Measured on the
+    // real rasterizer (Clear Sans, x-height normalised): ink — ascent plus
+    // descent — is 27 px at 18 bold, 25 at 17 bold, 23 at 15, 20 at 13 and 17
+    // at 11, so 18/15/13 at 6/30/46 could not fit and the third line landed on
+    // the second and on the lens rule (first live session, 2026-09-04).
+    private val fLensHead = FontSpec(Face.SYSTEM, 17, bold = true)
+    private val fLensBody = FontSpec(Face.SYSTEM, 13)
+    private val fLensTail = FontSpec(Face.SYSTEM, 11)
     private val fDoc = FontSpec(Face.SYSTEM, 16)
     private val fHead = FontSpec(Face.SYSTEM, 17, bold = true)
 
@@ -159,6 +170,9 @@ class GamesWindow(
     val myWorth: Int get() = bankroll.cash + (table?.stackOf(mySeat) ?: 0)
     /** The Games-root row the cursor rests on, BY NAME. */
     val rootRow: String get() = rowLabel(gamesRows()[gamesModel.cursor.mod(gamesRows().size)]).first
+    /** The Hand-history document, as strings — the doc rhythm is one line per
+     *  entry, so a harness can pin the header's spacer. */
+    val historyDocLines: List<String> get() = histLines().map { it.s }
 
     // ================================================================ helpers
     private fun setNotice(s: String) {
@@ -174,6 +188,10 @@ class GamesWindow(
     private fun dn(s: String, f: FontSpec = fRow): String = Draw.dynamic(tx, s, f)
 
     private fun lineH(f: FontSpec) = tx.metrics(f).lineHeight
+
+    /** A line's drawn extent: ascent plus descent. The line HEIGHT adds
+     *  leading, which is empty and may hang past a box's rule harmlessly. */
+    private fun ink(f: FontSpec) = tx.metrics(f).let { it.ascent + it.descent }
 
     /** Adam, as a roster character (verdict 25) — $1,000 wealth, infinite
      *  lives, invisible traits emergent from play, in the standings. */
@@ -214,6 +232,12 @@ class GamesWindow(
     private fun goRoot() {
         level = Level_.GAMES
         openChar = null
+        // the root LIST, from its first row — coming in from Main and landing
+        // on Bankroll because that is where the cursor was left is not
+        // "present the Games List" (first live session, 2026-09-04). The
+        // Reader precedent resets its folder and cursor the same way.
+        gamesModel.cursor = 0
+        standFrom = null
         pacerGen++
         acting = null
     }
@@ -251,7 +275,9 @@ class GamesWindow(
 
     override fun title(): String {
         val n = notice
-        if (n != null && clock() < noticeUntil) return n
+        // the TABLE draws its own notice across the status band, where it is
+        // readable; repeating it in the 400 px title cell only truncates it
+        if (n != null && clock() < noticeUntil && level != Level_.TABLE) return n
         return when (level) {
             Level_.GAMES -> "games"
             Level_.TABLES -> "hold'em"
@@ -366,7 +392,7 @@ class GamesWindow(
                     bankroll.tournamentsWon, bankroll.loserCount)
             }
             GRow.Holdem -> {
-                tx.draw(g, r.x + 8, r.y + 8, label, fRowB, Level.HEAD)
+                tx.draw(g, r.x + 8, r.y + 6, label, fRowB, Level.HEAD)
                 val t = table
                 val line = if (t == null) "three tables · " + HoldemRules.Table.entries
                     .joinToString(" · ") { it.label }
@@ -374,16 +400,16 @@ class GamesWindow(
                     "hand ${v.handNo + 1} · blinds ${Money.fmt(v.sb)}/${Money.fmt(v.bb)} · " +
                         "${v.activeSeats.size} left"
                 }
-                Draw.fit(g, tx, r.x + 8, r.y + 34, line, Level.DIM, fLens, r.w - 16)
+                Draw.fit(g, tx, r.x + 8, r.y + 36, line, Level.DIM, fLens, r.w - 16)
             }
             else -> {
-                tx.draw(g, r.x + 8, r.y + 8, label, fRowB, Level.HEAD)
+                tx.draw(g, r.x + 8, r.y + 6, label, fRowB, Level.HEAD)
                 val line = when (row) {
                     GRow.Standings -> standRows().take(3)
                         .joinToString(" · ") { "${dn(it.name, fLens)} ${Money.compact(worthOf(it))}" }
                     else -> "font, size, confirm, bot pace, notifications"
                 }
-                Draw.fit(g, tx, r.x + 8, r.y + 34, line, Level.DIM, fLens, r.w - 16)
+                Draw.fit(g, tx, r.x + 8, r.y + 36, line, Level.DIM, fLens, r.w - 16)
             }
         }
     }
@@ -414,8 +440,12 @@ class GamesWindow(
         val spec = tableRows().getOrNull(i) ?: return
         val lv = if (dim) Level.REST else Level.BODY
         val entry = entryFor(spec)
-        val detail = "${Money.fmt(entry)} + ${Money.fmt(HoldemRules.fee(entry))}"
-        val afford = bankroll.cash >= entry + HoldemRules.fee(entry)
+        // §5.2: Unlimited takes ANY entry, so its row says the RULE and the
+        // chooser asks the amount — printing the last amount you happened to
+        // pick reads as a fixed price it does not have
+        val detail = if (spec.entry == null) "any + 5%"
+        else "${Money.fmt(entry)} + ${Money.fmt(HoldemRules.fee(entry))}"
+        val afford = spec.entry == null || bankroll.cash >= entry + HoldemRules.fee(entry)
         Draw.fit(g, tx, r.x + 8, r.y + 5, spec.label, lv, fRow,
             r.w - 16 - tx.measure(detail, fSmall) - 16)
         Draw.right(g, tx, r.right - 8, r.y + 8, detail,
@@ -424,17 +454,25 @@ class GamesWindow(
 
     private fun paintTableLens(g: Gray8, r: Rect, i: Int) {
         val spec = tableRows().getOrNull(i) ?: return
-        tx.draw(g, r.x + 8, r.y + 6, spec.label, fRowB, Level.HEAD)
+        tx.draw(g, r.x + 8, r.y + LENS_1, spec.label, fLensHead, Level.HEAD)
         val entry = entryFor(spec)
         val fee = HoldemRules.fee(entry)
         // 🔴 verdict 24: a VISIBLE fee, on the buy-in row, and it applies to
         // Adam too
-        val line1 = "${Money.fmt(entry)} + ${Money.fmt(fee)} fee · blinds " +
+        val line1 = (if (spec.entry == null) "any entry + 5% fee · blinds "
+        else "${Money.fmt(entry)} + ${Money.fmt(fee)} fee · blinds ") +
             "${Money.fmt(spec.sbAt(0))}/${Money.fmt(spec.bbAt(0))}"
-        Draw.fit(g, tx, r.x + 8, r.y + 30, line1, Level.BODY, fLens, r.w - 16)
+        Draw.fit(g, tx, r.x + 8, r.y + LENS_2, line1, Level.BODY, fLensBody, r.w - 16)
         val ladder = "up every ${HoldemRules.HANDS_PER_LEVEL} hands: ${spec.ladder()}"
-        Draw.fit(g, tx, r.x + 8, r.y + 46, ladder, Level.DIM, fSmall, r.w - 16)
+        if (lensThirdFits()) {
+            Draw.fit(g, tx, r.x + 8, r.y + LENS_3, ladder, Level.DIM, fLensTail, r.w - 16)
+        }
     }
+
+    /** The third lens line is drawn only when the second cannot reach it. A
+     *  per-app font scale can push the ladder past its own spacing, and a line
+     *  drawn through the one above it is worse than a line not drawn. */
+    private fun lensThirdFits(): Boolean = LENS_2 + ink(fLensBody) <= LENS_3
 
     private fun commitTable(i: Int) {
         val spec = tableRows().getOrNull(i) ?: return
@@ -792,6 +830,10 @@ class GamesWindow(
     private fun dealNext() {
         val t = table ?: return
         if (t.view().result == null) return
+        // a pending cash-out fires HERE, before the next hand is dealt: the
+        // engine settles the finished hand as part of leaving, and dealing
+        // first would post a blind for a seat that is on its way out
+        if (cashOutPending) { doCashOut(t); return }
         val stillIn = t.inPlay(mySeat) && t.stackOf(mySeat) > 0
         val running = try { t.nextHand() } catch (e: Exception) {
             Log.e("games", "the hand would not settle", e)
@@ -801,7 +843,7 @@ class GamesWindow(
         revealed = 0
         inspect = -1
         acting = null
-        if (!running) { finishTournament(t, HashMap(cast), mySeat); return }
+        if (!running) { cashOutPending = false; finishTournament(t, HashMap(cast), mySeat); return }
         if (!stillIn || !t.inPlay(mySeat)) { playOutWithoutMe(t); return }
         maybeBackground()
         services?.requestRender(this)
@@ -889,6 +931,7 @@ class GamesWindow(
         cast.clear()
         myStake = 0
         lastSettledHand = -1
+        cashOutPending = false
         skipping = false
         acting = null
         if (level == Level_.TABLE || level == Level_.HISTORY) level = Level_.GAMES
@@ -992,10 +1035,24 @@ class GamesWindow(
             standModel.cursor = 0
         }
         add("Hand history", "${v.history.size} lines") { level = Level_.HISTORY; histDoc.topLine = 0 }
-        if (services?.openMenu(MenuSurface.Spec("your move", items,
+        // the floating menu covers the middle of the table (§9.3), so the two
+        // numbers a decision needs ride in its TITLE — found by looking at the
+        // live screen with the menu up
+        if (services?.openMenu(MenuSurface.Spec(spotLine(v), items,
                 onCommit = { i -> acts.getOrNull(i)?.invoke() }), owner = this) != true) {
             setNotice("could not open the action list")
         }
+    }
+
+    /** Your hand and the two numbers a decision needs, for a menu title that
+     *  is sitting on top of them. */
+    private fun spotLine(v: HoldemTable.View): String {
+        val me = v.seats.getOrNull(mySeat)
+        val hand = me?.cards?.joinToString(" ") { it.code } ?: ""
+        val toCall = if (me == null) 0 else maxOf(0, v.currentBet - me.committed)
+        return listOf(hand, "pot ${Money.compact(v.pot)}",
+            if (toCall > 0) "call ${Money.compact(toCall)}" else "check")
+            .filter { it.isNotEmpty() }.joinToString(" · ")
     }
 
     /** §10.3: a preset ladder plus a Custom row that opens the §4.8 keyboard. */
@@ -1011,7 +1068,7 @@ class GamesWindow(
         }
         items.add(MenuSurface.Item("Custom", "keyboard"))
         acts.add { openAmountKeyboard() }
-        if (services?.openMenu(MenuSurface.Spec("how much", items,
+        if (services?.openMenu(MenuSurface.Spec(spotLine(t.view()), items,
                 onCommit = { i -> acts.getOrNull(i)?.invoke() }), owner = this) != true) {
             setNotice("could not open the sizes")
         }
@@ -1045,7 +1102,8 @@ class GamesWindow(
      */
     private fun stage(a: ActionLevel.Action) {
         if (!ActionLevel.needsConfirm(confirmPolicy, a)) { commitAction(a); return }
-        val ok = services?.openMenu(MenuSurface.Spec(a.label,
+        val ok = services?.openMenu(MenuSurface.Spec(
+            table?.let { "${a.label} · ${spotLine(it.view())}" } ?: a.label,
             listOf(MenuSurface.Item("Cancel"), MenuSurface.Item(ActionLevel.confirmLabel(a))),
             onCommit = { i -> if (i == 1) commitAction(a) }), owner = this) == true
         if (!ok) setNotice("could not open the confirm")
@@ -1072,27 +1130,65 @@ class GamesWindow(
         pump()
     }
 
-    /** 🔴 Leaving a tournament is an explicit menu row with a confirm — never
-     *  a double-tap (§10.1). */
+    /**
+     * 🔴 Leaving a tournament is an explicit menu row with a confirm — never a
+     * double-tap (§10.1).
+     *
+     * The action level is the only place this row lives (§10.2), and that
+     * level is only open ON YOUR TURN — mid-hand. You cannot take chips off a
+     * table while your hand is live, so the honest act is the one a player
+     * makes: **fold, and leave when the hand is over.** The first live test of
+     * this build found the row refusing itself every time, which made verdict
+     * 11's "you can leave early and cash out" unreachable in practice.
+     */
     private fun confirmCashOut() {
         val t = table ?: return
+        val v = t.view()
+        val live = v.result == null && !v.seats[mySeat].folded && v.seats[mySeat].contributed > 0
         val chips = t.stackOf(mySeat)
         val ok = services?.openMenu(MenuSurface.Spec(
-            "Cash out ${Money.fmt(chips)}?",
+            if (live) "Fold and cash out ${Money.fmt(chips)}?" else "Cash out ${Money.fmt(chips)}?",
             listOf(MenuSurface.Item("Cancel"),
-                MenuSurface.Item("Cash out", "no re-entry · the table plays on")),
-            onCommit = { i -> if (i == 1) cashOut() }), owner = this) == true
+                MenuSurface.Item(if (live) "Fold and leave" else "Cash out",
+                    if (live) "after this hand" else "no re-entry · the table plays on")),
+            onCommit = { i -> if (i == 1) requestCashOut() }), owner = this) == true
         if (!ok) setNotice("could not open the confirm")
     }
 
-    private fun cashOut() {
+    private fun requestCashOut() {
         val t = table ?: return
-        if (t.view().result == null && t.view().seats[mySeat].contributed > 0) {
-            setNotice("finish the hand first — cash out is offered between hands")
+        val v = t.view()
+        if (v.result != null || v.seats[mySeat].contributed == 0 || v.seats[mySeat].folded) {
+            doCashOut(t)
             return
         }
+        // your hand is live: fold it, and leave the moment it is settled
+        if (v.toAct != mySeat) {
+            setNotice("wait for your turn to fold, then you can leave")
+            return
+        }
+        try {
+            t.act(ActionLevel.Kind.FOLD)
+        } catch (e: Exception) {
+            Log.e("games", "the fold before a cash-out was refused", e)
+            setNotice(e.message ?: "could not fold")
+            return
+        }
+        afterAction(t)
+        cashOutPending = true
+        acting = null
+        setNotice("folded — cashing out when the hand ends")
+        services?.requestRender(this)
+        pump()
+    }
+
+    /** Take the chips and hand the table over (verdict 11 §7.5: it plays on). */
+    private fun doCashOut(t: HoldemTable) {
+        cashOutPending = false
         val chips = try { t.cashOut(mySeat) } catch (e: Exception) {
-            setNotice(e.message ?: "cannot cash out mid-hand"); return
+            Log.e("games", "the cash-out was refused", e)
+            setNotice(e.message ?: "cannot cash out mid-hand")
+            return
         }
         bankroll.add(chips)
         bankCache = null
@@ -1123,7 +1219,6 @@ class GamesWindow(
 
     private fun paintStandLens(g: Gray8, r: Rect, i: Int) {
         val c = standRows().getOrNull(i) ?: return
-        tx.draw(g, r.x + 8, r.y + 6, dn(c.name, fRowB), fRowB, Level.HEAD)
         val bits = ArrayList<String>()
         bits.add(Money.fmt(worthOf(c)))
         if (c.career.tournaments > 0) {
@@ -1131,11 +1226,15 @@ class GamesWindow(
             bits.add("avg ${"%.1f".format(c.career.avgFinish)}")
         }
         if (c.id != ME) bits.add("${c.livesLeft}/${c.livesTotal} lives")
-        Draw.fit(g, tx, r.x + 8, r.y + 30, bits.joinToString(" · "), Level.BODY, fLens, r.w - 16)
         val h2h = if (c.career.handsVsYou > 0)
             "${c.career.handsVsYou} hands with you · vpip ${(c.career.vpip * 100).toInt()}%"
         else "you have not played them"
-        Draw.fit(g, tx, r.x + 8, r.y + 46, if (c.id == ME) "that's you" else h2h, Level.DIM, fSmall, r.w - 16)
+        tx.draw(g, r.x + 8, r.y + LENS_1, dn(c.name, fLensHead), fLensHead, Level.HEAD)
+        Draw.fit(g, tx, r.x + 8, r.y + LENS_2, bits.joinToString(" · "), Level.BODY, fLensBody, r.w - 16)
+        if (lensThirdFits()) {
+            Draw.fit(g, tx, r.x + 8, r.y + LENS_3, if (c.id == ME) "that's you" else h2h,
+                Level.DIM, fLensTail, r.w - 16)
+        }
     }
 
     private fun commitStanding(i: Int) {
@@ -1193,13 +1292,15 @@ class GamesWindow(
                 // keeping in your head at a real table (§7.7)
                 line("they play ${(c.career.vpip * 100).toInt()}% of hands against you")
                 line("aggression ${"%.2f".format(c.career.aggression)} bets and raises per pot")
-                line("they knocked you out ${c.career.knockedYouOut} time(s)")
-                line("you knocked them out ${c.career.youKnockedOut} time(s)")
+                line("they knocked you out ${times(c.career.knockedYouOut)}")
+                line("you knocked them out ${times(c.career.youKnockedOut)}")
             }
         }
         charCache = out
         return out
     }
+
+    private fun times(n: Int): String = if (n == 1) "once" else "$n times"
 
     private fun wealthBand(w: Int): String = when {
         w < 1_500 -> "short"
@@ -1234,8 +1335,11 @@ class GamesWindow(
         val items = ArrayList<MenuSurface.Item>()
         val acts = ArrayList<() -> Unit>()
         items.add(MenuSurface.Item("Close")); acts.add { }
-        items.add(MenuSurface.Item("Refill to ${Money.fmt(Bankroll.BASE)}",
-            "Loser Count ${bankroll.loserCount} -> ${bankroll.loserCount + 1}"))
+        // both halves must fit the 248 px box — the detail is capped at half of
+        // it, and "Refill to $1,000 / Loser Count 1 -> 2" elided BOTH (first
+        // live session, 2026-09-04). The amount rides the detail, once.
+        items.add(MenuSurface.Item("Refill",
+            "${Money.fmt(Bankroll.BASE)} · count ${bankroll.loserCount + 1}"))
         acts.add { confirmRefill() }
         if (services?.openMenu(MenuSurface.Spec("bankroll", items,
                 onCommit = { i -> acts.getOrNull(i)?.invoke() }), owner = this) != true) {
@@ -1279,6 +1383,9 @@ class GamesWindow(
         val out = ArrayList<DocLine>()
         out.add(DocLine("hand ${v.handNo + 1} · ${t.spec.label} · " +
             "blinds ${Money.fmt(v.sb)}/${Money.fmt(v.bb)}", fHead, Level.HEAD))
+        // the doc rhythm is one fSmall line; a taller header needs the spacer
+        // or the first entry crowds it (first live session, 2026-09-04)
+        out.add(DocLine("", fSmall, Level.DIM))
         for (l in v.history) out.add(DocLine(l, fSmall, Level.BODY))
         v.result?.let { out.add(DocLine(it.line, fSmall, Level.HEAD)) }
         return out
@@ -1326,6 +1433,7 @@ class GamesWindow(
         put("revealed", revealed)
         put("unlimitedStake", unlimitedStake)
         put("bgOwed", bgOwed)
+        put("cashOutPending", cashOutPending)
         put("confirm", confirmPolicy.name)
         put("paceMs", paceMs)
         put("dealAnim", dealAnim)
@@ -1350,6 +1458,7 @@ class GamesWindow(
         revealed = (state["revealed"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0)
         unlimitedStake = (state["unlimitedStake"]?.jsonPrimitive?.intOrNull ?: 1_000).coerceAtLeast(1)
         bgOwed = (state["bgOwed"]?.jsonPrimitive?.intOrNull ?: 0).coerceIn(0, 8)
+        cashOutPending = state["cashOutPending"]?.jsonPrimitive?.booleanOrNull ?: false
         confirmPolicy = state["confirm"]?.jsonPrimitive?.contentOrNull
             ?.let { n -> ActionLevel.Confirm.entries.firstOrNull { it.name == n } } ?: ActionLevel.Confirm.ALL
         paceMs = state["paceMs"]?.jsonPrimitive?.longOrNull?.takeIf { it in PACES.values } ?: 600L
@@ -1453,6 +1562,13 @@ class GamesWindow(
     }
 
     companion object {
+        /** The three-line lens ladder, in pixels from the lens top. Measured:
+         *  17 bold inks 25 px, 13 inks 20 and 11 inks 17, so 2 / 28 / 48 sets
+         *  every ascent inside the 64 px box and only empty descent tails
+         *  cross the bottom rule. */
+        const val LENS_1 = 2
+        const val LENS_2 = 28
+        const val LENS_3 = 48
         /** Adam's own character id (verdict 25: he is a roster character). */
         const val ME = "you"
 

@@ -32,7 +32,7 @@ bars and a live lens, a details document, browse by category and search, a torre
 Add behind a confirm, done-notifications decided once host-side, a seeding-under-a-week list
 for the tracker's rules — and a ring-driven wireframe keyboard (row, then key) that Torrents,
 Tmux and Files all ask for.
-[`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run; `HANDOFF.md` §10–§24 are the
+[`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run; `HANDOFF.md` §10–§26 are the
 install / first-light / refinement / launch-day / app-wave records; `DAILY.md` is the ops
 crib; [`WINDOWS.md`](WINDOWS.md) the conversion checklist; `EXPLOSION.md` the graded app
 backlog + refinery verdicts; `REFINEMENT.md` and `TMUX.md` the design logs.
@@ -47,6 +47,18 @@ three resolver lanes, synced lyrics, YouTube grabs with full ingest, playlists e
 and **Music Mode** — a new EXCLUSIVE shell mode (`DESIGN.md` §4.9) stacking card, lyrics,
 visualizer, queue peek and clock per height.
 
+**2026-09-04 — GAMES · TEXAS HOLD'EM**, built whole overnight (`HOLDEM.md`, `HANDOFF.md` §26):
+the first window that needs nothing outside itself — pure Kotlin, no host, no channel, so it runs
+identically on the phone alone, on the PC alone or across the seam. A 6-max sit-and-go with no
+rebuys against a **persistent cast of characters** who have their own money, their own moods and
+their own careers, play their own tournaments in the background while you play yours, go broke,
+take time off and retire; a shared bankroll with a visible entry fee and a Loser Count; card art
+drawn in code at four sizes; side pots built to Robert's Rules and checked against a
+3,000-scenario oracle; and a table whose whole persisted state is an **action log** the engine
+replays, so a hand cannot drift from its own record. It also changed the shell for every window:
+**the switcher resumes where you were, Main presents the window's root list**, and a window can
+name its own stereo regions — your two hole cards sit forward of the table.
+
 ## Start here
 
 | | |
@@ -56,6 +68,7 @@ visualizer, queue peek and clock per height.
 | [`EXPLOSION.md`](EXPLOSION.md) | the graded app backlog, the §16 contract record, the refinery verdicts |
 | [`TORRENTS.md`](TORRENTS.md) | the Torrents window: verdicts, the verified qBittorrent and TorrentLeech facts, the design, the plan |
 | [`MUSIC.md`](MUSIC.md) | the Music window: 29 verdicts, the verified library facts, the two-host design, the build plan with its as-built notes |
+| [`HOLDEM.md`](HOLDEM.md) | Games · Hold'em: 37 verdicts, the format, the ecology, the card kit, the six-milestone plan — and §17, what the build actually did and where it departed |
 | [`DAILY.md`](DAILY.md) | the daily-driver ops crib: services, ports, deploys, recovery |
 | [`REFINEMENT.md`](REFINEMENT.md) | the post-first-light refinement log: every ask, its analysis, and what shipped |
 | [`IMPLEMENTATION.md`](IMPLEMENTATION.md) | the built first stage: modules, the transport seam, how to run and verify |
@@ -79,12 +92,14 @@ The design is shaped by three facts about this display, and most of it follows f
 ## Building and verifying
 
 ```
-./gradlew :core:test                                  # 329 tests, incl. the per-lens oracle
+./gradlew :core:test                                  # 414 tests, incl. the per-lens oracle
 ./gradlew :desktop:test                               # 9 tests: the BlueZ glue over a fake link
-./gradlew :desktop:run --args="--selfcheck"           # the 134-check whole-stack gate
+./gradlew :desktop:run --args="--selfcheck"           # the 160-check whole-stack gate
 ./gradlew :desktop:run --args="--snapshot DIR"        # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"          # parse every book; chapters + image decode
 ./gradlew :desktop:run --args="--music-check"         # the real music library, read-only (counts, catalog, lanes, cache keys, Qdrant, viz)
+./gradlew :desktop:run --args="--games-check"         # the Hold'em ecology over hundreds of simulated tournaments
+./gradlew :desktop:run --args="--card-render"         # the card sheets at true 1x
 ./gradlew :desktop:run --args="--transport ble"       # PC-direct BLE (the at-the-desk fallback)
 ./gradlew :desktop:run                                # auto = the §19 standby (data host; claims nothing) + preview (4x)
 ./gradlew :phone:assembleDebug                        # the APK (deploy flow: :phone:stageApk → the setup page)

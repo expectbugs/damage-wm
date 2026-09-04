@@ -1,6 +1,17 @@
 # Where we are, and what to do next
 
-**Updated 2026-09-03 (late): a WHOLE-CODEBASE REVIEW shipped — ten verified defects, each
+**Updated 2026-09-04: GAMES · HOLD'EM IS BUILT** — M1–M6 overnight and unattended, two full review
+passes (19 verified defects) and a live session driving the real program through the browser
+replica (13 more). `HOLDEM.md` §17 is the deviations list and the shortest useful read;
+`HANDOFF.md` §26 is the narrative. It also changed the **shell**: `ActivationSource` on the window
+contract — **switcher = resume, Main = the window's root list** — retrofitted across all six
+existing windows, and `contentPlanes` so a window can name its own stereo regions. The app layer
+is now **Main · Settings · Reader · Tmux · Files · Torrents · Music · Games**.
+
+⚠ **Nothing about Games has been seen on the actual glasses.** Every judgment — the card art, the
+hole-card plane, the arc stagger, the pacing — was made on the byte-exact simulator at true 1×.
+
+**Before it, 2026-09-03 (late): a WHOLE-CODEBASE REVIEW shipped — ten verified defects, each
 reproduced before it was fixed and each pinned by a test that fails without its fix**
 (`core/.../Review20260903Test.kt`, `HANDOFF.md` §25). Commits `1f9fa4d` (the fixes) and
 `c400d0b` (APK 23/0.23), both pushed; the `damage` service was restarted onto the review
@@ -67,18 +78,19 @@ Files / Torrents / Music are the worked precedents (`WINDOWS.md`).
 **State of the world:** the phone APK is the primary driver (`HANDOFF.md` §19 — radio + shell
 while it is up); the OpenRC `damage` service is the data provider (content + tmux + sync + the
 window channel on :7401, seam :7402, replica :7403, the media endpoint :7404) plus a standby that
-BLE-drives only while the APK is away. Battery at HEAD: core **329** · desktop 9 ·
-selfcheck **139** · snapshots 36 · epub-check 58/58 · lint 0 · `--music-check` all pass against
-the real library. **APK 23/0.23 is STAGED and is the one to install** — the first APK carrying
-the review fixes; 0.22 and everything before it are superseded. **0.16 is still the last build
-observed INSTALLED** (2026-09-01). The jar and the service **run the review build** (restarted
-2026-09-03 16:14, phone reattached to files/torrents/music/tmux/sync); redeploy with
+BLE-drives only while the APK is away. Battery at HEAD: core **414** · desktop 9 ·
+selfcheck **160** · snapshots 49 · epub-check 58/58 · lint 0 · `--music-check` and
+`--games-check` all pass. **APK 24/0.24 is STAGED and is the one to install** — the first APK
+carrying Games; 0.23 and everything before it are superseded. **0.16 is still the last build
+observed INSTALLED** (2026-09-01). ⚠ The jar and the service still run the 2026-09-03 review
+build — **deploy the Games build before using it from the PC side**; redeploy with
 `./gradlew :desktop:stageJar && sudo rc-service damage restart` (never touches the display — the
 PC does not claim). ⚠ One central at a time: stop the service before any `:desktop:run` dev
 session; G2CC's Android bridge stays Disconnected.
 
-📍 **Start here, in this order:** this file → `HANDOFF.md` §19–§25 (the topology contract, the
-build records, §24.4 the silent-playback diagnosis + the Now Playing root, §25 the review) →
+📍 **Start here, in this order:** this file → `HANDOFF.md` §19–§26 (the topology contract, the
+build records, §24.4 the silent-playback diagnosis + the Now Playing root, §25 the review,
+§26 Games) →
 `DAILY.md` (ops crib) → `IMPLEMENTATION.md` (what runs) → for the next conversion: `WINDOWS.md` (the checklist) +
 `EXPLOSION.md` (§16 contract, §20 refinery verdicts, the chosen window's section). Standing
 references: `overview.md` (facts), `CLAIMS.md` (grades), `CLAUDE.md` (rules), `DESIGN.md` (the
@@ -86,43 +98,45 @@ shell).
 
 ## 🚀 Next
 
-1. **Install APK 0.23 and use Music.** It carries the Now Playing root, both phone-side fixes
+1. **Deploy the Games build to the PC service, install APK 0.24, and play Hold'em on glass.**
+   `./gradlew :desktop:stageJar && sudo rc-service damage restart` (the PC never claims, so this
+   never touches the display), then install the staged APK. What is owed on glass: the card art
+   at all four rungs, the hole-card plane's depth, the arc stagger at 416/480, whether the bot
+   pace of 600 ms feels right, and whether the ≈8–10 % ink target holds with a real board out.
+   `HOLDEM.md` §17.4 is the list.
+2. **Install APK 0.24 and use Music.** It carries the Now Playing root, both phone-side fixes
    and the whole-codebase review. Then the one-time grants (`DAILY.md` → Music: `music access`
    on the strip, notification access) and the on-phone measured items (the limiter's real notice text, the Spotify cold start, the Bluetooth
    lyric offset, the visualizer rate on glass). Judge Now Playing on glass — it measures **14.0 %
    ink** at 480 against the 15 % list budget with the harness's synthetic art, so a real album
    cover may trip it; the answers then are smaller art or reclassifying the surface as a canvas
    (Music Mode's note allows 30 %).
-2. 🎴 **GAMES · HOLD'EM — designed, not built. `HOLDEM.md` is the plan.** Adam picked Games
-   (`EXPLOSION.md` §20 #1) on 2026-09-03 and the whole refinery pass ran in session 2026-09-03/04:
-   **36 verdicts**, the format (6-max sit-and-go, no rebuys), three tables, the shared bankroll
-   with the visible entry fee and the Loser Count, the persistent bot ecology, the card look, the
-   four-height ladder, the input grammar, the tests and a six-milestone build order. **Start at
-   `HOLDEM.md` §16 (Kickoff), and M1 first** — it is a *shell* change Adam ruled generally
-   (switcher resumes / Main shows the window's root list) plus a retrofit across Reader, Tmux,
-   Files, Torrents and Music. ⚠ Games' licensing rule was revised 2026-09-02 (`CLAUDE.md`
-   clean-room): the work never ships, the WINDOW that drives it may — Paperclips fetched from the
-   author's site at run time (and Damage generates the DOM from element ids rather than shipping
-   his markup), FF1 on a ROM the user rips themselves. Hold'em is entirely ours and needs none of
-   that. **Feed + comics** (§20 #5) is the next candidate after it.
-3. **On-glass verdicts still owed** for Torrents and the keyboard (the transfers list and lens, a
+3. 🎴 **The NEXT window is Adam's pick.** Games is built (`HOLDEM.md`, `HANDOFF.md` §26) and
+   struck off `EXPLOSION.md` §20's order; **Feed + comics** (§20 #5) is the standing next
+   candidate. ⚠ Whichever it is, the licensing rule revised 2026-09-02 (`CLAUDE.md` clean-room)
+   applies to any window that drives someone else's work: the work never ships, the WINDOW that
+   drives it may — Paperclips fetched from the author's site at run time (and Damage generates the
+   DOM from element ids rather than shipping his markup), FF1 on a ROM the user rips themselves.
+   Hold'em is entirely ours and needed none of that; the card kit under `windows/games/kit/` is
+   built for blackjack, hearts and gin, and none of them is built.
+4. **On-glass verdicts still owed** for Torrents and the keyboard (the transfers list and lens, a
    real done-notification, browse / search / add against the live tracker; the keyboard's row
    pitch at 288, the highlight, stay-in-row), for Files (the menu grammar, viewers, the thumbnail
    lens, theme icons at 20/56 px), and the live checks — the standby drill (stop the APK at the
    desk → the PC BLE-drives → restart → handback) and a book position following a driver swap.
    Then the resumed Torrents review pass from `980d832..HEAD` — round 4 still found real defects
    in round 3's fixes.
-4. **The Reader transitional cleanup** (UNBLOCKED — 0.16 is installed): remove the
+5. **The Reader transitional cleanup** (UNBLOCKED — 0.16 is installed): remove the
    legacy-offsets dual-write in `ReaderWindow` — the fields are marked; `restoreStateLive`'s
    `liveMapApply` mechanics go with them (update `SubstrateTest`'s migration pin). A clean first
    task for a fresh session.
-5. **The icon-quality pass** (front of the app wave): one drawn icon per app at 20 px + 56 px —
+6. **The icon-quality pass** (front of the app wave): one drawn icon per app at 20 px + 56 px —
    the drawn set is the fallback and the release path (theme icons are personal-lane only).
-6. **What the 2026-09-03 review did NOT cover** (`HANDOFF.md` §25.3): the seam / replica /
+7. **What the 2026-09-03 review did NOT cover** (`HANDOFF.md` §25.3): the seam / replica /
    `RemoteTransport` plumbing, the firmware simulator and most of the phone module were read at
    a scanning level only, and nothing was tested on the actual glasses. A next review round
    starts there, not by re-reading the core.
-7. **Watch-items:** the left-lens seam residue (a one-shot early-burst tear — if it recurs
+8. **Watch-items:** the left-lens seam residue (a one-shot early-burst tear — if it recurs
    after a handover, harden session start); the ~20 s silent-loss window (tighten the seam
    heartbeat constants only if it feels long in practice); and the media endpoint logs nothing on
    a successful request, so "did the phone fetch audio?" is only answerable from cache mtimes.

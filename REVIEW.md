@@ -12,7 +12,13 @@ items are recorded in §23.2 and §23.4); its round-4 diff is `980d832..390a25c`
 a hidden notice gate) — is `HANDOFF.md` §24.2–§24.3. The **whole-codebase review of 2026-09-03**
 — ten verified defects, each reproduced before its fix and each pinned by a test confirmed to
 FAIL against the unfixed tree, plus the belief-vs-truth oracle that found the invisible ones —
-is `HANDOFF.md` §25 (commit `1f9fa4d`; pins in `Review20260903Test`). How a round runs: the Adam quote in
+is `HANDOFF.md` §25 (commit `1f9fa4d`; pins in `Review20260903Test`). The **Games build's two
+passes of 2026-09-04** — 11 + 8 verified defects, pinned in `GamesReview20260904Test` — and the
+**live session** that followed them (13 more, pinned in `GamesLive20260904Test`) are
+`HANDOFF.md` §26.2–§26.3, with the deviations list in `HOLDEM.md` §17. Its lesson worth carrying:
+two review passes over the code missed a menu row that could never succeed and a drawn mark that
+read as an equals sign — **driving the live grammar and looking at true-1× pixels is a different
+instrument, not a slower version of the same one.** How a round runs: the Adam quote in
 `HANDOFF.md` §21 and the §22.2 discipline — every finding verified against the code before a
 fix, a test pin per fix, the whole battery green, the next round over the previous round's own diff.
 

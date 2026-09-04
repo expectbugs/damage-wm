@@ -552,19 +552,27 @@ class HoldemTable private constructor(
      * Verdict 11: cashing out early returns your stack and **the remaining
      * characters play the tournament out** (§7.5) — the table does not
      * evaporate. The seat is marked out so the engine can finish without you.
-     * Only between hands: leaving mid-hand would abandon chips already in the
-     * pot.
+     *
+     * 🔴 Only from a SETTLED hand, and it settles that hand itself. A table
+     * always has a hand dealt — the replay posts blinds the moment one seat
+     * has chips — so "between hands" is a showdown waiting for a tap, not a
+     * gap. An earlier version required `contributed == 0`, which is never true
+     * after the blinds go in: the live test found the cash-out refusing itself
+     * on every path (2026-09-04).
      */
     fun cashOut(seat: Int): Int {
         val v = view()
-        if (v.result == null && v.seats[seat].contributed > 0) throw IllegalStateException(
-            "cash out is only offered between hands — this one is still live")
-        val chips = v.seats[seat].stack
+        if (v.result == null) throw IllegalStateException(
+            "cash out is offered once a hand has SETTLED — this one is still live")
+        // roll the finished hand forward exactly as nextHand does, so its
+        // outcome is kept rather than discarded with the log
+        nextHand()
+        val chips = handStacks[seat]
         handStacks[seat] = 0
-        bustedAt[seat] = bustedAt.max() + 1
-        // the button cannot stay on an empty seat — heads-up it posts the
-        // small blind, so the next hand would post a blind for a player who
-        // has left
+        if (bustedAt[seat] == 0) bustedAt[seat] = bustedAt.max() + 1
+        // the button cannot stay on a seat that has left — heads-up it posts
+        // the small blind, so the next hand would post one for a player who is
+        // no longer there
         if (button == seat && activeSeats().isNotEmpty()) button = nextActive(seat)
         log.clear()
         invalidate()

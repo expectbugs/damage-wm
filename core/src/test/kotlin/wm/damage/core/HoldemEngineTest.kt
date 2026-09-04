@@ -329,8 +329,9 @@ class HoldemEngineTest {
     fun cashingOutReturnsTheStackAndLeavesTheTableRunning() {
         val t = table(n = 4, stack = 200, seed = 4242)
         playRandomHand(t, Rng.stream(9, 0))
-        t.nextHand()
-        val mine = t.stackOf(0)
+        // the hand has SETTLED and is waiting for a tap: cashing out rolls it
+        // forward itself, so the chips are the ones the hand left you with
+        val mine = t.view().seats[0].stack
         val chips = t.cashOut(0)
         assertEquals(mine, chips)
         assertTrue(!t.inPlay(0))
@@ -349,6 +350,10 @@ class HoldemEngineTest {
         val t = table(n = 3)
         t.act(ActionLevel.Kind.CALL)
         assertFailsWith<IllegalStateException> { t.cashOut(1) }
+        // and a table with a hand freshly DEALT is mid-hand too: the blinds
+        // are already in, so there is no gap between hands to leave in
+        val t2 = table(n = 3)
+        assertFailsWith<IllegalStateException> { t2.cashOut(0) }
     }
 
     // ================================================================ helpers

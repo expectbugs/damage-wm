@@ -193,8 +193,13 @@ class PathTransportTest {
             val t0 = System.currentTimeMillis()
             while (!winner.state.value.started && System.currentTimeMillis() - t0 < 5_000) delay(5)
             assertTrue(winner.state.value.started, "the sim path completed its start")
-            delay(100)
-            assertTrue(!starting.isCompleted, "start() is still waiting for the loser's rollback")
+            delay(20)
+            // the invariant, stated so a starved scheduler cannot fail it: on a
+            // loaded machine `delay` can resume long after the rollback ended,
+            // and asserting "not completed yet" after a fixed wait failed once
+            // during the 2026-09-04 battery. What must hold is the ORDER.
+            assertTrue(slow.rolledBack || !starting.isCompleted,
+                "start() completed before the loser's rollback finished")
             starting.cancelAndJoin()                       // a keeper pause/stop in that window
             assertTrue(slow.rolledBack, "the loser's rollback ran to its end")
             assertEquals(1, winner.stops, "the completed winner was stopped, not left driving untracked")

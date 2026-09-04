@@ -10,6 +10,7 @@ while the APK is unavailable and hands the radio back when it returns.** The she
 byte-exact glass simulator, the desktop program, and the phone APK — Reader, Tmux, **Files
 (2026-09-01, the first conversion)**, **Torrents (2026-09-01 evening, with the §4.8 keyboard)**,
 **Music (2026-09-02 — the phone plays, the PC serves; Music Mode = the shell's exclusive mode)**,
+**Games · Hold'em (2026-09-04 — pure Kotlin, no host at all)**,
 Main and Settings at the app layer, the full shell underneath, everything on the **CFW display
 contract** (modes 3/6/8/9 + the 11–15 texture-cache wire layer, the FB lease, the capability gate).
 
@@ -117,6 +118,19 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
                                       players, LyricsSync, Viz renderers, Resolver +
                                       ClaudeOneShot + EmbedQuery, LyricsFetch,
                                       YouTube, Enrich, MusicWindow (+ Music Mode)
+            wm.damage.core.windows.games   GAMES (2026-09-04): GamesWindow (the
+                                      hub, the table and its levels) · kit/ —
+                                      Rng (counter-based splitmix64), Cards,
+                                      HandEval, Pots (side pots + settlement),
+                                      Money (formatting, drawn chips, the
+                                      seven-segment scoreboard), CardArt,
+                                      HandFan, TableLayout, Seats, ActionLevel,
+                                      Bankroll — none of which names a card
+                                      game · holdem/ — HoldemRules, HoldemTable
+                                      (the engine: an action LOG the view is
+                                      replayed from), Equity, HoldemBot,
+                                      HoldemView · roster/ — Character, Mood,
+                                      Roster, Background (the ecology)
             wm.damage.core.net        WinNet — the §16.10 generic window
                                       channel (wreq/wres + raw blob answers)
             wm.damage.core.sync       SyncNet/RemoteSync — LWW state sync
@@ -130,7 +144,8 @@ desktop/    AWT rasterizer · Swing lens preview (integer-scaled, default 4x;
             keyboard + mouse = ring) · CLI · ThemeIcons (Papirus-Dark from
             xfconf, rsvg-convert, mem+disk cache, serves the phone) · PgDb
             (pgjdbc over the Unix socket) · MusicPlugins · MusicCheck ·
-            ScriptedMusic
+            ScriptedMusic · GamesCheck (--games-check) · CardSheet
+            (--card-render)
 audio/      the enrichment package taken over from G2CC (Adam's code) +
             viz.py (the DVIZ visualizer blobs) — run on G2CC's venv for now
 phone/      Android app: foreground ShellService, on-screen lens view (touch =
@@ -229,10 +244,12 @@ development environment; also serves ~/books to the phone):
 ./gradlew :desktop:run --args="--transport ble"   # PC-direct BLE only (manual)
 ./gradlew :desktop:run --args="--remote HOST"     # claim the phone's transport and drive through it — the EXPLICIT dev override
 ./gradlew :desktop:run --args="--ble-info"    # adapter enumeration only (no discovery)
-./gradlew :desktop:run --args="--selfcheck"   # the 134-check scripted gate (Files, Torrents, keyboard and Music walks incl.)
+./gradlew :desktop:run --args="--selfcheck"   # the 160-check scripted gate (Files, Torrents, keyboard, Music and Games walks incl.)
 ./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"  # parse every book in ~/books
 ./gradlew :desktop:run --args="--music-check" # the real g2cc library, read-only bar the additive schema migration: counts, the catalog, lanes, cache keys, Qdrant, one viz blob
+./gradlew :desktop:run --args="--games-check" # the Hold'em ecology over hundreds of simulated tournaments (pure in-memory; add `deep` for a longer run)
+./gradlew :desktop:run --args="--card-render" # the card sheets into design/shots/cards/ at true 1x
 ./gradlew :desktop:run --args="--host-only"   # content host alone (books + tmux + sync, no stack ever)
 ./gradlew :desktop:test                       # 9 tests: the BlueZ glue over the fake link
 ```
@@ -448,6 +465,44 @@ one window: `wm.damage.core.windows.music`.
   Battery at the Now Playing root (2026-09-03): core 319 · desktop 9 · selfcheck 139 ·
   snapshots 36 · lint 0. After the same day's whole-codebase review (`HANDOFF.md` §25):
   core **329** (+10 pins in `Review20260903Test`), the rest unchanged.
+
+## Games · Hold'em (2026-09-04, HOLDEM.md — the first window with no host)
+
+Everything it needs is in `:core`, so it runs identically in every `DESIGN.md` §10
+configuration: no provider, no channel, no `needs`. What is worth knowing to work on it:
+
+- **The persisted table is an ACTION LOG.** `HoldemTable` stores `(seed, handNo, start stacks,
+  busted order, button, actions)` and re-derives the deck, every holding, the board, the pot and
+  whose turn it is by replaying it (`replay()`, behind a volatile `cache`). There is no second
+  copy of a hand that could drift from the first. `nextHand()` is the only thing that advances
+  the seed forward.
+- **Randomness is counter-based, never a stream position.** `Rng` is splitmix64 keyed by
+  `(tournamentSeed, handNo, seat, decisionNo)`, so the same question always gets the same answer
+  no matter when it is asked, and nothing has to persist an RNG cursor. Key ORDER matters —
+  `(1,0)` and `(0,1)` are different draws.
+- **Decisions run off the loop and come back through `runOnShell`,** generation-stamped with
+  `pacerGen`. Bump the generation whenever the world the answer was for stops being the world on
+  screen (leaving the table, a restore, a deactivation) or an answer for a table you have left
+  will be applied to the one you are looking at.
+- **The pacer is a pacing loop, not a timeout** (the Three Absolute Rules). Bots wait for Adam
+  forever; `Settings → Games → Bot pace` sets the delay between their actions and a tap while
+  they are acting skips the pacing until it is your turn again.
+- **The world only advances while he is looking at it** (verdict 27). `Background.playTournament`
+  is driven from the pacer, never from a schedule and never from wall-clock.
+- **The kit names no card game.** `windows/games/kit/` is `Cards`/`HandEval`/`Pots`/`Money`/
+  `CardArt`/`HandFan`/`TableLayout`/`Seats`/`ActionLevel`/`Bankroll`; blackjack, hearts and gin
+  are meant to reuse it whole.
+- **Correctness is oracle-backed.** `core/src/test/resources/holdem/sidepots.json` (3,000
+  scenarios) and `hands.json` (2,000 rankings) were generated with `pokerkit` (MIT) in a scratch
+  venv by `research/gen_sidepots.py`. **Nothing third-party is in the repo** — only the corpus,
+  which is ours.
+- **Harnesses:** `--games-check` runs the ecology over hundreds of simulated tournaments and
+  prints differentiation, affordability and the money-supply drift (flat or negative is the
+  design; compounding growth is the failure). `--card-render` writes the card sheets to
+  `design/shots/cards/` at true 1× — the only honest way to judge the art. The window's own
+  harness accessors (`tableRunning`, `isMyTurn`, `handIsComplete`, `myStack`, `levelName`,
+  `rootRow`, `historyDocLines`, …) exist so a test asks the table what it is doing instead of
+  counting notches, the `Shell.menuLabels` precedent.
 
 ## Torrents + the keyboard (2026-09-01, TORRENTS.md · DESIGN.md §4.8)
 
@@ -722,7 +777,14 @@ Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md
 
 ## Verification
 
-- `./gradlew :core:test` — **329** unit/integration tests (2026-09-03's whole-codebase
+- `./gradlew :core:test` — **414** unit/integration tests (2026-09-04's Games build added
+  `ActivationTest` ×6 — the shell's switcher-resume / Main-root rule across every window —
+  `GamesKitTest`, `HoldemEngineTest` (incl. the 3,000-scenario side-pot oracle and the
+  2,000-hand ranking corpus), `HoldemBotTest`, `GamesWindowTest`, `GamesReview20260904Test` ×14
+  — one pin per verified review defect — and `GamesLive20260904Test`, whose pins come from
+  driving the live program: every suit pip is ONE connected shape at every ladder rung, a drawn
+  chip stack is never a single bar, and the opponent strip reads from the seat on your left;
+  2026-09-03's whole-codebase
   review added `Review20260903Test` ×10 — one pin per verified defect, each confirmed to
   FAIL against the unfixed tree: the compositor's two plane-guard paths, the silent notice
   box, the cp1252 entity remap, the extractor's fold, the Reader's and the flow
@@ -762,7 +824,14 @@ Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md
   with no pixel change, stop-during-start, same-instance transport restart).
 - `--selfcheck` — the whole stack scripted end to end with real fonts,
   asserting ink budgets, input grammar, persistence byte-behaviour, and zero
-  faults/failed flushes/sticky flags.
+  faults/failed flushes/sticky flags. **160 checks.** ⚠ Its Games checks live in an extracted
+  `gamesChecks()` — inline, the method passed the JVM's 64 KB method limit and would not
+  compile. Split the next window's checks the same way.
+- `--games-check` — the Hold'em ecology over hundreds of simulated tournaments, in memory,
+  touching nothing: does skill separate from variance, can the tables fill, and does the money
+  supply stay flat (compounding growth is the failure it exists to catch).
+- `--card-render` — the card sheets at every ladder rung into `design/shots/cards/`, at true 1×.
+  🔴 Never judge card art scaled up: at 2× a detached stem and a merged pip both look fine.
 - `--snapshot` — renders what the LEFT LENS PANEL holds (post-wire truth,
   through pack → RLE → deflate → fragmenting → sim firmware → shadow), at
   true 1x. This harness caught the stereo vacated-strip ghost within minutes

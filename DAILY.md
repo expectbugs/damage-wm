@@ -34,11 +34,13 @@ ever needs redoing: (1) sideload from the setup page, grant Bluetooth ×2 + noti
 battery exemption; (2) 🔴 keep the G2CC bridge app Disconnected (a second central); (3) phone
 first light with NOTHING on beardos holding the pair (`sudo rc-service damage stop`), flip
 Target → glasses; (4) `sudo rc-service damage start` → the log says "standby up (§19)" and the
-phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.23 is the
+phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.24 is the
 staged build: Files + theme icons + the sync client + Torrents + the keyboard + every
 2026-09-01 review fix + the chrome tweaks (the Silent-clock size row included) + Music + its
 three reviews + the 2026-09-03 Now Playing root and the two player fixes + that day's
-whole-codebase review (`HANDOFF.md` §25); 0.16 is the last build observed installed**). Why old
+whole-codebase review (`HANDOFF.md` §25) + **Games · Hold'em** and the shell's
+switcher-resume / Main-root rule (`HANDOFF.md` §26); 0.16 is the last build observed
+installed**). Why old
 APKs matter: a pre-0.15 APK cannot be status-probed (the PC conservatively stays out — fine)
 and a pre-0.10 one carries no sync client, so state does not flow until it is updated. 0.16
 being installed also unblocks Reader's transitional legacy-offsets cleanup (`REMINDER.md` Next 2).
@@ -124,7 +126,15 @@ schema, and a phone-side record (`window.tmux`) crossed and applied store-direct
 shell was in standby. **Still awaiting a deliberate glass test**: a real standby engagement
 (stop the APK at the desk → the PC BLE-drives within ~10 s → restart the APK → handback) and
 the sync feel across a driver swap (a book position following the swap). Current staged APK:
-**0.23** (Files, the chrome tweaks, Torrents, the keyboard, Music + its three reviews, the
+**0.24** (Files, the chrome tweaks, Torrents, the keyboard, Music + its three reviews, the
 2026-09-03 Now Playing root + the quiet-stream notice + the stable-identity output restore —
-`HANDOFF.md` §24.4 — and that day's whole-codebase review, §25); **0.16 is the last build
+`HANDOFF.md` §24.4 — that day's whole-codebase review, §25, and **Games · Hold'em** with the
+shell's switcher-resume / Main-root rule, §26); **0.16 is the last build
 observed INSTALLED** (2026-09-01 — the phone speaks the files channel).
+
+**Games (2026-09-04, `HOLDEM.md`) needs nothing from ops.** It is pure Kotlin with no host, no
+provider and no channel, so it works identically on the phone alone, on the PC alone and across
+the seam; its whole state is in the shell's own store (`window.games`, `window.games.world`,
+`window.games.bankroll`, `window.games.table`, `window.games.char.<id>`) and syncs like every
+other window's. Nothing to configure in `config.json`. ⚠ Its four-height layouts and its card
+art have **never been seen on the glasses** — only on the simulator at true 1×.
