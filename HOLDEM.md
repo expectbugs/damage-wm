@@ -59,6 +59,7 @@ The refinery pass `WINDOWS.md` §3 step 1 requires. Numbered so later work can c
 | 34 | **Last action per player on the table; a full hand history behind a menu row.** |
 | 35 | 🔴 **General shell rule — activation source matters.** *"Going to Games from the switcher should auto-resume… Going to Games from Main should present the Games List… This should be true of any window that has multiple base functions (like Reader… Similarly, going to Tmux from Main should present a list of sessions, but Switcher to Tmux should go directly into the last session where I left off)."* **Retrofit every window in the same pass.** |
 | 36 | **Side pots: read the authority, do not copy code.** Adam: *"we can look up the correct math… rather than reinventing the wheel."* Resolved as: copy the RULES TEXT and a TEST CORPUS, and differential-test against an MIT reference as an oracle. No third-party code in the repo (a release is intended — `CLAUDE.md` clean-room section). |
+| 37 | 🔴 **No tells.** *"characters don't get a tell, beyond regular traits/playstyle being noticed during play."* Reads are earned from a character's actual play (§7.7), never from a planted signal. |
 
 ### Rejected, recorded so they are not re-proposed
 
@@ -73,6 +74,9 @@ The refinery pass `WINDOWS.md` §3 step 1 requires. Numbered so later work can c
 - ❌ **Permanent death for bots** (proposed, overridden by verdict 21's lives — an arc with stages beats a single fact).
 - ❌ **Multiple Hold'em tables open at once** (Adam: *"I only want one game of holdem going at a time"*).
 - ❌ **Wall-clock background simulation** (verdict 27).
+- ❌ **Bot tells** — a sizing or timing signal tied to hand strength, scaled by `discipline`.
+  Proposed and rejected 2026-09-04 (verdict 37): reads are earned from observed play, never
+  planted.
 - ❌ **A Python card daemon** (OpenSpiel / RLCard). Correct for G2CC's 2026-06-28 research and for a multiplayer table server; wrong here — verdicts 3 and 4 remove both reasons, and pure Kotlin means Games needs no host at all.
 - ❌ **The texture cache (modes 12/13/14) for card art in this build.** See §2.
 
@@ -545,10 +549,11 @@ personality and their skill.
 mutable stream. Nothing about RNG needs persisting beyond counters that are already part of the
 game state, and a resumed decision is bit-identical. See §11.
 
-**Optional, Adam's open question, not decided:** a slight sizing or timing tell tied to hand
-strength, scaled inversely by `discipline`. Deeply unrealistic as poker on a screen with no
-physical presence, but very human for a low-discipline character. **Not in the plan; build only if
-Adam asks.**
+🔴 **No tells** (Adam, 2026-09-04): *"characters don't get a tell, beyond regular traits/playstyle
+being noticed during play."* An artificial sizing or timing signal tied to hand strength was
+proposed and **rejected**. The read comes from the same place it would at a real table — a
+character's actual play over hands you actually sat through (§7.7) — not from a leak the engine
+plants for you to find. Do not add one.
 
 ---
 
@@ -889,7 +894,7 @@ category, never Global (`WINDOWS.md` §1).
 - **Nothing third-party in the repo**: no engine, no generated card art, no `pokerkit`. The oracle
   lives in a scratch venv and its output is a corpus we own.
 - **Never display a character's trait sheet** — only stats observed in hands actually played
-  against them.
+  against them, and **never plant a tell** (verdict 37). The read is earned or it is not there.
 - **Nothing specific to Adam's setup is baked in** (`WINDOWS.md` §1): every number here that is a
   preference is a Settings row with his value as the default.
 
@@ -910,9 +915,9 @@ edit G2CC).
 touches five existing windows — do it first, on a green tree, with its tests, and commit before
 touching a card.
 
-**Open, and Adam's to answer if it comes up:** whether characters get a **tell** (§8, deliberately
-not in the plan) and the exact background-economy ratio inside the 2–3 band (§7.5, a
-`--games-check` measurement rather than a decision).
+**Open:** only the exact background-economy ratio inside the 2–3 band (§7.5) — and that is a
+`--games-check` measurement, not a decision waiting on Adam. Every design question raised in the
+2026-09-03/04 session is answered.
 
 **Not in scope:** blackjack and every later card game — the kit is built for them, none of them is
 built here. Multiplayer (verdict 3). The texture cache (§2).
