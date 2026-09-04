@@ -2,6 +2,7 @@ package wm.damage.core.windows.games.roster
 
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -34,6 +35,15 @@ class Roster(
 
     private val byId = LinkedHashMap<String, Character>()
 
+    /**
+     * Adam's own character id (verdict 25 puts him in the roster). He is never
+     * SEATED by the roster: he chooses his own table. Excluding him here makes
+     * that an invariant of the class instead of a discipline every caller has
+     * to remember — the background economy would otherwise happily deal him
+     * into a game he is not playing.
+     */
+    var humanId: String? = null
+
     val characters: Collection<Character> get() = byId.values
 
     fun get(id: String): Character? = byId[id]
@@ -47,7 +57,8 @@ class Roster(
     }
 
     /** Characters who could sit down right now. */
-    fun available(): List<Character> = byId.values.filter { it.state == Character.State.PLAYING }
+    fun available(): List<Character> =
+        byId.values.filter { it.state == Character.State.PLAYING && it.id != humanId }
 
     /**
      * Fill the room to [target] (§7.5's roster of ~35). New characters are
@@ -249,9 +260,12 @@ class Roster(
         return c.bankroll < floor + HoldemRules.fee(floor)
     }
 
-    /** The standings (§4): everyone by net worth, with the state mark. */
-    fun standings(): List<Character> = byId.values.sortedWith(
-        compareByDescending<Character> { it.worth }.thenBy { it.name })
+    /** The standings (§4): everyone by net worth, with the state mark.
+     *  [worth] is a function because ADAM's worth is derived — his bankroll
+     *  plus whatever is on the table — and a stored copy is stale between
+     *  hands (verdict 25). */
+    fun standings(worth: (Character) -> Int = { it.worth }): List<Character> =
+        byId.values.sortedWith(compareByDescending<Character> { worth(it) }.thenBy { it.name })
 
     /** Total money held by the roster — the §7.6 inflation watch. */
     fun moneySupply(): Int = byId.values.sumOf { it.bankroll }
@@ -259,6 +273,7 @@ class Roster(
     // ------------------------------------------------------------------ state
     fun toJson(): JsonObject = buildJsonObject {
         put("seed", worldSeed)
+        humanId?.let { put("human", it) }
         put("gameNo", gameNo)
         put("born", born)
     }
@@ -267,6 +282,7 @@ class Roster(
         worldSeed = o["seed"]?.jsonPrimitive?.longOrNull ?: worldSeed
         gameNo = (o["gameNo"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0)
         born = (o["born"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0)
+        o["human"]?.jsonPrimitive?.contentOrNull?.let { humanId = it }
     }
 
     companion object {

@@ -2104,7 +2104,12 @@ class Shell(
             // escaping box is rejected by the firmware in SILENCE
             if (mode == Mode.WINDOW && !switcher.open && !menu.open && !keyboard.open) {
                 current?.let { w ->
-                    for ((r, plane) in w.contentPlanes(layout.content)) {
+                    val want = w.contentPlanes(layout.content)
+                    if (want.size > MAX_WINDOW_PLANES) {
+                        Log.e("shell", "window ${w.id} asked for ${want.size} depth regions; " +
+                            "the budget is $MAX_WINDOW_PLANES — the rest are dropped")
+                    }
+                    for ((r, plane) in want.take(MAX_WINDOW_PLANES)) {
                         val errs = wm.damage.core.geom.Geometry.checkRect(r, "${w.id} depth region")
                         if (errs.isNotEmpty() || !layout.content.contains(r)) {
                             Log.e("shell", "window ${w.id} asked for an illegal depth region $r " +
@@ -2678,6 +2683,12 @@ class Shell(
         private val LEVEL = IntArray(256) { Pack.level(it) }
         const val DIVERGE_EPISODES_MAX = 3
         const val DIVERGE_QUIET_CHECKS = 10
+
+        /** How many depth regions a window may ask for inside the content
+         *  area (§3, `DamageWindow.contentPlanes`). Every region splits the
+         *  panel into more pieces, and the piece count is what the rect budget
+         *  is spent on — a window that wants a dozen has misunderstood depth. */
+        const val MAX_WINDOW_PLANES = 4
 
         fun systemClock(): LocalClock {
             val now = java.time.LocalTime.now()

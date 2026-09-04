@@ -310,6 +310,92 @@ class GamesReview20260904Test {
         }
     }
 
+    // ================================================================ #12
+    @Test
+    fun anUncontestedPotDoesNotRunTheBoardOut() {
+        // at a real table the dealer stops the moment everyone folds; showing
+        // the river of a pot nobody contested invents a card that was never
+        // dealt (the first showdown render, 2026-09-04)
+        val who = (0 until 3).map { Seats.Occupant("p$it", "P$it", human = false) }
+        val t = HoldemTable.start(HoldemRules.Table.REGULAR, 21, who, intArrayOf(300, 300, 300))
+        // preflop: everyone folds to the big blind
+        t.act(ActionLevel.Kind.FOLD)
+        t.act(ActionLevel.Kind.FOLD)
+        val v = t.view()
+        assertTrue(v.result != null, "the hand is over")
+        assertEquals(0, v.board.size, "a pot won preflop has no board at all")
+        assertTrue(v.result!!.shown.isEmpty(), "and nobody has to show")
+
+        // and one that ends on the FLOP keeps three
+        val t2 = HoldemTable.start(HoldemRules.Table.REGULAR, 22, who, intArrayOf(300, 300, 300))
+        t2.act(ActionLevel.Kind.CALL)          // button
+        t2.act(ActionLevel.Kind.CALL)          // small blind
+        t2.act(ActionLevel.Kind.CHECK)         // big blind's option
+        assertEquals(3, t2.view().board.size)
+        t2.act(ActionLevel.Kind.BET, t2.minRaiseTo())
+        t2.act(ActionLevel.Kind.FOLD)
+        t2.act(ActionLevel.Kind.FOLD)
+        val v2 = t2.view()
+        assertTrue(v2.result != null)
+        assertEquals(3, v2.board.size, "a pot won on the flop stops at the flop")
+
+        // a real showdown DOES see all five
+        val t3 = HoldemTable.start(HoldemRules.Table.REGULAR, 23, who, intArrayOf(300, 300, 300))
+        var guard = 0
+        while (t3.view().toAct != null && guard++ < 40) t3.act(
+            if (t3.legalActions().any { it.kind == ActionLevel.Kind.CHECK })
+                ActionLevel.Kind.CHECK else ActionLevel.Kind.CALL)
+        val v3 = t3.view()
+        assertEquals(5, v3.board.size, "a contested pot runs the board out")
+        assertTrue(v3.result!!.shown.size >= 2, "and the contenders show")
+    }
+
+    // ================================================================ #13
+    @Test
+    fun aRottedTableRecordIsRefusedRatherThanUsed() {
+        val who = (0 until 3).map { Seats.Occupant("p$it", "P$it", human = false) }
+        val good = HoldemTable.start(HoldemRules.Table.REGULAR, 31, who, intArrayOf(100, 100, 100))
+        fun mangle(key: String, value: kotlinx.serialization.json.JsonElement): JsonObject =
+            kotlinx.serialization.json.buildJsonObject {
+                for ((k, v) in good.toJson()) put(k, if (k == key) value else v)
+            }
+        val negStacks = kotlinx.serialization.json.buildJsonArray {
+            add(kotlinx.serialization.json.JsonPrimitive(-5))
+            add(kotlinx.serialization.json.JsonPrimitive(100))
+            add(kotlinx.serialization.json.JsonPrimitive(100))
+        }
+        assertTrue(HoldemTable.load(mangle("stacks", negStacks)) == null,
+            "a negative stack must be refused, not carried into the arithmetic")
+        val dupOrder = kotlinx.serialization.json.buildJsonArray {
+            add(kotlinx.serialization.json.JsonPrimitive(1))
+            add(kotlinx.serialization.json.JsonPrimitive(1))
+            add(kotlinx.serialization.json.JsonPrimitive(0))
+        }
+        assertTrue(HoldemTable.load(mangle("busted", dupOrder)) == null,
+            "two seats cannot share a finishing place")
+        assertTrue(HoldemTable.load(good.toJson()) != null, "and a good record still loads")
+    }
+
+    // ================================================================ #14
+    @Test
+    fun theRosterNeverSeatsTheHuman() {
+        // verdict 25 puts Adam in the roster; the background economy must not
+        // deal him into a game he is not playing
+        val r = Roster(worldSeed = 4)
+        r.humanId = "you"
+        r.put(Character("you", "You", Character.Traits.load(null), 100_000, 99))
+        r.ensurePopulation()
+        assertTrue(r.available().none { it.id == "you" })
+        repeat(20) { k ->
+            val seated = r.seat(HoldemRules.Table.REGULAR, 6, key = k.toLong())
+            assertTrue(seated.none { it.who.id == "you" }, "the human was seated by the roster")
+            for (s in seated) s.who.bankroll += s.stake + s.fee
+        }
+        // and he is still IN the standings — he is a character, just not one
+        // the room deals in
+        assertTrue(r.standings().any { it.id == "you" })
+    }
+
     private suspend fun settle(shell: Shell) {
         val t0 = System.currentTimeMillis()
         while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 20_000) delay(10)

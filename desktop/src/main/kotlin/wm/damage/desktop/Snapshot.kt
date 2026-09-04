@@ -414,7 +414,7 @@ object Snapshot {
                 if (shell.currentWindowId() == id) return
                 toMain()
                 shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
-                settle(shell)
+                settle(shell, "games")
             }
             failures.add("could not reach the '$id' window from Main")
         }
@@ -431,27 +431,31 @@ object Snapshot {
 
         toWindow("games")
         waitFor("the games root") { shell.currentWindowId() == "games" && gamesWin.levelName == "GAMES" }
+        // the snapshots want SETTLED states, and the pacer is a 600 ms clock
+        // by design: put it on instant so every scene below is the state the
+        // script asked for rather than whatever the pacer was mid-way through
+        shell.services.runOnShell { gamesWin.appSettings().first { it.name == "Bot pace" }.apply("instant") }
         iconsSettled()
-        settle(shell)
+        settle(shell, "games-root")
         save(sim, out, "40-games-root")
 
         // the Bankroll row's lens carries the drawn seven-segment scoreboard
         gamesRow("Bankroll")
-        settle(shell)
+        settle(shell, "games")
         save(sim, out, "41-games-bankroll-lens")
 
         // sit down at Regular and play to Adam's first decision
         gamesRow("Hold'em")
         shell.postGesture(EvenHubMsg.EV_CLICK)             // → the table select
         waitFor("the table list") { gamesWin.levelName == "TABLES" }
-        settle(shell)
+        settle(shell, "games")
         save(sim, out, "42-games-tables")
         shell.postGesture(EvenHubMsg.EV_CLICK)             // Regular
         waitFor("the buy-in confirm") { shell.menuIsOpen }
         save(sim, out, "43-games-buyin")
         gamesMenu("Sit down")
         waitFor("your first decision") { gamesWin.isMyTurn }
-        settle(shell)
+        settle(shell, "games")
         save(sim, out, "44-games-table-480")
         shell.postGesture(EvenHubMsg.EV_CLICK)             // the action level
         waitFor("the action menu") { shell.menuIsOpen }
@@ -460,7 +464,23 @@ object Snapshot {
         waitFor("the confirm") { shell.menuIsOpen && shell.menuLabels.firstOrNull() == "Cancel" }
         save(sim, out, "46-games-confirm")
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // cancel
-        settle(shell)
+        settle(shell, "games")
+
+        // fold, let the hand play out, and catch the SHOWDOWN — the densest
+        // state the table ever reaches (verdict 29: it stays up until you act)
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the action menu again") { shell.menuIsOpen }
+        gamesMenu(if (shell.menuLabels.firstOrNull() == "Fold") "Fold" else "Check")
+        waitFor("the confirm") { shell.menuIsOpen && shell.menuLabels.firstOrNull() == "Cancel" }
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+        settle(shell, "games")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the hand finishes") { gamesWin.handIsComplete }
+        waitFor("the board finishes revealing") {
+            gamesWin.handIsComplete && shell.isQuiescent()
+        }
+        settle(shell, "games-showdown")
+        save(sim, out, "50-games-showdown")
 
         // the standings, and one character's career
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → the games root
@@ -468,33 +488,44 @@ object Snapshot {
         gamesRow("Standings")
         shell.postGesture(EvenHubMsg.EV_CLICK)
         waitFor("the standings") { gamesWin.levelName == "STANDINGS" }
-        settle(shell)
+        settle(shell, "games")
         save(sim, out, "48-games-standings")
         shell.postGesture(EvenHubMsg.EV_CLICK)
         waitFor("a character") { gamesWin.levelName == "CHARACTER" }
-        settle(shell)
+        settle(shell, "games")
         save(sim, out, "49-games-character")
         repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }
         waitFor("the games root again") { gamesWin.levelName == "GAMES" }
-        settle(shell)
+        settle(shell, "games")
 
         // the same table at 288 — the tight rung of the ladder
         shell.services.runOnShell { gamesWin.appSettings().first { it.name == "Size" }.apply("288") }
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Main
-        settle(shell)
+        settle(shell, "games")
         toWindow("games")
         waitFor("games at 288") { shell.currentWindowId() == "games" }
-        settle(shell)
+        settle(shell, "games")
         gamesRow("Hold'em")
         shell.postGesture(EvenHubMsg.EV_CLICK)             // → the live table
         waitFor("the table at 288") { gamesWin.levelName == "TABLE" }
-        settle(shell)
+        settle(shell, "games")
         save(sim, out, "47-games-table-288")
+        for (h in listOf(352, 416)) {
+            shell.services.runOnShell { gamesWin.appSettings().first { it.name == "Size" }.apply("$h") }
+            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)  // → Main
+            settle(shell, "games")
+            toWindow("games")
+            gamesRow("Hold'em")
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+            waitFor("the table at $h") { gamesWin.levelName == "TABLE" }
+            settle(shell, "games")
+            save(sim, out, "5${if (h == 352) 1 else 2}-games-table-$h")
+        }
         shell.services.runOnShell { gamesWin.appSettings().first { it.name == "Size" }.apply("global") }
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
-        settle(shell)
+        settle(shell, "games")
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
-        settle(shell)
+        settle(shell, "games")
 
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // silent
         settle(shell)

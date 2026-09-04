@@ -316,9 +316,14 @@ class HoldemTable private constructor(
         if (li < log.size) throw IllegalStateException(
             "hand $handNo replay ended with ${log.size - li} action(s) unconsumed — the record " +
                 "and the rules disagree")
+        // How much BOARD the hand actually saw. An uncontested win does not
+        // run the rest of it out — at a real table the dealer stops the moment
+        // everyone folds, and showing the river of a pot nobody contested
+        // invents a card that was never dealt.
+        val boardShown = if (street == Street.SHOWDOWN) 5 else street.boardCards
         if (liveCount() <= 1) street = Street.SHOWDOWN
 
-        val board = boardAll.take(if (street == Street.SHOWDOWN) 5 else street.boardCards)
+        val board = boardAll.take(boardShown)
 
         var result: Result? = null
         if (street == Street.SHOWDOWN) {
@@ -622,6 +627,13 @@ class HoldemTable private constructor(
                 val busted = o["busted"]?.jsonArray?.map { it.jsonPrimitive.intOrNull ?: 0 }
                     ?.toIntArray() ?: return null
                 if (stacks.size != who.size || busted.size != who.size) return null
+                // a hand-edited or rotted record must not flow into the
+                // arithmetic: a negative stack or an out-of-range finishing
+                // order produces nonsense quietly, which is the one thing
+                // this file exists not to do
+                if (stacks.any { it < 0 }) return null
+                if (busted.any { it < 0 || it > who.size }) return null
+                if (busted.filter { it != 0 }.let { it.size != it.toSet().size }) return null
                 val log = ArrayList<Act>()
                 o["log"]?.jsonArray?.forEach { e ->
                     val a = e.jsonArray

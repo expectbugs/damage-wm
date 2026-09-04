@@ -219,6 +219,7 @@ class GamesWindow(
     }
 
     private fun seedWorld() {
+        roster.humanId = ME
         if (roster.worldSeed == 0L) {
             roster.worldSeed = Rng.mix(clock() xor 0x6A_11EDL)
             Log.i("games", "a new world, seed ${roster.worldSeed}")
@@ -344,8 +345,10 @@ class GamesWindow(
             IconPaint.draw(g, icons, IconNames.forKind(IconKind.GAMES), r.x + 4, r.y + 6, 20,
                 IconKind.GAMES, lv)
         }
-        Draw.fit(g, tx, r.x + 32, r.y + 5, label, lv, fRow, r.w - 200)
-        Draw.right(g, tx, r.right - 8, r.y + 8, dn(detail, fSmall), if (dim) Level.REST else Level.DIM, fSmall)
+        // the left fit is sized against the MEASURED detail, not a constant
+        val d = dn(detail, fSmall)
+        Draw.fit(g, tx, r.x + 32, r.y + 5, label, lv, fRow, r.w - 40 - tx.measure(d, fSmall) - 16)
+        Draw.right(g, tx, r.right - 8, r.y + 8, d, if (dim) Level.REST else Level.DIM, fSmall)
     }
 
     private fun paintGamesLens(g: Gray8, r: Rect, i: Int) {
@@ -410,10 +413,11 @@ class GamesWindow(
     private fun paintTableRow(g: Gray8, i: Int, r: Rect, dim: Boolean) {
         val spec = tableRows().getOrNull(i) ?: return
         val lv = if (dim) Level.REST else Level.BODY
-        Draw.fit(g, tx, r.x + 8, r.y + 5, spec.label, lv, fRow, r.w - 220)
         val entry = entryFor(spec)
         val detail = "${Money.fmt(entry)} + ${Money.fmt(HoldemRules.fee(entry))}"
         val afford = bankroll.cash >= entry + HoldemRules.fee(entry)
+        Draw.fit(g, tx, r.x + 8, r.y + 5, spec.label, lv, fRow,
+            r.w - 16 - tx.measure(detail, fSmall) - 16)
         Draw.right(g, tx, r.right - 8, r.y + 8, detail,
             if (!afford) Level.FAINT else if (dim) Level.REST else Level.DIM, fSmall)
     }
@@ -613,6 +617,7 @@ class GamesWindow(
         if (!active || level != Level_.TABLE) return
         if (thinking) return
         val v = t.view()
+        if (!dealAnim) revealed = v.board.size
         if (v.result != null) {
             skipping = false
             // a showdown STAYS UP until you act (verdict 29). Reveal the rest
@@ -649,8 +654,15 @@ class GamesWindow(
         thinking = true
         val character = seat?.let { cast[it] }
         val read = character?.let { readOf(it) } ?: HoldemBot.NO_READ
-        val pace = if (skipping) 0L else paceMs
         val revealing = seat == null
+        // a board card is not a decision: five of them at the full bot pace
+        // is three seconds of waiting a hand. The flop still arrives card by
+        // card, at a third of the pace, which is about one action in total.
+        val pace = when {
+            skipping -> 0L
+            revealing -> if (paceMs == 0L) 0L else maxOf(REVEAL_MIN_MS, paceMs / 3)
+            else -> paceMs
+        }
         if (seat != null && character == null) {
             thinking = false
             setNotice("seat $seat has nobody to play it — the hand is paused")
@@ -1090,22 +1102,22 @@ class GamesWindow(
     }
 
     // ================================================================ standings
-    private fun standRows(): List<Character> = roster.characters.sortedWith(
-        compareByDescending<Character> { worthOf(it) }.thenBy { it.name })
+    private fun standRows(): List<Character> = roster.standings(::worthOf)
 
     private fun paintStandRow(g: Gray8, i: Int, r: Rect, dim: Boolean) {
         val c = standRows().getOrNull(i) ?: return
         val lv = if (dim) Level.REST else Level.BODY
         val mine = c.id == ME
         val f = if (mine) fRowB else fRow
-        Draw.fit(g, tx, r.x + 8, r.y + 5, dn(c.name, f), if (mine && !dim) Level.HEAD else lv,
-            f, r.w - 200)
         val mark = when (c.state) {
             Character.State.PLAYING -> ""
             Character.State.BETWEEN_LIVES -> " · away"
             Character.State.RETIRED -> " · retired"
         }
-        Draw.right(g, tx, r.right - 8, r.y + 8, Money.compact(worthOf(c)) + mark,
+        val detail = Money.compact(worthOf(c)) + mark
+        Draw.fit(g, tx, r.x + 8, r.y + 5, dn(c.name, f), if (mine && !dim) Level.HEAD else lv,
+            f, r.w - 16 - tx.measure(detail, fSmall) - 16)
+        Draw.right(g, tx, r.right - 8, r.y + 8, detail,
             if (dim) Level.REST else Level.DIM, fSmall)
     }
 
@@ -1451,6 +1463,10 @@ class GamesWindow(
 
         /** Hands together before a character trusts their read (§7.6). */
         const val READ_HANDS = HoldemView.READ_HANDS
+
+        /** The floor on a board-card reveal, so "instant" stays instant and
+         *  300 ms does not become 100. */
+        const val REVEAL_MIN_MS = 80L
 
         val PACES = linkedMapOf(
             "instant" to 0L, "300 ms" to 300L, "600 ms" to 600L,

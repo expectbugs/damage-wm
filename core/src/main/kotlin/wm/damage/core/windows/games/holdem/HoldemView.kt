@@ -213,9 +213,13 @@ class HoldemView(private val tx: TextRasterizer) {
             return
         }
         if (result != null) {
+            // the left fit is sized against the MEASURED right-hand string,
+            // never a magic constant: a wrap width that differs from the draw
+            // bound is how text lands outside its own damage rect (§25 #3)
+            val tail = "tap to deal"
             Draw.fit(g, tx, r.x, r.y + 2, Draw.dynamic(tx, result.line, fStatusBig),
-                Level.HEAD, fStatusBig, r.w - 96)
-            Draw.right(g, tx, r.right, r.y + 4, "tap to deal", Level.DIM, fSmall)
+                Level.HEAD, fStatusBig, r.w - tx.measure(tail, fSmall) - 16)
+            Draw.right(g, tx, r.right, r.y + 4, tail, Level.DIM, fSmall)
             return
         }
         val parts = ArrayList<String>(4)
@@ -266,9 +270,11 @@ class HoldemView(private val tx: TextRasterizer) {
         else if (me.index == m.v.bbSeat) bits.add("big blind")
         if (me.folded) bits.add("folded")
         else if (me.allIn) bits.add("all-in")
-        Draw.fit(g, tx, r.x, r.y + 2, bits.joinToString(" · "), Level.BODY, fSmall, r.w - 140)
         val left = m.v.activeSeats.size
-        Draw.right(g, tx, r.right, r.y + 2, "$left left · hand ${m.v.handNo + 1}", Level.DIM, fSmall)
+        val tail = "$left left · hand ${m.v.handNo + 1}"
+        Draw.fit(g, tx, r.x, r.y + 2, bits.joinToString(" · "), Level.BODY, fSmall,
+            r.w - tx.measure(tail, fSmall) - 16)
+        Draw.right(g, tx, r.right, r.y + 2, tail, Level.DIM, fSmall)
     }
 
     private fun paintHistory(g: Gray8, t: TableLayout, m: Model) {
