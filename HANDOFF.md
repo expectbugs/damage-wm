@@ -1431,9 +1431,10 @@ core **421** · desktop **9** · selfcheck **189** (oracle 279 runs) · snapshot
 
 ### 27.5 What is owed
 
-- **Nothing on glass has changed hands.** APK **26/0.26** is still the staged build and 0.16 is
-  still the last one observed installed; this review's fixes want a fresh APK before they are on
-  the phone. The PC service wants `:desktop:stageJar` + `rc-service damage restart`.
+- **Nothing on glass has changed hands**, though both sides are deployed: APK **27/0.27** carries
+  this review and is staged on the setup page, and the `damage` service was restarted onto the
+  review build (2026-09-05, `standby up (§19)`, the phone reattached to its channels). **0.16 is
+  still the last build observed INSTALLED** — installing 0.27 is the one manual step left.
 - **The reading did not cover everything at the same depth.** The seam, replica, sync and window
   channels, the firmware simulator, the transports and the whole shell were read line by line;
   the music/torrents/tmux provider and desktop-harness leaves were read for their risk surfaces
@@ -1485,8 +1486,8 @@ Read `CLAUDE.md` → `REMINDER.md` → `HANDOFF.md` §19–§27 in that order, t
   `./gradlew :phone:assembleDebug`. All green at `27.4`'s numbers as of this commit.
 - **Run the harnesses more than once.** Every defect in §27.6 was invisible in a single run. Three
   runs of `--snapshot` is the cheap version of that lesson.
-- **Nothing from §25, §26 or §27 has been seen on glass.** The installed APK is **0.16**; **0.26** is
-  staged and predates all of §27. That is the largest untested surface in the project, and it is the
+- **Nothing from §25, §26 or §27 has been seen on glass.** The installed APK is **0.16**; **0.27**
+  is staged and carries all of it. That is the largest untested surface in the project, and it is the
   first thing worth doing with the glasses in hand — the four heights, the 130 % ladder, Music Mode
   and a Hold'em hand, in that order.
 - The open items are §26.6 and §27.5; nothing in this round is half-finished.

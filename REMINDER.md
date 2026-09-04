@@ -38,9 +38,10 @@ repaint as deltas — the only state that exposes ink outside a declared rect), 
 set again at 130 %, and again at the tallest face at 480 AND at 288, because at 480 an
 overflowing chrome line is clipped away by the panel edge and looks fine.
 
-⚠ **Nothing has changed hands on glass.** APK **26/0.26** is still the staged build; this
-review's fixes want a fresh APK, and the PC service wants `:desktop:stageJar` +
-`sudo rc-service damage restart`.
+⚠ **Nothing has changed hands on glass**, but both sides are DEPLOYED: APK **27/0.27** is staged
+with this review's fixes (the setup page) and the `damage` service was restarted onto the review
+build 2026-09-05, coming up `standby up (§19)` with the phone reattached to its channels.
+**0.16 is still the last build observed installed — installing 0.27 is the one manual step.**
 
 **Battery at HEAD:** core **421** · desktop **9** · selfcheck **189** (oracle 279 runs) ·
 snapshots 49 (eight consecutive clean runs) · `--games-check` · `--music-check` ·
@@ -138,9 +139,9 @@ selfcheck **189** · snapshots 49 · epub-check 58/58 · lint 0 · `--music-chec
 `--games-check` all pass. ✅ **The jar and the `damage` service RUN THE GAMES BUILD**
 (deployed 2026-09-04 13:07; `standby up (§19)` in the log, the phone reattached to all five
 channels — files, tmux, music, torrents, sync — and the PC claimed nothing, so the display was
-never touched). **APK 26/0.26 is STAGED and is the one to install** — Games plus all three review
-cycles, versionName read back out of the APK and its md5 matched the fresh build; 0.25 and
-everything before it are superseded. **0.16 is still the last build observed INSTALLED**
+never touched). **APK 27/0.27 is STAGED and is the one to install** — Games plus all three
+review cycles plus the whole 2026-09-05 review (§27); 0.26 and everything before it are
+superseded, and the service now runs the review build too (restarted 2026-09-05). **0.16 is still the last build observed INSTALLED**
 (2026-09-01). Redeploy the PC side with
 `./gradlew :desktop:stageJar && sudo rc-service damage restart` (never touches the display — the
 PC does not claim). ⚠ One central at a time: stop the service before any `:desktop:run` dev
@@ -156,12 +157,11 @@ shell).
 
 ## 🚀 Next
 
-1. **Deploy the review build, then install the APK and play Hold'em on glass.** The PC side is
-   one command — `./gradlew :desktop:stageJar && sudo rc-service damage restart` (it never
-   touches the display: the PC does not claim). Then stage and install a fresh APK: the staged
-   26/0.26 predates the 2026-09-05 review, so the Music Mode card, the chrome ladder and the
-   cash-out fix are not on the phone yet. Download it from the G2CC setup page's `/damage-apk`
-   and install over the top; `MY_PACKAGE_REPLACED` restarts the phone service itself. What is
+1. **Install the APK and play Hold'em on glass.** Both sides are already deployed: the service
+   runs the review build (restarted 2026-09-05, `standby up (§19)`, the phone reattached) and
+   **27/0.27** — Games, all three review cycles and the whole 2026-09-05 review — is staged.
+   Download it from the G2CC setup page's `/damage-apk` and install over the top;
+   `MY_PACKAGE_REPLACED` restarts the phone service itself. What is
    owed on glass: the card art at all four rungs, the hole-card
    plane's depth, the arc stagger at 416/480, whether the bot pace of 600 ms feels right, and
    whether the ≈8–10 % ink target holds with a real board out. `HOLDEM.md` §17.4 is the list.
