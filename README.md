@@ -103,7 +103,7 @@ The design is shaped by three facts about this display, and most of it follows f
 ./gradlew :desktop:run --args="--transport ble"       # PC-direct BLE (the at-the-desk fallback)
 ./gradlew :desktop:run                                # auto = the §19 standby (data host; claims nothing) + preview (4x)
 ./gradlew :phone:assembleDebug                        # the APK (deploy flow: :phone:stageApk → the setup page)
-tools/lint.py                # design gate: 20 rules (SYM/GEO/BUD/FID); --selftest fires 15 of them in 16 cases
+tools/lint.py                # design gate: 21 rules (SYM/GEO/BUD/FID); --selftest fires 16 of them in 18 cases
 python3 design/render_shots.py   # design renders at true 1x, priced through the firmware's RLE
 python3 research/verify_cfw.py   # rebuilds the CFW offline and checks every pinned hash
 ```

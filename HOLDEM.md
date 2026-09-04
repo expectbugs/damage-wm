@@ -1033,7 +1033,7 @@ finished, or start() has not completed — which is the invariant it was written
 checks · `desktop --games-check` (a new harness — the ecology over hundreds of simulated
 tournaments) · `desktop --snapshot` **13 Games scenes** among 49 · `desktop --card-render` (the
 card sheets in `design/shots/cards/`) · `desktop --epub-check` · `desktop --music-check` ·
-`python3 tools/lint.py` **20 rules, 0 findings** · `./gradlew :phone:assembleDebug` (APK
+`python3 tools/lint.py` **21 rules, 0 findings** · `./gradlew :phone:assembleDebug` (APK
 **24 / 0.24**).
 
 ### 17.4 Still open

@@ -2011,8 +2011,8 @@ The contract:
   over its ink budget. **NO SILENT FAILURES, pushed left to build time.** Adam: *"minimizing the
   chances of a bug making it to the glasses as much as possible."*
 
-  ✅ **`tools/lint.py` + `tools/geometry.py` exist and pass** (2026-08-18; 20 rules, `--selftest`
-  green, 0 findings at HEAD).
+  ✅ **`tools/lint.py` + `tools/geometry.py` exist and pass** (2026-08-18; 21 rules since SYM002
+  landed 2026-09-04, `--selftest` green, 0 findings at HEAD).
 
   ⚠ **Most of these are RUNTIME properties, not static ones** — a rect computed at frame time is
   invisible to a source linter. So the rules live in **`tools/geometry.py` as a library the
@@ -2022,6 +2022,7 @@ The contract:
   | rule | catches |
   |---|---|
   | **SYM001** | a string reaching a text-drawing call contains a codepoint the target face cannot render |
+  | **SYM002** | 🆕 (2026-09-04) the same, over **every Kotlin string literal** — the shell's own drawing code, which is what actually reaches the glass |
   | **GEO001** | x/w not a multiple of 4, or y/h not a multiple of 2 |
   | **GEO002** | box outside 640×480 — *rejected in silence, previous frame stays up* |
   | **GEO003** | zero or negative extent |
@@ -2042,7 +2043,7 @@ The contract:
   | **FID003** | fid outside `[1, 0xFFFE]` |
   | **FID004** | a mode-3 delta with no prior keyframe |
 
-  🔑 **`--selftest` proves 15 of the 20 rules fire** (16 cases; GEO006 · GEO007 · BUD006 · BUD007 ·
+  🔑 **`--selftest` proves 16 of the 21 rules fire** (18 cases; GEO006 · GEO007 · BUD006 · BUD007 ·
   SYM001 are exercised by the repo run instead), against known-bad inputs, and that valid geometry
   stays silent. *A gate nobody has seen fail is a gate nobody trusts.*
 

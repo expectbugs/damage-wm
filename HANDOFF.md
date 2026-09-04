@@ -1260,5 +1260,5 @@ replica port, so the screens under test were a stale build.
   struck through as built.
 
 **Battery after this session:** core **414** · desktop **9** · selfcheck **160** · snapshots 49
-(13 Games) · `--games-check` all pass · `--epub-check` 58/58 · `--music-check` all pass · lint 20
+(13 Games) · `--games-check` all pass · `--epub-check` 58/58 · `--music-check` all pass · lint 21
 rules / 0 findings · `:phone:assembleDebug` green.

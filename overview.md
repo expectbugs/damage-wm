@@ -39,7 +39,7 @@ This document is the complete carry-over from the research that produced the dec
 >
 > Two things exist alongside it that a fresh session must know about:
 > - **`tools/lint.py` + `tools/geometry.py`** — the build gate from `DESIGN.md` §9.2b (the
->   SYM/GEO/BUD/FID rule set, 20 rules). `tools/lint.py --selftest` fires 15 of them in 16 cases; `tools/lint.py` gates the
+>   SYM/GEO/BUD/FID rule set, 21 rules). `tools/lint.py --selftest` fires 16 of them in 18 cases; `tools/lint.py` gates the
 >   repo and currently exits 0. **Run it after any geometry or layout change.**
 > - **`design/render_shots.py`** — renders every shell surface at **true 1× 640×480**, 4bpp
 >   quantized, priced through the firmware's own RLE. Output in `design/shots/`. This is how ink
