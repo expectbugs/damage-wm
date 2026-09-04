@@ -19,7 +19,13 @@ passes of 2026-09-04** — 11 + 8 verified defects, pinned in `GamesReview202609
 whole cycle a SECOND time; that round — two more code passes and a second live session, **16 more
 verified defects and two coverage gaps** — is `HANDOFF.md` §26.4 and `HOLDEM.md` §17.2b. And a
 THIRD time: **11 more defects and two test-quality fixes**, `HANDOFF.md` §26.5 / `HOLDEM.md`
-§17.2c. Two of that round's findings were in the TESTS — a pin that passed with and without its
+§17.2c. The **whole-codebase review of 2026-09-05** — one accounting defect found by reading, two
+gates that measured nothing, and three drawing defects found by making the belief-vs-truth oracle
+a STANDING gate (`--selfcheck` runs it on every settle; `OracleWalkTest` runs it over a seeded
+random walk at all four heights) — is `HANDOFF.md` §27, with the pins in `Review20260905Test` and
+the deviations in `HOLDEM.md` §17.2d and `MUSIC.md` §8.3. Its lesson: **a rect a paint returns is
+a promise, and ink outside it is invisible to every check that compares belief to glass** — only
+an independent truth catches it. Two of that round's findings were in the TESTS — a pin that passed with and without its
 fix, and a pin whose comment claimed to reproduce a race it cannot — which is why every pin across
 the three cycles was run against the unfixed tree before it was kept. Its lesson worth carrying:
 two review passes over the code missed a menu row that could never succeed and a drawn mark that

@@ -44,6 +44,85 @@ object SelfCheck {
      *  is to have none (review 2026-09-02). */
     private val faults = java.util.concurrent.atomic.AtomicInteger()
 
+    /**
+     * The per-lens TRUTH oracle, run on EVERY settle (review 2026-09-05).
+     *
+     * The shell's own divergence check compares its BELIEF to the glass, so a
+     * defect that writes wrong pixels into the shadow and then sends them is
+     * invisible to it (`HANDOFF.md` §25). This recomputes the independent
+     * truth of `comp.composed` under `comp.planes` — splitting the panel by
+     * plane PIECES — and compares THAT to the firmware model, over every
+     * surface the script visits, with the real faces. It also catches ink
+     * painted into `composed` outside any damaged rect, which is the class
+     * that produced the notification-body, menu-detail and Settings-row
+     * findings: unsent ink shows up here as truth ≠ glass.
+     */
+    private var oracleSim: GlassFirmwareSim? = null
+    private var oracleShell: Shell? = null
+    private var oracleRuns = 0
+
+    private fun runOracle(label: String) {
+        val sim = oracleSim ?: return
+        val shell = oracleShell ?: return
+        if (!shell.isQuiescent()) return          // mid-flight is not a claim
+        oracleRuns++
+        for (arm in Arm.entries) {
+            val left = arm == Arm.LEFT
+            val ctx = if (left) sim.left else sim.right
+            val composed = shell.comp.composed
+            val truth = truthOf(composed, shell.comp.planes, left)
+            for (y in 0 until wm.damage.core.geom.Geometry.PANEL_H) {
+                for (x in 0 until wm.damage.core.geom.Geometry.PANEL_W) {
+                    val b = ctx.panel[y * ctx.stride + (x shr 1)].toInt() and 0xFF
+                    val got = if (x and 1 == 0) b shr 4 else b and 0x0F
+                    val want = Pack.level(truth[x, y])
+                    if (want != got) {
+                        failures.add("truth oracle at '$label': ${arm.name} glass != truth at " +
+                            "($x,$y) — expected level $want, glass shows $got; planes=" +
+                            shell.comp.planes.joinToString { p -> "${p.rect}@${p.disparity}" })
+                        return
+                    }
+                }
+            }
+        }
+    }
+
+    /** The nominal frame is the transparent base; every plane region vacates
+     *  its nominal area, and the region PIECES render at their shift far to
+     *  near, the nearest winning. Written without reference to the
+     *  compositor's own renderTruth. */
+    private fun truthOf(
+        composed: wm.damage.core.gfx.Gray8,
+        planes: List<wm.damage.core.comp.Compositor.PlaneRegion>,
+        left: Boolean,
+    ): wm.damage.core.gfx.Gray8 {
+        val w = wm.damage.core.geom.Geometry.PANEL_W
+        val h = wm.damage.core.geom.Geometry.PANEL_H
+        val out = composed.copy()
+        for (p in planes) out.fillRect(p.rect, 0)
+        val xs = sortedSetOf(0, w)
+        val ys = sortedSetOf(0, h)
+        for (p in planes) { xs.add(p.rect.x); xs.add(p.rect.right); ys.add(p.rect.y); ys.add(p.rect.bottom) }
+        val xa = xs.toIntArray()
+        val ya = ys.toIntArray()
+        class Piece(val r: Rect, val d: Int)
+        val pieces = ArrayList<Piece>()
+        for (i in 0 until xa.size - 1) for (j in 0 until ya.size - 1) {
+            val r = Rect(xa[i], ya[j], xa[i + 1] - xa[i], ya[j + 1] - ya[j])
+            if (r.w <= 0 || r.h <= 0) continue
+            val owner = planes.lastOrNull { it.rect.contains(r) } ?: continue
+            pieces.add(Piece(r, owner.disparity))
+        }
+        for (p in pieces.sortedByDescending { it.d }) {
+            val shift = if (left) -p.d else p.d
+            for (y in p.r.y until p.r.bottom) for (x in p.r.x until p.r.right) {
+                val tx = x + shift
+                if (tx in 0 until w) out[tx, y] = composed[x, y]
+            }
+        }
+        return out
+    }
+
     private fun check(what: String, ok: Boolean) {
         val mark = if (ok) "PASS" else "FAIL"
         println("  $mark  $what")
@@ -130,6 +209,14 @@ object SelfCheck {
         val musicWin = wm.damage.core.windows.music.MusicWindow(text, musicLib, musicPlayer, scope, clock = musicClock)
         shell.register(musicWin)
         val gamesWin = wm.damage.core.windows.games.GamesWindow(text, scope)
+        // A PINNED world (GamesCheck's precedent, `Roster(worldSeed = ...)`).
+        // Seeded off the wall clock this harness dealt a different tournament
+        // every run, so its scenes were not the same scenes twice and its
+        // waits could sit on a legitimate outcome the script did not expect:
+        // one run in four the fold ended the whole TOURNAMENT rather than the
+        // hand, `table` went null, and "the hand finishes" never became true
+        // (review 2026-09-05).
+        gamesWin.roster.worldSeed = 20260905L
         shell.register(gamesWin)
         /** Open the Music menu (from the root) and commit the row LABELLED
          *  [label] — by name, never by counting notches, so a new row cannot
@@ -157,6 +244,8 @@ object SelfCheck {
             }
         }
 
+        oracleSim = sim
+        oracleShell = shell
         shell.start()
         settle(shell, "boot")
         check("shell boots and reaches quiescence", shell.isQuiescent())
@@ -531,6 +620,11 @@ object SelfCheck {
             musicWin.appSettings().first { it.name == "Music Mode · visualizer" }.apply("on")
             musicWin.appSettings().first { it.name == "Music Mode · queue peek" }.apply("on")
         }
+        // a real queue, so the mode's own surfaces can be driven as DELTAS
+        // (a one-track queue ends instead of advancing)
+        musicPlayer.playQueue(musicLib.catalog().tracks.take(3).map { it.ref() }, 0,
+            wm.damage.core.windows.music.Mode.QUEUE, "Music Mode walk")
+        awaitTrue("a three-track queue for Music Mode") { musicPlayer.state.queue.size == 3 }
         for ((h, viz) in listOf(480 to "Bars", 288 to "Scope")) {
             shell.services.runOnShell {
                 musicWin.appSettings().first { it.name == "Size" }.apply("$h")
@@ -550,6 +644,16 @@ object SelfCheck {
             shell.postGesture(EvenHubMsg.EV_RING_LONG_PRESS)            // swallowed, never arms
             settle(shell, "music-mode-swallow-$h")
             check("Music Mode swallows tap/scroll/long-press at $h", shell.exclusiveMode && !shell.menuIsOpen && !shell.switcherIsOpen)
+            // advance the queue WHILE the mode is on: the card, the queue peek
+            // and the PC badge all repaint as DELTAS, and the truth oracle in
+            // settle() then sees whatever they ink outside their own rects —
+            // which is exactly how the 2026-09-05 card overrun was found
+            val mmTrack = musicPlayer.state.entry?.qid
+            musicPlayer.next()
+            awaitTrue("the queue advanced inside Music Mode ($h)") { musicPlayer.state.entry?.qid != mmTrack }
+            settle(shell, "music-mode-advance-$h")
+            musicSkew += 40_000
+            settle(shell, "music-mode-progress-$h")
             shell.postNotice(wm.damage.core.shell.Notifications.Notice("SMS · TEST", "mm$h", "a notice over music mode", "14:32"))
             awaitTrue("a notice shows over Music Mode ($h)") { shell.notifications.active }
             awaitTrue("and auto-dismisses ($h)") { !shell.notifications.active }
@@ -568,6 +672,8 @@ object SelfCheck {
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // dismiss
         awaitTrue("the music notice dismisses") { !shell.notifications.active }
         gamesChecks(shell, gamesWin)
+
+        typeLadderTopEnd(shell, musicWin, musicPlayer) { label -> musicMenu(label) }
 
         // ---- persistence round trip: leave a BOOK open, restart, land back in it
         toWindow(shell, "reader")
@@ -609,9 +715,137 @@ object SelfCheck {
         check("no transport faults (decode/fid/session, were ${faults.get()})", faults.get() == 0)
         val flags = sim.flags(Arm.LEFT).filterValues { it }
         check("no sticky diagnostic flags (were $flags)", flags.isEmpty())
+        check("the per-lens truth oracle ran on every settled surface (was $oracleRuns)", oracleRuns >= 100)
         scope.cancel()
     }
 
+
+
+    /**
+     * The TYPE LADDER'S TOP END (review 2026-09-05). Every "measured vs
+     * guessed" defect this project has shipped is invisible at 100 % and
+     * obvious at 130 %: the Music Mode card's bottom row inked past its own
+     * rect at 100 %, the Games lens ladder and the history band did the same
+     * at their design sizes. Walk the surfaces again with the global font
+     * scale at the top of the ladder, with the truth oracle running on every
+     * settle — a rect that does not hold what it draws shows up here as
+     * glass != truth.
+     *
+     * Its own function for the same reason `gamesChecks` is: `script()` is at
+     * the JVM's 64 KB method limit.
+     */
+    private suspend fun typeLadderTopEnd(
+        shell: Shell,
+        musicWin: wm.damage.core.windows.music.MusicWindow,
+        musicPlayer: wm.damage.core.windows.music.SimMusicPlayer,
+        musicMenu: suspend (String) -> Unit,
+    ) {
+            val big = wm.damage.core.shell.ShellSettings(fontScale = 1.3)
+            check("the shell accepts the top of the font ladder",
+                shell.postSync("shell.settings", big.toJson(), System.currentTimeMillis()))
+            awaitTrue("the 130 % scale applied") { shell.settings.fontScale == 1.3 }
+            settle(shell, "scale130-main")
+            for (id in listOf("reader", "tmux", "files", "torrents", "music", "games", "settings")) {
+                toWindow(shell, id)
+                settle(shell, "scale130-$id")
+                shell.postGesture(EvenHubMsg.EV_CLICK)          // one level in
+                settle(shell, "scale130-$id-in")
+                if (shell.menuIsOpen || shell.keyboardIsOpen) {
+                    shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+                    settle(shell, "scale130-$id-cancel")
+                }
+            }
+            // Music's own CANVASES at the top of the ladder: they own their
+            // damage the way Music Mode does, so an overrun there is the same
+            // undelivered ink
+            toWindow(shell, "music")
+            for (level in listOf("Lyrics", "Volume")) {
+                musicMenu(level)
+                settle(shell, "scale130-music-$level")
+                shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+                settle(shell, "scale130-music-$level-back")
+            }
+            // and Music Mode at the smallest and largest rungs, where the card
+            // has the least room and the ladder bites hardest
+            toWindow(shell, "music")
+            // the earlier Music Mode walk consumed the queue: re-seed it, or
+            // `next()` below ends the queue instead of advancing it
+            val again = musicPlayer.state.queue.map { it.track }
+            if (again.size >= 2) {
+                musicPlayer.playQueue(again, 0, wm.damage.core.windows.music.Mode.QUEUE, "130 % walk")
+                awaitTrue("the queue is re-seeded for the 130 % walk") { musicPlayer.state.index == 0 }
+            }
+            for (h in listOf(288, 480)) {
+                shell.services.runOnShell { musicWin.appSettings().first { it.name == "Size" }.apply("$h") }
+                shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+                awaitTrue("Music → Main at 130 % ($h)") { shell.currentWindowId() == null }
+                toWindow(shell, "music")
+                musicMenu("Music Mode")
+                awaitTrue("Music Mode at 130 % ($h)") { shell.exclusiveMode }
+                settle(shell, "scale130-music-mode-$h")
+                val mmTrack = musicPlayer.state.entry?.qid
+                musicPlayer.next()
+                awaitTrue("the queue advanced at 130 % ($h)") { musicPlayer.state.entry?.qid != mmTrack }
+                settle(shell, "scale130-music-mode-advance-$h")
+                shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+                awaitTrue("out of Music Mode at 130 % ($h)") { !shell.exclusiveMode }
+                settle(shell, "scale130-music-mode-exit-$h")
+            }
+            // …and the TALLEST face at the top of the ladder: Alegreya inks
+            // 35 px at 130 % against a 28 px status bar, which is the case the
+            // chrome cap exists for. Any bar that cannot hold its line shows
+            // up in the oracle below.
+            shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+            awaitTrue("Music → Main before the face walk") { shell.currentWindowId() == null }
+            check("the shell accepts the tallest face at the top of the ladder",
+                shell.postSync("shell.settings",
+                    wm.damage.core.shell.ShellSettings(fontScale = 1.3, fontFace = "Alegreya").toJson(),
+                    System.currentTimeMillis() + 1))
+            awaitTrue("Alegreya at 130 % applied") { shell.settings.fontFace == "Alegreya" }
+            settle(shell, "alegreya130-main")
+            // …at a REDUCED height, where the status bar's bottom is not the
+            // panel's: at 480 an overflowing chrome line is clipped away by
+            // the surface edge and looks fine; at 288 those rows land on real
+            // panel nobody damages (review 2026-09-05)
+            check("the shell accepts the tallest face at 130 % and 288",
+                shell.postSync("shell.settings",
+                    wm.damage.core.shell.ShellSettings(fontScale = 1.3, fontFace = "Alegreya", heightMode = 288).toJson(),
+                    System.currentTimeMillis() + 1))
+            awaitTrue("288 applied") { shell.layout.safe.h == 288 }
+            settle(shell, "alegreya130-288-main")
+            for (id in listOf("reader", "music", "games")) {
+                toWindow(shell, id)
+                settle(shell, "alegreya130-288-$id")
+                shell.postGesture(EvenHubMsg.EV_CLICK)
+                settle(shell, "alegreya130-288-$id-in")
+                if (shell.menuIsOpen || shell.keyboardIsOpen) {
+                    shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+                    settle(shell, "alegreya130-288-$id-cancel")
+                }
+            }
+            check("back to the full height for the face walk",
+                shell.postSync("shell.settings",
+                    wm.damage.core.shell.ShellSettings(fontScale = 1.3, fontFace = "Alegreya").toJson(),
+                    System.currentTimeMillis() + 2))
+            awaitTrue("480 restored") { shell.layout.safe.h == 480 }
+            settle(shell, "alegreya130-480-restored")
+            for (id in listOf("reader", "torrents", "games")) {
+                toWindow(shell, id)
+                settle(shell, "alegreya130-$id")
+                shell.postGesture(EvenHubMsg.EV_CLICK)
+                settle(shell, "alegreya130-$id-in")
+                if (shell.menuIsOpen || shell.keyboardIsOpen) {
+                    shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+                    settle(shell, "alegreya130-$id-cancel")
+                }
+            }
+            shell.services.runOnShell { musicWin.appSettings().first { it.name == "Size" }.apply("global") }
+            check("the shell returns to the default scale",
+                shell.postSync("shell.settings", wm.damage.core.shell.ShellSettings().toJson(),
+                    System.currentTimeMillis() + 2))
+            awaitTrue("back to 100 %") { shell.settings.fontScale == 1.0 }
+            settle(shell, "scale100-restored")
+    }
 
     /**
      * The GAMES window (`HOLDEM.md`). Its own function, not because it is
@@ -745,6 +979,9 @@ object SelfCheck {
             }
             delay(20)
         }
+        // every settled surface the script visits is checked against the
+        // independent per-lens truth, not only against the shell's belief
+        runOracle(label)
     }
 
     private suspend fun awaitTrue(what: String, maxMs: Long = 30_000, cond: () -> Boolean) {

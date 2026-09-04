@@ -105,6 +105,23 @@ class Chrome(
         painted = null
     }
 
+    /**
+     * The top of a line drawn inside [cell]: the caller's preferred inset,
+     * reduced so the line's MEASURED ink cannot leave the cell.
+     *
+     * 🔴 A chrome cell is the ONLY rect its paint damages. Ink past it is
+     * never sent — at full height the status bar's 24 px ink at a 6 px inset
+     * ran 2 px past its 28 px bar (clipped by the panel edge, so only the
+     * descenders were lost), and at a reduced height those rows land outside
+     * the safe rect where nothing ever damages them again. At the top of the
+     * font ladder the title ran into the divider. Found by the truth oracle's
+     * 130 % walk, 2026-09-05.
+     */
+    private fun fitY(cell: Rect, f: FontSpec, want: Int): Int {
+        val m = text.metrics(f)
+        return cell.y + want.coerceAtMost(maxOf(0, cell.h - (m.ascent + m.descent)))
+    }
+
     private fun draw(g: Gray8, x: Int, y: Int, str: String, lv: Int, f: FontSpec) {
         DrawnStrings.check(str, text, f)
         text.draw(g, Geometry.snapX(x), Geometry.snapY(y), str, f, lv)
@@ -170,19 +187,21 @@ class Chrome(
             l.titleCell.x + 8, l.titleCell.y + 6, 20, s.windowIcon, Level.HEAD)
         val nx = l.titleCell.x + 36
         val name = dynamic(s.windowName, fChromeB)
-        draw(g, nx, l.titleCell.y + 6, name, Level.HEAD, fChromeB)
+        val ty = fitY(l.titleCell, fChromeB, 6)
+        draw(g, nx, ty, name, Level.HEAD, fChromeB)
         val nameW = text.measure(name, fChromeB)
         if (s.context.isNotEmpty()) {
             val ctx = "· ${dynamic(s.context, fChrome)}"
             val cx = nx + nameW + 8
             val shown = Draw.prefix(text, ctx, fChrome, l.titleCell.right - 16 - cx)
+            val cy = fitY(l.titleCell, fChrome, 6)
             if (shown.length < ctx.length) {
                 // NO TRUNCATION as silence: persistent+unfocused overflow gets the
                 // drawn continuation mark (§2.4 rule 3); full text lives in Main's lens.
-                draw(g, cx, l.titleCell.y + 6, shown, Level.DIM, fChrome)
-                Icons.tri(g, l.titleCell.right - 12, l.titleCell.y + 12, 9, Level.DIM)
+                draw(g, cx, cy, shown, Level.DIM, fChrome)
+                Icons.tri(g, l.titleCell.right - 12, cy + 6, 9, Level.DIM)
             } else {
-                draw(g, cx, l.titleCell.y + 6, ctx, Level.DIM, fChrome)
+                draw(g, cx, cy, ctx, Level.DIM, fChrome)
             }
         }
     }
@@ -193,16 +212,17 @@ class Chrome(
         // open-source source (CLAIMS.md) — a blank cell for a value that can
         // never arrive is dead chrome, removed 2026-08-31.
         val devs = listOf("G" to s.glasses, "P" to s.phone)
+        val by = fitY(l.batteryCell, fBattL, 6)
         for ((i, dev) in devs.withIndex()) {
             val (tag, b) = dev
             val bx = l.batteryCell.x + 4 + i * 58
             if (b == null) {
-                draw(g, bx, l.batteryCell.y + 6, tag, Level.REST, fBattL)
+                draw(g, bx, by, tag, Level.REST, fBattL)
                 continue
             }
             val lv = Icons.batteryLevel(b.pct, if (b.pct <= 20) b.flashPhase else null)
-            draw(g, bx, l.batteryCell.y + 6, tag, lv, fBattL)
-            Icons.batteryBar(g, bx + 14, l.batteryCell.y + 10, 30, 14, b.pct, lv)
+            draw(g, bx, by, tag, lv, fBattL)
+            Icons.batteryBar(g, bx + 14, minOf(by + 4, l.batteryCell.bottom - 14), 30, 14, b.pct, lv)
         }
     }
 
@@ -215,9 +235,10 @@ class Chrome(
      *  "small" size, which draws the same readout at the same cell on black
      *  (§1.5 sizes, 2026-09-01). */
     fun paintClockText(g: Gray8, cell: Rect, clock: String, amPm: String) {
-        draw(g, cell.x + 4, cell.y + 6, clock, Level.HEAD, fChromeB)
+        val y = fitY(cell, fChromeB, 6)
+        draw(g, cell.x + 4, y, clock, Level.HEAD, fChromeB)
         if (amPm.isNotEmpty())
-            draw(g, cell.x + 52, cell.y + 8, amPm, Level.DIM, fTiny)
+            draw(g, cell.x + 52, fitY(cell, fTiny, y - cell.y + 2), amPm, Level.DIM, fTiny)
     }
 
     /** The divider carries window position + attention ticks — the retired
@@ -259,12 +280,12 @@ class Chrome(
      *  would overrun the cell OUTSIDE its damage rect (silent divergence).
      *  Fit + the drawn continuation mark — the journal holds the full text. */
     private fun drawCellFit(g: Gray8, cell: Rect, txt: String, lv: Int, f: FontSpec) {
-        drawFit(g, cell.x + 8, cell.y + 6, cell.w - 16 - 12, txt, lv, f, cell.right - 12)
+        drawFit(g, cell.x + 8, fitY(cell, f, 6), cell.w - 16 - 12, txt, lv, f, cell.right - 12)
     }
 
     private fun paintThru(g: Gray8, l: Layout, s: State) {
         g.fillRect(l.thruCell, Level.BG)
-        draw(g, l.thruCell.x + 8, l.thruCell.y + 8, s.thru, Level.DIM, fTel)
+        draw(g, l.thruCell.x + 8, fitY(l.thruCell, fTel, 8), s.thru, Level.DIM, fTel)
     }
 
     /** Compass TAPE (§4.5b): three sectors, current one under a fixed centre
@@ -283,7 +304,7 @@ class Chrome(
             val f = if (k == 0) fChromeB else fTel
             val lv = if (k == 0) Level.BODY else Level.DIM
             val cx = l.tapeCell.x + l.tapeCell.w / 2 + k * 34
-            drawRight(g, cx + text.measure(sc, f) / 2, l.tapeCell.y + if (k == 0) 6 else 8, sc, lv, f)
+            drawRight(g, cx + text.measure(sc, f) / 2, fitY(l.tapeCell, f, if (k == 0) 6 else 8), sc, lv, f)
             g.fillRect(cx - 1, l.tapeCell.y + 22, 3, 4, Level.REST)
         }
         g.fillRect(l.tapeCell.x + l.tapeCell.w / 2 - 3, l.tapeCell.y + 2, 7, 3, Level.HOT)
@@ -301,7 +322,7 @@ class Chrome(
             g.fillRect(bx, l.linkCell.y + 20 - h, 6, h,
                 if (on) (if (poor) Level.HOT else Level.BODY) else Level.FAINT)
         }
-        if (poor) drawRight(g, l.linkCell.right - 48, l.linkCell.y + 8, "${s.linkDbm}", Level.HOT, fTel)
+        if (poor) drawRight(g, l.linkCell.right - 48, fitY(l.linkCell, fTel, 8), "${s.linkDbm}", Level.HOT, fTel)
         if (s.hostState.isEmpty()) {
             g.fillRect(l.linkCell.x + 6, l.linkCell.y + 12, 4, 4, Level.REST)  // healthy: one dim mark
         } else {
@@ -309,7 +330,7 @@ class Chrome(
             // and the poor-signal dBm: fit into what is left, never overdraw
             val right = if (poor) l.linkCell.right - 48 - text.measure("${s.linkDbm}", fTel) - 4
                         else l.linkCell.right - 48
-            drawFit(g, l.linkCell.x + 6, l.linkCell.y + 6, right - 12 - (l.linkCell.x + 6),
+            drawFit(g, l.linkCell.x + 6, fitY(l.linkCell, fTel, 6), right - 12 - (l.linkCell.x + 6),
                 s.hostState, Level.MID, fTel, right - 10)
         }
     }

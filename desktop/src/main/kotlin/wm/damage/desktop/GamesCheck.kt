@@ -181,13 +181,22 @@ object GamesCheck {
         println("  refills        $refills for ${Money.fmt(refillMoney.toInt())}   (a source)")
         println("  new characters ${roster.characters.size - Roster.TARGET} beyond the target " +
             "(each born with their own wealth — the other source)")
-        val trend = if (supply.size >= 4) {
-            val head = supply.take(supply.size / 4).average()
-            val tail = supply.takeLast(supply.size / 4).average()
-            "%.1f%%".format((tail - head) / head * 100)
-        } else "n/a"
-        println("  drift          $trend over the run" +
-            "  (flat or negative is the design; compounding growth is the failure)")
+        // 🔴 The design's condition is about the RATE, not the total (§7.6:
+        // "this should FLATTEN rather than compound"). A head-to-tail ratio
+        // cannot tell the two apart — any monotone series reports a large one,
+        // decelerating or not — so it said nothing and asserted nothing
+        // (review 2026-09-05). What is measured now is the growth per bucket,
+        // early against late, and it is a real gate below.
+        val deltas = if (supply.size >= 8) (1 until supply.size).map { supply[it] - supply[it - 1] } else emptyList()
+        val early = if (deltas.isEmpty()) 0.0 else deltas.take(deltas.size / 4).average()
+        val late = if (deltas.isEmpty()) 0.0 else deltas.takeLast(deltas.size / 4).average()
+        val total = if (supply.size >= 2 && supply.first() > 0)
+            "%+.0f%%".format((supply.last() - supply.first()).toDouble() / supply.first() * 100) else "n/a"
+        println("  total          $total over the run (the level, not the trend)")
+        println("  growth rate    ${Money.fmt(early.toInt())} → ${Money.fmt(late.toInt())} per " +
+            "${maxOf(1, games / 40)} tournaments" +
+            if (deltas.isEmpty()) "  (too few samples)"
+            else if (late <= early) "  — FLATTENING, as §5.3 argues" else "  — ACCELERATING: the fee is losing to the injections")
         print("  curve          ")
         for (v in supply) print("${v / 1000}k ")
         println()
@@ -204,6 +213,13 @@ object GamesCheck {
         if (roster.characters.none { it.state == Character.State.PLAYING })
             fails.add("the whole room is between lives — the birth rate is too low")
         if (roster.moneySupply() <= 0) fails.add("the economy ran to zero")
+        // §5.3's claim, as a real gate: the supply may grow, but the RATE of
+        // growth must not — a compounding economy is the named failure, and a
+        // number printed without an assertion is not a gate (review 2026-09-05).
+        if (deltas.isNotEmpty() && late > early * 1.15) {
+            fails.add("the money supply is ACCELERATING (${Money.fmt(early.toInt())} → " +
+                "${Money.fmt(late.toInt())} per bucket) — the fee sink is losing to the refills")
+        }
 
         if (fails.isEmpty()) {
             println("games-check: ALL CHECKS PASS")

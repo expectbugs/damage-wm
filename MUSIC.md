@@ -507,11 +507,23 @@ elides through `Draw.fit`; nothing is cut.
   restores after a driver swap only if the window is still registered. `DESIGN.md` gains **§4.9
   Exclusive mode** (the build writes it) and §1.5 gains the sibling sentence.
 - Surfaces (each on/off + order in Settings → Music → Music Mode), as built: **Card** (art 120 px
-  at 416 and 480 / 56 px below; 136 / 88 / 72 px tall; title/artist/album, bar) · **Lyrics**
+  at 416 and 480 / 56 px below; 136 px at 416/480 and **a MEASURED height below it** —
+  `2 + ink(head) + 3 + ink(body) + 3 + ink(small) + 2`, which is 80 px at the default face and
+  scale) · **Lyrics**
   (as many lines as fit between the card and the bottom surfaces at the 22 px face, capped at 9;
   the current line bright — in the 18 px face at HEAD level when it would not fit its one row) ·
-  **Visualizer** (608×48 below 416, 608×64 at 416/480) · **Queue peek** (next 2) · **Clock** ·
-  **PC link**. Defaults: Card + Lyrics on, Visualizer off, Queue peek off, Clock on, PC link on.
+  **Visualizer** (608×48 below 416, 608×64 at 416/480) · **Queue peek** (next 2 at ≥ 352, **1 at
+  288** — the §8.3 ladder; the band is `rows × (ink(body) + 1) + 2`) · **Clock** · **PC link**
+  (`ink(small) + 4` tall). Defaults: Card + Lyrics on, Visualizer off, Queue peek off, Clock on,
+  PC link on.
+- 🔴 **Every band is sized from MEASURED ink, and every row placed from it** (review 2026-09-05).
+  `paintExclusive`'s returned rects are the ONLY damage this window declares: ink outside them
+  goes into `composed` and is never sent, so belief and glass agree while the composed frame
+  diverges, and the next keyframe produces the difference out of nowhere. The card's progress row
+  sat at `r.bottom - 14` under a 20 px ink and ran 4 px past the card at 288 and 352; the queue
+  peek stacked two 23 px lines on a 20 px pitch in a 44 px band. `--selfcheck` runs the per-lens
+  truth oracle on every settle, and drives the queue forward INSIDE Music Mode so these surfaces
+  repaint as deltas — which is the state that exposes it (`HANDOFF.md` §27.2).
 - Repaint policy: the card on track change and every 5 % of progress; lyrics on line change;
   visualizer at its rate; each repaint is ONE dirty rect per surface (§12).
 
@@ -616,9 +628,16 @@ Adam copies it from his G2CC config).
   the keyboard → Lyrics → Music Mode 480/Bars then 288/Scope (swallow, a notice over it, double-tap
   exit) → the off-screen track-change notice) with the ink budgets stated; snapshot scenes 30–39:
   queue 480/288, menu, browse, artist, lyrics, YouTube, settings, Music Mode 480/Bars + 288/Scope.
+  🆕 Since 2026-09-05 the walk also **advances the queue inside Music Mode** — so the card, the
+  peek and the badge repaint as DELTAS, which is the only state in which ink outside a declared
+  rect shows — and walks the whole window set again at **130 %** and at the tallest face, with
+  the per-lens truth oracle running on every settle.
   `--music-check`: a pass against the real Postgres/Qdrant/cache, read-only bar the additive
   schema migration (counts, a sample query per lane, the cache-key mapping for 20 random tracks,
-  one viz blob) — the `--epub-check` shape; not part of `:core:test`.
+  one viz blob) — the `--epub-check` shape; not part of `:core:test`. ⚠ It builds its catalog
+  through the LIBRARY, not `MusicDb.catalog` — the bare call's default art predicate answers
+  false for every track, so the "with art" count was structurally 0 and the art extraction was
+  never asserted (review 2026-09-05).
 - **Gates**: `:core:test` · `:desktop:test` · `--selfcheck` · `--snapshot` (look at every new
   scene at 1×) · `--epub-check` · `--music-check` · `tools/lint.py` · `:phone:assembleDebug` ·
   `:phone:stageApk` · `:desktop:stageJar`; every milestone commit leaves all of them green.

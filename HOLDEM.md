@@ -502,7 +502,12 @@ what keeps all three tables populated instead of sorting sterilely by bankroll.
   Unlimited.
 - **Money supply.** §5.3 argues the fee out-scales the injections, so this should flatten rather
   than compound — but it is a claim, not a fact. `--games-check` prints total money in the system
-  over 10,000 tournaments (§13).
+  over 10,000 tournaments (§13). 📏 **MEASURED 2026-09-05, 10,000 tournaments:** the supply grows
+  92.9 k → 4.04 M (+387 % in total) while its per-bucket INCREMENT falls from ~$130 k to ~$95 k.
+  So the claim holds in the sense that matters — the growth rate is falling, not compounding —
+  and does not hold in the sense a total suggests: over any horizon Adam will play, the room gets
+  richer. The check now reports the RATE and fails on a rising one; the old head-to-tail ratio
+  reported a large number for any monotone series and asserted nothing.
 
 ### 7.7 Making it visible
 
@@ -811,7 +816,10 @@ or table. Runs N tournaments and prints:
 - **roster differentiation** over a realistic number of sessions — does skill actually separate
   from variance in the time Adam will really play?
 - **outcome spread** — is there a spread, or is one archetype quietly eating everyone?
-- 🔴 **total money in the system over 10,000 tournaments** — the §7.6 inflation claim, as a number.
+- 🔴 **the money supply's GROWTH RATE**, early against late — the §7.6 inflation claim, as a
+  number that can actually decide it. A rising rate FAILS the run. (Before 2026-09-05 this was a
+  head-to-tail ratio with no assertion behind it: a statistic that reports a large number for any
+  monotone series cannot tell flattening from compounding, and one nobody gates on is a comment.)
 - **tournament length distribution** per table, which is what the §2 blind ladder should be tuned
   against rather than arithmetic.
 
@@ -1117,9 +1125,37 @@ claimed to reproduce the hand-off race; it does not (the race is milliseconds wi
 now says what it actually locks. A pin that cannot fail is worse than no pin, and a comment that
 overclaims is how a pin stops being read.
 
+### 17.2d The 2026-09-05 whole-codebase review
+
+One Games defect, found by reading the settlement rather than by playing it:
+
+**A cash-out was booked as a total loss.** `finishTournament` recorded Adam's lifetime net as
+`prize − myStake`. Verdict 11's cash-out has already moved his chips into the bankroll and
+`winner != seat`, so leaving a table with a stack read on the character page exactly like busting
+out with nothing. The same line also omitted the entry FEE, which every bot's net has carried
+since `castStake` — so Adam's was the one figure in the standings that ignored verdict 24. The
+settlement is now `prize + cashedOut − stake − fee`; `myCashedOut` and `myFee` persist with the
+rest of the table so a restart between the cash-out and the settlement keeps the credit; and
+`Review20260905Test.cashingOutCreditsTheChipsItTookOffTheTable` fails against the unfixed tree
+(−$200 where the truth is −$10).
+
+The class is worth naming, because it is the third time this file has recorded it: **an accounting
+line that is only exercised on one path.** The bots' net was corrected in review pass 3 for
+exactly this reason; Adam's was not corrected with it because nothing exercised his cash-out
+branch. The pin now enters through the menu the way he does.
+
+**And one in the harness, not the game.** `--snapshot`'s showdown scene took a single action and
+then waited for the hand to have a result — which only worked when that action happened to be
+*Fold*. Check and Fold are ONE contextual row (verdict 12), so with no bet to call the script
+checked, the flop came out, and the table waited for Adam again — forever, and correctly. Because
+the world was seeded from the wall clock, that was a different tournament every run, so the scene
+passed or hung by luck. The scene now acts every time it is his turn, choosing the contextual row
+BY NAME, and both harnesses pin the world seed the way `--games-check` always did. See
+`HANDOFF.md` §27.6; the scene labelled `50-games-showdown` is a real showdown again.
+
 ### 17.3 The battery, after the build
 
-`./gradlew :core:test` **419** · `./gradlew :desktop:test` **9** · `desktop --selfcheck` **162**
+`./gradlew :core:test` **421** · `./gradlew :desktop:test` **9** · `desktop --selfcheck` **189**
 checks · `desktop --games-check` (a new harness — the ecology over hundreds of simulated
 tournaments) · `desktop --snapshot` **13 Games scenes** among 49 · `desktop --card-render` (the
 card sheets in `design/shots/cards/`) · `desktop --epub-check` · `desktop --music-check` ·

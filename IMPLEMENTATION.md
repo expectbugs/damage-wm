@@ -244,7 +244,7 @@ development environment; also serves ~/books to the phone):
 ./gradlew :desktop:run --args="--transport ble"   # PC-direct BLE only (manual)
 ./gradlew :desktop:run --args="--remote HOST"     # claim the phone's transport and drive through it — the EXPLICIT dev override
 ./gradlew :desktop:run --args="--ble-info"    # adapter enumeration only (no discovery)
-./gradlew :desktop:run --args="--selfcheck"   # the 162-check scripted gate (Files, Torrents, keyboard, Music and Games walks incl.)
+./gradlew :desktop:run --args="--selfcheck"   # the 189-check scripted gate (Files, Torrents, keyboard, Music and Games walks, the truth oracle on every settle)
 ./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"  # parse every book in ~/books
 ./gradlew :desktop:run --args="--music-check" # the real g2cc library, read-only bar the additive schema migration: counts, the catalog, lanes, cache keys, Qdrant, one viz blob
@@ -456,11 +456,22 @@ one window: `wm.damage.core.windows.music`.
 - **The shell's EXCLUSIVE mode** (`DESIGN.md` §4.9): `enterExclusive`/`exitExclusive`,
   `paintExclusive(g, safe, full)` returning one rect per surface, notices in the silent form,
   persisted and restored with the window.
+- 🔴 **Music Mode's bands hold what they draw** (2026-09-05): the card's height and every row in
+  it, the queue peek's rows and the PC badge's band are all derived from the faces' MEASURED ink,
+  never from a constant. `paintExclusive` is the one place a window declares its own damage
+  rects, so a row placed by a guessed offset paints into `composed` and never ships — the card's
+  progress row at `r.bottom - 14` under a 20 px ink did exactly that at 288 and 352
+  (`HANDOFF.md` §27.2). At 288 the peek shows ONE row: the §8.3 ladder, not a lost feature.
 - **Harnesses**: `ScriptedMusic` drives the selfcheck walk (empty queue → browse → artist →
   play → the card → the row menu → the Music menu → Ask through the keyboard → lyrics →
   Music Mode at 480/Bars and 288/Scope with the swallow test → the off-screen track-change
-  notice) and the snapshot scenes 30–39; `--music-check` probes the real Postgres / Qdrant /
-  cache read-only (plus one viz precompute); core tests: `MusicTest`, `MusicWindowTest`,
+  notice, then the queue ADVANCING inside Music Mode so its surfaces repaint as deltas, then the
+  whole walk again at 130 % and at the tallest face) and the snapshot scenes 30–39;
+  `--music-check` probes the real Postgres / Qdrant /
+  cache read-only (plus one viz precompute) and asserts that a track the catalog FLAGS as having
+  art actually extracts one — before 2026-09-05 it built its catalog through the bare
+  `MusicDb.catalog`, whose default art predicate answers false for every track, so the count was
+  structurally 0 and the extraction was printed rather than checked; core tests: `MusicTest`, `MusicWindowTest`,
   `MusicModeTest`, `ResolverTest`, `LyricsFetchTest`, `YouTubeTest`, `VizTest`, `EnrichTest`.
   Battery at the Now Playing root (2026-09-03): core 319 · desktop 9 · selfcheck 139 ·
   snapshots 36 · lint 0. After the same day's whole-codebase review (`HANDOFF.md` §25):
@@ -702,6 +713,16 @@ agents per subsystem, every candidate verified by trace, timing or pixel
 simulation before a fix) found and fixed ~70 real defects. The mechanisms that came out
 of them are load-bearing and easy to break by accident:
 
+- 🆕 **Chrome text is placed from MEASURED ink and its scale is capped to its
+  bar** (2026-09-05). §4.2's font ladder reaches 130 % and scales chrome too,
+  but §2.3's bars are a fixed 32 px and 28 px. `Chrome.fitY` reduces each
+  line's inset so its ink cannot leave its cell — the cell is the only rect
+  that paint damages — and `Shell.chromeScale()` caps the chrome's effective
+  scale to what the SHORTEST bar can hold, measured against the chosen face,
+  while CONTENT keeps the full ladder. Do not restore a constant inset here:
+  the status bar had been running 2 px past its own bar since it was drawn,
+  invisible at full height because the panel edge clipped it and visible at a
+  reduced height as ink below the safe rect (`HANDOFF.md` §27.2).
 - **Compositor per-lens model.** The compositor reasons per lens, not in
   nominal rects. It keeps an expected shadow of what each lens shows, renders
   the per-lens TRUTH of the nominal frame under the plane map (the nominal
@@ -720,7 +741,12 @@ of them are load-bearing and easy to break by accident:
   shift on BOTH lenses, outside the scanned area — and belief and glass then
   agree on the wrong thing, so the divergence check cannot see it. The oracle
   that can: recompute the per-lens truth of `composed` under `planes` and
-  compare it to `expectedLens()` (§25.1), and emits whatever closes
+  compare it to `expectedLens()` (§25.1). 🆕 That oracle is a STANDING GATE
+  since 2026-09-05: `--selfcheck` runs it on every settle and `OracleWalkTest`
+  runs it over a seeded random walk at all four heights. It catches the wider
+  class too — ink painted into `composed` that no damage rect ever carried,
+  which is how the Music Mode card's overrun and both chrome overruns were
+  found (`HANDOFF.md` §27.2). And emits whatever closes
   the gap: nominal deltas at their disparity (split when a delta's bytes would
   exceed a mode-8 sub-message's 16-bit length or the bytes left in the
   batch; a keyframe past the sub-message length ships bare), black stereo
@@ -783,7 +809,10 @@ Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md
 
 ## Verification
 
-- `./gradlew :core:test` — **419** unit/integration tests (2026-09-04's Games build added
+- `./gradlew :core:test` — **421** unit/integration tests (2026-09-05's whole-codebase review
+  added `OracleWalkTest` — a seeded random walk of the §1 grammar over a real shell at all four
+  heights, asserting belief = glass = per-lens TRUTH after every settle, with its own
+  surface-coverage gate — and `Review20260905Test`, the cash-out net pin; 2026-09-04's Games build added
   `ActivationTest` ×6 — the shell's switcher-resume / Main-root rule across every window —
   `GamesKitTest`, `HoldemEngineTest` (incl. the 3,000-scenario side-pot oracle and the
   2,000-hand ranking corpus), `HoldemBotTest`, `GamesWindowTest`, `GamesReview20260904Test` ×14
@@ -830,12 +859,27 @@ Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md
   with no pixel change, stop-during-start, same-instance transport restart).
 - `--selfcheck` — the whole stack scripted end to end with real fonts,
   asserting ink budgets, input grammar, persistence byte-behaviour, and zero
-  faults/failed flushes/sticky flags. **162 checks.** ⚠ Its Games checks live in an extracted
-  `gamesChecks()` — inline, the method passed the JVM's 64 KB method limit and would not
-  compile. Split the next window's checks the same way.
+  faults/failed flushes/sticky flags. **189 checks.** ⚠ Its Games checks live in an extracted
+  `gamesChecks()` and its font-ladder walk in `typeLadderTopEnd()` — inline, the method passed
+  the JVM's 64 KB method limit and would not compile. Split the next window's checks the same way.
+- 🆕 **The per-lens TRUTH oracle runs on EVERY `--selfcheck` settle** (279 of them, 2026-09-05).
+  The shell's own divergence check compares its BELIEF to the glass, so a defect that writes
+  wrong pixels into the shadow and then SENDS them is invisible to it — and so is ink painted
+  into `composed` that no damage rect ever carried. The oracle recomputes the truth of
+  `comp.composed` under `comp.planes`, splitting the panel by plane PIECES, and compares that.
+  It found the Music Mode card's overrun and both chrome overruns (`HANDOFF.md` §27.2); a
+  `oracleRuns >= 100` check keeps it from quietly stopping.
+- 🆕 **The font ladder's TOP END is walked** (`typeLadderTopEnd`): every window again at 130 %,
+  then at the tallest face (Alegreya) at 480 AND at 288 — at 480 an overflowing chrome line is
+  clipped away by the panel edge and looks fine, at 288 those rows are real panel. Music Mode is
+  driven with the queue ADVANCING so its surfaces repaint as deltas, which is what exposes ink
+  outside a declared rect.
 - `--games-check` — the Hold'em ecology over hundreds of simulated tournaments, in memory,
   touching nothing: does skill separate from variance, can the tables fill, and does the money
-  supply stay flat (compounding growth is the failure it exists to catch).
+  supply's GROWTH RATE fall rather than rise. ⚠ It reports the rate early-against-late and FAILS
+  on a rising one (2026-09-05): the old head-to-tail ratio reports a large number for any
+  monotone series and so could not tell §5.3's flattening from its named failure — and it
+  asserted nothing at all.
 - `--card-render` — the card sheets at every ladder rung into `design/shots/cards/`, at true 1×.
   🔴 Never judge card art scaled up: at 2× a detached stem and a merged pip both look fine.
 - 🆕 **Two type-ladder checks inside `--selfcheck`** measure against the REAL rasterizer: the
@@ -846,6 +890,18 @@ Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md
   through pack → RLE → deflate → fragmenting → sim firmware → shadow), at
   true 1x. This harness caught the stereo vacated-strip ghost within minutes
   of existing.
+  - 🔴 **A wait decides on ONE evaluation.** `while (!cond) delay(); if (!cond) fail` re-tests a
+    condition the loop already passed, and every periodic tick (the clock posts a message a
+    second; the Hold'em pacer posts its own) can flip it back — a settle that succeeded then
+    reports failure with an empty pending list. That shape produced an intermittent failure that
+    moved between scenes for a whole review round (`HANDOFF.md` §27.6). Both harnesses now break
+    out on success and report the captured result; the bounds (60 s settle, 120 s wait) are
+    backstops against a state that can never arrive, and anything over 5 s prints its cost.
+  - **The games scenes pin their world** (`gamesWin.roster.worldSeed = …`, `GamesCheck`'s
+    precedent). Seeded from the wall clock, a scene was a different tournament every run and its
+    script's assumptions held by luck.
+  - ⚠ **Run it more than once.** Three harness defects in §27.6 were each invisible in a single
+    run. The PNGs are not byte-identical between runs either — the chrome clock is live.
 - `tools/lint.py` still gates the repo at 0 findings; its geometry rules are
   mirrored 1:1 (same rule IDs) in `wm.damage.core.geom.Geometry`, and
   `GeometryTest` pins both to the same fixtures.

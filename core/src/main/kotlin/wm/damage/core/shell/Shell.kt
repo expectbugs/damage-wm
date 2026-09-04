@@ -78,11 +78,47 @@ class Shell(
         wm.damage.core.text.StyleTransform(
             face = wm.damage.core.text.Faces.byLabel(settings.fontFace),
             systemOnly = true,
-            scale = settings.fontScale,
+            scale = chromeScale(),
             bold = when (settings.fontStyle) { "bold" -> true; "regular", "italic" -> false; else -> null },
             italic = when (settings.fontStyle) { "italic" -> true; "regular", "bold" -> false; else -> null },
         ).apply(spec)
     }
+    /**
+     * The global font scale AS FAR AS THE BARS CAN TAKE IT.
+     *
+     * §4.2's scale ladder reaches 130 % and scales chrome too (Adam's ask,
+     * 2026-08-31) — but §2.3's bars are a fixed 32 px and 28 px, and a chrome
+     * line whose MEASURED ink is taller than its bar draws outside the only
+     * rect that paint damages: at 130 % the title ran into the divider, and
+     * at a reduced height the status line's descenders landed below the safe
+     * rect where nothing ever repaints them (review 2026-09-05). So the
+     * chrome grows until its bar is full and then stops; CONTENT keeps the
+     * full ladder. Measured against the real rasterizer and the chosen face,
+     * cached per (face, scale).
+     */
+    private var chromeScaleKey: Pair<String, Double>? = null
+    private var chromeScaleValue = 1.0
+    private fun chromeScale(): Double {
+        val key = settings.fontFace to settings.fontScale
+        if (chromeScaleKey == key) return chromeScaleValue
+        val face = wm.damage.core.text.Faces.byLabel(settings.fontFace) ?: Face.SYSTEM
+        // the tallest chrome line is the 16 px title/status face; the shortest
+        // bar is the status bar
+        val room = Layout.STATUS_H
+        var s = settings.fontScale
+        while (s > CHROME_SCALE_FLOOR) {
+            val px = maxOf(6, Math.round(16 * s).toInt())
+            val m = text.metrics(FontSpec(face, px, bold = true))
+            if (m.ascent + m.descent <= room) break
+            s -= 0.05
+        }
+        // the step walk can undershoot by one step in floating point; the
+        // chrome never renders below its design size
+        chromeScaleKey = key
+        chromeScaleValue = s.coerceIn(CHROME_SCALE_FLOOR, maxOf(CHROME_SCALE_FLOOR, settings.fontScale))
+        return chromeScaleValue
+    }
+
     private val chrome = Chrome(chromeText, { iconSource })
 
     /** Silent-mode paint plumbing (§1.5 sizes, 2026-09-01): the "small" size
@@ -2703,6 +2739,10 @@ class Shell(
          *  panel into more pieces, and the piece count is what the rect budget
          *  is spent on — a window that wants a dozen has misunderstood depth. */
         const val MAX_WINDOW_PLANES = 4
+
+        /** Chrome never shrinks below the design size to fit a bar — the bar
+         *  is already sized for it at 100 %; the cap only limits growth. */
+        const val CHROME_SCALE_FLOOR = 1.0
 
         fun systemClock(): LocalClock {
             val now = java.time.LocalTime.now()

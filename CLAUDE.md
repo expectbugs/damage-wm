@@ -65,7 +65,7 @@ and shell, always, while it is up; the OpenRC `damage` service is the DATA PROVI
 tmux + last-write-wins state sync) plus a STANDBY that drives PC-direct BLE only while the APK
 is unavailable and hands back on its return. The PC never claims in daily use** (`--transport
 remote` keeps the claim path as the explicit dev override). `REMINDER.md` is the orientation
-file; `HANDOFF.md` §19–§25 the current records; `DAILY.md` the ops crib; `IMPLEMENTATION.md`
+file; `HANDOFF.md` §19–§27 the current records; `DAILY.md` the ops crib; `IMPLEMENTATION.md`
 what runs and how. App layer: **Main · Settings · Reader · Tmux · Files · Torrents · Music ·
 Games** (Files landed
 2026-09-01 with the whole §16 shared machinery — `HANDOFF.md` §22; Torrents + the §4.8
@@ -76,6 +76,13 @@ review followed on 2026-09-03 — ten verified defects fixed and pinned, `HANDOF
 departed from the design; §17.2b/§17.2c = the second and third review cycles), `HANDOFF.md` §26; it also put **`ActivationSource`** on the window
 contract (switcher = resume, Main = the window's root list) and retrofitted all six existing
 windows, and added **`contentPlanes`** so a window can name its own stereo regions.
+**A second whole-codebase review followed on 2026-09-05** — six verified defects, `HANDOFF.md`
+§27 — and made the belief-vs-truth oracle a STANDING gate: `--selfcheck` runs it on every settle
+and `OracleWalkTest` runs it over a seeded random walk at all four heights. 🔴 Its rule, because
+three of the six were the same defect: **a rect a paint returns is a promise.** Size a band from
+the face's MEASURED ink (`ascent + descent`), never from a line height or a constant — ink
+outside a declared damage rect goes into `composed`, is never sent, and the belief and the glass
+then agree while the composed frame quietly diverges.
 
 Adam's stated methodology governs **the app layer**:
 
@@ -103,13 +110,19 @@ Damage` and the APK-wide `Phone notifications` switch, and the shell never gates
 source on a hidden field — a Global row that disappears leaves a persisted value nothing can undo).
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(419 tests, including the per-lens oracle and the §25/§26 review pins), `./gradlew :desktop:test` (9 tests: the BlueZ glue
-over a fake link), `desktop --selfcheck` (162 checks), `desktop --snapshot DIR` (look at the lens
+(421 tests, including the per-lens oracle, the §25/§26/§27 review pins and the random-gesture
+oracle walk), `./gradlew :desktop:test` (9 tests: the BlueZ glue
+over a fake link), `desktop --selfcheck` (189 checks, the truth oracle on every settle), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `desktop --music-check` (the real library, read-only bar the additive schema migration),
 `desktop --games-check` (the Hold'em ecology over hundreds of simulated tournaments — pure
 in-memory, touches nothing), `python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.
 After any CARD-ART change also run `desktop --card-render` and look at `design/shots/cards/` at
 true 1×.
+⚠ **Run `--snapshot` (and any harness you suspect) MORE THAN ONCE.** Three defects in the snapshot
+harness — a wait that re-tested a condition its loop had already passed, a scene that assumed one
+action ends a Hold'em hand, and a games world seeded from the wall clock — were each invisible in a
+single run and together produced a failure that moved between scenes (`HANDOFF.md` §27.6). A wait
+decides on ONE evaluation; a scripted scene pins its seed.
 Radio use is normal now (post-flash); deploying = `./gradlew :desktop:stageJar && sudo
 rc-service damage restart` (`DAILY.md`) — since §19 the PC never claims, so a PC deploy never
 touches the display at all. Stop the service before any `:desktop:run` dev session (one set of

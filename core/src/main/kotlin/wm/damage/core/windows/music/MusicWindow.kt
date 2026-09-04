@@ -914,6 +914,12 @@ class MusicWindow(
         return (((m.ascent + m.descent + 3) / 2) * 2).coerceAtLeast(18)
     }
 
+    /** A line's DRAWN extent — ascent plus descent, the rows `Draw.fit` can
+     *  actually light. The line HEIGHT adds leading, which is empty; a rect
+     *  sized by leading and drawn to ink is how text lands outside its own
+     *  damage rect (review 2026-09-05, the Music Mode card). */
+    private fun ink(f: FontSpec): Int = tx.metrics(f).let { it.ascent + it.descent }
+
     private fun paintDocLine(g: Gray8, l: DocLine, r: Rect) {
         if (l.s.isEmpty()) return
         val m = tx.metrics(l.f)
@@ -1644,10 +1650,21 @@ class MusicWindow(
         var y = Geometry.snapY(safe.y + 8)
         var bottom = Geometry.snapY(safe.bottom - 8)
         val clock = if ("clock" in on) Rect(Geometry.snapX(safe.right - 16 - 112), y, 112, 34) else null
-        val link = if ("link" in on) Rect(Geometry.snapX(safe.right - 16 - 160), Geometry.snapY(y + (if (clock != null) 38 else 0)), 160, 20) else null
+        // the badge's band is its own MEASURED ink plus the 2 px it is drawn
+        // at: a 20 px rect under a 20 px ink put two rows outside the damaged
+        // area (review 2026-09-05, the same class as the card's bottom row)
+        val linkH = Geometry.snapY(ink(fSmall) + 4)
+        val link = if ("link" in on) Rect(Geometry.snapX(safe.right - 16 - 160), Geometry.snapY(y + (if (clock != null) 38 else 0)), 160, linkH) else null
         val artPx = if (big) 120 else 56
         val card = if ("card" in on) {
-            val h = if (big) 136 else if (safe.h >= 352) 88 else 72
+            // 🔴 MEASURED, not guessed (review 2026-09-05). The small card was
+            // 72/88 px and its bottom row is drawn to INK: at 288 and 352 the
+            // row's descenders landed 4 px past the card — outside the rect
+            // `paintExclusive` reports as damaged, so `composed` held ink the
+            // glass never got and the next keyframe produced it out of
+            // nowhere. The height now holds exactly what it draws.
+            val h = if (big) 136
+            else Geometry.snapY(2 + ink(fHead) + 3 + ink(fBody) + 3 + ink(fSmall) + 2)
             Rect(x, y, w, h).also { y += h + 8 }
         } else {
             if (clock != null || link != null) y += 64
@@ -1657,7 +1674,16 @@ class MusicWindow(
             val h = if (big) 64 else 48
             Rect(x, Geometry.snapY(bottom - h), w, h).also { bottom -= h + 8 }
         } else null
-        val peek = if ("peek" in on && bottom - y >= 100) Rect(x, Geometry.snapY(bottom - 44), w, 44).also { bottom -= 52 } else null
+        // MEASURED rows, not two guessed 20 px steps: at 44 px the second
+        // row's ink ran 3 px into the first row's and one row past the band,
+        // into the gap above the visualizer where nothing damages it again.
+        // 288 shows ONE row — the same "extra height buys information
+        // density" ladder §8.3 applies everywhere else, and buying the second
+        // row there would cost a lyric line instead.
+        val peekPitch = ink(fBody) + 1
+        val peekRows = if (safe.h >= 352) 2 else 1
+        val peekH = Geometry.snapY(peekRows * peekPitch + 2)
+        val peek = if ("peek" in on && bottom - y >= 100) Rect(x, Geometry.snapY(bottom - peekH), w, peekH).also { bottom -= peekH + 8 } else null
         val lyricLines = if ("lyrics" in on) ((bottom - y - 4) / lh).coerceIn(0, 9) else 0
         val lyrics = if (lyricLines >= 1) Rect(x, y, w, Geometry.snapY(lyricLines * lh + 4)) else null
         return MmLayout(safe, card, artPx, lyrics, lyricLines, viz, peek, clock, link).also { mmLayoutCache = it }
@@ -1813,7 +1839,17 @@ class MusicWindow(
         Draw.fit(g, tx, x0, ty, dn(if (big) t.artist.ifEmpty { "—" } else Fmt.artistAlbum(t).ifEmpty { "—" }, fLine), Level.BODY, fLine, tw)
         ty += lineH(fLine)
         if (big) Draw.fit(g, tx, x0, ty, dn(t.album.ifEmpty { st.label }, fLine), Level.DIM, fLine, tw)
-        val y = if (big) r.bottom - 36 else r.bottom - 14
+        // 🔴 The progress row sits on the card's bottom edge, placed by the
+        // MEASURED ink of the face it draws with. `r.bottom - 14` under a
+        // 20 px ink put the row's descenders 4 px past the card, outside the
+        // rect this paint reports as damaged (review 2026-09-05).
+        val inkS = ink(fSmall)
+        // big keeps its two-row spacing exactly as it was, CLAMPED so a larger
+        // per-app font size cannot push the second row past the card either
+        val rowTop = if (big) minOf(r.bottom - 38, Geometry.snapY(r.bottom - inkS - 18))
+        else Geometry.snapY(r.bottom - inkS)
+        val restTop = if (big) rowTop + 18 else rowTop
+        val y = rowTop + 2                                   // the 10 px glyph, on the row
         val dur = st.durMs.takeIf { it > 0 } ?: t.durMs.toLong()
         val pos = player.positionMs().coerceIn(0, maxOf(0, dur))
         val barW = if (big) 200 else 144
@@ -1824,10 +1860,10 @@ class MusicWindow(
             if (st.boost > 100) "+${st.boost}%" else "", if (st.sleep.kind != Sleep.Kind.OFF) "sleep ${st.sleep.label(clock())}" else "").filter { it.isNotEmpty() }
         val afterBar = r.w - (x0 - r.x) - 16 - barW - 12 - rightPad
         if (big) {
-            Draw.fit(g, tx, x0 + 16 + barW + 12, y - 2, times, Level.DIM, fSmall, afterBar)
-            Draw.fit(g, tx, x0, y + 16, dn(rest.joinToString(" · "), fSmall), Level.DIM, fSmall, tw)
+            Draw.fit(g, tx, x0 + 16 + barW + 12, rowTop, times, Level.DIM, fSmall, afterBar)
+            Draw.fit(g, tx, x0, restTop, dn(rest.joinToString(" · "), fSmall), Level.DIM, fSmall, tw)
         } else {
-            Draw.fit(g, tx, x0 + 16 + barW + 12, y - 2, dn((listOf(times) + rest).joinToString(" · "), fSmall), Level.DIM, fSmall, afterBar)
+            Draw.fit(g, tx, x0 + 16 + barW + 12, rowTop, dn((listOf(times) + rest).joinToString(" · "), fSmall), Level.DIM, fSmall, afterBar)
         }
     }
 
@@ -1874,7 +1910,10 @@ class MusicWindow(
         g.fillRect(r, Level.BG)
         val next = st.queue.drop(st.index + 1).take(2)
         if (next.isEmpty()) { Draw.fit(g, tx, r.x, r.y + 2, if (st.mode == Mode.RADIO || st.mode == Mode.LIBRARY_RANDOM) "then: ${st.mode.label}" else "last in the queue", Level.DIM, fSmall, r.w); return }
-        next.forEachIndexed { i, e -> Draw.fit(g, tx, r.x, r.y + 2 + i * 20, dn("${if (i == 0) "next" else "then"}: ${Fmt.titleArtist(e.track)}", fBody), if (i == 0) Level.BODY else Level.DIM, fBody, r.w) }
+        // as many rows as the band MEASURABLY holds — never more
+        val pitch = ink(fBody) + 1
+        val rows = ((r.h - 2) / pitch).coerceAtLeast(1)
+        next.take(rows).forEachIndexed { i, e -> Draw.fit(g, tx, r.x, Geometry.snapY(r.y + 2 + i * pitch), dn("${if (i == 0) "next" else "then"}: ${Fmt.titleArtist(e.track)}", fBody), if (i == 0) Level.BODY else Level.DIM, fBody, r.w) }
     }
 
     // ================================================================ settings (§8.4)

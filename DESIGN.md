@@ -759,7 +759,7 @@ choice overrides the global for that app only. Reader's Size row is the first in
 | **Size** | **four heights — 288 / 352 / 416 / 480 — always TOP-aligned** (revised 2026-08-31, Adam: *"I can always see the top, it's the lower areas that get cut off if I wear the glasses too high"* — so the vertical-position setting was useless and is retired). Per-app shadows follow the global/override pattern below |
 | **Depth** | the disparity calibration ramp, 0/4/8/12/16 (§3.4) |
 | **Presence** | the resting-state ink floor — one knob for "how much is it in my way" |
-| **Font · Font size · Font style** | chrome + Main's face, scale and style, each option previewed in its own face (§Type's defaults, changeable since 2026-08-31); every app category carries the same three rows for its content |
+| **Font · Font size · Font style** | chrome + Main's face, scale and style, each option previewed in its own face (§Type's defaults, changeable since 2026-08-31); every app category carries the same three rows for its content. 🔴 **Chrome grows only until its bar is full** (2026-09-05): §2.3's bars are a fixed 32 px and 28 px, so the CHROME half of the global scale is capped to the measured ink the shortest bar can hold — Clear Sans reaches 115 %, Alegreya 100 % — while CONTENT keeps the whole ladder. Uncapped, the title inks into the divider at 130 % and the status line's descenders land below the safe rect at a reduced height, both outside the only rect chrome damages (`HANDOFF.md` §27.2) |
 | **Silent clock** | large (the 144×48 seven-segment box, default) / medium / small — §1.5 |
 | **Head tracking** | default OFF (§7.1) |
 | **Long-press** | **off** (default — §1.2 revised 2026-08-30: a bare long-press is a no-op; the §1.3 chord opens the switcher) / switcher |
@@ -1650,8 +1650,18 @@ card (art 120 px at 416/480, 56 px at 288/352 · title · artist · album · a 2
 repaints on track change and every 5 % of progress), the lyrics (the remainder in whole 22 px
 lines: 3 at 288 … up to 9 at 480, the current line HEAD-bright, the scheduler flushing a line
 ahead of its stamp), the visualizer strip (608 × 48 at 288/352, × 64 at 416/480, at the bottom,
-Bars · Scope · Pulse · Meter at 4/8/12 Hz — each frame ONE rect), the queue peek (next two,
-above the strip), the seven-segment **medium** clock top-right, and the PC link line under it.
+Bars · Scope · Pulse · Meter at 4/8/12 Hz — each frame ONE rect), the queue peek (next two
+above the strip — **one at 288**, the same ladder), the seven-segment **medium** clock
+top-right, and the PC link line under it.
+
+🔴 **A returned rect is a PROMISE, and every band is sized by MEASURED ink** (2026-09-05).
+`paintExclusive` is the one place a window declares its own damage; ink it puts outside those
+rects is painted into `composed` and never sent, so the belief and the glass agree while the
+composed frame silently diverges — and the next keyframe produces the difference out of nowhere.
+The card's progress row was placed at `r.bottom - 14` under a face whose ink is 20 px and ran
+4 px past the card at 288 and 352. Size the band from `ascent + descent`, never from a line
+height or a constant. `--selfcheck` runs the per-lens truth oracle on every settle, so a band
+that does not hold what it draws fails the gate (`HANDOFF.md` §27.2).
 Measured on the sim (`--selfcheck`, 2026-09-02): Music Mode at 480 with Bars is under the
 30 % canvas note; the achievable visualizer rate on glass and the Bluetooth lyric offset
 are **measured items**, not modeled here (`MUSIC.md` §12).

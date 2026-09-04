@@ -1340,3 +1340,153 @@ bind the media port the real service already holds.
 **Battery after this session:** core **419** · desktop **9** · selfcheck **162** · snapshots 49
 (13 Games) · `--games-check` all pass · `--epub-check` 58/58 · `--music-check` all pass · lint 21
 rules / 0 findings · `:phone:assembleDebug` green.
+
+## 27. The whole-codebase review (2026-09-05) — the truth oracle, made a gate
+
+Adam asked for the full cycle again: read everything, verify every finding, fix it, review the
+fixes, then drive the live system hard at all four sizes, fix what that shows, and repeat until
+both come up clean.
+
+### 27.1 What the reading found
+
+**A cash-out was booked as a total loss.** `GamesWindow.finishTournament` recorded Adam's
+lifetime net as `prize − myStake`. A cash-out (§10.2, verdict 11) has already moved his chips
+into the bankroll and `winner != seat`, so leaving a table with your stack read on the character
+page exactly like busting out with nothing. The same line also left out the entry FEE, which
+every bot's net has carried since `castStake` was introduced — so Adam's was the one figure in
+the standings that ignored verdict 24. Both fixed: the settlement is now
+`prize + cashedOut − stake − fee`, `myCashedOut`/`myFee` persist with the rest of the table so a
+restart between the cash-out and the settlement keeps the credit, and
+`Review20260905Test.cashingOutCreditsTheChipsItTookOffTheTable` fails against the unfixed tree
+(−$200 where the truth is −$10).
+
+**Two gates measured nothing.** `--music-check` built its catalog through `MusicDb.catalog(v)`,
+whose default art predicate answers *false* for every track: "N likely have art" was structurally
+0 on any shelf, and the art extraction always fell back to track 0 and was printed rather than
+asserted. It now builds through the library (which wires `Art.likelyHas`), says which kind of art
+it is counting, and ASSERTS that a track the catalog flags actually extracts one.
+`--games-check` printed a money-supply "drift" as a head-to-tail ratio — a statistic that reports
+a large number for any monotone series and so cannot tell §5.3's *flattening* from its named
+failure, *compounding* — and asserted nothing at all. It now reports the growth RATE early
+against late and FAILS the run when the rate is rising. Measured over 10,000 tournaments the
+supply grows +387 % in total but its per-bucket increment falls from ~$130 k to ~$95 k: the fee
+sink is winning slowly, which is what §5.3 claims and what the old number could not say.
+
+### 27.2 What the LIVE run found — the truth oracle as a standing gate
+
+The 2026-09-03 review's best instrument was never committed: an oracle that recomputes the
+per-lens TRUTH of `comp.composed` under `comp.planes` and compares THAT to the firmware model.
+The shell's own divergence check compares its BELIEF to the glass, so a defect that writes wrong
+pixels into the shadow and then sends them is invisible to it — and so is ink painted into
+`composed` that no damage rect ever carried. Two things now run it:
+
+- **`OracleWalkTest`** — a seeded random walk of the §1 grammar over a real shell at every one of
+  the four heights, 240 steps each, asserting belief = glass = truth after every settle. It
+  reaches 12–18 distinct surfaces per height (menu, wheel, keyboard, exclusive mode, a focused
+  notice, a window's own `contentPlanes`) and asserts its own coverage, so it cannot quietly stop
+  proving anything.
+- **`--selfcheck` runs the oracle on EVERY settle** — 279 of them, over every real window with
+  the real faces.
+
+That found three defects no test had:
+
+1. 🔴 **The Music Mode card inked past its own rect** (288 and 352). The progress row was placed
+   at `r.bottom − 14` under a face whose MEASURED ink is 20, so its descenders landed 4 px below
+   the card — outside the only rect `paintExclusive` reports as damaged. On the full paint it
+   shipped; on every delta after it did not, so `composed` held ink the glass never got and the
+   next keyframe would have produced a fragment of an older track out of nowhere. The card's
+   height and every row in it are now derived from measured ink. Reverting the fix reproduces it
+   (`music-mode-advance-288`: level 3 against a black glass).
+2. 🔴 **Chrome text left its bar at the top of the font ladder.** §4.2's scale reaches 130 % and
+   scales chrome too, but §2.3's bars are a fixed 32 px and 28 px. At 130 % the title's ink ran
+   into the divider; at the tallest face (Alegreya, 35 px of ink) and a reduced height the status
+   line's descenders landed BELOW the safe rect, on panel nothing ever repaints. Two fixes, both
+   proven load-bearing by reverting them: every chrome line is now placed from its measured ink
+   inside its cell (`Chrome.fitY`), and the chrome's effective scale is capped to what its bar can
+   hold (`Shell.chromeScale`) while CONTENT keeps the full ladder.
+3. **The status bar overflowed its own bar at 100 %.** The same `fitY` fix: 24 px of ink at a
+   6 px inset in a 28 px bar had been running 2 px past since the bar was drawn. At full height
+   the panel edge clipped it, so it read as slightly cut descenders; at a reduced height those
+   rows are real panel.
+
+Two more of the class were hardened without a reproduction, because the rule is the same and the
+measurement is free: the Music Mode queue peek stacked two 23 px lines on a 20 px pitch inside a
+44 px band (they overlapped by 3 px and the second ran 1 px past the band), and the PC badge's
+20 px rect held 20 px of ink drawn 2 px down. Both bands are measured now; at 288 the peek shows
+one row, the same "extra height buys information density" ladder §8.3 applies everywhere else.
+
+### 27.3 What the walk now covers
+
+`--selfcheck` grew from 162 checks to 189 and gained three passes it did not have: Music Mode
+driven with the queue ADVANCING (so its surfaces repaint as deltas, which is what exposed #1),
+the whole window set walked again at 130 %, and again at the tallest face — at 480 and at 288,
+because at 480 an overflowing chrome line is clipped away by the panel edge and looks fine.
+
+### 27.4 Battery
+
+core **421** · desktop **9** · selfcheck **189** (oracle 279 runs) · snapshots 49 ·
+`--games-check` · `--music-check` · `--epub-check` 58/58 · `--card-render` ·
+`python3 tools/lint.py` 21 rules / 0 findings + selftest · `research/verify_cfw.py` ·
+`:phone:assembleDebug`.
+
+### 27.5 What is owed
+
+- **Nothing on glass has changed hands.** APK **26/0.26** is still the staged build and 0.16 is
+  still the last one observed installed; this review's fixes want a fresh APK before they are on
+  the phone. The PC service wants `:desktop:stageJar` + `rc-service damage restart`.
+- **The reading did not cover everything at the same depth.** The seam, replica, sync and window
+  channels, the firmware simulator, the transports and the whole shell were read line by line;
+  the music/torrents/tmux provider and desktop-harness leaves were read for their risk surfaces
+  (command construction, SQL, credential handling, HTTP framing) rather than end to end.
+- **The oracle cannot see what the harness does not visit.** It runs on settled surfaces only,
+  and the random walk uses a fake rasterizer, so font-metric defects are the selfcheck's job.
+
+### 27.6 The snapshot harness — three defects behind one intermittent failure
+
+Running `--snapshot` repeatedly (not once) at the end of the round showed a failure about one run
+in four, never in the same place twice: *"wait 'the hand finishes' never became true"*, *"shell did
+not settle at 'commit-games'"*, *"…at 'back-to-main'"*, *"…at '?' [in=torrents]"*. Three separate
+causes, found by pinning one variable at a time.
+
+1. 🔴 **The settle re-tested its own condition after the wait loop had already passed it.**
+   `while (!isQuiescent() && !expired) delay(20); if (!isQuiescent()) fail` — the second call is a
+   race against every periodic tick (the clock posts a message each second; the Hold'em pacer posts
+   its own), so a settle that had genuinely succeeded could still report failure, and its diagnostic
+   printed an EMPTY pending list because by then nothing was pending. That empty list is what
+   identified it. One evaluation now decides it, which is the shape `SelfCheck.settle` always had.
+   Same fix in `waitFor` — several of its conditions include `isQuiescent()`.
+2. **The showdown scene assumed one action ends a hand.** It took a single row and waited for a
+   result, which only worked when that row happened to be *Fold*: Check and Fold are ONE contextual
+   row (verdict 12), so with no bet to call the script CHECKED, the flop came out, and the table
+   waited for Adam again — forever, correctly. The scene now acts every time it is Adam's turn,
+   picking the contextual row BY NAME, exactly as `GamesWindowTest` does, and says so plainly if the
+   hand still has no result after twelve actions.
+3. **The world was seeded from the wall clock**, so the games scenes were a different tournament
+   every run and the script's assumptions held or failed by luck. `GamesCheck` already pinned its
+   roster (`Roster(worldSeed = …)`); `--snapshot` and `--selfcheck` now pin theirs the same way
+   (`gamesWin.roster.worldSeed = 20260905L`), so a scene is the same scene twice.
+
+The two harness bounds were also raised — settle 15 s → 60 s, waitFor 30 s → 120 s — and both now
+print anything that took over 5 s. They are backstops against a state that can never arrive, not
+budgets: between Adam's actions every remaining bot runs `Equity.LIVE_ROLLOUTS` (2000) rollouts per
+decision and the board reveal is paced, which on a loaded machine had been reported as a wrong state
+while the table was still making progress. Eight consecutive clean runs after the three fixes.
+
+⚠ The PNGs are still not byte-identical run to run — the chrome clock is live, so 48 of 49 differ in
+that cell alone. Pinning the clock would freeze the pacer with it; that trade has not been made.
+
+### 27.7 Where the next session picks up
+
+Read `CLAUDE.md` → `REMINDER.md` → `HANDOFF.md` §19–§27 in that order, then:
+
+- The battery is the entry check, not a formality: `./gradlew :core:test :desktop:test`,
+  `desktop --selfcheck`, `desktop --snapshot DIR`, `desktop --epub-check ~/books`,
+  `desktop --music-check`, `desktop --games-check`, `python3 tools/lint.py`,
+  `./gradlew :phone:assembleDebug`. All green at `27.4`'s numbers as of this commit.
+- **Run the harnesses more than once.** Every defect in §27.6 was invisible in a single run. Three
+  runs of `--snapshot` is the cheap version of that lesson.
+- **Nothing from §25, §26 or §27 has been seen on glass.** The installed APK is **0.16**; **0.26** is
+  staged and predates all of §27. That is the largest untested surface in the project, and it is the
+  first thing worth doing with the glasses in hand — the four heights, the 130 % ladder, Music Mode
+  and a Hold'em hand, in that order.
+- The open items are §26.6 and §27.5; nothing in this round is half-finished.

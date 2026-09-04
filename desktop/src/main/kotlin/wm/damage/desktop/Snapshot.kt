@@ -88,6 +88,14 @@ object Snapshot {
         val musicWin = wm.damage.core.windows.music.MusicWindow(text, musicLib, musicPlayer, scope, clock = musicClock)
         shell.register(musicWin)
         val gamesWin = wm.damage.core.windows.games.GamesWindow(text, scope)
+        // A PINNED world (GamesCheck's precedent, `Roster(worldSeed = ...)`).
+        // Seeded off the wall clock this harness dealt a different tournament
+        // every run, so its scenes were not the same scenes twice and its
+        // waits could sit on a legitimate outcome the script did not expect:
+        // one run in four the fold ended the whole TOURNAMENT rather than the
+        // hand, `table` went null, and "the hand finishes" never became true
+        // (review 2026-09-05).
+        gamesWin.roster.worldSeed = 20260905L
         shell.register(gamesWin)
         /** Open the Games menu row LABELLED [label] — by name, never by counting. */
         suspend fun gamesMenu(label: String) {
@@ -466,18 +474,46 @@ object Snapshot {
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // cancel
         settle(shell, "games")
 
-        // fold, let the hand play out, and catch the SHOWDOWN — the densest
-        // state the table ever reaches (verdict 29: it stays up until you act)
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        waitFor("the action menu again") { shell.menuIsOpen }
-        gamesMenu(if (shell.menuLabels.firstOrNull() == "Fold") "Fold" else "Check")
-        waitFor("the confirm") { shell.menuIsOpen && shell.menuLabels.firstOrNull() == "Cancel" }
-        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
-        settle(shell, "games")
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        waitFor("the hand finishes") { gamesWin.handIsComplete }
+        // Play the hand OUT and catch its TERMINAL state — the densest thing the
+        // table draws: the result banner, "tap to deal", the board and the hand
+        // history all at once (verdict 29: it stays up until you act). Adam
+        // always takes the contextual row, so this is a showdown when the bots
+        // reach one and a fold-out otherwise; the file keeps its `showdown`
+        // name from when it was written.
+        //
+        // 🔴 One action is not a hand. The script used to take a single row and
+        // then wait for a result, which only worked when that row happened to
+        // be "Fold": Check+Fold are ONE contextual row (verdict 12), so with no
+        // bet to call it CHECKS, the flop comes out, and the table waits for
+        // Adam again — forever, correctly. The snapshot named "showdown" then
+        // showed a live table and the wait sat out its bound (review
+        // 2026-09-05, found once the world seed was pinned). Act every time it
+        // is Adam's turn, exactly as `GamesWindowTest` does.
+        var acts = 0
+        while (!gamesWin.handIsComplete && gamesWin.tableRunning && acts++ < 12) {
+            waitFor("your turn (act $acts)") {
+                gamesWin.isMyTurn || gamesWin.handIsComplete || !gamesWin.tableRunning
+            }
+            if (!gamesWin.isMyTurn || gamesWin.handIsComplete) break
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+            waitFor("the action menu (act $acts)") { shell.menuIsOpen }
+            // the contextual row, by NAME: "Fold" facing a bet, "Check" when
+            // checking is free — never by position
+            gamesMenu(shell.menuLabels.firstOrNull { it.startsWith("Fold") || it.startsWith("Check") }
+                ?: shell.menuLabels.first())
+            waitFor("the confirm (act $acts)") { shell.menuIsOpen && shell.menuLabels.firstOrNull() == "Cancel" }
+            shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // → the confirming row
+            settle(shell, "games-confirm-$acts")
+            shell.postGesture(EvenHubMsg.EV_CLICK)
+            settle(shell, "games-acted-$acts")
+        }
+        waitFor("the hand finishes") { gamesWin.handIsComplete || !gamesWin.tableRunning }
+        if (!gamesWin.handIsComplete) failures.add(
+            "the hand never reached a result after $acts actions " +
+                "[running=${gamesWin.tableRunning} myTurn=${gamesWin.isMyTurn} " +
+                "board=${gamesWin.boardShown}] — '50-games-showdown' is of a live table")
         waitFor("the board finishes revealing") {
-            gamesWin.handIsComplete && shell.isQuiescent()
+            (gamesWin.handIsComplete || !gamesWin.tableRunning) && shell.isQuiescent()
         }
         settle(shell, "games-showdown")
         save(sim, out, "50-games-showdown")
@@ -536,17 +572,62 @@ object Snapshot {
         tmp.toFile().deleteRecursively()
     }
 
+    /**
+     * Wait until nothing is pending, so a save is of a finished frame.
+     *
+     * The bound is a backstop for a scene that can never settle, not a budget:
+     * a scripted host doing real work (the Torrents pages, a Hold'em hand at
+     * `Equity.LIVE_ROLLOUTS`) exceeded 15 s on a loaded machine about once in
+     * ten runs and got reported as a wrong state while it was still making
+     * progress (review 2026-09-05). 60 s, and anything past 5 s prints what it
+     * cost so a genuinely slow scene is visible rather than mysterious.
+     */
     private suspend fun settle(shell: Shell, where: String = "?") {
         val t0 = System.currentTimeMillis()
-        while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 15_000) delay(20)
-        if (!shell.isQuiescent()) failures.add("shell did not settle at '$where' — snapshots may show mid-states")
+        // 🔴 ONE evaluation decides it. Re-testing `isQuiescent()` after the
+        // loop already saw it true is a race against every periodic tick — the
+        // clock posts a message each second, the Hold'em pacer posts its own —
+        // so a settle that succeeded could still report failure, which is
+        // exactly what these scenes did about once in ten runs, in a different
+        // place each time and with an EMPTY pending list to show for it
+        // (review 2026-09-05). SelfCheck's `settle` was always this shape.
+        var ok = false
+        while (System.currentTimeMillis() - t0 < 60_000) {
+            if (shell.isQuiescent()) { ok = true; break }
+            delay(20)
+        }
+        (System.currentTimeMillis() - t0).let { if (it > 5_000) println("  (settled in ${it / 1000}s at '$where')") }
+        // say WHAT was still pending and where the shell was: "did not settle"
+        // on its own names no cause, and this harness's whole job is to be
+        // specific about a wrong state
+        if (!ok) failures.add("shell did not settle at '$where' " +
+            "[in=${shell.currentWindowId() ?: "main"} ${shell.quiescenceReport()}] — snapshots may show mid-states")
         delay(50)
     }
 
+    /**
+     * Wait for a scene to reach the state its snapshot is OF.
+     *
+     * The bound is a harness backstop, not a policy: it exists so a scene that
+     * can never arrive says so instead of stopping here, and it is deliberately
+     * far above anything measured. The longest real waits are the Hold'em ones
+     * — between Adam's actions every remaining bot runs `Equity.LIVE_ROLLOUTS`
+     * (2000) rollouts per decision and the board reveal is paced. At 30 s those
+     * reported failure while the table was still making progress (review
+     * 2026-09-05), so the bound is 120 s and any wait past 5 s prints its cost.
+     */
     private suspend fun waitFor(label: String, cond: () -> Boolean) {
         val t0 = System.currentTimeMillis()
-        while (!cond() && System.currentTimeMillis() - t0 < 30_000) delay(25)
-        if (!cond()) failures.add("wait '" + label + "' never became true — snapshots are of the WRONG state")
+        // one evaluation decides it, for the same reason `settle` does: several
+        // of these conditions include `isQuiescent()`
+        var ok = false
+        while (System.currentTimeMillis() - t0 < 120_000) {
+            if (cond()) { ok = true; break }
+            delay(25)
+        }
+        val ms = System.currentTimeMillis() - t0
+        if (!ok) failures.add("wait '" + label + "' never became true — snapshots are of the WRONG state")
+        else if (ms > 5_000) println("  (waited ${ms / 1000}s for $label)")
     }
 
     private fun save(sim: GlassFirmwareSim, dir: Path, name: String) {

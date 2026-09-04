@@ -41,7 +41,14 @@ object MusicCheck {
             println("  additive migrations applied/recorded: ${MusicDb.MIGRATIONS.joinToString { it.first }}")
             val v = db.catalogVersion()
             val t1 = System.currentTimeMillis()
-            val cat = db.catalog(v)
+            // through the LIBRARY, not the bare db: `MusicDb.catalog`'s default
+            // art predicate answers false for every track, so a catalog built
+            // here reported "0 likely have art" whatever the shelf held, and
+            // the art extraction below always fell back to track 0 (review
+            // 2026-09-05). The library wires `Art.likelyHas`, which is what the
+            // service and the phone actually see.
+            lib.refreshCatalog(force = true)
+            val cat = lib.catalog()
             val t2 = System.currentTimeMillis()
             val blob = cat.encode()
             println("catalog $v: ${cat.tracks.size} tracks · ${cat.artists.size} artists · ${cat.albums.size} albums · " +
@@ -51,7 +58,12 @@ object MusicCheck {
             check("catalog round-trips its JSON", wm.damage.core.windows.music.Catalog.decode(blob).tracks.size == cat.tracks.size)
             check("every track has a title", cat.tracks.all { it.title.isNotEmpty() })
             val withLyrics = cat.tracks.count { it.hasLyrics }
-            println("  $withLyrics tracks carry lyrics · ${cat.tracks.count { it.hasArt }} likely have art · ${cat.tracks.count { it.folder.isEmpty() }} at the root")
+            // `hasArt` is the CHEAP bit: a folder image beside the file or an
+            // already-cached extract. It cannot see an EMBEDDED picture without
+            // running ffmpeg, so a low count on a shelf of embedded art is
+            // correct, not broken — say which it is measuring.
+            println("  $withLyrics tracks carry lyrics · ${cat.tracks.count { it.hasArt }} with folder/cached art " +
+                "(embedded art is extracted on demand) · ${cat.tracks.count { it.folder.isEmpty() }} at the root")
             // a sample search
             val q = cat.tracks.firstOrNull { it.artist.isNotEmpty() }?.artist?.split(' ')?.first() ?: "a"
             val hits = db.search(q)
@@ -80,11 +92,17 @@ object MusicCheck {
             println("  legacy cache (${cfg.musicLegacyCache}): $legacyHits of ${sample.size} sampled tracks map to an existing file")
             check("the legacy cache key mapping holds for the sample", legacyHits >= sample.size * 3 / 4)
             check("the default profile's directory is ours", lib.cache.dirFor(AudioProfile.DEFAULT).startsWith(Path.of(cfg.musicCache)))
-            // one art extraction (writes only into our own art cache dir)
-            val artTrack = cat.tracks.firstOrNull { it.hasArt } ?: cat.tracks.first()
+            // one art extraction (writes only into our own art cache dir).
+            // A track the catalog FLAGS as having art must actually produce
+            // some: printing "none" and passing is the silent failure this
+            // pass exists to have none of.
+            val flagged = cat.tracks.firstOrNull { it.hasArt }
+            val artTrack = flagged ?: cat.tracks.first()
             val ta = System.currentTimeMillis()
             val art = try { lib.art(artTrack.id, 56) } catch (e: Exception) { println("  art: ${e.message}"); null }
             println("  art for #${artTrack.id} \"${artTrack.title}\": ${if (art == null) "none" else "${art.size} B packed"} in ${System.currentTimeMillis() - ta} ms")
+            if (flagged != null) check("a track flagged hasArt extracts an image", art != null && art.isNotEmpty())
+            else println("  (no track on this shelf carries art — the extraction is unasserted)")
             // lyrics from the table only (no fetch chain in this pass)
             val lyTrack = cat.tracks.firstOrNull { it.hasLyrics }
             if (lyTrack != null) {

@@ -104,6 +104,16 @@ class GamesWindow(
     private val cast = HashMap<Int, Character>()
     /** Chips Adam put in at the door, so a cash-out reports a real net. */
     private var myStake = 0
+    /** Chips a cash-out took off THIS table (§10.2). Without it the
+     *  settlement records the buy-in as a total loss: leaving early with your
+     *  stack is not the same as busting out with nothing, and the character
+     *  page's lifetime net said it was (review 2026-09-05). */
+    private var myCashedOut = 0
+    /** The fee Adam paid at the door. `castStake` has always carried each
+     *  bot's stake PLUS its fee, and both figures feed the same displayed
+     *  "lifetime net" — leaving Adam's out made his the only one that ignored
+     *  verdict 24's fee (review 2026-09-05). */
+    private var myFee = 0
     /** Seat → what that bot paid at the door (stake + fee), so the settlement
      *  records a NET lifetime figure rather than a gross one. */
     private val castStake = HashMap<Int, Int>()
@@ -584,6 +594,8 @@ class GamesWindow(
             }
         }
         myStake = entry
+        myFee = fee
+        myCashedOut = 0
         table = HoldemTable.start(spec, Rng.hash(roster.worldSeed, roster.gameNo.toLong()),
             occupants, stacks.toIntArray(), button = seedRng.nextInt(occupants.size))
         revealed = 0
@@ -948,7 +960,10 @@ class GamesWindow(
         meC.career.tournaments++
         meC.career.finishSum += myPlace
         if (myPlace == 1) meC.career.wins++
-        meC.career.lifetimeNet += (if (winner == seat) prize else 0) - myStake
+        // what came back minus what went in at the door — the same NET the
+        // field records. A cash-out already moved its chips to the bankroll,
+        // so they count here too, or leaving early reads as losing the lot.
+        meC.career.lifetimeNet += (if (winner == seat) prize else 0) + myCashedOut - myStake - myFee
         roster.gameNo++
         for (c in field.values) roster.settleBroke(c)
         roster.tick()
@@ -964,6 +979,8 @@ class GamesWindow(
             cast.clear()
             castStake.clear()
             myStake = 0
+            myCashedOut = 0
+            myFee = 0
             lastSettledHand = -1
             cashOutPending = false
             skipping = false
@@ -1258,6 +1275,7 @@ class GamesWindow(
             return
         }
         bankroll.add(chips)
+        myCashedOut += chips
         bankCache = null
         playOutWithoutMe(t)
         syncMe()
@@ -1510,6 +1528,8 @@ class GamesWindow(
         openChar?.let { put("openChar", it) }
         put("mySeat", mySeat)
         put("myStake", myStake)
+        put("myCashedOut", myCashedOut)
+        put("myFee", myFee)
         putJsonObject("castStake") { for ((k, v) in castStake) put(k.toString(), v) }
         put("revealed", revealed)
         put("unlimitedStake", unlimitedStake)
@@ -1536,6 +1556,8 @@ class GamesWindow(
         openChar = state["openChar"]?.jsonPrimitive?.contentOrNull
         mySeat = (state["mySeat"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0)
         myStake = state["myStake"]?.jsonPrimitive?.intOrNull ?: 0
+        myCashedOut = (state["myCashedOut"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0)
+        myFee = (state["myFee"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0)
         castStake.clear()
         // tolerant on purpose: one malformed entry here must not take the
         // whole main record down with it (the shell drops a record whose

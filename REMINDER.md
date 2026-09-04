@@ -1,6 +1,58 @@
 # Where we are, and what to do next
 
-**Updated 2026-09-04: GAMES · HOLD'EM IS BUILT** — M1–M6 overnight and unattended, then **three
+**Updated 2026-09-05: A WHOLE-CODEBASE REVIEW SHIPPED — six verified defects, and the
+belief-vs-truth oracle is now a STANDING GATE.** `HANDOFF.md` §27 is the record. What it found:
+
+1. **A Games cash-out was booked as a total loss** — `prize − myStake` with no credit for the
+   chips the cash-out had already moved into the bankroll, and no entry fee either, so Adam's
+   lifetime net was the one figure in the standings that ignored verdict 24. Pinned in
+   `Review20260905Test`, which fails against the unfixed tree (`HOLDEM.md` §17.2d).
+2. **Two gates measured nothing.** `--music-check` counted "tracks with art" through a catalog
+   built with an always-false art predicate — structurally 0 on any shelf — and printed the art
+   extraction rather than asserting it. `--games-check` printed a money-supply "drift" as a
+   head-to-tail ratio, which reports a large number for any monotone series and so cannot tell
+   §5.3's flattening from its named failure; it asserted nothing at all. Both now measure and
+   gate. 📏 The real answer over 10,000 tournaments: **the growth RATE falls** (~$130 k → ~$95 k
+   a bucket) while the total still climbs +387 %.
+3. 🔴 **Three drawing defects the shell's own divergence check cannot see.** It compares its
+   BELIEF to the glass, so ink painted into `composed` that no damage rect ever carried is
+   invisible to it. The Music Mode card's progress row inked 4 px past the card at 288 and 352;
+   chrome text ran into the divider at 130 % and below the safe rect at the tallest face and a
+   reduced height; the status bar had been running 2 px past its own bar since it was drawn.
+
+4. **Three defects in the snapshot harness itself, behind one failure that moved around**
+   (`HANDOFF.md` §27.6). The settle re-tested `isQuiescent()` after its wait loop had already
+   passed it — a race against the clock tick that reported a succeeded settle as failed, with an
+   empty pending list to show for it; the showdown scene assumed one action ends a hand, when
+   Check and Fold are one contextual row and a free check just brings the flop; and the games
+   world was seeded from the wall clock, so those scenes were a different tournament every run.
+   ⚠ **Run a harness more than once** — every one of these was invisible in a single run.
+
+**The instrument, and the keeper:** the 2026-09-03 review's oracle — recompute the per-lens TRUTH
+of `comp.composed` under `comp.planes` and compare THAT to the firmware model — was never
+committed. It is now two things: `--selfcheck` runs it on **every settle** (279 of them, over
+every real window with the real faces) and `OracleWalkTest` runs it over a **seeded random walk
+of the §1 grammar at all four heights**, asserting its own surface coverage. The selfcheck also
+grew three passes it did not have: Music Mode driven with the queue ADVANCING (so its surfaces
+repaint as deltas — the only state that exposes ink outside a declared rect), the whole window
+set again at 130 %, and again at the tallest face at 480 AND at 288, because at 480 an
+overflowing chrome line is clipped away by the panel edge and looks fine.
+
+⚠ **Nothing has changed hands on glass.** APK **26/0.26** is still the staged build; this
+review's fixes want a fresh APK, and the PC service wants `:desktop:stageJar` +
+`sudo rc-service damage restart`.
+
+**Battery at HEAD:** core **421** · desktop **9** · selfcheck **189** (oracle 279 runs) ·
+snapshots 49 (eight consecutive clean runs) · `--games-check` · `--music-check` ·
+`--epub-check` 58/58 · `--card-render` · lint 21 rules / 0 + selftest · `verify_cfw.py`.
+
+**Picking this up in a fresh session:** `CLAUDE.md` → this file → `HANDOFF.md` §19–§27, then
+**§27.7**, which lists the entry battery, what is owed, and what is worth doing first with the
+glasses in hand.
+
+---
+
+**Before it, 2026-09-04: GAMES · HOLD'EM IS BUILT** — M1–M6 overnight and unattended, then **three
 full review cycles** at Adam's word: 19 defects + a live session (13); 16 more + 2 coverage gaps;
 then 11 more + 2 test-quality fixes. `HOLDEM.md` §17 is the deviations list and the shortest useful
 read (§17.2b and §17.2c are the second and third cycles); `HANDOFF.md` §26 is the narrative.
@@ -81,8 +133,8 @@ Files / Torrents / Music are the worked precedents (`WINDOWS.md`).
 **State of the world:** the phone APK is the primary driver (`HANDOFF.md` §19 — radio + shell
 while it is up); the OpenRC `damage` service is the data provider (content + tmux + sync + the
 window channel on :7401, seam :7402, replica :7403, the media endpoint :7404) plus a standby that
-BLE-drives only while the APK is away. Battery at HEAD: core **419** · desktop 9 ·
-selfcheck **162** · snapshots 49 · epub-check 58/58 · lint 0 · `--music-check` and
+BLE-drives only while the APK is away. Battery at HEAD: core **421** · desktop 9 ·
+selfcheck **189** · snapshots 49 · epub-check 58/58 · lint 0 · `--music-check` and
 `--games-check` all pass. ✅ **The jar and the `damage` service RUN THE GAMES BUILD**
 (deployed 2026-09-04 13:07; `standby up (§19)` in the log, the phone reattached to all five
 channels — files, tmux, music, torrents, sync — and the PC claimed nothing, so the display was
@@ -104,13 +156,16 @@ shell).
 
 ## 🚀 Next
 
-1. **Install APK 0.26 and play Hold'em on glass.** ✅ The PC side is already deployed (the
-   service runs the Games build as of 2026-09-04 13:07) and the APK is staged — download it from
-   the G2CC setup page's `/damage-apk` and install over the top; `MY_PACKAGE_REPLACED` restarts
-   the phone service itself. What is owed on glass: the card art at all four rungs, the hole-card
+1. **Deploy the review build, then install the APK and play Hold'em on glass.** The PC side is
+   one command — `./gradlew :desktop:stageJar && sudo rc-service damage restart` (it never
+   touches the display: the PC does not claim). Then stage and install a fresh APK: the staged
+   26/0.26 predates the 2026-09-05 review, so the Music Mode card, the chrome ladder and the
+   cash-out fix are not on the phone yet. Download it from the G2CC setup page's `/damage-apk`
+   and install over the top; `MY_PACKAGE_REPLACED` restarts the phone service itself. What is
+   owed on glass: the card art at all four rungs, the hole-card
    plane's depth, the arc stagger at 416/480, whether the bot pace of 600 ms feels right, and
    whether the ≈8–10 % ink target holds with a real board out. `HOLDEM.md` §17.4 is the list.
-2. **Use Music once 0.26 is on the phone.** It carries the Now Playing root, both phone-side fixes
+2. **Use Music once the review build is on the phone.** It carries the Now Playing root, both phone-side fixes
    and the whole-codebase review. Then the one-time grants (`DAILY.md` → Music: `music access`
    on the strip, notification access) and the on-phone measured items (the limiter's real notice text, the Spotify cold start, the Bluetooth
    lyric offset, the visualizer rate on glass). Judge Now Playing on glass — it measures **14.0 %
@@ -138,10 +193,14 @@ shell).
    task for a fresh session.
 6. **The icon-quality pass** (front of the app wave): one drawn icon per app at 20 px + 56 px —
    the drawn set is the fallback and the release path (theme icons are personal-lane only).
-7. **What the 2026-09-03 review did NOT cover** (`HANDOFF.md` §25.3): the seam / replica /
-   `RemoteTransport` plumbing, the firmware simulator and most of the phone module were read at
-   a scanning level only, and nothing was tested on the actual glasses. A next review round
-   starts there, not by re-reading the core.
+7. **What the reviews have and have not covered.** ✅ 2026-09-05 closed §25.3's gap: the seam,
+   the replica, the sync and window channels, the firmware simulator, all four transports, the
+   whole shell and the compositor were read line by line, and the phone module too. What was read
+   for its RISK SURFACES rather than end to end: the music / torrents / tmux provider leaves and
+   the desktop harnesses — command construction (all through POSIX `shq`), SQL (every
+   interpolation is from a literal list; all data is parameterised), credential handling, HTTP
+   framing. Still true: **nothing has been tested on the actual glasses.** A next round starts at
+   the leaves, or on glass — not by re-reading the core.
 8. **Watch-items:** the left-lens seam residue (a one-shot early-burst tear — if it recurs
    after a handover, harden session start); the ~20 s silent-loss window (tighten the seam
    heartbeat constants only if it feels long in practice); and the media endpoint logs nothing on

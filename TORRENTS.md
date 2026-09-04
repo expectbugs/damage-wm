@@ -311,7 +311,7 @@ most one host interval behind — a deliberate simplification over an on-demand 
 - **`--snapshot`**: scenes 15–22 (transfers, lens+menu, details, categories, listing, torrent
   page, the keyboard at its two stages) — looked at, at true 1×; 26 scenes in all.
 - `tools/lint.py` at 0, `:phone:assembleDebug` green; the jar restaged and the `damage` service
-  restarted on the round-4 build; APK 18/0.18 staged at `390a25c` (0.26 since — see the status line; selfcheck 162 / 49 scenes at HEAD).
+  restarted on the round-4 build; APK 18/0.18 staged at `390a25c` (0.26 since — see the status line; selfcheck 189 / 49 scenes at HEAD).
 
 ## 7. Build order — shipped
 
