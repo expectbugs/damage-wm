@@ -1325,8 +1325,15 @@ bind the media port the real service already holds.
 
 - **On-glass verdicts.** Everything was judged on the simulator and the replica at true 1×. The
   card art, the hole-card plane depth, the arc stagger and the pacing want Adam's eye.
-- **APK 26/0.26 is staged** (`~/.damage/damage-wm.apk`, the setup page's `/damage-apk`). 0.25 is
-  superseded; the last version observed INSTALLED is still 0.16.
+- ✅ **The PC side is DEPLOYED** (2026-09-04 13:07): `:desktop:stageJar` + `rc-service damage
+  restart` put the Games build on the daily driver. It came up as `standby up (§19)` — the PC
+  claimed nothing, so the display was never touched — and the phone reattached to all five
+  channels (files, tmux, music, torrents, sync) with the music catalog (2,981 tracks) and
+  qBittorrent (39 transfers) both live. No errors in the log.
+- **APK 26/0.26 is staged and verified** (`~/.damage/damage-wm.apk`, the setup page's
+  `/damage-apk`): the versionName was read back out of the APK's own manifest and its md5 matches
+  the freshly built `phone-debug.apk`. 0.25 is superseded; the last version observed INSTALLED is
+  still 0.16, so installing it is the one step between here and Hold'em on glass.
 - **The next window** is Adam's pick — `EXPLOSION.md` §20's order has Feed at #5 with Games now
   struck through as built.
 

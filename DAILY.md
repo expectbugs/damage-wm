@@ -130,9 +130,12 @@ the sync feel across a driver swap (a book position following the swap). Current
 2026-09-03 Now Playing root + the quiet-stream notice + the stable-identity output restore —
 `HANDOFF.md` §24.4 — that day's whole-codebase review, §25, and **Games · Hold'em** with the
 shell's switcher-resume / Main-root rule and all three review cycles, §26); **0.16 is the last
-build observed INSTALLED** (2026-09-01 — the phone speaks the files channel).
+build observed INSTALLED** (2026-09-01 — the phone speaks the files channel). ✅ **The PC side is
+already on it**: the service was restarted onto the Games build 2026-09-04 13:07 and came up
+`standby up (§19)` with the phone reattached to all five channels.
 
-**Games (2026-09-04, `HOLDEM.md`) needs nothing from ops.** It is pure Kotlin with no host, no
+**Games (2026-09-04, `HOLDEM.md`) needs nothing from ops.** ✅ Live on the PC service since
+2026-09-04 13:07. It is pure Kotlin with no host, no
 provider and no channel, so it works identically on the phone alone, on the PC alone and across
 the seam; its whole state is in the shell's own store (`window.games`, `window.games.world`,
 `window.games.bankroll`, `window.games.table`, `window.games.char.<id>`) and syncs like every

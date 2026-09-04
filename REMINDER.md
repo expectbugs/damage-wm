@@ -83,10 +83,13 @@ while it is up); the OpenRC `damage` service is the data provider (content + tmu
 window channel on :7401, seam :7402, replica :7403, the media endpoint :7404) plus a standby that
 BLE-drives only while the APK is away. Battery at HEAD: core **419** · desktop 9 ·
 selfcheck **162** · snapshots 49 · epub-check 58/58 · lint 0 · `--music-check` and
-`--games-check` all pass. **APK 26/0.26 is STAGED and is the one to install** — Games plus all
-three review cycles; 0.25 and everything before it are superseded. **0.16 is still the last build
-observed INSTALLED** (2026-09-01). ⚠ The jar and the service still run the 2026-09-03 review
-build — **deploy the Games build before using it from the PC side**; redeploy with
+`--games-check` all pass. ✅ **The jar and the `damage` service RUN THE GAMES BUILD**
+(deployed 2026-09-04 13:07; `standby up (§19)` in the log, the phone reattached to all five
+channels — files, tmux, music, torrents, sync — and the PC claimed nothing, so the display was
+never touched). **APK 26/0.26 is STAGED and is the one to install** — Games plus all three review
+cycles, versionName read back out of the APK and its md5 matched the fresh build; 0.25 and
+everything before it are superseded. **0.16 is still the last build observed INSTALLED**
+(2026-09-01). Redeploy the PC side with
 `./gradlew :desktop:stageJar && sudo rc-service damage restart` (never touches the display — the
 PC does not claim). ⚠ One central at a time: stop the service before any `:desktop:run` dev
 session; G2CC's Android bridge stays Disconnected.
@@ -101,13 +104,13 @@ shell).
 
 ## 🚀 Next
 
-1. **Deploy the Games build to the PC service, install APK 0.26, and play Hold'em on glass.**
-   `./gradlew :desktop:stageJar && sudo rc-service damage restart` (the PC never claims, so this
-   never touches the display), then install the staged APK (**0.26**). What is owed on glass: the card art
-   at all four rungs, the hole-card plane's depth, the arc stagger at 416/480, whether the bot
-   pace of 600 ms feels right, and whether the ≈8–10 % ink target holds with a real board out.
-   `HOLDEM.md` §17.4 is the list.
-2. **Install APK 0.26 and use Music.** It carries the Now Playing root, both phone-side fixes
+1. **Install APK 0.26 and play Hold'em on glass.** ✅ The PC side is already deployed (the
+   service runs the Games build as of 2026-09-04 13:07) and the APK is staged — download it from
+   the G2CC setup page's `/damage-apk` and install over the top; `MY_PACKAGE_REPLACED` restarts
+   the phone service itself. What is owed on glass: the card art at all four rungs, the hole-card
+   plane's depth, the arc stagger at 416/480, whether the bot pace of 600 ms feels right, and
+   whether the ≈8–10 % ink target holds with a real board out. `HOLDEM.md` §17.4 is the list.
+2. **Use Music once 0.26 is on the phone.** It carries the Now Playing root, both phone-side fixes
    and the whole-codebase review. Then the one-time grants (`DAILY.md` → Music: `music access`
    on the strip, notification access) and the on-phone measured items (the limiter's real notice text, the Spotify cold start, the Bluetooth
    lyric offset, the visualizer rate on glass). Judge Now Playing on glass — it measures **14.0 %

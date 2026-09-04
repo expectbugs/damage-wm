@@ -1130,7 +1130,10 @@ card sheets in `design/shots/cards/`) · `desktop --epub-check` · `desktop --mu
 
 - **On-glass verdicts.** Everything above was judged on the byte-exact simulator at true 1× and
   through the browser replica. The card art, the depth of the hole-card plane, the arc stagger and
-  the pacing all want Adam's eye on the real panel.
+  the pacing all want Adam's eye on the real panel. ✅ Both sides are now DEPLOYABLE and one of
+  them is deployed: the `damage` service has run the Games build since 2026-09-04 13:07, and APK
+  **26/0.26** is staged and verified — installing it is the single step left before Hold'em is on
+  the glass.
 - **The background-economy ratio** is tuned to `--games-check`'s measurement, not to a season of
   Adam's own play. The money-supply curve it prints is the thing to watch.
 - **Later games.** The kit (`windows/games/kit/`) is built for blackjack, hearts and gin and none
