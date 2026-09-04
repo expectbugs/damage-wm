@@ -80,7 +80,8 @@ object ActionLevel {
      * [pot] is the pot AFTER the caller would call — the standard "pot-sized
      * raise" definition: pot + toCall + toCall.
      */
-    fun sizingLadder(pot: Int, toCall: Int, committed: Int, minRaiseTo: Int, maxTo: Int): List<Action> {
+    fun sizingLadder(pot: Int, toCall: Int, committed: Int, minRaiseTo: Int, maxTo: Int,
+        verb: Kind = if (toCall > 0) Kind.RAISE else Kind.BET): List<Action> {
         val potAfterCall = pot + toCall
         val out = LinkedHashMap<Int, Action>()
         fun add(kind: Kind, label: String, to: Int) {
@@ -88,8 +89,7 @@ object ActionLevel {
             if (v <= committed) return
             out.putIfAbsent(v, Action(if (v >= maxTo) Kind.ALL_IN else kind, label, Money.fmt(v), v))
         }
-        val verb = if (toCall > 0) Kind.RAISE else Kind.BET
-        add(verb, if (toCall > 0) "Min" else "Min bet", minRaiseTo)
+        add(verb, if (verb == Kind.RAISE) "Min" else "Min bet", minRaiseTo)
         add(verb, "1/3 pot", committed + toCall + potAfterCall / 3)
         add(verb, "1/2 pot", committed + toCall + potAfterCall / 2)
         add(verb, "3/4 pot", committed + toCall + potAfterCall * 3 / 4)
