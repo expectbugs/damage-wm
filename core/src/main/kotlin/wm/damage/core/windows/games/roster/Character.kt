@@ -169,8 +169,12 @@ class Character(
         companion object {
             fun load(o: JsonObject?): Career {
                 fun i(k: String) = o?.get(k)?.jsonPrimitive?.intOrNull ?: 0
-                return Career(i("t"), i("w"), i("fs"), i("h"), i("v"), i("a"), i("n"),
-                    i("ko"), i("kb"), i("ln"))
+                // counts cannot be negative — `avgFinish` and `vpip` divide by
+                // them and a rotted record would print nonsense on the sheet.
+                // The two NETS are signed on purpose.
+                fun n(k: String) = i(k).coerceAtLeast(0)
+                return Career(n("t"), n("w"), n("fs"), n("h"), n("v"), n("a"), i("n"),
+                    n("ko"), n("kb"), i("ln"))
             }
         }
     }

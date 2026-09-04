@@ -25,7 +25,12 @@ object HoldemRules {
     /** Verdict 24: a VISIBLE entry fee, not a hidden rake, and it applies to
      *  Adam too. 5 % of the buy-in, rounded up, with a $1 floor — $1 is the
      *  chip denomination and Unlimited accepts tiny entries. */
-    fun fee(entry: Int): Int = maxOf(1, (entry * 5 + 99) / 100)
+    fun fee(entry: Int): Int {
+        // Long arithmetic: an absurd entry (a hand-edited bankroll near
+        // Int.MAX) overflowed `entry * 5` and came back as a $1 fee
+        val f = (entry.toLong() * 5 + 99) / 100
+        return f.coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+    }
 
     /** The three tables (§5.2). */
     enum class Table(
@@ -53,16 +58,8 @@ object HoldemRules {
             val l = level.coerceAtLeast(0)
             return when (this) {
                 REGULAR -> baseSb + l
-                BIG_BOY -> if (l < 10) baseSb + l else {
-                    var v = 10
-                    repeat(l - 9) { v = saturatingDouble(v) }
-                    v
-                }
-                UNLIMITED -> {
-                    var v = baseSb
-                    repeat(l) { v = saturatingDouble(v) }
-                    v
-                }
+                BIG_BOY -> if (l < 10) baseSb + l else doubling(10, l - 9)
+                UNLIMITED -> doubling(baseSb, l)
             }
         }
 
@@ -80,6 +77,15 @@ object HoldemRules {
      *  stacks would go negative in silence. It saturates instead — long before
      *  that any table has one player left. */
     private fun saturatingDouble(v: Int): Int = if (v > Int.MAX_VALUE / 4) v else v * 2
+
+    /** [base] doubled [times], SATURATING and with the loop bounded. 32 rounds
+     *  saturate any Int, so a hand-edited `handNo` of two billion asks for a
+     *  hundred million iterations inside a paint and gets 32 (review pass 5). */
+    private fun doubling(base: Int, times: Int): Int {
+        var v = base
+        repeat(times.coerceIn(0, 32)) { v = saturatingDouble(v) }
+        return v
+    }
 
     fun levelOf(handNo: Int): Int = handNo / HANDS_PER_LEVEL
 

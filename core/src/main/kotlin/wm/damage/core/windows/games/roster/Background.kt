@@ -91,6 +91,13 @@ object Background {
     fun playOut(table: HoldemTable, cast: Map<Int, Character>, rollouts: Int,
         onAction: ((seat: Int, view: HoldemTable.View, decision: HoldemBot.Decision) -> Unit)? = null): Int {
         var hands = 0
+        // already decided — a cash-out with one opponent left hands the table
+        // over finished. Reporting that as a stall put a false "did not
+        // resolve" error in the daily driver's log (review pass 5, 2026-09-04);
+        // a loud line nobody can act on is how loud lines stop being read.
+        // ≤ 1 rather than `winner() != null`: a table every seat has left has
+        // no winner either, and it is just as finished.
+        if (table.activeSeats().size <= 1) return 0
         while (hands < MAX_HANDS) {
             var guard = 0
             while (guard++ < 500) {

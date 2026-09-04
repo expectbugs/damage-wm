@@ -5,6 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import wm.damage.core.geom.Layout
+import wm.damage.core.util.Log
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.Level
 import wm.damage.core.windows.games.holdem.HoldemRules
@@ -196,6 +197,38 @@ class GamesLive20260904Test {
                 Regex("Rex G\\. (checks|folds|calls|raises to|bets|is all-in for)").containsMatchIn(line),
                 "a bot takes the third person: '$line'")
         }
+    }
+
+    /**
+     * A table handed over ALREADY DECIDED is not a stall. Cashing out with one
+     * opponent left hands `playOut` a finished tournament, and it reported
+     * "hand N did not resolve" every time — a loud line nobody can act on
+     * (review pass 5, 2026-09-04).
+     */
+    @Test
+    fun aDecidedTablePlaysOutQuietly() {
+        val occ = (0 until 2).map { Seats.Occupant("c$it", "C$it", human = false) }
+        val cast = occ.indices.associateWith {
+            Character("c$it", "C$it", Character.Traits.load(null), 1_000, 3)
+        }
+        val t = HoldemTable.start(HoldemRules.Table.REGULAR, 11L, occ, intArrayOf(200, 200))
+        // play it to its end, then hand the FINISHED table over again
+        Background.playOut(t, cast, 40)
+        assertTrue(t.winner() != null, "the table did not finish")
+        // the SILENCE is the assertion: it returned 0 either way, but it used
+        // to log "hand N did not resolve" while doing it
+        val errs = ArrayList<String>()
+        val sink = Log.Sink { level, tag, msg ->
+            if (level == Log.Level.ERROR) errs.add("$tag: $msg")
+        }
+        Log.addSink(sink)
+        try {
+            assertEquals(0, Background.playOut(t, cast, 40),
+                "a decided table plays no hands")
+        } finally {
+            Log.removeSink(sink)
+        }
+        assertEquals(emptyList(), errs, "a finished table is not a stall")
     }
 
     // ================================================================ L24

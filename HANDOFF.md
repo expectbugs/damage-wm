@@ -1288,15 +1288,48 @@ Main presents the root list. It also found the last one on the glass: the histor
 **Battery:** core **418** · desktop **9** · selfcheck **162** · snapshots 49 · `--games-check` ·
 `--epub-check` · `--music-check` · lint 21 rules / 0 + selftest · APK **25 / 0.25** staged.
 
-### 26.5 What is owed
+### 26.5 The third cycle (2026-09-04, later still) — a measurement that deleted a window
+
+A third full cycle at Adam's word: two more code passes and a third live session. **Eleven
+verified defects and two test-quality fixes**; `HOLDEM.md` §17.2c is the list. One of them is the
+kind worth remembering:
+
+🔴 **`playOutWithoutMe` handed the play-out to a background coroutine because of a number nobody
+had measured.** Its own comment said the work "takes seconds"; `--games-check` prints **13 ms for
+a whole 6-seat tournament** at `CHEAP_ROLLOUTS`. The coroutine bought nothing and cost two real
+defects — a new table having its cast cleared out from under it by the old table's settlement, and
+a shell restart inside the window losing the entire prize pool. Moving it onto the loop (where
+`maybeBackground` already spends 16–80 ms) deleted the window, both defects, and the code that
+created them. **The lesson generalises: an asynchrony introduced to hide a cost nobody measured is
+a defect generator, not an optimisation.** This project already says "measured vs modeled" about
+hardware; it applies to our own code.
+
+Two of the cycle's findings were in the TESTS, and they are recorded because the discipline is the
+same: a pin added in the previous pass asserted a return value that was identical with and without
+its fix — **vacuous** — and was rewritten to capture the log line that actually changed, then
+confirmed to fail against the unfixed tree. And one pin's comment claimed to reproduce a race it
+cannot (the window is milliseconds wide); it now states the invariant it actually locks. Every
+other pin added across these three cycles was confirmed to fail against the code it replaces.
+
+The live session drove it all again on the new build: the cash-out from the spot the first cycle
+could not reach, **sitting straight back down and playing on** (the defect above, on the glass),
+20 hands with a bust and a busted seat drawn as `out`, the Bankroll document's corrected wording,
+the four rungs, and the `Settings · games` deep link's back path landing on GAMES rather than Main.
+The whole run produced **one** error line in the log, and it was the scratch instance failing to
+bind the media port the real service already holds.
+
+**Battery:** core **419** · desktop **9** · selfcheck **162** · snapshots 49 · `--games-check` ·
+`--epub-check` · `--music-check` · lint 21 rules / 0 + selftest · APK **26 / 0.26** staged.
+
+### 26.6 What is owed
 
 - **On-glass verdicts.** Everything was judged on the simulator and the replica at true 1×. The
   card art, the hole-card plane depth, the arc stagger and the pacing want Adam's eye.
-- **APK 25/0.25 is staged** (`~/.damage/damage-wm.apk`, the setup page's `/damage-apk`). 0.24 is
+- **APK 26/0.26 is staged** (`~/.damage/damage-wm.apk`, the setup page's `/damage-apk`). 0.25 is
   superseded; the last version observed INSTALLED is still 0.16.
 - **The next window** is Adam's pick — `EXPLOSION.md` §20's order has Feed at #5 with Games now
   struck through as built.
 
-**Battery after this session:** core **418** · desktop **9** · selfcheck **162** · snapshots 49
+**Battery after this session:** core **419** · desktop **9** · selfcheck **162** · snapshots 49
 (13 Games) · `--games-check` all pass · `--epub-check` 58/58 · `--music-check` all pass · lint 21
 rules / 0 findings · `:phone:assembleDebug` green.

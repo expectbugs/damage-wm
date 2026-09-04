@@ -282,3 +282,20 @@ All four rows of the agreed build order are CODE, and so is the keyboard that fo
   long as it is pending. If a gesture's MEANING has changed, the surface has to say so at rest.
 - **`Occupant.human` (or whatever your contract's equivalent is) decides the PERSON.** Sentences
   built from a name read "You checks" and "You wins $412" straight off the glass.
+- 🔴 **An asynchrony introduced to hide a cost nobody measured is a defect generator, not an
+  optimisation.** Games' play-out hand-off ran on a background coroutine because its own comment
+  said the work took "seconds"; `--games-check` says a WHOLE 6-seat tournament is **13 ms**. The
+  coroutine bought nothing and cost two defects — a new table having its state cleared by the old
+  one's settlement, and a restart inside the window destroying the prize pool. **Measure the
+  number the design rests on, then decide.** This project already says "measured vs modeled"
+  about hardware; it applies to our own code.
+- **A completion that resets "the current thing" must check that what it settles IS current.**
+  Anything that finishes off-loop, or later than the gesture that started it, can land after the
+  user has moved on.
+- **A loud line for a NORMAL state teaches people to ignore loud lines.** `playOut` reported "did
+  not resolve" for a table handed over already finished — every cash-out with one opponent left.
+  NO SILENT FAILURES does not license crying wolf.
+- 🔴 **A pin that passes with and without its fix is not a pin.** Run every new test against the
+  UNFIXED tree and watch it fail; if the assertion is a return value that did not change, assert
+  the thing that did (a log line, a state transition, a drawn pixel). And do not let a comment
+  claim a pin reproduces a race it cannot — say what it actually locks.

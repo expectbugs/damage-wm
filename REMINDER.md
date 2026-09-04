@@ -1,9 +1,12 @@
 # Where we are, and what to do next
 
-**Updated 2026-09-04: GAMES · HOLD'EM IS BUILT** — M1–M6 overnight and unattended, then **two
-full review cycles**: 19 defects + a live session (13), then 18 more over a second pair of passes
-and a second live session. `HOLDEM.md` §17 is the deviations list and the shortest useful read
-(§17.2b is the second cycle); `HANDOFF.md` §26 is the narrative. It also changed the **shell**: `ActivationSource` on the window
+**Updated 2026-09-04: GAMES · HOLD'EM IS BUILT** — M1–M6 overnight and unattended, then **three
+full review cycles** at Adam's word: 19 defects + a live session (13); 16 more + 2 coverage gaps;
+then 11 more + 2 test-quality fixes. `HOLDEM.md` §17 is the deviations list and the shortest useful
+read (§17.2b and §17.2c are the second and third cycles); `HANDOFF.md` §26 is the narrative.
+The third cycle's keeper: **an asynchrony introduced to hide a cost nobody measured is a defect
+generator** — the play-out hand-off was on a coroutine because a comment said "seconds"; it is
+13 ms, and moving it onto the loop deleted two defects and the code that made them. It also changed the **shell**: `ActivationSource` on the window
 contract — **switcher = resume, Main = the window's root list** — retrofitted across all six
 existing windows, and `contentPlanes` so a window can name its own stereo regions. The app layer
 is now **Main · Settings · Reader · Tmux · Files · Torrents · Music · Games**.
@@ -78,10 +81,10 @@ Files / Torrents / Music are the worked precedents (`WINDOWS.md`).
 **State of the world:** the phone APK is the primary driver (`HANDOFF.md` §19 — radio + shell
 while it is up); the OpenRC `damage` service is the data provider (content + tmux + sync + the
 window channel on :7401, seam :7402, replica :7403, the media endpoint :7404) plus a standby that
-BLE-drives only while the APK is away. Battery at HEAD: core **418** · desktop 9 ·
+BLE-drives only while the APK is away. Battery at HEAD: core **419** · desktop 9 ·
 selfcheck **162** · snapshots 49 · epub-check 58/58 · lint 0 · `--music-check` and
-`--games-check` all pass. **APK 25/0.25 is STAGED and is the one to install** — Games plus both
-review cycles; 0.24 and everything before it are superseded. **0.16 is still the last build
+`--games-check` all pass. **APK 26/0.26 is STAGED and is the one to install** — Games plus all
+three review cycles; 0.25 and everything before it are superseded. **0.16 is still the last build
 observed INSTALLED** (2026-09-01). ⚠ The jar and the service still run the 2026-09-03 review
 build — **deploy the Games build before using it from the PC side**; redeploy with
 `./gradlew :desktop:stageJar && sudo rc-service damage restart` (never touches the display — the
@@ -98,13 +101,13 @@ shell).
 
 ## 🚀 Next
 
-1. **Deploy the Games build to the PC service, install APK 0.25, and play Hold'em on glass.**
+1. **Deploy the Games build to the PC service, install APK 0.26, and play Hold'em on glass.**
    `./gradlew :desktop:stageJar && sudo rc-service damage restart` (the PC never claims, so this
-   never touches the display), then install the staged APK (**0.25**). What is owed on glass: the card art
+   never touches the display), then install the staged APK (**0.26**). What is owed on glass: the card art
    at all four rungs, the hole-card plane's depth, the arc stagger at 416/480, whether the bot
    pace of 600 ms feels right, and whether the ≈8–10 % ink target holds with a real board out.
    `HOLDEM.md` §17.4 is the list.
-2. **Install APK 0.25 and use Music.** It carries the Now Playing root, both phone-side fixes
+2. **Install APK 0.26 and use Music.** It carries the Now Playing root, both phone-side fixes
    and the whole-codebase review. Then the one-time grants (`DAILY.md` → Music: `music access`
    on the strip, notification access) and the on-phone measured items (the limiter's real notice text, the Spotify cold start, the Bluetooth
    lyric offset, the visualizer rate on glass). Judge Now Playing on glass — it measures **14.0 %

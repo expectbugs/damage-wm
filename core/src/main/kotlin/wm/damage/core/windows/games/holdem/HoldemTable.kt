@@ -634,6 +634,9 @@ class HoldemTable private constructor(
     }
 
     companion object {
+        /** Past this a stored hand number is a rotted record, not a game. */
+        const val MAX_HAND_NO = 100_000
+
         /** A fresh tournament. [stacks] are the buy-ins, already paid. */
         fun start(spec: HoldemRules.Table, seed: Long, occupants: List<Seats.Occupant>,
             stacks: IntArray, button: Int = 0): HoldemTable {
@@ -679,6 +682,12 @@ class HoldemTable private constructor(
                 if (stacks.indices.any { busted[it] == 0 && stacks[it] <= 0 }) return null
                 if (busted.any { it < 0 || it > who.size }) return null
                 if (busted.filter { it != 0 }.let { it.size != it.toSet().size }) return null
+                // a real sit-and-go is 60–120 hands and `Background.MAX_HANDS`
+                // caps a runaway at 4,000; a hand number past that is a rotted
+                // record, and the blind ladder would be asked to double a
+                // hundred million times to price it
+                val handNo = o["handNo"]?.jsonPrimitive?.intOrNull ?: 0
+                if (handNo < 0 || handNo > MAX_HAND_NO) return null
                 val log = ArrayList<Act>()
                 o["log"]?.jsonArray?.forEach { e ->
                     val a = e.jsonArray
@@ -688,8 +697,7 @@ class HoldemTable private constructor(
                         a[2].jsonPrimitive.intOrNull ?: return null))
                 }
                 val t = HoldemTable(spec, o["seed"]?.jsonPrimitive?.longOrNull ?: 0L, who, stacks, busted,
-                    (o["handNo"]?.jsonPrimitive?.intOrNull ?: 0).coerceAtLeast(0),
-                    (o["button"]?.jsonPrimitive?.intOrNull ?: 0).mod(who.size), log)
+                    handNo, (o["button"]?.jsonPrimitive?.intOrNull ?: 0).mod(who.size), log)
                 t.view()          // prove it replays before anyone can see it
                 t
             } catch (e: Exception) {

@@ -157,6 +157,7 @@ class GamesWindowTest {
             r.start()
             r.sitDown()
             val cashBefore = r.win.bankroll.cash
+            val gamesBefore = r.win.roster.gameNo
             // find a turn where nothing of yours is in the pot yet — out of the
             // blinds that is your FIRST decision, and it is 4 hands in 6
             var found = false
@@ -187,6 +188,22 @@ class GamesWindowTest {
             r.await("the table is handed off", 60_000) { !r.win.tableRunning }
             assertTrue(r.win.bankroll.cash >= cashBefore + stake,
                 "the chips came home: ${r.win.bankroll.cash} vs $cashBefore + $stake")
+            // The hand-off SETTLES the tournament, and sitting straight back
+            // down works. ⚠ Honest about what this pins: the play-out was
+            // moved onto the loop in review pass 5 (2026-09-04) because the
+            // background coroutine let a NEW table have its cast and stakes
+            // cleared out from under it by the OLD table's settlement — but
+            // that race is milliseconds wide and a test cannot reproduce it.
+            // What is locked here is the INVARIANT the move guarantees.
+            assertTrue(r.win.roster.gameNo > gamesBefore,
+                "the table was handed off but not settled: gameNo ${r.win.roster.gameNo}")
+            r.await("the games root") { r.win.title() == "games" }
+            r.sitDown()
+            assertTrue(r.win.tableRunning && r.win.seatsLeft == 6,
+                "the new table did not start cleanly")
+            r.await("the pacer reaches your first decision", 40_000) {
+                r.win.isMyTurn || r.win.handIsComplete
+            }
         } finally {
             r.stop()
         }
@@ -355,6 +372,7 @@ class GamesWindowTest {
             await(r, "your turn") { r.win.isMyTurn }
             r.settle()
             val cashBefore = r.win.bankroll.cash
+            val gamesBefore = r.win.roster.gameNo
             val summaryBefore = r.win.summary().line
             val charCount = r.win.roster.characters.size
             val worldSeed = r.win.roster.worldSeed

@@ -1074,14 +1074,57 @@ Two new `--selfcheck` checks measure the type ladders against the REAL rasterize
 2/28/48 and the history band's three lines — because both of those shipped wrong once by being
 picked rather than measured.
 
+### 17.2c The third review cycle (2026-09-04, later still)
+
+Adam asked for the cycle a third time. **Eleven verified defects and two test-quality fixes.**
+The one worth naming is a MEASUREMENT that removed a whole class:
+
+🔴 **The play-out hand-off was on a background coroutine because of a number nobody had
+measured.** Its comment said playing a table out "takes seconds of bot decisions"; `--games-check`
+says a WHOLE 6-seat tournament from scratch is **13 ms** at `CHEAP_ROLLOUTS`, and a play-out from
+mid-tournament is a fraction of that. The coroutine was not buying anything, and it was costing
+two real defects: sitting down at a new table inside the hand-off window had its `cast` and stakes
+cleared out from under it when the OLD table's settlement finally landed (and the pacer then
+stalled on *"this seat has nobody to play it"*), and a shell restart inside that window lost the
+whole prize pool — the seats' buy-ins had already left their bankrolls with nothing left to pay
+them from. It now runs **on the loop**, which is where `maybeBackground` already spends 16–80 ms.
+Measuring the number the design was built on deleted the window, both defects, and the code.
+
+The rest, in the order money matters:
+
+- `finishTournament` reset the CURRENT table's state unconditionally, so a settlement arriving for
+  a table Adam had left behind emptied the cast of the one he was sitting at. Guarded.
+- `Background.playOut` reported *"hand N did not resolve"* for a table handed over **already
+  decided** — which is every cash-out with one opponent left. A loud line nobody can act on is how
+  loud lines stop being read.
+- `HoldemRules.sbAt` doubled the blind level in an unbounded loop, so a rotted `handNo` of two
+  billion asked for a hundred million iterations inside a paint. Bounded at 32 (which saturates
+  any Int), and `HoldemTable.load` now refuses a hand number past 100,000 outright.
+- `HoldemRules.fee` overflowed `Int` on an absurd entry and came back as $1. Long arithmetic.
+- `Character.Career.load` accepted negative counts that `avgFinish` and `vpip` divide by.
+- The Bankroll document said *"Refill puts you back to $1,000"*, which reads as a top-up and is
+  not one above the base. It **sets** the cash.
+- The cash-out's own notice was being overwritten by the settlement's outcome line — fixable only
+  once the play-out was synchronous, and then a one-line reorder.
+- `SettingsWindow.open`'s adjust-clearing duplicated `onActivate`'s four assignments; factored so
+  the two cannot drift.
+- The decided-table guard used `winner() != null`, which misses a table every seat has LEFT.
+
+**Two test-quality fixes, recorded because they are the same discipline:** one new pin asserted a
+return value that was 0 both with and without its fix — **a vacuous pin**, rewritten to capture the
+log line that actually changed and then confirmed to fail without the fix. And one pin's comment
+claimed to reproduce the hand-off race; it does not (the race is milliseconds wide), so the comment
+now says what it actually locks. A pin that cannot fail is worse than no pin, and a comment that
+overclaims is how a pin stops being read.
+
 ### 17.3 The battery, after the build
 
-`./gradlew :core:test` **418** · `./gradlew :desktop:test` **9** · `desktop --selfcheck` **162**
+`./gradlew :core:test` **419** · `./gradlew :desktop:test` **9** · `desktop --selfcheck` **162**
 checks · `desktop --games-check` (a new harness — the ecology over hundreds of simulated
 tournaments) · `desktop --snapshot` **13 Games scenes** among 49 · `desktop --card-render` (the
 card sheets in `design/shots/cards/`) · `desktop --epub-check` · `desktop --music-check` ·
 `python3 tools/lint.py` **21 rules, 0 findings** · `./gradlew :phone:assembleDebug` (APK
-**25 / 0.25**).
+**26 / 0.26**).
 
 ### 17.4 Still open
 

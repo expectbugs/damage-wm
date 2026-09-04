@@ -17,7 +17,11 @@ passes of 2026-09-04** — 11 + 8 verified defects, pinned in `GamesReview202609
 **live session** that followed them (13 more, pinned in `GamesLive20260904Test`) are
 `HANDOFF.md` §26.2–§26.3, with the deviations list in `HOLDEM.md` §17. Adam then asked for the
 whole cycle a SECOND time; that round — two more code passes and a second live session, **16 more
-verified defects and two coverage gaps** — is `HANDOFF.md` §26.4 and `HOLDEM.md` §17.2b. Its lesson worth carrying:
+verified defects and two coverage gaps** — is `HANDOFF.md` §26.4 and `HOLDEM.md` §17.2b. And a
+THIRD time: **11 more defects and two test-quality fixes**, `HANDOFF.md` §26.5 / `HOLDEM.md`
+§17.2c. Two of that round's findings were in the TESTS — a pin that passed with and without its
+fix, and a pin whose comment claimed to reproduce a race it cannot — which is why every pin across
+the three cycles was run against the unfixed tree before it was kept. Its lesson worth carrying:
 two review passes over the code missed a menu row that could never succeed and a drawn mark that
 read as an equals sign — **driving the live grammar and looking at true-1× pixels is a different
 instrument, not a slower version of the same one.** The second cycle's lesson is narrower and

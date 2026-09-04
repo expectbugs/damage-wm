@@ -34,12 +34,12 @@ ever needs redoing: (1) sideload from the setup page, grant Bluetooth ×2 + noti
 battery exemption; (2) 🔴 keep the G2CC bridge app Disconnected (a second central); (3) phone
 first light with NOTHING on beardos holding the pair (`sudo rc-service damage stop`), flip
 Target → glasses; (4) `sudo rc-service damage start` → the log says "standby up (§19)" and the
-phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.25 is the
+phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.26 is the
 staged build: Files + theme icons + the sync client + Torrents + the keyboard + every
 2026-09-01 review fix + the chrome tweaks (the Silent-clock size row included) + Music + its
 three reviews + the 2026-09-03 Now Playing root and the two player fixes + that day's
 whole-codebase review (`HANDOFF.md` §25) + **Games · Hold'em** and the shell's
-switcher-resume / Main-root rule and both of its review cycles (`HANDOFF.md` §26); 0.16 is
+switcher-resume / Main-root rule and all three of its review cycles (`HANDOFF.md` §26); 0.16 is
 the last build observed installed**). Why old
 APKs matter: a pre-0.15 APK cannot be status-probed (the PC conservatively stays out — fine)
 and a pre-0.10 one carries no sync client, so state does not flow until it is updated. 0.16
@@ -126,10 +126,10 @@ schema, and a phone-side record (`window.tmux`) crossed and applied store-direct
 shell was in standby. **Still awaiting a deliberate glass test**: a real standby engagement
 (stop the APK at the desk → the PC BLE-drives within ~10 s → restart the APK → handback) and
 the sync feel across a driver swap (a book position following the swap). Current staged APK:
-**0.25** (Files, the chrome tweaks, Torrents, the keyboard, Music + its three reviews, the
+**0.26** (Files, the chrome tweaks, Torrents, the keyboard, Music + its three reviews, the
 2026-09-03 Now Playing root + the quiet-stream notice + the stable-identity output restore —
 `HANDOFF.md` §24.4 — that day's whole-codebase review, §25, and **Games · Hold'em** with the
-shell's switcher-resume / Main-root rule and both review cycles, §26); **0.16 is the last
+shell's switcher-resume / Main-root rule and all three review cycles, §26); **0.16 is the last
 build observed INSTALLED** (2026-09-01 — the phone speaks the files channel).
 
 **Games (2026-09-04, `HOLDEM.md`) needs nothing from ops.** It is pure Kotlin with no host, no

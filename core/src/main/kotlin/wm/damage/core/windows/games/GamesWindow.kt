@@ -869,36 +869,34 @@ class GamesWindow(
      * conserved and lands the winner's cashflow where it belongs (verdict 23
      * depends on it).
      *
-     * 🔴 The table is HANDED OFF first. Playing it out takes seconds of bot
-     * decisions on a background thread, and a `HoldemTable` being acted on off
-     * the loop must not also be painted by it — `view()` would replay a log
-     * another thread is appending to.
+     * 🔴 **ON THE LOOP, deliberately.** MEASURED: `--games-check` runs a
+     * WHOLE 6-seat tournament from scratch in 13 ms at [Equity.CHEAP_ROLLOUTS],
+     * so a play-out from mid-tournament is a few milliseconds — less than the
+     * 16–80 ms `maybeBackground` already spends on this same loop, and far
+     * less than one frame costs to push.
+     *
+     * An earlier version handed it to a background coroutine on the belief
+     * that it took "seconds". It does not, and the coroutine opened two real
+     * defects (review pass 5, 2026-09-04): sitting down at a NEW table inside
+     * the hand-off window had its `cast` and stakes cleared out from under it
+     * by the OLD table's settlement, and a shell restart inside that window
+     * lost the whole prize pool — the seats' buy-ins had already left their
+     * bankrolls and nothing was left to pay them from.
      */
     private fun playOutWithoutMe(t: HoldemTable) {
-        setNotice("you are out — the table plays on")
         pacerGen++
-        thinking = true
+        acting = null
+        skipping = false
         val field = HashMap(cast)
         val seat = mySeat
         table = null
-        cast.clear()
-        // castStake is NOT cleared here: `finishTournament` reads it when the
-        // played-out table comes back, and it is cleared there
-        acting = null
-        skipping = false
         if (level == Level_.TABLE || level == Level_.HISTORY) level = Level_.GAMES
-        services?.requestRender(this)
-        bg.launch(Dispatchers.Default) {
-            try {
-                Background.playOut(t, field, Equity.CHEAP_ROLLOUTS)
-            } catch (e: Exception) {
-                Log.e("games", "the table could not be played out", e)
-            }
-            onShell {
-                thinking = false
-                finishTournament(t, field, seat)
-            }
+        try {
+            Background.playOut(t, field, Equity.CHEAP_ROLLOUTS)
+        } catch (e: Exception) {
+            Log.e("games", "the table could not be played out", e)
         }
+        finishTournament(t, field, seat)
     }
 
     /**
@@ -957,15 +955,21 @@ class GamesWindow(
         roster.ensurePopulation()
         Log.i("games", "the ${t.spec.label} table is done: " +
             "${if (winner == seat) "you" else field[winner]?.name ?: "?"} took ${Money.fmt(prize)}")
+        // only the CURRENT table's state is reset. A settlement that arrives
+        // for a table Adam has already left behind must not empty the cast of
+        // the one he is sitting at (review pass 5, 2026-09-04).
+        val wasCurrent = table == null || table === t
         if (table === t) table = null
-        cast.clear()
-        castStake.clear()
-        myStake = 0
-        lastSettledHand = -1
-        cashOutPending = false
-        skipping = false
-        acting = null
-        if (level == Level_.TABLE || level == Level_.HISTORY) level = Level_.GAMES
+        if (wasCurrent) {
+            cast.clear()
+            castStake.clear()
+            myStake = 0
+            lastSettledHand = -1
+            cashOutPending = false
+            skipping = false
+            acting = null
+            if (level == Level_.TABLE || level == Level_.HISTORY) level = Level_.GAMES
+        }
         syncMe()
         charCache = null
         bankCache = null
@@ -1255,9 +1259,11 @@ class GamesWindow(
         }
         bankroll.add(chips)
         bankCache = null
-        setNotice("cashed out ${Money.fmt(chips)}")
         playOutWithoutMe(t)
         syncMe()
+        // last, so it survives the settlement's own outcome line: what he
+        // asked for is what the panel should say
+        setNotice("cashed out ${Money.fmt(chips)}")
     }
 
     // ================================================================ standings
@@ -1386,7 +1392,9 @@ class GamesWindow(
         line("entry fees paid ${Money.fmt(bankroll.feesPaid)}", fDoc, Level.DIM)
         line("")
         line("The pool is shared by every betting game.", fDoc, Level.DIM)
-        line("Refill puts you back to ${Money.fmt(Bankroll.BASE)}", fDoc, Level.DIM)
+        // "puts you back to" reads as a top-up; it SETS the cash, and above
+        // the base that takes money away (review pass 5, 2026-09-04)
+        line("Refill sets the cash to ${Money.fmt(Bankroll.BASE)}", fDoc, Level.DIM)
         line("and adds one to the Loser Count.", fDoc, Level.DIM)
         line("")
         line("tap for the bankroll menu", fSmall, Level.DIM)

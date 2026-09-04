@@ -487,6 +487,12 @@ configuration: no provider, no channel, no `needs`. What is worth knowing to wor
 - **The pacer is a pacing loop, not a timeout** (the Three Absolute Rules). Bots wait for Adam
   forever; `Settings → Games → Bot pace` sets the delay between their actions and a tap while
   they are acting skips the pacing until it is your turn again.
+- 🔴 **The play-out hand-off runs ON THE LOOP**, and that is deliberate and measured:
+  `--games-check` prints **13 ms for a whole 6-seat tournament** at `CHEAP_ROLLOUTS`, less than
+  `maybeBackground` already spends on the same loop. It was a background coroutine once, on the
+  belief that it took seconds; that window let a NEW table have its cast cleared by the OLD
+  table's settlement and let a restart destroy the prize pool (`HOLDEM.md` §17.2c). Do not put it
+  back without measuring first.
 - **The world only advances while he is looking at it** (verdict 27). `Background.playTournament`
   is driven from the pacer, never from a schedule and never from wall-clock.
 - **The kit names no card game.** `windows/games/kit/` is `Cards`/`HandEval`/`Pots`/`Money`/
@@ -777,7 +783,7 @@ Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md
 
 ## Verification
 
-- `./gradlew :core:test` — **418** unit/integration tests (2026-09-04's Games build added
+- `./gradlew :core:test` — **419** unit/integration tests (2026-09-04's Games build added
   `ActivationTest` ×6 — the shell's switcher-resume / Main-root rule across every window —
   `GamesKitTest`, `HoldemEngineTest` (incl. the 3,000-scenario side-pot oracle and the
   2,000-hand ranking corpus), `HoldemBotTest`, `GamesWindowTest`, `GamesReview20260904Test` ×14

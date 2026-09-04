@@ -177,12 +177,21 @@ class SettingsWindow(
      *  the rule exists to remove. */
     override fun onActivate(ctx: ShellServices, from: ActivationSource) {
         if (from != ActivationSource.MAIN) return
+        clearAdjust()
+        openCat = -1
+        catModel.cursor = 0
+    }
+
+    /** Drop any half-finished adjust. Shared by the MAIN entry and the
+     *  `cat:` deep link so the two cannot drift apart: a STAGED value (Size,
+     *  a host row) is simply cancelled, and a row that applies live per notch
+     *  keeps what it last previewed — which is what "scroll changes it" means
+     *  for Brightness (§4.2). */
+    private fun clearAdjust() {
         adjusting = null
         revertTo = null
         stagedSize = null
         stagedHost = null
-        openCat = -1
-        catModel.cursor = 0
     }
 
     /**
@@ -197,10 +206,7 @@ class SettingsWindow(
         if (want.isEmpty() || !target.startsWith("cat:")) return false
         val i = cats().indexOfFirst { it.name.equals(want, ignoreCase = true) }
         if (i < 0) return false
-        adjusting = null
-        revertTo = null
-        stagedSize = null
-        stagedHost = null
+        clearAdjust()
         openCat = i
         catModel.cursor = i
         model.cursor = 0

@@ -73,7 +73,7 @@ keyboard the same evening — `TORRENTS.md`, `HANDOFF.md` §23; Music overnight 
 `MUSIC.md`, `HANDOFF.md` §24, the shell's exclusive mode `DESIGN.md` §4.9). A whole-codebase
 review followed on 2026-09-03 — ten verified defects fixed and pinned, `HANDOFF.md` §25.
 **Games · Hold'em landed overnight 2026-09-04** — `HOLDEM.md` (§17 = what was built and where it
-departed from the design; §17.2b = the second review cycle), `HANDOFF.md` §26; it also put **`ActivationSource`** on the window
+departed from the design; §17.2b/§17.2c = the second and third review cycles), `HANDOFF.md` §26; it also put **`ActivationSource`** on the window
 contract (switcher = resume, Main = the window's root list) and retrofitted all six existing
 windows, and added **`contentPlanes`** so a window can name its own stereo regions.
 
@@ -103,7 +103,7 @@ Damage` and the APK-wide `Phone notifications` switch, and the shell never gates
 source on a hidden field — a Global row that disappears leaves a persisted value nothing can undo).
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(418 tests, including the per-lens oracle and the §25/§26 review pins), `./gradlew :desktop:test` (9 tests: the BlueZ glue
+(419 tests, including the per-lens oracle and the §25/§26 review pins), `./gradlew :desktop:test` (9 tests: the BlueZ glue
 over a fake link), `desktop --selfcheck` (162 checks), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `desktop --music-check` (the real library, read-only bar the additive schema migration),
 `desktop --games-check` (the Hold'em ecology over hundreds of simulated tournaments — pure
