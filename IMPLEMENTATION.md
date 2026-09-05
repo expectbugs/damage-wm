@@ -877,7 +877,7 @@ Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md
 
 ## Verification
 
-- `./gradlew :core:test` — **455** unit/integration tests (2026-09-05's fifth whole-codebase
+- `./gradlew :core:test` — **456** unit/integration tests (2026-09-05's fifth whole-codebase
   review — `HANDOFF.md` §30 — added `Review30Test.kt`, thirteen pins: the notification rule off its
   source line, the menu rule off its title, the Games documents holding their ink, Files saying why
   an empty list is empty, the clock marker clear of the time, the medium clock's even digits, the

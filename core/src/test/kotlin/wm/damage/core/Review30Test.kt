@@ -603,10 +603,41 @@ class Review30Test {
         }
     }
 
+
+    // ================================================================ §30 #18
+    /**
+     * 🔴 An EMPTY shelf still has one row — the Files defect, one window over.
+     *
+     * `ContentKit.paintList` returns immediately on a row count of zero, so the
+     * Reader's library level drew a cleared band and NOTHING else: no message,
+     * no lens, for every state before the first scan lands, for a library with
+     * no books, and for a scan that failed. Main's row said why the whole time;
+     * the window did not.
+     */
+    @Test fun theReaderSaysWhyAnEmptyShelfIsEmpty() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val w = wm.damage.core.windows.reader.ReaderWindow(FakeText(), EmptyContent, scope)
+            w.onRegistered(ProbeServices)
+            val v = w.view() as WindowView.ListView
+            assertTrue(v.rowCount() >= 1, "an empty shelf still has the row that says so")
+            val g = Gray8(640, 64)
+            v.paintLens(g, Rect(0, 0, 640, 64), 0)
+            val lit = (0 until 64).sumOf { y -> (0 until 640).count { x -> g[x, y] != 0 } }
+            assertTrue(lit > 0, "the library level drew nothing at all for an empty shelf")
+            // and the row is not a silent no-op
+            ProbeOps.clear()
+            v.onCommit(0)
+            assertTrue(ProbeOps.seen.isNotEmpty(), "a tap on the placeholder did nothing at all")
+        } finally {
+            scope.cancel()
+        }
+    }
+
     // ---------------------------------------------------------------- fakes
     private object ProbeServices : wm.damage.core.shell.ShellServices {
         override fun requestRender(window: wm.damage.core.shell.DamageWindow) {}
-        override fun setOperation(op: String) {}
+        override fun setOperation(op: String) { ProbeOps.seen.add(op) }
         override fun notifyInternal(source: String, body: String, urgent: Boolean,
             appId: String?, thread: String, target: String?) {}
         override fun openWindow(id: String, target: String?): Boolean = false
@@ -700,5 +731,19 @@ class Review30Test {
         override fun selectWindow(target: wm.damage.core.windows.tmux.TmuxTarget, idx: Int) {}
         override fun resizeWindow(target: wm.damage.core.windows.tmux.TmuxTarget, cols: Int, rows: Int) {}
         override fun close() {}
+    }
+
+    /** A content provider with no books at all. */
+    private object EmptyContent : wm.damage.core.content.ContentProvider {
+        override fun library(): List<wm.damage.core.content.BookMeta> = emptyList()
+        override fun openBook(id: String): java.nio.file.Path = throw IllegalStateException("no books")
+        override fun state() = ""
+    }
+
+    /** Records the operations a window reports, so a pin can tell "it did
+     *  something" from "it silently did nothing". */
+    private object ProbeOps {
+        val seen = ArrayList<String>()
+        fun clear() = seen.clear()
     }
 }

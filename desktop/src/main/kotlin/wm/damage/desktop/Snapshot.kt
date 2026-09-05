@@ -642,15 +642,20 @@ object Snapshot {
      */
     private suspend fun save(sim: GlassFirmwareSim, dir: Path, name: String) {
         val ctx = sim.left
+        val shell = snapShell
         var pan: ByteArray? = null
-        val deadline = System.currentTimeMillis() + 20_000
-        while (pan == null && System.currentTimeMillis() < deadline) {
-            if (!snapShell!!.isQuiescent()) { delay(5); continue }
-            pan = snapShell!!.sampleIdle { ctx.panel.copyOf() }
+        if (shell != null) {
+            val deadline = System.currentTimeMillis() + 20_000
+            while (pan == null && System.currentTimeMillis() < deadline) {
+                if (!shell.isQuiescent()) { delay(5); continue }
+                pan = shell.sampleIdle { ctx.panel.copyOf() }
+            }
         }
         if (pan == null) {
+            // still write the picture — one that may be torn, with a line
+            // saying so, beats no picture at all
             failures.add("snapshot '$name' could not be taken on a settled shell " +
-                "— ${snapShell!!.quiescenceReport()}")
+                "— ${shell?.quiescenceReport() ?: "no shell registered"}; it may show a mid-state")
             pan = ctx.panel.copyOf()
         }
         val img = BufferedImage(Geometry.PANEL_W, Geometry.PANEL_H, BufferedImage.TYPE_INT_RGB)

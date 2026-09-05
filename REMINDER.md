@@ -1,6 +1,6 @@
 # Where we are, and what to do next
 
-**Updated 2026-09-05: a FIFTH whole-codebase review and a third full LIVE walk — seventeen
+**Updated 2026-09-05: a FIFTH whole-codebase review and a third full LIVE walk — eighteen
 verified defects, all fixed and pinned.** `HANDOFF.md` §30 is the record. Three of them matter more
 than the rest:
 
@@ -28,7 +28,10 @@ inks 25 in a 24 px line at 115 %); the selfcheck's oracle kept watching the STOP
 restart scene; the tmux staleness line reached only the live pane and Torrents' only the transfers
 list; a STAGED settings row claimed "scroll adjusts live"; Music offered Resume/Next/Previous with
 an empty queue and did nothing when tapped; and the notification box hung from its box's top edge
-instead of being centred on its own height.
+instead of being centred on its own height; and — from a fourth pass that swept §30's OWN classes
+across the tree rather than hunting new ones — the Reader's library level drew nothing at all for an
+empty shelf, the same defect as Files by a different route (a row count of zero makes
+`ContentKit.paintList` return before it draws anything).
 
 ⛔ **Not deployed.** The `damage` service still runs the §29 build and APK **29/0.29** is what is
 staged; **0.16 is still the last APK observed installed**. Deploying is `stageJar && rc-service
@@ -39,7 +42,7 @@ fix — the same `queued=1 reports=0` shape at `h=288 step 198` — and has not 
 consecutive full-suite runs. It is instrumented, not closed: `settle` now prints the stack of every
 thread inside `wm.damage` when it gives up. If it fires again, read the stacks first.
 
-**Battery at HEAD:** core **455** · desktop **11** · selfcheck **189** (oracle 283 runs, 20
+**Battery at HEAD:** core **456** · desktop **11** · selfcheck **189** (oracle 283 runs, 20
 consecutive clean) · snapshots 49 × three runs · `--games-check` · `--music-check` ·
 `--epub-check` 58/58 · lint 21 rules / 0 + selftest · `:phone:assembleDebug`.
 
@@ -47,7 +50,7 @@ consecutive clean) · snapshots 49 × three runs · `--games-check` · `--music-
 **§30.7**. The live-walk driver (§28.2 / §29.2) is the instrument to rebuild first — and the
 §29.2 lessons bind: snap between steps, one step per snap in any window with a destructive row,
 count only panel frames as activity, never rebuild the jar under a running instance. 🆕 And one
-more from §30: **the harness is part of the system under review** — two of the seventeen were in
+more from §30: **the harness is part of the system under review** — two of the eighteen were in
 the gates themselves, so when a test bound fires, measure the normal case before calling it load.
 
 ---

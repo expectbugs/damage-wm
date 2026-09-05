@@ -1799,7 +1799,7 @@ Read `CLAUDE.md` → `REMINDER.md` → `HANDOFF.md` §19–§29, then:
 The same ask as §28 and §29, one build later: read everything, verify every candidate before
 touching it, fix what is real, review the fixes, then drive the whole system live exactly as a user
 would, fix what that finds, review those fixes, repeat until a full pass comes back clean, and then
-bring every document up to date. This section is that record. **Seventeen verified defects**, each
+bring every document up to date. This section is that record. **Eighteen verified defects**, each
 fix carrying a pin that was run against the UNFIXED tree and watched to fail (`Review30Test.kt`,
 plus one each in `TorrentsTest.kt`, `MusicWindowTest.kt` and `Review28Test.kt`).
 
@@ -1956,7 +1956,7 @@ restored) and failed there. Two were caught being vacuous first and rewritten un
 
 ### 30.6 Battery
 
-core **455** · desktop **11** · selfcheck **189** (the oracle on every settle, **283** runs, and
+core **456** · desktop **11** · selfcheck **189** (the oracle on every settle, **283** runs, and
 **20 consecutive clean runs** where the unchanged tree failed 2 in 20) · snapshots 49 × three runs
 · `--games-check` · `--music-check` ·
 `--epub-check` 58/58 · `--card-render` · `python3 tools/lint.py` 21 rules / 0 findings + selftest ·
@@ -1965,6 +1965,27 @@ core **455** · desktop **11** · selfcheck **189** (the oracle on every settle,
 What legitimately varies between two `--snapshot` runs, measured this round so the next reader does
 not chase it: the wall clock, the status bar's throughput and ack readouts, Files' free-space
 figures, and Music Mode's visualiser. Everything else is stable (§30.6a).
+
+### 30.5b The pass after that — sweeping §30's own classes across the tree
+
+A fourth reading, this time applying the classes THIS round established rather than looking for new
+ones. Two more came out of it, both in code the earlier passes had walked straight past:
+
+18. 🔴 **The Reader's library level drew nothing at all for an empty shelf** — the Files defect of
+    §30.1 #6, one window over and by a different route. `ContentKit.paintList` returns immediately
+    on a row count of ZERO, and the library's count is `folders.size + books.size`; so before the
+    first scan lands, for a library with no books, and for a scan that FAILED, the window cleared
+    its content band and drew nothing — no message, no lens. Main's row said why the whole time
+    (`libraryState` carries "loading", "no books found", "library error: …"); the window did not.
+    It now has the row that says so, with the scan's own words under it, and a tap that scans again
+    — or, in a folder that has emptied under you, one that climbs back to the shelf.
+    The sweep behind it: every `ListView` and `DocView` in the tree, checked for a count that can
+    reach zero. Files coerces to one row and now says why; Torrents' three lists always carry a
+    tail row (the R3-P11 rule); Music's always end in `Row.Menu`; the Reader's chapter picker always
+    carries "From the beginning"; Settings' categories are built only from windows that contributed
+    rows; Main's list is the window list; Games' are fixed. The Reader's shelf was the only one
+    left, and every document painter handles its own empty case.
+19. The snapshot harness took its picture the way the oracle used to — §30.6a.
 
 ### 30.6a The snapshot harness takes its picture the same way
 
@@ -1997,7 +2018,7 @@ Read `CLAUDE.md` → `REMINDER.md` → `HANDOFF.md` §19–§30.
   rc-service damage restart` (`DAILY.md`) — Adam's call, in the moment.
 - The live-walk driver (§28.2, §29.2) remains the instrument that runs the real providers under the
   real grammar. One thing this round adds to its lessons: **the harness is part of the system under
-  review.** Two of the seventeen were in the gates themselves, and the sharpest defect of the round
+  review.** Two of the eighteen were in the gates themselves, and the sharpest defect of the round
   came out of a test bound firing — so when a bound fires, measure the normal case before calling it
   load. `OracleWalkTest`'s settle now prints the stacks of every thread inside `wm.damage` when it
   gives up, so the next one says where.

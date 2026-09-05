@@ -105,7 +105,7 @@ never return to auto, and the context menu's fixed width cut labels at the chrom
 walk rules learnt the hard way: **one step per snap in any window with a destructive row** (a
 blind run started a stopped torrent on the real qBittorrent), and **never rebuild the jar under a
 running instance**. Deployed 2026-09-04 22:00 (the service on the §29 build; APK 29/0.29 staged).
-**A fifth review on 2026-09-05 — `HANDOFF.md` §30 — seventeen verified defects, and two of them
+**A fifth review on 2026-09-05 — `HANDOFF.md` §30 — eighteen verified defects, and two of them
 were in the GATES.** 🔴 **A wheel closed mid-spin never stopped spinning**: `Switcher.spinning`
 stayed true, the frame loop posts another Pump for as long as it is, and `isQuiescent()` reads the
 same flag — an unbounded loop of empty frames and a shell never idle again, from a scroll and a tap
@@ -151,7 +151,7 @@ Damage` and the APK-wide `Phone notifications` switch, and the shell never gates
 source on a hidden field — a Global row that disappears leaves a persisted value nothing can undo).
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(455 tests, including the per-lens oracle, the §25–§30 review pins and the random-gesture
+(456 tests, including the per-lens oracle, the §25–§30 review pins and the random-gesture
 oracle walk), `./gradlew :desktop:test` (11 tests: the BlueZ glue
 over a fake link and the config file's safety), `desktop --selfcheck` (189 checks, the truth oracle on every settle), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `desktop --music-check` (the real library, read-only bar the additive schema migration),

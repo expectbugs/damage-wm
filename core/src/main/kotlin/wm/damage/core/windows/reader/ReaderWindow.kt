@@ -254,9 +254,27 @@ class ReaderWindow(
         drawFit(g, r.x + 44, Draw.lineBelow(tx, fB, r.y + 6, r.y + 34), "tap to start here", Level.BODY, fRow, r.w - 60)
     }
 
+    /**
+     * 🔴 An EMPTY shelf still has one row (review §30, the Files defect one
+     * window over): `ContentKit.paintList` returns immediately on a count of
+     * zero, so the library level drew a cleared band and NOTHING else — no
+     * message, no lens — for every state before the first scan lands, for a
+     * library with no books, and for a scan that failed. Main's row said why
+     * the whole time; the window did not.
+     */
     private fun libView() = WindowView.ListView(libModel,
-        { shelf().let { it.folders.size + it.books.size } },
+        { shelf().let { it.folders.size + it.books.size }.coerceAtLeast(1) },
         ::paintLibRow, ::paintLibLens, ::commitLibrary)
+
+    private fun shelfIsEmpty(): Boolean = shelf().let { it.folders.isEmpty() && it.books.isEmpty() }
+
+    /** What the placeholder says under "No books": the scan's own words. */
+    private fun libEmptyWhy(): String = when {
+        folder.isNotEmpty() -> "this folder is empty now · double-tap for the shelf"
+        libraryState == "loading" -> "the shelf is being read · tap to look again"
+        libraryState == "ok" -> "nothing in the library · tap to scan again"
+        else -> "$libraryState · tap to scan again"
+    }
 
     /** The current folder's view: subfolders first (sorted), then the books
      *  directly in it. O(library) per call — cheap at library scale. */
@@ -484,6 +502,7 @@ class ReaderWindow(
 
     private fun paintLibRow(g: Gray8, i: Int, r: Rect, dim: Boolean) {
         val s = shelf()
+        if (shelfIsEmpty()) return                 // the lens carries the placeholder
         if (i < s.folders.size) {
             val name = s.folders[i]
             Icons.draw(g, r.x + 4, r.y + 7, 18, 18, IconKind.FILES, Level.DIM)
@@ -500,6 +519,13 @@ class ReaderWindow(
     private fun paintLibLens(g: Gray8, r: Rect, i: Int) {
         val s = shelf()
         val fB = FontSpec(Face.SYSTEM, 18, bold = true)
+        if (shelfIsEmpty()) {
+            Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.READER, Level.HEAD)
+            drawFit(g, r.x + 44, r.y + 6, "No books", Level.HEAD, fB, r.w - 60)
+            drawFit(g, r.x + 44, Draw.lineBelow(tx, fB, r.y + 6, r.y + 34),
+                libEmptyWhy(), Level.BODY, fRow, r.w - 60)
+            return
+        }
         if (i < s.folders.size) {
             val name = s.folders[i]
             Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.FILES, Level.HEAD)
@@ -518,6 +544,15 @@ class ReaderWindow(
 
     private fun commitLibrary(i: Int) {
         val s = shelf()
+        // the placeholder row: a tap asks again rather than doing nothing at
+        // all (review §30 — no silent no-ops)
+        if (shelfIsEmpty()) {
+            if (folder.isNotEmpty()) { folder = folder.substringBeforeLast('/', ""); libModel.cursor = 0 }
+            else if (!scanInFlight) refreshLibrary()
+            services?.setOperation(if (folder.isEmpty()) "reading the shelf again" else "back to the shelf")
+            services?.requestRender(this)
+            return
+        }
         if (i < s.folders.size) {
             val name = s.folders[i]
             folder = if (folder.isEmpty()) name else "$folder/$name"
