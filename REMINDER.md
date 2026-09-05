@@ -1,6 +1,6 @@
 # Where we are, and what to do next
 
-**Updated 2026-09-05: a FIFTH whole-codebase review and a third full LIVE walk — eighteen
+**Updated 2026-09-05: a FIFTH whole-codebase review and a third full LIVE walk — nineteen
 verified defects, all fixed and pinned.** `HANDOFF.md` §30 is the record. Three of them matter more
 than the rest:
 
@@ -50,7 +50,7 @@ consecutive clean) · snapshots 49 × three runs · `--games-check` · `--music-
 **§30.7**. The live-walk driver (§28.2 / §29.2) is the instrument to rebuild first — and the
 §29.2 lessons bind: snap between steps, one step per snap in any window with a destructive row,
 count only panel frames as activity, never rebuild the jar under a running instance. 🆕 And one
-more from §30: **the harness is part of the system under review** — two of the eighteen were in
+more from §30: **the harness is part of the system under review** — two of the nineteen were in
 the gates themselves, so when a test bound fires, measure the normal case before calling it load.
 
 ---

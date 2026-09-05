@@ -43,7 +43,7 @@ pinned, and still failed in the commonest spot at the table, because the pin ent
 different branch than the user does. The **fourth whole-codebase review of 2026-09-04 (evening)** — the list rhythm measured, the tmux
 alert's deep link, the shell loop surviving an `Error`, brightness back to auto, the menu box
 following the face — is `HANDOFF.md` §29, pins in `Review29Test`. The **fifth, of 2026-09-05** —
-eighteen verified defects, `HANDOFF.md` §30, pins in `Review30Test` — is the round where two of
+nineteen verified defects, `HANDOFF.md` §30, pins in `Review30Test` — is the round where two of
 the findings were in the GATES themselves: the standing `--selfcheck` oracle had been failing one
 run in ten since it existed because it read the shell's state field by field from another thread
 (2/20 measured on the unchanged tree; `Shell.sampleIdle` takes the reading on the loop, 20/20

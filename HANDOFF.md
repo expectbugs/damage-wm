@@ -1799,7 +1799,7 @@ Read `CLAUDE.md` → `REMINDER.md` → `HANDOFF.md` §19–§29, then:
 The same ask as §28 and §29, one build later: read everything, verify every candidate before
 touching it, fix what is real, review the fixes, then drive the whole system live exactly as a user
 would, fix what that finds, review those fixes, repeat until a full pass comes back clean, and then
-bring every document up to date. This section is that record. **Eighteen verified defects**, each
+bring every document up to date. This section is that record. **Nineteen verified defects**, each
 fix carrying a pin that was run against the UNFIXED tree and watched to fail (`Review30Test.kt`,
 plus one each in `TorrentsTest.kt`, `MusicWindowTest.kt` and `Review28Test.kt`).
 
@@ -2032,7 +2032,7 @@ Read `CLAUDE.md` → `REMINDER.md` → `HANDOFF.md` §19–§30.
   rc-service damage restart` (`DAILY.md`) — Adam's call, in the moment.
 - The live-walk driver (§28.2, §29.2) remains the instrument that runs the real providers under the
   real grammar. One thing this round adds to its lessons: **the harness is part of the system under
-  review.** Two of the eighteen were in the gates themselves, and the sharpest defect of the round
+  review.** Two of the nineteen were in the gates themselves, and the sharpest defect of the round
   came out of a test bound firing — so when a bound fires, measure the normal case before calling it
   load. `OracleWalkTest`'s settle now prints the stacks of every thread inside `wm.damage` when it
   gives up, so the next one says where.

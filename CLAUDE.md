@@ -105,7 +105,7 @@ never return to auto, and the context menu's fixed width cut labels at the chrom
 walk rules learnt the hard way: **one step per snap in any window with a destructive row** (a
 blind run started a stopped torrent on the real qBittorrent), and **never rebuild the jar under a
 running instance**. Deployed 2026-09-04 22:00 (the service on the §29 build; APK 29/0.29 staged).
-**A fifth review on 2026-09-05 — `HANDOFF.md` §30 — eighteen verified defects, and two of them
+**A fifth review on 2026-09-05 — `HANDOFF.md` §30 — nineteen verified defects, and two of them
 were in the GATES.** 🔴 **A wheel closed mid-spin never stopped spinning**: `Switcher.spinning`
 stayed true, the frame loop posts another Pump for as long as it is, and `isQuiescent()` reads the
 same flag — an unbounded loop of empty frames and a shell never idle again, from a scroll and a tap
