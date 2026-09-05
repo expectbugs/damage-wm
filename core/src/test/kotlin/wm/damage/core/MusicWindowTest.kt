@@ -30,6 +30,11 @@ import wm.damage.core.windows.music.MirrorMusicPlayer
 import wm.damage.core.windows.music.Mode
 import wm.damage.core.windows.music.MusicPlayer
 import wm.damage.core.windows.music.MusicWindow
+import wm.damage.core.text.Face
+import wm.damage.core.text.FontSpec
+import wm.damage.core.gfx.Gray8
+import wm.damage.core.geom.Rect
+import wm.damage.core.shell.WindowView
 import wm.damage.core.windows.music.PlayState
 import wm.damage.core.windows.music.PlayerEvent
 import wm.damage.core.windows.music.QueueEngine
@@ -345,6 +350,34 @@ class MusicWindowTest {
         assertEquals(0..2, LyricsSync.window(p.lines, 0, 2, 3)); assertEquals(1..3, LyricsSync.window(p.lines, 3, 2, 3))
         assertEquals(2, LyricsSync.pages("a\nb\nc\nd\ne", 2).size + 0 - 1)
         assertTrue(LyricsSync.parse("just text").isEmpty)
+    }
+
+    /** Review §29 (the live walk): the idle Now Playing caption sat at a
+     *  constant 48 px under "nothing queued" and, at 130 %, inside its
+     *  descenders. It is placed below the big line's MEASURED ink now. With a
+     *  rasterizer whose ink follows the size, the two lines' inked rows must
+     *  span both inks (less the design's 2 px overlap), not just the first. */
+    @Test
+    fun theIdleCaptionSitsBelowTheBigLinesInk() {
+        val text = ScalingText()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val lib = TestLib()
+            val win = MusicWindow(text, lib, SimMusicPlayer(lib), scope)
+            val scale = wm.damage.core.text.StyleTransform(scale = 1.3)
+            win.styleTransform = { scale.apply(it) }
+            val v = win.view() as WindowView.CanvasView
+            val g = Gray8(640, 480)
+            val r = Rect(16, 34, 608, 416)
+            v.paint(g, r)
+            val inked = (r.y until r.bottom).count { y -> (r.x until r.right).any { x -> g[x, y] != 0 } }
+            val big = text.metrics(scale.apply(FontSpec(Face.SYSTEM, 36, bold = true))).let { it.ascent + it.descent }
+            val cap = text.metrics(scale.apply(FontSpec(Face.SYSTEM, 13, bold = true))).let { it.ascent + it.descent }
+            // less the design's 2 px overlap and the caption's even-row snap
+            assertTrue(inked >= big + cap - 4, "the caption sits below the big line's ink ($inked inked rows, big $big + caption $cap)")
+        } finally {
+            scope.cancel()
+        }
     }
 
     // =========================================================== the window

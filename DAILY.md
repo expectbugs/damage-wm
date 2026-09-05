@@ -103,7 +103,8 @@ runs every read-only probe against the real database and computes one viz blob.
   `tmuxQuickKeys`, `tmuxSnippets`, `tmuxWaitPatterns`); on-glass settings live in
   Settings → Tmux. Since §28 the wait alert works for ANY pane — before it, a session that had
   not filled its screen (one created from the glasses, a short command) never alerted and its
-  sessions lens showed no last line.
+  sessions lens showed no last line. Since §29 a TAP on the alert box opens that session's live
+  view (glance → tap → `y`); before, the tap only dismissed it.
 - **Hand-editing `config.json`** is safe since §28: an unreadable file (a stray comma) is left
   exactly as it is and the service runs on defaults for that start with a loud log line — before
   that it was REPLACED with defaults, credentials and tmux hosts included. Fix the file and

@@ -433,7 +433,7 @@ class GamesWindow(
                     "hand ${v.handNo + 1} · blinds ${Money.fmt(v.sb)}/${Money.fmt(v.bb)} · " +
                         "${v.activeSeats.size} left"
                 }
-                Draw.fit(g, tx, r.x + 8, r.y + 36, line, Level.DIM, fLens, r.w - 16)
+                Draw.fit(g, tx, r.x + 8, Draw.lineBelow(tx, fRowB, r.y + 6, r.y + 36), line, Level.DIM, fLens, r.w - 16)
             }
             else -> {
                 tx.draw(g, r.x + 8, r.y + 6, label, fRowB, Level.HEAD)
@@ -442,7 +442,7 @@ class GamesWindow(
                         .joinToString(" · ") { "${dn(it.name, fLens)} ${Money.compact(worthOf(it))}" }
                     else -> "font, size, confirm, bot pace, notifications"
                 }
-                Draw.fit(g, tx, r.x + 8, r.y + 36, line, Level.DIM, fLens, r.w - 16)
+                Draw.fit(g, tx, r.x + 8, Draw.lineBelow(tx, fRowB, r.y + 6, r.y + 36), line, Level.DIM, fLens, r.w - 16)
             }
         }
     }
@@ -492,6 +492,7 @@ class GamesWindow(
     private fun paintTableLens(g: Gray8, r: Rect, i: Int) {
         val spec = tableRows().getOrNull(i) ?: return
         tx.draw(g, r.x + 8, r.y + LENS_1, spec.label, fLensHead, Level.HEAD)
+        val l2 = lens2()
         val entry = entryFor(spec)
         val fee = HoldemRules.fee(entry)
         // 🔴 verdict 24: a VISIBLE fee, on the buy-in row, and it applies to
@@ -499,17 +500,23 @@ class GamesWindow(
         val line1 = (if (spec.entry == null) "any entry + 5% fee · blinds "
         else "${Money.fmt(entry)} + ${Money.fmt(fee)} fee · blinds ") +
             "${Money.fmt(spec.sbAt(0))}/${Money.fmt(spec.bbAt(0))}"
-        Draw.fit(g, tx, r.x + 8, r.y + LENS_2, line1, Level.BODY, fLensBody, r.w - 16)
+        Draw.fit(g, tx, r.x + 8, r.y + l2, line1, Level.BODY, fLensBody, r.w - 16)
         val ladder = "up every ${HoldemRules.HANDS_PER_LEVEL} hands: ${spec.ladder()}"
-        if (lensThirdFits()) {
-            Draw.fit(g, tx, r.x + 8, r.y + LENS_3, ladder, Level.DIM, fLensTail, r.w - 16)
+        if (lensThirdFits(r)) {
+            Draw.fit(g, tx, r.x + 8, r.y + lens3(l2), ladder, Level.DIM, fLensTail, r.w - 16)
         }
     }
 
-    /** The third lens line is drawn only when the second cannot reach it. A
-     *  per-app font scale can push the ladder past its own spacing, and a line
-     *  drawn through the one above it is worse than a line not drawn. */
-    private fun lensThirdFits(): Boolean = LENS_2 + ink(fLensBody) <= LENS_3
+    /** The lens ladder's second and third lines from the MEASURED ink (review
+     *  §29): the design's 28 / 48 at 100 %, lower as the app face grows, so a
+     *  line is never drawn through the one above it. */
+    private fun lens2(): Int = Draw.lineBelow(tx, fLensHead, LENS_1, LENS_2)
+    private fun lens3(l2: Int = lens2()): Int = Draw.lineBelow(tx, fLensBody, l2, LENS_3)
+
+    /** The third lens line is drawn only when its ascent stays above the
+     *  band's bottom rule: a per-app font scale can push the ladder past the
+     *  band, and a line drawn through the rule is worse than a line not drawn. */
+    private fun lensThirdFits(r: Rect): Boolean = lens3() + tx.metrics(fLensTail).ascent <= r.h - 2
 
     private fun commitTable(i: Int) {
         val spec = tableRows().getOrNull(i) ?: return
@@ -1167,8 +1174,12 @@ class GamesWindow(
         val t = table ?: return
         val min = t.minRaiseTo()
         val max = t.maxRaiseTo()
+        // the verb follows the bet on the table here too (review §29, the
+        // live walk): the keyboard read "raise to" over a checked-through
+        // flop, where the confirm it leads to says "Bet"
+        val verb = if (t.view().currentBet > 0) "raise to" else "bet"
         val ok = services?.openKeyboard(KeyboardSurface.Spec(
-            title = "raise to ${Money.fmt(min)}-${Money.fmt(max)}", initial = min.toString(),
+            title = "$verb ${Money.fmt(min)}-${Money.fmt(max)}", initial = min.toString(),
             onCommit = { txt ->
                 val v = txt.filter { it.isDigit() }.toIntOrNull()
                 when {
@@ -1337,9 +1348,10 @@ class GamesWindow(
             "${HoldemView.hands(c.career.handsVsYou)} with you · vpip ${(c.career.vpip * 100).toInt()}%"
         else "you have not played them"
         tx.draw(g, r.x + 8, r.y + LENS_1, dn(c.name, fLensHead), fLensHead, Level.HEAD)
-        Draw.fit(g, tx, r.x + 8, r.y + LENS_2, bits.joinToString(" · "), Level.BODY, fLensBody, r.w - 16)
-        if (lensThirdFits()) {
-            Draw.fit(g, tx, r.x + 8, r.y + LENS_3, if (c.id == ME) "that's you" else h2h,
+        val l2 = lens2()
+        Draw.fit(g, tx, r.x + 8, r.y + l2, bits.joinToString(" · "), Level.BODY, fLensBody, r.w - 16)
+        if (lensThirdFits(r)) {
+            Draw.fit(g, tx, r.x + 8, r.y + lens3(l2), if (c.id == ME) "that's you" else h2h,
                 Level.DIM, fLensTail, r.w - 16)
         }
     }
@@ -1698,10 +1710,11 @@ class GamesWindow(
     }
 
     companion object {
-        /** The three-line lens ladder, in pixels from the lens top. Measured:
-         *  17 bold inks 25 px, 13 inks 20 and 11 inks 17, so 2 / 28 / 48 sets
-         *  every ascent inside the 64 px box and only empty descent tails
-         *  cross the bottom rule. */
+        /** The three-line lens ladder, in pixels from the lens top — the
+         *  DESIGN at 100 %, and the floors of `lens2()` / `lens3()` (review
+         *  §29). Measured: 17 bold inks 25 px, 13 inks 20 and 11 inks 17, so
+         *  2 / 28 / 48 sets every ascent inside the 64 px box and only empty
+         *  descent tails cross the bottom rule. */
         const val LENS_1 = 2
         const val LENS_2 = 28
         const val LENS_3 = 48

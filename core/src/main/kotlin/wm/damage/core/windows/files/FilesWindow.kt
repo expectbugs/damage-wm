@@ -406,15 +406,18 @@ class FilesWindow(
     private fun paintLocLens(g: Gray8, r: Rect, i: Int) {
         val l = locations.getOrNull(i) ?: return
         IconPaint.draw(g, services?.icons(), locIcon(l.kind), r.x + 8, r.y + 4, 56, IconKind.FILES, Level.HEAD)
-        Draw.fit(g, tx, r.x + 72, r.y + 6, l.label, Level.HEAD, FontSpec(Face.SYSTEM, 18, bold = true), r.w - 88)
+        val fB = FontSpec(Face.SYSTEM, 18, bold = true)
+        Draw.fit(g, tx, r.x + 72, r.y + 6, l.label, Level.HEAD, fB, r.w - 88)
         val det = if (l.totalBytes > 0)
             "${l.path} · ${fmtBytes(l.freeBytes)} free of ${fmtBytes(l.totalBytes)}"
         else l.path
-        Draw.fit(g, tx, r.x + 72, r.y + 32, det, Level.BODY, fBody, r.w - 88)
+        val y2 = Draw.lineBelow(tx, fB, r.y + 6, r.y + 32)
+        Draw.fit(g, tx, r.x + 72, y2, det, Level.BODY, fBody, r.w - 88)
         if (l.totalBytes > 0) {
-            // below the detail line's descenders (the first render crowded them)
+            // below the detail line's descenders (the first render crowded
+            // them) — its MEASURED descenders, at any scale (review §29)
             val used = 1.0 - l.freeBytes.toDouble() / l.totalBytes
-            Icons.blocks(g, r.x + 72, r.y + 56, 240, 4, used, n = 12, level = Level.of(6))
+            Icons.blocks(g, r.x + 72, maxOf(r.y + 56, y2 + Draw.ink(tx, fBody) - 2), 240, 4, used, n = 12, level = Level.of(6))
         }
     }
 
@@ -594,7 +597,7 @@ class FilesWindow(
             IconPaint.draw(g, services?.icons(), listOf("folder-open", "folder"), r.x + 8, r.y + 4, 56,
                 IconKind.FILES, Level.HEAD)
             Draw.fit(g, tx, r.x + 72, r.y + 6, "This folder", Level.HEAD, fB, r.w - 88)
-            Draw.fit(g, tx, r.x + 72, r.y + 34,
+            Draw.fit(g, tx, r.x + 72, Draw.lineBelow(tx, fB, r.y + 6, r.y + 34),
                 "new folder · paste · sort: ${sort.name.lowercase()} · hidden: ${if (showHidden) "on" else "off"}",
                 Level.BODY, fBody, r.w - 88)
             return
@@ -607,7 +610,7 @@ class FilesWindow(
         val kind = if (e.dir) "folder" else e.name.substringAfterLast('.', "file").lowercase()
         val det = if (e.dir) "$kind · ${fmtMtime(e.mtimeMs)}"
         else "${fmtBytes(e.size)} · ${fmtMtime(e.mtimeMs)} · $kind"
-        Draw.fit(g, tx, r.x + 72, r.y + 34, det, Level.BODY, fBody, r.w - 88)
+        Draw.fit(g, tx, r.x + 72, Draw.lineBelow(tx, fB, r.y + 6, r.y + 34), det, Level.BODY, fBody, r.w - 88)
     }
 
     private fun pathOf(e: FEntry): String = if (cwd == "/") "/${e.name}" else "$cwd/${e.name}"
@@ -875,8 +878,9 @@ class FilesWindow(
     private fun paintTrashLens(g: Gray8, r: Rect, i: Int) {
         val e = trashEntries.getOrNull(i) ?: return
         IconPaint.drawFile(g, services?.icons(), e.name, e.dir, r.x + 8, r.y + 4, 56, Level.HEAD)
-        Draw.fit(g, tx, r.x + 72, r.y + 6, dn(e.name), Level.HEAD, FontSpec(Face.SYSTEM, 18, bold = true), r.w - 88)
-        Draw.fit(g, tx, r.x + 72, r.y + 34, "was ${dn(shortPath(e.origPath))}", Level.BODY, fBody, r.w - 88)
+        val fB = FontSpec(Face.SYSTEM, 18, bold = true)
+        Draw.fit(g, tx, r.x + 72, r.y + 6, dn(e.name), Level.HEAD, fB, r.w - 88)
+        Draw.fit(g, tx, r.x + 72, Draw.lineBelow(tx, fB, r.y + 6, r.y + 34), "was ${dn(shortPath(e.origPath))}", Level.BODY, fBody, r.w - 88)
     }
 
     private fun commitTrash(i: Int) {

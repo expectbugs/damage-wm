@@ -486,10 +486,12 @@ private class FakeProvider : TmuxProvider {
 private class FakeServices : ShellServices {
     var renders = 0
     val notices = java.util.concurrent.CopyOnWriteArrayList<String>()
+    /** (appId, thread, target) of every notice, for the deep-link pin. */
+    val links = java.util.concurrent.CopyOnWriteArrayList<Triple<String?, String, String?>>()
     override fun requestRender(window: DamageWindow) { renders++ }
     override fun setOperation(op: String) {}
     override fun notifyInternal(source: String, body: String, urgent: Boolean,
-        appId: String?, thread: String, target: String?) { notices.add("$source: $body") }
+        appId: String?, thread: String, target: String?) { notices.add("$source: $body"); links.add(Triple(appId, thread, target)) }
     override fun openWindow(id: String, target: String?): Boolean = false
     override fun runOnShell(action: () -> Unit) = action()
     override fun docContentWidth(): Int = 560
@@ -736,6 +738,31 @@ class TmuxWindowTest {
         p.histFails = false
         (w.view() as WindowView.CanvasView).onScroll!!(-1)
         await { w.title().contains("history") }
+    }
+
+    /** Review §29 (the live walk): the alert notice was app-less, so a tap on
+     *  the box only dismissed it — TMUX.md §3.5's loop is glance → TAP → y.
+     *  The notice now names the window and the session, coalesces per
+     *  session, and the window's deep link opens that session's live view. */
+    @Test
+    fun anAlertNoticeDeepLinksIntoItsSession() {
+        val (w, p, svc) = build()
+        p.pushStatus(session("claude"), session("build"))
+        p.pushAlert(session("claude", waiting = true))
+        p.pushAlert(session("build", waiting = true))
+        assertEquals(2, svc.notices.count { "wants input" in it })
+        val (appId, thread, target) = svc.links.first { it.third != null }
+        assertEquals("tmux", appId, "the tap knows the window")
+        assertEquals("local/claude", thread, "coalesces per SESSION, not per window")
+        assertEquals("session:local:claude", target)
+        assertTrue(svc.links.map { it.second }.toSet().size == 2, "two sessions waiting are two threads")
+        // the shell's tap: commit + activate + open(target) — the window lands
+        // in the live view of THAT session, subscribed
+        assertTrue(w.open("session:local:build"), "the deep link resolves")
+        assertEquals(TmuxTarget("local", "build"), p.subscribed.last())
+        assertTrue(w.title().startsWith("build"), "the live view of the session that wants input (was '${w.title()}')")
+        assertFalse(w.open("bogus:x"), "an unknown target is refused, loudly upstream")
+        assertFalse(w.open("session:nocolon"), "a malformed target is refused")
     }
 
     @Test

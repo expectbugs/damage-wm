@@ -1639,3 +1639,148 @@ Read `CLAUDE.md` → `REMINDER.md` → `HANDOFF.md` §19–§28, then:
   the real grammar, and it is what found items 7–11. Its shape is in §28.2; rebuild it in ten
   minutes rather than script blind.
 - Open items are §26.6, §27.5 and the deploy above; nothing in this round is half-finished.
+
+## 29. The fourth whole-codebase review, and the second full LIVE walk (2026-09-04, evening)
+
+The same ask as §28, one build later: read everything, verify every candidate before touching it,
+fix what is real, review the fixes, then drive the whole system live exactly as a user would —
+every window, every height, the font ladder — fix what that finds, review those fixes, then bring
+every document up to date and push. This section is that record. **Eleven verified defects**,
+every fix carrying a pin that was run against the UNFIXED tree and watched to fail
+(`Review29Test.kt`, one pin each in `TmuxTest.kt` and `MusicWindowTest.kt`).
+
+### 29.1 What the reading found
+
+The reading covered `core/` end to end (shell, compositor, wire, sim, transports, every window,
+the Hold'em engine, bot, roster and kit), `desktop/` (the harnesses included), `phone/`, and the
+Python tooling (`tools/`, `design/`, `research/`, `audio/`). Four candidates survived
+verification:
+
+1. 🔴 **The list rhythm was the last constant of the §27/§28 class — and it was already cutting
+   ink at 115 %.** Measured on the real rasterizer: Clear Sans 18, the row face of every list,
+   inks **27 px at 100 %, 32 at 115 %, 34 at 130 %**; the design's 32 px row held the 27 under the
+   rows' 5 px offset EXACTLY, so one step up the ladder the row directly above the lens lost its
+   descenders — the rows above are painted first and the lens band then clears itself over them.
+   Seen live before the fix: the `$` and the comma of "$1,000" cut flat at the lens rule. The oracle
+   is blind to this (the ink lands inside the content rect it damages), which is why three
+   reviews walked past it. Now: `Layout` carries `rowH` / `lensH` (defaults 32 / 64, the floors);
+   `Shell.listRhythm()` derives them from the row face's measured ink through the transform on
+   screen (Main's chrome transform, or the focused window's per-app one — rows `5 + ink`, lens
+   `2 × ink + 10`), `ContentKit` hangs the rows above FROM the lens (any remainder sits under the
+   top pad; at 32 every height mode divides exactly, so 100 % is the drawing to the pixel), the
+   slides use `layout.rowH`, and every window's second lens line is placed by `Draw.lineBelow`
+   from the first line's ink — Main, Settings, Reader (three lenses), Tmux (three), Files (four),
+   Torrents (transfers, categories, the three-line listing lens), Music (the lens and the card),
+   Games (the root lens and the three-line ladder, whose third line now yields to the band's
+   bottom rule). One consequence to know: a window whose per-app scale differs from the chrome's
+   has a different rhythm, so switching to it is a relayout with a keyframe — the same cost a
+   height change already has.
+2. **The Font size row read "114%" for the ladder's 115 % step** (and "84%" for 85 %): `(1.15 *
+   100).toInt()` is 114 in binary. `ShellSettings.scaleLabel` rounds; all three rows use it.
+3. **A failed transport start released the lease into a race.** The rollback enqueued the FB
+   RELEASE and called `disconnectLink()` at once, so the write either never reached the wire (the
+   link was gone when the lane got to it) or reached a link being torn down and logged a "control
+   lane error" fault for a write nobody expected to work — a loud line with no action behind it.
+   `stop()` already awaited its own release; the rollback now does the same through one shared
+   `awaitReleaseWrite`. Pinned with a transport that refuses the warmup and marks its link down
+   before its first suspension.
+4. **The seam client's `stop()` closed the socket outside the try**: a close that threw skipped
+   the state update and the outstanding-flush sweep. Guarded.
+
+Verified and left alone, so nobody re-litigates them: `commitWindow` under EXCLUSIVE mode is
+unreachable (every commit path is swallowed or closed by exclusive mode first); the wheel's
+centre-name descenders cross the lower rule by design (the band holds the ascent — §28 #11); the
+throughput cell's idle repaints converge on the sim and are paced by the 5 s idle tick (§8.3);
+the Torrents listing's paced retry of a "not configured" refusal is the R4-P5 design; Tmux
+keeping 480 under a global 288 is its own Size row.
+
+### 29.2 The live walk — what only it found
+
+**The instrument** (§28.2, rebuilt in ten minutes): the desktop program in `--transport sim
+--no-preview` under a scratch home (ports 7501–7504, a throwaway token, a dead `ghost.invalid`
+tmux host for the staleness line, a copy of the shelf, the real tmux server, qBittorrent and the
+music library behind it) and a 150-line Python driver on the replica WebSocket that writes a
+true-1× PNG after every step. Three lessons the driver paid for this time, on top of §28's
+"snap between steps": **the replica's pings are not frames** — a quiet-detector that counts them
+waits 20 s a step; **a blind gesture run in a window with destructive rows is a real risk** — one
+assumed cursor rest started a stopped torrent on the real qBittorrent (stopped again through its
+API) and reached the first of the two delete confirms before the cancel; **and never rebuild the
+jar in place under a running instance** — the JVM's lazy class loads then fail (the DAILY.md
+staging lesson), which is how #6 below was found.
+
+**What it found**, each verified in the code, fixed, pinned, and re-driven on a rebuilt jar:
+
+5. 🔴 **The tmux alert was app-less: a tap on "g2-1 wants input" only dismissed it.** Every
+   other window's event notice carries `appId` and a `target`; the alert carried neither, and the
+   window had no `open(target)` at all, so `TMUX.md` §3.5's "glance → tap → `y`" ended at the
+   glance. The notice now names the window and the session (`session:<host>:<name>`), coalesces
+   per SESSION (two sessions waiting were one box), and the window's deep link opens that
+   session's live view — re-driven: arrival, focus after the grace, tap, the pane.
+6. 🔴 **The shell loop caught `Exception` only.** An `Error` out of a handler ended the loop: the
+   display froze on its last frame while the transport kept the lease renewed and the keeper's
+   status read "running" — the exact silent failure this project bans, and the rebuilt-jar
+   `NoClassDefFoundError` is not the only way to get one (an OOM in a paint is another). The loop
+   now survives an `Error` loudly (log, journal, the status cell says ERROR) and keeps serving.
+7. **Brightness could never go back to auto.** A notch left auto at the stored level and the
+   manual ladder ended at 0 % with no way back, so a brightness touched once on the glasses stayed
+   manual for good. One ladder now, auto at its foot: a notch up from auto leaves it, a notch
+   down from 0 % is auto again, nothing sits below auto.
+8. **The custom-amount keyboard said "raise to" over a checked-through flop**, where the row it
+   came from says "Bet →" and the confirm it leads to says "Bet". The verb follows the bet on the
+   table, as the sizing rows already did (§28's own note).
+9. **Music's idle root at 130 %: the caption sat inside the descenders of "nothing queued"** — a
+   constant 48 px under a 36 px face. Placed below the big line's measured ink.
+10. **The context menu under a bigger chrome face** — two defects in one box. The box was a fixed
+    248 px, so at the 120 % chrome cap "Fold and leave" read "Fold and ▸"; it now follows the row
+    face (the design's width grown by the same ratio the row pitch grew — 308 at 120 %, never
+    wider than the content). And a detail cut at its HEAD by the tail-keeping fit ("nothing
+    queued" → "othing queued") carried no mark at all; a head cut now gets the drawn mark on that
+    edge, the NO TRUNCATION rule applied to the fit that keeps the tail.
+11. (Counted above: the rows above the lens cut at 115 % was the reading's finding, but the
+    walk's first render is what proved it — item 1's crop is the evidence.)
+
+**What the walk covered, clean:** Main (every lens, wrap, resting) at 100 / 115 / 130 % and in
+Alegreya; Reader (shelf, folders, the chapter picker, a cover, pages, scroll, actions) at all four
+heights and 130 %; Tmux (sessions, the live pane with the staleness line, history, keys, a session
+created from the glasses, a typed line behind its confirm, the alert's deep link); Files
+(locations, the root listing, the context menu, a folder); Torrents (the real transfers, the
+transfer menu, details, the window menu, browse without a tracker — refused loudly — and the
+search keyboard); Music (Now Playing idle, the whole menu at 100 and 130 %, browse, artists, an
+artist, the set menu's refusal on the mirror, volume, lyrics idle); Games (root, the scoreboard
+lens, tables, the buy-in confirm, a hand with a raise through the sizing ladder, the custom
+keyboard, checks and a fold, the terminal state, hand history, standings, a character, a
+cash-out through "fold and leave" and the play-out, at 480 and 130 %); Settings (categories, every
+Global row, the Games category, the staged Size / Font / Font size rows, the brightness ladder);
+silent mode; the wheel; 288 / 352 / 416 / 480 for Main, Settings, Reader and Games — with **zero
+divergence reports** across three instance logs.
+
+### 29.3 Pins, and the vacuity check
+
+`Review29Test`: the row above the lens keeps all its ink at 130 % (a rasterizer whose ink follows
+the size, with Clear Sans's measured metrics at the chrome sizes; the pin counts the inked rows of
+the row directly above the lens and of the two lens lines); a grown rhythm is grid-legal at every
+height; the ladder labels; the failed-start release reaches both arms before the disconnect with no
+control-lane fault; brightness returns to auto below 0 % and stays there; the custom-amount
+keyboard names the action on the table; the loop survives an `Error`; the menu box follows the
+face and a head-cut detail carries the mark. `TmuxTest.anAlertNoticeDeepLinksIntoItsSession` and
+`MusicWindowTest.theIdleCaptionSitsBelowTheBigLinesInk`. Every one was run against the unfixed
+tree (the fix reverted in place, the test run, the fix restored) and failed there.
+
+### 29.4 Battery
+
+core **440** · desktop **11** · selfcheck **189** (the oracle on every settle) · snapshots 49 ×
+three consecutive clean runs · `--games-check` · `--music-check` · `--epub-check` 58/58 ·
+`python3 tools/lint.py` 21 rules / 0 findings + selftest · `:phone:assembleDebug`.
+
+### 29.5 Where the next session picks up
+
+Read `CLAUDE.md` → `REMINDER.md` → `HANDOFF.md` §19–§29, then:
+
+- **Not deployed by this round** — the ask was review, fix, walk, document, push. Deploying is
+  `./gradlew :desktop:stageJar && sudo rc-service damage restart` (`DAILY.md`) and bumping the APK
+  (`phone/build.gradle.kts` versionCode/versionName, then `:phone:assembleDebug` and the setup
+  page); **0.16 is still the last APK observed installed**.
+- The live-walk driver (§28.2, §29.2) remains the instrument that runs the real providers under
+  the real grammar. Snap between steps; treat every window with a destructive row as one step per
+  snap; count only panel frames as activity.
+- Open items are §26.6, §27.5 and the deploy above; nothing in this round is half-finished.

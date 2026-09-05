@@ -94,6 +94,17 @@ program before calling a round done** (§28.2 — the scratch-home sim instance 
 WebSocket driver): the harnesses use scripted providers and the oracle sees only what they visit;
 the live walk runs the real tmux server, shelf, qBittorrent and library under the real grammar,
 and it is what found the last five.
+**A fourth review on 2026-09-04 (evening) — `HANDOFF.md` §29 — found the LAST constant of that
+class: the list rhythm itself.** Every list's row face inks 27 px at 100 % and the 32 px row held
+it exactly, so at 115 % the row above the lens lost its descenders to the lens fill — and the
+oracle cannot see that (the ink stays inside the damaged rect); only a 1× render can. `Layout`
+now carries a measured `rowH` / `lensH` and every second lens line goes through `Draw.lineBelow`.
+The walk then found the tmux alert notice was app-less (a tap only dismissed it), the shell loop
+caught `Exception` but not `Error` (a frozen display behind a healthy status), brightness could
+never return to auto, and the context menu's fixed width cut labels at the chrome cap. 🔴 Two
+walk rules learnt the hard way: **one step per snap in any window with a destructive row** (a
+blind run started a stopped torrent on the real qBittorrent), and **never rebuild the jar under a
+running instance**. Not deployed by that round.
 
 Adam's stated methodology governs **the app layer**:
 
@@ -121,7 +132,7 @@ Damage` and the APK-wide `Phone notifications` switch, and the shell never gates
 source on a hidden field — a Global row that disappears leaves a persisted value nothing can undo).
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(430 tests, including the per-lens oracle, the §25/§26/§27/§28 review pins and the random-gesture
+(440 tests, including the per-lens oracle, the §25–§29 review pins and the random-gesture
 oracle walk), `./gradlew :desktop:test` (11 tests: the BlueZ glue
 over a fake link and the config file's safety), `desktop --selfcheck` (189 checks, the truth oracle on every settle), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `desktop --music-check` (the real library, read-only bar the additive schema migration),
@@ -141,7 +152,7 @@ ports; and `ble`/`remote` dev modes are a second central/driver). `IMPLEMENTATIO
 hardening" lists the mechanisms that are load-bearing and easy to break by accident — the
 compositor's per-lens truth/shadow model (including the §25 rule that a plane-0 delta may hold
 no other plane's pixels), the transport's session-epoch sweep, the shell's
-start/stop mutex. Do not re-introduce nominal-only seam guessing in the compositor: a pixel
+start/stop mutex, the measured list rhythm (§29). Do not re-introduce nominal-only seam guessing in the compositor: a pixel
 simulation against the firmware model is the only judge of stereo output, and `LensOracleTest`,
 `Round6Test`, `Round7Test`, `Review20260903Test` encode what earlier reviews caught.
 

@@ -19,6 +19,21 @@ import wm.damage.core.text.TextRasterizer
  */
 object Draw {
 
+    /** The measured ink of [f] — ascent plus descent, the rect a draw needs. */
+    fun ink(tx: TextRasterizer, f: FontSpec): Int = tx.metrics(f).let { it.ascent + it.descent }
+
+    /**
+     * Where a line BELOW another starts (review §29): the design's offset,
+     * [designY], at 100 % — pixel-identical — or two rows above the first
+     * line's measured ink floor once the face has grown, so a scaled face
+     * never draws line two through line one. The 2 px is the descender
+     * overlap the design itself carries at 100 % (a descender into the next
+     * line's ascender whitespace); [line1Y] is where line one was drawn, in
+     * the same coordinates as [designY].
+     */
+    fun lineBelow(tx: TextRasterizer, f1: FontSpec, line1Y: Int, designY: Int): Int =
+        maxOf(designY, line1Y + ink(tx, f1) - 2)
+
     /**
      * Draw [str] at ([x],[y]) in [f]/[lv], fitted to [maxW]. A string that
      * does not fit is cut to fit AND gets the drawn continuation mark at the

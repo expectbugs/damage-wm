@@ -515,7 +515,9 @@ class RemoteTransportClient(
         stallWatch?.cancel()
         pinger?.cancel()
         try { out?.send(Ctl(t = "stop")) } catch (e: Exception) { /* closing anyway */ }
-        sock?.close()
+        // guarded (review §29): a close that throws must not skip the state
+        // update and the outstanding-flush sweep below
+        try { sock?.close() } catch (e: Exception) { Log.w("remote-transport", "socket close at stop: ${e.message}") }
         updateState { it.copy(connected = false, started = false) }
         failOutstanding("remote transport stopped")
     }

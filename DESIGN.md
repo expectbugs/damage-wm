@@ -676,6 +676,15 @@ area.** The content area centres on x = 320, the switcher wheel centres on (320,
 centres on 242 too. **Everything focal in the WM sits on one axis.** That is what will make it read
 as designed rather than assembled.
 
+🆕 **Those are the 100 % numbers, and the FLOORS** (2026-09-04, `HANDOFF.md` §29). The 32 px row
+holds Clear Sans 18's measured 27 px of ink under the rows' 5 px offset exactly, and one step up
+the font ladder the row directly above the lens lost its descenders to the lens fill. The row
+pitch and the lens band are now measured from the row face through whatever transform is on
+screen (`Shell.listRhythm`: rows `5 + ink`, lens `2 × ink + 10`, even, never below 32 / 64), the
+rows above hang from the lens with any remainder under the top pad (at 32 every height mode
+divides exactly, so 100 % is this drawing to the pixel), and a window places its second lens line
+below the first line's measured ink (`Draw.lineBelow`), never at a constant.
+
 **The list pans; the lens does not move.** So scrolling is `mode 8 { mode 9 shift + mode 3 fill of
 the newly exposed row + mode 3 repaint of the lens }` — the shift moves every row on-device for
 zero pixel bytes, and the highlight never has to be erased and redrawn because it never moves.
@@ -755,11 +764,11 @@ choice overrides the global for that app only. Reader's Size row is the first in
 
 | setting | notes |
 |---|---|
-| **Brightness** | the panel's own, sid 0x09 — distinct from our 16-level content ramp |
+| **Brightness** | the panel's own, sid 0x09 — distinct from our 16-level content ramp. One ladder with **auto at its foot** (2026-09-04, `HANDOFF.md` §29): a notch up from auto leaves it at the stored level, a notch down from 0 % is auto again, nothing sits below auto — before, a brightness touched once on the glasses stayed manual for good |
 | **Size** | **four heights — 288 / 352 / 416 / 480 — always TOP-aligned** (revised 2026-08-31, Adam: *"I can always see the top, it's the lower areas that get cut off if I wear the glasses too high"* — so the vertical-position setting was useless and is retired). Per-app shadows follow the global/override pattern below |
 | **Depth** | the disparity calibration ramp, 0/4/8/12/16 (§3.4) |
 | **Presence** | the resting-state ink floor — one knob for "how much is it in my way" |
-| **Font · Font size · Font style** | chrome + Main's face, scale and style, each option previewed in its own face (§Type's defaults, changeable since 2026-08-31); every app category carries the same three rows for its content. 🔴 **Chrome grows only until its bar is full** (2026-09-05): §2.3's bars are a fixed 32 px and 28 px, so the CHROME half of the global scale is capped to the measured ink the shortest bar can hold — Clear Sans reaches 115 %, Alegreya 100 % — while CONTENT keeps the whole ladder. Uncapped, the title inks into the divider at 130 % and the status line's descenders land below the safe rect at a reduced height, both outside the only rect chrome damages (`HANDOFF.md` §27.2). 🔴 **The chrome surfaces' own rhythm is measured too** (2026-09-04, `HANDOFF.md` §28.2): the menu's title band and row pitch, the notification box's source band, body pitch and visible-line count, the wheel's centre band — each with its design number as the FLOOR, so 100 % is unchanged and a grown face never puts ink outside the surface's own rect |
+| **Font · Font size · Font style** | chrome + Main's face, scale and style, each option previewed in its own face (§Type's defaults, changeable since 2026-08-31); every app category carries the same three rows for its content. 🔴 **Chrome grows only until its bar is full** (2026-09-05): §2.3's bars are a fixed 32 px and 28 px, so the CHROME half of the global scale is capped to the measured ink the shortest bar can hold — Clear Sans reaches 115 %, Alegreya 100 % — while CONTENT keeps the whole ladder. Uncapped, the title inks into the divider at 130 % and the status line's descenders land below the safe rect at a reduced height, both outside the only rect chrome damages (`HANDOFF.md` §27.2). 🔴 **The chrome surfaces' own rhythm is measured too** (2026-09-04, `HANDOFF.md` §28.2): the menu's title band and row pitch, the notification box's source band, body pitch and visible-line count, the wheel's centre band — each with its design number as the FLOOR, so 100 % is unchanged and a grown face never puts ink outside the surface's own rect. 🔴 **And the list rhythm** (2026-09-04, `HANDOFF.md` §29): the row pitch, the lens band and every window's second lens line are measured from the row face the same way — the design's 32 / 64 are the floors — after the row above the lens was seen losing its descenders at 115 % |
 | **Silent clock** | large (the 144×48 seven-segment box, default) / medium / small — §1.5 |
 | **Head tracking** | default OFF (§7.1) |
 | **Long-press** | **off** (default — §1.2 revised 2026-08-30: a bare long-press is a no-op; the §1.3 chord opens the switcher) / switcher |
@@ -1514,7 +1523,10 @@ Three shell surfaces/mechanisms designed during the app-contract session (`HANDO
 §20–§22); recorded here because this file is the shell authority:
 
 - **The floating context menu** (Adam: *"a tap should work like a right-click"*): a 248-wide
-  HOLE in the content — not a card — at **plane 0**, cursor opening on row 0 (put the primary
+  HOLE in the content — not a card — at **plane 0** (248 at 100 %; since 2026-09-04,
+  `HANDOFF.md` §29, the box grows with the chrome face by the ratio its row pitch grew, so a
+  label keeps the room it was designed with under the 120 % cap, and a detail the tail-keeping
+  fit cuts at its head carries the mark on that edge), cursor opening on row 0 (put the primary
   action, Open, there; destructive rows never at 0/1 per §1.7), scroll moves, tap commits,
   double-tap cancels, a pan window for long menus. It owns the screen like the wheel: ordinary
   notices defer behind it (decision 6 extended), an EMERGENCY cancels it — losing a menu is

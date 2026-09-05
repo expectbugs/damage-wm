@@ -219,6 +219,10 @@ CC's permission prompt / "waiting" states) and pushes alert events. The shell su
 ordinary §4.5 notifications ("tmux · claude2 wants input"), sets the window's dirty tick, and
 the sessions list marks ⚠ waiting. Per-session mute in that session's actions. **This turns the
 window from "go look" into "it tells you"** — the actual workday loop is glance → tap → `y`.
+⚠ Until 2026-09-04 (`HANDOFF.md` §29) that tap only DISMISSED the box: the notice was app-less.
+It now carries the window and the session (`appId = "tmux"`, `target = session:<host>:<name>`,
+one thread per session), and `TmuxWindow.open(target)` lands in that session's live view —
+verified live: arrival, focus after the grace, tap, the pane.
 ⚠ Built: the pattern match runs over the last non-blank lines of `capture-pane -p` — and until
 2026-09-04 (`HANDOFF.md` §28.2) the script took `tail -5` of the RAW pane, which for any pane that
 had not filled its screen was five empty rows: a session created from the glasses never alerted

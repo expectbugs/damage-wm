@@ -77,12 +77,17 @@ class ContentKit(private val comp: Compositor) {
         v.paintLens(g, Rect(l.lens.x, l.lens.y, l.lens.w - Layout.RAIL_W, l.lens.h), c)
     }
 
+    // The rows above hang FROM THE LENS (review §29): the lens is centred in
+    // the content and the row pitch may not divide the space above it, so
+    // the remainder sits at the top under the pad — at the design's 32 px
+    // pitch every height mode divides exactly and this is the 100 % geometry
+    // to the pixel. The rows below start at the lens either way.
     private fun rowRect(l: Layout, slot: Int, above: Boolean): Rect = if (above) {
-        Rect(l.content.x, l.content.y + Layout.CONTENT_PAD + slot * Layout.ROW_H,
-            l.content.w - Layout.RAIL_W, Layout.ROW_H)
+        Rect(l.content.x, l.lens.y - (l.rowsAbove - slot) * l.rowH,
+            l.content.w - Layout.RAIL_W, l.rowH)
     } else {
-        Rect(l.content.x, l.lens.bottom + slot * Layout.ROW_H,
-            l.content.w - Layout.RAIL_W, Layout.ROW_H)
+        Rect(l.content.x, l.lens.bottom + slot * l.rowH,
+            l.content.w - Layout.RAIL_W, l.rowH)
     }
 
     /** Wrap only when the list overfills the visible slots; shorter lists show

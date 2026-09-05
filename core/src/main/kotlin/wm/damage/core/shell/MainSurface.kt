@@ -89,12 +89,15 @@ class MainSurface(
             drawFit(g, nameEnd, r.y + 8, l1, Level.BODY, fRow, l1Max - 16)
             Icons.tri(g, r.right - 14, r.y + 13, 11, Level.DIM)
         }
+        // line two sits below line one's MEASURED ink (review §29): 34 at
+        // 100 %, lower as the chrome face grows
+        val y2 = Draw.lineBelow(text, fRowB, r.y + 8, r.y + 34)
         if (s.detail.isNotEmpty()) {
             val dMax = r.right - 88 - (if (s.progress != null) 200 else 0)
-            drawFit(g, tx0, r.y + 34, s.detail, Level.BODY, fRow, dMax)
-            if (text.measure(s.detail, fRow) > dMax) Icons.tri(g, tx0 + dMax + 4, r.y + 39, 11, Level.DIM)
+            drawFit(g, tx0, y2, s.detail, Level.BODY, fRow, dMax)
+            if (text.measure(s.detail, fRow) > dMax) Icons.tri(g, tx0 + dMax + 4, y2 + 5, 11, Level.DIM)
         }
-        if (s.progress != null) Icons.blocks(g, r.right - 212, r.y + 40, 196, 8, s.progress)
+        if (s.progress != null) Icons.blocks(g, r.right - 212, y2 + 6, 196, 8, s.progress)
     }
 
     private fun draw(g: Gray8, x: Int, y: Int, str: String, lv: Int, f: FontSpec) {

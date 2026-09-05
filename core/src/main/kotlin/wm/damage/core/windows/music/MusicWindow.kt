@@ -842,7 +842,7 @@ class MusicWindow(
             Row.Loading -> "asking the host"
             else -> ""
         }
-        Draw.fit(g, tx, r.x + 72, r.y + 32, dn(line2, fBody), Level.BODY, fBody, r.w - 88)
+        Draw.fit(g, tx, r.x + 72, Draw.lineBelow(tx, fHead, r.y + 6, r.y + 32), dn(line2, fBody), Level.BODY, fBody, r.w - 88)
     }
 
     private fun lensExtra(t: TrackRef): String {
@@ -879,9 +879,13 @@ class MusicWindow(
         Draw.right(g, tx, r.right - 8, r.y + 6, badge, if (st.pcLink.up && stateLine.isEmpty()) Level.DIM else Level.MID, fSmall)
         val boostBadge = if (st.boost > 100) "+${st.boost}%" else if (st.sleep.kind != Sleep.Kind.OFF) "sleep ${st.sleep.label(clock())}" else ""
         val bw2 = if (boostBadge.isEmpty()) 0 else tx.measure(boostBadge, fSmall) + 12
-        Draw.fit(g, tx, x0, r.y + 26, dn(Fmt.artistAlbum(t).ifEmpty { "—" }, fBody), Level.BODY, fBody, r.w - 68 - 8 - bw2)
-        if (boostBadge.isNotEmpty()) Draw.right(g, tx, r.right - 8, r.y + 28, boostBadge, Level.MID, fSmall)
-        val y3 = r.y + 48
+        // the card's three lines from MEASURED ascents (review §29): 26 / 48
+        // at 100 %, lower as the app face grows; the third yields to the
+        // band's bottom rule rather than crossing it
+        val y2 = maxOf(r.y + 26, r.y + 4 + tx.metrics(fHead).ascent + 1)
+        Draw.fit(g, tx, x0, y2, dn(Fmt.artistAlbum(t).ifEmpty { "—" }, fBody), Level.BODY, fBody, r.w - 68 - 8 - bw2)
+        if (boostBadge.isNotEmpty()) Draw.right(g, tx, r.right - 8, y2 + 2, boostBadge, Level.MID, fSmall)
+        val y3 = minOf(maxOf(r.y + 48, y2 + tx.metrics(fBody).ascent + 4), r.bottom - tx.metrics(fSmall).ascent)
         if (idx == st.index) {
             stateGlyph(g, x0, y3, Level.MID)
             val dur = st.durMs.takeIf { it > 0 } ?: t.durMs.toLong()
@@ -1494,9 +1498,14 @@ class MusicWindow(
             // (with the stop glyph), which is the more useful screen
             val msg = "nothing queued"
             val mw = tx.measure(msg, fBig)
-            tx.draw(g, Geometry.snapX(r.x + (r.w - mw) / 2), Geometry.snapY(r.y + r.h / 3), msg, fBig, Level.HEAD)
+            val y0 = Geometry.snapY(r.y + r.h / 3)
+            tx.draw(g, Geometry.snapX(r.x + (r.w - mw) / 2), y0, msg, fBig, Level.HEAD)
             val sub = "tap for Ask or Browse"
-            Draw.fit(g, tx, Geometry.snapX(r.x + (r.w - tx.measure(sub, fSmall)) / 2), r.y + r.h / 3 + 48, sub, Level.DIM, fSmall, r.w - 32)
+            // below the big line's MEASURED ink (review §29, the live walk):
+            // 48 at 100 %, lower as the app face grows — at 130 % the caption
+            // sat inside the descenders of "nothing queued"
+            Draw.fit(g, tx, Geometry.snapX(r.x + (r.w - tx.measure(sub, fSmall)) / 2),
+                Draw.lineBelow(tx, fBig, y0, y0 + 48), sub, Level.DIM, fSmall, r.w - 32)
             return
         }
         val t = e.track

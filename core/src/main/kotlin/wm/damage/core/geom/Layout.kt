@@ -13,7 +13,16 @@ package wm.damage.core.geom
  * `GeometryTest.layoutTilesAndAlignsAcrossSafeRects` asserts it for a sweep
  * of safe rects, not just the default.
  */
-data class Layout(val safe: Rect = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H)) {
+data class Layout(
+    val safe: Rect = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H),
+    /** The list row pitch and the lens band, MEASURED from the row face's
+     *  ink by the shell (review §29 — `Shell.listRhythm`): the design's
+     *  32 / 64 are the floors, so 100 % is pixel-identical, and a face that
+     *  inks taller than a row grows the row instead of losing its descenders
+     *  under the lens fill. Even values only (the damage grid). */
+    val rowH: Int = ROW_H,
+    val lensH: Int = LENS_H,
+) {
 
     companion object {
         const val TOP_H = 32
@@ -21,6 +30,8 @@ data class Layout(val safe: Rect = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H
         const val STATUS_H = 28
         const val CONTENT_INSET_X = 16   // §3.3: the stereo-shift budget, not content space
         const val CONTENT_PAD = 16
+        /** The design's row pitch and lens band (§2.3) — the FLOORS of
+         *  [rowH] / [lensH]; a scaled face may grow them, never shrink them. */
         const val ROW_H = 32
         const val LENS_H = 64
         const val RAIL_W = 12            // §4.6: the WM-owned scroll rail at the right edge
@@ -29,7 +40,9 @@ data class Layout(val safe: Rect = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H
     init {
         val errs = Geometry.checkRect(safe, "safe rect")
         if (errs.isNotEmpty()) throw LintError("Layout safe rect invalid: $errs")
-        require(safe.h >= TOP_H + DIV_H + LENS_H + 2 * CONTENT_PAD + DIV_H + STATUS_H) {
+        require(rowH >= ROW_H && rowH % 2 == 0) { "row pitch $rowH: at least $ROW_H and even" }
+        require(lensH >= LENS_H && lensH % 2 == 0) { "lens band $lensH: at least $LENS_H and even" }
+        require(safe.h >= TOP_H + DIV_H + lensH + 2 * CONTENT_PAD + DIV_H + STATUS_H) {
             "safe rect ${safe.h}px too short for the shell chrome"
         }
     }
@@ -84,8 +97,8 @@ data class Layout(val safe: Rect = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H
 
     init {
         val cy = content.y + content.h / 2
-        val lensY = Geometry.snapY(cy - LENS_H / 2)
-        lens = Rect(content.x, lensY, content.w, LENS_H)
+        val lensY = Geometry.snapY(cy - lensH / 2)
+        lens = Rect(content.x, lensY, content.w, lensH)
 
         val cx = safe.x + safe.w / 2
         switcherPanel = Rect(Geometry.snapX(cx - 120), Geometry.snapY(cy - 88), 240, 176)
@@ -116,8 +129,8 @@ data class Layout(val safe: Rect = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H
     }
 
     /** Rows visible above/below the lens in a panning list (§4.2 geometry). */
-    val rowsAbove: Int = (lens.y - content.y - CONTENT_PAD) / ROW_H
-    val rowsBelow: Int = (content.bottom - lens.bottom - CONTENT_PAD) / ROW_H
+    val rowsAbove: Int = (lens.y - content.y - CONTENT_PAD) / rowH
+    val rowsBelow: Int = (content.bottom - lens.bottom - CONTENT_PAD) / rowH
 
     /** All chrome cells for the GEO007/GEO008 tiling check. */
     fun chromeCells(): Map<String, Rect> = mapOf(
@@ -129,7 +142,7 @@ data class Layout(val safe: Rect = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H
     /** Build the safe rect for a reduced height mode (§4.2 Settings "Size"):
      *  e.g. 288-high band positioned within the panel. Grid-snapped. */
     fun withHeightMode(height: Int, pos: VPos): Layout {
-        val h = Geometry.snapY(height.coerceIn(TOP_H + DIV_H + LENS_H + 2 * CONTENT_PAD + DIV_H + STATUS_H, Geometry.PANEL_H))
+        val h = Geometry.snapY(height.coerceIn(TOP_H + DIV_H + lensH + 2 * CONTENT_PAD + DIV_H + STATUS_H, Geometry.PANEL_H))
         val free = Geometry.PANEL_H - h
         val y = when (pos) {
             VPos.TOP -> 0
@@ -138,7 +151,7 @@ data class Layout(val safe: Rect = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H
             VPos.LOWER -> Geometry.snapY(free * 3 / 4)
             VPos.BOTTOM -> free
         }
-        return Layout(Rect(safe.x, y, safe.w, h))
+        return Layout(Rect(safe.x, y, safe.w, h), rowH, lensH)
     }
 }
 

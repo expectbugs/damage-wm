@@ -714,6 +714,30 @@ agents per subsystem, every candidate verified by trace, timing or pixel
 simulation before a fix) found and fixed ~70 real defects. The mechanisms that came out
 of them are load-bearing and easy to break by accident:
 
+- 🆕 **The shell loop survives an `Error`, loudly** (`Shell.loop`, `HANDOFF.md` §29):
+  the catch was `Exception` only, and an `Error` out of a handler ended the loop
+  with the display frozen behind a keeper status that still read "running".
+  Both the message handler and the pump catch `Error` too, log it, note the
+  journal and set the status cell to ERROR. Do not narrow it back.
+- 🆕 **An event notice a tap should answer carries `appId` and a `target`**
+  (`TmuxWindow.alert` → `open("session:<host>:<name>")`, §29): the tmux alert
+  was app-less and its tap only dismissed the box. The Torrents done/error and
+  Music notices were already shaped this way; a new window's event notice
+  must be too, and must coalesce on a per-ITEM thread, not the window.
+- 🆕 **The context menu's box follows the row face** (`MenuSurface.boxW`, §29):
+  the design's 248 at 100 %, grown by the ratio the row pitch grew; and a
+  detail the tail-keeping fit cut at its head carries the drawn mark on that
+  edge. NO TRUNCATION means an advertised cut on either edge.
+- 🆕 **The list rhythm is measured, with the design as the floor** (2026-09-04,
+  `HANDOFF.md` §29): `Layout` carries `rowH` / `lensH` (defaults 32 / 64,
+  the §2.3 numbers), `Shell.listRhythm()` derives them from the row face's
+  measured ink through the transform on screen (Main's chrome transform or
+  the focused window's per-app one) on every `syncLayout`, `ContentKit`
+  hangs the rows above from the lens, the slides use `layout.rowH`, and
+  every window's second lens line is placed by `Draw.lineBelow` from the
+  first line's ink. `Review29Test` counts the row above the lens's ink
+  rows at 130 % with a rasterizer whose ink follows the size. Do not put
+  `Layout.ROW_H` back into a paint path or `+34` back into a lens.
 - 🆕 **The shell's own surfaces measure their rhythm from the chrome face**
   (2026-09-04 late, `HANDOFF.md` §28.2): the menu's title band and row pitch
   (`MenuSurface.titleH()/rowH()`), the notification box's source band, body
@@ -829,7 +853,13 @@ Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md
 
 ## Verification
 
-- `./gradlew :core:test` — **430** unit/integration tests (2026-09-04-late's third
+- `./gradlew :core:test` — **440** unit/integration tests (2026-09-04-evening's fourth
+  whole-codebase review — `HANDOFF.md` §29 — added `Review29Test.kt`, eight pins: the row above
+  the lens keeping its ink at 130 %, a grown rhythm legal at every height, the ladder labels, the
+  failed-start release before the disconnect, brightness back to auto, the custom-amount
+  keyboard's verb, the loop surviving an `Error`, the menu box following the face — plus the tmux
+  alert deep link in `TmuxTest` and the Music idle caption in `MusicWindowTest`, each run against
+  the unfixed tree and watched to fail; 2026-09-04-late's third
   whole-codebase review — `HANDOFF.md` §28 — added `Review28Test.kt`: five classes, one pin per
   verified defect, each run against the unfixed tree and watched to fail — the two pacer stalls,
   the book at 130 %, the tmux line inside its rect, the Main lenses before activation, the scaled

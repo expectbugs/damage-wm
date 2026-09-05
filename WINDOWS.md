@@ -77,6 +77,13 @@ These are the non-negotiables, each with its authority:
 - **Nothing specific to Adam's current setup is baked in** (2026-09-02, the Music verdicts):
   what is a preference today (mono, one earbud, a work-day fit) is a Settings row with his value
   as the default; release defaults are chosen later in a global pass.
+- 🔴 **A lens line sits below the previous line's MEASURED ink, never at a constant** (2026-09-04,
+  `HANDOFF.md` §29): `Draw.lineBelow(tx, f1, line1Y, designY)` — the design offset at 100 %,
+  lower as the face grows — and anything under a line (a progress bar, a third line) the same
+  way, dropped rather than drawn through the band's bottom rule when it no longer fits. The row
+  pitch and the lens band the kit hands a window grow with its face (`Layout.rowH` / `lensH`,
+  measured by the shell); paint into the rect you are given. A constant that fits at 100 % is a
+  cut at 115 %.
 - **`summary()` is cheap and side-effect-free** — it reads cached state pushed by the provider,
   never spawns work (the G2CC preview/view lesson, §4.6).
 - **Preview is a render, never an activation** (§4.3 rule 1): lifecycle hooks run on commit only;
@@ -299,6 +306,21 @@ All four rows of the agreed build order are CODE, and so is the keyboard that fo
   UNFIXED tree and watch it fail; if the assertion is a return value that did not change, assert
   the thing that did (a log line, a state transition, a drawn pixel). And do not let a comment
   claim a pin reproduces a race it cannot — say what it actually locks.
+- 🔴 **An event notice a tap should answer carries `appId` and `target`, and coalesces per
+  ITEM** (`HANDOFF.md` §29). The tmux alert — the one notice whose whole point is "go there" —
+  was app-less, so its tap only dismissed it, and every alerting session shared one box. Shape
+  every event notice like Torrents' `done` (`appId = id, thread = <item>, target = <deep link>`)
+  and give the window an `open(target)` for it; a notice that only informs (a failure line) may
+  stay app-less.
+- 🔴 **Live-driving: one step per snap in any window with a destructive row** (`HANDOFF.md`
+  §29.2). A blind gesture run that assumed where the cursor rested started a stopped torrent on
+  the real qBittorrent and reached the first of the two delete confirms. The confirms held; the
+  method was the defect.
+- 🔴 **The list rhythm was the last constant of that class** (`HANDOFF.md` §29). The kit's 32 px
+  row and 64 px lens held the row face at 100 % exactly; at 115 % the row directly above the lens
+  lost its descenders to the lens fill, and every window's second lens line at `+34`/`+32` would
+  have been drawn through the first. Measure the ink at the SHELL (`Shell.listRhythm`) and in
+  the window (`Draw.lineBelow`); floors, never constants.
 - 🔴 **A pitch constant in a CHROME surface is the same defect as one in a window** (`HANDOFF.md`
   §28.2). The menu, the notification box and the wheel each carried a title band, a row pitch or a
   centre band sized for the chrome face at 100 %, and every one of them put ink outside its own

@@ -138,6 +138,8 @@ class Shell(
 
     /** Test/introspection: is the floating context menu open, and whose? */
     val menuIsOpen: Boolean get() = menu.open
+    /** Test/introspection: the status cell's text ("ok", "ERROR …", "DIVERGE …"). */
+    val statusLine: String get() = statusText
     val switcherIsOpen: Boolean get() = switcher.open
     val menuTitle: String? get() = menu.current()?.title
 
@@ -718,11 +720,26 @@ class Shell(
                 Log.e("shell", "loop error handling $m", e)
                 journal.note("error", e.toString())
                 setStatus("ERROR ${e.message ?: e::class.simpleName}")
+            } catch (e: Error) {
+                // An ERROR too (review §29, the live walk): a NoClassDefFoundError
+                // out of a handler ended this loop, and the shell sat frozen on
+                // its last frame while the transport kept the lease renewed and
+                // the keeper's status read "running" — the exact silent failure
+                // this project bans. The loop keeps serving and the status says
+                // it; whether the process is still healthy after a VM error is
+                // for the person to decide, with the display alive to tell them.
+                Log.e("shell", "loop ERROR handling $m — the loop keeps serving; restart when convenient", e)
+                journal.note("error", e.toString())
+                setStatus("ERROR ${e.message ?: e::class.simpleName}")
             }
             try {
                 if (running) pump()
             } catch (e: Exception) {
                 Log.e("shell", "pump error", e)
+                journal.note("pump-error", e.toString())
+                setStatus("ERROR ${e.message ?: e::class.simpleName}")
+            } catch (e: Error) {
+                Log.e("shell", "pump ERROR — the loop keeps serving; restart when convenient", e)
                 journal.note("pump-error", e.toString())
                 setStatus("ERROR ${e.message ?: e::class.simpleName}")
             }
@@ -1877,17 +1894,49 @@ class Shell(
     // Always TOP-aligned since 2026-08-31 (Adam: the top is always visible;
     // the bottom is what occlusion takes) — the vertical-position setting is
     // retired and every reduced band sits at the top of the panel.
-    private fun layoutFor(s: ShellSettings): Layout =
-        if (s.heightMode >= Geometry.PANEL_H) Layout()
-        else Layout().withHeightMode(s.heightMode, wm.damage.core.geom.VPos.TOP)
+    private fun layoutFor(s: ShellSettings): Layout {
+        val (rowH, lensH) = listRhythm(chromeText)          // Main is what boots
+        val base = Layout(rowH = rowH, lensH = lensH)
+        return if (s.heightMode >= Geometry.PANEL_H) base
+        else base.withHeightMode(s.heightMode, wm.damage.core.geom.VPos.TOP)
+    }
 
     /** §2 per-app height (REFINEMENT.md, 2026-08-31): the layout the shell
      *  should be in RIGHT NOW — the focused window's preferred height when it
      *  declares one, else the global Size setting. */
     private fun effectiveLayout(): Layout {
-        val h = (if (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) current?.preferredHeight else null) ?: settings.heightMode
-        return if (h >= Geometry.PANEL_H) Layout()
-        else Layout().withHeightMode(h, wm.damage.core.geom.VPos.TOP)
+        val focused = if (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) current else null
+        val h = focused?.preferredHeight ?: settings.heightMode
+        // the list rhythm follows the face ON SCREEN: the focused window's
+        // per-app transform, or the chrome transform under Main (review §29)
+        val (rowH, lensH) = listRhythm(focused?.let { w ->
+            wm.damage.core.text.StyledText(text) { appTransform(w.id).apply(it) }
+        } ?: chromeText)
+        val base = Layout(rowH = rowH, lensH = lensH)
+        return if (h >= Geometry.PANEL_H) base
+        else base.withHeightMode(h, wm.damage.core.geom.VPos.TOP)
+    }
+
+    /**
+     * The list row pitch and lens band for a rasterizer view (review §29).
+     *
+     * A rect a paint returns is a promise, and the design's 32 px row held
+     * exactly Clear Sans 18's 27 px of ink under the rows' 5 px offset — one
+     * step up the ladder (32 px at 115 %) and the row directly above the lens
+     * lost its descenders: the rows above are painted first and the lens
+     * band then clears itself over them. The row grows with the MEASURED ink
+     * of the row face (regular and bold, whichever inks taller) and the lens
+     * with two of them; the design numbers are the floors, so 100 % is
+     * pixel-identical. Windows place their lens lines from the same ink
+     * (`Draw.lineBelow`), never at a constant.
+     */
+    private fun listRhythm(tx: TextRasterizer): Pair<Int, Int> {
+        val ink = maxOf(
+            tx.metrics(FontSpec(Face.SYSTEM, ROW_FACE_PX)).let { it.ascent + it.descent },
+            tx.metrics(FontSpec(Face.SYSTEM, ROW_FACE_PX, bold = true)).let { it.ascent + it.descent })
+        val rowH = maxOf(Layout.ROW_H, (ROW_TEXT_Y + ink + 1) / 2 * 2)
+        val lensH = maxOf(Layout.LENS_H, (2 * ink + LENS_SLACK + 1) / 2 * 2)
+        return rowH to lensH
     }
 
     /** Swap to [effectiveLayout] if it differs: the full §4.2 size-change
@@ -1939,7 +1988,7 @@ class Shell(
      *  (Adam, 2026-08-31). */
     private fun appDepth(w: DamageWindow): Int = settings.appStyle(w.id).depth
 
-    private val fontSizeLabels = ShellSettings.SCALES.associateBy { "${(it * 100).toInt()}%" }
+    private val fontSizeLabels = ShellSettings.SCALES.associateBy { ShellSettings.scaleLabel(it) }
 
     /** The Global category's font rows (staged like Size — a face change is a
      *  full relayout, not a per-notch step), each option previewed in ITS OWN
@@ -1952,7 +2001,7 @@ class Shell(
                 optionFont = { opt -> wm.damage.core.text.Faces.byLabel(opt)
                     ?.let { wm.damage.core.text.FontSpec(it, 18, raw = true) } }),
             HostSetting("Font size", { fontSizeLabels.keys.toList() },
-                { "${(settings.fontScale * 100).toInt()}%" },
+                { ShellSettings.scaleLabel(settings.fontScale) },
                 { v -> fontSizeLabels[v]?.let { applySettings(settings.copy(fontScale = it)) } },
                 optionFont = { opt -> fontSizeLabels[opt]?.let {
                     wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM,
@@ -1983,7 +2032,7 @@ class Shell(
                 optionFont = { opt -> wm.damage.core.text.Faces.byLabel(opt)
                     ?.let { wm.damage.core.text.FontSpec(it, 18, raw = true) } }),
             HostSetting("Font size", { listOf("default") + fontSizeLabels.keys },
-                { settings.appStyle(id).scale.takeIf { it != 0.0 }?.let { "${(it * 100).toInt()}%" } ?: "default" },
+                { settings.appStyle(id).scale.takeIf { it != 0.0 }?.let { ShellSettings.scaleLabel(it) } ?: "default" },
                 { v -> applySettings(settings.withAppStyle(id) {
                     it.copy(scale = fontSizeLabels[v] ?: 0.0) }) },
                 optionFont = { opt -> fontSizeLabels[opt]?.let {
@@ -2030,16 +2079,20 @@ class Shell(
         if (restyle) {
             // a synced record can change typography AND height in one apply
             // (R3s#6): re-derive the layout BEFORE the full repaint, or the
-            // restyle renders at the stale height until the next invalidate
-            if (relayout) syncLayout()
+            // restyle renders at the stale height until the next invalidate.
+            // Styles first (review §29): the list rhythm is measured through
+            // them, so a face or scale change re-derives the row pitch and
+            // the lens band in syncLayout — which re-lays out and repaints
+            // whole by itself when the height or the rhythm moved, and is a
+            // no-op otherwise, in which case the restyle repaints whole here
             refreshStyles()
-            for (w in windows) {
-                w.onFontScaleChanged(effScale(w.id))
-                w.onLayoutChanged()
+            for (w in windows) w.onFontScaleChanged(effScale(w.id))
+            if (!syncLayout()) {
+                for (w in windows) w.onLayoutChanged()
+                comp.composed.clear(0)
+                composeFullSurface()
+                comp.requestKeyframe()
             }
-            comp.composed.clear(0)
-            composeFullSurface()
-            comp.requestKeyframe()
             scheduleSave()
             return
         }
@@ -2205,17 +2258,18 @@ class Shell(
     }
 
     private fun startListSlide(delta: Int) {
-        val bandAbove = Rect(layout.content.x, layout.content.y + Layout.CONTENT_PAD,
-            layout.content.w - Layout.RAIL_W, layout.rowsAbove * Layout.ROW_H)
+        // the band above hangs from the lens, like ContentKit's rows (review §29)
+        val bandAbove = Rect(layout.content.x, layout.lens.y - layout.rowsAbove * layout.rowH,
+            layout.content.w - Layout.RAIL_W, layout.rowsAbove * layout.rowH)
         val bandBelow = Rect(layout.content.x, layout.lens.bottom,
-            layout.content.w - Layout.RAIL_W, layout.rowsBelow * Layout.ROW_H)
+            layout.content.w - Layout.RAIL_W, layout.rowsBelow * layout.rowH)
         if (slides.size != 2 || slides[0].region != bandAbove) {
             slides = listOf(
                 Slide(comp, bandAbove) { g, y0, h -> paintListSlice(g, y0, h, above = true) },
                 Slide(comp, bandBelow) { g, y0, h -> paintListSlice(g, y0, h, above = false) },
             )
         }
-        for (s in slides) s.retarget(delta * Layout.ROW_H)
+        for (s in slides) s.retarget(delta * layout.rowH)
         // optimistic lens repaint (§5.11): the model already moved
         val v = focusedView()
         if (v is WindowView.ListView) {
@@ -2242,15 +2296,16 @@ class Shell(
         val slots = layout.rowsAbove + layout.rowsBelow + 1
         val c = v.model.cursor
         val bandSlots = if (above) layout.rowsAbove else layout.rowsBelow
-        var slot = Math.floorDiv(y0, Layout.ROW_H)
-        while (slot * Layout.ROW_H < y0 + h) {
+        val rowH = layout.rowH
+        var slot = Math.floorDiv(y0, rowH)
+        while (slot * rowH < y0 + h) {
             if (slot in -1..bandSlots) {   // one extra row either side for slide overlap
                 val idx = if (above) c - layout.rowsAbove + slot else c + 1 + slot
                 val real = if (n > slots) idx.mod(n) else if (idx in 0 until n) idx else null
                 if (real != null) {
-                    val tmp = Gray8(g.w, Layout.ROW_H)
-                    v.paintRow(tmp, real, Rect(0, 0, g.w, Layout.ROW_H), false)
-                    g.blit(tmp, Rect(0, 0, g.w, Layout.ROW_H), 0, slot * Layout.ROW_H - y0)
+                    val tmp = Gray8(g.w, rowH)
+                    v.paintRow(tmp, real, Rect(0, 0, g.w, rowH), false)
+                    g.blit(tmp, Rect(0, 0, g.w, rowH), 0, slot * rowH - y0)
                 }
             }
             slot++
@@ -2743,6 +2798,15 @@ class Shell(
         /** Chrome never shrinks below the design size to fit a bar — the bar
          *  is already sized for it at 100 %; the cap only limits growth. */
         const val CHROME_SCALE_FLOOR = 1.0
+        /** The list rhythm's inputs (review §29): the row face every list
+         *  draws its main text in (Clear Sans 18 through the window's own
+         *  transform — a Fira or Mono list inks a little less at the same
+         *  scale and gets that much extra leading), the rows' text offset,
+         *  and the lens's slack around two lines — 5 + 27 = 32 and
+         *  2 × 27 + 10 = 64 at 100 %. */
+        const val ROW_FACE_PX = 18
+        const val ROW_TEXT_Y = 5
+        const val LENS_SLACK = 10
 
         fun systemClock(): LocalClock {
             val now = java.time.LocalTime.now()

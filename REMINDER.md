@@ -1,7 +1,38 @@
 # Where we are, and what to do next
 
-**Updated 2026-09-04 (late): a THIRD whole-codebase review, and the first full LIVE walk of the
-system — eleven verified defects, all fixed and pinned.** `HANDOFF.md` §28 is the record. The
+**Updated 2026-09-04 (evening): a FOURTH whole-codebase review and a second full LIVE walk —
+eleven verified defects, all fixed and pinned, NOT yet deployed.** `HANDOFF.md` §29 is the
+record. The reading found the last constant of the "a rect is a promise" class: the list rhythm
+itself. Clear Sans 18 — every list's row face — inks 27 px at 100 % and the 32 px row held it
+exactly; at 115 % (32 px) the row directly above the lens lost its descenders to the lens fill
+(`$1,000` cut flat, seen live), and the oracle cannot see it because the ink stays inside the
+damaged content rect. `Layout` now carries a measured `rowH` / `lensH` (floors 32 / 64), the rows
+above hang from the lens, and every window's second lens line is placed by `Draw.lineBelow` from
+the first line's ink — 100 % is pixel-identical. Also from the reading: "114%" for the 115 % step,
+a failed transport start racing its lease release against the disconnect, an unguarded socket
+close. Then the live walk (every window, all four heights, 100/115/130 %, Alegreya chrome) found
+what reading could not: **the tmux alert notice was app-less — a tap only dismissed it** (it
+deep-links into the session now); **the shell loop caught `Exception` only** — an `Error` froze
+the display behind a healthy status (it survives one, loudly); brightness could never return to
+auto; the custom-bet keyboard said "raise to" over a check-through; Music's idle caption sat inside
+its heading's descenders at 130 %; and the context menu's fixed 248 px cut "Fold and leave" at
+the 120 % chrome cap while a head-cut detail carried no mark (the box follows the face; the cut
+is marked). ⚠ **Not deployed**: `stageJar && rc-service damage restart` + an APK bump are the
+next steps; **0.16 is still the last APK observed installed.**
+
+**Battery at HEAD:** core **440** · desktop **11** · selfcheck **189** · snapshots 49 (three
+consecutive clean runs) · `--games-check` · `--music-check` · `--epub-check` 58/58 · lint 21
+rules / 0 + selftest.
+
+**Picking this up in a fresh session:** `CLAUDE.md` → this file → `HANDOFF.md` §19–§29, then
+**§29.5**. The live-walk driver (§28.2 / §29.2) is the instrument to rebuild first — and the
+§29.2 lessons bind: snap between steps, one step per snap in any window with a destructive row,
+count only panel frames as activity, never rebuild the jar under a running instance.
+
+---
+
+**Before it, 2026-09-04 (late): a THIRD whole-codebase review, and the first full LIVE walk of
+the system — eleven verified defects, all fixed and pinned.** `HANDOFF.md` §28 is the record. The
 reading found the Hold'em pacer STALLING after a back-and-return inside one bot's pace (the table
 sat until a tap, which then skipped the pacing), the Reader unable to open ANY book at 115 % or
 130 % (a constant 30 px line box with a guard that refused the measured 34/36), an unreadable
@@ -18,13 +49,9 @@ alert fires. ✅ **Deployed 2026-09-04 18:16**: the `damage` service runs this b
 (§19)`, the phone reattached to every channel) and APK **28/0.28** is staged on the setup page.
 **0.16 is still the last APK observed installed** — installing 0.28 is the one manual step.
 
-**Battery at HEAD:** core **430** · desktop **11** · selfcheck **189** (oracle 282 runs) ·
-snapshots 49 (three consecutive clean runs) · `--games-check` · `--music-check` ·
-`--epub-check` 58/58 · `--card-render` · lint 21 rules / 0 + selftest.
-
-**Picking this up in a fresh session:** `CLAUDE.md` → this file → `HANDOFF.md` §19–§28, then
-**§28.5**. The live-walk driver (§28.2) is the instrument to rebuild first; it is the only one
-that runs the real providers under the real grammar.
+**Battery at that commit:** core 430 · desktop 11 · selfcheck 189 (oracle 282 runs) ·
+snapshots 49 · `--games-check` · `--music-check` · `--epub-check` 58/58 · `--card-render` · lint
+21 rules / 0 + selftest. (The current numbers are at the top of this file.)
 
 ---
 

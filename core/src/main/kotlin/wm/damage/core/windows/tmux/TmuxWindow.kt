@@ -15,6 +15,7 @@ import wm.damage.core.gfx.IconKind
 import wm.damage.core.gfx.Level
 import wm.damage.core.shell.ActivationSource
 import wm.damage.core.shell.DamageWindow
+import wm.damage.core.shell.Draw
 import wm.damage.core.shell.HostSetting
 import wm.damage.core.shell.KeyboardSurface
 import wm.damage.core.shell.ListModel
@@ -152,8 +153,14 @@ class TmuxWindow(
             onShell {
                 if (!alertsOn || mutedKey(session) in muted) return@onShell
                 dirty = true
+                // DEEP-LINKED (review §29, the live walk): the notice carries
+                // the window and the session, so a tap on the box opens that
+                // session — TMUX.md §3.5's "glance → tap → y". It used to be
+                // app-less, so the tap only dismissed it; and it coalesces per
+                // SESSION, so two sessions waiting are two boxes, not one
                 services?.notifyInternal("tmux",
-                    "${session.name}${hostSuffix(session.host)} wants input: ${session.lastLine.take(80)}")
+                    "${session.name}${hostSuffix(session.host)} wants input: ${session.lastLine.take(80)}",
+                    appId = id, thread = mutedKey(session), target = "session:${session.host}:${session.name}")
             }
         }
 
@@ -320,13 +327,13 @@ class TmuxWindow(
         if (i >= sessions.size) {
             val host = hosts().getOrElse(i - sessions.size) { "local" }
             drawFit(g, r.x + 16, r.y + 6, "+ new session${hostSuffix(host)}", Level.HEAD, fBig, r.w - 32)
-            drawFit(g, r.x + 16, r.y + 34, "tap to create g2-N, detached", Level.BODY, fSmall, r.w - 32)
+            drawFit(g, r.x + 16, Draw.lineBelow(tx, fBig, r.y + 6, r.y + 34), "tap to create g2-N, detached", Level.BODY, fSmall, r.w - 32)
             return
         }
         val s = sessions[i]
         val head = s.name + hostSuffix(s.host) + (if (s.waiting) " — wants input" else "")
         drawFit(g, r.x + 16, r.y + 6, head, if (s.waiting) Level.HOT else Level.HEAD, fBig, r.w - 32)
-        drawFit(g, r.x + 16, r.y + 34, sanitize(s.lastLine).ifEmpty { "(no output)" }, Level.BODY, fSmall, r.w - 32)
+        drawFit(g, r.x + 16, Draw.lineBelow(tx, fBig, r.y + 6, r.y + 34), sanitize(s.lastLine).ifEmpty { "(no output)" }, Level.BODY, fSmall, r.w - 32)
     }
 
     private fun sessionsCommit(i: Int) {
@@ -358,6 +365,22 @@ class TmuxWindow(
         renameArmed = false
         resubscribe()
         services?.requestRender(this)
+    }
+
+    /** §16.1 deep link — `session:<host>:<name>` (a tmux session name cannot
+     *  hold a colon, so the LAST colon splits it): the alert notice's tap
+     *  lands in the live view of the session that wants input. The session
+     *  list may lag the alert, so the target opens whether or not it is
+     *  listed yet — a session that is gone reports through the live view's
+     *  own state line, never silently. */
+    override fun open(target: String): Boolean {
+        val spec = target.removePrefix("session:")
+        if (spec == target) return false
+        val cut = spec.lastIndexOf(':')
+        if (cut <= 0 || cut == spec.length - 1) return false
+        typed = null
+        open(TmuxTarget(spec.substring(0, cut), spec.substring(cut + 1)))
+        return true
     }
 
     // ------------------------------------------------------------------ live
@@ -650,7 +673,7 @@ class TmuxWindow(
     private fun paintTypedLens(g: Gray8, r: Rect) {
         val head = if (typedPurpose == TypedPurpose.RENAME) "rename → " else "type → "
         drawFit(g, r.x + 16, r.y + 6, head + (target?.label ?: ""), Level.HEAD, fSmall, r.w - 32)
-        drawFit(g, r.x + 16, r.y + 26, sanitizeKeepMono(typed ?: ""), Level.BODY, fRow, r.w - 32)
+        drawFit(g, r.x + 16, Draw.lineBelow(tx, fSmall, r.y + 6, r.y + 26), sanitizeKeepMono(typed ?: ""), Level.BODY, fRow, r.w - 32)
     }
 
     private fun typeCommit(i: Int) {

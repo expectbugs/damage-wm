@@ -142,6 +142,11 @@ data class ShellSettings(
          *  ~20 % byte saver, the upper steps are legibility). */
         val SCALES = listOf(0.85, 1.0, 1.15, 1.3)
 
+        /** A ladder step as the Settings rows print it. Math.round, never
+         *  toInt: 1.15 × 100 is 114.999… in binary and the Global row read
+         *  "114%" for the ladder's 115 % step (review §29). */
+        fun scaleLabel(scale: Double): String = "${Math.round(scale * 100)}%"
+
         /** Style forces; "default" (per-app only) keeps the app's own flags. */
         val STYLES = listOf("default", "regular", "bold", "italic")
 

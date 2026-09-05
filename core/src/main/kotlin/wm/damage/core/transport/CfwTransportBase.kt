@@ -599,7 +599,14 @@ abstract class CfwTransportBase(
             withContext(NonCancellable) {
                 sweepSession("start failed: ${e.message}")
                 if (workersLaunched && leaseRequested) {
-                    controlQueue.trySend(CtlWork.Lease(epoch, SettingsMsg.OP_FB_RELEASE))
+                    // AWAITED before the disconnect, as stop() awaits its own
+                    // (review §29): enqueued and left to race the disconnect
+                    // below, the release either never reached the wire or
+                    // reached a link being torn down and logged a "control
+                    // lane error" fault for a write nobody expected to work
+                    val released = CompletableDeferred<Unit>()
+                    controlQueue.trySend(CtlWork.Lease(epoch, SettingsMsg.OP_FB_RELEASE, released))
+                    awaitReleaseWrite(released, "after the failed start")
                 }
                 try {
                     disconnectLink()
@@ -723,22 +730,7 @@ abstract class CfwTransportBase(
             // arm is the last-resort if death races the enqueue) — round 3 D3.
             val released = CompletableDeferred<Unit>()
             controlQueue.trySend(CtlWork.Lease(epoch, SettingsMsg.OP_FB_RELEASE, released))
-            try {
-                val job = scope.coroutineContext[kotlinx.coroutines.Job]
-                if (job == null) {
-                    released.await()
-                } else {
-                    kotlinx.coroutines.selects.select<Unit> {
-                        released.onAwait { }
-                        job.onJoin {
-                            Log.w(name, "transport scope ended before the release write — " +
-                                "the 90 s fail-open covers the lease")
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(name, "lease release write failed: ${e.message}")
-            }
+            awaitReleaseWrite(released, "at stop")
         }
         try {
             disconnectLink()
@@ -749,6 +741,32 @@ abstract class CfwTransportBase(
         updateState { it.copy(started = false, leaseHeld = false, connected = false, detail = "") }
         if (!_events.tryEmit(TransportEvent.Link(false, "$name stopped")))
             Log.e(name, "Link(false) after stop DROPPED (buffer full)")
+        }
+    }
+
+    /** Wait for a queued lease RELEASE to reach the wire — or for the
+     *  transport scope to end first (the lanes' finally-drains fail
+     *  `released` on the way out; the onJoin arm is the last resort if death
+     *  races the enqueue — round 3 D3). A failed write is reported, never
+     *  thrown: the caller is tearing the session down either way and the
+     *  90 s fail-open covers the lease. Shared by stop() and the failed-start
+     *  rollback (review §29). */
+    private suspend fun awaitReleaseWrite(released: CompletableDeferred<Unit>, where: String) {
+        try {
+            val job = scope.coroutineContext[kotlinx.coroutines.Job]
+            if (job == null) {
+                released.await()
+            } else {
+                kotlinx.coroutines.selects.select<Unit> {
+                    released.onAwait { }
+                    job.onJoin {
+                        Log.w(name, "transport scope ended before the release write $where — " +
+                            "the 90 s fail-open covers the lease")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(name, "lease release write $where failed: ${e.message}")
         }
     }
 

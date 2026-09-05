@@ -64,8 +64,17 @@ class SettingsWindow(
 
     private val entries: List<Entry> = listOf(
         Entry("Brightness", { if (get().brightnessAuto) "auto" else "${get().brightness}%" }, { s, d ->
-            if (s.brightnessAuto) s.copy(brightnessAuto = false)
-            else s.copy(brightness = (s.brightness + d * 5).coerceIn(0, 100))
+            // ONE ladder, auto at its foot: auto · 0 % · 5 % · … · 100 %. A
+            // notch up from auto leaves it at the stored level; a notch down
+            // from 0 % is auto again; nothing sits below auto. It used to leave
+            // auto on ANY notch and end at 0 % with no way back, so a
+            // brightness touched once on the glasses stayed manual for good
+            // (review §29, the live walk)
+            when {
+                s.brightnessAuto -> if (d > 0) s.copy(brightnessAuto = false) else s
+                d < 0 && s.brightness <= 0 -> s.copy(brightnessAuto = true)
+                else -> s.copy(brightness = (s.brightness + d * 5).coerceIn(0, 100))
+            }
         }),
         Entry("Size", {
             val st = stagedSize
@@ -291,7 +300,7 @@ class SettingsWindow(
         val c = cats().getOrNull(i) ?: return
         Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.SETTINGS, Level.HEAD)
         text.draw(g, r.x + 44, (r.y + 8) / 2 * 2, c.name, fRowB, Level.HEAD)
-        text.draw(g, r.x + 44, (r.y + 34) / 2 * 2,
+        text.draw(g, r.x + 44, Draw.lineBelow(text, fRowB, r.y + 8, r.y + 34) / 2 * 2,
             "${c.entries.size} settings · tap to open", FontSpec(Face.SYSTEM, 14), Level.DIM)
     }
 
@@ -332,7 +341,7 @@ class SettingsWindow(
         }
         val hint = if (adjusting != null) "scroll adjusts live · tap keeps · double-tap reverts"
         else "tap to adjust"
-        text.draw(g, r.x + 44, (r.y + 34) / 2 * 2, hint, FontSpec(Face.SYSTEM, 14), Level.DIM)
+        text.draw(g, r.x + 44, Draw.lineBelow(text, fRowB, r.y + 8, r.y + 34) / 2 * 2, hint, FontSpec(Face.SYSTEM, 14), Level.DIM)
     }
 
     override fun summary() = Summary("global · reader · …")

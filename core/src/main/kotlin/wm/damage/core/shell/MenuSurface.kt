@@ -102,13 +102,22 @@ class MenuSurface(private val text: TextRasterizer) {
         return minOf(n, maxOf(1, (maxH - chromeH()) / rowH()))
     }
 
+    /** The box's WIDTH follows the row face too (review §29, the live walk):
+     *  the design's 248 at 100 %, grown by the same ratio the row pitch grew,
+     *  so a label keeps the room it was designed with under a bigger chrome
+     *  face — at 120 % the fixed box cut "Fold and leave" to "Fold and ▸".
+     *  Grid-legal, and never wider than the content. */
+    private fun boxW(l: Layout): Int =
+        Geometry.snapX((W * rowH() / ROW_H).coerceIn(W, l.content.w - 16))
+
     fun rect(l: Layout): Rect? {
         val s = spec ?: return null
         val rows = visibleRows(l, s.items.size)
         val h = Geometry.snapY(chromeH() + rows * rowH())
+        val w = boxW(l)
         val cx = l.safe.x + l.safe.w / 2
         val cy = l.content.y + l.content.h / 2
-        return Rect(Geometry.snapX(cx - W / 2), Geometry.snapY(cy - h / 2), W, h)
+        return Rect(Geometry.snapX(cx - w / 2), Geometry.snapY(cy - h / 2), w, h)
     }
 
     fun captureUnder(g: Gray8, box: Rect) {
@@ -176,11 +185,20 @@ class MenuSurface(private val text: TextRasterizer) {
             // the damage rect and the plane-0 region — undamaged composed ink
             // the mirror check cannot see, shipped as garbage later
             val detailMax = (box.w / 2 - 12).coerceAtLeast(0)
-            val detailShown = if (it.detail.isEmpty()) "" else fitEnd(Draw.dynamic(text, it.detail, fDetail), fDetail, detailMax)
-            val detailW = if (detailShown.isEmpty()) 0 else text.measure(detailShown, fDetail) + 8
+            val detailFull = if (it.detail.isEmpty()) "" else Draw.dynamic(text, it.detail, fDetail)
+            val detailShown = if (detailFull.isEmpty()) "" else fitEnd(detailFull, fDetail, detailMax)
+            // a detail cut at its HEAD gets the drawn continuation mark on
+            // that edge (review §29, the live walk: "nothing queued" read
+            // "othing queued" at 130 % with nothing to say it was cut — the
+            // §2.4 r3 rule, NO TRUNCATION means an advertised cut, applies
+            // to the tail-keeping fit exactly as to the prefix one)
+            val cut = detailShown.length < detailFull.length
+            val detailW = if (detailShown.isEmpty()) 0 else text.measure(detailShown, fDetail) + 8 + (if (cut) 12 else 0)
             Draw.fit(g, text, box.x + 20, y + 2, Draw.dynamic(text, it.label, fRow), lv, fRow, box.w - 28 - detailW)
             if (detailShown.isNotEmpty()) {
-                Draw.right(g, text, box.right - 8, y + 6, detailShown, if (focusedRow) Level.MID else Level.DIM, fDetail)
+                val dlv = if (focusedRow) Level.MID else Level.DIM
+                Draw.right(g, text, box.right - 8, y + 6, detailShown, dlv, fDetail)
+                if (cut) wm.damage.core.gfx.Icons.tri(g, box.right - 8 - text.measure(detailShown, fDetail) - 4, y + 11, 11, dlv, left = true)
             }
         }
         if (s.items.size > rows) {

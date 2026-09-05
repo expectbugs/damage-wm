@@ -19,6 +19,7 @@ import wm.damage.core.gfx.Icons
 import wm.damage.core.gfx.Level
 import wm.damage.core.shell.ActivationSource
 import wm.damage.core.shell.DamageWindow
+import wm.damage.core.shell.Draw
 import wm.damage.core.shell.DocModel
 import wm.damage.core.shell.HostSetting
 import wm.damage.core.shell.ListModel
@@ -248,8 +249,9 @@ class ReaderWindow(
     private fun paintChapLens(g: Gray8, r: Rect, i: Int) {
         val name = chapterRows().getOrNull(i) ?: return
         Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.READER, Level.HEAD)
-        drawFit(g, r.x + 44, r.y + 6, name, Level.HEAD, FontSpec(Face.SYSTEM, 18, bold = true), r.w - 60)
-        drawFit(g, r.x + 44, r.y + 34, "tap to start here", Level.BODY, fRow, r.w - 60)
+        val fB = FontSpec(Face.SYSTEM, 18, bold = true)
+        drawFit(g, r.x + 44, r.y + 6, name, Level.HEAD, fB, r.w - 60)
+        drawFit(g, r.x + 44, Draw.lineBelow(tx, fB, r.y + 6, r.y + 34), "tap to start here", Level.BODY, fRow, r.w - 60)
     }
 
     private fun libView() = WindowView.ListView(libModel,
@@ -502,7 +504,7 @@ class ReaderWindow(
             val name = s.folders[i]
             Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.FILES, Level.HEAD)
             drawFit(g, r.x + 44, r.y + 6, name, Level.HEAD, fB, r.w - 60)
-            drawFit(g, r.x + 44, r.y + 34, "${countUnder(name)} books · tap to open", Level.BODY, fRow, r.w - 60)
+            drawFit(g, r.x + 44, Draw.lineBelow(tx, fB, r.y + 6, r.y + 34), "${countUnder(name)} books · tap to open", Level.BODY, fRow, r.w - 60)
             return
         }
         val b = s.books.getOrNull(i - s.folders.size) ?: return
@@ -511,7 +513,7 @@ class ReaderWindow(
         val sub = listOf(b.author, "${b.bytes / 1024} KB")
             .filter { it.isNotEmpty() }.joinToString(" · ")
         val line2 = if (openingId == b.id) "opening..." else sub
-        drawFit(g, r.x + 44, r.y + 34, line2, Level.BODY, fRow, r.w - 60)
+        drawFit(g, r.x + 44, Draw.lineBelow(tx, fB, r.y + 6, r.y + 34), line2, Level.BODY, fRow, r.w - 60)
     }
 
     private fun commitLibrary(i: Int) {
@@ -763,8 +765,9 @@ class ReaderWindow(
     private fun paintActLens(g: Gray8, r: Rect, i: Int) {
         val (name, detail) = actions().getOrNull(i) ?: return
         Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.READER, Level.HEAD)
-        tx.draw(g, (r.x + 44) / 4 * 4, (r.y + 8) / 2 * 2, name, FontSpec(Face.SYSTEM, 18, bold = true), Level.HEAD)
-        drawFit(g, r.x + 44, r.y + 34, detail, Level.BODY, fRow, r.w - 60)
+        val fB = FontSpec(Face.SYSTEM, 18, bold = true)
+        tx.draw(g, (r.x + 44) / 4 * 4, (r.y + 8) / 2 * 2, name, fB, Level.HEAD)
+        drawFit(g, r.x + 44, Draw.lineBelow(tx, fB, r.y + 8, r.y + 34), detail, Level.BODY, fRow, r.w - 60)
     }
 
     private fun commitAction(i: Int) {

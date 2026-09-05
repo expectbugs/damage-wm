@@ -609,18 +609,22 @@ class TorrentsWindow(
     }
 
     private fun paintTransferLens(g: Gray8, r: Rect, i: Int) {
+        // line two and the bar below it from the MEASURED ink (review §29):
+        // 32 / 56 at 100 %, lower as the app face grows
+        val y2 = Draw.lineBelow(tx, fHead, r.y + 6, r.y + 32)
+        val yb = maxOf(r.y + 56, y2 + Draw.ink(tx, fBody))
         val t = rows().getOrNull(i) ?: run {
             IconPaint.draw(g, services?.icons(), IconNames.forKind(IconKind.TORRENTS), r.x + 8, r.y + 4, 56, IconKind.TORRENTS, Level.HEAD)
             Draw.fit(g, tx, r.x + 72, r.y + 6, "Torrents", Level.HEAD, fHead, r.w - 88)
             val n = snap?.transfers?.size ?: 0
             val line = dn(stateLine, fBody).ifEmpty { if (snap == null) "connecting to the host" else "$n transfers · tap for the menu" }
-            Draw.fit(g, tx, r.x + 72, r.y + 32, line, Level.BODY, fBody, r.w - 88)
+            Draw.fit(g, tx, r.x + 72, y2, line, Level.BODY, fBody, r.w - 88)
             return
         }
         IconPaint.draw(g, services?.icons(), iconNames(t), r.x + 8, r.y + 4, 56, IconKind.TORRENTS, Level.HEAD)
         Draw.fit(g, tx, r.x + 72, r.y + 6, dn(t.name, fHead), Level.HEAD, fHead, r.w - 88)
-        Draw.fit(g, tx, r.x + 72, r.y + 32, lensDetail(t), Level.BODY, fBody, r.w - 88 - 56)
-        Icons.blocks(g, r.x + 72, r.y + 56, 240, 4, t.progress, n = 12, level = Level.of(6))
+        Draw.fit(g, tx, r.x + 72, y2, lensDetail(t), Level.BODY, fBody, r.w - 88 - 56)
+        Icons.blocks(g, r.x + 72, yb, 240, 4, t.progress, n = 12, level = Level.of(6))
         // the 8-column speed history at the right edge: wide-and-short, 2 px steps
         val h = speedHist[t.hash]
         if (h != null) {
@@ -631,8 +635,8 @@ class TorrentsWindow(
                 for (k in 0 until HIST) {
                     val v = h[(start + k) % HIST]
                     val bh = ((v * 12 / max).toInt() / 2 * 2).coerceIn(0, 12)
-                    if (bh > 0) g.fillRect(x0 + k * 6, r.y + 58 - bh, 4, bh, Level.of(6))
-                    else g.fillRect(x0 + k * 6, r.y + 56, 4, 2, Level.FAINT)
+                    if (bh > 0) g.fillRect(x0 + k * 6, yb + 2 - bh, 4, bh, Level.of(6))
+                    else g.fillRect(x0 + k * 6, yb, 4, 2, Level.FAINT)
                 }
             }
         }
@@ -864,20 +868,21 @@ class TorrentsWindow(
     }
 
     private fun paintCatLens(g: Gray8, r: Rect, i: Int) {
+        val y2 = Draw.lineBelow(tx, fHead, r.y + 6, r.y + 32)
         when (val c = catRows().getOrNull(i)) {
             null -> {
                 IconPaint.draw(g, services?.icons(), listOf("view-refresh", "folder-download"), r.x + 8, r.y + 4, 56, IconKind.TORRENTS, Level.HEAD)
                 Draw.fit(g, tx, r.x + 72, r.y + 6, "Newest", Level.HEAD, fHead, r.w - 88)
-                Draw.fit(g, tx, r.x + 72, r.y + 32, "every category, newest first", Level.BODY, fBody, r.w - 88)
+                Draw.fit(g, tx, r.x + 72, y2, "every category, newest first", Level.BODY, fBody, r.w - 88)
             }
             is TlCategory -> {
                 IconPaint.draw(g, services?.icons(), groupIcons(c.group), r.x + 8, r.y + 4, 56, IconKind.TORRENTS, Level.HEAD)
                 Draw.fit(g, tx, r.x + 72, r.y + 6, "${c.group} · ${c.name}", Level.HEAD, fHead, r.w - 88)
-                Draw.fit(g, tx, r.x + 72, r.y + 32, "tap to browse, newest first", Level.BODY, fBody, r.w - 88)
+                Draw.fit(g, tx, r.x + 72, y2, "tap to browse, newest first", Level.BODY, fBody, r.w - 88)
             }
             else -> {
                 Draw.fit(g, tx, r.x + 72, r.y + 6, "Browse", Level.HEAD, fHead, r.w - 88)
-                Draw.fit(g, tx, r.x + 72, r.y + 32, "search · recent searches · account", Level.BODY, fBody, r.w - 88)
+                Draw.fit(g, tx, r.x + 72, y2, "search · recent searches · account", Level.BODY, fBody, r.w - 88)
             }
         }
     }
@@ -1050,6 +1055,7 @@ class TorrentsWindow(
     }
 
     private fun paintListingLens(g: Gray8, r: Rect, i: Int) {
+        val y2 = Draw.lineBelow(tx, fHead, r.y + 6, r.y + 32)
         when (val row = listingRows().getOrNull(i)) {
             is LRow.Item -> {
                 val it = row.it
@@ -1057,14 +1063,20 @@ class TorrentsWindow(
                 Draw.fit(g, tx, r.x + 72, r.y + 4, dn(it.name, fHead), Level.HEAD, fHead, r.w - 88)
                 val l2 = "${Fmt.bytes(it.size)} · ${it.seeders} seeds · ${it.leechers} peers · ${it.snatched} done · ${ageOf(it)}" +
                     (if (it.freeleech) " · FL" else "")
-                Draw.fit(g, tx, r.x + 72, r.y + 28, l2, Level.BODY, fBody, r.w - 88)
+                // the three-line ladder from MEASURED ink (review §29): 4 /
+                // 28 / 48 at 100 %; the third line yields to the band's
+                // bottom rule rather than crossing it
+                val l2y = Draw.lineBelow(tx, fHead, r.y + 4, r.y + 28)
+                Draw.fit(g, tx, r.x + 72, l2y, l2, Level.BODY, fBody, r.w - 88)
                 val l3 = (listOf(catNameOf(it.categoryId)) + it.tags).joinToString(" · ")
-                Draw.fit(g, tx, r.x + 72, r.y + 48, dn(l3, fSmall), Level.DIM, fSmall, r.w - 88)
+                val l3y = Draw.lineBelow(tx, fBody, l2y, r.y + 48)
+                if (l3y + tx.metrics(fSmall).ascent <= r.bottom - 2)
+                    Draw.fit(g, tx, r.x + 72, l3y, dn(l3, fSmall), Level.DIM, fSmall, r.w - 88)
             }
             is LRow.Loading -> {
                 val none = listingTotal == 0 && listing.isEmpty()
                 Draw.fit(g, tx, r.x + 72, r.y + 6, if (listingLoading) "loading" else if (none) "no results" else "more", Level.HEAD, fHead, r.w - 88)
-                Draw.fit(g, tx, r.x + 72, r.y + 32, when {
+                Draw.fit(g, tx, r.x + 72, y2, when {
                     none -> "nothing matched on TorrentLeech"
                     listingState.isNotEmpty() -> dn(listingState, fBody)
                     listingTotal >= 0 -> "${listing.size} of $listingTotal loaded"
@@ -1073,7 +1085,7 @@ class TorrentsWindow(
             }
             is LRow.Menu -> {
                 Draw.fit(g, tx, r.x + 72, r.y + 6, "Browse", Level.HEAD, fHead, r.w - 88)
-                Draw.fit(g, tx, r.x + 72, r.y + 32, "search · sort ($tlSort) · refresh · account", Level.BODY, fBody, r.w - 88)
+                Draw.fit(g, tx, r.x + 72, y2, "search · sort ($tlSort) · refresh · account", Level.BODY, fBody, r.w - 88)
             }
             null -> {}
         }
