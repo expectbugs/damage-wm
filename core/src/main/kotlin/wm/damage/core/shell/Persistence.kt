@@ -154,33 +154,74 @@ class Persistence(private val file: Path) {
     fun addListener(l: (String) -> Unit) { listeners.add(l) }
     fun removeListener(l: (String) -> Unit) { listeners.remove(l) }
 
-    /** Atomic write: temp file + move, so an interruption never half-writes the
-     *  store. Synchronized + unique tmp: two savers must never interleave.
-     *  Returns whether the write LANDED (R3s#11) — a full disk repeating only
-     *  in the log would surface at the next restart as lost state; saveAll
-     *  raises it visibly once per failure streak. */
+    /** Every write goes through ONE thread in submission order, so an
+     *  asynchronous save and a later synchronous one can never land out of
+     *  order (2026-09-05, `HANDOFF.md` §32). Daemon: the sync shutdown save is
+     *  what guarantees the last state reaches disk, and it waits its turn. */
+    private val writer = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "damage-persist").apply { isDaemon = true }
+    }
+
+    /** The store encoded as one JSON document — under the lock, cheap. */
+    private fun encode(): String = synchronized(lock) {
+        val root = buildJsonObject {
+            put("__v", 2L)
+            put("records", buildJsonObject {
+                for ((k, r) in loaded) put(k, buildJsonObject { put("v", r.value); put("t", r.stamp) })
+            })
+        }
+        json.encodeToString(JsonObject.serializer(), root)
+    }
+
+    /** Atomic write: temp file + move, so an interruption never half-writes
+     *  the store; a unique tmp so two writers could never interleave even if
+     *  the executor were ever widened. */
+    private fun writeNow(encoded: String): Boolean = try {
+        file.parent?.let { Files.createDirectories(it) }
+        val tmp = file.resolveSibling(file.fileName.toString() + ".${System.nanoTime()}.tmp")
+        Files.writeString(tmp, encoded)
+        try {
+            Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        } finally {
+            Files.deleteIfExists(tmp)
+        }
+        true
+    } catch (e: Exception) {
+        Log.e("persist", "state save FAILED — state will not survive restart", e)
+        false
+    }
+
+    /** SYNCHRONOUS save: encodes now, writes on the writer thread after every
+     *  save queued before it, and returns whether the write LANDED (R3s#11) —
+     *  a full disk repeating only in the log would surface at the next
+     *  restart as lost state; saveAll raises it visibly once per failure
+     *  streak. The shutdown path and the sync channel use this form. */
     fun save(): Boolean {
-        synchronized(lock) {
-            return try {
-                file.parent?.let { Files.createDirectories(it) }
-                val root = buildJsonObject {
-                    put("__v", 2L)
-                    put("records", buildJsonObject {
-                        for ((k, r) in loaded) put(k, buildJsonObject { put("v", r.value); put("t", r.stamp) })
-                    })
-                }
-                val tmp = file.resolveSibling(file.fileName.toString() + ".${System.nanoTime()}.tmp")
-                Files.writeString(tmp, json.encodeToString(JsonObject.serializer(), root))
-                try {
-                    Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
-                } finally {
-                    Files.deleteIfExists(tmp)
-                }
-                true
-            } catch (e: Exception) {
-                Log.e("persist", "state save FAILED — state will not survive restart", e)
-                false
+        val encoded = encode()
+        return try {
+            writer.submit<Boolean> { writeNow(encoded) }.get()
+        } catch (e: Exception) {
+            Log.e("persist", "state save FAILED — the writer refused", e)
+            false
+        }
+    }
+
+    /** ASYNCHRONOUS save (2026-09-05, §32): the encode happens on the caller
+     *  (the shell loop — microseconds), the file write on the writer thread.
+     *  The loop used to block on the write itself every couple of seconds
+     *  after any change: a few milliseconds on the PC, tens on the phone's
+     *  flash, each one delaying the next frame. [onDone] gets the same
+     *  LANDED verdict [save] returns, on the writer thread. */
+    fun saveAsync(onDone: (Boolean) -> Unit) {
+        val encoded = encode()
+        try {
+            writer.execute {
+                val landed = writeNow(encoded)
+                try { onDone(landed) } catch (e: Exception) { Log.e("persist", "save completion handler failed", e) }
             }
+        } catch (e: Exception) {
+            Log.e("persist", "state save FAILED — the writer refused", e)
+            onDone(false)
         }
     }
 

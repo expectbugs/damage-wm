@@ -1849,7 +1849,16 @@ That constraint produces a coherent physical language rather than a grab-bag:
 - **Animations are interruptible and retargetable.** A second scroll notch mid-slide *retargets*;
   it never queues. Otherwise fast scrolling backs up into visible lag.
 - **Motion yields to input.** The frame scheduler always preempts an in-progress animation for a
-  response to new input.
+  response to new input. 🆕 **Mechanised 2026-09-05 (`HANDOFF.md` §32):** one of the three
+  in-flight slots is reserved for the pump that follows a ring event; animation frames, pushes
+  and the visualizer run at most two deep.
+- 🆕 **Motion follows the measured link (2026-09-05, §32).** The transport keeps a transfer-term
+  EMA (ms per KB over flushes of 1 KB and more, against a floor EMA from small ones); above
+  50 ms/KB — the phone path measured ~125, PC-direct ~20 — the wheel spins in **2** frames per
+  notch instead of 4. Each spin frame is a ~0.9 KB repaint of the drum, so four of them are
+  ~0.8 s of link time through the phone. The slides keep their frames: their strips are small and
+  the first frame is as fast as a snap. Nothing adapts until a real flush has been timed; the
+  harnesses (instant timing) always see 4. On-glass verdict owed.
 - 🟡 **Progressive band painting** (spreading one big repaint across flushes) is experimental, to
   be tried only where it demonstrably helps. ⚠ Note a mode-8 batch **presents atomically**, so
   there is no banding effect *within* a flush — it only exists if we deliberately spread across
@@ -1895,7 +1904,11 @@ time — ~176 ms on stock, **~60 ms measured on the CFW** (`overview.md` §5.2);
 snapshot/deferred FIFO exists to make pipelined deltas safe, and Faceclaw ships `WINDOW_SIZE = 3`
 on exactly this path. Keeping the window full gives **~15–17 fps on small damage** at the stock
 figure, not ~5.7. The fps figure is graded **C/I** — read from his code, never measured as a rate
-on our wire.
+on our wire. 🆕 **One of the three is reserved for input (2026-09-05, §32):** a pump that follows
+anything other than a ring event or a typed line stops at two in flight, so a gesture's first
+flush never waits behind three animation, push or visualizer frames — each 150–1,200 ms on the
+phone's measured curve. Pure animation therefore pipelines two deep, not three; responsiveness
+was traded for animation throughput on purpose.
 
 ### 8.2 🔴 Frame-id discipline — read from `cfw_diag()`, not inferred
 

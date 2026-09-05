@@ -257,7 +257,9 @@ development environment; also serves ~/books to the phone):
 Preview: mouse wheel scroll · left click tap · right click double-tap · press-and-hold
 long-press (release on let-go) · keys ↑/↓ Enter Backspace Space R · Tab lens · B both ·
 -/= window scale (integer nearest-neighbour, default 4×, clamped to the screen).
-The browser replica link is printed at start (`http://<host>:7403/?token=…`). Config in
+The browser replica link is printed at start (`http://<host>:7403/?token=…`); the same server
+answers `GET /journal?token=…[&tail=N]` with that host's flush journal (2026-09-05, `HANDOFF.md`
+§32 — the phone's, without adb; `tools/journal_report.py -` reads it from stdin). Config in
 `~/.damage/config.json` (books dir, ports, token — generated on first run and must match
 `damage-secrets.properties` before building the APK; an UNREADABLE file — a stray comma in a
 hand edit — runs defaults for that start with a loud log line and is never rewritten — the phone host, the cached pair
@@ -714,6 +716,23 @@ agents per subsystem, every candidate verified by trace, timing or pixel
 simulation before a fix) found and fixed ~70 real defects. The mechanisms that came out
 of them are load-bearing and easy to break by accident:
 
+- 🆕 **The latency pass (2026-09-05, `HANDOFF.md` §32)** — seven mechanisms, all
+  pixel-identical (49 scenes compared against the untouched build):
+  the journal's submit line carries `via` / `handleMs` / `assembleMs` (the
+  §31.6 regimes turned out to be two radio paths, and nothing said which);
+  `Compositor.compress` is memoised for ONE assemble (cleared at both ends);
+  both rasterizers cache measures and coverage masks by text + resolved font
+  (`core/text/GlyphCaches.kt`, bounded by wholesale clearing); `Wrap.wrap`
+  decides from an additive estimate outside a ±24 px band and measures
+  exactly inside it (`WrapEstimateTest` pins equality with the old loop);
+  `Shell.pump` reserves one window slot for the pump that follows a ring
+  event (`pumpPriority`); `LinkState.transferMsPerKbEma` (flushes ≥ 1 KB,
+  against `floorMsEma` from flushes < 400 B) is the regime discriminator and
+  the wheel spins in 2 frames above 50 ms/KB; `Persistence.saveAsync` writes
+  on one daemon thread in submission order while `save()` (shutdown, the
+  sync channel) waits its turn. Do not put the write back on the loop, do
+  not let the memo outlive an assemble, and keep the estimate band — a line
+  the estimate accepts with 24 px to spare cannot overrun `Draw.fit`.
 - 🆕 **The `queued` counter is honest, and the loop says whether it is alive**
   (`Shell.post` / `loop()`'s `finally` / `quiescenceReport`, `HANDOFF.md`
   §31.8): `isQuiescent()` reads `queued`, so a message counted but never

@@ -86,27 +86,66 @@ object DrawnStrings {
     }
 }
 
-/** Greedy word wrap against real measured widths. Words longer than the width
- *  break mid-word (long content stays long — it wraps, never disappears). */
+/**
+ * Greedy word wrap against real measured widths. Words longer than the width
+ * break mid-word (long content stays long — it wraps, never disappears).
+ *
+ * 2026-09-05 (`HANDOFF.md` §32): the decision for a candidate line is taken
+ * from an ADDITIVE estimate — the measured widths of its words plus spaces —
+ * whenever the estimate is clearly inside or clearly outside the width, and
+ * from an exact measure of the whole candidate only inside a band of
+ * [ESTIMATE_SLACK_PX] either side of it. The old loop measured every
+ * candidate: one platform measure per WORD of a book, and on Android each of
+ * those is a shaping pass over a string nothing has seen before. Each
+ * distinct word is now measured once.
+ *
+ * Why the result is the same. Within a word the measure is exact (the word
+ * is measured whole, ligatures and all). Across a space the only difference
+ * between the sum and the whole is kerning against the space, which fonts
+ * either lack or make NEGATIVE (tighter) and by about a pixel — so the true
+ * width is never above the estimate by more than a pixel or two per line,
+ * and a candidate the estimate accepts with 24 px to spare cannot overrun
+ * the width `Draw.fit` will measure it against. AWT applies no kerning at
+ * all, so on the desktop the estimate is exact and `WrapEstimateTest` pins
+ * equality with the every-candidate loop over random text. Once a candidate
+ * IS measured, the measured width replaces the estimate for the rest of the
+ * line, so the estimate never drifts beyond one word.
+ */
 object Wrap {
+    /** Half-width of the band in which a candidate is measured exactly. */
+    const val ESTIMATE_SLACK_PX = 24
+
     fun wrap(text: String, font: FontSpec, r: TextRasterizer, width: Int): List<String> {
         if (width <= 0) throw LintError("wrap width $width")
         val out = ArrayList<String>()
+        val spaceW = r.measure(" ", font)
+        val wordW = HashMap<String, Int>()
+        fun wordWidth(w: String): Int = wordW.getOrPut(w) { r.measure(w, font) }
         for (paragraph in text.split('\n')) {
             if (paragraph.isEmpty()) { out.add(""); continue }
             val paraStart = out.size
             var line = StringBuilder()
+            var lineW = 0            // `line`'s width: estimated, or exact once measured
             for (word in paragraph.split(' ')) {
                 var w = word
                 while (true) {
-                    val candidate = if (line.isEmpty()) w else "$line $w"
-                    if (r.measure(candidate, font) <= width) {
-                        line = StringBuilder(candidate)
+                    val est = if (line.isEmpty()) wordWidth(w) else lineW + spaceW + wordWidth(w)
+                    var fitW = -1
+                    if (est <= width - ESTIMATE_SLACK_PX) fitW = est
+                    else if (est <= width + ESTIMATE_SLACK_PX) {
+                        val m = r.measure(if (line.isEmpty()) w else "$line $w", font)
+                        if (m <= width) fitW = m
+                    }
+                    if (fitW >= 0) {
+                        if (line.isNotEmpty()) line.append(' ')
+                        line.append(w)
+                        lineW = fitW
                         break
                     }
                     if (line.isNotEmpty()) {
                         out.add(line.toString())
                         line = StringBuilder()
+                        lineW = 0
                         continue
                     }
                     // single word wider than the line: hard-break it. cut floors

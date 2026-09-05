@@ -403,7 +403,16 @@ class LocalTmuxProvider(
         override fun run(host: TmuxHostCfg, script: String): String {
             val argv = if (host.ssh.isEmpty()) listOf("sh", "-c", script)
             else listOf("ssh", "-p", host.sshPort.toString(), "-o", "BatchMode=yes",
-                "-o", "ConnectTimeout=5", host.ssh, script)
+                "-o", "ConnectTimeout=5",
+                // one MULTIPLEXED connection per host (2026-09-05, §32): the
+                // capture loop runs this once a second, and a fresh ssh
+                // session per poll is a key exchange per poll. The master
+                // stays up 60 s past its last use, so it outlives the pacing;
+                // a socket that cannot be created falls back to a plain
+                // connection with a warning, never a failed poll.
+                "-o", "ControlMaster=auto", "-o", "ControlPersist=60",
+                "-o", "ControlPath=${System.getProperty("user.home")}/.damage/ssh-%C",
+                host.ssh, script)
             // through the deadlock-proof runner (R2#14): the old
             // stdout-then-stderr read stalled once a chatty child filled the
             // 64 KiB stderr pipe mid-stream — the exact pattern Exec removes

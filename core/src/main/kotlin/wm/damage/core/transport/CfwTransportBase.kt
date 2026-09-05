@@ -1251,10 +1251,20 @@ abstract class CfwTransportBase(
     private fun updateEma(ackMs: Long, bytes: Int) {
         updateState { s ->
             val a = 0.3
+            // the floor from small flushes, the transfer term from big ones:
+            // the all-sizes EMAs below cannot tell a slow radio from a fast
+            // one, because two thirds of all flushes are under 500 B and sit
+            // on the same ~60 ms floor on either path (§31.6, §32)
+            val floor = if (bytes < 400) s.floorMsEma * (1 - a) + ackMs * a else s.floorMsEma
+            val transfer = if (bytes >= 1000)
+                s.transferMsPerKbEma * (1 - a) + (maxOf(0.0, ackMs - floor) / (bytes / 1000.0)) * a
+            else s.transferMsPerKbEma
             s.copy(
                 ackMsEma = s.ackMsEma * (1 - a) + ackMs * a,
                 bytesPerSecEma = if (ackMs > 0)
                     s.bytesPerSecEma * (1 - a) + (bytes * 1000.0 / ackMs) * a else s.bytesPerSecEma,
+                floorMsEma = floor,
+                transferMsPerKbEma = transfer,
             )
         }
     }

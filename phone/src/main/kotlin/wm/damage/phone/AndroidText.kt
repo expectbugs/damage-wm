@@ -66,9 +66,23 @@ class AndroidText(
 
     private val paintsFull = java.util.concurrent.ConcurrentHashMap<FontSpec, Paint>()
 
-    private fun paint(spec: FontSpec): Paint {
+    // string-level caches (2026-09-05, GlyphCaches.kt): a measure and a
+    // rendered coverage mask depend only on the text and the RESOLVED font.
+    // On Android every uncached measure is a shaping pass and every uncached
+    // draw allocates a bitmap — on the shell loop, per paint.
+    private val measures = wm.damage.core.text.MeasureCache()
+    private val rasters = wm.damage.core.text.RasterCache()
+
+    private fun resolvedPx(spec: FontSpec): Int {
         val contentScale = if (spec.face == Face.SYSTEM) 1.0 else contentScaleProvider()
-        val px = Math.round(spec.sizePx * scale.getValue(spec.face) * contentScale).toInt().coerceAtLeast(7)
+        return Math.round(spec.sizePx * scale.getValue(spec.face) * contentScale).toInt().coerceAtLeast(7)
+    }
+
+    private fun glyphKey(spec: FontSpec, text: String) =
+        wm.damage.core.text.GlyphKey(spec.face, resolvedPx(spec), spec.bold, spec.italic, text)
+
+    private fun paint(spec: FontSpec): Paint {
+        val px = resolvedPx(spec)
         val key = spec.copy(sizePx = px)
         return paintsFull.getOrPut(key) {
             Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
@@ -83,7 +97,9 @@ class AndroidText(
     }
 
     override fun measure(text: String, font: FontSpec): Int =
-        if (text.isEmpty()) 0 else Math.ceil(paint(font).measureText(text).toDouble()).toInt()
+        if (text.isEmpty()) 0 else measures.get(glyphKey(font, text)) {
+            Math.ceil(paint(font).measureText(text).toDouble()).toInt()
+        }
 
     override fun metrics(font: FontSpec): FontMetrics {
         val fm = paint(font).fontMetricsInt
@@ -92,11 +108,25 @@ class AndroidText(
 
     override fun draw(surface: Gray8, x: Int, y: Int, text: String, font: FontSpec, level: Int) {
         if (text.isEmpty()) return
+        val m = rasters.get(glyphKey(font, text)) { render(text, font) }
+        val cov = m.cov
+        for (yy in 0 until m.h) {
+            val row = yy * m.w
+            for (xx in 0 until m.w) {
+                val c = cov[row + xx].toInt() and 0xFF
+                if (c > 0) surface.blend(x + xx, y + yy, level, c)
+            }
+        }
+    }
+
+    /** The uncached path, unchanged: the string into a fresh ALPHA_8 bitmap
+     *  at (0, ascent), read back as a TIGHT coverage mask. */
+    private fun render(text: String, font: FontSpec): wm.damage.core.text.GlyphMask {
         val p = paint(font)
         val fm = p.fontMetricsInt
         val w = measure(text, font) + 4
         val h = (fm.descent - fm.ascent) + 4
-        if (w <= 0 || h <= 0) return
+        if (w <= 0 || h <= 0) return wm.damage.core.text.GlyphMask(0, 0, ByteArray(0))
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ALPHA_8)
         val c = Canvas(bmp)
         c.drawText(text, 0f, (-fm.ascent).toFloat(), p)
@@ -106,13 +136,9 @@ class AndroidText(
         val pixels = ByteArray(rowBytes * h)
         bmp.copyPixelsToBuffer(java.nio.ByteBuffer.wrap(pixels))
         bmp.recycle()
-        for (yy in 0 until h) {
-            val row = yy * rowBytes
-            for (xx in 0 until w) {
-                val cov = pixels[row + xx].toInt() and 0xFF
-                if (cov > 0) surface.blend(x + xx, y + yy, level, cov)
-            }
-        }
+        val cov = ByteArray(w * h)
+        for (yy in 0 until h) System.arraycopy(pixels, yy * rowBytes, cov, yy * w, w)
+        return wm.damage.core.text.GlyphMask(w, h, cov)
     }
 
     override fun covers(text: String, font: FontSpec): Boolean {

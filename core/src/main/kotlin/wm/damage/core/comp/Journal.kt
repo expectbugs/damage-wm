@@ -21,7 +21,17 @@ class Journal(private val path: Path?) : AutoCloseable {
         Files.newBufferedWriter(it, StandardOpenOption.CREATE, StandardOpenOption.APPEND)
     }
 
-    fun flushSubmitted(id: Long, a: Compositor.Assembled, label: String) {
+    /**
+     * One line per submitted flush. [via] is the transport's name at submit
+     * time (2026-09-05: the journal's two latency regimes turned out to be two
+     * RADIO PATHS — PC-direct BlueZ and the phone — and nothing in the file
+     * said which; `HANDOFF.md` §32). [handleMs] is the shell loop's time from
+     * taking the message to reaching the flush (every paint the message
+     * caused); [assembleMs] is the compositor's diff + partition + compress.
+     * Both are host CPU, on the loop, and neither had ever been measured.
+     */
+    fun flushSubmitted(id: Long, a: Compositor.Assembled, label: String,
+        via: String = "?", handleMs: Long = -1, assembleMs: Long = -1) {
         val ops = a.ops.joinToString(",") { op ->
             when (op) {
                 is DisplayOp.Keyframe -> """{"op":"keyframe","bytes":${op.payload.size}}"""
@@ -32,7 +42,8 @@ class Journal(private val path: Path?) : AutoCloseable {
                     """{"op":"stereopair","l":"${op.left}","r":"${op.right}","bytes":${op.payload.size}}"""
             }
         }
-        write("""{"t":${System.currentTimeMillis()},"ev":"submit","id":$id,"epoch":${a.epoch},"label":${json(label)},"ops":[$ops]}""")
+        write("""{"t":${System.currentTimeMillis()},"ev":"submit","id":$id,"epoch":${a.epoch},"label":${json(label)},""" +
+            """"via":${json(via)},"handleMs":$handleMs,"assembleMs":$assembleMs,"ops":[$ops]}""")
     }
 
     fun flushDone(id: Long, ok: Boolean, ackMs: Long, bytes: Int, error: String?) {

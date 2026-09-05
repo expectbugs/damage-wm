@@ -170,6 +170,20 @@ data class LinkState(
     val window: Int = 3,
     val ackMsEma: Double = 176.0,     // measured stock median until real data arrives
     val bytesPerSecEma: Double = 11_000.0,
+    /** The ack floor: an EMA over SMALL flushes only (< 400 B), where transfer
+     *  time is nil. 60 ms measured on both radio paths (`HANDOFF.md` §31.6). */
+    val floorMsEma: Double = 60.0,
+    /** The transfer term: an EMA of (ack − floor) per KB over flushes of
+     *  1 KB and more — the number that told the two radio paths apart when
+     *  the floor could not (2026-09-05, `HANDOFF.md` §32): ~20 ms/KB on
+     *  PC-direct BlueZ, ~125 ms/KB through the phone. The default is the fast
+     *  regime, so nothing adapts until a real flush has been measured. */
+    val transferMsPerKbEma: Double = 20.0,
+    /** The link's connection parameters as the platform reported them
+     *  ("L 15.00ms/0/5000ms R …"), empty until it does. The phone's BLE stack
+     *  grants or refuses the priority request without an API to ask; the
+     *  parameters callback is the only place the answer appears. */
+    val linkParams: String = "",
     val capability: String? = null,
     val rssiDbm: Int? = null,
     val transportName: String = "none",

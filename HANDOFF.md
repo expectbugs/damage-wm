@@ -2284,3 +2284,184 @@ core **459** · desktop **11** · selfcheck **189** (the oracle on every settle)
 `--games-check` ALL PASS · lint 21 rules / 0 findings · `:phone:assembleDebug`.
 `:core:test --rerun-tasks` run fourteen times with no failure — which is also the eight-run
 evidence §31.8 leans on, and it is still not proof.
+
+## 32. The latency pass (2026-09-05, Adam's ask) — the survey, twelve changes, and the joint plan
+
+Adam: *"tell me all of the things that can be done across the whole scope plus each individual
+window to optimize it for latency and quick response and quick loading with minimal impact on
+design aesthetic or good looks or features and usefulness"* — then *"do all the things you can do
+without me … anything that would be best done AFTER we work together to measure things … will come
+later."* The phone APK driving the glasses is the primary use case and the priority. This section
+is the record: what the reading found, what shipped, what it measured, and the plan for the rest.
+
+### 32.1 What the survey found
+
+Where the link time goes, from the production journal (MEASURED, 11,206 acked flushes):
+
+| flush size | share of flushes | share of ack time |
+|---|---:|---:|
+| < 500 B | 67 % | 35 % |
+| 0.5–3 KB | 24 % | 24 % |
+| ≥ 3 KB | 9 % | 41 % |
+
+The op mix over the same journal: 25,863 deltas, 4,708 copies, 420 stereo pairs, 94 keyframes.
+Wheel flushes (`+switcher` labels): median 0.8–0.9 KB, p90 2.5–3 KB, median ack 119–133 ms.
+
+The levers, ranked (each with its grade; the modeled ones say so):
+
+1. **The radio path** — see §32.2. The slow regime IS the daily path.
+2. **The texture cache for text (modes 12/14)** — built, modeled, not adopted; gated on the
+   on-glass check (`IMPLEMENTATION.md` → The texture cache). A list row is ~1–2 KB of pixels
+   today and 8 bytes plus the string as a mode-14 draw, and it burns no fid. This converts most
+   ≥ 3 KB flushes into sub-500 B ones. The largest byte-side lever there is; a joint item.
+3. **A reserved window slot for input** — shipped (§32.3). The pump filled all three slots with
+   whatever was pending, so a tap's first flush could wait behind three 150–1,200 ms frames.
+4. **Motion adapted to the measured link** — shipped for the wheel only (§32.3). A list notch is 3
+   slide frames and a doc notch 5 (derived from `Slide.step`'s arithmetic — modeled) but their
+   strips are small and pipelined; the wheel's 4 repaint frames at ~0.9 KB each are ~0.8 s of link
+   time per notch through the phone (modeled from §31.1's table).
+5. **Host CPU on the loop, unmeasured until now** — `price()` recompressed every candidate rect
+   per pair, `emitDelta` again; every drawn string was a fresh bitmap and a per-pixel blend; the
+   state file was written on the loop every 2 s after a change. All shipped (§32.3), all
+   pixel-identical, and the journal now carries the numbers (§32.4).
+6. **Wrap cost on the phone** — the Reader measured every candidate line, one platform measure
+   per WORD of a book. On the PC that is 13–80 ms per book (MEASURED, three real books, AWT);
+   on Android each is a shaping pass over a string nothing has seen before, so seconds per open
+   (MODELED — no adb, no measurement). Shipped (§32.3).
+7. **Per window.** Reader: extraction 24–226 ms per book (MEASURED, all 58) — small; the wrap
+   above; the layout is redone on every height and scale change with no cache; a book opened
+   first on the PC replica is a full EPUB transfer at work (prefetch is a joint item). Tmux: 1 s
+   polling averages 500 ms of lag before the pane even repaints — control mode (`tmux -C`)
+   pushes output as it happens (joint item, a redesign of the provider); remote hosts spawned a
+   fresh `ssh` per poll (shipped: multiplexing). Torrents: `Http` called `disconnect()` after
+   every request, a TLS handshake per TorrentLeech page (shipped: keep-alive). Music: NOW PLAYING
+   is already paced at 5 s; Music Mode's visualizer (off by default, 8 fps when on) is a flush
+   per frame and the reserved slot is what keeps it from monopolising the window. Games: pure
+   CPU, paced by design. Files, Main, Settings, Silent, Notifications, Keyboard: nothing
+   significant — small deltas, cached icons, one flush a minute.
+
+### 32.2 🔴 The slow regime is the phone's radio path — and the captures said more than we read
+
+§31.6 recorded a step change on 08-31 between 03:00 and 13:00 and called its cause unknown. It is
+a change of RADIO PATH, not of time (grade **C**): the fast hours (08-30 22:00 → 08-31 03:00) are
+the PC-direct first-light and refinement sessions of §11–§12; the slow hours (08-31 13:00 →) carry
+the journal's own stall notes naming `aphone`, and `damage.log` for that period reads `driving via
+remote:aphone` — the PC shell driving through the PHONE's BLE (the pre-§19 daily mode). Not **M**,
+because the journal carried no transport field; it does now (`via`, §32.3). Adam's on-glass 1–1.5 s
+agrees with the slow side and he is on the APK, so **the daily driver is priced by §31.1's slow
+rows**, and the ~6× between the paths is inside the phone's BLE stack, not the glasses.
+
+Then the captures. `overview.md` §5.1, `CLAIMS.md` row 44 and `captures/README.md` all said handle
+65's connection setup was outside both windows and that no `LE_Connection_Update` was ever issued
+for it. **`research/linkparams.py` (new, offline, stdlib) says otherwise, and the events are in the
+files** (grade **M**): both captures hold the Enhanced Connection Complete for all three handles;
+handle 65's peer address equals the configured RIGHT lens (checked against the config without
+printing it); it runs at **30 ms** while active and the **glasses** move it to **90 ms / slave
+latency 4** when idle (three L2CAP 0x12 requests in `allbutimages.log`, each granted by the phone's
+stack with an `LE_Connection_Update` for 65); DLE is on (247 B); no PHY updates. What stays true is
+narrower: the official app never asks on its own initiative for 65. All three documents carry the
+dated correction. The consequence for us: at 30 ms and ~1.6 packets per event you get 7–13 KB/s,
+so the phone-side question is whether `CONNECTION_PRIORITY_HIGH` (11.25–15 ms) is granted at all —
+and the APK now reports the answer itself (§32.3, item 10).
+
+### 32.3 What shipped — twelve changes, each self-contained, no rendered surface changed
+
+1. **The journal says which radio path, and what the host cost** (`Journal.flushSubmitted`,
+   `Shell.pump`): every submit line carries `via` (the transport's name), `handleMs` (the loop's
+   time from taking the message to the flush — every paint it caused) and `assembleMs` (the
+   compositor's diff, partition and compress). `tools/journal_report.py` reads a journal by hour,
+   by `via`, by size band, and prints the shell's CPU per flush and every link/fault/panic note.
+2. **The compositor memoises `compress(rect)` for one assemble** (`Compositor.compressCache`):
+   cleared at both ends of `assembleFlush`; `composed` does not change inside one, so the bytes
+   are the same bytes. Pixel-identical by construction.
+3. **Both rasterizers cache measures and rendered coverage** (`core/text/GlyphCaches.kt`,
+   `AwtText`, `AndroidText`): keyed by the text and the RESOLVED font, bounded by wholesale
+   clearing (16 k measures, 8 MB of masks). The uncached path is byte-for-byte the old one; the
+   blend reads the mask it used to read from the bitmap.
+4. **`Wrap.wrap` decides from an additive estimate outside a ±24 px band and measures exactly
+   inside it**; each distinct word is measured once. `WrapEstimateTest` pins equality with the
+   every-candidate loop over random text for an additive rasterizer (AWT applies no kerning) and
+   for one that kerns a full pixel tighter at every space (the Android direction, exaggerated),
+   plus the once-per-word count. The hard-break path for oversize words is untouched.
+5. **One window slot is reserved for input** (`Shell.pumpPriority`): the pump that follows a ring
+   event or a typed line may fill the window; every other pump — ticks, pushes, animation
+   continuations, completions — stops one short. Instant transports never see it.
+6. **The transport measures the link in a way that tells the two regimes apart**
+   (`LinkState.floorMsEma` over flushes < 400 B, `transferMsPerKbEma` over flushes ≥ 1 KB): the
+   all-sizes EMAs could not, because two thirds of flushes sit on the same ~60 ms floor on either
+   path. The seam carries both (with defaults, so an older peer still decodes). **The wheel spins
+   in 2 frames instead of 4 when the measured transfer term is above 50 ms/KB** (the regimes
+   measured ~20 and ~125); nothing adapts until a flush of 1 KB or more has been timed, and the
+   shell journals the regime when it flips. `DESIGN.md` §6.3 records the rule.
+7. **The state file is written off the loop** (`Persistence.saveAsync`): the encode stays on the
+   loop (microseconds), the write goes to one daemon thread in submission order; the shutdown save
+   is synchronous and waits its turn, so the last state is on disk before `stop()` returns; a
+   failed write reports back through the loop as before.
+8. **`Http.request` keeps connections alive**: `disconnect()` only on the failure path. POSTs
+   stream a fixed length, which the JDK never retries, so nothing can double.
+9. **Remote tmux hosts multiplex one ssh connection** (`ControlMaster=auto`, `ControlPersist=60`,
+   `ControlPath=~/.damage/ssh-%C`); a socket that cannot be created falls back to a plain
+   connection with a warning.
+10. **The APK reports its connection parameters and PHY** (`BleTransport`): Nordic 2.7.5's
+    `setConnectionParametersListener` fires on every update, ours or the glasses'; the priority
+    request's `.with` callback reports what was granted; `readPhy()` records the PHY. They land in
+    `LinkState.linkParams`, the shell journals each change (`kind: "link"`), and the log line
+    carries the same text — so "was HIGH granted, and did the glasses move it back" is in the
+    phone's journal without adb.
+11. **Every host serves its journal**: `GET /journal?token=T[&tail=N]` on the replica server (both
+    hosts). Verified live on a scratch-home sim instance: 200 with the token, 403 without, the tail
+    cut to whole lines, the new fields present.
+12. **`research/linkparams.py`** — the capture parse of §32.2, address-attributed, so the claim is
+    reproducible rather than argued.
+
+Not touched, on purpose: the scroll step sizes (a design decision), the list and document slide
+frame counts (their strips are small and the first frame is as fast as a snap), the 5 s idle chrome
+tick, Main's rest repaint, Music Mode's visualizer rate.
+
+### 32.4 What it measured
+
+- **No rendered surface changed.** Two installs on disk (the untouched tree and this one),
+  `--snapshot` back to back: **49 scenes — 2 byte-identical, 45 differ only inside the status
+  readout** (the live `K/s · ms` cell, x∈[240,400], ≤16 rows), and the 2 that differ elsewhere are
+  the known live-data scenes (`11-files-locations`, the real filesystem; `38-music-mode-480-bars`,
+  the visualiser). The §31.5 method, with a Java comparer in place of `diff -rq`.
+- **The first compose/assemble numbers ever, PC, sim:** the Main keyframe — handle 30 ms,
+  assemble 21 ms; a delta frame — 13 / 9 ms; over a 22-flush scratch session median 4 / 2 ms,
+  p90 13 / 9 ms. The phone's will be higher; that is what the field is for.
+- **Reader, PC:** extraction 24–226 ms per book over the shelf (`--epub-check`, all 58); the wrap
+  13–80 ms per book (three real books, 3k–33k lines, AWT). The phone's numbers are owed.
+- **The scratch sim instance journaled `transfer 61 ms/KB — SLOW regime`** — the simulator models
+  the stock curve, which is slow by the design's own numbers, so the wheel spins in 2 frames under
+  `--transport sim`. The harnesses run instant timing and stay at 4.
+
+### 32.5 Battery
+
+core **462** (459 + `WrapEstimateTest` ×3) · desktop **11** · `--selfcheck` ALL CHECKS PASS
+(283 oracle runs; run ten times) · snapshots 49 × three runs · `--epub-check` 58/58 ·
+`--music-check` ALL PASS · `--games-check` ALL PASS · lint 21 rules / 0 · `:phone:assembleDebug`
+· the `/journal` route exercised live.
+
+### 32.6 What is owed — the joint plan, in order
+
+1. **Deploy** (Adam's call): `:desktop:stageJar && sudo rc-service damage restart`; install APK
+   **30/0.30** (staged). Nothing here changes what the glasses show.
+2. **Read the phone's journal after a day on the APK** — no adb: from beardos,
+   `curl -s 'http://aphone:7403/journal?token=…' | python3 tools/journal_report.py -`. The
+   `link` notes answer whether HIGH was granted and what the glasses renegotiate; the by-hour
+   table gives the daily path's real curve (home WiFi vs work vs WiFi off is the coexistence
+   experiment, and it needs nothing but the hours).
+3. **Then decide the radio work**: if HIGH is refused or reverted, re-request on a cadence or on
+   activity; if it is granted and the transfer term is still ~125 ms/KB, the wall is the write
+   path or coexistence, and the next instrument is a phone BTSnoop with the APK driving — via the
+   Android bug-report mail path already used for `captures/` (no adb needed).
+4. **The texture cache for text** — step 1 is the on-glass check of modes 12/13/14 against the
+   simulator (`REMINDER.md` items 19–20), on a dev build; step 2 the emit strategy for chrome and
+   list rows behind a setting; step 3 tmux lines. The largest byte-side lever, and the one that
+   makes the slow path liveable if the radio cannot be fixed.
+5. **On-glass verdicts** on the two behaviour changes: the 2-frame wheel on a slow link (a
+   constant if he wants 3), and the reserved slot's feel under a visualizer or a live pane.
+6. **Per-window, each after its measurement**: tmux control mode (pushed output, no 1 s poll);
+   the Reader's phone-side wrap and a layout cache per (book, width, scale, face); prefetching the
+   open book to the phone (data policy is his); a persistent content channel in place of a socket
+   per request; cold-start timing (parallel arm connects, the 800 ms prelude settle, the 2 s
+   capability re-ask) once a phone journal shows what start costs.

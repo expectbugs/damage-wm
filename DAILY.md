@@ -93,6 +93,15 @@ runs every read-only probe against the real database and computes one viz blob.
 - Logs: `~/.damage/damage.log` (the service — the standby narration lives here),
   `~/.damage/journal.jsonl` (flush journal, only while a PC stack drives),
   phone `adb logcat -s damage` + the on-phone status line.
+- **The phone's journal, no adb** (2026-09-05, `HANDOFF.md` §32): every host serves its own at
+  `/journal` on the replica port —
+  `curl -s 'http://aphone:7403/journal?token=…' | python3 tools/journal_report.py -`
+  (`&tail=2000000` for the last ~2 MB). The report shows the ack curve by hour and by radio
+  path, the shell's own CPU per flush, and the `link` notes — the connection interval the
+  phone's stack granted and what the glasses renegotiate. That is the daily driver's real
+  curve; the PC journal's is the standby path's.
+- Remote tmux hosts now ride one multiplexed ssh connection (`~/.damage/ssh-*` control
+  sockets, 60 s persist) — a stale socket there is safe to delete.
 - Views while headless: **the phone screen or the phone replica are the live views now**
   (`http://aphone:7403/?token=…`); the PC replica (`http://beardos:7403/…`) shows the standby
   status, and a live mirror only while the PC's own BLE stack drives (the token is in

@@ -705,7 +705,8 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
             note = note().ifEmpty { statusText() },
         )
     }, onInput = { t -> stack()?.transport?.injectInput(t) },
-        onText = { line -> stack()?.transport?.injectText(line) })
+        onText = { line -> stack()?.transport?.injectText(line) },
+        journalPath = { Path.of(cfg.dataDir).resolve("journal.jsonl") })
     try {
         replica.start()
     } catch (e: Exception) {

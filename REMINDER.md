@@ -1,6 +1,32 @@
 # Where we are, and what to do next
 
-**Updated 2026-09-05: a FIFTH whole-codebase review and a third full LIVE walk — nineteen
+**Updated 2026-09-05 (later): THE LATENCY PASS — the slow regime is the PHONE's radio path,
+twelve self-contained changes shipped, and a joint plan for the rest.** `HANDOFF.md` §32 is the
+record; §32.6 is the plan. Three things to carry:
+
+- 🔴 **§31.6's step change is a change of radio path, not of time** (grade C): the fast hours were
+  PC-direct BlueZ, the slow hours the PC driving through the PHONE (`damage.log`: `driving via
+  remote:aphone`; the journal's stall notes name it). The daily driver is priced by §31.1's slow
+  rows. The journal now says which path (`via`) and what the host cost (`handleMs`,
+  `assembleMs`); `tools/journal_report.py` reads it.
+- 🔴 **The captures held handle 65's whole story and three documents said they did not**
+  (`research/linkparams.py`, grade M): the RIGHT lens connects at 30 ms and the GLASSES move it to
+  90 ms/latency 4 when idle, the phone's stack granting each request. So the phone-side question
+  is whether `CONNECTION_PRIORITY_HIGH` is granted at all — **the APK now reports its connection
+  parameters into its journal, and every host serves its journal at `/journal?token=…`** (no adb).
+- What shipped, all pixel-identical (49 scenes against the untouched build): the compositor's
+  compress memo, string measure/raster caches in both rasterizers, the wrap estimate (pinned equal
+  to the old loop), a reserved window slot for input, the wheel in 2 frames on a measured slow
+  link, the state write off the loop, HTTP keep-alive, ssh multiplexing for tmux hosts. Battery:
+  core **462** · selfcheck ×10 · snapshots ×3 · lint 0 · APK **30/0.30 staged**.
+
+⛔ **Not deployed** — the service still runs the §29 build; deploying is Adam's call. **Next: install
+0.30, run a day, then `curl …/journal | tools/journal_report.py -` — that reading decides the radio
+work, and the texture cache (mode 14) is the byte-side lever after it** (§32.6).
+
+---
+
+**Before it, 2026-09-05: a FIFTH whole-codebase review and a third full LIVE walk — nineteen
 verified defects, all fixed and pinned.** `HANDOFF.md` §30 is the record. Three of them matter more
 than the rest:
 

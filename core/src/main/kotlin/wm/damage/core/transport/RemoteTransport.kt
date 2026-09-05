@@ -110,13 +110,21 @@ data class WireState(
     val inFlight: Int, val window: Int, val ackMsEma: Double,
     val bytesPerSecEma: Double, val capability: String?, val rssiDbm: Int?,
     val transportName: String, val detail: String = "",
+    // 2026-09-05 (§32): defaults so a peer on an older build still decodes
+    val floorMsEma: Double = 60.0, val transferMsPerKbEma: Double = 20.0, val linkParams: String = "",
 )
 
-private fun LinkState.toWire() = WireState(connected, started, leaseHeld, inFlight, window,
-    ackMsEma, bytesPerSecEma, capability, rssiDbm, transportName, detail)
+// named on both sides: the two classes order their fields differently, and a
+// positional swap of two same-typed fields would compile
+private fun LinkState.toWire() = WireState(connected = connected, started = started, leaseHeld = leaseHeld,
+    inFlight = inFlight, window = window, ackMsEma = ackMsEma, bytesPerSecEma = bytesPerSecEma,
+    capability = capability, rssiDbm = rssiDbm, transportName = transportName, detail = detail,
+    floorMsEma = floorMsEma, transferMsPerKbEma = transferMsPerKbEma, linkParams = linkParams)
 
-private fun WireState.toState() = LinkState(connected, started, leaseHeld, inFlight, window,
-    ackMsEma, bytesPerSecEma, capability, rssiDbm, "remote:$transportName", detail)
+private fun WireState.toState() = LinkState(connected = connected, started = started, leaseHeld = leaseHeld,
+    inFlight = inFlight, window = window, ackMsEma = ackMsEma, bytesPerSecEma = bytesPerSecEma,
+    floorMsEma = floorMsEma, transferMsPerKbEma = transferMsPerKbEma, linkParams = linkParams,
+    capability = capability, rssiDbm = rssiDbm, transportName = "remote:$transportName", detail = detail)
 
 private fun DataOutputStream.send(c: Ctl, blob: ByteArray? = null) {
     val b = json.encodeToString(Ctl.serializer(), c).toByteArray(Charsets.UTF_8)

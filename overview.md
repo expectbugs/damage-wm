@@ -785,7 +785,12 @@ renegotiation and a write-path change are all untested candidates.
 
 ⚠ **Scope:** one host (beardos, BlueZ, otherwise idle), PC-direct — the phone path is
 unmeasured and may differ, and since §19 the PHONE is the primary daily driver, so this curve
-describes the standby path; do not price the daily path with it unmeasured. This also does
+describes the standby path; do not price the daily path with it unmeasured. 🆕 **2026-09-05
+(`HANDOFF.md` §32): the slow regime of §31.6 IS the phone path** — the service log for those
+hours reads `driving via remote:aphone` and the journal's stall notes name `aphone`. Graded C
+(the journal had no transport field; it carries `via` now). So the daily driver is priced by
+§31.1's slow rows, and the ~6× between the two radio paths is the phone's BLE stack, not the
+glasses. This also does
 **not** retire the 7–13 KB/s row above, which is the stock EvenHub path on stock firmware. The ~10× shortfall question (§5.1) is about that path;
 this section says the CFW path on this host clears at least ~50 KB/s of it.
 
@@ -810,10 +815,18 @@ the host is not feeding it.**
 
 ### 🔑 The lead worth sending upstream
 
-**The official app never issues an `LE Connection Update` for the display link.** In both capture
-segments, handle 64 (L lens) gets `min=30 max=50 ms latency=0` and handle 66 (ring) gets
-`min=90 max=105 ms latency=4` — explicit, deliberate. **Handle 65, which carries every display
-byte, gets none.** It runs on whatever it landed on at connect and nobody ever asks it to go faster.
+🔴 **CORRECTED 2026-09-05** (`research/linkparams.py`, `captures/README.md`, `HANDOFF.md` §32).
+The paragraph that stood here said the official app never issues an `LE Connection Update` for
+the display link and that handle 65 "runs on whatever it landed on". **The captures say
+otherwise:** both hold handle 65's connection setup (peer = the RIGHT lens, address checked);
+it connects at **30 ms** (`imagestatus.log`, unchanged for the window) or 48.75 → 30 ms
+(`allbutimages.log`), and in the latter the **glasses** ask three times (L2CAP 0x12: 15–30 ms,
+then 90–105 ms/latency 4, then 15–30 ms) and the phone's stack **grants each with an
+`LE_Connection_Update` for 65**. Handles 64 and 66 read as before (30–50 ms and 90–105/4). The
+narrower truth: the *app* never asks on its own for 65; the peripheral drives it between an
+active 30 ms and an idle 90 ms/lat 4. At 30 ms and ~1.6 packets per event, 7–13 KB/s is what
+you get — so the phone-side question is whether `CONNECTION_PRIORITY_HIGH` (11.25–15 ms) is
+granted at all; the APK now logs the answer (§32).
 
 And this meets Faceclaw where it is stuck. It *does* call
 `requestConnectionPriority(CONNECTION_PRIORITY_HIGH)` on every connection — so the obvious fix is
@@ -829,9 +842,9 @@ the BLE link config."
 
 ### ⚠ Honest limits
 
-- **Handle 65's actual connection interval is NOT in this corpus.** Both captures start mid-session
-  for it. This is the one gap that matters and it has a cheap fix: **start BTSnoop before
-  connecting the glasses** so the R-lens connect lands in the window (`captures/README.md`).
+- ~~**Handle 65's actual connection interval is NOT in this corpus.**~~ **It is — 30 ms active,
+  90 ms/lat 4 idle, per the correction above (2026-09-05).** The recapture that still matters is
+  one with the APK driving, to see whether the priority request moves it.
 - HCI alone cannot separate the ~60 ms host stall into Android-stack scheduling, app write
   cadence, or **BT/Wi-Fi coexistence** on the phone's combo radio — all three produce this
   signature, and coexistence is invisible at this layer.

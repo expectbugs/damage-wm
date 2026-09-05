@@ -59,6 +59,11 @@ class ReplicaServer(
     /** A typed LINE from the page's text bar (TMUX.md verdict 1) — rides
      *  Transport.injectText; the focused window stages it behind a confirm. */
     private val onText: (String) -> Unit = {},
+    /** This host's flush journal, served at `GET /journal?token=T[&tail=N]`
+     *  (2026-09-05, `HANDOFF.md` §32) — the phone has no adb on Adam's
+     *  setup, and its journal is the only measurement of the daily radio
+     *  path. `tail` = at most that many bytes from the end, whole lines. */
+    private val journalPath: () -> java.nio.file.Path? = { null },
 ) : AutoCloseable {
 
     data class Status(
@@ -121,6 +126,13 @@ class ReplicaServer(
             }
             when (path) {
                 "/", "/index.html" -> reply(out, 200, "text/html; charset=utf-8", page())
+                "/journal" -> {
+                    val p = journalPath()
+                    if (p == null || !java.nio.file.Files.isRegularFile(p)) {
+                        reply(out, 404, "text/plain", "no journal on this host"); return
+                    }
+                    replyBytes(out, 200, "application/x-ndjson", journalBytes(p, query["tail"]?.toLongOrNull()))
+                }
                 "/ws" -> {
                     val key = req.headers["sec-websocket-key"]
                     if (key == null || !req.headers["upgrade"].equals("websocket", true)) {
@@ -184,13 +196,30 @@ class ReplicaServer(
         }.toMap()
     }
 
-    private fun reply(out: OutputStream, code: Int, type: String, body: String) {
-        val b = body.toByteArray(Charsets.UTF_8)
+    private fun reply(out: OutputStream, code: Int, type: String, body: String) =
+        replyBytes(out, code, type, body.toByteArray(Charsets.UTF_8))
+
+    private fun replyBytes(out: OutputStream, code: Int, type: String, b: ByteArray) {
         val reason = when (code) { 200 -> "OK"; 400 -> "Bad Request"; 403 -> "Forbidden"; 404 -> "Not Found"; else -> "Error" }
         out.write(("HTTP/1.1 $code $reason\r\nContent-Type: $type\r\nContent-Length: ${b.size}\r\nConnection: close\r\n\r\n")
             .toByteArray(Charsets.ISO_8859_1))
         out.write(b)
         out.flush()
+    }
+
+    /** The whole journal, or its last [tail] bytes cut forward to the first
+     *  whole line (a partial first line would break every reader). */
+    private fun journalBytes(p: java.nio.file.Path, tail: Long?): ByteArray {
+        val size = java.nio.file.Files.size(p)
+        if (tail == null || tail <= 0 || tail >= size) return java.nio.file.Files.readAllBytes(p)
+        java.nio.channels.FileChannel.open(p, java.nio.file.StandardOpenOption.READ).use { ch ->
+            val buf = java.nio.ByteBuffer.allocate(tail.toInt())
+            ch.position(size - tail)
+            while (buf.hasRemaining() && ch.read(buf) >= 0) { /* fill */ }
+            val all = buf.array().copyOf(buf.position())
+            val nl = all.indexOf('\n'.code.toByte())
+            return if (nl < 0) ByteArray(0) else all.copyOfRange(nl + 1, all.size)
+        }
     }
 
     private fun page(): String {

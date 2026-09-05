@@ -232,6 +232,15 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      * anything past even that stays dirty for the next flush.
      */
     fun assembleFlush(rectBudget: Int): Assembled? {
+        compressCache.clear()          // `composed` may have changed since the last assemble
+        try {
+            return assembleFlushInner(rectBudget)
+        } finally {
+            compressCache.clear()      // the ops hold their own payloads; nothing else may
+        }
+    }
+
+    private fun assembleFlushInner(rectBudget: Int): Assembled? {
         val keyframe = needsKeyframe
         val ops = ArrayList<DisplayOp>()
         val touched = ArrayList<Touched>()
@@ -901,7 +910,19 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         Rect(r.x - MAX_SHIFT, r.y, r.w + 2 * MAX_SHIFT, r.h).clip().alignOut()
 
     // ------------------------------------------------------------------ helpers
-    private fun compress(r: Rect): ByteArray = Zl.encodeCfw(Pack.rect(composed, r))
+    /**
+     * Memoised for the length of ONE assemble (2026-09-05, `HANDOFF.md` §32):
+     * `price()` compresses each candidate rect once per pair it appears in and
+     * `emitDelta` compresses the survivors again, all on the shell loop, and
+     * the phone runs this loop too. `composed` does not change inside an
+     * assemble, so a rect's payload is the same bytes every time; the cache is
+     * cleared at both ends of [assembleFlush] so it can never serve a stale
+     * frame. Pixel-identical by construction.
+     */
+    private val compressCache = HashMap<Rect, ByteArray>()
+
+    private fun compress(r: Rect): ByteArray =
+        compressCache.getOrPut(r) { Zl.encodeCfw(Pack.rect(composed, r)) }
 
     private fun black(w: Int, h: Int): ByteArray =
         Zl.encodeCfw(Pack.rect(Gray8(w, h), Rect(0, 0, w, h)))

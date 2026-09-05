@@ -44,6 +44,10 @@ class Switcher(
     private var spinFrom = 0.0
     private var spinPos = 0.0
     private var spinFrame = 0
+    /** Frames per detent: 4 by design (§4.3); a notch on a measured SLOW link
+     *  asks for fewer (2026-09-05, §32 — each spin frame is a ~0.9 KB repaint
+     *  of the drum, 4 of them ≈ 0.8 s of link time through the phone). */
+    private var spinFrames = 4
     /** 🔴 A CLOSED wheel is not spinning. The shell's frame loop posts another
      *  Pump for as long as this is true and `isQuiescent()` reads it, so a
      *  wheel closed mid-spin left the loop posting empty frames for ever —
@@ -78,7 +82,7 @@ class Switcher(
         }                                               // a dead commit
         spinPos = cursor.toDouble()
         spinFrom = spinPos
-        spinFrame = 4
+        spinFrame = spinFrames
         open = true
     }
 
@@ -89,7 +93,7 @@ class Switcher(
         // is closed, so a spin left running is a spin that never ends
         spinPos = cursor.toDouble()
         spinFrom = spinPos
-        spinFrame = 4
+        spinFrame = spinFrames
     }
 
     fun selected(): Entry? = entries.getOrNull(cursor)
@@ -97,20 +101,22 @@ class Switcher(
     /** How many rows the drum holds. */
     val entryCount: Int get() = entries.size
 
-    /** A scroll notch: move the cursor and retarget the spin. */
-    fun scroll(delta: Int) {
+    /** A scroll notch: move the cursor and retarget the spin over [frames]
+     *  animation frames (4 by design; 2 when the shell measures a slow link). */
+    fun scroll(delta: Int, frames: Int = 4) {
         if (entries.isEmpty()) return
         cursor = (cursor + delta).mod(entries.size)
         spinFrom = spinPos
+        spinFrames = frames.coerceIn(1, 4)
         spinFrame = 0
     }
 
     /** Advance one animation frame; true while more frames remain. */
     fun stepSpin(): Boolean {
-        if (spinFrame >= 4) { spinPos = cursor.toDouble(); return false }
+        if (spinFrame >= spinFrames) { spinPos = cursor.toDouble(); return false }
         spinFrame++
-        val t = spinFrame / 4.0
-        val ease = 1 - (1 - t) * (1 - t)          // ease-out, quantized by the 4 steps
+        val t = spinFrame.toDouble() / spinFrames
+        val ease = 1 - (1 - t) * (1 - t)          // ease-out, quantized by the steps
         // retarget-aware: interpolate toward the CURRENT cursor along the short way
         var target = cursor.toDouble()
         val n = entries.size
@@ -119,8 +125,8 @@ class Switcher(
             while (spinFrom - target > n / 2.0) target += n
         }
         spinPos = spinFrom + (target - spinFrom) * ease
-        if (spinFrame >= 4) spinPos = cursor.toDouble()
-        return spinFrame < 4
+        if (spinFrame >= spinFrames) spinPos = cursor.toDouble()
+        return spinFrame < spinFrames
     }
 
     /**

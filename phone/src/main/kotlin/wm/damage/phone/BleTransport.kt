@@ -24,6 +24,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import no.nordicsemi.android.ble.BleManager
+import no.nordicsemi.android.ble.callback.ConnectionParametersUpdatedCallback
+import no.nordicsemi.android.ble.callback.PhyCallback
 import no.nordicsemi.android.ble.ktx.suspend
 import no.nordicsemi.android.ble.observer.ConnectionObserver
 import wm.damage.core.transport.Arm
@@ -98,6 +100,18 @@ class BleTransport(
         @Volatile var negotiatedMtu = -1
         @Volatile var initFailure: String? = null
 
+        init {
+            // EVERY parameter update on this link, ours or the peripheral's
+            // (2026-09-05, `HANDOFF.md` §32): the priority request below has
+            // no result API, and the production journal's slow regime is this
+            // radio path — whether HIGH was granted, and what the glasses
+            // renegotiate later (the captures show a 30 → 90 ms move on the
+            // official app), is exactly the unknown this answers
+            setConnectionParametersListener { _, interval, latency, timeout ->
+                noteLinkParams(arm, "updated", interval, latency, timeout)
+            }
+        }
+
         /** The manager's own view of the MTU (23 until negotiated). */
         val currentMtu: Int get() = mtu
 
@@ -161,6 +175,9 @@ class BleTransport(
             // `hasMore()` stops it), which would drop the MTU and notification
             // requests behind it.
             requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+                .with(ConnectionParametersUpdatedCallback { _, interval, latency, timeout ->
+                    noteLinkParams(arm, "granted", interval, latency, timeout)
+                })
                 .fail { _, status -> Log.w("ble", "$arm connection priority request status $status (continuing)") }
                 .enqueue()
             beginAtomicRequestQueue()
@@ -170,6 +187,12 @@ class BleTransport(
                 .add(enableNotifications(notify)
                     .fail { _, status -> initFailure = "$arm notification enable failed: status $status — acks would never arrive" })
                 .done { Log.i("ble", "$arm initialized (MTU + notifications)") }
+                .enqueue()
+            // the PHY in use, read once (1M is all the glasses accept — this
+            // records it rather than assumes it); best-effort, alone
+            readPhy()
+                .with(PhyCallback { _, tx, rx -> notePhy(arm, tx, rx) })
+                .fail { _, status -> Log.w("ble", "$arm PHY read status $status (continuing)") }
                 .enqueue()
         }
 
@@ -190,6 +213,36 @@ class BleTransport(
     }
 
     private val managers = mapOf(Arm.LEFT to ArmManager(Arm.LEFT), Arm.RIGHT to ArmManager(Arm.RIGHT))
+
+    /** Per-arm "interval/latency/timeout [phy]" as the platform reported
+     *  them, joined into [LinkState.linkParams] so the shell journals each
+     *  change and the phone's journal (served at /journal) carries it. */
+    private val linkParamsByArm = java.util.concurrent.ConcurrentHashMap<Arm, String>()
+    private val phyByArm = java.util.concurrent.ConcurrentHashMap<Arm, String>()
+
+    private fun publishLinkParams() {
+        val s = Arm.entries.mapNotNull { a ->
+            val p = linkParamsByArm[a] ?: return@mapNotNull null
+            "${a.name.first()} $p${phyByArm[a]?.let { " $it" } ?: ""}"
+        }.joinToString(" · ")
+        updateState { it.copy(linkParams = s) }
+    }
+
+    /** HCI units: interval × 1.25 ms, latency in intervals, timeout × 10 ms. */
+    private fun noteLinkParams(arm: Arm, how: String, interval: Int, latency: Int, timeout: Int) {
+        val text = "%.2fms/%d/%dms".format(interval * 1.25, latency, timeout * 10)
+        Log.i("ble", "$arm connection parameters $how: interval ${"%.2f".format(interval * 1.25)} ms, " +
+            "latency $latency, supervision timeout ${timeout * 10} ms")
+        linkParamsByArm[arm] = text
+        publishLinkParams()
+    }
+
+    private fun notePhy(arm: Arm, tx: Int, rx: Int) {
+        fun name(p: Int) = when (p) { PhyCallback.PHY_LE_1M -> "1M"; PhyCallback.PHY_LE_2M -> "2M"; PhyCallback.PHY_LE_CODED -> "coded"; else -> "phy$p" }
+        Log.i("ble", "$arm PHY tx ${name(tx)} rx ${name(rx)}")
+        phyByArm[arm] = "phy ${name(tx)}/${name(rx)}"
+        publishLinkParams()
+    }
 
     private fun reasonName(reason: Int): String = when (reason) {
         ConnectionObserver.REASON_SUCCESS -> "clean"

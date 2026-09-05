@@ -323,7 +323,8 @@ class ShellService : Service() {
         // the browser replica: the same mirror, from any browser on the tailnet
         try {
             val rs = ReplicaServer(prefs.replicaPort, prefs.token, { mirror }, { replicaStatus() },
-                onInput = { postGesture(it) }, onText = { postText(it) })
+                onInput = { postGesture(it) }, onText = { postText(it) },
+                journalPath = { filesDir.toPath().resolve("journal.jsonl") })
             rs.start()
             replica = rs
         } catch (e: Exception) {

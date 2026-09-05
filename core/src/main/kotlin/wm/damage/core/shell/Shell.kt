@@ -696,7 +696,7 @@ class Shell(
         if (!running) return
         if (!loopLaunched) {
             running = false
-            if (stateLoaded) saveAll()   // never write defaults over a state never read
+            if (stateLoaded) saveAll(sync = true)   // never write defaults over a state never read
             if (stopTransport) transport.stop()
             journal.close()              // reopens by itself on the next write
             return
@@ -729,6 +729,10 @@ class Shell(
         for (m in msgs) {
             loopHandling = m::class.simpleName
             loopSince = System.currentTimeMillis()
+            // a ring event (or a typed line) is the one message whose flush
+            // may take the window's last slot — see pump()
+            pumpPriority = m is Msg.In ||
+                (m is Msg.Trans && (m.ev is TransportEvent.Input || m.ev is TransportEvent.Text))
             if (!running && m !is Msg.Shutdown) {
                 if (m is Msg.Run) m.dropped?.invoke()
                 queued.decrementAndGet()
@@ -761,7 +765,7 @@ class Shell(
                         // session (a focused poll pace, a pane subscription) —
                         // start() re-activates the restored window (R2-W13)
                         try { current?.onDeactivate() } catch (e: Exception) { Log.e("shell", "onDeactivate at shutdown", e) }
-                        saveAll()
+                        saveAll(sync = true)      // the last state must be ON DISK before stop() returns
                         m.done.complete(Unit)
                     }
                     Msg.Pump -> {}
@@ -976,8 +980,8 @@ class Shell(
         // Switcher open: §1.3 grammar
         if (switcher.open) {
             when (type) {
-                EvenHubMsg.EV_SCROLL_TOP -> { switcher.scroll(-1); paintSwitcherFrame() }
-                EvenHubMsg.EV_SCROLL_BOTTOM -> { switcher.scroll(1); paintSwitcherFrame() }
+                EvenHubMsg.EV_SCROLL_TOP -> { switcher.scroll(-1, spinFrames()); paintSwitcherFrame() }
+                EvenHubMsg.EV_SCROLL_BOTTOM -> { switcher.scroll(1, spinFrames()); paintSwitcherFrame() }
                 EvenHubMsg.EV_CLICK -> commitSwitcher()
                 EvenHubMsg.EV_RING_LONG_PRESS, EvenHubMsg.EV_DOUBLE_CLICK -> cancelSwitcher()
             }
@@ -1844,11 +1848,43 @@ class Shell(
         } else {
             flushFailStreak = 0
             keyframeFailStreak = 0
+            noteLinkRegime()
             checkMirrorAgreement()
         }
     }
 
     private var keyframeFailStreak = 0
+
+    /**
+     * The link is SLOW when the transport's measured transfer term says so
+     * (2026-09-05, `HANDOFF.md` §32): ~20 ms/KB on PC-direct BlueZ against
+     * ~125 ms/KB through the phone (the production journal, §31.6). The wheel
+     * spins in fewer frames on a slow link; nothing else changes, and nothing
+     * changes at all until a flush of 1 KB or more has actually been timed.
+     */
+    private fun linkSlow(): Boolean = transport.state.value.transferMsPerKbEma > SLOW_LINK_MS_PER_KB
+
+    private fun spinFrames(): Int = if (linkSlow()) 2 else 4
+
+    private var lastLinkSlow: Boolean? = null
+    private var lastLinkParams = ""
+
+    /** Journal the link regime when it flips and the connection parameters
+     *  when the platform reports them — so the phone's journal carries the
+     *  answer to "was the priority request granted" (no adb needed). */
+    private fun noteLinkRegime() {
+        val st = transport.state.value
+        val slow = linkSlow()
+        if (slow != lastLinkSlow) {
+            lastLinkSlow = slow
+            journal.note("link", "transfer %.0f ms/KB, floor %.0f ms — %s regime (wheel spins in %d frames)"
+                .format(st.transferMsPerKbEma, st.floorMsEma, if (slow) "SLOW" else "fast", spinFrames()))
+        }
+        if (st.linkParams != lastLinkParams) {
+            lastLinkParams = st.linkParams
+            if (st.linkParams.isNotEmpty()) journal.note("link", "connection parameters: ${st.linkParams}")
+        }
+    }
 
     /** The last belief/mirror disagreement reported (hosts and tests read it;
      *  null = none, or agreement restored after a keyframe). */
@@ -2467,10 +2503,24 @@ class Shell(
     // ------------------------------------------------------------------ pump
     /** After every message: animations first (slides under, overlays over),
      *  chrome rides along, then the one atomic flush; preview settles last. */
+    /** Set by the loop for the message the coming pump follows: true for a
+     *  ring event or a typed line, false for everything else (ticks, pushes,
+     *  animation continuations, completions). */
+    private var pumpPriority = false
+
     private suspend fun pump() {
         if (!running || !transport.state.value.started) return
         val st = transport.state.value
-        val room = st.inFlight < st.window
+        // One slot is RESERVED for the response to input (2026-09-05,
+        // `HANDOFF.md` §32): animation frames, poll-driven repaints and the
+        // visualizer may keep at most window-1 flushes in flight, so a
+        // gesture's first flush never queues behind three of them (each
+        // 150–1,200 ms on the phone's measured curve, §31.1). The pump that
+        // follows a ring event may fill the window; every other pump stops one
+        // short. An instant transport never sees the difference — nothing
+        // stays in flight — and a window of 1 keeps its one slot.
+        val cap = if (pumpPriority) st.window else maxOf(1, st.window - 1)
+        val room = st.inFlight < cap
         if (!room) return         // FlushDone re-pumps; §5.13 coalescing happens here
 
         var animated = false
@@ -2559,6 +2609,7 @@ class Shell(
             setStatus("ok")
         }
         if (comp.hasPending || comp.needsKeyframe) {
+            val assembleT0 = System.nanoTime()
             val assembled = try {
                 comp.assembleFlush(Geometry.rectBudget(st.window))
             } catch (e: Exception) {
@@ -2572,12 +2623,16 @@ class Shell(
                 null
             }
             if (assembled != null) {
+                val assembleMs = (System.nanoTime() - assembleT0) / 1_000_000
+                // the loop stamped loopSince when it took the message this
+                // pump follows: everything between is the paints it caused
+                val handleMs = System.currentTimeMillis() - loopSince
                 val label = "$mode${if (switcher.open) "+switcher" else ""}"
                 try {
                     val id = transport.submit(FlushRequest(assembled.ops, assembled.epoch, label,
                         wide = assembled.wide))
                     inflightFlushes[id] = assembled
-                    journal.flushSubmitted(id, assembled, label)
+                    journal.flushSubmitted(id, assembled, label, st.transportName, handleMs, assembleMs)
                 } catch (e: Exception) {
                     Log.e("shell", "submit failed", e)
                     journal.note("submit-error", e.toString())
@@ -2845,7 +2900,11 @@ class Shell(
         }
     }
 
-    private fun saveAll() {
+    /** [sync] = the shutdown form: the write has landed when this returns.
+     *  The periodic form encodes on the loop and writes on the store's own
+     *  thread (2026-09-05, §32), reporting a failed write back through the
+     *  loop so the notice is raised where every other state mutation is. */
+    private fun saveAll(sync: Boolean = false) {
         // settings are NOT re-put here (R2#4): applySettings(persist=true)
         // already persisted every local edit, and a blind re-encoding of a
         // peer-applied record would re-stamp it on the next save tick — the
@@ -2893,9 +2952,20 @@ class Shell(
                 Log.e("shell", "saveState of ${w.id} failed", e)
             }
         }
-        val landed = persistence.save()
-        // raise once per failure streak (R3s#11): an all-day driver on a full
-        // disk must not learn at the next restart that nothing persisted
+        if (sync) {
+            noteSaveLanded(persistence.save())
+        } else {
+            persistence.saveAsync { landed ->
+                // back onto the loop; a shell already stopped drops it (the
+                // sync shutdown save reports for itself)
+                if (running) post(Msg.Run(dropped = {}) { noteSaveLanded(landed) })
+            }
+        }
+    }
+
+    /** Raise once per failure streak (R3s#11): an all-day driver on a full
+     *  disk must not learn at the next restart that nothing persisted. */
+    private fun noteSaveLanded(landed: Boolean) {
         if (!landed && !saveFailureRaised) {
             saveFailureRaised = true
             services.notifyInternal("state", "state save FAILED — changes will not survive a restart", urgent = true)
@@ -2944,6 +3014,9 @@ class Shell(
     companion object {
         /** Pack.level for every 8-bit value — the emitter's quantiser, tabled. */
         private val LEVEL = IntArray(256) { Pack.level(it) }
+        /** Above this measured transfer term the link counts as slow (§32):
+         *  the two regimes measured 20 and 125 ms/KB; 50 ≈ 20 KB/s. */
+        const val SLOW_LINK_MS_PER_KB = 50.0
         const val DIVERGE_EPISODES_MAX = 3
         const val DIVERGE_QUIET_CHECKS = 10
 

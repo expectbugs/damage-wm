@@ -53,7 +53,14 @@ object Http {
         }
         val hdrs = HashMap<String, List<String>>()
         for ((k, v) in conn.headerFields) if (k != null) hdrs[k] = v
-        conn.disconnect()
+        // NOT disconnect()ed on the success path (2026-09-05, §32): a fully
+        // read body returns the socket to the JDK's keep-alive pool, so the
+        // next request to the same host reuses it — for TorrentLeech that is
+        // a TLS handshake per page saved; qBittorrent over loopback does not
+        // care either way. disconnect() stays on the failure path above, where
+        // the connection's state is unknown. A stale pooled connection is
+        // retried by the JDK for GET only; a POST here streams its body with a
+        // fixed length, which the JDK never retries — no request can double.
         return Response(status, hdrs, bytes)
     }
 

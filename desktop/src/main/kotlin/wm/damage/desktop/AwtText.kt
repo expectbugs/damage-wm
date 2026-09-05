@@ -61,9 +61,21 @@ class AwtText(private val contentScaleProvider: () -> Double = { 1.0 }) : TextRa
         return gv.visualBounds.height / 100.0
     }
 
-    private fun font(spec: FontSpec): Font {
+    // string-level caches (2026-09-05, GlyphCaches.kt): a measure and a
+    // rendered coverage mask depend only on the text and the RESOLVED font
+    private val measures = wm.damage.core.text.MeasureCache()
+    private val rasters = wm.damage.core.text.RasterCache()
+
+    private fun resolvedPx(spec: FontSpec): Int {
         val contentScale = if (spec.face == Face.SYSTEM) 1.0 else contentScaleProvider()
-        val px = Math.round(spec.sizePx * scale.getValue(spec.face) * contentScale).toInt().coerceAtLeast(7)
+        return Math.round(spec.sizePx * scale.getValue(spec.face) * contentScale).toInt().coerceAtLeast(7)
+    }
+
+    private fun glyphKey(spec: FontSpec, text: String) =
+        wm.damage.core.text.GlyphKey(spec.face, resolvedPx(spec), spec.bold, spec.italic, text)
+
+    private fun font(spec: FontSpec): Font {
+        val px = resolvedPx(spec)
         val key = Key(spec.face, spec.bold, spec.italic, px)
         return derived.getOrPut(key) {
             var f = base.getValue(spec.face to spec.bold).deriveFont(px.toFloat())
@@ -74,7 +86,9 @@ class AwtText(private val contentScaleProvider: () -> Double = { 1.0 }) : TextRa
 
     override fun measure(text: String, font: FontSpec): Int {
         if (text.isEmpty()) return 0
-        return Math.ceil(font(font).getStringBounds(text, frc).width).toInt()
+        return measures.get(glyphKey(font, text)) {
+            Math.ceil(font(font).getStringBounds(text, frc).width).toInt()
+        }
     }
 
     override fun metrics(font: FontSpec): FontMetrics {
@@ -87,12 +101,25 @@ class AwtText(private val contentScaleProvider: () -> Double = { 1.0 }) : TextRa
 
     override fun draw(surface: Gray8, x: Int, y: Int, text: String, font: FontSpec, level: Int) {
         if (text.isEmpty()) return
-        val f = font(font)
+        val m = rasters.get(glyphKey(font, text)) { render(font(font), text) }
+        val cov = m.cov
+        for (yy in 0 until m.h) {
+            val row = yy * m.w
+            for (xx in 0 until m.w) {
+                val c = cov[row + xx].toInt() and 0xFF
+                if (c > 0) surface.blend(x + xx, y + yy, level, c)
+            }
+        }
+    }
+
+    /** The uncached path, unchanged: the string into a fresh gray bitmap at
+     *  (0, ascent), read back as coverage. */
+    private fun render(f: Font, text: String): wm.damage.core.text.GlyphMask {
         val bounds = f.getStringBounds(text, frc)
         val lm = f.getLineMetrics(text, frc)
         val w = Math.ceil(bounds.width).toInt() + 4
         val h = Math.ceil(lm.height.toDouble()).toInt() + 4
-        if (w <= 0 || h <= 0) return
+        if (w <= 0 || h <= 0) return wm.damage.core.text.GlyphMask(0, 0, ByteArray(0))
         val img = BufferedImage(w, h, BufferedImage.TYPE_BYTE_GRAY)
         val g2 = img.createGraphics()
         g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
@@ -102,12 +129,12 @@ class AwtText(private val contentScaleProvider: () -> Double = { 1.0 }) : TextRa
         g2.drawString(text, 0, Math.round(lm.ascent))
         g2.dispose()
         val raster = img.raster
+        val cov = ByteArray(w * h)
         for (yy in 0 until h) {
-            for (xx in 0 until w) {
-                val cov = raster.getSample(xx, yy, 0)
-                if (cov > 0) surface.blend(x + xx, y + yy, level, cov)
-            }
+            val row = yy * w
+            for (xx in 0 until w) cov[row + xx] = raster.getSample(xx, yy, 0).toByte()
         }
+        return wm.damage.core.text.GlyphMask(w, h, cov)
     }
 
     override fun covers(text: String, font: FontSpec): Boolean =
