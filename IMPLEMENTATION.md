@@ -714,6 +714,28 @@ agents per subsystem, every candidate verified by trace, timing or pixel
 simulation before a fix) found and fixed ~70 real defects. The mechanisms that came out
 of them are load-bearing and easy to break by accident:
 
+- 🆕 **The `queued` counter is honest, and the loop says whether it is alive**
+  (`Shell.post` / `loop()`'s `finally` / `quiescenceReport`, `HANDOFF.md`
+  §31.8): `isQuiescent()` reads `queued`, so a message counted but never
+  delivered would leave the shell permanently "busy" to every harness and every
+  gate. `post()` undoes its own count on a refused `trySend` and says so; the
+  loop's `finally` drains what is left and decrements for it; and the report
+  distinguishes `LOOP-ENDED` from `in=<Msg>/<ms>ms`. Do not make `post()` fire
+  and forget again — a silent failure in this counter is invisible everywhere
+  else.
+- 🆕 **A canvas repaint that TRANSLATED is transmitted as the translation**
+  (`CanvasShift` + `Shell.paintCanvasOf`, `HANDOFF.md` §31): a `CanvasView`
+  owns its damage, and the arm was `paint(); damage(content)` — every row moves
+  in a scroll, so the diff correctly found the whole area changed and shipped
+  it (measured: a tmux scroll cost 7.4–10.8 KB, and 6–12 KB measures a median
+  1,193 ms on the glasses). The shell DETECTS the shift by comparing the frame
+  before with the frame after and declares it; it does not ask the window,
+  because a window that reported a translation it did not make would put wrong
+  pixels on the glass and because detection covers windows nobody has written
+  yet. Exclusive mode's own damage path goes through the same helper.
+  `declareShift(movePending = false)` is the canvas ORDER — damage recorded
+  after the move must not be translated. Do not replace this with a field on
+  the window contract.
 - 🆕 **A CLOSED wheel is not spinning** (`Switcher.spinning` / `close`, `HANDOFF.md` §30):
   the frame loop posts another `Msg.Pump` for as long as `spinning` is true and
   `isQuiescent()` reads the same flag, and the drum is stepped only while the
@@ -989,7 +1011,15 @@ Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md
     precedent). Seeded from the wall clock, a scene was a different tournament every run and its
     script's assumptions held by luck.
   - ⚠ **Run it more than once.** Three harness defects in §27.6 were each invisible in a single
-    run. The PNGs are not byte-identical between runs either — the chrome clock is live.
+    run. The PNGs are not byte-identical between runs either — the chrome clock is live, and so is
+    the status line's throughput readout (`785K/s · 1ms` one run, `1664K/s · 1ms` the next), which
+    means a plain `diff -rq` between two snapshot directories reports ALL 49 scenes even on an
+    unchanged tree. 🔴 **To compare two BUILDS**, keep both installs on disk — build, copy
+    `desktop/build/install/desktop` aside, `git stash`, build, copy aside, `git stash pop` — run
+    them back to back inside one minute, and then judge by WHERE the pixels differ, not whether
+    they do: the status readout sits inside `x∈[240,400]` in a band ≤16 rows tall, and the live
+    scenes are `11-files-locations`, `38-music-mode-480-bars` and `39-music-mode-288-scope`.
+    `10-silent.png` draws no status line and IS byte-stable — it is the useful canary.
 - `tools/lint.py` still gates the repo at 0 findings; its geometry rules are
   mirrored 1:1 (same rule IDs) in `wm.damage.core.geom.Geometry`, and
   `GeometryTest` pins both to the same fixtures.

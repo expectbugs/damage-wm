@@ -175,12 +175,19 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     /**
      * Declare a translation (§5.2/§5.3): pixels now at [dst] came from [src]
      * (same size). The caller has ALREADY repainted `composed`; this records
-     * the cheap transmission path. Damage already pending inside [src] moves
-     * with the content — otherwise a damage-then-shift frame would transmit
-     * the wrong rows and lose the change entirely. A shift that crosses plane
-     * pieces has no single per-lens copy (round 5): it is plain damage.
+     * the cheap transmission path. A shift that crosses plane pieces has no
+     * single per-lens copy (round 5): it is plain damage.
+     *
+     * [movePending] says whether damage already recorded describes the frame
+     * BEFORE the move. The slide path records damage and then shifts, so its
+     * pending rects have to travel with the content — otherwise the frame
+     * transmits the wrong rows and loses the change entirely. A canvas repaint
+     * is the other order (§31): the window redraws, the damage recorded is
+     * already the new frame's, and translating it would widen the scan into
+     * rows that never moved — off the panel, at a large offset. Pass false
+     * there.
      */
-    fun declareShift(src: Rect, dst: Rect) {
+    fun declareShift(src: Rect, dst: Rect, movePending: Boolean = true) {
         if (src.w != dst.w || src.h != dst.h) {
             Log.e("comp", "declareShift size mismatch $src -> $dst — falling back to damage")
             damage(src.union(dst))
@@ -191,14 +198,16 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             damage(src.union(dst))
             return
         }
-        val dx = dst.x - src.x
-        val dy = dst.y - src.y
-        for (i in pendingDamage.indices) {
-            val d = pendingDamage[i]
-            if (src.contains(d)) {
-                pendingDamage[i] = d.translate(dx, dy)
-            } else if (d.overlaps(src)) {
-                pendingDamage[i] = d.union(d.translate(dx, dy)).alignOut()
+        if (movePending) {
+            val dx = dst.x - src.x
+            val dy = dst.y - src.y
+            for (i in pendingDamage.indices) {
+                val d = pendingDamage[i]
+                if (src.contains(d)) {
+                    pendingDamage[i] = d.translate(dx, dy)
+                } else if (d.overlaps(src)) {
+                    pendingDamage[i] = d.union(d.translate(dx, dy)).alignOut()
+                }
             }
         }
         pendingCopies.add(PlannedCopy(src, dst))

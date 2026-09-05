@@ -19,6 +19,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import wm.damage.core.comp.CanvasShift
 import wm.damage.core.comp.Compositor
 import wm.damage.core.comp.Journal
 import wm.damage.core.geom.Geometry
@@ -397,10 +398,27 @@ class Shell(
         override fun docContentHeight(): Int = layout.content.h - 2 * wm.damage.core.geom.Layout.CONTENT_PAD
     }
 
+    /**
+     * 🔴 A refused post UNDOES its own count and says so. `queued` is what
+     * `isQuiescent()` reads, so a message counted but never delivered leaves
+     * the shell permanently "busy" to every harness and every gate — a silent
+     * failure in the counter whose whole job is to be trusted (review §31).
+     */
     private fun post(m: Msg) {
         queued.incrementAndGet()
-        msgs.trySend(m)
+        if (msgs.trySend(m).isFailure) {
+            queued.decrementAndGet()
+            Log.e("shell", "the loop refused $m — the shell is no longer serving messages")
+        }
     }
+
+    /** Loop liveness, for [quiescenceReport]: a stall that says WHICH — the
+     *  loop ended, or it is parked inside a handler — is a stall someone can
+     *  act on (review §31: three tests reported `queued=1` with no thread
+     *  inside our code and no way to tell those two apart). */
+    @Volatile private var loopAlive = false
+    @Volatile private var loopHandling: String? = null
+    @Volatile private var loopSince = 0L
 
     private fun setStatus(s: String) {
         if (statusText != s) {
@@ -706,7 +724,11 @@ class Shell(
 
     // ------------------------------------------------------------------ loop
     private suspend fun loop() {
+        loopAlive = true
+        try {
         for (m in msgs) {
+            loopHandling = m::class.simpleName
+            loopSince = System.currentTimeMillis()
             if (!running && m !is Msg.Shutdown) {
                 if (m is Msg.Run) m.dropped?.invoke()
                 queued.decrementAndGet()
@@ -774,7 +796,16 @@ class Shell(
                 setStatus("ERROR ${e.message ?: e::class.simpleName}")
             }
             queued.decrementAndGet()
+            loopHandling = null
             if (!running && m is Msg.Shutdown) break
+        }
+        } finally {
+            loopAlive = false
+            // whatever is still in the channel will never be handled: the
+            // count must not outlive the loop that would have cleared it
+            var left = 0
+            while (msgs.tryReceive().isSuccess) { queued.decrementAndGet(); left++ }
+            if (left > 0) Log.w("shell", "the loop ended with $left message(s) unhandled")
         }
     }
 
@@ -1173,6 +1204,16 @@ class Shell(
     /** Only the surfaces that moved — one rect each (the fid budget). */
     private fun paintExclusiveDelta() {
         val w = current ?: return
+        // the frame this one replaces, for the same translation rule the
+        // canvas path takes (§31): exclusive mode is the OTHER surface that
+        // owns its damage, and a band that scrolls there — Music Mode's synced
+        // lyrics advancing a line — is a translation like any other. One
+        // buffer, one copy per frame; the detector only looks at bands big
+        // enough for a copy to beat the diff.
+        val safe = layout.safe
+        val prev = exclusivePrev?.takeIf { it.w == safe.w && it.h == safe.h }
+            ?: Gray8(safe.w, safe.h).also { exclusivePrev = it }
+        prev.blit(comp.composed, safe, 0, 0)
         val rects = try {
             w.paintExclusive(comp.composed, layout.safe, full = false)
         } catch (e: Exception) {
@@ -1182,6 +1223,10 @@ class Shell(
         }
         if (rects.isEmpty()) return
         for (r in rects) comp.damage(r)
+        for (r in rects) {
+            if (r.h < 64 || !safe.contains(r)) continue
+            declareTranslation(prev, Rect(r.x - safe.x, r.y - safe.y, r.w, r.h), r)
+        }
         // the small notice box rides on top; its under-snapshot is only ever
         // used by a furl, which the quiet modes follow with a full repaint
         if (notifications.active) paintNotification()
@@ -2192,11 +2237,60 @@ class Shell(
         } else when (val v = w.view()) {
             is WindowView.ListView -> kit.paintList(comp.composed, layout, v)
             is WindowView.DocView -> kit.paintDoc(comp.composed, layout, v)
-            is WindowView.CanvasView -> {
-                v.paint(comp.composed, layout.content)
-                comp.damage(layout.content)
-            }
+            is WindowView.CanvasView -> paintCanvasOf(v)
         }
+    }
+
+    /** The previous canvas frame, for [paintCanvasOf]'s shift detection — one
+     *  buffer, reused, sized to the content area. */
+    private var canvasPrev: Gray8? = null
+
+    /** The same, for exclusive mode's own damage path. */
+    private var exclusivePrev: Gray8? = null
+
+    /**
+     * 🔴 A canvas repaint that TRANSLATED its content is transmitted as the
+     * translation (`CLAUDE.md`'s endless-scroll rule: mode 8 { mode 9 rect-copy
+     * + mode 3 fill }), not as the whole content area.
+     *
+     * A `CanvasView` owns its damage, and this arm used to be `paint();
+     * damage(content)`. Every row moves in a scroll, so the truth diff
+     * correctly found the whole area changed and shipped it: MEASURED, a tmux
+     * scroll cost 7.4–10.8 KB, and 6–12 KB measures a **median 1193 ms** on the
+     * glasses against 65 ms under 500 B (the production journal, isolated
+     * flushes; ~6.9 KB/s on the wire). Lists and documents never paid it —
+     * their slides have always declared the shift.
+     *
+     * Detected rather than declared by the window (`CanvasShift` says why), so
+     * every canvas gets it: the tmux pane Adam scrolls, the same pane when the
+     * terminal itself scrolls a line in, the Hold'em table, and whatever is
+     * written next. The detector verifies the block byte for byte, and
+     * `declareShift` replays the copy onto the per-lens shadows before the diff
+     * runs — so the worst a wrong answer could do is cost bytes, and a verified
+     * one cannot even do that.
+     */
+    private fun paintCanvasOf(v: WindowView.CanvasView) {
+        val r = layout.content
+        val prev = canvasPrev?.takeIf { it.w == r.w && it.h == r.h }
+            ?: Gray8(r.w, r.h).also { canvasPrev = it }
+        prev.blit(comp.composed, r, 0, 0)
+        v.paint(comp.composed, r)
+        comp.damage(r)
+        // the floor is a block worth one copy op; below it the diff is cheaper
+        // than the copy plus the repairs behind it
+        declareTranslation(prev, Rect(0, 0, r.w, r.h), r)
+    }
+
+    /**
+     * Declare the translation between [prev] (read at [was]) and the freshly
+     * repainted `composed` (read at [now]), when this repaint was one.
+     *
+     * The floor is a block worth one copy op — below it the diff is cheaper
+     * than the copy plus the repairs behind it.
+     */
+    private fun declareTranslation(prev: Gray8, was: Rect, now: Rect) {
+        CanvasShift.detect(prev, was, comp.composed, now, minRun = maxOf(32, now.h / 8))
+            ?.let { (src, dst) -> comp.declareShift(src, dst, movePending = false) }
     }
 
     private fun updatePlanes() {
@@ -2579,6 +2673,8 @@ class Shell(
      *  and the replica status line. Empty = quiescent. */
     fun quiescenceReport(): String = buildString {
         if (queued.get() != 0) append("queued=${queued.get()} ")
+        if (!loopAlive) append("LOOP-ENDED ")
+        loopHandling?.let { append("in=$it/${System.currentTimeMillis() - loopSince}ms ") }
         if (comp.hasPending) append("pending ")
         if (comp.needsKeyframe) append("keyframe ")
         if (inflightFlushes.isNotEmpty()) append("inflight=${inflightFlushes.size} ")

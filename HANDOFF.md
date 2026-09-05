@@ -2036,3 +2036,251 @@ Read `CLAUDE.md` → `REMINDER.md` → `HANDOFF.md` §19–§30.
   came out of a test bound firing — so when a bound fires, measure the normal case before calling it
   load. `OracleWalkTest`'s settle now prints the stacks of every thread inside `wm.damage` when it
   gives up, so the next one says where.
+
+---
+
+## 31. Canvas scrolling ships the translation (2026-09-05, Adam's report)
+
+Adam, testing on glass: *"scrolling text in apps like Tmux is really slow, like 1-1.5 full seconds
+between swiping on the ring and seeing the text actually jump to the new position."*
+
+### 31.1 What it measured, at both ends
+
+**What a tmux scroll sent** (MEASURED, the sim's exact encoded bytes, one live instance under a
+scratch home): one mode-3 delta covering the WHOLE content area — 7,395 / 8,380 / 9,942 / 10,225 B
+on four consecutive scrolls. A list scroll in the same session: mode-9 copies plus small deltas,
+72–2,215 B.
+
+**What that costs on the glasses** (MEASURED, 11,210 flush pairs in the production journal,
+restricted to flushes with nothing queued ahead of them so this is not queueing):
+
+| flush size | n | median submit→ack |
+|---|---:|---:|
+| < 500 B | 3,137 | **65 ms** |
+| 0.5–1.5 KB | 456 | 152 ms |
+| 1.5–3 KB | 220 | 196 ms |
+| 3–6 KB | 240 | 526 ms |
+| **6–12 KB** | **277** | **1,193 ms** |
+
+10 KB ÷ the ~6.9 KB/s those big flushes imply ≈ 1.45 s. That is Adam's number, from the other
+direction.
+
+### 31.2 The mechanism
+
+`Shell.scrollFocused` has three arms. `ListView` → `startListSlide`, `DocView` → `startDocSlide`:
+both do the move on the device with a mode-9 rect-copy and send only the newly exposed strip —
+`CLAUDE.md`'s endless-scroll rule, `DESIGN.md` §5.2/§5.3. `CanvasView` → `h(delta);
+composeContent()`, and `paintContentOf`'s canvas arm was `paint(); damage(content)`. Every row moves
+in a scroll, so the truth diff correctly found the whole area changed and shipped it. Tmux's live
+pane and its scrollback are canvases; so are Music's lyrics, volume and Now Playing, and the Hold'em
+table.
+
+Note what was NOT wrong: the damage rect is a scan hint, not a payload. The compositor already
+sends only what actually differs — that is why a live pane's own updates cost ~2 KB while a scroll
+costs 10. Nothing was being sent carelessly; the translation simply was not being declared.
+
+### 31.3 The fix, and why it is a DETECTOR
+
+`CanvasShift.detect` compares the frame before the repaint with the frame after, finds the vertical
+translation, and the shell declares it. Not a new field on `CanvasView` for each window to fill in,
+for two reasons:
+
+- **Coverage.** Every canvas window gets the cheap path without knowing the file exists — the tmux
+  pane Adam scrolls, the same pane when the terminal itself scrolls a line in (which no `onScroll`
+  would ever see), Music's lyrics, and windows not written yet. Exclusive mode, the other surface
+  that owns its damage, goes through the same helper for any band big enough to be worth it.
+- **It cannot be got wrong.** A window that reported a translation it did not make would put wrong
+  pixels on the glass. A detector that VERIFIES the block byte for byte before declaring it cannot.
+
+**And it cannot draw a wrong frame even if it were wrong.** `Compositor.declareShift` replays the
+copy onto the per-lens SHADOWS and then diffs them against the truth of `composed` under the plane
+map. A shift that is not real costs bytes to repair, never correctness. That property is what made
+it safe to detect rather than declare — and it is worth remembering the next time something wants
+to ride the copy path.
+
+Three details that are load-bearing:
+
+- `declareShift` gained `movePending`. The slide path records damage and THEN shifts, so its pending
+  rects must travel with the content. A canvas repaint is the other order — the damage recorded is
+  already the new frame's — and translating it would widen the scan into rows that never moved, off
+  the panel at a large offset. Canvas and exclusive pass false.
+- A row of one value matches at every offset, so uniform rows get no vote in choosing the offset
+  (they are still copied). Without that, a pane's blank half elects a shift that saves nothing.
+- The detector refuses a region off the compositor's 4×2 CELL grid. ⚠ Not a firmware rule — mode 9
+  takes **full uint16 coords** (`zlib_glue.c`), validated for same-size and in-bounds only, and
+  `rect_copy_4bpp` has a nibble path for an odd left/width. The constraint is OURS: `declareShift`
+  moves the per-lens `unknown` marks with the copy through `moveCells`, which is cell-quantised
+  (`CW`/`CH` **are** `X_STEP`/`Y_STEP`). The canvas path always passes the content rect, legal by
+  construction; exclusive mode passes rects a WINDOW chose.
+
+### 31.4 The bug inside the first draft of it
+
+The byte verification advanced its cursors AND indexed by the loop variable — `pix[a + 2i]` — so it
+compared the wrong bytes and declined every shift there is. The first live measurement after the
+"fix" was unchanged from before it, and a probe in the detector showed it finding real translations
+(`dy=-110`, 278 rows matching) and then failing verification on the first row of every one.
+
+It failed SAFE: declining a shift is the old behaviour. That is why only a measurement found it, and
+why the positive case of the unit pin is the pin for it.
+
+**And a SECOND one, found on a re-read after the battery was already green** — a gap in the same
+guard. The offset sweep runs `dy = -h + 2` stepping by 2, so for an **odd** region height every
+candidate offset is odd and `region.y + s0 + bestDy` lands on an odd row however carefully `s0` and
+`len` are snapped. `detect` now requires an even height alongside the other three conditions.
+
+🔴 **Read the correction in the bullet above before quoting a severity for this.** The first write-up
+of it here — and the code comment it came from — said the firmware refuses an unaligned mode-9 rect
+in silence, so an odd row would leave a wrong frame on the glass. **That is false, and it was
+asserted without reading `zlib_glue.c`, which is the one thing `CLAUDE.md` says never to do for a
+mode contract.** Mode 9 takes full uint16 coords and has no alignment requirement at all. The real
+consequence is confined to the per-lens `unknown` cell map that `moveCells` carries with the copy,
+which can only matter after a lost flush. The guard is still worth holding — the grid costs nothing
+and the diff scan reasons in the same cells — but it is bookkeeping hygiene, not a wrong frame.
+
+Unreachable today either way: `layout.content.h` is even and no window returns an odd-height
+exclusive rect. It is guarded in `detect` rather than in the callers because exclusive mode passes
+rects a WINDOW chose. Two things about the pin are worth carrying:
+
+- **The failing combination is odd height AND an odd shift.** An odd-height sweep proposes only odd
+  offsets, so it declines an *even* translation harmlessly — the first draft of the pin used the
+  40 px shift from the positive case and **passed with the guard removed**. Watched to fail only
+  after the shift was made odd, and the value it then produced was `src=(16,81 608x368)`: row 81,
+  one cell-row off the grid.
+- The even heights either side still find their translation, so the pin holds the guard to PARITY
+  rather than to size; and an even region asked for an odd translation declines, which is the
+  harmless half of the same arithmetic.
+
+### 31.5 What it costs now
+
+Same instrument, same session, the same four scrolls:
+
+| | before | after |
+|---|---:|---:|
+| entering history (not a translation — correct) | 8,405 B | 7,962 B |
+| steady-state history scrolls | 9,756 / 11,086 / 11,216 B | 3,815 / 5,583 / 5,401 B |
+
+**~11.1 KB → ~5.4 KB, about half.** Through the measured table above that is ~1,193 ms → ~526 ms.
+MEASURED bytes; MODELED milliseconds — nothing here has been on the glasses yet.
+
+What remains is the newly exposed strip, and it is real new content: `HIST_STEP` is 5 lines, the
+strip measures 106 px, and five lines of dense terminal text encode to 3–5 KB. The only other lever
+is the step size, which is a design decision and not one to take on a measurement's say-so.
+
+Two supporting changes: `Gray8.blit` copies whole rows with `System.arraycopy` when nothing clips
+(the shell's hottest copy — the slides, the menu's under-snapshot and this detector's previous
+frame all move full-width bands), pinned against the per-pixel path in eight clipping shapes; and
+no rendered surface changed.
+
+**How that last claim was actually checked** — because the obvious way does not work. The 49
+snapshot scenes are NOT byte-comparable between runs: the status line carries a live throughput
+readout (`785K/s · 1ms` in one run, `1664K/s · 1ms` in the next), so two runs of the SAME build
+differ in every scene that draws chrome. The comparison that means something keeps BOTH installs on
+disk — build the change, copy `desktop/build/install/desktop` aside, `git stash`, build again, copy
+aside, `git stash pop` — and runs them back to back inside one minute. Measured that way: **46 of
+the 49 scenes differ only inside the status readout** (all differences within x∈[240,400] and a
+band ≤16 rows tall), `10-silent.png` — which draws no status line — is byte-identical, and the
+remaining three are the known live-data scenes: the real filesystem in `11-files-locations` and the
+audio visualisers in `38-music-mode-480-bars` and `39-music-mode-288-scope`, all three of which
+differ run-to-run on an unchanged build as well. ⚠ An earlier note in this section said the scenes
+were byte-identical; they never were, and a plain `diff -rq` between two snapshot directories will
+always report all 49.
+
+### 31.6 🔴 A separate finding: the documented latency curve describes four hours
+
+`overview.md` §5.2 records `ms ≈ 60 + bytes/50` from n=1,488 flushes, with 6–15 KB landing at a
+median 201 ms. The same journal, cut by day and hour, says that is one session:
+
+| when | n | < 500 B | 2–6 KB | 6–12 KB |
+|---|---:|---:|---:|---:|
+| 08-30 | 1,130 | 60 ms | 142 ms | **196 ms** |
+| 08-31 00:00–03:00 | 3,038 | 55–74 ms | 113–142 ms | **198–265 ms** |
+| 08-31 13:00–19:00 | 7,025 | 73–78 ms | 465–812 ms | **1,087–1,286 ms** |
+
+A step change between 03:00 and 13:00 on 2026-08-31: the FLOOR barely moves (55–78 ms throughout)
+while the TRANSFER term collapses about 6×, from ~50 KB/s to ~7 KB/s — which is the §5.1 figure for
+the stock path. 10,063 of the 11,210 flushes are on the slow side of it, and **Adam's own 1–1.5 s
+on the phone agrees with the slow regime**, so that is what daily use is priced at, not the curve.
+
+Candidates, none tested: a second BLE central (the APK mission began that morning, and `CLAUDE.md`'s
+"one central at a time" says exactly this); distance and interference (he left for work); a
+connection-interval renegotiation; a change in the write path between the sessions; the 08-30 sample
+being n=25 in that band. Settling it needs a radio experiment on hardware, which is Adam's call —
+recorded here so the next person does not price anything with the old slope. `CLAIMS.md` regrades it.
+
+### 31.7 Pins
+
+`Review30Test`: `theCanvasShiftDetectorFindsATranslation` (a real translation is found with the
+right offset, grid-legal and byte-identical; an unchanged frame, an unrelated frame, a block under
+the floor and an unaligned region are all declined; and the sub-band form exclusive mode uses, whose
+`was` origin the canvas call site never exercises); `aCanvasScrollShipsTheShiftNotTheScreen` (a real
+shell over the sim: a scroll must cost under a third of what a full change of the same window costs
+— no absolute byte number, so no chrome subtraction and no tuning); `theWholeRowBlitAgreesWithThePerPixelOne`.
+All three were run against the unfixed tree and watched to fail.
+
+The correctness guard is the standing one: `--selfcheck`'s per-lens truth oracle on every settle and
+`OracleWalkTest`'s random walk both compare belief, truth and glass, and a declared copy is replayed
+onto the shadows before that diff runs. `aCanvasScrollShipsTheShiftNotTheScreen` also reads the two
+SIMULATED PANELS after each scroll and compares them to the compositor's belief, on the loop through
+`sampleIdle` — a copy the firmware placed anywhere but where the shadow put it, or refused for
+alignment (which it does in silence), is a wrong frame, and a byte count would call it a win. The
+check asserts the panel is not blank first, so it cannot pass on nothing; it was watched to fail on
+a single flipped pixel.
+
+🔴 **And a coverage gap the change exposed, now closed.** `paintExclusiveDelta` had **no coverage at
+all** — not the new shift path, the whole function. Two reasons, both in the walk: its
+`SurfaceWindow.paintExclusive` returned an empty list for `full = false`, so a delta drew nothing;
+and exclusive mode SWALLOWS every ring input (§4.9), so nothing ever asked for a delta in the first
+place — a window there repaints only because it called `requestRender` itself, the way Music does
+from its channel. The walk's window now paints a band that translates (a strict SUB-rect of `safe`,
+so the non-zero snapshot origin is exercised — the canvas call site always passes the whole content
+area) and asks for four renders on entering exclusive mode. Measured after: 52 exclusive deltas
+across the four heights, ~50 declared translations, and the truth oracle green on all of them.
+**Check this the next time a shell surface is added: a paint arm that returns nothing, or a mode
+that never invalidates, is a function the oracle cannot see.**
+
+### 31.8 A second, unfinished thread: the intermittent `queued=1` settle
+
+While verifying the above, `:core:test` failed roughly one run in four with
+
+```
+shell did not settle: queued=1 reports=0 status='ok'
+```
+
+in five different classes (`OracleWalkTest`, `GamesWindowTest`, `ActivationTest`, `LongPressTest`,
+`MusicModeTest`) — never the same one twice. It is NOT this change: it reproduced on the unmodified
+tree, and it is what has been calling the suites "flaky" for a while.
+
+What was established:
+
+- `OracleWalkTest.busyThreads()` was widened to dump every worker when no thread is inside our code.
+  It reported **no thread anywhere with a `wm.damage` frame** — the whole stack, not the top frames.
+  So the loop is **parked or ended, not busy**, and no amount of `Dispatchers.Default` starvation by
+  our own code explains it.
+- `msgs` is `Channel.UNLIMITED` and is never closed, so `trySend` cannot refuse and a lost message
+  is not the mechanism either.
+- `loopLaunched` is set at start and never reset, but `startLocked` launches the loop
+  unconditionally, so a same-instance restart always has one. That hypothesis is dead.
+
+Three things went in so the next occurrence names itself rather than needing another investigation:
+
+- **`post()` undoes its own count on a refused `trySend`, loudly.** `queued` is what `isQuiescent()`
+  reads; a message counted but never delivered would leave the shell permanently "busy" to every
+  harness and every gate — a silent failure in the one counter whose whole job is to be trusted.
+- **`loop()`'s `finally` drains what is left and decrements for it**, and says how many. A count
+  must not outlive the loop that would have cleared it.
+- **`quiescenceReport()` distinguishes the two cases**: `LOOP-ENDED` when the loop is gone, and
+  `in=<Msg>/<ms>ms` when it is parked inside a handler — which message, and for how long.
+
+⚠ **Unfinished.** Eight consecutive `:core:test --rerun-tasks` runs after those three changes came
+back clean, which is suggestive and is not proof: the prior rate was about one in four, so eight
+clean runs is roughly a 1-in-10 outcome if nothing had changed. Do not record this as fixed. The
+next failure will print which of the two it is, and that is the thing to act on.
+
+### 31.9 Battery
+
+core **459** · desktop **11** · selfcheck **189** (the oracle on every settle) — **ALL CHECKS PASS
+×11 explicit**, plus five earlier runs that exited clean · snapshots 49 × two builds back to back
+(see §31.5 for how to read them) · `--epub-check` 58/58 · `--music-check` ALL PASS ·
+`--games-check` ALL PASS · lint 21 rules / 0 findings · `:phone:assembleDebug`.
+`:core:test --rerun-tasks` run fourteen times with no failure — which is also the eight-run
+evidence §31.8 leans on, and it is still not proof.

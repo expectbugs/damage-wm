@@ -102,13 +102,26 @@ class OracleWalkTest {
          *  stack behind it tells the next reader nothing, and the one time this
          *  fired for a real reason it took a separate investigation to find the
          *  wheel that never stopped spinning (review §30). */
-        private fun busyThreads(): String = Thread.getAllStackTraces()
-            .filterKeys { it.name.startsWith("DefaultDispatcher") || it.name.startsWith("kotlinx") }
-            .entries.mapNotNull { (t, st) ->
-                val ours = st.filter { it.className.startsWith("wm.damage") }
-                if (ours.isEmpty()) null
-                else "  ${t.name} [${t.state}]\n" + ours.take(12).joinToString("\n") { "    at $it" }
-            }.joinToString("\n").ifEmpty { "  (no thread was inside wm.damage code)" }
+        private fun busyThreads(): String {
+            val all = Thread.getAllStackTraces()
+            val ours = all.entries.mapNotNull { (t, st) ->
+                val mine = st.filter { it.className.startsWith("wm.damage") }
+                if (mine.isEmpty()) null
+                else "  ${t.name} [${t.state}]\n" + mine.take(12).joinToString("\n") { "    at $it" }
+            }
+            if (ours.isNotEmpty()) return ours.joinToString("\n")
+            // 🔴 Nothing is RUNNING our code, so the loop is PARKED, not busy —
+            // and then the question is what it is parked on. Dump every worker
+            // (review §31): the filtered view said "no thread was inside
+            // wm.damage code" and stopped the investigation there.
+            return "  (no thread inside wm.damage — every worker's top frames follow)\n" +
+                all.entries
+                    .filter { (t, _) -> t.name.startsWith("DefaultDispatcher") || t.name.startsWith("kotlinx") ||
+                        t.name.startsWith("Test worker") || t.name.startsWith("pool-") }
+                    .joinToString("\n") { (t, st) ->
+                        "  ${t.name} [${t.state}]\n" + st.take(8).joinToString("\n") { "    at $it" }
+                    }
+        }
 
         fun lens(left: Boolean): Gray8 {
             val ctx = if (left) sim.left else sim.right
@@ -198,6 +211,17 @@ class OracleWalkTest {
         override fun onRegistered(ctx: ShellServices) { this.ctx = ctx }
         override fun onActivate(ctx: ShellServices, from: wm.damage.core.shell.ActivationSource) { this.ctx = ctx }
 
+        /** 🔴 Exclusive mode SWALLOWS every ring input, so a window there only
+         *  ever repaints because it asked to (Music does it from its channel).
+         *  Without these asks the delta arm is never called at all and the
+         *  walk's oracle never sees one — which is how the §31 shift path came
+         *  to have no coverage here. Four is bounded, so the shell still
+         *  settles. */
+        override fun onExclusive(on: Boolean) {
+            excl = 0
+            if (on) repeat(4) { ctx?.requestRender(this) }
+        }
+
         override fun view() = wm.damage.core.shell.WindowView.ListView(
             model, { labels.size },
             { g, i, r, _ -> g.fillRect(r.x + 8, r.y + 6, 60 + i * 24, 12, ((i % 12) + 2) * 17) },
@@ -215,10 +239,48 @@ class OracleWalkTest {
             },
         )
 
+        /**
+         * 🔴 The DELTA arm paints a band that TRANSLATES (review §31).
+         *
+         * Exclusive mode is the other surface that owns its own damage, and
+         * this arm used to return an empty list — so a delta drew nothing and
+         * `paintExclusiveDelta` had no oracle behind it at all, shift path
+         * included. The band is a strict SUB-rect of `safe` on purpose: the
+         * canvas call site always passes the whole content area, so the
+         * offset arithmetic for a non-zero snapshot origin is exercised only
+         * here. Every 12th delta jumps instead of stepping, so the walk sees
+         * the detector DECLINE as well as accept.
+         */
+        private var excl = 0
         override fun paintExclusive(g: Gray8, safe: Rect, full: Boolean): List<Rect> {
-            if (!full) return emptyList()
-            g.fillRect(safe.x + 32, safe.y + 32, safe.w - 64, 40, 9 * 17)
-            return listOf(safe)
+            val band = Rect(safe.x, safe.y + 64, safe.w, (safe.h - 128) and 1.inv())
+            if (full) {
+                g.fillRect(safe.x + 32, safe.y + 32, safe.w - 64, 40, 9 * 17)
+                excl = 0
+                if (band.h >= 64) paintBand(g, band)
+                return listOf(safe)
+            }
+            if (band.h < 64) return emptyList()
+            excl++
+            paintBand(g, band)
+            return listOf(band)
+        }
+
+        /** Rows whose look depends only on the LINE index, so a step IS a pure
+         *  translation. Every mark stays inside [band] — a rect a paint returns
+         *  is a promise (§27). */
+        private fun paintBand(g: Gray8, band: Rect) {
+            g.fillRect(band, 0)
+            for (i in 0 until 40) {
+                val y = band.y + i * 12 - (excl % 12) * 24
+                if (y < band.y || y + 6 > band.bottom) continue
+                var x = band.x + 8 + (i * 37) % maxOf(1, band.w / 3)
+                var wd = 40 + (i * 13) % 90
+                if (x + wd <= band.right) g.fillRect(x, y, wd, 6, ((i % 14) + 1) * 17)
+                x = band.x + band.w / 2 + (i * 53) % maxOf(1, band.w / 5)
+                wd = 30 + (i * 7) % 60
+                if (x + wd <= band.right) g.fillRect(x, y, wd, 6, ((i % 9) + 3) * 17)
+            }
         }
 
         /** §16.1 deep links, so the walk can REACH each surface deliberately

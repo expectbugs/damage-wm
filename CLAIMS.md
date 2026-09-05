@@ -44,7 +44,7 @@ they meant — including ours.
 | **No `LE_Conn_Update` is ever issued for handle 65 (R lens)** | **M** | capture; 64 and 66 both get explicit ones |
 | Cause of the ~10× shortfall | **U** | HCI can't separate stack / app cadence / BT-WiFi coexistence |
 | Image ack latency median 176 ms | **M** | capture, stock 2.2.2 only |
-| **CFW ack latency — the CURVE: `ms ≈ 60 + bytes/50`** | **M** | 2026-08-31, n=1,488 journalled flushes on the real pair PC-direct (`overview.md` §5.2): floor median 60 ms (min 33), transfer ~50–75 KB/s, dense full-frame 2–4 fps. Supersedes the 2026-08-30 ~50 ms floor-only EMA. Scope: one host (beardos/BlueZ) PC-direct — since §19 that is the STANDBY path; the phone path (the daily driver) is unmeasured |
+| **CFW ack latency — the CURVE: `ms ≈ 60 + bytes/50`** | ⚠ **M, but SCOPED to four hours** | 2026-08-31, n=1,488 journalled flushes on the real pair PC-direct (`overview.md` §5.2): floor median 60 ms (min 33), transfer ~50–75 KB/s, dense full-frame 2–4 fps. Supersedes the 2026-08-30 ~50 ms floor-only EMA. Scope: one host (beardos/BlueZ) PC-direct — since §19 that is the STANDBY path; the phone path (the daily driver) is unmeasured. 🔴 **And scoped in TIME (2026-09-05, `HANDOFF.md` §31):** the same journal now holds 11,210 flushes, and a step change between 03:00 and 13:00 on 08-31 leaves the FLOOR intact (55–78 ms) while the TRANSFER term collapses ~6× — a 6–12 KB flush goes from a 196 ms median to **1,193 ms**, i.e. ~50 KB/s to ~7 KB/s, the §5.1 stock-path figure. 10,063 of the 11,210 are on the slow side, and Adam's own on-glass observation agrees with it. Do not price anything with the `/50` slope; use the measured table in §31.1. Why it changed is UNKNOWN |
 | msgId (`MagicRandom`, pb field 2) is effectively 1 byte | **C** | our hardware finding + g2-kit, independently |
 | ~1000 B wall applies to **layout frames only** | **M** | largest layout frame observed = 401 B; image chunks are 4096 B / 18 fragments |
 
@@ -131,6 +131,7 @@ Everything here backs a decision in [`DESIGN.md`](DESIGN.md).
 
 | claim | grade | basis |
 |---|---|---|
+| **A mode-9 rect-copy has NO alignment requirement** — full uint16 coords, any x/y/w/h | **V** | `zlib_glue.c` mode 9: *"full uint16 coords; the rects may overlap"*, validated for same-size and in-bounds only, and `rect_copy_4bpp` "takes a whole-byte fast path when left/width are even, else a nibble path". ⚠ The 4×2 grid (GEO001) is a **mode-3** rule — mode 3 encodes `left/4` and `top/2`. Damage still keeps its declared copies on the 4×2 grid, but for its OWN reason: `Compositor.moveCells` carries the per-lens `unknown` marks with the copy and is cell-quantised. Recorded 2026-09-05 after this was asserted the other way round in review §31 without reading the source |
 | **Only mode-3 deltas consume a `fid`** — mode 9 rect-copies **and the cached draws 13/14/15** are free against the ring | **V** | `zlib_glue.c`: the sole `cfw_diag()` call sites are the mode-6 keyframe and the mode-3 delta. Re-checked against `a5d1c31`; still exactly two |
 | **Only an EXACT hit in the 16-deep ring is skipped.** A stale fid that has aged out is flagged and then **APPLIED** | **V** | `cfw_diag()` body — the ring is a short-window filter, not a safety net |
 | `f_skip` fires on any forward gap > 1; `f_reorder` on any backward step | **V** | same |

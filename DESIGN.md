@@ -1453,13 +1453,21 @@ matters to its cost:
 |---|---|---|---|
 | **List** | the lens + panning list + rail + `▸` marks | row content | mode 9 shift + 2 fills · **860–1,430 B** |
 | **Document** | endless scroll (mode 8 { mode 9 shift + mode 3 fill }) + rail | flowed text | shift + one line · **292–486 B** |
-| **Canvas** | nothing but the viewport | everything, including damage | its own |
+| **Canvas** | the viewport, and the SHIFT when a repaint translated | everything, including damage | its own, less the translation |
 
 **List and Document are nearly free because the WM tracks damage for them.** Canvas hands that back
 to the window, and the honest number is: **a full-frame 608×416 canvas repaint is 3.8–6.3 KB and
 ~1.57 fps.** A canvas window that tracks its own damage runs as fast as its damage is small; one
 that repaints everything runs at 1.5 fps. That is the whole story for games, stated up front rather
 than discovered.
+
+🆕 **One thing the WM does give a canvas, since 2026-09-05** (`HANDOFF.md` §31): if a repaint moved
+the content vertically, the shell finds the translation by comparing the frames and sends the mode-9
+shift plus the newly exposed strip, exactly as List and Document have always done. It is DETECTED,
+not declared — a canvas window needs no new field and cannot get it wrong, and a pane the terminal
+itself scrolled is covered as much as one the ring scrolled. Before it, a tmux scroll shipped
+7.4–10.8 KB where the same scroll now ships ~5 KB. Exclusive mode's own damage path takes the same
+rule for any band big enough to be worth a copy.
 
 **List mode reuses Main's lens verbatim** — band at `y 210, h 64`, centre on **y = 242**, list panning
 through it, cursor fixed (`overview.md` §12). So Main, the switcher wheel, and every list window all

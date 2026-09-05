@@ -773,6 +773,16 @@ the heaviest frame observed (24.6 KB) ⇒ ~2 fps. That answers "how fast is full
 (REFINEMENT.md §6) at the honest level: 2–4 fps for dense frames, faster for sparse ones, and
 small-damage batches ride the 60 ms floor.
 
+🔴 **CORRECTION (2026-09-05, `HANDOFF.md` §31.6): this table is FOUR HOURS of one session.** The
+same journal now holds 11,210 flushes. Cut by hour, a step change falls between 03:00 and 13:00 on
+08-31: the floor stays put (55–78 ms throughout) while the transfer term collapses about 6× —
+6–12 KB goes from a 196 ms median (n=25 here) to **1,193 ms** (n=277), i.e. ~50 KB/s down to
+~7 KB/s, which is the §5.1 stock-path figure. 10,063 of the 11,210 flushes are after the step, and
+Adam's on-glass report of 1–1.5 s for a ~10 KB scroll agrees with the slow side. **Price work with
+the measured table in `HANDOFF.md` §31.1, not with the `/50` slope below.** What changed is unknown
+— a second BLE central (the APK mission started that morning), distance, a connection-interval
+renegotiation and a write-path change are all untested candidates.
+
 ⚠ **Scope:** one host (beardos, BlueZ, otherwise idle), PC-direct — the phone path is
 unmeasured and may differ, and since §19 the PHONE is the primary daily driver, so this curve
 describes the standby path; do not price the daily path with it unmeasured. This also does

@@ -37,14 +37,42 @@ empty shelf, the same defect as Files by a different route (a row count of zero 
 staged; **0.16 is still the last APK observed installed**. Deploying is `stageJar && rc-service
 damage restart` — Adam's call, in the moment.
 
-⚠ **One thing left open** (`HANDOFF.md` §30.6b): `OracleWalkTest` failed once more after the wheel
-fix — the same `queued=1 reports=0` shape at `h=288 step 198` — and has not repeated in eight
-consecutive full-suite runs. It is instrumented, not closed: `settle` now prints the stack of every
-thread inside `wm.damage` when it gives up. If it fires again, read the stacks first.
+⚠ **One thing left open** (`HANDOFF.md` §30.6b, carried forward to §31.8): `OracleWalkTest` failed
+once more after the wheel fix — the same `queued=1 reports=0` shape at `h=288 step 198` — and it has
+since been seen in four more classes at about one run in four. **Still open on 2026-09-05**, and the
+investigation narrowed it: the widened thread dump finds NO thread anywhere with a `wm.damage` frame,
+so the loop is parked or ended, not busy; `msgs` is `Channel.UNLIMITED` and never closed, so a lost
+message is not it; `loopLaunched` is never reset but `startLocked` launches unconditionally, so a
+same-instance restart is not it either. `quiescenceReport()` now prints `LOOP-ENDED` or
+`in=<Msg>/<ms>ms` — the next failure names which. Eight clean runs followed the instrumentation;
+that is suggestive, not proof. Read the report first when it fires.
 
-**Battery at HEAD:** core **456** · desktop **11** · selfcheck **189** (oracle 283 runs, 20
+**Battery at HEAD:** core **459** · desktop **11** · selfcheck **189** (oracle 283 runs, 20
 consecutive clean) · snapshots 49 × three runs · `--games-check` · `--music-check` ·
 `--epub-check` 58/58 · lint 21 rules / 0 + selftest · `:phone:assembleDebug`.
+
+---
+
+**2026-09-05, after the §30 round: canvas scrolling ships the TRANSLATION** (`HANDOFF.md` §31).
+Adam on glass: *"scrolling text in apps like Tmux is really slow, like 1-1.5 full seconds."* It was.
+`ListView` and `DocView` scrolls have always declared their shift (mode 9 on the device, only the
+new strip on the wire); `CanvasView` — tmux's pane and scrollback, Music's lyrics, the Hold'em table
+— never did, so a scroll shipped the whole content area: **7.4–10.8 KB measured**, and 6–12 KB
+measures a **1,193 ms median** on the glasses. The shell now DETECTS the translation by comparing
+the frame before a canvas repaint with the frame after and declares it — detected, not reported by
+each window, so windows nobody has written yet get it too, and so does a pane the terminal itself
+scrolled. **~11.1 KB → ~5.4 KB measured**; ~1,193 → ~526 ms modeled through the measured table.
+No rendered surface changed — measured by keeping both installs on disk and snapshotting them
+back to back in one minute: 46 of 49 scenes differ only inside the status line's live
+throughput readout, `10-silent.png` (no status line) is byte-identical, and the other three are
+the live-data scenes. ⚠ A plain `diff -rq` between two snapshot runs always reports all 49.
+
+🔴 **And a separate finding from the same measurement** (§31.6): `overview.md` §5.2's
+`ms ≈ 60 + bytes/50` describes FOUR HOURS. A step change on 08-31 leaves the floor intact and
+collapses the transfer term ~6× — 6–12 KB goes 196 ms → 1,193 ms, ~50 KB/s → ~7 KB/s — and 10,063
+of the journal's 11,210 flushes are on the slow side. Adam's own on-glass number agrees with it.
+Price work with §31.1's table. WHY it changed is untested: a second BLE central, distance, a
+connection-interval renegotiation and a write-path change are all open.
 
 **Picking this up in a fresh session:** `CLAUDE.md` → this file → `HANDOFF.md` §19–§30, then
 **§30.7**. The live-walk driver (§28.2 / §29.2) is the instrument to rebuild first — and the

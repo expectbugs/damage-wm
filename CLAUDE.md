@@ -151,7 +151,7 @@ Damage` and the APK-wide `Phone notifications` switch, and the shell never gates
 source on a hidden field — a Global row that disappears leaves a persisted value nothing can undo).
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(456 tests, including the per-lens oracle, the §25–§30 review pins and the random-gesture
+(459 tests, including the per-lens oracle, the §25–§31 review pins and the random-gesture
 oracle walk), `./gradlew :desktop:test` (11 tests: the BlueZ glue
 over a fake link and the config file's safety), `desktop --selfcheck` (189 checks, the truth oracle on every settle), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `desktop --music-check` (the real library, read-only bar the additive schema migration),
@@ -307,10 +307,14 @@ The simulator shows ~6 image containers where hardware holds 4, and has no BLE b
 
 - **Never cite a performance number without knowing whether it came from hardware.**
 - Our own numbers in `overview.md` §5 are labeled **measured** vs **modeled** — preserve that
-  distinction when quoting them. The CFW direct-framebuffer path is now MEASURED
+  distinction when quoting them. The CFW direct-framebuffer path is MEASURED
   (`overview.md` §5.2, 2026-08-31, n=1,488 flushes): **`ms ≈ 60 + bytes/50`** — the old
-  `176 + bytes/11` formula describes the stock path only, and every table still priced with it
-  is conservative by ~3–5× on the CFW.
+  `176 + bytes/11` formula describes the stock path only.
+  🔴 **But that curve is FOUR HOURS of one session** (2026-09-05, `HANDOFF.md` §31.6): the journal
+  now holds 11,210 flushes, and a step change on 08-31 leaves the floor intact while the transfer
+  term collapses ~6× — a 6–12 KB flush measures **1,193 ms**, not the 201 ms the curve predicts, and
+  Adam's own on-glass report agrees with the slow side. **Price work with the measured table in
+  §31.1.** Why it changed is unknown and untested.
 
 ## The Three Absolute Rules
 
@@ -422,7 +426,13 @@ that don't fit raise loudly, never silently mangle.
 - **Push a sacrificial warmup frame** after container creation — the first burst is silently
   dropped by firmware (g2-kit gotcha, confirmed independently).
 - **Endless scroll = mode 8 { mode 9 rect-copy + mode 3 fill }** — shift on-device, transmit only
-  the newly exposed strip.
+  the newly exposed strip. 🆕 **This is automatic for every surface that owns its damage** since
+  2026-09-05 (`HANDOFF.md` §31): `CanvasShift.detect` compares the frame before a canvas repaint
+  with the frame after, and the shell declares the translation it finds — DETECTED, not declared by
+  each window, so a window written next year gets it, and so does a pane the terminal itself
+  scrolled. Before it, a tmux scroll shipped 7.4–10.8 KB (measured) where the same scroll now ships
+  ~5 KB. Do not add a "shift by N" field to a window contract; if a surface is not getting the copy,
+  find out why the detector declined.
 - **Fixed cursor, panning content** for lists — pins the selection to a screen row and pans
   content under it. This recovers the free scrolling we lose by leaving firmware list containers.
 - **Anti-alias text** across the 16 gray levels. Do not ship a 1-bit-looking font; that was the

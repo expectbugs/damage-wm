@@ -202,6 +202,13 @@ LIVE GRID ── tap ──▶ KEYS (ListView): Enter · y · n · 1 · 2 · 3 �
 
 ### 3.4 Costs, against the measured curve (`ms ≈ 60 + bytes/50`, `overview.md` §5.2)
 
+🔴 **Both halves of this section's arithmetic moved on 2026-09-05** (`HANDOFF.md` §31). The curve
+is scoped to four hours — a 6–12 KB flush measures a **1,193 ms** median across the journal's bulk,
+not the ~200 ms the slope predicts (§31.6). And a scroll no longer sends the whole pane: the flow
+view is a canvas, canvases declared no translation, and a scroll shipped 7.4–10.8 KB. It now ships
+the mode-9 shift plus the newly exposed strip — measured ~5 KB for `HIST_STEP`'s five lines, which
+is the new text itself and the floor for that step size.
+
 | event | bytes (modeled) | latency | feel |
 |---|---|---|---|
 | typical CC churn (2–3 changed rows) | 0.3–0.8 KB | ~70–80 ms | live at the 1 s poll (configurable) |

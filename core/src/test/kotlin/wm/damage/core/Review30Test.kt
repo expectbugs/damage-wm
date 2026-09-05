@@ -8,6 +8,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import wm.damage.core.geom.Layout
 import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Gray8
@@ -634,6 +635,261 @@ class Review30Test {
         }
     }
 
+
+    // ================================================================ §31 #1
+    /**
+     * The translation detector finds a real shift, and only a real one.
+     *
+     * 🔴 The positive case is also the pin for the bug that shipped inside the
+     * first draft of it: the byte verification advanced its cursors AND indexed
+     * by the loop variable, so it compared `pix[a + 2i]` and declined every
+     * shift there is. It failed SAFE — the old full-content path — which is
+     * exactly why only a measurement found it.
+     */
+    @Test fun theCanvasShiftDetectorFindsATranslation() {
+        val region = Rect(16, 34, 608, 416)
+        fun frame(scroll: Int): Gray8 {
+            val g = Gray8(640, 480)
+            // text-like: two short bars per row, at a position that depends on
+            // the LINE, so every row is distinctive and none is uniform
+            for (i in 0 until 40) {
+                val y = region.y + i * 10 - scroll
+                if (y < region.y || y + 8 > region.bottom) continue
+                g.fillRect(region.x + 8 + (i * 37) % 200, y, 60 + (i * 13) % 120, 6, 9)
+                g.fillRect(region.x + 300 + (i * 53) % 150, y, 40 + (i * 7) % 90, 6, 5)
+            }
+            return g
+        }
+        fun snap(g: Gray8): Gray8 = Gray8(region.w, region.h).also { it.blit(g, region, 0, 0) }
+
+        val a = frame(0)
+        val b = frame(40)                       // content moved UP by 40
+        val got = wm.damage.core.comp.CanvasShift.detect(snap(a), Rect(0, 0, region.w, region.h), b, region, minRun = 52)
+        assertTrue(got != null, "a 40 px translation was not found")
+        val (src, dst) = got!!
+        assertEquals(40, src.y - dst.y, "the offset is the 40 px the content moved")
+        assertEquals(src.w, region.w)
+        assertTrue(src.h >= 300, "the block should cover nearly the whole overlap, got ${src.h}")
+        // grid-legal, and inside the region
+        assertTrue(src.y % 2 == 0 && dst.y % 2 == 0 && src.h % 2 == 0, "the copy is on the 2 px grid")
+        assertTrue(region.contains(src) && region.contains(dst), "$src / $dst escape $region")
+        // and the block it names really IS the same pixels
+        for (y in 0 until src.h) for (x in 0 until src.w) {
+            assertEquals(a[src.x + x, src.y + y], b[dst.x + x, dst.y + y],
+                "row $y of the declared block is not the same content")
+        }
+
+        // an unchanged frame is not a translation
+        assertTrue(wm.damage.core.comp.CanvasShift.detect(snap(a), Rect(0, 0, region.w, region.h), a, region, 52) == null,
+            "an unchanged frame must not be declared a shift — the copy and its repairs cost more than nothing")
+        // nor is an unrelated one
+        val other = Gray8(640, 480).also { g ->
+            for (i in 0 until 40) g.fillRect(region.x + 4 + (i * 91) % 400, region.y + i * 11, 33, 5, 12)
+        }
+        assertTrue(wm.damage.core.comp.CanvasShift.detect(snap(a), Rect(0, 0, region.w, region.h), other, region, 52) == null,
+            "two unrelated frames must not be declared a shift")
+        // a shift too small to be worth a copy is declined
+        assertTrue(wm.damage.core.comp.CanvasShift.detect(snap(a), Rect(0, 0, region.w, region.h), frame(40), region, minRun = 400) == null,
+            "a block under the floor is not worth the copy op")
+
+        // a region off the compositor's 4x2 CELL grid gets no copy. Not a
+        // firmware rule — mode 9 takes full uint16 coords (`zlib_glue.c`) — but
+        // `declareShift` moves the per-lens `unknown` marks with the copy
+        // through a cell-quantised `moveCells`, and exclusive mode passes rects
+        // a WINDOW chose
+        val odd = Rect(region.x + 2, region.y + 1, region.w - 8, region.h - 40)
+        assertTrue(wm.damage.core.comp.CanvasShift.detect(
+            snap(a), Rect(2, 1, odd.w, odd.h), b, odd, minRun = 52) == null,
+            "an unaligned region must not produce a copy the firmware would drop in silence")
+
+        // 🔴 an ODD-HEIGHT region is declined. The offset sweep starts at
+        // `-h + 2` and steps by 2, so an odd height makes every candidate offset
+        // odd and the copy's src row lands off the 2 px grid — which the
+        // firmware refuses IN SILENCE while `declareShift` has already replayed
+        // the copy onto the shadows, so the diff finds nothing to repair and the
+        // glass keeps the old frame. Unreachable today (`layout.content.h` is
+        // even and no window returns an odd-height exclusive rect); pinned
+        // because exclusive mode passes rects a WINDOW chose.
+        // The same grid rule for HEIGHT, which is the easy one to lose: the
+        // offset sweep steps by 2 from `-h + 2`, so an odd height proposes only
+        // odd offsets and the copy's src row lands off the cell grid.
+        //
+        // ⚠ The failing combination is odd height AND an ODD shift — an
+        // odd-height sweep declines an even translation harmlessly, so the odd
+        // one is the only one that gets through. The first draft of this pin
+        // used the 40 px shift above and passed with the guard removed.
+        val odd41 = frame(41)
+        for (oddH in listOf(region.h - 1, region.h - 3)) {
+            val odd = Rect(region.x, region.y, region.w, oddH)
+            val got2 = wm.damage.core.comp.CanvasShift.detect(
+                snap(a), Rect(0, 0, odd.w, odd.h), odd41, odd, minRun = 52)
+            assertTrue(got2 == null,
+                "an odd-height region produced $got2 — a copy off the compositor's 4x2 cell grid")
+        }
+        // the guard is the PARITY, not the size: the even heights either side
+        // still find the even translation
+        for (evenH in listOf(region.h, region.h - 2)) {
+            val even = Rect(region.x, region.y, region.w, evenH)
+            assertTrue(wm.damage.core.comp.CanvasShift.detect(
+                snap(a), Rect(0, 0, even.w, even.h), b, even, minRun = 52) != null,
+                "the even height $evenH should still find the translation")
+        }
+        // and an even region asked for an ODD translation simply declines —
+        // its sweep never proposes an odd offset (no copy, never a wrong one)
+        assertTrue(wm.damage.core.comp.CanvasShift.detect(
+            snap(a), Rect(0, 0, region.w, region.h), odd41, region, minRun = 52) == null,
+            "an odd translation in an even region must be declined, not rounded")
+
+        // 🔴 the OTHER shape the shell uses (exclusive mode's own damage path):
+        // two panel-sized frames and a sub-band, so `was` has a non-zero origin
+        // — the canvas call site always passes (0,0) and would never catch an
+        // offset mistake here
+        val band = Rect(region.x, region.y + 100, region.w, 200)
+        val bandWas = Rect(band.x - 16, band.y - 34, band.w, band.h)   // a safe-rect-relative snapshot
+        val prev = Gray8(624, 446).also { it.blit(a, Rect(16, 34, 624, 446), 0, 0) }
+        val sub = wm.damage.core.comp.CanvasShift.detect(prev, bandWas, b, band, minRun = 52)
+        assertTrue(sub != null, "the same translation inside a sub-band was not found")
+        assertEquals(40, sub!!.first.y - sub.second.y, "the sub-band's offset is the same 40 px")
+        assertTrue(band.contains(sub.first) && band.contains(sub.second),
+            "${sub.first} / ${sub.second} escape the band $band")
+        for (y in 0 until sub.first.h) for (x in 0 until sub.first.w) {
+            assertEquals(a[sub.first.x + x, sub.first.y + y], b[sub.second.x + x, sub.second.y + y],
+                "the sub-band block is not the same content")
+        }
+    }
+
+    // ================================================================ §31 #2
+    /**
+     * 🔴 A canvas scroll ships the TRANSLATION, not the whole content area.
+     *
+     * MEASURED before this: a tmux scroll cost 7.4–10.8 KB, and 6–12 KB
+     * measures a median 1193 ms on the glasses against 65 ms under 500 B. The
+     * pin compares a scroll (a translation) with a jump (nothing overlaps) in
+     * the same window, so it needs no absolute byte number and no chrome
+     * subtraction: the scroll must cost a fraction of the jump.
+     */
+    @Test fun aCanvasScrollShipsTheShiftNotTheScreen() = kotlinx.coroutines.runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val tmp = Files.createTempDirectory("review31-canvas")
+        try {
+            val store = wm.damage.core.shell.Persistence(tmp.resolve("state.json"))
+            val sim = wm.damage.core.sim.GlassFirmwareSim()
+            val transport = wm.damage.core.transport.SimTransport(sim, scope,
+                wm.damage.core.transport.SimTransport.Timing(instant = true))
+            val shell = wm.damage.core.shell.Shell(FakeText(), transport, store, null, scope)
+            val win = ScrollCanvas()
+            shell.register(win)
+            val bytes = java.util.concurrent.atomic.AtomicLong(0)
+            scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                transport.events.collect {
+                    if (it is wm.damage.core.transport.TransportEvent.FlushDone) bytes.addAndGet(it.bytes.toLong())
+                }
+            }
+            shell.start()
+            suspend fun settle() {
+                val t0 = System.currentTimeMillis()
+                while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 30_000) kotlinx.coroutines.delay(5)
+                assertTrue(shell.isQuiescent(), "the shell did not settle — ${shell.quiescenceReport()}")
+            }
+            /**
+             * 🔴 The GLASS, not just the byte count. A declared copy becomes a
+             * mode-9 rect the firmware applies itself; if it landed anywhere
+             * but where the compositor's shadow put it — or the firmware
+             * refused it for alignment, which it does IN SILENCE — belief and
+             * panel come apart and the byte saving would be a wrong frame.
+             * Read ON the loop (`sampleIdle`, §30) so the sample cannot tear.
+             */
+            suspend fun assertGlass(what: String) {
+                val pair = shell.sampleIdle {
+                    fun quant(g: Gray8) = Gray8(g.w, g.h).also { o ->
+                        for (i in g.pix.indices) o.pix[i] = (wm.damage.core.gfx.Pack.level(g.pix[i].toInt() and 0xFF) * 17).toByte()
+                    }
+                    fun panel(left: Boolean): Gray8 {
+                        val ctx = if (left) sim.left else sim.right
+                        return Gray8(640, 480).also { g ->
+                            for (y in 0 until 480) for (x in 0 until 640) {
+                                val b = ctx.panel[y * ctx.stride + (x shr 1)].toInt() and 0xFF
+                                g[x, y] = (if (x and 1 == 0) b shr 4 else b and 0x0F) * 17
+                            }
+                        }
+                    }
+                    listOf(true, false).map { l ->
+                        Triple(l, quant(shell.comp.expectedLens(l)), panel(l))
+                    }
+                } ?: throw AssertionError("$what: the shell never held still long enough to sample")
+                for ((left, belief, glass) in pair) {
+                    val arm = if (left) "LEFT" else "RIGHT"
+                    // not vacuous: a blank panel would match a blank belief
+                    assertTrue(glass.pix.count { it.toInt() != 0 } > 1_000,
+                        "$what: the $arm panel is blank — this check would pass on nothing")
+                    for (y in 0 until 480) for (x in 0 until 640) {
+                        if (belief[x, y] != glass[x, y]) throw AssertionError(
+                            "$what: $arm belief != glass at ($x,$y) — " +
+                                "expected ${belief[x, y]} got ${glass[x, y]}")
+                    }
+                }
+                val flags = sim.flags(wm.damage.core.transport.Arm.LEFT) + sim.flags(wm.damage.core.transport.Arm.RIGHT)
+                assertTrue(flags.none { it.value }, "$what: sticky diagnostic flags ${flags.filterValues { it }}")
+            }
+
+            settle()
+            shell.postGesture(wm.damage.core.wire.EvenHubMsg.EV_CLICK)      // Main row 0 = the canvas
+            settle()
+            assertEquals("canvas", shell.currentWindowId(), "the canvas window did not open")
+            assertGlass("the canvas opened")
+
+            bytes.set(0)
+            shell.postGesture(wm.damage.core.wire.EvenHubMsg.EV_SCROLL_BOTTOM)   // one notch: a translation
+            settle()
+            val scrolled = bytes.get()
+            assertGlass("after the scroll that IS a translation")
+
+            bytes.set(0)
+            win.jump = true                                                  // the next notch changes everything
+            shell.postGesture(wm.damage.core.wire.EvenHubMsg.EV_SCROLL_BOTTOM)
+            settle()
+            val jumped = bytes.get()
+            assertGlass("after the jump that is NOT a translation")
+
+            assertTrue(jumped > 1500, "the jump must be a real full-area repaint (scrolled=$scrolled jumped=$jumped)")
+            assertTrue(scrolled * 3 < jumped,
+                "a canvas scroll shipped $scrolled B where a full change of the same window ships " +
+                    "$jumped B — the translation is not being declared, so the scroll is paying " +
+                    "for the whole content area")
+            shell.stop()
+        } finally {
+            scope.cancel()
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+
+    // ================================================================ §31 #3
+    /** The blit fast path is the slow path, in every case that clips. */
+    @Test fun theWholeRowBlitAgreesWithThePerPixelOne() {
+        val rnd = java.util.Random(31)
+        val src = Gray8(37, 23).also { for (i in it.pix.indices) it.pix[i] = rnd.nextInt(256).toByte() }
+        // every interesting shape: inside, hanging off each edge, oversized,
+        // zero-sized, and negative origins
+        val cases = listOf(
+            Rect(0, 0, 37, 23) to (0 to 0), Rect(4, 5, 10, 8) to (3 to 2),
+            Rect(-5, -3, 20, 12) to (0 to 0), Rect(30, 18, 20, 12) to (2 to 2),
+            Rect(0, 0, 37, 23) to (-6 to -4), Rect(0, 0, 37, 23) to (20 to 10),
+            Rect(0, 0, 0, 5) to (1 to 1), Rect(2, 2, 5, 0) to (1 to 1),
+        )
+        for ((r, d) in cases) {
+            val fast = Gray8(31, 19).also { it.clear(7) }
+            fast.blit(src, r, d.first, d.second)
+            // the reference: one pixel at a time, through the clipping `set`
+            val slow = Gray8(31, 19).also { it.clear(7) }
+            for (yy in 0 until r.h) for (xx in 0 until r.w) {
+                val sx = r.x + xx; val sy = r.y + yy
+                if (sx in 0 until src.w && sy in 0 until src.h) slow[d.first + xx, d.second + yy] = src[sx, sy]
+            }
+            assertTrue(fast.pix.contentEquals(slow.pix), "blit differs for $r -> $d")
+        }
+    }
+
     // ---------------------------------------------------------------- fakes
     private object ProbeServices : wm.damage.core.shell.ShellServices {
         override fun requestRender(window: wm.damage.core.shell.DamageWindow) {}
@@ -745,5 +1001,46 @@ class Review30Test {
     private object ProbeOps {
         val seen = ArrayList<String>()
         fun clear() = seen.clear()
+    }
+
+    /** A canvas window whose scroll is a pure vertical translation — and, on
+     *  demand, one that is not. */
+    private class ScrollCanvas : wm.damage.core.shell.DamageWindow(
+        "canvas", "Canvas", wm.damage.core.gfx.IconKind.TERMINAL,
+    ) {
+        private var scroll = 0
+        var jump = false
+        override fun view() = WindowView.CanvasView(
+            paint = { g, r ->
+                g.fillRect(r, 0)
+                // dense, glyph-shaped rows: a terminal's own run structure, so
+                // the byte numbers this pin compares are the ones a real pane
+                // produces rather than a sparse pattern's
+                for (i in 0 until 60) {
+                    val y = r.y + i * 10 - scroll
+                    if (y < r.y || y + 8 > r.bottom) continue
+                    // the LINE's index is the only seed, so a line renders
+                    // identically wherever it lands — which is what makes a
+                    // scroll a translation at all — and the run structure is
+                    // noisy enough that the encoder cannot collapse it, the
+                    // way anti-aliased type cannot be collapsed
+                    val k = if (jump) i * 7 + 3 else i
+                    var rnd = (k * 2654435761L) xor 0x9E3779B97F4A7C15uL.toLong()
+                    fun next(): Int { rnd = rnd * 6364136223846793005L + 1442695040888963407L; return ((rnd ushr 33).toInt() and 0x7FFFFFFF) }
+                    var x = r.x + 4
+                    while (x < r.right - 12) {
+                        val wgl = 2 + next() % 5
+                        val lv = next() % 15 + 1
+                        if (next() % 4 != 0) g.fillRect(x, y, wgl, 6, lv)
+                        x += wgl + 1 + next() % 3
+                    }
+                }
+            },
+            onScroll = { d -> scroll += d * 40 },
+        )
+        override fun title() = "canvas"
+        override fun summary() = Summary("canvas")
+        override fun saveState() = kotlinx.serialization.json.JsonObject(emptyMap())
+        override fun restoreState(state: kotlinx.serialization.json.JsonObject) {}
     }
 }

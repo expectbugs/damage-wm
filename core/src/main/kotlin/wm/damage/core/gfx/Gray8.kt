@@ -115,6 +115,22 @@ class Gray8(val w: Int, val h: Int) {
 
     /** Copy a rect from another surface (same-size rows, clipped). */
     fun blit(src: Gray8, srcRect: Rect, dx: Int, dy: Int) {
+        // Whole rows that need no clipping copy as rows. Identical result to
+        // the per-pixel path below — which still runs for anything that hangs
+        // off an edge — and this is the shell's hottest copy: the slides, the
+        // menu's under-snapshot and the canvas shift detector's previous frame
+        // all move full-width bands every frame (review §31).
+        val whole = srcRect.x >= 0 && dx >= 0 &&
+            srcRect.x + srcRect.w <= src.w && dx + srcRect.w <= w
+        if (whole && srcRect.w > 0) {
+            for (yy in 0 until srcRect.h) {
+                val sy = srcRect.y + yy
+                val ty = dy + yy
+                if (sy !in 0 until src.h || ty !in 0 until h) continue
+                System.arraycopy(src.pix, sy * src.w + srcRect.x, pix, ty * w + dx, srcRect.w)
+            }
+            return
+        }
         for (yy in 0 until srcRect.h) {
             val sy = srcRect.y + yy; val ty = dy + yy
             if (sy !in 0 until src.h || ty !in 0 until h) continue
