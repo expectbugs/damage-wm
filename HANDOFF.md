@@ -1987,6 +1987,17 @@ ones. Two more came out of it, both in code the earlier passes had walked straig
     left, and every document painter handles its own empty case.
 19. The snapshot harness took its picture the way the oracle used to — §30.6a.
 
+**And one candidate that verification REJECTED, recorded so nobody re-opens it.** The two
+three-line lens guards — `GamesWindow.lensThirdFits` and the Torrents listing lens — admit their
+third line by its ASCENT, which is the shape §30 #11 was. Tightening them to the whole ink DROPPED
+the line in five scenes at 100 %, so the render was measured instead of judged from a scaled crop:
+in `42-games-tables` the band rules sit at 210 and 272, and the third line's ink runs 262-271 — one
+row clear. The guards are right as they are; the crop that suggested otherwise was displayed at a
+size where a rule and a descender touch. The tightening was reverted, and the snapshots confirm the
+renders came back byte-identical.
+
+A fifth pass over the product code after that found nothing further.
+
 ### 30.6a The snapshot harness takes its picture the same way
 
 `--snapshot`'s `save()` read the sim panel from the script thread too, and these PNGs are the
