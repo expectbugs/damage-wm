@@ -63,7 +63,16 @@ class FlowRender(private val text: TextRasterizer) {
     /** One line box for the whole view (bold included), even per §2.4 rule 7. */
     fun lineH(): Int {
         if (lineHCache < 0) {
-            val h = maxOf(text.metrics(spec()).lineHeight, text.metrics(spec(true)).lineHeight)
+            // the box is the LARGER of the line height and the MEASURED ink,
+            // never the line height alone (review §30): AWT ceils ascent and
+            // descent separately and the height once, so JetBrains Mono 16
+            // inks 25 rows against a 24 px line at 115 % and 29 against 28 at
+            // 130 % — a box a row short of its own text, which puts every
+            // line's descenders in the tops of the next (the §29 rhythm
+            // defect) and leaves the bottom line pressed against the rect
+            val h = listOf(spec(), spec(true)).maxOf { f ->
+                text.metrics(f).let { maxOf(it.lineHeight, it.ascent + it.descent) }
+            }
             lineHCache = if (h % 2 == 0) h else h + 1
         }
         return lineHCache

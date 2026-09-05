@@ -1,35 +1,68 @@
 # Where we are, and what to do next
 
-**Updated 2026-09-04 (evening): a FOURTH whole-codebase review and a second full LIVE walk —
-eleven verified defects, all fixed, pinned and deployed.** `HANDOFF.md` §29 is the
-record. The reading found the last constant of the "a rect is a promise" class: the list rhythm
-itself. Clear Sans 18 — every list's row face — inks 27 px at 100 % and the 32 px row held it
-exactly; at 115 % (32 px) the row directly above the lens lost its descenders to the lens fill
-(`$1,000` cut flat, seen live), and the oracle cannot see it because the ink stays inside the
-damaged content rect. `Layout` now carries a measured `rowH` / `lensH` (floors 32 / 64), the rows
-above hang from the lens, and every window's second lens line is placed by `Draw.lineBelow` from
-the first line's ink — 100 % is pixel-identical. Also from the reading: "114%" for the 115 % step,
-a failed transport start racing its lease release against the disconnect, an unguarded socket
-close. Then the live walk (every window, all four heights, 100/115/130 %, Alegreya chrome) found
-what reading could not: **the tmux alert notice was app-less — a tap only dismissed it** (it
-deep-links into the session now); **the shell loop caught `Exception` only** — an `Error` froze
-the display behind a healthy status (it survives one, loudly); brightness could never return to
-auto; the custom-bet keyboard said "raise to" over a check-through; Music's idle caption sat inside
-its heading's descenders at 130 %; and the context menu's fixed 248 px cut "Fold and leave" at
-the 120 % chrome cap while a head-cut detail carried no mark (the box follows the face; the cut
-is marked). ✅ **Deployed 2026-09-04 22:00**: the `damage` service runs this build (`standby up
-(§19)`, the phone reattached to the sync, files, music, tmux and torrents channels — nothing on
-glass was touched) and APK **29/0.29** is staged on the setup page. **0.16 is still the last APK
-observed installed** — installing 0.29 is the one manual step.
+**Updated 2026-09-05: a FIFTH whole-codebase review and a third full LIVE walk — seventeen
+verified defects, all fixed and pinned.** `HANDOFF.md` §30 is the record. Three of them matter more
+than the rest:
 
-**Battery at HEAD:** core **440** · desktop **11** · selfcheck **189** · snapshots 49 (three
-consecutive clean runs) · `--games-check` · `--music-check` · `--epub-check` 58/58 · lint 21
-rules / 0 + selftest.
+- 🔴 **A wheel closed mid-spin never stopped spinning.** `Switcher.spinning` stays true, the frame
+  loop posts another Pump for as long as it is, and `isQuiescent()` reads the same flag — so a
+  scroll then a tap inside the four animation frames left the shell looping empty frames for ever
+  and never idle again, on the glasses as much as in the harness. `OracleWalkTest` found it; the
+  worst settle in a clean run is 46 ms, which is how a 120 s bound firing turned out not to be load.
+- 🔴 **The standing `--selfcheck` oracle failed one run in ten, and always had** — 2 in 20 measured
+  on the unchanged tree. Its SAMPLE was torn: `isQuiescent()` from another thread, then composed,
+  the plane map and both panels read one after another across a window the shell repaints inside.
+  `Shell.sampleIdle` takes the reading on the loop now. 20/20 clean.
+- 🔴 **The Hold'em seat strip drew every opponent's stack through the board** at 288 with the scale
+  at 130 % (a 120×34 cell against 52 rows of want). The seat faces are measured, and where two rows
+  will not fit the strip goes COMPACT — one row, the money placed first and the name fitted after.
 
-**Picking this up in a fresh session:** `CLAUDE.md` → this file → `HANDOFF.md` §19–§29, then
-**§29.5**. The live-walk driver (§28.2 / §29.2) is the instrument to rebuild first — and the
+The rest, in one breath: the notification box's source rule and the context menu's title rule both
+struck the text they bracketed (constants under faces that ink more, §27's rule one layer down);
+the chrome clock's AM/PM marker sat inside the last digit above 100 %; the medium seven-segment
+minute pair was a 28 px pitch among 24s; the Games documents sized their lines from `lineHeight`,
+which is SHORTER than the ink, and the scroll path chopped every descender; the Files locations and
+trash lenses drew nothing at all for an empty list; `TableLayout`'s "the bottom bands give way" was
+not true; a line box must be the LARGER of line height and ink (AWT ceils them separately — JBM 16
+inks 25 in a 24 px line at 115 %); the selfcheck's oracle kept watching the STOPPED shell after its
+restart scene; the tmux staleness line reached only the live pane and Torrents' only the transfers
+list; a STAGED settings row claimed "scroll adjusts live"; Music offered Resume/Next/Previous with
+an empty queue and did nothing when tapped; and the notification box hung from its box's top edge
+instead of being centred on its own height.
+
+⛔ **Not deployed.** The `damage` service still runs the §29 build and APK **29/0.29** is what is
+staged; **0.16 is still the last APK observed installed**. Deploying is `stageJar && rc-service
+damage restart` — Adam's call, in the moment.
+
+⚠ **One thing left open** (`HANDOFF.md` §30.6b): `OracleWalkTest` failed once more after the wheel
+fix — the same `queued=1 reports=0` shape at `h=288 step 198` — and has not repeated in eight
+consecutive full-suite runs. It is instrumented, not closed: `settle` now prints the stack of every
+thread inside `wm.damage` when it gives up. If it fires again, read the stacks first.
+
+**Battery at HEAD:** core **455** · desktop **11** · selfcheck **189** (oracle 283 runs, 20
+consecutive clean) · snapshots 49 × three runs · `--games-check` · `--music-check` ·
+`--epub-check` 58/58 · lint 21 rules / 0 + selftest · `:phone:assembleDebug`.
+
+**Picking this up in a fresh session:** `CLAUDE.md` → this file → `HANDOFF.md` §19–§30, then
+**§30.7**. The live-walk driver (§28.2 / §29.2) is the instrument to rebuild first — and the
 §29.2 lessons bind: snap between steps, one step per snap in any window with a destructive row,
-count only panel frames as activity, never rebuild the jar under a running instance.
+count only panel frames as activity, never rebuild the jar under a running instance. 🆕 And one
+more from §30: **the harness is part of the system under review** — two of the seventeen were in
+the gates themselves, so when a test bound fires, measure the normal case before calling it load.
+
+---
+
+**Before it, 2026-09-04 (evening): a FOURTH whole-codebase review and the second full LIVE walk —
+eleven verified defects, deployed.** `HANDOFF.md` §29 is the record. The reading found the LIST
+RHYTHM: Clear Sans 18, every list's row face, inks 27 px at 100 % and the 32 px row held it
+exactly, so at 115 % the row directly above the lens lost its descenders to the lens fill — and the
+oracle is blind to it, because the ink stays inside the damaged rect. `Layout` carries a measured
+`rowH` / `lensH` (floors 32 / 64) and every second lens line goes through `Draw.lineBelow`. Also:
+"114%" for the 115 % step, a failed transport start racing its lease release, an unguarded socket
+close. The walk then found the tmux alert notice was app-less (a tap only dismissed it), the shell
+loop caught `Exception` but not `Error` (a frozen display behind a healthy status), brightness could
+never return to auto, and the context menu's fixed width cut labels at the chrome cap. Deployed
+2026-09-04 22:00 — the service still runs that build.
 
 ---
 

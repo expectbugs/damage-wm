@@ -61,7 +61,11 @@ class GamesWindowTest {
         suspend fun settle(what: String = "") {
             val t0 = System.currentTimeMillis()
             while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 20_000) delay(10)
-            assertTrue(shell.isQuiescent(), "the shell did not settle $what")
+            // the REPORT, not just the verdict: "did not settle" alone told a
+            // later reader nothing about which half was still moving, and one
+            // flake of exactly this shape turned out to be a real defect
+            // (the wheel that never stopped spinning — review §30)
+            assertTrue(shell.isQuiescent(), "the shell did not settle $what — ${shell.quiescenceReport()}")
         }
 
         suspend fun await(what: String, ms: Long = 20_000, cond: () -> Boolean) {

@@ -121,6 +121,22 @@ class Shell(
 
     private val chrome = Chrome(chromeText, { iconSource })
 
+    /**
+     * The clock cell's width for the CURRENT chrome face, cached the way
+     * [chromeScale] is (review §30). §2.3's 80 px is the floor and holds the
+     * widest `h:mm` plus its AM/PM marker at 100 % exactly; a step up the
+     * ladder needs more, and without it the time ran into the marker.
+     */
+    private var clockWKey: Triple<String, Double, String>? = null
+    private var clockWValue = Layout.CLOCK_W
+    private fun clockCellW(): Int {
+        val key = Triple(settings.fontFace, settings.fontScale, settings.fontStyle)
+        if (clockWKey == key) return clockWValue
+        clockWValue = chrome.clockCellWidth()
+        clockWKey = key
+        return clockWValue
+    }
+
     /** Silent-mode paint plumbing (§1.5 sizes, 2026-09-01): the "small" size
      *  is the title bar clock's own text at its own cell, drawn by chrome. */
     private fun silentSmallPainter(c: LocalClock): (wm.damage.core.gfx.Gray8, wm.damage.core.geom.Rect) -> Unit =
@@ -141,12 +157,19 @@ class Shell(
     /** Test/introspection: the status cell's text ("ok", "ERROR …", "DIVERGE …"). */
     val statusLine: String get() = statusText
     val switcherIsOpen: Boolean get() = switcher.open
+    /** How many rows the wheel is showing — a harness reads it so a pin that
+     *  needs a real spin cannot silently run against a one-entry drum. */
+    val switcherEntryCount: Int get() = switcher.entryCount
     val menuTitle: String? get() = menu.current()?.title
 
     /** The open menu's row labels, and where its cursor rests — test/harness
      *  reach so a script can select a row BY NAME instead of counting notches
      *  (2026-09-03: adding one row silently broke five tests that counted). */
     val menuLabels: List<String> get() = menu.current()?.items?.map { it.label } ?: emptyList()
+    /** The labels of the menu rows that can actually DO something — a harness
+     *  asking "does this row work" must not have to read pixels (review §30). */
+    val menuEnabled: List<String> get() =
+        menu.current()?.items?.filter { it.enabled }?.map { it.label } ?: emptyList()
     /** The open menu's DETAIL column — a row's warning often lives here rather
      *  than in its label (the Games refill confirm, review pass 3). */
     val menuDetails: List<String> get() = menu.current()?.items?.map { it.detail } ?: emptyList()
@@ -235,7 +258,10 @@ class Shell(
         data class SaveTick(val gen: Int) : Msg()
         data class Notice(val n: Notifications.Notice) : Msg()
         data class Invalidate(val windowId: String?) : Msg()
-        data class Run(val action: () -> Unit) : Msg()
+        /** [dropped] runs INSTEAD of [action] when the message reaches a
+         *  stopped loop: a caller awaiting an answer must get one either way,
+         *  or it waits for ever (review §30 — `sampleIdle`'s own hazard). */
+        data class Run(val dropped: (() -> Unit)? = null, val action: () -> Unit) : Msg()
         data class Shutdown(val done: CompletableDeferred<Unit>) : Msg()
         object Pump : Msg()
     }
@@ -364,7 +390,7 @@ class Shell(
             return true
         }
 
-        override fun runOnShell(action: () -> Unit) = post(Msg.Run(action))
+        override fun runOnShell(action: () -> Unit) = post(Msg.Run(action = action))
 
         override fun docContentWidth(): Int = layout.contentInner.w - 32
         // the same height ContentKit.visibleLines divides by lineHeight
@@ -681,7 +707,11 @@ class Shell(
     // ------------------------------------------------------------------ loop
     private suspend fun loop() {
         for (m in msgs) {
-            if (!running && m !is Msg.Shutdown) { queued.decrementAndGet(); continue }
+            if (!running && m !is Msg.Shutdown) {
+                if (m is Msg.Run) m.dropped?.invoke()
+                queued.decrementAndGet()
+                continue
+            }
             try {
                 when (m) {
                     is Msg.In -> handleInput(m.type, m.source)
@@ -1896,7 +1926,7 @@ class Shell(
     // retired and every reduced band sits at the top of the panel.
     private fun layoutFor(s: ShellSettings): Layout {
         val (rowH, lensH) = listRhythm(chromeText)          // Main is what boots
-        val base = Layout(rowH = rowH, lensH = lensH)
+        val base = Layout(rowH = rowH, lensH = lensH, clockW = clockCellW())
         return if (s.heightMode >= Geometry.PANEL_H) base
         else base.withHeightMode(s.heightMode, wm.damage.core.geom.VPos.TOP)
     }
@@ -1912,7 +1942,7 @@ class Shell(
         val (rowH, lensH) = listRhythm(focused?.let { w ->
             wm.damage.core.text.StyledText(text) { appTransform(w.id).apply(it) }
         } ?: chromeText)
-        val base = Layout(rowH = rowH, lensH = lensH)
+        val base = Layout(rowH = rowH, lensH = lensH, clockW = clockCellW())
         return if (h >= Geometry.PANEL_H) base
         else base.withHeightMode(h, wm.damage.core.geom.VPos.TOP)
     }
@@ -2561,10 +2591,42 @@ class Shell(
     }
 
     /** True when nothing is pending anywhere — test/selfcheck introspection. */
-    fun isQuiescent(): Boolean =
-        queued.get() == 0 && !comp.hasPending && !comp.needsKeyframe &&
-            inflightFlushes.isEmpty() && !notifications.animating &&
-            slides.none { it.active } && !switcher.spinning
+    fun isQuiescent(): Boolean = queued.get() == 0 && idleApartFromMessages()
+
+    /** Everything quiescence asks for EXCEPT the message queue. */
+    private fun idleApartFromMessages(): Boolean =
+        !comp.hasPending && !comp.needsKeyframe && inflightFlushes.isEmpty() &&
+            !notifications.animating && slides.none { it.active } && !switcher.spinning
+
+    /**
+     * 🔴 An ATOMIC settled sample, for a harness that compares the shell's
+     * state to the glass.
+     *
+     * `isQuiescent()` answers about ONE instant, from another thread, and the
+     * caller then reads `comp.composed`, `comp.planes` and the simulator's
+     * panels one after the other — three reads across a window in which the
+     * shell can start and finish a whole repaint. That is how the standing
+     * `--selfcheck` oracle failed about one run in ten with a whole-surface
+     * difference that a second look agreed with (review §30, measured:
+     * 16,963 px at 'scale130-reader-in', and the plane map printed with the
+     * failure was one region short of the map the glass had been drawn under).
+     * The scan is not wrong; the sample was torn.
+     *
+     * [block] runs ON the shell loop with NO other message queued and nothing
+     * else pending, so nothing can move under it. Returns null when the shell
+     * turned out not to be idle — the caller settles again and re-asks.
+     */
+    suspend fun <T : Any> sampleIdle(block: () -> T): T? {
+        val out = kotlinx.coroutines.CompletableDeferred<T?>()
+        post(Msg.Run(
+            // a shell stopped between the ask and the loop answers "not idle"
+            // rather than leaving the caller suspended for ever
+            dropped = { out.complete(null) },
+            // `queued == 1` is THIS message and nothing behind it
+            action = { out.complete(if (queued.get() == 1 && idleApartFromMessages()) block() else null) },
+        ))
+        return out.await()
+    }
 
     // ------------------------------------------------------------------ misc
     private fun splashFrame(): ByteArray {

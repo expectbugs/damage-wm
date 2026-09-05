@@ -104,7 +104,12 @@ object Icons {
     /** The MEDIUM seven-segment readout (§1.5 silent-clock sizes, 2026-09-01):
      *  the same drawing at ~2/3 metrics — digit 18 wide / 30 tall, thickness
      *  4, pitch 24. Kept as its own function so the large one stays
-     *  byte-identical (snapshots pin its pixels). Total width 102. */
+     *  byte-identical (snapshots pin its pixels). Total width 98.
+     *
+     *  ⚠ The minute pair used to sit at 56 and **84** — a 28 px pitch where
+     *  every other pair is 24, so the readout printed "10:2 1" with a visible
+     *  gap before the last digit (review §30, seen in Music Mode's clock).
+     *  Every gap between digits is now 6 px, as in the large face. */
     fun sevenSegClockMedium(s: Gray8, x0: Int, y0: Int, hh: Int, mm: Int) {
         val segs = intArrayOf(
             0b1111110, 0b0110000, 0b1101101, 0b1111001, 0b0110011,
@@ -141,7 +146,7 @@ object Icons {
         s.fillRect(x0 + 47, y0 + 8, 4, 4, Level.of(9))
         s.fillRect(x0 + 47, y0 + 19, 4, 4, Level.of(9))
         digit(x0 + 56, mm / 10)
-        digit(x0 + 84, mm % 10)
+        digit(x0 + 80, mm % 10)
     }
 
     /** The earlier analog face (ticks, tapered hands, hub) — UNUSED since the

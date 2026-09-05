@@ -22,6 +22,12 @@ data class Layout(
      *  under the lens fill. Even values only (the damage grid). */
     val rowH: Int = ROW_H,
     val lensH: Int = LENS_H,
+    /** The top bar's clock cell, MEASURED from the chrome face by the shell
+     *  (review §30 — `Chrome.clockCellWidth`): the design's 80 px holds the
+     *  widest `h:mm` plus its AM/PM marker at 100 % exactly, and one step up
+     *  the ladder the time ran INTO the marker. Multiple of 4 (the damage
+     *  grid), never below the design width. */
+    val clockW: Int = CLOCK_W,
 ) {
 
     companion object {
@@ -35,6 +41,10 @@ data class Layout(
         const val ROW_H = 32
         const val LENS_H = 64
         const val RAIL_W = 12            // §4.6: the WM-owned scroll rail at the right edge
+        /** §2.3's clock cell — the FLOOR of [clockW]. */
+        const val CLOCK_W = 80
+        /** §2.3's battery cell: two gauges at the 58 px pitch plus tail pad. */
+        const val BATT_W = 120
     }
 
     init {
@@ -42,6 +52,9 @@ data class Layout(
         if (errs.isNotEmpty()) throw LintError("Layout safe rect invalid: $errs")
         require(rowH >= ROW_H && rowH % 2 == 0) { "row pitch $rowH: at least $ROW_H and even" }
         require(lensH >= LENS_H && lensH % 2 == 0) { "lens band $lensH: at least $LENS_H and even" }
+        require(clockW >= CLOCK_W && clockW % Geometry.X_STEP == 0) {
+            "clock cell $clockW: at least $CLOCK_W and a multiple of ${Geometry.X_STEP}"
+        }
         require(safe.h >= TOP_H + DIV_H + lensH + 2 * CONTENT_PAD + DIV_H + STATUS_H) {
             "safe rect ${safe.h}px too short for the shell chrome"
         }
@@ -104,13 +117,14 @@ data class Layout(
         switcherPanel = Rect(Geometry.snapX(cx - 120), Geometry.snapY(cy - 88), 240, 176)
         notificationMax = Rect(Geometry.snapX(cx - 124), Geometry.snapY(cy - 52), 248, 104)
 
-        // Top bar cells: clock fixed 80, batteries fixed 120 (two gauges at the
-        // 58 px pitch + tail pad — was 176 for three; the ring gauge is gone
-        // and the dead space goes to the title, 2026-09-01 Adam), title takes
-        // the rest.
-        val clockW = 80
-        val battW = 120
+        // Top bar cells: the clock cell is MEASURED (§2.3's 80 is its floor —
+        // review §30), batteries fixed 120 (two gauges at the 58 px pitch +
+        // tail pad — was 176 for three; the ring gauge is gone and the dead
+        // space goes to the title, 2026-09-01 Adam), title takes the rest.
+        val battW = BATT_W
         val titleW = Geometry.snapX(topBar.w - clockW - battW)
+        if (titleW < 4 * Geometry.X_STEP) throw LintError(
+            "safe rect too narrow for a ${clockW}px clock, a ${battW}px battery cell and a title")
         titleCell = Rect(topBar.x, topBar.y, titleW, TOP_H)
         batteryCell = Rect(topBar.x + titleW, topBar.y, battW, TOP_H)
         clockCell = Rect(topBar.x + titleW + battW, topBar.y, topBar.w - titleW - battW, TOP_H)
@@ -151,7 +165,7 @@ data class Layout(
             VPos.LOWER -> Geometry.snapY(free * 3 / 4)
             VPos.BOTTOM -> free
         }
-        return Layout(Rect(safe.x, y, safe.w, h), rowH, lensH)
+        return Layout(Rect(safe.x, y, safe.w, h), rowH, lensH, clockW)
     }
 }
 

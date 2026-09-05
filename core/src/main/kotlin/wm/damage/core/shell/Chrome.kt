@@ -159,6 +159,13 @@ class Chrome(
 
     private val warned = HashSet<String>()
 
+    companion object {
+        /** The clock's own inset inside its cell, and the gap between the
+         *  time and its AM/PM marker (§2.3). */
+        const val CLOCK_PAD = 4
+        const val CLOCK_GAP = 4
+    }
+
     /** Fit a dynamic string into [maxW] px starting at ([x],[y]); a cut gets
      *  the drawn continuation mark at [triX] (§2.4 rule 3 — never a silent
      *  clip at the panel edge). */
@@ -236,9 +243,42 @@ class Chrome(
      *  (§1.5 sizes, 2026-09-01). */
     fun paintClockText(g: Gray8, cell: Rect, clock: String, amPm: String) {
         val y = fitY(cell, fChromeB, 6)
-        draw(g, cell.x + 4, y, clock, Level.HEAD, fChromeB)
-        if (amPm.isNotEmpty())
-            draw(g, cell.x + 52, fitY(cell, fTiny, y - cell.y + 2), amPm, Level.DIM, fTiny)
+        draw(g, cell.x + CLOCK_PAD, y, clock, Level.HEAD, fChromeB)
+        if (amPm.isNotEmpty()) {
+            // 🔴 A FIXED x, MEASURED from the widest `h:mm` this face can
+            // print. The old constant 52 is exactly `4 + 48` at 100 %, i.e. a
+            // ZERO gap for a five-character time — "10:20PM" on the glass —
+            // and at 115 % the time is 53 px wide, so the marker landed
+            // INSIDE the last digit (review §30). Measured rather than
+            // per-minute so the marker cannot jitter as the time changes.
+            val x = cell.x + CLOCK_PAD + clockWidths()[0] + CLOCK_GAP
+            draw(g, x, fitY(cell, fTiny, y - cell.y + 2), amPm, Level.DIM, fTiny)
+        }
+    }
+
+    /**
+     * The widest `h:mm` this face can print, and the widest AM/PM marker.
+     *
+     * EXACT rather than sampled: the string is always `h:mm`, so the widest is
+     * the widest of the twelve hours carrying the widest legal tens digit
+     * (0..5) and units digit (0..9) — 22 measures, checked against all 720
+     * real times at every step of the ladder.
+     */
+    fun clockWidths(): IntArray {
+        val tens = (0..5).maxByOrNull { text.measure("$it", fChromeB) } ?: 0
+        val units = (0..9).maxByOrNull { text.measure("$it", fChromeB) } ?: 0
+        val time = (1..12).maxOf { text.measure("$it:$tens$units", fChromeB) }
+        val ampm = maxOf(text.measure("AM", fTiny), text.measure("PM", fTiny))
+        return intArrayOf(time, ampm)
+    }
+
+    /** The width [Layout] must give the clock cell for this face: the pad,
+     *  the widest time, the gap, the marker and the pad, on the damage grid
+     *  and never below the design's own [Layout.CLOCK_W]. */
+    fun clockCellWidth(): Int {
+        val w = clockWidths()
+        val need = CLOCK_PAD + w[0] + CLOCK_GAP + w[1] + CLOCK_PAD
+        return maxOf(Layout.CLOCK_W, (need + Geometry.X_STEP - 1) / Geometry.X_STEP * Geometry.X_STEP)
     }
 
     /** The divider carries window position + attention ticks — the retired

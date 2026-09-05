@@ -61,25 +61,59 @@ object SelfCheck {
     private var oracleShell: Shell? = null
     private var oracleRuns = 0
 
-    private fun runOracle(label: String) {
+    /** One settled, ATOMIC reading of the whole system (review §30). */
+    private class Sample(
+        val composed: wm.damage.core.gfx.Gray8,
+        val planes: List<wm.damage.core.comp.Compositor.PlaneRegion>,
+        val left: ByteArray,
+        val right: ByteArray,
+        val stride: Int,
+    )
+
+    /**
+     * 🔴 The sample is taken ON the shell loop with nothing else pending
+     * (`Shell.sampleIdle`), never field by field from this thread: composed,
+     * the plane map and the two panels read separately span a window in which
+     * the shell can run a whole repaint, and the oracle then compares halves
+     * of two different frames. That torn read failed the standing gate about
+     * one run in ten — 16,963 px at 'scale130-reader-in', with a SECOND LOOK
+     * that agreed (review §30).
+     */
+    private suspend fun runOracle(label: String) {
         val sim = oracleSim ?: return
         val shell = oracleShell ?: return
-        if (!shell.isQuiescent()) return          // mid-flight is not a claim
+        var s: Sample? = null
+        // an idle sample can be refused when the shell picked work up again
+        // between the settle and the ask; settle and re-ask until it holds
+        // still, bounded so a shell that never settles fails loudly instead
+        val deadline = System.currentTimeMillis() + 20_000
+        while (System.currentTimeMillis() < deadline) {
+            if (!shell.isQuiescent()) { delay(5); continue }
+            s = shell.sampleIdle {
+                Sample(shell.comp.composed.copy(), shell.comp.planes.toList(),
+                    sim.left.panel.copyOf(), sim.right.panel.copyOf(), sim.left.stride)
+            }
+            if (s != null) break
+        }
+        if (s == null) {
+            failures.add("truth oracle at '$label': the shell never held still long enough to sample " +
+                "(${shell.quiescenceReport()}, quiescent=${shell.isQuiescent()})")
+            return
+        }
         oracleRuns++
         for (arm in Arm.entries) {
             val left = arm == Arm.LEFT
-            val ctx = if (left) sim.left else sim.right
-            val composed = shell.comp.composed
-            val truth = truthOf(composed, shell.comp.planes, left)
+            val panel = if (left) s.left else s.right
+            val truth = truthOf(s.composed, s.planes, left)
             for (y in 0 until wm.damage.core.geom.Geometry.PANEL_H) {
                 for (x in 0 until wm.damage.core.geom.Geometry.PANEL_W) {
-                    val b = ctx.panel[y * ctx.stride + (x shr 1)].toInt() and 0xFF
+                    val b = panel[y * s.stride + (x shr 1)].toInt() and 0xFF
                     val got = if (x and 1 == 0) b shr 4 else b and 0x0F
                     val want = Pack.level(truth[x, y])
                     if (want != got) {
                         failures.add("truth oracle at '$label': ${arm.name} glass != truth at " +
                             "($x,$y) — expected level $want, glass shows $got; planes=" +
-                            shell.comp.planes.joinToString { p -> "${p.rect}@${p.disparity}" })
+                            s.planes.joinToString { p -> "${p.rect}@${p.disparity}" })
                         return
                     }
                 }
@@ -702,6 +736,12 @@ object SelfCheck {
         val musicLib2 = ScriptedMusic()
         shell2.register(wm.damage.core.windows.music.MusicWindow(text, musicLib2, wm.damage.core.windows.music.SimMusicPlayer(musicLib2), scope2))
         shell2.start()
+        // the oracle follows the LIVE pair (review §30): left pointing at the
+        // stopped shell and its sim, every settle after the restart was either
+        // skipped or compared a stopped shell against its own frozen glass —
+        // a free pass over the whole restored session
+        oracleSim = sim2
+        oracleShell = shell2
         settle(shell2, "restart")
         awaitTrue("restored reader reopens its book (mode, not just position §9.1)") {
             reader2.levelDepth() >= 2

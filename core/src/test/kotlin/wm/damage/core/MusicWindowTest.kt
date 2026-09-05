@@ -75,6 +75,44 @@ class MusicWindowTest {
         override fun docContentHeight(): Int = 384
     }
 
+    /**
+     * 🔴 A row that can never succeed is DIM, not silent (the §26 trap, found
+     * again on the live walk — review §30).
+     *
+     * With nothing queued the Music menu offered Resume / Next / Previous as
+     * ordinary rows: each said "nothing queued" in its detail and then did
+     * absolutely nothing when tapped. A dim row is a visible no-op; an
+     * ordinary one is a silent failure.
+     */
+    @Test
+    fun theTransportRowsAreDimWhenNothingIsQueued(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-music-emptyqueue")
+        val r = Rig(tmp)
+        try {
+            r.start()
+            r.toMenuRow()
+            r.tap()
+            val t0 = System.currentTimeMillis()
+            while (!r.shell.menuIsOpen && System.currentTimeMillis() - t0 < 20_000) delay(10)
+            assertTrue(r.shell.menuIsOpen, "the Music menu did not open")
+            val enabled = r.shell.menuEnabled
+            for (row in listOf("Resume", "Next", "Previous")) {
+                assertTrue(r.shell.menuLabels.any { it == row },
+                    "the Music menu lost its '$row' row: ${r.shell.menuLabels}")
+                assertTrue(enabled.none { it == row },
+                    "'$row' is offered with an empty queue and does nothing when tapped: $enabled")
+            }
+            // and the rows that DO work are still offered
+            assertTrue(enabled.any { it == "Browse" }, "Browse must stay live: $enabled")
+            // the cursor opens on a row that can act, not on the dim first one
+            assertTrue(r.shell.menuLabels[r.shell.menuCursor] in enabled,
+                "the menu opened on '${r.shell.menuLabels[r.shell.menuCursor]}', which does nothing")
+            r.stop()
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
     @Test
     fun mainEntryReturnsToNowPlayingNotABrowseList(): Unit = runBlocking {
         // Adam's general rule, 2026-09-04 (HOLDEM.md §3) — with the Music

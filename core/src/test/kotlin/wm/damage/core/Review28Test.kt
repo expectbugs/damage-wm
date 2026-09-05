@@ -405,18 +405,23 @@ class Review28PaintTest {
         var below = 0
         for (y in box.bottom until 480) for (x in 0 until 640) if (g[x, y] != 0) below++
         assertTrue(below == 0, "a scaled menu inked $below pixels below its own box")
-        // the title's baseline must sit ABOVE the rule: with box glyphs the
-        // title's ink spans [box.y+4, box.y+4+ascent+descent); the rule is
-        // the first FAINT run under the title, and the caps' bottom — the
-        // baseline — is box.y + 4 + ascent
+        // The title's BASELINE must not fall past the rule. Since §30 the
+        // title is placed from its measured ascent so the baseline lands ON
+        // the band's last row, and the rule is painted BEFORE it — so the
+        // rule is located past the title's own columns (a box-glyph fake
+        // covers everything it draws over, descent included).
         val fTitle = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 13, bold = true)
-        val baseline = box.y + 4 + text.metrics(fTitle).ascent
+        val titleW = text.measure("TITLE", fTitle)
         var ruleY = -1
         for (y in box.y + 4 until box.bottom) {
-            if ((box.x + 12 until box.right - 12).all { x -> g[x, y] == wm.damage.core.gfx.Level.FAINT }) { ruleY = y; break }
+            if ((box.x + 12 + titleW until box.right - 12).all { x -> g[x, y] == wm.damage.core.gfx.Level.FAINT }) { ruleY = y; break }
         }
         assertTrue(ruleY >= 0, "no title rule found in the box")
-        assertTrue(ruleY >= baseline - 2, "the title rule at $ruleY crosses the title's caps (baseline $baseline)")
+        val titleTop = (box.y + 2 until box.bottom).first { y ->
+            (box.x + 8 until box.x + 8 + titleW).any { x -> g[x, y] == wm.damage.core.gfx.Level.DIM }
+        }
+        val baseline = titleTop + text.metrics(fTitle).ascent
+        assertTrue(baseline <= ruleY, "the title's baseline ($baseline) falls past its rule ($ruleY)")
     }
 
     /**

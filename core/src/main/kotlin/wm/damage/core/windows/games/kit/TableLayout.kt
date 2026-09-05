@@ -49,8 +49,11 @@ class TableLayout(
     val showsLastAction: Boolean get() = tier >= 1
     val showsArc: Boolean get() = tier >= 2
     val showsObservedStats: Boolean get() = tier >= 2
-    val showsYourLine: Boolean get() = tier >= 2
-    val showsHistory: Boolean get() = tier >= 3
+    /** The two OPTIONAL bands answer from the band itself, not from the tier:
+     *  a rung that could not fit one drops it, and a painter asking "do I draw
+     *  here" must get the same answer the allocator gave (review §30). */
+    val showsYourLine: Boolean get() = yourLine.h > 0
+    val showsHistory: Boolean get() = history.h > 0
     val showsChipStacks: Boolean get() = tier >= 3
 
     /** The five opponent cells (6-max minus you). */
@@ -76,23 +79,40 @@ class TableLayout(
         // descenders of each line into the tops of the next (review pass 3,
         // 2026-09-04 — the same class as the lens ladder). The seat strip pays
         // the 8 px and still clears its four rows.
-        val histH = if (tier >= 3) HIST_H else 0
-        val bands = 4 + (if (lineH > 0) 1 else 0) + (if (histH > 0) 1 else 0)
+        var histH = if (tier >= 3) HIST_H else 0
+        var lineH2 = lineH
         val avail = content.h - 2 * pad
-        val fixed = card.h + statusH + card.h + lineH + histH
-        val gaps = (bands - 1) * gap
-        var seatH = Geometry.snapY(avail - fixed - gaps)
-        if (seatH < MIN_SEAT_H) {
-            // a safe rect too short for the design: the seat strip floors and
-            // the bottom bands are what give way — never a silent overlap
-            seatH = MIN_SEAT_H
+        fun seatRoom(): Int {
+            val bands = 4 + (if (lineH2 > 0) 1 else 0) + (if (histH > 0) 1 else 0)
+            return Geometry.snapY(avail - (card.h + statusH + card.h + lineH2 + histH) - (bands - 1) * gap)
         }
+        // A safe rect too short for the design: the OPTIONAL bands give way,
+        // bottom first, exactly as this class has always claimed. It used to
+        // floor the seat strip and carry on, which pushed the bottom band past
+        // `content` — an escape only `check()` would have caught, and nothing
+        // on the paint path calls it (review §30). Unreachable at the four
+        // shipped rungs; it is here so the claim is true.
+        if (seatRoom() < MIN_SEAT_H && histH > 0) {
+            histH = 0
+            wm.damage.core.util.Log.w("games", "the ${content.h}px table has no room for the " +
+                "betting history — the band is dropped rather than pushed off the content area")
+        }
+        if (seatRoom() < MIN_SEAT_H && lineH2 > 0) {
+            lineH2 = 0
+            wm.damage.core.util.Log.w("games", "the ${content.h}px table has no room for your " +
+                "own line — the band is dropped")
+        }
+        val seatH = maxOf(MIN_SEAT_H, seatRoom())
+        if (seatRoom() < MIN_SEAT_H) wm.damage.core.util.Log.e("games",
+            "the ${content.h}px table cannot hold its four required bands " +
+                "(${card.h} + $statusH + ${card.h} + a ${MIN_SEAT_H}px seat strip) — the seat " +
+                "strip keeps its floor and the board will sit low")
         var y = content.y + pad
         seats = Rect(content.x, y, content.w, seatH); y += seatH + gap
         board = Rect(content.x, y, content.w, card.h); y += card.h + gap
         status = Rect(content.x, y, content.w, statusH); y += statusH + gap
         hole = Rect(content.x, y, content.w, card.h); y += card.h + gap
-        yourLine = if (lineH > 0) Rect(content.x, y, content.w, lineH).also { y += lineH + gap }
+        yourLine = if (lineH2 > 0) Rect(content.x, y, content.w, lineH2).also { y += lineH2 + gap }
         else Rect(content.x, y, content.w, 0)
         history = if (histH > 0) Rect(content.x, y, content.w, histH)
         else Rect(content.x, y, content.w, 0)

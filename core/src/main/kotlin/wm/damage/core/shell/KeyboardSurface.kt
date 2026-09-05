@@ -284,7 +284,7 @@ class KeyboardSurface(private val text: TextRasterizer) {
                     else -> Level.DIM
                 }
                 g.outlineRect(cell.x, cell.y, cell.w, cell.h, outline, 2)
-                paintLabel(g, k, cell, fLabel, fm.lineHeight, lv)
+                paintLabel(g, k, cell, fLabel, inkBox(fm), lv)
                 u += k.span
             }
         }
@@ -311,6 +311,14 @@ class KeyboardSurface(private val text: TextRasterizer) {
         }
         return FontSpec(Face.SYSTEM, 11, bold = true)
     }
+
+    /** A line's real box: the larger of the face's line height and its
+     *  MEASURED ink. AWT ceils ascent and descent separately and the height
+     *  once, so the ink is a row taller than the line height at several
+     *  scales (review §30) — centring on the line height then put the draft
+     *  and the key labels a row lower than the box they were centred in. */
+    private fun inkBox(m: wm.damage.core.text.FontMetrics): Int =
+        maxOf(m.lineHeight, m.ascent + m.descent)
 
     private fun paintLabel(g: Gray8, k: Key, cell: Rect, f: FontSpec, lineH: Int, lv: Int) {
         when (k.kind) {
@@ -377,10 +385,10 @@ class KeyboardSurface(private val text: TextRasterizer) {
         // line — review 2026-09-01 K4)
         val promptMax = UNITS * UNIT / 3
         val promptW = minOf(text.measure(prompt, fPrompt), promptMax)
-        Draw.fit(g, text, x0, (y + (p - pm.lineHeight) / 2) / 2 * 2, prompt, Level.DIM, fPrompt, promptMax)
+        Draw.fit(g, text, x0, (y + (p - inkBox(pm)) / 2) / 2 * 2, prompt, Level.DIM, fPrompt, promptMax)
         var dx = (x0 + promptW + 16) / 4 * 4
         val avail = right - dx - 8
-        val dy = (y + (p - dm.lineHeight) / 2) / 2 * 2
+        val dy = (y + (p - inkBox(dm)) / 2) / 2 * 2
         val d = display(draft, fDraft)
         // the visible window: from `start` so that the head up to the caret fits
         var start = 0
@@ -411,7 +419,7 @@ class KeyboardSurface(private val text: TextRasterizer) {
         val caretX = (dx + text.measure(d.substring(start, caret), fDraft)).coerceAtMost(right - 4)
         // the caret: a 2 px bar at HEAD, tall as the line (a cut TAIL past it
         // is marked by Draw.fit itself)
-        g.fillRect(caretX / 2 * 2, dy, 2, dm.lineHeight, Level.HEAD)
+        g.fillRect(caretX / 2 * 2, dy, 2, inkBox(dm), Level.HEAD)
     }
 
     companion object {

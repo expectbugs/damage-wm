@@ -714,6 +714,28 @@ agents per subsystem, every candidate verified by trace, timing or pixel
 simulation before a fix) found and fixed ~70 real defects. The mechanisms that came out
 of them are load-bearing and easy to break by accident:
 
+- 🆕 **A CLOSED wheel is not spinning** (`Switcher.spinning` / `close`, `HANDOFF.md` §30):
+  the frame loop posts another `Msg.Pump` for as long as `spinning` is true and
+  `isQuiescent()` reads the same flag, and the drum is stepped only while the
+  wheel is OPEN — so a scroll followed by a commit or a cancel inside the four
+  animation frames left the flag true for ever: an unbounded loop of empty
+  frames and a shell that never reported itself idle. `close()` stops the drum
+  and the flag is `open &&`-gated. The oracle walk is what caught it.
+- 🆕 **A harness compares the shell to the glass through `Shell.sampleIdle`**
+  (§30): `isQuiescent()` answers about one instant from another thread, and a
+  caller that then reads `comp.composed`, `comp.planes` and the two sim panels
+  one after another is reading across a window the shell can repaint inside.
+  That torn sample failed the standing `--selfcheck` oracle about one run in
+  ten (measured 2/20 on the unchanged tree, 20/20 after). `sampleIdle` runs the
+  reading ON the loop with nothing else queued; `SelfCheck.runOracle` and
+  `OracleWalkTest.assertOracle` both go through it. A `Msg.Run` that reaches a
+  stopped loop runs its `dropped` arm so the caller is never left suspended.
+- 🆕 **A line box is the LARGER of the face's line height and its measured ink**
+  (§30): AWT ceils ascent and descent separately and the height once, so the
+  ink is a row TALLER than the line height at several scales (JetBrains Mono 16
+  inks 25 against a 24 px line at 115 %). `FlowRender.lineH`, `TermRender`'s
+  cell, the keyboard's centring and the Hold'em history all take the max; every
+  DocView's line height was already measured from ink.
 - 🆕 **The shell loop survives an `Error`, loudly** (`Shell.loop`, `HANDOFF.md` §29):
   the catch was `Exception` only, and an `Error` out of a handler ended the loop
   with the display frozen behind a keeper status that still read "running".
@@ -853,7 +875,15 @@ Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md
 
 ## Verification
 
-- `./gradlew :core:test` — **440** unit/integration tests (2026-09-04-evening's fourth
+- `./gradlew :core:test` — **455** unit/integration tests (2026-09-05's fifth whole-codebase
+  review — `HANDOFF.md` §30 — added `Review30Test.kt`, thirteen pins: the notification rule off its
+  source line, the menu rule off its title, the Games documents holding their ink, Files saying why
+  an empty list is empty, the clock marker clear of the time, the medium clock's even digits, the
+  switcher band holding its name, the Hold'em seat strip inside its band AND still drawing the
+  money, tmux saying a host is quiet on every level, a staged settings row saying the tap applies,
+  the flow line box holding its ink, a wheel closed mid-spin not spinning, and the shell settling
+  after a wheel cancelled mid-spin — plus the Torrents staleness page and the Music dim transport
+  rows in their own files, each run against the unfixed tree and watched to fail; 2026-09-04-evening's fourth
   whole-codebase review — `HANDOFF.md` §29 — added `Review29Test.kt`, eight pins: the row above
   the lens keeping its ink at 130 %, a grown rhythm legal at every height, the ladder labels, the
   failed-start release before the disconnect, brightness back to auto, the custom-amount

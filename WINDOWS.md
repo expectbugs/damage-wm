@@ -64,6 +64,15 @@ These are the non-negotiables, each with its authority:
   staleness is said with duration (`PC unreachable 40s`); a missing need marks the window
   unavailable in Main and says why (§10.5). No timeouts anywhere — pacing loops and liveness
   decisions only.
+  🔴 **The staleness surface reaches EVERY level, and Main's row** (2026-09-05, `HANDOFF.md` §30).
+  Tmux painted it on the live pane only, so a host that had stopped answering said nothing at all
+  on the sessions list — for half an hour, on the live walk — as long as one other host was alive;
+  Torrents said it on the transfers list and nowhere deeper. The window's TITLE carries it wherever
+  the level does not paint it itself, and the summary carries it into Main.
+- 🔴 **A row that cannot succeed is DIM, and a menu opens on a row that can act.** An ordinary row
+  that does nothing when tapped is a silent failure; a dim one is a visible no-op (`Shell` refuses
+  it and says so). Music's Resume / Next / Previous were live with an empty queue until
+  2026-09-05 — they said "nothing queued" in the detail and then did nothing at all.
 - **Notification toggles live in the app's own Settings category** (Adam, 2026-09-01: *"each
   app's notification settings [go] within that app's category in the settings app, rather than
   within Global"*). The window gates its own `notifyInternal` calls on its rows (the Tmux

@@ -543,6 +543,38 @@ SHA256: abc</pre>
         fun up() = shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)
     }
 
+    /**
+     * 🔴 The staleness surface reaches every level (review §30).
+     *
+     * The transfers list draws `stateLine` itself and Main's row reads it from
+     * the summary, but a details page or a listing said nothing at all while
+     * the host had stopped answering — and the figures on it, frozen at the
+     * last good poll, read as current ones. The same defect the tmux sessions
+     * list had, found there on the live walk.
+     */
+    @Test
+    fun aDetailsPageSaysTheHostHasStoppedAnswering(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-torrents-stale")
+        val r = Rig(tmp)
+        try {
+            r.start()
+            awaitTrue("transfers open") { r.win.title() == "transfers" }
+            r.tap()
+            awaitTrue("menu") { r.shell.menuIsOpen }
+            r.tap()
+            awaitTrue("details") { r.win.title() == "details" }
+            for (l in r.fake.listeners) l.state("qbt: connection refused")
+            awaitTrue("the details page says the host stopped answering") {
+                r.win.title().contains("connection refused")
+            }
+            for (l in r.fake.listeners) l.state("")
+            awaitTrue("and stops saying it when the host answers again") { r.win.title() == "details" }
+            r.stop()
+        } finally {
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
     @Test
     fun mainEntryShowsTheTransfersListAndTheSwitcherResumesTheLevel(): Unit = runBlocking {
         // Adam's general rule, 2026-09-04 (HOLDEM.md §3).

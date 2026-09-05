@@ -673,7 +673,11 @@ records which).
    then the whole-codebase review the same day — §25, APK 23/0.23, which fixed three more
    Music defects: a restored level below the top never loaded, the desktop mirror published
    an empty player record as a removal tombstone, and the quiet-stream notice did not re-arm
-   when the volume it named was raised.)
+   when the volume it named was raised. The fifth whole-codebase review — §30, 2026-09-05 — found
+   two more: **Resume / Next / Previous were ordinary rows with an empty queue**, each saying
+   "nothing queued" in its detail and then doing nothing at all when tapped (they are DIM now, and
+   a menu opens its cursor on the first row that can act), and the **medium seven-segment clock**
+   Music Mode draws had its last minute digit at an 84 px offset where the pitch is 32.)
 
 Delegation guide (token budget): M1's DAO/transcode/stream, M5's `LyricsFetch`, `YouTube`,
 `viz.py` and the lane-1 `Resolver` port, M3's `Viz` renderers and M4's `SpotifyRemote` are leaf

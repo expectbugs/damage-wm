@@ -44,7 +44,13 @@ class Switcher(
     private var spinFrom = 0.0
     private var spinPos = 0.0
     private var spinFrame = 0
-    val spinning: Boolean get() = spinPos != cursor.toDouble()
+    /** 🔴 A CLOSED wheel is not spinning. The shell's frame loop posts another
+     *  Pump for as long as this is true and `isQuiescent()` reads it, so a
+     *  wheel closed mid-spin left the loop posting empty frames for ever —
+     *  a shell that never reports itself idle (review §30: the oracle walk
+     *  caught it at h=288 step 180, a scroll and a long-press release inside
+     *  the four animation frames). [close] stops the drum as well. */
+    val spinning: Boolean get() = open && spinPos != cursor.toDouble()
 
     /** The window that was current when the switcher opened (for cancel). */
     var origin: DamageWindow? = null
@@ -79,9 +85,17 @@ class Switcher(
     fun close() {
         open = false
         entries = emptyList()
+        // stop the drum where the cursor is: nothing steps it once the wheel
+        // is closed, so a spin left running is a spin that never ends
+        spinPos = cursor.toDouble()
+        spinFrom = spinPos
+        spinFrame = 4
     }
 
     fun selected(): Entry? = entries.getOrNull(cursor)
+
+    /** How many rows the drum holds. */
+    val entryCount: Int get() = entries.size
 
     /** A scroll notch: move the cursor and retarget the spin. */
     fun scroll(delta: Int) {
@@ -124,12 +138,16 @@ class Switcher(
 
         // band geometry at rest: above 44 · centre 88 · below 44 (§4.3); while
         // spinning, the boundary between bands slides by frac of a band.
-        // The centre band holds the icon and the name's MEASURED ascent
-        // (review §28 #11): 88 is exactly what Clear Sans 21 bold needs at
-        // 100 %, and under the global font scale the name's baseline fell
-        // below the lower rule and the lower neighbour's descenders ran past
-        // the panel — outside the wheel's damage rect.
-        val bandH = maxOf(88, (64 + text.metrics(fBig).ascent + 1) / 2 * 2)
+        // The centre band holds the icon and the name's MEASURED INK
+        // (review §30): §28 #11 sized it from the ASCENT, which is the top
+        // half of the promise only — the name is drawn at `bandTop + 64` and
+        // inks `ascent + descent`, so at 130 % the lower rule was painted at
+        // row 288 while "Settings" still had ink at 290-292 and the rule cut
+        // straight through the word (measured on the live wheel).
+        // (the dirty mark and the overflow triangle hang at fixed offsets and
+        // end by `bandTop + 80`, so the 88 floor already owes them nothing)
+        val nameInk = text.metrics(fBig).let { it.ascent + it.descent }
+        val bandH = maxOf(88, (64 + nameInk + 2 + 1) / 2 * 2)
         val small = ((p.h - bandH) / 2) / 2 * 2
         val bandTop = p.y + (small * (1 - frac)).toInt() / 2 * 2
         val bandBot = bandTop + bandH
@@ -151,8 +169,12 @@ class Switcher(
         g.fillRect(p.x, bandTop, p.w, 2, Level.DIM)
         g.fillRect(p.x, bandBot, p.w, 2, Level.DIM)
 
-        // above neighbour: half height, dim
-        if (n > 1) paintSmall(g, p, entryAt(-1), p.y + 4, dimLv)
+        // above neighbour: half height, dim. Placed the way the below one is
+        // (review §30): `p.y + 4` is where it WANTS to sit, and the clamp is
+        // what keeps its descenders off the band's own rule when a big face
+        // makes the centre band tall.
+        val smallInk = text.metrics(fBody).let { it.ascent + it.descent }
+        if (n > 1) paintSmall(g, p, entryAt(-1), minOf(p.y + 4, bandTop - smallInk).coerceAtLeast(p.y + 2), dimLv)
         // centre: full size, full brightness, plane 0. Names must stay inside
         // the fixed panel rect — pixels past it would sit outside the damage
         // rect (silent divergence); overflow gets the drawn continuation mark
@@ -169,7 +191,6 @@ class Switcher(
         if (name != ce.name) Icons.tri(g, p.right - 14, iconY + 64, 11, Level.DIM)
         if (ce.dirty) g.fillRect((lx + tw + 8).coerceAtMost(p.right - 8), iconY + 66, 4, 10, Level.HOT)
         // below neighbour — inside the panel whatever the face's ink
-        val smallInk = text.metrics(fBody).let { it.ascent + it.descent }
         if (n > 2) paintSmall(g, p, entryAt(1), minOf(p.bottom - 24, p.bottom - 2 - smallInk), dimLv)
         return p
     }

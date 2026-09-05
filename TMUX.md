@@ -142,6 +142,11 @@ PC):
 Auto-detection is therefore free: the phone already knows beardos (host/port/token in Prefs);
 the session list just appears. **The window declares `Need.HOST`** (§10.5): PC unreachable ⇒
 Main marks it unavailable, the window shows the last frame with the staleness surface, honest.
+🔴 **The staleness surface reaches EVERY level** (2026-09-05, `HANDOFF.md` §30): the live pane
+paints it itself, and everywhere else — the sessions list, history, keys, and Main's own row — it
+rides the title as `· ! <what is wrong>`. Before that it was the live pane only, so a host that had
+stopped answering said nothing at all as long as another host was alive: `ghost` had been failing
+its status poll for half an hour with the sessions list reading clean.
 
 ### 3.2 The window — levels mapped to the §1 grammar *(⚠ grid-era diagram: LIVE renders as the FLOW view since 2026-08-31 — top matter; the grammar itself is unchanged)*
 

@@ -168,7 +168,9 @@ class TmuxWindow(
             onShell {
                 if (provState != state) {
                     provState = state
-                    if (level == Level_.LIVE || level == Level_.SESSIONS) services?.requestRender(this@TmuxWindow)
+                    // every level shows it now (the title carries it off the
+                    // live pane, review §30), so every level is re-drawn
+                    services?.requestRender(this@TmuxWindow)
                 }
             }
         }
@@ -723,18 +725,33 @@ class TmuxWindow(
             Level_.KILL_CONFIRM -> "kill?"
             Level_.TYPE_CONFIRM -> "confirm"
         }
-        return notice?.let { "$base · ! $it" } ?: base
+        notice?.let { return "$base · ! $it" }
+        // §10.5's staleness surface reaches EVERY level (review §30): the live
+        // pane paints `provState` itself, but on the sessions list — and in
+        // Main's row — a host that had stopped answering said nothing at all
+        // as long as one other host was alive, which is the silent failure the
+        // surface exists to prevent. Found on the live walk: `ghost` had been
+        // failing its status poll for half an hour and the window read clean.
+        if (level != Level_.LIVE && provState.isNotEmpty()) return "$base · ! $provState"
+        return base
     }
 
     override fun summary(): Summary {
         val waiting = sessions.filter { it.waiting }
+        val viewing = target?.let { "viewing ${it.label}" } ?: ""
         return Summary(
             line = when {
                 sessions.isEmpty() -> if (provState.isEmpty()) "no sessions" else provState
                 waiting.isEmpty() -> "${sessions.size} session${if (sessions.size == 1) "" else "s"}"
                 else -> "${waiting.joinToString(", ") { it.name }} waiting"
             },
-            detail = target?.let { "viewing ${it.label}" } ?: "",
+            // the same surface on Main's row: the sessions we DO have never
+            // stand in for the host we have lost
+            detail = when {
+                provState.isEmpty() -> viewing
+                viewing.isEmpty() -> "! $provState"
+                else -> "$viewing · ! $provState"
+            },
             more = waiting.isNotEmpty(),
         )
     }

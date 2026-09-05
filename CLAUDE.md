@@ -105,6 +105,25 @@ never return to auto, and the context menu's fixed width cut labels at the chrom
 walk rules learnt the hard way: **one step per snap in any window with a destructive row** (a
 blind run started a stopped torrent on the real qBittorrent), and **never rebuild the jar under a
 running instance**. Deployed 2026-09-04 22:00 (the service on the §29 build; APK 29/0.29 staged).
+**A fifth review on 2026-09-05 — `HANDOFF.md` §30 — seventeen verified defects, and two of them
+were in the GATES.** 🔴 **A wheel closed mid-spin never stopped spinning**: `Switcher.spinning`
+stayed true, the frame loop posts another Pump for as long as it is, and `isQuiescent()` reads the
+same flag — an unbounded loop of empty frames and a shell never idle again, from a scroll and a tap
+inside four animation frames. 🔴 **The standing `--selfcheck` oracle failed one run in ten and
+always had** (2/20 measured on the unchanged tree): its SAMPLE was torn — `isQuiescent()` from
+another thread, then composed, the plane map and both panels read one after another across a window
+the shell repaints inside. `Shell.sampleIdle` takes the reading ON the loop (20/20 clean after).
+🔴 **The Hold'em seat strip drew every opponent's stack through the board** at 288/130 %; the seat
+faces are measured now and the strip goes COMPACT — one row, money first — where two will not fit.
+The §27 rule claimed five more: the notification and menu rules struck the text they bracketed, the
+clock's AM/PM marker sat inside the last digit above 100 %, the Games documents sized their lines
+from `lineHeight` (which is SHORTER than the ink — AWT ceils ascent and descent separately), and
+Files drew nothing at all for an empty list. Also: the staleness surface now reaches every level
+(tmux and Torrents both said it in one place only), a STAGED settings row no longer claims "scroll
+adjusts live", and a row that cannot succeed is dim. 🔴 The lesson to carry: **the harness is part
+of the system under review** — when a test bound fires, measure the normal case before calling it
+load (the worst settle in a clean walk is 46 ms, which is what turned a 120 s "flake" into the
+wheel defect).
 
 Adam's stated methodology governs **the app layer**:
 
@@ -132,7 +151,7 @@ Damage` and the APK-wide `Phone notifications` switch, and the shell never gates
 source on a hidden field — a Global row that disappears leaves a persisted value nothing can undo).
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(440 tests, including the per-lens oracle, the §25–§29 review pins and the random-gesture
+(455 tests, including the per-lens oracle, the §25–§30 review pins and the random-gesture
 oracle walk), `./gradlew :desktop:test` (11 tests: the BlueZ glue
 over a fake link and the config file's safety), `desktop --selfcheck` (189 checks, the truth oracle on every settle), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `desktop --music-check` (the real library, read-only bar the additive schema migration),
@@ -144,7 +163,11 @@ true 1×.
 harness — a wait that re-tested a condition its loop had already passed, a scene that assumed one
 action ends a Hold'em hand, and a games world seeded from the wall clock — were each invisible in a
 single run and together produced a failure that moved between scenes (`HANDOFF.md` §27.6). A wait
-decides on ONE evaluation; a scripted scene pins its seed.
+decides on ONE evaluation; a scripted scene pins its seed. 🆕 **Twenty runs, not three, when the
+question is a RATE** (§30): `--selfcheck` failed 2 in 20 on an unchanged tree and had for as long as
+it existed — its oracle read the shell's state field by field from another thread while the shell
+was free to repaint. A sample a harness compares to the glass is taken through `Shell.sampleIdle`,
+ON the loop, or it is not a sample.
 Radio use is normal now (post-flash); deploying = `./gradlew :desktop:stageJar && sudo
 rc-service damage restart` (`DAILY.md`) — since §19 the PC never claims, so a PC deploy never
 touches the display at all. Stop the service before any `:desktop:run` dev session (one set of

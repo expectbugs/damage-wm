@@ -327,6 +327,12 @@ rather than asserted.
 | top bar | Title — `▣ WINDOW · document` | 16 | 408 | 0 | 32 |
 | | Battery ×2 (G glasses · P phone), 58 px pitch, 30 px body | 424 | 120 | 0 | 32 |
 | | Clock | 544 | 80 | 0 | 32 |
+
+🔴 **The clock cell's 80 is a FLOOR, not a constant** (2026-09-05, `HANDOFF.md` §30): it holds the
+widest `h:mm` plus its AM/PM marker at 100 % exactly, so one step up the font ladder the marker was
+drawn INSIDE the last digit. The shell measures the cell for the chrome face in use and the title
+cell takes what is left; the marker's x is measured from the widest time the face can print, not
+from the time on screen, so it cannot jitter as the minute changes.
 | divider | | 16 | 608 | 32 | 2 |
 | content | (nominal, ±d for depth) | 16 | 608 | 34 | 416 |
 | divider | | 16 | 608 | 450 | 2 |
@@ -787,6 +793,10 @@ any.
 the measured CFW curve, §8.4). Fine for a setting, but it is the one setting that cannot preview
 per notch: it is staged while scrolling and applied on tap (the font rows stage the same way — a
 face change is a relayout too).
+🔴 **A staged row SAYS so.** Its value carries `(tap applies)` and its hint reads *"scroll picks ·
+tap applies · double-tap reverts"*, not the live rows' *"scroll adjusts live · tap keeps"* — the
+one wording was on every row until 2026-09-05 (`HANDOFF.md` §30), so scrolling Size three notches
+left the panel exactly where it was under a line claiming otherwise.
 
 #### Cost
 
@@ -830,7 +840,7 @@ next detent.
 | | value |
 |---|---|
 | panel | `x 200, y 154, w 240, h 176` — centred on x=320 and on the content band's centre y=242 |
-| bands | above 44 · **centre 88** · below 44 — at 100 %; the centre band grows with the name's MEASURED ascent up the font ladder and the neighbours shrink to match (2026-09-04, `HANDOFF.md` §28.2) |
+| bands | above 44 · **centre 88** · below 44 — the design's numbers, and the FLOOR; the centre band grows with the name's MEASURED INK (ascent **and** descent, plus two rows) up the font ladder and the neighbours shrink to match, each clamped so its own ink stays off the band rules. 🔴 Sized from the ASCENT (2026-09-04, §28.2) the lower rule was painted straight through the centre name — at 100 % as well as at 130 %; corrected 2026-09-05, `HANDOFF.md` §30 |
 | centre item | 64×64 icon + 4 gap + 20 title |
 | grid | x/w ÷4 ✅ · y/h ÷2 ✅ |
 
@@ -1032,7 +1042,7 @@ A box over the content that **takes focus**, sized to its content up to a cap, s
 
 | | value |
 |---|---|
-| max | `x 196, y 190, w 248, h 104` — centred on x=320 and on the content centre y=242 |
+| max | `x 196, y 190, w 248, h 104` — centred on x=320 and on the content centre y=242. The box is centred on **its own** height, so a one-liner and the two lines a 130 % face leaves room for sit on the same axis as everything else (it hung from this box's top edge until 2026-09-05, `HANDOFF.md` §30) |
 | min | `w 248, h 56` — source line + one body line (see the layout below) |
 | growth | in whole lines; line height is already ×2 (§2.4 rule 7) so the box quantizes for free |
 | silent mode | `x 220, y 214, w 200, h 56` |
@@ -1081,6 +1091,9 @@ meaning (§4.1, §4.6).
 ```
 
 `16 + 2 + 6 + n×24 + 6 + 2` → **56 / 80 / 104** for 1 / 2 / 3 body lines. Every value even ✅.
+(The 16 and the 24 are the FLOORS: both follow the chrome face's measured ink up the ladder, and
+the source line is placed from its measured ascent so the rule below the band clears every cap —
+it struck through the source, the `+N` badge and the timestamp until 2026-09-05, §30.)
 ~27 characters per line at 248 px.
 
 | element | level | why |
@@ -1523,11 +1536,16 @@ Three shell surfaces/mechanisms designed during the app-contract session (`HANDO
 §20–§22); recorded here because this file is the shell authority:
 
 - **The floating context menu** (Adam: *"a tap should work like a right-click"*): a 248-wide
-  HOLE in the content — not a card — at **plane 0** (248 at 100 %; since 2026-09-04,
+  HOLE in the content — not a card — at **plane 0** (248 at 100 %; its title band and the rule
+  under it follow the title face's MEASURED ink, and the rule is painted BEFORE the title so a
+  collision cannot hide itself — the rule struck through every menu title until 2026-09-05, §30;
+  since 2026-09-04,
   `HANDOFF.md` §29, the box grows with the chrome face by the ratio its row pitch grew, so a
   label keeps the room it was designed with under the 120 % cap, and a detail the tail-keeping
-  fit cuts at its head carries the mark on that edge), cursor opening on row 0 (put the primary
-  action, Open, there; destructive rows never at 0/1 per §1.7), scroll moves, tap commits,
+  fit cuts at its head carries the mark on that edge), cursor opening on **the first row that can
+  act** (put the primary action, Open, there; destructive rows never at 0/1 per §1.7 — and a menu
+  whose first row is dim opens one row down instead of on a tap that does nothing,
+  2026-09-05 §30), scroll moves, tap commits,
   double-tap cancels, a pan window for long menus. It owns the screen like the wheel: ordinary
   notices defer behind it (decision 6 extended), an EMERGENCY cancels it — losing a menu is
   safe, a missed alert is not. `MenuSurface.kt`; Files' whole grammar rides it.

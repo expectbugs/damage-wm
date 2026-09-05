@@ -404,9 +404,22 @@ class FilesWindow(
     }
 
     private fun paintLocLens(g: Gray8, r: Rect, i: Int) {
-        val l = locations.getOrNull(i) ?: return
-        IconPaint.draw(g, services?.icons(), locIcon(l.kind), r.x + 8, r.y + 4, 56, IconKind.FILES, Level.HEAD)
         val fB = FontSpec(Face.SYSTEM, 18, bold = true)
+        // 🔴 An EMPTY list still has ONE row, and a one-row list is drawn
+        // ONLY by the lens: the slots above and below resolve to no index, so
+        // the row painter never runs and its "no locations" placeholder is
+        // unreachable. Without this the content band is simply BLANK while a
+        // failed or unanswered listing sits behind it (review §30). The
+        // Torrents transfers list has always said it here; Files did not.
+        val l = locations.getOrNull(i) ?: run {
+            IconPaint.draw(g, services?.icons(), IconNames.HOME, r.x + 8, r.y + 4, 56, IconKind.FILES, Level.HEAD)
+            Draw.fit(g, tx, r.x + 72, r.y + 6, "No locations", Level.HEAD, fB, r.w - 88)
+            Draw.fit(g, tx, r.x + 72, Draw.lineBelow(tx, fB, r.y + 6, r.y + 32),
+                dn(listState.ifEmpty { "the host has not answered yet · tap to look again" }),
+                Level.BODY, fBody, r.w - 88)
+            return
+        }
+        IconPaint.draw(g, services?.icons(), locIcon(l.kind), r.x + 8, r.y + 4, 56, IconKind.FILES, Level.HEAD)
         Draw.fit(g, tx, r.x + 72, r.y + 6, l.label, Level.HEAD, fB, r.w - 88)
         val det = if (l.totalBytes > 0)
             "${l.path} · ${fmtBytes(l.freeBytes)} free of ${fmtBytes(l.totalBytes)}"
@@ -425,7 +438,13 @@ class FilesWindow(
         pendingBrowseCursor = null   // an abandoned ascend must not steer this folder (R3d#7)
         pendingSelectName = null     // nor a deep link's file steer another folder (review K9)
         pendingOpenView = null       // user navigation supersedes a pending restore (R5#1)
-        val l = locations.getOrNull(i) ?: return
+        // the placeholder row: a tap on it asks again rather than doing
+        // nothing at all (review §30 — no silent no-ops)
+        val l = locations.getOrNull(i) ?: run {
+            setNotice("asking the host for the locations again")
+            refreshLocations()
+            return
+        }
         location = l
         if (l.kind == "trash") {
             level = Level_.TRASH
@@ -876,15 +895,23 @@ class FilesWindow(
     }
 
     private fun paintTrashLens(g: Gray8, r: Rect, i: Int) {
-        val e = trashEntries.getOrNull(i) ?: return
-        IconPaint.drawFile(g, services?.icons(), e.name, e.dir, r.x + 8, r.y + 4, 56, Level.HEAD)
         val fB = FontSpec(Face.SYSTEM, 18, bold = true)
+        // the same one-row rule as the locations lens above: with the trash
+        // empty this IS the only painted row (review §30)
+        val e = trashEntries.getOrNull(i) ?: run {
+            IconPaint.draw(g, services?.icons(), IconNames.TRASH, r.x + 8, r.y + 4, 56, IconKind.FILES, Level.HEAD)
+            Draw.fit(g, tx, r.x + 72, r.y + 6, "Trash is empty", Level.HEAD, fB, r.w - 88)
+            Draw.fit(g, tx, r.x + 72, Draw.lineBelow(tx, fB, r.y + 6, r.y + 32),
+                "nothing to restore · double-tap for the locations", Level.BODY, fBody, r.w - 88)
+            return
+        }
+        IconPaint.drawFile(g, services?.icons(), e.name, e.dir, r.x + 8, r.y + 4, 56, Level.HEAD)
         Draw.fit(g, tx, r.x + 72, r.y + 6, dn(e.name), Level.HEAD, fB, r.w - 88)
         Draw.fit(g, tx, r.x + 72, Draw.lineBelow(tx, fB, r.y + 6, r.y + 34), "was ${dn(shortPath(e.origPath))}", Level.BODY, fBody, r.w - 88)
     }
 
     private fun commitTrash(i: Int) {
-        val e = trashEntries.getOrNull(i) ?: return
+        val e = trashEntries.getOrNull(i) ?: run { setNotice("the trash is empty"); return }
         services?.openMenu(MenuSurface.Spec(dn(e.name), listOf(
             MenuSurface.Item("Restore", detail = dn(shortPath(e.origPath.substringBeforeLast('/')))),
             MenuSurface.Item("Stats", detail = fmtBytes(e.size)),

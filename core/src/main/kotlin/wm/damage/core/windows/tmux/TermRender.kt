@@ -57,7 +57,8 @@ class TermRender(private val text: TextRasterizer) {
             size--
             val f = FontSpec(Face.MONO, size)
             val advance = text.measure("MMMMMMMMMM", f) / 10.0
-            cellH = maxOf(2, text.metrics(f).lineHeight)
+            // the MEASURED ink, not the line height alone — see FlowRender.lineH
+            cellH = maxOf(2, text.metrics(f).let { maxOf(it.lineHeight, it.ascent + it.descent) })
             if (advance <= pitchX && cellH * liveRows <= rect.h) break
         } while (size > 5)
         val spare = rect.h - cellH * liveRows

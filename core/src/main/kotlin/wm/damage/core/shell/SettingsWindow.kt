@@ -203,6 +203,12 @@ class SettingsWindow(
         stagedHost = null
     }
 
+    /** Does this row STAGE its value (apply on the tap) rather than preview it
+     *  live per notch? The two callers that decide it — [onCommit]'s staging
+     *  and [adjustStep] — read the same shape, so the hint reads it too rather
+     *  than keeping a third copy that can drift. */
+    private fun stages(e: Entry): Boolean = e.hostRow != null || e.name == "Size"
+
     /**
      * §16.1 deep link: `cat:<name>` opens one category directly, so a window
      * can offer "my settings" as a row and actually deliver them. Matched
@@ -339,8 +345,16 @@ class SettingsWindow(
         } else {
             Draw.fit(g, text, nameEnd, r.y + 8, v, Level.BODY, vf, vMax)
         }
-        val hint = if (adjusting != null) "scroll adjusts live · tap keeps · double-tap reverts"
-        else "tap to adjust"
+        // 🔴 a STAGED row does not move until the tap, so it must not claim
+        // it does (review §30, the live walk): scrolling Size three notches
+        // left the panel at 480 under a line reading "scroll adjusts live",
+        // which is the shell describing a program that is not running. The
+        // value already carries "(tap applies)"; the hint now agrees with it.
+        val hint = when {
+            adjusting == null -> "tap to adjust"
+            stages(e) -> "scroll picks · tap applies · double-tap reverts"
+            else -> "scroll adjusts live · tap keeps · double-tap reverts"
+        }
         text.draw(g, r.x + 44, Draw.lineBelow(text, fRowB, r.y + 8, r.y + 34) / 2 * 2, hint, FontSpec(Face.SYSTEM, 14), Level.DIM)
     }
 

@@ -43,7 +43,9 @@ switcher-resume / Main-root rule and all three of its review cycles (`HANDOFF.md
 the last build observed installed**; **0.28**, staged 2026-09-04 18:16, adds the 2026-09-04-late
 review — `HANDOFF.md` §28; **0.29**, staged 2026-09-04 22:00, adds the fourth review —
 `HANDOFF.md` §29, the measured list rhythm, the tmux alert's deep link, brightness back to auto —
-and the service runs that build too). Why old
+and the service runs that build too. **The fifth review, `HANDOFF.md` §30, is committed but NOT
+staged or deployed:** the service is still on the §29 build and 0.29 is still what is on the setup
+page). Why old
 APKs matter: a pre-0.15 APK cannot be status-probed (the PC conservatively stays out — fine)
 and a pre-0.10 one carries no sync client, so state does not flow until it is updated. 0.16
 being installed also unblocks Reader's transitional legacy-offsets cleanup (`REMINDER.md` Next 2).
@@ -106,7 +108,9 @@ runs every read-only probe against the real database and computes one viz blob.
   Settings → Tmux. Since §28 the wait alert works for ANY pane — before it, a session that had
   not filled its screen (one created from the glasses, a short command) never alerted and its
   sessions lens showed no last line. Since §29 a TAP on the alert box opens that session's live
-  view (glance → tap → `y`); before, the tap only dismissed it.
+  view (glance → tap → `y`); before, the tap only dismissed it. Since §30 a host that has stopped
+  answering says so on EVERY level of the window and in Main's row, not only on the live pane —
+  `ghost` had been failing its poll for half an hour with the sessions list reading clean.
 - **Hand-editing `config.json`** is safe since §28: an unreadable file (a stray comma) is left
   exactly as it is and the service runs on defaults for that start with a loud log line — before
   that it was REPLACED with defaults, credentials and tmux hosts included. Fix the file and
@@ -149,6 +153,8 @@ with the fourth review (§29), the same moment the service was restarted onto it
 and `./gradlew :desktop:stageJar && sudo rc-service damage restart` put the service on the §29
 build (it never touches the display; the PC does not claim). The log came up `standby up (§19)`
 with the phone reattached to the sync, music, files, torrents and tmux channels.
+⛔ **The fifth review (§30, 2026-09-05) is committed and pushed but NOT deployed** — no `stageJar`,
+no `stageApk`, no service restart. Deploying it is the same two commands, at Adam's word.
 
 **Games (2026-09-04, `HOLDEM.md`) needs nothing from ops.** ✅ Live on the PC service since
 2026-09-04 13:07. It is pure Kotlin with no host, no

@@ -62,7 +62,15 @@ class MenuSurface(private val text: TextRasterizer) {
      * the band and the pitch follow the ink from here up. Even values only
      * (the box is a damage rect).
      */
-    private fun titleH(): Int = maxOf(TITLE_H, evenUp(4 + text.metrics(fTitle).ascent - 2))
+    private fun titleH(): Int = maxOf(TITLE_H, evenUp(text.metrics(fTitle).ascent + 2))
+
+    /** Where the title is drawn so its BASELINE lands on the band's last row
+     *  — the rule below it then clears every cap. 🔴 A constant `+4` put
+     *  Clear Sans 13 bold's caps on rows 9..19 under a rule at 18..19, so
+     *  the rule struck straight through the title (review §30, visible in
+     *  `snapshots/13-files-menu.png`). Measured, so it holds at every step of
+     *  the font ladder. */
+    private fun titleY(): Int = titleH() - text.metrics(fTitle).ascent
     private fun rowH(): Int = maxOf(ROW_H, evenUp(text.metrics(fRow).let { it.ascent + it.descent } - 1))
     private fun chromeH(): Int = titleH() + 4 + 8
     private fun evenUp(v: Int): Int = (v + 1) / 2 * 2
@@ -70,7 +78,12 @@ class MenuSurface(private val text: TextRasterizer) {
     fun openWith(s: Spec) {
         require(s.items.isNotEmpty()) { "a menu needs at least one item" }
         spec = s
-        cursor = 0
+        // the cursor opens on the first row that can DO something (review
+        // §30): a menu whose first row is dim opens on a tap that is a no-op,
+        // and the Music menu with an empty queue is exactly that. Every menu
+        // whose first row is live — which is all of them but that one — is
+        // unchanged, the safety Cancels included.
+        cursor = s.items.indexOfFirst { it.enabled }.coerceAtLeast(0)
         top = 0
         open = true
         invalidateUnder()
@@ -157,10 +170,13 @@ class MenuSurface(private val text: TextRasterizer) {
         // text): sanitized against THIS surface's rasterizer and the exact
         // spec it draws with — the chrome face and weight can differ from the
         // caller's (review 2026-09-01 R2-W6)
-        Draw.fit(g, text, box.x + 8, box.y + 4, Draw.dynamic(text, s.title.uppercase(), fTitle), Level.DIM, fTitle, box.w - 16)
         val titleH = titleH()
         val rowH = rowH()
+        // the rule FIRST, then the title over it: a rule painted last would
+        // silently clip whatever it lands on, which is exactly how the
+        // strikethrough below went unseen for so long (review §30)
         g.fillRect(box.x + 8, box.y + titleH, box.w - 16, 2, Level.FAINT)
+        Draw.fit(g, text, box.x + 8, box.y + titleY(), Draw.dynamic(text, s.title.uppercase(), fTitle), Level.DIM, fTitle, box.w - 16)
 
         val rows = visibleRows(l, s.items.size)
         // the pan window follows the cursor

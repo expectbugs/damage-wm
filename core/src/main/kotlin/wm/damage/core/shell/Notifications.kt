@@ -131,7 +131,22 @@ class Notifications(private val text: TextRasterizer) {
      * Even values only (the box is a damage rect). The line count follows
      * from the room the layout gives the box, never the other way round.
      */
-    private fun srcH(): Int = maxOf(16, evenUp(2 + text.metrics(fSmall).ascent - 2))
+    private fun srcH(): Int = maxOf(16, evenUp(text.metrics(fSmall).ascent))
+
+    /**
+     * Where a line of [f] is drawn so its BASELINE lands on the source band's
+     * last row — i.e. so the rule below the band is clear of every cap.
+     *
+     * 🔴 The band is 16 px and the face INKS 20 (Clear Sans 13 bold: ascent 16,
+     * descent 4), so a constant offset cannot place it: drawn at `+2` the caps
+     * ran to row 17 and the rule at 16-17 struck straight through the source
+     * line, the queue badge and the timestamp (review §30, seen in
+     * `snapshots/08-notification-focused.png`). Placed from the MEASURED
+     * ascent the ink ends at `srcH - 1`, one row above the rule, at every
+     * step of the font ladder; descenders still hang into the rule, which is
+     * the same overlap `Draw.lineBelow` allows everywhere else.
+     */
+    private fun srcY(f: FontSpec): Int = srcH() - text.metrics(f).ascent
     private fun pitch(): Int = maxOf(24, evenUp(text.metrics(fBody).let { it.ascent + it.descent } - 1))
     private fun evenUp(v: Int): Int = (v + 1) / 2 * 2
     /** Body lines the WINDOW form can show inside [Layout.notificationMax]. */
@@ -318,7 +333,13 @@ class Notifications(private val text: TextRasterizer) {
         val lines = bodyLines(n, l).size.coerceIn(1, roomFor(l))
         val h = srcH() + 2 + 6 + lines * pitch() + 6 + 2
         val m = l.notificationMax
-        return Rect(m.x, m.y, m.w, h)
+        // CENTRED on its own height, the way the silent box two lines above
+        // already is (review §30): the box is 104 at 100 % — the design's own
+        // number, so that render is unchanged — but a shorter box (a
+        // one-liner, or the two lines a 130 % face leaves room for) hung from
+        // the design box's TOP edge and sat above the axis every other
+        // surface shares
+        return Rect(m.x, Geometry.snapY(l.content.y + l.content.h / 2 - h / 2), m.w, h)
     }
 
     private fun maxLinesFor(n: Notice, l: Layout) = if (n.emergency) 1 else roomFor(l)
@@ -371,12 +392,13 @@ class Notifications(private val text: TextRasterizer) {
             // or "DAMAGE · compositor" overprints both (every internal source
             // is long enough to reach the badge — review 2 2026-09-02)
             val srcEnd = if (queue.isEmpty()) full.right - 8 - tw - 6 else full.x + full.w / 2 - 16
-            Draw.fit(g, text, full.x + 8, full.y + 2, Draw.dynamic(text, n.source, fSmall),
+            Draw.fit(g, text, full.x + 8, full.y + srcY(fSmall), Draw.dynamic(text, n.source, fSmall),
                 lv(Level.HEAD), fSmall, srcEnd - (full.x + 8), lv(Level.DIM))
+            val tinyY = full.y + srcY(fTiny)
             if (queue.isNotEmpty()) {
-                drawStr(g, full.x + full.w / 2 - 12, full.y + 4, "+${queue.size}", lv(Level.DIM), fTiny)
+                drawStr(g, full.x + full.w / 2 - 12, tinyY, "+${queue.size}", lv(Level.DIM), fTiny)
             }
-            drawStr(g, full.right - 8 - tw, full.y + 4, n.timeHHMM, lv(Level.DIM), fTiny)
+            drawStr(g, full.right - 8 - tw, tinyY, n.timeHHMM, lv(Level.DIM), fTiny)
         }
         val lines = bodyLines(n, l, silent)
         val visible = if (silent) 1 else maxLinesFor(n, l)

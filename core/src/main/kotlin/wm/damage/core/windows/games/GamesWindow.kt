@@ -220,11 +220,25 @@ class GamesWindow(
 
     private fun dn(s: String, f: FontSpec = fRow): String = Draw.dynamic(tx, s, f)
 
-    private fun lineH(f: FontSpec) = tx.metrics(f).lineHeight
-
     /** A line's drawn extent: ascent plus descent. The line HEIGHT adds
      *  leading, which is empty and may hang past a box's rule harmlessly. */
     private fun ink(f: FontSpec) = tx.metrics(f).let { it.ascent + it.descent }
+
+    /**
+     * The line box of a document, from the MEASURED ink of the TALLEST face
+     * it draws with (the Torrents/Files rule).
+     *
+     * 🔴 It read `metrics(f).lineHeight`, which is NOT the ink: for Clear Sans
+     * the reported line height is one to two rows SHORTER than ascent+descent
+     * (13 px inks 20 in a 19 px line, 16 inks 24 in 23), and these documents
+     * mix a 17 px bold heading into a 13/16 px body. Every line therefore drew
+     * 3-8 px past its own line rect — and `Shell.paintDocSlice` renders each
+     * line into a buffer exactly one line box tall, so the first scroll chopped
+     * the descenders off every row and the settle repaint baked the chop in
+     * (review §30). A rect a paint returns is a promise: size it from the ink.
+     */
+    private fun docLineH(vararg faces: FontSpec): Int =
+        ((faces.maxOf { ink(it) } + 3) / 2) * 2
 
     /** Adam, as a roster character (verdict 25) — $1,000 wealth, infinite
      *  lives, invisible traits emergent from play, in the standings. */
@@ -298,12 +312,12 @@ class GamesWindow(
         )
         Level_.STANDINGS -> WindowView.ListView(standModel, { standRows().size },
             ::paintStandRow, ::paintStandLens, ::commitStanding)
-        Level_.CHARACTER -> WindowView.DocView(charDoc, { charLines().size }, lineH(fDoc),
+        Level_.CHARACTER -> WindowView.DocView(charDoc, { charLines().size }, docLineH(fDoc, fHead),
             { g, i, r -> paintDocLine(g, charLines(), i, r) }, {}, stepLines = { 4 })
-        Level_.BANKROLL -> WindowView.DocView(bankDoc, { bankLines().size }, lineH(fDoc),
+        Level_.BANKROLL -> WindowView.DocView(bankDoc, { bankLines().size }, docLineH(fDoc, fHead, fSmall),
             { g, i, r -> paintDocLine(g, bankLines(), i, r) }, ::openBankrollMenu, stepLines = { 4 })
-        Level_.HISTORY -> WindowView.DocView(histDoc, { histLines().size }, lineH(fSmall),
-            { g, i, r -> paintDocLine(g, histLines(), i, r, fSmall) }, {}, stepLines = { 6 })
+        Level_.HISTORY -> WindowView.DocView(histDoc, { histLines().size }, docLineH(fSmall, fHead),
+            { g, i, r -> paintDocLine(g, histLines(), i, r) }, {}, stepLines = { 6 })
     }
 
     override fun title(): String {
@@ -1370,10 +1384,14 @@ class GamesWindow(
     private var charCache: List<DocLine>? = null
     private var bankCache: List<DocLine>? = null
 
-    private fun paintDocLine(g: Gray8, lines: List<DocLine>, i: Int, r: Rect, f: FontSpec = fDoc) {
+    /** Each line CENTRED in the shared box (the Torrents idiom): the box is
+     *  sized for the tallest face the document uses, so a shorter one gets
+     *  its leading split rather than all of it below the glyphs. */
+    private fun paintDocLine(g: Gray8, lines: List<DocLine>, i: Int, r: Rect) {
         val l = lines.getOrNull(i) ?: return
         if (l.s.isEmpty()) return
-        Draw.fit(g, tx, r.x + 8, r.y + 2, Draw.dynamic(tx, l.s, l.f), l.lv, l.f, r.w - 16)
+        val off = ((r.h - ink(l.f)) / 2).coerceAtLeast(0)
+        Draw.fit(g, tx, r.x + 8, r.y + off, Draw.dynamic(tx, l.s, l.f), l.lv, l.f, r.w - 16)
     }
 
     private fun charLines(): List<DocLine> {

@@ -94,8 +94,21 @@ class OracleWalkTest {
         suspend fun settle(what: String) {
             val t0 = System.currentTimeMillis()
             while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 120_000) delay(5)
-            assertTrue(shell.isQuiescent(), "$what: the shell did not settle — ${shell.quiescenceReport()}")
+            assertTrue(shell.isQuiescent(), "$what: the shell did not settle — " +
+                "${shell.quiescenceReport()}\n${busyThreads()}")
         }
+
+        /** WHERE it is stuck, not just THAT it is: a bound that fires with no
+         *  stack behind it tells the next reader nothing, and the one time this
+         *  fired for a real reason it took a separate investigation to find the
+         *  wheel that never stopped spinning (review §30). */
+        private fun busyThreads(): String = Thread.getAllStackTraces()
+            .filterKeys { it.name.startsWith("DefaultDispatcher") || it.name.startsWith("kotlinx") }
+            .entries.mapNotNull { (t, st) ->
+                val ours = st.filter { it.className.startsWith("wm.damage") }
+                if (ours.isEmpty()) null
+                else "  ${t.name} [${t.state}]\n" + ours.take(12).joinToString("\n") { "    at $it" }
+            }.joinToString("\n").ifEmpty { "  (no thread was inside wm.damage code)" }
 
         fun lens(left: Boolean): Gray8 {
             val ctx = if (left) sim.left else sim.right
@@ -107,19 +120,45 @@ class OracleWalkTest {
             return g
         }
 
-        /** Both assertions, both lenses, plus the loud-failure surfaces. */
-        fun assertOracle(what: String) {
+        /** One settled reading of everything the assertions compare. */
+        class Snap(val believedL: Gray8, val believedR: Gray8, val truthL: Gray8, val truthR: Gray8,
+            val glassL: Gray8, val glassR: Gray8, val planes: String)
+
+        /**
+         * Both assertions, both lenses, plus the loud-failure surfaces.
+         *
+         * 🔴 The whole reading is taken ON the shell loop with nothing else
+         * pending (`Shell.sampleIdle`, review §30): read field by field from
+         * the test thread, belief, composed, the plane map and the two panels
+         * span a window the shell can repaint inside, and the comparison then
+         * holds halves of two different frames. The same torn read failed the
+         * `--selfcheck` oracle about one run in ten.
+         */
+        suspend fun assertOracle(what: String) {
             synchronized(flushFails) { assertTrue(flushFails.isEmpty(), "$what: failed flushes $flushFails") }
             synchronized(faults) { assertTrue(faults.isEmpty(), "$what: transport faults $faults") }
+            var snap: Snap? = null
+            val deadline = System.currentTimeMillis() + 30_000
+            while (snap == null && System.currentTimeMillis() < deadline) {
+                if (!shell.isQuiescent()) { delay(5); continue }
+                snap = shell.sampleIdle {
+                    Snap(quantised(shell.comp.expectedLens(true)), quantised(shell.comp.expectedLens(false)),
+                        quantised(truthOf(shell.comp.composed, shell.comp.planes, true)),
+                        quantised(truthOf(shell.comp.composed, shell.comp.planes, false)),
+                        lens(true), lens(false),
+                        shell.comp.planes.joinToString { p -> "${p.rect}@${p.disparity}" })
+                }
+            }
+            val s = snap ?: throw AssertionError("$what: the shell never held still long enough to " +
+                "sample — ${shell.quiescenceReport()}")
             for (arm in Arm.entries) {
                 val left = arm == Arm.LEFT
-                val glass = lens(left)
-                firstDiff(quantised(shell.comp.expectedLens(left)), glass)?.let {
+                val glass = if (left) s.glassL else s.glassR
+                firstDiff(if (left) s.believedL else s.believedR, glass)?.let {
                     throw AssertionError("$what: ${arm.name} BELIEF != glass at $it")
                 }
-                firstDiff(quantised(truthOf(shell.comp.composed, shell.comp.planes, left)), glass)?.let {
-                    throw AssertionError("$what: ${arm.name} glass != TRUTH at $it — planes=" +
-                        shell.comp.planes.joinToString { p -> "${p.rect}@${p.disparity}" })
+                firstDiff(if (left) s.truthL else s.truthR, glass)?.let {
+                    throw AssertionError("$what: ${arm.name} glass != TRUTH at $it — planes=${s.planes}")
                 }
             }
             val flags = sim.flags(Arm.LEFT) + sim.flags(Arm.RIGHT)

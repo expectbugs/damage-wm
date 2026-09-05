@@ -1063,9 +1063,16 @@ class MusicWindow(
     private fun openMenu() {
         val rows = ArrayList<Pair<MenuSurface.Item, () -> Unit>>()
         val playing = st.play == PlayState.PLAYING
-        rows.add(item(if (playing) "Pause" else "Resume", if (st.queue.isEmpty()) "nothing queued" else "") { player.toggle() })
-        rows.add(item("Next") { player.next() })
-        rows.add(item("Previous", "3 s in restarts") { player.prev() })
+        // 🔴 the transport rows are DISABLED with an empty queue (review §30):
+        // enabled, they said "nothing queued" and then did nothing at all when
+        // tapped — the §26 trap, a row that can never succeed. A dim row is a
+        // visible no-op; an ordinary one is a silent one.
+        val hasQueue = st.queue.isNotEmpty()
+        rows.add(item(if (playing) "Pause" else "Resume",
+            if (hasQueue) "" else "nothing queued", enabled = hasQueue) { player.toggle() })
+        rows.add(item("Next", if (hasQueue) "" else "nothing queued", enabled = hasQueue) { player.next() })
+        rows.add(item("Previous", if (hasQueue) "3 s in restarts" else "nothing queued",
+            enabled = hasQueue) { player.prev() })
         rows.add(item("Volume", "${st.volume}%") { push(Frame(Kind.VOLUME)) })
         // the queue moved off the root on 2026-09-03 (Adam) — it lives here
         // the queue level's OWN wrap-end row opens this menu, so guard against

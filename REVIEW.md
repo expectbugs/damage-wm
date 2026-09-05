@@ -40,7 +40,19 @@ read as an equals sign — **driving the live grammar and looking at true-1× pi
 instrument, not a slower version of the same one.** The second cycle's lesson is narrower and
 sharper: **fixing a reachability defect is not finishing with it.** The cash-out row was fixed,
 pinned, and still failed in the commonest spot at the table, because the pin entered from a
-different branch than the user does. How a round runs: the Adam quote in
+different branch than the user does. The **fourth whole-codebase review of 2026-09-04 (evening)** — the list rhythm measured, the tmux
+alert's deep link, the shell loop surviving an `Error`, brightness back to auto, the menu box
+following the face — is `HANDOFF.md` §29, pins in `Review29Test`. The **fifth, of 2026-09-05** —
+seventeen verified defects, `HANDOFF.md` §30, pins in `Review30Test` — is the round where two of
+the findings were in the GATES themselves: the standing `--selfcheck` oracle had been failing one
+run in ten since it existed because it read the shell's state field by field from another thread
+(2/20 measured on the unchanged tree; `Shell.sampleIdle` takes the reading on the loop, 20/20
+after), and its oracle kept watching the STOPPED shell through the whole restored session of its
+restart scene. Its sharpest defect came out of a test BOUND firing: a 120 s "flake" in
+`OracleWalkTest` that was a wheel closed mid-spin, spinning for ever, with the frame loop posting
+empty Pumps behind it — the worst settle in a clean run is 46 ms, which is what turns a bound into
+evidence. Its lesson: **the harness is part of the system under review, and twenty runs (not
+three) is what answers a question about a RATE.** How a round runs: the Adam quote in
 `HANDOFF.md` §21 and the §22.2 discipline — every finding verified against the code before a
 fix, a test pin per fix, the whole battery green, the next round over the previous round's own diff.
 

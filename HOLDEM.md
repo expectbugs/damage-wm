@@ -597,6 +597,16 @@ board is always centred and width is never the problem.
 **Ink** (modeled): ≈8.1 % at 288, ≈10.0 % at 480. Canvas ink is a lint warning; treat these as the
 design target and investigate any render that departs from them.
 
+🔴 **The seat strip is the LEFTOVER band, so it is what a bigger face breaks first** (2026-09-05,
+`HANDOFF.md` §30). Its cells are measured, not assumed: the faces step down until the two rows the
+cell draws fit inside it, and when even the smallest pair will not fit — the 288 rung at a 130 %
+global scale leaves a 120×34 cell against 52 rows of want — the strip goes **COMPACT**: one row per
+seat, the money right-aligned and placed FIRST, the name fitted into what is left at the largest
+face whose name-plus-money actually measures inside the cell. What compact drops is the holding
+mark and the amount in front; who is still in the hand reads from the dimming and what you face is
+on the status band, which is where "to call" has always been. Every line the strip draws is guarded
+against the cell it was given — before this the stacks were drawn straight through the board.
+
 **Opponent card backs are the ink trap** — five seats × two backs is ten lit rectangles carrying
 no information. Draw holdings as a **small mark** at 288/352; consider actual backs only at 480.
 
@@ -1180,7 +1190,42 @@ BY NAME, and both harnesses pin the world seed the way `--games-check` always di
   showdown line, the cash-out through "fold and leave" and the settlement all read right live at
   480/416/352/288, at 100 % and 130 %.
 
+### 17.2f The fifth whole-codebase review and the third live walk (2026-09-05)
+
+`HANDOFF.md` §30 is the record; the Games items:
+
+- 🔴 **The seat strip drew every opponent's stack THROUGH the board.** §17.2e sized the status band
+  and your line from the measured ink and left the seat strip as the leftover — so at the 288 rung
+  with the global scale at 130 % the status band grows to 38 and the strip is handed a 120×34 cell
+  while the 15 px name and the 14 px stack want 52 rows. The stacks were drawn straight across the
+  top edge of the board's card slots: ink outside the rect its own allocator promised, seen live.
+  The card art does not scale with the face (verdict 9) and 288 is already the smallest rung, so
+  the seat FACES step down until the two rows fit, and where even the smallest pair will not fit
+  the strip goes **COMPACT** — one row per seat, the money right-aligned and placed FIRST, the name
+  fitted into what is left at the largest face whose name-plus-money measures inside the cell.
+  Every line the strip draws is guarded against its cell besides.
+  ⚠ The first fix dropped the stack row instead, which put every opponent's money off a poker
+  screen; the walk's own second look is what caught that, and the pin now asserts BOTH — nothing
+  outside the band, and something in the money column of every cell.
+- **The Games documents (character, bankroll, hand history) sized their line box from
+  `metrics().lineHeight`,** which for Clear Sans is one to two rows SHORTER than the ink — and
+  these documents mix a 17 px bold heading into a 13/16 px body, so every line drew 3-8 px past its
+  own rect and `Shell.paintDocSlice`, which renders each line into a buffer exactly one line box
+  tall, chopped the descenders off every row on the first scroll. `docLineH(vararg faces)` takes
+  the tallest ink and each line is centred in it.
+- **The medium seven-segment readout** (Music Mode's clock and the silent "medium" size) had its
+  last minute digit at an 84 px offset where the pitch is 32 — it printed "10:2 1". 80 now.
+- 🔴 **`TableLayout`'s "the bottom bands give way" was not true.** It floored the seat strip and
+  carried on, pushing the bottom band past `content` — an escape only `check()` would have caught,
+  and nothing on the paint path calls it. The optional bands give way now, bottom first and
+  loudly, and `showsYourLine` / `showsHistory` answer from the BAND rather than the tier so a
+  painter and the allocator cannot disagree.
+- Verified and left alone: the action menu, the sizing ladder, the Custom keyboard and the buy-in
+  confirm all read right live at 288/352/480 and at 100 % and 130 %.
+
 ### 17.3 The battery, after the build
+
+*(the numbers below are the Games build's own; the battery at HEAD is `REMINDER.md`)*
 
 `./gradlew :core:test` **430** · `./gradlew :desktop:test` **11** · `desktop --selfcheck` **189**
 checks · `desktop --games-check` (a new harness — the ecology over hundreds of simulated

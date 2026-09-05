@@ -379,7 +379,7 @@ class TorrentsWindow(
     override fun title(): String {
         val n = notice
         if (n != null && System.currentTimeMillis() < noticeUntil) return n
-        return when (level) {
+        val base = when (level) {
             Level_.TRANSFERS -> if (filter == Filter.ALL) "transfers" else filter.label
             Level_.DETAILS -> "details"
             Level_.CATEGORIES -> "browse"
@@ -387,6 +387,13 @@ class TorrentsWindow(
                 ?: (listingCat?.let { TorrentLeech.category(it)?.name?.lowercase() ?: "category $it" } ?: "newest")
             Level_.TORRENT -> "torrent"
         }
+        // the staleness surface, the same way Tmux carries it (review §30):
+        // the transfers list says `stateLine` itself and Main's row reads it
+        // from the summary, but on a details page or a listing a host that had
+        // stopped answering said nothing at all and the frozen figures read as
+        // current ones
+        if (level != Level_.TRANSFERS && stateLine.isNotEmpty()) return "$base · ! $stateLine"
+        return base
     }
 
     override fun summary(): Summary {

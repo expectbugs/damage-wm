@@ -311,7 +311,13 @@ most one host interval behind — a deliberate simplification over an on-demand 
 - **`--snapshot`**: scenes 15–22 (transfers, lens+menu, details, categories, listing, torrent
   page, the keyboard at its two stages) — looked at, at true 1×; 26 scenes in all.
 - `tools/lint.py` at 0, `:phone:assembleDebug` green; the jar restaged and the `damage` service
-  restarted on the round-4 build; APK 18/0.18 staged at `390a25c` (0.26 since — see the status line; selfcheck 189 / 49 scenes at HEAD).
+  restarted on the round-4 build; APK 18/0.18 staged at `390a25c` (0.29 since — see the status line; selfcheck 189 / 49 scenes at HEAD).
+
+🔴 **Since 2026-09-05 (`HANDOFF.md` §30) a host that has stopped answering says so on every level.**
+The transfers list drew `stateLine` itself and Main's row read it from the summary, but a details
+page or a listing said nothing at all while the figures on it — frozen at the last good poll — read
+as current ones. The window's TITLE carries it wherever the level does not paint it, the same shape
+Tmux takes.
 
 ## 7. Build order — shipped
 

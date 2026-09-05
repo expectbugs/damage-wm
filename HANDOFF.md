@@ -1569,6 +1569,9 @@ where the constants hide** — every drawing defect below was invisible at 100 %
    — `MenuSurface.titleH()/rowH()`, `Notifications.srcH()/pitch()/roomFor()`, the wheel's
    `bandH` — with the design numbers as the floor, so **100 % is pixel-identical** and the chrome
    scale cap (§27) is no longer the only thing standing between a scaled face and undamaged ink.
+   ⚠ **All three measured the ASCENT, which is half the promise** — §30 #1, #2 and #11 found each
+   of them still striking its own text with its own rule, at 100 % as well as up the ladder. Ink is
+   `ascent + descent`; nothing here is a floor for anything but the design's own numbers.
    The §27 rule, restated for chrome: *a rect a paint returns is a promise* applies to the shell's
    own surfaces exactly as it does to a window's.
 8. 🔴 **Tmux never alerted for a pane that had not filled its screen.** The per-host status
@@ -1689,7 +1692,9 @@ verification:
 
 Verified and left alone, so nobody re-litigates them: `commitWindow` under EXCLUSIVE mode is
 unreachable (every commit path is swallowed or closed by exclusive mode first); the wheel's
-centre-name descenders cross the lower rule by design (the band holds the ascent — §28 #11); the
+centre-name descenders cross the lower rule by design (the band holds the ascent — §28 #11)
+⛔ **WRONG, reversed by §30 #11**: the band was sized from the ASCENT and the rule was painted
+through the name at every scale, 100 % included; the
 throughput cell's idle repaints converge on the sim and are paced by the 5 s idle tick (§8.3);
 the Torrents listing's paced retry of a "not configured" refusal is the R4-P5 design; Tmux
 keeping 480 under a global 288 is its own Size row.
@@ -1786,3 +1791,206 @@ Read `CLAUDE.md` → `REMINDER.md` → `HANDOFF.md` §19–§29, then:
   the real grammar. Snap between steps; treat every window with a destructive row as one step per
   snap; count only panel frames as activity.
 - Open items are §26.6, §27.5 and the deploy above; nothing in this round is half-finished.
+
+---
+
+## 30. The fifth whole-codebase review, and the third full LIVE walk (2026-09-05)
+
+The same ask as §28 and §29, one build later: read everything, verify every candidate before
+touching it, fix what is real, review the fixes, then drive the whole system live exactly as a user
+would, fix what that finds, review those fixes, repeat until a full pass comes back clean, and then
+bring every document up to date. This section is that record. **Seventeen verified defects**, each
+fix carrying a pin that was run against the UNFIXED tree and watched to fail (`Review30Test.kt`,
+plus one each in `TorrentsTest.kt`, `MusicWindowTest.kt` and `Review28Test.kt`).
+
+Three of them are the kind this project exists to catch: a wheel that never stopped spinning and
+left the shell posting empty frames for ever; a standing gate that failed one run in ten because
+its own sample was torn; and the seat strip drawing every opponent's money straight through the
+board at the shortest height under the biggest face.
+
+### 30.1 What the reading found
+
+The reading covered `core/` end to end, `desktop/` (the harnesses included), `phone/`, and the
+tooling. Seven candidates survived verification, and five of them are the SAME defect — §27's
+standing rule, one more layer down:
+
+1. 🔴 **The notification box's source band was a 16 px constant under a face that INKS 20.** Clear
+   Sans 13 bold: ascent 16, descent 4. Drawn at a constant `+2` the caps ran to row 17 and the rule
+   at 16-17 struck straight through the source line, the `+N` queue badge and the timestamp —
+   visible in `snapshots/08-notification-focused.png` for as long as that snapshot has existed. The
+   band is measured now and each line is placed from its own ascent, so the baseline lands on the
+   band's last row at every step of the ladder.
+2. 🔴 **The context menu's title band, the same defect** — and worse, the rule was painted LAST, so
+   it silently overwrote whatever it crossed and the collision could not be seen in the render it
+   produced. The rule is painted FIRST now and the title over it.
+3. 🔴 **The chrome clock's AM/PM marker sat at a constant `cell.x + 52`.** That is `4 + 48` at
+   100 % — a ZERO gap for a five-character time, "10:20PM" on the glass — and at 115 % the time is
+   53 px wide, so the marker landed INSIDE the last digit. `Chrome.clockWidths()` measures the
+   widest `h:mm` the face can print (exactly, from 22 measures, checked against all 720 real times),
+   `Layout` carries a measured `clockW` with §2.3's 80 as the floor, and the title cell takes what
+   is left.
+4. **The medium seven-segment readout's minute pair sat at 56 and 84** — a 28 px pitch where every
+   other pair is 24, so it printed "10:2 1" with a visible gap before the last digit. 80 now; every
+   gap is 6.
+5. 🔴 **The Games documents sized their line box from `metrics().lineHeight`, which is not the
+   ink.** For Clear Sans the reported line height is one to two rows SHORTER than ascent+descent,
+   and these documents mix a 17 px bold heading into a 13/16 px body — so every line drew 3-8 px
+   past its own line rect, and `Shell.paintDocSlice` renders each line into a buffer exactly one
+   line box tall, which chopped the descenders off every row on the first scroll and baked the chop
+   in on the settle. `docLineH(vararg faces)` takes the tallest ink; each line is centred in it.
+6. **The Files locations and trash lenses drew NOTHING for an empty list.** An empty list still has
+   one row and a one-row list is drawn ONLY by the lens — the slots above and below resolve to no
+   index — so the placeholder in the row painter was unreachable and the content band was simply
+   blank while a failed or unanswered listing sat behind it. Both lenses say what is empty and why,
+   and a tap on the placeholder asks the host again rather than doing nothing.
+7. **`TableLayout`'s "the bottom bands give way" claim was false.** It floored the seat strip and
+   carried on, which pushed the bottom band past `content` — an escape only `check()` would have
+   caught, and nothing on the paint path calls it. The optional bands now actually give way, bottom
+   first, loudly; and `showsYourLine` / `showsHistory` answer from the BAND rather than the tier, so
+   a painter asking "do I draw here" gets the answer the allocator gave.
+
+### 30.2 What the second reading found — in the fixes, and in the gates
+
+8. 🔴 **A line box is the LARGER of the face's line height and its MEASURED ink, never the line
+   height alone.** AWT ceils ascent and descent separately and the height once, so the ink is a row
+   TALLER than the line height at several scales — measured against the real rasterizer, JetBrains
+   Mono 16 inks 25 rows against a 24 px line at 115 % and 29 against 28 at 130 %. A box a row short
+   of its own text puts every line's descenders in the tops of the next (the §29 rhythm defect) and
+   presses the bottom line against the rect it is drawn in. Fixed in `FlowRender.lineH`,
+   `TermRender`'s cell, the keyboard's label/prompt/draft centring and its caret, and the Hold'em
+   history's pitch.
+9. 🔴 **The standing `--selfcheck` truth oracle failed about one run in ten, and had for as long as
+   it has existed.** MEASURED on the unchanged tree: 2 failures in 20 runs. The failure was a
+   whole-surface difference — 16,963 px at `scale130-reader-in` — that a SECOND LOOK agreed with,
+   and the plane map printed with it was one region short of the map the glass had been drawn under.
+   The scan is not wrong; the SAMPLE was torn: `isQuiescent()` answers about one instant from
+   another thread, and the oracle then read `comp.composed`, `comp.planes` and both sim panels one
+   after another, across a window the shell can start and finish a whole repaint inside.
+   `Shell.sampleIdle` takes the whole reading ON the loop with no other message queued and nothing
+   else pending; `SelfCheck.runOracle` and `OracleWalkTest.assertOracle` both go through it.
+   **20/20 clean after.**
+10. **The selfcheck's oracle kept pointing at the STOPPED shell after the restart scene.** The scene
+    builds `sim2`/`shell2` and never re-registered them, so every settle of the whole restored
+    session was skipped or compared a stopped shell against its own frozen glass — a free pass. It
+    follows the live pair now (the oracle count went 282 → 283).
+
+### 30.3 The live walk — what only it found
+
+**The instrument** is §28.2 / §29.2 unchanged: the desktop program in `--transport sim
+--no-preview` under a scratch home (ports 7501–7504, a throwaway token, a dead `ghost.invalid` tmux
+host for the staleness line, the real tmux server, qBittorrent and the music library behind it) and
+a Python driver on the replica WebSocket that writes a true-1× PNG after every step. The §29
+lessons all held: snap between steps, one step per snap near a destructive row, count only panel
+frames as activity, and never rebuild the jar under a running instance.
+
+11. 🔴 **The switcher's centre band was sized from the name's ASCENT** — the top half of the
+    promise. The name is drawn at `bandTop + 64` and inks `ascent + descent`, so the lower rule was
+    painted at row 288 while "Settings" still had ink at 290-292 and the rule cut straight through
+    the word. Measured on the live wheel, and true at 100 % as well as at 130 %; §29 had recorded
+    the opposite ("the wheel's centre-name descenders cross the lower rule by design") after
+    measuring the wrong half. The band takes the measured ink plus two rows, and the upper
+    neighbour is clamped off the rule the way the lower one already was.
+12. 🔴 **The tmux staleness surface (§10.5) reached the live pane and nowhere else.** `ghost` had
+    been failing its status poll for half an hour and the sessions list read clean, because
+    `provState` was painted only by `paintLive` and the summary used it only when there were no
+    sessions at all. It rides the TITLE on every other level now and the summary carries it into
+    Main's row. **Torrents had the same shape** — the transfers list says it, a details page or a
+    listing said nothing while the frozen figures read as current ones — and takes the same fix.
+13. 🔴 **The Hold'em seat strip painted its stack line through the board.** At the 288 rung with the
+    global scale at 130 % the status band grows to 38 and leaves the strip a 120×34 cell, while the
+    15 px name and the 14 px stack want 52 rows there — so every opponent's stack was drawn across
+    the top edge of the board's card slots. The card art does not scale with the face and 288 is
+    already the smallest rung, so the seat FACES step down until the two rows fit; when even the
+    smallest pair will not fit the strip goes COMPACT, one row per seat with the money right-aligned
+    and placed first and the name fitted into what is left at the largest face whose name-plus-money
+    measures inside the cell. Every line is guarded against the cell besides.
+    ⚠ The first fix DROPPED the stack row instead, which is how the walk's own second look found
+    that the money had gone off a poker screen entirely; the second put it back on one line.
+14. **A STAGED settings row said "scroll adjusts live".** Size and every host row (Font, Font size,
+    Font style, the display target, every per-app row) stage their value and apply it on the tap —
+    scrolling Size three notches left the panel at 480 under a line claiming otherwise, which is the
+    shell describing a program that is not running. Staged rows say "scroll picks · tap applies ·
+    double-tap reverts"; the live rows keep their wording.
+15. **Music offered Resume / Next / Previous with an empty queue.** Each said "nothing queued" in
+    its detail and then did nothing at all when tapped — the §26 trap, a row that can never succeed.
+    They are dim now, and **a menu opens its cursor on the first row that can act** rather than on a
+    tap that does nothing.
+16. **The notification box hung from its design box's TOP edge.** At 100 % it is the design's 104 px
+    and centred either way, so that render is untouched; a one-liner, or the two lines a 130 % face
+    leaves room for, sat above the axis every other surface shares. Centred on its own height.
+
+### 30.4 What the ORACLE WALK found — the one no reading and no walk would have
+
+17. 🔴 **A wheel closed mid-spin never stopped spinning.** `Switcher.spinning` is
+    `spinPos != cursor`, the drum is stepped only while the wheel is OPEN, and `close()` left
+    `spinPos` short of the cursor — so a scroll followed by a commit or a cancel inside the four
+    animation frames left the flag true for ever. The shell's frame loop posts another `Msg.Pump`
+    for as long as that flag is true, and `isQuiescent()` reads the same flag: an unbounded loop of
+    empty frames, on the glasses as much as in the harness, and a shell that never reports itself
+    idle again. `OracleWalkTest` caught it as `h=288 step 180 (LONG_PRESS_RELEASE): queued=1
+    reports=0` after a 120 s bound — a shape that looks exactly like load until you measure the
+    worst settle in a clean run and find it is **46 ms**. `close()` stops the drum, and `spinning`
+    is `open &&`-gated as a second line. Pinned twice: the property itself, and a shell that must
+    reach quiescence after a wheel is cancelled mid-spin (the shell-level pin is posted from the
+    loop, because posted from the test thread it races and passes either way — the §26 vacuous-pin
+    lesson).
+
+### 30.5 Pins, and the vacuity check
+
+`Review30Test`: the notification rule does not strike its source line; the menu rule does not
+strike its title (an order-independent DIM-pixel count, because the rule painted last simply
+overwrote the title and the naive pin passed against the unfixed tree); the Games documents hold
+the ink they draw; Files says why an empty list is empty; the clock marker never touches the time
+(the time and the marker rendered into SEPARATE surfaces and compared by lit-column extent — the
+first attempt passed with the old constant because the fake's uniform advance made the time
+narrower than the real font); the medium clock's digits are evenly spaced; the switcher band holds
+the name it draws; the Hold'em seat strip stays inside its band AND still draws the money; tmux says
+a host is quiet on every level; a staged settings row says it applies on the tap; the flow line box
+holds the ink it draws; a wheel closed mid-spin stops spinning; the shell settles after a wheel is
+cancelled mid-spin. `TorrentsTest.aDetailsPageSaysTheHostHasStoppedAnswering` and
+`MusicWindowTest.theTransportRowsAreDimWhenNothingIsQueued`. `Review28PaintTest`'s menu pin was
+rewritten for the new paint order.
+
+**Every one was run against the unfixed tree** (the fix reverted in place, the test run, the fix
+restored) and failed there. Two were caught being vacuous first and rewritten until they were not.
+
+### 30.6 Battery
+
+core **455** · desktop **11** · selfcheck **189** (the oracle on every settle, **283** runs, and
+**20 consecutive clean runs** where the unchanged tree failed 2 in 20) · snapshots 49 × three runs
+· `--games-check` · `--music-check` ·
+`--epub-check` 58/58 · `--card-render` · `python3 tools/lint.py` 21 rules / 0 findings + selftest ·
+`:phone:assembleDebug`.
+
+What legitimately varies between two `--snapshot` runs, measured this round so the next reader does
+not chase it: the wall clock, the status bar's throughput and ack readouts, Files' free-space
+figures, Music Mode's visualiser — and **the theme icons that had not resolved yet**. `IconSource`
+resolves a miss asynchronously and repaints on the host's hook (`IconPaint` walks the fallback chain
+past confirmed misses and schedules ONE unresolved name), so a scene can settle either side of that
+landing: 18-torrents-categories drew the theme's arrow in two runs of three and the drawn fallback
+in the other. Nothing asserts on it, and on the glass the icon simply arrives.
+
+### 30.6b One thing left open, honestly
+
+`OracleWalkTest` failed ONCE more after the wheel fix — `h=288 step 198 (SCROLL_UP): queued=1
+reports=0` — and has not repeated in **eight consecutive full-suite runs** since, nor in any of the
+dozen runs of that test alone. `queued=1` with everything else idle means either a handler that has
+been running for the whole 120 s or a message the loop never took, and the walk's own numbers say a
+clean run's worst settle is 46 ms, so "load" does not explain it on its own. It is not closed. What
+this round could do about it is make the next occurrence say something: `settle` now prints the
+stack of every thread inside `wm.damage` when it gives up, and `GamesWindowTest` and
+`ActivationTest` print `quiescenceReport()` with theirs. If it fires again, read the stacks first.
+
+### 30.7 Where the next session picks up
+
+Read `CLAUDE.md` → `REMINDER.md` → `HANDOFF.md` §19–§30.
+
+- **Not deployed.** This round was committed and pushed; the `damage` service still runs the §29
+  build and APK 29/0.29 is still what is staged. Deploying is `./gradlew :desktop:stageJar && sudo
+  rc-service damage restart` (`DAILY.md`) — Adam's call, in the moment.
+- The live-walk driver (§28.2, §29.2) remains the instrument that runs the real providers under the
+  real grammar. One thing this round adds to its lessons: **the harness is part of the system under
+  review.** Two of the seventeen were in the gates themselves, and the sharpest defect of the round
+  came out of a test bound firing — so when a bound fires, measure the normal case before calling it
+  load. `OracleWalkTest`'s settle now prints the stacks of every thread inside `wm.damage` when it
+  gives up, so the next one says where.
