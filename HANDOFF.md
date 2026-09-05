@@ -1964,11 +1964,18 @@ core **455** · desktop **11** · selfcheck **189** (the oracle on every settle,
 
 What legitimately varies between two `--snapshot` runs, measured this round so the next reader does
 not chase it: the wall clock, the status bar's throughput and ack readouts, Files' free-space
-figures, Music Mode's visualiser — and **the theme icons that had not resolved yet**. `IconSource`
-resolves a miss asynchronously and repaints on the host's hook (`IconPaint` walks the fallback chain
-past confirmed misses and schedules ONE unresolved name), so a scene can settle either side of that
-landing: 18-torrents-categories drew the theme's arrow in two runs of three and the drawn fallback
-in the other. Nothing asserts on it, and on the glass the icon simply arrives.
+figures, and Music Mode's visualiser. Everything else is stable (§30.6a).
+
+### 30.6a The snapshot harness takes its picture the same way
+
+`--snapshot`'s `save()` read the sim panel from the script thread too, and these PNGs are the
+evidence a person judges the design by — a torn one is a design decision made against a frame that
+never existed. It goes through `Shell.sampleIdle` now as well. Measured before and after over pairs
+of consecutive runs: six scenes differed before, four after, and the one that stopped differing was
+`18-torrents-categories`, which had been drawing the theme's arrow in two runs of three and the
+drawn fallback in the other. What still differs between two runs is live data and nothing else —
+the wall clock, the throughput and ack readouts, Files' free-space figures, and Music Mode's
+visualiser.
 
 ### 30.6b One thing left open, honestly
 

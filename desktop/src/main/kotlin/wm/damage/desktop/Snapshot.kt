@@ -31,6 +31,8 @@ import wm.damage.core.windows.reader.ReaderWindow
  */
 object Snapshot {
     private val failures = ArrayList<String>()
+    /** The shell every `save` samples through — see [save]. */
+    private var snapShell: Shell? = null
 
     fun run(cfg: Config, outDir: Path): Nothing {
         Files.createDirectories(outDir)
@@ -57,6 +59,7 @@ object Snapshot {
         val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
         val text = AwtText()
         val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), null, scope)
+        snapShell = shell
         // theme icons for the eyeball scenes (2026-09-01): the REAL desktop
         // theme (Papirus-Dark on beardos), drawn fallbacks where it misses
         val icons = ThemeIcons(AwtImages(), tmp.resolve("icons"),
@@ -630,11 +633,29 @@ object Snapshot {
         else if (ms > 5_000) println("  (waited ${ms / 1000}s for $label)")
     }
 
-    private fun save(sim: GlassFirmwareSim, dir: Path, name: String) {
-        val img = BufferedImage(Geometry.PANEL_W, Geometry.PANEL_H, BufferedImage.TYPE_INT_RGB)
+    /**
+     * 🔴 The panel is copied ON the shell loop (`Shell.sampleIdle`, review §30),
+     * not read from this thread while the shell is free to repaint under the
+     * scan: these PNGs are the evidence a person judges the design by, and a
+     * torn one is a design decision made against a frame that never existed.
+     * The same torn read failed the `--selfcheck` oracle one run in ten.
+     */
+    private suspend fun save(sim: GlassFirmwareSim, dir: Path, name: String) {
         val ctx = sim.left
+        var pan: ByteArray? = null
+        val deadline = System.currentTimeMillis() + 20_000
+        while (pan == null && System.currentTimeMillis() < deadline) {
+            if (!snapShell!!.isQuiescent()) { delay(5); continue }
+            pan = snapShell!!.sampleIdle { ctx.panel.copyOf() }
+        }
+        if (pan == null) {
+            failures.add("snapshot '$name' could not be taken on a settled shell " +
+                "— ${snapShell!!.quiescenceReport()}")
+            pan = ctx.panel.copyOf()
+        }
+        val img = BufferedImage(Geometry.PANEL_W, Geometry.PANEL_H, BufferedImage.TYPE_INT_RGB)
         for (y in 0 until Geometry.PANEL_H) for (x in 0 until Geometry.PANEL_W) {
-            val b = ctx.panel[y * ctx.stride + (x shr 1)].toInt() and 0xFF
+            val b = pan[y * ctx.stride + (x shr 1)].toInt() and 0xFF
             val n = if (x and 1 == 0) b shr 4 else b and 0x0F
             val v = n * 17
             img.setRGB(x, y, ((v * 0.16).toInt() shl 16) or (minOf(255, (v * 1.05).toInt()) shl 8) or (v * 0.34).toInt())

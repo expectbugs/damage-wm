@@ -728,8 +728,10 @@ of them are load-bearing and easy to break by accident:
   That torn sample failed the standing `--selfcheck` oracle about one run in
   ten (measured 2/20 on the unchanged tree, 20/20 after). `sampleIdle` runs the
   reading ON the loop with nothing else queued; `SelfCheck.runOracle` and
-  `OracleWalkTest.assertOracle` both go through it. A `Msg.Run` that reaches a
-  stopped loop runs its `dropped` arm so the caller is never left suspended.
+  `OracleWalkTest.assertOracle` both go through it, and so does `--snapshot`'s
+  `save()` — the PNGs are what a person judges the design by. A `Msg.Run` that
+  reaches a stopped loop runs its `dropped` arm so the caller is never left
+  suspended.
 - 🆕 **A line box is the LARGER of the face's line height and its measured ink**
   (§30): AWT ceils ascent and descent separately and the height once, so the
   ink is a row TALLER than the line height at several scales (JetBrains Mono 16
