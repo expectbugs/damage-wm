@@ -1978,7 +1978,10 @@ ones. Two more came out of it, both in code the earlier passes had walked straig
     its content band and drew nothing — no message, no lens. Main's row said why the whole time
     (`libraryState` carries "loading", "no books found", "library error: …"); the window did not.
     It now has the row that says so, with the scan's own words under it, and a tap that scans again
-    — or, in a folder that has emptied under you, one that climbs back to the shelf.
+    — or, in a folder that has emptied under you, one that climbs back to the shelf. Driven live
+    with the shelf pointed at an empty directory: "No books · no books found · tap to scan again",
+    and the tap says "rescanning" in the op cell (the first wording, "reading the shelf again",
+    arrived there as "reading the ▸" — the cell is 128 px).
     The sweep behind it: every `ListView` and `DocView` in the tree, checked for a count that can
     reach zero. Files coerces to one row and now says why; Torrents' three lists always carry a
     tail row (the R3-P11 rule); Music's always end in `Row.Menu`; the Reader's chapter picker always
