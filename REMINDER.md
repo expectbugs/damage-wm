@@ -20,9 +20,15 @@ record; §32.6 is the plan. Three things to carry:
   link, the state write off the loop, HTTP keep-alive, ssh multiplexing for tmux hosts. Battery:
   core **462** · selfcheck ×10 · snapshots ×3 · lint 0 · APK **30/0.30 staged**.
 
-⛔ **Not deployed** — the service still runs the §29 build; deploying is Adam's call. **Next: install
-0.30, run a day, then `curl …/journal | tools/journal_report.py -` — that reading decides the radio
-work, and the texture cache (mode 14) is the byte-side lever after it** (§32.6).
+✅ **Deployed 2026-09-05 ~14:43** (commit `137f924`, pushed): the service on the §32 build, APK
+0.30 installed and driving. **Then measured live the same hour — `HANDOFF.md` §33**, the PC
+driving the phone's shell through `tools/glassdrive.py` and reading its journal back: the phone
+path is the slow regime on its own journal (**72 ms** small, **1,036 ms** at 6 KB+, isolated);
+**HIGH priority IS granted (15 ms/latency 1/1M) and changes nothing**, so the wall is above the
+interval; **the phone's loop CPU is 74–127 ms handling + 53–84 ms assembling per flush** (PC 4 + 2)
+— a term as large as the ack floor; lost fragment acks (49 in five days, two 25–48 s stalls) hold
+a window slot for a whole msgId cycle. **Next (§33.7): release pending acks on a later ack; split
+the phone's loop time in the journal and re-walk; then mode 14.**
 
 ---
 

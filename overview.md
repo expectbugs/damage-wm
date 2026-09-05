@@ -790,7 +790,9 @@ describes the standby path; do not price the daily path with it unmeasured. 🆕
 hours reads `driving via remote:aphone` and the journal's stall notes name `aphone`. Graded C
 (the journal had no transport field; it carries `via` now). So the daily driver is priced by
 §31.1's slow rows, and the ~6× between the two radio paths is the phone's BLE stack, not the
-glasses. This also does
+glasses. **Measured on the phone itself the same afternoon (`HANDOFF.md` §33, grade M):** < 500 B
+72 ms, 3–6 KB 667 ms, 6 KB+ 1,036 ms median, isolated flushes, with HIGH priority GRANTED
+(15 ms / latency 1 / 1M) — the interval is not the wall. This also does
 **not** retire the 7–13 KB/s row above, which is the stock EvenHub path on stock firmware. The ~10× shortfall question (§5.1) is about that path;
 this section says the CFW path on this host clears at least ~50 KB/s of it.
 

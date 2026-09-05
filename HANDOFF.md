@@ -2465,3 +2465,97 @@ core **462** (459 + `WrapEstimateTest` ×3) · desktop **11** · `--selfcheck` A
    open book to the phone (data policy is his); a persistent content channel in place of a socket
    per request; cold-start timing (parallel arm connects, the 800 ms prelude settle, the 2 s
    capability re-ask) once a phone journal shows what start costs.
+
+## 33. The live measurement, driven from the PC (2026-09-05, Adam: "I don't have a day")
+
+APK **30/0.30** installed and driving the glasses; the PC drove the phone's shell through its
+replica WebSocket (`tools/glassdrive.py`, the §28.2 instrument rebuilt, with a snapshot of the
+mirror between phases so every tap landed where it was meant to) and read the phone's journal back
+through `/journal`. Ten minutes, 456 acked flushes, every gesture paced 2.5 s apart so every flush
+is ISOLATED (nothing queued ahead — §31.1's method). The walk: wake from silent → Main list ×6 →
+Reader → Classics → Frankenstein (first open, the chapter picker) → 6 notches down and back →
+back to Main → Tmux → the DamageWM session's live pane → 4 notches of history and back → the
+switcher chord from Main, 3 notches, cancel → Torrents transfers ×8 → Main → silent. No
+destructive row was tapped; the Reader position was returned to the top; the shell was left in
+silent mode where it was found.
+
+### 33.1 The daily path, measured on the phone itself (grade **M**)
+
+This session, APK-driven, isolated flushes:
+
+| flush size | n | median ack | p90 ack | median handle | median assemble | p90 assemble |
+|---|---:|---:|---:|---:|---:|---:|
+| < 500 B | 283 | **72 ms** | 231 | 74 ms | 53 ms | 79 |
+| 0.5–1.5 KB | 93 | 203 ms | 815 | 81 | 29 | 90 |
+| 1.5–3 KB | 38 | 358 ms | 851 | 107 | 78 | 112 |
+| 3–6 KB | 33 | 667 ms | 838 | 114 | 78 | 111 |
+| 6 KB + | 9 | **1,036 ms** | 1,543 | 127 | 84 | 105 |
+
+Five days of the phone's own journal (28,657 flushes, 08-31 → 09-05) say the same: 68 · 200 ·
+390 · 641 · **1,237 ms** by the same bands. So §32.2's attribution is no longer inferred: **the
+phone path IS the slow regime**, ~120 ms/KB above a ~70 ms floor, ~8 KB/s on big flushes. The
+largest flush of the walk — the Torrents transfers list opening, 11,050 B, five deltas — took
+1,543 ms; the Main keyframe (9,226 B) 1,276 ms; a Reader notch through the cover image's strips
+(8,427 B — image rows are dense) 1,170 ms.
+
+### 33.2 🔴 HIGH priority IS granted — and it does not help
+
+The first thing the new `link` notes said, at 15:48:11: **`L 15.00ms/1/5000ms phy 1M/1M ·
+R 15.00ms/1/5000ms phy 1M/1M`** — both arms at a 15 ms interval, **slave latency 1**, 1M PHY. So
+`requestConnectionPriority(HIGH)` is honoured by the phone's stack, the glasses accept it, and the
+transfer term is still ~120 ms/KB. The interval is not the wall. Latency 1 lets the glasses skip
+every other event (an effective 30 ms when they choose to), and ~1.6 packets per event was the
+capture's figure at 30 ms — so the candidates left are the packets-per-event count (the phone's
+write path, one write per callback), BT/Wi-Fi coexistence on the phone, and the glasses' own
+receive path. The regime EMA flipped to SLOW at 15:51:52 (69 ms/KB) and the wheel spun in 2
+frames from then on; on-glass verdict still Adam's.
+
+### 33.3 🔴 The phone's CPU is now a term of its own
+
+On the PC the loop spends ~4 ms handling a message and ~2 ms assembling (§32.4). On the phone,
+with §32's caches in the build: **a median 74–127 ms handling and 53–84 ms assembling**, per
+flush, on the loop, before the radio sees a byte. A small flush therefore costs ~125 ms of phone
+CPU and then a 72 ms ack — the CPU is the larger half. The journal cannot yet say WHERE inside
+the loop (paint, the per-lens truth render, the diff, the priced compressions, the
+mirror-agreement scan on every completion); splitting `handleMs`/`assembleMs` into those parts is
+the next instrumentation, and it is one APK build away.
+
+### 33.4 Lost acks, and what they cost
+
+At 15:54:05, right after the Reader scroll burst, three fragment acks were lost together
+(`msgId 3/4/5 pending across a full counter cycle`) and the shell raised the fault notice over the
+book (a real event; a double-tap dismissed it, which is why one of the walk's backs went to the
+notice). A lost ack holds its window slot until the msgId cycle comes round — 249 messages — so
+the pipeline runs one or two deep for the rest of the walk. Over the five days: **49 lost acks**
+(31 on 08-31), **2 full-window stalls** of 25 s and 48 s (the display frozen for that long), 55
+control-lane "write characteristic gone" edges (session restarts, each a keyframe), 5 failed
+flushes (supervision timeouts). The reference implementations slide the window forward through
+up to ~3 consecutive missed acks (`overview.md` §5); ours reports the stall and waits for the
+cycle. Releasing an earlier pending image ack when a LATER msgId's ack arrives (the firmware
+completes in submission order) would remove both the shrink and the two stalls; the compositor's
+lost-flush path (cells marked unknown, re-sent from the truth) already handles the pixels.
+
+### 33.5 What the walk also showed
+
+The switcher opened from Main centred on the most recent window (§1.3's "from MAIN" rule, as
+designed); Frankenstein's first open went to the chapter picker; the tmux quick-keys list sits one
+tap below the pane (the first pass scrolled the keys list instead of history — no key was sent —
+and the second pass scrolled history); every snapshot matched the mirror the glasses had.
+
+### 33.6 Instruments
+
+`tools/glassdrive.py HOST TOKEN [--pace S] STEP…` — gestures, `wait:`, `pace:`, `snap:PATH.png`
+(both lenses at 1×), `status`; the chord is `pace:0.3 hold release double pace:2.5`.
+`tools/journal_report.py` for the journal, from a file or `-` (a curl). Both committed.
+
+### 33.7 What is owed, re-ordered by what this measured
+
+1. **Release pending image acks on a later ack** (§33.4) — a transport change with tests; the
+   two multi-second stalls and the window shrink go with it.
+2. **Split the phone's loop time** into paint / truth render / diff / compress / mirror check in
+   the journal (§33.3), rebuild the APK, repeat this walk (two minutes). Then optimise the largest
+   part; on the PC the whole thing is 6 ms, so the phone has a 20× to recover.
+3. **The radio wall above the interval** (§33.2): a BTSnoop with the APK driving, via the
+   bug-report mail path, to count packets per event; a Wi-Fi-off session for coexistence.
+4. **Mode 14 text** (§32.6 item 4) — with 6 KB+ at 1–1.5 s and 3–6 KB at 0.7 s on the daily path,
+   the byte-side lever is worth more than any other.

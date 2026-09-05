@@ -100,6 +100,10 @@ runs every read-only probe against the real database and computes one viz blob.
   path, the shell's own CPU per flush, and the `link` notes — the connection interval the
   phone's stack granted and what the glasses renegotiate. That is the daily driver's real
   curve; the PC journal's is the standby path's.
+- **Drive the glasses from the PC** (2026-09-05, `HANDOFF.md` §33): `python3 tools/glassdrive.py
+  aphone TOKEN --pace 2.5 double wait:3 snap:/tmp/a.png down down tap …` sends ring gestures
+  through the phone's replica and saves both lenses at 1× from the mirror — snap before every tap
+  (§29.2: one step per snap near a destructive row; never scroll in Music's root).
 - Remote tmux hosts now ride one multiplexed ssh connection (`~/.damage/ssh-*` control
   sockets, 60 s persist) — a stale socket there is safe to delete.
 - Views while headless: **the phone screen or the phone replica are the live views now**
