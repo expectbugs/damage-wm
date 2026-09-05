@@ -63,7 +63,7 @@ def main(path):
         # the §34 split, when the journal has it
         parts = collections.defaultdict(list)
         for r in sub.values():
-            for k in ('handlerMs', 'mirrorMs', 'truthMs', 'compressMs', 'compressN'):
+            for k in ('handlerMs', 'mirrorMs', 'slidesMs', 'chromeMs', 'overlaysMs', 'textMs', 'truthMs', 'compressMs', 'compressN'):
                 v = r.get(k)
                 if isinstance(v, int) and v >= 0: parts[k].append(v)
         if parts:

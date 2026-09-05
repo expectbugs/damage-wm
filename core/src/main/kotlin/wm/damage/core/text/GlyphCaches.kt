@@ -25,6 +25,15 @@ data class GlyphKey(val face: Face, val px: Int, val bold: Boolean, val italic: 
 /** A rendered string: [w] × [h] coverage bytes (0..255), row-major, tight. */
 class GlyphMask(val w: Int, val h: Int, val cov: ByteArray)
 
+/** Time spent inside the platform rasterizers' `draw`, summed (2026-09-05,
+ *  `HANDOFF.md` §34): the phone's loop measured ~60 % of its per-flush CPU
+ *  in PAINTING and the split could not say how much of that was text. The
+ *  shell reads the delta per message for the journal. Nanoseconds. */
+object TextProfile {
+    @JvmStatic val drawNs = java.util.concurrent.atomic.AtomicLong(0)
+    @JvmStatic val measureNs = java.util.concurrent.atomic.AtomicLong(0)
+}
+
 class MeasureCache(private val maxEntries: Int = 16_384) {
     private val map = ConcurrentHashMap<GlyphKey, Int>()
     fun get(key: GlyphKey, compute: () -> Int): Int {

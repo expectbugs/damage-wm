@@ -227,6 +227,10 @@ abstract class CfwTransportBase(
         /** Registration order (msgId wraps at 249; this never does): the
          *  release rule below compares image pendings by it. */
         var seq = 0L
+        /** For a control message that may be RE-SENT (the carrier CREATE): the
+         *  answer every copy shares. A copy the firmware ate never gets its own
+         *  ack, but if a sibling's arrived nothing was lost (§34). */
+        var shared: CompletableDeferred<EvenHubMsg.Ack>? = null
     }
 
     /** msgId -> pending. Written under [wire], completed by the notify thread. */
@@ -459,6 +463,10 @@ abstract class CfwTransportBase(
         if (!_events.tryEmit(TransportEvent.Fault(what, detail))) {
             Log.e(name, "FAULT DROPPED (buffer full): $what: $detail")
         }
+    }
+
+    protected fun emitNote(kind: String, detail: String) {
+        if (!_events.tryEmit(TransportEvent.Note(kind, detail))) Log.w(name, "note dropped (buffer full): $kind: $detail")
     }
 
     protected fun emitFlags(flags: Map<String, Boolean>) {
@@ -1132,6 +1140,22 @@ abstract class CfwTransportBase(
     private fun registerPending(id: Int, pending: PendingAck) {
         pending.seq = ++pendingSeq
         val prior = pendingAcks.put(id, pending)
+        if (prior != null && !prior.windowed) {
+            // A CONTROL message never acked holds no window slot, so its
+            // counter-cycle is a fact for the journal, not a fault for the
+            // status bar and never an error notice on the glasses. Measured
+            // 2026-09-05 (§34): 45 of the phone journal's 53 "lost ack" faults
+            // over five days were msgIds 3–8 at session start — the carrier
+            // CREATE re-sends of the eaten-message class (§12), whose SHARED
+            // answer had long arrived through a sibling copy.
+            val eaten = prior.shared?.isCompleted == true
+            val text = if (eaten) "msgId $id: the control message under it was never acked itself; its re-send was (the eaten-message class)"
+                else "msgId $id: a control message was never acked (no window slot held)"
+            Log.w(name, text)
+            emitNote("control", text)
+            prior.done.completeExceptionally(LintError(text))
+            return
+        }
         if (prior != null) {
             Log.e(name, "msgId $id reused while its ack is still pending — the original " +
                 "message's ack was LOST; failing it and freeing its slot")
@@ -1167,7 +1191,7 @@ abstract class CfwTransportBase(
                 try {
                     when (work) {
                         is CtlWork.Hub -> {
-                            val pending = PendingAck(-1, windowed = false)
+                            val pending = PendingAck(-1, windowed = false).also { it.shared = work.awaitAck }
                             var registeredId = -1
                             try {
                                 wire.withLock {

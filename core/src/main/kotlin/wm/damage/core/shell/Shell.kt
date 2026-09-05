@@ -734,6 +734,7 @@ class Shell(
             pumpPriority = m is Msg.In ||
                 (m is Msg.Trans && (m.ev is TransportEvent.Input || m.ev is TransportEvent.Text))
             mirrorNsThisMsg = 0L
+            textNsAtMsgStart = wm.damage.core.text.TextProfile.drawNs.get()
             val handlerT0 = System.nanoTime()
             if (!running && m !is Msg.Shutdown) {
                 if (m is Msg.Run) m.dropped?.invoke()
@@ -1812,6 +1813,7 @@ class Shell(
                 setStatus("${ev.what}!")
                 journal.note("fault", "${ev.what}: ${ev.detail}")
             }
+            is TransportEvent.Note -> journal.note(ev.kind, ev.detail)   // a fact: the journal only
         }
     }
 
@@ -1927,6 +1929,10 @@ class Shell(
      *  time and the time inside [checkMirrorAgreement], both reset by the loop. */
     private var handlerNsThisMsg = 0L
     private var mirrorNsThisMsg = 0L
+    private var textNsAtMsgStart = 0L
+    private var slidesNs = 0L
+    private var chromeNs = 0L
+    private var overlaysNs = 0L
 
     private fun checkMirrorAgreement() {
         val t0 = System.nanoTime()
@@ -2537,11 +2543,14 @@ class Shell(
         if (!room) return         // FlushDone re-pumps; §5.13 coalescing happens here
 
         var animated = false
+        slidesNs = 0L; chromeNs = 0L; overlaysNs = 0L
+        var phaseT0 = System.nanoTime()
 
         // 1. slides move the content UNDER everything — lifting a floating
         //    notification box out of the band first (#A4; step 3 repaints it)
         if (slides.any { it.active }) liftNotificationBox()
         for (s in slides) if (s.active) { s.step(comp.composed); animated = true }
+        slidesNs = System.nanoTime() - phaseT0; phaseT0 = System.nanoTime()
 
         // 2. switcher spin, painted OVER the slid content
         if (switcher.open) {
@@ -2603,6 +2612,8 @@ class Shell(
             boxLifted = false
         }
 
+        overlaysNs = System.nanoTime() - phaseT0; phaseT0 = System.nanoTime()
+
         // 4. chrome rides along with content, or flushes alone on the idle tick
         if (chromeDirty && !quiet && (comp.hasPending || animated || chromeIdleFlush)) {
             // One rect per BAR, never one per cell (§2.4 rule 2)
@@ -2614,6 +2625,7 @@ class Shell(
             chromeDirty = false
             chromeIdleFlush = false
         }
+        chromeNs = System.nanoTime() - phaseT0
 
         // 5. the one atomic flush per frame — the project's thesis
         if (haltedEpoch != null) {
@@ -2648,7 +2660,9 @@ class Shell(
                     journal.flushSubmitted(id, assembled, label, st.transportName, Journal.Timing(
                         handleMs = handleMs, handlerMs = handlerNsThisMsg / 1_000_000, mirrorMs = mirrorNsThisMsg / 1_000_000,
                         assembleMs = assembleMs, truthMs = comp.lastTruthNs / 1_000_000,
-                        compressMs = comp.lastCompressNs / 1_000_000, compressN = comp.lastCompressN))
+                        compressMs = comp.lastCompressNs / 1_000_000, compressN = comp.lastCompressN,
+                        slidesMs = slidesNs / 1_000_000, chromeMs = chromeNs / 1_000_000, overlaysMs = overlaysNs / 1_000_000,
+                        textMs = (wm.damage.core.text.TextProfile.drawNs.get() - textNsAtMsgStart) / 1_000_000))
                 } catch (e: Exception) {
                     Log.e("shell", "submit failed", e)
                     journal.note("submit-error", e.toString())

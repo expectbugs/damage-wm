@@ -39,7 +39,11 @@ class Journal(private val path: Path?) : AutoCloseable {
      *  [compressMs] over [compressN] memo-missing compressions — the rest is
      *  the diff and the plan. */
     data class Timing(val handleMs: Long = -1, val handlerMs: Long = -1, val mirrorMs: Long = -1,
-        val assembleMs: Long = -1, val truthMs: Long = -1, val compressMs: Long = -1, val compressN: Int = -1)
+        val assembleMs: Long = -1, val truthMs: Long = -1, val compressMs: Long = -1, val compressN: Int = -1,
+        /** Inside the pump before the assemble: the slide steps, the chrome
+         *  sync, the overlays (wheel, notification); and across the whole
+         *  message, the time inside the rasterizer's draw (§34, second cut). */
+        val slidesMs: Long = -1, val chromeMs: Long = -1, val overlaysMs: Long = -1, val textMs: Long = -1)
 
     fun flushSubmitted(id: Long, a: Compositor.Assembled, label: String,
         via: String = "?", timing: Timing = Timing()) {
@@ -56,7 +60,8 @@ class Journal(private val path: Path?) : AutoCloseable {
         val tm = timing
         write("""{"t":${System.currentTimeMillis()},"ev":"submit","id":$id,"epoch":${a.epoch},"label":${json(label)},""" +
             """"via":${json(via)},"handleMs":${tm.handleMs},"handlerMs":${tm.handlerMs},"mirrorMs":${tm.mirrorMs},""" +
-            """"assembleMs":${tm.assembleMs},"truthMs":${tm.truthMs},"compressMs":${tm.compressMs},"compressN":${tm.compressN},"ops":[$ops]}""")
+            """"assembleMs":${tm.assembleMs},"truthMs":${tm.truthMs},"compressMs":${tm.compressMs},"compressN":${tm.compressN},""" +
+            """"slidesMs":${tm.slidesMs},"chromeMs":${tm.chromeMs},"overlaysMs":${tm.overlaysMs},"textMs":${tm.textMs},"ops":[$ops]}""")
     }
 
     fun flushDone(id: Long, ok: Boolean, ackMs: Long, bytes: Int, error: String?) {

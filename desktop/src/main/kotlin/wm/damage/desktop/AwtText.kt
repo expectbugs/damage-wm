@@ -101,6 +101,11 @@ class AwtText(private val contentScaleProvider: () -> Double = { 1.0 }) : TextRa
 
     override fun draw(surface: Gray8, x: Int, y: Int, text: String, font: FontSpec, level: Int) {
         if (text.isEmpty()) return
+        val t0 = System.nanoTime()
+        try { drawInner(surface, x, y, text, font, level) } finally { wm.damage.core.text.TextProfile.drawNs.addAndGet(System.nanoTime() - t0) }
+    }
+
+    private fun drawInner(surface: Gray8, x: Int, y: Int, text: String, font: FontSpec, level: Int) {
         val m = rasters.get(glyphKey(font, text)) { render(font(font), text) }
         val cov = m.cov
         for (yy in 0 until m.h) {

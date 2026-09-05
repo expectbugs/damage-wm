@@ -27,8 +27,14 @@ path is the slow regime on its own journal (**72 ms** small, **1,036 ms** at 6 K
 **HIGH priority IS granted (15 ms/latency 1/1M) and changes nothing**, so the wall is above the
 interval; **the phone's loop CPU is 74–127 ms handling + 53–84 ms assembling per flush** (PC 4 + 2)
 — a term as large as the ack floor; lost fragment acks (49 in five days, two 25–48 s stalls) hold
-a window slot for a whole msgId cycle. **Next (§33.7): release pending acks on a later ack; split
-the phone's loop time in the journal and re-walk; then mode 14.**
+a window slot for a whole msgId cycle. **Then §34 (evening): the pending-ack release and the CPU split BUILT, APK 0.31 installed, the
+walk REPEATED** — the wire unchanged (same medians), the phone's CPU **~63 % painting / 27 % diff
+and plan / 8 % truth / 2 % compression**; and §33.4's "49 lost acks" were mostly the carrier
+CREATE's eaten re-sends at session start (a false alarm that raised a notice on the glasses every
+session — fixed: a control pending's counter-cycle is a journal `Note`, not a fault). **APK 0.32
+staged** with the paint split (slides / chrome / overlays / text draw). **Next: install 0.32, walk,
+read the paint split, then cut the largest part; the eaten-CREATE 2 s re-ask (~6 s per cold start)
+is a radio experiment for Adam.**
 
 ---
 

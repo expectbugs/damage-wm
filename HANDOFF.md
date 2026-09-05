@@ -2559,3 +2559,90 @@ and the second pass scrolled history); every snapshot matched the mirror the gla
    bug-report mail path, to count packets per event; a Wi-Fi-off session for coexistence.
 4. **Mode 14 text** (§32.6 item 4) — with 6 KB+ at 1–1.5 s and 3–6 KB at 0.7 s on the daily path,
    the byte-side lever is worth more than any other.
+
+## 34. The pending-ack release, the CPU split, and the re-walk (2026-09-05, evening)
+
+Adam: *"Build the pending-ack release and the CPU split, then re-walk."* Both built, APK 0.31
+installed by Adam, the §33 walk repeated from the PC in the same ten minutes (wake → Main → Reader
+→ Frankenstein six each way → tmux pane and history → the wheel → Torrents → silent), 341 isolated
+flushes. Then a second cut from what it measured (below), APK **0.32** staged.
+
+### 34.1 What was built
+
+- **A later image fragment's ack releases every earlier image pending as lost**
+  (`CfwTransportBase.releaseEarlierImagePendings`): the permit comes back at once, the flush whose
+  final fragment it was fails with a named reason and the compositor re-sends from the truth, a
+  non-final fragment's pending has nothing to complete, control-lane pendings are never compared,
+  and a late ack that does arrive is reported as late. `PendingAckReleaseTest` drops one ack in the
+  simulator (`SimTransport.notifyFilter`, a test hook) and pins the prompt failure, the freed slot,
+  the named fault and the repair; a second case pins that nothing is released without a loss.
+- **The journal's split**: `handlerMs` and `mirrorMs` inside `handleMs`; `truthMs`, `compressMs`
+  and `compressN` (memo misses) inside `assembleMs`. `tools/journal_report.py` prints it.
+
+### 34.2 What the re-walk measured (APK 0.31, isolated, grade M)
+
+| flush size | n | ack med / p90 | handle | handler | assemble | truth | compress (misses) | diff + plan |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| < 500 B | 205 | 77 / 221 | 43 | 0 | 34 | 9 | 0 (4) | 22 |
+| 0.5–1.5 KB | 91 | 206 / 411 | 98 | 9 | 27 | 6 | 1 (6) | 20 |
+| 1.5–3 KB | 25 | 329 / 495 | 102 | 10 | 73 | 10 | 8 (7) | 49 |
+| 3–6 KB | 17 | 543 / 708 | 126 | 27 | 75 | 8 | 8 (5) | 55 |
+| 6 KB + | 3 | 1,140 / 1,295 | 176 | 103 | 83 | 10 | 18 (5) | 45 |
+
+The wire is unchanged from §33 (nothing here touched it) and says so: the same medians by band.
+The host's side, totalled over the walk: **handle 26.4 s = handler 8.9 + mirror 0.0 + the pump
+before the assemble 17.5**; **assemble 15.4 s = truth render 3.3 + compression 0.8 + diff and plan
+11.4**. Against 67.5 s of ack time, 41.8 s of phone CPU. So:
+
+- **Compression is nearly free** (0.8 s, ~2 %) — the memo works and deflate was never the cost.
+- **The per-lens truth render is 8 %**, the **diff and plan 27 %** (20–55 ms per flush).
+- **Painting is ~63 %** — the handler's paints (a window switch, a wake: 103–194 ms) plus what the
+  pump paints before the assemble: the slide steps, the chrome sync, the wheel and the notice
+  (32 ms median on a WINDOW flush, 49 on a MAIN one, 76 inside the wheel). The mirror scan is
+  zero: it skips while anything is in flight, which during a walk is always.
+- The one shape that adds up: the wake from silent — 7,454 B, 194 ms painting + 107 ms assembling
+  before a 1,140 ms ack.
+
+The split could not yet say WHAT inside the painting; the second cut (§34.4) can.
+
+### 34.3 🔴 §33.4's "lost acks" were mostly not image losses — a false alarm fixed
+
+The re-walk's four "lost ack" faults were **msgIds 3–6 at session start, reported only when the
+counter cycled** — and the release rule never fired on them, because they are not image pendings.
+Recounting the five days: **45 of the 53 faults are msgIds 3–8 at session start**, in 16 episodes;
+the four remaining clusters (56–58, 114–117, 198–202, 245–248) are the real image losses. The
+session-start ones are the carrier CREATE's re-sends of the eaten-message class (§12): the first
+copy lands in the firmware's previous-session teardown and is never answered, the 2 s re-ask is,
+and the eaten copy's pending sits in the map until its msgId comes round — no window slot held,
+nothing lost, but a `Log.e` that the phone turns into an error notice on the glasses ("msgId 3
+reused while its ack is still pending") six minutes into every session. Both walks saw that box.
+
+Fixed: a control pending that reaches the counter cycle is now a **fact** — `Log.w`, a new
+`TransportEvent.Note` the shell journals (`kind: "control"`, saying whether a re-send was answered)
+— never a fault, never a notice. An image pending reaching the cycle is still the fault it was
+(with the release rule in front of it, that now means no later ack came at all). `Note` rides the
+seam like `Fault` does.
+
+**Also seen:** each eaten CREATE costs the 2 s re-ask before the session can start; with three
+eaten per start (msgIds 3–5 in most episodes) that is ~6 s of cold start on every link edge, of
+which the phone had 55 in five days. `CAPABILITY_REASK_MS` is shared with the capability gate and
+is a radio-behaviour constant — a shorter re-ask is an experiment to run with Adam, not a change
+to make blind.
+
+### 34.4 The second cut, staged as 0.32
+
+Inside the pump, per flush: `slidesMs`, `chromeMs`, `overlaysMs`; and across the message,
+`textMs` — the time inside the rasterizer's `draw` (both platforms feed `TextProfile`). Between
+them and the handler they cover everything the split called "painting". Battery green; installed
+by nobody yet.
+
+### 34.5 What is owed
+
+1. Install 0.32, walk once more, read the paint split. Then the largest part goes first —
+   candidates the numbers point at: the chrome sync's two changed cells per gesture (the input
+   echo and the readout are fresh strings, cache misses every time); the slide step's band
+   allocations; the diff's scan of the widened area on both lenses.
+2. The release rule has not yet met a real loss on hardware (none occurred in either walk); the
+   next real one will show as `ack lost — msgId N (sent after it) acked first` with the flush
+   repaired, or as a `late ack` if the rule fired early.
+3. §33.7's radio item and mode 14, unchanged.

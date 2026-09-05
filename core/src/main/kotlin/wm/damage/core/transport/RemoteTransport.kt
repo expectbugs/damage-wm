@@ -456,6 +456,8 @@ class RemoteTransportClient(
             "flags" -> emit(TransportEvent.DiagFlags(c.flags), "DiagFlags")
             "fault" -> emit(TransportEvent.Fault(c.detail.substringBefore(':'),
                 c.detail.substringAfter(':', "")), "Fault")
+            "note" -> emit(TransportEvent.Note(c.detail.substringBefore(':'),
+                c.detail.substringAfter(':', "")), "Note")
             "state" -> c.state?.let { st -> updateState { st.toState() } }
             else -> Log.w("remote-transport", "unknown control ${c.t}")
         }
@@ -899,6 +901,7 @@ class RemoteTransportServer(
         is TransportEvent.Link -> Ctl(t = "link", connected = ev.connected, detail = ev.detail)
         is TransportEvent.DiagFlags -> Ctl(t = "flags", flags = ev.flags)
         is TransportEvent.Fault -> Ctl(t = "fault", detail = "${ev.what}:${ev.detail}")
+        is TransportEvent.Note -> Ctl(t = "note", detail = "${ev.kind}:${ev.detail}")
         is TransportEvent.Battery -> Ctl(t = "batt", gPct = ev.glassesPct, gChg = ev.glassesCharging, rPct = ev.ringPct)
         is TransportEvent.FlushDone -> null   // delivered per-flush with id mapping
     }

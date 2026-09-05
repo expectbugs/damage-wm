@@ -160,6 +160,11 @@ sealed class TransportEvent {
     /** A transport-layer problem worth surfacing (decode failure, e0-02 abort,
      *  session bump, capability mismatch). Never swallowed. */
     data class Fault(val what: String, val detail: String) : TransportEvent()
+
+    /** A transport-layer FACT for the journal (2026-09-05, §34): recorded,
+     *  never a status or a notice — a control message the firmware ate and a
+     *  re-send answered is the first one. Faults stay faults. */
+    data class Note(val kind: String, val detail: String) : TransportEvent()
 }
 
 data class LinkState(
