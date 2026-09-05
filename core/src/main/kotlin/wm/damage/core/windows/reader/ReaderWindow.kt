@@ -547,12 +547,15 @@ class ReaderWindow(
         // the placeholder row: a tap asks again rather than doing nothing at
         // all (review §30 — no silent no-ops)
         if (shelfIsEmpty()) {
-            if (folder.isNotEmpty()) { folder = folder.substringBeforeLast('/', ""); libModel.cursor = 0 }
+            // read the branch BEFORE mutating `folder`, or climbing out of a
+            // top-level folder reports the other branch's message
+            val climbing = folder.isNotEmpty()
+            if (climbing) { folder = folder.substringBeforeLast('/', ""); libModel.cursor = 0 }
             else if (!scanInFlight) refreshLibrary()
             // short enough for the status bar's op cell to say it WHOLE: the
             // cell is 128 px and "reading the shelf again" arrived as
             // "reading the ▸" (review §30, seen live)
-            services?.setOperation(if (folder.isEmpty()) "rescanning" else "back to the shelf")
+            services?.setOperation(if (climbing) "back to the shelf" else "rescanning")
             services?.requestRender(this)
             return
         }
