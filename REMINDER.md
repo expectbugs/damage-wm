@@ -1,7 +1,7 @@
 # Where we are, and what to do next
 
 **Updated 2026-09-04 (evening): a FOURTH whole-codebase review and a second full LIVE walk —
-eleven verified defects, all fixed and pinned, NOT yet deployed.** `HANDOFF.md` §29 is the
+eleven verified defects, all fixed, pinned and deployed.** `HANDOFF.md` §29 is the
 record. The reading found the last constant of the "a rect is a promise" class: the list rhythm
 itself. Clear Sans 18 — every list's row face — inks 27 px at 100 % and the 32 px row held it
 exactly; at 115 % (32 px) the row directly above the lens lost its descenders to the lens fill
@@ -17,8 +17,10 @@ the display behind a healthy status (it survives one, loudly); brightness could 
 auto; the custom-bet keyboard said "raise to" over a check-through; Music's idle caption sat inside
 its heading's descenders at 130 %; and the context menu's fixed 248 px cut "Fold and leave" at
 the 120 % chrome cap while a head-cut detail carried no mark (the box follows the face; the cut
-is marked). ⚠ **Not deployed**: `stageJar && rc-service damage restart` + an APK bump are the
-next steps; **0.16 is still the last APK observed installed.**
+is marked). ✅ **Deployed 2026-09-04 22:00**: the `damage` service runs this build (`standby up
+(§19)`, the phone reattached to the sync, files, music, tmux and torrents channels — nothing on
+glass was touched) and APK **29/0.29** is staged on the setup page. **0.16 is still the last APK
+observed installed** — installing 0.29 is the one manual step.
 
 **Battery at HEAD:** core **440** · desktop **11** · selfcheck **189** · snapshots 49 (three
 consecutive clean runs) · `--games-check` · `--music-check` · `--epub-check` 58/58 · lint 21

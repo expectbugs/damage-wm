@@ -1776,10 +1776,12 @@ three consecutive clean runs · `--games-check` · `--music-check` · `--epub-ch
 
 Read `CLAUDE.md` → `REMINDER.md` → `HANDOFF.md` §19–§29, then:
 
-- **Not deployed by this round** — the ask was review, fix, walk, document, push. Deploying is
-  `./gradlew :desktop:stageJar && sudo rc-service damage restart` (`DAILY.md`) and bumping the APK
-  (`phone/build.gradle.kts` versionCode/versionName, then `:phone:assembleDebug` and the setup
-  page); **0.16 is still the last APK observed installed**.
+- ✅ **Deployed 2026-09-04 22:00** (Adam's word, right after the push): `stageJar && rc-service
+  damage restart` put the service on this build — it came up `standby up (§19)` and the phone
+  reattached to the sync, files, music, tmux and torrents channels within seconds, nothing on
+  glass touched — and APK **29/0.29** is staged on the setup page (`~/.damage/damage-wm.apk`,
+  byte-identical to the build output). **0.16 is still the last APK observed INSTALLED** —
+  installing 0.29 is the one manual step left.
 - The live-walk driver (§28.2, §29.2) remains the instrument that runs the real providers under
   the real grammar. Snap between steps; treat every window with a destructive row as one step per
   snap; count only panel frames as activity.

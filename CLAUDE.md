@@ -104,7 +104,7 @@ caught `Exception` but not `Error` (a frozen display behind a healthy status), b
 never return to auto, and the context menu's fixed width cut labels at the chrome cap. 🔴 Two
 walk rules learnt the hard way: **one step per snap in any window with a destructive row** (a
 blind run started a stopped torrent on the real qBittorrent), and **never rebuild the jar under a
-running instance**. Not deployed by that round.
+running instance**. Deployed 2026-09-04 22:00 (the service on the §29 build; APK 29/0.29 staged).
 
 Adam's stated methodology governs **the app layer**:
 

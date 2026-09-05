@@ -41,7 +41,9 @@ three reviews + the 2026-09-03 Now Playing root and the two player fixes + that 
 whole-codebase review (`HANDOFF.md` §25) + **Games · Hold'em** and the shell's
 switcher-resume / Main-root rule and all three of its review cycles (`HANDOFF.md` §26); 0.16 is
 the last build observed installed**; **0.28**, staged 2026-09-04 18:16, adds the 2026-09-04-late
-review — `HANDOFF.md` §28 — and the service runs that build too). Why old
+review — `HANDOFF.md` §28; **0.29**, staged 2026-09-04 22:00, adds the fourth review —
+`HANDOFF.md` §29, the measured list rhythm, the tmux alert's deep link, brightness back to auto —
+and the service runs that build too). Why old
 APKs matter: a pre-0.15 APK cannot be status-probed (the PC conservatively stays out — fine)
 and a pre-0.10 one carries no sync client, so state does not flow until it is updated. 0.16
 being installed also unblocks Reader's transitional legacy-offsets cleanup (`REMINDER.md` Next 2).
@@ -140,13 +142,13 @@ the sync feel across a driver swap (a book position following the swap). Current
 shell's switcher-resume / Main-root rule and all three review cycles, §26, **and the 2026-09-05
 whole-codebase review, §27** — the Music Mode card, the chrome font ladder, the Games cash-out
 and the truth-oracle gate); **0.16 is the last build observed INSTALLED** (2026-09-01 — the
-phone speaks the files channel), so **0.28 is the one to install** — staged 2026-09-04 18:16
-with the 2026-09-04-late review (§28), the same moment the service was restarted onto it
+phone speaks the files channel), so **0.29 is the one to install** — staged 2026-09-04 22:00
+with the fourth review (§29), the same moment the service was restarted onto it
 (`standby up (§19)`, the phone reattached to every channel).
-✅ Both sides are deployed as of 2026-09-05: `:phone:stageApk` put 0.27 on the setup page and
-`./gradlew :desktop:stageJar && sudo rc-service damage restart` put the service on the review
+✅ Both sides are deployed as of 2026-09-04 22:00: `:phone:stageApk` put 0.29 on the setup page
+and `./gradlew :desktop:stageJar && sudo rc-service damage restart` put the service on the §29
 build (it never touches the display; the PC does not claim). The log came up `standby up (§19)`
-with the phone reattached to the music, files, torrents and tmux channels.
+with the phone reattached to the sync, music, files, torrents and tmux channels.
 
 **Games (2026-09-04, `HOLDEM.md`) needs nothing from ops.** ✅ Live on the PC service since
 2026-09-04 13:07. It is pure Kotlin with no host, no
