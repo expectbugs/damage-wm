@@ -69,7 +69,7 @@ def main(path):
         if parts:
             print('  split (medians / p90): ' + ' · '.join(
                 f'{k} {med(v)}/{sorted(v)[int(len(v)*.9)]}' for k, v in parts.items()))
-            print('  (handle = handler + mirror + the pump; assemble = truth + compress + the diff and plan)')
+            print('  (handle = handler + slides + overlays + chrome + mirror + ASSEMBLE; assemble = truth + compress + the diff and plan)')
     else:
         print('\nno handleMs/assembleMs in this journal (written before §32)')
     kinds = collections.Counter(n['kind'] for n in notes)

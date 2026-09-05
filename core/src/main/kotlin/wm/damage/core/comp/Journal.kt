@@ -30,14 +30,15 @@ class Journal(private val path: Path?) : AutoCloseable {
      * caused); [assembleMs] is the compositor's diff + partition + compress.
      * Both are host CPU, on the loop, and neither had ever been measured.
      */
-    /** The host's time per flush, split (2026-09-05, `HANDOFF.md` §34 — §33.3
-     *  measured 74–127 ms handling + 53–84 ms assembling on the phone and
-     *  could not say where): [handleMs] = message taken → flush; inside it
-     *  [handlerMs] = the message's own handler (the paints it caused) and
-     *  [mirrorMs] = the belief-vs-glass scan a completion runs; [assembleMs]
-     *  = the compositor; inside it [truthMs] = the per-lens truth render and
-     *  [compressMs] over [compressN] memo-missing compressions — the rest is
-     *  the diff and the plan. */
+    /** The host's time per flush, split (2026-09-05, `HANDOFF.md` §34/§35):
+     *  [handleMs] = message taken → submit, the WHOLE host time INCLUDING the
+     *  assemble (⚠ §33.3 and §34.2 read it as excluding it and so counted the
+     *  assemble twice — corrected in §35); inside it [handlerMs] = the
+     *  message's own handler (the paints it caused), [mirrorMs] = the
+     *  belief-vs-glass scan a completion runs, and [assembleMs] = the
+     *  compositor, inside which [truthMs] = the per-lens truth render and
+     *  [compressMs] over [compressN] memo-missing compressions — the rest of
+     *  the assemble is the diff and the plan. */
     data class Timing(val handleMs: Long = -1, val handlerMs: Long = -1, val mirrorMs: Long = -1,
         val assembleMs: Long = -1, val truthMs: Long = -1, val compressMs: Long = -1, val compressN: Int = -1,
         /** Inside the pump before the assemble: the slide steps, the chrome

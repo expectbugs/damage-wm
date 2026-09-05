@@ -2646,3 +2646,62 @@ by nobody yet.
    next real one will show as `ack lost — msgId N (sent after it) acked first` with the flush
    repaired, or as a `late ack` if the rule fired early.
 3. §33.7's radio item and mode 14, unchanged.
+
+## 35. The paint split read (0.32), and what it corrected (2026-09-05, evening)
+
+APK 0.32 walked from the PC the same way (368 isolated flushes), then a WARM second pass without
+reinstalling (32 flushes, the same window opens again).
+
+### 35.1 🔴 `handleMs` includes the assemble — §33.3 and §34.2 counted it twice
+
+The split's "unaccounted" remainder matched `assembleMs` band for band (49/46, 83/83, 81/79,
+91/90). `handleMs` is measured at SUBMIT, after the assemble; §33.3's "74–127 ms handling +
+53–84 ms assembling" and §34.2's "painting ~63 %" added the assemble to itself. The corrected
+totals over the 0.32 walk, phone, per flush:
+
+| term | total ms | share of host time |
+|---|---:|---:|
+| the compositor's **diff and plan** | 13,232 | **50 %** |
+| the message handler's paints (window opens, wakes, pane frames) | 6,165 | 24 % |
+| the per-lens truth render | 3,498 | 13 % |
+| chrome sync | 1,203 | 5 % |
+| compression (memo misses) | 844 | 3 % |
+| slide steps | 539 | 2 % |
+| overlays (wheel, notice) | 193 | 1 % |
+| text drawing, inside all of the above | 954 | 4 % |
+
+Host time 26.2 s against 88.6 s of ack time. `Journal.kt`'s comment and the report say it now;
+`CLAIMS.md` carries the correction.
+
+### 35.2 What the two passes said
+
+- **The diff scan.** `dirtyCells` visited every cell of the scan area and asked the result map
+  whether it had seen it — a boxed hash lookup per cell, ~31k cells per lens per iteration for a
+  content-sized hint, up to six iterations. Rewritten (§35.3).
+- **The tmux pane, live: ~130 ms of handler per pushed frame, once a second, cold OR warm**
+  (17:45:40–48 and 17:51:18–25, ten frames each pass, handler 104–163 ms, text 1–2 ms). A pushed
+  frame is a new list, so `FlowRender`'s slot cache missed on every one and every line of the pane
+  was parsed, sanitised and wrapped again. Rewritten (§35.3).
+- **The 631 ms Torrents open was cold code**: 41 ms on the warm pass for the same list (10,945 B).
+  The Reader open 94–119 ms cold, 72 warm; Main paints 20–56 either way. A freshly installed
+  process pays ART's first execution of each window's paint path once.
+- The wire again unchanged (73 · 275 · 352 · 660 · 1,100 ms by band).
+
+### 35.3 What was built (APK 0.33 staged)
+
+- **`Compositor.dirtyCells` is a tight mismatch scan**: each cell-row's two pixel rows run as one
+  loop over the raw arrays, and the result map is touched only for cells that differ or are
+  unknown. `DirtyCellsTest` pins it cell for cell and owner for owner against the old loop over
+  random panels, marks and areas.
+- **`FlowRender` memoises the wrap per line text** (width and epoch are the memo's identity; a
+  change clears it; 4,096 lines bound it): a frame re-wraps only the lines that changed.
+  `FlowRenderMemoTest` pins that a changed frame wraps exactly its changed lines and draws the
+  pixels a fresh renderer draws.
+- The `handleMs` definition corrected in `Journal.kt` and the report.
+
+### 35.4 What is owed
+
+1. Walk 0.33: the diff and plan term should fall by most of its 13 s; the pane frame from
+   ~130 ms to the parse of its changed lines. Then the truth render (13 %) is the next term — it
+   re-renders both full lenses every assemble.
+2. §34.5 items 2–3 and §33.7's radio work, unchanged.

@@ -32,9 +32,13 @@ walk REPEATED** — the wire unchanged (same medians), the phone's CPU **~63 % p
 and plan / 8 % truth / 2 % compression**; and §33.4's "49 lost acks" were mostly the carrier
 CREATE's eaten re-sends at session start (a false alarm that raised a notice on the glasses every
 session — fixed: a control pending's counter-cycle is a journal `Note`, not a fault). **APK 0.32
-staged** with the paint split (slides / chrome / overlays / text draw). **Next: install 0.32, walk,
-read the paint split, then cut the largest part; the eaten-CREATE 2 s re-ask (~6 s per cold start)
-is a radio experiment for Adam.**
+staged** with the paint split (slides / chrome / overlays / text draw). **Then §35: 0.32 walked, and the split
+CORRECTED §33.3/§34.2 — `handleMs` includes the assemble; the phone's host time is 50 % the
+compositor's diff and plan, 24 % handler paints, 13 % truth render, text drawing only 4 %; a live
+tmux pane costs ~130 ms per pushed frame, once a second. Both rewritten and staged as APK 0.33
+(`dirtyCells` as a tight mismatch scan, `FlowRender` memoising the wrap per line), each pinned
+equal to what it replaced. Next: walk 0.33; then the truth render; the eaten-CREATE 2 s re-ask
+(~6 s per cold start) stays a radio experiment for Adam.**
 
 ---
 

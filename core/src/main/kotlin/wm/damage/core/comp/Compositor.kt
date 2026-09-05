@@ -466,27 +466,51 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         val owner = if (left) ownerL else ownerR
         val unknown = if (left) unknownL else unknownR
         val out = HashMap<Int, Short>()
+        // 2026-09-05 (`HANDOFF.md` §35): the scan used to visit every cell of
+        // the area and ask the result map whether it had seen it — a boxed
+        // hash lookup per cell, ~31k cells per lens per iteration for a
+        // content-sized hint, on the phone's loop; the split measured the diff
+        // and plan at half the phone's CPU per flush. The scan now runs the two
+        // pixel rows of each cell-row as ONE tight mismatch loop over the raw
+        // arrays and touches the map only for cells that differ. Same cells,
+        // same owners — `DirtyCellsTest` pins it against the old loop.
+        val sp = shadow.pix; val tp = truth.pix
         for (a in area) {
             val cx0 = a.x / CW; val cx1 = (a.right + CW - 1) / CW
             val cy0 = a.y / CH; val cy1 = (a.bottom + CH - 1) / CH
-            for (cy in cy0 until cy1) for (cx in cx0 until cx1) {
-                val idx = cy * cellsW + cx
-                if (out.containsKey(idx)) continue
-                val px = cx * CW; val py = cy * CH
-                var diff = unknown[idx]
-                if (!diff) {
-                    loop@ for (y in py until py + CH) {
-                        val off = y * width + px
-                        for (x in 0 until CW) {
-                            if (shadow.pix[off + x] != truth.pix[off + x]) { diff = true; break@loop }
-                        }
+            if (cx1 <= cx0) continue
+            for (cy in cy0 until cy1) {
+                val rowBase = cy * cellsW
+                val py = cy * CH
+                for (cx in cx0 until cx1) {
+                    val idx = rowBase + cx
+                    if (unknown[idx] && !out.containsKey(idx)) out[idx] = owner[py * width + cx * CW]
+                }
+                for (r in 0 until CH) {
+                    val off = (py + r) * width
+                    val end = off + cx1 * CW
+                    var i = off + cx0 * CW
+                    while (i < end) {
+                        while (i < end && sp[i] == tp[i]) i++
+                        if (i >= end) break
+                        val cx = (i - off) / CW
+                        val idx = rowBase + cx
+                        if (!out.containsKey(idx)) out[idx] = owner[py * width + cx * CW]
+                        i = off + (cx + 1) * CW
                     }
                 }
-                if (diff) out[idx] = owner[py * width + px]
             }
         }
         return out
     }
+
+    /** Test access to the diff scan against its reference (`DirtyCellsTest`). */
+    internal fun dirtyCellsForTest(left: Boolean, area: List<Rect>): Map<Int, Short> = dirtyCells(left, area)
+    internal fun shadowForTest(left: Boolean): Gray8 = if (left) shadowL else shadowR
+    internal fun truthForTest(left: Boolean): Gray8 = if (left) truthL else truthR
+    internal fun ownerForTest(left: Boolean): ShortArray = if (left) ownerL else ownerR
+    internal fun unknownForTest(left: Boolean): BooleanArray = if (left) unknownL else unknownR
+    internal val cellsWForTest: Int get() = cellsW
 
     private sealed class Planned {
         class Delta(val rect: Rect, val d: Int, val owner: Short) : Planned()

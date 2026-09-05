@@ -56,7 +56,24 @@ class FlowRender(private val text: TextRasterizer) {
         lineHCache = -1
         live = null
         hist = null
+        lineMemo.clear()
     }
+
+    /**
+     * Per-LINE wrap memo (2026-09-05, `HANDOFF.md` §35): a pushed frame is a
+     * new list, so the slot cache above misses on every one and every line of
+     * the pane was parsed, sanitised and wrapped again — measured at ~130 ms
+     * per frame on the phone, once a second while a pane is live, cold or
+     * warm. A line's wrap depends only on its text, the width and the epoch
+     * (the style transform), so it is memoised by text; the width and epoch
+     * are the memo's identity and a change clears it. The wrapped pieces are
+     * immutable and shared between frames. Bounded by wholesale clearing.
+     */
+    private val lineMemo = HashMap<String, List<DLine>>()
+    private var memoWidth = -1
+    private var memoEpoch = -1
+    /** For the memo's test: how many lines were actually wrapped. */
+    internal var wrapsDone = 0L
 
     private fun spec(bold: Boolean = false) = FontSpec(Face.MONO, BASE_SIZE, bold = bold)
 
@@ -82,8 +99,12 @@ class FlowRender(private val text: TextRasterizer) {
     private fun layout(lines: List<String>, widthPx: Int, slot: Slot?, keep: (Slot) -> Unit): List<DLine> {
         val key = Triple(lines, widthPx, epoch)
         slot?.let { if (it.key.first === lines && it.key.second == widthPx && it.key.third == epoch) return it.lines }
+        if (memoWidth != widthPx || memoEpoch != epoch) { lineMemo.clear(); memoWidth = widthPx; memoEpoch = epoch }
+        if (lineMemo.size > MEMO_MAX) lineMemo.clear()
         val out = ArrayList<DLine>(lines.size + 8)
         for (line in lines) {
+            val cached = lineMemo[line]
+            if (cached != null) { out.addAll(cached); continue }
             // SANITIZE before wrapping, the way the Files viewer does: terminal
             // output is external text, and JetBrains Mono has no glyph for a
             // fair amount of what a modern TUI prints — the live panes on this
@@ -97,8 +118,11 @@ class FlowRender(private val text: TextRasterizer) {
                     r.fg, r.bg, r.flags)
             }
             val plain = runs.joinToString("") { it.text }
-            if (isRule(plain)) { out.add(DLine.Rule); continue }
-            wrapStyled(runs, widthPx, out)
+            val wrapped = ArrayList<DLine>(2)
+            if (isRule(plain)) wrapped.add(DLine.Rule) else wrapStyled(runs, widthPx, wrapped)
+            wrapsDone++
+            lineMemo[line] = wrapped
+            out.addAll(wrapped)
         }
         keep(Slot(key, out))
         return out
@@ -291,6 +315,8 @@ class FlowRender(private val text: TextRasterizer) {
 
         const val PAD_X = 16
         const val PAD_TOP = 6
+        /** Distinct line texts the wrap memo holds before it clears. */
+        const val MEMO_MAX = 4_096
 
         /** Characters a separator line is made of (box-drawing horizontals +
          *  the ASCII rules CLI tools draw). */
