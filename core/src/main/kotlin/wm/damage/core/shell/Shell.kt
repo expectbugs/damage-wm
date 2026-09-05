@@ -733,6 +733,8 @@ class Shell(
             // may take the window's last slot — see pump()
             pumpPriority = m is Msg.In ||
                 (m is Msg.Trans && (m.ev is TransportEvent.Input || m.ev is TransportEvent.Text))
+            mirrorNsThisMsg = 0L
+            val handlerT0 = System.nanoTime()
             if (!running && m !is Msg.Shutdown) {
                 if (m is Msg.Run) m.dropped?.invoke()
                 queued.decrementAndGet()
@@ -788,6 +790,7 @@ class Shell(
                 journal.note("error", e.toString())
                 setStatus("ERROR ${e.message ?: e::class.simpleName}")
             }
+            handlerNsThisMsg = System.nanoTime() - handlerT0
             try {
                 if (running) pump()
             } catch (e: Exception) {
@@ -1920,7 +1923,17 @@ class Shell(
      * a false alarm). Only exact (local) mirrors are read; a seam-fed mirror
      * lags.
      */
+    /** Per-message timers for the journal's split (§34): the handler's own
+     *  time and the time inside [checkMirrorAgreement], both reset by the loop. */
+    private var handlerNsThisMsg = 0L
+    private var mirrorNsThisMsg = 0L
+
     private fun checkMirrorAgreement() {
+        val t0 = System.nanoTime()
+        try { checkMirrorAgreementInner() } finally { mirrorNsThisMsg += System.nanoTime() - t0 }
+    }
+
+    private fun checkMirrorAgreementInner() {
         val m = transport.mirror
         if (!m.exact) return
         if (inflightFlushes.isNotEmpty() || comp.hasPending || comp.needsKeyframe) return
@@ -2632,7 +2645,10 @@ class Shell(
                     val id = transport.submit(FlushRequest(assembled.ops, assembled.epoch, label,
                         wide = assembled.wide))
                     inflightFlushes[id] = assembled
-                    journal.flushSubmitted(id, assembled, label, st.transportName, handleMs, assembleMs)
+                    journal.flushSubmitted(id, assembled, label, st.transportName, Journal.Timing(
+                        handleMs = handleMs, handlerMs = handlerNsThisMsg / 1_000_000, mirrorMs = mirrorNsThisMsg / 1_000_000,
+                        assembleMs = assembleMs, truthMs = comp.lastTruthNs / 1_000_000,
+                        compressMs = comp.lastCompressNs / 1_000_000, compressN = comp.lastCompressN))
                 } catch (e: Exception) {
                     Log.e("shell", "submit failed", e)
                     journal.note("submit-error", e.toString())

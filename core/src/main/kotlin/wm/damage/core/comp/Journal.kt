@@ -30,8 +30,19 @@ class Journal(private val path: Path?) : AutoCloseable {
      * caused); [assembleMs] is the compositor's diff + partition + compress.
      * Both are host CPU, on the loop, and neither had ever been measured.
      */
+    /** The host's time per flush, split (2026-09-05, `HANDOFF.md` §34 — §33.3
+     *  measured 74–127 ms handling + 53–84 ms assembling on the phone and
+     *  could not say where): [handleMs] = message taken → flush; inside it
+     *  [handlerMs] = the message's own handler (the paints it caused) and
+     *  [mirrorMs] = the belief-vs-glass scan a completion runs; [assembleMs]
+     *  = the compositor; inside it [truthMs] = the per-lens truth render and
+     *  [compressMs] over [compressN] memo-missing compressions — the rest is
+     *  the diff and the plan. */
+    data class Timing(val handleMs: Long = -1, val handlerMs: Long = -1, val mirrorMs: Long = -1,
+        val assembleMs: Long = -1, val truthMs: Long = -1, val compressMs: Long = -1, val compressN: Int = -1)
+
     fun flushSubmitted(id: Long, a: Compositor.Assembled, label: String,
-        via: String = "?", handleMs: Long = -1, assembleMs: Long = -1) {
+        via: String = "?", timing: Timing = Timing()) {
         val ops = a.ops.joinToString(",") { op ->
             when (op) {
                 is DisplayOp.Keyframe -> """{"op":"keyframe","bytes":${op.payload.size}}"""
@@ -42,8 +53,10 @@ class Journal(private val path: Path?) : AutoCloseable {
                     """{"op":"stereopair","l":"${op.left}","r":"${op.right}","bytes":${op.payload.size}}"""
             }
         }
+        val tm = timing
         write("""{"t":${System.currentTimeMillis()},"ev":"submit","id":$id,"epoch":${a.epoch},"label":${json(label)},""" +
-            """"via":${json(via)},"handleMs":$handleMs,"assembleMs":$assembleMs,"ops":[$ops]}""")
+            """"via":${json(via)},"handleMs":${tm.handleMs},"handlerMs":${tm.handlerMs},"mirrorMs":${tm.mirrorMs},""" +
+            """"assembleMs":${tm.assembleMs},"truthMs":${tm.truthMs},"compressMs":${tm.compressMs},"compressN":${tm.compressN},"ops":[$ops]}""")
     }
 
     fun flushDone(id: Long, ok: Boolean, ackMs: Long, bytes: Int, error: String?) {

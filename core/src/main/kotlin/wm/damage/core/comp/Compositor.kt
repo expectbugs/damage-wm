@@ -231,8 +231,17 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      * it; a flush that needs more runs WIDE (window drained, 16 fids), and
      * anything past even that stays dirty for the next flush.
      */
+    /** Where the last assemble's time went (2026-09-05, `HANDOFF.md` §34):
+     *  the per-lens truth render, and the compressions that MISSED the memo
+     *  (count and time). The rest of `assembleMs` is the diff and the plan.
+     *  Read by the shell right after [assembleFlush], for the journal. */
+    var lastTruthNs = 0L; private set
+    var lastCompressNs = 0L; private set
+    var lastCompressN = 0; private set
+
     fun assembleFlush(rectBudget: Int): Assembled? {
         compressCache.clear()          // `composed` may have changed since the last assemble
+        lastTruthNs = 0L; lastCompressNs = 0L; lastCompressN = 0
         try {
             return assembleFlushInner(rectBudget)
         } finally {
@@ -309,7 +318,9 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         if (bareKeyframe) {
             dirtyLeft = true
         } else {
+            val t0 = System.nanoTime()
             renderTruth()
+            lastTruthNs += System.nanoTime() - t0
             val areaCells = areaCellSet(area)
             val budget = Geometry.rectBudget(1)     // the wide budget
             var iterations = 0
@@ -922,7 +933,10 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     private val compressCache = HashMap<Rect, ByteArray>()
 
     private fun compress(r: Rect): ByteArray =
-        compressCache.getOrPut(r) { Zl.encodeCfw(Pack.rect(composed, r)) }
+        compressCache.getOrPut(r) {
+            val t0 = System.nanoTime()
+            Zl.encodeCfw(Pack.rect(composed, r)).also { lastCompressNs += System.nanoTime() - t0; lastCompressN++ }
+        }
 
     private fun black(w: Int, h: Int): ByteArray =
         Zl.encodeCfw(Pack.rect(Gray8(w, h), Rect(0, 0, w, h)))

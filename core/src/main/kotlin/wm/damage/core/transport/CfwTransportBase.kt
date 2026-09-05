@@ -224,10 +224,52 @@ abstract class CfwTransportBase(
 
     private class PendingAck(val flushId: Long, val windowed: Boolean) {
         val done = CompletableDeferred<EvenHubMsg.Ack>()
+        /** Registration order (msgId wraps at 249; this never does): the
+         *  release rule below compares image pendings by it. */
+        var seq = 0L
     }
 
     /** msgId -> pending. Written under [wire], completed by the notify thread. */
     private val pendingAcks = ConcurrentHashMap<Int, PendingAck>()
+    private var pendingSeq = 0L        // wire-mutex-confined, like the msgId counter
+
+    /** msgId -> when it was released as lost, so a late ack for it is named as
+     *  late (the rule fired early) rather than "unknown". Cleared per session. */
+    private val recentlyReleased = ConcurrentHashMap<Int, Long>()
+
+    /**
+     * 🔴 A LATER image fragment's ack releases every EARLIER image pending as
+     * lost (2026-09-05, `HANDOFF.md` §34 — measured in §33.4: 49 lost acks
+     * in five days on the phone path, each holding a window slot for a whole
+     * msgId cycle of 249 messages, and twice the whole window until the
+     * display sat frozen for 25 and 48 s). Image fragments go out in order on
+     * one arm and the firmware completes them in order, so an ack for a
+     * fragment registered AFTER a still-pending one means the earlier ack is
+     * not coming. The reference implementations slide their window forward
+     * through missed acks the same way (`overview.md` §5, g2-kit and
+     * Faceclaw). What "lost" does: the permit comes back now; a flush whose
+     * FINAL fragment it was completes as failed with a named reason, and the
+     * compositor's lost-flush path re-sends from the truth (cells marked
+     * unknown); a non-final fragment's pending has nothing to complete — the
+     * flush's final ack still decides it. Control-lane pendings (the other
+     * arm, another link) are never compared. A late ack that does arrive is
+     * reported as such, so a rule firing early shows up in the journal.
+     */
+    private fun releaseEarlierImagePendings(laterId: Int, laterSeq: Long) {
+        for ((id, p) in pendingAcks.entries.toList()) {
+            if (!p.windowed || p.seq >= laterSeq) continue
+            if (!pendingAcks.remove(id, p)) continue
+            window.release()
+            updateState { it.copy(inFlight = WINDOW - window.availablePermits) }
+            val now = nowMs()
+            recentlyReleased.entries.removeIf { now - it.value > RELEASED_MEMORY_MS }
+            recentlyReleased[id] = now
+            Log.e(name, "msgId $id: ack LOST — msgId $laterId, sent after it, acked first; slot released" +
+                (if (p.flushId >= 0) ", flush ${p.flushId} fails and is re-sent" else ""))
+            emitFault("ack", "msgId $id ack lost — msgId $laterId (sent after it) acked first; slot released")
+            p.done.completeExceptionally(LintError("ack for msgId $id lost — msgId $laterId, sent after it, acked first"))
+        }
+    }
 
     private val capabilityChannel = Channel<String>(Channel.CONFLATED)
 
@@ -281,7 +323,16 @@ abstract class CfwTransportBase(
                     }
                     val pending = pendingAcks.remove(ack.msgId)
                     if (pending == null) {
-                        Log.w(name, "ack for unknown msgId ${ack.msgId} (late or duplicate)")
+                        val releasedAt = recentlyReleased.remove(ack.msgId)
+                        if (releasedAt != null) {
+                            // the rule above fired early for this one: the
+                            // ack came, out of order or late. Bytes were spent
+                            // re-sending; the pixels are right either way.
+                            Log.w(name, "LATE ack for msgId ${ack.msgId}, ${nowMs() - releasedAt} ms after it was released as lost")
+                            emitFault("ack", "late ack for msgId ${ack.msgId} (${nowMs() - releasedAt} ms after release) — acks arrived out of order")
+                        } else {
+                            Log.w(name, "ack for unknown msgId ${ack.msgId} (late or duplicate)")
+                        }
                         return
                     }
                     if (pending.windowed) {
@@ -289,6 +340,7 @@ abstract class CfwTransportBase(
                         lastImageAckAtMs = nowMs()
                         stallReported = false
                         updateState { it.copy(inFlight = WINDOW - window.availablePermits) }
+                        releaseEarlierImagePendings(ack.msgId, pending.seq)
                     }
                     if (ack.errorCode != null && !pending.done.isCompleted) {
                         emitFault("imgres", "${ack.statusText} (${ack.errorCode}) on msgId ${ack.msgId}")
@@ -1078,6 +1130,7 @@ abstract class CfwTransportBase(
      *  overwritten with the slot leaked and the late ack misrouted (review
      *  round 2 #2). Callers hold `wire`. */
     private fun registerPending(id: Int, pending: PendingAck) {
+        pending.seq = ++pendingSeq
         val prior = pendingAcks.put(id, pending)
         if (prior != null) {
             Log.e(name, "msgId $id reused while its ack is still pending — the original " +
@@ -1289,5 +1342,7 @@ abstract class CfwTransportBase(
         /** Reporting threshold for the stall diagnostic — well past any
          *  measured ack (176 ms median, 7–13 KB/s); reports, never acts. */
         private const val STALL_REPORT_MS = 10_000L
+        /** How long a released msgId is remembered so its late ack is named. */
+        private const val RELEASED_MEMORY_MS = 60_000L
     }
 }

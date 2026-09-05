@@ -60,6 +60,16 @@ def main(path):
     if hm:
         print(f'\nshell CPU per flush (host, on the loop): handle median {med(hm)} ms / p90 {sorted(hm)[int(len(hm)*.9)]} ms · '
               f'assemble median {med(am)} ms / p90 {sorted(am)[int(len(am)*.9)]} ms  (n={len(hm)})')
+        # the §34 split, when the journal has it
+        parts = collections.defaultdict(list)
+        for r in sub.values():
+            for k in ('handlerMs', 'mirrorMs', 'truthMs', 'compressMs', 'compressN'):
+                v = r.get(k)
+                if isinstance(v, int) and v >= 0: parts[k].append(v)
+        if parts:
+            print('  split (medians / p90): ' + ' · '.join(
+                f'{k} {med(v)}/{sorted(v)[int(len(v)*.9)]}' for k, v in parts.items()))
+            print('  (handle = handler + mirror + the pump; assemble = truth + compress + the diff and plan)')
     else:
         print('\nno handleMs/assembleMs in this journal (written before §32)')
     kinds = collections.Counter(n['kind'] for n in notes)

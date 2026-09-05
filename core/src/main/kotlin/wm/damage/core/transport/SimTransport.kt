@@ -26,6 +26,10 @@ class SimTransport(
 
     override val instant: Boolean get() = timing.instant
 
+    /** Test hook: return false to drop a packet the sim is sending back
+     *  (acks included). Null passes everything. */
+    @Volatile var notifyFilter: ((Arm, ByteArray) -> Boolean)? = null
+
     override fun nowMs(): Long = clock()
 
     init {
@@ -37,6 +41,9 @@ class SimTransport(
             }
 
             override fun notify(arm: Arm, packet: ByteArray) {
+                // a test may LOSE a packet on the way back (an ack that never
+                // arrives is the phone path's commonest fault, §33.4)
+                if (notifyFilter?.invoke(arm, packet) == false) return
                 onNotifyPacket(arm, packet)
             }
 
