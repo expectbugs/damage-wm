@@ -134,6 +134,20 @@ sealed class DisplayOp {
      *  left lens clears the region's right inner strip while the right lens
      *  clears the left one, which box±d cannot express. */
     data class StereoPair(val left: Rect, val right: Rect, val payload: ByteArray) : DisplayOp()
+
+    /** A mode-12 texture-cache write (§40) — one complete message, sent as
+     *  its own image (mode 12 is not a batch sub-mode). A flush made only of
+     *  these is the atlas upload; the transport writes them in order and
+     *  completes on the last ack. Never mixed with the other ops. */
+    data class CacheWrite(val payload: ByteArray) : DisplayOp()
+
+    /** A mode-14 draw of cached glyphs at (x, y), FLAT — the firmware draws
+     *  the same pixels into both lenses (§40). [text] is the string bytes
+     *  `TextureCache.layout` produced; [options] the LUT top + flags. No fid. */
+    data class DrawText(val fontOffset: Int, val x: Int, val y: Int, val options: Int, val text: ByteArray) : DisplayOp()
+
+    /** A mode-13 draw of one cached image, flat, no fid (§40). */
+    data class DrawImage(val cacheOffset: Int, val x: Int, val y: Int, val options: Int) : DisplayOp()
 }
 
 /** kind: DELTA rides the pipeline; KEYFRAME also rebaselines fid discipline. */

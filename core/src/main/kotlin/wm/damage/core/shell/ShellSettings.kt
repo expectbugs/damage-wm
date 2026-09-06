@@ -59,6 +59,19 @@ data class ShellSettings(
     /** The §4.8 keyboard's layout (2026-09-01): "qwerty" (default) or "abc".
      *  Additive field — an older build ignores it. */
     val keyboardLayout: String = "qwerty",
+    /** Frames per notch for list and document slides (2026-09-06, `HANDOFF.md`
+     *  §37/§40 — Adam): one of [SLIDE_FRAMES]. "off" snaps in one copy and
+     *  one strip, a number is the ease-out resampled to at most that many
+     *  frames, "auto" (the default) is the halving rule with its 8 px floor
+     *  (list 3, doc 5). He tests the feel himself; the default stays. The
+     *  wheel keeps its own 4 / 2-on-a-slow-link rule (§6.3). Additive. */
+    val slideFrames: String = "auto",
+    /** Text through the firmware's texture cache (2026-09-06, `HANDOFF.md`
+     *  §40; Adam: adopt it as far as it goes): "off" (the default until it
+     *  has been seen on glass) or "on" — the session's fonts are uploaded
+     *  once per lease and every plane-0 string ships as a mode-14 draw
+     *  instead of its pixels. Additive. */
+    val cachedText: String = "off",
 
     /** Head tracking — default OFF (§7.1: "that would get old FAST"). */
     val headTracking: Boolean = false,
@@ -113,6 +126,13 @@ data class ShellSettings(
 
     fun appStyle(id: String): AppStyle = appStyles[id] ?: AppStyle()
 
+    /** [slideFrames] as `Slide.frames` wants it: null = auto, 1 = off, else N. */
+    fun slideFrameCount(): Int? = when (slideFrames) {
+        "auto" -> null
+        "off" -> 1
+        else -> slideFrames.toIntOrNull()
+    }
+
     fun withAppStyle(id: String, f: (AppStyle) -> AppStyle): ShellSettings =
         copy(appStyles = appStyles + (id to f(appStyle(id)).clamped()))
 
@@ -131,6 +151,8 @@ data class ShellSettings(
         appStyles = appStyles.mapValues { it.value.clamped() },
         silentClock = if (silentClock in SILENT_CLOCKS) silentClock else "large",
         keyboardLayout = if (keyboardLayout in KEYBOARDS) keyboardLayout else "qwerty",
+        slideFrames = if (slideFrames in SLIDE_FRAMES) slideFrames else "auto",
+        cachedText = if (cachedText in CACHED_TEXT) cachedText else "off",
     )
 
     companion object {
@@ -155,6 +177,10 @@ data class ShellSettings(
 
         /** Keyboard layouts (§4.8, 2026-09-01). */
         val KEYBOARDS = listOf("qwerty", "abc")
+        /** Slide frames per notch (§40, 2026-09-06): the Global row's order. */
+        val SLIDE_FRAMES = listOf("off", "2", "4", "auto", "8", "12")
+        /** The texture-cache switch (§40). */
+        val CACHED_TEXT = listOf("off", "on")
         fun fromJson(o: JsonObject?): ShellSettings =
             if (o == null) ShellSettings()
             else try {

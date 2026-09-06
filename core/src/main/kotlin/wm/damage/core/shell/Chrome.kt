@@ -61,11 +61,35 @@ class Chrome(
     private var painted: State? = null
     private var paintedLayout: Layout? = null
 
-    /** Paint every chrome cell whose content changed; return the damage rects. */
-    fun sync(g: Gray8, l: Layout, s: State): List<Rect> {
+    /** What the bars show right now (tests and status lines). */
+    val paintedState: State? get() = painted
+
+    /** The telemetry cells as last painted — kept across [invalidate]. */
+    private var paintedTelemetry: State? = null
+
+    /**
+     * Paint every chrome cell whose content changed; return the damage rects.
+     *
+     * 🔴 The TELEMETRY cells — the throughput readout, which changes after
+     * every ack, and the link bars/dBm — repaint only when [allowTelemetry]
+     * (`DESIGN.md` §8.3: live telemetry moves on a gesture's own flush or the
+     * idle tick). Any other sync keeps their last painted text, so a
+     * content-neutral repaint (a poll re-composing identical pixels, a shelf
+     * rescan, an invalidate) never ships the changed digits alone: 149 of
+     * the 320 flushes of the 2026-09-05 walk were exactly that, each a 70 ms
+     * floor and a window slot (`HANDOFF.md` §37.1, built in §40).
+     */
+    fun sync(g: Gray8, l: Layout, s0: State, allowTelemetry: Boolean = true): List<Rect> {
         val out = ArrayList<Rect>()
         val p = if (paintedLayout == l) painted else null
         paintedLayout = l
+        // the telemetry last painted survives invalidate(): a full repaint
+        // (an icon resolved, a layout change) redraws every cell with the
+        // readout it already shows, and the diff drops the identical pixels
+        val t = paintedTelemetry
+        val s = if (allowTelemetry || t == null) s0
+            else s0.copy(thru = t.thru, linkBars = t.linkBars, linkDbm = t.linkDbm)
+        paintedTelemetry = s
 
         if (p == null || p.windowName != s.windowName || p.windowIcon != s.windowIcon ||
             p.context != s.context

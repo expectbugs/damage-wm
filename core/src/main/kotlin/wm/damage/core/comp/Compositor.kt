@@ -242,10 +242,12 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     fun assembleFlush(rectBudget: Int): Assembled? {
         compressCache.clear()          // `composed` may have changed since the last assemble
         lastTruthNs = 0L; lastCompressNs = 0L; lastCompressN = 0
+        cachedRectsThisAssemble = 0
         try {
             return assembleFlushInner(rectBudget)
         } finally {
             compressCache.clear()      // the ops hold their own payloads; nothing else may
+            cachedText?.endFrame()     // §40: the records were this frame's; the next paints anew
         }
     }
 
@@ -410,6 +412,8 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             is DisplayOp.StereoPair -> { pendingDamage.add(widen(op.left)); pendingDamage.add(widen(op.right)) }
             is DisplayOp.Copy -> { pendingDamage.add(op.src); pendingDamage.add(op.dst) }
             is DisplayOp.Keyframe -> {}
+            // §40: a cached draw's pixels lie inside the clear delta before it
+            is DisplayOp.DrawText, is DisplayOp.DrawImage, is DisplayOp.CacheWrite -> {}
         }
         if (a.keyframe) needsKeyframe = true
         epoch++
@@ -630,20 +634,43 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         val groups = LinkedHashMap<Short, ArrayList<Rect>>()
         val dOf = HashMap<Short, Int>()
         for (p in deltas) { groups.getOrPut(p.owner) { ArrayList() }.add(p.rect); dOf[p.owner] = p.d }
-        // 1. within owners, proportionally. A piece is ONE plane and every one
-        //    of its rects lies inside piece.rect, so any union of them is safe.
-        //    The REMAINDER is not a rectangle: two gutter rects on either side
-        //    of a box merge into a full-width delta that carries the box's
-        //    pixels at d=0 (review 2026-09-03) — it gets the same predicate
-        //    step 2 and price() already use.
+        // 1. within owners, the globally cheapest merge first. A piece is ONE
+        //    plane and every one of its rects lies inside piece.rect, so any
+        //    union of them is safe. The REMAINDER is not a rectangle: two
+        //    gutter rects on either side of a box merge into a full-width
+        //    delta that carries the box's pixels at d=0 (review 2026-09-03)
+        //    — it gets the same predicate step 2 and price() already use.
+        //    🔴 Each owner used to get a PROPORTIONAL share of the target,
+        //    which starved a plane with few rects beside a plane with many:
+        //    the status bar's input echo in eleven glyph-sized pieces left
+        //    the content plane a share of ONE, and its scrollbar thumb was
+        //    unioned with a scroll strip at the far end of the band into the
+        //    whole band — 1,590 B for 24 B of change (`HANDOFF.md` §40, the
+        //    first document notch after a window opens). Picking the least
+        //    area growth across every owner's pairs merges the echo's pieces
+        //    long before it would ever pay that.
         var total = deltas.size
-        val out = ArrayList<Planned.Delta>()
-        for ((own, rects) in groups) {
-            val share = maxOf(1, (target.toLong() * rects.size / total).toInt())
-            val ok: (Rect) -> Boolean =
-                if (own == OWNER_REMAINDER) { u -> planes.none { it.rect.overlaps(u) } } else { _ -> true }
-            for (r in mergeToBudget(rects, share, ok)) out.add(Planned.Delta(r, dOf.getValue(own), own))
+        val okOf: (Short) -> (Rect) -> Boolean = { own ->
+            if (own == OWNER_REMAINDER) { u -> planes.none { it.rect.overlaps(u) } } else { _ -> true }
         }
+        while (total > target) {
+            var bo: Short = 0; var bi = -1; var bj = -1; var best = Long.MAX_VALUE
+            for ((own, rects) in groups) {
+                val ok = okOf(own)
+                for (i in rects.indices) for (j in i + 1 until rects.size) {
+                    val u = rects[i].union(rects[j])
+                    val grow = u.area.toLong() - rects[i].area - rects[j].area
+                    if (grow < best && ok(u)) { best = grow; bo = own; bi = i; bj = j }
+                }
+            }
+            if (bi < 0) break                    // nothing left that may merge within an owner
+            val rects = groups.getValue(bo)
+            val u = rects[bi].union(rects[bj])
+            rects.removeAt(bj); rects.removeAt(bi); rects.add(u)
+            total--
+        }
+        val out = ArrayList<Planned.Delta>()
+        for ((own, rects) in groups) for (r in rects) out.add(Planned.Delta(r, dOf.getValue(own), own))
         if (out.size <= target) return price(out)
         // 2. across owners of one disparity — only where the union holds no
         //    other plane's pixels
@@ -841,10 +868,89 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         is DisplayOp.Delta -> op.payload.size
         is DisplayOp.StereoPair -> op.payload.size
         is DisplayOp.Copy -> 35
+        is DisplayOp.DrawText -> 9 + op.text.size
+        is DisplayOp.DrawImage -> 8
+        is DisplayOp.CacheWrite -> op.payload.size
     }
+
+    /** The recording rasterizer whose frame the next assemble may ship as
+     *  cached draws (§40); null = every rect is pixels. Set by the shell
+     *  once the atlas is on the glasses, cleared when it is not. */
+    @Volatile var cachedText: CachedText? = null
+
+    /**
+     * §40: ship [rect] as ONE clear plus mode-14 draws when the frame's
+     * recorded draws reproduce its pixels exactly. The rect grows to the
+     * glyph boxes of every draw it touches (a draw cannot be clipped to a
+     * rect; sending the whole box is sending the truth), must sit entirely
+     * on plane 0 (cached draws are flat), and its composed pixels must
+     * equal black plus those draws byte for byte — anything else, or a font
+     * the glasses no longer hold, and the caller ships pixels. Returns the
+     * fids spent (the clear's one), or null when the pixel path applies.
+     */
+    private fun emitCached(rect: Rect, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int? {
+        val src = cachedText ?: return null
+        val atlas = src.atlas ?: return null
+        val all = src.frameDraws()
+        if (all.isEmpty()) return null
+        var r = rect
+        var draws: List<TextDraw> = emptyList()
+        for (pass in 0 until 4) {
+            draws = all.filter { it.rect.overlaps(r) }
+            if (draws.isEmpty()) return null
+            var u = r
+            for (d in draws) u = u.union(d.rect)
+            u = u.alignOut()
+            if (u == r) break
+            r = u
+            if (pass == 3) return null              // still growing: leave it to pixels
+        }
+        if (draws.size > MAX_CACHED_DRAWS || r.w <= 0 || r.h <= 0) return null
+        if (splitByPlanes(r).any { !inRegion(it) || disparityAt(it) != 0 }) return null
+        // the ops, or nothing: a font the glasses do not hold (a lapse
+        // between the record and this assemble) makes the whole rect pixels
+        val textOps = ArrayList<DisplayOp.DrawText>(draws.size)
+        for (d in draws) {
+            if (d.spec !in src.live) return null
+            val e = atlas.entry(d.spec) ?: return null
+            val bytes = try { wm.damage.core.wire.TextureCache.layout(d.text, e.font) } catch (t: wm.damage.core.geom.LintError) { return null }
+            if (d.x < 0 || d.y < 0 || d.x >= width || d.y >= height) return null
+            textOps.add(DisplayOp.DrawText(e.font.tableOffset, d.x, d.y,
+                wm.damage.core.wire.CfwModes.options(top = wm.damage.core.gfx.Pack.level(d.level), transparent = true), bytes))
+        }
+        // the proof: black plus the draws, in their order, is what composed holds
+        val proof = Gray8(r.w, r.h)
+        for (d in draws) {
+            val e = atlas.entry(d.spec) ?: return null
+            CachedText.blit(proof, d.x - r.x, d.y - r.y, d.text, e, d.level)
+        }
+        for (y in 0 until r.h) {
+            val a = (r.y + y) * width + r.x
+            val b = y * r.w
+            for (x in 0 until r.w) if (composed.pix[a + x] != proof.pix[b + x]) return null
+        }
+        val clear = black(r.w, r.h)
+        val cost = clear.size + SUB_HEADER + textOps.sumOf { sizeOf(it) }
+        if (fidsLeft <= 0 || cost > bytesLeft) return null
+        // the shadows take the truth, as after any delta: the firmware's
+        // result IS these pixels, the simulator having been built to prove it
+        paintNominal(shadowL, r, 0)
+        paintNominal(shadowR, r, 0)
+        markKnown(unknownL, r); markKnown(unknownR, r)
+        touched.add(Touched(true, r)); touched.add(Touched(false, r))
+        ops.add(DisplayOp.Delta(r, clear, 0))
+        ops.addAll(textOps)
+        cachedRectsThisAssemble++
+        return 1
+    }
+
+    /** How many rects the last assemble shipped as cached draws (the journal). */
+    var cachedRectsThisAssemble = 0
+        private set
 
     private fun emitDelta(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int {
         if (fidsLeft <= 0) return 0
+        if (d == 0) emitCached(rect, ops, touched, fidsLeft, bytesLeft)?.let { return it }
         val payload = compress(rect)
         // the 16-bit length covers the sub-message HEADER too: 7 B for a plain
         // delta, 11 B for a stereo one (round 8)
@@ -1022,6 +1128,8 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         private const val SUB_HEADER = 15
         private const val COARSE_MAX = 24
         private const val PRICE_MAX = 8
+        /** §40: more draws than this in one rect is a whole surface — pixels. */
+        private const val MAX_CACHED_DRAWS = 24
         private const val COPY_HISTORY = 64
         private const val OWNER_REMAINDER: Short = -1
         private const val OWNER_SEAM: Short = -2

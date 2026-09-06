@@ -211,7 +211,7 @@ class ShellService : Service() {
         mirror = t.mirror
 
         // content scaling moved INTO the style transforms (Style.kt, 2026-08-31)
-        val text = AndroidText(this)
+        val text = wm.damage.core.comp.CachedText(AndroidText(this))   // §40: the texture-cache recorder
         val persistence = Persistence(dataDir.resolve("state.json"))
         // LOAD BEFORE ANY SYNC WRITER EXISTS (review 2026-09-01 F1): a sync
         // record applied to an unloaded store saves a map holding ONLY that

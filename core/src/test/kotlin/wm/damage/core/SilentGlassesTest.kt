@@ -98,7 +98,7 @@ class SilentGlassesTest {
         suspend fun until(what: String, cond: () -> Boolean) {
             val t0 = System.currentTimeMillis()
             while (!cond() && System.currentTimeMillis() - t0 < 10_000) delay(10)
-            assertTrue(cond(), "$what — keeper ${keeper.state} attempts ${keeper.attempts} '${keeper.lastReason}'; shell ${shell.quiescenceReport()}")
+            assertTrue(cond(), "$what — keeper ${keeper.state} attempts ${keeper.attempts} '${keeper.lastReason}'; shell ${shell.quiescenceReport()}; transport ${transport.state.value}; notes ${synchronized(notes) { notes.map { it.kind + ": " + it.detail } }}")
         }
 
         fun lens(left: Boolean): Gray8 {

@@ -19,7 +19,11 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import wm.damage.core.comp.CachedText
 import wm.damage.core.comp.CanvasShift
+import wm.damage.core.comp.GlyphAtlas
+import wm.damage.core.transport.DisplayOp
+import wm.damage.core.transport.LinkState
 import wm.damage.core.comp.Compositor
 import wm.damage.core.comp.Journal
 import wm.damage.core.geom.Geometry
@@ -447,6 +451,22 @@ class Shell(
     fun postGesture(type: Int, source: Int = EvenHubMsg.SRC_RING) =
         post(Msg.In(type, source))
 
+    /** The idle tick, on demand — tests of what may flush alone (§8.3). */
+    fun postIdleTick() = post(Msg.IdleTick)
+
+    /** Change the settings from outside the loop (hosts, tests): applied ON
+     *  the loop like a Settings row would, persisted and synced. */
+    fun updateSettings(f: (ShellSettings) -> ShellSettings) = post(Msg.Run { applySettings(f(settings)) })
+
+    /** Flushes this shell has submitted, counted ON the loop — a harness
+     *  that reads it after a settle sees every flush the settle covered
+     *  (a collector on the transport's events can lag the loop). */
+    @Volatile var flushesSubmitted = 0L
+        private set
+
+    /** The throughput readout as the bars show it (tests: §8.3's telemetry rule). */
+    val chromeThru: String? get() = chrome.paintedState?.thru
+
     /** start/stop are serialized (round 3, phone D1): a stop arriving while
      *  start is still choreographing the display would otherwise save state
      *  that was never loaded, and leave two drivers on one transport. */
@@ -640,8 +660,16 @@ class Shell(
                 try { current!!.onExclusive(true) } catch (e: Exception) { Log.e("shell", "onExclusive at restore", e) }
             }
             syncLayout()   // §2: a restored window brings its preferred height
+            // §40: a new session, a fresh atlas — the glasses hold nothing
+            // of the old one (the cache went with the lease). Reset BEFORE the
+            // first compose, so the fonts that compose draws are the ones
+            // packed first; uploaded AFTER the keyframe below, chunk by
+            // chunk, only while nothing else is pending, so the first paint
+            // and every gesture come first.
+            atlasReset()
             composeFullSurface()
             comp.requestKeyframe()
+            if (settings.cachedText == "on") post(Msg.Run { atlasEnable() })
             if (notifications.showNextIfIdle()) {
                 if (quiet) scheduleSilentDismiss() else scheduleGrace()
                 updatePlanes()   // the restored box enters the plane map now (round 3 S3)
@@ -1815,8 +1843,10 @@ class Shell(
                     setStatus("LEASE LOST")
                     services.notifyInternal("lease", "framebuffer lease lost — ${ev.detail}", urgent = true)
                     comp.requestKeyframe()
+                    atlasLapsed()                // §40: the cache went with the lease
                 } else if (statusText == "LEASE LOST") {
                     setStatus("ok")
+                    atlasLeaseBack()             // §40: the cache is allocatable again
                 }
                 chromeDirty = true
             }
@@ -1851,6 +1881,7 @@ class Shell(
     }
 
     private fun completeFlush(ev: TransportEvent.FlushDone) {
+        if (ev.id == atlasInFlight) { atlasDone(ev); return }
         val a = inflightFlushes.remove(ev.id)
         journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)
         if (!ev.ok) {
@@ -1916,6 +1947,168 @@ class Shell(
 
     private var keyframeFailStreak = 0
     private var refusalStreak = 0
+
+    // ------------------------------------------------------------ cached text (§40)
+    /** The recording rasterizer, when the host wrapped its own in one — the
+     *  texture-cache path exists only then (`CachedText`). */
+    private val cachedText: CachedText? = text as? CachedText
+    private var atlas: GlyphAtlas? = null
+    /** Mode-12 chunks waiting to go, oldest first; one flush in flight at a
+     *  time, and only when nothing else is pending — an upload yields to
+     *  content and to every gesture (`pumpAtlas`). */
+    private val atlasQueue = ArrayDeque<ByteArray>()
+    private var atlasInFlight: Long? = null
+    /** The fonts the chunks in flight and queued complete: live on the last ack. */
+    private var atlasPendingSpecs = LinkedHashSet<FontSpec>()
+    private var atlasSeenVersion = -1
+    private var atlasBytesSent = 0L
+    private var atlasFailed = false
+
+    /** Fonts on the glasses right now (tests, status). */
+    val cachedFontsLive: Set<FontSpec> get() = cachedText?.live ?: emptySet()
+    val cachedTextActive: Boolean get() = comp.cachedText != null
+
+    private fun atlasReset() {
+        val ct = cachedText ?: return
+        ct.target = comp.composed
+        ct.live = emptySet()
+        ct.atlas = null
+        ct.clearSeen()
+        ct.endFrame()
+        comp.cachedText = null
+        atlas = null
+        atlasQueue.clear()
+        atlasInFlight = null
+        atlasPendingSpecs.clear()
+        atlasSeenVersion = -1
+        atlasBytesSent = 0L
+        atlasFailed = false
+    }
+
+    private fun atlasEnable() {
+        val ct = cachedText
+        if (ct == null) {
+            journal.note("atlas", "cached text asked for, but this host's rasterizer is not a CachedText — pixels")
+            return
+        }
+        if (atlas == null) {
+            atlas = GlyphAtlas(ct.base)
+            ct.atlas = atlas
+        }
+        atlasGrow()
+    }
+
+    private fun atlasDisable(why: String) {
+        val ct = cachedText ?: return
+        comp.cachedText = null
+        ct.live = emptySet()
+        atlasQueue.clear()
+        atlasPendingSpecs.clear()
+        journal.note("atlas", "cached text off — $why")
+    }
+
+    /** The lease lapsed: the firmware freed the cache. Every font is pixels
+     *  again until the whole atlas has gone up once more — which waits for
+     *  the lease to be held again (a mode-12 write needs it; one refused
+     *  under a lapse would switch the feature off for the session). */
+    private fun atlasLapsed() {
+        val ct = cachedText ?: return
+        val a = atlas ?: return
+        comp.cachedText = null
+        ct.live = emptySet()
+        atlasQueue.clear()
+        atlasPendingSpecs.clear()
+        a.forgetUpload()
+        journal.note("atlas", "the lease lapsed — the cache is gone; ${a.used} B go up again once the lease is back")
+    }
+
+    /** The lease is held again after a lapse: the atlas goes up again. */
+    private fun atlasLeaseBack() {
+        val a = atlas ?: return
+        if (settings.cachedText == "on" && a.sentBytes <= wm.damage.core.wire.TextureCache.GUARD) atlasGrow()
+    }
+
+    /** Whether a draw at [r] lands on plane 0 under the current plane map —
+     *  the only place a cached draw can show (§40). */
+    private fun onPlaneZero(r: Rect): Boolean {
+        // later regions split earlier ones in the compositor's piece map, so
+        // the LAST region over the rect is the one it renders in — the lens
+        // band (plane 0) sits over the content plane in `updatePlanes`
+        val p = comp.planes.lastOrNull { it.rect.overlaps(r) } ?: return true   // the remainder is plane 0
+        return p.disparity == 0
+    }
+
+    /** Add every font seen since the last look — the ones drawn on plane 0
+     *  first, since only those can ship as draws and the cache is 64 KiB —
+     *  and queue the bytes they need. */
+    private fun atlasGrow() {
+        val ct = cachedText ?: return
+        val a = atlas ?: return
+        if (atlasFailed || settings.cachedText != "on") return
+        atlasSeenVersion = ct.seenVersion
+        var added = 0
+        val wanted = ct.seenSpecs().sortedBy { spec -> if (ct.lastRectOf(spec)?.let { onPlaneZero(it) } == true) 0 else 1 }
+        for (spec in wanted) {
+            if (a.has(spec) || a.isRefused(spec)) continue
+            if (a.add(spec)) { added++; atlasPendingSpecs.add(spec) }
+        }
+        // fonts packed but never sent (a lapse) are pending again too
+        for (spec in a.specs()) if (spec !in ct.live) atlasPendingSpecs.add(spec)
+        val chunks = a.takeUpload()
+        if (chunks.isEmpty()) return
+        atlasQueue.addAll(chunks)
+        journal.note("atlas", "$added font(s) packed, ${a.used} B in the atlas, ${chunks.size} chunk(s) queued")
+        post(Msg.Pump)
+    }
+
+    /** One chunk, when the link is otherwise idle. True when one was sent.
+     *  The submit happens ON the loop, like every other flush's, so its id
+     *  is known before its completion can possibly arrive. */
+    private suspend fun pumpAtlas(st: LinkState): Boolean {
+        val ct = cachedText ?: return false
+        if (settings.cachedText != "on" || atlasFailed || glassesSilent) return false
+        if (ct.seenVersion != atlasSeenVersion) atlasGrow()
+        if (atlasInFlight != null || atlasQueue.isEmpty()) return false
+        if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
+        val chunk = atlasQueue.removeFirst()
+        val id = try {
+            transport.submit(FlushRequest(listOf(DisplayOp.CacheWrite(chunk)), comp.epoch, "ATLAS"))
+        } catch (e: Exception) {
+            Log.e("shell", "atlas chunk submit failed", e)
+            atlasFailed = true
+            atlasDisable("a chunk could not be submitted: ${e.message}")
+            return false
+        }
+        atlasInFlight = id
+        atlasBytesSent += chunk.size
+        journal.note("atlas", "chunk of ${chunk.size} B submitted as flush $id (${atlasQueue.size} to go)")
+        return true
+    }
+
+    private fun atlasDone(ev: TransportEvent.FlushDone) {
+        atlasInFlight = null
+        journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)
+        val ct = cachedText ?: return
+        if (!ev.ok) {
+            atlasFailed = true
+            atlasDisable("the glasses refused a cache write: ${ev.error}")
+            setStatus("atlas refused")
+            return
+        }
+        if (atlasQueue.isEmpty()) {
+            // the last chunk of this batch: its fonts are on the glasses
+            ct.live = ct.live + atlasPendingSpecs
+            atlasPendingSpecs.clear()
+            comp.cachedText = ct
+            journal.note("atlas", "uploaded — ${ct.live.size} font(s) live, $atlasBytesSent B sent this session")
+            // the text already on the surface was drawn by the host's own
+            // rasterizer; repaint so the atlas's glyphs (which is what the
+            // glasses will draw from now on) are what belief holds
+            if (mode != Mode.SILENT) composeContent()
+            chrome.invalidate(); chromeDirty = true
+        }
+        post(Msg.Pump)
+    }
 
     // ------------------------------------------------------ silent glasses (§36, §37.0)
     /** The glasses are in the firmware's Silent Mode: they refuse every image
@@ -2310,6 +2503,17 @@ class Shell(
             HostSetting("Silent clock", { ShellSettings.SILENT_CLOCKS },
                 { settings.silentClock },
                 { v -> applySettings(settings.copy(silentClock = v)) }),
+            // §40 (2026-09-06, Adam): frames per notch for list and document
+            // slides — off · 2 · 4 · auto · 8 · 12, auto = today's halving rule
+            HostSetting("Slide frames", { ShellSettings.SLIDE_FRAMES },
+                { settings.slideFrames },
+                { v -> applySettings(settings.copy(slideFrames = v)) }),
+            // §40 (2026-09-06): text through the firmware's texture cache —
+            // off until it has been seen on glass; on = fonts uploaded once
+            // per lease, plane-0 strings as mode-14 draws
+            HostSetting("Cached text", { ShellSettings.CACHED_TEXT },
+                { settings.cachedText },
+                { v -> applySettings(settings.copy(cachedText = v)) }),
         )
     }
 
@@ -2358,8 +2562,10 @@ class Shell(
         // step pushes the sid-0x09 write, so the panel changes as you scroll
         val rebright = s.brightness != settings.brightness || s.brightnessAuto != settings.brightnessAuto
         val reclock = s.silentClock != settings.silentClock
+        val recache = s.cachedText != settings.cachedText
         settings = s
         if (rebright) transport.setBrightness(s.brightnessAuto, s.brightness)
+        if (recache) { if (s.cachedText == "on") atlasEnable() else atlasDisable("the setting is off") }
         // liveApplySync passes persist=false: the store already holds the
         // EXACT synced record; putting our clamped re-encoding would re-stamp
         // it and, across versions with different ladders, ping-pong restyles
@@ -2488,6 +2694,7 @@ class Shell(
      */
     private fun paintCanvasOf(v: WindowView.CanvasView) {
         val r = layout.content
+        applyCanvasFill()      // a split's second half still owed lands before this frame is read as "previous"
         val prev = canvasPrev?.takeIf { it.w == r.w && it.h == r.h }
             ?: Gray8(r.w, r.h).also { canvasPrev = it }
         prev.blit(comp.composed, r, 0, 0)
@@ -2495,19 +2702,54 @@ class Shell(
         comp.damage(r)
         // the floor is a block worth one copy op; below it the diff is cheaper
         // than the copy plus the repairs behind it
-        declareTranslation(prev, Rect(0, 0, r.w, r.h), r)
+        val exposed = declareTranslation(prev, Rect(0, 0, r.w, r.h), r) ?: return
+        if (exposed.w * exposed.h >= Slide.SPLIT_FILL_PX) {
+            // §40: copy first, fill second. The strip goes out BLANK with the
+            // translation (a uniform run, a few bytes — the glass moves ~70 ms
+            // after the notch) and its content one message on. A tmux history
+            // notch measured 352–645 ms to its first visible change as one
+            // 2.4–4.3 KB flush.
+            comp.composed.fillRect(exposed.x, exposed.y, exposed.w, exposed.h, Level.BG)
+            canvasFillOwed = true
+            post(Msg.Run { liftNotificationBox(); applyCanvasFill() })
+        }
+    }
+
+    /** A canvas strip sent blank by [paintCanvasOf] whose content is still
+     *  owed (§40). */
+    private var canvasFillOwed = false
+
+    /** Land the owed canvas content: the focused canvas repaints (its memo
+     *  makes an unchanged frame cheap) and the whole content is damaged —
+     *  the diff finds the strip, and anything else the window changed since,
+     *  so belief never runs ahead of the shadow. */
+    private fun applyCanvasFill() {
+        if (!canvasFillOwed) return
+        canvasFillOwed = false
+        if (mode != Mode.WINDOW) return                          // the surface moved on and painted itself
+        val cv = focusedView() as? WindowView.CanvasView ?: return
+        cv.paint(comp.composed, layout.content)
+        comp.damage(layout.content)
     }
 
     /**
      * Declare the translation between [prev] (read at [was]) and the freshly
-     * repainted `composed` (read at [now]), when this repaint was one.
+     * repainted `composed` (read at [now]), when this repaint was one, and
+     * return the strip it EXPOSED (§40), or null when the repaint was not a
+     * translation.
      *
      * The floor is a block worth one copy op — below it the diff is cheaper
      * than the copy plus the repairs behind it.
      */
-    private fun declareTranslation(prev: Gray8, was: Rect, now: Rect) {
-        CanvasShift.detect(prev, was, comp.composed, now, minRun = maxOf(32, now.h / 8))
-            ?.let { (src, dst) -> comp.declareShift(src, dst, movePending = false) }
+    private fun declareTranslation(prev: Gray8, was: Rect, now: Rect): Rect? {
+        val (src, dst) = CanvasShift.detect(prev, was, comp.composed, now, minRun = maxOf(32, now.h / 8))
+            ?: return null
+        comp.declareShift(src, dst, movePending = false)
+        // the strip the block does not cover — the larger one when it sits
+        // mid-region; the rest is diffed as before
+        val top = if (dst.y > now.y) Rect(now.x, now.y, now.w, dst.y - now.y) else null
+        val bottom = if (dst.bottom < now.bottom) Rect(now.x, dst.bottom, now.w, now.bottom - dst.bottom) else null
+        return listOfNotNull(top, bottom).maxByOrNull { it.h }
     }
 
     private fun updatePlanes() {
@@ -2610,8 +2852,23 @@ class Shell(
                 Slide(comp, bandBelow) { g, y0, h -> paintListSlice(g, y0, h, above = false) },
             )
         }
-        for (s in slides) s.retarget(delta * layout.rowH)
-        // optimistic lens repaint (§5.11): the model already moved
+        for (s in slides) { s.frames = settings.slideFrameCount(); s.retarget(delta * layout.rowH) }
+        // §40: the optimistic lens repaint (icon, bold title, detail — 3–6 KB
+        // measured, the heavy part of a notch) used to ride the FIRST flush
+        // with the first slide step, so nothing moved on the glass for
+        // 830–860 ms. It is posted one message on: the first flush is the two
+        // band copies and a half-row strip (< 500 B, ~70 ms), the lens
+        // follows with the second frame. The Run lands before any later
+        // gesture (it is queued ahead of them) and paints from the model as
+        // it is then, so a fast spin repaints the newest cursor.
+        post(Msg.Run { paintOptimisticLens() })
+    }
+
+    /** The lens band for the focused row of the focused list, plus the rail
+     *  (§5.11: the model already moved). */
+    private fun paintOptimisticLens() {
+        if (menu.open || keyboard.open || switcher.open) return   // an overlay took the surface; it painted itself
+        liftNotificationBox()
         val v = focusedView()
         if (v is WindowView.ListView) {
             comp.composed.fillRect(layout.lens, Level.BG)
@@ -2660,6 +2917,7 @@ class Shell(
         if (slides.size != 1 || slides[0].region != region) {
             slides = listOf(Slide(comp, region) { g, y0, h -> paintDocSlice(g, v, y0, h) })
         }
+        slides[0].frames = settings.slideFrameCount()
         slides[0].retarget(dyPx)
         val maxTop = maxOf(1, v.lineCount() - lines)
         kit.paintRail(comp.composed, layout, v.model.topLine.toDouble() / maxTop,
@@ -2711,7 +2969,13 @@ class Shell(
         // 1. slides move the content UNDER everything — lifting a floating
         //    notification box out of the band first (#A4; step 3 repaints it)
         if (slides.any { it.active }) liftNotificationBox()
-        for (s in slides) if (s.active) { s.step(comp.composed); animated = true }
+        for (s in slides) if (s.active) {
+            // §40: a strip the last frame left blank lands first, then the
+            // next translation — the split's second half rides this flush
+            s.fillDeferred(comp.composed)
+            if (s.offsetPx != 0) s.step(comp.composed)
+            animated = true
+        }
         slidesNs = System.nanoTime() - phaseT0; phaseT0 = System.nanoTime()
 
         // 2. switcher spin, painted OVER the slid content
@@ -2776,10 +3040,16 @@ class Shell(
 
         overlaysNs = System.nanoTime() - phaseT0; phaseT0 = System.nanoTime()
 
-        // 4. chrome rides along with content, or flushes alone on the idle tick
-        if (chromeDirty && !quiet && (comp.hasPending || animated || chromeIdleFlush)) {
-            // One rect per BAR, never one per cell (§2.4 rule 2)
-            val cells = chrome.sync(comp.composed, layout, chromeState())
+        // 4. chrome rides along with content, or flushes alone on the idle tick.
+        //    Telemetry (the throughput readout, the link cell) only on a
+        //    gesture's own flush, an animation frame or the idle tick — never
+        //    on a content-neutral repaint (§8.3, `HANDOFF.md` §40)
+        val allowTelemetry = pumpPriority || animated || chromeIdleFlush
+        if ((chromeDirty || allowTelemetry) && !quiet && (comp.hasPending || animated || chromeIdleFlush)) {
+            // One rect per BAR, never one per cell (§2.4 rule 2). A sync with
+            // nothing dirty paints only the cells that changed — the readout
+            // on the flush it may ride, a repeated gesture's included.
+            val cells = chrome.sync(comp.composed, layout, chromeState(), allowTelemetry)
             val top = cells.filter { it.y < layout.topDivider.bottom }
             val bottom = cells.filter { it.y >= layout.bottomDivider.y }
             if (top.isNotEmpty()) comp.damage(top.reduce(Rect::union))
@@ -2826,6 +3096,7 @@ class Shell(
                     val id = transport.submit(FlushRequest(assembled.ops, assembled.epoch, label,
                         wide = assembled.wide))
                     inflightFlushes[id] = assembled
+                    flushesSubmitted++
                     journal.flushSubmitted(id, assembled, label, st.transportName, Journal.Timing(
                         handleMs = handleMs, handlerMs = handlerNsThisMsg / 1_000_000, mirrorMs = mirrorNsThisMsg / 1_000_000,
                         assembleMs = assembleMs, truthMs = comp.lastTruthNs / 1_000_000,
@@ -2840,8 +3111,9 @@ class Shell(
                 }
             }
         } else if (!animated) {
-            // 6. nothing pending: the lowest-priority work — preview settle
-            settlePreview()
+            // 6. nothing pending: the lowest-priority work — the atlas's
+            //    next chunk (§40), then the preview settle
+            if (!pumpAtlas(st)) settlePreview()
         }
 
         // animations continue on the next completion or message; make sure one

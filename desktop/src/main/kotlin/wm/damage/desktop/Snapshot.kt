@@ -57,7 +57,7 @@ object Snapshot {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val sim = GlassFirmwareSim()
         val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
-        val text = AwtText()
+        val text = wm.damage.core.comp.CachedText(AwtText())
         val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), null, scope)
         snapShell = shell
         // theme icons for the eyeball scenes (2026-09-01): the REAL desktop

@@ -1,7 +1,7 @@
 # Where we are, and what to do next
 
 **This file is the entry point for a fresh session.** It says what is true now, what the next
-session does, and where the records are. History lives in `HANDOFF.md` (§1–§39); this file only
+session does, and where the records are. History lives in `HANDOFF.md` (§1–§40); this file only
 points at it. Read in this order: `CLAUDE.md` → this file → `HANDOFF.md` §37 (the plan) and §38
 (what the plan's first step became) → the sections it cites.
 
@@ -11,14 +11,15 @@ points at it. Read in this order: `CLAUDE.md` → this file → `HANDOFF.md` §3
   `EVENCFW/`, never the version). The **phone APK drives** — radio and shell — and the OpenRC
   `damage` service on beardos is the data host and standby (`HANDOFF.md` §19, `DAILY.md`).
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games.
-- **Builds:** APK **0.34 installed** and driving; **0.36 staged** (`~/.damage/damage-wm.apk`,
-  the setup page) with the rebuild-on-wake fix (§38) and the showdown sentence (§39); the
-  service runs the same core.
+- **Builds:** APK **0.34 installed** and driving; **0.37 staged** (`~/.damage/damage-wm.apk`,
+  the setup page) with the rebuild-on-wake fix (§38), the showdown sentence (§39) and the whole
+  latency build (§40: chrome telemetry, first-flush ordering, `Slide frames`, the watchdog,
+  `Cached text`); the service runs the same core.
   Until 2026-09-05 nothing newer than 0.16 had ever been on the glasses — every change since
   2026-09-01 arrived on glass this afternoon, and the walks below are the first measurements of
   it. Nothing in the tree is unverified against the battery; several things are still unverified
   **on glass** (the tables below).
-- **Battery at HEAD:** core **472** · desktop **11** · `--selfcheck` **189** (the truth oracle on
+- **Battery at HEAD:** core **484** · desktop **11** · `--selfcheck` **189** (the truth oracle on
   every settle; run ×3+ — it is a rate) · snapshots 49 · `--epub-check` 58/58 · `--music-check` ·
   `--games-check` · lint 21 rules / 0 · `:phone:assembleDebug`.
 
@@ -48,6 +49,13 @@ points at it. Read in this order: `CLAUDE.md` → this file → `HANDOFF.md` §3
 - **§39 The showdown sentence** (2026-09-06). Adam's hand 8 replayed from the seed: Bea's nines
   and fours took the main pot, his eights and fours the larger side pot, and the line named the
   top earner with the best hand. Fixed: the best hand leads, side-pot winners follow as a clause.
+- **§40 The latency plan, built against the simulator** (2026-09-06): chrome telemetry rides
+  only a gesture's flush or the idle tick; a notch's first flush is the translation (the lens one
+  message on; big strips blanked then filled); a planner defect that shipped a whole band for a
+  scrollbar thumb; `Slide frames` and `Cached text` Global rows; G2CC's response-gap watchdog
+  plus the prelude re-ask it needed. Cached draws are FLAT (firmware fact), so the cache serves
+  plane 0 — the lens, menus, notices, the switcher — and everything at Depth 0. **Nothing of it
+  is on glass yet; §40.7 is the walk.**
 
 ## 🔴 The next session: the latency plan — `HANDOFF.md` §37 has the detail and the order
 
@@ -78,12 +86,14 @@ and read the phone journal's `silent` / `restart` / `event` notes (§38.4 lists 
 including how long the blank stretch between the push OFF and the first accepted frame is). Until
 0.36 is installed the manual recovery stands: Target → SIM → glasses.
 
-The rest of the ordered work (§37.3): the chrome-only flush defect (149 of 320 flushes in a walk, a §8.3
-violation) → first-visible-change ordering for list and canvas notches → the slide-frames setting
-→ the texture cache on glass, then adopted → walk after each with `tools/glassdrive.py` and read
-`/journal` → then the remaining §33–§35 items (truth render, cold-start re-ask, the radio's slave
-latency, mode-9 for the wheel). And **write every new window to `WINDOWS.md` §6** (the latency
-standards) so this is never needed again.
+✅ **§37.3 items 1–4 and the watchdog are BUILT (§40, 2026-09-06), all against the simulator.**
+The next session is THE WALK (§40.7): install 0.37, walk with `tools/glassdrive.py`, read
+`/journal` — the chrome-only count, the first visible change per notch, `Slide frames` by feel,
+`Cached text` on (the `atlas` and `drawtext` journal lines, the look at 100 %/130 %), the
+watchdog silent, the §38 wake. Then: icons as cached images (mode 13, the lens's remaining pixel
+cost), the firmware-side ask for per-lens cached draws, and the remaining §33–§35 items (truth
+render, cold-start re-ask, the radio's slave latency, mode-9 for the wheel). And **write every
+new window to `WINDOWS.md` §6** (the latency standards) so this is never needed again.
 
 ## Measured numbers to price with (grade M unless said)
 
@@ -135,8 +145,8 @@ unmeasured (0.33 was installed but not walked — walk it first).
 | 9 | **WEA/CMAS visibility to a normal Android app** (Pixel 10a) | `DESIGN.md` §4.5's emergency promise rides on it |
 | 10 | **Connected RSSI** on glass | the status bar's link cell |
 | 15 | **Is the sid-0x01 prelude required** by the CFW before CREATE? (graded U) | and the 2 s re-ask: three eaten CREATEs per cold start ≈ 6 s (§34.3) |
-| 19 | **The texture cache on glass** — mode-12 atlas up, 13/14 draws, pixel-compare vs the sim | the gate on adopting cached glyphs (§37). ⚠ mode 14 adds one overlay rect per glyph; a failed 64 KiB allocation shows only as the sticky `ALLOC` flag |
-| 20 | **Atlas upload cost** at the measured rate; the cache survives a lease renewal, is freed on a lapse — and now on our own deliberate release while silent (§36) | prices the whole mode-14 trade |
+| 19 | **The texture cache on glass** — `Cached text: on` (§40): the atlas up in chunks, the lens as `drawtext` ops, belief vs glass through the mirror check, the look at 100 %/130 % | the gate on leaving the row on by default. ⚠ mode 14 adds one overlay rect per glyph; a failed 64 KiB allocation shows only as the sticky `ALLOC` flag |
+| 20 | **Atlas upload cost** on the phone path (the journal's `atlas` notes: bytes, chunks, wall; did a gesture wait behind a chunk?); the cache survives a lease renewal, is freed on a lapse and on our own release while silent (§36) — the shell re-uploads on the re-acquire | prices the whole mode-14 trade |
 | 21 | **Temple long-press accident rate** (gloves) | §1.2's bare-long-press no-op guards it |
 | 22 | **The rebuild-on-wake on glass** (0.36) — toggle the firmware's Silent Mode with the APK connected; read the `silent` / `restart` / `event` notes; the blank stretch from the push OFF to the first accepted frame; whether the exit events 5/7 arrive and when; do the temples respond while the shell is asleep (lease released)? The push and the READ's field 14 are already SEEN (22:04:02, 22:04:28) | §38.4 |
 | 23 | **The 2-frame wheel and the reserved slot** on a slow link — feel | §32 |
@@ -184,7 +194,7 @@ connection setup (it was in the captures all along — `research/linkparams.py`)
 
 ```
 sudo rc-service damage status                         # the data host / standby; restart = stageJar + rc-service damage restart
-./gradlew :core:test  ·  ./gradlew :desktop:test      # 472 · 11
+./gradlew :core:test  ·  ./gradlew :desktop:test      # 484 · 11
 desktop/build/install/desktop/bin/desktop --selfcheck # after ./gradlew :desktop:installDist; run it more than once
 python3 tools/lint.py                                 # 21 rules, exits 0
 python3 tools/glassdrive.py aphone TOKEN --pace 2.5 double wait:3 snap:/tmp/a.png …   # drive the glasses; snap before every tap

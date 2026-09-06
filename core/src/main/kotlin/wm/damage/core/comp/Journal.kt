@@ -56,6 +56,9 @@ class Journal(private val path: Path?) : AutoCloseable {
                 is DisplayOp.Copy -> """{"op":"copy","src":"${op.src}","dst":"${op.dst}","d":${op.disparity}}"""
                 is DisplayOp.StereoPair ->
                     """{"op":"stereopair","l":"${op.left}","r":"${op.right}","bytes":${op.payload.size}}"""
+                is DisplayOp.CacheWrite -> """{"op":"cachewrite","bytes":${op.payload.size}}"""
+                is DisplayOp.DrawText -> """{"op":"drawtext","x":${op.x},"y":${op.y},"chars":${op.text.size}}"""
+                is DisplayOp.DrawImage -> """{"op":"drawimage","x":${op.x},"y":${op.y}}"""
             }
         }
         val tm = timing

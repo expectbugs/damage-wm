@@ -96,7 +96,9 @@ private data class Ctl(
 
 @Serializable
 private data class WireOp(
-    val k: String,                       // "kf" | "d" | "c"
+    val k: String,                       // "kf" | "d" | "c" | "sp" | "cw" | "dt" | "di"
+    /** §40: a cache offset (the font table for "dt", the image for "di"). */
+    val off: Int = 0,
     val box: List<Int> = emptyList(),
     val src: List<Int> = emptyList(),
     val dst: List<Int> = emptyList(),
@@ -505,6 +507,13 @@ class RemoteTransportClient(
                 ops.add(WireOp("sp", src = op.left.wire(), dst = op.right.wire(), len = op.payload.size))
                 blobLen += op.payload.size
             }
+            // §40: the cached-text ops, additive kinds an older peer logs and ignores
+            is DisplayOp.CacheWrite -> { ops.add(WireOp("cw", len = op.payload.size)); blobLen += op.payload.size }
+            is DisplayOp.DrawText -> {
+                ops.add(WireOp("dt", box = listOf(op.x, op.y, 0, 0), disp = op.options, off = op.fontOffset, len = op.text.size))
+                blobLen += op.text.size
+            }
+            is DisplayOp.DrawImage -> ops.add(WireOp("di", box = listOf(op.x, op.y, 0, 0), disp = op.options, off = op.cacheOffset))
         }
         val blob = ByteArray(blobLen)
         var off = 0
@@ -513,6 +522,8 @@ class RemoteTransportClient(
                 is DisplayOp.Keyframe -> op.payload
                 is DisplayOp.Delta -> op.payload
                 is DisplayOp.StereoPair -> op.payload
+                is DisplayOp.CacheWrite -> op.payload
+                is DisplayOp.DrawText -> op.text
                 else -> null
             } ?: continue
             p.copyInto(blob, off)
@@ -842,6 +853,16 @@ class RemoteTransportServer(
                                         blob!!.copyOfRange(off, off + w.len)))
                                     off += w.len
                                 }
+                                "cw" -> {
+                                    ops.add(DisplayOp.CacheWrite(blob!!.copyOfRange(off, off + w.len)))
+                                    off += w.len
+                                }
+                                "dt" -> {
+                                    ops.add(DisplayOp.DrawText(w.off, w.box[0], w.box[1], w.disp,
+                                        blob!!.copyOfRange(off, off + w.len)))
+                                    off += w.len
+                                }
+                                "di" -> ops.add(DisplayOp.DrawImage(w.off, w.box[0], w.box[1], w.disp))
                                 else -> {
                                     // an unknown kind desynchronizes the payload
                                     // offsets — every later op would carry the

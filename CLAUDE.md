@@ -447,9 +447,14 @@ table). Everything below follows from those two numbers.
   small — a translation (mode 9, ~40 B) or a strip — and the heavy fill follows in a later flush.
   Measure "time to first visible change" per gesture with `tools/journal_report.py`; a list notch
   at 0.8 s is a defect, not a fact of the link.
-- **Text goes through the texture cache once it is adopted** (mode 14 for strings, mode 13 for
-  icons — the atlas is per lease). Until then, a row costs its pixels; keep rows lean and let the
-  compositor's diff find the change. Never repaint a whole list because one cell changed.
+- **Text goes through the texture cache when the Global `Cached text` row is on** (2026-09-06,
+  `HANDOFF.md` §40.6): every host's rasterizer is a `CachedText` recorder, the atlas is per lease,
+  and a plane-0 string ships as a mode-14 draw under a byte-exact proof — nothing for a window to
+  do. 🔴 **Cached draws are FLAT** (modes 13/14 ignore the lens bit, `zlib_glue.c`), so only plane
+  0 is served — the lens, menus, notices, the switcher, everything at Depth 0; depth planes stay
+  pixels until the firmware grows a per-lens variant. Icons (mode 13) are not cached yet. Either
+  way a row costs its pixels where it is not cached; keep rows lean and let the compositor's diff
+  find the change. Never repaint a whole list because one cell changed.
 - **Chrome never justifies its own flush** (`DESIGN.md` §8.3). Live telemetry (the throughput
   readout) moves only on a gesture's own flush or the idle tick — the 2026-09-05 walk found 149
   of 320 flushes were that readout alone.

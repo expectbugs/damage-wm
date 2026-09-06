@@ -3086,3 +3086,161 @@ first. Battery green; APK 0.36 staged.
 The record still holds no hand history, so a question like this is a reconstruction rather than
 a lookup; persisting the last hand's result (line + scores + shown cards) beside the table record
 would make it a ten-second check. Adam's call.
+
+## 40. The latency plan built — §37.3 items 1–4 and the watchdog, against the simulator (2026-09-06)
+
+Adam: *"the order is fine, the 70ms longer but start quicker is fine, watchdog thing is fine. go
+ahead and build it all up front, using the sim where needed. and we will do the tests and walk
+and such at the end."* And: *"make sure to double check your work carefully when done."* This is
+the record of what was built, what the building found, and what the walk has to measure.
+
+### 40.1 Item 1 — the chrome-only flush defect (§37.1)
+
+The pump's chrome gate let chrome sync whenever content had pending damage, and a content-neutral
+repaint (a poll re-composing identical pixels) counts as pending; the throughput cell changes
+after every ack, so it shipped alone. Now `Chrome.sync` takes `allowTelemetry`: the readout and
+the link cell repaint only on a gesture's own flush, an animation frame or the idle tick (`DESIGN.md`
+§8.3's rule, made true); on any other sync they keep their last painted text, and that text
+survives `invalidate()` so a full repaint redraws them unchanged and the diff drops the pixels.
+The sync also runs on every flush telemetry may ride, dirty or not (a repeated gesture with the
+same echo used to leave the chrome clean and the readout stale until the idle tick).
+`ChromeFlushTest`: four content-neutral repaints send nothing; the idle tick carries the readout
+alone, once; the gesture's flush carries it.
+
+### 40.2 Item 2 — time to first visible change
+
+- **List notch**: `startListSlide` no longer paints the lens in the gesture's message. The
+  optimistic lens repaint (icon, bold title, detail — 3–6 KB measured) is posted one message on
+  (`paintOptimisticLens`), so the first flush is the two band copies and a half-row strip and the
+  lens rides the second frame's flush. The Run lands before any later gesture and paints from the
+  model as it is then, so a fast spin repaints the newest cursor. Overlays that took the surface
+  meanwhile skip it; the notification box is lifted first.
+- **Document and canvas notches — copy first, fill second.** `Slide.step` blanks a strip worth a
+  flush of its own (`SPLIT_FILL_PX` = 12,000 px, ~1 KB of text on the measured curve) and damages
+  the blank — a uniform run, a dozen bytes — so the flush is the translation; the strip's content
+  lands on the next pump (`fillDeferred`, at the band's CURRENT displacement so a retarget in
+  between is right too; `step` calls it itself so a caller that never does still gets the right
+  pixels). The canvas path (`paintCanvasOf`) does the same with the strip the detector's
+  translation exposed: blanked with the translation, repainted by the focused canvas one message on
+  (`applyCanvasFill`, which damages the whole content so a frame the window changed meanwhile is
+  found too). A list row's first half-step (16 px) stays under the threshold, so lists are
+  unchanged there.
+- **Measured in the simulator** (`FirstFlushTest`, glyph-like text): list notch first flush < 500 B
+  with no delta touching the lens, the lens in the second; document notch first flush 55 B (copy,
+  echo, rail thumb, blank strip) then a 265 B fill; canvas notch the same shape. Belief equals
+  glass after every notch, spin and reverse.
+
+### 40.3 🔴 A planner defect the split uncovered — proportional shares starved a plane
+
+The first document notch after a window opens shipped **1,590 B for 24 B of change**: the
+partitioner gave each owner (plane) a share of the rect budget PROPORTIONAL to its rect count,
+and the status bar's input echo — eleven glyph-sized pieces on the chrome plane — left the
+content plane a share of ONE, so its scrollbar thumb (top right) and the blank strip (bottom)
+were forced into one union, the whole band. `Compositor.partition` now takes the globally
+cheapest within-owner merge first (least area growth across every owner's pairs, the same plane
+predicates): the echo's pieces merge long before that union would ever pay. Pre-existing, and a
+plausible part of why the measured list notch carried 6 KB where the lens is 1–2 KB; the walk will
+say. `FirstFlushTest` pins the first AND the second notch after an open.
+
+### 40.4 Item 3 — the `Slide frames` Global setting
+
+`ShellSettings.slideFrames`: `off · 2 · 4 · auto · 8 · 12`, `auto` (the default) = the halving
+rule with its 8 px floor; N = the same ease-out on the 2 px grid resampled to at most N steps, the
+last taking what is left (`Slide.frames`, reset per retarget); `off` = one copy and one strip (and,
+past the split threshold, that strip's fill one flush later). Measured sequences: 32 px auto
+`16, 8, 8`; off `32`; 2 `16, 16`; 4 `16, 8, 4, 4`; 100 px auto `50, 26, 12, 8, 4`; 12 → six on the
+grid. Persisted and synced like every setting. The Global row sits after `Silent clock`.
+
+### 40.5 Item 5 — the response-gap watchdog (G2CC's), and the prelude re-ask it needed
+
+`CfwTransportBase.watchdogTick` (the 1 s maintenance tick): every inbound packet on either arm
+stamps `lastInboundAtMs`; ten seconds without one, held for three ticks, sends a PROBE (the
+carrier text refresh, acked); ten ticks more without any packet, `restartSession` — G2CC's
+teardown-and-rebuild, rate-limited by construction (a new session starts a new count). Never while
+the glasses say they are silent (that sleep has its own wake) and never before a session is up.
+**The premise, measured:** a healthy session never goes quiet — the 4 s keepalive is acked (the
+phone journal holds 34 unacked-control notes over five and a half days against ~120,000
+keepalives sent; §34.3's count), image acks and the 60 s READ's response arrive on top.
+
+Building its test found a real gap: a session rebuilt into the same silence sent its connect
+prelude, lost the ack, and **parked forever** — the two gates below the prelude re-ask every 2 s,
+the prelude did not. It does now (`CAPABILITY_REASK_MS`, the same idiom). Grade: a repeated
+sid-0x01 launch on one link is what G2CC's `COLD_INIT` re-launches sent all day on stock, and the
+CFW leaves that path stock — C for the mechanism, the second launch's exact answer unobserved on
+2.2.6.10. `WatchdogTest`: a session whose every packet back is lost is probed then rebuilt once,
+and the second session drives when the glasses answer again; under Silent Mode the watchdog does
+nothing. The instant transport's quiet bound is 500 ms (a 40 ms bound restarted healthy sessions
+under the battery's load — the harness is part of the system under review, §30).
+
+### 40.6 Item 4 — the texture cache, adopted behind a setting (`Cached text: off · on`)
+
+**The firmware fact that shaped it** (`zlib_glue.c`, `texture_cache.c`): modes 13/14 ignore the
+batch's "lenses differ" bit and draw at one x into each lens's shadow — **a cached draw is always
+at disparity 0.** Content planes park at depth 8 and chrome at 12, so cached text applies where the
+plane is 0: the lens band (the heavy part of a list notch), menus, notifications, the switcher —
+and everything when the Depth setting is 0. A per-lens variant (two x's under the high bit, as
+mode 3 carries two boxes) is a firmware-side ask worth making; it would put list rows, tmux lines
+and chrome on the cache too.
+
+What was built (`core/comp/CachedText.kt`, `Compositor.emitCached`, the shell's atlas lifecycle):
+
+- **`GlyphAtlas`** renders every glyph 32..126 of a resolved font through the host's own
+  rasterizer into an advance-width box the face's ink height tall (mode 14 advances by image
+  width; bearings are blank columns inside the box), quantised to 4 bits, packed with a 96-entry
+  table by the existing `TextureCache.Builder` (tofu for what the face lacks); first come, first
+  served until the 64 KiB is full — the fonts seen on plane 0 are packed first.
+- **`CachedText`** wraps the platform rasterizer on every host (desktop, snapshot, selfcheck,
+  phone). A string in a font the glasses HOLD is blitted from the same glyph images the firmware
+  will draw from — source 0 skipped, every other level through the LUT `s × top / 15` (the
+  TRANSPARENT option; `cfw_texture_render` and `GlassFirmwareSim.renderCached` agree) — and
+  recorded as a `TextDraw` when it lands on the shell's surface; every other draw goes to the
+  host as before. `measure` follows the blit for cached fonts, so fits and wraps stay consistent.
+- **`Compositor.emitCached`**: for a dirty rect at disparity 0, grow it to the glyph boxes of the
+  frame's draws it touches, refuse anything off plane 0 or over 24 draws, re-render black plus
+  those draws and ship one clear delta (one fid, a dozen bytes) plus the mode-14 draws (no fid,
+  9 B + the characters each) ONLY when the re-render equals the composed pixels byte for byte —
+  otherwise pixels, as before. The shadows take the truth exactly as after any delta. Records
+  are per frame (`endFrame` at the end of every assemble).
+- **The upload** rides its own flushes: `DisplayOp.CacheWrite` (mode 12 is not a batch sub-mode;
+  the transport writes an all-CacheWrite flush as bare images, the seam carries it as `cw`), one
+  ≤ 3 KB chunk at a time, ON the loop, only when nothing else is pending and nothing is in flight
+  — after the session's keyframe, yielding to every gesture. The fonts go live on the batch's
+  last ack; the surface repaints once so belief holds the atlas's glyphs. A lease lapse forgets
+  the upload (the firmware freed the cache) and the re-acquire sends it again; a refused write
+  switches the feature off for the session, loudly. A new session starts a fresh atlas.
+- **Measured in the simulator** (`CachedTextTest`, glyph-like text): the lens flush of a notch
+  ships as mode-14 draws under 400 B, belief equal to glass across spins and reverses; text on a
+  grey box stays pixels (the proof refuses it) and stays exact; the atlas's boxes are advance-wide
+  and ink-tall and the blit lands LUT levels only; a cache write can never ride a batch.
+- **Not built: icons as cached images (mode 13).** The lens's window icon is the pixel cost that
+  remains in a lens repaint (~0.5–1 KB); the same recorder shape applies (`Icons`/theme bitmaps
+  recorded as image draws, the proof extended). The next texture-cache step.
+- **What cached text changes visibly:** integer advances with no pair kerning, and a level's ramp
+  is the LUT's integer one. Belief and glass agree by construction; whether the eye does is the
+  on-glass check, which is why the row is OFF by default.
+
+### 40.7 What the walk has to measure (with 0.37 installed)
+
+1. `Cached text` off (the default): a Main/Torrents notch's first visible change (~150 ms modeled
+   from the measured table, was 830–860) and total; a Reader and a tmux notch (the blank strip
+   first — is the trailing blank edge acceptable to the eye?); chrome-only flush count over a walk
+   (was 149 of 320). `tools/journal_report.py` over `/journal`.
+2. `Cached text` on: the `atlas` notes (fonts packed, bytes, chunks, the upload's wall time and
+   whether a gesture during it waited), then the lens flushes as `drawtext` ops in the journal and
+   their bytes; the look of cached text at 100 % and 130 %; the plane-0 surfaces (menus, notices,
+   the switcher). With Depth 0, everything.
+3. `Slide frames` at each value — Adam's feel test.
+4. The watchdog: it should never fire on a healthy day; the journal's `watchdog` notes say if it
+   did, and why.
+5. The silent-mode wake from §38 (still unverified on glass), now with the atlas going up again in
+   the rebuilt session.
+
+### 40.8 Battery and builds
+
+Every step: `:core:test` 484 · `:desktop:test` 11 · `--selfcheck` ×3 · `--snapshot` ×2 · epub ·
+music · games · lint 0 · `:phone:assembleDebug`. New pins: `ChromeFlushTest`, `FirstFlushTest` ×5,
+`WatchdogTest` ×2, `CachedTextTest` ×4. APK 0.37 staged; the service on the same core. Two
+review passes over the whole diff before the battery (Adam's ask) found and fixed three defects in
+the atlas lifecycle: the reset ran after the first compose and dropped the fonts it had just seen;
+a lease lapse re-queued chunks before the lease was back; the plane lookup took the outermost
+region instead of the innermost, sorting the lens's fonts last.

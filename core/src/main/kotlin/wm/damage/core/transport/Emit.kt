@@ -84,6 +84,12 @@ object Emit {
                     if (errs.isNotEmpty()) throw LintError(errs.joinToString("; "))
                     subs += CfwModes.deltaStereo(op.left, op.right, op.payload, fid)
                 }
+                // §40: cached draws ride the batch free of fids (only mode 3
+                // burns one); the cache WRITE is not a sub-mode at all
+                is DisplayOp.DrawText -> subs += CfwModes.drawCachedText(op.fontOffset, op.x, op.y, op.options, op.text)
+                is DisplayOp.DrawImage -> subs += CfwModes.drawImage(op.cacheOffset, op.x, op.y, op.options)
+                is DisplayOp.CacheWrite -> throw LintError(
+                    "a mode-12 cache write cannot ride a batch — the transport sends an all-CacheWrite flush as bare images")
             }
         }
 

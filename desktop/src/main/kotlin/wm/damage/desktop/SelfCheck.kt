@@ -223,7 +223,7 @@ object SelfCheck {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val sim = GlassFirmwareSim()
         val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
-        val text = AwtText()
+        val text = wm.damage.core.comp.CachedText(AwtText())
         val persistence = Persistence(tmp.resolve("state.json"))
         val shell = Shell(text, transport, persistence, tmp.resolve("journal.jsonl"), scope)
         val reader = ReaderWindow(text, LocalContent(books), scope, AwtImages())

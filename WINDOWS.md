@@ -365,9 +365,11 @@ change per gesture**, not on bytes per screen.
    exposed strip. Heavy repaints — a lens row with an icon and two lines, a whole pane — go in a
    LATER flush, never the first. If a window cannot express a change as translation + strip, say
    why in its record.
-2. **Text and icons through the texture cache** once adopted (mode 14 / mode 13): draw with the
-   kit's helpers and never with private glyph paths, so the switch to cached draws is the kit's
-   change, not the window's.
+2. **Text and icons through the texture cache** (adopted 2026-09-06, `HANDOFF.md` §40.6, behind
+   the Global `Cached text` row): draw text through the rasterizer the host handed you — it is the
+   recorder — and never through a private glyph path; a plane-0 string then ships as a mode-14
+   draw with nothing for the window to do. Depth planes stay pixels (cached draws are flat); icons
+   are not cached yet.
 3. **Update what changed.** A pushed frame, a poll result, a progress tick repaints the rows or
    cells that changed; the compositor's diff sends only the difference, but the window's own CPU
    is paid for every row it repaints on the phone. Memoise per line / per row (`FlowRender`).

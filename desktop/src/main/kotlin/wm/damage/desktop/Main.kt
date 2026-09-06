@@ -370,7 +370,7 @@ class DesktopStack(
     private val cfg: Config,
     val mode: String,
     private val remoteHost: String?,
-    private val text: AwtText,
+    private val text: wm.damage.core.text.TextRasterizer,
     private val onStatus: (String) -> Unit,
     private val onSwitch: (String) -> Unit,
     /** The process-wide tmux provider (outlives stack rebuilds; also serves
@@ -489,7 +489,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     fun stack() = stackRef.get()
     // content scaling moved INTO the style transforms (Style.kt, 2026-08-31)
     // — the adapter must not scale a second time
-    val text = AwtText()
+    val text = wm.damage.core.comp.CachedText(AwtText())   // §40: every draw passes through the recorder
     val keeperStatus = java.util.concurrent.atomic.AtomicReference("starting")
     val switchNote = java.util.concurrent.atomic.AtomicReference("")
     val standbyNote = java.util.concurrent.atomic.AtomicReference("standby: probing the phone")

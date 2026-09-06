@@ -311,8 +311,13 @@ abstract class CfwTransportBase(
 
     protected open fun nowMs(): Long = System.currentTimeMillis()
 
+    /** When the glasses last said anything at all (any packet, either arm)
+     *  — the watchdog's liveness signal (§40). */
+    @Volatile private var lastInboundAtMs = 0L
+
     /** Subclasses feed every notification packet here. Thread-safe. */
     protected fun onNotifyPacket(arm: Arm, packet: ByteArray) {
+        lastInboundAtMs = nowMs()
         val frame = synchronized(reassemblers) { reassemblers.getValue(arm).offer(packet) } ?: return
         when (frame.sid) {
             EvenHubMsg.SID -> when (frame.flag) {
@@ -586,6 +591,9 @@ abstract class CfwTransportBase(
         preludeChannel.tryReceive()
         preludeMsgId = -1
         lastImageAtMs = nowMs()        // the keepalive counts from THIS session
+        lastInboundAtMs = nowMs()      // and so does the watchdog's quiet
+        quietTicks = 0
+        watchdogProbed = false
         leaseRequested = false
         startInProgress = true
         try {
@@ -616,9 +624,30 @@ abstract class CfwTransportBase(
             val pre = try {
                 val writeFailed = CompletableDeferred<String>()
                 controlQueue.trySend(CtlWork.Launch(epoch, writeFailed))
-                kotlinx.coroutines.selects.select<String> {
-                    preludeChannel.onReceive { it }
-                    writeFailed.onAwait { reason -> SWEPT + "prelude not written: $reason" }
+                // The same re-ask the two gates below run (§40, 2026-09-06):
+                // a prelude whose ack is lost — a pair that has gone quiet, a
+                // session rebuilt by the watchdog into the same silence —
+                // used to park this start for good, because nothing below it
+                // ever ran. The request is repeated on the pacing tick until
+                // the ack, the sweep or a failed write ends the wait; a
+                // repeated launch request is what G2CC's cold-launch retries
+                // sent all day (its `COLD_INIT` re-launch), graded C on the
+                // CFW — the answer to a second one is a second ack.
+                val reask = scope.launch {
+                    while (true) {
+                        delay(CAPABILITY_REASK_MS)
+                        if (!awaitingPrelude) break
+                        Log.i(name, "connect prelude unacked after ${CAPABILITY_REASK_MS} ms — sending again")
+                        controlQueue.trySend(CtlWork.Launch(epoch, CompletableDeferred()))
+                    }
+                }
+                try {
+                    kotlinx.coroutines.selects.select<String> {
+                        preludeChannel.onReceive { it }
+                        writeFailed.onAwait { reason -> SWEPT + "prelude not written: $reason" }
+                    }
+                } finally {
+                    reask.cancel()
                 }
             } finally {
                 awaitingPrelude = false
@@ -825,6 +854,7 @@ abstract class CfwTransportBase(
         scope.launch {
             while (isActive) {
                 delay(if (instant) 20 else 1_000)
+                watchdogTick()
                 if (teeMirror) {
                     val now = nowMs()
                     mirrorSim.tick(now)
@@ -839,6 +869,59 @@ abstract class CfwTransportBase(
                 }
                 if (running) onMaintenanceTick()
             }
+        }
+    }
+
+    // ------------------------------------------------------------------ watchdog (§40)
+    private var quietTicks = 0
+    private var watchdogProbed = false
+
+    /**
+     * G2CC's response-gap watchdog, in this transport's terms (Adam,
+     * 2026-09-06: *"the watchdog thing is fine"* — `HANDOFF.md` §38.5, §40).
+     * The glasses answer something every few seconds while a session is up
+     * — the 4 s keepalive's ack at the least, image acks while painting, the
+     * 60 s READ's response — so a run of [WATCHDOG_QUIET_TICKS] ticks with
+     * NO inbound packet on either arm is a session that has stopped
+     * answering with its link still up: G2CC saw exactly that (its EvenHub
+     * slot ended in silence, 2026-07-21) and recovered every time by
+     * rebuilding the session. Its shape is kept: a cheap acked PROBE write
+     * first (the carrier text refresh — an ack proves the page is alive when
+     * a keepalive ack alone would not), and the restart only when the probe
+     * is not answered either, [WATCHDOG_PROBE_TICKS] later. Ticks, not
+     * elapsed time, so the instant test transport runs the same rule.
+     *
+     * Never while the glasses say they are silent (`glassesSilent`): the
+     * sleeping shell has its own wake, and a rebuild under Silent Mode makes
+     * a page the firmware ends again. Never before a session is up. Each new
+     * session starts its own count, so a pair that stays quiet is asked once
+     * per session — the keeper's pacing, not a loop of its own.
+     */
+    private suspend fun watchdogTick() {
+        if (!running || !_state.value.started || _state.value.glassesSilent) {
+            quietTicks = 0; watchdogProbed = false
+            return
+        }
+        val quietMs = nowMs() - lastInboundAtMs
+        // the instant transport's keepalive runs every 50 ms: its quiet bound
+        // is ten of those, well past a loaded test JVM's scheduling jitter (a
+        // 40 ms bound restarted healthy sessions under the whole battery)
+        if (quietMs < (if (instant) 500L else WATCHDOG_QUIET_MS)) {
+            quietTicks = 0; watchdogProbed = false
+            return
+        }
+        quietTicks++
+        if (!watchdogProbed && quietTicks >= WATCHDOG_QUIET_TICKS) {
+            watchdogProbed = true
+            Log.w(name, "no packet from the glasses for ${quietMs / 1000} s — probing the page with a carrier refresh")
+            emitNote("watchdog", "no response for ${quietMs / 1000} s — probe sent")
+            controlQueue.trySend(CtlWork.Hub(sessionEpoch.get(), EvenHubMsg.carrierTextUpgrade(0), null))
+            return
+        }
+        if (watchdogProbed && quietTicks >= WATCHDOG_QUIET_TICKS + WATCHDOG_PROBE_TICKS) {
+            quietTicks = 0; watchdogProbed = false
+            emitNote("watchdog", "no response for ${quietMs / 1000} s, probe unanswered — rebuilding the session")
+            restartSession("no response from the glasses for ${quietMs / 1000} s (watchdog)")
         }
     }
 
@@ -1039,6 +1122,25 @@ abstract class CfwTransportBase(
 
     private suspend fun laneFlush(work: ImgWork.Flush) {
         val t0 = nowMs()
+        if (work.request.ops.isNotEmpty() && work.request.ops.all { it is DisplayOp.CacheWrite }) {
+            // §40: the texture atlas — each mode-12 message is its own image
+            // (no fid, no batch); the flush completes on the LAST one's ack,
+            // and a refusal anywhere fails the flush loudly like any other
+            try {
+                var final: PendingAck? = null
+                var bytes = 0
+                for (op in work.request.ops) {
+                    final = writeImage((op as DisplayOp.CacheWrite).payload, work.epoch)
+                    bytes += op.payload.size
+                }
+                completeAsync(final, work.id, bytes, t0, done = null)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _events.emit(TransportEvent.FlushDone(work.id, false, nowMs() - t0, 0, e.message ?: e.toString()))
+            }
+            return
+        }
         // state to hand back if the WRITE fails after the encode consumed fids
         // (round 5 F3): the glasses never saw them
         var firstFid = fids.peek()
@@ -1454,5 +1556,16 @@ abstract class CfwTransportBase(
         private const val STALL_REPORT_MS = 10_000L
         /** How long a released msgId is remembered so its late ack is named. */
         private const val RELEASED_MEMORY_MS = 60_000L
+
+        /** The watchdog (§40): inbound silence longer than this on a tick
+         *  counts; [WATCHDOG_QUIET_TICKS] such ticks send the probe, and
+         *  [WATCHDOG_PROBE_TICKS] more without an answer rebuild the session.
+         *  A healthy session never passes ~5 s (the 4 s keepalive is acked —
+         *  §34.3's count of never-acked control messages says so). ~12 s of
+         *  silence to the probe, ~22 s to the rebuild; G2CC's were ~9 s and
+         *  ~10 s more. */
+        private const val WATCHDOG_QUIET_MS = 10_000L
+        private const val WATCHDOG_QUIET_TICKS = 3
+        private const val WATCHDOG_PROBE_TICKS = 10
     }
 }

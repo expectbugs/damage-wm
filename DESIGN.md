@@ -789,7 +789,8 @@ choice overrides the global for that app only. Reader's Size row is the first in
 | **Silent clock** | large (the 144×48 seven-segment box, default) / medium / small — §1.5 |
 | **Head tracking** | default OFF (§7.1) |
 | **Long-press** | **off** (default — §1.2 revised 2026-08-30: a bare long-press is a no-op; the §1.3 chord opens the switcher) / switcher |
-| **Slide frames** | 🆕 **planned (2026-09-05, `HANDOFF.md` §37; Adam):** `off · 2 · 4 · auto · 8 · 12` frames per notch for list and document slides — **`auto` (the default) is today's ease-out halving rule** (list 3, doc 5); `off` snaps in one flush. He tests the feel at every value on the phone path himself. The wheel keeps its own 4 / 2-on-a-slow-link rule (§6.3) |
+| **Slide frames** | 🆕 **built (2026-09-06, `HANDOFF.md` §40; Adam's ruling of 2026-09-05):** `off · 2 · 4 · auto · 8 · 12` frames per notch for list and document slides — **`auto` (the default) is the ease-out halving rule** (list 3, doc 5); N resamples the ease-out to at most N steps on the 2 px grid; `off` is one copy and one strip. He tests the feel at every value on the phone path himself. The wheel keeps its own 4 / 2-on-a-slow-link rule (§6.3) |
+| **Cached text** | 🆕 **built (2026-09-06, §40): `off · on`, OFF until seen on glass.** On: the session's fonts are rendered by the host, packed into the firmware's 64 KiB texture cache (mode 12, in idle chunks after the keyframe) and every plane-0 string ships as a mode-14 draw instead of its pixels — the lens band, menus, notices, the switcher; everything at Depth 0. Cached draws are flat (the firmware draws one x into both lenses), which is why depth planes stay pixels. Integer advances, no pair kerning |
 | **Notification sources** | only `Notify · Damage` here — **each app's toggles live in that app's own category** (Adam, 2026-09-01; §4.5) |
 | **Keyboard** | qwerty / abc — the §4.8 keyboard's layout |
 | **Battery alert** | off / on / escalating — the ≤ 20 % pulse (§4.1) |
@@ -1864,10 +1865,10 @@ That constraint produces a coherent physical language rather than a grab-bag:
   response to new input. 🆕 **Mechanised 2026-09-05 (`HANDOFF.md` §32):** one of the three
   in-flight slots is reserved for the pump that follows a ring event; animation frames, pushes
   and the visualizer run at most two deep.
-- 🆕 **Frames per notch are a Global setting (2026-09-05, §37; Adam).** `Slide frames: off · 2 · 4
-  · auto · 8 · 12`, `auto` = the halving rule below and the DEFAULT. The setting resamples the
-  ease-out sequence to that many steps (each still a multiple of 2 px); `off` is one flush. Not
-  built yet — the next session's third item.
+- 🆕 **Frames per notch are a Global setting (2026-09-05, §37; Adam — built 2026-09-06, §40.4).**
+  `Slide frames: off · 2 · 4 · auto · 8 · 12`, `auto` = the halving rule below and the DEFAULT.
+  The setting resamples the ease-out sequence to at most that many steps (each still a multiple
+  of 2 px, the last taking what is left); `off` is one copy and one strip.
 - 🆕 **A live window may keep the link busy while it is the active window (Adam, 2026-09-05).**
   Tmux frames, Music's card and visualizer, Torrents' polls: he is watching them. The rule is
   about cost per update (§8.6), not cadence — and a parked window holds no loop (§4.6).
@@ -1998,8 +1999,9 @@ Default idle tick **5 s**. A live 1 Hz telemetry mode is a debugging tool, not a
 🔴 **Measured broken on 2026-09-05 (`HANDOFF.md` §37.1):** the status bar's throughput readout
 changes after every ack, and any content-neutral repaint (a poll, a rescan, an invalidate) set the
 chrome dirty and shipped the changed digits as a flush of their own — **149 of a walk's 320 flushes
-were that cell alone**, each a 70 ms floor and a window slot. The rule stands; the fix (the
-readout repaints only on a gesture's own flush or the idle tick) is the next session's first item.
+were that cell alone**, each a 70 ms floor and a window slot. **Fixed 2026-09-06 (§40.1):** the
+telemetry cells (the readout, the link cell) repaint only on a gesture's own flush, an animation
+frame or the idle tick; on any other sync they keep their last text. `ChromeFlushTest` pins it.
 
 ### 8.4 Modeled costs
 
@@ -2033,8 +2035,11 @@ bytes plus one floor. On the phone path (~70 ms + ~120 ms/KB) the 0.32 walk meas
 The rule that follows: **the first flush carries the translation; the heavy fill follows.** A list
 notch's first flush should be the two band copies and the small strip (under 500 B, ~100 ms);
 the lens repaint (icon, bold title, detail line) goes in the second. And the fill itself gets
-cheap through the texture cache (§5 #18). Both are §37's work. Chrome-only flushes (§8.3) must
-not sit between a gesture and its first frame.
+cheap through the texture cache (§5 #18). Chrome-only flushes (§8.3) must not sit between a
+gesture and its first frame. **Built 2026-09-06 (§40.2):** the lens repaint is posted one message
+on; a strip worth a flush of its own (12,000 px, ~1 KB) is sent BLANK with the translation and
+filled on the next pump, for list and document slides and for a canvas whose repaint translated;
+`FirstFlushTest` measures the shapes in the simulator. On glass, unwalked.
 
 ### 8.5 Rendering optimizations
 
