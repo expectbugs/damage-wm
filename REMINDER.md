@@ -1,7 +1,7 @@
 # Where we are, and what to do next
 
 **This file is the entry point for a fresh session.** It says what is true now, what the next
-session does, and where the records are. History lives in `HANDOFF.md` (§1–§38); this file only
+session does, and where the records are. History lives in `HANDOFF.md` (§1–§39); this file only
 points at it. Read in this order: `CLAUDE.md` → this file → `HANDOFF.md` §37 (the plan) and §38
 (what the plan's first step became) → the sections it cites.
 
@@ -11,13 +11,14 @@ points at it. Read in this order: `CLAUDE.md` → this file → `HANDOFF.md` §3
   `EVENCFW/`, never the version). The **phone APK drives** — radio and shell — and the OpenRC
   `damage` service on beardos is the data host and standby (`HANDOFF.md` §19, `DAILY.md`).
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games.
-- **Builds:** APK **0.34 installed** and driving; **0.35 staged** (`~/.damage/damage-wm.apk`,
-  the setup page) with the rebuild-on-wake fix (§38); the service runs the same core.
+- **Builds:** APK **0.34 installed** and driving; **0.36 staged** (`~/.damage/damage-wm.apk`,
+  the setup page) with the rebuild-on-wake fix (§38) and the showdown sentence (§39); the
+  service runs the same core.
   Until 2026-09-05 nothing newer than 0.16 had ever been on the glasses — every change since
   2026-09-01 arrived on glass this afternoon, and the walks below are the first measurements of
   it. Nothing in the tree is unverified against the battery; several things are still unverified
   **on glass** (the tables below).
-- **Battery at HEAD:** core **471** · desktop **11** · `--selfcheck` **189** (the truth oracle on
+- **Battery at HEAD:** core **472** · desktop **11** · `--selfcheck` **189** (the truth oracle on
   every settle; run ×3+ — it is a rate) · snapshots 49 · `--epub-check` 58/58 · `--music-check` ·
   `--games-check` · lint 21 rules / 0 · `:phone:assembleDebug`.
 
@@ -42,8 +43,11 @@ points at it. Read in this order: `CLAUDE.md` → this file → `HANDOFF.md` §3
   after the push OFF was refused for four minutes. Now the wake ends the link on purpose
   (`Transport.restartSession`) and the keeper rebuilds the session — G2CC's reconnect-and-
   relayout path; the new start reads the glasses' state before its first frame; the probe
-  image is gone; the system events 4/5/7 are journaled. Battery green; **0.35 staged, not yet
-  on glass** — the on-glass check is the first thing to do (§38.4).
+  image is gone; the system events 4/5/7 are journaled. Battery green; **staged, not yet on
+  glass** — the on-glass check is the first thing to do (§38.4).
+- **§39 The showdown sentence** (2026-09-06). Adam's hand 8 replayed from the seed: Bea's nines
+  and fours took the main pot, his eights and fours the larger side pot, and the line named the
+  top earner with the best hand. Fixed: the best hand leads, side-pot winners follow as a clause.
 
 ## 🔴 The next session: the latency plan — `HANDOFF.md` §37 has the detail and the order
 
@@ -69,10 +73,10 @@ Adam's rulings (2026-09-05, evening) that bound it:
 rebuilds the session.** Every item of the settled design landed — `Transport.restartSession`,
 the probe retired, the sleeping shell's paced check, the system events journaled, the simulator's
 `carrierLost`, no mirror check while asleep, and the session start adopting the glasses' state.
-**Not yet seen on glass**: install 0.35, toggle the firmware's Silent Mode with the APK connected,
+**Not yet seen on glass**: install 0.36, toggle the firmware's Silent Mode with the APK connected,
 and read the phone journal's `silent` / `restart` / `event` notes (§38.4 lists what to look for,
 including how long the blank stretch between the push OFF and the first accepted frame is). Until
-0.35 is installed the manual recovery stands: Target → SIM → glasses.
+0.36 is installed the manual recovery stands: Target → SIM → glasses.
 
 The rest of the ordered work (§37.3): the chrome-only flush defect (149 of 320 flushes in a walk, a §8.3
 violation) → first-visible-change ordering for list and canvas notches → the slide-frames setting
@@ -134,7 +138,7 @@ unmeasured (0.33 was installed but not walked — walk it first).
 | 19 | **The texture cache on glass** — mode-12 atlas up, 13/14 draws, pixel-compare vs the sim | the gate on adopting cached glyphs (§37). ⚠ mode 14 adds one overlay rect per glyph; a failed 64 KiB allocation shows only as the sticky `ALLOC` flag |
 | 20 | **Atlas upload cost** at the measured rate; the cache survives a lease renewal, is freed on a lapse — and now on our own deliberate release while silent (§36) | prices the whole mode-14 trade |
 | 21 | **Temple long-press accident rate** (gloves) | §1.2's bare-long-press no-op guards it |
-| 22 | **The rebuild-on-wake on glass** (0.35) — toggle the firmware's Silent Mode with the APK connected; read the `silent` / `restart` / `event` notes; the blank stretch from the push OFF to the first accepted frame; whether the exit events 5/7 arrive and when; do the temples respond while the shell is asleep (lease released)? The push and the READ's field 14 are already SEEN (22:04:02, 22:04:28) | §38.4 |
+| 22 | **The rebuild-on-wake on glass** (0.36) — toggle the firmware's Silent Mode with the APK connected; read the `silent` / `restart` / `event` notes; the blank stretch from the push OFF to the first accepted frame; whether the exit events 5/7 arrive and when; do the temples respond while the shell is asleep (lease released)? The push and the READ's field 14 are already SEEN (22:04:02, 22:04:28) | §38.4 |
 | 23 | **The 2-frame wheel and the reserved slot** on a slow link — feel | §32 |
 | 24 | **Does the firmware enter Silent Mode by itself** (wear detection, idle)? | the journal will say |
 
@@ -180,7 +184,7 @@ connection setup (it was in the captures all along — `research/linkparams.py`)
 
 ```
 sudo rc-service damage status                         # the data host / standby; restart = stageJar + rc-service damage restart
-./gradlew :core:test  ·  ./gradlew :desktop:test      # 471 · 11
+./gradlew :core:test  ·  ./gradlew :desktop:test      # 472 · 11
 desktop/build/install/desktop/bin/desktop --selfcheck # after ./gradlew :desktop:installDist; run it more than once
 python3 tools/lint.py                                 # 21 rules, exits 0
 python3 tools/glassdrive.py aphone TOKEN --pace 2.5 double wait:3 snap:/tmp/a.png …   # drive the glasses; snap before every tap

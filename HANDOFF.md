@@ -3030,3 +3030,59 @@ precedent Adam calls robust. Whether to adopt it is his call: it would be the fi
 transport ends a session on elapsed time rather than on evidence from the glasses, and §34's
 lost-ack release already covers the commonest single-ack loss. If adopted, the `restart`
 machinery above is the whole action side; only the trigger is new.
+
+## 39. The showdown sentence named the top earner and described the best hand (2026-09-06)
+
+Adam, of his last hand on the Regular table: *"it said I won the hand with a pair of 9s and a
+pair of 4s. But my pocket was a pair of 8s, there was only one 9 on the board, and my opponent
+had a 9 in their pocket … Am I wrong, or did they fold or something? Or is that some kind of
+bug?"* He was right on every card, and it was a bug in the sentence, not in the money.
+
+### 39.1 The hand, replayed from the record (grade M)
+
+The table record persists only `(seed, handNo, stacks, button, log)` and the deck is
+`Deck.shuffled(Rng.hash(seed, handNo))`, so hand 8 (button on seat 3, dealt from the small
+blind round) reproduces exactly — a Python re-implementation of `Rng.mix`/`hash` and the
+Fisher–Yates in `Deck.shuffled`, against the synced `window.games.table` record on beardos:
+
+| seat | cards |
+|---|---|
+| You (3) | 8c 8s |
+| Bea L. (5) | 10c 9d |
+| board | 9s 7s 3h 4h 4s |
+
+Bea: nines and fours (kicker ten). Adam: eights and fours (kicker nine). Bea's hand is better.
+The hand's ACTIONS are not persisted (only the current hand's log is; hand 9 was under way), so
+the betting is inferred: Bea was all-in short, a third seat put in more than her all-in and
+folded (or showed worse), Bea took the main pot, Adam took the larger side pot. Bea sitting at 59
+chips, alive, fits that.
+
+### 39.2 The defect (grade M, from the code)
+
+`HoldemTable.resultLine` chose `best = s.won.entries.maxByOrNull { it.value }` — the seat that
+COLLECTED THE MOST — and described `bestScore = live.maxOf { scores }` — the best hand at the
+table. Those are one player only when there is one pot. With Bea's main pot smaller than Adam's
+side pot the glass read "You win $X with 9s and 4s": his money, her hand. `Pots.build`/`settle`
+(corpus-tested, §12/§13) paid each pot to its best eligible hand; `HandEval` orders the pairs
+high to low; the fold path carries no hand at all; nothing else fit. The only test on the line
+checked its grammatical person.
+
+### 39.3 The fix
+
+The best hand leads — its seat (or the tied seats), what it took, the hand — and every other
+paid seat follows as a side-pot clause in the right person: "Ann R. wins $90 with 9s and 4s ·
+You take the $140 side pot". One pot reads exactly as before. The side-pot winner's own hand is
+not spelled out: the cards are shown at the showdown and the status band is one `Draw.fit` line
+(`fStatusBig`, 17 px bold, ~550 px at 100 %) — the sentence stays under ~60 characters where the
+old worst case was ~48. **The width at 130 % is unverified on glass.**
+`HoldemEngineTest.theShowdownLineDescribesEachPaidSeatsOwnHand` scripts the exact shape (seat 0
+all-in for 30, You raise to 100, seat 2 calls then folds to a flop bet; main pot 90 to two
+seats, side pot 140 to You alone; the 20 flop bet returned uncalled) and searches the seeds
+for one deal where the short seat is best and one where You are — the old sentence fails the
+first. Battery green; APK 0.36 staged.
+
+### 39.4 Left as it is
+
+The record still holds no hand history, so a question like this is a reconstruction rather than
+a lookup; persisting the last hand's result (line + scores + shown cards) beside the table record
+would make it a ten-second check. Adam's call.

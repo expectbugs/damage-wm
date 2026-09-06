@@ -384,16 +384,39 @@ class HoldemTable private constructor(
             acted.toList(), result, history)
     }
 
+    /**
+     * The showdown sentence. The BEST hand leads — the seat (or the tied
+     * seats) whose hand it is, what it took, and the hand — and every other
+     * seat that was paid follows as a side-pot clause. A hand with one pot
+     * reads as before ("You win $412 with a straight").
+     *
+     * 🔴 It used to name the seat that collected the MOST chips and describe
+     * the best hand at the table, which are the same player only when there
+     * is one pot. On 2026-09-05 (hand 8 of Adam's Regular table, replayed
+     * from the seed — `HANDOFF.md` §39) Bea L. was all-in short with 9s and
+     * 4s and took the main pot, Adam's 8s and 4s took the larger side pot a
+     * folded third seat had fed, and the glass read "You win … with 9s and
+     * 4s": his money, her hand. The side-pot winner's own hand is not
+     * spelled out — the seats' cards are shown at the showdown, and the
+     * status band is one line under `Draw.fit`.
+     */
     private fun resultLine(s: Pots.Settlement, scores: Map<Int, Int>, live: List<Int>): String {
         if (live.size == 1) return says(live[0], "wins", "win") +
             " ${Money.fmt(s.won[live[0]] ?: 0)}"
-        val best = s.won.entries.maxByOrNull { it.value } ?: return "no winner"
-        val bestScore = live.maxOfOrNull { scores[it] ?: 0 } ?: 0
-        val tied = live.filter { (scores[it] ?: -1) == bestScore }
+        val paid = s.won.entries.filter { it.value > 0 }.sortedByDescending { it.value }
+        if (paid.isEmpty()) return "no winner"
+        val bestScore = live.maxOf { scores.getValue(it) }
+        val tied = live.filter { scores.getValue(it) == bestScore }
         val hand = HandEval.describe(bestScore)
-        return if (tied.size > 1)
-            "${tied.joinToString(" and ") { occupants[it].name }} split ${Money.fmt(s.total)} with $hand"
-        else says(best.key, "wins", "win") + " ${Money.fmt(best.value)} with $hand"
+        // the best hand is a contender of the main pot by construction (every
+        // live seat is in for at least the lowest level), so it was paid
+        val head = if (tied.size > 1)
+            "${tied.joinToString(" and ") { occupants[it].name }} split ${Money.fmt(tied.sumOf { s.won[it] ?: 0 })} with $hand"
+        else says(tied[0], "wins", "win") + " ${Money.fmt(s.won[tied[0]] ?: 0)} with $hand"
+        val sides = paid.filter { it.key !in tied }
+        return head + sides.joinToString("") { (seat, amount) ->
+            " · " + says(seat, "takes", "take") + " the ${Money.fmt(amount)} side pot"
+        }
     }
 
     /**

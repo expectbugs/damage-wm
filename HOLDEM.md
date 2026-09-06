@@ -1223,6 +1223,17 @@ BY NAME, and both harnesses pin the world seed the way `--games-check` always di
 - Verified and left alone: the action menu, the sizing ladder, the Custom keyboard and the buy-in
   confirm all read right live at 288/352/480 and at 100 % and 130 %.
 
+### 17.2g The showdown sentence with side pots (2026-09-06, `HANDOFF.md` §39)
+
+Adam's hand 8 on the Regular table, replayed from the seed: his 8c 8s, Bea L.'s 10c 9d, the
+board 9s 7s 3h 4h 4s. Bea took the main pot with nines and fours, Adam the larger side pot with
+eights and fours, and the glass read "You win … with 9s and 4s": `resultLine` named the seat
+that collected the most and described the best hand at the table. Now the best hand leads and
+every other paid seat follows as a side-pot clause ("Ann R. wins $90 with 9s and 4s · You take
+the $140 side pot"); one pot reads as before. Pinned by
+`HoldemEngineTest.theShowdownLineDescribesEachPaidSeatsOwnHand`. The sentence's width at 130 %
+is unverified on glass; a persisted last-hand result is proposed, not built.
+
 ### 17.3 The battery, after the build
 
 *(the numbers below are the Games build's own; the battery at HEAD is `REMINDER.md`)*

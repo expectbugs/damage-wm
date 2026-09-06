@@ -2,6 +2,7 @@ package wm.damage.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -10,6 +11,7 @@ import wm.damage.core.windows.games.holdem.HoldemRules
 import wm.damage.core.windows.games.holdem.HoldemTable
 import wm.damage.core.windows.games.holdem.Street
 import wm.damage.core.windows.games.kit.ActionLevel
+import wm.damage.core.windows.games.kit.HandEval
 import wm.damage.core.windows.games.kit.Rng
 import wm.damage.core.windows.games.kit.Seats
 
@@ -104,6 +106,62 @@ class HoldemEngineTest {
         assertFailsWith<IllegalStateException> { t.act(ActionLevel.Kind.RAISE, 9) }
         t.act(ActionLevel.Kind.RAISE, 20)                       // increment 14
         assertEquals(34, t.minRaiseTo())
+    }
+
+    /**
+     * `HANDOFF.md` §39 (2026-09-05, Adam's hand 8): with a side pot the
+     * showdown sentence must describe each paid seat's OWN result. It used to
+     * name the top earner and describe the best hand at the table — "You win
+     * $140 with 9s and 4s" when the nines were the short all-in's and the
+     * $140 was a side pot won with eights.
+     *
+     * The script: seat 0 (a bot, 30 chips) is all-in preflop, You raise to
+     * 100, seat 2 (a bot) calls, then folds to your flop bet — so the main pot
+     * (90: everyone's first 30) is between seat 0 and You, and the side pot
+     * (140: the two hundreds above it, one of them dead) is yours alone. The
+     * deck is the seed's, so the test looks for a seed where the all-in seat
+     * has the better hand, and one where You do.
+     */
+    @Test
+    fun theShowdownLineDescribesEachPaidSeatsOwnHand() {
+        val who = listOf(Seats.Occupant("c0", "Ann R.", human = false),
+            Seats.Occupant("you", "You", human = true), Seats.Occupant("c2", "Cal T.", human = false))
+        fun play(seed: Long): HoldemTable {
+            val t = HoldemTable.start(HoldemRules.Table.REGULAR, seed, who, intArrayOf(30, 200, 200), button = 0)
+            // seats: 0 button (and under the gun three-handed), 1 SB = You, 2 BB
+            t.act(ActionLevel.Kind.ALL_IN)                      // seat 0 all-in for 30
+            t.act(ActionLevel.Kind.RAISE, 100)                  // You raise to 100
+            t.act(ActionLevel.Kind.CALL)                        // seat 2 calls 100
+            assertEquals(Street.FLOP, t.view().street)
+            assertEquals(1, t.view().toAct, "postflop the first live seat after the button acts")
+            t.act(ActionLevel.Kind.BET, 20)                     // You bet 20 (uncalled: it comes back)
+            t.act(ActionLevel.Kind.FOLD)                        // seat 2 folds — its 100 is dead money
+            val r = t.view().result
+            assertNotNull(r, "one live seat with chips and nothing to call: the board runs out to a showdown")
+            assertEquals(20, r.uncalled?.amount, "the flop bet nobody called comes back")
+            assertEquals(1, r.uncalled?.seat)
+            assertEquals(listOf(90, 140), r.pots.map { it.amount }, "main pot 3 × 30, side pot 2 × 70")
+            assertEquals(listOf(listOf(0, 1), listOf(1)), r.pots.map { it.contenders })
+            return t
+        }
+        var shortWins: HoldemTable? = null
+        var youWin: HoldemTable? = null
+        var seed = 1L
+        while ((shortWins == null || youWin == null) && seed < 400) {
+            val t = play(seed++)
+            val sc = t.view().result!!.scores
+            if (sc.getValue(0) > sc.getValue(1) && shortWins == null) shortWins = t
+            if (sc.getValue(1) > sc.getValue(0) && youWin == null) youWin = t
+        }
+        val a = assertNotNull(shortWins, "no seed in 1..400 gave the all-in seat the better hand").view().result!!
+        assertEquals(mapOf(0 to 90, 1 to 140), a.won, "the nines take the main pot, the eights the side pot")
+        assertEquals("Ann R. wins $90 with ${HandEval.describe(a.scores.getValue(0))} · You take the $140 side pot", a.line)
+        assertFalse(a.line.contains("You win "), "the top earner is not the hand's owner here")
+
+        val b = assertNotNull(youWin, "no seed in 1..400 gave You the better hand").view().result!!
+        assertEquals(mapOf(1 to 230), b.won, "the better hand takes both pots")
+        assertEquals("You win $230 with ${HandEval.describe(b.scores.getValue(1))}", b.line,
+            "one winner reads as it always did")
     }
 
     @Test
