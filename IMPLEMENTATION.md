@@ -724,12 +724,27 @@ of them are load-bearing and easy to break by accident:
   → `TransportEvent.SilentMode`). `Shell.enterSilentGlasses` stops SENDING
   (the pump still animates and syncs chrome, then returns before the flush),
   releases the lease on purpose (`Transport.setLeaseWanted(false)` — the
-  renewal loop honours `leaseWanted`), notifies once, and probes with a black
-  keyframe (`Transport.probe`) every 60 s and on any ring event; `wakeGlasses`
-  takes the lease back and keyframes. Three consecutive ImgResCmd refusals are
-  the fallback for a missed push. Do not put the old "panic → keyframe" reaction
-  back in front of a refusal: it sent a 20 KB keyframe every 3.5 s for fifteen
-  minutes on 2026-09-05. `SilentGlassesTest` pins both paths.
+  renewal loop honours `leaseWanted`), notifies once — and **the wake is a
+  session REBUILD** (`HANDOFF.md` §38): `Shell.wakeGlasses` calls
+  `Transport.restartSession`, which quiets the link observers, ends the link
+  and reports it through `onLinkDown`; the keeper stops the shell and starts
+  it again from the prelude up, and `Shell.start` adopts the glasses' state
+  from that session's READ (`LinkState.glassesSilent`) before its first
+  frame — asleep at once if they are still silent, painting otherwise. Leaving
+  Silent Mode ends the firmware's EvenHub page (measured: four minutes of
+  refusals after the push OFF on 0.34), so no keyframe into the old session
+  can wake it; the black-keyframe probe is gone. Three consecutive ImgResCmd
+  refusals are the fallback for a missed push, and a sleeping shell's check
+  (every 60 s and on a ring event, `Shell.silentTick`) asks for the rebuild
+  when the glasses themselves say they are awake — once per pacing, never a
+  storm. The system events 4/5/7 (`FOREGROUND_ENTER`/`EXIT`, `SYSTEM_EXIT`)
+  are journaled as `event` notes now instead of being dropped as gestures;
+  nothing is keyed on them yet. The simulator's `carrierLost` models the page
+  ending with the mode (refused until a CREATE), so a wake that keyframes
+  instead of rebuilding fails `SilentGlassesTest`. Do not put the old "panic →
+  keyframe" reaction back in front of a refusal: it sent a 20 KB keyframe every
+  3.5 s for fifteen minutes on 2026-09-05. `SilentGlassesTest` ×4 and
+  `ShellKeeperTest.aRestartRequestRebuildsTheSessionOnce` pin it.
 - 🆕 **The latency pass (2026-09-05, `HANDOFF.md` §32)** — seven mechanisms, all
   pixel-identical (49 scenes compared against the untouched build):
   the journal's submit line carries `via` / `handleMs` / `assembleMs` (the

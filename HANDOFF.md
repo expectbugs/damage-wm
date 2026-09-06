@@ -2895,3 +2895,138 @@ section that lands here.
 - The lease is dropped on purpose while the glasses are silent (§36); never hold it over a
   refused display.
 - New windows meet `WINDOWS.md` §6 and ship with their measured latency profile.
+
+## 38. The wake from Silent Mode is a session rebuild (2026-09-05, late) — §37.0 built
+
+Adam, opening the session: *"fix the handling so that DamageWM can recover from a firmware
+silent mode turning on and then off … G2CC handles this well, so DamageWM should recover from it
+in a similar way. G2CC's connection to the glasses was remarkably robust all the way around, so
+we should definitely use it as an example to follow where-ever it makes sense (and does not
+increase latency or cause other problems)."* This is the record of that build: what the phone's
+journal showed, what G2CC actually does, what landed, and what is owed on glass.
+
+### 38.1 What the phone's journal said (grade M, read through `/journal` at 22:23)
+
+The full 22:04 sequence on 0.34, to the millisecond:
+
+| when | what |
+|---|---|
+| 22:04:02.617 | the new session's first flush (SILENT, 136 B) submitted |
+| 22:04:02.685 | `silent: glasses asleep — the firmware's Silent Mode is on` — the READ at session start said so (field 4.14) |
+| 22:04:02.689 | that first flush **acked OK** (67 ms) — the fresh session's warmup had passed too |
+| 22:04:02.789 | `divergence: RIGHT: 5468 px differ … mirror level 0` — the released lease painted the mirror's stock pattern; a false alarm |
+| 22:04:03.764 | the probe (msgId 10) refused, status 5 — one second after the same session accepted two images |
+| 22:04:28 | the push OFF parsed, the shell woke, took the lease back — and three 136-byte frames were refused (msgIds 18–20); asleep again on the streak |
+| 22:04:43 → 22:08:28 | every probe refused, on input and on the 60 s pacing |
+| 22:09:16 → 22:09:25 | Adam's Target → SIM → glasses: a fresh session; its first flush acked at 22:09:25.461 (42 ms), then a 5 KB Main frame at 745 ms |
+
+Two facts fall out that §36/§37.0 did not have. **A fresh session opened while the glasses are
+silent gets its warmup and its first flush accepted, then everything refused** (n=1). And after
+the push OFF nothing is accepted until a fresh CREATE — four minutes of refusals, then a new
+session painted within its first second. The reading (grade I, consistent with all three
+observations and with Faceclaw's own comment that *"silent mode blocks app launches"*): **Silent
+Mode ends the firmware's EvenHub page**; a page created while silent lives about a second; and a
+page ended under Silent Mode stays ended after it — a CREATE is the only way back. No exit event
+(5/7) was in the journal because none was journaled yet.
+
+### 38.2 What G2CC does — the pattern followed, and what was not taken
+
+G2CC's `ConnectionService` (read-only, for facts): a **response-gap watchdog** (no glasses
+response for 3 s, six bad ticks, then a cheap acked *probe write* to tell an ended slot from a
+keepalive-ack wedge — the 2026-07-21 lesson, 1,639 reconnects in a day before it) →
+`recoverSession()` = **teardown + reconnect (direct to the cached lens addresses, no rescan) +
+cold-launch**, rate-limited to one recovery per 10 s; a lens that drops while live is
+re-launched (`COLD_INIT`) when autoConnect brings it back. It never knew about Silent Mode by
+name — its recovery is generic: *the slot has ended, rebuild everything*. That generic shape is
+what was adopted:
+
+- **Taken: the rebuild.** The wake is a fresh session through the keeper — connect, prelude,
+  READ, CREATE, lease, warmup, keyframe — exactly G2CC's reconnect-and-relayout, and the keeper
+  was already that loop for every lost link. Faceclaw does the lighter thing (clears its
+  layout-created flag on the exit events and re-CREATEs in-session); the in-session re-CREATE is
+  unmeasured on our glass and the full rebuild is measured to work (22:09:25), so the measured
+  path won. Cost: the reconnect's seconds, once per wake — not a per-gesture latency.
+- **Taken: paced recovery, never a storm.** A sleeping shell asks for a rebuild at most once per
+  pacing (60 s) and only when the glasses themselves say they are awake; G2CC's 10 s rate limit
+  is the same idea.
+- **Not taken (proposed below): the response-gap watchdog itself.** Our refusals are explicit
+  (status 5 acks), so no gap has to be inferred for THIS defect. A slot that stops acking
+  altogether is a different failure; today it is a diagnostic only (`stall`, §round 4 D5).
+- **Not taken (noted): the direct reconnect to cached addresses.** Our phone transport always
+  scans — filtered on the remembered pair, which Android keeps running with the screen off.
+  G2CC's direct connect skips the scan; against a pair that is not advertising it would sit in
+  the platform's own connect wait instead. Unmeasured either way; the scan is kept.
+
+### 38.3 What was built
+
+- **`Transport.restartSession(reason): Boolean`** — the deliberate session end. In
+  `CfwTransportBase`: `running`/`started` false FIRST (the phone observer reads `linkUp`, BlueZ
+  reads `running` — so the disconnect that follows is ours and is reported once), `disconnectLink()`
+  under `NonCancellable`, then `onLinkDown("restart: …")` — the sweep and the `Link(false)` the
+  keeper's poll acts on. Refused (false, logged) when no session is started or one is mid-start.
+  A `restart` journal note. `PathTransport` delegates; the seam client forwards `t="restart"`
+  and the server calls its inner transport (unverified over the seam — the dev override only).
+- **`Transport.probe` is gone** — the black-keyframe probe could never wake a page that no
+  longer exists. `ImgWork.Raw` stays for the warmup.
+- **The shell's sleep** (`Shell.enterSilentGlasses`) is as §36 built it; **the wake**
+  (`wakeGlasses` → `requestRebuild`) calls `restartSession` and this instance stays asleep until
+  the keeper stops and restarts it. **The sleeping shell's check** (`silentTick`, every 60 s and
+  on a ring event): if `LinkState.glassesSilent` says silent, wait — the push OFF or the poll's
+  READ is the wake; if it says awake and the shell sleeps all the same (a refusal streak: the
+  page ended and no push came — the 22:04:28 shape), ask for the rebuild, once per pacing.
+- **`Shell.start` adopts the glasses' state** from the new session's READ before its first
+  frame (`glassesSilent` reset, then `enterSilentGlasses` if the transport says silent) — a
+  same-instance restart carried the old sleep over before, and a restart while silent would
+  otherwise have keyframed into a page about to end.
+- **No mirror-agreement check while asleep** (`checkMirrorAgreementInner`) — the 22:04:02 false
+  alarm; `lastDivergence` is per session already.
+- **The system events 4/5/7** (`FOREGROUND_ENTER`/`EXIT`, `SYSTEM_EXIT`) reach the journal as
+  `event` notes (`CfwTransportBase.routeEvent`) instead of dying in the ring-only filter unseen.
+  Nothing is keyed on them until the journal says when they arrive.
+- **The simulator models the page ending with the mode**: `GlassFirmwareSim.carrierLost` is
+  set by `setSilent(true)` (with `layoutCreated` cleared) and cleared only by a CREATE; images
+  are refused (status 5) while silent or while the page is lost — except a fresh CREATE's
+  warmup, which the glass accepted (the model keeps the warmup exception only, the stricter
+  side of the n=1 first-flush observation). Against this model the §36 wake — lease back,
+  keyframe — is refused, which is what makes the test below non-vacuous.
+- **Tests**: `SilentGlassesTest` rewritten on a keeper rig — the push OFF rebuilds the session
+  exactly once (attempts 2, a second prelude and CREATE, `carrierLost` cleared, lease back,
+  belief equal to glass, zero refused flushes); three refusals with no push and no field 14 sleep
+  the shell and the next check rebuilds (bounded failures, paced); the three system events are
+  journaled and are not inputs; the wire facts. `ShellKeeperTest.aRestartRequestRebuildsTheSessionOnce`:
+  refused before a session, one rebuild per request, narrated by its reason, refused after stop.
+  Both classes run three times clean.
+- **Docs**: `CLAUDE.md` (the lease exception now ends "the wake REBUILDS the session"),
+  `DESIGN.md` §1.5b, `IMPLEMENTATION.md` → Review hardening, `DAILY.md` (the recovery crib),
+  `REMINDER.md`. APK **0.35** staged; the service on the same core.
+
+### 38.4 What is owed — on glass, with 0.35
+
+1. Install 0.35. Toggle the firmware's Silent Mode with the APK connected (both-temple
+   long-press, twice, a minute apart). Read `/journal`: `silent: glasses asleep`, the lease
+   release, `silent: glasses awake … rebuilding`, `restart: …`, the keeper's `link ended:
+   restart: …` in the phone notification, then the new session's first accepted flush. **The
+   number to record is the blank stretch**: from the push OFF to the first `done ok` — the
+   scan + connect + 800 ms settle + READ + CREATE (plus any eaten-CREATE re-asks, §34.3) +
+   lease + warmup + keyframe. If it is long, the direct-reconnect and the re-ask pacing
+   (§38.2, `CAPABILITY_REASK_MS`) are the levers.
+2. The `event` notes: do 5/7 arrive when Silent Mode begins, when it ends, or when the page
+   ends a second after a CREATE-while-silent? If an exit event reliably precedes the refusals,
+   the rebuild can key on it and the three refused frames before the sleep go away.
+3. The temples while asleep (lease released): does the both-temple press get through? §36.4's
+   question stands.
+4. The refusal-streak path with the glasses AWAKE (a page that ends for another reason —
+   G2CC's ended-slot case): the rebuild should follow within a pacing (60 s) or on the next ring
+   event. Unobserved on glass so far; the journal will say if it ever fires.
+
+### 38.5 A proposal, not built — G2CC's response-gap watchdog
+
+G2CC recovered from every ended-slot state with the same reconnect, triggered by a gap in
+responses. Damage has the explicit-refusal trigger now but no gap trigger: a session whose acks
+simply stop (window full, no image ack) is reported (`stall`, after 10 s) and not acted on —
+the round-4 rule was *report, never act*, under the project's no-timeouts principle. G2CC's
+shape — a gap, then a cheap acked probe write, then the rebuild, rate-limited — is the
+precedent Adam calls robust. Whether to adopt it is his call: it would be the first place the
+transport ends a session on elapsed time rather than on evidence from the glasses, and §34's
+lost-ack release already covers the commonest single-ack loss. If adopted, the `restart`
+machinery above is the whole action side; only the trigger is new.

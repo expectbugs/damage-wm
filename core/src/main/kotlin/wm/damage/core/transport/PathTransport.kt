@@ -206,7 +206,7 @@ class PathTransport(
     }
 
     override suspend fun setLeaseWanted(wanted: Boolean) { active?.transport?.setLeaseWanted(wanted) }
-    override suspend fun probe(image: ByteArray): Boolean = active?.transport?.probe(image) ?: false
+    override suspend fun restartSession(reason: String): Boolean = active?.transport?.restartSession(reason) ?: false
 
     override suspend fun stop() {
         val a = active

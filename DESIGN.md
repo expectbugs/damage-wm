@@ -234,9 +234,11 @@ Faceclaw's periodic `TextContainerUpgrade{ContentOffset=0, ContentLength=1, Cont
 The both-temple long-press is the stock hardware escape (§1.6), and in that mode the firmware
 **refuses every image** and says so with a push. The shell treats it as the glasses being
 asleep: it keeps composing and stops sending, drops the lease so the stock firmware owns the
-display and the temples, tells the phone once (naming the gesture that wakes them), probes
-gently, and resumes with one keyframe when the glasses say they are awake. The shell's own
-silent mode (§1.5) is a different thing — a black surface the shell keeps painting.
+display and the temples, tells the phone once (naming the gesture that wakes them), and when
+the glasses say they are awake it **rebuilds the session** (`HANDOFF.md` §38): leaving Silent
+Mode ends the firmware's EvenHub page, so the wake is a fresh connect, CREATE and keyframe
+through the session keeper — G2CC's path — never a keyframe into the old session. The shell's
+own silent mode (§1.5) is a different thing — a black surface the shell keeps painting.
 
 ### 1.6 There is no quit
 

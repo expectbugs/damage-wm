@@ -132,9 +132,26 @@ class GlassFirmwareSim() : LensPanels {
      *  refusal fallback on its own. */
     @Volatile var reportSilentRestored = true
 
+    /** The EvenHub app slot ended under Silent Mode and no CREATE has come
+     *  since (`HANDOFF.md` §37.0, measured 2026-09-05 22:04): after the
+     *  glasses said they were awake every image was still refused with
+     *  status 5, for four minutes, until a fresh session's CREATE. Set with
+     *  the mode, cleared by the next CREATE — so a shell that answers the
+     *  wake with a keyframe instead of a rebuild is refused here too. */
+    @Volatile var carrierLost = false
+        private set
+
     fun setSilent(on: Boolean, push: Boolean = true) {
         silentMode = on
-        diag.event("silent", "Silent Mode ${if (on) "ON — images refused" else "OFF"}${if (push) " (pushed)" else " (no push)"}")
+        if (on) {
+            // the slot goes with the mode: Faceclaw's reading is that Silent
+            // Mode blocks app launches (its own comment on silentMode), and
+            // the glass measured a fresh CREATE's warmup and first flush
+            // accepted, then everything refused a second later
+            layoutCreated = false
+            carrierLost = true
+        }
+        diag.event("silent", "Silent Mode ${if (on) "ON — images refused, the app slot ended" else "OFF — images stay refused until a CREATE"}${if (push) " (pushed)" else " (no push)"}")
         if (push) diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), SettingsMsg.SID,
             SettingsMsg.FLAG_RESPONSE, SettingsMsg.silentModePush(on), AaFrame.TYPE_RESPONSE).single())
     }
@@ -230,6 +247,7 @@ class GlassFirmwareSim() : LensPanels {
                     return
                 }
                 layoutCreated = true
+                carrierLost = false       // a new slot — the one thing that ends a §37.0 refusal
                 warmupPending = true      // the first image burst after CREATE is silently dropped
                 img = null
                 ack(cmd, msgId, null)
@@ -253,9 +271,15 @@ class GlassFirmwareSim() : LensPanels {
         val fragIdx = (Pb.varintField(wrapper, 6) ?: 0L).toInt()
         val data = Pb.bytesField(wrapper, 8) ?: ByteArray(0)
 
-        if (silentMode) {
+        if ((silentMode && !warmupPending) || carrierLost) {
             // measured 2026-09-05 (§36): a 37-byte clock delta and an 860-byte
-            // keyframe refused alike, every fragment, until the mode is off
+            // keyframe refused alike, every fragment, until the mode is off —
+            // and (§37.0) after it is off, until a CREATE. The warmup right
+            // after a CREATE passes: the glass acked a fresh session's warmup
+            // (and, once, its first flush) under Silent Mode at 22:04:02; the
+            // model keeps only the warmup exception, the stricter side.
+            if (carrierLost && !silentMode)
+                diag.event("silent", "image refused: the app slot ended under Silent Mode and no CREATE has come since")
             errorAck(msgId, session, total, fragIdx)
             return
         }

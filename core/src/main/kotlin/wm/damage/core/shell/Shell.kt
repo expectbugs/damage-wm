@@ -604,6 +604,22 @@ class Shell(
         // reason). Fire-and-forget on the control lane.
         transport.setBrightness(settings.brightnessAuto, settings.brightness)
 
+        // §37.0: a same-instance restart carries no sleep over — the keeper
+        // restarts this shell on every link end, the wake from Silent Mode
+        // included, and the glasses' state is what THIS session's READ said
+        // (the transport parses field 4.14 before the capability gate
+        // answers, so it is known here). Asleep from before the first frame
+        // if they are silent — no keyframe goes out to be refused; otherwise
+        // this session paints. The SilentMode event the READ may also have
+        // raised is queued behind this and finds the shell already there.
+        glassesSilent = false
+        silentGen++
+        restartRequested = false
+        refusalStreak = 0
+        silentNoticeShown = false
+        if (transport.state.value.glassesSilent)
+            enterSilentGlasses("the glasses say Silent Mode is on (the READ at session start)")
+
         try {
             // initial surface — mode AND window restore (§9.1 rule 1). A SILENT
             // restore must not carry an activated window underneath the clock
@@ -860,9 +876,9 @@ class Shell(
 
     private fun handleInput(type: Int, source: Int) {
         // a ring event while the glasses are silent: the person is there —
-        // probe now rather than at the next pacing tick (§36); the input
-        // itself is handled normally, the surface stays current
-        if (glassesSilent) probeGlasses("input")
+        // check now rather than at the next pacing tick (§36, §37.0); the
+        // input itself is handled normally, the surface stays current
+        if (glassesSilent) silentTick("input")
         // §1: the R1 ring is the ONLY input device — a temple brush must not
         // select or scroll. Text-region scroll events carry no source and
         // arrive as SRC_RING from the transport (G2_BLE_PROTOCOL.md §6.6).
@@ -1821,9 +1837,10 @@ class Shell(
             }
             is TransportEvent.Fault -> {
                 if (glassesSilent && ev.what == "imgres") {
-                    // a refused probe while the glasses are silent is the
-                    // expected answer, not a fault to shout about (§36)
-                    journal.note("silent", "probe refused: ${ev.detail}")
+                    // a refusal that lands while the glasses are silent (a
+                    // frame in flight at the sleep) is the expected answer,
+                    // not a fault to shout about (§36)
+                    journal.note("silent", "refused while asleep: ${ev.detail}")
                 } else {
                     setStatus("${ev.what}!")
                     journal.note("fault", "${ev.what}: ${ev.detail}")
@@ -1900,22 +1917,32 @@ class Shell(
     private var keyframeFailStreak = 0
     private var refusalStreak = 0
 
-    // ------------------------------------------------------------ silent glasses (§36)
+    // ------------------------------------------------------ silent glasses (§36, §37.0)
     /** The glasses are in the firmware's Silent Mode: they refuse every image
-     *  until the both-temple long-press wakes them. The shell keeps composing
-     *  and stops SENDING, drops the lease so stock owns the display and the
-     *  temples, tells the phone once, and probes gently. */
+     *  until the both-temple long-press wakes them — and LEAVING the mode ends
+     *  the firmware's EvenHub page, so nothing paints again until a CREATE
+     *  (measured on glass 2026-09-05 22:04, `HANDOFF.md` §37.0). The shell
+     *  keeps composing and stops SENDING, drops the lease so stock owns the
+     *  display and the temples, tells the phone once — and the WAKE is a
+     *  session REBUILD (`Transport.restartSession`: the link ends, the keeper
+     *  stops this shell and starts it again from the prelude up — G2CC's
+     *  reconnect-and-relayout path), never a keyframe. The new start reads the
+     *  glasses' state before its first frame ([startLocked]). */
     private var glassesSilent = false
     private var silentGen = 0
     private var silentNoticeShown = false
-    private var probeInFlight = false
+    /** The rebuild has been asked for: this session is over the moment the
+     *  transport reports the link down, and nothing more is sent or asked. */
+    private var restartRequested = false
+    private var lastRebuildAskMs = 0L
 
     /** How the glasses currently read to this shell — for status lines and tests. */
     val glassesAsleep: Boolean get() = glassesSilent
 
-    /** The fallback probe's pacing while silent (a paced loop, never a bound
-     *  on work); the push is the primary wake signal. Tests shorten it. */
-    @Volatile var probePacingMs = PROBE_PACING_MS
+    /** The asleep shell's check pacing (a paced loop, never a bound on work):
+     *  each tick either waits on — the glasses say they are still silent — or
+     *  asks for the rebuild a refusal streak calls for. Tests shorten it. */
+    @Volatile var silentPacingMs = SILENT_PACING_MS
 
     private fun enterSilentGlasses(why: String) {
         if (glassesSilent) return
@@ -1925,11 +1952,11 @@ class Shell(
         setStatus("glasses silent")
         chromeDirty = true
         journal.note("silent", "glasses asleep — $why; no frames until they wake")
-        Log.w("shell", "the glasses are silent ($why): frames stop, the lease is released, a probe every ${probePacingMs / 1000} s")
+        Log.w("shell", "the glasses are silent ($why): frames stop, the lease is released; a check every ${silentPacingMs / 1000} s")
         if (!silentNoticeShown) {
             silentNoticeShown = true
             services.notifyInternal("glasses",
-                "the glasses are in Silent Mode ($why) — long-press both temples to wake them; frames resume by themselves",
+                "the glasses are in Silent Mode ($why) — long-press both temples to wake them; the display rebuilds by itself",
                 urgent = true)
         }
         scope.launch {
@@ -1937,43 +1964,57 @@ class Shell(
         }
         scope.launch {
             while (running && gen == silentGen) {
-                delay(probePacingMs)
-                if (running && gen == silentGen) post(Msg.Run { probeGlasses("pacing") })
+                delay(silentPacingMs)
+                if (running && gen == silentGen) post(Msg.Run { silentTick("pacing") })
             }
         }
     }
 
-    /** One small black keyframe outside the pipeline; accepted = awake. */
-    private fun probeGlasses(why: String) {
-        if (!glassesSilent || probeInFlight) return
-        probeInFlight = true
-        val gen = silentGen
-        val frame = wm.damage.core.wire.CfwModes.keyframe(
-            Zl.encodeCfw(Pack.rect(Gray8(comp.width, comp.height), Rect(0, 0, comp.width, comp.height))))
-        scope.launch {
-            val ok = try { transport.probe(frame) } catch (e: Exception) { Log.w("shell", "probe: ${e.message}"); false }
-            post(Msg.Run(dropped = { probeInFlight = false }) {
-                probeInFlight = false
-                if (gen != silentGen) return@Run
-                journal.note("silent", "probe ($why): ${if (ok) "ACCEPTED — waking" else "refused"}")
-                if (ok) wakeGlasses("a probe frame was accepted ($why)")
-            })
+    /** The asleep shell's check, on the pacing tick and on a ring event.
+     *  While the glasses THEMSELVES say Silent Mode is on (the last push or
+     *  READ, `LinkState.glassesSilent`) there is nothing to do: the push OFF,
+     *  or the 60 s poll's READ, is the wake. When they say it is off and the
+     *  shell sleeps all the same — a refusal streak: the page ended and no
+     *  push came, §37.0's 22:04:28 — the session is rebuilt, at most once per
+     *  pacing (a ring spun twice must not ask twice). */
+    private fun silentTick(why: String) {
+        if (!glassesSilent || restartRequested) return
+        if (transport.state.value.glassesSilent) {
+            journal.note("silent", "still silent per the glasses ($why) — waiting for the push or the READ")
+            return
         }
+        val now = System.currentTimeMillis()
+        if (now - lastRebuildAskMs < silentPacingMs) return
+        lastRebuildAskMs = now
+        requestRebuild("the glasses say they are awake and refused the last frames ($why)")
     }
 
     private fun wakeGlasses(why: String) {
-        if (!glassesSilent) return
-        glassesSilent = false
-        silentGen++
-        refusalStreak = 0
-        silentNoticeShown = false
-        journal.note("silent", "glasses awake — $why; the lease comes back, then a keyframe")
-        Log.i("shell", "the glasses are awake ($why)")
-        setStatus("ok")
+        if (!glassesSilent || restartRequested) return
+        journal.note("silent", "glasses awake — $why; rebuilding the session (leaving Silent Mode ends the firmware's page)")
+        Log.i("shell", "the glasses are awake ($why): session rebuild")
+        lastRebuildAskMs = System.currentTimeMillis()
+        requestRebuild(why)
+    }
+
+    /** The one way out of the sleep (§37.0): the transport ends its link and
+     *  reports it, the keeper stops this shell (state saved) and starts it
+     *  again, and the new start adopts the glasses' state — asleep or
+     *  painting — from the session's READ. A transport that cannot (nothing
+     *  started, or a seam whose far end did not take it) leaves a loud status
+     *  and the next tick asks again; the manual recovery is the host's
+     *  (Target → SIM → glasses). */
+    private fun requestRebuild(why: String) {
+        restartRequested = true
+        setStatus("rebuilding session")
         chromeDirty = true
         scope.launch {
-            try { transport.setLeaseWanted(true) } catch (e: Exception) { Log.e("shell", "lease re-acquire on wake", e) }
-            post(Msg.Run { comp.requestKeyframe(); post(Msg.Pump) })
+            val ok = try { transport.restartSession(why) } catch (e: Exception) { Log.e("shell", "session restart", e); false }
+            if (!ok) post(Msg.Run {
+                restartRequested = false
+                journal.note("silent", "session rebuild refused by the transport ($why) — still asleep; asking again on the next check")
+                setStatus("REBUILD NEEDED")
+            })
         }
     }
 
@@ -2059,6 +2100,10 @@ class Shell(
     private fun checkMirrorAgreementInner() {
         val m = transport.mirror
         if (!m.exact) return
+        // §37.0: with the lease released on purpose the mirror shows the
+        // stock pattern — nothing of ours is on the glass to agree with, and
+        // the report it raised at 22:04:02 was a false alarm that stuck
+        if (glassesSilent) return
         if (inflightFlushes.isNotEmpty() || comp.hasPending || comp.needsKeyframe) return
         val stride = m.stride
         var report: String? = null
@@ -3174,8 +3219,10 @@ class Shell(
         const val SLOW_LINK_MS_PER_KB = 50.0
         /** Consecutive ImgResCmd refusals that put the glasses to sleep (§36). */
         const val REFUSALS_TO_SLEEP = 3
-        /** The fallback wake probe's pacing while the glasses are silent. */
-        const val PROBE_PACING_MS = 60_000L
+        /** The asleep shell's check pacing (§37.0): the glasses' own state is
+         *  read by the 60 s device-info poll, so a check between polls would
+         *  learn nothing new. */
+        const val SILENT_PACING_MS = 60_000L
         const val DIVERGE_EPISODES_MAX = 3
         const val DIVERGE_QUIET_CHECKS = 10
 

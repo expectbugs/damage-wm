@@ -80,6 +80,42 @@ class ShellKeeperTest {
         }
     }
 
+    /** `HANDOFF.md` §37.0: a deliberate restart is a link end the keeper
+     *  rebuilds from — exactly once — and it is refused when nothing runs. */
+    @Test
+    fun aRestartRequestRebuildsTheSessionOnce(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-keeper3")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val glass = GlassFirmwareSim()
+            val t = FragileTransport(glass, scope)
+            assertTrue(!t.restartSession("nothing started"), "refused before any session")
+            val clock = Shell.LocalClock(12, 0, "12:00", "PM")
+            val shell = Shell(FakeText(), t, Persistence(tmp.resolve("s.json")), null, scope) { clock }
+            val statuses = ArrayList<String>()
+            val keeper = ShellKeeper(shell, t, scope, onStatus = { synchronized(statuses) { statuses.add(it) } },
+                retryPauseMs = 100)
+            keeper.start()
+            until("first session up") { keeper.state == ShellKeeper.State.RUNNING && t.state.value.started }
+            assertEquals(1, glass.preludeAcks)
+
+            assertTrue(t.restartSession("test: the glasses left Silent Mode"), "a running session restarts")
+            assertTrue(!t.state.value.started, "the session is over the moment the restart returns")
+            until("second session up") { keeper.attempts == 2 && keeper.state == ShellKeeper.State.RUNNING }
+            until("the glasses saw a second connect") { glass.preludeAcks == 2 }
+            delay(300)
+            assertEquals(2, keeper.attempts, "exactly one rebuild per restart")
+            assertTrue(synchronized(statuses) { statuses.any { it.startsWith("link ended: restart: test") } },
+                "the keeper narrates the restart by its reason: $statuses")
+
+            keeper.stop()
+            assertTrue(!t.restartSession("stopped"), "refused after stop")
+        } finally {
+            scope.cancel()
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
     @Test
     fun aCapabilityRefusalIsTerminal(): Unit = runBlocking {
         val tmp = Files.createTempDirectory("damage-keeper2")

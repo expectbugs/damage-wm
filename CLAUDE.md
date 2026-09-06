@@ -383,8 +383,13 @@ that don't fit raise loudly, never silently mangle.
   sleeping display kept the stock firmware from painting and, with the shell's old keyframe
   storm, kept the both-temple gesture from getting through. The glasses push the state (settings
   cmd 3, field 5.2) and restore it in the READ response (4.14); `Shell.enterSilentGlasses` stops
-  sending, drops the lease, notifies, probes with a black keyframe, and takes the lease back with
-  one keyframe on wake. **Never answer a refused image with more images.**
+  sending, drops the lease, notifies — and **the wake REBUILDS the session** (`HANDOFF.md`
+  §38, 2026-09-05): leaving Silent Mode ends the firmware's EvenHub page, so a keyframe after
+  the push OFF is refused like everything before it (measured: four minutes of refusals on 0.34).
+  `Transport.restartSession` ends the link and reports it, the keeper starts the shell again from
+  the prelude up (G2CC's reconnect-and-relayout path), and the new start reads the glasses'
+  state before its first frame. There is no probe image any more. **Never answer a refused
+  image with more images.**
   🆕 **As of a5d1c31 the lease gates far more than repainting.** `cfw_fb_lease_active()` is now
   the CFW's general "Faceclaw owns this session" predicate: without it you also lose **modes
   12/13/14/15**, you lose **long-press forwarding** (events 9/10), and the stock **"End this

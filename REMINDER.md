@@ -1,9 +1,9 @@
 # Where we are, and what to do next
 
 **This file is the entry point for a fresh session.** It says what is true now, what the next
-session does, and where the records are. History lives in `HANDOFF.md` (§1–§36); this file only
-points at it. Read in this order: `CLAUDE.md` → this file → `HANDOFF.md` §37 (the plan) → the
-sections it cites.
+session does, and where the records are. History lives in `HANDOFF.md` (§1–§38); this file only
+points at it. Read in this order: `CLAUDE.md` → this file → `HANDOFF.md` §37 (the plan) and §38
+(what the plan's first step became) → the sections it cites.
 
 ## Where we are (2026-09-05, evening)
 
@@ -11,13 +11,13 @@ sections it cites.
   `EVENCFW/`, never the version). The **phone APK drives** — radio and shell — and the OpenRC
   `damage` service on beardos is the data host and standby (`HANDOFF.md` §19, `DAILY.md`).
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games.
-- **Builds:** APK **0.33 installed** and driving; **0.34 staged** (`~/.damage/damage-wm.apk`,
-  the setup page) with the silent-glasses fix; the service runs the same core (commit `4ac9091`).
+- **Builds:** APK **0.34 installed** and driving; **0.35 staged** (`~/.damage/damage-wm.apk`,
+  the setup page) with the rebuild-on-wake fix (§38); the service runs the same core.
   Until 2026-09-05 nothing newer than 0.16 had ever been on the glasses — every change since
   2026-09-01 arrived on glass this afternoon, and the walks below are the first measurements of
   it. Nothing in the tree is unverified against the battery; several things are still unverified
   **on glass** (the tables below).
-- **Battery at HEAD:** core **469** · desktop **11** · `--selfcheck` **189** (the truth oracle on
+- **Battery at HEAD:** core **471** · desktop **11** · `--selfcheck` **189** (the truth oracle on
   every settle; run ×3+ — it is a rate) · snapshots 49 · `--epub-check` 58/58 · `--music-check` ·
   `--games-check` · lint 21 rules / 0 · `:phone:assembleDebug`.
 
@@ -36,7 +36,14 @@ sections it cites.
   a live tmux pane cost ~130 ms a frame; both rewritten (0.33).
 - **§36 The silent glasses.** The firmware's Silent Mode refuses every image and PUSHES the
   state; we dropped the push and stormed 20 KB keyframes for fifteen minutes. Fixed: the shell
-  sleeps with the glasses, drops the lease on purpose, probes, wakes on the push.
+  sleeps with the glasses, drops the lease on purpose, wakes on the push.
+- **§38 The wake is a session rebuild** (2026-09-05, late). 0.34 on glass slept correctly and
+  then could not wake: leaving Silent Mode ends the firmware's EvenHub page, and every image
+  after the push OFF was refused for four minutes. Now the wake ends the link on purpose
+  (`Transport.restartSession`) and the keeper rebuilds the session — G2CC's reconnect-and-
+  relayout path; the new start reads the glasses' state before its first frame; the probe
+  image is gone; the system events 4/5/7 are journaled. Battery green; **0.35 staged, not yet
+  on glass** — the on-glass check is the first thing to do (§38.4).
 
 ## 🔴 The next session: the latency plan — `HANDOFF.md` §37 has the detail and the order
 
@@ -58,14 +65,14 @@ Adam's rulings (2026-09-05, evening) that bound it:
    strip. The lever is **time to first visible change**: send the translation first, the heavy
    fill second, and make the fill cheap (mode 14/13).
 
-🔴 **FIRST (§37.0): the wake from the firmware's Silent Mode must REBUILD the session.** Tested on
-glass with 0.34 at 22:04: the sleep worked (the READ's restored state and the push OFF both
-parsed), but after the glasses said they were awake they refused every image for over a minute —
-leaving Silent Mode tears the EvenHub session down. The design is settled in §37.0: wake =
-`Transport.restartSession` (disconnect + `onLinkDown`, the keeper rebuilds everything — G2CC's
-reconnect-and-relayout path); retire the black-keyframe probe (the 60 s READ is the fallback, plus
-a paced restart attempt); journal system events 4/5/7; the simulator drops the carrier on silent
-so the test forces the rebuild; no mirror check while asleep. Until then: Target → SIM → glasses.
+✅ **§37.0 is BUILT (`HANDOFF.md` §38, 2026-09-05 late): the wake from the firmware's Silent Mode
+rebuilds the session.** Every item of the settled design landed — `Transport.restartSession`,
+the probe retired, the sleeping shell's paced check, the system events journaled, the simulator's
+`carrierLost`, no mirror check while asleep, and the session start adopting the glasses' state.
+**Not yet seen on glass**: install 0.35, toggle the firmware's Silent Mode with the APK connected,
+and read the phone journal's `silent` / `restart` / `event` notes (§38.4 lists what to look for,
+including how long the blank stretch between the push OFF and the first accepted frame is). Until
+0.35 is installed the manual recovery stands: Target → SIM → glasses.
 
 The rest of the ordered work (§37.3): the chrome-only flush defect (149 of 320 flushes in a walk, a §8.3
 violation) → first-visible-change ordering for list and canvas notches → the slide-frames setting
@@ -127,7 +134,7 @@ unmeasured (0.33 was installed but not walked — walk it first).
 | 19 | **The texture cache on glass** — mode-12 atlas up, 13/14 draws, pixel-compare vs the sim | the gate on adopting cached glyphs (§37). ⚠ mode 14 adds one overlay rect per glyph; a failed 64 KiB allocation shows only as the sticky `ALLOC` flag |
 | 20 | **Atlas upload cost** at the measured rate; the cache survives a lease renewal, is freed on a lapse — and now on our own deliberate release while silent (§36) | prices the whole mode-14 trade |
 | 21 | **Temple long-press accident rate** (gloves) | §1.2's bare-long-press no-op guards it |
-| 22 | **The silent-mode push parsed on glass** — toggle with the APK connected, read the `silent` journal notes; do the temples respond while the shell is asleep (lease released)? | §36.4 |
+| 22 | **The rebuild-on-wake on glass** (0.35) — toggle the firmware's Silent Mode with the APK connected; read the `silent` / `restart` / `event` notes; the blank stretch from the push OFF to the first accepted frame; whether the exit events 5/7 arrive and when; do the temples respond while the shell is asleep (lease released)? The push and the READ's field 14 are already SEEN (22:04:02, 22:04:28) | §38.4 |
 | 23 | **The 2-frame wheel and the reserved slot** on a slow link — feel | §32 |
 | 24 | **Does the firmware enter Silent Mode by itself** (wear detection, idle)? | the journal will say |
 
@@ -173,7 +180,7 @@ connection setup (it was in the captures all along — `research/linkparams.py`)
 
 ```
 sudo rc-service damage status                         # the data host / standby; restart = stageJar + rc-service damage restart
-./gradlew :core:test  ·  ./gradlew :desktop:test      # 469 · 11
+./gradlew :core:test  ·  ./gradlew :desktop:test      # 471 · 11
 desktop/build/install/desktop/bin/desktop --selfcheck # after ./gradlew :desktop:installDist; run it more than once
 python3 tools/lint.py                                 # 21 rules, exits 0
 python3 tools/glassdrive.py aphone TOKEN --pace 2.5 double wait:3 snap:/tmp/a.png …   # drive the glasses; snap before every tap

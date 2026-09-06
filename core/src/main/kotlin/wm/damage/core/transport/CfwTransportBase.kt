@@ -435,7 +435,23 @@ abstract class CfwTransportBase(
 
     private fun routeEvent(payload: ByteArray) {
         when (val ev = EvenHubMsg.parseEvent(payload)) {
-            is EvenHubMsg.Event.Gesture -> emitInput(ev.type, ev.source)
+            is EvenHubMsg.Event.Gesture ->
+                if (ev.type == EvenHubMsg.EV_FOREGROUND_ENTER || ev.type == EvenHubMsg.EV_FOREGROUND_EXIT ||
+                    ev.type == EvenHubMsg.EV_SYSTEM_EXIT) {
+                    // The firmware's SYSTEM events are facts about the app
+                    // slot, not gestures (`HANDOFF.md` §37.0): until 2026-09-05
+                    // they reached the shell as gesture types and were dropped
+                    // there by the ring-only filter, unseen. Faceclaw resets
+                    // its layout on the exit events (FaceclawBleCommunicator
+                    // .java, the sys-event branch) — the firmware ending the
+                    // page — and the phone's journal on the night of §36 could
+                    // not say whether Silent Mode sent them. Journaled now;
+                    // nothing is keyed on them until the journal has shown
+                    // when they arrive.
+                    val text = "${EvenHubMsg.eventName(ev.type)} (type ${ev.type}, source ${ev.source})"
+                    Log.i(name, "system event: $text")
+                    emitNote("event", text)
+                } else emitInput(ev.type, ev.source)
             is EvenHubMsg.Event.TextEvent -> {
                 // On the CFW carrier, ring scroll arrives as Text_ItemEvents on
                 // the capture container (G2_BLE_PROTOCOL.md §6.6: "scrollUp/
@@ -500,16 +516,38 @@ abstract class CfwTransportBase(
         else setLease(false, "FB lease released on purpose — the glasses are silent, stock owns the display")
     }
 
-    override suspend fun probe(image: ByteArray): Boolean {
-        if (!running || !_state.value.started) return false
-        val done = CompletableDeferred<Unit>()
-        imageQueue.trySend(ImgWork.Raw(sessionEpoch.get(), image, done))
-        return try {
-            done.await(); true
-        } catch (e: Exception) {
-            Log.i(name, "probe frame refused: ${e.message}")
-            false
+    /**
+     * The deliberate session end (`HANDOFF.md` §37.0, G2CC's recovery path):
+     * quiet the link observers FIRST — `running` false is what makes the
+     * subclasses' disconnect callbacks read the coming disconnect as ours
+     * (the phone's observer checks `linkUp`, BlueZ's checks `running`), so
+     * the link end is reported exactly once, below — then end the link, then
+     * sweep and surface it the way a lost link is (`onLinkDown`): the keeper's
+     * poll sees `started` false and rebuilds the session from the connect
+     * up. The lease is not released first: while the glasses are silent the
+     * shell has already dropped it, and otherwise the fail-open covers the
+     * seconds until the new session's acquire. Refused, with a log line, when
+     * no session is started or one is still being set up (a start in
+     * progress rolls itself back on its own link end).
+     */
+    override suspend fun restartSession(reason: String): Boolean {
+        if (!started || startInProgress) {
+            Log.w(name, "session restart refused ($reason): ${if (startInProgress) "a start is in progress" else "no session is started"}")
+            return false
         }
+        Log.w(name, "session restart: $reason — ending the link so the keeper rebuilds the session")
+        emitNote("restart", reason)
+        running = false
+        started = false
+        withContext(NonCancellable) {
+            try {
+                disconnectLink()
+            } catch (e: Exception) {
+                Log.w(name, "disconnect for the restart: ${e.message}")
+            }
+        }
+        onLinkDown("restart: $reason")
+        return true
     }
 
     protected fun emitNote(kind: String, detail: String) {

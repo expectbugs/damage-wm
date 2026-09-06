@@ -60,10 +60,20 @@ interface Transport {
      *  takes it back on wake, keyframing after. Default: nothing to hold. */
     suspend fun setLeaseWanted(wanted: Boolean) {}
 
-    /** Send one raw image (a mode-6 keyframe) outside the flush pipeline and
-     *  report whether the glasses ACCEPTED it — the shell's wake probe while
-     *  they are silent. Default: no. */
-    suspend fun probe(image: ByteArray): Boolean = false
+    /**
+     * End the running session ON PURPOSE and report the link as down, so the
+     * session keeper rebuilds everything from the connect up — prelude,
+     * capability READ, carrier CREATE, lease, warmup, the shell's keyframe.
+     * G2CC's recovery path (its response-gap watchdog reconnected and the
+     * fresh session rebuilt the layout), adopted 2026-09-05 (`HANDOFF.md`
+     * §37.0): leaving the firmware's Silent Mode ends the EvenHub session,
+     * and nothing paints again until a CREATE — measured on glass, images
+     * refused for four minutes after the glasses said they were awake. The
+     * shell calls this on the wake, never a keyframe. Returns false, and does
+     * nothing, when no session is started (or the transport cannot restart
+     * its far end — the seam driver). Default: cannot.
+     */
+    suspend fun restartSession(reason: String): Boolean = false
 
     /**
      * Bring the display up: capability gate (EVENCFW string must carry

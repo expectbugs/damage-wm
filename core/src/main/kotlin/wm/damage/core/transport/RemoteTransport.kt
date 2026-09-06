@@ -219,7 +219,21 @@ class RemoteTransportClient(
     override suspend fun setLeaseWanted(wanted: Boolean) {
         Log.i("remote-transport", "setLeaseWanted($wanted) is not forwarded over the seam — the owner's shell holds the lease")
     }
-    override suspend fun probe(image: ByteArray): Boolean = false
+    /** Forwarded (t="restart", 2026-09-05 §37.0): the owner's transport ends
+     *  its session and its keeper-side link end reaches this driver as the
+     *  usual `started` false, so the same reconnect dance a lost link runs
+     *  follows. Unverified on hardware over the seam — the dev override only. */
+    override suspend fun restartSession(reason: String): Boolean {
+        val o = out ?: return false
+        if (!state.value.started) return false
+        return try {
+            o.send(Ctl(t = "restart", detail = reason))
+            true
+        } catch (e: Exception) {
+            Log.w("remote-transport", "restart over the seam not sent: ${e.message}")
+            false
+        }
+    }
 
     override fun setBrightness(auto: Boolean, level: Int) {
         val o = out ?: return
@@ -867,6 +881,11 @@ class RemoteTransportServer(
                         }
                     }
                     "brightness" -> inner.setBrightness(c.auto, c.level)
+                    "restart" -> scope.launch {
+                        try { inner.restartSession("remote driver: ${c.detail}") } catch (e: Exception) {
+                            Log.w("transport-server", "restart: ${e.message}")
+                        }
+                    }
                     "stop" -> {
                         // a driver RELEASING its claim — never a remote
                         // teardown: the session belongs to THIS host and
