@@ -200,7 +200,7 @@ LIVE GRID ── tap ──▶ KEYS (ListView): Enter · y · n · 1 · 2 · 3 �
 - **History mode is a DocView** — wrapped at Reader-class reading size, the WM's endless scroll
   (mode 9 shift + fill), 5-lines/notch default + the accel setting, NO TRUNCATION ever.
 
-### 3.4 Costs, against the measured curve (`ms ≈ 60 + bytes/50`, `overview.md` §5.2)
+### 3.4 Costs, against the measured curve (⚠ the `ms ≈ 60 + bytes/50` below is PC-direct only — the daily path is the phone's, ~70 ms + ~120 ms/KB, `REMINDER.md`; a history notch measured 352–645 ms on it, `HANDOFF.md` §37)
 
 🔴 **Both halves of this section's arithmetic moved on 2026-09-05** (`HANDOFF.md` §31). The curve
 is scoped to four hours — a 6–12 KB flush measures a **1,193 ms** median across the journal's bulk,

@@ -2778,3 +2778,79 @@ is yes: a shell that cannot recognise a sleeping display is the defect, whicheve
    question; with the lease released it should not arise).
 2. Whether the firmware enters Silent Mode on its own (wear detection, idle) — the journal will say.
 3. §33.7, §34.5 and §35.4 stand.
+
+## 37. The latency plan for the next session (2026-09-05, evening) — Adam's rulings and the order
+
+Adam, after 0.33 on glass: *"scrolling the list of apps in Main takes one full second between the
+scroll action and a visible response … while scrolling within Reader is twice as fast. I wonder
+why. Similarly, Tmux scrolling once within History mode is a little faster than before, but not
+much."* And the rulings that shape the work: slide frames become a Global setting with the
+default where it is; the texture cache is to be adopted as far as it goes; a live window may
+keep the link busy while it is the active one. This section is the hand-off to a fresh session.
+
+### 37.1 The two defects the walks measured but did not fix
+
+- **Chrome-only flushes** (`DESIGN.md` §8.3 violated): the status bar's throughput readout changes
+  after every ack, and every content-neutral repaint — a Torrents poll, the Reader's shelf rescan
+  on activation, any invalidate — set the chrome dirty and shipped the changed digits alone.
+  **149 of the 0.32 walk's 320 flushes** were that (11.4 s of ack, 23 KB), each a 70 ms floor and
+  a window slot, and sometimes sitting between a gesture and its first frame. Fix: the readout
+  (and any other telemetry cell) repaints only on a gesture's own flush or the idle tick; the
+  input echo rides the gesture's first flush as it does today. `Chrome.sync` takes an
+  `allowTelemetry` from the pump (`pumpPriority || animated || chromeIdleFlush`).
+- **The first flush of a list notch is the heavy one.** `Shell.startListSlide` damages the whole
+  lens band (the optimistic repaint: icon, bold title, detail line) in the same flush as the first
+  slide step, so the first visible change waits for 3–6 KB. Reader notches send the band copy and
+  a 1–4 KB strip first, which is why they feel twice as fast. This is why Main takes a second.
+
+### 37.2 What the 0.32 walk measured per notch (grade M, phone path)
+
+| surface | flushes | first flush | first visible change | total bytes | wall |
+|---|---:|---:|---:|---:|---:|
+| Reader page notch | 3–5 | 1.2–4.3 KB | 221–625 ms | 1.8–8.8 KB | 234–1,209 ms |
+| tmux history notch | 1 | 2.4–4.3 KB | 352–645 ms | same | same |
+| Torrents list notch (Main is the same shape) | 3 | 5.9–6.0 KB | 830–860 ms | 7.4–7.7 KB | 1,020–1,221 ms |
+
+Read across: the Reader's first flush is the copy + the strip; the tmux notch is one flush whose
+strip is five dense lines; the list notch's first flush is the lens. **Time to first visible change
+is the metric** (`DESIGN.md` §8.6); bytes in the first flush decide it.
+
+### 37.3 The order of work
+
+1. **The chrome-only flush defect** (§37.1). Pure defect, no design change, walk to confirm the
+   count falls from ~150 to near zero.
+2. **First-visible-change ordering for list notches**: the first flush = the two band copies + the
+   strip (< 500 B); the lens repaint goes in the second flush (`startListSlide` defers its lens
+   damage one pump; the slide's remaining frames follow). Same shape for a canvas notch when the
+   detector finds a translation: copy first, fill second, when the fill is over ~1 KB. Walk:
+   Main/Torrents first visible change from ~850 ms toward ~150 ms; tmux history from ~500 ms to
+   ~100 ms with the strip landing ~400 ms later.
+3. **The `Slide frames` Global setting** (`DESIGN.md` §4.2, §6.3): `off · 2 · 4 · auto · 8 · 12`,
+   `auto` = the halving rule and the default; `Slide` resamples its ease-out to N steps; persisted
+   and synced like every setting; Adam tests the feel himself.
+4. **The texture cache on glass, then adopted** (`REMINDER.md` items 19–20; `IMPLEMENTATION.md` →
+   The texture cache): a dev build uploads an atlas of the chrome face and draws the status line
+   through mode 14, compared pixel for pixel against the sim; then the emit strategy behind a
+   setting — chrome and list rows (mode 14 for text, mode 13 for the window and row icons), then
+   tmux lines. Lease-scoped: upload once per lease, re-upload after a lapse or after the shell's
+   own deliberate release (§36). Expected: list rows and lens repaints from 1–6 KB to tens of
+   bytes; a tmux strip from 2–4 KB to its characters.
+5. **Walk 0.33's rewrites** (never measured on the phone): the diff scan and the tmux memo; then the
+   truth render (13 % of the phone's CPU — both lenses re-rendered every assemble).
+6. **Then §33–§36's remaining items**: the cold-start re-ask (three eaten CREATEs ≈ 6 s per link
+   edge; `CAPABILITY_REASK_MS` is a radio constant to experiment with), the radio's slave latency
+   (a firmware-side ask), the wheel as a translation, the silent-mode push seen on glass once.
+
+Every step: build → battery → `installDist` → selfcheck ×3 → walk with `tools/glassdrive.py` →
+`/journal` through `tools/journal_report.py` → record the per-gesture first-flush numbers in the
+section that lands here.
+
+### 37.4 What is settled and must not be re-argued
+
+- Slide frame DEFAULTS stay where they are; only the setting is new (Adam).
+- Live windows (tmux, Music, Torrents) keep their cadence while active (Adam); parked windows
+  hold no loop (§4.6, unchanged).
+- The wheel spins in 2 frames on a measured slow link (§32) — a verdict on glass is still owed.
+- The lease is dropped on purpose while the glasses are silent (§36); never hold it over a
+  refused display.
+- New windows meet `WINDOWS.md` §6 and ship with their measured latency profile.

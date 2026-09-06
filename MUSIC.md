@@ -170,7 +170,7 @@ Why G2CC drifts: the PC extrapolates the position, ticks at 1.5 s, and crosses t
 the scheduler runs on the phone from ExoPlayer's real position; a **per-output-device latency
 offset** (Bluetooth adds ~100–250 ms), calibrated once on glass by nudging a line with the ring
 (±50 ms notches) and remembered per device; each line is flushed **ahead by the known display
-latency** (the measured `60 + bytes/50` curve) so it lands on the beat. Sources in order: the
+latency** (the measured curve — the phone path's ~70 ms + ~120 ms/KB since 2026-09-05, `REMINDER.md`) so it lands on the beat. Sources in order: the
 `lyrics` table (LRCLIB), embedded tags, `.lrc` beside the file, NetEase, the unofficial
 Musixmatch route (toggle), manual keyboard search (verdict 24). Plain-text fallback pages. The texture cache's glyph strings (mode 14)
 are the later optimization behind the on-glass check (`REMINDER.md` items 19–20).

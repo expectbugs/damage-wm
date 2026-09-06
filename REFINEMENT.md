@@ -9,7 +9,7 @@
 > acceleration ≤250 ms → up to 6×, both in Reader's actions; `DESIGN.md` §0 reversal recorded).
 > **§5** clock: top-RIGHT, digital seven-segment, ✅ SHIPPED (0.5 % ink, 174 B — `DESIGN.md`
 > §1.5; sizes became a Global setting 2026-09-01). **§6** measured — `overview.md` §5.2:
-> `ms ≈ 60 + bytes/50`, dense full-frame ≈ 2–4 fps. **§4** ✅ RESOLVED — the experiment ran,
+> `ms ≈ 60 + bytes/50`, dense full-frame ≈ 2–4 fps (⚠ PC-direct; the phone path is ~70 ms + ~120 ms/KB — `REMINDER.md`, 2026-09-05). **§4** ✅ RESOLVED — the experiment ran,
 > the real cause was our own source filter, fixed and confirmed on glass ("it all works!").
 > **§9** the 4× PC preview shipped first. **§10** brightness + glasses battery wired; ring
 > battery later CLOSED with the probe reverted (see below). **§11** the Reader batch shipped.

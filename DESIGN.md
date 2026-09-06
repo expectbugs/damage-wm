@@ -787,6 +787,7 @@ choice overrides the global for that app only. Reader's Size row is the first in
 | **Silent clock** | large (the 144×48 seven-segment box, default) / medium / small — §1.5 |
 | **Head tracking** | default OFF (§7.1) |
 | **Long-press** | **off** (default — §1.2 revised 2026-08-30: a bare long-press is a no-op; the §1.3 chord opens the switcher) / switcher |
+| **Slide frames** | 🆕 **planned (2026-09-05, `HANDOFF.md` §37; Adam):** `off · 2 · 4 · auto · 8 · 12` frames per notch for list and document slides — **`auto` (the default) is today's ease-out halving rule** (list 3, doc 5); `off` snaps in one flush. He tests the feel at every value on the phone path himself. The wheel keeps its own 4 / 2-on-a-slow-link rule (§6.3) |
 | **Notification sources** | only `Notify · Damage` here — **each app's toggles live in that app's own category** (Adam, 2026-09-01; §4.5) |
 | **Keyboard** | qwerty / abc — the §4.8 keyboard's layout |
 | **Battery alert** | off / on / escalating — the ≤ 20 % pulse (§4.1) |
@@ -1861,6 +1862,13 @@ That constraint produces a coherent physical language rather than a grab-bag:
   response to new input. 🆕 **Mechanised 2026-09-05 (`HANDOFF.md` §32):** one of the three
   in-flight slots is reserved for the pump that follows a ring event; animation frames, pushes
   and the visualizer run at most two deep.
+- 🆕 **Frames per notch are a Global setting (2026-09-05, §37; Adam).** `Slide frames: off · 2 · 4
+  · auto · 8 · 12`, `auto` = the halving rule below and the DEFAULT. The setting resamples the
+  ease-out sequence to that many steps (each still a multiple of 2 px); `off` is one flush. Not
+  built yet — the next session's third item.
+- 🆕 **A live window may keep the link busy while it is the active window (Adam, 2026-09-05).**
+  Tmux frames, Music's card and visualizer, Torrents' polls: he is watching them. The rule is
+  about cost per update (§8.6), not cadence — and a parked window holds no loop (§4.6).
 - 🆕 **Motion follows the measured link (2026-09-05, §32).** The transport keeps a transfer-term
   EMA (ms per KB over flushes of 1 KB and more, against a floor EMA from small ones); above
   50 ms/KB — the phone path measured ~125, PC-direct ~20 — the wheel spins in **2** frames per
@@ -1985,10 +1993,17 @@ Grade **I** — derived from reading the decoder. Exercised daily since 2026-08-
 
 Default idle tick **5 s**. A live 1 Hz telemetry mode is a debugging tool, not a default.
 
+🔴 **Measured broken on 2026-09-05 (`HANDOFF.md` §37.1):** the status bar's throughput readout
+changes after every ack, and any content-neutral repaint (a poll, a rescan, an invalidate) set the
+chrome dirty and shipped the changed digits as a flush of their own — **149 of a walk's 320 flushes
+were that cell alone**, each a 70 ms floor and a window slot. The rule stands; the fix (the
+readout repaints only on a gesture's own flush or the idle tick) is the next session's first item.
+
 ### 8.4 Modeled costs
 
 ⚠ **All modeled**, area-scaled from the 576×288 measurements via `ms ≈ bytes/11000 × 1000 + 176`.
-🆕 **The real CFW path is measured (2026-08-31, `overview.md` §5.2): `ms ≈ 60 + bytes/50`** —
+🆕 **The real CFW path is measured (2026-08-31, `overview.md` §5.2): `ms ≈ 60 + bytes/50`** (⚠ PC-direct
+only — the daily path is the phone's, ~70 ms + ~120 ms/KB, `REMINDER.md`; 2026-09-05) —
 every row below is conservative by roughly 3–5× on hardware. Kept as the modeled baseline the
 design was proven against; quote §5.2 for anything current.
 
@@ -2001,6 +2016,23 @@ design was proven against; quote §5.2 for anything current.
 | one chrome cell (clock 72×28) | ~150–250 B | ~190 |
 | silent mode (flat black + clock) | ~1.5 KB | ~310 |
 | stereo shift on an existing rect | +4 B | ~0 |
+
+### 8.6 Time to first visible change (2026-09-05, `HANDOFF.md` §37)
+
+The number a person feels is not bytes per screen but **the first flush a gesture produces**: its
+bytes plus one floor. On the phone path (~70 ms + ~120 ms/KB) the 0.32 walk measured, per notch:
+
+| surface | first flush | first visible change | why |
+|---|---:|---:|---|
+| Reader, a page notch | 1.2–4.3 KB | 221–625 ms | the band copy + the newly exposed strip |
+| tmux history notch | 2.4–4.3 KB | 352–645 ms | one flush: the copy + a 5-line strip |
+| a list notch (Torrents, Main) | 5.9–6.0 KB | 830–860 ms | the LENS repaint rides in the first flush |
+
+The rule that follows: **the first flush carries the translation; the heavy fill follows.** A list
+notch's first flush should be the two band copies and the small strip (under 500 B, ~100 ms);
+the lens repaint (icon, bold title, detail line) goes in the second. And the fill itself gets
+cheap through the texture cache (§5 #18). Both are §37's work. Chrome-only flushes (§8.3) must
+not sit between a gesture and its first frame.
 
 ### 8.5 Rendering optimizations
 

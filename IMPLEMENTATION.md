@@ -702,12 +702,14 @@ model layers are built and green; the compositor has not adopted them yet, delib
   vanished from it while their features live on, so `REQUIRED_CAPS` stays at the five that matter
   and version checks go through `SettingsMsg.contractVersion`.
 
-**Not adopted yet, on purpose.** The compositor still emits pixel deltas only. Turning text into
-mode-14 draws changes the emit strategy and the entire cost model. The ack curve it is priced
-against is now **measured** (`overview.md` §5.2, 2026-08-31: `ms ≈ 60 + bytes/50`); what still
-gates adoption is the on-glass check of modes 12/13/14 against the sim (`REMINDER.md` items
-19–20). Mode 11 in `stop()` is held for the same build: its value is freeing the cache, and
-`stop()` is a five-round-hardened path not worth disturbing for nothing.
+**Not adopted yet — and adoption is the next session's build (`HANDOFF.md` §37; Adam,
+2026-09-05: "we should absolutely test the texture cache … take maximum advantage of it").** The
+compositor still emits pixel deltas only. The cost model it is priced against is the PHONE's now
+(~70 ms + ~120 ms/KB, `REMINDER.md`), which makes cached text and icons the largest byte-side lever
+there is: a list row is 1–2 KB of pixels today and 8 bytes plus its string as a mode-14 draw, and
+a window icon is a one-time mode-12 upload. Step 1 is the on-glass check of modes 12/13/14
+against the sim (`REMINDER.md` items 19–20); step 2 the emit strategy behind a setting, chrome and
+list rows first, tmux lines after. Mode 11 in `stop()` is held for the same build.
 
 ## Review hardening (rounds 2–8, 2026-08-24)
 

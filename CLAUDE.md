@@ -64,66 +64,33 @@ reports `2.2.6.10` — detect by the `EVENCFW/` capability string, never the ver
 and shell, always, while it is up; the OpenRC `damage` service is the DATA PROVIDER (content +
 tmux + last-write-wins state sync) plus a STANDBY that drives PC-direct BLE only while the APK
 is unavailable and hands back on its return. The PC never claims in daily use** (`--transport
-remote` keeps the claim path as the explicit dev override). `REMINDER.md` is the orientation
-file; `HANDOFF.md` §19–§28 the current records; `DAILY.md` the ops crib; `IMPLEMENTATION.md`
-what runs and how. App layer: **Main · Settings · Reader · Tmux · Files · Torrents · Music ·
-Games** (Files landed
-2026-09-01 with the whole §16 shared machinery — `HANDOFF.md` §22; Torrents + the §4.8
-keyboard the same evening — `TORRENTS.md`, `HANDOFF.md` §23; Music overnight 2026-09-01/02 —
-`MUSIC.md`, `HANDOFF.md` §24, the shell's exclusive mode `DESIGN.md` §4.9). A whole-codebase
-review followed on 2026-09-03 — ten verified defects fixed and pinned, `HANDOFF.md` §25.
-**Games · Hold'em landed overnight 2026-09-04** — `HOLDEM.md` (§17 = what was built and where it
-departed from the design; §17.2b/§17.2c = the second and third review cycles), `HANDOFF.md` §26; it also put **`ActivationSource`** on the window
-contract (switcher = resume, Main = the window's root list) and retrofitted all six existing
-windows, and added **`contentPlanes`** so a window can name its own stereo regions.
-**A second whole-codebase review followed on 2026-09-05** — six verified defects, `HANDOFF.md`
-§27 — and made the belief-vs-truth oracle a STANDING gate: `--selfcheck` runs it on every settle
-and `OracleWalkTest` runs it over a seeded random walk at all four heights. 🔴 Its rule, because
-three of the six were the same defect: **a rect a paint returns is a promise.** Size a band from
-the face's MEASURED ink (`ascent + descent`), never from a line height or a constant — ink
-outside a declared damage rect goes into `composed`, is never sent, and the belief and the glass
-then agree while the composed frame quietly diverges.
-**A third review on 2026-09-04 (late) — `HANDOFF.md` §28 — read the whole tree again and then
-drove the whole system LIVE through the browser replica at all four heights and up the font
-ladder: eleven verified defects, five of them that same rule applied to the shell's own chrome
-(the menu, the notification box, the wheel) and to the Hold'em bands, which all measured nothing
-and broke the moment the face grew.** The rest: the Hold'em pacer stalled after a back-and-return,
-the Reader could not open a book at 115 % or 130 %, an unreadable `config.json` was replaced with
-defaults, tmux never alerted for a pane that had not filled its screen. 🔴 **Live-drive the real
-program before calling a round done** (§28.2 — the scratch-home sim instance plus the replica
-WebSocket driver): the harnesses use scripted providers and the oracle sees only what they visit;
-the live walk runs the real tmux server, shelf, qBittorrent and library under the real grammar,
-and it is what found the last five.
-**A fourth review on 2026-09-04 (evening) — `HANDOFF.md` §29 — found the LAST constant of that
-class: the list rhythm itself.** Every list's row face inks 27 px at 100 % and the 32 px row held
-it exactly, so at 115 % the row above the lens lost its descenders to the lens fill — and the
-oracle cannot see that (the ink stays inside the damaged rect); only a 1× render can. `Layout`
-now carries a measured `rowH` / `lensH` and every second lens line goes through `Draw.lineBelow`.
-The walk then found the tmux alert notice was app-less (a tap only dismissed it), the shell loop
-caught `Exception` but not `Error` (a frozen display behind a healthy status), brightness could
-never return to auto, and the context menu's fixed width cut labels at the chrome cap. 🔴 Two
-walk rules learnt the hard way: **one step per snap in any window with a destructive row** (a
-blind run started a stopped torrent on the real qBittorrent), and **never rebuild the jar under a
-running instance**. Deployed 2026-09-04 22:00 (the service on the §29 build; APK 29/0.29 staged).
-**A fifth review on 2026-09-05 — `HANDOFF.md` §30 — nineteen verified defects, and two of them
-were in the GATES.** 🔴 **A wheel closed mid-spin never stopped spinning**: `Switcher.spinning`
-stayed true, the frame loop posts another Pump for as long as it is, and `isQuiescent()` reads the
-same flag — an unbounded loop of empty frames and a shell never idle again, from a scroll and a tap
-inside four animation frames. 🔴 **The standing `--selfcheck` oracle failed one run in ten and
-always had** (2/20 measured on the unchanged tree): its SAMPLE was torn — `isQuiescent()` from
-another thread, then composed, the plane map and both panels read one after another across a window
-the shell repaints inside. `Shell.sampleIdle` takes the reading ON the loop (20/20 clean after).
-🔴 **The Hold'em seat strip drew every opponent's stack through the board** at 288/130 %; the seat
-faces are measured now and the strip goes COMPACT — one row, money first — where two will not fit.
-The §27 rule claimed five more: the notification and menu rules struck the text they bracketed, the
-clock's AM/PM marker sat inside the last digit above 100 %, the Games documents sized their lines
-from `lineHeight` (which is SHORTER than the ink — AWT ceils ascent and descent separately), and
-Files drew nothing at all for an empty list. Also: the staleness surface now reaches every level
-(tmux and Torrents both said it in one place only), a STAGED settings row no longer claims "scroll
-adjusts live", and a row that cannot succeed is dim. 🔴 The lesson to carry: **the harness is part
-of the system under review** — when a test bound fires, measure the normal case before calling it
-load (the worst settle in a clean walk is 46 ms, which is what turned a 120 s "flake" into the
-wheel defect).
+remote` keeps the claim path as the explicit dev override). **`REMINDER.md` is the orientation
+file and the entry point**; `HANDOFF.md` the dated records (§19–§36 are current); `DAILY.md` the
+ops crib; `IMPLEMENTATION.md` what runs and how. App layer: **Main · Settings · Reader · Tmux ·
+Files · Torrents · Music · Games** (`WINDOWS.md` is the conversion checklist; `TMUX.md`,
+`TORRENTS.md`, `MUSIC.md`, `HOLDEM.md` the per-window records).
+
+**Five whole-codebase reviews (`HANDOFF.md` §25–§30) and the latency pass (§32–§36) left rules
+that bind every change.** The short list — each with its record:
+
+- 🔴 **A rect a paint returns is a promise.** Size every band from the face's MEASURED ink
+  (`ascent + descent`), never from a line height or a constant; ink outside a declared damage
+  rect is never sent and the belief-vs-glass check cannot see it (§27, §29 — the list rhythm, the
+  menu, the notification box, the wheel all broke at the top of the font ladder this way). The
+  truth oracle is a STANDING gate: `--selfcheck` runs it on every settle, `OracleWalkTest` over a
+  seeded random walk at all four heights.
+- 🔴 **The harness is part of the system under review** (§30): a wait decides on ONE evaluation,
+  a scripted scene pins its seed, a sample compared to the glass is taken ON the loop
+  (`Shell.sampleIdle`), and a rate is measured twenty times, not three.
+- 🔴 **Live-drive the real program before calling a round done** (§28.2, §33):
+  `tools/glassdrive.py` drives the phone's shell and snapshots the mirror; one step per snap in
+  any window with a destructive row; never rebuild the jar under a running instance.
+- 🔴 **Never answer a refused image with more images** (§36): the firmware's Silent Mode refuses
+  every frame and pushes the state; the shell sleeps with the glasses and drops the lease on
+  purpose. And **a lost ack is released by a later ack**, never held for a msgId cycle (§34).
+- 🔴 **Latency is a standard, not a pass** — the section "Latency standards" below and
+  `WINDOWS.md` §6 bind every window and surface written from now on. `REMINDER.md` carries the
+  measured numbers to price with; the `/50` curve is PC-direct only.
 
 Adam's stated methodology governs **the app layer**:
 
@@ -464,6 +431,36 @@ that don't fit raise loudly, never silently mangle.
   back as depth comfortably allows; notifications, modals and popups come FORWARD in front of it.**
   This reverses an earlier *inferred* rule ("background farther, never foreground nearer") that was
   never his — do not reintroduce it. `DESIGN.md` §3 holds the ladder and calibration plan.
+
+## Latency standards — every window, every surface (2026-09-05, `HANDOFF.md` §37)
+
+The daily path is the phone's radio: **~70 ms per flush plus ~120 ms per KB** (`REMINDER.md`'s
+table). Everything below follows from those two numbers.
+
+- **Bytes are the cost; floors are the second cost.** A gesture's answer is priced by the FIRST
+  flush it produces: its bytes, plus one floor. Design every interaction so the first flush is
+  small — a translation (mode 9, ~40 B) or a strip — and the heavy fill follows in a later flush.
+  Measure "time to first visible change" per gesture with `tools/journal_report.py`; a list notch
+  at 0.8 s is a defect, not a fact of the link.
+- **Text goes through the texture cache once it is adopted** (mode 14 for strings, mode 13 for
+  icons — the atlas is per lease). Until then, a row costs its pixels; keep rows lean and let the
+  compositor's diff find the change. Never repaint a whole list because one cell changed.
+- **Chrome never justifies its own flush** (`DESIGN.md` §8.3). Live telemetry (the throughput
+  readout) moves only on a gesture's own flush or the idle tick — the 2026-09-05 walk found 149
+  of 320 flushes were that readout alone.
+- **A live window may keep the link busy while it is the ACTIVE window** (Adam, 2026-09-05:
+  tmux, Music, Torrents — he is watching them). Not while inactive: park the poll, drop the
+  subscription. And make each update cost what changed, not the window.
+- **The phone's CPU is a term of its own** (~30–100 ms per flush before 0.33): never wrap, parse
+  or lay out what did not change (`FlowRender`'s per-line memo, `Wrap`'s estimate, the
+  rasterizers' caches are the precedents); never do network or disk on the loop; measure with the
+  journal's split (`handlerMs`, `slidesMs`, `chromeMs`, `textMs`, `truthMs`, `compressMs`).
+- **Animation adapts to the link.** Frames per notch are a Global setting (`auto` = the ease-out
+  rule, the default); the wheel already spins in 2 frames on a measured slow link. A window never
+  adds frames of its own.
+- **Every new window ships with its latency profile**: walk it with `tools/glassdrive.py`, put
+  the per-gesture first-flush bytes and ack in its record, and keep both under the numbers the
+  precedents hold (`WINDOWS.md` §6).
 
 ## Hardware and environment
 

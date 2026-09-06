@@ -101,7 +101,7 @@ The refinery pass `WINDOWS.md` §3 step 1 requires. Numbered so later work can c
 
   **Width is never the constraint; height always is.** Five cards at 72 wide with 16 px gaps is
   424 px inside 608.
-- **Latency** (`overview.md` §5.2, n=1,488 flushes): `ms ≈ 60 + bytes/50`.
+- **Latency** (`overview.md` §5.2, n=1,488 flushes): `ms ≈ 60 + bytes/50` — ⚠ PC-direct only; the daily path is the phone's, ~70 ms + ~120 ms/KB (`REMINDER.md`, 2026-09-05).
 - **Rect budget** 5 mode-3 rects at the 3-deep pipeline (`Geometry.rectBudget`).
 - **`CanvasView` exists and is exercised** — Tmux's live grid is its first user. It hands the
   window a `Gray8` and a `Rect` and takes damage tracking back from the WM (`DESIGN.md` §4.6:

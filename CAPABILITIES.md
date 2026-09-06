@@ -35,7 +35,7 @@ per-app gestures, or off-panel scratch is already ruled out.
 | Off-panel scratch / save-under | ❌ **does not exist** — the full 640×480 is visible | ❌ |
 
 **Constraints that shape every design (the MEASURED CFW curve, 2026-08-31 — `overview.md`
-§5.2): `ms ≈ 60 + bytes/50`** — a ~60 ms floor per flush, ~50–75 KB/s transfer ⇒ **cost is
+§5.2): `ms ≈ 60 + bytes/50`** on PC-direct; **the daily path is the phone's: ~70 ms + ~120 ms/KB** (`REMINDER.md`, 2026-09-05) ⇒ **cost is
 still ack-floor-dominated, so batch aggressively and scroll coarsely** (the old stock numbers,
 ~176 ms / 7–13 KB/s, price only the retired stock path); deflate **level 6** (level 9 costs
 18–109 ms/frame, level 1 pushes payloads past the 3800 B fragment boundary); **no dithering**;
@@ -96,11 +96,12 @@ FB lease must be renewed every 45 s or stock LVGL repaints over you.
 
 **Highest ceiling, already ours:** mode-8 batched damage with real fonts. Everything G2CC avoided
 because images cost seconds — thumbnails, embedded images, game frames, an ebook reader with real
-typography — is now bounded by the measured `ms ≈ 60 + bytes/50` curve, once per frame.
+typography — is now bounded by the measured curve, once per frame — the PHONE path's, ~70 ms + ~120 ms/KB (`REMINDER.md`; the `/50` slope was PC-direct only).
 
-**Highest ceiling, not yet ours:** the **texture cache** — in the firmware since `a5d1c31`, wire +
-byte-exact model built (`IMPLEMENTATION.md`), compositor adoption still gated on the on-glass
-checks (`REMINDER.md` items 19–20). It is what makes anti-aliased text cheap at scale, and it is
+**Highest ceiling, not yet ours — and the next build (`HANDOFF.md` §37):** the **texture cache** —
+in the firmware since `a5d1c31`, wire + byte-exact model built (`IMPLEMENTATION.md`), compositor
+adoption gated on the on-glass checks (`REMINDER.md` items 19–20) and then wanted "as much as we
+can" (Adam, 2026-09-05). It is what makes anti-aliased text cheap at scale, and it is
 the difference between "AA text is affordable" and "AA text is free." Design so it can be adopted
 without rework.
 

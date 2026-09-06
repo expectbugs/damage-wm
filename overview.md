@@ -792,7 +792,16 @@ hours reads `driving via remote:aphone` and the journal's stall notes name `apho
 §31.1's slow rows, and the ~6× between the two radio paths is the phone's BLE stack, not the
 glasses. **Measured on the phone itself the same afternoon (`HANDOFF.md` §33, grade M):** < 500 B
 72 ms, 3–6 KB 667 ms, 6 KB+ 1,036 ms median, isolated flushes, with HIGH priority GRANTED
-(15 ms / latency 1 / 1M) — the interval is not the wall. This also does
+(15 ms / latency 1 / 1M) — the interval is not the wall.
+
+🔑 **Why the phone path is ~8 KB/s (2026-09-05, `HANDOFF.md` §37; grade I, consistent to within
+noise):** Android's GATT allows one outstanding write, so the APK sends **one 242 B AA packet per
+usable connection event**; the granted parameters are 15 ms with **slave latency 1**, so the
+glasses listen every 30 ms; 242 B / 30 ms ≈ 8 KB/s — the measured transfer term. BlueZ on the PC
+queues freely and sends ~6 packets per event, which is the whole gap between the two regimes.
+The levers, in order: slave latency 0 (a firmware-side preference — Babcock's), and bytes (the
+texture cache). §5.1's "the host is not feeding the radio" was right about the phone; the PC path
+never had the problem. This also does
 **not** retire the 7–13 KB/s row above, which is the stock EvenHub path on stock firmware. The ~10× shortfall question (§5.1) is about that path;
 this section says the CFW path on this host clears at least ~50 KB/s of it.
 

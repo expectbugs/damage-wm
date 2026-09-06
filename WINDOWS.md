@@ -57,6 +57,9 @@ These are the non-negotiables, each with its authority:
 - **Misfire tolerance** (§1.7): cursor rests on a harmless cell after every level change;
   destructive rows never at cursor rest, never index 0/1; every navigation undoable by
   double-tap.
+- **The latency standards of §6** — the first flush of every gesture is small, text and icons
+  go through the kit (the texture cache when adopted), updates cost what changed, live only while
+  active, no work on the loop but painting, and the window ships with its measured profile.
 - **Every destructive or outbound act stages a confirm** — deletes, sends, ending a session,
   typed text (`onTypedText` always stages; the Tmux TYPE_CONFIRM shape). Recorded exemption: a
   read-only query — the Torrents search — commits without one (`TORRENTS.md` §3.1).
@@ -349,3 +352,33 @@ All four rows of the agreed build order are CODE, and so is the keyboard that fo
 - **Blind gesture scripts drift.** A live walk that assumes where the Main or Settings cursor
   rests changes the wrong rows within a dozen steps (§28.2 changed five settings by accident).
   Snap, look, then act — or ask the shell (`menuLabels`, `rootRow`) rather than counting.
+
+
+## 6. Latency standards — the bar for every window written after 2026-09-05 (`HANDOFF.md` §37)
+
+The link is the phone's: ~70 ms per flush + ~120 ms per KB, one AA packet per usable
+connection event (`REMINDER.md`, measured). A window is judged on **time to first visible
+change per gesture**, not on bytes per screen.
+
+1. **The first flush a gesture produces is small.** A notch is a translation (the kit's slides
+   already declare mode-9 copies; a canvas repaint that translates is detected) plus the newly
+   exposed strip. Heavy repaints — a lens row with an icon and two lines, a whole pane — go in a
+   LATER flush, never the first. If a window cannot express a change as translation + strip, say
+   why in its record.
+2. **Text and icons through the texture cache** once adopted (mode 14 / mode 13): draw with the
+   kit's helpers and never with private glyph paths, so the switch to cached draws is the kit's
+   change, not the window's.
+3. **Update what changed.** A pushed frame, a poll result, a progress tick repaints the rows or
+   cells that changed; the compositor's diff sends only the difference, but the window's own CPU
+   is paid for every row it repaints on the phone. Memoise per line / per row (`FlowRender`).
+4. **Live only while active.** Polls, subscriptions and visualisers run at their pace while the
+   window is the active one (Adam's ruling: he is watching); parked windows hold no loop.
+5. **No work on the loop that is not painting.** Network, disk, decoding, wrapping a book — off
+   the loop, applied through `runOnShell`, with a generation guard.
+6. **No animation of its own.** Frames per notch are the shell's setting; a window declares
+   translations and damage, nothing more.
+7. **Ship with numbers.** Walk the window with `tools/glassdrive.py` (snap before every tap),
+   read `/journal` with `tools/journal_report.py`, and record per gesture: first-flush bytes,
+   first ack, total bytes, wall. The precedents to beat or match: Reader notch first flush
+   1.2–4.3 KB; tmux history notch 2.4–4.3 KB; a list notch after the §37 ordering fix should be
+   under 500 B.

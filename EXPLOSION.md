@@ -50,7 +50,7 @@ from the replicas — **always staged behind the window's own confirm**) · `bac
 
 ### 0.3 The price list every idea is graded against
 
-**Measured** (`overview.md` §5.2, n=1,488 flushes, PC-direct): `ms ≈ 60 + bytes/50`.
+**Measured** (`overview.md` §5.2, n=1,488 flushes, PC-direct): `ms ≈ 60 + bytes/50` — ⚠ superseded for the daily path: the phone's is ~70 ms + ~120 ms/KB (`REMINDER.md`, 2026-09-05).
 **Byte counts below are modeled** (the `DESIGN.md` §4.6/§8.4 render-derived numbers) and re-priced
 on that measured curve — say which is which when quoting.
 
@@ -586,7 +586,7 @@ window (Torrents, §19) shipped through `WINDOWS.md`'s checklist.
 
 > ✅ **BUILT 2026-09-01 (evening) — `TORRENTS.md` is the record, `HANDOFF.md` §23 the build and
 > its four review rounds (paused at Adam's word); on-glass verdicts still owed (APK 0.18 staged,
-> 0.16 the last installed).**
+> 0.16 the last installed — until 2026-09-05, when 0.30–0.33 went on glass in one afternoon; `REMINDER.md`).**
 > Adam's verdicts supersede the grades below — and his rule for this and every later window
 > is **no v1/v1.5 staging: complete and polished before the next app.** Ships whole: T.1–T.6
 > and T.8, plus a **seeding-under-a-week list** (TL's hit-and-run window), account Stats, and

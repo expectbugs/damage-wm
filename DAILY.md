@@ -39,7 +39,7 @@ staged build: Files + theme icons + the sync client + Torrents + the keyboard + 
 2026-09-01 review fix + the chrome tweaks (the Silent-clock size row included) + Music + its
 three reviews + the 2026-09-03 Now Playing root and the two player fixes + that day's
 whole-codebase review (`HANDOFF.md` §25) + **Games · Hold'em** and the shell's
-switcher-resume / Main-root rule and all three of its review cycles (`HANDOFF.md` §26); 0.16 is
+switcher-resume / Main-root rule and all three of its review cycles (`HANDOFF.md` §26); ⚠ stale: **0.33 is installed and 0.34 staged since 2026-09-05** (`REMINDER.md`); 0.16 was
 the last build observed installed**; **0.28**, staged 2026-09-04 18:16, adds the 2026-09-04-late
 review — `HANDOFF.md` §28; **0.29**, staged 2026-09-04 22:00, adds the fourth review —
 `HANDOFF.md` §29, the measured list rhythm, the tmux alert's deep link, brightness back to auto —
@@ -164,8 +164,8 @@ the sync feel across a driver swap (a book position following the swap). Current
 `HANDOFF.md` §24.4 — that day's whole-codebase review, §25, and **Games · Hold'em** with the
 shell's switcher-resume / Main-root rule and all three review cycles, §26, **and the 2026-09-05
 whole-codebase review, §27** — the Music Mode card, the chrome font ladder, the Games cash-out
-and the truth-oracle gate); **0.16 is the last build observed INSTALLED** (2026-09-01 — the
-phone speaks the files channel), so **0.29 is the one to install** — staged 2026-09-04 22:00
+and the truth-oracle gate); ~~0.16 is the last build observed INSTALLED~~ — **0.33 is installed and 0.34 is the one to
+install (the silent-glasses fix, `HANDOFF.md` §36), since 2026-09-05** — staged 2026-09-04 22:00
 with the fourth review (§29), the same moment the service was restarted onto it
 (`standby up (§19)`, the phone reattached to every channel).
 ✅ Both sides are deployed as of 2026-09-04 22:00: `:phone:stageApk` put 0.29 on the setup page

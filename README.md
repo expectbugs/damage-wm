@@ -18,7 +18,7 @@ wearer in the loop: chrome behind the content plane, per-app height, Reader fold
 Tmux window (terminal output as FLOWED text — the cell grid is retired to an alternate-screen
 fallback — with typed text via the replicas and waiting-session alerts), a seven-segment
 silent clock, live brightness, wire-fed battery cells, and a measured latency curve
-(`ms ≈ 60 + bytes/50`) that retired the modeled numbers.
+(`ms ≈ 60 + bytes/50` on PC-direct; the phone path, the daily one, is ~70 ms + ~120 ms/KB — `REMINDER.md`) that retired the modeled numbers.
 
 **2026-09-01 — the app wave opened with FILES**, the first G2CC→DamageWM conversion: a
 locations root with capacity bars, tap = a floating context menu with Open first, in-app
