@@ -30,7 +30,7 @@ per-app gestures, or off-panel scratch is already ruled out.
 | **Unbounded scroll** | mode 8 { mode 9 shift + mode 3 fill } | ✅ V |
 | **Per-lens stereo shift** | high bit of mode byte · same pixels, different box per eye | ✅ V |
 | Anti-aliased text at 16 levels | host-side rasterisation; cheaper than we modelled | ✅ M |
-| **Texture cache — 64 KiB, lease-scoped** | ✅ LANDED (CFW `a5d1c31`, modes 11–15): wire + byte-exact model built, compositor adoption deliberately pending the on-glass checks (`REMINDER.md` items 19–20) | ✅ V |
+| **Texture cache — 64 KiB, lease-scoped** | ✅ LANDED (CFW `a5d1c31`, modes 11–15): wire + byte-exact model built; **adopted 2026-09-06 for plane-0 text behind the Global `Cached text` row** (`HANDOFF.md` §40.6; off until the on-glass checks, `REMINDER.md` items 19–20). Cached draws are flat — depth planes stay pixels | ✅ V |
 | Diagnostic overlay (`f_reorder`/`f_skip`/`f_dup`/`f_snap_of`) | mode 7 sub 2 | ✅ V |
 | Off-panel scratch / save-under | ❌ **does not exist** — the full 640×480 is visible | ❌ |
 
@@ -98,7 +98,7 @@ FB lease must be renewed every 45 s or stock LVGL repaints over you.
 because images cost seconds — thumbnails, embedded images, game frames, an ebook reader with real
 typography — is now bounded by the measured curve, once per frame — the PHONE path's, ~70 ms + ~120 ms/KB (`REMINDER.md`; the `/50` slope was PC-direct only).
 
-**Highest ceiling, not yet ours — and the next build (`HANDOFF.md` §37):** the **texture cache** —
+**Highest ceiling — adopted for plane-0 text 2026-09-06 (`HANDOFF.md` §40.6), the rest waits on a per-lens firmware variant:** the **texture cache** —
 in the firmware since `a5d1c31`, wire + byte-exact model built (`IMPLEMENTATION.md`), compositor
 adoption gated on the on-glass checks (`REMINDER.md` items 19–20) and then wanted "as much as we
 can" (Adam, 2026-09-05). It is what makes anti-aliased text cheap at scale, and it is

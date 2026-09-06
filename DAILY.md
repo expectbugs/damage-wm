@@ -34,21 +34,10 @@ ever needs redoing: (1) sideload from the setup page, grant Bluetooth ×2 + noti
 battery exemption; (2) 🔴 keep the G2CC bridge app Disconnected (a second central); (3) phone
 first light with NOTHING on beardos holding the pair (`sudo rc-service damage stop`), flip
 Target → glasses; (4) `sudo rc-service damage start` → the log says "standby up (§19)" and the
-phone keeps driving. ⚠ Keep the PHONE APK current with the PC (setup page — **0.27 is the
-staged build: Files + theme icons + the sync client + Torrents + the keyboard + every
-2026-09-01 review fix + the chrome tweaks (the Silent-clock size row included) + Music + its
-three reviews + the 2026-09-03 Now Playing root and the two player fixes + that day's
-whole-codebase review (`HANDOFF.md` §25) + **Games · Hold'em** and the shell's
-switcher-resume / Main-root rule and all three of its review cycles (`HANDOFF.md` §26); ⚠ stale: **0.34 is installed and 0.37 staged since 2026-09-06** (`REMINDER.md`); 0.16 was
-the last build observed installed**; **0.28**, staged 2026-09-04 18:16, adds the 2026-09-04-late
-review — `HANDOFF.md` §28; **0.29**, staged 2026-09-04 22:00, adds the fourth review —
-`HANDOFF.md` §29, the measured list rhythm, the tmux alert's deep link, brightness back to auto —
-and the service runs that build too. **The fifth review, `HANDOFF.md` §30, is committed but NOT
-staged or deployed:** the service is still on the §29 build and 0.29 is still what is on the setup
-page). Why old
+phone keeps driving. ⚠ Keep the PHONE APK current with the PC: `REMINDER.md` says which build is
+installed and which is staged on the setup page (0.34 installed, 0.37 staged, 2026-09-06). Why old
 APKs matter: a pre-0.15 APK cannot be status-probed (the PC conservatively stays out — fine)
-and a pre-0.10 one carries no sync client, so state does not flow until it is updated. 0.16
-being installed also unblocks Reader's transitional legacy-offsets cleanup (`REMINDER.md` Next 2).
+and a pre-0.10 one carries no sync client, so state does not flow until it is updated.
 
 ## Music (2026-09-02, `MUSIC.md`) — the phone plays, the PC serves
 
@@ -167,22 +156,11 @@ PC logged `sync-host: peer attached to the sync channel`, the store migrated to 
 schema, and a phone-side record (`window.tmux`) crossed and applied store-direct while the PC
 shell was in standby. **Still awaiting a deliberate glass test**: a real standby engagement
 (stop the APK at the desk → the PC BLE-drives within ~10 s → restart the APK → handback) and
-the sync feel across a driver swap (a book position following the swap). Current staged APK:
-**0.27** (Files, the chrome tweaks, Torrents, the keyboard, Music + its three reviews, the
-2026-09-03 Now Playing root + the quiet-stream notice + the stable-identity output restore —
-`HANDOFF.md` §24.4 — that day's whole-codebase review, §25, and **Games · Hold'em** with the
-shell's switcher-resume / Main-root rule and all three review cycles, §26, **and the 2026-09-05
-whole-codebase review, §27** — the Music Mode card, the chrome font ladder, the Games cash-out
-and the truth-oracle gate); ~~0.16 is the last build observed INSTALLED~~ — **0.33 is installed and 0.34 is the one to
-install (the silent-glasses fix, `HANDOFF.md` §36), since 2026-09-05** — staged 2026-09-04 22:00
-with the fourth review (§29), the same moment the service was restarted onto it
-(`standby up (§19)`, the phone reattached to every channel).
-✅ Both sides are deployed as of 2026-09-04 22:00: `:phone:stageApk` put 0.29 on the setup page
-and `./gradlew :desktop:stageJar && sudo rc-service damage restart` put the service on the §29
-build (it never touches the display; the PC does not claim). The log came up `standby up (§19)`
-with the phone reattached to the sync, music, files, torrents and tmux channels.
-⛔ **The fifth review (§30, 2026-09-05) is committed and pushed but NOT deployed** — no `stageJar`,
-no `stageApk`, no service restart. Deploying it is the same two commands, at Adam's word.
+the sync feel across a driver swap (a book position following the swap). Which APK is staged
+and which is installed lives in `REMINDER.md`; both sides are deployed together after every
+build (`:phone:stageApk` to the setup page, `stageJar` + `rc-service damage restart` for the
+service, which never touches the display — the log comes up `standby up (§19)` with the phone
+reattached to every channel).
 
 **Games (2026-09-04, `HOLDEM.md`) needs nothing from ops.** ✅ Live on the PC service since
 2026-09-04 13:07. It is pure Kotlin with no host, no

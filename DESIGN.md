@@ -1810,10 +1810,11 @@ what was *sent*, but a lost flush no longer "rolls back" to a snapshot — it ma
 cells it touched **unknown**, because other flushes land around it and no snapshot can say what
 the glass holds. Rule 16 is partial: a lease loss requests a keyframe; reconnect itself is still
 host-driven. Rules 5 (speculative pre-compression), 10 (cross-window deltas from the current
-screen) and 18 (content-hash cache keys) are **not built yet** — the seam is designed to take
-them. (Rule 18's target has since landed: the cache is in CFW `a5d1c31` since 2026-08-30 and
-`wire/CfwModes.kt` + `wire/TextureCache.kt` encode modes 11–14, but the compositor still emits
-pixel deltas only — adoption waits on the on-glass check, `IMPLEMENTATION.md` → The texture
+screen) are **not built yet** — the seam is designed to take them. Rule 18 (content-hash cache
+keys) is built as the texture-cache path (2026-09-06, `HANDOFF.md` §40.6): the cache is in CFW
+`a5d1c31`, `wire/CfwModes.kt` + `wire/TextureCache.kt` encode modes 11–14, and behind the Global
+`Cached text` row plane-0 text ships as mode-14 draws under a byte-exact proof — off until seen
+on glass, `IMPLEMENTATION.md` → The texture
 cache.) `LensOracleTest` pins the per-lens model against the firmware simulator; see
 `IMPLEMENTATION.md` → "Review hardening".
 

@@ -118,7 +118,7 @@ Damage` and the APK-wide `Phone notifications` switch, and the shell never gates
 source on a hidden field — a Global row that disappears leaves a persisted value nothing can undo).
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(459 tests, including the per-lens oracle, the §25–§31 review pins and the random-gesture
+(484 tests, including the per-lens oracle, the §25–§31 review pins, the §40 latency pins and the random-gesture
 oracle walk), `./gradlew :desktop:test` (11 tests: the BlueZ glue
 over a fake link and the config file's safety), `desktop --selfcheck` (189 checks, the truth oracle on every settle), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `desktop --music-check` (the real library, read-only bar the additive schema migration),

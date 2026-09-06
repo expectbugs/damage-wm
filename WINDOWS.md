@@ -382,5 +382,5 @@ change per gesture**, not on bytes per screen.
 7. **Ship with numbers.** Walk the window with `tools/glassdrive.py` (snap before every tap),
    read `/journal` with `tools/journal_report.py`, and record per gesture: first-flush bytes,
    first ack, total bytes, wall. The precedents to beat or match: Reader notch first flush
-   1.2–4.3 KB; tmux history notch 2.4–4.3 KB; a list notch after the §37 ordering fix should be
-   under 500 B.
+   1.2–4.3 KB; tmux history notch 2.4–4.3 KB — both before the §40 split; a list notch's first
+   flush is under 500 B in the simulator since §40 (the lens rides the second), unwalked on glass.

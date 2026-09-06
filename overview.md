@@ -1507,9 +1507,10 @@ workday.** The spec has a hybrid power policy and no measured budget.
 
    Multiple screens of on-device cache beats a 640×480 margin by a wide margin — and ✅ **it
    LANDED in the installed a5d1c31 (2026-08-30)**: modes 12/13/14 (+11 teardown, 15 refused),
-   lease-scoped 64 KiB, fully documented in §4. What remains open is deliberate: **the
-   compositor has not adopted it** — priced against the measured curve when the on-glass checks
-   (REMINDER items 19–20) run.
+   lease-scoped 64 KiB, fully documented in §4. **Adopted 2026-09-06 behind the Global `Cached
+   text` row (`HANDOFF.md` §40.6)** — plane-0 text as mode-14 draws under a byte-exact proof; off
+   until the on-glass checks (REMINDER items 19–20) have run. ⚠ Modes 13/14 draw one x into both
+   lenses (they ignore the lens bit, `zlib_glue.c`), so depth planes stay pixels.
 
    🔴 **Why it matters — the author's own reason for building it:**
 
@@ -1639,7 +1640,8 @@ which open decision changes if the answer flips. If none does, it is not a block
   the build:** overlays repaint the covered region with mode 3 (~215 ms stock-priced, ~65–100 ms
   on the CFW curve for a 300×80 box); the context menu captures and restores the under-content
   the same way (`DESIGN.md` §4.7). Texture caching — the real version of what save-under was
-  reaching for — has landed in firmware but is not adopted by the compositor (§11 #2).
+  reaching for — has landed in firmware and is adopted for plane-0 text behind a setting
+  (`HANDOFF.md` §40.6; §11 #2).
 - **No dithering** — it halves compression and the host does better 4-bit downsampling anyway.
 - **Anti-aliased text at 16 levels** — the biggest visual upgrade available.
 - **Keep the both-temple silent-mode gesture** as a hardware escape hatch.

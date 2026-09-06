@@ -2790,6 +2790,8 @@ keep the link busy while it is the active one. This section is the hand-off to a
 
 ### 37.0 🔴 FIRST THING IN THE NEW SESSION: the wake from Silent Mode must REBUILD the session
 
+> **Built in §38 (2026-09-05, late).** Kept as the design record; act on §38 and §40.7.
+
 **Measured on glass with 0.34 (2026-09-05 22:04, the phone journal):** both halves of §36's wire
 fact work — at 22:04:02 the settings READ's restored state put the shell to sleep at session
 start, and at 22:04:28 the push OFF parsed and the shell woke. Then the glasses **kept refusing
@@ -2857,6 +2859,8 @@ strip is five dense lines; the list notch's first flush is the lens. **Time to f
 is the metric** (`DESIGN.md` §8.6); bytes in the first flush decide it.
 
 ### 37.3 The order of work
+
+> **Items 1–4 and the watchdog were built in §40 (2026-09-06); the walk is §40.7.** Kept as the record of the order Adam set.
 
 1. **The chrome-only flush defect** (§37.1). Pure defect, no design change, walk to confirm the
    count falls from ~150 to near zero.

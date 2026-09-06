@@ -669,7 +669,8 @@ clamps and the raw passthrough.
 ## The texture cache (2026-08-30, CFW `a5d1c31`)
 
 The firmware grew a **64 KiB lease-scoped texture cache** and three draw modes. The wire and
-model layers are built and green; the compositor has not adopted them yet, deliberately.
+model layers are built and green; the compositor adopted them behind the Global `Cached text` row
+on 2026-09-06 (the paragraph "Adopted behind…" below).
 
 **Built:**
 
@@ -965,7 +966,7 @@ Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md
 
 ## Verification
 
-- `./gradlew :core:test` — **456** unit/integration tests (2026-09-05's fifth whole-codebase
+- `./gradlew :core:test` — **484** unit/integration tests (2026-09-06's latency build, `HANDOFF.md` §40, on top of 2026-09-05's fifth whole-codebase
   review — `HANDOFF.md` §30 — added `Review30Test.kt`, thirteen pins: the notification rule off its
   source line, the menu rule off its title, the Games documents holding their ink, Files saying why
   an empty list is empty, the clock marker clear of the time, the medium clock's even digits, the
