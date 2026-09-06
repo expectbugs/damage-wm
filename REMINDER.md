@@ -58,7 +58,16 @@ Adam's rulings (2026-09-05, evening) that bound it:
    strip. The lever is **time to first visible change**: send the translation first, the heavy
    fill second, and make the fill cheap (mode 14/13).
 
-The ordered work (§37.3): the chrome-only flush defect (149 of 320 flushes in a walk, a §8.3
+🔴 **FIRST (§37.0): the wake from the firmware's Silent Mode must REBUILD the session.** Tested on
+glass with 0.34 at 22:04: the sleep worked (the READ's restored state and the push OFF both
+parsed), but after the glasses said they were awake they refused every image for over a minute —
+leaving Silent Mode tears the EvenHub session down. The design is settled in §37.0: wake =
+`Transport.restartSession` (disconnect + `onLinkDown`, the keeper rebuilds everything — G2CC's
+reconnect-and-relayout path); retire the black-keyframe probe (the 60 s READ is the fallback, plus
+a paced restart attempt); journal system events 4/5/7; the simulator drops the carrier on silent
+so the test forces the rebuild; no mirror check while asleep. Until then: Target → SIM → glasses.
+
+The rest of the ordered work (§37.3): the chrome-only flush defect (149 of 320 flushes in a walk, a §8.3
 violation) → first-visible-change ordering for list and canvas notches → the slide-frames setting
 → the texture cache on glass, then adopted → walk after each with `tools/glassdrive.py` and read
 `/journal` → then the remaining §33–§35 items (truth render, cold-start re-ask, the radio's slave

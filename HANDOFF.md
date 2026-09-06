@@ -2788,6 +2788,47 @@ much."* And the rulings that shape the work: slide frames become a Global settin
 default where it is; the texture cache is to be adopted as far as it goes; a live window may
 keep the link busy while it is the active one. This section is the hand-off to a fresh session.
 
+### 37.0 🔴 FIRST THING IN THE NEW SESSION: the wake from Silent Mode must REBUILD the session
+
+**Measured on glass with 0.34 (2026-09-05 22:04, the phone journal):** both halves of §36's wire
+fact work — at 22:04:02 the settings READ's restored state put the shell to sleep at session
+start, and at 22:04:28 the push OFF parsed and the shell woke. Then the glasses **kept refusing
+every image** for more than a minute after saying they were awake: three 136-byte frames refused
+at 22:04:28 (the shell went back to sleep on the streak), probes refused at 22:04:43, 22:04:44
+(on input) and 22:05:28 (pacing). §36's wake — take the lease back, keyframe — is not enough:
+**leaving Silent Mode tears down the firmware's EvenHub session, and nothing paints until it is
+built again.** Faceclaw resets its layout on the foreground-exit events for the same reason, and
+G2CC — *"remarkably robust with its connection"* (Adam) — recovered from every such state the
+same way: a response-gap watchdog that simply RECONNECTED, and the fresh connection rebuilt the
+layout. Grade: the refusals M; the cause I, corroborated by both references.
+
+**The fix (design settled, not yet built):**
+
+1. **Wake = rebuild the session, G2CC's path.** `Transport.restartSession(reason)` in
+   `CfwTransportBase`: `disconnectLink()` then `onLinkDown(reason)` — the keeper already restarts
+   on a link end (prelude, capability gate, CREATE with the re-ask, lease, warmup, the shell's
+   keyframe). `Shell.wakeGlasses` calls it instead of `setLeaseWanted(true)`. The READ during the
+   new start says whether the glasses are still silent, and the shell sleeps or paints on it —
+   exactly what happened at 22:04:02.
+2. **Retire the raw-image probe.** After Silent Mode ends no image is accepted until the session
+   is rebuilt, so a black keyframe can never wake the shell. The fallback for a missed push is the
+   60 s settings poll's READ (proven on glass today); for a refusal-streak sleep whose READ says
+   "not silent", attempt a restart at each pacing tick (60 s) and on the first ring event — a paced
+   loop of G2CC-style reconnects, never a storm.
+3. **Journal the system events 4/5/7** (`FOREGROUND_ENTER`/`EXIT`, `SYSTEM_EXIT`): today they
+   arrive through `parseEvent` as gesture types and are dropped unseen in `handleInput`; route them
+   as `TransportEvent.Note("event", …)`. They are probably the firmware's own "app slot gone"
+   signal around Silent Mode; the journal will say, and a wake could then key on `FOREGROUND_ENTER`.
+4. **The simulator models the teardown:** `setSilent(true)` also clears `layoutCreated` and sets a
+   `carrierLost` flag that refuses images (status 5) until the next CREATE — so `SilentGlassesTest`
+   FAILS against the §36 wake and forces the rebuild; the probe test becomes a restart test.
+5. **Skip the mirror-agreement check while asleep** and clear `lastDivergence` on wake: the
+   deliberate lease release paints the mirror's stock pattern, and the shell reported
+   `DIVERGE: RIGHT: 5468 px differ` at 22:04:02 for it — a false alarm, and its status stuck.
+
+**Until it is built, the recovery on 0.34 is the same as §36.1's:** Target → SIM, then → glasses
+(a fresh session); the both-temple press is not needed once the glasses are already awake.
+
 ### 37.1 The two defects the walks measured but did not fix
 
 - **Chrome-only flushes** (`DESIGN.md` §8.3 violated): the status bar's throughput readout changes
