@@ -716,6 +716,18 @@ agents per subsystem, every candidate verified by trace, timing or pixel
 simulation before a fix) found and fixed ~70 real defects. The mechanisms that came out
 of them are load-bearing and easy to break by accident:
 
+- 🆕 **The glasses can be asleep (2026-09-05, `HANDOFF.md` §36).** The firmware's
+  Silent Mode refuses every image; the glasses push the state and the READ
+  response restores it (`SettingsMsg.parseSilentModePush` / `parseSilentRestored`
+  → `TransportEvent.SilentMode`). `Shell.enterSilentGlasses` stops SENDING
+  (the pump still animates and syncs chrome, then returns before the flush),
+  releases the lease on purpose (`Transport.setLeaseWanted(false)` — the
+  renewal loop honours `leaseWanted`), notifies once, and probes with a black
+  keyframe (`Transport.probe`) every 60 s and on any ring event; `wakeGlasses`
+  takes the lease back and keyframes. Three consecutive ImgResCmd refusals are
+  the fallback for a missed push. Do not put the old "panic → keyframe" reaction
+  back in front of a refusal: it sent a 20 KB keyframe every 3.5 s for fifteen
+  minutes on 2026-09-05. `SilentGlassesTest` pins both paths.
 - 🆕 **The latency pass (2026-09-05, `HANDOFF.md` §32)** — seven mechanisms, all
   pixel-identical (49 scenes compared against the untouched build):
   the journal's submit line carries `via` / `handleMs` / `assembleMs` (the

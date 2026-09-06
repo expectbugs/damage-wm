@@ -53,6 +53,18 @@ interface Transport {
      *  session start. Default: ignored (a transport with no panel). */
     fun setBrightness(auto: Boolean, level: Int) {}
 
+    /** Hold or drop the framebuffer lease on demand (2026-09-05, `HANDOFF.md`
+     *  §36): the shell drops it while the glasses are in the firmware's Silent
+     *  Mode — with the lease held nothing paints anyway, and without it the
+     *  stock firmware owns the display and the both-temple gesture again — and
+     *  takes it back on wake, keyframing after. Default: nothing to hold. */
+    suspend fun setLeaseWanted(wanted: Boolean) {}
+
+    /** Send one raw image (a mode-6 keyframe) outside the flush pipeline and
+     *  report whether the glasses ACCEPTED it — the shell's wake probe while
+     *  they are silent. Default: no. */
+    suspend fun probe(image: ByteArray): Boolean = false
+
     /**
      * Bring the display up: capability gate (EVENCFW string must carry
      * img640/directfb/fbguard/imgz/rle — refuse loudly otherwise), carrier
@@ -165,6 +177,10 @@ sealed class TransportEvent {
      *  never a status or a notice — a control message the firmware ate and a
      *  re-send answered is the first one. Faults stay faults. */
     data class Note(val kind: String, val detail: String) : TransportEvent()
+
+    /** The firmware's Silent Mode, as the glasses push it (§36): while [on]
+     *  the firmware refuses every image, so the shell stops sending. */
+    data class SilentMode(val on: Boolean) : TransportEvent()
 }
 
 data class LinkState(
@@ -189,6 +205,8 @@ data class LinkState(
      *  grants or refuses the priority request without an API to ask; the
      *  parameters callback is the only place the answer appears. */
     val linkParams: String = "",
+    /** The firmware's Silent Mode as last pushed or read (§36). */
+    val glassesSilent: Boolean = false,
     val capability: String? = null,
     val rssiDbm: Int? = null,
     val transportName: String = "none",

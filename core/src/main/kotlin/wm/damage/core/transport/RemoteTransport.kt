@@ -112,6 +112,7 @@ data class WireState(
     val transportName: String, val detail: String = "",
     // 2026-09-05 (§32): defaults so a peer on an older build still decodes
     val floorMsEma: Double = 60.0, val transferMsPerKbEma: Double = 20.0, val linkParams: String = "",
+    val glassesSilent: Boolean = false,
 )
 
 // named on both sides: the two classes order their fields differently, and a
@@ -119,11 +120,13 @@ data class WireState(
 private fun LinkState.toWire() = WireState(connected = connected, started = started, leaseHeld = leaseHeld,
     inFlight = inFlight, window = window, ackMsEma = ackMsEma, bytesPerSecEma = bytesPerSecEma,
     capability = capability, rssiDbm = rssiDbm, transportName = transportName, detail = detail,
-    floorMsEma = floorMsEma, transferMsPerKbEma = transferMsPerKbEma, linkParams = linkParams)
+    floorMsEma = floorMsEma, transferMsPerKbEma = transferMsPerKbEma, linkParams = linkParams,
+    glassesSilent = glassesSilent)
 
 private fun WireState.toState() = LinkState(connected = connected, started = started, leaseHeld = leaseHeld,
     inFlight = inFlight, window = window, ackMsEma = ackMsEma, bytesPerSecEma = bytesPerSecEma,
     floorMsEma = floorMsEma, transferMsPerKbEma = transferMsPerKbEma, linkParams = linkParams,
+    glassesSilent = glassesSilent,
     capability = capability, rssiDbm = rssiDbm, transportName = "remote:$transportName", detail = detail)
 
 private fun DataOutputStream.send(c: Ctl, blob: ByteArray? = null) {
@@ -210,6 +213,14 @@ class RemoteTransportClient(
     override fun injectText(line: String) = emit(TransportEvent.Text(line), "Text")
 
     /** The write must reach the glasses through the far end's transport. */
+    // the seam is the explicit dev override (§19): the owner's own shell
+    // handles the lease and the probe on its side; a driver through the seam
+    // only learns the state
+    override suspend fun setLeaseWanted(wanted: Boolean) {
+        Log.i("remote-transport", "setLeaseWanted($wanted) is not forwarded over the seam — the owner's shell holds the lease")
+    }
+    override suspend fun probe(image: ByteArray): Boolean = false
+
     override fun setBrightness(auto: Boolean, level: Int) {
         val o = out ?: return
         scope.launch {
@@ -458,6 +469,7 @@ class RemoteTransportClient(
                 c.detail.substringAfter(':', "")), "Fault")
             "note" -> emit(TransportEvent.Note(c.detail.substringBefore(':'),
                 c.detail.substringAfter(':', "")), "Note")
+            "silent" -> emit(TransportEvent.SilentMode(c.held), "SilentMode")
             "state" -> c.state?.let { st -> updateState { st.toState() } }
             else -> Log.w("remote-transport", "unknown control ${c.t}")
         }
@@ -902,6 +914,7 @@ class RemoteTransportServer(
         is TransportEvent.DiagFlags -> Ctl(t = "flags", flags = ev.flags)
         is TransportEvent.Fault -> Ctl(t = "fault", detail = "${ev.what}:${ev.detail}")
         is TransportEvent.Note -> Ctl(t = "note", detail = "${ev.kind}:${ev.detail}")
+        is TransportEvent.SilentMode -> Ctl(t = "silent", held = ev.on)
         is TransportEvent.Battery -> Ctl(t = "batt", gPct = ev.glassesPct, gChg = ev.glassesCharging, rPct = ev.ringPct)
         is TransportEvent.FlushDone -> null   // delivered per-flush with id mapping
     }

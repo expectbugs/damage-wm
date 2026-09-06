@@ -2705,3 +2705,76 @@ Host time 26.2 s against 88.6 s of ack time. `Journal.kt`'s comment and the repo
    ~130 ms to the parse of its changed lines. Then the truth render (13 %) is the next term — it
    re-renders both full lenses every assemble.
 2. §34.5 items 2–3 and §33.7's radio work, unchanged.
+
+## 36. The silent glasses (2026-09-05, 19:53) — the incident, its cause, and the fix
+
+Adam, wearing the glasses for the first time all day: *"no display whatsoever … I tried touching
+both touchpads to activate or deactivate the firmware-level Silent Mode … that doesn't do
+anything either, which is a very serious symptom … is this something you did?"*
+
+### 36.1 What happened, from the phone's journal (grade M)
+
+- Until **19:52:00** every frame was acked: the shell sat in its own silent mode, one clock flush
+  a minute, the link up, the lease held.
+- At **19:53:00** the glasses answered a 37-byte clock delta with `ImgResCmd
+  UPGRADE_IMAGE_RAW_DATA_FAILED (5)`, and then every frame after it: the 860-byte silent keyframe
+  that had been accepted thousands of times, and once Adam woke the shell, 20 KB window keyframes.
+- The shell's recovery rule (review round 6: three failures → panic → keyframe; three failed
+  keyframes → halt until the content changes) met live content and became a loop: **266 keyframes,
+  105 panics, 40 halts in fifteen minutes, one 20 KB refusal every 3.5 s**. A session restart at
+  about 19:55 (six eaten CREATEs, §34.3) did not clear it. The link never dropped.
+- Adam's both-temple long-press did nothing while that ran and the lease was held.
+- Recovery, Adam's hands, my steps: Target → SIM (20:12:37, the storm stops), phone Bluetooth off,
+  both-temple long-press → the glasses said **"Silent Mode Off"** — so it had been ON — a
+  double-tap brought the firmware menu, another dismissed it, Bluetooth on, Target → glasses,
+  and at **20:17:07** the first accepted frame.
+
+### 36.2 The cause
+
+**The firmware's Silent Mode refuses every image** (status 5 — measured, above). The glasses
+**push the state** when it changes: a sid-0x09 message with `commandId = DeviceSendToAPP (3)`
+and `DeviceSendInfoToAPP` in root field 5 with `silentModeSwitch = 2` (Even's own schema, grade V;
+Faceclaw's `parseSilentModePush` reads exactly this, C), and the settings READ response restores
+it in the device-info block's field 14 (V). Our transport parsed neither: the push was logged at
+debug level as "a settings frame outside the capability gate" and dropped. So the shell had no
+idea the glasses were asleep, and its reaction to the refusals was the storm. That storm is the
+likeliest reason the temples could not get through, and the lease we kept renewing is why the
+stock firmware could not paint either.
+
+What put the glasses into Silent Mode at 19:53 is not in the journal — Adam's first press, or the
+firmware on its own. The push is journaled now, so the next time the journal will say.
+
+Is it something today's changes did? The refusal is the firmware's, and it began on bytes the
+firmware had accepted a minute earlier; nothing in §32–§35 touches what it accepts. The reaction
+was ours and predates today. But 0.30 was the first APK on the glasses since 0.16, so every change
+since 2026-09-01 arrived on glass at once this afternoon, and the answer to "was it the software"
+is yes: a shell that cannot recognise a sleeping display is the defect, whichever build it shipped in.
+
+### 36.3 The fix (APK 0.34 staged; the service on the same core)
+
+- **The wire:** `SettingsMsg.parseSilentModePush` / `parseSilentRestored` (lineage in the
+  comments), `TransportEvent.SilentMode`, `LinkState.glassesSilent`; the seam carries it.
+- **The shell goes to sleep with the glasses** (`Shell.enterSilentGlasses`): frames stop — the
+  surface keeps composing, slides settle, a notice unfurls, chrome syncs, nothing is sent; the
+  **lease is released on purpose** (`Transport.setLeaseWanted(false)`) so the stock firmware owns
+  the display and the temples; one notice on the phone names the both-temple gesture; a **black
+  keyframe probe** (`Transport.probe`) goes out every 60 s and on any ring event. It **wakes** on
+  the push OFF or an accepted probe: lease back, one keyframe, done. The fallback for a missed
+  push: three consecutive ImgResCmd refusals put it to sleep (the 60 s settings poll's READ carries
+  the state too). A refused probe is a journal note, not a fault.
+- **The rule amended** (`CLAUDE.md`, `DESIGN.md` §1.6): the lease is held while the glasses are
+  awake and dropped on purpose while they are silent.
+- **The simulator** models it (`GlassFirmwareSim.setSilent`: refusals, the push, field 14; a knob
+  withholds the field so the fallback is testable alone). `SilentGlassesTest` ×3: the push puts the
+  shell to sleep and the push off wakes it with belief equal to glass; three refusals without a
+  push do the same and a probe wakes it; the wire facts parse. Run eight times clean — after its
+  own settle was corrected to decide on ONE evaluation (§27.6, the trap fired again in a new test).
+
+### 36.4 What is owed
+
+1. On glass: toggle the firmware's Silent Mode with the APK connected and read the phone journal's
+   `silent` notes — the push parsed, the sleep, the release, the wake — and check the temples
+   respond while the shell is asleep (the CFW's event forwarding under the lease is still an open
+   question; with the lease released it should not arise).
+2. Whether the firmware enters Silent Mode on its own (wear detection, idle) — the journal will say.
+3. §33.7, §34.5 and §35.4 stand.

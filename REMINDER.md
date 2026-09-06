@@ -1,5 +1,14 @@
 # Where we are, and what to do next
 
+🔴 **2026-09-05 19:53 — THE SILENT GLASSES (`HANDOFF.md` §36).** Adam put the glasses on and saw
+nothing; the firmware's Silent Mode was ON and refuses every image (status 5), our transport
+dropped the push that says so, and the shell answered the refusals with a 20 KB keyframe every
+3.5 s for fifteen minutes. Recovered by releasing the lease (Target → SIM) and the both-temple
+press. FIXED and staged as **APK 0.34**: the push is parsed, the shell sleeps with the glasses
+(no frames, lease released on purpose, one notice, a black-keyframe probe), wakes on the push or
+an accepted probe; three refusals are the fallback. **Owed: see it on glass once (§36.4).**
+
+
 **Updated 2026-09-05 (later): THE LATENCY PASS — the slow regime is the PHONE's radio path,
 twelve self-contained changes shipped, and a joint plan for the rest.** `HANDOFF.md` §32 is the
 record; §32.6 is the plan. Three things to carry:

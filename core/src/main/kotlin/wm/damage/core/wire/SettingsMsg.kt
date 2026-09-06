@@ -163,6 +163,52 @@ object SettingsMsg {
         null
     }
 
+    /**
+     * The firmware's SILENT MODE, pushed by the glasses (2026-09-05,
+     * `HANDOFF.md` §36). Wire facts, graded V from Even's own g2_setting
+     * schema (g2-kit gen/g2_setting_pb.ts) and C from Faceclaw's decoder
+     * (`BleProtocol.parseSilentModePush`, read for facts only): a
+     * device-initiated sid-0x09 message whose root field 1 (`commandId`) is
+     * `DeviceSendToAPP = 3`, carrying `DeviceSendInfoToAPP` in root field 5
+     * with `silentModeSwitch = 2` (> 0 = on). The settings READ response
+     * restores the same state in its device-info block (root field 4,
+     * `DeviceReceiveRequestFromAPP`) as `silentModeSwitchRestored = 14`.
+     *
+     * What the mode MEANS on the wire is measured, not read: while it is on
+     * the firmware refuses every image with ImgResCmd status 5 — a 37-byte
+     * clock delta and an 860-byte keyframe alike — and the both-temple
+     * long-press is the only way out of it (§36.1, the incident).
+     */
+    const val CMD_DEVICE_SEND_TO_APP = 3
+    const val DEVICE_SEND_INFO_FIELD = 5
+    const val SILENT_SWITCH_FIELD = 2
+    const val DEVICE_INFO_FIELD = 4
+    const val SILENT_RESTORED_FIELD = 14
+
+    /** The pushed state, or null when [payload] is not that push. */
+    fun parseSilentModePush(payload: ByteArray): Boolean? = try {
+        if ((Pb.varintField(payload, 1) ?: -1L).toInt() != CMD_DEVICE_SEND_TO_APP) null
+        else Pb.bytesField(payload, DEVICE_SEND_INFO_FIELD)
+            ?.let { info -> Pb.varintField(info, SILENT_SWITCH_FIELD)?.let { it > 0L } }
+    } catch (e: IllegalArgumentException) {
+        null
+    }
+
+    /** The restored state from a READ response's device-info block, or null
+     *  when the block or the field is absent (stock firmware may omit it). */
+    fun parseSilentRestored(payload: ByteArray): Boolean? = try {
+        Pb.bytesField(payload, DEVICE_INFO_FIELD)
+            ?.let { info -> Pb.varintField(info, SILENT_RESTORED_FIELD)?.let { it > 0L } }
+    } catch (e: IllegalArgumentException) {
+        null
+    }
+
+    /** The push as the glasses send it — the simulator's copy. */
+    fun silentModePush(on: Boolean): ByteArray = Pb.cat(
+        Pb.v(1, CMD_DEVICE_SEND_TO_APP),
+        Pb.l(DEVICE_SEND_INFO_FIELD, Pb.v(SILENT_SWITCH_FIELD, if (on) 1 else 0)),
+    )
+
     /** Which required capability tokens are missing from an EVENCFW string. */
     fun missingCaps(capability: String): List<String> {
         val tokens = caps(capability)

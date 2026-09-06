@@ -119,6 +119,25 @@ class GlassFirmwareSim() : LensPanels {
     /** Modeled glasses battery (f4.12 of the settings READ response) and the
      *  last brightness write accepted (null level = auto). */
     var batteryPct = 87
+
+    /** The firmware's Silent Mode (§36): while on, every image is refused
+     *  with ImgResCmd status 5 (measured on the real pair 2026-09-05) and the
+     *  READ response restores the state in field 4.14. [setSilent] toggles it
+     *  the way the both-temple long-press does — with the device push. */
+    @Volatile var silentMode = false
+        private set
+
+    /** Whether READ responses carry `silentModeSwitchRestored` (field 4.14).
+     *  Stock firmware may omit it; a test withholds it to exercise the
+     *  refusal fallback on its own. */
+    @Volatile var reportSilentRestored = true
+
+    fun setSilent(on: Boolean, push: Boolean = true) {
+        silentMode = on
+        diag.event("silent", "Silent Mode ${if (on) "ON — images refused" else "OFF"}${if (push) " (pushed)" else " (no push)"}")
+        if (push) diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), SettingsMsg.SID,
+            SettingsMsg.FLAG_RESPONSE, SettingsMsg.silentModePush(on), AaFrame.TYPE_RESPONSE).single())
+    }
     var brightnessAuto = true
     var brightnessLevel: Int? = null
 
@@ -234,6 +253,12 @@ class GlassFirmwareSim() : LensPanels {
         val fragIdx = (Pb.varintField(wrapper, 6) ?: 0L).toInt()
         val data = Pb.bytesField(wrapper, 8) ?: ByteArray(0)
 
+        if (silentMode) {
+            // measured 2026-09-05 (§36): a 37-byte clock delta and an 860-byte
+            // keyframe refused alike, every fragment, until the mode is off
+            errorAck(msgId, session, total, fragIdx)
+            return
+        }
         if (compressMode != 0) {
             // An unknown CompressMode is silently treated as raw — garbage, not an
             // error (overview.md §8). The CFW path must always send 0.
@@ -891,7 +916,8 @@ class GlassFirmwareSim() : LensPanels {
             val msgId = (Pb.varintField(payload, 2) ?: 0L).toInt()
             val resp = Pb.cat(
                 Pb.v(1, 2), Pb.v(2, msgId),
-                Pb.l(4, Pb.cat(Pb.v(12, batteryPct), Pb.v(13, 0))),
+                Pb.l(4, Pb.cat(Pb.v(12, batteryPct), Pb.v(13, 0),
+                    if (reportSilentRestored) Pb.v(SettingsMsg.SILENT_RESTORED_FIELD, if (silentMode) 1 else 0) else ByteArray(0))),
                 Pb.l(SettingsMsg.CAPABILITY_FIELD, capabilityString.toByteArray(Charsets.UTF_8)),
                 Pb.l(SettingsMsg.MIC_STATUS_FIELD, micStatusBody()),
             )

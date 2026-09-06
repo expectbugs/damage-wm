@@ -859,6 +859,10 @@ class Shell(
     }
 
     private fun handleInput(type: Int, source: Int) {
+        // a ring event while the glasses are silent: the person is there —
+        // probe now rather than at the next pacing tick (§36); the input
+        // itself is handled normally, the surface stays current
+        if (glassesSilent) probeGlasses("input")
         // §1: the R1 ring is the ONLY input device — a temple brush must not
         // select or scroll. Text-region scroll events carry no source and
         // arrive as SRC_RING from the transport (G2_BLE_PROTOCOL.md §6.6).
@@ -1782,8 +1786,14 @@ class Shell(
                 // future CFW ever pushes one
                 chromeDirty = true
             }
+            is TransportEvent.SilentMode ->
+                if (ev.on) enterSilentGlasses("the firmware's Silent Mode is on")
+                else wakeGlasses("the firmware's Silent Mode is off")
             is TransportEvent.Lease -> {
-                if (!ev.held) {
+                if (!ev.held && glassesSilent) {
+                    // released on purpose (§36): not a loss, no keyframe, no notice
+                    chromeDirty = true
+                } else if (!ev.held) {
                     // fail-open fired: stock repainted; a keyframe is required on
                     // reacquire (§5.16) and the failure is surfaced loudly
                     setStatus("LEASE LOST")
@@ -1810,8 +1820,14 @@ class Shell(
                 }
             }
             is TransportEvent.Fault -> {
-                setStatus("${ev.what}!")
-                journal.note("fault", "${ev.what}: ${ev.detail}")
+                if (glassesSilent && ev.what == "imgres") {
+                    // a refused probe while the glasses are silent is the
+                    // expected answer, not a fault to shout about (§36)
+                    journal.note("silent", "probe refused: ${ev.detail}")
+                } else {
+                    setStatus("${ev.what}!")
+                    journal.note("fault", "${ev.what}: ${ev.detail}")
+                }
             }
             is TransportEvent.Note -> journal.note(ev.kind, ev.detail)   // a fact: the journal only
         }
@@ -1821,6 +1837,28 @@ class Shell(
         val a = inflightFlushes.remove(ev.id)
         journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)
         if (!ev.ok) {
+            // 🔴 A REFUSAL is not a failure to recover from by sending more
+            // (2026-09-05, `HANDOFF.md` §36): the firmware in its Silent Mode
+            // answered a 37-byte delta and every keyframe after it with
+            // ImgResCmd status 5, and the panic/keyframe loop below sent a
+            // 20 KB keyframe every 3.5 s for a quarter of an hour, which is
+            // most likely why the both-temple gesture could not get through.
+            // Three refusals in a row put the glasses to sleep here — the
+            // push is the primary signal (handleTransport), this is the
+            // fallback for a missed one — and a refusal that lands after
+            // that is rolled back and otherwise ignored.
+            val refused = ev.error?.contains("ImgResCmd") == true
+            refusalStreak = if (refused) refusalStreak + 1 else 0
+            if (glassesSilent) {
+                if (a != null) comp.rollback(a)
+                return
+            }
+            if (refused && refusalStreak >= REFUSALS_TO_SLEEP) {
+                Log.e("shell", "flush ${ev.id} refused: ${ev.error}")
+                if (a != null) comp.rollback(a)
+                enterSilentGlasses("the glasses refused $refusalStreak frames in a row")
+                return
+            }
             setStatus("flush failed")
             Log.e("shell", "flush ${ev.id} FAILED: ${ev.error}")
             if (a != null) comp.rollback(a)
@@ -1853,12 +1891,91 @@ class Shell(
         } else {
             flushFailStreak = 0
             keyframeFailStreak = 0
+            refusalStreak = 0
             noteLinkRegime()
             checkMirrorAgreement()
         }
     }
 
     private var keyframeFailStreak = 0
+    private var refusalStreak = 0
+
+    // ------------------------------------------------------------ silent glasses (§36)
+    /** The glasses are in the firmware's Silent Mode: they refuse every image
+     *  until the both-temple long-press wakes them. The shell keeps composing
+     *  and stops SENDING, drops the lease so stock owns the display and the
+     *  temples, tells the phone once, and probes gently. */
+    private var glassesSilent = false
+    private var silentGen = 0
+    private var silentNoticeShown = false
+    private var probeInFlight = false
+
+    /** How the glasses currently read to this shell — for status lines and tests. */
+    val glassesAsleep: Boolean get() = glassesSilent
+
+    /** The fallback probe's pacing while silent (a paced loop, never a bound
+     *  on work); the push is the primary wake signal. Tests shorten it. */
+    @Volatile var probePacingMs = PROBE_PACING_MS
+
+    private fun enterSilentGlasses(why: String) {
+        if (glassesSilent) return
+        glassesSilent = true
+        val gen = ++silentGen
+        keyframeFailStreak = 0; flushFailStreak = 0; haltedEpoch = null
+        setStatus("glasses silent")
+        chromeDirty = true
+        journal.note("silent", "glasses asleep — $why; no frames until they wake")
+        Log.w("shell", "the glasses are silent ($why): frames stop, the lease is released, a probe every ${probePacingMs / 1000} s")
+        if (!silentNoticeShown) {
+            silentNoticeShown = true
+            services.notifyInternal("glasses",
+                "the glasses are in Silent Mode ($why) — long-press both temples to wake them; frames resume by themselves",
+                urgent = true)
+        }
+        scope.launch {
+            try { transport.setLeaseWanted(false) } catch (e: Exception) { Log.e("shell", "lease release while silent", e) }
+        }
+        scope.launch {
+            while (running && gen == silentGen) {
+                delay(probePacingMs)
+                if (running && gen == silentGen) post(Msg.Run { probeGlasses("pacing") })
+            }
+        }
+    }
+
+    /** One small black keyframe outside the pipeline; accepted = awake. */
+    private fun probeGlasses(why: String) {
+        if (!glassesSilent || probeInFlight) return
+        probeInFlight = true
+        val gen = silentGen
+        val frame = wm.damage.core.wire.CfwModes.keyframe(
+            Zl.encodeCfw(Pack.rect(Gray8(comp.width, comp.height), Rect(0, 0, comp.width, comp.height))))
+        scope.launch {
+            val ok = try { transport.probe(frame) } catch (e: Exception) { Log.w("shell", "probe: ${e.message}"); false }
+            post(Msg.Run(dropped = { probeInFlight = false }) {
+                probeInFlight = false
+                if (gen != silentGen) return@Run
+                journal.note("silent", "probe ($why): ${if (ok) "ACCEPTED — waking" else "refused"}")
+                if (ok) wakeGlasses("a probe frame was accepted ($why)")
+            })
+        }
+    }
+
+    private fun wakeGlasses(why: String) {
+        if (!glassesSilent) return
+        glassesSilent = false
+        silentGen++
+        refusalStreak = 0
+        silentNoticeShown = false
+        journal.note("silent", "glasses awake — $why; the lease comes back, then a keyframe")
+        Log.i("shell", "the glasses are awake ($why)")
+        setStatus("ok")
+        chromeDirty = true
+        scope.launch {
+            try { transport.setLeaseWanted(true) } catch (e: Exception) { Log.e("shell", "lease re-acquire on wake", e) }
+            post(Msg.Run { comp.requestKeyframe(); post(Msg.Pump) })
+        }
+    }
 
     /**
      * The link is SLOW when the transport's measured transfer term says so
@@ -2627,7 +2744,14 @@ class Shell(
         }
         chromeNs = System.nanoTime() - phaseT0
 
-        // 5. the one atomic flush per frame — the project's thesis
+        // 5. the one atomic flush per frame — the project's thesis.
+        //    §36: while the glasses are silent the surface above stays
+        //    current (slides settle, the notice unfurls, chrome syncs) and
+        //    NOTHING is sent; the wake keyframe carries all of it.
+        if (glassesSilent) {
+            if (animated || slides.any { it.active } || switcher.spinning || notifications.animating) post(Msg.Pump)
+            return
+        }
         if (haltedEpoch != null) {
             if (haltedEpoch == comp.epoch) return       // undisplayable frame, unchanged
             haltedEpoch = null
@@ -2767,6 +2891,7 @@ class Shell(
         if (slides.any { it.active }) append("slides ")
         if (switcher.spinning) append("spin ")
         if (haltedEpoch != null) append("halted ")
+        if (glassesSilent) append("glasses-silent ")
         lastDivergence?.let { append("diverge[$it] ") }
         append("reports=$divergencesReported status='$statusText'")
     }
@@ -2776,7 +2901,7 @@ class Shell(
 
     /** Everything quiescence asks for EXCEPT the message queue. */
     private fun idleApartFromMessages(): Boolean =
-        !comp.hasPending && !comp.needsKeyframe && inflightFlushes.isEmpty() &&
+        (glassesSilent || (!comp.hasPending && !comp.needsKeyframe)) && inflightFlushes.isEmpty() &&
             !notifications.animating && slides.none { it.active } && !switcher.spinning
 
     /**
@@ -3047,6 +3172,10 @@ class Shell(
         /** Above this measured transfer term the link counts as slow (§32):
          *  the two regimes measured 20 and 125 ms/KB; 50 ≈ 20 KB/s. */
         const val SLOW_LINK_MS_PER_KB = 50.0
+        /** Consecutive ImgResCmd refusals that put the glasses to sleep (§36). */
+        const val REFUSALS_TO_SLEEP = 3
+        /** The fallback wake probe's pacing while the glasses are silent. */
+        const val PROBE_PACING_MS = 60_000L
         const val DIVERGE_EPISODES_MAX = 3
         const val DIVERGE_QUIET_CHECKS = 10
 

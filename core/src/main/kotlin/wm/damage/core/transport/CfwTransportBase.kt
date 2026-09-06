@@ -375,6 +375,12 @@ abstract class CfwTransportBase(
                     .format(frame.flag, hex))
             }
             SettingsMsg.SID -> {
+                // The firmware's Silent Mode (§36): a device-initiated push
+                // says it changed; a READ response says what it restored.
+                // Parsed before everything else — while it is on, every image
+                // is refused, and the shell must know before it sends one.
+                SettingsMsg.parseSilentModePush(frame.payload)?.let { on -> noteSilent(on, "pushed"); return }
+                SettingsMsg.parseSilentRestored(frame.payload)?.let { on -> noteSilent(on, "read") }
                 // Battery rides EVERY device-info response (payload f4.12/13 —
                 // G2CC §10, capture-confirmed), the capability-gate answer and
                 // the periodic poll alike: parse it before any gate check.
@@ -465,6 +471,47 @@ abstract class CfwTransportBase(
         }
     }
 
+    /** The glasses' Silent Mode state changed, or was read: state + event,
+     *  once per change. */
+    private fun noteSilent(on: Boolean, how: String) {
+        var changed = false
+        synchronized(stateLock) {
+            if (_state.value.glassesSilent != on) { _state.value = _state.value.copy(glassesSilent = on); changed = true }
+        }
+        if (!changed) return
+        Log.w(name, "the glasses' Silent Mode is ${if (on) "ON" else "OFF"} ($how)" +
+            (if (on) " — the firmware refuses every image while it is" else ""))
+        if (!_events.tryEmit(TransportEvent.SilentMode(on))) Log.e(name, "SilentMode event DROPPED (buffer full)")
+    }
+
+    /** Whether the renewal loop keeps the lease (§36): dropped on demand while
+     *  the glasses are silent, taken back on wake. */
+    @Volatile private var leaseWanted = true
+
+    override suspend fun setLeaseWanted(wanted: Boolean) {
+        if (leaseWanted == wanted) return
+        leaseWanted = wanted
+        if (!_state.value.started) return
+        val written = CompletableDeferred<Unit>()
+        controlQueue.trySend(CtlWork.Lease(sessionEpoch.get(),
+            if (wanted) SettingsMsg.OP_FB_ACQUIRE else SettingsMsg.OP_FB_RELEASE, written))
+        awaitReleaseWrite(written, if (wanted) "on wake" else "while the glasses are silent")
+        if (wanted) setLease(true, "FB lease taken back — the glasses are awake")
+        else setLease(false, "FB lease released on purpose — the glasses are silent, stock owns the display")
+    }
+
+    override suspend fun probe(image: ByteArray): Boolean {
+        if (!running || !_state.value.started) return false
+        val done = CompletableDeferred<Unit>()
+        imageQueue.trySend(ImgWork.Raw(sessionEpoch.get(), image, done))
+        return try {
+            done.await(); true
+        } catch (e: Exception) {
+            Log.i(name, "probe frame refused: ${e.message}")
+            false
+        }
+    }
+
     protected fun emitNote(kind: String, detail: String) {
         if (!_events.tryEmit(TransportEvent.Note(kind, detail))) Log.w(name, "note dropped (buffer full): $kind: $detail")
     }
@@ -493,6 +540,7 @@ abstract class CfwTransportBase(
         check(!started) { "transport already started — a second driver must stop() first" }
         val epoch = sessionEpoch.incrementAndGet()
         started = true
+        leaseWanted = true                // a new session holds its lease until the shell says otherwise
         // the gate may be aborted by a sweep from the moment the session
         // begins (a link death DURING connect, round 5 F2) — drain any stale
         // residue first, then arm the abort path for the whole start
@@ -693,7 +741,7 @@ abstract class CfwTransportBase(
         scope.launch {
             while (isActive) {
                 delay(if (instant) 50 else SettingsMsg.LEASE_RENEW_MS)
-                if (_state.value.started) controlQueue.trySend(CtlWork.Lease(sessionEpoch.get(), SettingsMsg.OP_FB_ACQUIRE))
+                if (_state.value.started && leaseWanted) controlQueue.trySend(CtlWork.Lease(sessionEpoch.get(), SettingsMsg.OP_FB_ACQUIRE))
             }
         }
         scope.launch {

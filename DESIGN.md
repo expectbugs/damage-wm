@@ -229,6 +229,15 @@ carrier layout's dummy full-screen text container (`content=" "`, `isEventCaptur
 ⇒ **Rule: never tear down or rebuild the carrier layout to change what is on screen.** Keep
 Faceclaw's periodic `TextContainerUpgrade{ContentOffset=0, ContentLength=1, Content=" "}`.
 
+### 1.5b The firmware's Silent Mode is the glasses asleep (2026-09-05, `HANDOFF.md` §36)
+
+The both-temple long-press is the stock hardware escape (§1.6), and in that mode the firmware
+**refuses every image** and says so with a push. The shell treats it as the glasses being
+asleep: it keeps composing and stops sending, drops the lease so the stock firmware owns the
+display and the temples, tells the phone once (naming the gesture that wakes them), probes
+gently, and resumes with one keyframe when the glasses say they are awake. The shell's own
+silent mode (§1.5) is a different thing — a black surface the shell keeps painting.
+
 ### 1.6 There is no quit
 
 The WM runs always, like G2CC. ⚠ **Consequence: the framebuffer lease is the liveness contract** —

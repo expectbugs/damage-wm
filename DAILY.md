@@ -100,6 +100,12 @@ runs every read-only probe against the real database and computes one viz blob.
   path, the shell's own CPU per flush, and the `link` notes — the connection interval the
   phone's stack granted and what the glasses renegotiate. That is the daily driver's real
   curve; the PC journal's is the standby path's.
+- **The glasses show NOTHING and the temples do nothing** (2026-09-05, `HANDOFF.md` §36): the
+  firmware's Silent Mode is probably on. From 0.34 the shell handles it (a phone notice says so,
+  frames stop, the lease is dropped) and the both-temple long-press wakes everything. On an older
+  build, or if it still will not: Target → SIM in the APK, phone Bluetooth off, both-temple
+  long-press ("Silent Mode Off"), Bluetooth on, Target → glasses. Read the phone journal's
+  `silent` notes afterwards.
 - **Drive the glasses from the PC** (2026-09-05, `HANDOFF.md` §33): `python3 tools/glassdrive.py
   aphone TOKEN --pace 2.5 double wait:3 snap:/tmp/a.png down down tap …` sends ring gestures
   through the phone's replica and saves both lenses at 1× from the mirror — snap before every tap

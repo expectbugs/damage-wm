@@ -410,6 +410,14 @@ that don't fit raise loudly, never silently mangle.
 - **Hold the direct-framebuffer lease or lose the screen.** sid 0x09 field 101 op 5 (FB_ACQUIRE),
   **both arms**, renew every 45 s against a 90 s expiry. It fails OPEN: stop renewing and stock
   LVGL silently repaints over us. This is correctness, not optimization.
+  🔴 **The one exception (2026-09-05, `HANDOFF.md` §36): while the glasses are in the firmware's
+  own Silent Mode the shell RELEASES the lease on purpose.** In that mode the firmware refuses
+  every image (ImgResCmd status 5, measured), so nothing paints anyway — and a lease held over a
+  sleeping display kept the stock firmware from painting and, with the shell's old keyframe
+  storm, kept the both-temple gesture from getting through. The glasses push the state (settings
+  cmd 3, field 5.2) and restore it in the READ response (4.14); `Shell.enterSilentGlasses` stops
+  sending, drops the lease, notifies, probes with a black keyframe, and takes the lease back with
+  one keyframe on wake. **Never answer a refused image with more images.**
   🆕 **As of a5d1c31 the lease gates far more than repainting.** `cfw_fb_lease_active()` is now
   the CFW's general "Faceclaw owns this session" predicate: without it you also lose **modes
   12/13/14/15**, you lose **long-press forwarding** (events 9/10), and the stock **"End this
