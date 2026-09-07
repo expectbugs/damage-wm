@@ -149,6 +149,7 @@ class CachedTextTest {
             is DisplayOp.DrawImage -> 8
             is DisplayOp.CacheWrite -> it.payload.size
             is DisplayOp.Copy -> 0
+            is DisplayOp.CopyPair -> 0
         }
     }
 
@@ -193,6 +194,43 @@ class CachedTextTest {
             rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("notch off")
             assertTrue(rig.all().drop(n1).all { drawTexts(it) == 0 }, "off: no draws")
             rig.assertGlassMatchesBelief("after the off notch")
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /** §41: turning the row off and on again used to leave the cache dark —
+     *  the glasses still held every font, nothing new was there to upload, and
+     *  the grow returned before re-attaching the compositor (2026-09-06 on
+     *  glass: two flips, no draws until an accident uploaded 7 KB). */
+    @Test
+    fun turningCachedTextOffAndOnAgainResumesDrawsWithoutAnotherUpload(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val text = CachedText(GlyphyText())
+            val rig = Rig(scope, text, RowsWindow(text))
+            rig.shell.start(); rig.settle("start")
+            rig.shell.services.runOnShell { rig.shell.services.openWindow("rows", null) }
+            rig.settle("open rows")
+            rig.shell.updateSettings { it.copy(cachedText = "on") }
+            rig.until("the atlas uploads") { rig.shell.cachedTextActive && rig.shell.cachedFontsLive.isNotEmpty() }
+            rig.settle("after the upload")
+            val live = rig.shell.cachedFontsLive
+            val uploads = rig.all().count { it.label == "ATLAS" }
+            rig.shell.updateSettings { it.copy(cachedText = "off") }
+            rig.until("off") { !rig.shell.cachedTextActive }
+            rig.settle("off")
+            rig.shell.updateSettings { it.copy(cachedText = "on") }
+            rig.until("on again: the fonts the glasses hold are live at once") {
+                rig.shell.cachedTextActive && rig.shell.cachedFontsLive == live
+            }
+            rig.settle("on again")
+            assertEquals(uploads, rig.all().count { it.label == "ATLAS" }, "nothing went up again: the glasses held it all")
+            val n0 = rig.all().size
+            rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("notch")
+            assertTrue(rig.all().drop(n0).any { drawTexts(it) > 0 }, "draws resumed: ${rig.all().drop(n0).map { f -> f.ops.map { it::class.simpleName } }}")
+            rig.assertGlassMatchesBelief("after the notch with the cache back on")
             rig.shell.stop()
         } finally {
             scope.cancel()

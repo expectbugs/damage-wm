@@ -3248,3 +3248,185 @@ review passes over the whole diff before the battery (Adam's ask) found and fixe
 the atlas lifecycle: the reset ran after the first compose and dropped the fonts it had just seen;
 a lease lapse re-queued chunks before the lease was back; the plane lookup took the outermost
 region instead of the innermost, sorting the lens's fonts last.
+
+## 41. The cache on every plane, the ladder as Adam sees it, and the walk's numbers (2026-09-06, evening)
+
+Adam walked 0.37 on glass for two hours (16:20–18:16, his own use, the phone journal): *"definitely
+a bit faster and more responsive"*; `Slide frames` 4 as the middle ground (auto stays the default —
+his call, over time); and *"I can't see any difference"* with `Cached text` on or off. Then: *"go
+ahead with the atlas fixes and journal notes, and everything else that might improve latency across
+the board and use the cache better and more usefully … While you're at it, fix the depth option"* —
+and the depth ladder as he sees it on glass, the per-app row moving only that app's content.
+This is the record of what the journal said, what was built, and what 0.38 has to show on glass.
+
+### 41.0 What the 0.37 walk measured (phone path, grade M)
+
+Time to first visible change per gesture, 133 gesture bursts over 1,225 flushes, median / p90:
+
+| gesture | first flush | first visible | 0.32 (§37.2) |
+|---|---:|---:|---:|
+| list notch in a window | 292 B | 155 / 227 ms | 221–645 |
+| Main notch | 1.1 KB | 257 / 409 ms | 830–860 |
+| back to Main from a window | 5.7 KB | 704 / 984 ms | — |
+| window switch with a height change | 7.8–19 KB | 1.1 / 2.7 s | — |
+
+Chrome-only flushes 122 of 1,225 (was 149 of 320). The lens repaint rode one message on, as
+built. The watchdog never fired. A Main notch's first flush was 1.1 KB, not the simulator's
+500 B: the two 16 px strips above and below the lens are real row text at 240–650 B each, and
+the status-bar rect (input echo + readout, 40–316 B) rode the first flush too.
+
+**Why `Cached text` showed nothing — three reasons, two of them defects:**
+
+1. **Off → on left the cache dark.** `atlasDisable` cleared the live set and detached the
+   compositor; `atlasGrow` on the next enable found nothing to upload (the glasses still held
+   everything) and returned before re-attaching. The journal: on 18:00:57 (11 fonts, 58 KB, 20
+   chunks in 12 s), off 18:01:20, on again with no note and no draws, off 18:04:16, on 18:05:46,
+   off 18:08:20. Twenty flushes carried cached draws in the whole session.
+2. **A font that did not fit left its glyphs behind.** The atlas was full at 11 fonts; the
+   twelfth's `addFont` wrote every glyph that fit before the table check threw, and 7 KB of
+   orphan images went up the link in three flushes (18:05:46). That upload is what re-attached
+   the compositor by accident.
+3. **Only the lens band was ever eligible.** Content at depth 8 and chrome at 12, cached draws
+   flat: the Reader and tmux got nothing by construction, and in a list notch the cache touched
+   the SECOND flush's lens rect (300–900 B → 12 B + draws). What Adam was feeling is the first
+   flush, which the cache never touched. And for 12 s after each flip-on the link carried the
+   upload, so testing right then felt slower.
+
+**Also in the journal:** the arm rebuilds — one arm's link dropped about every 50 minutes,
+alternating LEFT and RIGHT, 13 times that day, each a session rebuild with a keyframe (140 B on
+the silent clock; 7.8–19 KB in a window), reason unjournaled (`onLinkDown` only logged); one
+`submit before start()` at 07:51:06 (the pump submitted into a transport the keeper had stopped —
+caught, rolled back, journaled as an error); the link-regime classifier flipping fast/SLOW 22
+times in 70 s at 17:59 (the wheel changing its frame count every second); and a keyframe on
+every height change carrying the whole nominal frame AND the same depth planes again as stereo
+deltas — the 7.8–19 KB above.
+
+### 41.1 The atlas, fixed
+
+- `TextureCache.Builder.addFont` sizes the whole font (dedup counted as the writes will count it)
+  before a byte is written; a font that does not fit writes nothing (`TextureCacheTest`).
+- `GlyphAtlas` keeps an ACKED watermark beside the queued one (`ackedBytes`, moved chunk by chunk
+  in `takeUpload` order); a font whose table ends below it is on the glasses whatever the setting
+  did since. `Shell.atlasGrow` puts every acked font live at once (`atlasLive`) — the off → on flip
+  resumes draws with nothing uploaded (`CachedTextTest`).
+- Fonts pack heaviest-first by the pixels they draw (`CachedText.usageOf`), not by plane 0 —
+  every plane is served now.
+
+### 41.2 The depth ladder as Adam sees it (`DESIGN.md` §3.1 revised)
+
+Global `Depth` D moves EVERYTHING: both bars with their dividers at D, Main at D, every app's
+content at D unless the app's own row says otherwise, and the selection bar one notch (4 px)
+nearer than the plane it selects on — never nearer than the screen plane. The per-app `Depth`
+row is `global · 0 · 4 · 8 · 12 · 16`, default `global`, and moves only that app's content.
+Before: the bars rode one step behind content capped at 16 and app content parked at 8 whatever
+the row said, so on glass 8, 12 and 16 moved only the bars and 16 changed nothing at all —
+exactly what Adam described. `Shell.updatePlanes`, `ShellSettings.appDepthOf`,
+`DepthLadderTest` at every rung and for an app on its own plane under a different global one.
+Overlays (the wheel, the menu, the keyboard, a focused notice, the switcher's centre) stay on
+the screen plane as `DESIGN.md` §3.1 has them — popups come forward.
+
+### 41.3 The keyframe seeds the screen plane only
+
+`Compositor.seedFrame`: the mode-6 carries the composed frame with every depth plane's area black;
+the diff then paints each plane once, per lens, from the truth. Before, the keyframe carried the
+whole nominal frame and the same planes went again as stereo deltas — measured 7.8–19 KB and
+1.1–2.7 s per window switch between Reader (288) and Main or tmux (352). Modeled: 3–8 KB less
+per switch on the phone path. `PlaneCacheTest` pins a rows window's keyframe under 400 B at depth
+8 and the full frame at depth 0; `Round6Test`'s oversize-keyframe pin now puts its grain on the
+screen plane. The vacated-strip cleanup a nominal keyframe needed (`Planned.Black`) simply finds
+nothing to do.
+
+### 41.4 Cached draws on every plane
+
+A cached draw is flat — the firmware fact stands (`zlib_glue.c`: modes 13/14 ignore the lens
+bit). But mode 9's stereo form carries two rect-sets, and `draw.c` `rect_copy_4bpp` copies
+overlapping rects correctly (reverse iteration when the destination is past the source). So a
+text rect `r` on a plane at disparity `d` ships as:
+
+1. **one flat delta over `w` = `r` widened by |d| on both sides** whose payload is the BASE — the
+   composed pixels over `w` with every draw's box black (a rule, a divider, a black margin ride
+   this delta; only the text is drawn); one fid;
+2. **the draws at their nominal x** (mode 14, no fid);
+3. **one per-lens copy** (`DisplayOp.CopyPair` → `CfwModes.copyStereo`): left `(r.x, r.w+|d|) →
+   r.x−d`, right `(r.x−|d|, r.w+|d|) → r.x` — each source takes the |d|-wide strip the base left
+   on its far side, so what a copy leaves behind is what the base put there.
+
+**The proof is in lens space.** `Compositor.emitCached` builds the firmware's result for each
+lens — base, flat draws, the staged copy — and compares it byte for byte with that lens's truth
+over `w`; one region under `w` at exactly `d`; anything else (a neighbouring plane, a grey box,
+a font the glasses no longer hold, a box off the panel) and the rect ships as pixels. The
+shadows take the truth over `w`. No plane-0 requirement remains: at Depth 0 the remainder
+serves too (before, a rect outside every region was refused).
+
+**What feeds it:** every draw everywhere (`CachedText` is every host's rasterizer); a slide's
+strips, painted into a temp, are recorded through a RELAY (`CachedText.via` / `viaInto`) that
+composes the temp's landing offset — the row temp inside the strip temp inside the band — and
+keeps a draw whose box the strip clips but the band contains (the rest of the row is on the
+target from the previous strip and the copies; the proof checks every pixel); a translation
+moves the records with the pixels (`moveRecords`). A string with a character the cache cannot
+hold (the status line's "·", an arrow) is drawn as its cacheable RUNS from the atlas and the odd
+character by the host — the base delta carries that character's pixels; before, one such
+character sent the whole string to pixels. `MAX_CACHED_DRAWS` is 96 (a Reader page ~30 lines, a
+pane ~40).
+
+**Measured in the simulator** (`PlaneCacheTest`, glyph-like text): rows at depth 8 ship as draws
+plus one copy, belief equal to glass across notches, spins and reverses at every rung of the
+ladder and for an app on its own plane; a settled notch's pixel bytes are the bases and the
+blanks (under 600 B), not the text. On glass the account is in the journal: every flush now
+carries `cached` (rects shipped as draws) and `cacheMiss` (`reason=count`: no-records, no-draws,
+growing, too-many-draws, edge, planes, font-not-live, image-not-live, layout, proof, budget), and
+`tools/journal_report.py` totals them — "why isn't the cache serving this rect" is answered from
+the phone.
+
+### 41.5 Icons as cached images (mode 13)
+
+`IconPaint.blit` is the one seam every icon crosses (theme bitmaps; the drawn set now renders
+once per kind and size at full level and blits through it too — `IconPaint.drawKind`; the eight
+direct `Icons.draw` call sites were moved). `CachedText` implements `IconRecorder`: an icon seen
+on the target is quantised once, packed once it has been drawn twice (a thumbnail scrolled past
+once must not take the fonts' room), after the fonts, within `GlyphAtlas.IMAGE_BUDGET` (16 KiB of
+the 64); held by the glasses it blits through the firmware's LUT (`CachedText.blitImage`, shared
+with the proof) and records an `ImageDraw`; the compositor ships it as a mode-13 draw in the same
+base + draws + copy shape. `PlaneCacheTest` pins a lens icon shipping as a mode-13 draw with
+belief equal to glass.
+
+### 41.6 Two more latency levers, and a journal that answers
+
+- **Telemetry never rides a gesture's FIRST flush** (`Shell.inputFlushPending`): the readout and
+  the link cell go on a later frame of the same gesture or the idle tick. The input echo still
+  rides the first flush (§1.7), and with chrome on the cache it costs its characters.
+  `ChromeFlushTest` takes the readout at every submit, on the loop.
+- **The link regime has hysteresis and a dwell** (`Shell.linkSlow`): slow above 1.3× the 50 ms/KB
+  line, fast again below 0.7×, never twice within ten flushes.
+- **The journal carries the build** (`build` note at every session start: `apk 0.38 (38)` or the
+  desktop's git stamp, `damage-build.txt` generated by gradle), **the link's edges** (`link`
+  notes: `up:`/`DOWN: <arm> disconnected: <reason>` — the arm rebuilds have a cause now), and a
+  submit into a stopped transport is a `link` note with a rollback, not an error and a status.
+
+### 41.7 What 0.38 has to show on glass
+
+1. `Cached text` on, after the upload (`atlas … uploaded`): a Main notch's first flush (the two
+   strips as draws + copies + the echo as draws — modeled ~150–300 B, was 1.1 KB) and its total; a
+   Reader notch (the strip as draws — pages have no kerning now; Adam's eye decides); a tmux
+   history notch (the lines as draws); `cached`/`cacheMiss` per flush in the report — `proof`
+   and `planes` misses say where the mechanism refuses on real surfaces.
+2. The depth ladder at 0/4/8/12/16 on glass, the per-app row at `global` and at a value.
+3. A window switch between heights: the keyframe's bytes (modeled 3–8 KB less) and the wall.
+4. Icons: the `atlas` notes' icon count, `drawimage` ops in the lens flushes.
+5. The `link` notes at the next arm rebuild — the reason, at last; the regime notes should be
+   rare now; the readout should never sit in a first flush.
+6. Still owed from §40.7: the §38 wake on glass; the watchdog silent.
+
+### 41.8 Battery and builds
+
+`:core:test` 491 (new: `DepthLadderTest`, `PlaneCacheTest` ×4, the atlas pins in
+`TextureCacheTest` and `CachedTextTest`; `ChromeFlushTest`, `Round6Test`, `StyleTest` re-pinned
+for §41) · `:desktop:test` 11 · `--selfcheck` ×3 — now with a §41 phase (`cachedTextChecks`,
+its own function: the script method had hit the JVM's 64 KB limit) that turns the cache on with
+the REAL faces and walks Main, Files, Torrents, tmux, Settings and a book at every rung of the
+ladder under the truth oracle: **180 rects served as cached draws, belief = glass = truth on
+every settle, three runs of three** · `--snapshot` ×3 · epub · music · games · lint 0 ·
+`:phone:assembleDebug`. ⚠ One battery run (of three) reported `OracleWalkTest`
+"did not settle" at h=480 step 145 under the parallel load; standalone and the other runs passed
+— a rate to keep watching (§27.6). A 30-hour-old simulator instance from a previous session's
+live drive (`--transport sim`, ports 174xx, a scratch home) was found still running and ended.

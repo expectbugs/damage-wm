@@ -22,9 +22,20 @@ class Slide(
     private val comp: Compositor,
     /** The region that slides (a list band or the document area). */
     val region: Rect,
+    /** §41: the recorder that turns a strip's text into cached draws — the
+     *  strip is painted into a temp, so the recorder is told where it lands. */
+    private val recorder: wm.damage.core.comp.CachedText? = null,
     /** Paint the TARGET content for region-relative rows [y0, y0+h) into g. */
     private val paintTargetSlice: (g: Gray8, y0: Int, h: Int) -> Unit,
 ) {
+    /** Paint a slice into [tmp], which the caller blits to ([dstX], [dstY]). */
+    private fun paintInto(tmp: Gray8, y0: Int, h: Int, dstX: Int, dstY: Int) {
+        val rec = recorder
+        if (rec == null) { paintTargetSlice(tmp, y0, h); return }
+        rec.dropRecords(Rect(dstX, dstY, tmp.w, tmp.h))     // what lands here replaces what was recorded here
+        rec.via(tmp, dstX, dstY, region) { paintTargetSlice(tmp, y0, h) }
+    }
+
     var offsetPx = 0
         private set
 
@@ -79,7 +90,7 @@ class Slide(
             return true
         }
         val tmp = Gray8(r.w, r.h)
-        paintTargetSlice(tmp, (r.y - region.y) - offsetPx, r.h)
+        paintInto(tmp, (r.y - region.y) - offsetPx, r.h, r.x, r.y)
         g.blit(tmp, Rect(0, 0, r.w, r.h), r.x, r.y)
         comp.damage(r)
         return true
@@ -122,6 +133,7 @@ class Slide(
             val tmp = Gray8(src.w, src.h)
             tmp.blit(g, src, 0, 0)
             g.blit(tmp, Rect(0, 0, src.w, src.h), dst.x, dst.y)
+            recorder?.moveRecords(src, dst)
             comp.declareShift(src, dst)
         }
         offsetPx -= if (down) s else -s
@@ -141,7 +153,7 @@ class Slide(
             return true
         }
         val tmp = Gray8(region.w, s)
-        paintTargetSlice(tmp, stripY - offsetPx, s)
+        paintInto(tmp, stripY - offsetPx, s, r.x, r.y)
         g.blit(tmp, Rect(0, 0, region.w, s), r.x, r.y)
         comp.damage(r)
 
@@ -157,7 +169,7 @@ class Slide(
 
     private fun paintFull(g: Gray8) {
         val full = Gray8(region.w, region.h)
-        paintTargetSlice(full, 0, region.h)
+        paintInto(full, 0, region.h, region.x, region.y)
         g.blit(full, Rect(0, 0, region.w, region.h), region.x, region.y)
         comp.damage(region)
     }

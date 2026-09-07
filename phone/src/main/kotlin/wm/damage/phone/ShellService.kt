@@ -220,6 +220,7 @@ class ShellService : Service() {
         // load() later merges harmlessly (strictly-newer in-memory wins).
         persistence.load()
         val sh = Shell(text, t, persistence, dataDir.resolve("journal.jsonl"), scope)
+        sh.buildTag = "apk ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
         shell = sh
 
         val rc = RemoteContent(

@@ -1,9 +1,9 @@
 # Where we are, and what to do next
 
 **This file is the entry point for a fresh session.** It says what is true now, what the next
-session does, and where the records are. History lives in `HANDOFF.md` (§1–§40); this file only
-points at it. Read in this order: `CLAUDE.md` → this file → `HANDOFF.md` §40 (what was built
-and §40.7, the walk) → the sections it cites.
+session does, and where the records are. History lives in `HANDOFF.md` (§1–§41); this file only
+points at it. Read in this order: `CLAUDE.md` → this file → `HANDOFF.md` §41 (the walk's numbers,
+the cache on every plane, the ladder, §41.7 what 0.38 has to show) → the sections it cites.
 
 ## Where we are (2026-09-06)
 
@@ -11,15 +11,14 @@ and §40.7, the walk) → the sections it cites.
   `EVENCFW/`, never the version). The **phone APK drives** — radio and shell — and the OpenRC
   `damage` service on beardos is the data host and standby (`HANDOFF.md` §19, `DAILY.md`).
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games.
-- **Builds:** APK **0.34 installed** and driving; **0.37 staged** (`~/.damage/damage-wm.apk`,
-  the setup page) with the rebuild-on-wake fix (§38), the showdown sentence (§39) and the whole
-  latency build (§40: chrome telemetry, first-flush ordering, `Slide frames`, the watchdog,
-  `Cached text`); the service runs the same core.
-  Everything from 0.30 to 0.34 reached the glasses on 2026-09-05 (nothing newer than 0.16 had
-  before); 0.35–0.37 — §38, §39, §40 — have not. Nothing in the tree is unverified against the
-  battery; several things are still unverified **on glass** (the tables below).
-- **Battery at HEAD:** core **484** · desktop **11** · `--selfcheck` **189** (the truth oracle on
-  every settle; run ×3+ — it is a rate) · snapshots 49 · `--epub-check` 58/58 · `--music-check` ·
+- **Builds:** APK **0.37 installed** and walked (2026-09-06 afternoon, §41.0); **0.38 staged**
+  (`~/.damage/damage-wm.apk`, the setup page) with the §41 build: the atlas fixes, the depth
+  ladder as Adam sees it, the keyframe seeded with the screen plane only, cached text AND icons
+  on every plane, telemetry off the first flush, the regime hysteresis, the `build`/`link`/
+  `cached` journal fields; the service runs the same core. §38's wake and §40's watchdog are
+  still unseen on glass.
+- **Battery at HEAD:** core **491** · desktop **11** · `--selfcheck` (the truth oracle on every
+  settle; run ×3+ — it is a rate) · snapshots · `--epub-check` · `--music-check` ·
   `--games-check` · lint 21 rules / 0 · `:phone:assembleDebug`.
 
 ## The last two days, in one paragraph each (records in `HANDOFF.md`)
@@ -52,11 +51,32 @@ and §40.7, the walk) → the sections it cites.
   only a gesture's flush or the idle tick; a notch's first flush is the translation (the lens one
   message on; big strips blanked then filled); a planner defect that shipped a whole band for a
   scrollbar thumb; `Slide frames` and `Cached text` Global rows; G2CC's response-gap watchdog
-  plus the prelude re-ask it needed. Cached draws are FLAT (firmware fact), so the cache serves
-  plane 0 — the lens, menus, notices, the switcher — and everything at Depth 0. **Nothing of it
-  is on glass yet; §40.7 is the walk.**
+  plus the prelude re-ask it needed.
+- **§41 The walk, and the cache made useful** (2026-09-06, evening). Adam walked 0.37: faster;
+  a window list notch 155 ms to first visible change, a Main notch 257 ms (was 830–860), chrome-
+  only flushes 10 % (was 47 %) — and `Cached text` invisible, for three reasons (an off→on defect,
+  a font that did not fit leaving orphan bytes, and only the lens band ever eligible). Built: the
+  atlas fixed; the depth ladder as he sees it (everything at D, the selection one notch nearer,
+  per-app rows `global`); the keyframe seeds the screen plane only (a window switch carried its
+  planes twice, 7.8–19 KB); **cached draws on every plane** — a base delta, the flat draws, one
+  per-lens mode-9 copy, proven per lens before shipping — with slide strips recorded through a
+  relay, strings split into cacheable runs, and **icons as mode-13 images**; telemetry never on a
+  gesture's first flush; the regime with hysteresis; `build`, `link` and `cached`/`cacheMiss` in
+  the journal. **0.38 staged; §41.7 is what it has to show.**
 
-## 🔴 The next session: THE WALK — `HANDOFF.md` §40.7 is the list; §37 holds Adam's rulings
+## 🔴 The next session: 0.38 ON GLASS — `HANDOFF.md` §41.7 is the list (then §40.7's leftovers)
+
+Install 0.38, turn `Cached text` on, wait for `atlas … uploaded`, then read `/journal` through
+`tools/journal_report.py`: the `cached`/`cacheMiss` account per flush says what the mechanism
+serves on real surfaces and why it refuses where it does (`proof` = the pixels around the text
+are not what the proof needs; `planes` = the widened rect crosses a plane edge). Walk a Main
+notch, a Reader page, a tmux history notch, a window switch between heights; the depth ladder at
+every rung; the `link` note at the next arm rebuild. Adam's eye on cached text at 100 % and 130 %
+(no kerning) decides whether the row goes on by default.
+
+The §40.7 items that stand: the §38 wake on glass; the watchdog silent on a healthy day.
+
+### §37's rulings (2026-09-05), still binding
 
 Adam's rulings (2026-09-05, evening) that bound it:
 
@@ -144,8 +164,10 @@ unmeasured (0.33 was installed but not walked — walk it first).
 | 9 | **WEA/CMAS visibility to a normal Android app** (Pixel 10a) | `DESIGN.md` §4.5's emergency promise rides on it |
 | 10 | **Connected RSSI** on glass | the status bar's link cell |
 | 15 | **Is the sid-0x01 prelude required** by the CFW before CREATE? (graded U) | and the 2 s re-ask: three eaten CREATEs per cold start ≈ 6 s (§34.3) |
-| 19 | **The texture cache on glass** — `Cached text: on` (§40): the atlas up in chunks, the lens as `drawtext` ops, belief vs glass through the mirror check, the look at 100 %/130 % | the gate on leaving the row on by default. ⚠ mode 14 adds one overlay rect per glyph; a failed 64 KiB allocation shows only as the sticky `ALLOC` flag |
-| 20 | **Atlas upload cost** on the phone path (the journal's `atlas` notes: bytes, chunks, wall; did a gesture wait behind a chunk?); the cache survives a lease renewal, is freed on a lapse and on our own release while silent (§36) — the shell re-uploads on the re-acquire | prices the whole mode-14 trade |
+| 19 | **The texture cache on glass** — `Cached text: on` (§40, §41): the atlas up in chunks (SEEN 2026-09-06: 58 KB, 20 chunks, 12 s), rows/lines/chrome/icons as `drawtext`/`drawimage` + `copypair` ops on depth planes, belief vs glass through the mirror check, the look at 100 %/130 % | the gate on leaving the row on by default. ⚠ mode 14 adds one overlay rect per glyph; a failed 64 KiB allocation shows only as the sticky `ALLOC` flag |
+| 20 | **Atlas upload cost** on the phone path (SEEN once: 12 s for 58 KB while Adam was testing — the link is busy for that long after a flip-on); the cache survives a lease renewal, is freed on a lapse and on our own release while silent (§36) — the shell re-uploads on the re-acquire | prices the whole cached-draw trade |
+| 25 | **The arm rebuilds** — one arm's link drops about every 50 min, alternating L/R (13 on 2026-09-06), each a session rebuild + keyframe; the `link` notes (0.38) carry the reason at last | in a window that keyframe is 1–2.5 s of blank; ten explanations wanted, none tested |
+| 26 | **The keyframe seed** on a window switch between heights (§41.3): bytes and wall against 7.8–19 KB / 1.1–2.7 s | modeled 3–8 KB less |
 | 21 | **Temple long-press accident rate** (gloves) | §1.2's bare-long-press no-op guards it |
 | 22 | **The rebuild-on-wake on glass** (0.37) — toggle the firmware's Silent Mode with the APK connected; read the `silent` / `restart` / `event` notes; the blank stretch from the push OFF to the first accepted frame; whether the exit events 5/7 arrive and when; do the temples respond while the shell is asleep (lease released)? The push and the READ's field 14 are already SEEN (22:04:02, 22:04:28) | §38.4 |
 | 23 | **The 2-frame wheel and the reserved slot** on a slow link — feel | §32 |

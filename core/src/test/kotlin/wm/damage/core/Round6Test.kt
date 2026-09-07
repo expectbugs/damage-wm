@@ -194,12 +194,20 @@ class Round6Test {
             // sub-message's 16-bit length, well under the bare mode-6 cap
             val rnd = java.util.Random(11)
             for (y in 0 until 480) for (x in 0 until 640) comp.composed[x, y] = rnd.nextInt(3) * 17
-            comp.planes = listOf(Compositor.PlaneRegion(l.content, 8), Compositor.PlaneRegion(l.lens, 0))
+            // §41: a keyframe seeds the SCREEN plane only, so the grain must
+            // sit there to make the keyframe oversize: the content on the
+            // screen plane, the lens on a depth plane — its stereo repaint is
+            // the follow-up a bare keyframe cannot bundle
+            comp.planes = listOf(Compositor.PlaneRegion(l.content, 0), Compositor.PlaneRegion(l.lens, 8))
             comp.requestKeyframe()
             val (n, _) = rig.drain("grain keyframe", maxFlushes = 60)
             assertTrue(n >= 2, "an oversize keyframe must ship bare, follow-ups next flush")
             rig.assertBeliefMatchesGlass("grain keyframe")
-            // and a content-sized delta of 4-level grain (split if oversize)
+            // the planes swap: the content re-renders per lens (two oversize
+            // stereo deltas, split), then a content-sized delta of 4-level grain
+            comp.planes = listOf(Compositor.PlaneRegion(l.content, 8), Compositor.PlaneRegion(l.lens, 0))
+            rig.drain("planes", maxFlushes = 60)
+            rig.assertBeliefMatchesGlass("planes")
             for (y in l.content.y until l.content.bottom) for (x in l.content.x until l.content.right)
                 comp.composed[x, y] = rnd.nextInt(4) * 17
             comp.damage(l.content)

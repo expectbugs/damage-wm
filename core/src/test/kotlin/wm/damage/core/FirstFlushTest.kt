@@ -66,6 +66,7 @@ class FirstFlushTest {
             is DisplayOp.Delta -> it.payload.size
             is DisplayOp.StereoPair -> it.payload.size
             is DisplayOp.Copy -> 0
+            is DisplayOp.CopyPair -> 0
             is DisplayOp.DrawText -> 9 + it.text.size
             is DisplayOp.DrawImage -> 8
             is DisplayOp.CacheWrite -> it.payload.size
@@ -78,6 +79,7 @@ class FirstFlushTest {
             is DisplayOp.Delta -> "D${it.box}(${it.payload.size}B)"
             is DisplayOp.StereoPair -> "SP${it.left}(${it.payload.size}B)"
             is DisplayOp.Copy -> "C${it.src}->${it.dst}"
+            is DisplayOp.CopyPair -> "CP${it.srcL}->${it.dstL}"
             is DisplayOp.DrawText -> "T(${it.x},${it.y})"
             is DisplayOp.DrawImage -> "I(${it.x},${it.y})"
             is DisplayOp.CacheWrite -> "CW(${it.payload.size}B)"

@@ -435,7 +435,11 @@ that don't fit raise loudly, never silently mangle.
   work and while driving. 🔴 **Layer order (Adam direct, 2026-08-17): main content sits as far
   back as depth comfortably allows; notifications, modals and popups come FORWARD in front of it.**
   This reverses an earlier *inferred* rule ("background farther, never foreground nearer") that was
-  never his — do not reintroduce it. `DESIGN.md` §3 holds the ladder and calibration plan.
+  never his — do not reintroduce it. 🔴 **The ladder as of 2026-09-06 (Adam, on glass — `HANDOFF.md`
+  §41.2): the Global `Depth` moves EVERYTHING — both bars, Main, every app's content — and the
+  selection bar sits one notch (4) nearer than the plane it selects on; the per-app `Depth` row
+  (default `global`) moves only that app's content, never the bars.** The older "chrome one step
+  behind content" rule is retired. `DESIGN.md` §3 holds the ladder and calibration plan.
 
 ## Latency standards — every window, every surface (2026-09-05, `HANDOFF.md` §37)
 
@@ -447,14 +451,17 @@ table). Everything below follows from those two numbers.
   small — a translation (mode 9, ~40 B) or a strip — and the heavy fill follows in a later flush.
   Measure "time to first visible change" per gesture with `tools/journal_report.py`; a list notch
   at 0.8 s is a defect, not a fact of the link.
-- **Text goes through the texture cache when the Global `Cached text` row is on** (2026-09-06,
-  `HANDOFF.md` §40.6): every host's rasterizer is a `CachedText` recorder, the atlas is per lease,
-  and a plane-0 string ships as a mode-14 draw under a byte-exact proof — nothing for a window to
-  do. 🔴 **Cached draws are FLAT** (modes 13/14 ignore the lens bit, `zlib_glue.c`), so only plane
-  0 is served — the lens, menus, notices, the switcher, everything at Depth 0; depth planes stay
-  pixels until the firmware grows a per-lens variant. Icons (mode 13) are not cached yet. Either
-  way a row costs its pixels where it is not cached; keep rows lean and let the compositor's diff
-  find the change. Never repaint a whole list because one cell changed.
+- **Text and icons go through the texture cache when the Global `Cached text` row is on**
+  (2026-09-06, `HANDOFF.md` §40.6 → §41.4): every host's rasterizer is a `CachedText` recorder,
+  every icon crosses `IconPaint.blit`, the atlas is per lease, and a string or icon on ANY plane
+  ships as draws under a byte-exact proof in lens space — nothing for a window to do. Cached draws
+  are FLAT in the firmware (modes 13/14 ignore the lens bit, `zlib_glue.c`), so a rect on a depth
+  plane goes out as a base delta widened by the disparity, the draws at nominal x, and ONE
+  per-lens mode-9 copy that slides each lens's copy to its own x (`DisplayOp.CopyPair`); the
+  compositor builds the firmware's result per lens and compares it with that lens's truth before
+  a single draw ships, and the journal says why any rect went to pixels (`cacheMiss`). Either way
+  a row costs its pixels where it is not cached; keep rows lean and let the compositor's diff find
+  the change. Never repaint a whole list because one cell changed.
 - **Chrome never justifies its own flush** (`DESIGN.md` §8.3). Live telemetry (the throughput
   readout) moves only on a gesture's own flush or the idle tick — the 2026-09-05 walk found 149
   of 320 flushes were that readout alone.

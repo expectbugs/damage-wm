@@ -72,10 +72,23 @@ def main(path):
             print('  (handle = handler + slides + overlays + chrome + mirror + ASSEMBLE; assemble = truth + compress + the diff and plan)')
     else:
         print('\nno handleMs/assembleMs in this journal (written before §32)')
+    # §41: the cache's account — rects shipped as draws, and why the rest
+    # were pixels (the compositor's own reasons, per flush)
+    cached = [r.get('cached') for r in sub.values() if isinstance(r.get('cached'), int) and r.get('cached') >= 0]
+    if cached:
+        miss = collections.Counter()
+        for r in sub.values():
+            for part in (r.get('cacheMiss') or '').split(','):
+                if '=' in part:
+                    k, v = part.split('=', 1)
+                    try: miss[k] += int(v)
+                    except ValueError: pass
+        print(f'\ncached text: {sum(cached)} rect(s) shipped as draws over {len(cached)} flushes; '
+              f'pixels by reason: {dict(miss.most_common())}')
     kinds = collections.Counter(n['kind'] for n in notes)
     print(f'\nnotes: {dict(kinds)}')
     for n in notes:
-        if n['kind'] in ('link', 'panic', 'halt') or (n['kind'] == 'fault' and 'stall' in n['detail']):
+        if n['kind'] in ('link', 'panic', 'halt', 'build', 'watchdog', 'restart') or (n['kind'] == 'fault' and 'stall' in n['detail']):
             print(f'  {datetime.datetime.fromtimestamp(n["t"]/1000):%m-%d %H:%M:%S} {n["kind"]}: {n["detail"][:110]}')
 
 if __name__ == '__main__':

@@ -129,6 +129,11 @@ sealed class DisplayOp {
     /** Mode-9 rect copy, nominal coords; [disparity] shifts both rects per lens. */
     data class Copy(val src: Rect, val dst: Rect, val disparity: Int = 0) : DisplayOp()
 
+    /** A mode-9 copy with EXPLICIT per-lens rects (§41): the slide that puts
+     *  a flat cached draw at each lens's own x. Same size on both lenses;
+     *  the firmware's copy is overlap-safe (draw.c rect_copy_4bpp). No fid. */
+    data class CopyPair(val srcL: Rect, val dstL: Rect, val srcR: Rect, val dstR: Rect) : DisplayOp()
+
     /** A stereo delta with EXPLICIT per-lens boxes (same size, §3.2) — used for
      *  the vacated-strip cleanup a stereo region needs after a keyframe: the
      *  left lens clears the region's right inner strip while the right lens

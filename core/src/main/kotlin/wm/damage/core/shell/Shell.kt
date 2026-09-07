@@ -238,6 +238,11 @@ class Shell(
     /** Host-link status line for the status bar (set by the content client). */
     @Volatile var hostState: String = ""
 
+    /** The host's build, as the journal records it at every session start
+     *  (§41): the APK's version or the desktop's git stamp — a journal read
+     *  a week later says which tree wrote it. Set by the host before start. */
+    @Volatile var buildTag: String = ""
+
     /** Rows the host appends to Settings (the display target); set before start. */
     @Volatile var hostSettings: List<HostSetting> = emptyList()
 
@@ -462,6 +467,8 @@ class Shell(
      *  that reads it after a settle sees every flush the settle covered
      *  (a collector on the transport's events can lag the loop). */
     @Volatile var flushesSubmitted = 0L
+    /** Rects shipped as cached draws so far (§41 — harnesses read it). */
+    @Volatile var cachedRectsShipped = 0L
         private set
 
     /** The throughput readout as the bars show it (tests: §8.3's telemetry rule). */
@@ -666,6 +673,7 @@ class Shell(
             // packed first; uploaded AFTER the keyframe below, chunk by
             // chunk, only while nothing else is pending, so the first paint
             // and every gesture come first.
+            journal.note("build", buildTag.ifEmpty { "unstamped host" } + " · session start via ${transport.state.value.transportName}")
             atlasReset()
             composeFullSurface()
             comp.requestKeyframe()
@@ -763,6 +771,7 @@ class Shell(
             }
         }
         if (stopTransport) transport.stop()
+        if (cachedText != null && wm.damage.core.gfx.IconPaint.recorder === cachedText) wm.damage.core.gfx.IconPaint.recorder = null
         journal.close()
     }
 
@@ -777,6 +786,7 @@ class Shell(
             // may take the window's last slot — see pump()
             pumpPriority = m is Msg.In ||
                 (m is Msg.Trans && (m.ev is TransportEvent.Input || m.ev is TransportEvent.Text))
+            if (pumpPriority) inputFlushPending = true
             mirrorNsThisMsg = 0L
             textNsAtMsgStart = wm.damage.core.text.TextProfile.drawNs.get()
             val handlerT0 = System.nanoTime()
@@ -1852,6 +1862,10 @@ class Shell(
             }
             is TransportEvent.Link -> {
                 setStatus(if (ev.connected) "ok" else "LINK DOWN")
+                // §41: the arm and the reason reach the journal — thirteen
+                // alternating-arm session rebuilds in one day (2026-09-06)
+                // had left no trace but a "characteristic gone" fault
+                journal.note("link", if (ev.connected) "up: ${ev.detail}" else "DOWN: ${ev.detail}")
                 chromeDirty = true
             }
             is TransportEvent.DiagFlags -> {
@@ -1972,7 +1986,9 @@ class Shell(
         val ct = cachedText ?: return
         ct.target = comp.composed
         ct.live = emptySet()
+        ct.liveImages = emptySet()
         ct.atlas = null
+        wm.damage.core.gfx.IconPaint.recorder = ct     // §41: icons through the cache too
         ct.clearSeen()
         ct.endFrame()
         comp.cachedText = null
@@ -2002,6 +2018,7 @@ class Shell(
         val ct = cachedText ?: return
         comp.cachedText = null
         ct.live = emptySet()
+        ct.liveImages = emptySet()
         atlasQueue.clear()
         atlasPendingSpecs.clear()
         journal.note("atlas", "cached text off — $why")
@@ -2016,6 +2033,7 @@ class Shell(
         val a = atlas ?: return
         comp.cachedText = null
         ct.live = emptySet()
+        ct.liveImages = emptySet()
         atlasQueue.clear()
         atlasPendingSpecs.clear()
         a.forgetUpload()
@@ -2028,16 +2046,6 @@ class Shell(
         if (settings.cachedText == "on" && a.sentBytes <= wm.damage.core.wire.TextureCache.GUARD) atlasGrow()
     }
 
-    /** Whether a draw at [r] lands on plane 0 under the current plane map —
-     *  the only place a cached draw can show (§40). */
-    private fun onPlaneZero(r: Rect): Boolean {
-        // later regions split earlier ones in the compositor's piece map, so
-        // the LAST region over the rect is the one it renders in — the lens
-        // band (plane 0) sits over the content plane in `updatePlanes`
-        val p = comp.planes.lastOrNull { it.rect.overlaps(r) } ?: return true   // the remainder is plane 0
-        return p.disparity == 0
-    }
-
     /** Add every font seen since the last look — the ones drawn on plane 0
      *  first, since only those can ship as draws and the cache is 64 KiB —
      *  and queue the bytes they need. */
@@ -2047,17 +2055,52 @@ class Shell(
         if (atlasFailed || settings.cachedText != "on") return
         atlasSeenVersion = ct.seenVersion
         var added = 0
-        val wanted = ct.seenSpecs().sortedBy { spec -> if (ct.lastRectOf(spec)?.let { onPlaneZero(it) } == true) 0 else 1 }
+        // the heaviest faces first (§41): every plane is served now, so the
+        // cue is the pixels a face draws, not whether it sat on plane 0 — a
+        // 64 KiB cache holds about a dozen faces, and the rows', the lens's
+        // and the bars' are where a notch's bytes are
+        val wanted = ct.seenSpecs().sortedByDescending { ct.usageOf(it) }
         for (spec in wanted) {
             if (a.has(spec) || a.isRefused(spec)) continue
-            if (a.add(spec)) { added++; atlasPendingSpecs.add(spec) }
+            if (a.add(spec)) added++
         }
-        // fonts packed but never sent (a lapse) are pending again too
-        for (spec in a.specs()) if (spec !in ct.live) atlasPendingSpecs.add(spec)
+        // §41: icons — drawn at least twice, heaviest first, into what the
+        // fonts leave (a quarter of the cache at most, `GlyphAtlas.IMAGE_BUDGET`)
+        var icons = 0
+        for (key in ct.seenImageKeys().filter { ct.imageUses(it) >= CachedText.PACK_AFTER_USES }
+            .sortedByDescending { ct.imageUsage(it) }) {
+            if (a.hasImage(key) || a.isImageRefused(key)) continue
+            val img = ct.imageOf(key) ?: continue
+            if (a.addImage(key, img)) icons++
+        }
+        // §41: fonts the glasses already HOLD go live at once. The off→on
+        // flip used to find nothing to upload and return before re-attaching
+        // the compositor, so the setting stayed dark until a new font came
+        // along (2026-09-06, 18:01–18:08 on glass: two flips, no draws).
+        val held = a.specs().filter { a.isAcked(it) }.toSet()
+        val heldImages = a.imageKeys().filter { a.isImageAcked(it) }.toSet()
+        atlasPendingSpecs.clear()
+        for (spec in a.specs()) if (spec !in held) atlasPendingSpecs.add(spec)
+        if (held != ct.live || heldImages != ct.liveImages) atlasLive(held, heldImages, "held")
         val chunks = a.takeUpload()
         if (chunks.isEmpty()) return
         atlasQueue.addAll(chunks)
-        journal.note("atlas", "$added font(s) packed, ${a.used} B in the atlas, ${chunks.size} chunk(s) queued")
+        journal.note("atlas", "$added font(s) and $icons icon(s) packed, ${a.used} B in the atlas (${a.imageBytes} B icons), ${chunks.size} chunk(s) queued")
+        post(Msg.Pump)
+    }
+
+    /** [specs] and [images] are on the glasses: the recorder blits from them
+     *  from now on and the compositor may ship them as draws. The surface
+     *  repaints once so belief holds the atlas's pixels — what the glasses
+     *  draw from here. */
+    private fun atlasLive(specs: Set<FontSpec>, images: Set<Any>, how: String) {
+        val ct = cachedText ?: return
+        ct.live = specs
+        ct.liveImages = images
+        comp.cachedText = if (specs.isEmpty() && images.isEmpty()) null else ct
+        journal.note("atlas", "$how — ${specs.size} font(s) and ${images.size} icon(s) live, $atlasBytesSent B sent this session")
+        if (mode != Mode.SILENT) composeContent()
+        chrome.invalidate(); chromeDirty = true
         post(Msg.Pump)
     }
 
@@ -2095,17 +2138,16 @@ class Shell(
             setStatus("atlas refused")
             return
         }
+        atlas?.acked()
         if (atlasQueue.isEmpty()) {
-            // the last chunk of this batch: its fonts are on the glasses
-            ct.live = ct.live + atlasPendingSpecs
-            atlasPendingSpecs.clear()
-            comp.cachedText = ct
-            journal.note("atlas", "uploaded — ${ct.live.size} font(s) live, $atlasBytesSent B sent this session")
-            // the text already on the surface was drawn by the host's own
-            // rasterizer; repaint so the atlas's glyphs (which is what the
-            // glasses will draw from now on) are what belief holds
-            if (mode != Mode.SILENT) composeContent()
-            chrome.invalidate(); chromeDirty = true
+            // the last chunk of this batch: every font whose bytes are acked
+            // is on the glasses (the acked watermark, §41 — never the queued
+            // one, which runs ahead of the radio)
+            val a = atlas
+            val held = a?.specs()?.filter { a.isAcked(it) }?.toSet() ?: emptySet()
+            val heldImages = a?.imageKeys()?.filter { a.isImageAcked(it) }?.toSet() ?: emptySet()
+            atlasPendingSpecs.removeAll(held)
+            if (held != ct.live || heldImages != ct.liveImages) atlasLive(held, heldImages, "uploaded")
         }
         post(Msg.Pump)
     }
@@ -2218,7 +2260,21 @@ class Shell(
      * spins in fewer frames on a slow link; nothing else changes, and nothing
      * changes at all until a flush of 1 KB or more has actually been timed.
      */
-    private fun linkSlow(): Boolean = transport.state.value.transferMsPerKbEma > SLOW_LINK_MS_PER_KB
+    /** §41: the regime decision has HYSTERESIS and a dwell — the EMA swung
+     *  36–68 ms/KB second to second on 2026-09-06 and the wheel changed its
+     *  frame count 22 times in 70 s. Slow above 1.3× the line, fast again
+     *  below 0.7×, and never twice within [REGIME_DWELL_FLUSHES] flushes. */
+    private var linkSlowState = false
+    private var linkSlowFlipAt = 0L
+    private fun linkSlow(): Boolean {
+        val ema = transport.state.value.transferMsPerKbEma
+        val want = if (linkSlowState) ema > SLOW_LINK_MS_PER_KB * 0.7 else ema > SLOW_LINK_MS_PER_KB * 1.3
+        if (want != linkSlowState && flushesSubmitted - linkSlowFlipAt >= REGIME_DWELL_FLUSHES) {
+            linkSlowState = want
+            linkSlowFlipAt = flushesSubmitted
+        }
+        return linkSlowState
+    }
 
     private fun spinFrames(): Int = if (linkSlow()) 2 else 4
 
@@ -2471,7 +2527,7 @@ class Shell(
     /** Content depth for the FOCUSED app (default 8 — in front of the
      *  global-depth chrome); Main and the bars stay on the global setting
      *  (Adam, 2026-08-31). */
-    private fun appDepth(w: DamageWindow): Int = settings.appStyle(w.id).depth
+    private fun appDepth(w: DamageWindow): Int = settings.appDepthOf(w.id)
 
     private val fontSizeLabels = ShellSettings.SCALES.associateBy { ShellSettings.scaleLabel(it) }
 
@@ -2540,10 +2596,12 @@ class Shell(
                 optionFont = { opt -> wm.damage.core.text.FontSpec(
                     wm.damage.core.text.Face.SYSTEM, 18,
                     bold = opt == "bold", italic = opt == "italic", raw = true) }),
-            HostSetting("Depth", { listOf("0", "4", "8", "12", "16") },
-                { "${settings.appStyle(id).depth}" },
+            // §3.1 (2026-09-06): "global" follows the Global row (the default);
+            // a value moves only this app's content — the bars stay global
+            HostSetting("Depth", { listOf("global") + ShellSettings.DEPTHS.map { "$it" } },
+                { settings.appStyle(id).depth.let { if (it < 0) "global" else "$it" } },
                 { v -> applySettings(settings.withAppStyle(id) {
-                    it.copy(depth = v.toIntOrNull() ?: 8) }) }),
+                    it.copy(depth = v.toIntOrNull() ?: ShellSettings.GLOBAL_DEPTH) }) }),
         )
     }
 
@@ -2755,30 +2813,36 @@ class Shell(
     private fun updatePlanes() {
         val d = settings.depth
         val planes = ArrayList<Compositor.PlaneRegion>()
-        if (d != 0 && !quiet) {
-            // Chrome sits at the BACK of the ladder (§3.1 revised 2026-08-31,
-            // REFINEMENT.md §1 — Adam: the bars "as far back as depth allows",
-            // behind the content plane, never sharing the selection's plane):
-            // one ladder step behind content, capped at the 16 px the bar
-            // inset can shift. Both bands carry bar + divider as one region.
-            val cd = minOf(d + 4, Layout.CONTENT_INSET_X)
-            planes.add(Compositor.PlaneRegion(
-                Rect(layout.topBar.x, layout.topBar.y, layout.topBar.w,
-                    Layout.TOP_H + Layout.DIV_H), cd))
-            planes.add(Compositor.PlaneRegion(
-                Rect(layout.statusBar.x, layout.bottomDivider.y, layout.statusBar.w,
-                    Layout.DIV_H + Layout.STATUS_H), cd))
-            // content: the FOCUSED app's own depth (default 8 — in front of
-            // the global-depth chrome, Adam 2026-08-31); Main = the global d
-            val contentD = (if (mode == Mode.WINDOW) current?.let { appDepth(it) } else null) ?: d
-            planes.add(Compositor.PlaneRegion(layout.content, contentD))
+        // content: the FOCUSED app's own depth when it set one, else the
+        // Global row; Main is always the Global row
+        val contentD = (if (mode == Mode.WINDOW) current?.let { appDepth(it) } else null) ?: d
+        if ((d != 0 || contentD != 0) && !quiet) {
+            // §3.1 revised 2026-09-06 (Adam, on glass): the Global `Depth`
+            // moves EVERYTHING — both bars with their dividers, Main, and every
+            // app's content unless the app's own row says otherwise — and the
+            // selection bar (the lens) sits ONE notch nearer than the plane it
+            // selects on, never nearer than the screen plane. Before, the bars
+            // rode one step behind content capped at 16 and app content parked
+            // at 8 whatever the row said, so 8/12/16 moved only the bars and 16
+            // changed nothing at all. Both bands carry bar + divider as one
+            // region; a plane at 0 is the remainder and needs no region.
+            if (d != 0) {
+                planes.add(Compositor.PlaneRegion(
+                    Rect(layout.topBar.x, layout.topBar.y, layout.topBar.w,
+                        Layout.TOP_H + Layout.DIV_H), d))
+                planes.add(Compositor.PlaneRegion(
+                    Rect(layout.statusBar.x, layout.bottomDivider.y, layout.statusBar.w,
+                        Layout.DIV_H + Layout.STATUS_H), d))
+            }
+            if (contentD != 0) planes.add(Compositor.PlaneRegion(layout.content, contentD))
             // The wheel owns the depth story while it is open (§4.3, corrected
             // 2026-08-31): the window behind it is a PREVIEW, so its lens row
-            // is not the focus — and this full-content-width plane-0 band runs
+            // is not the focus — and this full-content-width band runs
             // through the wheel's rows, which dragged the whole width forward,
             // background included (Adam's report).
-            if (!switcher.open && !menu.open && !keyboard.open && focusedView() is WindowView.ListView) {
-                planes.add(Compositor.PlaneRegion(layout.lens, 0))          // lens comes forward
+            val lensD = maxOf(0, contentD - 4)
+            if (lensD != contentD && !switcher.open && !menu.open && !keyboard.open && focusedView() is WindowView.ListView) {
+                planes.add(Compositor.PlaneRegion(layout.lens, lensD))      // the selection, one notch nearer
             }
             // a window's own depth regions (HOLDEM.md §9.2: the hole cards
             // come forward). Validated here, not trusted: an unaligned or
@@ -2816,7 +2880,7 @@ class Shell(
                 keyboard.rect(layout)?.let { planes.add(Compositor.PlaneRegion(it, 0)) }
             }
             if (switcher.open) {
-                planes.add(Compositor.PlaneRegion(layout.switcherPanel, d)) // neighbours with content
+                if (d != 0) planes.add(Compositor.PlaneRegion(layout.switcherPanel, d)) // neighbours with content
                 val centre = Rect(layout.switcherPanel.x, layout.switcherPanel.y + 44,
                     layout.switcherPanel.w, 88)
                 planes.add(Compositor.PlaneRegion(centre, 0))               // centre band forward
@@ -2848,8 +2912,8 @@ class Shell(
             layout.content.w - Layout.RAIL_W, layout.rowsBelow * layout.rowH)
         if (slides.size != 2 || slides[0].region != bandAbove) {
             slides = listOf(
-                Slide(comp, bandAbove) { g, y0, h -> paintListSlice(g, y0, h, above = true) },
-                Slide(comp, bandBelow) { g, y0, h -> paintListSlice(g, y0, h, above = false) },
+                Slide(comp, bandAbove, cachedText) { g, y0, h -> paintListSlice(g, y0, h, above = true) },
+                Slide(comp, bandBelow, cachedText) { g, y0, h -> paintListSlice(g, y0, h, above = false) },
             )
         }
         for (s in slides) { s.frames = settings.slideFrameCount(); s.retarget(delta * layout.rowH) }
@@ -2902,7 +2966,10 @@ class Shell(
                 val real = if (n > slots) idx.mod(n) else if (idx in 0 until n) idx else null
                 if (real != null) {
                     val tmp = Gray8(g.w, rowH)
-                    v.paintRow(tmp, real, Rect(0, 0, g.w, rowH), false)
+                    // §41: the row temp lands in the strip temp, which lands on
+                    // the target — the recorder composes the offsets
+                    val paint = { v.paintRow(tmp, real, Rect(0, 0, g.w, rowH), false) }
+                    cachedText?.viaInto(g, tmp, 0, slot * rowH - y0, paint) ?: paint()
                     g.blit(tmp, Rect(0, 0, g.w, rowH), 0, slot * rowH - y0)
                 }
             }
@@ -2915,7 +2982,7 @@ class Shell(
         val region = Rect(layout.content.x, layout.content.y + Layout.CONTENT_PAD,
             layout.content.w - Layout.RAIL_W, lines * v.lineHeight)
         if (slides.size != 1 || slides[0].region != region) {
-            slides = listOf(Slide(comp, region) { g, y0, h -> paintDocSlice(g, v, y0, h) })
+            slides = listOf(Slide(comp, region, cachedText) { g, y0, h -> paintDocSlice(g, v, y0, h) })
         }
         slides[0].frames = settings.slideFrameCount()
         slides[0].retarget(dyPx)
@@ -2932,7 +2999,8 @@ class Shell(
             val idx = v.model.topLine + slot
             if (idx in 0 until v.lineCount()) {
                 val tmp = Gray8(g.w, v.lineHeight)
-                v.paintLine(tmp, idx, Rect(0, 0, g.w, v.lineHeight))
+                val paint = { v.paintLine(tmp, idx, Rect(0, 0, g.w, v.lineHeight)) }
+                cachedText?.viaInto(g, tmp, 0, slot * v.lineHeight - y0, paint) ?: paint()
                 g.blit(tmp, Rect(0, 0, g.w, v.lineHeight), 0, slot * v.lineHeight - y0)
             }
             slot++
@@ -2946,6 +3014,11 @@ class Shell(
      *  ring event or a typed line, false for everything else (ticks, pushes,
      *  animation continuations, completions). */
     private var pumpPriority = false
+
+    /** True from a gesture until its first flush goes out (§41): that flush
+     *  never carries telemetry — its bytes decide what the gesture feels
+     *  like, and the readout measured 40–230 B of a 184–470 B first flush. */
+    private var inputFlushPending = false
 
     private suspend fun pump() {
         if (!running || !transport.state.value.started) return
@@ -3044,7 +3117,10 @@ class Shell(
         //    Telemetry (the throughput readout, the link cell) only on a
         //    gesture's own flush, an animation frame or the idle tick — never
         //    on a content-neutral repaint (§8.3, `HANDOFF.md` §40)
-        val allowTelemetry = pumpPriority || animated || chromeIdleFlush
+        // §41: never on a gesture's FIRST flush — a later frame of the same
+        // gesture, or the idle tick, carries the readout instead
+        val firstOfGesture = pumpPriority && inputFlushPending
+        val allowTelemetry = !firstOfGesture && (pumpPriority || animated || chromeIdleFlush)
         if ((chromeDirty || allowTelemetry) && !quiet && (comp.hasPending || animated || chromeIdleFlush)) {
             // One rect per BAR, never one per cell (§2.4 rule 2). A sync with
             // nothing dirty paints only the cells that changed — the readout
@@ -3097,12 +3173,23 @@ class Shell(
                         wide = assembled.wide))
                     inflightFlushes[id] = assembled
                     flushesSubmitted++
+                    cachedRectsShipped += comp.cachedRectsThisAssemble
+                    if (pumpPriority) inputFlushPending = false
                     journal.flushSubmitted(id, assembled, label, st.transportName, Journal.Timing(
                         handleMs = handleMs, handlerMs = handlerNsThisMsg / 1_000_000, mirrorMs = mirrorNsThisMsg / 1_000_000,
                         assembleMs = assembleMs, truthMs = comp.lastTruthNs / 1_000_000,
                         compressMs = comp.lastCompressNs / 1_000_000, compressN = comp.lastCompressN,
+                        cached = comp.cachedRectsThisAssemble, cacheMiss = comp.cacheMissSummary(),
                         slidesMs = slidesNs / 1_000_000, chromeMs = chromeNs / 1_000_000, overlaysMs = overlaysNs / 1_000_000,
                         textMs = (wm.damage.core.text.TextProfile.drawNs.get() - textNsAtMsgStart) / 1_000_000))
+                } catch (e: IllegalStateException) {
+                    // the link ended between the pump's gate and the submit
+                    // (§41: seen once on 2026-09-06 as `submit before
+                    // start()`, nine seconds before an arm rebuild): the flush
+                    // rolls back and the keeper's new session keyframes — a
+                    // note, not an error
+                    journal.note("link", "flush dropped: ${e.message} — the session is restarting")
+                    comp.rollback(assembled)
                 } catch (e: Exception) {
                     Log.e("shell", "submit failed", e)
                     journal.note("submit-error", e.toString())
@@ -3489,6 +3576,8 @@ class Shell(
         /** Above this measured transfer term the link counts as slow (§32):
          *  the two regimes measured 20 and 125 ms/KB; 50 ≈ 20 KB/s. */
         const val SLOW_LINK_MS_PER_KB = 50.0
+        /** Flushes between two regime flips, at least (§41). */
+        const val REGIME_DWELL_FLUSHES = 10L
         /** Consecutive ImgResCmd refusals that put the glasses to sleep (§36). */
         const val REFUSALS_TO_SLEEP = 3
         /** The asleep shell's check pacing (§37.0): the glasses' own state is

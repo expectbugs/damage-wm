@@ -33,7 +33,18 @@ class ChromeFlushTest {
         // MODELED link timing (not instant): the ack EMAs move on every
         // flush, which is what makes the readout change after every ack
         val transport = SimTransport(sim, scope, SimTransport.Timing(ackMs = 15, bytesPerSec = 200_000.0))
-        val shell = Shell(GlyphyText(), transport, Persistence(tmp.resolve("state.json")), null, scope)
+        /** The readout as painted at each submit, in order — taken ON the
+         *  loop (submit is called there), so it is what that flush carried. */
+        val thruAtSubmit = ArrayList<String?>()
+        lateinit var shell: Shell
+        private val spy = object : wm.damage.core.transport.Transport by transport {
+            override suspend fun submit(flush: wm.damage.core.transport.FlushRequest): Long {
+                synchronized(thruAtSubmit) { thruAtSubmit.add(shell.chromeThru) }
+                return transport.submit(flush)
+            }
+        }
+        init { shell = Shell(GlyphyText(), spy, Persistence(tmp.resolve("state.json")), null, scope) }
+        fun thruAt(i: Int): String? = synchronized(thruAtSubmit) { thruAtSubmit[i] }
         /** Counted on the shell's loop, so a settle covers it (a collector on
          *  the transport's events can lag the loop and miss the last one). */
         val flushes: Long get() = shell.flushesSubmitted
@@ -83,9 +94,15 @@ class ChromeFlushTest {
             val thruIdle = rig.shell.chromeThru
             assertNotEquals(thruBefore, thruIdle, "the readout moved on the idle tick")
 
-            // and a gesture's own flush carries it too
+            // §41: a gesture's FIRST flush never carries the readout — that
+            // flush is the one whose bytes decide what the gesture feels like
+            // (40–230 B of a 184–470 B first flush measured on 2026-09-06) —
+            // a later frame of the same gesture does
+            val first = rig.flushes.toInt()
             rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("scroll")
-            assertNotEquals(thruIdle, rig.shell.chromeThru, "the gesture's flush carried the readout")
+            assertTrue(rig.flushes > first + 1, "the notch produced more than one flush (${rig.flushes - first})")
+            assertEquals(thruIdle, rig.thruAt(first), "the gesture's first flush left the readout as it was")
+            assertNotEquals(thruIdle, rig.shell.chromeThru, "a later flush of the gesture carried the readout")
             rig.shell.stop()
         } finally {
             scope.cancel()

@@ -128,12 +128,27 @@ object TextureCache {
          * [tofu], which is added to the cache if it is not already there.
          */
         fun addFont(glyphs: Map<Char, Image>, tofu: Image): Font {
+            // Size the WHOLE font before a byte is written (`HANDOFF.md` §41):
+            // a font that did not fit used to leave the glyphs that did behind
+            // it — 7 KB of orphan images went up the link on glass (2026-09-06,
+            // 18:05:46) and the cache was full for good. Dedup counts as the
+            // writes below will: identical bytes cost once.
+            val tofuEnc = tofu.encode()
+            val encs = HashMap<Char, ByteArray>(glyphs.size)
+            val fresh = HashSet<String>()
+            var need = CfwModes.FONT_TABLE_BYTES
+            fun price(enc: ByteArray) { val k = enc.toHexKey(); if (k !in seen && fresh.add(k)) need += enc.size }
+            price(tofuEnc)
+            for ((c, g) in glyphs) { val e = g.encode(); encs[c] = e; price(e) }
+            if (bytes.size() + need > CfwModes.TEXTURE_CACHE_SIZE)
+                throw LintError("no room for a $need B font: ${bytes.size()} B of " +
+                    "${CfwModes.TEXTURE_CACHE_SIZE} used — nothing written")
             val offsets = IntArray(CfwModes.FONT_TABLE_CHARS)
             val widths = IntArray(CfwModes.FONT_TABLE_CHARS)
-            val tofuOffset = add(tofu)
+            val tofuOffset = addEncoded(tofuEnc)
             for (c in FIRST_CHAR..LAST_CHAR) {
                 val g = glyphs[c.toChar()]
-                offsets[c - FIRST_CHAR] = if (g != null) add(g) else tofuOffset
+                offsets[c - FIRST_CHAR] = if (g != null) addEncoded(encs.getValue(c.toChar())) else tofuOffset
                 widths[c - FIRST_CHAR] = (g ?: tofu).w
             }
             val table = ByteArray(CfwModes.FONT_TABLE_BYTES)
@@ -142,9 +157,7 @@ object TextureCache {
                 table[i * 2 + 1] = ((offsets[i] shr 8) and 0xFF).toByte()
             }
             val off = bytes.size()
-            if (off + table.size > CfwModes.TEXTURE_CACHE_SIZE)
-                throw LintError("no room for a ${table.size} B font table: $off B of " +
-                    "${CfwModes.TEXTURE_CACHE_SIZE} used")
+            check(off + table.size <= CfwModes.TEXTURE_CACHE_SIZE) { "a font sized to fit then did not: $off + ${table.size}" }
             bytes.write(table)
             return Font(off, offsets, widths)
         }

@@ -102,6 +102,8 @@ private data class WireOp(
     val box: List<Int> = emptyList(),
     val src: List<Int> = emptyList(),
     val dst: List<Int> = emptyList(),
+    /** §41: the right lens's destination of a "cp" (its source rides [box]). */
+    val dst2: List<Int> = emptyList(),
     val disp: Int = 0,
     val len: Int = 0,
 )
@@ -503,6 +505,8 @@ class RemoteTransportClient(
                 blobLen += op.payload.size
             }
             is DisplayOp.Copy -> ops.add(WireOp("c", src = op.src.wire(), dst = op.dst.wire(), disp = op.disparity))
+            is DisplayOp.CopyPair -> ops.add(WireOp("cp", src = op.srcL.wire(), dst = op.dstL.wire(),
+                box = op.srcR.wire(), dst2 = op.dstR.wire()))
             is DisplayOp.StereoPair -> {
                 ops.add(WireOp("sp", src = op.left.wire(), dst = op.right.wire(), len = op.payload.size))
                 blobLen += op.payload.size
@@ -848,6 +852,7 @@ class RemoteTransportServer(
                                     off += w.len
                                 }
                                 "c" -> ops.add(DisplayOp.Copy(w.src.rect(), w.dst.rect(), w.disp))
+                                "cp" -> ops.add(DisplayOp.CopyPair(w.src.rect(), w.dst.rect(), w.box.rect(), w.dst2.rect()))
                                 "sp" -> {
                                     ops.add(DisplayOp.StereoPair(w.src.rect(), w.dst.rect(),
                                         blob!!.copyOfRange(off, off + w.len)))

@@ -365,11 +365,13 @@ change per gesture**, not on bytes per screen.
    exposed strip. Heavy repaints — a lens row with an icon and two lines, a whole pane — go in a
    LATER flush, never the first. If a window cannot express a change as translation + strip, say
    why in its record.
-2. **Text and icons through the texture cache** (adopted 2026-09-06, `HANDOFF.md` §40.6, behind
-   the Global `Cached text` row): draw text through the rasterizer the host handed you — it is the
-   recorder — and never through a private glyph path; a plane-0 string then ships as a mode-14
-   draw with nothing for the window to do. Depth planes stay pixels (cached draws are flat); icons
-   are not cached yet.
+2. **Text and icons through the texture cache** (adopted 2026-09-06, `HANDOFF.md` §40.6 → §41.4,
+   behind the Global `Cached text` row): draw text through the rasterizer the host handed you — it
+   is the recorder — and never through a private glyph path; draw icons through `IconPaint`; a
+   string or icon on ANY plane then ships as draws (plus one per-lens copy on a depth plane) with
+   nothing for the window to do. Text on a black background caches; text on a box does not (the
+   proof refuses it) — and the journal's `cacheMiss` says which. A row painted into a temp of your
+   own is not recorded: paint into the surface you are given.
 3. **Update what changed.** A pushed frame, a poll result, a progress tick repaints the rows or
    cells that changed; the compositor's diff sends only the difference, but the window's own CPU
    is paid for every row it repaints on the phone. Memoise per line / per row (`FlowRender`).

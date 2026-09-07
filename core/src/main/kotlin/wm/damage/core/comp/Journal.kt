@@ -44,7 +44,11 @@ class Journal(private val path: Path?) : AutoCloseable {
         /** Inside the pump before the assemble: the slide steps, the chrome
          *  sync, the overlays (wheel, notification); and across the whole
          *  message, the time inside the rasterizer's draw (§34, second cut). */
-        val slidesMs: Long = -1, val chromeMs: Long = -1, val overlaysMs: Long = -1, val textMs: Long = -1)
+        val slidesMs: Long = -1, val chromeMs: Long = -1, val overlaysMs: Long = -1, val textMs: Long = -1,
+        /** §41: rects this flush shipped as cached draws, and why the others
+         *  did not ("reason=count,…" — empty when every rect was pixels for
+         *  want of records, or the cache is off). */
+        val cached: Int = -1, val cacheMiss: String = "")
 
     fun flushSubmitted(id: Long, a: Compositor.Assembled, label: String,
         via: String = "?", timing: Timing = Timing()) {
@@ -54,6 +58,7 @@ class Journal(private val path: Path?) : AutoCloseable {
                 is DisplayOp.Delta ->
                     """{"op":"delta","box":"${op.box}","bytes":${op.payload.size},"d":${op.disparity}}"""
                 is DisplayOp.Copy -> """{"op":"copy","src":"${op.src}","dst":"${op.dst}","d":${op.disparity}}"""
+                is DisplayOp.CopyPair -> """{"op":"copypair","sl":"${op.srcL}","dl":"${op.dstL}","sr":"${op.srcR}","dr":"${op.dstR}"}"""
                 is DisplayOp.StereoPair ->
                     """{"op":"stereopair","l":"${op.left}","r":"${op.right}","bytes":${op.payload.size}}"""
                 is DisplayOp.CacheWrite -> """{"op":"cachewrite","bytes":${op.payload.size}}"""
@@ -65,7 +70,8 @@ class Journal(private val path: Path?) : AutoCloseable {
         write("""{"t":${System.currentTimeMillis()},"ev":"submit","id":$id,"epoch":${a.epoch},"label":${json(label)},""" +
             """"via":${json(via)},"handleMs":${tm.handleMs},"handlerMs":${tm.handlerMs},"mirrorMs":${tm.mirrorMs},""" +
             """"assembleMs":${tm.assembleMs},"truthMs":${tm.truthMs},"compressMs":${tm.compressMs},"compressN":${tm.compressN},""" +
-            """"slidesMs":${tm.slidesMs},"chromeMs":${tm.chromeMs},"overlaysMs":${tm.overlaysMs},"textMs":${tm.textMs},"ops":[$ops]}""")
+            """"slidesMs":${tm.slidesMs},"chromeMs":${tm.chromeMs},"overlaysMs":${tm.overlaysMs},"textMs":${tm.textMs},""" +
+            """"cached":${tm.cached},"cacheMiss":${json(tm.cacheMiss)},"ops":[$ops]}""")
     }
 
     fun flushDone(id: Long, ok: Boolean, ackMs: Long, bytes: Int, error: String?) {

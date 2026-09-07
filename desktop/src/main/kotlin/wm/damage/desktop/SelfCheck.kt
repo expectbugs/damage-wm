@@ -709,6 +709,10 @@ object SelfCheck {
 
         typeLadderTopEnd(shell, musicWin, musicPlayer) { label -> musicMenu(label) }
 
+        // ---- §41: the texture cache on EVERY plane — its own function: the
+        // script method had reached the JVM's 64 KB limit
+        cachedTextChecks(shell, reader, flushFails)
+
         // ---- persistence round trip: leave a BOOK open, restart, land back in it
         toWindow(shell, "reader")
         awaitTrue("reader reopens") { shell.currentWindowId() == "reader" && shell.isQuiescent() }
@@ -991,6 +995,50 @@ object SelfCheck {
             shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
             settle(shell, "back-to-main")
         }
+    }
+
+
+    /**
+     * §41: the texture cache on EVERY plane, with the real faces and the real
+     * windows, the truth oracle on every settle — fonts and icons go up,
+     * rows/lines/chrome/icons ship as draws behind per-lens copies, and belief
+     * must equal glass must equal truth at every rung of the depth ladder.
+     * The strongest offline check the mechanism has.
+     */
+    private suspend fun cachedTextChecks(shell: Shell, reader: ReaderWindow, flushFails: java.util.concurrent.atomic.AtomicInteger) {
+        val servedBefore = shell.cachedRectsShipped
+        val faultsBefore = faults.get(); val failsBefore = flushFails.get()
+        shell.updateSettings { it.copy(cachedText = "on") }
+        awaitTrue("the atlas uploads and the cache goes live") { shell.cachedTextActive && shell.cachedFontsLive.isNotEmpty() }
+        settle(shell, "cache-live")
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); settle(shell, "cache-main-notch-$it") }
+        for (id in listOf("files", "torrents", "tmux", "settings")) {
+            toWindow(shell, id)
+            awaitTrue("$id opens under the cache") { shell.currentWindowId() == id }
+            settle(shell, "cache-$id-open")
+            repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); settle(shell, "cache-$id-notch-$it") }
+            repeat(2) { shell.postGesture(EvenHubMsg.EV_SCROLL_TOP); settle(shell, "cache-$id-back-$it") }
+        }
+        toWindow(shell, "reader")
+        awaitTrue("reader opens under the cache") { shell.currentWindowId() == "reader" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("the book opens under the cache") { reader.levelDepth() >= 2 }
+        settle(shell, "cache-book")
+        for (d in listOf(8, 12, 16, 4, 0, 8)) {
+            shell.updateSettings { it.copy(depth = d) }
+            settle(shell, "cache-book-depth-$d")
+            repeat(2) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); settle(shell, "cache-book-notch-$d-$it") }
+        }
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)               // book → library
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)               // library → Main
+        awaitTrue("back to Main under the cache") { shell.currentWindowId() == null }
+        settle(shell, "cache-main-again")
+        val served = shell.cachedRectsShipped - servedBefore
+        check("the cache served rects on real surfaces under the oracle (served $served)", served > 20)
+        check("no faults or failed flushes under the cache", faults.get() == faultsBefore && flushFails.get() == failsBefore)
+        shell.updateSettings { it.copy(cachedText = "off") }
+        awaitTrue("the cache goes dark on request") { !shell.cachedTextActive }
+        settle(shell, "cache-off")
     }
 
     private suspend fun toWindow(shell: Shell, id: String) {

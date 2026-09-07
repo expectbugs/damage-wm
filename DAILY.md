@@ -100,10 +100,16 @@ runs every read-only probe against the real database and computes one viz blob.
   on first. Read the phone journal's `silent`, `restart` and `event` notes afterwards.
 - **Two new Global rows (2026-09-06, `HANDOFF.md` §40): `Slide frames` (default `auto`, the old
   behaviour) and `Cached text` (default `off`).** Turning `Cached text` on uploads the session's
-  fonts in idle chunks (the journal's `atlas` notes say how many bytes and when) and ships the
-  lens, menus and notices as mode-14 draws; turn it off and everything is pixels again. A lease
-  lapse re-uploads by itself; a refused cache write switches it off for the session (the journal
-  says so). The watchdog rebuilds a session that stops answering for ~22 s (`watchdog` notes).
+  fonts and icons in idle chunks (the journal's `atlas` notes say how many bytes and when) and
+  ships text and icons on EVERY plane as cached draws (§41); turn it off and everything is pixels
+  again, on again and it resumes at once. A lease lapse re-uploads by itself; a refused cache
+  write switches it off for the session (the journal says so). Every flush's journal line carries
+  `cached` and `cacheMiss`, and `tools/journal_report.py` totals them — read that before deciding
+  the cache "does nothing". The watchdog rebuilds a session that stops answering for ~22 s
+  (`watchdog` notes). Every session start writes a `build` note (the APK version or the desktop's
+  git stamp) and every link edge a `link` note with the arm and the reason.
+- **Depth (2026-09-06, §41.2):** the Global row moves everything, the selection bar one notch
+  nearer; each app's `Depth` row is `global` by default and moves only that app's content.
 - **Drive the glasses from the PC** (2026-09-05, `HANDOFF.md` §33): `python3 tools/glassdrive.py
   aphone TOKEN --pace 2.5 double wait:3 snap:/tmp/a.png down down tap …` sends ring gestures
   through the phone's replica and saves both lenses at 1× from the mirror — snap before every tap

@@ -416,6 +416,7 @@ class DesktopStack(
         val dataDir = Path.of(cfg.dataDir)
         val persistence = sharedStore ?: Persistence(dataDir.resolve("state.json"))
         shell = Shell(text, transport, persistence, dataDir.resolve("journal.jsonl"), scope)
+        shell.buildTag = "desktop " + (DesktopStack::class.java.getResource("/damage-build.txt")?.readText()?.trim() ?: "unstamped")
         shell.iconSource = themeIcons
         val content = LocalContent(Path.of(cfg.booksDir))
         shell.register(ReaderWindow(text, content, scope, AwtImages()))

@@ -8,7 +8,7 @@ import kotlinx.serialization.json.put
 import wm.damage.core.geom.Rect
 import wm.damage.core.gfx.Gray8
 import wm.damage.core.gfx.IconKind
-import wm.damage.core.gfx.Icons
+import wm.damage.core.gfx.IconPaint
 import wm.damage.core.gfx.Level
 import wm.damage.core.text.Face
 import wm.damage.core.text.FontSpec
@@ -304,7 +304,7 @@ class SettingsWindow(
 
     private fun paintCatLens(g: Gray8, r: Rect, i: Int) {
         val c = cats().getOrNull(i) ?: return
-        Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.SETTINGS, Level.HEAD)
+        IconPaint.drawKind(g, IconKind.SETTINGS, r.x + 12, r.y + 10, 24, Level.HEAD)
         text.draw(g, r.x + 44, (r.y + 8) / 2 * 2, c.name, fRowB, Level.HEAD)
         text.draw(g, r.x + 44, Draw.lineBelow(text, fRowB, r.y + 8, r.y + 34) / 2 * 2,
             "${c.entries.size} settings · tap to open", FontSpec(Face.SYSTEM, 14), Level.DIM)
@@ -331,7 +331,7 @@ class SettingsWindow(
 
     private fun paintLens(g: Gray8, r: Rect, i: Int) {
         val e = entriesAt().getOrNull(i) ?: return
-        Icons.draw(g, r.x + 12, r.y + 10, 24, 24, IconKind.SETTINGS, Level.HEAD)
+        IconPaint.drawKind(g, IconKind.SETTINGS, r.x + 12, r.y + 10, 24, Level.HEAD)
         text.draw(g, r.x + 44, (r.y + 8) / 2 * 2, e.name, fRowB, Level.HEAD)
         val vf = valueFont(e)
         // right-aligned while it fits beside the name; past that it is drawn

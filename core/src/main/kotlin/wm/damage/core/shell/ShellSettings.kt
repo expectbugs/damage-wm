@@ -46,8 +46,11 @@ data class ShellSettings(
     val fontStyle: String = "default",
 
     /** Per-app typography + depth, keyed by window id (2026-08-31): face,
-     *  scale and style default to the app's own design; depth defaults to 8
-     *  so app content pops FORWARD of the global-depth chrome. */
+     *  scale and style default to the app's own design; depth defaults to
+     *  [GLOBAL_DEPTH] — the app's content follows the Global `Depth` row
+     *  unless the app says otherwise (Adam, 2026-09-06: "Depth should always
+     *  affect everything on the screen"; the per-app row moves only that
+     *  app's content, never the bars). */
     val appStyles: Map<String, AppStyle> = emptyMap(),
 
     /** Silent-mode clock size (2026-09-01 Adam): "large" = the original
@@ -114,15 +117,18 @@ data class ShellSettings(
         val face: String = "default",
         val scale: Double = 0.0,
         val style: String = "default",
-        val depth: Int = 8,
+        val depth: Int = GLOBAL_DEPTH,
     ) {
         fun clamped(): AppStyle = copy(
             face = if (face == "default" || wm.damage.core.text.Faces.byLabel(face) != null) face else "default",
             scale = if (scale == 0.0) 0.0 else SCALES.minByOrNull { kotlin.math.abs(it - scale) } ?: 0.0,
             style = if (style in STYLES) style else "default",
-            depth = ((depth / 4).coerceIn(0, 4)) * 4,
+            depth = if (depth < 0) GLOBAL_DEPTH else ((depth / 4).coerceIn(0, 4)) * 4,
         )
     }
+
+    /** The per-app depth that means "follow the Global row" (§3.1, 2026-09-06). */
+    fun appDepthOf(id: String): Int = appStyle(id).depth.let { if (it < 0) depth else it }
 
     fun appStyle(id: String): AppStyle = appStyles[id] ?: AppStyle()
 
@@ -159,6 +165,10 @@ data class ShellSettings(
         /** The four sizes (2026-08-31): 288 smallest → 480 largest, 64 px
          *  steps, all on the ×2 grid, all tall enough for the chrome. */
         val HEIGHTS = listOf(288, 352, 416, 480)
+        /** [AppStyle.depth] sentinel: the app's content follows the Global row. */
+        const val GLOBAL_DEPTH = -1
+        /** The 4 px disparity ladder (§3.2). */
+        val DEPTHS = listOf(0, 4, 8, 12, 16)
 
         /** The text-scale ladder (2026-08-31; 0.85 is the measured §Type
          *  ~20 % byte saver, the upper steps are legibility). */

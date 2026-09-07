@@ -59,7 +59,8 @@ class StyleTest {
         assertEquals("default", a.style)
         assertEquals(16, a.depth, "depth clamps onto the 4 px ladder")
         assertEquals(1.15, a.scale)
-        assertEquals(8, s.appStyle("reader").depth, "an unset app defaults to depth 8")
+        assertEquals(ShellSettings.GLOBAL_DEPTH, s.appStyle("reader").depth, "an unset app follows the Global row (§41)")
+        assertEquals(s.depth, s.appDepthOf("reader"), "and so its content depth IS the global depth")
     }
 
     @Test

@@ -97,6 +97,36 @@ class TextureCacheTest {
         }
     }
 
+    /** §41: a font that does not fit used to leave the glyphs that DID fit
+     *  behind it — orphan bytes the shell then uploaded (7 KB on glass,
+     *  2026-09-06 18:05) — and the cache stayed full. Now it is sized first. */
+    @Test
+    fun aFontThatDoesNotFitLeavesNothingBehind() {
+        val b = TextureCache.Builder()
+        // fill to within a few KB of the cap with DISTINCT noise (a hash of
+        // the image index — a short cycle would dedup and never fill)
+        var n = 0
+        while (b.free > 3_000) {
+            val levels = ByteArray(40 * 40) { i -> (((i * 0x9E3779B1.toInt() + n * 0x85EBCA6B.toInt()) ushr 28) and 0x0F).toByte() }
+            b.add(TextureCache.Image(40, 40, levels))
+            n++
+            check(n < 2_000) { "the filler never filled the cache: ${b.used} B used after $n images" }
+        }
+        val usedBefore = b.used
+        val contentBefore = b.content()
+        // a font of 95 distinct 12x20 glyphs needs far more than what is left
+        val glyphs = (32..126).associate { c ->
+            c.toChar() to TextureCache.Image(12, 20, ByteArray(240) { i -> ((i * 3 + c) and 0x0F).toByte() })
+        }
+        val tofu = TextureCache.Image(12, 20, ByteArray(240) { 15 })
+        assertFailsWith<LintError> { b.addFont(glyphs, tofu) }
+        assertEquals(usedBefore, b.used, "a refused font wrote nothing")
+        assertTrue(contentBefore.contentEquals(b.content()), "the cache bytes are exactly what they were")
+        // and a font that fits still packs after the refusal
+        val small = mapOf('A' to TextureCache.Image(3, 6, ByteArray(18) { 15 }))
+        b.addFont(small, TextureCache.Image(3, 6, ByteArray(18) { 1 }))
+    }
+
     // ---------------------------------------------------------------- the wire
     @Test
     fun modeThirteenIsExactlyEightBytesAsTheFirmwareDemands() {

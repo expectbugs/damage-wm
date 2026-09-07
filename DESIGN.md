@@ -411,6 +411,15 @@ for him specifically, not just in principle.
 
 ### 3.1 Layer order
 
+> 🔴 **Revised 2026-09-06 (Adam, on glass — `HANDOFF.md` §41.2), superseding the two amendments
+> below where they differ:** the Global `Depth` D moves EVERYTHING — both bars with their
+> dividers at D, Main at D, every app's content at D unless that app's own `Depth` row says
+> otherwise — and **the selection bar sits one notch (4 px) nearer than the plane it selects on**,
+> never nearer than the screen plane. The per-app row is `global · 0 · 4 · 8 · 12 · 16`, default
+> `global`, and moves only that app's content; the bars never leave the Global row. On glass the
+> old ladder read as "8, 12 and 16 move only the bars; 16 changes nothing" — because the bars rode
+> one step behind content capped at 16 and app content parked at 8 whatever the row said.
+>
 > ⚠ **Amended 2026-08-31 (Adam):** the bars and Main keep the GLOBAL depth setting, but the
 > focused APP's content plane uses a per-app depth (Settings → <app> → Depth, default 8 on the
 > 0/4/8/12/16 ladder) — app content pops forward of, or parks behind, the chrome. The ladder,
@@ -426,12 +435,13 @@ the selection and read as competing for attention. Adam: the bars belong **"as f
 allows"** — behind the content plane, never with the selection. Chrome joins the back; the
 direction of the ladder is unchanged.
 
-| plane | contents | disparity |
+| plane | contents | disparity (2026-09-06) |
 |---|---|---|
 | **+1** (nearest, crossed) | critical modals only — *off by default* | −4 / −8 |
-| **0** (screen plane) | **popups / notifications / switcher overlay / the floating context menu (§4.7)**, the focused lens | 0 |
-| **−1** (far) | **main content**, parked permanently | +d (8 … 16) |
-| **−2** (farthest) | **chrome** — both bars and their dividers | d + 4, capped at 16 (the bar inset) |
+| **0** (screen plane) | **popups / notifications / switcher overlay / the floating context menu (§4.7)** | 0 |
+| the selection | **the focused lens** — one notch nearer than its content | max(0, content − 4) |
+| **−1** (far) | **main content** (Main at D; an app at its own row, else D) | D, or the app's value |
+| **−1** (far) | **chrome** — both bars and their dividers, always the Global row | D |
 
 **Depth is a z-order *signal*, not decoration** — the eye reads the layering pre-attentively, so
 you know something popped before you read it. **Modal depth = modal state**: a confirm dialog one
@@ -783,14 +793,14 @@ choice overrides the global for that app only. Reader's Size row is the first in
 |---|---|
 | **Brightness** | the panel's own, sid 0x09 — distinct from our 16-level content ramp. One ladder with **auto at its foot** (2026-09-04, `HANDOFF.md` §29): a notch up from auto leaves it at the stored level, a notch down from 0 % is auto again, nothing sits below auto — before, a brightness touched once on the glasses stayed manual for good |
 | **Size** | **four heights — 288 / 352 / 416 / 480 — always TOP-aligned** (revised 2026-08-31, Adam: *"I can always see the top, it's the lower areas that get cut off if I wear the glasses too high"* — so the vertical-position setting was useless and is retired). Per-app shadows follow the global/override pattern below |
-| **Depth** | the disparity calibration ramp, 0/4/8/12/16 (§3.4) |
+| **Depth** | the disparity ramp, 0/4/8/12/16 (§3.1 revised 2026-09-06: it moves everything, the selection one notch nearer; each app's own `Depth` row defaults to `global`) |
 | **Presence** | the resting-state ink floor — one knob for "how much is it in my way" |
 | **Font · Font size · Font style** | chrome + Main's face, scale and style, each option previewed in its own face (§Type's defaults, changeable since 2026-08-31); every app category carries the same three rows for its content. 🔴 **Chrome grows only until its bar is full** (2026-09-05): §2.3's bars are a fixed 32 px and 28 px, so the CHROME half of the global scale is capped to the measured ink the shortest bar can hold — Clear Sans reaches 115 %, Alegreya 100 % — while CONTENT keeps the whole ladder. Uncapped, the title inks into the divider at 130 % and the status line's descenders land below the safe rect at a reduced height, both outside the only rect chrome damages (`HANDOFF.md` §27.2). 🔴 **The chrome surfaces' own rhythm is measured too** (2026-09-04, `HANDOFF.md` §28.2): the menu's title band and row pitch, the notification box's source band, body pitch and visible-line count, the wheel's centre band — each with its design number as the FLOOR, so 100 % is unchanged and a grown face never puts ink outside the surface's own rect. 🔴 **And the list rhythm** (2026-09-04, `HANDOFF.md` §29): the row pitch, the lens band and every window's second lens line are measured from the row face the same way — the design's 32 / 64 are the floors — after the row above the lens was seen losing its descenders at 115 % |
 | **Silent clock** | large (the 144×48 seven-segment box, default) / medium / small — §1.5 |
 | **Head tracking** | default OFF (§7.1) |
 | **Long-press** | **off** (default — §1.2 revised 2026-08-30: a bare long-press is a no-op; the §1.3 chord opens the switcher) / switcher |
 | **Slide frames** | 🆕 **built (2026-09-06, `HANDOFF.md` §40; Adam's ruling of 2026-09-05):** `off · 2 · 4 · auto · 8 · 12` frames per notch for list and document slides — **`auto` (the default) is the ease-out halving rule** (list 3, doc 5); N resamples the ease-out to at most N steps on the 2 px grid; `off` is one copy and one strip. He tests the feel at every value on the phone path himself. The wheel keeps its own 4 / 2-on-a-slow-link rule (§6.3) |
-| **Cached text** | 🆕 **built (2026-09-06, §40): `off · on`, OFF until seen on glass.** On: the session's fonts are rendered by the host, packed into the firmware's 64 KiB texture cache (mode 12, in idle chunks after the keyframe) and every plane-0 string ships as a mode-14 draw instead of its pixels — the lens band, menus, notices, the switcher; everything at Depth 0. Cached draws are flat (the firmware draws one x into both lenses), which is why depth planes stay pixels. Integer advances, no pair kerning |
+| **Cached text** | 🆕 **built (2026-09-06, §40; every plane and icons since §41): `off · on`, OFF until seen on glass.** On: the session's fonts and icons are rendered by the host, packed into the firmware's 64 KiB texture cache (mode 12, in idle chunks after the keyframe) and every string and icon the proof can reproduce ships as cached draws instead of pixels — on a depth plane behind one per-lens mode-9 copy, since the firmware's draws are flat. Off → on resumes at once. Integer advances, no pair kerning; the journal's `cached`/`cacheMiss` is the account |
 | **Notification sources** | only `Notify · Damage` here — **each app's toggles live in that app's own category** (Adam, 2026-09-01; §4.5) |
 | **Keyboard** | qwerty / abc — the §4.8 keyboard's layout |
 | **Battery alert** | off / on / escalating — the ≤ 20 % pulse (§4.1) |
@@ -2003,6 +2013,9 @@ chrome dirty and shipped the changed digits as a flush of their own — **149 of
 were that cell alone**, each a 70 ms floor and a window slot. **Fixed 2026-09-06 (§40.1):** the
 telemetry cells (the readout, the link cell) repaint only on a gesture's own flush, an animation
 frame or the idle tick; on any other sync they keep their last text. `ChromeFlushTest` pins it.
+**Tightened 2026-09-06 (§41.6):** never on a gesture's FIRST flush either — measured 40–230 B of a
+184–470 B first flush — a later frame of the gesture or the idle tick carries it; the input echo
+still rides the first flush.
 
 ### 8.4 Modeled costs
 
@@ -2040,7 +2053,11 @@ cheap through the texture cache (§5 #18). Chrome-only flushes (§8.3) must not 
 gesture and its first frame. **Built 2026-09-06 (§40.2):** the lens repaint is posted one message
 on; a strip worth a flush of its own (12,000 px, ~1 KB) is sent BLANK with the translation and
 filled on the next pump, for list and document slides and for a canvas whose repaint translated;
-`FirstFlushTest` measures the shapes in the simulator. On glass, unwalked.
+`FirstFlushTest` measures the shapes in the simulator. **Walked on glass 2026-09-06 (0.37,
+`HANDOFF.md` §41.0):** a window list notch 155 / 227 ms (median / p90) to first visible change,
+a Main notch 257 / 409 ms (first flush 1.1 KB — the two real-text strips), back to Main 704 /
+984 ms, a window switch with a height change 1.1–2.7 s (the keyframe, since seeded with the
+screen plane only, §41.3). Chrome-only flushes fell to 122 of 1,225.
 
 ### 8.5 Rendering optimizations
 

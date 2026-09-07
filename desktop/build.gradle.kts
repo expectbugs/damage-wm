@@ -1,4 +1,5 @@
 import java.nio.file.Files
+import java.time.LocalDateTime
 import java.nio.file.StandardCopyOption
 
 plugins {
@@ -61,3 +62,22 @@ tasks.register("stageJar") {
         Files.move(tmp, dst, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
     }
 }
+
+// A build stamp the journal records at every session start (HANDOFF §41):
+// the short git sha and the build time, so a journal read a week later says
+// which tree wrote it. Regenerated on every build; read by Main as a resource.
+val buildStamp = tasks.register("buildStamp") {
+    val dir = layout.buildDirectory.dir("generated/stamp")
+    outputs.dir(dir)
+    outputs.upToDateWhen { false }
+    doLast {
+        val sha = try {
+            ProcessBuilder("git", "rev-parse", "--short", "HEAD").directory(rootDir)
+                .redirectErrorStream(true).start().inputStream.bufferedReader().readText().trim()
+        } catch (e: Exception) { "unknown" }
+        val f = dir.get().file("damage-build.txt").asFile
+        f.parentFile.mkdirs()
+        f.writeText("$sha ${LocalDateTime.now().withNano(0)}")
+    }
+}
+sourceSets["main"].resources.srcDir(buildStamp)

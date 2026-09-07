@@ -97,12 +97,32 @@ object IconNames {
 }
 
 /**
+ * §41: the texture-cache recorder's seam for icons — the one object that
+ * may draw an icon from the firmware's cache instead of its pixels
+ * (`CachedText` implements it; the shell installs it).
+ */
+interface IconRecorder {
+    /** Draw [bm] (8-bit, 0 = unlit) at (x, y) scaled to [lv] from the cache
+     *  when the glasses hold it, recording the draw, and return true; false
+     *  means "not cached — paint it yourself". [key] names the bitmap across
+     *  frames (a theme bitmap is its own key; the drawn set a string). */
+    fun drawIcon(g: Gray8, key: Any, bm: Gray8, x: Int, y: Int, lv: Int): Boolean
+}
+
+/**
  * One paint entry point for every icon in the shell: theme bitmap when the
  * source resolves one, the drawn icon otherwise — so a missing theme, a
  * pending async resolve, or the phone before its first fetch all render the
  * drawn set and repaint into the theme set as bitmaps arrive.
  */
 object IconPaint {
+
+    /** The shell's recorder, when a host wrapped its rasterizer (§41). */
+    @Volatile var recorder: IconRecorder? = null
+
+    /** The drawn set, rendered once per kind and size at full level — so a
+     *  drawn icon blits like a theme bitmap and rides the cache too. */
+    private val drawn = java.util.concurrent.ConcurrentHashMap<String, Gray8>()
 
     fun draw(g: Gray8, src: IconSource?, names: List<String>, x: Int, y: Int, size: Int,
         fallback: IconKind, lv: Int) {
@@ -116,10 +136,21 @@ object IconPaint {
             found
         }
         if (bm == null) {
-            Icons.draw(g, x, y, size, size, fallback, lv)
+            drawKind(g, fallback, x, y, size, lv)
             return
         }
         blit(g, bm, x, y, lv)
+    }
+
+    /** A drawn icon of the shared set, [size] square — through the drawn
+     *  cache, so it can ship as a cached image (§41). The drawn set is two
+     *  level (ink and cutout), so a full-level render scaled to [lv] is
+     *  exactly what drawing at [lv] painted. */
+    fun drawKind(g: Gray8, kind: IconKind, x: Int, y: Int, size: Int, lv: Int) {
+        val r = drawn.getOrPut("drawn:$kind:$size") {
+            Gray8(size, size).also { Icons.draw(it, 0, 0, size, size, kind, 255) }
+        }
+        blit(g, r, x, y, lv)
     }
 
     /** Like [draw] but with NO drawn fallback shape that fits (file-type rows
@@ -134,6 +165,7 @@ object IconPaint {
      *  proportionally, matching how the drawn set behaves. Level 0 pixels stay
      *  unlit (the additive panel's transparency). */
     fun blit(g: Gray8, bm: Gray8, x: Int, y: Int, lv: Int) {
+        if (recorder?.drawIcon(g, bm, bm, x, y, lv) == true) return   // §41: from the cache, recorded
         val f = lv.coerceIn(0, 255)
         for (yy in 0 until bm.h) for (xx in 0 until bm.w) {
             val v = bm[xx, yy] * f / 255

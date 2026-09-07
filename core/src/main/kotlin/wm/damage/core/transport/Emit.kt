@@ -77,6 +77,7 @@ object Emit {
                         CfwModes.copyStereo(sl, dl, sr, dr)
                     }
                 }
+                is DisplayOp.CopyPair -> subs += CfwModes.copyStereo(op.srcL, op.dstL, op.srcR, op.dstR)
                 is DisplayOp.StereoPair -> {
                     val fid = fids.take()
                     consumed += fid

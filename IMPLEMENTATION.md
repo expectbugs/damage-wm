@@ -712,11 +712,27 @@ with `Compositor.emitCached`'s proof) and records them per frame; the compositor
 plane-0 rect as one clear plus mode-14 draws only when black plus the records equals the composed
 pixels byte for byte. The upload (`DisplayOp.CacheWrite`, bare mode-12 images, one ≤ 3 KB chunk
 per idle pump after the keyframe) is the shell's (`Shell.pumpAtlas`); fonts go live on the batch's
-last ack; a lease lapse forgets the upload and the re-acquire sends it again. **Cached draws are
-flat (modes 13/14 ignore the lens bit), so the cache serves plane 0** — the lens band, menus,
-notices, the switcher, everything at Depth 0; list rows, tmux and chrome stay pixels until the
-firmware grows a per-lens variant. Icons (mode 13) are the next step. Mode 11 in `stop()` is
-still held.
+last ack; a lease lapse forgets the upload and the re-acquire sends it again. Mode 11 in
+`stop()` is still held.
+
+**Every plane, and icons (2026-09-06, `HANDOFF.md` §41).** Cached draws are flat in the
+firmware, so a rect on a depth plane ships as a BASE delta over the rect widened by the
+disparity (the composed pixels with every draw's box black — a rule or a divider rides it), the
+draws at nominal x, and one per-lens mode-9 copy (`DisplayOp.CopyPair` → `CfwModes.copyStereo`)
+that slides each lens's copy to its own x; `Compositor.emitCached` builds the firmware's result
+per lens (base, draws, the staged copy) and compares it with that lens's truth byte for byte, one
+region at exactly that disparity under the whole widened rect, before anything ships — else
+pixels, with the reason counted into the journal's `cacheMiss`. `CachedText` records draws made
+into a slide's temp through a relay that composes the temp's landing offset (`via`/`viaInto`;
+`Slide` and the shell's slice painters use it), moves records with a translation
+(`moveRecords`), and draws a string with a character outside 32..126 as its cacheable RUNS plus
+the host's character. Icons cross `IconPaint.blit` (the drawn set renders once per kind and size
+— `IconPaint.drawKind`) and `CachedText` is the `IconRecorder`: quantised once, packed after two
+uses and after the fonts within `GlyphAtlas.IMAGE_BUDGET`, drawn through the firmware's LUT
+(`CachedText.blitImage`) and shipped as mode-13 draws in the same shape. Fonts pack heaviest
+first (`usageOf`); a font that does not fit writes nothing (`Builder.addFont` sizes first); the
+atlas keeps an ACKED watermark and every acked font goes live on the next grow (the off → on
+flip). The keyframe seeds the screen plane only (`Compositor.seedFrame`).
 
 ## Review hardening (rounds 2–8, 2026-08-24)
 
@@ -734,9 +750,11 @@ of them are load-bearing and easy to break by accident:
   starved a plane and shipped a whole band for a scrollbar thumb); `CfwTransportBase.watchdogTick`
   probes a session that has gone quiet and rebuilds it, and the connect prelude re-asks every 2 s
   like the two gates below it (a rebuilt session into silence used to park forever);
-  `Compositor.emitCached` ships plane-0 text as mode-14 draws only under a byte-exact proof. Do
-  not put the proportional shares back, do not let telemetry ride a content-neutral repaint, and
-  do not send a cached draw on a plane that is not 0 — the firmware draws it flat.
+  `Compositor.emitCached` ships text as mode-14 draws only under a byte-exact proof — since §41 in
+  LENS space, on every plane, with a per-lens copy behind the flat draw. Do not put the
+  proportional shares back, do not let telemetry ride a content-neutral repaint or a gesture's
+  first flush, and never emit a cached draw on a depth plane WITHOUT its `CopyPair` — the
+  firmware draws it flat, and only the copy puts it at each lens's x.
 - 🆕 **The glasses can be asleep (2026-09-05, `HANDOFF.md` §36).** The firmware's
   Silent Mode refuses every image; the glasses push the state and the READ
   response restores it (`SettingsMsg.parseSilentModePush` / `parseSilentRestored`
