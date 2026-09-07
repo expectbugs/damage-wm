@@ -324,6 +324,56 @@ class PlaneCacheTest {
         }
     }
 
+    /** A document whose lines go through the shell's recorder. */
+    private class DocWindow(private val tx: TextRasterizer) : DamageWindow("doc", "Doc", IconKind.READER) {
+        private val doc = wm.damage.core.shell.DocModel()
+        private val f = FontSpec(Face.SYSTEM, 18)
+        override fun view() = WindowView.DocView(doc, { 200 }, 24,
+            { g, i, r -> tx.draw(g, r.x + 4, r.y + 4, "line $i of the document, long enough to fill the strip across the page", f, Level.BODY) },
+            {}, stepLines = { 3 })
+        override fun summary() = Summary("doc")
+        override fun saveState(): JsonObject = buildJsonObject {}
+        override fun restoreState(state: JsonObject) {}
+    }
+
+    /** §41.9 (Adam: "Auto"): while the cache serves, a document notch's strip
+     *  rides the translation's flush as draws — no blank band, one flush. */
+    @Test
+    fun slideFillAutoSendsTheStripAsDrawsWithTheTranslationWhileTheCacheIsLive(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val text = CachedText(GlyphyText())
+            val rig = Rig(scope, text, DocWindow(text))
+            rig.shell.start(); rig.settle("start")
+            rig.shell.services.runOnShell { rig.shell.services.openWindow("doc", null) }
+            rig.settle("open doc")
+            // cache off: auto splits (the blank strip, §40.2)
+            val n0 = rig.all().size
+            rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("notch off")
+            val off = rig.all().drop(n0)
+            assertTrue(off.any { f -> f.ops.any { it is DisplayOp.Delta && it.payload.size <= 24 && it.box.w * it.box.h >= wm.damage.core.shell.Slide.SPLIT_FILL_PX } },
+                "cache off: auto splits — a blank strip goes first: ${off.map(::shape)}")
+            rig.assertGlassMatchesBelief("after the split notch")
+            rig.cacheOn()
+            val n1 = rig.all().size
+            rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("notch on")
+            val on = rig.all().drop(n1)
+            assertTrue(on.none { f -> f.ops.any { it is DisplayOp.Delta && it.payload.size <= 24 && it.box.w * it.box.h >= wm.damage.core.shell.Slide.SPLIT_FILL_PX && f.ops.none { o -> o is DisplayOp.DrawText } } },
+                "cache on: auto sends the strip whole — no blank: ${on.map(::shape)}")
+            val first = on.first()
+            assertTrue(first.ops.any { it is DisplayOp.Copy } && first.ops.any { it is DisplayOp.DrawText },
+                "the first flush is the translation AND the strip as draws: ${shape(first)}")
+            assertTrue(pixelBytes(first) < 300, "the strip costs its characters, not its pixels: ${pixelBytes(first)} B — ${shape(first)}")
+            rig.assertGlassMatchesBelief("after the whole cached notch")
+            repeat(3) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_TOP) }
+            rig.settle("back")
+            rig.assertGlassMatchesBelief("after scrolling back")
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+        }
+    }
+
     /** §41: a keyframe seeds the screen plane only — with everything on
      *  depth planes it is a few hundred bytes, and the planes follow once. */
     @Test

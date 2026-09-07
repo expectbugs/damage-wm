@@ -2570,6 +2570,12 @@ class Shell(
             HostSetting("Slide frames", { ShellSettings.SLIDE_FRAMES },
                 { settings.slideFrames },
                 { v -> applySettings(settings.copy(slideFrames = v)) }),
+            // §41.9 (2026-09-06, Adam: "Auto"): a big strip blank-then-fill
+            // (split), whole in the first flush (whole), or split only while
+            // the cache is off (auto)
+            HostSetting("Slide fill", { ShellSettings.SLIDE_FILLS },
+                { settings.slideFill },
+                { v -> applySettings(settings.copy(slideFill = v)) }),
             // §40 (2026-09-06): text through the firmware's texture cache —
             // off until it has been seen on glass; on = fonts uploaded once
             // per lease, plane-0 strings as mode-14 draws
@@ -2767,7 +2773,7 @@ class Shell(
         // the floor is a block worth one copy op; below it the diff is cheaper
         // than the copy plus the repairs behind it
         val exposed = declareTranslation(prev, Rect(0, 0, r.w, r.h), r) ?: return
-        if (exposed.w * exposed.h >= Slide.SPLIT_FILL_PX) {
+        if (splitFills() && exposed.w * exposed.h >= Slide.SPLIT_FILL_PX) {
             // §40: copy first, fill second. The strip goes out BLANK with the
             // translation (a uniform run, a few bytes — the glass moves ~70 ms
             // after the notch) and its content one message on. A tmux history
@@ -2782,6 +2788,16 @@ class Shell(
     /** A canvas strip sent blank by [paintCanvasOf] whose content is still
      *  owed (§40). */
     private var canvasFillOwed = false
+
+    /** The `Slide fill` row's answer for the next strip (§41.9): split only
+     *  while the cache is not serving — a cached strip is ~200 B of draws
+     *  and rides the translation's flush; a pixel strip is 1–4 KB and the
+     *  glass would wait for it. */
+    private fun splitFills(): Boolean = when (settings.slideFill) {
+        "split" -> true
+        "whole" -> false
+        else -> !cachedTextActive
+    }
 
     /** Land the owed canvas content: the focused canvas repaints (its memo
      *  makes an unchanged frame cheap) and the whole content is damaged —
@@ -2922,7 +2938,7 @@ class Shell(
                 Slide(comp, bandBelow, cachedText) { g, y0, h -> paintListSlice(g, y0, h, above = false) },
             )
         }
-        for (s in slides) { s.frames = settings.slideFrameCount(); s.retarget(delta * layout.rowH) }
+        for (s in slides) { s.frames = settings.slideFrameCount(); s.splitFills = splitFills(); s.retarget(delta * layout.rowH) }
         // §40: the optimistic lens repaint (icon, bold title, detail — 3–6 KB
         // measured, the heavy part of a notch) used to ride the FIRST flush
         // with the first slide step, so nothing moved on the glass for
@@ -2991,6 +3007,7 @@ class Shell(
             slides = listOf(Slide(comp, region, cachedText) { g, y0, h -> paintDocSlice(g, v, y0, h) })
         }
         slides[0].frames = settings.slideFrameCount()
+        slides[0].splitFills = splitFills()
         slides[0].retarget(dyPx)
         val maxTop = maxOf(1, v.lineCount() - lines)
         kit.paintRail(comp.composed, layout, v.model.topLine.toDouble() / maxTop,

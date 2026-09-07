@@ -253,6 +253,44 @@ class FirstFlushTest {
         }
     }
 
+    /** §41.9 (Adam: "Auto"): `Slide fill = whole` paints the strip in the
+     *  translation's flush — no blank band, the first change waits for the
+     *  strip's bytes; `auto` does the same only while the cache serves
+     *  (pinned with a live cache in `PlaneCacheTest`). */
+    @Test
+    fun slideFillWholeSendsTheStripWithTheTranslationAndNoBlankFrame(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val rig = Rig(scope, DocWindow())
+            rig.shell.start(); rig.settle("start")
+            rig.shell.updateSettings { it.copy(slideFill = "whole") }; rig.settle("whole")
+            rig.shell.services.runOnShell { rig.shell.services.openWindow("doc", null) }
+            rig.settle("open doc")
+            val n0 = rig.spy.count()
+            rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("notch")
+            val first = rig.spy.at(n0)
+            assertTrue(first.ops.any { it is DisplayOp.Copy }, "the first flush is still the translation: ${opsText(first)}")
+            assertTrue(first.ops.any { it is DisplayOp.Delta && it.box.w * it.box.h >= wm.damage.core.shell.Slide.SPLIT_FILL_PX && it.payload.size > 24 },
+                "and it carries the strip's pixels, not a blank: ${bytesOf(first)} B — ${opsText(first)}")
+            // no flush of the notch carries a blank strip (a near-empty delta over a big box)
+            for (i in n0 until rig.spy.count()) {
+                val f = rig.spy.at(i)
+                assertTrue(f.ops.none { it is DisplayOp.Delta && it.payload.size <= 24 && it.box.w * it.box.h >= wm.damage.core.shell.Slide.SPLIT_FILL_PX },
+                    "no blank strip anywhere in the notch: ${opsText(f)}")
+            }
+            rig.assertGlassMatchesBelief("after the whole notch")
+            // and back to split: the blank returns
+            rig.shell.updateSettings { it.copy(slideFill = "split") }; rig.settle("split")
+            val n1 = rig.spy.count()
+            rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("notch split")
+            assertTrue(bytesOf(rig.spy.at(n1)) < 400, "split: the blank strip is back: ${bytesOf(rig.spy.at(n1))} B")
+            rig.assertGlassMatchesBelief("after the split notch")
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+        }
+    }
+
     @Test
     fun aCanvasNotchSendsTheCopyAndABlankStripFirstAndTheFillSecond(): Unit = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

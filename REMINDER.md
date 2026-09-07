@@ -11,14 +11,14 @@ the cache on every plane, the ladder, §41.7 what 0.38 has to show) → the sect
   `EVENCFW/`, never the version). The **phone APK drives** — radio and shell — and the OpenRC
   `damage` service on beardos is the data host and standby (`HANDOFF.md` §19, `DAILY.md`).
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games.
-- **Builds:** APK **0.38 installed** and walked with the cache on (§41.9); **0.39 staged**
+- **Builds:** APK **0.38 installed** and walked with the cache on (§41.9); **0.40 staged**
   (`~/.damage/damage-wm.apk`, the setup page) with the §41 build: the atlas fixes, the depth
   ladder as Adam sees it, the keyframe seeded with the screen plane only, cached text AND icons
   on every plane, telemetry off the first flush, the regime hysteresis, the `build`/`link`/
-  `cached` journal fields — plus 0.39's full-width retry for depth-plane rects and the `planes`
-  pre-check dropped (§41.9); the service runs the same core. §38's wake and §40's watchdog are
-  still unseen on glass; the black-strip ruling is owed (§41.9).
-- **Battery at HEAD:** core **491** · desktop **11** · `--selfcheck` (the truth oracle on every
+  `cached` journal fields, the full-width retry for depth-plane rects (§41.9), `Slide fill =
+  auto` and Files' `Size` row (§41.10); the service runs the same core. §38's wake and §40's
+  watchdog are still unseen on glass; 0.39/0.40 have not been walked.
+- **Battery at HEAD:** core **494** · desktop **11** · `--selfcheck` (the truth oracle on every
   settle; run ×3+ — it is a rate) · snapshots · `--epub-check` · `--music-check` ·
   `--games-check` · lint 21 rules / 0 · `:phone:assembleDebug`.
 
@@ -67,13 +67,15 @@ the cache on every plane, the ladder, §41.7 what 0.38 has to show) → the sect
 
 ## 🔴 The next session: 0.38 ON GLASS — `HANDOFF.md` §41.7 is the list (then §40.7's leftovers)
 
-Install 0.38, turn `Cached text` on, wait for `atlas … uploaded`, then read `/journal` through
-`tools/journal_report.py`: the `cached`/`cacheMiss` account per flush says what the mechanism
-serves on real surfaces and why it refuses where it does (`proof` = the pixels around the text
-are not what the proof needs; `planes` = the widened rect crosses a plane edge). Walk a Main
-notch, a Reader page, a tmux history notch, a window switch between heights; the depth ladder at
-every rung; the `link` note at the next arm rebuild. Adam's eye on cached text at 100 % and 130 %
-(no kerning) decides whether the row goes on by default.
+0.38 was walked with the cache on (§41.9: 457 rects as draws, a list notch 171 ms, the Reader's
+pages still pixels at Depth 16 — fixed in 0.39 by the full-width retry, unwalked). Install 0.40,
+`Cached text` on, wait for `atlas … uploaded`, read `/journal` through `tools/journal_report.py`:
+the `cached`/`cacheMiss` account says what the cache serves and why it refuses (`proof` = the
+2|d| px beside the text are not shift-invariant; a Reader page at Depth 16 should now serve
+through the retry). Walk a Reader page (no black band under `Slide fill = auto` once the cache is
+live), a Main notch, a tmux history notch, a window switch between heights; the `link` note at
+the next arm rebuild. Adam's eye on kerning-free text decides whether `Cached text` goes on by
+default; `Slide fill` and `Slide frames` are his to feel.
 
 The §40.7 items that stand: the §38 wake on glass; the watchdog silent on a healthy day.
 

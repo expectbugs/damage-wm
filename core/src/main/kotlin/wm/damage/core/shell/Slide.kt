@@ -47,6 +47,12 @@ class Slide(
     var frames: Int? = null
     private var stepIndex = 0
 
+    /** §41.9: whether a strip past [SPLIT_FILL_PX] goes out BLANK with the
+     *  translation and is filled next flush (true), or lands whole in the
+     *  same flush (false). The shell sets it from the `Slide fill` row —
+     *  `auto` splits only while the texture cache is off. */
+    var splitFills = true
+
     /** A strip the last frame left BLANK (§40: copy first, fill second): its
      *  bytes go out one flush after the translation that exposed it, so the
      *  band moves on the glass ~70 ms after the notch instead of after the
@@ -143,7 +149,7 @@ class Slide(
         // incoming edge shows target rows at (stripY - o).
         val stripY: Int = if (down) region.h - s else 0
         val r = Rect(region.x, region.y + stripY, region.w, s)
-        if (r.w * r.h >= SPLIT_FILL_PX) {
+        if (splitFills && r.w * r.h >= SPLIT_FILL_PX) {
             // §40: the strip is worth a flush of its own — blank it now (a
             // uniform run, a few bytes) so this flush is the translation, and
             // fill it on the next pump. Active until that lands.

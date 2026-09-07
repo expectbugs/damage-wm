@@ -110,6 +110,9 @@ runs every read-only probe against the real database and computes one viz blob.
   git stamp) and every link edge a `link` note with the arm and the reason.
 - **Depth (2026-09-06, §41.2):** the Global row moves everything, the selection bar one notch
   nearer; each app's `Depth` row is `global` by default and moves only that app's content.
+- **`Slide fill` (2026-09-06, §41.9):** `auto` (default) sends a big strip blank-then-fill only
+  while the cache is off; `whole` never blanks; `split` always does. Files has a `Size` row now,
+  like every other window.
 - **Drive the glasses from the PC** (2026-09-05, `HANDOFF.md` §33): `python3 tools/glassdrive.py
   aphone TOKEN --pace 2.5 double wait:3 snap:/tmp/a.png down down tap …` sends ring gestures
   through the phone's replica and saves both lenses at 1× from the mirror — snap before every tap

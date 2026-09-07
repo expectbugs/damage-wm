@@ -134,6 +134,18 @@ class FilesWindow(
 
     override val needs = setOf(Need.HOST)
 
+    /** §2's per-app height (2026-09-06, Adam: Files had no Size row): null =
+     *  the Global row, else one of the four sizes. Persisted with the state. */
+    private var heightPref: Int? = null
+    override val preferredHeight: Int? get() = heightPref
+    private val settingsRows: List<HostSetting> by lazy {
+        listOf(
+            HostSetting("Size", listOf("global") + wm.damage.core.shell.ShellSettings.HEIGHTS.map { "$it" },
+                { heightPref?.toString() ?: "global" },
+                { heightPref = it.toIntOrNull() }),
+        )
+    }
+
     // =============================================================== contract
     override fun view(): WindowView = when (level) {
         Level_.LOCATIONS -> WindowView.ListView(locModel, { locations.size.coerceAtLeast(1) },
@@ -1420,6 +1432,7 @@ class FilesWindow(
         put("hidden", showHidden)
         put("clipVerb", clip?.first?.name ?: "")
         put("clipPath", clip?.second ?: "")
+        heightPref?.let { put("height", it) }
         val v = viewer
         val pending = pendingOpenView
         if (v == null && pending != null) {
@@ -1487,6 +1500,7 @@ class FilesWindow(
             try { Sort.valueOf(it) } catch (e: Exception) { Sort.NAME }
         } ?: Sort.NAME
         showHidden = state["hidden"]?.jsonPrimitive?.booleanOrNull ?: false
+        heightPref = state["height"]?.jsonPrimitive?.intOrNull
         val cv = state["clipVerb"]?.jsonPrimitive?.contentOrNull ?: ""
         val cp = state["clipPath"]?.jsonPrimitive?.contentOrNull ?: ""
         clip = if (cv.isNotEmpty() && cp.isNotEmpty()) {
@@ -1547,7 +1561,7 @@ class FilesWindow(
      *  become a visible '?' — never tofu, never a refused draw (Fi#12). */
     private fun dn(s: String) = sanitize(s, false)
 
-    override fun appSettings(): List<HostSetting> = emptyList()
+    override fun appSettings(): List<HostSetting> = settingsRows
 
     companion object {
         private const val CHUNK = 128 * 1024

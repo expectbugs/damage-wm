@@ -3419,7 +3419,7 @@ belief equal to glass.
 
 ### 41.8 Battery and builds
 
-`:core:test` 491 (new: `DepthLadderTest`, `PlaneCacheTest` ×4, the atlas pins in
+`:core:test` 494 (new: `DepthLadderTest`, `PlaneCacheTest` ×6, the atlas pins in
 `TextureCacheTest` and `CachedTextTest`; `ChromeFlushTest`, `Round6Test`, `StyleTest` re-pinned
 for §41) · `:desktop:test` 11 · `--selfcheck` ×3 — now with a §41 phase (`cachedTextChecks`,
 its own function: the script method had hit the JVM's 64 KB limit) that turns the cache on with
@@ -3465,3 +3465,18 @@ fails on its context is **retried once at its row's full width inside its region
 rides the base delta and the margins are the black inset (`PlaneCacheTest`: rows beside a rail
 at Depth 16 ship as draws + copy, belief = glass); font and icon refusals are `atlas` notes
 ("stays pixels — the cache is full"); fonts go live mid-upload only once, on the last ack.
+
+### 41.10 `Slide fill = auto`, and Files gets its Size row (2026-09-06, late)
+
+Adam: *"Auto."* — and Files had no `Size` row. Built for 0.40:
+
+- **`Slide fill`** is a Global row, `auto · split · whole` (`ShellSettings.slideFill`,
+  `Slide.splitFills`, `Shell.splitFills()` for the canvas path too). `split` is §40.2 as it was;
+  `whole` paints the strip in the translation's flush; **`auto` (the default) splits only while
+  the cache is not serving** — a cached strip is ~200 B of draws and rides the first flush, a
+  pixel strip is 1–4 KB and the glass would wait for it. `FirstFlushTest` pins `whole` and the
+  return to `split`; `PlaneCacheTest` pins `auto` flipping from blank-then-fill to
+  translation-plus-draws the moment the cache goes live, belief equal to glass both ways.
+- **Files** has the per-app `Size` row every other window carries (`global · 288 · 352 · 416 ·
+  480`, persisted with the window's state as `height`), and a `preferredHeight` the shell
+  applies on focus (§2).

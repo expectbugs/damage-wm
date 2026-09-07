@@ -69,6 +69,16 @@ data class ShellSettings(
      *  (list 3, doc 5). He tests the feel himself; the default stays. The
      *  wheel keeps its own 4 / 2-on-a-slow-link rule (§6.3). Additive. */
     val slideFrames: String = "auto",
+    /** How a slide's big strip lands (2026-09-06, `HANDOFF.md` §41.9 —
+     *  Adam: "Auto"): "split" sends a strip past `Slide.SPLIT_FILL_PX` BLANK
+     *  with the translation and fills it next flush (the glass moves ~70 ms
+     *  after the notch; a black band shows until the fill lands — ~610 ms
+     *  measured when the fill is pixels); "whole" paints the strip in the
+     *  same flush (no band; the first change waits for the strip's bytes);
+     *  "auto" (the default) splits only while the texture cache is off —
+     *  with the cache live the strip is ~200 B of draws and the split buys
+     *  nothing. Additive. */
+    val slideFill: String = "auto",
     /** Text through the firmware's texture cache (2026-09-06, `HANDOFF.md`
      *  §40; Adam: adopt it as far as it goes): "off" (the default until it
      *  has been seen on glass) or "on" — the session's fonts are uploaded
@@ -158,6 +168,7 @@ data class ShellSettings(
         silentClock = if (silentClock in SILENT_CLOCKS) silentClock else "large",
         keyboardLayout = if (keyboardLayout in KEYBOARDS) keyboardLayout else "qwerty",
         slideFrames = if (slideFrames in SLIDE_FRAMES) slideFrames else "auto",
+        slideFill = if (slideFill in SLIDE_FILLS) slideFill else "auto",
         cachedText = if (cachedText in CACHED_TEXT) cachedText else "off",
     )
 
@@ -189,6 +200,7 @@ data class ShellSettings(
         val KEYBOARDS = listOf("qwerty", "abc")
         /** Slide frames per notch (§40, 2026-09-06): the Global row's order. */
         val SLIDE_FRAMES = listOf("off", "2", "4", "auto", "8", "12")
+        val SLIDE_FILLS = listOf("auto", "split", "whole")
         /** The texture-cache switch (§40). */
         val CACHED_TEXT = listOf("off", "on")
         fun fromJson(o: JsonObject?): ShellSettings =
