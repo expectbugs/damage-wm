@@ -11,7 +11,7 @@ the cache on every plane, the ladder, §41.7 what 0.38 has to show) → the sect
   `EVENCFW/`, never the version). The **phone APK drives** — radio and shell — and the OpenRC
   `damage` service on beardos is the data host and standby (`HANDOFF.md` §19, `DAILY.md`).
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games.
-- **Builds:** APK **0.37 installed** and walked (2026-09-06 afternoon, §41.0); **0.39 staged**
+- **Builds:** APK **0.38 installed** and walked with the cache on (§41.9); **0.39 staged**
   (`~/.damage/damage-wm.apk`, the setup page) with the §41 build: the atlas fixes, the depth
   ladder as Adam sees it, the keyframe seeded with the screen plane only, cached text AND icons
   on every plane, telemetry off the first flush, the regime hysteresis, the `build`/`link`/
