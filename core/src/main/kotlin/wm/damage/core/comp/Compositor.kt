@@ -243,7 +243,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         compressCache.clear()          // `composed` may have changed since the last assemble
         lastTruthNs = 0L; lastCompressNs = 0L; lastCompressN = 0
         cachedRectsThisAssemble = 0
-        cacheMiss.clear()
+        cacheMiss.clear(); cacheHitsWidened = 0
         try {
             return assembleFlushInner(rectBudget)
         } finally {
@@ -912,6 +912,33 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      * pixel path applies.
      */
     private fun emitCached(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int? {
+        lastMiss = null
+        emitCachedAt(rect, d, ops, touched, fidsLeft, bytesLeft)?.let { return it }
+        // A depth-plane rect whose proof failed on its CONTEXT — the copy
+        // leaves |d| columns on each far side that must already be right, so
+        // the 2|d| columns beside the text have to be shift-invariant (black,
+        // a rule), and at Depth 16 the Reader's rail 20 px past a line's end
+        // failed every page (0.38 on glass: fills of 2.4–4.2 KB where draws
+        // would do). Retried once at the row's full width inside its region:
+        // the rail rides the base delta, the margins are the black inset.
+        if (d != 0 && lastMiss == "proof") {
+            val region = planes.asReversed().firstOrNull { it.rect.contains(rect) && it.disparity == d } ?: return null
+            val wide = Rect(region.rect.x, rect.y, region.rect.w, rect.h).alignOut()
+            if (wide != rect && region.rect.contains(wide)) {
+                cacheMiss["proof"] = (cacheMiss["proof"] ?: 1) - 1
+                emitCachedAt(wide, d, ops, touched, fidsLeft, bytesLeft)?.let { cacheHitsWidened++; return it }
+            }
+        }
+        return null
+    }
+
+    /** The last refusal's reason (the retry above reads it). */
+    private var lastMiss: String? = null
+    /** Rects that shipped as draws only after the full-width retry (§41). */
+    var cacheHitsWidened = 0
+        private set
+
+    private fun emitCachedAt(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int? {
         val src = cachedText ?: return null
         val atlas = src.atlas ?: return null
         val all = src.frameDraws()
@@ -938,7 +965,10 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         // copy reads from and leaves behind on each side
         val w = Rect(r.x - ad, r.y, r.w + 2 * ad, r.h)
         if (w.x < 0 || w.y < 0 || w.right > width || w.bottom > height) return miss("edge")
-        if (splitByPlanes(w).any { disparityAt(it) != d }) return miss("planes")
+        // no plane pre-check (0.38 on glass: 280 "planes" refusals, every
+        // full-width rect at Depth 16 — the widened rect leaves the region's
+        // 16 px inset): the lens-space proof below is the judge, and a
+        // neighbouring plane's pixels fail it exactly where they should
         // the ops, or nothing: a font the glasses do not hold (a lapse
         // between the record and this assemble) makes the whole rect pixels
         val textOps = ArrayList<DisplayOp.DrawText>(draws.size)
@@ -1077,7 +1107,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      *  journal carries it, so "why isn't the cache serving this" is
      *  answered from the phone without a debugger. */
     private val cacheMiss = HashMap<String, Int>()
-    private fun miss(why: String): Int? { cacheMiss[why] = (cacheMiss[why] ?: 0) + 1; return null }
+    private fun miss(why: String): Int? { cacheMiss[why] = (cacheMiss[why] ?: 0) + 1; lastMiss = why; return null }
     fun cacheMissSummary(): String = cacheMiss.entries.sortedByDescending { it.value }.joinToString(",") { "${it.key}=${it.value}" }
 
     private fun emitDelta(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int {

@@ -11,12 +11,13 @@ the cache on every plane, the ladder, §41.7 what 0.38 has to show) → the sect
   `EVENCFW/`, never the version). The **phone APK drives** — radio and shell — and the OpenRC
   `damage` service on beardos is the data host and standby (`HANDOFF.md` §19, `DAILY.md`).
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games.
-- **Builds:** APK **0.37 installed** and walked (2026-09-06 afternoon, §41.0); **0.38 staged**
+- **Builds:** APK **0.37 installed** and walked (2026-09-06 afternoon, §41.0); **0.39 staged**
   (`~/.damage/damage-wm.apk`, the setup page) with the §41 build: the atlas fixes, the depth
   ladder as Adam sees it, the keyframe seeded with the screen plane only, cached text AND icons
   on every plane, telemetry off the first flush, the regime hysteresis, the `build`/`link`/
-  `cached` journal fields; the service runs the same core. §38's wake and §40's watchdog are
-  still unseen on glass.
+  `cached` journal fields — plus 0.39's full-width retry for depth-plane rects and the `planes`
+  pre-check dropped (§41.9); the service runs the same core. §38's wake and §40's watchdog are
+  still unseen on glass; the black-strip ruling is owed (§41.9).
 - **Battery at HEAD:** core **491** · desktop **11** · `--selfcheck` (the truth oracle on every
   settle; run ×3+ — it is a rate) · snapshots · `--epub-check` · `--music-check` ·
   `--games-check` · lint 21 rules / 0 · `:phone:assembleDebug`.

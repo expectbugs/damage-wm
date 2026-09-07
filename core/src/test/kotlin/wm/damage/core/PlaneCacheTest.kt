@@ -279,6 +279,51 @@ class PlaneCacheTest {
         }
     }
 
+    /** Rows with a rail 20 px past the text's end — the Reader's shape that
+     *  failed every page at Depth 16 on glass: the copy's context. */
+    private class RailRowsWindow(private val tx: TextRasterizer) : DamageWindow("rail", "Rail", IconKind.FILES) {
+        private val model = ListModel()
+        private val f = FontSpec(Face.SYSTEM, 18)
+        override fun view(): WindowView = WindowView.ListView(model, { 30 },
+            paintRow = { g, i, r, _ ->
+                tx.draw(g, r.x + 16, r.y + 5, "Row $i and a line of text that ends here", f, Level.BODY)
+                g.fillRect(r.x + 16 + 8 * 42 + 20, r.y, 4, r.h, Level.DIM)   // the rail, 20 px past the text
+            },
+            paintLens = { g, r, i -> tx.draw(g, r.x + 16, r.y + 8, "Row $i", f, Level.HEAD) },
+            onCommit = {})
+        override fun summary() = Summary("30 rows")
+        override fun saveState(): JsonObject = buildJsonObject {}
+        override fun restoreState(state: JsonObject) {}
+    }
+
+    /** §41: at Depth 16 a text rect needs 32 px of shift-invariant context on
+     *  each side; a rail 20 px away failed the proof on glass. The retry at
+     *  the row's full width carries the rail in the base delta and serves. */
+    @Test
+    fun aRailBesideTheTextIsServedByTheFullWidthRetryAtDepthSixteen(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val text = CachedText(GlyphyText())
+            val rig = Rig(scope, text, RailRowsWindow(text))
+            rig.shell.start(); rig.settle("start")
+            rig.shell.updateSettings { it.copy(depth = 16) }; rig.settle("depth 16")
+            rig.shell.services.runOnShell { rig.shell.services.openWindow("rail", null) }
+            rig.settle("open rail")
+            rig.cacheOn()
+            val n0 = rig.all().size
+            repeat(4) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("notch $it") }
+            val flushes = rig.all().drop(n0)
+            val rowDraws = flushes.count { f -> f.ops.any { it is DisplayOp.CopyPair } && f.ops.any { it is DisplayOp.DrawText && it.x < 100 } }
+            assertTrue(rowDraws >= 2, "rows beside a rail ship as draws + copy at depth 16 (${rowDraws}): ${flushes.map(::shape)}")
+            val pixels = flushes.sumOf { f -> f.ops.filterIsInstance<DisplayOp.Delta>().filter { it.disparity == 16 && it.payload.size > 200 }.sumOf { it.payload.size } }
+            assertTrue(pixels < 1500, "no page of row text went as pixels at depth 16: $pixels B — ${flushes.map(::shape)}")
+            rig.assertGlassMatchesBelief("after the notches beside the rail")
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+        }
+    }
+
     /** §41: a keyframe seeds the screen plane only — with everything on
      *  depth planes it is a few hundred bytes, and the planes follow once. */
     @Test

@@ -3430,3 +3430,38 @@ every settle, three runs of three** · `--snapshot` ×3 · epub · music · game
 "did not settle" at h=480 step 145 under the parallel load; standalone and the other runs passed
 — a rate to keep watching (§27.6). A 30-hour-old simulator instance from a previous session's
 live drive (`--transport sim`, ports 174xx, a scratch home) was found still running and ended.
+
+### 41.9 0.38 on glass (2026-09-06, 20:44–20:55) — the cache's first account, and the black strip
+
+Adam installed 0.38 and turned `Cached text` on. The journal (grade M, phone path, 795 flushes):
+
+- **The atlas:** 11 fonts and 18 icons, 63 KB, up in 20 s of idle chunks between his gestures;
+  off→on at 20:46:13/20:46:27 resumed at once (`held — 11 font(s) and 6 icon(s) live`) — the
+  §41.1 defect is gone.
+- **457 rects shipped as cached draws** (1,010 `drawtext`, 451 `copypair`, 36 `drawimage`);
+  the status bar's echo and readout among them (108 flushes). Refusals by reason: `no-draws`
+  521 (rects with no text — thumbs, rules, blanks), `proof` 491, `planes` 280, `no-records`
+  260, `growing` 8.
+- **Per gesture:** a window list notch 171 ms median / 264 p90 to first visible change (first
+  flush 485 B), a window delta gesture 126 / 579; all flushes median 433 B, ack 124 ms.
+- **The keyframe seed is 17 B** (was 4–9.7 KB); a list window's switch is now 4.3–5.4 KB in
+  all (the planes as deltas), a page window's 10.6 KB — because the page went as PIXELS.
+- **Depth 16 is the cache's worst case, and he was at 16.** A depth-plane rect's copy leaves |d|
+  columns on each far side that the base cannot shift, so the 2|d| columns beside the text must
+  be shift-invariant (black, a rule). At 16 that is 32 px, and the Reader's rail sits 20 px past
+  a line's end: every page strip failed the proof (the `proof` count), and the 280 `planes`
+  refusals were full-width rects whose widened box left the region's 16 px inset.
+- **The black strip (Adam's question).** The §40.2 split — a strip past 12,000 px goes out blank
+  with the translation and is filled next flush — measured on the true copy-then-fill notches
+  (35 of them, the Reader at 288): first flush 62 B / 60 ms, the fill 2.4–4.2 KB of pixels
+  430–680 ms later, **the black band visible ~610 ms median**. The split is not needed for
+  correctness; it buys motion ~0.4–0.6 s earlier when the fill is pixels and buys nothing when
+  the fill is draws (~200 B, one flush either way). His ruling is owed: whole (no band, first
+  change after the strip's bytes), split (as now), or auto (split only when the cache is off).
+
+**Built on it (0.39):** the `planes` pre-check is gone — the lens-space proof is the judge, and a
+neighbouring plane's pixels fail it exactly where they should; a depth-plane rect whose proof
+fails on its context is **retried once at its row's full width inside its region** — the rail
+rides the base delta and the margins are the black inset (`PlaneCacheTest`: rows beside a rail
+at Depth 16 ship as draws + copy, belief = glass); font and icon refusals are `atlas` notes
+("stays pixels — the cache is full"); fonts go live mid-upload only once, on the last ack.

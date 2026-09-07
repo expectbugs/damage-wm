@@ -2063,6 +2063,7 @@ class Shell(
         for (spec in wanted) {
             if (a.has(spec) || a.isRefused(spec)) continue
             if (a.add(spec)) added++
+            else journal.note("atlas", "font $spec stays pixels — the cache is full (${a.used} B)")
         }
         // §41: icons — drawn at least twice, heaviest first, into what the
         // fonts leave (a quarter of the cache at most, `GlyphAtlas.IMAGE_BUDGET`)
@@ -2072,6 +2073,7 @@ class Shell(
             if (a.hasImage(key) || a.isImageRefused(key)) continue
             val img = ct.imageOf(key) ?: continue
             if (a.addImage(key, img)) icons++
+            else journal.note("atlas", "icon ${img.w}x${img.h} stays pixels — icons hold ${a.imageBytes} B, ${a.used} B used")
         }
         // §41: fonts the glasses already HOLD go live at once. The off→on
         // flip used to find nothing to upload and return before re-attaching
@@ -2081,7 +2083,11 @@ class Shell(
         val heldImages = a.imageKeys().filter { a.isImageAcked(it) }.toSet()
         atlasPendingSpecs.clear()
         for (spec in a.specs()) if (spec !in held) atlasPendingSpecs.add(spec)
-        if (held != ct.live || heldImages != ct.liveImages) atlasLive(held, heldImages, "held")
+        // held fonts go live here only when no upload is running: mid-upload
+        // the last chunk's ack does it once (0.38 on glass: each grow during
+        // the first upload re-lit a few fonts and repainted the surface)
+        if (atlasQueue.isEmpty() && atlasInFlight == null &&
+            (held != ct.live || heldImages != ct.liveImages)) atlasLive(held, heldImages, "held")
         val chunks = a.takeUpload()
         if (chunks.isEmpty()) return
         atlasQueue.addAll(chunks)
