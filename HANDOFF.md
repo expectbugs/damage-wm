@@ -3480,3 +3480,51 @@ Adam: *"Auto."* — and Files had no `Size` row. Built for 0.40:
 - **Files** has the per-app `Size` row every other window carries (`global · 288 · 352 · 416 ·
   480`, persisted with the window's state as `height`), and a `preferredHeight` the shell
   applies on focus (§2).
+
+### 41.11 Upstream check: g2flash and faceclaw since our pinned build (2026-09-06, late)
+
+`reference/g2flash` is pinned at `a5d1c31` (our installed CFW, base 2.2.6.10). Fetched, NOT
+moved: five commits upstream (to `b20bfb1`, 2026-09-03), all on a **new stock base, 2.2.9.22**:
+
+1. **Rebase on 2.2.9.22** (`baf6bc4`, `317081f`): every firmware address re-derived, the patch
+   set otherwise the same; the contract string is **`EVENCFW/18`** and is **exactly 127 bytes**
+   (`… micctl taplong11`). Our five `REQUIRED_CAPS` are all still in it; we gate on nothing
+   else, so the gate would pass unchanged.
+2. **A lost-ACK fix that 2.2.9 NEEDS** (`784846b`): stock 2.2.9 sends the image ACK from a
+   deferred callback through ONE unguarded slot, so pipelined images (window ≥ 2) lose an ACK —
+   "window 1 reliable, ≥ 2 loses ACKs, the 3.5 s timeout is real". The CFW retargets one branch
+   so the ACK goes out at completion, as 2.2.6 did. **Our base is 2.2.6.10, which acks before the
+   deferred path: our measured lost acks (§33.4, 49 in five days) are NOT this mechanism.**
+3. **Compass mode 10 gains `[10][2][interval16][min-change16]`** — additive; Damage sends no
+   mode 10.
+4. **Ambient light sensor, mode 16 + settings-channel field 105** (`als_sensor.c`): a QUERY, and a
+   PASSIVE mode where the CFW polls the OPT3001 and the stock auto-brightness adjuster never
+   steps the panel, so the phone can set brightness on its own policy (e.g. only during a
+   transition). Reports come only when asked, so nothing new arrives on our channel; our parsers
+   look fields up by number and skip the rest. ⚠ Faceclaw gates its light-sensor demo on a
+   caps token `als16` that the 127-byte string does not carry — the `img576` lesson again, on
+   their side.
+5. **2.2.9's new tap-then-long gesture is forwarded as private event type 11**, and the stock
+   Menu path it opens is suppressed while the lease is held. Our decoder would pass 11 through
+   as a gesture the shell echoes as `ev11` and acts on nowhere. The rewritten `gesture_fwd.c`
+   passes the RAW SOURCE (0/1 temple, 4 ring) to the stock sender for 9/10/11 and says the
+   sender maps it to the protobuf source — if that holds on hardware, a long-press is
+   ATTRIBUTED on the 2.2.9 CFW (grade I: the patch comment; unverified), which `CLAUDE.md`'s
+   "a long-press is unattributed" and §1.2's bare-long-press no-op were built around.
+6. **The flasher** now performs the stock control-channel auth handshake before BEGIN (2.2.9
+   closes an idle-looking GATT connection after ~30 s without it), gains `--reconnect-attempts`
+   / `--reconnect-delay`, restarts a component from FILE_CHECK after a lost ACK instead of
+   replaying a block, and speaks of "five or six" OTA components.
+
+**Faceclaw** (`c1d70ab` → `9b70880`, 49 commits, 0.6.4/0.6.5): app-level — context menus,
+Navigate/Timer/Teleprompter, per-app screen-size settings, a "Show BLE bandwidth usage" option,
+bytes-per-frame in the speed metrics, the short-then-long gesture, flashing on the 2.2.9 base.
+Nothing in its protocol layer changes a constant we share (fragmenting, window, timing).
+
+**What it means for us:** nothing on the installed build — our glasses run the 2.2.6.10-based
+`a5d1c31` and every wire fact in `overview.md`/`CLAIMS.md` still describes it. Moving to the
+2.2.9 CFW would be a re-flash through the NEW flasher path (dry-run first, `--stop-before flash`),
+`research/verify_cfw.py` re-pinned to 2.2.9.22 + `b20bfb1`, and would bring: the attributed
+long-press (if real), event 11 for the grammar, the light sensor for a brightness policy of our
+own, and the OTA-path fixes — at the cost of re-deriving every address-bearing claim. Not owed
+now; `reference/g2flash` stays at `a5d1c31` until then (a pull would break `verify_cfw.py`).

@@ -183,6 +183,44 @@ connection setup (it was in the captures all along — `research/linkparams.py`)
 **Cheap probes nobody has run:** the CFW logger service (sid 0x0F) and the file-export service
 (sid 198/199 — `NOT_SUPPORT` is a safe answer).
 
+## Where the remaining latency and jank live (2026-09-06, after §41 — ranked by expected gain)
+
+1. **The radio itself.** The phone path moves one packet per usable connection event at 15 ms
+   with slave latency 1 (~8 KB/s, measured); the PC gets ~50 KB/s from the same glasses. Latency
+   0 at 7.5 ms while a session is active is up to 4× (modeled) — a firmware-side ask to Babcock;
+   a two-arm capture with the APK driving (item 5 above) settles whether the phone's write path
+   is the other half of the wall.
+2. **Frame pacing is the jank.** A notch is four flushes gated on acks, and ack jitter runs 2–3×
+   the median (p90 509 ms vs 124 measured on 0.38), so frames land unevenly. Tie the frame count
+   to the measured link regime as the wheel does (2 frames when slow), and jump-cut to the final
+   frame when three flushes are already in flight instead of queueing a fourth.
+3. **The lens in the FIRST flush when the cache is live.** Deferring the lens repaint one message
+   on (§40.2) was priced at 3–6 KB of pixels; as draws it is ~50 B, so the cursor can move in the
+   translation's own flush — the same logic as `Slide fill = auto`.
+4. **Stop keyframing on a height change.** A window switch costs 4–5 KB and a wide-flush drain
+   (~0.7 s measured). The keyframe rebaselines the fid ring, which nothing needs there; a plain
+   re-layout and diff sends only what moved and lets the cache serve the rows.
+5. **The arm rebuilds** (row 25 above). If the firmware's page survives a single-arm reconnect
+   (the `link` notes and the events 4/5/7 will say), rejoin that arm without the teardown.
+6. **Cache persistence across sessions** — a firmware ask: the 63 KB atlas goes up every session
+   (≥ 8 s of link); a cache that survives the lease with a checksum the phone can verify makes it
+   free after the first time.
+7. **Kerning in cached text.** Mode 14 carries per-glyph x-adjust bytes and `TextureCache.layout`
+   already takes a kerning lambda: pair kerning costs ~1 B per pair. Worth it if Adam's eye
+   dislikes the flat advances.
+8. **Cold start.** Three eaten CREATEs ≈ 6 s per link edge (§34.3), and a dozen edges a day: lower
+   `CAPABILITY_REASK_MS`, or send the CREATE only after the prelude's ack.
+
+## Upstream CFW (checked 2026-09-06 — `HANDOFF.md` §41.11)
+
+g2flash has five commits past our pinned `a5d1c31`, all on a **new stock base 2.2.9.22**
+(`EVENCFW/18`, exactly 127 bytes): a lost-ACK fix stock 2.2.9 needs and our 2.2.6 base does not,
+compass config options, an ambient-light mode 16 (field 105 reports, on request only), the
+tap-then-long gesture as event 11 with the raw source passed to the sender (an ATTRIBUTED
+long-press, grade I), and a flasher that does 2.2.9's auth handshake before BEGIN. **Nothing
+affects the installed build.** `reference/g2flash` is fetched, not moved — a pull breaks
+`research/verify_cfw.py`'s 2.2.6.10 pins. Faceclaw's 49 commits are app-level.
+
 ## Other open work (not the next session's)
 
 - **On-glass verdicts** still owed for Torrents and the keyboard, Files (menus, viewers, the
