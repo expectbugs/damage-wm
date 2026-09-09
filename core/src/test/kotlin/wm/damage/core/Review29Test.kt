@@ -394,7 +394,7 @@ class Review29Test {
 
     /** A transport whose LEFT arm refuses the first image write — the warmup
      *  — after the lease was acquired, and whose disconnect marks the link
-     *  down BEFORE it yields, so a write that races it is a write to a dead
+     *  down BEFORE it yields, so a write that races it is a write to a closed
      *  link. */
     private class WarmupRefusingTransport(val glass: GlassFirmwareSim, scope: CoroutineScope) :
         CfwTransportBase(scope, "refuse") {

@@ -117,7 +117,7 @@ data class Config(
     val tmuxSnippets: List<String> = listOf(),
     val tmuxWaitPatterns: List<String> = listOf(),
     /** Torrents (TORRENTS.md, 2026-09-01): qBittorrent's Web API on this box
-     *  — loopback with the localhost auth bypass, so the credentials stay
+     *  — loopback with the localhost auth exemption, so the credentials stay
      *  empty; and the TorrentLeech account (the standing secrets rule: this
      *  file only, never the repo). */
     val qbtUrl: String = "http://127.0.0.1:8090",
@@ -659,7 +659,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
             delay(STANDBY_PROBE_MS)      // pacing between probes, not a timeout
         }
     }
-    // an orderly end — the window's close button, Ctrl-C, a kill: the shell
+    // an orderly end — the window's close button, Ctrl-C, a signal: the shell
     // saves its state and the transport releases the display
     val ending = java.util.concurrent.atomic.AtomicBoolean(false)
     val ended = java.util.concurrent.CountDownLatch(1)

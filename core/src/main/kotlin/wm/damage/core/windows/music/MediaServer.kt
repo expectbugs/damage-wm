@@ -22,7 +22,7 @@ import wm.damage.core.util.Log
  * A cache miss transcodes to completion first (seconds, logged), then
  * serves. A MALFORMED Range answers 200 with the whole file: ExoPlayer
  * treats a 416 as fatal (the G2CC lesson). NO TIMEOUTS: a slow reader keeps
- * its connection; the OS reports a dead one.
+ * its connection; the OS reports a closed one.
  */
 class MediaServer(
     private val port: Int,

@@ -119,7 +119,7 @@ data class Layout(
 
         // Top bar cells: the clock cell is MEASURED (§2.3's 80 is its floor —
         // review §30), batteries fixed 120 (two gauges at the 58 px pitch +
-        // tail pad — was 176 for three; the ring gauge is gone and the dead
+        // tail pad — was 176 for three; the ring gauge is gone and the freed
         // space goes to the title, 2026-09-01 Adam), title takes the rest.
         val battW = BATT_W
         val titleW = Geometry.snapX(topBar.w - clockW - battW)

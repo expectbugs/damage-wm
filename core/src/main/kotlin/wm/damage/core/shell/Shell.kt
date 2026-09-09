@@ -355,7 +355,7 @@ class Shell(
             if (menu.open) {
                 // a menu commit that wants the keyboard runs after the menu
                 // closed; anything else asking under an open menu is an async
-                // completion that must not steal the screen
+                // completion that must not take the screen
                 Log.w("shell", "openKeyboard refused: a menu is open")
                 return false
             }
@@ -931,7 +931,7 @@ class Shell(
         // "a long-press is UNATTRIBUTED"), so they always arrive source 0 and
         // this filter was discarding every real long-press: the switcher was
         // unreachable by either route while LongPressTest passed, because the
-        // test harness injected them with the flattering SRC_RING default
+        // test harness supplied them with the flattering SRC_RING default
         // (found live 2026-08-31 — Adam: "I have yet to see the switcher at
         // all"). The bare-long-press-is-a-no-op default (§1.2) is what keeps
         // the temple, the second unattributed source, harmless here.
@@ -1933,7 +1933,7 @@ class Shell(
             // a KEYFRAME that fails three times in a row cannot be helped by
             // another keyframe (the frame itself is undisplayable — past the
             // firmware's caps): halt until the content changes, with ONE loud
-            // notice, instead of a failure loop that storms the phone (round 6)
+            // notice, instead of a failure loop that repeats at the phone (round 6)
             keyframeFailStreak = if (a?.keyframe == true) keyframeFailStreak + 1 else 0
             if (keyframeFailStreak >= 3) {
                 haltedEpoch = comp.epoch
@@ -2333,7 +2333,7 @@ class Shell(
     /** Episodes in a row without a settled stretch of agreement between them:
      *  after [DIVERGE_EPISODES_MAX] the report stays sticky and no further
      *  keyframes or notices are issued until agreement holds for
-     *  [DIVERGE_QUIET_CHECKS] checks (round 1, f2 — no storms). */
+     *  [DIVERGE_QUIET_CHECKS] checks (round 1, f2 — no repeat loops). */
     private var divergenceRun = 0
     private var agreeingChecks = 0
 
@@ -3425,7 +3425,7 @@ class Shell(
 
     private fun freshenSyncKey(key: String) {
         // FRESHEN ONLY WHAT THIS DEVICE EVER HELD (review 2026-09-01 F2): a
-        // virgin or corrupt-wiped store must not stamp its DEFAULTS over the
+        // virgin or unreadable-and-cleared store must not stamp its DEFAULTS over the
         // fleet's real records — if we never had the key, the peer's record
         // simply wins. Local edits made this session put the key first, so a
         // genuinely-used device still freshens against its live state.

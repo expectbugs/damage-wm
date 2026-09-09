@@ -283,7 +283,7 @@ Chips are dollars 1:1, so a table is conserved: 6 × buy-in in, the same amount 
 since $1 is the chip denomination and Unlimited accepts tiny entries. It applies to every player
 including Adam. Two reasons it is not optional:
 
-1. It is the money-supply sink. Refills and new characters inject; nothing else removes.
+1. It is the money-supply sink. Refills and new characters add; nothing else removes.
 2. In a perfectly zero-sum economy a break-even player never refills, so the Loser Count would
    only measure variance. With a fee, staying solvent means actually beating the game.
 
@@ -1159,7 +1159,7 @@ then waited for the hand to have a result — which only worked when that action
 *Fold*. Check and Fold are ONE contextual row (verdict 12), so with no bet to call the script
 checked, the flop came out, and the table waited for Adam again — forever, and correctly. Because
 the world was seeded from the wall clock, that was a different tournament every run, so the scene
-passed or hung by luck. The scene now acts every time it is his turn, choosing the contextual row
+passed or stalled by luck. The scene now acts every time it is his turn, choosing the contextual row
 BY NAME, and both harnesses pin the world seed the way `--games-check` always did. See
 `HANDOFF.md` §27.6; the scene labelled `50-games-showdown` is a real showdown again.
 

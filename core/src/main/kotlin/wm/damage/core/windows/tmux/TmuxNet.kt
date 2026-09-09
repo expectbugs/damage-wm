@@ -259,7 +259,7 @@ class RemoteTmuxProvider(
                     // lane every control send uses (R2#12)
                     ctlKick.trySend(Unit)
                     // paced liveness (R3#1): while subscribed, re-asserting is
-                    // an idempotent WRITE — on a silently dead path the send
+                    // an idempotent WRITE — on a silently closed path the send
                     // fails within TCP's own retransmission bound and the ctl
                     // sender drops the link, where a pure reader parks forever
                     val liveness = scope.launch(kotlinx.coroutines.Dispatchers.IO) {

@@ -1,5 +1,13 @@
 # Damage — a framebuffer window manager for the Even Realities G2
 
+**What this is:** a personal, first-party project on hardware Adam owns — his own G2 glasses,
+his own phone and PC, his own home network. The custom firmware is installed on a consumer
+wearable he bought, and the Bluetooth wire format recorded below was worked out from captures
+of his own pair. This is ordinary device interoperability and display-rendering work, done so
+he can run his own software on his own display. **The name is the graphics term** — *damage*
+is the set of screen regions that changed since the last frame (the X11 DAMAGE extension), and
+batching a frame's damage into one message is the thesis (§5).
+
 **Status (2026-09-02): BUILT, FLASHED, LIVE as the all-day daily driver, and into the app
 wave.** The research phase this file records closed 2026-08-17; the shell was built
 2026-08-24/25, the CFW installed 2026-08-30 (`HANDOFF.md` §10), first light the same day (§11),
@@ -319,7 +327,7 @@ SWD-only recovery** (open the glasses, attach a debugger — not restorable over
 
 **This fires only on an ENLARGED image — and the CFW IS enlarged.** ⚠ *Corrected 2026-08-16; the
 earlier claim that the patch set is length-preserving was wrong, and it was load-bearing for this
-entire risk assessment.* Patch 19 of 25 appends **20,127 bytes** of injected blobs at offset
+entire risk assessment.* Patch 19 of 25 appends **20,127 bytes** of appended blobs at offset
 4301227, and patches 20–25 exist purely to clean up after it: main-app subheader payload size, TOC
 entry size, **preamble length (low 24 bits)**, preamble CRC32, and component CRC32c ×2. Measured
 from the archived images: stock 2.2.6.10 installed main image **3,523,364 B** → CFW **3,543,491 B**
@@ -1151,7 +1159,7 @@ be answered.
 | **[jimrandomh/faceclaw](https://github.com/jimrandomh/faceclaw)** | the reference UI on that CFW. **Ships `app/fonts/terminus/*.bdf`** and renders its own framebuffer UI — proof the architecture works |
 | **[Commute773/g2-kit-unofficial](https://github.com/Commute773/g2-kit-unofficial)** | ★31. **An independent from-scratch RE of the BLE stack — the same category of work as ours.** `ble/gen/*_pb.ts` = **generated protobuf schemas** for ~20 message families, each embedding the **vendor's own `FileDescriptorProto`** — the single most valuable artifact in the ecosystem (§9.1). ⚠ **`ble/docs/`'s 11 prose docs are materially unreliable — read the `.ts`, not the `.md`** (§9.1). *(jimrandomh's copy is a byte-identical fork existing only to pin a dependency SHA.)* |
 | **[kalanihelekunihi/evenRealities-openCFW](https://github.com/kalanihelekunihi/evenRealities-openCFW)** | Author **Kalani Helekunihi** (company: AM Guru). Three things: (a) a byte-exact **reconstruction** of stock 2.2.6.10 — ~5% source-owned, an analysis project, nothing to adopt; (b) an **unreleased** `g2-2.2.6.12` build = older g2flash `d5eb48dd` + **canvas480** (see §4 — not the CFW anyone installs); (c) **the independent review of g2flash**, which is the genuinely valuable part: `tools/thumb_branch_audit.py`, the evenai_thumb HardFault writeup, and a regression test |
-| **[AM-Guru/SybilSight-webflasher](https://github.com/AM-Guru/SybilSight-webflasher)** | MIT. Deployed at **webflasher.sybilsight.com**. Browser flasher over Web Bluetooth **and the charging case's CH340 USB serial** (`1A86:7523`). Backup set (512 KiB case flash + option block + temple identity snapshots + matching official glasses bundle). **Hosts the 19-image firmware archive.** Case-USB pogo bridge pushes to a *responsive* temple — **not a dead-device rescue** |
+| **[AM-Guru/SybilSight-webflasher](https://github.com/AM-Guru/SybilSight-webflasher)** | MIT. Deployed at **webflasher.sybilsight.com**. Browser flasher over Web Bluetooth **and the charging case's CH340 USB serial** (`1A86:7523`). Backup set (512 KiB case flash + option block + temple identity snapshots + matching official glasses bundle). **Hosts the 19-image firmware archive.** Case-USB pogo bridge pushes to a *responsive* temple — **not an unresponsive-device rescue** |
 | **[i-soxi/even-g2-protocol](https://github.com/i-soxi/even-g2-protocol)** | the original community BLE RE reference (G2CC's original upstream) |
 | **[nickustinov/even-g2-notes](https://github.com/nickustinov/even-g2-notes)** | **`docs/performance.md`** (the fps/cost model) and **`docs/display.md`** (container rules, glyph inventory, fullwidth-CJK monospace trick) |
 | **[pangoleen/awesome-even-realities-g2](https://github.com/pangoleen/awesome-even-realities-g2)** | the curated index of ~150 G2 projects — start here for prior art on any app idea |
@@ -1161,7 +1169,7 @@ be answered.
 | [G2oom Reddit writeup](https://www.reddit.com/r/EvenRealities/comments/1sdcvkj/i_ported_doom_on_the_even_g2_sort_of_heres_what_i/) | the best real-hardware developer account. Sobel + Bayer dither pipeline, and the 0.5 s/frame verdict |
 | [Even Hub docs](https://hub.evenrealities.com/docs) | official SDK documentation |
 
-### Gotchas from g2-kit worth stealing (`ble/docs/gotchas.md`)
+### Gotchas from g2-kit worth borrowing (`ble/docs/gotchas.md`)
 
 - **The first Cmd=3 burst after CREATE is silently dropped** — fragments ack, render fires, lens
   stays blank. Push a sacrificial warmup frame; treat frame 2 as the first real one.
@@ -1394,7 +1402,7 @@ patches at instruction level**:
   2026-08-07**, commit message *"Fix a crash that occurred when using the custom firmware with
   stock Even AI"*; `patches/settings_ext.c:300` now reads `movw r12, #0x1fd7` with the comment
   *"0x004e1fd6 | Thumb bit; BX needs bit 0 set"*. **Verified 2026-08-16 by running Helekunihi's
-  own auditor against the exact image on disk** (extract the injected blob first — it is
+  own auditor against the exact image on disk** (extract the appended blob first — it is
   `g2-2.2.6.11.bin[4301227:]`, 20,127 bytes):
 
   ```
@@ -1567,7 +1575,7 @@ workday.** The spec has a hybrid power policy and no measured budget.
   on the ~60 ms ack floor (§5.2); unprobed. ⚠ On the dangerous sid; see below.
 - ✅ **We now know exactly why sid 0x80 is dangerous.** `dev_config_protocol.proto`:
   `UNPAIR_INFO = 9` and **`RESTORE_TO_FACTORY_SETTINGS = 13`**. That is the unrecoverable state g2-kit hit.
-  The rule sharpens from "never touch sid 0x80" to **"commandIds 9 and 13 are destructive;
+  The rule sharpens from "never touch sid 0x80" to **"commandIds 9 and 13 are irreversible;
   4 (AUTHENTICATION) and 128 (TIME_SYNC) are what the official app already sends."**
 - ⚠ **Ring biometrics: the schema exists but the glasses never send it — CORRECTED 2026-08-31.**
   `ring.proto` on `UX_RING_DATA_RELAY_ID = 145` (our `91-XX`) defines
@@ -1668,7 +1676,7 @@ the closest existing analogue to what Damage does). These are results, not prefe
   then split each band into **horizontal clusters** hopping column gaps < H_GAP, then tighten each
   cluster's rows. Diff scan runs in **packed-byte coordinates** (1 byte = 2 px) and reports both
   the bounding box and how many disjoint column-clusters the change splits into.
-- **Window geometry worth stealing:** two height modes — `min` = 288 px (the stock band, "leaving
+- **Window geometry worth borrowing:** two height modes — `min` = 288 px (the stock band, "leaving
   most of the field of view clear") and `max` = 480 px (terminal-style views) — plus a **vertical
   position setting** (top/upper/centre/lower/bottom) that slides the 288 band within the 480 px
   screen. That is a genuinely good use of the extra height: **placement rather than more content**,

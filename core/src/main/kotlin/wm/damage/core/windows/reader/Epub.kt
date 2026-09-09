@@ -357,7 +357,7 @@ object Epub {
 
     /** A numeric reference to a string — out-of-range or surrogate code points
      *  degrade to U+FFFD instead of throwing the whole book away (one bad
-     *  entity killed an entire load in review round 1). */
+     *  entity ended an entire load in review round 1). */
     private fun codepoint(cp: Int?): String? = when {
         cp == null -> null
         cp in 0xD800..0xDFFF -> "\uFFFD"          // a lone surrogate is not text

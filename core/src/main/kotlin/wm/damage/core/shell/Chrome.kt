@@ -241,7 +241,7 @@ class Chrome(
         g.fillRect(l.batteryCell, Level.BG)
         // G (glasses, from the wire) and P (phone). No R: ring battery has no
         // open-source source (CLAIMS.md) — a blank cell for a value that can
-        // never arrive is dead chrome, removed 2026-08-31.
+        // never arrive is empty chrome, removed 2026-08-31.
         val devs = listOf("G" to s.glasses, "P" to s.phone)
         val by = fitY(l.batteryCell, fBattL, 6)
         for ((i, dev) in devs.withIndex()) {

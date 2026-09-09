@@ -210,7 +210,7 @@ abstract class CfwTransportBase(
     private val sessionEpoch = AtomicLong(0)
 
     /** True only while start()'s capability gate is waiting — settings frames
-     *  arriving at any other time must not poison the CONFLATED rendezvous
+     *  arriving at any other time must not disturb the CONFLATED rendezvous
      *  for a future gate (round 3 observation: uncorrelated capability). */
     @Volatile private var awaitingCapability = false
 
@@ -967,7 +967,7 @@ abstract class CfwTransportBase(
         started = false
         // Sweep FIRST (round 3 D1): fail every pending ack, restore the window
         // permits, and drain both queues loudly — a lane parked on a permit
-        // that a dead link will never return would otherwise deadlock this
+        // that a link which is gone will never return would otherwise deadlock this
         // stop and every future start on the same instance.
         sweepSession("$name stopped")
         withContext(NonCancellable) {
@@ -975,7 +975,7 @@ abstract class CfwTransportBase(
             // AWAIT the release actually reaching the wire — a fixed sleep lost
             // it behind a mid-flight keyframe's wire-mutex hold (round 2 #6),
             // leaving the glasses leased/frozen up to the 90 s fail-open. The
-            // select also completes if the transport scope itself dies (the
+            // select also completes if the transport scope itself ends (the
             // lanes' finally-drains fail `released` on the way out; the onJoin
             // arm is the last-resort if death races the enqueue) — round 3 D3.
             val released = CompletableDeferred<Unit>()
@@ -1071,15 +1071,15 @@ abstract class CfwTransportBase(
         }
     }
 
-    /** Subclasses call this when the physical link dies out from under a
+    /** Subclasses call this when the physical link ends out from under a
      *  session (BLE disconnect): sweeps so nothing waits on acks that will
      *  never come, and surfaces the loss (round 3 D1). */
     protected fun onLinkDown(reason: String) {
         Log.e(name, "link down: $reason")
         // the session is over: clear the latches like stop() does, or the
-        // maintenance loops keep writing into a dead link and the next
+        // maintenance loops keep writing into a link that is gone and the next
         // start() is refused as "already started" (round 4 D2). The lease
-        // cannot be released through a dead link — the fail-open is the
+        // cannot be released through a link that is gone — the fail-open is the
         // backstop, and the shell is told so.
         running = false
         started = false
@@ -1132,7 +1132,7 @@ abstract class CfwTransportBase(
                 }
             }
         } finally {
-            // the lane is dying (scope cancelled): nothing queued can ever run
+            // the lane is ending (scope cancelled): nothing queued can ever run
             // — say so to every waiter rather than leave it parked (round 3 D3)
             while (true) {
                 val w = imageQueue.tryReceive().getOrNull() ?: break
@@ -1379,7 +1379,7 @@ abstract class CfwTransportBase(
     }
 
     // wire-mutex-confined counter helpers (callers hold `wire`). msgId never
-    // takes the value 0: it is a 1-byte field that dies past 255 and whether
+    // takes the value 0: it is a 1-byte field that stops being acked past 255 and whether
     // real firmware accepts 0 is unverified — 1..249 dodges the question.
     private fun nextMsgIdLocked(): Int { msgId = msgId % 249 + 1; return msgId }
     private fun nextSeqLocked(): Int { aaSeq = (aaSeq + 1) and 0xFF; return aaSeq }
@@ -1425,7 +1425,7 @@ abstract class CfwTransportBase(
                             // it — the one thing this lane exists to prevent. The
                             // watcher forwards to the caller off-lane, and a swept
                             // or counter-cycled pending is reported, never thrown
-                            // into the scope (round 3 D5: that crashes Android).
+                            // into the scope (round 3 D5: that faults on Android).
                             val awaiting = work.awaitAck
                             scope.launch {
                                 try {

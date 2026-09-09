@@ -199,7 +199,7 @@ class RemoteSync(
     private var saidNoSync = false
     /** Pushes leave through this queue and a sender coroutine — NEVER by a
      *  blocking socket write on the store listener's thread, which is the
-     *  SHELL LOOP for every save-path put (review 2026-09-01: a silently dead
+     *  SHELL LOOP for every save-path put (review 2026-09-01: a silently stopped
      *  path plus a full TCP send buffer parked the loop mid-saveAll). The
      *  outbox is cleared on reconnect; the re-handshake carries anything lost. */
     private val outbox = LinkedBlockingQueue<SWire>(OUTBOX_CAP)
@@ -295,7 +295,7 @@ class RemoteSync(
                         // the sender too (R2#6): left running it parks in
                         // outbox.take() pinning an IO thread per reconnect,
                         // and each stale sender STEALS one queued record for
-                        // its dead socket before dying — a flapping-WiFi day
+                        // its closed socket before ending — a flapping-WiFi day
                         // leaked dozens of threads and dropped records until
                         // the 5-minute re-handshake healed them
                         sender.cancel()

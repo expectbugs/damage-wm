@@ -14,7 +14,7 @@ chord is `pace:0.3 hold release double pace:2.5`),
 so each flush is isolated in the journal (§31.1's method). Every gesture is
 echoed with a timestamp so the journal's flushes can be matched to it.
 
-⚠ §29.2 binds: one step per snap in any window with a destructive row; never
+⚠ §29.2 binds: one step per snap in any window with an irreversible row; never
 scroll in Music's root (scroll = volume); never tap in Settings on a staged
 row; Games and Files taps change real state. Stdlib + `websockets` only.
 """

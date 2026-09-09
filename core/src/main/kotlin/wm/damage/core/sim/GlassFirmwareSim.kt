@@ -17,7 +17,7 @@ import wm.damage.core.wire.SettingsMsg
  * g2flash's firmware does with them: reassembly, ImgRawMsg accumulation, mode
  * 3/6/8/9 dispatch onto per-lens packed-4bpp shadows, the duplicate-fid ring
  * with its f_dup/f_skip/f_reorder flags, the per-arm framebuffer lease with its
- * fail-OPEN expiry, the warmup-frame drop, the msgId-255 silent kill, and the
+ * fail-OPEN expiry, the warmup-frame drop, the msgId-255 silent drop, and the
  * stuck-session trap. Where the hardware fails in SILENCE, this model fails in
  * silence too — but reports every such event through [SimDiag] so a test or the
  * dev overlay can make it loud. Nothing like the EvenHub simulator, which lies.
@@ -298,7 +298,7 @@ class GlassFirmwareSim() : LensPanels {
                 "hardware would render garbage in silence")
         }
         // Stuck-session trap (overview.md §9.2, seen on our own wire): a session
-        // adjacent to a broken one inherits its dead buffers.
+        // adjacent to a broken one inherits its stale buffers.
         if (brokenSessions.any { kotlin.math.abs(it - session) <= 1 }) {
             diag.event("session", "session $session adjacent to a broken session — " +
                 "fragment accepted but transfer will fail (bump MapSessionId by >=2)")

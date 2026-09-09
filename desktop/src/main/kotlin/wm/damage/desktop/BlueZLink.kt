@@ -103,7 +103,7 @@ interface BlueZLink {
  *  - dbus-java answers every method call with a 20 s reply deadline by default;
  *    an LE `Connect` can legitimately take the kernel's 20 s. The deadline is
  *    set to 0 (wait for the reply): a bus that ends completes every pending
- *    call with an error, so nothing waits on a dead bus. A bluetoothd that
+ *    call with an error, so nothing waits on a closed bus. A bluetoothd that
  *    stops answering while the bus lives is the case "supervise externally"
  *    covers.
  *  - `Device1.Connect` is called RAW: the wrapper's `connect()` discards the

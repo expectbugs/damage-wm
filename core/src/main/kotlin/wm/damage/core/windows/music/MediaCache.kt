@@ -18,7 +18,7 @@ import wm.damage.core.util.Log
  * `standard-mono-loudnorm` profile and is read in place — the same key
  * shape, verified against its files.
  *
- * ffmpeg runs ONE AT A TIME (a 16-core box would otherwise fork a storm on a
+ * ffmpeg runs ONE AT A TIME (a 16-core box would otherwise fork a burst on a
  * queue replace); a transcode writes `.part` then moves atomically; orphaned
  * parts from an ended process are swept at start. NO TIMEOUTS: a transcode
  * runs to completion and its duration is logged.

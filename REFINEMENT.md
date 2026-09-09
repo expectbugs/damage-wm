@@ -191,7 +191,7 @@ Adam kept trying and *"have yet to see the switcher at all"*, either mode. Cause
 **events 9/10 always arrive source 0, because `EventSource` is absent for them by firmware
 design.** Every real long-press was thrown away before the grammar ran; the transport's log
 (which shows them arriving) is what exposed the split. `LongPressTest` passed the whole time
-because its harness injected 9/10 with the default ring source — the suite now injects them with
+because its harness supplied 9/10 with the default ring source — the suite now supplies them with
 **source 0, the wire truth**, and events 9/10 skip the source check (the bare-long-press
 no-op default is what keeps the temple harmless, as `CLAUDE.md` always said).
 

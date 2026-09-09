@@ -196,7 +196,7 @@ class TmuxWindow(
     }
 
     /** Unhook from the provider — a rebuilt stack replaces this window while
-     *  the provider outlives it (the LensView.detach precedent): a dead
+     *  the provider outlives it (the LensView.detach precedent): a detached
      *  window's listener must not keep receiving pushes. */
     fun detach() {
         provider.subscribe(listener, null)
@@ -854,8 +854,8 @@ class TmuxWindow(
             level = Level_.LIVE   // deeper levels restore to the live grid; history re-captures
             renameArmed = false   // a record swap must not leave the NEXT typed line staging a rename (R7 residue)
         } else if (target != null) {
-            // the record says the peer LEFT (or killed) the session: keeping
-            // the stale target had the new override resubscribe a dead pane —
+            // the record says the peer LEFT (or ended) the session: keeping
+            // the stale target had the new override resubscribe a closed pane —
             // a 1 Hz failing exec forever (R4#2). Gate on HOLDING a target,
             // not on a level list (R6#3): at Snippets/Session…/a confirm the
             // three-level gate skipped this, kept the orphan poll, and the

@@ -156,7 +156,7 @@ latency curve (§11 note above).
   arrive with `EventSource` ABSENT (source 0, documented all along) and the ring-only check
   discarded them. `LongPressTest` passed throughout because the harness supplied the source
   the wire omits. Lesson, same family as the ack enum: **a test default that "helpfully"
-  supplies what the wire omits is a model erring permissive — inject what the firmware
+  supplies what the wire omits is a model erring permissive — supply what the firmware
   actually sends.**
 
 ## 13. The APK mission (2026-08-31) — DONE
@@ -969,7 +969,7 @@ pre-2026-09-03 record with `QUEUE` at position 0 maps onto the new root, and the
 **Harness lesson:** five tests and the whole selfcheck Music section broke because they selected
 menu rows by COUNTING notches; one new row moved everything. `Shell.menuLabels` / `menuCursor`
 are now exposed and every harness picks rows **by name**. An unbounded wait added to the test rig
-hung the suite once — every wait in a harness is bounded, loudly.
+stalled the suite once — every wait in a harness is bounded, loudly.
 
 **Battery (all green, measured):** core **319** · desktop 9 · selfcheck **139** (the count is
 PASS lines — 57 `check(` assertions plus the `awaitTrue` convergence waits, several of each
@@ -1007,7 +1007,7 @@ Seven issues in what had just been written; all verified, all fixed:
 6. **The queue position was an unbounded right-align** (the F2 class, twice fixed
    elsewhere): a long mode label with a big queue walks left over the level
    readout. Measured, then fitted.
-7. **A dead branch and a wasted fetch:** the empty-state's "stopped" arm is
+7. **An unreachable branch and a wasted fetch:** the empty-state's "stopped" arm is
    unreachable (`entry` is `queue[index]`, so a stopped player with rows paints the
    full surface), and `npArtPx` started at 96 while the shipped 480 height wants
    160 — one wasted art request per session. Both corrected.
@@ -1085,7 +1085,7 @@ fixes.
    Adam's one saved position still lands on the same sentence (checked).
 
 5. **The Reader was the last window drawing dynamic text raw** — `ReaderWindow`. Book titles,
-   authors, EPUB toc chapter names and the prose itself bypassed `Draw.dynamic`, so an
+   authors, EPUB toc chapter names and the prose itself did not go through `Draw.dynamic`, so an
    uncoverable glyph was silent tofu with no log. Now routed like every other surface, and
    `paintBookLine` is fitted (the wrap measured the raw string, so a substituted glyph of a
    different width must be marked, not pushed past the line rect). **Measured on the real
@@ -1246,7 +1246,7 @@ that matter beyond their own fix:
 `user.home`; a stray instance briefly shared Adam's live `~/.damage`. It was stopped, the damage
 was three pristine `window.games.*` records (self-correcting), and the rest of the session ran
 with `JAVA_OPTS="-Duser.home=$SCRATCH"` on ports 7501/7503. Second mistake: `pgrep -f` matches
-**your own wrapper shell**, so a pattern that appears in your command line kills the shell that
+**your own wrapper shell**, so a pattern that appears in your command line ends the shell that
 runs it — and three orphaned instances then shared one state file while only the oldest held the
 replica port, so the screens under test were a stale build.
 
@@ -1267,7 +1267,7 @@ list; three of them are worth carrying past this window:
   the pin now enters from exactly that spot.
 - 🔴 **`?: 1` as "no finishing order means first".** True of the winner; also true of every seat
   at a table that stopped early, and `playOut` has two loud paths that stop one. Each survivor
-  was credited the whole prize and recorded a win — money printed, careers corrupted, on the
+  was credited the whole prize and recorded a win — money printed, career records left inconsistent, on the
   error path of an error path. Both settlements now RANK the survivors by chips, so there is one
   first place in either case. The general rule: **a default that is right on the happy path is
   not a default, it is an assumption.**
@@ -1547,7 +1547,7 @@ the silent small clock (already placed by `fitY`).
 
 **How it was driven.** The desktop program in `--transport sim --no-preview` under a SCRATCH home
 (`java -Duser.home=<scratch> -jar desktop/build/libs/damage.jar`, ports 7501–7504, a throwaway
-token, `tmuxHosts` carrying a deliberately dead host so the staleness line is exercised), the real
+token, `tmuxHosts` carrying a deliberately unreachable host so the staleness line is exercised), the real
 shelf and the real tmux server and library behind it. A 150-line Python driver with no
 dependencies speaks the browser replica's WebSocket (`/ws?token=…`), sends the ring grammar as
 `{"t":"input","ev":"tap|double|up|down|hold|release"}` and typed lines as `{"t":"text"}`, decodes the
@@ -1702,12 +1702,12 @@ keeping 480 under a global 288 is its own Size row.
 ### 29.2 The live walk — what only it found
 
 **The instrument** (§28.2, rebuilt in ten minutes): the desktop program in `--transport sim
---no-preview` under a scratch home (ports 7501–7504, a throwaway token, a dead `ghost.invalid`
+--no-preview` under a scratch home (ports 7501–7504, a throwaway token, an unreachable `ghost.invalid`
 tmux host for the staleness line, a copy of the shelf, the real tmux server, qBittorrent and the
 music library behind it) and a 150-line Python driver on the replica WebSocket that writes a
 true-1× PNG after every step. Three lessons the driver paid for this time, on top of §28's
 "snap between steps": **the replica's pings are not frames** — a quiet-detector that counts them
-waits 20 s a step; **a blind gesture run in a window with destructive rows is a real risk** — one
+waits 20 s a step; **a blind gesture run in a window with irreversible rows is a real risk** — one
 assumed cursor rest started a stopped torrent on the real qBittorrent (stopped again through its
 API) and reached the first of the two delete confirms before the cancel; **and never rebuild the
 jar in place under a running instance** — the JVM's lazy class loads then fail (the DAILY.md
@@ -1788,7 +1788,7 @@ Read `CLAUDE.md` → `REMINDER.md` → `HANDOFF.md` §19–§29, then:
   byte-identical to the build output). **0.16 is still the last APK observed INSTALLED** —
   installing 0.29 is the one manual step left.
 - The live-walk driver (§28.2, §29.2) remains the instrument that runs the real providers under
-  the real grammar. Snap between steps; treat every window with a destructive row as one step per
+  the real grammar. Snap between steps; treat every window with an irreversible row as one step per
   snap; count only panel frames as activity.
 - Open items are §26.6, §27.5 and the deploy above; nothing in this round is half-finished.
 
@@ -1877,10 +1877,10 @@ standing rule, one more layer down:
 ### 30.3 The live walk — what only it found
 
 **The instrument** is §28.2 / §29.2 unchanged: the desktop program in `--transport sim
---no-preview` under a scratch home (ports 7501–7504, a throwaway token, a dead `ghost.invalid` tmux
+--no-preview` under a scratch home (ports 7501–7504, a throwaway token, an unreachable `ghost.invalid` tmux
 host for the staleness line, the real tmux server, qBittorrent and the music library behind it) and
 a Python driver on the replica WebSocket that writes a true-1× PNG after every step. The §29
-lessons all held: snap between steps, one step per snap near a destructive row, count only panel
+lessons all held: snap between steps, one step per snap near an irreversible row, count only panel
 frames as activity, and never rebuild the jar under a running instance.
 
 11. 🔴 **The switcher's centre band was sized from the name's ASCENT** — the top half of the
@@ -2259,7 +2259,7 @@ What was established:
 - `msgs` is `Channel.UNLIMITED` and is never closed, so `trySend` cannot refuse and a lost message
   is not the mechanism either.
 - `loopLaunched` is set at start and never reset, but `startLocked` launches the loop
-  unconditionally, so a same-instance restart always has one. That hypothesis is dead.
+  unconditionally, so a same-instance restart always has one. That hypothesis is ruled out.
 
 Three things went in so the next occurrence names itself rather than needing another investigation:
 
@@ -2476,7 +2476,7 @@ is ISOLATED (nothing queued ahead — §31.1's method). The walk: wake from sile
 Reader → Classics → Frankenstein (first open, the chapter picker) → 6 notches down and back →
 back to Main → Tmux → the DamageWM session's live pane → 4 notches of history and back → the
 switcher chord from Main, 3 notches, cancel → Torrents transfers ×8 → Main → silent. No
-destructive row was tapped; the Reader position was returned to the top; the shell was left in
+irreversible row was tapped; the Reader position was returned to the top; the shell was left in
 silent mode where it was found.
 
 ### 33.1 The daily path, measured on the phone itself (grade **M**)
@@ -2724,7 +2724,7 @@ anything either, which is a very serious symptom … is this something you did?"
   105 panics, 40 halts in fifteen minutes, one 20 KB refusal every 3.5 s**. A session restart at
   about 19:55 (six eaten CREATEs, §34.3) did not clear it. The link never dropped.
 - Adam's both-temple long-press did nothing while that ran and the lease was held.
-- Recovery, Adam's hands, my steps: Target → SIM (20:12:37, the storm stops), phone Bluetooth off,
+- Recovery, Adam's hands, my steps: Target → SIM (20:12:37, the repeats stop), phone Bluetooth off,
   both-temple long-press → the glasses said **"Silent Mode Off"** — so it had been ON — a
   double-tap brought the firmware menu, another dismissed it, Bluetooth on, Target → glasses,
   and at **20:17:07** the first accepted frame.
@@ -2737,7 +2737,7 @@ and `DeviceSendInfoToAPP` in root field 5 with `silentModeSwitch = 2` (Even's ow
 Faceclaw's `parseSilentModePush` reads exactly this, C), and the settings READ response restores
 it in the device-info block's field 14 (V). Our transport parsed neither: the push was logged at
 debug level as "a settings frame outside the capability gate" and dropped. So the shell had no
-idea the glasses were asleep, and its reaction to the refusals was the storm. That storm is the
+idea the glasses were asleep, and its reaction to the refusals was that loop. That loop is the
 likeliest reason the temples could not get through, and the lease we kept renewing is why the
 stock firmware could not paint either.
 
@@ -2816,7 +2816,7 @@ layout. Grade: the refusals M; the cause I, corroborated by both references.
    is rebuilt, so a black keyframe can never wake the shell. The fallback for a missed push is the
    60 s settings poll's READ (proven on glass today); for a refusal-streak sleep whose READ says
    "not silent", attempt a restart at each pacing tick (60 s) and on the first ring event — a paced
-   loop of G2CC-style reconnects, never a storm.
+   loop of G2CC-style reconnects, never an unbounded one.
 3. **Journal the system events 4/5/7** (`FOREGROUND_ENTER`/`EXIT`, `SYSTEM_EXIT`): today they
    arrive through `parseEvent` as gesture types and are dropped unseen in `handleInput`; route them
    as `TransportEvent.Note("event", …)`. They are probably the firmware's own "app slot gone"
@@ -2950,7 +2950,7 @@ what was adopted:
   layout-created flag on the exit events and re-CREATEs in-session); the in-session re-CREATE is
   unmeasured on our glass and the full rebuild is measured to work (22:09:25), so the measured
   path won. Cost: the reconnect's seconds, once per wake — not a per-gesture latency.
-- **Taken: paced recovery, never a storm.** A sleeping shell asks for a rebuild at most once per
+- **Taken: paced recovery, never an unbounded loop.** A sleeping shell asks for a rebuild at most once per
   pacing (60 s) and only when the glasses themselves say they are awake; G2CC's 10 s rate limit
   is the same idea.
 - **Not taken (proposed below): the response-gap watchdog itself.** Our refusals are explicit
@@ -2985,7 +2985,7 @@ what was adopted:
 - **No mirror-agreement check while asleep** (`checkMirrorAgreementInner`) — the 22:04:02 false
   alarm; `lastDivergence` is per session already.
 - **The system events 4/5/7** (`FOREGROUND_ENTER`/`EXIT`, `SYSTEM_EXIT`) reach the journal as
-  `event` notes (`CfwTransportBase.routeEvent`) instead of dying in the ring-only filter unseen.
+  `event` notes (`CfwTransportBase.routeEvent`) instead of being dropped by the ring-only filter unseen.
   Nothing is keyed on them until the journal says when they arrive.
 - **The simulator models the page ending with the mode**: `GlassFirmwareSim.carrierLost` is
   set by `setSilent(true)` (with `layoutCreated` cleared) and cleared only by a CREATE; images

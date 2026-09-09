@@ -155,7 +155,7 @@ private fun DataInputStream.readCtl(): Pair<Ctl, ByteArray?> {
     val c = json.decodeFromString(Ctl.serializer(), b.toString(Charsets.UTF_8))
     // peer-declared lengths are VALIDATED before any allocation: a buggy peer
     // must produce a loud session error, never an OOM (an Error would skip the
-    // reader thread's catch and kill the link in silence)
+    // reader thread's catch and end the link in silence)
     var blobLen = 0L
     for (op in c.ops) {
         require(op.len in 0..MAX_OP_PAYLOAD) { "op payload ${op.len} out of range" }
@@ -360,7 +360,7 @@ class RemoteTransportClient(
                     // the seam went quiet: the peer spoke liveness and then said
                     // nothing (frames or pings) for quietMs — a silent path
                     // death. End the session HERE, attributed, then close the
-                    // socket so the parked reader unwinds into the dead session.
+                    // socket so the parked reader unwinds into the ended session.
                     if (peerSpeaksLiveness && now - lastRecvMs > quietMs) {
                         down(mySession, "seam quiet for ${(now - lastRecvMs) / 1000} s — " +
                             "no frames or pings from $host (silent path death)")
@@ -459,7 +459,7 @@ class RemoteTransportClient(
                 // start()'s coroutine must not blind-write it later and mask a
                 // genuine started=false state routed in between (review
                 // 2026-09-01 F11b: the keeper polls state.started and would
-                // never recycle a dead session)
+                // never recycle an ended session)
                 updateState { it.copy(connected = true, started = true) }
                 started.trySend(null)
             }

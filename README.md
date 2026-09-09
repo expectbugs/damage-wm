@@ -3,7 +3,16 @@
 A from-scratch **window manager and compositor for the Even Realities G2**, running against
 custom firmware (`g2flash`) that replaces the vendor's container model with direct framebuffer
 access. The PC composes complete scenes with real fonts and arbitrary layout; the glasses are
-a dumb framebuffer.
+a plain framebuffer.
+
+A personal project: it drives the author's own glasses from his own phone and PC. The
+wire-format work is interoperability with a consumer device he bought, so he can render his
+own interface on it.
+
+**The name is the graphics term.** *Damage* is the set of screen regions that changed since the
+last frame — as in the X11 DAMAGE extension. Batching all of a frame's damage into a single
+Bluetooth message, instead of one message per region, is this project's whole thesis: the
+round-trip cost is per message, not per region.
 
 **Live on hardware since 2026-08-30, the all-day daily driver since 2026-08-31** — the CFW is
 installed and the DEFAULT configuration runs for real: **the phone APK is the primary driver**

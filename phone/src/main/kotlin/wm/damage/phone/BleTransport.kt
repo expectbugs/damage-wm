@@ -167,7 +167,7 @@ class BleTransport(
                 data.value?.let { onNotifyPacket(arm, it) }
             }
             // Every step observed: a failed MTU request or CCCD write would
-            // otherwise leave notifications dead and the capability gate
+            // otherwise leave notifications inert and the capability gate
             // waiting in silence. Order per the CFW reference: priority, MTU,
             // notifications. The priority request is best-effort and stands
             // ALONE: inside the atomic queue a failed child ends the queue
@@ -368,7 +368,7 @@ class BleTransport(
         updateState { it.copy(detail = if (filters.isEmpty()) "scanning for the pair (first time: needs the screen on)" else "scanning for the remembered pair") }
         val done = CompletableDeferred<Pair<BluetoothDevice, BluetoothDevice>>()
         // Bluetooth turning OFF mid-scan does NOT reliably reach onScanFailed
-        // — the scan just goes dead and the await would park forever (G2CC's
+        // — the scan just goes quiet and the await would park forever (G2CC's
         // "scanning forever" class, their ConnectionService BT-state receiver).
         // Toggling phone Bluetooth is also the documented at-work recovery
         // for a stale ACL, so this path WILL be exercised: fail the scan

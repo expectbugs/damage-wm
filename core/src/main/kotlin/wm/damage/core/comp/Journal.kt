@@ -115,7 +115,7 @@ class Journal(private val path: Path?) : AutoCloseable {
         try {
             // The keeper restarts sessions forever, and a restart used to write into
             // the stream a previous stop() had closed -- which failed on EVERY line
-            // and logged EVERY time, flooding the log at exactly the moment the
+            // and logged EVERY time, filling the log at exactly the moment the
             // journal existed to explain (first light, 2026-08-30). Reopen instead:
             // the file is opened APPEND, so journaling simply continues across a
             // reconnect, which is when it is most worth having.

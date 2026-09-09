@@ -285,7 +285,7 @@ class MusicWindowTest {
         // the track ends on its own: completed, not skipped
         now += 100_001; p.advance(); assertEquals(1, p.state.index)
         assertTrue(lib.played.last() == "1:true:false", lib.played.toString())
-        // boost dies with the track; a boost at max volume raises the loud notice
+        // boost goes with the track; a boost at max volume raises the loud notice
         p.setVolume(100, "test"); p.setBoost(200); assertEquals(200, p.state.boost); assertTrue(ev.events.any { it is PlayerEvent.BoostLoud })
         p.next(); assertEquals(100, p.state.boost); assertTrue(ev.events.any { it is PlayerEvent.BoostOff })
         // hold my volume: a large instant drop is the limiter → re-set; single steps are the user

@@ -131,7 +131,7 @@ class ThemeIcons(
     /** (bitmap, cleanMiss): (g, _) success · (null, true) the theme has no
      *  USABLE icon of this name · (null, false) or a THROW = transient. A
      *  file a tool ran on and refused, or one that will not decode, is a
-     *  CLEAN MISS (R2#13): deterministically dead for this theme session —
+     *  CLEAN MISS (R2#13): deterministically unreachable for this theme session —
      *  calling it transient re-ran the tool every 30 s all day while the
      *  paint chain never advanced past it. TOOL-level trouble (nothing
      *  installed, signal-class exits, IO read failures) stays transient

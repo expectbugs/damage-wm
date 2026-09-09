@@ -120,7 +120,7 @@ object AaFrame {
             val isFinal = pSerial == total
             val body = if (isFinal) chunkLen - CRC else chunkLen
             // body < 0 = a final fragment whose Len cannot even hold the CRC: a
-            // malformed packet, not a crash — buf.write with a negative length
+            // malformed packet, not a fault — buf.write with a negative length
             // would throw on the notify thread (a Nordic callback on the phone)
             if (body < 0 || HEADER + body > pkt.size) { warn("fragment Len $chunkLen invalid; dropped"); reset(); return null }
             buf.write(pkt, HEADER, body)

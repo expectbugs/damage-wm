@@ -136,7 +136,7 @@ class AndroidText(
         val c = Canvas(bmp)
         c.drawText(text, 0f, (-fm.ascent).toFloat(), p)
         // ALPHA_8 bitmaps may pad rows (getRowBytes >= width) — indexing by
-        // width alone skews or crashes on padded devices (review round 1)
+        // width alone skews or fails on padded devices (review round 1)
         val rowBytes = bmp.rowBytes
         val pixels = ByteArray(rowBytes * h)
         bmp.copyPixelsToBuffer(java.nio.ByteBuffer.wrap(pixels))

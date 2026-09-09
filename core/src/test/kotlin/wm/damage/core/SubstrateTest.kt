@@ -56,7 +56,7 @@ class SubstrateTest {
     private class ItemsWindow : DamageWindow("items", "Items", IconKind.FILES) {
         val items = LinkedHashMap<String, Int>()
         val restoredSubs = ArrayList<String>()
-        /** R2#5 harness: a sub-key whose restore THROWS (a corrupt blob). */
+        /** R2#5 harness: a sub-key whose restore THROWS (an unreadable blob). */
         var failRestoreOf: String? = null
         override fun view() = WindowView.ListView(ListModel(), { 1 },
             { _: Gray8, _: Int, _: Rect, _: Boolean -> }, { _: Gray8, _: Rect, _: Int -> }, {})

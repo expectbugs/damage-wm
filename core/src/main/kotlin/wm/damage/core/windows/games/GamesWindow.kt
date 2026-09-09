@@ -148,7 +148,7 @@ class GamesWindow(
     private var noticeUntil = 0L
     private var pacerGen = 0
     private var thinking = false
-    /** §10.1's skip: the pace is bypassed until it is Adam's turn again. */
+    /** §10.1's skip: the pace is skipped until it is Adam's turn again. */
     private var skipping = false
 
     private val fRow = FontSpec(Face.SYSTEM, 18)
@@ -966,7 +966,7 @@ class GamesWindow(
         // that stopped early (a `playOut` that reported a stall) leaves
         // several, and `finishPlace(s) ?: 1` then handed EACH of them first
         // place and the whole prize with it: money printed and careers
-        // corrupted on an error path (review pass 3, 2026-09-04). Ranking the
+        // left inconsistent on an error path (review pass 3, 2026-09-04). Ranking the
         // survivors by chips gives one winner in both cases, so the prize
         // moves exactly once and the economy stays conserved.
         val placeOf = placesFor(t, v)

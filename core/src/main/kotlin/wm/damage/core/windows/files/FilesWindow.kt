@@ -973,7 +973,7 @@ class FilesWindow(
 
         var lineH = 24
         /** Paced retry after a transient chunk/page failure (Fi#3) — never a
-         *  silent end-of-file, never an unpaced retry storm. */
+         *  silent end-of-file, never an unpaced retry loop. */
         var retryAtMs = 0L
 
         /** The retry is DEMAND-driven from paint, so something must repaint
@@ -1359,7 +1359,7 @@ class FilesWindow(
                 if (info == null) {
                     Log.e("files", "pdfinfo of $path failed: $err")
                     setNotice(err ?: "could not read the PDF")
-                    // a restore that dies here must not leave its position
+                    // a restore that ends here must not leave its position
                     // armed for the NEXT unrelated open (R2#9); and the held
                     // refresh must run NOW (R5#1c) — the gate skipped it while
                     // the intent was armed, so the browse rows may be stale

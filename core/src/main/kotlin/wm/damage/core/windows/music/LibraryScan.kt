@@ -14,7 +14,7 @@ import wm.damage.core.util.Log
  * format AND stream tags (Ogg stores vorbiscomments per stream; a
  * format-only probe indexes tagged .ogg files as artistless) — incremental
  * by mtime, vanished rows deleted only under roots this walk actually
- * read (an unmounted root walks to zero files and must never wipe its
+ * read (an unmounted root walks to zero files and must never clear its
  * rows), and never a row whose path moved mid-walk.
  */
 class LibraryScan(private val db: MusicDb, private val roots: List<String>, private val ffprobe: String = "ffprobe") {

@@ -56,7 +56,7 @@ class Persistence(private val file: Path) {
                 // MERGE, never replace (the §19.4 startup-race closure,
                 // 2026-09-01): a record applied store-direct in the moments
                 // before load() runs — a sync peer racing a shell start — must
-                // not be wiped by the disk image. The strictly-newer copy wins
+                // not be overwritten by the disk image. The strictly-newer copy wins
                 // per key, exactly LWW's rule.
                 val merged = HashMap<String, Rec>(fromDisk)
                 for ((k, r) in loaded) {
@@ -66,7 +66,7 @@ class Persistence(private val file: Path) {
                 loaded = merged
                 true
             } catch (e: Exception) {
-                // A corrupt store must not stop boot — but it must be LOUD, and the
+                // An unreadable store must not stop boot — but it must be LOUD, and the
                 // bad file is kept for post-mortem rather than deleted. The
                 // IN-MEMORY records stay: they are exactly what the merge
                 // exists to protect (a pre-load sync apply must survive this

@@ -41,7 +41,7 @@ deferred by Adam in this session.
 ## 2. Facts the design stands on (verified 2026-09-01)
 
 **qBittorrent** (`HANDOFF.md` §23): 5.1.4 rebuilt with the `webui` USE flag,
-Web API **2.11.4** on `http://127.0.0.1:8090`, loopback only, localhost auth bypass on (the
+Web API **2.11.4** on `http://127.0.0.1:8090`, loopback only, localhost auth exemption on (the
 `damage` service runs as the same user on the same box — **no credentials anywhere in our
 code path**). Read from the 5.1.4 source, not remembered: 5.x renamed the verbs to
 `torrents/stop` and `torrents/start` and the states to `stoppedDL` / `stoppedUP`; the full
@@ -120,7 +120,7 @@ TRANSFERS (List, root)  ──tap──▶ transfer MENU ──Details──▶ 
   harmless row 0 is Refresh instead): Details · Start or Stop (which one applies) · Recheck ·
   Open in Files (the torrent's content path — a Files `path:` deep link) · Open on PC · Delete (keep
   files) → confirm · **Delete + files** → confirm → a second confirm whose unrecoverable row
-  sits at index 2 behind a disabled spacer (the Files purge shape). The destructive rows are
+  sits at index 2 behind a disabled spacer (the Files purge shape). The irreversible rows are
   last (§1.7).
 - **Torrents MENU** (the wrap-end row): Browse TorrentLeech · Search TorrentLeech (opens the
   keyboard) · a recent search per row (up to 5, newest first — Adam wanted no history row in
@@ -156,7 +156,7 @@ TRANSFERS (List, root)  ──tap──▶ transfer MENU ──Details──▶ 
   search and lands in LISTING titled `"query"`; the query joins the recents (max 10, deduped,
   synced with the window record). Cancel keeps the draft for the next open (his verdict 4).
   A line typed on a replica searches the same way. **Recorded exemption to "typed text
-  always stages a confirm"**: a search is a read-only query, nothing outbound or destructive.
+  always stages a confirm"**: a search is a read-only query, nothing outbound or irreversible.
 - **Stats** (a menu of read-only rows): qBittorrent `↓ speed · ↑ speed`, session down/up,
   all-time ratio, free space, peers, connection status, version; TorrentLeech uploaded /
   downloaded / ratio / points / class. Computed off-loop, delivered as a notice if the window
@@ -173,7 +173,7 @@ Coalescing key = the hash. Announcements are decided **host-side, once**, so the
 and a PC standby shell agree; the announced set persists in `~/.damage/torrents.json` (hash →
 completion stamp, **kept across a removal** — a torrent that comes back with the same stamp is
 a reload, one with a new stamp a real finish); the first run after install marks every
-already-finished torrent announced (38 of them on 2026-09-01) so nothing storms; on a later restart
+already-finished torrent announced (38 of them on 2026-09-01) so nothing repeats in bulk; on a later restart
 whatever finished while the service was down announces once. A shell that reconnects asks for
 events since the last sequence it saw and replays what it missed (the host says `truncated`
 when its 200-deep ring no longer reaches back that far). A host that restarted (new epoch):
@@ -269,7 +269,7 @@ most one host interval behind — a deliberate simplification over an on-demand 
 
 ## 5. Failure discipline (the absolute rules, applied)
 
-- Poll failures: the state line (`qBittorrent unreachable 12s`), never a notice storm; the
+- Poll failures: the state line (`qBittorrent unreachable 12s`), never a burst of repeated notices; the
   first failure after health logs once; recovery clears it.
 - Tracker failures: one title notice per attempt (`TorrentLeech login failed` / `format
   changed: …`), and a page fetch failure shows in the listing's loading row in place and

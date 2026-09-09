@@ -84,11 +84,11 @@ that bind every change.** The short list — each with its record:
   (`Shell.sampleIdle`), and a rate is measured twenty times, not three.
 - 🔴 **Live-drive the real program before calling a round done** (§28.2, §33):
   `tools/glassdrive.py` drives the phone's shell and snapshots the mirror; one step per snap in
-  any window with a destructive row; never rebuild the jar under a running instance.
+  any window with an irreversible row; never rebuild the jar under a running instance.
 - 🔴 **Never answer a refused image with more images** (§36): the firmware's Silent Mode refuses
   every frame and pushes the state; the shell sleeps with the glasses and drops the lease on
   purpose — **and the page traffic sleeps with it** (§42: no keepalive or carrier refresh into
-  a page that has ended; a stop after a link loss sends no release into a dead link). And **a
+  a page that has ended; a stop after a link loss sends no release into a link that is gone). And **a
   lost ack is released by a later ack**, never held for a msgId cycle (§34).
 - 🔴 **Latency is a standard, not a pass** — the section "Latency standards" below and
   `WINDOWS.md` §6 bind every window and surface written from now on. `REMINDER.md` carries the
@@ -382,8 +382,7 @@ that don't fit raise loudly, never silently mangle.
   🔴 **The one exception (2026-09-05, `HANDOFF.md` §36): while the glasses are in the firmware's
   own Silent Mode the shell RELEASES the lease on purpose.** In that mode the firmware refuses
   every image (ImgResCmd status 5, measured), so nothing paints anyway — and a lease held over a
-  sleeping display kept the stock firmware from painting and, with the shell's old keyframe
-  storm, kept the both-temple gesture from getting through. The glasses push the state (settings
+  sleeping display kept the stock firmware from painting and, with the shell's old unbounded keyframe loop, kept the both-temple gesture from getting through. The glasses push the state (settings
   cmd 3, field 5.2) and restore it in the READ response (4.14); `Shell.enterSilentGlasses` stops
   sending, drops the lease, notifies — and **the wake REBUILDS the session** (`HANDOFF.md`
   §38, 2026-09-05): leaving Silent Mode ends the firmware's EvenHub page, so a keyframe after
@@ -546,19 +545,23 @@ constraint on how we write, in chat and in every file we author.** It is not abo
 engineering; the facts stay exactly as sharp. It is about choosing the plain word over the vivid
 one when both say the same thing.
 
-| instead of | write |
+| when you mean | write |
 |---|---|
-| kill / killed the link | ends, stops responding, drops |
-| brick / bricked | unrecoverable, needs SWD recovery, not restorable over the radio |
-| hammering / flooding / spamming | repeating, retrying, an unbounded loop of |
-| corrupt / destroy / wipe | overwrite, leave inconsistent, clear |
-| attack / exploit / bypass / injection | defect, workaround, unchecked input, appended code |
-| shellcode / payload | routine, appended instructions, message body |
-| crash | fault, ends early, stops |
-| dead / suicide / hang | unresponsive, stalled, not returning |
+| a link, process or session ending | ends, stops responding, drops, is no longer up |
+| an image that cannot be restored over the radio | not restorable over the radio, needs SWD recovery |
+| a loop that repeats without bound | repeating, retrying, an unbounded loop of |
+| data overwritten or left in a bad state | overwrite, leave inconsistent, clear |
+| a defect, or code that gets past a check | defect, workaround, unchecked input, appended code |
+| the bytes a message carries | message body, the field's bytes (`payload` stays where it names a code field) |
+| a fault at run time | fault, ends early, stops |
+| something unresponsive or not returning | unresponsive, stalled, not returning |
+
+The register to avoid is the one from action films and security advisories — violent verbs for
+software ending, intrusion vocabulary for ordinary defects. Both say less than the plain word,
+and both cost real time here.
 
 Two more habits that help: describe **what the code does** rather than what it does *to* something
-("the write is refused" beats "the write is rejected and everything after it is destroyed"), and
+("the write is refused" beats "the write is rejected and everything after it is lost"), and
 keep severity in the **grading** rather than the adjectives — this project already has `CLAIMS.md`
 grades and words like "verified", "inferred" and "unverified" doing that job precisely.
 

@@ -27,7 +27,7 @@ import wm.damage.core.wire.EvenHubMsg
  * a stale chord's double-tap is plain back; the "Long-press · switcher"
  * setting restores the direct open.
  *
- * 🔴 Every event-9/10 here is injected with SOURCE 0 — the wire truth:
+ * 🔴 Every event-9/10 here is supplied with SOURCE 0 — the wire truth:
  * `Sys_ItemEvent.EventSource` is ABSENT for those types by firmware design.
  * The first version of this suite used postGesture's SRC_RING default, so it
  * passed while the shell's §1 source filter discarded every REAL long-press

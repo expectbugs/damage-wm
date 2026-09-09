@@ -38,7 +38,7 @@ import wm.damage.core.windows.tmux.TmuxWindow
 private const val E = "\u001B"
 
 /** Size-aware fake mono rasterizer — the fit math needs measure/metrics that
- *  actually scale with sizePx (FakeText's fixed 8/16 would bypass it). */
+ *  actually scale with sizePx (FakeText's fixed 8/16 would sidestep it). */
 private class MonoFake : TextRasterizer {
     fun advance(f: FontSpec) = maxOf(1, f.sizePx * 6 / 10)
     override fun measure(text: String, font: FontSpec): Int = text.length * advance(font)
@@ -672,7 +672,7 @@ class TmuxWindowTest {
         assertEquals("claude:1", w.title())
         assertTrue(p.subscribed.last() == TmuxTarget("local", "claude", 1))
         assertTrue(p.sent.none { it.startsWith("sel:") }, "viewing never select-windows")
-        // session actions: mute, then kill with confirm
+        // session actions: mute, then end with confirm
         (w.view() as WindowView.CanvasView).onTap!!()
         (w.view() as WindowView.ListView).onCommit(TmuxConfig.DEFAULT_QUICK_KEYS.size + 3)   // Session…
         val act = w.view() as WindowView.ListView
@@ -726,7 +726,7 @@ class TmuxWindowTest {
     fun aFailedHistoryCaptureNeverStrandsTheWindow() {
         // the 2026-08-31 freeze: histLoading stayed true after a failed
         // capture, and every later scroll early-returned on it — the window
-        // looked dead until a restart
+        // looked stalled until a restart
         val (w, p, _) = build()
         p.pushStatus(session("claude"))
         (w.view() as WindowView.ListView).onCommit(0)

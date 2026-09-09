@@ -979,7 +979,7 @@ class ReaderWindow(
         // map — skip-if-present let a stale local entry beat the peer's newer
         // position and then re-stamp it backwards. Accepted residual: with
         // two ACTIVE shells an old peer's map save can carry a book it did
-        // not touch (the Sub#F4 dual-live boundary); dies with the
+        // not touch (the Sub#F4 dual-live boundary); goes with the
         // transitional field at phone ≥ 0.16.
         (state["offsets"] as? JsonObject)?.let { o ->
             for ((k, v) in o) if (liveMapApply || k !in offsets) {

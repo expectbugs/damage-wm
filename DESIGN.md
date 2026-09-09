@@ -62,8 +62,8 @@ enforced by source byte for the attributed gestures (tap / double-tap / scroll c
 `EventSource = 2`) — but **events 9/10 are UNATTRIBUTED by firmware design** (`EventSource` is
 absent for them; they decode as source 0) and MUST skip that check. The first implementation
 filtered them out with everything else, which made the switcher unreachable by both routes for
-two days while `LongPressTest` passed — its harness injected 9/10 with the flattering ring
-source. The suite now injects them with source 0, the wire truth. What keeps the temple (the
+two days while `LongPressTest` passed — its harness supplied 9/10 with the flattering ring
+source. The suite now supplies them with source 0, the wire truth. What keeps the temple (the
 second unattributed source since `a5d1c31`) harmless is §1.2's bare-long-press-is-a-no-op
 default, not the source filter.
 
@@ -257,7 +257,7 @@ answer is to make misfires cheap rather than to prevent them:
 
 - **Cursor rest discipline** — after any menu/state change the cursor resets to a harmless cell.
   (G2CC, verbatim: *"a stray tap had aborted a $5 turn."*)
-- **Destructive actions are never at a cursor rest position**, and never at index 0/1.
+- **Irreversible actions are never at a cursor rest position**, and never at index 0/1.
 - **Every navigation is undoable** by double-tap; the back stack is the undo stack.
 - **Input echo** — the status bar shows the last gesture actually received, so an ambiguous
   physical action becomes an observable one (§9.2).
@@ -566,10 +566,10 @@ information survives; only its 240 px did not.**
 
 `G▓▓▓▓▒  P▓▓▓▒▒` — glasses, phone. *(The **R** ring cell was removed 2026-08-31: ring battery
 has no open-source source — the glasses can't relay it and the ring's own link needs protocol RE,
-`CLAIMS.md`. A blank cell for an unreachable value is dead chrome. Faceclaw shows the same two,
+`CLAIMS.md`. A blank cell for an unreachable value is empty chrome. Faceclaw shows the same two,
 Phone + G2, for the same reason.)* **30 px body** plus nub, **58 px pitch in a 120 px
 cell** (`x 424–544` — the cell shrank from 176 when the ring gauge went, 2026-09-01: the two
-survivors closed up against the clock and the dead space went to the Title), with the letter
+survivors closed up against the clock and the freed space went to the Title), with the letter
 **capitalised and set larger** (14 px bold) so the device is identified at a glance. The Title
 is now **408 px** — wide enough for `▣ WINDOW · document` without the continuation mark in most
 cases.
@@ -1204,7 +1204,7 @@ glanceable HUD.
 accident-prone gesture on this hardware is the **ring long-press** — it is the entire documented
 gloves failure chain and the founding problem of this project (`overview.md` §6). It is assigned to
 the **most recoverable outcome**: nothing navigates, nothing is lost, the notification stays unread
-and waiting. Tap is the consequential one and is still non-destructive and undoable by double-tap.
+and waiting. Tap is the consequential one and is still reversible and undoable by double-tap.
 That is §1.7's misfire-tolerance rule satisfied without having to be applied.
 **Revised 2026-08-30:** with long-press defaulting to a no-op (§1.2), even that recoverable
 outcome no longer fires by accident — a stray long-press leaves the box exactly as it was. "Get
@@ -1299,7 +1299,7 @@ been an activation, spinning the wheel past Mail would silently mark your unread
 **SMS/MMS · Mail · Music · Damage-specific**, plus emergency alerts. **Not** general phone
 notifications.
 
-🔑 **The filter is what makes focus-stealing tolerable, so it is load-bearing, not hygiene.** We
+🔑 **The filter is what makes focus-taking tolerable, so it is load-bearing, not hygiene.** We
 have no spare gesture to focus a passive notification, so an interactive notification *must* take
 focus on arrival — which means every notification interrupts. G2CC forwarded everything, which is
 exactly why its notifications had to be crammed into a title bar rather than given a real surface.
@@ -1342,7 +1342,7 @@ Two rules regardless of which works:
 **Gestures — tap dismisses.** 🔑 Adam, 2026-08-18: *"a single tap when they DO have focus should
 dismiss them same as a double-tap, because there's no app to switch to for those."* Tap's normal
 meaning (open in the source app) has **no referent** for an emergency alert, so leaving it mapped
-there would be a dead gesture. Mapping it to dismiss means every gesture does something:
+there would be a gesture that does nothing. Mapping it to dismiss means every gesture does something:
 
 | gesture | on an emergency alert |
 |---|---|
@@ -1366,7 +1366,7 @@ mis-landed gesture is not.
 - **One box at a time**, with a count badge; dismissing reveals the next.
 - **Coalesce by source and thread** — three messages in one SMS thread are one notification.
 - **Carry G2CC's `interruptible()` rule**: a notification must not repaint over a confirm or other
-  destructive step. *"The 'nothing reaches CC unread' guarantee means a notification overlay must
+  irreversible step. *"The 'nothing reaches CC unread' guarantee means a notification overlay must
   never repaint over a dictation-confirm card."*
 - The next box in an actively-cleared queue skips the focus grace — see the grace rules above.
 
@@ -1575,7 +1575,7 @@ Three shell surfaces/mechanisms designed during the app-contract session (`HANDO
   `HANDOFF.md` §29, the box grows with the chrome face by the ratio its row pitch grew, so a
   label keeps the room it was designed with under the 120 % cap, and a detail the tail-keeping
   fit cuts at its head carries the mark on that edge), cursor opening on **the first row that can
-  act** (put the primary action, Open, there; destructive rows never at 0/1 per §1.7 — and a menu
+  act** (put the primary action, Open, there; irreversible rows never at 0/1 per §1.7 — and a menu
   whose first row is dim opens one row down instead of on a tap that does nothing,
   2026-09-05 §30), scroll moves, tap commits,
   double-tap cancels, a pan window for long menus. It owns the screen like the wheel: ordinary
@@ -1852,7 +1852,7 @@ every page turn.)*
 
 With three flushes in flight a small delta completes every ~59 ms (stock-formula pricing — the
 measured curve is cheaper, §8.4), so **a 4-frame slide is ~236 ms
-— about the latency you would have eaten anyway.** Animation converts dead time into motion rather
+— about the latency you would have eaten anyway.** Animation converts waiting time into motion rather
 than adding time. And because mode 9 makes translation free, **the damage during a slide is only
 the newly exposed strip**, so an animated transition can cost *fewer* bytes than snapping to the
 end state.

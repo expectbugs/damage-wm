@@ -67,7 +67,7 @@ class ShellService : Service() {
     private var scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     /** Bumps every time the stack rebuilds — the activity re-attaches its
-     *  LensView when this changes (a stale view held a dead mirror before). */
+     *  LensView when this changes (a stale view held a stale mirror before). */
     @Volatile var stackGeneration = 0
         private set
 
@@ -163,7 +163,7 @@ class ShellService : Service() {
 
     /** PARTIAL_WAKE_LOCK while a GLASSES stack runs (whoever the driver is —
      *  the lease renewal is OURS even when a PC shell drives over the seam).
-     *  The FGS type stops process-kill but NOT Doze CPU throttling: G2CC
+     *  The FGS type stops process termination but NOT Doze CPU throttling: G2CC
      *  measured delay() ticks gapping 13-28 s on a 10 s cadence without one
      *  (their ConnectionService, the factory finding), and the FB lease
      *  renews every 45 s against a 90 s fail-open expiry — a throttled

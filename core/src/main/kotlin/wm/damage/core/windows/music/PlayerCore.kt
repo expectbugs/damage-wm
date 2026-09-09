@@ -18,7 +18,7 @@ import wm.damage.core.util.Log
  * transport rules (a prev-tap ≥ 3 s in restarts; a skip before 80 % counts
  * as skipped in history; never auto-play on boot — verdict 9), the
  * low-water fill for Radio / Library random, the sleep deadline (verdict
- * 28), the volume boost that dies with the track (verdict 15), the
+ * 28), the volume boost that goes with the track (verdict 15), the
  * hold-my-volume classification (verdict 14: a large instant drop is the
  * limiter, a run of single steps is the user), prefetch bookkeeping and
  * the Spotify fallback state machine (verdicts 20/25).

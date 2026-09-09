@@ -96,7 +96,7 @@ packets per event (~50 KB/s), which is the whole difference between the two regi
 - A wait decides on ONE evaluation; a scripted scene pins its seed; run a harness more than once,
   twenty when the question is a rate (§27.6, §30, §36.3).
 - The harness is part of the system under review (§30). Live-drive the real program before
-  calling a round done (§28.2, §33): snap between steps, one step per snap near a destructive row,
+  calling a round done (§28.2, §33): snap between steps, one step per snap near an irreversible row,
   never scroll in Music's root, the tmux pane's SECOND tap is the keys list (a third sends a key).
 - Never rebuild the jar under a running instance (§29); `stageJar` replaces atomically.
 - Never answer a refused image with more images (§36). Hold the lease while awake; drop it on
@@ -157,7 +157,7 @@ is fetched, not moved — a pull breaks `research/verify_cfw.py`'s 2.2.6.10 pins
 - **The Reader transitional cleanup**: remove the legacy-offsets dual-write in `ReaderWindow`
   (fields marked; `SubstrateTest`'s migration pin goes with it).
 - **The icon-quality pass**: one drawn icon per app at 20 px + 56 px (the release path).
-- **The `Profiler` Global row is dead** (nothing reads it) — remove or wire it.
+- **The `Profiler` Global row is unused** (nothing reads it) — remove or wire it.
 - **Watch-items:** the left-lens seam residue after a handover; the ~20 s seam silent-loss
   window; the media endpoint logs nothing on success.
 

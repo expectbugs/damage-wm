@@ -348,7 +348,7 @@ Chrome depth, coarse scroll, Reader folders/chapters/images, per-app height, the
 Settings directories, brightness + battery on the wire, the 4× preview — all live the same day.
 The one trap worth restating here: **the switcher had not worked since first light because our source
 filter discarded the unattributed events 9/10 (source 0)** — a test default that "helpfully"
-supplies what the wire omits is a model erring permissive; inject what the firmware actually
+supplies what the wire omits is a model erring permissive; supply what the firmware actually
 sends. Do not reintroduce a source gate on events 9/10.
 
 ## The APK-mission prep (2026-08-31, HANDOFF.md §13 — before any phone-radio test)
@@ -427,7 +427,7 @@ one window: `wm.damage.core.windows.music`.
   low-water fill request, remove/move/insert, `qid` identity, JSON) and `PlayerCore` (the
   transport rules: prev ≥ 3 s restarts, a skip before 80 % is `skipped`, never auto-play on
   restore; the radio / library-random fill; sleep as a deadline checked on ticks; the boost
-  that dies with the track; hold-my-volume — a drop ≥ 25 points not ours is the limiter,
+  that ends with the track; hold-my-volume — a drop ≥ 25 points not ours is the limiter,
   re-set at most 3× in 10 min, then said; prefetch bookkeeping; the Spotify fallback state
   machine, switchback deliberate) over a `Sink` — `SimMusicPlayer` (tests, selfcheck),
   `AndroidMusicPlayer` (ExoPlayer + a media3 `MediaSession` over a `ForwardingPlayer` so the
@@ -506,7 +506,7 @@ configuration: no provider, no channel, no `needs`. What is worth knowing to wor
   `--games-check` prints **13 ms for a whole 6-seat tournament** at `CHEAP_ROLLOUTS`, less than
   `maybeBackground` already spends on the same loop. It was a background coroutine once, on the
   belief that it took seconds; that window let a NEW table have its cast cleared by the OLD
-  table's settlement and let a restart destroy the prize pool (`HOLDEM.md` §17.2c). Do not put it
+  table's settlement and let a restart lose the prize pool (`HOLDEM.md` §17.2c). Do not put it
   back without measuring first.
 - **The world only advances while he is looking at it** (verdict 27). `Background.playTournament`
   is driven from the pacer, never from a schedule and never from wall-clock.
@@ -774,8 +774,7 @@ of them are load-bearing and easy to break by accident:
   can wake it; the black-keyframe probe is gone. Three consecutive ImgResCmd
   refusals are the fallback for a missed push, and a sleeping shell's check
   (every 60 s and on a ring event, `Shell.silentTick`) asks for the rebuild
-  when the glasses themselves say they are awake — once per pacing, never a
-  storm. The system events 4/5/7 (`FOREGROUND_ENTER`/`EXIT`, `SYSTEM_EXIT`)
+  when the glasses themselves say they are awake — once per pacing, never an unbounded loop. The system events 4/5/7 (`FOREGROUND_ENTER`/`EXIT`, `SYSTEM_EXIT`)
   are journaled as `event` notes now instead of being dropped as gestures;
   nothing is keyed on them yet. The simulator's `carrierLost` models the page
   ending with the mode (refused until a CREATE), so a wake that keyframes

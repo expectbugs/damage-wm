@@ -261,7 +261,7 @@ class TorrentsWindow(
 
     /** The stack is going away while the provider lives on (the desktop's
      *  process-wide provider): stop listening and release the focused pace,
-     *  or a dead shell's queue is fed every poll (review 2026-09-01 P1). */
+     *  or a stopped shell's queue is fed every poll (review 2026-09-01 P1). */
     fun detach() {
         active = false
         registered = false
@@ -468,7 +468,7 @@ class TorrentsWindow(
         tlCache = null
     }
 
-    /** A typed line from a replica searches the tracker (never destructive). */
+    /** A typed line from a replica searches the tracker (never irreversible). */
     override fun onTypedText(line: String): Boolean {
         val q = line.trim()
         if (q.isEmpty()) return false
@@ -655,7 +655,7 @@ class TorrentsWindow(
     }
 
     /** Tap on a transfer = its context menu, Details first (§1.7: the
-     *  destructive rows sit last, behind confirms). */
+     *  irreversible rows sit last, behind confirms). */
     private fun openTransferMenu(t: Transfer, fromDetails: Boolean) {
         val items = ArrayList<MenuSurface.Item>()
         val acts = ArrayList<() -> Unit>()

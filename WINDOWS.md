@@ -55,12 +55,12 @@ These are the non-negotiables, each with its authority:
   view in the lens). **Titles are short by design** (§4.1) — variable content goes to the body or
   a notification, never chrome.
 - **Misfire tolerance** (§1.7): cursor rests on a harmless cell after every level change;
-  destructive rows never at cursor rest, never index 0/1; every navigation undoable by
+  irreversible rows never at cursor rest, never index 0/1; every navigation undoable by
   double-tap.
 - **The latency standards of §6** — the first flush of every gesture is small, text and icons
   go through the kit (the texture cache when adopted), updates cost what changed, live only while
   active, no work on the loop but painting, and the window ships with its measured profile.
-- **Every destructive or outbound act stages a confirm** — deletes, sends, ending a session,
+- **Every irreversible or outbound act stages a confirm** — deletes, sends, ending a session,
   typed text (`onTypedText` always stages; the Tmux TYPE_CONFIRM shape). Recorded exemption: a
   read-only query — the Torrents search — commits without one (`TORRENTS.md` §3.1).
 - **LOUD failures** (the absolute rules): provider errors ride the one-shot notice on the title;
@@ -324,7 +324,7 @@ All four rows of the agreed build order are CODE, and so is the keyboard that fo
   every event notice like Torrents' `done` (`appId = id, thread = <item>, target = <deep link>`)
   and give the window an `open(target)` for it; a notice that only informs (a failure line) may
   stay app-less.
-- 🔴 **Live-driving: one step per snap in any window with a destructive row** (`HANDOFF.md`
+- 🔴 **Live-driving: one step per snap in any window with an irreversible row** (`HANDOFF.md`
   §29.2). A blind gesture run that assumed where the cursor rested started a stopped torrent on
   the real qBittorrent and reached the first of the two delete confirms. The confirms held; the
   method was the defect.

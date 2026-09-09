@@ -35,7 +35,7 @@ data class BookMeta(
     val id: String, val title: String, val author: String, val bytes: Long, val file: String,
     /** Library folder, relative, '/'-separated, "" = root (REFINEMENT.md §3a,
      *  2026-08-31: folders are folders — a series in a subfolder stays a
-     *  category, not a flood into the main list). Additive with a default so
+     *  category, not a burst into the main list). Additive with a default so
      *  an older cached listing or an older peer still decodes. */
     val folder: String = "",
 )
@@ -523,7 +523,7 @@ class RemoteContent(
         val booksDir = cacheDir.resolve("books")
         disk { Files.createDirectories(booksDir) }
         // unique tmp: concurrent opens of the same id must not interleave
-        // into one file and poison the cache permanently
+        // into one file and spoil the cache permanently
         val tmp = booksDir.resolve("$id.${System.nanoTime()}.tmp")
         try {
             disk { Files.newOutputStream(tmp) }.use { o ->

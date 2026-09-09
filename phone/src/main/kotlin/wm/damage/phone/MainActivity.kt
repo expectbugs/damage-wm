@@ -31,7 +31,7 @@ import wm.damage.core.wire.EvenHubMsg
  * injects it through the transport, so it reaches a PC shell too).
  *
  * Runtime permissions are requested up front: POST_NOTIFICATIONS carries the
- * §9.3 out-of-band error channel (silently dead without the grant), and the
+ * §9.3 out-of-band error channel (silently inert without the grant), and the
  * Bluetooth pair is what lets the banked GLASSES target ever come alive.
  * The service starts after the request resolves either way — the sim target
  * needs none of them.

@@ -80,7 +80,7 @@ class RemoteIcons(
                         // atomic step (R3#6): no interleaving can put a bitmap
                         // into a cache whose marker disagrees with it. A stale
                         // old-theme result that lands LAST still re-adopts the
-                        // old theme briefly (wipe + marker back) — reachable
+                        // old theme briefly (clear + marker back) — reachable
                         // only across a desktop restart mid-fetch, and the
                         // next fetch re-adopts the real theme (R4#7 honesty)
                         when {

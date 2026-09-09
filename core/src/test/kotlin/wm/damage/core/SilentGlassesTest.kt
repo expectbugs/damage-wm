@@ -202,7 +202,7 @@ class SilentGlassesTest {
             // check asks for a rebuild; the mode ends meanwhile, and the
             // rebuilt session paints. (A rebuild that lands while the mode is
             // still on is refused again and sleeps again — a paced loop, one
-            // per pacing, never a storm.)
+            // per pacing, never an unbounded loop.)
             rig.sim.setSilent(false, push = false)
             rig.until("a rebuild follows") { rig.keeper.attempts >= 2 }
             rig.until("a rebuilt session paints and is awake") { rig.driving() && !rig.shell.glassesAsleep && !rig.sim.carrierLost }

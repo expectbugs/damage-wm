@@ -22,7 +22,7 @@ import wm.damage.core.text.TextRasterizer
  * Grammar while open: scroll moves the cursor (wraps), tap commits the row
  * (menu closes FIRST, then the callback runs), double-tap closes = cancel.
  * The cursor OPENS at row 0 — Open sits there by Files' contract, which makes
- * tap-tap navigation nearly one gesture and keeps §1.7 (destructive rows
+ * tap-tap navigation nearly one gesture and keeps §1.7 (irreversible rows
  * never at rest, never index 0/1).
  */
 class MenuSurface(private val text: TextRasterizer) {

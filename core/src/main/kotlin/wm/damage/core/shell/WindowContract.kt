@@ -270,7 +270,7 @@ interface ShellServices {
      * focused window's content; scroll moves its cursor, tap commits (the
      * spec's onCommit runs after the menu closed), double-tap cancels. The
      * cursor opens on row 0 — put the primary action (Open) there and keep
-     * destructive rows off 0/1 (§1.7). LOOP-ONLY, WINDOW mode only.
+     * irreversible rows off 0/1 (§1.7). LOOP-ONLY, WINDOW mode only.
      *
      * Returns whether the menu actually SHOWED (R2#8): the shell refuses
      * outside WINDOW mode, under the switcher — and, when [owner] is given,

@@ -114,7 +114,7 @@ object SettingsMsg {
         Pb.l(4, Pb.v(1, 1)),
     )
 
-    /** Device-info READ, the BARE form G2CC's hijack session live-confirmed
+    /** Device-info READ, the BARE form G2CC's takeover session live-confirmed
      *  (`08 02 10 <msgId>` — docs/G2_BLE_PROTOCOL.md §10): it draws the 45 B
      *  response whose f4 block carries battery=12/charging=13. The CFW
      *  (2026-08-31, on glass) answers [settingsQuery]'s f4-sub-request form

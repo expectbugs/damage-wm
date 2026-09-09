@@ -37,7 +37,7 @@ class BatteryBrightnessTest {
         try {
             val sim = GlassFirmwareSim()
             sim.batteryPct = 63
-            // poison the sim's brightness so only a REAL decoded write can
+            // spoil the sim's brightness so only a REAL decoded write can
             // restore the defaults the shell pushes at start (auto)
             sim.brightnessAuto = false
             sim.brightnessLevel = 7

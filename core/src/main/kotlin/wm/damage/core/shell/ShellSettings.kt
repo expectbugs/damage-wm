@@ -106,7 +106,7 @@ data class ShellSettings(
     val diagOverlay: Boolean = true,
 
     /** Notification sources — filtered, unlike G2CC (§4.5: the filter is what
-     *  makes focus-stealing tolerable). */
+     *  makes focus-taking tolerable). */
     val notifySms: Boolean = true,
     val notifyMail: Boolean = true,
     val notifyMusic: Boolean = true,
