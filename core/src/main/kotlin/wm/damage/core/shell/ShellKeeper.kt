@@ -68,6 +68,11 @@ class ShellKeeper(
     private fun status(s: String) {
         lastReason = s
         Log.i("keeper", s)
+        // §42: the keeper's transitions are journal facts — a start that fails
+        // before the shell's `build` note left no line at all, and a morning's
+        // three-minute loop of attempts (2026-09-09 15:06) could only be read
+        // from the transport's side effects
+        try { shell.journalNote("keeper", s) } catch (e: Exception) { Log.w("keeper", "journal note: ${e.message}") }
         onStatus(s)
     }
 

@@ -1,121 +1,77 @@
 # Where we are, and what to do next
 
 **This file is the entry point for a fresh session.** It says what is true now, what the next
-session does, and where the records are. History lives in `HANDOFF.md` (§1–§41); this file only
-points at it. Read in this order: `CLAUDE.md` → this file → `HANDOFF.md` §41 (the walk's numbers,
-the cache on every plane, the ladder, §41.7 what 0.38 has to show) → the sections it cites.
+session does, and where the records are. History lives in `HANDOFF.md` (§1–§42); this file only
+points at it. Read in this order: `CLAUDE.md` → this file → `HANDOFF.md` §42 (the two journals
+read, what 0.41 fixed, the two open mysteries with their candidate explanations) → §41 (the cache
+on every plane, the depth ladder) → the sections they cite.
 
-## Where we are (2026-09-06)
+## Where we are (2026-09-09)
 
 - **LIVE as the all-day daily driver.** CFW g2flash `a5d1c31` (reports `2.2.6.10`; detect by
   `EVENCFW/`, never the version). The **phone APK drives** — radio and shell — and the OpenRC
   `damage` service on beardos is the data host and standby (`HANDOFF.md` §19, `DAILY.md`).
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games.
-- **Builds:** APK **0.38 installed** and walked with the cache on (§41.9); **0.40 staged**
-  (`~/.damage/damage-wm.apk`, the setup page) with the §41 build: the atlas fixes, the depth
-  ladder as Adam sees it, the keyframe seeded with the screen plane only, cached text AND icons
-  on every plane, telemetry off the first flush, the regime hysteresis, the `build`/`link`/
-  `cached` journal fields, the full-width retry for depth-plane rects (§41.9), `Slide fill =
-  auto` and Files' `Size` row (§41.10); the service runs the same core. §38's wake and §40's
-  watchdog are still unseen on glass; 0.39/0.40 have not been walked.
-- **Battery at HEAD:** core **494** · desktop **11** · `--selfcheck` (the truth oracle on every
-  settle; run ×3+ — it is a rate) · snapshots · `--epub-check` · `--music-check` ·
-  `--games-check` · lint 21 rules / 0 · `:phone:assembleDebug`.
+- **Builds:** APK **0.40 installed** (2026-09-09; Adam: *"significantly faster and more
+  responsive"*); **0.41 staged** (`~/.damage/damage-wm.apk`, the setup page) with §42: the page
+  traffic sleeps with the glasses, no lease release after a link loss, atlas chunks journaled as
+  flushes, silent checks counted, the keeper's transitions in the journal, `/log` on every host;
+  the service runs the same core.
+- **Battery at HEAD:** core **497** · desktop **11** · `--selfcheck`
+  (200 checks, the truth oracle on every settle; run ×3 — it is a rate) ·
+  snapshots · `--epub-check` · `--music-check` · `--games-check` · lint 21 rules / 0 ·
+  `:phone:assembleDebug`.
 
-## The last two days, in one paragraph each (records in `HANDOFF.md`)
+## Measured on glass, 0.40 (2026-09-07 → 09, Adam's use — `HANDOFF.md` §42.0)
 
-- **§32 The latency pass.** The journal's slow regime is the PHONE's radio path; twelve
-  pixel-identical changes (caches, memo, the wrap estimate, a reserved window slot, the adaptive
-  wheel, the async state write, keep-alive, ssh multiplexing, the journal's `via`/CPU fields,
-  `/journal` on every host, the APK's link-parameter logging).
-- **§33 Live-measured from the PC** (`tools/glassdrive.py`): the phone path is 72 ms small,
-  ~1.0 s at 6 KB+; HIGH priority is granted (15 ms / slave latency 1) and does not help; lost acks
-  hold a slot for a msgId cycle.
-- **§34** The pending-ack release; the eaten-CREATE false alarm (45 of 53 "lost acks" were the
-  carrier CREATE's re-sends at session start).
-- **§35** The split corrected: the phone's per-flush CPU is half the compositor's diff and plan;
-  a live tmux pane cost ~130 ms a frame; both rewritten (0.33).
-- **§36 The silent glasses.** The firmware's Silent Mode refuses every image and PUSHES the
-  state; we dropped the push and stormed 20 KB keyframes for fifteen minutes. Fixed: the shell
-  sleeps with the glasses, drops the lease on purpose, wakes on the push.
-- **§38 The wake is a session rebuild** (2026-09-05, late). 0.34 on glass slept correctly and
-  then could not wake: leaving Silent Mode ends the firmware's EvenHub page, and every image
-  after the push OFF was refused for four minutes. Now the wake ends the link on purpose
-  (`Transport.restartSession`) and the keeper rebuilds the session — G2CC's reconnect-and-
-  relayout path; the new start reads the glasses' state before its first frame; the probe
-  image is gone; the system events 4/5/7 are journaled. Battery green; **staged, not yet on
-  glass** — the on-glass check is the first thing to do (§38.4).
-- **§39 The showdown sentence** (2026-09-06). Adam's hand 8 replayed from the seed: Bea's nines
-  and fours took the main pot, his eights and fours the larger side pot, and the line named the
-  top earner with the best hand. Fixed: the best hand leads, side-pot winners follow as a clause.
-- **§40 The latency plan, built against the simulator** (2026-09-06): chrome telemetry rides
-  only a gesture's flush or the idle tick; a notch's first flush is the translation (the lens one
-  message on; big strips blanked then filled); a planner defect that shipped a whole band for a
-  scrollbar thumb; `Slide frames` and `Cached text` Global rows; G2CC's response-gap watchdog
-  plus the prelude re-ask it needed.
-- **§41 The walk, and the cache made useful** (2026-09-06, evening). Adam walked 0.37: faster;
-  a window list notch 155 ms to first visible change, a Main notch 257 ms (was 830–860), chrome-
-  only flushes 10 % (was 47 %) — and `Cached text` invisible, for three reasons (an off→on defect,
-  a font that did not fit leaving orphan bytes, and only the lens band ever eligible). Built: the
-  atlas fixed; the depth ladder as he sees it (everything at D, the selection one notch nearer,
-  per-app rows `global`); the keyframe seeds the screen plane only (a window switch carried its
-  planes twice, 7.8–19 KB); **cached draws on every plane** — a base delta, the flat draws, one
-  per-lens mode-9 copy, proven per lens before shipping — with slide strips recorded through a
-  relay, strings split into cacheable runs, and **icons as mode-13 images**; telemetry never on a
-  gesture's first flush; the regime with hysteresis; `build`, `link` and `cached`/`cacheMiss` in
-  the journal. **0.38 staged; §41.7 is what it has to show.**
+Time to first visible change per gesture, from `tools/journal_report.py` over the phone's
+journal (median / p90):
 
-## 🔴 The next session: 0.38 ON GLASS — `HANDOFF.md` §41.7 is the list (then §40.7's leftovers)
+| gesture | first flush | first visible | burst total |
+|---|---:|---:|---:|
+| window list notch | 540 B / 2.1 KB | 108 / 229 ms | 1.6 KB |
+| Main notch | 716 B / 1.9 KB | 117 / 247 ms | 1.2 KB |
 
-0.38 was walked with the cache on (§41.9: 457 rects as draws, a list notch 171 ms, the Reader's
-pages still pixels at Depth 16 — fixed in 0.39 by the full-width retry, unwalked). Install 0.40,
-`Cached text` on, wait for `atlas … uploaded`, read `/journal` through `tools/journal_report.py`:
-the `cached`/`cacheMiss` account says what the cache serves and why it refuses (`proof` = the
-2|d| px beside the text are not shift-invariant; a Reader page at Depth 16 should now serve
-through the retry). Walk a Reader page (no black band under `Slide fill = auto` once the cache is
-live), a Main notch, a tmux history notch, a window switch between heights; the `link` note at
-the next arm rebuild. Adam's eye on kerning-free text decides whether `Cached text` goes on by
-default; `Slide fill` and `Slide frames` are his to feel.
+Was, on 0.32 (§37.2): Main 830–860 ms, a window list 221–645 ms. The cache served 1,075 rects
+over 2,235 flushes; `proof` refusals 126 (1,372 on 0.38 — the §41.9 retry works). Phone CPU per
+flush: handle 17 ms median / 66 p90.
 
-The §40.7 items that stand: the §38 wake on glass; the watchdog silent on a healthy day.
+## 🔴 The next session
 
-### §37's rulings (2026-09-05), still binding
+1. **Read the 0.41 journal and `/log` after Adam's first day on it** — the two things §42 could
+   not explain are instrumented now: the **arm rebuilds** (a `supervision timeout` on
+   alternating arms every ~50 min, 41 in 2.5 days; §42.2 lists ten candidates and the cheap
+   discriminators — start with the `link` notes and the `/log` lines around one drop, then
+   G2CC's stock-era logs for the same cadence) and the **wake loop** (three minutes of
+   session attempts after Silent Mode off on 2026-09-09 15:06; §42.3 — the `keeper: start
+   failed: …` notes will name it). Fix what they name.
+2. **The atlas across a rebuild** (§42.4): the firmware keeps the cache on both lenses now that
+   a link loss sends no release; the shell still re-uploads 16–63 KB per rebuild. One glass
+   measurement gates the skip (what status a draw into a released cache returns).
+3. **Then the ranked latency list below**, and the next window (`WINDOWS.md` §6 is the bar).
 
-Adam's rulings (2026-09-05, evening) that bound it:
+## Where the remaining latency and jank live (ranked by expected gain)
 
-1. **Slide frames become a Global setting** — `off · 2 · 4 · auto · 8 · 12` frames per notch, with
-   **`auto` = today's ease-out halving rule as the DEFAULT** (list 3, doc 5). He tests the feel
-   himself; do not pick for him.
-2. **The texture cache is to be adopted as far as it goes** — he thought it already was. Modes
-   12/13/14: text through the glyph tables, icons as cached images. Step 1 is the on-glass check
-   against the simulator (items 19–20 below); step 2 the emit strategy behind a setting.
-3. **A live window keeping the link busy is FINE while it is the active window** — tmux, Music,
-   Torrents: he is watching them. Not while inactive. Do not "optimise" their update cadence away;
-   do make each update cost less (bytes).
-4. **What he measures on glass right now (0.33):** a Main list notch takes **a full second** to
-   show anything; a Reader notch about half that; a tmux history notch still about a second. The
-   walk explains the first two (§37.2): a list notch's FIRST flush carries the lens repaint (icon +
-   bold title + detail, 3–6 KB) while a Reader notch's first flush is the band copy plus a 1–4 KB
-   strip. The lever is **time to first visible change**: send the translation first, the heavy
-   fill second, and make the fill cheap (mode 14/13).
-
-✅ **§37.0 is BUILT (`HANDOFF.md` §38, 2026-09-05 late): the wake from the firmware's Silent Mode
-rebuilds the session.** Every item of the settled design landed — `Transport.restartSession`,
-the probe retired, the sleeping shell's paced check, the system events journaled, the simulator's
-`carrierLost`, no mirror check while asleep, and the session start adopting the glasses' state.
-**Not yet seen on glass**: install 0.37, toggle the firmware's Silent Mode with the APK connected,
-and read the phone journal's `silent` / `restart` / `event` notes (§38.4 lists what to look for,
-including how long the blank stretch between the push OFF and the first accepted frame is). Until
-0.37 is installed the manual recovery stands: Target → SIM → glasses.
-
-✅ **§37.3 items 1–4 and the watchdog are BUILT (§40, 2026-09-06), all against the simulator.**
-The next session is THE WALK (§40.7): install 0.37, walk with `tools/glassdrive.py`, read
-`/journal` — the chrome-only count, the first visible change per notch, `Slide frames` by feel,
-`Cached text` on (the `atlas` and `drawtext` journal lines, the look at 100 %/130 %), the
-watchdog silent, the §38 wake. Then: icons as cached images (mode 13, the lens's remaining pixel
-cost), the firmware-side ask for per-lens cached draws, and the remaining §33–§35 items (truth
-render, cold-start re-ask, the radio's slave latency, mode-9 for the wheel). And **write every
-new window to `WINDOWS.md` §6** (the latency standards) so this is never needed again.
+1. **The radio itself.** The phone path moves one packet per usable connection event at 15 ms
+   with slave latency 1 (~8 KB/s, measured); the PC gets ~50 KB/s from the same glasses.
+   Latency 0 at 7.5 ms while a session is active is up to 4× (modeled) — a firmware-side ask
+   to Babcock; a two-arm capture with the APK driving (row 5 below) settles whether the
+   phone's write path is the other half of the wall.
+2. **The arm rebuilds** (item 1 above): each is ~9 s of blank plus a keyframe and the atlas.
+3. **Frame pacing is the jank.** A notch is up to four flushes gated on acks, and ack jitter
+   runs 2–3× the median, so frames land unevenly. Tie the frame count to the measured link
+   regime as the wheel does, and jump-cut to the final frame when three flushes are already
+   in flight.
+4. **Back to Main / a window switch between heights** (§42.0: 3.3 KB / 526 ms; 1.7 KB / 282
+   ms): the seed is 17 B but the depth planes ship as deltas in the same first flush. Send the
+   screen plane first, the depth planes a flush later — `Slide fill = auto`'s logic.
+5. **The atlas across a rebuild** (item 2 above), then **cache persistence across sessions**
+   — a firmware ask (a checksum the phone can verify).
+6. **Kerning in cached text.** Mode 14 carries per-glyph x-adjust bytes and
+   `TextureCache.layout` takes a kerning lambda: ~1 B per pair. If Adam's eye dislikes the
+   flat advances.
+7. **Cold start.** Three eaten CREATEs ≈ 6 s per link edge (§34.3): lower
+   `CAPABILITY_REASK_MS`, or send the CREATE only after the prelude's ack.
 
 ## Measured numbers to price with (grade M unless said)
 
@@ -132,26 +88,25 @@ The daily path is the PHONE's. Isolated flushes, APK-driven (§33.1, §35.2):
 Why (grade I, consistent to within noise): one AA packet per usable connection event; 15 ms
 interval with slave latency 1 = every 30 ms; 242 B / 30 ms ≈ 8 KB/s. PC-direct BlueZ sends ~6
 packets per event (~50 KB/s), which is the whole difference between the two regimes.
-
-Time to first visible change per notch, from the 0.32 walk (§37.2): Reader 221–625 ms (first
-flush 1.2–4.3 KB), tmux history 352–645 ms (one flush, 2.4–4.3 KB), Torrents/Main-style lists
-830–860 ms (first flush 5.9–6.0 KB, the lens repaint). Phone CPU per flush after 0.33's rewrites:
-unmeasured (0.33 was installed but not walked — walk it first).
-
-`overview.md` §5.2's `ms ≈ 60 + bytes/50` is PC-direct only (four hours of it). Price nothing with it.
+`overview.md` §5.2's `ms ≈ 60 + bytes/50` is PC-direct only. Price nothing with it.
 
 ## Standing rules learnt the hard way (pointers)
 
 - A rect a paint returns is a promise; measure ink, never a line height (§27).
 - A wait decides on ONE evaluation; a scripted scene pins its seed; run a harness more than once,
-  twenty when the question is a rate (§27.6, §30, §36.3 — the trap fired again in a new test).
+  twenty when the question is a rate (§27.6, §30, §36.3).
 - The harness is part of the system under review (§30). Live-drive the real program before
   calling a round done (§28.2, §33): snap between steps, one step per snap near a destructive row,
   never scroll in Music's root, the tmux pane's SECOND tap is the keys list (a third sends a key).
 - Never rebuild the jar under a running instance (§29); `stageJar` replaces atomically.
 - Never answer a refused image with more images (§36). Hold the lease while awake; drop it on
-  purpose while the glasses are silent (`CLAUDE.md`).
+  purpose while the glasses are silent; **and send nothing into a page that has ended** (§42:
+  the keepalive and the carrier refresh sleep with the shell).
+- A stop after a link loss releases nothing (§42): the write cannot reach the dropped arm, and
+  the surviving lens's cache is worth keeping for the rebuild seconds away.
 - `handleMs` in the journal INCLUDES the assemble (§35.1).
+- Read the journal through `tools/journal_report.py` — its per-gesture section is the number
+  every window is judged by; `/log` is the phone's log without adb (§42).
 
 ## 🔴 Still unmeasured on glass
 
@@ -161,78 +116,48 @@ unmeasured (0.33 was installed but not walked — walk it first).
 | 2 | Ring **fast-spin coalescing + event-rate ceiling** | the focus model's limits |
 | 3 | **Comfortable disparity** — ramp 0/4/8/12/16 | and whether stock FAR already spends the budget |
 | 4 | **The rect budget of 5** (graded I) | derived from `cfw_diag()`, never observed; failure is silent |
-| 5 | **Two-arm BTSnoop capture with the APK driving** — via the bug-report mail path (no adb) | packets per event (§37); the bulk-LEFT / control-RIGHT split (graded I). Handle 65's interval is KNOWN now (30 ms active / 90 ms idle on the official app; 15 ms / latency 1 under the APK) |
+| 5 | **Two-arm BTSnoop capture with the APK driving** — via the bug-report mail path (no adb) | packets per event (§37); the bulk-LEFT / control-RIGHT split (graded I); one supervision-timeout drop from the radio's side (§42.2) |
 | 7 | **msgId-255 behaviour under CFW** | it ends the link on stock |
 | 8 | **Chrome legibility** at the real faces on glass | renders cannot answer it |
 | 9 | **WEA/CMAS visibility to a normal Android app** (Pixel 10a) | `DESIGN.md` §4.5's emergency promise rides on it |
 | 10 | **Connected RSSI** on glass | the status bar's link cell |
 | 15 | **Is the sid-0x01 prelude required** by the CFW before CREATE? (graded U) | and the 2 s re-ask: three eaten CREATEs per cold start ≈ 6 s (§34.3) |
-| 19 | **The texture cache on glass** — `Cached text: on` (§40, §41): the atlas up in chunks (SEEN 2026-09-06: 58 KB, 20 chunks, 12 s), rows/lines/chrome/icons as `drawtext`/`drawimage` + `copypair` ops on depth planes, belief vs glass through the mirror check, the look at 100 %/130 % | the gate on leaving the row on by default. ⚠ mode 14 adds one overlay rect per glyph; a failed 64 KiB allocation shows only as the sticky `ALLOC` flag |
-| 20 | **Atlas upload cost** on the phone path (SEEN once: 12 s for 58 KB while Adam was testing — the link is busy for that long after a flip-on); the cache survives a lease renewal, is freed on a lapse and on our own release while silent (§36) — the shell re-uploads on the re-acquire | prices the whole cached-draw trade |
-| 25 | **The arm rebuilds** — one arm's link drops about every 50 min, alternating L/R (13 on 2026-09-06), each a session rebuild + keyframe; the `link` notes (0.38) carry the reason at last | in a window that keyframe is 1–2.5 s of blank; ten explanations wanted, none tested |
-| 26 | **The keyframe seed** on a window switch between heights (§41.3): bytes and wall against 7.8–19 KB / 1.1–2.7 s | modeled 3–8 KB less |
+| 19 | **Cached text by default?** Adam's eye on kerning-free text at 100 %/130 % | the gate on leaving the row on by default; the numbers are in (§42.0) |
+| 20 | **A draw into a released cache** — the ImgResCmd status it returns | gates the atlas surviving a rebuild (§42.4) |
 | 21 | **Temple long-press accident rate** (gloves) | §1.2's bare-long-press no-op guards it |
-| 22 | **The rebuild-on-wake on glass** (0.37) — toggle the firmware's Silent Mode with the APK connected; read the `silent` / `restart` / `event` notes; the blank stretch from the push OFF to the first accepted frame; whether the exit events 5/7 arrive and when; do the temples respond while the shell is asleep (lease released)? The push and the READ's field 14 are already SEEN (22:04:02, 22:04:28) | §38.4 |
-| 23 | **The 2-frame wheel and the reserved slot** on a slow link — feel | §32 |
 | 24 | **Does the firmware enter Silent Mode by itself** (wear detection, idle)? | the journal will say |
+| 25 | **The arm rebuilds' cause** (§42.2) | ~9 s of blank a dozen times a day |
+| 26 | **The wake loop's cause** (§42.3) | Adam's "some doing" after Silent Mode off |
 
-Closed since the last version of this table: the ack curve (both paths), the stall report (seen
-live, §33.4), PC BLE, takeover/fallback, the switcher root cause, per-notch scroll, handle 65's
-connection setup (it was in the captures all along — `research/linkparams.py`).
+Closed since the last version of this table: the §38 wake (seen 2026-09-06 20:45, 19 s), the
+watchdog silent on a healthy day, the atlas upload cost (20 s for 63 KB, idle chunks), the
+keyframe seed on a height change (17 B), the 2-frame wheel (Adam took `Slide frames` 4).
 
-**Cheap probes nobody has run:** the CFW logger service (sid 0x0F) and the file-export service
-(sid 198/199 — `NOT_SUPPORT` is a safe answer).
-
-## Where the remaining latency and jank live (2026-09-06, after §41 — ranked by expected gain)
-
-1. **The radio itself.** The phone path moves one packet per usable connection event at 15 ms
-   with slave latency 1 (~8 KB/s, measured); the PC gets ~50 KB/s from the same glasses. Latency
-   0 at 7.5 ms while a session is active is up to 4× (modeled) — a firmware-side ask to Babcock;
-   a two-arm capture with the APK driving (item 5 above) settles whether the phone's write path
-   is the other half of the wall.
-2. **Frame pacing is the jank.** A notch is four flushes gated on acks, and ack jitter runs 2–3×
-   the median (p90 509 ms vs 124 measured on 0.38), so frames land unevenly. Tie the frame count
-   to the measured link regime as the wheel does (2 frames when slow), and jump-cut to the final
-   frame when three flushes are already in flight instead of queueing a fourth.
-3. **The lens in the FIRST flush when the cache is live.** Deferring the lens repaint one message
-   on (§40.2) was priced at 3–6 KB of pixels; as draws it is ~50 B, so the cursor can move in the
-   translation's own flush — the same logic as `Slide fill = auto`.
-4. **Stop keyframing on a height change.** A window switch costs 4–5 KB and a wide-flush drain
-   (~0.7 s measured). The keyframe rebaselines the fid ring, which nothing needs there; a plain
-   re-layout and diff sends only what moved and lets the cache serve the rows.
-5. **The arm rebuilds** (row 25 above). If the firmware's page survives a single-arm reconnect
-   (the `link` notes and the events 4/5/7 will say), rejoin that arm without the teardown.
-6. **Cache persistence across sessions** — a firmware ask: the 63 KB atlas goes up every session
-   (≥ 8 s of link); a cache that survives the lease with a checksum the phone can verify makes it
-   free after the first time.
-7. **Kerning in cached text.** Mode 14 carries per-glyph x-adjust bytes and `TextureCache.layout`
-   already takes a kerning lambda: pair kerning costs ~1 B per pair. Worth it if Adam's eye
-   dislikes the flat advances.
-8. **Cold start.** Three eaten CREATEs ≈ 6 s per link edge (§34.3), and a dozen edges a day: lower
-   `CAPABILITY_REASK_MS`, or send the CREATE only after the prelude's ack.
+**Cheap probes nobody has run:** the CFW logger service (sid 0x0F — a boot banner would settle
+§42.2's reboot-or-stall) and the file-export service (sid 198/199 — `NOT_SUPPORT` is a safe
+answer).
 
 ## Upstream CFW (checked 2026-09-06 — `HANDOFF.md` §41.11)
 
 g2flash has five commits past our pinned `a5d1c31`, all on a **new stock base 2.2.9.22**
 (`EVENCFW/18`, exactly 127 bytes): a lost-ACK fix stock 2.2.9 needs and our 2.2.6 base does not,
-compass config options, an ambient-light mode 16 (field 105 reports, on request only), the
-tap-then-long gesture as event 11 with the raw source passed to the sender (an ATTRIBUTED
-long-press, grade I), and a flasher that does 2.2.9's auth handshake before BEGIN. **Nothing
-affects the installed build.** `reference/g2flash` is fetched, not moved — a pull breaks
-`research/verify_cfw.py`'s 2.2.6.10 pins. Faceclaw's 49 commits are app-level.
+compass config options, an ambient-light mode 16, the tap-then-long gesture as event 11 with
+the raw source passed to the sender (an ATTRIBUTED long-press, grade I), and a flasher that does
+2.2.9's auth handshake before BEGIN. **Nothing affects the installed build.** `reference/g2flash`
+is fetched, not moved — a pull breaks `research/verify_cfw.py`'s 2.2.6.10 pins.
 
 ## Other open work (not the next session's)
 
 - **On-glass verdicts** still owed for Torrents and the keyboard, Files (menus, viewers, the
-  thumbnail lens, theme icons), Games (`HOLDEM.md` §17.4 — the card art at all four rungs, the
-  hole-card plane, the arc stagger, the bot pace), Music (the one-time grants — `DAILY.md` — and
-  the on-phone items).
+  thumbnail lens, theme icons), Games (`HOLDEM.md` §17.4), Music (the one-time grants —
+  `DAILY.md` — and the on-phone items).
 - **The next window** is Adam's pick; Feed + comics (`EXPLOSION.md` §20 #5) is the standing
-  candidate. The clean-room licensing rule (`CLAUDE.md`) binds any window that drives someone
-  else's work.
+  candidate. `WINDOWS.md` is the checklist and §6 the latency bar; the clean-room licensing rule
+  (`CLAUDE.md`) binds any window that drives someone else's work.
 - **The Reader transitional cleanup**: remove the legacy-offsets dual-write in `ReaderWindow`
   (fields marked; `SubstrateTest`'s migration pin goes with it).
 - **The icon-quality pass**: one drawn icon per app at 20 px + 56 px (the release path).
+- **The `Profiler` Global row is dead** (nothing reads it) — remove or wire it.
 - **Watch-items:** the left-lens seam residue after a handover; the ~20 s seam silent-loss
   window; the media endpoint logs nothing on success.
 
@@ -255,10 +180,12 @@ affects the installed build.** `reference/g2flash` is fetched, not moved — a p
 ## How to resume
 
 ```
-sudo rc-service damage status                         # the data host / standby; restart = stageJar + rc-service damage restart
-./gradlew :core:test  ·  ./gradlew :desktop:test      # 484 · 11
+sudo rc-service damage status                         # the data host / standby; deploy = ./gradlew :desktop:stageJar && sudo rc-service damage restart
+./gradlew :core:test  ·  ./gradlew :desktop:test
 desktop/build/install/desktop/bin/desktop --selfcheck # after ./gradlew :desktop:installDist; run it more than once
 python3 tools/lint.py                                 # 21 rules, exits 0
-python3 tools/glassdrive.py aphone TOKEN --pace 2.5 double wait:3 snap:/tmp/a.png …   # drive the glasses; snap before every tap
-curl -s 'http://aphone:7403/journal?token=TOKEN' | python3 tools/journal_report.py -   # the phone's journal
+TOKEN=$(python3 -c "import json;print(json.load(open('/home/user/.damage/config.json'))['token'])")
+curl -s "http://aphone:7403/journal?token=$TOKEN" | python3 tools/journal_report.py -   # the phone's journal, per-gesture numbers included
+curl -s "http://aphone:7403/log?token=$TOKEN&tail=400"                                 # the phone's log (0.41+), no adb
+python3 tools/glassdrive.py aphone $TOKEN --pace 2.5 double wait:3 snap:/tmp/a.png …    # drive the glasses; snap before every tap
 ```

@@ -259,7 +259,8 @@ long-press (release on let-go) · keys ↑/↓ Enter Backspace Space R · Tab le
 -/= window scale (integer nearest-neighbour, default 4×, clamped to the screen).
 The browser replica link is printed at start (`http://<host>:7403/?token=…`); the same server
 answers `GET /journal?token=…[&tail=N]` with that host's flush journal (2026-09-05, `HANDOFF.md`
-§32 — the phone's, without adb; `tools/journal_report.py -` reads it from stdin). Config in
+§32 — the phone's, without adb; `tools/journal_report.py -` reads it from stdin) and
+`GET /log?token=…[&tail=N]` with the process's last 4,000 log lines (`Log.recent`, §42). Config in
 `~/.damage/config.json` (books dir, ports, token — generated on first run and must match
 `damage-secrets.properties` before building the APK; an UNREADABLE file — a stray comma in a
 hand edit — runs defaults for that start with a loud log line and is never rewritten — the phone host, the cached pair
@@ -982,6 +983,20 @@ Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md
   fresh-stamps a deletion of the peer's real record. The shell refuses one
   loudly (once per key per session) as a backstop.
 
+- 🆕 **The page traffic sleeps with the shell** (`CfwTransportBase.pageTrafficWanted`, §42):
+  the 4 s keepalive and the 30 s carrier refresh go out only while the shell wants the lease
+  and the glasses do not say they are silent — one night of Silent Mode was 8,641 unacked
+  keepalives. The 60 s device-info READ is the wake poll and stays.
+- 🆕 **A stop after a link loss sends no lease release** (`stop()` reads `connected` before the
+  sweep, §42): the write into the dropped arm was a fault at every rebuild, and the release
+  that reached the survivor freed that lens's texture cache for a lease re-acquired seconds
+  later (a renewal keeps it — `settings_ext.c`). A deliberate stop releases both arms, best
+  effort per arm. The pins: `ShellKeeperTest`, `SilentGlassesTest`.
+- 🆕 **The keeper narrates into the journal** (`Shell.journalNote`, `keeper` notes, §42) and
+  every host serves `/log` — a start that fails before the shell's `build` note used to leave
+  no line at all; silent checks are counted (`silentChecks`), not journaled one a minute; atlas
+  chunks are `ATLAS` submits with their `via`.
+
 ## Verification
 
 - `./gradlew :core:test` — **484** unit/integration tests (2026-09-06's latency build, `HANDOFF.md` §40, on top of 2026-09-05's fifth whole-codebase
@@ -1054,7 +1069,7 @@ Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md
   with no pixel change, stop-during-start, same-instance transport restart).
 - `--selfcheck` — the whole stack scripted end to end with real fonts,
   asserting ink budgets, input grammar, persistence byte-behaviour, and zero
-  faults/failed flushes/sticky flags. **189 checks.** ⚠ Its Games checks live in an extracted
+  faults/failed flushes/sticky flags. **200 checks.** ⚠ Its Games checks live in an extracted
   `gamesChecks()` and its font-ladder walk in `typeLadderTopEnd()` — inline, the method passed
   the JVM's 64 KB method limit and would not compile. Split the next window's checks the same way.
 - 🆕 **The per-lens TRUTH oracle runs on EVERY `--selfcheck` settle** (279 of them, 2026-09-05).

@@ -59,7 +59,8 @@ class ReplicaServer(
     /** A typed LINE from the page's text bar (TMUX.md verdict 1) — rides
      *  Transport.injectText; the focused window stages it behind a confirm. */
     private val onText: (String) -> Unit = {},
-    /** This host's flush journal, served at `GET /journal?token=T[&tail=N]`
+    /** This host's flush journal, served at `GET /journal?token=T[&tail=N]`;
+     *  `GET /log?token=T[&tail=N]` serves the process's recent log lines (§42).
      *  (2026-09-05, `HANDOFF.md` §32) — the phone has no adb on Adam's
      *  setup, and its journal is the only measurement of the daily radio
      *  path. `tail` = at most that many bytes from the end, whole lines. */
@@ -132,6 +133,12 @@ class ReplicaServer(
                         reply(out, 404, "text/plain", "no journal on this host"); return
                     }
                     replyBytes(out, 200, "application/x-ndjson", journalBytes(p, query["tail"]?.toLongOrNull()))
+                }
+                "/log" -> {
+                    // §42: this host's recent log lines (`Log.recent`), the
+                    // phone's without adb — `tail` = at most that many lines
+                    val lines = Log.recent(query["tail"]?.toIntOrNull()?.coerceAtLeast(1) ?: Log.RECENT_LINES)
+                    reply(out, 200, "text/plain; charset=utf-8", lines.joinToString("\n", postfix = "\n"))
                 }
                 "/ws" -> {
                     val key = req.headers["sec-websocket-key"]

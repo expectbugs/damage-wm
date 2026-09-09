@@ -65,7 +65,7 @@ and shell, always, while it is up; the OpenRC `damage` service is the DATA PROVI
 tmux + last-write-wins state sync) plus a STANDBY that drives PC-direct BLE only while the APK
 is unavailable and hands back on its return. The PC never claims in daily use** (`--transport
 remote` keeps the claim path as the explicit dev override). **`REMINDER.md` is the orientation
-file and the entry point**; `HANDOFF.md` the dated records (§19–§36 are current); `DAILY.md` the
+file and the entry point**; `HANDOFF.md` the dated records (§19–§42 are current); `DAILY.md` the
 ops crib; `IMPLEMENTATION.md` what runs and how. App layer: **Main · Settings · Reader · Tmux ·
 Files · Torrents · Music · Games** (`WINDOWS.md` is the conversion checklist; `TMUX.md`,
 `TORRENTS.md`, `MUSIC.md`, `HOLDEM.md` the per-window records).
@@ -87,7 +87,9 @@ that bind every change.** The short list — each with its record:
   any window with a destructive row; never rebuild the jar under a running instance.
 - 🔴 **Never answer a refused image with more images** (§36): the firmware's Silent Mode refuses
   every frame and pushes the state; the shell sleeps with the glasses and drops the lease on
-  purpose. And **a lost ack is released by a later ack**, never held for a msgId cycle (§34).
+  purpose — **and the page traffic sleeps with it** (§42: no keepalive or carrier refresh into
+  a page that has ended; a stop after a link loss sends no release into a dead link). And **a
+  lost ack is released by a later ack**, never held for a msgId cycle (§34).
 - 🔴 **Latency is a standard, not a pass** — the section "Latency standards" below and
   `WINDOWS.md` §6 bind every window and surface written from now on. `REMINDER.md` carries the
   measured numbers to price with; the `/50` curve is PC-direct only.
@@ -118,9 +120,9 @@ Damage` and the APK-wide `Phone notifications` switch, and the shell never gates
 source on a hidden field — a Global row that disappears leaves a persisted value nothing can undo).
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(484 tests, including the per-lens oracle, the §25–§31 review pins, the §40 latency pins and the random-gesture
+(497 tests, including the per-lens oracle, the §25–§31 review pins, the §40 latency pins, the §42 sleep/release pins and the random-gesture
 oracle walk), `./gradlew :desktop:test` (11 tests: the BlueZ glue
-over a fake link and the config file's safety), `desktop --selfcheck` (189 checks, the truth oracle on every settle), `desktop --snapshot DIR` (look at the lens
+over a fake link and the config file's safety), `desktop --selfcheck` (200 checks, the truth oracle on every settle), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `desktop --music-check` (the real library, read-only bar the additive schema migration),
 `desktop --games-check` (the Hold'em ecology over hundreds of simulated tournaments — pure
 in-memory, touches nothing), `python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.

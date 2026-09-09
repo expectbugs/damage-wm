@@ -3528,3 +3528,197 @@ Nothing in its protocol layer changes a constant we share (fragmenting, window, 
 long-press (if real), event 11 for the grammar, the light sensor for a brightness policy of our
 own, and the OTA-path fixes — at the cost of re-deriving every address-bearing claim. Not owed
 now; `reference/g2flash` stays at `a5d1c31` until then (a pull would break `verify_cfw.py`).
+
+## 42. Two journals read, the page traffic put to sleep, the keeper in the journal (2026-09-07 → 2026-09-09)
+
+Adam installed 0.40 on 2026-09-09 and reported it *"significantly faster and more responsive"*
+— and that after turning Silent Mode off *"it took me some doing"* to get the display back.
+This section is the record of what the phone's journal said about 0.38 (a night) and 0.40
+(two and a half days), the defects that came out of it, and what 0.41 changes.
+
+### 42.0 What the phone journal said (grade M, phone path)
+
+**0.38, 2026-09-06 20:44 → 09-07 04:00.** The §38 wake worked on glass at 20:45:25 → 20:45:44
+(asleep on the push, awake + `restart` on the push OFF, a new session 19 s after the sleep note,
+mostly the reconnect). The watchdog never fired. Six arm rebuilds overnight (22:08 L, 23:47 R,
+00:34 L, 01:30 R, 02:21 L, 03:14 R), every one `<arm> disconnected: supervision timeout` — the
+Nordic library's `REASON_TIMEOUT`, i.e. the phone's controller heard nothing from that arm for
+the 5 s supervision timeout. A LEFT drop is preceded by ~1 s by SYSTEM_EXIT (type 7) on RIGHT:
+the firmware ends its page before the phone reports the loss; a RIGHT drop shows
+FOREGROUND_ENTER/EXIT 8 s after the rebuild. Both arms reconnect at every rebuild
+(`connectLink` ends the survivor first), so the alternation is not connection age. Each rebuild:
+~9 s down, a keyframe, and the atlas uploaded again (16 KB in 6 chunks on the silent clock —
+63 KB in a window), plus a `fault: control: <arm> write characteristic gone`.
+
+Adam's evening at Depth 16 with `Cached text` on (20:44–22:08, 2,157 flushes), time to first
+visible change per gesture, median / p90:
+
+| first flush of the gesture | bursts | first bytes | first ack | burst total |
+|---|---:|---:|---:|---:|
+| window notch | 469 | 359 B / 2.3 KB | 92 / 358 ms | 2.4 KB |
+| Main notch | 17 | 1.0 / 5.7 KB | 195 / 816 ms | 5.5 KB |
+| window switch | 22 | 1.7 / 2.9 KB | 282 / 471 ms | 9.2 KB |
+| back to Main | 1 | 3.3 KB | 526 ms | 6.9 KB |
+
+Only 170 of 511 bursts had cached draws in their FIRST flush; `proof` 1,372, `planes` 1,038 —
+Depth 16, the case §41.9 measured, before the 0.39 retry.
+
+**0.40, 2026-09-07 04:00 → 09-09 15:46 (Adam's use; depth and cache as he left them).**
+
+| first flush of the gesture | bursts | first bytes | first ack | burst total |
+|---|---:|---:|---:|---:|
+| window notch | 151 | 540 B / 2.1 KB | 108 / 229 ms | 1.6 KB |
+| Main notch | 59 | 716 B / 1.9 KB | 117 / 247 ms | 1.2 KB |
+
+The cache served 1,075 rects over 2,235 flushes; refusals `no-records` 1,587 (rects with no
+text — thumbs, rules, bars), `no-draws` 464, **`proof` 126** (was 1,372 on 0.38: the §41.9
+full-width retry works), `planes` gone (the pre-check is gone). Phone CPU per flush: handle
+17 ms median / 66 p90, assemble 11 / 43. 40 session starts in 2.5 days, 41 supervision
+timeouts (20 LEFT, 21 RIGHT), `Request failed with status 8` once.
+
+**The Silent Mode stretch, 09-08 12:41 → 09-09 15:06.** The glasses slept (SYSTEM_EXIT a second
+after the push), and for ten hours the transport sent an EvenHub keepalive every 4 s into a page
+that no longer existed — **8,641 `control … never acked` notes**, one msgId cycle behind each —
+and the shell wrote an identical `still silent (pacing)` line every minute (676). Nothing
+broke; the radio and the journal paid for it.
+
+**The wake, 09-09 15:06:41 → 15:09:30 (Adam's "some doing").** The previous session had ended at
+09-08 22:25 (RIGHT, supervision timeout) and NO session started for 16.7 hours — the pair in
+its case, the keeper scanning. At 15:06:41 a session started whose READ said Silent Mode was
+on (the shell slept at once, one `build` note). Then, for three minutes: `up: ble link up` every
+~1.5 s (121 times), a `control … never acked` note per cycle with msgIds stepping by 3 (140,
+143, 146 …), a burst of five `silent (pacing)` notes per cycle for the first 15 s, **no `build`,
+no `DOWN`, no `restart`, no `fault`** — then a normal start at 15:09:30 that painted (36
+flushes in its first minute, the atlas up). `Link(true)` is emitted in exactly one place
+(`CfwTransportBase.start` after `connectLink`), so the transport's start ran ~120 times without
+the shell reaching its `build` note; the keeper narrates each attempt's failure to the phone's
+logcat, which this setup cannot read. The mechanism is NOT in the journal. What 0.41 adds is
+what would have said (§42.1 items 5–6); §42.3 lists the candidates.
+
+### 42.1 Fixed and built (0.41; the service on the same core)
+
+1. **The page traffic sleeps with the glasses** (`CfwTransportBase.pageTrafficWanted`): the
+   4 s keepalive and the 30 s carrier-text refresh go out only while the shell wants the lease
+   and the glasses do not say they are silent. The 60 s device-info READ stays — it is the wake
+   poll. `SilentGlassesTest.noKeepaliveWhileTheShellSleepsWithTheGlasses` (the sim counts Cmd
+   12: none during the sleep, flowing again after the rebuild).
+2. **No lease release after a link loss** (`stop()` reads `connected` before the sweep): the
+   write into the dropped arm was the `control` fault at every rebuild, and the release that
+   reached the surviving arm freed that lens's texture cache for nothing — the keeper
+   re-acquires within seconds, which the firmware treats as a RENEWAL and keeps the cache
+   (`settings_ext.c` FB_ACQUIRE: released only when the deadline is 0 or passed; RELEASE,
+   expiry and mode 11 free it; Damage never sends mode 11). A deliberate stop still releases
+   both arms, and a release is best effort per arm (an arm that is gone needs none: its lease
+   fails open). `ShellKeeperTest.aStopAfterALinkLossReleasesNothing…` (the sim counts releases:
+   0 across a link-loss rebuild, 2 at the stop; the lease renewed on both arms).
+3. **Atlas chunks are journaled as flushes** (`ATLAS`, with `via`), not only as `atlas` notes —
+   the report had them as `via ?`, unlabelled, a 32 KB "gesture".
+4. **Silent checks are counted, not journaled one each** (`Shell.silentChecks`): the first
+   check, a ring event, and every 60th land; the wake note carries the count.
+5. **The keeper's transitions are `keeper` journal notes** (`Shell.journalNote`): `starting`,
+   `reconnecting (attempt N)`, `start failed: …` with the exception's text, `link ended: …`,
+   `retrying in N s`, `driving via …`, `stopped`. A start that fails before the `build` note
+   leaves a line now.
+6. **`GET /log?token=T[&tail=N]` on every host's replica** (`Log.recent`, a 4,000-line ring
+   of everything at INFO and above — `HH:mm:ss.SSS L tag: message`): the phone's log without
+   adb. `ReplicaServerTest.theLogRouteServesRecentLines`.
+7. **`tools/journal_report.py` prints time to first visible change per gesture**: bursts of
+   flushes less than 1.2 s apart keyed by the first flush's label (the SUBMIT time is the
+   gesture's moment), with first-flush bytes and ack, flushes and bytes per burst; the silent
+   clock and atlas chunks excluded; `keeper` notes listed. The tables above are its output —
+   `WINDOWS.md` §6 item 7 now points at it. (An earlier cut keyed bursts on completion time
+   and read a window notch as 1.3 KB / 213 ms; the submit-keyed numbers are the ones above.)
+
+### 42.2 The arm rebuilds — the pattern, and ten explanations (none tested)
+
+What every explanation must fit (grade M): the phone's controller classifies each as a
+supervision timeout (5 s without a PDU from that arm); the arms alternate; 47–98 min apart
+(median ~52); both arms are reconnected at every rebuild, so both connections are the same
+age; a LEFT drop is preceded ~1 s by SYSTEM_EXIT on RIGHT; the drops happen with the glasses
+idle on the silent clock and during use alike; parameters 15 ms / latency 1 / 5,000 ms on both.
+
+1. A per-arm firmware **reboot** on its own ~100-min clock (a watchdog, a scheduled reset):
+   the arms' uptimes are offset, so they take turns — the cleanest fit for alternation with
+   equal connection ages; the other lens sees the inter-lens link go and ends the page first.
+2. A per-arm firmware **stall** longer than 5 s without a reboot (a flash write of settings or
+   logs, a sensor calibration, the wear-detect self-test) — the same fit.
+3. **The inter-lens link**: a periodic resync that parks one arm's phone-facing radio; the
+   lens that leads alternates.
+4. **The phone's controller**: two 15 ms / latency-1 links plus Wi-Fi coexistence leave one
+   anchor unserved for 5 s; alternation from anchor phase. Fits SYSTEM_EXIT-first poorly.
+5. A **connection-parameter update** the glasses request periodically that the phone applies
+   at the wrong instant — the `updated` parameters lines now reach `/log`.
+6. A **deep sleep** on a latency-1 link with almost no traffic on LEFT (one flush a minute):
+   weak, because the daytime drops happen under traffic.
+7. **RF**: attenuation by the case or the head — weak overnight, arms inches apart on a desk.
+8. The glasses' own **battery-saver duty cycle**, per arm.
+9. A **CFW-side timer or buffer** (the snapshot FIFO, `seq_timer`, the wake lease) faulting an
+   arm periodically — G2CC's logs from the stock-firmware days would show whether the same
+   cadence existed before the CFW.
+10. A **BLE-stack buffer leak** per arm (unacked notifications, lease responses) that stalls
+    the arm after ~100 min and clears on reconnect.
+
+Cheapest discriminators, in order: `/log` and the `link` notes around the next drop (item 5,
+and the phone's own view of the seconds before); G2CC's stock-era logs for the cadence (item
+9 vs hardware); the sid-0x0F logger for a boot banner (1 vs 2); the battery READ's per-arm
+level across a drop; one bug-report BTSnoop across a drop (`REMINDER.md` row 5).
+
+### 42.3 The wake loop — ten explanations (none tested; 0.41's notes decide)
+
+Fits: ~120 transport starts at ~1.5 s, each past `connectLink`, none reaching the shell's
+`build` note; msgIds advancing by 3 per cycle; a never-acked control message per cycle; the
+five-note bursts of `silent (pacing)` in the first 15 s; no `DOWN`/`restart`/`fault` notes; a
+normal start ended it after Adam's intervention (Target → SIM → glasses, or Bluetooth).
+
+1. The attempt failed INSIDE `Shell.start` after `transport.start()` and before the `build`
+   note — a window's RESTORE activation or `setBrightness` throwing — so the keeper retried
+   with a fast filtered reconnect (remembered addresses, the pair advertising).
+2. `transport.start()` failed at the prelude or the READ with the write refused ("write
+   characteristic gone" on an arm the OS still called connected — a stale ACL, the
+   `DAILY.md` class) and retried the same way; the one `Request failed with status 8` is a
+   cousin.
+3. Two stacks alive after a Target switch (`stopStack` under `synchronized`, but a keeper stop
+   that returned early would leave the old keeper's loop running): two ~3 s cycles interleaved
+   read as one 1.5 s cycle, and the five-note bursts as several shells' pacing ticks.
+4. The warmup frame refused under Silent Mode (status 5) failing `start()` each time — the
+   15:06:41 start got through because a fresh CREATE's warmup is accepted once (§36's
+   measurement), later attempts not.
+5. The capability READ eaten in the previous session's teardown chatter (§12's class) with
+   the 2 s re-ask and a failing something else — three msgIds per cycle fit prelude + READ +
+   one more.
+6. The Nordic manager's `connect()` resolving at once on a cached connection whose peer had
+   already dropped, `linkUp` true, the first write failing.
+7. Android's Bluetooth stack rejecting a second GATT client on the same address while the
+   previous one was still closing — a 1.5 s cycle of connect-refuse-retry.
+8. The keeper's `retryPauseMs` (2 s) never reached: an exception in `stopShell` between
+   attempts throwing straight into the next attempt.
+9. The sleeping shell's own `restartSession` calls (the READ said silent, the glasses were in
+   fact awake — Adam had pressed the temples) with the `restart` note lost to a full event
+   buffer — every other note arrived, so weak.
+10. The phone's seam server or the PC's standby probe driving a second transport start on the
+    phone — the PC's log shows only channel attaches, so weak.
+
+With 0.41 the same morning writes `keeper: start failed: <exception>` per attempt and the
+transport's own lines are one `curl` away (`/log`). Until then the manual recovery stands
+(`DAILY.md`).
+
+### 42.4 Kept for the next optimization: the atlas across a rebuild (grade: read from the source)
+
+With §42.1 item 2 the firmware keeps the texture cache on BOTH lenses across a supervision-
+timeout rebuild (the re-acquire lands inside the 90 s window: a renewal). The shell still
+throws its atlas away at every session start (`atlasReset`) and uploads it again — 16 KB on
+the silent clock, up to 63 KB (~20 s of link) in a window, a dozen times a day. Skipping the
+re-upload needs one fact first: **what a mode-13/14 draw into a released cache returns**
+(`texture_cache.c` returns −1 into `image_dispatch`, which fails the batch; whether the
+ImgResCmd status is distinguishable from Silent Mode's 5 is unknown). Three such refusals put
+the shell to sleep (§36), so the skip cannot be guessed; measure it once on glass (release the
+lease on purpose, send one cached draw, read the status), then keep the atlas when the previous
+session ended by a link loss and the re-acquire was written within 35 s of the last renewal.
+
+### 42.5 Battery and builds
+
+`:core:test` **497** (new: the three pins above) · `:desktop:test` 11 · `--selfcheck` ×3 (200
+checks, all pass each run) · `--snapshot` ×2 (49 each) · epub (380/404 images decode, as before)
+· music · games · lint 0 · `:phone:assembleDebug`. APK **0.41** staged; the service restarted
+on the same core. Docs: this section, `REMINDER.md` rewritten to it, `DAILY.md` (the
+`/log` line, the recovery), `IMPLEMENTATION.md`, `WINDOWS.md` §6 (the 0.40 bar), `CLAUDE.md`.

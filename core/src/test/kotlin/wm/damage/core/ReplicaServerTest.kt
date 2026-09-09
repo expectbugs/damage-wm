@@ -151,4 +151,33 @@ class ReplicaServerTest {
             scope.cancel()
         }
     }
+
+    /** §42 (2026-09-09): `GET /log?token=T[&tail=N]` serves the process's
+     *  recent log lines — the phone's, without adb. */
+    @Test
+    fun theLogRouteServesRecentLines(): Unit = runBlocking {
+        val port = freePort()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val t = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true))
+        val server = ReplicaServer(port, "tok", { t.mirror }, { ReplicaServer.Status(transport = "sim") }, onInput = {})
+        server.start()
+        try {
+            wm.damage.core.util.Log.i("replica-test", "a line the route must serve 4711")
+            fun get(path: String): String = Socket("127.0.0.1", port).use { s ->
+                s.getOutputStream().write("GET $path HTTP/1.1\r\nHost: x\r\n\r\n".toByteArray()); s.getOutputStream().flush()
+                s.getInputStream().readBytes().toString(Charsets.UTF_8)
+            }
+            val refused = get("/log")
+            assertTrue(refused.startsWith("HTTP/1.1 403"), "no token → 403: ${refused.take(40)}")
+            val all = get("/log?token=tok")
+            assertTrue(all.startsWith("HTTP/1.1 200"), all.take(40))
+            assertTrue(all.contains("I replica-test: a line the route must serve 4711"), "the line is served: ${all.takeLast(300)}")
+            val one = get("/log?token=tok&tail=1")
+            val body = one.substringAfter("\r\n\r\n").trim()
+            assertEquals(1, body.lines().size, "tail=1 is one line: '$body'")
+        } finally {
+            server.close()
+            scope.cancel()
+        }
+    }
 }

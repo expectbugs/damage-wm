@@ -257,4 +257,32 @@ class SilentGlassesTest {
         // a device block without the field says nothing (stock firmware may omit it)
         assertNull(SettingsMsg.parseSilentRestored(Pb.cat(Pb.v(1, 2), Pb.l(4, Pb.v(12, 80)))))
     }
+
+    /** §42 (2026-09-09): the page traffic sleeps with the glasses. The phone
+     *  journal counted 8,641 unacked keepalives in one day — one every 4 s
+     *  into a page the firmware had ended — while the shell slept. */
+    @Test
+    fun noKeepaliveWhileTheShellSleepsWithTheGlasses(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val rig = Rig(scope)
+            rig.shell.silentPacingMs = 200
+            rig.up("start")
+            rig.until("keepalives flow while awake (the instant loop runs every 50 ms)") { rig.sim.keepalivesSeen >= 2 }
+
+            rig.sim.setSilent(true)
+            rig.until("asleep") { rig.shell.glassesAsleep }
+            rig.until("the lease is released while silent") { !rig.leaseHeld() }
+            val atSleep = rig.sim.keepalivesSeen
+            delay(600)                                               // twelve instant keepalive periods
+            assertEquals(atSleep, rig.sim.keepalivesSeen, "no keepalive into a page that has ended")
+
+            rig.sim.setSilent(false)                                 // the push OFF: a session rebuild
+            rig.until("the second session drives") { rig.driving() && rig.sim.preludeAcks >= 2 }
+            rig.until("keepalives flow again") { rig.sim.keepalivesSeen > atSleep }
+            rig.keeper.stop()
+        } finally {
+            scope.cancel()
+        }
+    }
 }

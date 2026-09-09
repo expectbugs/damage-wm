@@ -140,4 +140,45 @@ class ShellKeeperTest {
             tmp.toFile().deleteRecursively()
         }
     }
+
+    /** §42 (2026-09-09): a stop after a LINK LOSS sends no lease release — the
+     *  write into the dropped arm was a `control` fault at every one of a day's
+     *  rebuilds, and the release that reached the surviving arm freed that
+     *  lens's texture cache for a lease the keeper re-acquires within seconds.
+     *  A deliberate stop still releases both arms. And every keeper transition
+     *  is a `keeper` note in the shell's journal. */
+    @Test
+    fun aStopAfterALinkLossReleasesNothingAndTheKeeperNarratesIntoTheJournal(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-keeper4")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val glass = GlassFirmwareSim()
+            val t = FragileTransport(glass, scope)
+            val clock = Shell.LocalClock(12, 0, "12:00", "PM")
+            val journal = tmp.resolve("journal.jsonl")
+            val shell = Shell(FakeText(), t, Persistence(tmp.resolve("s.json")), journal, scope) { clock }
+            val keeper = ShellKeeper(shell, t, scope, retryPauseMs = 100)
+            keeper.start()
+            until("first session up") { keeper.state == ShellKeeper.State.RUNNING && t.state.value.started }
+            assertEquals(0, glass.releasesSeen, "a driving session releases nothing")
+
+            t.endLink("test: supervision timeout")
+            until("second session up") { keeper.attempts == 2 && keeper.state == ShellKeeper.State.RUNNING }
+            until("the glasses saw a second connect") { glass.preludeAcks == 2 }
+            assertEquals(0, glass.releasesSeen, "no release through a link that is gone")
+            assertTrue(glass.leaseHeld(Arm.LEFT, System.currentTimeMillis()) && glass.leaseHeld(Arm.RIGHT, System.currentTimeMillis()),
+                "the re-acquire renewed the lease on both arms")
+
+            keeper.stop()
+            assertEquals(2, glass.releasesSeen, "a deliberate stop releases both arms")
+            val notes = Files.readAllLines(journal).filter { it.contains("\"kind\":\"keeper\"") }
+            assertTrue(notes.any { it.contains("starting") }, "the first attempt is journaled: $notes")
+            assertTrue(notes.any { it.contains("link ended: test: supervision timeout") }, "the link end and its reason: $notes")
+            assertTrue(notes.any { it.contains("reconnecting (attempt 2)") }, "the second attempt: $notes")
+            assertTrue(notes.any { it.contains("stopped") }, "the stop: $notes")
+        } finally {
+            scope.cancel()
+            tmp.toFile().deleteRecursively()
+        }
+    }
 }

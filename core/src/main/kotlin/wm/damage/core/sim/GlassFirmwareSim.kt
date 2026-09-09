@@ -126,6 +126,14 @@ class GlassFirmwareSim() : LensPanels {
      *  the way the both-temple long-press does — with the device push. */
     @Volatile var silentMode = false
         private set
+    /** EvenHub keepalives (Cmd 12) received, for the §42 pin: none while the
+     *  shell sleeps with the glasses. */
+    @Volatile var keepalivesSeen = 0
+        private set
+    /** FB_RELEASE control ops received (both arms count), for the §42 pin: a
+     *  stop after a link loss sends none. */
+    @Volatile var releasesSeen = 0
+        private set
 
     /** Whether READ responses carry `silentModeSwitchRestored` (field 4.14).
      *  Stock firmware may omit it; a test withholds it to exercise the
@@ -254,7 +262,7 @@ class GlassFirmwareSim() : LensPanels {
             }
             EvenHubMsg.CMD_IMAGE -> imageFragment(arm, fields, msgId, now)
             EvenHubMsg.CMD_TEXT_UPGRADE -> ack(cmd, msgId, null)
-            EvenHubMsg.CMD_KEEPALIVE -> ack(cmd, msgId, null)
+            EvenHubMsg.CMD_KEEPALIVE -> { keepalivesSeen++; ack(cmd, msgId, null) }
             EvenHubMsg.CMD_SHUTDOWN -> { layoutCreated = false; ack(cmd, msgId, null) }
             else -> diag.event("evenhub", "unmodeled Cmd $cmd — acked")
                 .also { ack(cmd, msgId, null) }
@@ -917,6 +925,7 @@ class GlassFirmwareSim() : LensPanels {
                     diag.event("lease", "$arm FB lease acquired/renewed (90 s)")
                 }
                 SettingsMsg.OP_FB_RELEASE -> {
+                    releasesSeen++
                     ctx(arm).leaseDeadline = 0
                     ctx(arm).textureCache = null          // settings_ext.c releases it here
                     stockPattern(ctx(arm).panel)

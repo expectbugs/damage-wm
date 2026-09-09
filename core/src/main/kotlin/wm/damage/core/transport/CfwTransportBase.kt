@@ -509,6 +509,12 @@ abstract class CfwTransportBase(
      *  the glasses are silent, taken back on wake. */
     @Volatile private var leaseWanted = true
 
+    /** Whether the EvenHub page is ours to keep alive (§42): not while the
+     *  shell has dropped the lease on purpose, and not while the glasses say
+     *  they are silent — the page has ended either way, and every message
+     *  into it goes unanswered. */
+    private fun pageTrafficWanted(): Boolean = leaseWanted && !_state.value.glassesSilent
+
     override suspend fun setLeaseWanted(wanted: Boolean) {
         if (leaseWanted == wanted) return
         leaseWanted = wanted
@@ -814,7 +820,13 @@ abstract class CfwTransportBase(
         scope.launch {
             while (isActive) {
                 delay(if (instant) 50 else 4_000)
-                if (_state.value.started && (nowMs() - lastImageAtMs > 4_000 || instant)) {
+                // §42 (2026-09-09): the page traffic sleeps with the glasses. While
+                // the shell has dropped the lease on purpose (Silent Mode, §36) the
+                // firmware's EvenHub page is gone, and a keepalive into it is never
+                // acked — the phone journal counted 8,641 of them in one day, one
+                // every 4 s for ten hours. The 60 s device-info READ below stays: it
+                // is the wake poll.
+                if (_state.value.started && pageTrafficWanted() && (nowMs() - lastImageAtMs > 4_000 || instant)) {
                     controlQueue.trySend(CtlWork.Hub(sessionEpoch.get(), EvenHubMsg.keepalive(0), null))
                 }
                 // Stall REPORT (round 4 D5) — a diagnostic, not a timeout:
@@ -833,7 +845,7 @@ abstract class CfwTransportBase(
         scope.launch {
             while (isActive) {
                 delay(if (instant) 50 else 30_000)
-                if (_state.value.started) controlQueue.trySend(CtlWork.Hub(sessionEpoch.get(), EvenHubMsg.carrierTextUpgrade(0), null))
+                if (_state.value.started && pageTrafficWanted()) controlQueue.trySend(CtlWork.Hub(sessionEpoch.get(), EvenHubMsg.carrierTextUpgrade(0), null))
             }
         }
         scope.launch {
@@ -942,6 +954,15 @@ abstract class CfwTransportBase(
 
     override suspend fun stop() {
         val epoch = sessionEpoch.incrementAndGet()   // everything older is stale
+        // §42 (2026-09-09): a stop after a LINK LOSS has no link to release the
+        // lease through — the write into the dropped arm failed as a `control`
+        // fault at every one of the day's rebuilds, and the release that did
+        // reach the surviving arm freed that lens's texture cache for nothing:
+        // the keeper re-acquires within seconds (a renewal, which keeps the
+        // cache — settings_ext.c FB_ACQUIRE) and the 90 s fail-open covers a
+        // rebuild that never comes. The release goes out only while the link
+        // is up: a deliberate stop (the app's shutdown, a target switch).
+        val linkUp = _state.value.connected
         running = false
         started = false
         // Sweep FIRST (round 3 D1): fail every pending ack, restore the window
@@ -950,7 +971,7 @@ abstract class CfwTransportBase(
         // stop and every future start on the same instance.
         sweepSession("$name stopped")
         withContext(NonCancellable) {
-        if (workersLaunched) {
+        if (workersLaunched && linkUp) {
             // AWAIT the release actually reaching the wire — a fixed sleep lost
             // it behind a mid-flight keyframe's wire-mutex hold (round 2 #6),
             // leaving the glasses leased/frozen up to the 90 s fail-open. The
@@ -1458,9 +1479,18 @@ abstract class CfwTransportBase(
                                     wire.withLock {
                                         for (arm in Arm.entries) {
                                             val nonce = (nowMs() and 0xFFFF).toInt()
-                                            for (p in AaFrame.frame(nextSeqLocked(), SettingsMsg.SID,
-                                                    SettingsMsg.FLAG_REQUEST, SettingsMsg.control(work.op, nonce))) {
-                                                writePacket(arm, p)
+                                            try {
+                                                for (p in AaFrame.frame(nextSeqLocked(), SettingsMsg.SID,
+                                                        SettingsMsg.FLAG_REQUEST, SettingsMsg.control(work.op, nonce))) {
+                                                    writePacket(arm, p)
+                                                }
+                                            } catch (e: Exception) {
+                                                // §42: a RELEASE is best effort per arm — an arm that
+                                                // is gone cannot take it and needs none (its lease
+                                                // fails open); the other arm still gets its own. An
+                                                // ACQUIRE that cannot reach an arm is a real fault.
+                                                if (work.op != SettingsMsg.OP_FB_RELEASE) throw e
+                                                Log.w(name, "lease release not written to $arm: ${e.message} — its lease fails open")
                                             }
                                         }
                                     }

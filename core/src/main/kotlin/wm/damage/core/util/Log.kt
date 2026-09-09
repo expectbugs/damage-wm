@@ -23,6 +23,20 @@ object Log {
 
     @Volatile var minLevel: Level = Level.INFO
 
+    /** The last [RECENT_LINES] lines that passed the level gate, oldest first
+     *  (§42, 2026-09-09): served by every host's replica at `/log`, because
+     *  the phone has no adb on Adam's setup and a morning's three-minute loop
+     *  of session attempts left only its side effects in the journal. Each
+     *  line: `HH:mm:ss.SSS L tag: message`, local time. */
+    const val RECENT_LINES = 4000
+    private val recentLines = ArrayDeque<String>(RECENT_LINES)
+    private val stamp = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss.SSS")
+
+    /** A copy of the retained lines, oldest first; [tail] keeps only the last that many. */
+    fun recent(tail: Int = RECENT_LINES): List<String> = synchronized(recentLines) {
+        if (tail >= recentLines.size) recentLines.toList() else recentLines.toList().takeLast(tail)
+    }
+
     fun addSink(s: Sink) { sinks.add(s) }
 
     fun removeSink(s: Sink) { sinks.remove(s) }
@@ -39,6 +53,10 @@ object Log {
 
     private fun emit(level: Level, tag: String, msg: String) {
         if (level < minLevel && level < Level.WARN) return
+        synchronized(recentLines) {
+            if (recentLines.size >= RECENT_LINES) recentLines.removeFirst()
+            recentLines.addLast("${java.time.LocalTime.now().format(stamp)} ${level.name.first()} $tag: $msg")
+        }
         for (s in sinks) s.log(level, tag, msg)
     }
 }

@@ -35,7 +35,7 @@ battery exemption; (2) 🔴 keep the G2CC bridge app Disconnected (a second cent
 first light with NOTHING on beardos holding the pair (`sudo rc-service damage stop`), flip
 Target → glasses; (4) `sudo rc-service damage start` → the log says "standby up (§19)" and the
 phone keeps driving. ⚠ Keep the PHONE APK current with the PC: `REMINDER.md` says which build is
-installed and which is staged on the setup page (0.34 installed, 0.37 staged, 2026-09-06). Why old
+installed and which is staged on the setup page (0.40 installed, 0.41 staged, 2026-09-09). Why old
 APKs matter: a pre-0.15 APK cannot be status-probed (the PC conservatively stays out — fine)
 and a pre-0.10 one carries no sync client, so state does not flow until it is updated.
 
@@ -86,18 +86,24 @@ runs every read-only probe against the real database and computes one viz blob.
   `/journal` on the replica port —
   `curl -s 'http://aphone:7403/journal?token=…' | python3 tools/journal_report.py -`
   (`&tail=2000000` for the last ~2 MB). The report shows the ack curve by hour and by radio
-  path, the shell's own CPU per flush, and the `link` notes — the connection interval the
-  phone's stack granted and what the glasses renegotiate. That is the daily driver's real
-  curve; the PC journal's is the standby path's.
+  path, the shell's own CPU per flush, the cache's account, **time to first visible change per
+  gesture** (§42 — the number a window is judged by), and the `link`/`keeper` notes. That is
+  the daily driver's real curve; the PC journal's is the standby path's.
+- **The phone's log, no adb** (2026-09-09, `HANDOFF.md` §42, APK 0.41+): every host serves its
+  last 4,000 log lines at `/log` — `curl -s 'http://aphone:7403/log?token=…&tail=400'`. The
+  keeper's transitions (`start failed: …`, `link ended: …`) are also `keeper` notes in the
+  journal, so a start that fails before its `build` note leaves a line either way.
 - **The glasses show NOTHING and the temples do nothing** (2026-09-05, `HANDOFF.md` §36): the
-  firmware's Silent Mode is probably on. From 0.35 the shell handles it end to end (a phone
-  notice says so, frames stop, the lease is dropped) and the both-temple long-press wakes
-  everything: the wake is a session REBUILD (`HANDOFF.md` §38 — the keeper reconnects, a few
-  seconds of blank display, then the keyframe), because leaving Silent Mode ends the firmware's
-  page. 0.34 sleeps but cannot wake (its keyframe is refused); on it, or if 0.35 still will
-  not: Target → SIM in the APK, then Target → glasses (a fresh session); if the temples do
-  nothing at all, phone Bluetooth off, both-temple long-press ("Silent Mode Off"), Bluetooth
-  on first. Read the phone journal's `silent`, `restart` and `event` notes afterwards.
+  firmware's Silent Mode is probably on. The shell handles it end to end (a phone notice says
+  so, frames stop, the lease is dropped, the page traffic stops — §42) and the both-temple
+  long-press wakes everything: the wake is a session REBUILD (`HANDOFF.md` §38 — the keeper
+  reconnects, ~20 s of blank display, then the keyframe; seen on glass 2026-09-06), because
+  leaving Silent Mode ends the firmware's page. If the display does not come back within a
+  minute (2026-09-09 15:06, `HANDOFF.md` §42.3 — three minutes of session attempts, cause not
+  yet named): Target → SIM in the APK, then Target → glasses (a fresh session); if the temples
+  do nothing at all, phone Bluetooth off, both-temple long-press ("Silent Mode Off"), Bluetooth
+  on first. Afterwards read the phone journal's `silent`, `restart`, `keeper` and `event` notes
+  and `/log` — that is what names the cause.
 - **Two new Global rows (2026-09-06, `HANDOFF.md` §40): `Slide frames` (default `auto`, the old
   behaviour) and `Cached text` (default `off`).** Turning `Cached text` on uploads the session's
   fonts and icons in idle chunks (the journal's `atlas` notes say how many bytes and when) and

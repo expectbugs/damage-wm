@@ -382,7 +382,16 @@ change per gesture**, not on bytes per screen.
 6. **No animation of its own.** Frames per notch are the shell's setting; a window declares
    translations and damage, nothing more.
 7. **Ship with numbers.** Walk the window with `tools/glassdrive.py` (snap before every tap),
-   read `/journal` with `tools/journal_report.py`, and record per gesture: first-flush bytes,
-   first ack, total bytes, wall. The precedents to beat or match: Reader notch first flush
-   1.2–4.3 KB; tmux history notch 2.4–4.3 KB — both before the §40 split; a list notch's first
-   flush is under 500 B in the simulator since §40 (the lens rides the second), unwalked on glass.
+   read `/journal` with `tools/journal_report.py` — its **"time to first visible change per
+   gesture"** section is the judgment (§42: bursts of flushes keyed by the first flush's label;
+   first-flush bytes and ack, flushes and bytes per burst) — and put the window's rows in its
+   record. **The bar, measured on glass on 0.40 (2026-09-07 → 09, `HANDOFF.md` §42.0):** a
+   window list notch 540 B / 108 ms median (p90 2.1 KB / 229 ms), a Main notch 716 B / 117 ms
+   (p90 247 ms). A window whose notch's first flush is over ~1 KB or whose first visible change
+   is over ~250 ms at the median has a defect to find, not a link to blame.
+8. **The shell owes you the rest.** A window written to 1–7 inherits everything else measured
+   so far without a line of its own: the texture cache on every plane, the depth ladder,
+   translation detection, the first-flush ordering and `Slide fill`, telemetry off the first
+   flush, the page traffic sleeping with the glasses, the keeper's rebuilds and their journal
+   notes. Do not re-implement any of it in a window; if a window seems to need one of them,
+   the shell is where the change goes.

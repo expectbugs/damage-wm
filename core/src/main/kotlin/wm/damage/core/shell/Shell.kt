@@ -147,6 +147,12 @@ class Shell(
     private fun silentSmallPainter(c: LocalClock): (wm.damage.core.gfx.Gray8, wm.damage.core.geom.Rect) -> Unit =
         { g, r -> chrome.paintClockText(g, r, c.hhmm, c.amPm) }
     private val journal = Journal(journalPath)
+
+    /** A fact for this host's journal from outside the loop — the keeper's
+     *  transitions (§42: a start that fails before its `build` note, a link
+     *  end, the pacing between attempts, the reason each carried). The
+     *  journal reopens on write, so a stopped shell's keeper still lands. */
+    fun journalNote(kind: String, detail: String) = journal.note(kind, detail)
     val notifications = Notifications(chromeText)
     private val switcher = Switcher(chromeText, { iconSource })
     private val menu = MenuSurface(chromeText)
@@ -2130,6 +2136,9 @@ class Shell(
         }
         atlasInFlight = id
         atlasBytesSent += chunk.size
+        // §42: the chunk is a flush like any other in the journal — with its label
+        // and transport — so the report prices the upload where it happened
+        journal.flushSubmitted(id, comp.epoch, listOf(DisplayOp.CacheWrite(chunk)), "ATLAS", st.transportName)
         journal.note("atlas", "chunk of ${chunk.size} B submitted as flush $id (${atlasQueue.size} to go)")
         return true
     }
@@ -2172,6 +2181,8 @@ class Shell(
     private var glassesSilent = false
     private var silentGen = 0
     private var silentNoticeShown = false
+    /** Checks made during this sleep (§42) — journaled by count, not one each. */
+    private var silentChecks = 0
     /** The rebuild has been asked for: this session is over the moment the
      *  transport reports the link down, and nothing more is sent or asked. */
     private var restartRequested = false
@@ -2188,6 +2199,7 @@ class Shell(
     private fun enterSilentGlasses(why: String) {
         if (glassesSilent) return
         glassesSilent = true
+        silentChecks = 0
         val gen = ++silentGen
         keyframeFailStreak = 0; flushFailStreak = 0; haltedEpoch = null
         setStatus("glasses silent")
@@ -2221,7 +2233,12 @@ class Shell(
     private fun silentTick(why: String) {
         if (!glassesSilent || restartRequested) return
         if (transport.state.value.glassesSilent) {
-            journal.note("silent", "still silent per the glasses ($why) — waiting for the push or the READ")
+            // §42: the pacing tick is counted, not journaled — ten hours asleep
+            // wrote 600 identical lines. The first check, a ring event and
+            // every hour's worth still land; the wake note carries the count.
+            silentChecks++
+            if (why != "pacing" || silentChecks == 1 || silentChecks % SILENT_CHECKS_PER_NOTE == 0)
+                journal.note("silent", "still silent per the glasses ($why, check $silentChecks) — waiting for the push or the READ")
             return
         }
         val now = System.currentTimeMillis()
@@ -2232,7 +2249,7 @@ class Shell(
 
     private fun wakeGlasses(why: String) {
         if (!glassesSilent || restartRequested) return
-        journal.note("silent", "glasses awake — $why; rebuilding the session (leaving Silent Mode ends the firmware's page)")
+        journal.note("silent", "glasses awake after $silentChecks check(s) — $why; rebuilding the session (leaving Silent Mode ends the firmware's page)")
         Log.i("shell", "the glasses are awake ($why): session rebuild")
         lastRebuildAskMs = System.currentTimeMillis()
         requestRebuild(why)
@@ -3607,6 +3624,9 @@ class Shell(
          *  read by the 60 s device-info poll, so a check between polls would
          *  learn nothing new. */
         const val SILENT_PACING_MS = 60_000L
+        /** One `silent` note per this many pacing checks while asleep (§42): an
+         *  hour at the 60 s pacing. */
+        const val SILENT_CHECKS_PER_NOTE = 60
         const val DIVERGE_EPISODES_MAX = 3
         const val DIVERGE_QUIET_CHECKS = 10
 

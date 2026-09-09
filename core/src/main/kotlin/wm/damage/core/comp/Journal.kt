@@ -51,8 +51,15 @@ class Journal(private val path: Path?) : AutoCloseable {
         val cached: Int = -1, val cacheMiss: String = "")
 
     fun flushSubmitted(id: Long, a: Compositor.Assembled, label: String,
+        via: String = "?", timing: Timing = Timing()) =
+        flushSubmitted(id, a.epoch, a.ops, label, via, timing)
+
+    /** The same line for a flush the compositor did not assemble — an atlas
+     *  chunk (§42: those rode the journal as `atlas` notes only, so the report
+     *  counted them as `via ?` with no label). */
+    fun flushSubmitted(id: Long, epoch: Long, opList: List<DisplayOp>, label: String,
         via: String = "?", timing: Timing = Timing()) {
-        val ops = a.ops.joinToString(",") { op ->
+        val ops = opList.joinToString(",") { op ->
             when (op) {
                 is DisplayOp.Keyframe -> """{"op":"keyframe","bytes":${op.payload.size}}"""
                 is DisplayOp.Delta ->
@@ -67,7 +74,7 @@ class Journal(private val path: Path?) : AutoCloseable {
             }
         }
         val tm = timing
-        write("""{"t":${System.currentTimeMillis()},"ev":"submit","id":$id,"epoch":${a.epoch},"label":${json(label)},""" +
+        write("""{"t":${System.currentTimeMillis()},"ev":"submit","id":$id,"epoch":$epoch,"label":${json(label)},""" +
             """"via":${json(via)},"handleMs":${tm.handleMs},"handlerMs":${tm.handlerMs},"mirrorMs":${tm.mirrorMs},""" +
             """"assembleMs":${tm.assembleMs},"truthMs":${tm.truthMs},"compressMs":${tm.compressMs},"compressN":${tm.compressN},""" +
             """"slidesMs":${tm.slidesMs},"chromeMs":${tm.chromeMs},"overlaysMs":${tm.overlaysMs},"textMs":${tm.textMs},""" +
