@@ -17,6 +17,9 @@ kotlin {
 dependencies {
     api(libs.kotlinx.coroutines.core)
     api(libs.kotlinx.serialization.json)
+    // Feed (FEED.md §2.7): the article extractor parses HTML with jsoup — pure
+    // Java, MIT, runs on Android and the JVM alike
+    implementation(libs.jsoup)
     testImplementation(kotlin("test"))
     testImplementation(libs.junit)
 }

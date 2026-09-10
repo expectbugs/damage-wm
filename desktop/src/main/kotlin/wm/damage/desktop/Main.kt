@@ -52,7 +52,7 @@ import wm.damage.core.windows.reader.ReaderWindow
  * serves `booksDir` + tmux + sync, and a session keeper restarts any running
  * session after every link end. Other entry points:
  *
- *   --selfcheck · --snapshot DIR · --epub-check · --music-check · --games-check [deep]
+ *   --selfcheck · --snapshot DIR · --epub-check · --music-check · --games-check [deep] · --feed-check [live]
  *   --card-render DIR
  *   --host-only · --ble-info
  *
@@ -70,6 +70,8 @@ fun main(args: Array<String>) {
         "--epub-check" in args -> epubCheck(cfg)
         "--music-check" in args -> MusicCheck.run(cfg)
         "--games-check" in args -> GamesCheck.run(cfg, deep = "deep" in args)
+        "--feed-check" in args -> FeedCheck.run(cfg, live = "live" in args,
+            fixtures = Path.of(args.getOrNull(args.indexOf("--feed-check") + 1)?.takeIf { it != "live" } ?: "core/src/test/resources/feed"))
         "--card-render" in args -> CardSheet.run(cfg,
             Path.of(args.getOrNull(args.indexOf("--card-render") + 1) ?: "design/shots/cards"))
         "--snapshot" in args -> Snapshot.run(cfg,
@@ -148,7 +150,22 @@ data class Config(
     val musicAcoustidKey: String = "",
     /** The enrichment package + viz.py (`audio/` in the repo, MUSIC.md §9.5). */
     val musicAudioDir: String = "/home/user/damagewm/audio",
+    /** Feed (FEED.md §3.7, 2026-09-09): the sources (the day-one list when
+     *  absent), the one user agent every fetch carries, and the engine's
+     *  files (empty = `<dataDir>/feed`). Nothing here is a credential. */
+    val feedSources: List<wm.damage.core.windows.feed.SourceCfg> = wm.damage.core.windows.feed.SourceCfg.DEFAULTS,
+    val feedUserAgent: String = "damage-wm/0.1 (personal glasses client)",
+    val feedDataDir: String = "",
 ) {
+    /** The PC-side feed engine (FEED.md §3.6): the configured sources on
+     *  their pacer, articles extracted ahead, strips through AWT. */
+    fun feedEngine(scope: CoroutineScope): wm.damage.core.windows.feed.FeedEngine =
+        wm.damage.core.windows.feed.FeedEngine(
+            feedSources,
+            wm.damage.core.windows.feed.FeedStore(Path.of(feedDataDir.ifEmpty { "$dataDir/feed" })),
+            wm.damage.core.windows.feed.PacedHttp(wm.damage.core.windows.feed.RealFeedHttp(feedUserAgent)),
+            AwtImages(), scope, prefetchArticles = true, engineLabel = "PC")
+
     /** The PC-side music library (MUSIC.md §5): Postgres + Qdrant + the
      *  caches + the media endpoint's resolver. The leaf collaborators
      *  (resolver lanes, lyric sources, yt-dlp, the enrichment package) are
