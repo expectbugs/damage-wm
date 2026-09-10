@@ -54,6 +54,8 @@ interface FeedProvider : AutoCloseable {
 
     /** The phone's fallback engine is serving (FEED.md §3.6) — the root menu's `Back to PC` row. */
     fun fallbackActive(): Boolean = false
+    /** While the fallback serves: how long the PC has been unreachable, or "" once it is back. */
+    fun pcDownLine(): String = ""
     /** The deliberate switchback; a no-op where there is nothing to switch. */
     fun backToPc() {}
 

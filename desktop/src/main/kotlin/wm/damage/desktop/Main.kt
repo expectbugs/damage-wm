@@ -367,14 +367,16 @@ private suspend fun hostOnly(cfg: Config) {
     val themeIcons = ThemeIcons(AwtImages(), Path.of(cfg.dataDir).resolve("icons"))
     val torrents = cfg.torrentsProvider(scope)
     val music = startMusic(cfg, scope)
+    val feed = cfg.feedEngine(scope)
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
         tmux = tmux, sync = wm.damage.core.sync.SyncPeer(store),
         win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider),
-            "torrents" to wm.damage.core.windows.torrents.TorrentsService(torrents)) +
+            "torrents" to wm.damage.core.windows.torrents.TorrentsService(torrents),
+            "feed" to wm.damage.core.windows.feed.FeedService(feed)) +
             (music?.let { mapOf("music" to wm.damage.core.windows.music.MusicService(it)) } ?: emptyMap()),
         icons = themeIcons)
     host.start()
-    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync + files + torrents + music + icons on :${cfg.contentPort}; Ctrl-C to stop")
+    Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync + files + torrents + music + feed + icons on :${cfg.contentPort}; Ctrl-C to stop")
     kotlinx.coroutines.awaitCancellation()
 }
 
@@ -569,7 +571,8 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
         tmux = tmuxProvider, sync = syncPeer,
         win = mapOf("files" to wm.damage.core.windows.files.FilesService(filesProvider),
-            "torrents" to wm.damage.core.windows.torrents.TorrentsService(torrentsProvider)) +
+            "torrents" to wm.damage.core.windows.torrents.TorrentsService(torrentsProvider),
+            "feed" to wm.damage.core.windows.feed.FeedService(feedEngine)) +
             (musicLibrary?.let { mapOf("music" to wm.damage.core.windows.music.MusicService(it)) } ?: emptyMap()),
         icons = themeIcons)
     var hostBound = true

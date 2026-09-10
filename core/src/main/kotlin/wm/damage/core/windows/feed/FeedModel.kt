@@ -62,6 +62,9 @@ data class SourceStatus(
     val bingeTotal: Int = 0,
     /** The newest item's publish stamp — the window's "new since" reference. */
     val newestMs: Long = 0,
+    /** The configured source itself (not for transient ones) — a fallback
+     *  engine adopts the PC's list from these (FEED.md §3.7). */
+    val cfg: SourceCfg? = null,
 )
 
 @Serializable

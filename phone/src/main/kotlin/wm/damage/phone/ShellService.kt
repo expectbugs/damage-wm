@@ -84,6 +84,7 @@ class ShellService : Service() {
     private var tmuxProvider: RemoteTmuxProvider? = null
     private var filesProvider: wm.damage.core.windows.files.RemoteFilesProvider? = null
     private var torrentsProvider: wm.damage.core.windows.torrents.RemoteTorrentsProvider? = null
+    private var feedProvider: wm.damage.core.windows.feed.FeedProvider? = null
     private var musicLibrary: wm.damage.core.windows.music.RemoteMusicLibrary? = null
     private var musicPlayer: wm.damage.phone.music.AndroidMusicPlayer? = null
     private var remoteIcons: RemoteIcons? = null
@@ -274,6 +275,23 @@ class ShellService : Service() {
         // Games is pure Kotlin — no provider, no channel, no `needs`. Its whole
         // world lives in its own synced records (HOLDEM.md §11.1).
         sh.register(wm.damage.core.windows.games.GamesWindow(text, scope))
+        // Feed (2026-09-09, FEED.md §3.6, verdict 15): the PC's engine over the
+        // window channel while it is reachable; the phone's OWN engine — the
+        // same class, parked until needed — takes over after the PC-loss
+        // threshold, and hands back only through the root menu's Back to PC row.
+        // Every source is plain HTTP, so the fallback is complete; the phone
+        // extracts articles on demand instead of ahead (battery).
+        val feedLocal = wm.damage.core.windows.feed.FeedEngine(
+            wm.damage.core.windows.feed.SourceCfg.DEFAULTS,
+            wm.damage.core.windows.feed.FeedStore(dataDir.resolve("feed")),
+            wm.damage.core.windows.feed.PacedHttp(wm.damage.core.windows.feed.RealFeedHttp("damage-wm/0.1 (personal glasses client)")),
+            AndroidImages(), scope, prefetchArticles = false, engineLabel = "phone")
+        feedLocal.pause(true)
+        val feedRemote = wm.damage.core.windows.feed.RemoteFeedProvider(prefs.host, prefs.contentPort, prefs.token, scope)
+        val feedSw = wm.damage.core.windows.feed.SwitchingFeedProvider(feedRemote, feedLocal, scope,
+            onLocalActive = { on -> feedLocal.pause(!on) })
+        feedProvider = feedSw
+        sh.register(wm.damage.core.windows.feed.FeedWindow(text, feedSw, scope))
         val ri = RemoteIcons(prefs.host, prefs.contentPort, prefs.token,
             dataDir.resolve("icons"), scope, onLoaded = { sh.requestRepaint() })
         remoteIcons = ri
@@ -406,6 +424,8 @@ class ShellService : Service() {
         tmuxProvider = null
         try { filesProvider?.close() } catch (e: Exception) { Log.w("service", "files provider close: ${e.message}") }
         try { torrentsProvider?.close() } catch (e: Exception) { Log.w("service", "torrents provider close: ${e.message}") }
+        try { feedProvider?.close() } catch (e: Exception) { Log.w("service", "feed provider close: ${e.message}") }
+        feedProvider = null
         torrentsProvider = null
         try { musicPlayer?.close() } catch (e: Exception) { Log.w("service", "music player close: ${e.message}") }
         musicPlayer = null

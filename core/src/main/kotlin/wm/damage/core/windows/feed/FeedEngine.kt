@@ -59,6 +59,9 @@ class FeedEngine(
     @Volatile private var focusedId: String? = null
     @Volatile private var running = true
     @Volatile private var wake = false
+    /** The phone's fallback engine holds no pacer while the PC serves (FEED.md §3.6). */
+    @Volatile var paused = false
+        private set
     private val loop: Job?
 
     init {
@@ -78,7 +81,7 @@ class FeedEngine(
         while (scope.isActive && running) {
             wake = false
             val now = clock()
-            val due = synchronized(lock) { sources.values.filter { !it.fetching && now >= it.nextDueMs } }
+            val due = if (paused) emptyList() else synchronized(lock) { sources.values.filter { !it.fetching && now >= it.nextDueMs } }
             for (s in due) {
                 s.fetching = true
                 scope.launch(Dispatchers.IO) {
@@ -209,7 +212,22 @@ class FeedEngine(
             id = s.cfg.id, kind = s.cfg.kind, name = s.cfg.name, binge = s.cfg.binge, transient = s.transient,
             count = f.items.size, version = f.version, lastFetchMs = f.lastFetchMs, lastOkMs = f.lastOkMs,
             state = state, bingeTotal = s.bingeTotal, newestMs = f.items.maxOfOrNull { it.publishedMs } ?: 0L,
+            cfg = if (s.transient) null else s.cfg,
         )
+    }
+
+    /** Take on configured sources this engine does not have (the PC's list,
+     *  learned over the channel): the phone's fallback then fetches what the
+     *  PC fetches. Nothing is removed — a source the PC dropped keeps its files
+     *  here until retention empties it. */
+    fun adopt(cfgs: List<SourceCfg>) {
+        var added = 0
+        for (c in cfgs) {
+            if (synchronized(lock) { sources.containsKey(c.id) }) continue
+            add(c, transient = false)
+            added++
+        }
+        if (added > 0) { Log.i("feed", "adopted $added source(s) from the PC's list"); wake = true }
     }
 
     override fun sources(): List<SourceStatus> = synchronized(lock) { sources.values.map { status(it) } }
@@ -445,6 +463,12 @@ class FeedEngine(
         if (!s.transient) return
         synchronized(lock) { sources.remove(sourceId) }
         store.deleteSource(sourceId)
+    }
+
+    /** Park (no fetching, no socket) or resume (fetch what is due at once). */
+    fun pause(on: Boolean) {
+        paused = on
+        if (!on) { synchronized(lock) { for (s in sources.values) s.nextDueMs = 0L }; wake = true }
     }
 
     override fun close() {

@@ -472,6 +472,7 @@ class FeedWindow(
         docWidthKey = -1
         commentLines = emptyList()
         articleImages.clear()          // a width change wants the strips at the new width
+        articleImageFailed.clear()
         bingeSeq++
         val anchor = bingePosNow()
         loaded.clear()
@@ -577,7 +578,8 @@ class FeedWindow(
                 Draw.fit(g, tx, r.x + 72, r.y + 6, "Feed", Level.HEAD, fHead, r.w - 88)
                 val line = dn(stateLine, fBody).ifEmpty {
                     val flagged = reading.values.sumOf { it.flags.size }
-                    "${sources.size} sources · $flagged flagged · tap for the menu" + (if (provider.fallbackActive()) " · phone engine" else "")
+                    "${sources.size} sources · $flagged flagged · tap for the menu" +
+                        (if (provider.fallbackActive()) " · phone engine" + provider.pcDownLine().let { d -> if (d.isEmpty()) " · PC reachable" else " · $d" } else "")
                 }
                 Draw.fit(g, tx, r.x + 72, y2, line, Level.BODY, fBody, r.w - 88)
             }
@@ -601,7 +603,7 @@ class FeedWindow(
         add("Refresh all") { bg.launch(Dispatchers.IO) { try { provider.refresh(null) } catch (e: Exception) { Log.w("feed", "refresh: ${e.message}") } }; setNotice("refreshing") }
         val flagged = reading.values.sumOf { it.flags.size }
         add("Flagged", "$flagged", enabled = flagged > 0) { level = Level_.FLAGGED; flagModel.cursor = 0 }
-        if (provider.fallbackActive()) add("Back to PC", if (stateLine.isEmpty()) "the PC is reachable" else "PC down") {
+        if (provider.fallbackActive()) add("Back to PC", provider.pcDownLine().ifEmpty { "the PC is reachable" }, enabled = provider.pcDownLine().isEmpty()) {
             bg.launch(Dispatchers.IO) { try { provider.backToPc() } catch (e: Exception) { Log.w("feed", "back to PC: ${e.message}") } }
             setNotice("back to the PC engine")
         }
@@ -700,7 +702,17 @@ class FeedWindow(
                     val pend = pendingOpenItemId
                     if (pend != null) {
                         val it = items.firstOrNull { it.id == pend }
-                        if (it != null) { pendingOpenItemId = null; openOne(it) }
+                        if (it != null) {
+                            pendingOpenItemId = null
+                            openOne(it)
+                            // the restored level below the article (§9.1: mode included)
+                            when (restoredLevel) {
+                                Level_.ACTIONS -> openActions()
+                                Level_.COMMENTS -> openComments(it)
+                                else -> {}
+                            }
+                            restoredLevel = null
+                        }
                         else if (items.size < itemsTotal && active) loadItems(items.size)
                         else { pendingOpenItemId = null; setNotice("that item is gone") }
                     }
@@ -831,8 +843,7 @@ class FeedWindow(
     private fun openOne(it: Item) {
         openItem = it
         markRead(it, true)
-        docModel.topLine = pendingDocTop ?: 0
-        pendingDocTop = null
+        docModel.topLine = 0             // a restored position waits in pendingDocTop for the lines to exist
         article = null
         comicPack = null
         articleState = ""
@@ -953,17 +964,17 @@ class FeedWindow(
                 }
                 docWidthKey = -1
                 services?.requestRender(this@FeedWindow)
-                if (a != null && images) for (b in a.blocks) if (b.kind == "img") loadArticleImage(b.url, seq)
             }
         }
     }
 
     private fun loadArticleImage(url: String, seq: Int) {
-        if (url in articleImages || url in articleImageFailed) return
+        if (url in articleImages || url in articleImageFailed || !articleImagePending.add(url)) return
         val w = contentW() - 32
         bg.launch(Dispatchers.IO) {
             val (s, err) = try { provider.image(url, w, comicLevels, LineArt.AUTO) to null } catch (e: Exception) { null to (e.message ?: "image failed") }
             onShell {
+                articleImagePending.remove(url)
                 if (seq != articleSeq) return@onShell
                 if (s == null) articleImageFailed[url] = err ?: "image failed" else articleImages[url] = Strips.unpack(s)
                 relayoutKeepingTop()
@@ -984,11 +995,19 @@ class FeedWindow(
         docModel.topLine = docModel.topLine.coerceIn(0, maxOf(0, docLines.size - 1))
     }
 
+    private val articleImagePending = HashSet<String>()
+
     private fun ensureDocLines() {
         val key = contentW() * 31 + (if (level == Level_.COMIC) 1 else 0)
         if (docWidthKey == key && docLines.isNotEmpty()) return
         docWidthKey = key
         docLines = if (level == Level_.COMIC) comicLines() else articleLines()
+        // images are demanded HERE, on the loop's view() — never from a paint
+        // — and again after a relayout cleared them for the new width
+        val a = article
+        if (level == Level_.ARTICLE && a != null && images) {
+            for (b in a.blocks) if (b.kind == "img" && b.url !in articleImages && b.url !in articleImageFailed) loadArticleImage(b.url, articleSeq)
+        }
         val top = pendingDocTop
         if (top != null && docLines.size > 3) { docModel.topLine = top.coerceIn(0, docLines.size - 1); pendingDocTop = null }
         docModel.topLine = docModel.topLine.coerceIn(0, maxOf(0, docLines.size - 1))

@@ -23,10 +23,6 @@ class ScriptedFeed(
     private val itemsBy = LinkedHashMap<String, ArrayList<Item>>()
     private val cfg = LinkedHashMap<String, SourceCfg>()
     private val transient = HashSet<String>()
-    private val decoder = object : ImageDecoder {
-        override fun decode(bytes: ByteArray): ImageDecoder.Decoded? = null
-    }
-
     private val redditTitles = listOf(
         "My Dad won first place and reserve best of show for his hay at our local county fair",
         "TIL a drinks vendor in Germany cheated a bottle recycling scheme for years",
