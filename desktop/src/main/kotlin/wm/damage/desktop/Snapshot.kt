@@ -100,6 +100,9 @@ object Snapshot {
         // (review 2026-09-05).
         gamesWin.roster.worldSeed = 20260905L
         shell.register(gamesWin)
+        val feedScripted = wm.damage.core.windows.feed.ScriptedFeed()
+        val feedWin = wm.damage.core.windows.feed.FeedWindow(text, feedScripted, scope)
+        shell.register(feedWin)
         /** Open the Games menu row LABELLED [label] — by name, never by counting. */
         suspend fun gamesMenu(label: String) {
             settle(shell, "games-menu-$label")
@@ -566,6 +569,8 @@ object Snapshot {
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
         settle(shell, "games")
 
+        feedScenes(shell, sim, out, feedWin, feedScripted, ::toWindow, ::iconsSettled)
+
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // silent
         settle(shell)
         save(sim, out, "10-silent")
@@ -585,6 +590,79 @@ object Snapshot {
      * progress (review 2026-09-05). 60 s, and anything past 5 s prints what it
      * cost so a genuinely slow scene is visible rather than mysterious.
      */
+
+    /** FEED (`FEED.md` §4): the scenes, split out of `script` — that function
+     *  reached the JVM's 64 KB method limit on 2026-09-09. */
+    private suspend fun feedScenes(shell: Shell, sim: GlassFirmwareSim, out: Path,
+        feedWin: wm.damage.core.windows.feed.FeedWindow, feedScripted: wm.damage.core.windows.feed.ScriptedFeed,
+        toWindow: suspend (String) -> Unit, iconsSettled: suspend () -> Unit) {
+        // ---- Feed (FEED.md, 2026-09-09): the source list, an item list, an
+        // article, a comic and the archive at 480, then the two that matter at 288
+        /** Rest the source cursor on the row NAMED [id] — by identity, never by counting. */
+        suspend fun feedRow(id: String) {
+            for (k in 0 until 10) {
+                settle(shell, "feed-row-$id")
+                if (feedWin.rootRowId() == id) return
+                shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+            }
+            failures.add("could not reach the Feed source row '$id'")
+        }
+        toWindow("feed")
+        waitFor("Feed at its source list") { feedWin.title() == "feed" }
+        feedRow("popular")
+        iconsSettled()
+        save(sim, out, "60-feed-sources")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // popular
+        waitFor("the item list") { feedWin.title() == "popular" && feedWin.levelDepth() == 2 }
+        settle(shell, "feed")
+        save(sim, out, "61-feed-items")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // one tap opens
+        waitFor("the article") { feedWin.title() == "article" && feedScripted.ops.any { it.startsWith("article:") } }
+        settle(shell, "feed")
+        save(sim, out, "62-feed-article")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // actions
+        waitFor("the actions") { feedWin.levelDepth() == 4 }
+        settle(shell, "feed")
+        save(sim, out, "63-feed-actions")
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }
+        waitFor("root") { feedWin.title() == "feed" }
+        feedRow("xkcd")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // xkcd
+        waitFor("xkcd") { feedWin.title() == "xkcd" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the strip") { feedWin.title() == "xkcd 3296" && feedScripted.ops.any { it.startsWith("comic:") } }
+        settle(shell, "feed")
+        save(sim, out, "64-feed-comic")
+        repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }
+        waitFor("root") { feedWin.title() == "feed" }
+        feedRow("8bt")
+        shell.postGesture(EvenHubMsg.EV_CLICK)             // 8-Bit Theater
+        waitFor("the archive") { feedWin.title() == "8bt 1" }
+        settle(shell, "feed")
+        save(sim, out, "65-feed-binge")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+        waitFor("root") { feedWin.title() == "feed" }
+        // the source list and an article at 288 (WINDOWS.md §1: every height)
+        shell.services.runOnShell { feedWin.appSettings().first { it.name == "Size" }.apply("288") }
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)      // → Main (the Size applies on the next focus)
+        settle(shell, "feed")
+        toWindow("feed")
+        waitFor("Feed at 288") { feedWin.title() == "feed" }
+        feedRow("popular")
+        settle(shell, "feed")
+        save(sim, out, "66-feed-sources-288")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("popular at 288") { feedWin.title() == "popular" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        waitFor("the article at 288") { feedWin.title() == "article" }
+        settle(shell, "feed")
+        save(sim, out, "67-feed-article-288")
+        shell.services.runOnShell { feedWin.appSettings().first { it.name == "Size" }.apply("global") }
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }
+        settle(shell, "feed")
+
+    }
+
     private suspend fun settle(shell: Shell, where: String = "?") {
         val t0 = System.currentTimeMillis()
         // 🔴 ONE evaluation decides it. Re-testing `isQuiescent()` after the

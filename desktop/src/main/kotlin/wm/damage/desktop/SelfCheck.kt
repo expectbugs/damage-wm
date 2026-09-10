@@ -252,6 +252,10 @@ object SelfCheck {
         // (review 2026-09-05).
         gamesWin.roster.worldSeed = 20260905L
         shell.register(gamesWin)
+        // Feed (FEED.md): the scripted provider — five sources, articles, strips, the archive
+        val feedScripted = wm.damage.core.windows.feed.ScriptedFeed()
+        val feedWin = wm.damage.core.windows.feed.FeedWindow(text, feedScripted, scope)
+        shell.register(feedWin)
         /** Open the Music menu (from the root) and commit the row LABELLED
          *  [label] — by name, never by counting notches, so a new row cannot
          *  silently move what the harness selects. */
@@ -493,96 +497,7 @@ object SelfCheck {
         shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)
         settle(shell, "main-back-to-reader-row")
 
-        // ---- Torrents (TORRENTS.md, 2026-09-01): transfers → menu → details,
-        // browse → listing → torrent page → add behind its confirm, search
-        // through the §4.8 keyboard, the done edge as a notification
-        repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // Reader → Tmux → Files → Torrents
-        settle(shell, "main-to-torrents-row")
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        awaitTrue("Torrents opens at the transfers list") { torrentsWin.title() == "transfers" }
-        settle(shell, "torrents-transfers")
-        check("the summary reads the scripted session", torrentsWin.summary().line.contains("downloading"))
-        check("the focused pacing was requested on activation", torrentsScripted.ops.any { it.startsWith("focus:true") })
-        val inkTor = Pack.inkFraction(shell.comp.composed)
-        check("Torrents transfers ink <= 15% list budget (was ${"%.1f".format(inkTor * 100)}%)", inkTor <= 0.15)
-        shell.postGesture(EvenHubMsg.EV_CLICK)                          // tap = the transfer menu
-        awaitTrue("tap opens the transfer menu, Details first") { shell.menuIsOpen }
-        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Details at cursor rest
-        awaitTrue("Details opens as a document") { torrentsWin.title() == "details" }
-        settle(shell, "torrents-details")
-        check("details are one level down", torrentsWin.levelDepth() == 2)
-        val inkDet = Pack.inkFraction(shell.comp.composed)
-        check("Torrents details ink <= 25% document budget (was ${"%.1f".format(inkDet * 100)}%)", inkDet <= 0.25)
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // → transfers
-        awaitTrue("back to the transfers") { torrentsWin.title() == "transfers" }
-        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)                     // wrap to the Torrents menu row
-        settle(shell, "torrents-menu-row")
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        awaitTrue("the wrap-end row opens the Torrents menu") { shell.menuIsOpen && shell.menuTitle == "torrents" }
-        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Browse TorrentLeech (row 0)
-        awaitTrue("Browse opens the categories") { torrentsWin.title() == "browse" }
-        settle(shell, "torrents-categories")
-        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Newest
-        awaitTrue("the newest listing loads") {
-            torrentsWin.title() == "newest" && torrentsScripted.ops.any { it.startsWith("browse:0:1") }
-        }
-        settle(shell, "torrents-listing")
-        shell.postGesture(EvenHubMsg.EV_CLICK)                          // the first item → torrent page
-        awaitTrue("the torrent page opens") { torrentsWin.title() == "torrent" }
-        settle(shell, "torrents-page")
-        shell.postGesture(EvenHubMsg.EV_CLICK)                          // tap → add menu
-        awaitTrue("the add menu opens") { shell.menuIsOpen }
-        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Add to qBittorrent
-        awaitTrue("Add stages a confirm") { shell.menuIsOpen && (shell.menuTitle ?: "").startsWith("Add ") }
-        check("nothing was added before the confirm", torrentsScripted.added.isEmpty())
-        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)                  // Cancel → Add
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        awaitTrue("the confirmed add reached the provider") { torrentsScripted.added.contains("241826800:false") }
-        settle(shell, "torrents-added")
-        repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }     // page → listing → categories → transfers
-        awaitTrue("back at the transfers") { torrentsWin.levelDepth() == 1 }   // the title carries the add notice for 4 s
-        settle(shell, "torrents-back")
-        // search through the keyboard: the cursor still rests on the menu row
-        // it left from (the Files ascend rule) → Search → type 'u' → Enter
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        awaitTrue("the Torrents menu again") { shell.menuIsOpen && shell.menuTitle == "torrents" }
-        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)                  // → Search TorrentLeech
-        shell.postGesture(EvenHubMsg.EV_CLICK)
-        awaitTrue("Search opens the keyboard") { shell.keyboardIsOpen }
-        settle(shell, "torrents-keyboard")
-        val inkKb = Pack.inkFraction(shell.comp.composed)
-        check("the keyboard painted (ink ${"%.1f".format(inkKb * 100)}%, wireframe by design)", inkKb in 0.02..0.30)
-        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)                     // home row → qwerty row
-        shell.postGesture(EvenHubMsg.EV_CLICK)                          // enter it on 'q'
-        repeat(6) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → 'u'
-        shell.postGesture(EvenHubMsg.EV_CLICK)                          // types 'u'
-        awaitTrue("the ring typed 'u'") { shell.keyboardDraft() == "u" }
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // KEY → ROW
-        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)                  // → home row
-        shell.postGesture(EvenHubMsg.EV_CLICK)                          // enter on 'a'
-        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)                     // wrap to Enter
-        shell.postGesture(EvenHubMsg.EV_CLICK)                          // commit
-        awaitTrue("Enter runs the search") {
-            !shell.keyboardIsOpen && torrentsScripted.ops.any { it.startsWith("search:u:1") }
-        }
-        awaitTrue("the results list is titled by the query") {
-            torrentsWin.levelDepth() == 2 && torrentsWin.saveState()["listingQuery"]?.jsonPrimitive?.contentOrNull == "u"
-        }
-        settle(shell, "torrents-search")
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // results → transfers
-        awaitTrue("back from the search") { torrentsWin.title() == "transfers" }
-        // the done edge → a notification, deep-linked
-        torrentsScripted.fireDone()
-        awaitTrue("a finished download raises the notification box") { shell.notifications.active }
-        check("the done notice marks the window dirty", torrentsWin.dirty)
-        delay(3_000)
-        settle(shell, "torrents-done-grace")
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // dismiss
-        awaitTrue("the done notice dismisses") { !shell.notifications.active }
-        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // transfers → Main
-        settle(shell, "torrents-to-main")
-        repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_TOP) }      // Main cursor back to Reader
-        settle(shell, "main-back-to-reader-row-2")
+        torrentsChecks(shell, transport, torrentsWin, torrentsScripted)
 
         // ---- Music (MUSIC.md): the NOW PLAYING root (2026-09-03 — the queue
         // became a menu level), browse → artist → play through the set menu,
@@ -706,6 +621,7 @@ object SelfCheck {
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // dismiss
         awaitTrue("the music notice dismisses") { !shell.notifications.active }
         gamesChecks(shell, gamesWin)
+        feedChecks(shell, transport, feedWin, feedScripted)
 
         typeLadderTopEnd(shell, musicWin, musicPlayer) { label -> musicMenu(label) }
 
@@ -897,6 +813,202 @@ object SelfCheck {
      * limit — the compiler says "Method too large" and the build fails, which
      * is at least loud.
      */
+
+    /**
+     * FEED (`FEED.md` §4): the source list, one tap opens, the Document's tap
+     * is the actions level, comments, a comic with its number in the title,
+     * the archive with the keyboard jump, and the new-item notice behind its
+     * own row — over the scripted provider, the truth oracle on every settle.
+     */
+    private suspend fun feedChecks(shell: Shell, transport: SimTransport,
+        feedWin: wm.damage.core.windows.feed.FeedWindow, feedScripted: wm.damage.core.windows.feed.ScriptedFeed) {
+        // ---- Feed (FEED.md, 2026-09-09): the source list, one tap opens, the
+        // Document's tap is the actions level, comments, the flag, a comic, the
+        // archive with the keyboard jump, and the new-item notice behind its row
+        /** Rest the source cursor on the row NAMED [id] — by identity, never by counting. */
+        suspend fun feedRow(id: String) {
+            for (k in 0 until 10) {
+                settle(shell, "feed-row-$id")
+                if (feedWin.rootRowId() == id) return
+                shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+            }
+            failures.add("could not reach the Feed source row '$id'")
+        }
+        toWindow(shell, "feed")
+        awaitTrue("Feed opens at the source list") { feedWin.title() == "feed" }
+        feedRow("popular")
+        settle(shell, "feed-sources")
+        check("Feed's summary is honest before anything is read", feedWin.summary().line == "nothing new" || feedWin.summary().line.endsWith("new"))
+        val inkFeedSources = Pack.inkFraction(shell.comp.composed)
+        check("Feed source list ink <= 15% (was ${"%.1f".format(inkFeedSources * 100)}%)", inkFeedSources <= 0.15)
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // popular
+        awaitTrue("popular opens one level down") { feedWin.title() == "popular" && feedWin.levelDepth() == 2 }
+        settle(shell, "feed-items")
+        val inkFeedItems = Pack.inkFraction(shell.comp.composed)
+        check("Feed item list ink <= 15% (was ${"%.1f".format(inkFeedItems * 100)}%)", inkFeedItems <= 0.15)
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // one tap opens
+        awaitTrue("the article opens") { feedWin.title() == "article" && feedScripted.ops.any { it.startsWith("article:") } }
+        settle(shell, "feed-article")
+        check("one tap opens and marks read", feedWin.saveSubState()["src.popular"] != null)
+        val inkFeedArticle = Pack.inkFraction(shell.comp.composed)
+        check("Feed article ink <= 25% (was ${"%.1f".format(inkFeedArticle * 100)}%)", inkFeedArticle <= 0.25)
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+        settle(shell, "feed-article-scrolled")
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // the Document's tap = actions
+        awaitTrue("the actions level") { feedWin.levelDepth() == 4 }
+        settle(shell, "feed-actions")
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Comments (row 0 for a Reddit post)
+        awaitTrue("comments open") { feedWin.title() == "comments" && feedScripted.ops.any { it.startsWith("comments:") } }
+        settle(shell, "feed-comments")
+        repeat(4) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }     // comments → actions → article → list → root
+        awaitTrue("back at the source list") { feedWin.title() == "feed" }
+        feedRow("xkcd")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("the xkcd list") { feedWin.title() == "xkcd" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("the strip opens with its number") { feedWin.title() == "xkcd 3296" && feedScripted.ops.any { it.startsWith("comic:") } }
+        settle(shell, "feed-comic")
+        check("the strip painted", Pack.inkFraction(shell.comp.composed) > 0.02)
+        repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }     // strip → list → root
+        awaitTrue("root again") { feedWin.title() == "feed" }
+        feedRow("8bt")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("the archive opens at page 1") { feedWin.title() == "8bt 1" }
+        settle(shell, "feed-binge")
+        repeat(12) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }
+        awaitTrue("the next page was demanded") { feedScripted.ops.any { it == "episode:8bt:2" } }
+        settle(shell, "feed-binge-scrolled")
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // binge actions
+        awaitTrue("binge actions") { feedWin.levelDepth() == 3 }
+        settle(shell, "feed-binge-actions")
+        repeat(2) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // Next → Previous → Jump
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("the keyboard asks for a page number") { shell.keyboardIsOpen }
+        settle(shell, "feed-keyboard")
+        transport.injectText("7")                                       // a replica line commits the draft
+        awaitTrue("page 7 opens") { feedWin.title() == "8bt 7" }
+        settle(shell, "feed-binge-7")
+        check("the archive position is a record", feedWin.saveSubState().containsKey("binge.8bt"))
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // → root
+        awaitTrue("root after the archive") { feedWin.title() == "feed" }
+        // the new-item notice: off by default, on behind its own row (verdict 13)
+        feedScripted.fireNew("popular", "Quiet one")
+        delay(500)
+        check("no notice while Notify · Reddit is off", !shell.notifications.active)
+        shell.services.runOnShell { feedWin.appSettings().first { it.name == "Notify · Reddit" }.apply("on") }
+        feedScripted.fireNew("popular", "Loud one")
+        awaitTrue("a new item raises the notification box") { shell.notifications.active }
+        check("the notice marks the window dirty", feedWin.dirty)
+        delay(3_000)
+        settle(shell, "feed-notice-grace")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // dismiss
+        awaitTrue("the notice dismisses") { !shell.notifications.active }
+        toMain(shell)
+    }
+
+
+    /**
+     * TORRENTS (`TORRENTS.md`): transfers → menu → details, browse → listing →
+     * torrent page → add behind its confirm, search through the §4.8 keyboard,
+     * the done edge as a notification. Split out of `script` on 2026-09-09:
+     * that function reached the JVM's 64 KB method limit when the Feed walk
+     * joined it (Games had already been moved out for the same reason).
+     */
+    private suspend fun torrentsChecks(shell: Shell, transport: SimTransport,
+        torrentsWin: wm.damage.core.windows.torrents.TorrentsWindow, torrentsScripted: ScriptedTorrents) {
+        // ---- Torrents (TORRENTS.md, 2026-09-01): transfers → menu → details,
+        // browse → listing → torrent page → add behind its confirm, search
+        // through the §4.8 keyboard, the done edge as a notification
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // Reader → Tmux → Files → Torrents
+        settle(shell, "main-to-torrents-row")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("Torrents opens at the transfers list") { torrentsWin.title() == "transfers" }
+        settle(shell, "torrents-transfers")
+        check("the summary reads the scripted session", torrentsWin.summary().line.contains("downloading"))
+        check("the focused pacing was requested on activation", torrentsScripted.ops.any { it.startsWith("focus:true") })
+        val inkTor = Pack.inkFraction(shell.comp.composed)
+        check("Torrents transfers ink <= 15% list budget (was ${"%.1f".format(inkTor * 100)}%)", inkTor <= 0.15)
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // tap = the transfer menu
+        awaitTrue("tap opens the transfer menu, Details first") { shell.menuIsOpen }
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Details at cursor rest
+        awaitTrue("Details opens as a document") { torrentsWin.title() == "details" }
+        settle(shell, "torrents-details")
+        check("details are one level down", torrentsWin.levelDepth() == 2)
+        val inkDet = Pack.inkFraction(shell.comp.composed)
+        check("Torrents details ink <= 25% document budget (was ${"%.1f".format(inkDet * 100)}%)", inkDet <= 0.25)
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // → transfers
+        awaitTrue("back to the transfers") { torrentsWin.title() == "transfers" }
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)                     // wrap to the Torrents menu row
+        settle(shell, "torrents-menu-row")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("the wrap-end row opens the Torrents menu") { shell.menuIsOpen && shell.menuTitle == "torrents" }
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Browse TorrentLeech (row 0)
+        awaitTrue("Browse opens the categories") { torrentsWin.title() == "browse" }
+        settle(shell, "torrents-categories")
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Newest
+        awaitTrue("the newest listing loads") {
+            torrentsWin.title() == "newest" && torrentsScripted.ops.any { it.startsWith("browse:0:1") }
+        }
+        settle(shell, "torrents-listing")
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // the first item → torrent page
+        awaitTrue("the torrent page opens") { torrentsWin.title() == "torrent" }
+        settle(shell, "torrents-page")
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // tap → add menu
+        awaitTrue("the add menu opens") { shell.menuIsOpen }
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // Add to qBittorrent
+        awaitTrue("Add stages a confirm") { shell.menuIsOpen && (shell.menuTitle ?: "").startsWith("Add ") }
+        check("nothing was added before the confirm", torrentsScripted.added.isEmpty())
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)                  // Cancel → Add
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("the confirmed add reached the provider") { torrentsScripted.added.contains("241826800:false") }
+        settle(shell, "torrents-added")
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }     // page → listing → categories → transfers
+        awaitTrue("back at the transfers") { torrentsWin.levelDepth() == 1 }   // the title carries the add notice for 4 s
+        settle(shell, "torrents-back")
+        // search through the keyboard: the cursor still rests on the menu row
+        // it left from (the Files ascend rule) → Search → type 'u' → Enter
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("the Torrents menu again") { shell.menuIsOpen && shell.menuTitle == "torrents" }
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)                  // → Search TorrentLeech
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("Search opens the keyboard") { shell.keyboardIsOpen }
+        settle(shell, "torrents-keyboard")
+        val inkKb = Pack.inkFraction(shell.comp.composed)
+        check("the keyboard painted (ink ${"%.1f".format(inkKb * 100)}%, wireframe by design)", inkKb in 0.02..0.30)
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)                     // home row → qwerty row
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // enter it on 'q'
+        repeat(6) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM) }   // → 'u'
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // types 'u'
+        awaitTrue("the ring typed 'u'") { shell.keyboardDraft() == "u" }
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // KEY → ROW
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)                  // → home row
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // enter on 'a'
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)                     // wrap to Enter
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // commit
+        awaitTrue("Enter runs the search") {
+            !shell.keyboardIsOpen && torrentsScripted.ops.any { it.startsWith("search:u:1") }
+        }
+        awaitTrue("the results list is titled by the query") {
+            torrentsWin.levelDepth() == 2 && torrentsWin.saveState()["listingQuery"]?.jsonPrimitive?.contentOrNull == "u"
+        }
+        settle(shell, "torrents-search")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // results → transfers
+        awaitTrue("back from the search") { torrentsWin.title() == "transfers" }
+        // the done edge → a notification, deep-linked
+        torrentsScripted.fireDone()
+        awaitTrue("a finished download raises the notification box") { shell.notifications.active }
+        check("the done notice marks the window dirty", torrentsWin.dirty)
+        delay(3_000)
+        settle(shell, "torrents-done-grace")
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // dismiss
+        awaitTrue("the done notice dismisses") { !shell.notifications.active }
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)                   // transfers → Main
+        settle(shell, "torrents-to-main")
+        repeat(3) { shell.postGesture(EvenHubMsg.EV_SCROLL_TOP) }      // Main cursor back to Reader
+        settle(shell, "main-back-to-reader-row-2")
+
+    }
+
     private suspend fun gamesChecks(shell: Shell, gamesWin: wm.damage.core.windows.games.GamesWindow) {
         // Walk Main by COMMITTING and checking, never by counting rows: the
         // row order is the registration order and one new window shifts every
@@ -982,6 +1094,7 @@ object SelfCheck {
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
         settle(shell, "games-standings")
         toMain(shell)
+
 
     }
 

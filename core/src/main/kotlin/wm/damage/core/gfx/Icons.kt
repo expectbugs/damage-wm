@@ -10,7 +10,7 @@ import kotlin.math.sin
  * Drawing rules (§2.4 rule 9, also the compression rules): thick strokes,
  * closed forms, no hairlines, few levels, solid fills.
  */
-enum class IconKind { TERMINAL, CALENDAR, MUSIC, TIMER, SMS, READER, FILES, NOTICES, SCOUT, SETTINGS, MAIL, TORRENTS, GAMES }
+enum class IconKind { TERMINAL, CALENDAR, MUSIC, TIMER, SMS, READER, FILES, NOTICES, SCOUT, SETTINGS, MAIL, TORRENTS, GAMES, FEED }
 
 object Icons {
     private const val BG = 0
@@ -278,6 +278,27 @@ object Icons {
                 s.fillPolygon(
                     intArrayOf(x + w - cw / 2, x + w - t, x + w - cw / 2, x + w - cw + t),
                     intArrayOf(y + t * 2, y + ch / 2, y + ch - t * 2, y + ch / 2), lv)
+            }
+            IconKind.FEED -> {
+                // the rss mark: a dot in the lower-left corner and two quarter
+                // arcs opening up and to the right — closed forms, thick
+                // strokes (§2.4 r9); reads at 20 px and 56 px alike (FEED.md §3).
+                // Drawn as dabs along the arc so nothing lands outside the box.
+                val d = maxOf(3, h / 4)
+                val cx = x + d / 2
+                val cy = y + h - d / 2
+                val reach = minOf(w, h) - d / 2 - 1
+                s.fillEllipse(x, y + h - d, d, d, lv)
+                for (r in intArrayOf(reach * 9 / 16, reach)) {
+                    var a = 0
+                    while (a <= 90) {
+                        val rad = Math.toRadians(a.toDouble())
+                        val px = cx + (r * cos(rad)).toInt()
+                        val py = cy - (r * sin(rad)).toInt()
+                        s.fillRect(px - t / 2, py - t / 2, t, t, lv)
+                        a += 2
+                    }
+                }
             }
             IconKind.MAIL -> {
                 s.fillRect(x, y, w, h, lv)

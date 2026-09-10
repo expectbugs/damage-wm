@@ -31,7 +31,7 @@ class FeedEngine(
     private val decoder: ImageDecoder?,
     private val scope: CoroutineScope,
     /** Feeds' cadence (the `Fetch` row); comics check hourly regardless (verdict 11). */
-    private val fetchMs: () -> Long = { 15 * 60_000L },
+    fetchMs: Long = 15 * 60_000L,
     private val comicsMs: Long = 3_600_000L,
     /** The PC extracts the newest articles ahead of a tap; the phone on demand only (battery). */
     private val prefetchArticles: Boolean = true,
@@ -52,6 +52,7 @@ class FeedEngine(
         @Volatile var bingeTotal = 0
     }
 
+    @Volatile private var fetchMs: Long = fetchMs
     private val sources = LinkedHashMap<String, SourceState>()
     private val lock = Any()
     private val listeners = CopyOnWriteArrayList<FeedProvider.Listener>()
@@ -100,9 +101,9 @@ class FeedEngine(
 
     private fun interval(cfg: SourceCfg): Long = when (cfg.kind) {
         SourceKind.XKCD, SourceKind.SMBC -> comicsMs
-        SourceKind.RSS -> if (cfg.image) comicsMs else fetchMs()
+        SourceKind.RSS -> if (cfg.image) comicsMs else fetchMs
         SourceKind.EIGHTBIT -> 7L * 86_400_000
-        else -> fetchMs()
+        else -> fetchMs
     }
 
     private fun fetchSource(s: SourceState) {
@@ -418,6 +419,25 @@ class FeedEngine(
         s.nextDueMs = 0L
         wake = true
         return status(s)
+    }
+
+    override fun image(url: String, width: Int, levels: Int, mode: LineArt): Strip =
+        stripFor(url, null, width, levels, mode)
+
+    override fun articleByUrl(url: String, title: String): Article {
+        val key = "url:" + FeedStore.imageKey(url)
+        store.loadArticle(key)?.let { return it }
+        val r = http.get(url)
+        val blocks = if (r.status == 200 && isHtml(r)) Extract.article(r.text(), url) else emptyList()
+        val a = if (blocks.isEmpty()) Article(key, title, listOf(Block("p", "could not extract this page (HTTP ${r.status})")), extracted = false, note = "could not extract")
+            else Article(key, title, blocks, extracted = true)
+        if (a.extracted) store.saveArticle(a)
+        return a
+    }
+
+    override fun configure(fetchMs: Long, keepMs: Long, pcLossMs: Long) {
+        this.fetchMs = fetchMs.coerceAtLeast(60_000L)
+        store.keepMs = keepMs.coerceAtLeast(86_400_000L)
     }
 
     override fun forget(sourceId: String) {

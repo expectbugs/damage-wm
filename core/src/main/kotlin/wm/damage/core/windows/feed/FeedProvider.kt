@@ -43,5 +43,19 @@ interface FeedProvider : AutoCloseable {
     /** Drop a transient source (an unpin). */
     fun forget(sourceId: String)
 
+    /** An article image (or any image by URL) as a strip — the engine's cache applies. */
+    fun image(url: String, width: Int, levels: Int, mode: LineArt): Strip
+    /** An article for a URL the engine no longer lists (a flagged item that retention pruned). */
+    fun articleByUrl(url: String, title: String): Article
+    /** The Settings rows that belong below the window (verdicts 11–12 and the
+     *  `PC loss` threshold): feeds' cadence, retention, the sustained-loss
+     *  threshold a switching provider acts on. */
+    fun configure(fetchMs: Long, keepMs: Long, pcLossMs: Long)
+
+    /** The phone's fallback engine is serving (FEED.md §3.6) — the root menu's `Back to PC` row. */
+    fun fallbackActive(): Boolean = false
+    /** The deliberate switchback; a no-op where there is nothing to switch. */
+    fun backToPc() {}
+
     override fun close() {}
 }

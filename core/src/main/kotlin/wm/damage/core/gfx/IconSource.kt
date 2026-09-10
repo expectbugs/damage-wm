@@ -44,6 +44,16 @@ object IconNames {
         IconKind.SCOUT -> listOf("system-search")
         IconKind.TORRENTS -> listOf("qbittorrent", "transmission", "deluge", "network-transmit-receive", "folder-download")
         IconKind.GAMES -> listOf("applications-games", "gnome-aisleriot", "games-config-board", "input-gaming")
+        // Feed (FEED.md §3): every name is in Papirus-Dark on beardos (checked 2026-09-09)
+        IconKind.FEED -> listOf("application-rss", "feedreader", "internet-feed-reader", "internet-news-reader", "com.gitlab.newsflash")
+    }
+
+    /** Per-source icons for the Feed window's rows: the site's own where the
+     *  theme carries it, the generic feed mark otherwise. */
+    fun forFeedSource(kind: wm.damage.core.windows.feed.SourceKind): List<String> = when (kind) {
+        wm.damage.core.windows.feed.SourceKind.REDDIT -> listOf("reddit", "com.reddit", "internet-news-reader") + forKind(IconKind.FEED)
+        wm.damage.core.windows.feed.SourceKind.SLASHDOT -> listOf("internet-news-reader") + forKind(IconKind.FEED)
+        else -> listOf("opencomic", "org.kde.plasma.comic") + forKind(IconKind.FEED)
     }
 
     /** Extension → mimetype-icon fallback chain for file rows ("like a real

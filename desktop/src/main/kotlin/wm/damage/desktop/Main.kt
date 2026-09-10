@@ -409,6 +409,9 @@ class DesktopStack(
     /** The process-wide music library (MUSIC.md) — the local window mirrors
      *  the phone's player over the synced record; null in tools. */
     private val music: wm.damage.core.windows.music.MusicLibrary? = null,
+    /** The process-wide feed engine (FEED.md §3.6) — the local window reads
+     *  it directly; the phone reads it over the window channel. Null in tools. */
+    private val feed: wm.damage.core.windows.feed.FeedProvider? = null,
 ) {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private fun ble(): Transport = BlueZTransport(BlueZDbus(), scope,
@@ -450,6 +453,8 @@ class DesktopStack(
         // Games (HOLDEM.md): pure Kotlin, no host — the first window in this
         // system that needs nothing outside itself
         shell.register(wm.damage.core.windows.games.GamesWindow(text, scope))
+        // Feed (FEED.md): the PC's engine, read directly
+        feed?.let { feedWindow = wm.damage.core.windows.feed.FeedWindow(text, it, scope).also(shell::register) }
         shell.hostSettings = listOf(
             HostSetting("Target", MODES, current = { mode }, apply = { v -> onSwitch(v) }),
         )
@@ -463,6 +468,8 @@ class DesktopStack(
 
     private var musicWindow: wm.damage.core.windows.music.MusicWindow? = null
 
+    private var feedWindow: wm.damage.core.windows.feed.FeedWindow? = null
+
     fun start() = keeper.start()
 
     suspend fun stop() {
@@ -475,6 +482,7 @@ class DesktopStack(
                 tmuxWindow?.detach()
                 torrentsWindow?.detach()   // a leaked listener fed a dead shell's queue every poll (P1)
                 musicWindow?.detach()
+                feedWindow?.detach()
             } finally {
                 // and the stack's own resources go the same way (R3-K3): its
                 // coroutines, and the BlueZ handler on the process-wide bus
@@ -553,6 +561,10 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     // + the media endpoint on :mediaPort; the local shell's window mirrors
     // the phone's player, the phone's library rides the win channel
     val musicLibrary = startMusic(cfg, tmuxScope)
+    // The process-wide feed engine (FEED.md §3.6): the configured sources on
+    // their pacer, articles ahead, strips through AWT; the local window reads
+    // it directly and the phone through the window channel
+    val feedEngine = cfg.feedEngine(tmuxScope)
 
     val host = ContentHostServer(LocalContent(Path.of(cfg.booksDir)), cfg.contentPort, cfg.token,
         tmux = tmuxProvider, sync = syncPeer,
@@ -617,7 +629,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     }
     build = { m -> DesktopStack(cfg, m, remoteHost, text, onStatus = { keeperStatus.set(it) },
         onSwitch = { switchTo(it) }, tmux = tmuxProvider, sharedStore = store,
-        files = filesProvider, themeIcons = themeIcons, torrents = torrentsProvider, music = musicLibrary) }
+        files = filesProvider, themeIcons = themeIcons, torrents = torrentsProvider, music = musicLibrary, feed = feedEngine) }
 
     if (mode != "auto") {
         val first = build(mode)
