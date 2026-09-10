@@ -108,12 +108,14 @@ is converting G2CC apps to DamageWM windows, one at a time**: Adam's per-window 
 verdicts first, then build against the `DamageWindow` contract
 (`core/…/shell/WindowContract.kt`) per the **`WINDOWS.md`** checklist, reading the G2CC
 original for interaction facts only (`/home/user/G2CC/server/src/windows/`, read-only) and
-`DESIGN.md` §4.6 for the mode contract. **Reader, Tmux, Files, Torrents, Music and Games are the worked
+`DESIGN.md` §4.6 for the mode contract. **Reader, Tmux, Files, Torrents, Music, Games and Feed are the worked
 precedents** — Files and Torrents for MenuSurface and the window channel, Torrents for the §4.8
 keyboard, Music (`MUSIC.md`, built 2026-09-01/02) for a two-host contract, the channel's push
 frames and the §4.9 exclusive mode, Games (`HOLDEM.md`, built 2026-09-04) for a window with **no
 host at all** — pure Kotlin, a CanvasView, its own stereo planes, and a reusable kit under
-`windows/games/kit/` that no later card game should have to rebuild. Two of Adam's rules since Torrents bind every window: **built whole to its best state
+`windows/games/kit/` that no later card game should have to rebuild — and Feed (`FEED.md`,
+built 2026-09-09) for a fetch engine that lives in core and runs on BOTH hosts, the phone's as a
+fallback that switches only one way by itself, and a canvas with its own button bar. Two of Adam's rules since Torrents bind every window: **built whole to its best state
 before the next — no v1/v1.5 staging**; and **each app's notification toggles live in its own
 Settings category, never Global** (`WINDOWS.md` §1; Global keeps only the WM's own `Notify ·
 Damage` and the APK-wide `Phone notifications` switch, and the shell never gates an app's

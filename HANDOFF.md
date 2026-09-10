@@ -3786,7 +3786,7 @@ ran M1–M5 with the battery green after each.
   of 4 runs, the snapshot 3 of 5, and one snapshot of "the archive" was the Reader library. Both
   harnesses now wait on `FeedWindow.itemsLoaded()` before any click on a list (`WINDOWS.md` §5).
 
-### 43.5 The first evening on glass — five findings, fixed the same night
+### 43.4 The first evening on glass — five findings, fixed the same night (`fa3747d`)
 
 Adam installed 0.42 and came back with five things (`FEED.md` §8.2 has each with its
 mechanism): Reddit posts that carry a body showed none of it (the builder kept it only for
@@ -3799,15 +3799,48 @@ after all — 100 of 176 on a big story, the rest by id through the `comments_fe
 20 px where the Reader uses 17 (17 now, the per-app `Font size` row scales it); and comics that
 wanted xkcd's own bar — `next · prev · random · first · latest · menu` under the strip on a
 canvas, a tap pressing the highlighted button, one notch up from the top wrapping onto the bar,
-xkcd flipping by number through its whole archive.
+xkcd flipping by number through its whole archive. The first canvas painted over the list it
+replaced; the snapshot showed it, no check did — a canvas clears its rect first now, and
+`WINDOWS.md` §5 carries the trap. Live that night: a 176-comment thread through as 100
+threaded comments; a story behind the NYT's 403 falling back to the summary with the reason.
 
-### 43.4 What waits
+### 43.5 The state at the end of the session (2026-09-09, ~23:00)
 
-- **The walk on glass** (`FEED.md` §8.1): install 0.42, `tools/glassdrive.py` through every level
-  (one step per snap around Mark all read), `journal_report.py`'s per-gesture rows into the
-  table, and Adam's verdicts on the strips at 16 levels versus 4 on the real panel.
-- **Adam's own sources** in `config.json` (`feedSources`) beyond the day-one five, and the
-  `Notify` rows he wants on.
-- The **phone fallback on a real PC loss** — the switch is tested over a loopback host, not yet
-  over Tailscale with the service down.
+- **Tree:** `main` at `fa3747d`, pushed; clean.
+- **Service:** beardos runs the same core (`~/.damage/damage.jar` staged 22:51, `damage`
+  restarted); it fetches the five sources into `~/.damage/feed/`, has the 1,218-page archive
+  indexed, and serves `feed` on the content port — the phone attached to that channel on
+  0.42.
+- **Phone:** **0.42 installed** (the build Adam walked); **0.43 staged** (`~/.damage/damage-wm.apk`,
+  the setup page) with the window-side fixes — the font size and the comic bar need it; the
+  post text, the source articles and the Slashdot threads reach 0.42 already, they come from
+  the PC's engine.
+- **Battery:** core 521 · desktop 12 · selfcheck 230 checks (3 of 3 on `fa3747d`) · snapshot
+  57 scenes (2 of 2) · `--feed-check` fixtures + live · epub · music · games · lint 0.
+- **Not measured:** everything in `FEED.md` §2.6 and §3.8 is modeled; no journal has been read
+  with Feed in it.
 
+### 43.6 Where the next session picks up (the polish session)
+
+The build is whole; what remains is polish against Adam's eye and the measured numbers.
+
+1. **Read** `REMINDER.md` → this section → `FEED.md` §1 (the verdicts stand), §8 (what runs and
+   its known limits, §8.3 numbered) → `WINDOWS.md` §5–§6 → `IMPLEMENTATION.md` "Feed".
+2. **Confirm what is installed** (Adam says; the journal's `build` field says): 0.43 is the
+   first build with the bar and the 17 px text.
+3. **The measured walk first, before any change** (`FEED.md` §8.4): `tools/glassdrive.py`
+   through every level, one step per snap around Mark all read; `tools/journal_report.py`'s
+   per-gesture rows into `FEED.md` §3.8; the comic canvas is the case to watch (a highlight move,
+   a pan, a flip). Then Adam's verdicts on 16 versus 4 gray levels for 8-Bit Theater, on the
+   bar's feel, and on the text size now.
+4. **Then `FEED.md` §8.3 in its order**, each item priced before it is built: the Reddit
+   comments pace (item 1, the one a reader meets first), the honest line for a Slashdot page
+   without its tree (3), the by-number restore (6); ask Adam before an SMBC archive (5) or a
+   bar on the 8-Bit archive (7); one deliberate fallback try with the service stopped (8).
+5. **The battery after every change** (`CLAUDE.md`): the APK build in its own gradle call;
+   every harness more than once; look at every canvas scene.
+6. **Do not** re-open the verdicts of `FEED.md` §1, re-probe Slashdot's `comments.pl`, re-pitch
+   a headless browser, HN, YouTube, Open on PC, a Reddit login, or manga.
+
+After Feed, the next window is Adam's pick from `EXPLOSION.md` §20: Mail (#6), SMS (#7, with
+the caller-ID source), Info (#8), Notices (#9).

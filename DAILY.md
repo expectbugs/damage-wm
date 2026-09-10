@@ -87,10 +87,19 @@ runs every read-only probe against the real database and computes one viz blob.
   by itself — the root menu's `Back to PC` row does. Its files live in the app's own storage.
 - **Reddit is paced to one request a minute** (it answers bursts with 429s); a typed subreddit
   right after a fetch says `reddit.com rate-limited · retry N s` on the source's lens.
+- **Slashdot comments come from the story page** (it renders the top of the thread; the rest
+  by id through its `ajax.pl`). A story that shows `no comments yet` while the feed counts some
+  came without its tree — the one thing about Slashdot that is not understood (`FEED.md` §8.2
+  item 3, grade S); note the time and the story if you see it.
+- **Reddit comments opened within a minute of the feed's own fetch wait out the pace** and say
+  so on the title (`FEED.md` §8.3 item 1) — the first polish item.
+- **Comics:** the bar under a strip (`next · prev · random · first · latest · menu`) — a
+  notch up from the top lands on it, a tap presses; xkcd flips through its whole archive by
+  number. `Settings → Feed → Comic levels` (16 / 8 / 4) is the byte knob for 8-Bit Theater.
 - **Checks:** `bin/damage --feed-check` (offline, the captured fixtures) and
   `bin/damage --feed-check live` (one paced fetch per configured source, read-only, a temp
   directory deleted after — about a minute: xkcd walks 30 numbers a second apart, the archive
-  index is 14 pages).
+  index is 14 pages; it also pulls one Slashdot story's source article and thread).
 
 ## Ops crib
 

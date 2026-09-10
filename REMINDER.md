@@ -2,9 +2,10 @@
 
 **This file is the entry point for a fresh session.** It says what is true now, what the next
 session does, and where the records are. History lives in `HANDOFF.md` (§1–§42); this file only
-points at it. Read in this order: `CLAUDE.md` → this file → `HANDOFF.md` §42 (the two journals
-read, what 0.41 fixed, the two open mysteries with their candidate explanations) → §41 (the cache
-on every plane, the depth ladder) → the sections they cite.
+points at it. Read in this order: `CLAUDE.md` → this file → `HANDOFF.md` §43 (Feed: designed,
+built, on glass and fixed in one day; §43.6 is the resume protocol for its polish) → §42 (the two
+journals read, what 0.41 fixed, the two open link mysteries) → §41 (the cache on every plane, the
+depth ladder) → the sections they cite.
 
 ## Where we are (2026-09-09)
 
@@ -12,12 +13,14 @@ on every plane, the depth ladder) → the sections they cite.
   `EVENCFW/`, never the version). The **phone APK drives** — radio and shell — and the OpenRC
   `damage` service on beardos is the data host and standby (`HANDOFF.md` §19, `DAILY.md`).
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games · **Feed**
-  (2026-09-09, `FEED.md` — designed and built in one session, not yet on glass).
-- **Builds:** APK **0.40 installed** (2026-09-09; Adam: *"significantly faster and more
-  responsive"*); **0.43 staged** (`~/.damage/damage-wm.apk`, the setup page) = 0.41's §42
-  fixes (the page traffic sleeps with the glasses, no lease release after a link loss, the
-  keeper in the journal, `/log`) **plus the Feed window** (`HANDOFF.md` §43, the evening's five fixes in §43.5); the service runs
-  the same core and serves `feed` on the content port.
+  (2026-09-09, `FEED.md` — designed, built, walked by Adam on glass and its five findings fixed,
+  all in one day; the polish session is next, `HANDOFF.md` §43.6).
+- **Builds:** APK **0.42 installed** (2026-09-09 evening — the Feed build Adam walked; it
+  carries 0.41's §42 fixes: the page traffic sleeps with the glasses, no lease release after a
+  link loss, the keeper in the journal, `/log`); **0.43 staged** (`~/.damage/damage-wm.apk`, the
+  setup page) = the evening's Feed fixes (`HANDOFF.md` §43.4: the comic bar and the 17 px text
+  need it; the post text, source articles and Slashdot threads come from the PC and reach 0.42
+  already). The service runs the same core as 0.43 and serves `feed` on the content port.
 - **Battery at HEAD:** core **521** · desktop **12** · `--selfcheck`
   (230 checks, the truth oracle on every settle, the Feed walk included; run ×3 — it is a rate) ·
   snapshots (57, eight of them Feed) · `--epub-check` · `--music-check` · `--games-check` ·
@@ -41,11 +44,16 @@ flush: handle 17 ms median / 66 p90.
 
 ## 🔴 The next session
 
-0. **Feed on glass** (`FEED.md` §8.1, `HANDOFF.md` §43.4): 0.43 installed (0.42's evening → §43.5) → the walk with
-   `tools/glassdrive.py` through every Feed level (one step per snap around Mark all read; the
-   strips at 16 levels and at 4 are the judgment Adam owes), `journal_report.py`'s per-gesture
-   rows into `FEED.md` §3.8's table, his `feedSources` beyond the day-one five, and the phone
-   fallback tried once with the service stopped.
+0. **Feed polish — `HANDOFF.md` §43.6 is the protocol, `FEED.md` §8.3 the numbered list.**
+   In order: confirm 0.43 is installed; **the measured walk before any change** (`FEED.md`
+   §8.4: `tools/glassdrive.py` through every level, one step per snap around Mark all read,
+   `journal_report.py`'s per-gesture rows into `FEED.md` §3.8; the comic canvas is the case to
+   watch); Adam's verdicts (16 vs 4 gray levels for 8-Bit Theater, the bar's feel, the text
+   size); then §8.3 by number — the Reddit comments pace first (a comments fetch inside a
+   minute of the listing's waits out the pace), the honest line for a Slashdot page that came
+   without its tree, the by-number restore; ask before an SMBC archive or a bar on the 8-Bit
+   archive; one deliberate fallback try with the service stopped; his `feedSources` beyond the
+   day-one five. Never re-open `FEED.md` §1's verdicts.
 1. **Read the 0.41 journal and `/log` after Adam's first day on it** — the two things §42 could
    not explain are instrumented now: the **arm rebuilds** (a `supervision timeout` on
    alternating arms every ~50 min, 41 in 2.5 days; §42.2 lists ten candidates and the cheap
@@ -159,10 +167,10 @@ is fetched, not moved — a pull breaks `research/verify_cfw.py`'s 2.2.6.10 pins
 - **On-glass verdicts** still owed for Torrents and the keyboard, Files (menus, viewers, the
   thumbnail lens, theme icons), Games (`HOLDEM.md` §17.4), Music (the one-time grants —
   `DAILY.md` — and the on-phone items).
-- **Feed + comics is BUILT (2026-09-09, `FEED.md` §8, `HANDOFF.md` §43) — its on-glass walk is
-  item 0 above.** The next window after it is Adam's pick from `EXPLOSION.md` §20: Mail (#6),
-  SMS (#7, with the caller-ID source), Info (#8), Notices (#9). `WINDOWS.md` is the checklist
-  (seven precedents now) and §6 the latency bar.
+- **Feed + comics is BUILT and on glass (2026-09-09, `FEED.md` §8, `HANDOFF.md` §43) — its
+  polish is item 0 above.** The next window after it is Adam's pick from `EXPLOSION.md` §20:
+  Mail (#6), SMS (#7, with the caller-ID source), Info (#8), Notices (#9). `WINDOWS.md` is the
+  checklist (seven precedents now) and §6 the latency bar.
 - **The Reader transitional cleanup**: remove the legacy-offsets dual-write in `ReaderWindow`
   (fields marked; `SubstrateTest`'s migration pin goes with it).
 - **The icon-quality pass**: one drawn icon per app at 20 px + 56 px (the release path).

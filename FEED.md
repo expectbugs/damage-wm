@@ -221,10 +221,13 @@ SOURCES (List, root) ─tap─▶ ITEMS (List, one source) ─tap─▶ ARTICLE 
 - **COMMENTS** (Document, Fira Sans): author · age on a `DIM` line, the comment text wrapped
   under it, entries separated by spacing (no rules, no boxes — §4.2). Fetched on demand, cached
   15 min, the same loading/failure discipline as the article.
-- **COMIC** (Document): the strip fit to 596 (never upscaled), inverted per §3.4, quantized per
-  `Comic levels`, cut into 32 px strips; the title line above it; xkcd's alt text and SMBC's
-  hovertext wrapped under it in Alegreya; SMBC's bonus panel under that. A strip taller than
-  the content scrolls like a page. Tap → item ACTIONS (Flag · Mark unread · Next · Back).
+- **COMIC** (as designed: a Document; **as built, §8.2 item 5: a CANVAS**): the strip fit to the
+  document column (never upscaled), inverted per §3.4, quantized per `Comic levels`, cut into
+  32 px strips; the title line above it; xkcd's alt text and SMBC's hovertext wrapped under it in
+  Alegreya; SMBC's bonus panel under that; and a bar of six buttons at the bottom — `next · prev
+  · random · first · latest · menu` — the ring moving the highlight, a tap pressing. A strip
+  that fits above the bar rests on it; a taller one pans, and one notch up from the top wraps
+  onto the bar. `menu` → item ACTIONS (Flag · Mark unread · Back to strip).
 - **BINGE** (Document, endless — the 8-Bit Theater row): one virtual document, episode after
   episode: an episode line (`HEAD`: `Episode 412 · <title>`), the strip, the next episode line,
   the next strip. The engine pre-scales the next two episodes; scrolling within a screen of the
@@ -253,7 +256,7 @@ cover 288 and 480 for the source list, an item list, an article, a comic and the
 |---|---|---|---|
 | Size | global · 288 · 352 · 416 · 480 | global | the standard row |
 | Images | on · off | on | verdict 7; article images only — comics are always drawn |
-| Line art | auto · never · always | auto | verdict 8; `always` is per-source in effect: the override is exposed as one row per comic source (`xkcd art`, `SMBC art`, `8-Bit art`), each auto/never/always |
+| xkcd art · SMBC art · 8-Bit art | auto · never · always | auto | verdict 8, one row per comic source (no global row — as built, §8.1); article images always follow the automatic rule |
 | Comic levels | 16 · 8 · 4 | 16 | verdict 10; a change re-derives strips from the cached source image, never a refetch |
 | Fetch | 5 min · 15 min · 30 min · 60 min | 15 min | feeds; comics check hourly regardless |
 | Keep | 7 d · 30 d · 90 d | 30 d | with the 500-per-source cap |
@@ -399,7 +402,7 @@ under ~250 ms at the median. Targets per gesture, to be measured with `tools/gla
 - **The live walk** before the round is called done (`HANDOFF.md` §33): every level on glass
   through `glassdrive.py`, one step per snap around Mark all read, the numbers into §8.
 
-## 5. Build order — five milestones, a commit after each
+## 5. Build order — five milestones, a commit after each ✅ DONE 2026-09-09 (`a66f2c8` · `95fe6c8` · `3ecba02` · `693c122`, then `fa3747d` for §8.2)
 
 1. **M1 engine**: `FeedHttp`, the five fetchers + the generic one, `FeedStore`, `Extract`,
    `Strips`, the pacer, the announcements; fixtures + parser pins; `--feed-check`. Desktop deps:
@@ -444,34 +447,41 @@ under ~250 ms at the median. Targets per gesture, to be measured with `tools/gla
 - **Measured vs modeled**: every number in §2.6 and §3.8 is modeled until the walk measures it.
 - **Wording**: `CLAUDE.md`'s plain-engineering table in comments, notices and this record.
 
-## 7. Kickoff for the build session
+## 7. Kickoff for the POLISH session (the build is done; this replaces the build kickoff)
 
-Read, in order: `CLAUDE.md` (loaded), this file whole, `WINDOWS.md` (§1, §5, §6),
-`TORRENTS.md` §3–§4 and `core/…/windows/torrents/{TorrentsNet,LocalTorrentsProvider,TorrentsWindow}.kt`
-(the channel, paging, the keyboard, the live-list cursor), `ReaderWindow.kt` (the reading
-grammar, image strips, per-item sub-records), `FilesWindow.kt`'s Viewer (strip Documents),
-`MusicWindow.kt`'s backend switch and `Back to PC library` row, `DESIGN.md` §4.6–§4.8. Then
-M1 → M5 in order, the battery green after each, the numbers last.
+Read, in order: `CLAUDE.md` (loaded), `REMINDER.md`, `HANDOFF.md` §43 whole (§43.6 is the
+resume protocol), this file's §1 (the verdicts — never re-litigated), §3 (the contract as
+designed) and §8 (what runs, what departed, the known limits), `WINDOWS.md` §5–§6,
+`IMPLEMENTATION.md` → "Feed". Then, in this order: the measured walk (§8.4) before any change,
+Adam's verdicts on what he sees, §8.3's list by number, and the battery green after each
+change (`CLAUDE.md` — the APK build in its own gradle call; every harness more than once).
 
-## 8. As built (2026-09-09) — deviations from §3–§5, the numbers, what waits
+## 8. As built (2026-09-09) — the record a polish session works from
 
 Built in one session, a commit per milestone (`a66f2c8` M1 · `95fe6c8` M2 · `3ecba02` M3+M4 ·
-M5 = this record). Where the build departed from the plan above, the plan text stands as the
-design and this section says what runs:
+`693c122` M5), on glass the same evening, and Adam's five findings fixed that night
+(`fa3747d`). `HANDOFF.md` §43 is the build's own account and §43.6 where the next session
+picks up. Where the build departed from §3–§5, the plan text above stands as the DESIGN and
+this section says what RUNS.
+
+### 8.1 Deviations from the plan
 
 - **No Readability4J.** Its 1.0.8 pulls jackson-module-kotlin 2.9 and a 2019 Kotlin stdlib into
   the APK; `Extract.kt` is our own scorer on jsoup (MIT), in Readability's spirit and none of its
   code: paragraphs score their parent and grandparent, link-heavy containers are penalised,
   `article`/`main` favoured, and a page under 200 characters of prose yields nothing so the
-  feed's own text shows. Live today it turned a Reddit link post into 8 blocks.
+  feed's own text shows.
 - **Strips are fit to the shell's document column, not to 596.** `docContentWidth()` is 564 at
   full width (the column the rail and margins leave); §2.6's numbers are priced at 596 and are
-  a few percent high for that reason. The engine caches per width, so a Size change re-derives.
+  a few percent high for that reason. The engine caches strips per width, levels and policy.
 - **Line art is three per-comic rows** (`xkcd art`, `SMBC art`, `8-Bit art`: auto / never /
-  always) with no global row — the global one would have said nothing the three do not.
-  Article images always follow the automatic rule.
-- **Slashdot comments are out** exactly as §2.2 found: the row is dim, `not reachable · N on
-  the site`. Reddit's are flat per post.
+  always) with no global row. Article images always follow the automatic rule.
+- **The comic level is a CANVAS, not a Document** (§8.2 item 5): the strip, its text and a bar
+  of six buttons under it. The archive (8-Bit Theater) keeps the endless Document of §3.1.
+- **Slashdot comments are IN** (§8.2 item 3), reversing §2.2's "out": the story page renders
+  the thread server-side and the rest comes by id through the call §2.2 found.
+- **Reddit's article leads with the poster's own words** for every kind of post (§8.2 item 1).
+- **The reading text is Alegreya 17**, the Reader's size, not 20 (§8.2 item 4).
 - **The phone engine adopts the PC's list.** `SourceStatus.cfg` carries each configured source
   over the channel and `FeedEngine.adopt` takes on the ones the phone lacks, so a source added in
   `config.json` reaches the fallback; nothing is ever removed on the phone.
@@ -480,25 +490,8 @@ design and this section says what runs:
 - **`ScriptedFeed` lives in core's main sources** (the `SimMusicPlayer` precedent) so the core
   tests and both desktop harnesses share one scripted world; its stamps are relative to now so
   the scenes' ages read the same every day.
-- **The harness scripts hit the JVM's 64 KB method limit.** `SelfCheck.script` and
-  `Snapshot.script` each stopped compiling with one more call in them; the Torrents walk, the
-  Feed walk and the Feed scenes are functions of their own now (Games already was). The
-  harnesses step to source rows by identity (`FeedWindow.rootRowId()`), never by counting —
-  the MAIN entry keeps the root cursor where it was, which is what the first blind version got
-  wrong.
-- **The oracle walk fails under load.** `OracleWalkTest` reported "the shell did not settle" once
-  when `:core:test` ran in the same gradle invocation as `:phone:assembleDebug`; alone it passes
-  twice in a row. Run the APK build separately from the batteries.
 - **A first sight is a baseline.** A source's first status on a device sets `seen` to its newest
   stamp and announces nothing; notices start from the second fetch, and only behind the row.
-
-**Battery at the end of the build (before §8.2's changes; after them core 521, the rest unchanged):** core **519** tests (the 14 parser/engine tests, 6 window
-tests over a real shell, 2 channel/switch tests over a loopback host), desktop **12**,
-`--selfcheck` (228 checks; 230 after §8.2) with the Feed walk and its three ink checks (source list 4.7 %, item
-list 13.4 %, article 7.6 %), green 3 of 3 once the harness waited for the rows, `--snapshot` with eight Feed scenes at 480 and 288 (57 PNGs), `--feed-check`
-over the fixtures and `--feed-check live` against the real sites (all five fetched cleanly,
-1,218 pages indexed, xkcd 3296 at 596×218 inverted 16.4 % ink), lint 0. APK 42/0.42 staged; the
-PC service restarted onto the same core.
 
 ### 8.2 The first evening on glass (Adam, 2026-09-09) — five findings, all changed the same night
 
@@ -512,30 +505,67 @@ Adam installed 0.42 and walked Feed. What he saw, what it was, what runs now:
 2. **A Slashdot story showed only the editor's summary.** The RSS description carries no source
    link (its only anchors are share buttons); the story PAGE's `div.body` links the source in
    its prose. The article is now the summary, then `from <domain>` and the source article
-   extracted; when the source will not extract, the summary stands and the note says why.
+   extracted (`SlashdotRss.sourceFrom`); when the source will not extract (the NYT answers 403)
+   the summary stands, the heading names the source and the note says why.
 3. **Slashdot comments** — Adam: *"if a way can be found … that would be ideal."* The story
-   page, fetched now, renders the top of the thread server-side: 8 bodies of 9 for a 9-comment
-   story, 100 of 176 for "Star Trek Turns 60", each in `li#tree_<cid>` with its depth in the
-   `commtree` nesting, its title, its `(Score:5, Insightful)` and its author; the ones below
-   the threshold and those listed in `D2.noshow_comments([...])` come from the `comments_fetch`
-   call §2.2 had already found works once it has ids. (Why the 2026-09-09 afternoon page had
-   an empty tree — the same URL, the same user agent — is not known; the probes that morning
-   ran minutes after the story posted. Grade S.) `SlashdotRss.parseThread` + `fetchMissing`;
-   the `Comments` row is live for Slashdot; comments render `title` (when not `Re:`), `author
-   · score · age`, the text, indented by depth.
+   page, fetched that evening, renders the top of the thread server-side: 8 bodies of 9 for a
+   9-comment story, 100 of 176 for "Star Trek Turns 60", each in `li#tree_<cid>` with its depth
+   in the `commtree` nesting, its title, its `(Score:5, Insightful)` and its author; the ones
+   below the threshold and those listed in `D2.noshow_comments([...])` come from the
+   `comments_fetch` POST §2.2 had already found works once it has ids (`parseThread` +
+   `fetchMissing`, the one POST in the engine). The `Comments` row is live for Slashdot;
+   comments render `title` (when not `Re:`), `author · score · age`, the text, indented by
+   depth. 🟡 **Why the same URL answered with an EMPTY tree that morning** (the §2.2 probes ran
+   minutes after the story posted, with the same user agent) **is not known — grade S**; if a
+   story shows no comments while the feed counts some, that is the shape to look for.
 4. **The reading text was far too big.** The window sized Alegreya at 20; the Reader uses 17.
    17 now, and the per-app `Font size` row (the shell's, `default` = the global) scales it.
 5. **Flipping through comics wanted the xkcd homepage's buttons, not a menu.** The comic level
    is a canvas with a bar under the strip — `next · prev · random · first · latest · menu` —
-   the ring moving the highlight and a tap pressing it; a strip that fits above the bar rests on
-   it at once, a taller one pans, and one notch UP from the top wraps onto the bar (the list
-   grammar's wrap-to-end). xkcd flips by NUMBER through the whole archive: `FeedEngine.comicAt`
-   fetches any strip on demand (missing numbers skipped, `random` re-drawn), the range from the
-   latest known; SMBC and the generic image feeds flip through their list. The archive keeps its
-   endless document.
+   the ring moving the highlight and a tap pressing it; a strip that fits above the bar rests
+   on it at once, a taller one pans, and one notch UP from the top wraps onto the bar (the list
+   grammar's wrap-to-end, `DESIGN.md` §4.6). xkcd flips by NUMBER through the whole archive:
+   `FeedEngine.comicAt` fetches any strip on demand (missing numbers skipped, `random`
+   re-drawn), the range from the latest known (`comicRange`); SMBC and the generic image feeds
+   flip through their list. The bar's focus stays where it was when the menu opened. The first
+   canvas painted over the list it replaced — the snapshot showed it — a canvas clears its rect
+   first (`WINDOWS.md` §5).
 
-### 8.1 Measured on glass
+### 8.3 Known limits and rough edges — the polish session's list
 
-*(the walk waits on the 0.42 install — `tools/glassdrive.py`, snap before every tap, one step
-per snap around Mark all read; then `tools/journal_report.py`'s per-gesture section into the
-table §3.8 left blank)*
+Nothing here is a silent failure; each says what it does. In the order a reader on glass meets them:
+
+1. **Reddit comments right after a fetch say `reddit rate-limited · retry N s`.** The pace is
+   one request a minute per host, and a comments fetch is a Reddit request like the listing
+   fetch before it. Opening comments within a minute of the feed's own fetch waits out the
+   rest of that minute. A smarter budget (a comments request allowed on its own slot) is the
+   first thing to price.
+2. **Reddit comments are flat.** The post's `.rss` carries no nesting and no score; old.reddit's
+   threaded HTML redirects to login and the JSON refuses non-browser clients (§2.1). Only a
+   login would change this and Adam said no login.
+3. **A Slashdot story whose page came without its tree shows `no comments yet`** although the
+   feed counts some (item 3's grade-S mystery). The honest line for that state — `the story page
+   carried no comments this time · N on the site` — is not written yet.
+4. **A source behind a paywall or bot check shows the summary** with `from <domain>` and the
+   HTTP status (the NYT, 403). Nothing more is possible without an account; no archive service is
+   consulted.
+5. **SMBC and a generic image feed flip within their fetched list** (20 for SMBC); `first` is the
+   oldest fetched, not the oldest ever. An archive walk for SMBC (its site is not WordPress) is
+   a separate adapter, if Adam wants an SMBC binge.
+6. **A comic opened by number and left open does not restore after a restart** when it is
+   outside the source's list: the restore re-opens through the list and says `that item is
+   gone`. Persisting the number (`openItemNum`) and re-fetching it is the fix.
+7. **The 8-Bit Theater archive has no bar** — Adam asked for the bar "for comics like xkcd";
+   the archive is an endless document with its actions on tap. Ask before adding one.
+8. **The phone fallback is tested over a loopback host, not over Tailscale with the service
+   stopped.** One deliberate try, with the journal read after, is owed.
+9. **`Notify` rows are off** (verdict 13) and untried on glass; the first-sight baseline means
+   the first fetch after turning a row on announces nothing.
+10. **The measured walk is owed** (§8.4): every number in §2.6 and §3.8 is modeled.
+
+### 8.4 Measured on glass
+
+*(the walk waits — `tools/glassdrive.py`, snap before every tap, one step per snap around Mark
+all read; then `tools/journal_report.py`'s per-gesture section into the table §3.8 left blank;
+the comic canvas is the case to watch: a bar highlight change is a small repaint, a pan is a
+detected translation, a flip is a whole strip)*

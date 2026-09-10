@@ -391,7 +391,23 @@ and all of it has run on the radio daily since the phone's own first light later
 
 ## Feed + comics (2026-09-09, FEED.md — one engine on both hosts, a deliberate switchback)
 
-Reddit popular, Slashdot, xkcd, SMBC and the 8-Bit Theater archive. `core/…/windows/feed/`:
+Reddit popular, Slashdot, xkcd, SMBC and the 8-Bit Theater archive. `core/…/windows/feed/`
+(4,600 lines, 2026-09-09): `FeedModel.kt` (the data classes, `FeedIds`, `FeedFmt`) ·
+`FeedHttp.kt` (`FeedHttp` get/post with headers, `RealFeedHttp`, `PacedHttp`, `RateLimited`) ·
+`FeedXml.kt` (a namespace-aware DOM helper, `FeedDates`) · `Fetchers.kt` (`RedditAtom`,
+`SlashdotRss` with `sourceFrom`/`parseThread`/`fetchMissing`/`parseFetched`, `XkcdFetcher`,
+`SmbcFetcher`, `RssFetcher`, `EightBit`) · `Extract.kt` (the jsoup scorer) · `Strips.kt` (fit,
+the §3.4 decision, levels, pack/unpack/cut, the cache file form) · `FeedStore.kt` (files +
+retention) · `FeedEngine.kt` (the engine = the local provider; `adopt`, `pause`, `comicAt`) ·
+`FeedProvider.kt` (the seam) · `FeedNet.kt` (`FeedService`, `RemoteFeedProvider`,
+`SwitchingFeedProvider`, `FeedWire`) · `FeedWindow.kt` (1,900 lines: nine levels, the comic
+canvas, the records, the settings) · `ScriptedFeed.kt` (the scripted world). Desktop:
+`FeedCheck.kt` (`--feed-check [DIR] [live]`), the `feedChecks` walk in `SelfCheck.kt`, the
+`feedScenes` in `Snapshot.kt`, `FeedStripsTest`. Tests: `FeedTest` (parsers on the captured
+fixtures, the extractor, the pacer, strips, the store, the engine), `FeedWindowTest` (the
+grammar over a real shell), `FeedNetTest` (a loopback host, the switch). Fixtures:
+`core/src/test/resources/feed/` — the real bytes of 2026-09-09 including a rendered Slashdot
+story page.
 
 - **`FeedEngine` is the whole engine and runs on both hosts** (`FEED.md` §3.6): the configured
   sources on a pacer (one coroutine per due source; feeds at the `Fetch` row, comics hourly, the

@@ -1485,6 +1485,14 @@ to the window, and the honest number is: **a full-frame 608×416 canvas repaint 
 that repaints everything runs at 1.5 fps. That is the whole story for games, stated up front rather
 than discovered.
 
+🆕 **A canvas may carry its own button bar under the SAME wrap rule** (2026-09-09, Feed's comic
+level, `FEED.md` §8.2): a row of labels at the canvas's bottom, the ring moving a highlight
+along it and a tap pressing — entered by scrolling past the content's end, or by ONE NOTCH UP
+FROM THE TOP, exactly as a list wraps to its menu row; the content that fits above the bar rests
+on it. The grammar is unchanged (tap descends/presses, double-tap backs, scroll moves); only
+the target of a notch is the canvas's business. Clear the rect first — a canvas owns its
+background.
+
 🆕 **One thing the WM does give a canvas, since 2026-09-05** (`HANDOFF.md` §31): if a repaint moved
 the content vertically, the shell finds the translation by comparing the frames and sends the mode-9
 shift plus the newly exposed strip, exactly as List and Document have always done. It is DETECTED,
