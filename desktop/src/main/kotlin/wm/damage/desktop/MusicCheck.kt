@@ -84,6 +84,16 @@ object MusicCheck {
             val pls = db.playlists()
             println("  playlists: ${pls.size} (${pls.count { it.adaptive }} adaptive) — " + pls.take(3).joinToString(" · ") { "${it.name} (${it.count})" })
             if (pls.isNotEmpty()) check("a playlist lists its tracks", db.playlistTracks(pls.first().id).size == pls.first().count)
+            // adaptive playlists (MUSIC.md §9.8): what a refresh WOULD do — read-only;
+            // the service refreshes at start, after a grab and after a rescan
+            val tAd = System.currentTimeMillis()
+            val planned = lib.adaptive.plan()
+            val moving = planned.filter { it.next != null }
+            println("  adaptive: ${planned.size} rules · ${planned.count { it.corrupt }} corrupt · ${moving.size} would change " +
+                "(+${moving.sumOf { it.next!!.added }} −${moving.sumOf { it.next!!.removed }}) in ${System.currentTimeMillis() - tAd} ms — read-only here")
+            for (m in moving.take(5)) println("    ${m.name}: ${m.current} → ${m.next!!.ids.size} (+${m.next!!.added} −${m.next!!.removed})")
+            check("every adaptive rule parses", planned.none { it.corrupt })
+            if (planned.isNotEmpty()) check("an adaptive rule materializes members", planned.any { it.members > 0 })
             // cache-key mapping for 20 random tracks against the legacy cache
             val files = db.trackFiles()
             val sample = files.shuffled().take(20)

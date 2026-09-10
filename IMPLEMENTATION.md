@@ -280,7 +280,8 @@ The APK's daily default is Target=glasses: it DRIVES the pair over BLE as the pr
 falls back to its caches when the PC is unreachable; it plays music from the PC's media
 endpoint (:7404) or its prefetch cache. It serves the seam on :7402 (probe/claim)
 and its replica on :7403. Distribution: `./gradlew :phone:stageApk` → `~/.damage/damage-wm.apk`
-→ the G2CC `/setup` page. The SIM target remains the on-phone dev mode.
+→ the service's own `/setup` page on :7300 (`desktop/SetupServer.kt`, 2026-09-10 — G2CC's URL,
+token and Tailscale-only gate kept; its server retired). The SIM target remains the on-phone dev mode.
 
 **The all-day daily driver (2026-08-31, `DAILY.md`):** `--no-preview` runs any mode headless
 (no Swing/X — set before AWT loads); `:desktop:stageJar` copies the fat jar to the STABLE
@@ -379,7 +380,9 @@ and all of it has run on the radio daily since the phone's own first light later
 - **Distribution**: `./gradlew :phone:stageApk` stages the debug APK to `~/.damage/damage-wm.apk`;
   the G2CC server's `/setup` page grew a DamageWM box and a `/damage-apk` endpoint (additive
   twin of `/apk` — same Tailscale+token gate, mtime-stamped filename). (APK 3/0.3 at the
-  time; versions have moved on — the gradle file is the authority.)
+  time; versions have moved on — the gradle file is the authority.) **2026-09-10:** G2CC's
+  server is retired; `desktop/SetupServer.kt` serves `/setup` + `/damage-apk` on the same port
+  with the same token and gate (`setupPort` / `setupToken` in `config.json`, `HANDOFF.md` §44).
 
 - ~~The phone's `BleTransport` has still never run on hardware~~ — **it passed its own first
   light later the same day (2026-08-31, first try) and owns the radio all day now.** It is

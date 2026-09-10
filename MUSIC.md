@@ -41,7 +41,7 @@ is ported, not pasted).
 | 24 | Lyrics sources | **Everything reachable without a new account**: LRCLIB, embedded tags, `.lrc` files, NetEase's public endpoint, the unofficial Musixmatch route (keyless; may stop working — behind a toggle), plus any key Adam already made for the G2CC player (read from his G2CC config at build time). MusicBrainz needs no key. |
 | 25 | Spotify auto-fallback | **Automatic on PC loss** (default on). Spotify is installed and signed in. |
 | 26 | Per-height numbers | Principle confirmed; the numbers come from real renders and are adjusted on glass. |
-| 27 | G2CC's server | **Keeps running for now** (the APK setup page); retired when DamageWM is complete. |
+| 27 | G2CC's server | ~~Keeps running for now (the APK setup page)~~ **RETIRED 2026-09-10**: the setup page and the adaptive-playlist refresh are Damage's (§9.8, `HANDOFF.md` §44). |
 | 28 | Sleep | **Sleep options in Settings, default off**: stop after this track, or after any timer. |
 | 29 | Prefetch | **Three tracks ahead**, adjustable in Settings. |
 
@@ -67,9 +67,10 @@ radio is not the default.
   2,981 points, 384-dim (`BAAI/bge-small-en-v1.5`). Connection: `pg.Pool({host: <socket dir>,
   database: 'g2cc'})` — peer auth over the Unix socket, no password (`store.ts:34`). ⚠ `psql`
   reports a collation-version mismatch (2.42 vs 2.43) — a one-line refresh, Adam's call.
-- **G2CC's server** (`node dist/index.js`, :7300) keeps running for the APK setup page. It scans
-  the library **once at start** (`index.ts:718`) — incremental by path/mtime, so a restart's
-  re-scan is idempotent — and its music player persists only when used. No timer re-scans.
+- **G2CC's server** (`node dist/index.js`, :7300) kept running for the APK setup page until
+  **2026-09-10**, when it was retired: it also re-derived the 25 adaptive playlists at every boot,
+  and its speech daemon held 10 GB of VRAM the whole time. Both jobs are Damage's now (§9.8 and
+  `desktop/SetupServer.kt`); its one-shot boot scan is no longer run by anything.
 - **Enrichment pipeline:** `/home/user/G2CC/audio/enrich/` (`run_enrichment.py`, `embed_query.py`,
   `passes/`, `db.py`) on the venv `/home/user/G2CC/audio/venv` (librosa, embeddings, the LLM
   profile pass). yt-dlp 2026.06.09 at `~/.local/bin/yt-dlp`.
@@ -218,8 +219,8 @@ APK-wide switch) · Size · Font/Size/Style/Depth.
 - **New**: the APK sink (media3 ExoPlayer + MediaSession + media-playback foreground type +
   output routing + volume/hold/boost), the notification listener (Spotify + the limiter notice),
   Music Mode, the visualizer renderers, the phone catalog cache + prefetch.
-- **Ownership**: Damage is the only writer of the music tables from now on; G2CC's server keeps
-  serving the setup page (its one-shot boot scan is idempotent). Postgres access from Kotlin:
+- **Ownership**: Damage is the only writer of the music tables — without exception since
+  2026-09-10, when G2CC's server (which re-derived the adaptive playlists at its boot) was retired. Postgres access from Kotlin:
   peer auth over the Unix socket (an Apache-licensed socket library + pgjdbc; no passwords).
 
 ## 4. Open before the build (Adam)
@@ -613,6 +614,30 @@ channel. Never the first result unasked.
 (YouTube) · `musicClaudeModel` (opus) · `musicClaudeEffort` (low) · `musicQueueSize` (25) ·
 `mediaPort` (7404) · `musicAudioDir` (/home/user/damagewm/audio) · `musicAcoustidKey` (optional;
 Adam copies it from his G2CC config).
+
+### 9.8 Adaptive playlists (`AdaptivePlaylists`, 2026-09-10)
+
+The 25 rule-managed playlists (`playlists.rule` jsonb — the plan filter shape of §9.3 lane 2:
+genres / styles / moods AND across lists, OR within, over the union of the three tag columns;
+energy and bpm ranges; vocals and artists exact; exclude) were G2CC's: its server re-derived
+them at every boot and Damage only read them. With that server retired the refresh is ours, as
+our own code from the facts in G2CC's `playlists.ts` / `resolver.ts`:
+
+- **Materialize** = `MusicDb.planCands` uncapped (100 000), sound-effect variants out, ONE
+  member per dupe cluster (the higher fidelity file — `Rules.dedupeClusters`), spoken word IN
+  (a genre collection is not shuffle discovery), ordered artist → album → path with the
+  nameless last.
+- **Refresh** = retained members keep their relative order (first occurrence only — a converted
+  manual playlist may carry duplicate appends), new matches append in target order, non-matches
+  drop; ONE transaction per playlist with the `playlists` row locked FIRST (a delete locks in
+  the same order), dense positions, and **no write when nothing changed**. A changed playlist
+  bumps `updated_at`, which moves the catalog fingerprint, so the phone's catalog follows.
+- **When**: host start (`startMusic`), after a grab's enrichment, after a rescan (the window's
+  Rescan row is the on-demand path). Serialized; a corrupt rule is skipped loudly; one
+  playlist's failure never stops the others. `--music-check` runs the same derivation read-only
+  and prints what a refresh would do.
+- **Not built**: creating a rule playlist from the glasses (G2CC had no window for it either —
+  its rules were seeded by an operator); a new rule is an `UPDATE playlists SET rule = …` for now.
 
 ## 10. Tests, harnesses, gates
 

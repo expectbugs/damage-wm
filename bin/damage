@@ -3,7 +3,7 @@
 set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 JAR="$DIR/desktop/build/libs/damage.jar"
-JAVA=/opt/openjdk-bin-17.0.19_p10/bin/java
+JAVA=/opt/openjdk-bin-17/bin/java   # the versionless link survives a JDK bump (17.0.19_p10 went away in the 2026-09-10 upgrade)
 if [ ! -f "$JAR" ] || [ -n "$DAMAGE_REBUILD" ]; then
     echo "building damage.jar..."
     (cd "$DIR" && ./gradlew :desktop:fatJar -q)

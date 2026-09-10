@@ -57,6 +57,11 @@ class LocalMusicLibrary(
 
     init { Files.createDirectories(vizDir) }
 
+    /** The rule-managed playlists (`MUSIC.md` §9.8, 2026-09-10 — G2CC's boot
+     *  refresh is ours now): re-derived at host start, after a grab's
+     *  enrichment and after a rescan. A change moves the catalog fingerprint. */
+    val adaptive = AdaptivePlaylists(db)
+
     override fun stateLine(): String = state
     override fun catalog(): Catalog = cat
 
@@ -283,6 +288,8 @@ class LocalMusicLibrary(
                     catch (e: Exception) { Log.e("music", "enrichment for track ${t.id} failed (the track stays playable)", e) }
                     buildViz(t, ing)
                 } else Log.w("music", "no ingester wired — track ${t.id} indexed without enrichment")
+                try { adaptive.refreshAll("grab #${t.id} enriched") }
+                catch (e: Exception) { Log.e("music", "adaptive refresh after the grab failed (the track stays playable)", e) }
                 j = jobs[jobId]!!.copy(phase = "lyrics"); jobUpdate(j)
                 try { lyrics(t.id) } catch (e: Exception) { Log.w("music", "lyrics for track ${t.id}: ${e.message}") }
                 refreshCatalog(force = true)
@@ -314,8 +321,9 @@ class LocalMusicLibrary(
 
     override fun rescan(): String {
         val s = scan.scan()
+        val a = try { adaptive.refreshAll("rescan") } catch (e: Exception) { Log.e("music", "adaptive refresh after the rescan failed", e); null }
         refreshCatalog(force = true)
-        return "rescan: $s"
+        return "rescan: $s" + (a?.let { " · adaptive: $it" } ?: "")
     }
 
     override fun addListener(l: MusicLibrary.Listener) {

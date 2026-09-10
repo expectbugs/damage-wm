@@ -3844,3 +3844,86 @@ The build is whole; what remains is polish against Adam's eye and the measured n
 
 After Feed, the next window is Adam's pick from `EXPLOSION.md` §20: Mail (#6), SMS (#7, with
 the caller-ID source), Info (#8), Notices (#9).
+
+## 44. G2CC's server retired: the setup page and the adaptive playlists are Damage's (2026-09-10)
+
+The PC rebooted at 04:06 after the 2026-09-09 world upgrade (kernel 6.18.48; JDK 25.0.3 → 25.0.4
+replaced under the running JVM at 23:37 the evening before, whose spawn helper then refused every
+`sh` until the reboot — the tmux status poll errors in the log). Adam asked for every part of
+Damage up and coming back at boot, then, on the finding that only the APK setup page still needed
+G2CC's server, ruled: *"G2CC is replaced by DamageWM"* — take it off boot, kill it, keep the
+adaptive playlists adaptive under Damage, and serve the setup page from Damage with the same URL
+and token.
+
+### 44.1 What the reboot showed (measured, `DAILY.md` updated)
+
+- **A boot-order race.** `damage` started in the same second as Postgres and five seconds
+  before Qdrant; `startMusic` returns null for the whole run when the Postgres open fails, so a
+  faster JVM start would have left Music unserved until the next restart. The init script now
+  says `use net bluetooth tailscale postgresql-17 qdrant qbittorrent`; the resolved order is
+  dbus → bluetooth → tailscale → postgresql-17 → qdrant → qbittorrent → damage.
+- **The service's PATH lacked `~/.local/bin`**, so the Ask lane's `claude` (spawned by name,
+  `ClaudeOneShot`) was unfindable under the service — never exercised there (0 log hits). Fixed
+  with an `export PATH` in the script. `--enable-native-access=ALL-UNNAMED` added: junixsocket's
+  restricted call is a warning on JDK 25 and a refusal on a later one, in the Postgres path.
+- **qBittorrent was a GUI app in the X session** — no X after a reboot, no Torrents backend. It
+  is the OpenRC `qbittorrent` service now (`qbittorrent-nox` on Adam's own profile via
+  `/etc/conf.d/qbittorrent`; the window logs `40 transfers`). The GUI shares the profile and hands
+  over to the service while it runs.
+- **G2CC's server** was hand-started with no service. It got one (`/etc/init.d/g2cc`) for an
+  hour, then was retired at Adam's call: off boot, stopped, the script kept only in this session's
+  scratch. What it had cost: its Parakeet speech daemon held **10.2 GB of the 3090's VRAM and 6.2
+  GB of RAM** (measured, freed on stop), it rewrote the 25 adaptive playlists at every boot and
+  ran its own migrations on the shared `g2cc` database — against `MUSIC.md`'s "Damage is the
+  only writer". 🔴 **Never start it by hand again**: it would take :7300 from the setup page and
+  write the playlists under Damage. `gaming-mode-on/off` used to do exactly that; both scripts
+  now stop and start the `damage` service instead (ON stops it with the other dependents — the
+  phone keeps driving on its caches and says `PC gone` until OFF; delete `damage` from ON's list
+  to keep the data host up while gaming).
+
+### 44.2 The setup page — `desktop/SetupServer.kt`
+
+Same URL (`http://beardos:7300/setup` on the tailnet), same token (G2CC's `authToken` copied
+into `~/.damage/config.json` as `setupToken`; `setupPort` 7300; an empty `setupToken` means the
+replica token), same gate (the Tailscale interface or loopback, a loud 403 elsewhere;
+`/damage-apk` wants `?token=` as the page's link carries it, or `Authorization: Bearer`), the
+same mtime-stamped download name. The G2CC boxes (QR codes, its APK, the PC page, the identity
+review, the endpoint list) are gone; the DamageWM box is the page. Started next to the content
+host in `runShell` and `--host-only`; a bind failure is loud and never fatal. `SetupServerTest`
+×3. Verified on the service: loopback and Tailscale 200 with the page, `HEAD /damage-apk` 200
+as `damage-wm-20260909-2251.apk` (26,798,092 B — the staged 0.43), no token 401, the LAN
+address 403.
+
+### 44.3 Adaptive playlists — `core/.../music/AdaptivePlaylists.kt` (`MUSIC.md` §9.8)
+
+The G2CC mechanism re-stated as our own code from the facts in its `playlists.ts` and
+`resolver.ts materializeRule`: materialize = `MusicDb.planCands` uncapped, sound effects out,
+one member per dupe cluster, spoken word in, ordered artist → album → path; refresh = retained
+members keep their order, new ones append, non-matches drop, duplicates collapse, ONE
+transaction per playlist with the `playlists` row locked first, **no write when nothing
+changed**; at host start, after a grab's enrichment, after a rescan (the window's Rescan row is
+the on-demand path); a corrupt rule skipped loudly, one failure never stopping the rest.
+`--music-check` runs the same derivation read-only. **Measured: the Kotlin derivation reproduces
+all 25 memberships (6,637 rows) exactly — `0 would change` in 614 ms — and the service's first
+refresh at start wrote nothing** (`25 adaptive · 0 changed`). `AdaptivePlaylistsTest` ×4.
+
+### 44.4 Also
+
+- `bin/damage` pins the versionless `/opt/openjdk-bin-17` link (the upgrade removed
+  17.0.19_p10); `local.properties` (gitignored) names the Android SDK so the APK builds from a
+  non-login shell (`ANDROID_HOME` lives in `/etc/profile.d/g2cc-android.sh`).
+- The content port :7401 is a framed channel: an HTTP probe ends a session loudly (`frame
+  length 1195725856 out of range` is the bytes `GET `). Probe :7403.
+- Battery at this state: core **525** · desktop **15** · `--selfcheck` ALL PASS ×3 · snapshots
+  57 ×2 (the two runs differ only by the live throughput readout) · `--epub-check` 380/404
+  images · `--games-check` 400 tournaments · `--feed-check` fixtures · lint 0 · the APK builds.
+  Service deployed 16:46 (invisible on glass, §19); the phone reattached to every channel.
+  APK 0.42 installed, 0.43 staged — the same file, now served by Damage.
+
+### 44.5 Next
+
+1. Install 0.43 from the same bookmark (it is Damage's page now), then §43.6 as planned.
+2. A new adaptive rule is an `UPDATE playlists SET rule = …` — a window row to create one is
+   not built (G2CC had none either); price it only if Adam asks.
+3. `slappy` (tmux host) has been offline 22 days.
+

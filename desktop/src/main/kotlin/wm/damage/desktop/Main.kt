@@ -156,6 +156,12 @@ data class Config(
     val feedSources: List<wm.damage.core.windows.feed.SourceCfg> = wm.damage.core.windows.feed.SourceCfg.DEFAULTS,
     val feedUserAgent: String = "damage-wm/0.1 (personal glasses client)",
     val feedDataDir: String = "",
+    /** The setup page (`HANDOFF.md` §44, 2026-09-10): `/setup` + `/damage-apk`
+     *  on the port and under the token G2CC's server used until it was
+     *  retired, so the phone's bookmark and its link keep working. An empty
+     *  `setupToken` means the replica token. */
+    val setupPort: Int = 7300,
+    val setupToken: String = "",
 ) {
     /** The PC-side feed engine (FEED.md §3.6): the configured sources on
      *  their pacer, articles extracted ahead, strips through AWT. */
@@ -186,6 +192,9 @@ data class Config(
         MusicPlugins.wire(this, lib)
         return lib
     }
+
+    /** The setup page + the APK route on [setupPort] (SetupServer). */
+    fun setupServer(): SetupServer = SetupServer(setupPort, setupToken.ifEmpty { token }, Path.of(dataDir).resolve("damage-wm.apk"))
 
     /** The media endpoint on [mediaPort], bound like the content port. */
     fun mediaServer(lib: wm.damage.core.windows.music.LocalMusicLibrary): wm.damage.core.windows.music.MediaServer =
@@ -325,6 +334,15 @@ private fun epubCheck(cfg: Config) {
 
 /** Adapter enumeration only — a D-Bus read, no discovery, no connection: the
  *  one BlueZ check that is allowed before first light (HANDOFF.md §8.1 #2). */
+/** The setup page next to the content host — loud, never fatal, on a bind
+ *  failure (another instance, or G2CC's retired server started by hand). */
+private fun startSetup(cfg: Config): SetupServer? = try {
+    cfg.setupServer().also { it.start() }
+} catch (e: Exception) {
+    Log.e("damage", "setup page failed to bind :${cfg.setupPort} (another instance? G2CC's server still up?)", e)
+    null
+}
+
 /** The music library + its media endpoint, or null (loudly) when Postgres
  *  is not reachable at start — the rest of the host keeps serving. The
  *  catalog builds on the first request (or the first driver's cursor). */
@@ -332,7 +350,13 @@ private fun startMusic(cfg: Config, scope: CoroutineScope): wm.damage.core.windo
     val lib = cfg.musicLibrary(scope)
     lib.db.migrate()
     cfg.mediaServer(lib).start()
-    scope.launch(Dispatchers.IO) { try { lib.refreshCatalog(force = true) } catch (e: Exception) { /* the state line says */ } }
+    scope.launch(Dispatchers.IO) {
+        // the rule-managed playlists first (MUSIC.md §9.8 — G2CC's boot refresh,
+        // ours since 2026-09-10), then the catalog picks up what moved
+        try { lib.adaptive.refreshAll("host start") }
+        catch (e: Exception) { Log.e("damage", "adaptive playlists refresh at start failed (the library is served as it is)", e) }
+        try { lib.refreshCatalog(force = true) } catch (e: Exception) { /* the state line says */ }
+    }
     lib
 } catch (e: Exception) {
     Log.e("damage", "music library unavailable — Postgres/Qdrant/the cache did not come up; the music channel is not served", e)
@@ -376,6 +400,7 @@ private suspend fun hostOnly(cfg: Config) {
             (music?.let { mapOf("music" to wm.damage.core.windows.music.MusicService(it)) } ?: emptyMap()),
         icons = themeIcons)
     host.start()
+    startSetup(cfg)
     Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync + files + torrents + music + feed + icons on :${cfg.contentPort}; Ctrl-C to stop")
     kotlinx.coroutines.awaitCancellation()
 }
@@ -582,6 +607,7 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         hostBound = false
         Log.e("damage", "content host failed to bind :${cfg.contentPort} (another instance?)", e)
     }
+    startSetup(cfg)
 
     lateinit var build: (String) -> DesktopStack
     // ONE mutation path for the running stack, shared by manual switches and

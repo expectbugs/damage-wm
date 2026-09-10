@@ -7,8 +7,13 @@ built, on glass and fixed in one day; §43.6 is the resume protocol for its poli
 journals read, what 0.41 fixed, the two open link mysteries) → §41 (the cache on every plane, the
 depth ladder) → the sections they cite.
 
-## Where we are (2026-09-09)
+## Where we are (2026-09-10)
 
+- **2026-09-10 (`HANDOFF.md` §44): G2CC's server is RETIRED — never start it by hand.** The
+  setup page is the `damage` service's own (`SetupServer.kt`: same URL, same token, same
+  Tailscale-only gate), the 25 adaptive playlists refresh under Damage (`MUSIC.md` §9.8 —
+  measured identical to the memberships G2CC left), qBittorrent is the headless `qbittorrent`
+  service, and the init script starts after Postgres/Qdrant with `~/.local/bin` on its PATH.
 - **LIVE as the all-day daily driver.** CFW g2flash `a5d1c31` (reports `2.2.6.10`; detect by
   `EVENCFW/`, never the version). The **phone APK drives** — radio and shell — and the OpenRC
   `damage` service on beardos is the data host and standby (`HANDOFF.md` §19, `DAILY.md`).
@@ -18,7 +23,7 @@ depth ladder) → the sections they cite.
 - **Builds:** APK **0.42 installed** (2026-09-09 evening — the Feed build Adam walked; it
   carries 0.41's §42 fixes: the page traffic sleeps with the glasses, no lease release after a
   link loss, the keeper in the journal, `/log`); **0.43 staged** (`~/.damage/damage-wm.apk`, the
-  setup page) = the evening's Feed fixes (`HANDOFF.md` §43.4: the comic bar and the 17 px text
+  setup page — served by Damage itself since 2026-09-10, same URL) = the evening's Feed fixes (`HANDOFF.md` §43.4: the comic bar and the 17 px text
   need it; the post text, source articles and Slashdot threads come from the PC and reach 0.42
   already). The service runs the same core as 0.43 and serves `feed` on the content port.
 - **Battery at HEAD:** core **521** · desktop **12** · `--selfcheck`

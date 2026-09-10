@@ -10,7 +10,8 @@ data availability, not the driver. This file is the ops crib.
 | piece | job | kept alive by |
 |---|---|---|
 | **phone APK** (Target = glasses) | **THE driver** — owns the BLE radio and runs the shell, always; serves the seam :7402 (status probe + explicit dev claims) + replica :7403 | foreground service + wakelock + Doze exemption + `BootReceiver` (reboot/update) |
-| **beardos `damage` service** | **the data host + standby**: books + tmux + STATE SYNC + the window channel (Files: listings, ops, viewers, blobs; Torrents: qBittorrent + the TorrentLeech session; Music: the library — Postgres/Qdrant/cache/resolver/lyrics/yt-dlp — with the media endpoint on :7404) + theme icons on :7401, the PC replica :7403; probes the phone every 5 s and starts a PC-direct BLE stack ONLY while the APK is not available, handing the radio back the moment it returns | OpenRC `/etc/init.d/damage` (supervise-daemon, enabled at `default`, headless `--no-preview`, mode `auto` = standby) |
+| **beardos `damage` service** | **the data host + standby**: books + tmux + STATE SYNC + the window channel (Files: listings, ops, viewers, blobs; Torrents: qBittorrent + the TorrentLeech session; Music: the library — Postgres/Qdrant/cache/resolver/lyrics/yt-dlp — with the media endpoint on :7404) + theme icons on :7401, the PC replica :7403, **the setup page on :7300** (`/setup` + `/damage-apk` — G2CC's URL and token kept, its server retired 2026-09-10); probes the phone every 5 s and starts a PC-direct BLE stack ONLY while the APK is not available, handing the radio back the moment it returns | OpenRC `/etc/init.d/damage` (supervise-daemon, enabled at `default`, headless `--no-preview`, mode `auto` = standby; since 2026-09-10 ordered after `postgresql-17` / `qdrant` / `qbittorrent`, `~/.local/bin` on its PATH for the Ask lane's `claude`, `--enable-native-access` for the Postgres socket driver) |
+| **beardos `qbittorrent` service** | the Torrents window's backend: `qbittorrent-nox` headless on Adam's own profile (`~/.config/qBittorrent`, the same torrents as the GUI), Web API on `127.0.0.1:8090` | OpenRC `qbittorrent` (Gentoo's script + `/etc/conf.d/qbittorrent`, enabled at `default`, 2026-09-10) |
 
 **Who drives when** (all automatic, event-driven, pacing not timeouts):
 
@@ -74,6 +75,11 @@ runs every read-only probe against the real database and computes one viz blob.
 **Deploy is unchanged**: `./gradlew :desktop:stageJar && sudo rc-service damage restart`
 (the media endpoint binds with the service); the APK by `:phone:stageApk` from the setup page.
 
+**Adaptive playlists (2026-09-10, `MUSIC.md` §9.8):** the 25 rule-managed playlists G2CC re-derived
+at its boot are the service's now — refreshed at start, after a grab's enrichment and after a rescan
+(the window's Rescan row is the on-demand path); the log's `music-adaptive` lines say what moved;
+`--music-check` shows what a refresh would do without writing a row.
+
 ## Feed + comics (2026-09-09, `FEED.md`) — one engine on both hosts
 
 - **Nothing to configure for day one.** The service fetches the five sources (Reddit popular,
@@ -105,7 +111,11 @@ runs every read-only probe against the real database and computes one viz blob.
 
 - `sudo rc-service damage start|stop|status` — the PC side. **Stop it before any
   `./gradlew :desktop:run` dev session** (one set of ports; and a dev session in `ble`/`remote`
-  mode is a second central/driver); start it again after.
+  mode is a second central/driver); start it again after. The other Damage-side service since
+  2026-09-10 is `qbittorrent`; both sit in the `default` runlevel (`rc-update show default`).
+  G2CC's server is RETIRED (`HANDOFF.md` §44) — never start it by hand: it would take :7300 from
+  the setup page and rewrite the adaptive playlists under Damage. ⚠ The content port :7401 is a framed channel, not HTTP — an HTTP
+  probe ends a session loudly (`frame length … out of range`); probe :7403 for liveness.
 - Logs: `~/.damage/damage.log` (the service — the standby narration lives here),
   `~/.damage/journal.jsonl` (flush journal, only while a PC stack drives),
   phone `adb logcat -s damage` + the on-phone status line.
@@ -161,7 +171,8 @@ runs every read-only probe against the real database and computes one viz blob.
   is invisible on glass. (The stable path `~/.damage/damage.jar` is what the service runs — a
   broken tree never changes the daily driver until you stage it.)
 - **Deploying a new APK:** bump versionCode/Name, `./gradlew :phone:stageApk`, download from
-  the setup page, install over; `MY_PACKAGE_REPLACED` restarts the phone service by itself.
+  the setup page (`http://beardos:7300/setup` on the tailnet — the `damage` service serves it since
+  2026-09-10, `SetupServer.kt`; G2CC's server is retired), install over; `MY_PACKAGE_REPLACED` restarts the phone service by itself.
 - Tmux/knobs: `~/.damage/config.json` (`tmuxHosts` — add slappy back when it is actually on —
   `tmuxQuickKeys`, `tmuxSnippets`, `tmuxWaitPatterns`); on-glass settings live in
   Settings → Tmux. Since §28 the wait alert works for ANY pane — before it, a session that had
@@ -185,9 +196,12 @@ runs every read-only probe against the real database and computes one viz blob.
   auth is ever turned back on). The Web UI came with the `webui` USE flag rebuild
   (`/etc/portage/package.use/60-qbittorrent`); qBittorrent's own Web UI login (`admin` + the
   password in `~/.config/qBittorrent/webui-credentials.txt`) exists only because qBittorrent
-  refuses to start the Web UI without one. ⚠ qBittorrent is the GUI app in the X session, not a
-  service: if it is not running, the window says `qBittorrent unreachable Ns` and everything else
-  keeps working. The tracker session cookie lives in `~/.damage/tl-cookies.json`; the
+  refuses to start the Web UI without one. Since 2026-09-10 qBittorrent runs headless as the OpenRC service
+  `qbittorrent` (`qbittorrent-nox` on the same profile as the GUI — `/etc/conf.d/qbittorrent`), so the
+  Web API is up from boot with no X session; if it is down, the window says `qBittorrent unreachable
+  Ns` and everything else keeps working. ⚠ The GUI shares the profile: while the service runs,
+  launching `qbittorrent` hands over to it and exits — `sudo rc-service qbittorrent stop` first, or
+  use the Web UI at `http://127.0.0.1:8090` (no login from localhost). The tracker session cookie lives in `~/.damage/tl-cookies.json`; the
   announced-set (which downloads were already announced as done) in `~/.damage/torrents.json`.
 
 ## What was verified vs what awaits glass

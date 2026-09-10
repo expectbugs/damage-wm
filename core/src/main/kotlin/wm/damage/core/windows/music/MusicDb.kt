@@ -333,6 +333,35 @@ class MusicDb(private val db: Db, private val libraryDirs: List<String>) {
         }
     }
 
+    // ------------------------------------------------------------------ adaptive playlists (MUSIC.md §9.8)
+    class AdaptiveRule(val id: Int, val name: String, val ruleJson: String)
+
+    /** Every rule-managed playlist with its stored rule (the jsonb as text). */
+    fun adaptiveRules(): List<AdaptiveRule> = db.query(
+        "SELECT id, name, rule::text AS rule FROM playlists WHERE rule IS NOT NULL ORDER BY id")
+        .map { AdaptiveRule(it.int("id"), it.str("name"), it.str("rule")) }
+
+    fun playlistTrackIds(id: Int): List<Int> = db.query(
+        "SELECT track_id FROM playlist_tracks WHERE playlist_id = ? ORDER BY position", id).map { it.int("track_id") }
+
+    /** Rewrite a rule-managed playlist to [target] (the rule's membership):
+     *  ONE transaction with the playlists row locked FIRST (a delete locks in
+     *  the same order — G2CC's refresh-vs-delete deadlock), the current rows
+     *  read inside it, dense positions, and NOTHING written when nothing
+     *  changed. Null = unchanged. A playlist whose rule was cleared meanwhile
+     *  is refused: its rows are somebody's now. */
+    fun refreshAdaptive(id: Int, target: List<Int>): AdaptivePlaylists.Next? = db.tx { t ->
+        val row = t.query("SELECT (rule IS NOT NULL) AS adaptive FROM playlists WHERE id = ? FOR UPDATE", id).firstOrNull()
+            ?: throw IllegalStateException("playlist $id is gone")
+        if (!row.bool("adaptive")) throw IllegalStateException("playlist $id is not adaptive any more — its rule was cleared under the refresh")
+        val current = t.query("SELECT track_id FROM playlist_tracks WHERE playlist_id = ? ORDER BY position", id).map { it.int("track_id") }
+        val next = AdaptivePlaylists.next(current, target) ?: return@tx null
+        t.exec("UPDATE playlists SET updated_at = now() WHERE id = ?", id)
+        t.exec("DELETE FROM playlist_tracks WHERE playlist_id = ?", id)
+        next.ids.forEachIndexed { i, tid -> t.exec("INSERT INTO playlist_tracks (playlist_id, position, track_id) VALUES (?, ?, ?)", id, i, tid) }
+        next
+    }
+
     // ------------------------------------------------------------------ lyrics
     private fun durKey(durMs: Int): Int = if (durMs <= 0) 0 else Math.round(durMs / 1000.0).toInt()
 

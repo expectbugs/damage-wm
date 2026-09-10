@@ -81,10 +81,11 @@ android {
     }
 }
 
-// Stage the built APK where the G2CC /setup page's /damage-apk endpoint serves
-// it from (2026-08-31, Adam's ask: the Damage APK on the same setup page as
-// the G2CC one). The endpoint stamps the download filename from this file's
-// mtime, so restaging is all a new build needs.
+// Stage the built APK where the /setup page's /damage-apk endpoint serves it
+// from (2026-08-31, Adam's ask: the Damage APK on the same setup page as the
+// G2CC one; since 2026-09-10 the damage service serves that page itself —
+// desktop/SetupServer.kt, same port and token). The endpoint stamps the
+// download filename from this file's mtime, so restaging is all a new build needs.
 tasks.register<Copy>("stageApk") {
     dependsOn("assembleDebug")
     from(layout.buildDirectory.file("outputs/apk/debug/phone-debug.apk"))
