@@ -14,12 +14,12 @@ on every plane, the depth ladder) → the sections they cite.
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games · **Feed**
   (2026-09-09, `FEED.md` — designed and built in one session, not yet on glass).
 - **Builds:** APK **0.40 installed** (2026-09-09; Adam: *"significantly faster and more
-  responsive"*); **0.42 staged** (`~/.damage/damage-wm.apk`, the setup page) = 0.41's §42
+  responsive"*); **0.43 staged** (`~/.damage/damage-wm.apk`, the setup page) = 0.41's §42
   fixes (the page traffic sleeps with the glasses, no lease release after a link loss, the
-  keeper in the journal, `/log`) **plus the Feed window** (`HANDOFF.md` §43); the service runs
+  keeper in the journal, `/log`) **plus the Feed window** (`HANDOFF.md` §43, the evening's five fixes in §43.5); the service runs
   the same core and serves `feed` on the content port.
-- **Battery at HEAD:** core **519** · desktop **12** · `--selfcheck`
-  (228 checks, the truth oracle on every settle, the Feed walk included; run ×3 — it is a rate) ·
+- **Battery at HEAD:** core **521** · desktop **12** · `--selfcheck`
+  (230 checks, the truth oracle on every settle, the Feed walk included; run ×3 — it is a rate) ·
   snapshots (57, eight of them Feed) · `--epub-check` · `--music-check` · `--games-check` ·
   `--feed-check` (fixtures; `live` for the real sites) · lint 21 rules / 0 ·
   `:phone:assembleDebug` (run it SEPARATELY from the test batteries — a concurrent APK build
@@ -41,7 +41,7 @@ flush: handle 17 ms median / 66 p90.
 
 ## 🔴 The next session
 
-0. **Feed on glass** (`FEED.md` §8.1, `HANDOFF.md` §43.4): 0.42 installed → the walk with
+0. **Feed on glass** (`FEED.md` §8.1, `HANDOFF.md` §43.4): 0.43 installed (0.42's evening → §43.5) → the walk with
    `tools/glassdrive.py` through every Feed level (one step per snap around Mark all read; the
    strips at 16 levels and at 4 are the judgment Adam owes), `journal_report.py`'s per-gesture
    rows into `FEED.md` §3.8's table, his `feedSources` beyond the day-one five, and the phone

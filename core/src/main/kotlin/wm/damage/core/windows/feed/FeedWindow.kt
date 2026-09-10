@@ -151,10 +151,18 @@ class FeedWindow(
     private val articleImages = HashMap<String, Gray8>()     // url → the whole prepared image
     private val articleImageFailed = HashMap<String, String>()
     private var comicPack: ComicPack? = null
+    /** The comic canvas: the top line shown, the bar button under focus (-1 = panning),
+     *  a flip in flight, and the numbered archive's range when the source has one. */
+    private var comicTop = 0
+    private var comicFocus = -1
+    private var comicSeq = 0
+    private var comicRange: IntRange? = null
+    private var comicRangeFor: String? = null
     private var docLines: List<DocLine> = emptyList()
     private var docLineH = 26
     private var docWidthKey = -1
     private var pendingDocTop: Int? = null
+    private var pendingComicTop: Int? = null
 
     // COMMENTS
     private var comments: List<Comment>? = null
@@ -196,9 +204,10 @@ class FeedWindow(
     private val fSmall = FontSpec(Face.LIST, 13, bold = true)
     private val fHead = FontSpec(Face.LIST, 18, bold = true)
     private val fBody = FontSpec(Face.LIST, 17)
-    private val fRead = FontSpec(Face.READER, 20)
-    private val fReadB = FontSpec(Face.READER, 20, bold = true)
-    private val fReadI = FontSpec(Face.READER, 20, italic = true)
+    // the Reader's sizes (17): the per-app Font size row scales them, "default" = the global
+    private val fRead = FontSpec(Face.READER, 17)
+    private val fReadB = FontSpec(Face.READER, 17, bold = true)
+    private val fReadI = FontSpec(Face.READER, 17, italic = true)
     private val fMono = FontSpec(Face.MONO, 15)
 
     override val preferredHeight: Int? get() = heightPref
@@ -389,9 +398,13 @@ class FeedWindow(
             demandItemsIfNear()
             WindowView.ListView(itemModel, { itemRows().size }, ::paintItemRow, ::paintItemLens, ::commitItem)
         }
-        Level_.ARTICLE, Level_.COMIC -> {
+        Level_.ARTICLE -> {
             ensureDocLines()
             WindowView.DocView(docModel, { docLines.size }, docLineH, ::paintDocLine, { openActions() }, stepLines = { 5 })
+        }
+        Level_.COMIC -> {
+            ensureDocLines()
+            WindowView.CanvasView(::paintComic, ::comicScroll, ::comicTap)
         }
         Level_.ACTIONS -> WindowView.ListView(actModel, { actions().size }, ::paintActRow, ::paintActLens, ::commitAction)
         Level_.COMMENTS -> {
@@ -847,6 +860,9 @@ class FeedWindow(
         openItem = it
         markRead(it, true)
         docModel.topLine = 0             // a restored position waits in pendingDocTop for the lines to exist
+        comicTop = pendingComicTop ?: 0
+        comicFocus = -1
+        pendingComicTop = null
         article = null
         comicPack = null
         articleState = ""
@@ -1115,6 +1131,13 @@ class FeedWindow(
 
     // ================================================================ COMIC
     private fun loadComic(it: Item) {
+        if (comicRangeFor != it.source) {
+            comicRange = null; comicRangeFor = it.source
+            bg.launch(Dispatchers.IO) {
+                val r = try { provider.comicRange(it.source) } catch (e: Exception) { null }
+                onShell { if (comicRangeFor == it.source) { comicRange = r; services?.requestRender(this@FeedWindow) } }
+            }
+        }
         val seq = ++articleSeq
         articleState = "loading"
         services?.setOperation("loading strip")
@@ -1132,8 +1155,167 @@ class FeedWindow(
                 if (p == null) { articleState = err ?: "strip failed"; setNotice(articleState) }
                 else { articleState = ""; comicPack = p; if (p.item.bonus != openItem?.bonus) openItem = p.item }
                 docWidthKey = -1
+                ensureDocLines()
+                // a strip that fits the screen rests on the bar so a tap flips again (xkcd's homepage)
+                if (comicFocus < 0 && docLines.size <= comicVisible()) comicFocus = firstEnabledButton()
                 services?.requestRender(this@FeedWindow)
             }
+        }
+    }
+
+    // ================================================================ the comic canvas
+    /** The bar's buttons, in traversal order: a notch down from the strip's end
+     *  — or one notch UP from its top, the list grammar's wrap — lands on
+     *  `next`, the flip most taps want (Adam, 2026-09-09: "previous, first,
+     *  last, random, menu, and next buttons on the main screen … like the xkcd
+     *  homepage"). A strip that fits above the bar rests on it at once. */
+    private val BAR = listOf("next", "prev", "random", "first", "latest", "menu")
+
+    /** The bar button under focus, or null while panning — for harnesses. */
+    fun comicFocusLabel(): String? = BAR.getOrNull(comicFocus)
+
+    private fun comicVisible(): Int = ((services?.docContentHeight() ?: 416) - BAR_H) / STRIP_H
+
+    /** Where this strip sits among its neighbours: numbered (xkcd's archive) or by list position. */
+    private class Neighbours(val hasNext: Boolean, val hasPrev: Boolean, val hasRandom: Boolean, val atFirst: Boolean, val atLatest: Boolean)
+
+    private fun neighbours(): Neighbours {
+        val it = openItem ?: return Neighbours(false, false, false, true, true)
+        val range = comicRange
+        if (range != null && it.num > 0) {
+            return Neighbours(hasNext = (it.num < range.last), hasPrev = (it.num > range.first), hasRandom = (range.last > range.first),
+                atFirst = (it.num <= range.first), atLatest = (it.num >= range.last))
+        }
+        val idx = items.indexOfFirst { x -> x.id == it.id }
+        val older = idx >= 0 && (idx < items.size - 1 || items.size < itemsTotal)
+        return Neighbours(hasNext = idx > 0, hasPrev = older, hasRandom = items.size >= 2,
+            atFirst = idx == items.size - 1 && items.size >= itemsTotal, atLatest = idx == 0)
+    }
+
+    private fun buttonEnabled(i: Int): Boolean {
+        val n = neighbours()
+        return when (BAR[i]) {
+            "next" -> n.hasNext
+            "prev" -> n.hasPrev
+            "random" -> n.hasRandom
+            "first" -> !n.atFirst && (comicRange != null || items.isNotEmpty())
+            "latest" -> !n.atLatest && (comicRange != null || items.isNotEmpty())
+            else -> true
+        }
+    }
+
+    private fun firstEnabledButton(): Int = BAR.indices.firstOrNull { buttonEnabled(it) } ?: BAR.lastIndex
+
+    private fun paintComic(g: Gray8, r: Rect) {
+        // a canvas owns EVERYTHING in its rect, the background included: the
+        // first build painted over the list it replaced (the snapshot showed
+        // the item rows through the strip, 2026-09-09 evening)
+        g.fillRect(r, Level.BG)
+        ensureDocLines()
+        val barY = r.bottom - BAR_H
+        var y = r.y
+        var i = comicTop
+        while (y + STRIP_H <= barY && i < docLines.size) {
+            paintDocLine(g, i, Rect(r.x, y, r.w, STRIP_H))
+            y += STRIP_H; i++
+        }
+        // the bar: six labels in six slots; the focused one bright with a mark under it
+        val slot = r.w / BAR.size
+        for ((k, label) in BAR.withIndex()) {
+            val enabled = buttonEnabled(k)
+            val lv = when { k == comicFocus -> Level.HEAD; enabled -> Level.DIM; else -> Level.FAINT }
+            val w = tx.measure(label, fSmall)
+            val x = (r.x + k * slot + (slot - w) / 2) / 4 * 4
+            tx.draw(g, x, (barY + 8) / 2 * 2, label, fSmall, lv)
+            if (k == comicFocus) g.fillRect(x, barY + 26, w / 2 * 2, 2, Level.HEAD)
+        }
+    }
+
+    private fun comicScroll(delta: Int) {
+        val visible = comicVisible()
+        val maxTop = maxOf(0, docLines.size - visible)
+        if (delta > 0) {
+            if (comicFocus < 0) {
+                if (comicTop < maxTop) comicTop = (comicTop + 5).coerceAtMost(maxTop)
+                else comicFocus = firstEnabledButton()
+            } else {
+                val next = (comicFocus + 1 until BAR.size).firstOrNull { buttonEnabled(it) }
+                if (next != null) comicFocus = next
+            }
+        } else if (delta < 0) {
+            if (comicFocus < 0) {
+                // the list grammar's wrap (DESIGN §4.6): one notch up from the top lands on the bar
+                if (comicTop > 0) comicTop = (comicTop - 5).coerceAtLeast(0) else comicFocus = firstEnabledButton()
+            } else {
+                val prev = (comicFocus - 1 downTo 0).firstOrNull { buttonEnabled(it) }
+                if (prev != null) comicFocus = prev
+                else if (docLines.size > visible || comicTop > 0) { comicFocus = -1; comicTop = (comicTop - 5).coerceAtLeast(0) }
+            }
+        }
+        services?.requestRender(this)
+    }
+
+    private fun comicTap() {
+        if (comicFocus < 0) { openActions(); return }
+        when (val b = BAR[comicFocus]) {
+            "menu" -> openActions()
+            else -> if (buttonEnabled(comicFocus)) flip(b) else setNotice("$b: nothing there")
+        }
+    }
+
+    /** A flip: by number through a numbered archive (missing numbers skipped),
+     *  by list position otherwise; the answer opens as the strip, read on open. */
+    private fun flip(button: String) {
+        val cur = openItem ?: return
+        val range = comicRange
+        val src = cur.source
+        val seq = ++comicSeq
+        if (range != null && cur.num > 0) {
+            val n = neighbours()
+            val step = when (button) { "next" -> 1; "prev" -> -1; else -> 0 }
+            val target = when (button) {
+                "next" -> if (n.hasNext) cur.num + 1 else return
+                "prev" -> if (n.hasPrev) cur.num - 1 else return
+                "first" -> range.first
+                "latest" -> range.last
+                "random" -> kotlin.random.Random.nextInt(range.first, range.last + 1)
+                else -> return
+            }
+            services?.setOperation("flipping")
+            bg.launch(Dispatchers.IO) {
+                var num = target
+                var found: Item? = null
+                var tries = 0
+                while (found == null && tries < 6 && num in range) {
+                    found = try { provider.comicAt(src, num) } catch (e: Exception) { Log.w("feed", "comic $num: ${e.message}"); null }
+                    if (found == null) num = if (button == "random") kotlin.random.Random.nextInt(range.first, range.last + 1) else num + (if (step == 0) 1 else step)
+                    tries++
+                }
+                onShell {
+                    if (seq != comicSeq) return@onShell
+                    services?.setOperation("idle")
+                    if (found == null) setNotice("$button: nothing there") else openOne(found)
+                    services?.requestRender(this@FeedWindow)
+                }
+            }
+        } else {
+            val idx = items.indexOfFirst { x -> x.id == cur.id }
+            val target = when (button) {
+                "next" -> items.getOrNull(idx - 1)
+                "prev" -> items.getOrNull(idx + 1)
+                "first" -> items.lastOrNull()
+                "latest" -> items.firstOrNull()
+                "random" -> if (items.size >= 2) items.filter { x -> x.id != cur.id }.random() else null
+                else -> null
+            }
+            if (target == null) {
+                // an older strip beyond the loaded page: fetch the page, then flip
+                if (button == "prev" && items.size < itemsTotal && !itemsLoading) { loadItems(items.size); setNotice("loading more") }
+                else setNotice("$button: nothing there")
+                return
+            }
+            itemModel.cursor = itemRows().indexOfFirst { (it as? IRow.It)?.item?.id == target.id }.coerceAtLeast(0)
+            openOne(target)
         }
     }
 
@@ -1158,10 +1340,12 @@ class FeedWindow(
         }, enabled = canComments))
         out.add(Act(if (isFlagged(it)) "Unflag" else "Flag", "read later"))
         out.add(Act(if (isRead(it)) "Mark unread" else "Mark read", ""))
-        val next = nextItem()
-        out.add(Act("Next item", next?.let { dn(it.title) } ?: "none", enabled = next != null))
+        if (it.kind != ItemKind.COMIC) {
+            val next = nextItem()
+            out.add(Act("Next item", next?.let { dn(it.title) } ?: "none", enabled = next != null))
+        }
         if (articleState.isNotEmpty() && articleState != "loading") out.add(Act("Reload", dn(articleState, fSmall)))
-        out.add(Act("Back to list", ""))
+        out.add(Act(if (it.kind == ItemKind.COMIC) "Back to strip" else "Back to list", ""))
         return out
     }
 
@@ -1198,6 +1382,7 @@ class FeedWindow(
             }
             "Reload" -> if (it != null) { if (it.kind == ItemKind.COMIC) { level = Level_.COMIC; loadComic(it) } else { level = Level_.ARTICLE; loadArticle(it) } }
             "Back to list" -> { articleSeq++; level = if (fromFlagged) Level_.FLAGGED else Level_.ITEMS; services?.setOperation("idle") }
+            "Back to strip" -> level = Level_.COMIC
         }
     }
 
@@ -1236,7 +1421,19 @@ class FeedWindow(
         commentLineH = lineHOf(fBody)
         val cs = comments
         val it = openItem
-        if (it != null) out.add(DocLine(dn(it.title, fHead), fHead, Level.HEAD))
+        if (it != null) {
+            out.add(DocLine(dn(it.title, fHead), fHead, Level.HEAD))
+            val own = Extract.fragment(it.body, it.link).ifEmpty { if (it.summary.isNotEmpty()) listOf(Block("p", it.summary)) else emptyList() }
+            if (own.isNotEmpty()) {
+                out.add(DocLine(dn(byline(it), fSmall), fSmall, Level.DIM))
+                for (b in own) when (b.kind) {
+                    "img" -> {}
+                    "h" -> wrapTo(b.text, fReadB, width, Level.HEAD, 0, -1, out)
+                    else -> wrapTo(b.text, fRead, width, Level.BODY, if (b.kind == "q") 24 else 0, -1, out)
+                }
+                out.add(DocLine())
+            }
+        }
         if (cs == null) {
             out.add(DocLine(if (commentsState == "loading") "loading comments" else "failed: ${dn(commentsState, fSmall)}", fSmall,
                 if (commentsState == "loading") Level.REST else Level.HOT))
@@ -1245,9 +1442,12 @@ class FeedWindow(
         } else {
             out.add(DocLine("${cs.size} comments", fSmall, Level.DIM))
             for (c in cs) {
+                val indent = (c.depth.coerceIn(0, 4)) * 16
                 out.add(DocLine())
-                out.add(DocLine(dn("${c.author} · ${FeedFmt.age(c.publishedMs, clock())}", fSmall), fSmall, Level.DIM))
-                for (para in c.text.split('\n')) if (para.isNotBlank()) wrapTo(para, fBody, width, Level.BODY, 0, -1, out)
+                val head = listOf(c.author, c.score, FeedFmt.age(c.publishedMs, clock())).filter { it.isNotEmpty() }.joinToString(" · ")
+                if (c.title.isNotEmpty() && !c.title.startsWith("Re:")) out.add(DocLine(dn(c.title, fHead), fHead, Level.HEAD, indent))
+                if (head.isNotEmpty()) out.add(DocLine(dn(head, fSmall), fSmall, Level.DIM, indent))
+                for (para in c.text.split('\n')) if (para.isNotBlank()) wrapTo(para, fBody, width, Level.BODY, indent, -1, out)
             }
         }
         out.add(DocLine())
@@ -1577,6 +1777,7 @@ class FeedWindow(
         put("bingeActCursor", bingeActModel.cursor)
         put("flagCursor", flagModel.cursor)
         put("docTop", docModel.topLine)
+        put("comicTop", comicTop)
         put("commentsTop", commentsModel.topLine)
         bingeSource?.let { put("bingeSource", it) }
         putJsonArray("recentSubs") { recentSubs.forEach { add(JsonPrimitive(it)) } }
@@ -1607,6 +1808,7 @@ class FeedWindow(
         bingeActModel.cursor = i("bingeActCursor", 0)
         flagModel.cursor = i("flagCursor", 0)
         pendingDocTop = i("docTop", 0).takeIf { it > 0 }
+        pendingComicTop = i("comicTop", 0).takeIf { it > 0 }
         pendingCommentsTop = i("commentsTop", 0).takeIf { it > 0 }
         bingeSource = s("bingeSource")
         recentSubs.clear(); (state["recentSubs"] as? JsonArray)?.forEach { it.jsonPrimitive.contentOrNull?.let { v -> recentSubs.addLast(v) } }
@@ -1708,6 +1910,7 @@ class FeedWindow(
         const val RECENTS = 5
         const val READ_CAP = 600
         const val STRIP_H = Strips.STRIP_H
+        const val BAR_H = 32
         const val LOADED_CAP = 6
         const val RETRY_MS = 5_000L
         private const val ANCHOR = 0

@@ -17,8 +17,12 @@ class HttpReplyB(val status: Int, val headers: Map<String, List<String>>, val bo
  * headers + bytes), so tests replay today's captured responses without a
  * socket and the phone and the PC share every fetcher.
  */
-fun interface FeedHttp {
-    fun get(url: String): HttpReplyB
+interface FeedHttp {
+    fun get(url: String): HttpReplyB = get(url, emptyMap())
+    fun get(url: String, headers: Map<String, String>): HttpReplyB
+    /** A form POST (Slashdot's `ajax.pl`). A seam that cannot post says so. */
+    fun post(url: String, form: Map<String, String>, headers: Map<String, String> = emptyMap()): HttpReplyB =
+        throw UnsupportedOperationException("this http seam does not post")
 }
 
 /** A host asked us to wait (429/503 with `Retry-After`, or our own pace):
@@ -34,10 +38,16 @@ class RateLimited(val host: String, val retryAtMs: Long) :
  * the standing rule; liveness is the engine's pacing.
  */
 class RealFeedHttp(private val userAgent: String) : FeedHttp {
-    override fun get(url: String): HttpReplyB {
+    override fun post(url: String, form: Map<String, String>, headers: Map<String, String>): HttpReplyB {
+        val r = Http.request("POST", url, mapOf("User-Agent" to userAgent, "Accept" to "*/*") + headers,
+            body = Http.formEncode(form).toByteArray(Charsets.UTF_8), contentType = "application/x-www-form-urlencoded")
+        return HttpReplyB(r.status, r.headers, r.body)
+    }
+
+    override fun get(url: String, headers: Map<String, String>): HttpReplyB {
         var u = url
         repeat(6) {
-            val r = Http.request("GET", u, mapOf("User-Agent" to userAgent, "Accept" to "*/*"))
+            val r = Http.request("GET", u, mapOf("User-Agent" to userAgent, "Accept" to "*/*") + headers)
             if (r.status in 301..308) {
                 val loc = r.header("Location") ?: throw IOException("HTTP ${r.status} from $u without a Location")
                 u = URI(u).resolve(loc.trim()).toString()
@@ -74,8 +84,18 @@ class PacedHttp(
     /** When [host] may next be asked, or 0 — for the state line. */
     fun retryAt(host: String): Long = synchronized(lock) { nextAllowed[host] ?: 0L }
 
-    override fun get(url: String): HttpReplyB {
+    override fun post(url: String, form: Map<String, String>, headers: Map<String, String>): HttpReplyB {
+        pace(hostKey(url))
+        return checkLimit(hostKey(url), inner.post(url, form, headers))
+    }
+
+    override fun get(url: String, headers: Map<String, String>): HttpReplyB {
         val host = hostKey(url)
+        pace(host)
+        return checkLimit(host, inner.get(url, headers))
+    }
+
+    private fun pace(host: String) {
         synchronized(lock) {
             val at = nextAllowed[host] ?: 0L
             val now = clock()
@@ -87,7 +107,9 @@ class PacedHttp(
             // reserve the slot NOW: two callers in flight for one host pace too
             nextAllowed[host] = clock() + paceMs(host)
         }
-        val r = inner.get(url)
+    }
+
+    private fun checkLimit(host: String, r: HttpReplyB): HttpReplyB {
         if (r.status == 429 || r.status == 503) {
             val ra = r.header("Retry-After")?.trim()?.toLongOrNull()?.let { it * 1000 } ?: defaultBackoffMs
             val at = clock() + ra

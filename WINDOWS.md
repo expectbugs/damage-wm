@@ -370,6 +370,11 @@ All four rows of the agreed build order are CODE, and so is the keyboard that fo
 - **A test that reads the cursor right after posting notches reads the old cursor.** Wait for
   the identity the notches should land on before recording it (the Feed identity-cursor test
   recorded the wrong item and blamed the window).
+- 🔴 **A canvas paints its whole rect, background first.** `CanvasView` hands the window
+  everything — the shell clears nothing under it. The Feed comic canvas drew its strip and bar
+  over the item list it replaced, and no check looked at the pixels; the snapshot did. Start
+  every canvas paint with `g.fillRect(r, Level.BG)` (Games does), and LOOK at a canvas scene
+  before calling it done.
 - 🔴 **A harness clicks nothing before the rows landed.** A list opens INSTANTLY (its title and
   depth are right) while its page is still on its way; a click posted then lands on the loading
   row, does nothing, and every later step of a blind script is one level off — the Feed

@@ -145,6 +145,14 @@ class FeedService(private val p: FeedProvider) : WinService {
                 }, blob = a)
             }
             "comments" -> WinService.Answer(blob = jsonBlob(json.encodeToString(ListSerializer(Comment.serializer()), p.comments(s("id")))))
+            "comicRange" -> {
+                val r = p.comicRange(s("source"))
+                WinService.Answer(buildJsonObject { put("has", r != null); if (r != null) { put("first", r.first); put("last", r.last) } })
+            }
+            "comicAt" -> {
+                val it = p.comicAt(s("source"), i("num", 1))
+                WinService.Answer(buildJsonObject { put("has", it != null) }, blob = it?.let { jsonBlob(json.encodeToString(Item.serializer(), it)) })
+            }
             "refresh" -> { p.refresh(sOpt("source")); WinService.Answer() }
             "browse" -> {
                 val kind = SourceKind.entries.firstOrNull { it.name == s("kind") } ?: throw IllegalArgumentException("unknown kind")
@@ -292,6 +300,15 @@ class RemoteFeedProvider(
     }
     override fun comments(itemId: String): List<Comment> =
         json.decodeFromString(ListSerializer(Comment.serializer()), blobOf(ch.request("comments", args("id" to itemId)), "comments"))
+    override fun comicRange(sourceId: String): IntRange? {
+        val a = ch.request("comicRange", args("source" to sourceId))
+        if (a.data["has"]?.jsonPrimitive?.booleanOrNull != true) return null
+        return (a.data["first"]?.jsonPrimitive?.intOrNull ?: 1)..(a.data["last"]?.jsonPrimitive?.intOrNull ?: 1)
+    }
+    override fun comicAt(sourceId: String, num: Int): Item? {
+        val a = ch.request("comicAt", args("source" to sourceId, "num" to num))
+        return if (a.data["has"]?.jsonPrimitive?.booleanOrNull == true && a.blob != null) json.decodeFromString(Item.serializer(), a.blob.toString(Charsets.UTF_8)) else null
+    }
     override fun refresh(sourceId: String?) { ch.request("refresh", args("source" to sourceId)) }
     override fun browse(kind: SourceKind, name: String): SourceStatus {
         val st = json.decodeFromString(SourceStatus.serializer(), blobOf(ch.request("browse", args("kind" to kind.name, "name" to name)), "browse"))
@@ -418,6 +435,8 @@ class SwitchingFeedProvider(
     override fun bingeIndex(sourceId: String): List<Episode> = active().bingeIndex(sourceId)
     override fun bingeEpisode(sourceId: String, num: Int, width: Int, levels: Int, mode: LineArt): EpisodePack = active().bingeEpisode(sourceId, num, width, levels, mode)
     override fun comments(itemId: String): List<Comment> = active().comments(itemId)
+    override fun comicRange(sourceId: String): IntRange? = active().comicRange(sourceId)
+    override fun comicAt(sourceId: String, num: Int): Item? = active().comicAt(sourceId, num)
     override fun refresh(sourceId: String?) = active().refresh(sourceId)
     override fun browse(kind: SourceKind, name: String): SourceStatus = active().browse(kind, name)
     override fun forget(sourceId: String) = active().forget(sourceId)

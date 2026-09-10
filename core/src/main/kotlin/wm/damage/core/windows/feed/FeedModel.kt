@@ -124,7 +124,11 @@ data class Article(
 )
 
 @Serializable
-data class Comment(val author: String, val publishedMs: Long, val text: String, val depth: Int = 0)
+data class Comment(
+    val author: String, val publishedMs: Long, val text: String, val depth: Int = 0,
+    /** Slashdot: the comment's own title and its moderation (`5, Insightful`). */
+    val title: String = "", val score: String = "",
+)
 
 /** One page of a binge archive. */
 @Serializable

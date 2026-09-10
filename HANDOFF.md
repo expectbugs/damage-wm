@@ -3786,6 +3786,21 @@ ran M1–M5 with the battery green after each.
   of 4 runs, the snapshot 3 of 5, and one snapshot of "the archive" was the Reader library. Both
   harnesses now wait on `FeedWindow.itemsLoaded()` before any click on a list (`WINDOWS.md` §5).
 
+### 43.5 The first evening on glass — five findings, fixed the same night
+
+Adam installed 0.42 and came back with five things (`FEED.md` §8.2 has each with its
+mechanism): Reddit posts that carry a body showed none of it (the builder kept it only for
+TEXT posts — now the poster's words lead every kind, and the comments view too); a Slashdot
+story showed the summary and nothing of the article it discusses (the source link lives in
+the story page's prose, not the RSS — now summary, then the source under `from <domain>`);
+Slashdot comments, which he called ideal to have (the story page renders the thread server-side
+after all — 100 of 176 on a big story, the rest by id through the `comments_fetch` call
+§43.1 had found; why the morning's page had none is unexplained, grade S); the reading text at
+20 px where the Reader uses 17 (17 now, the per-app `Font size` row scales it); and comics that
+wanted xkcd's own bar — `next · prev · random · first · latest · menu` under the strip on a
+canvas, a tap pressing the highlighted button, one notch up from the top wrapping onto the bar,
+xkcd flipping by number through its whole archive.
+
 ### 43.4 What waits
 
 - **The walk on glass** (`FEED.md` §8.1): install 0.42, `tools/glassdrive.py` through every level

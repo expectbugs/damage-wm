@@ -192,11 +192,115 @@ object SlashdotRss : Fetcher {
                 id = FeedIds.id(sourceId, key), source = sourceId, title = title, link = key,
                 author = Xml.text(it, "creator"), publishedMs = FeedDates.parse(Xml.text(it, "date")),
                 summary = summary, body = desc, kind = ItemKind.LINK, target = key,
-                comments = Xml.text(it, "comments").toIntOrNull() ?: -1, commentsUrl = "",
+                comments = Xml.text(it, "comments").toIntOrNull() ?: -1, commentsUrl = key,
                 extra = Xml.text(it, "section"),
             ))
         }
         return out
+    }
+
+    private val NOT_A_SOURCE = listOf("slashdot.org", "fsdn.com", "slashdotmedia.com", "twitter.com", "facebook.com", "x.com")
+
+    /** The story's source: the first link in the story body that leaves Slashdot
+     *  (measured 2026-09-09: the RSS description carries only share links; the
+     *  page's `div.body` links the source in its prose). "" when there is none. */
+    fun sourceFrom(html: String, pageUrl: String): String {
+        val doc = Jsoup.parse(html, pageUrl)
+        val body = doc.selectFirst("div.body") ?: doc.selectFirst("article") ?: return ""
+        for (a in body.select("a[href]")) {
+            val u = a.attr("abs:href")
+            if (!u.startsWith("http")) continue
+            val host = try { URI(u).host?.lowercase() ?: "" } catch (e: Exception) { continue }
+            if (NOT_A_SOURCE.any { host == it || host.endsWith(".$it") }) continue
+            return u
+        }
+        return ""
+    }
+
+    /** What a story page holds of its thread: the comments it rendered (the top
+     *  of the thread by score, with their depth from the `commtree` nesting) and
+     *  the ids of the ones it did not — hidden below the threshold or listed in
+     *  `D2.noshow_comments` — which [fetchComments] asks `ajax.pl` for. Also
+     *  the discussion id that call needs. Measured 2026-09-09 (FEED.md §8.2). */
+    class Thread(val comments: List<Comment>, val missing: List<String>, val discussionId: String, val host: String)
+
+    fun parseThread(html: String, pageUrl: String): Thread {
+        val doc = Jsoup.parse(html, pageUrl)
+        val out = ArrayList<Comment>()
+        val missing = ArrayList<String>()
+        val listing = doc.selectFirst("#commentlisting")
+        if (listing != null) {
+            for (li in listing.select("li[id^=tree_]")) {
+                val cid = li.id().removePrefix("tree_")
+                val depth = li.parents().count { it.tagName() == "li" && it.id().startsWith("tree_") }
+                val body = doc.selectFirst("#comment_body_$cid")
+                if (body == null || li.hasClass("hidden")) { missing.add(cid); continue }
+                out.add(commentNode(doc, cid, depth, body))
+            }
+        }
+        Regex("""D2\.noshow_comments\(\[([0-9,\s]*)\]\)""").find(html)?.groupValues?.get(1)
+            ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }?.let { missing.addAll(it) }
+        val did = Regex("""D2\.discussion_id\((\d+)\)""").find(html)?.groupValues?.get(1) ?: ""
+        val host = try { URI(pageUrl).host ?: "slashdot.org" } catch (e: Exception) { "slashdot.org" }
+        return Thread(out, missing.distinct(), did, host)
+    }
+
+    private fun commentNode(doc: org.jsoup.nodes.Document, cid: String, depth: Int, body: org.jsoup.nodes.Element): Comment {
+        val title = doc.selectFirst("#comment_link_$cid")?.text()?.trim() ?: ""
+        val score = doc.selectFirst("#comment_score_$cid")?.text()?.let { it.trim().removePrefix("(").removeSuffix(")").removePrefix("Score:").trim() } ?: ""
+        val top = doc.selectFirst("#comment_top_$cid")
+        val by = top?.selectFirst(".details .by")?.text()?.trim()?.removePrefix("by")?.trim() ?: ""
+        val text = body.select("p, br").let { _ ->
+            // paragraphs as newlines; a bare body is one paragraph
+            val ps = body.select("p")
+            if (ps.isEmpty()) body.text().trim() else ps.joinToString("\n") { it.text().trim() }.replace(Regex("\n{2,}"), "\n")
+        }
+        return Comment(by, 0L, text, depth, title = title, score = score)
+    }
+
+    /** `POST /ajax.pl op=comments_fetch` for the ids the page left out. The
+     *  answer is a JS object literal, not JSON: `{ eval_first: "…", html: {
+     *  comment_<cid>: "<html>", … } }` — read with a small scanner. */
+    fun fetchMissing(http: FeedHttp, thread: Thread, cids: List<String>): List<Comment> {
+        if (cids.isEmpty() || thread.discussionId.isEmpty()) return emptyList()
+        val r = http.post("https://${thread.host}/ajax.pl", mapOf(
+            "op" to "comments_fetch", "discussion_id" to thread.discussionId, "cids" to cids.joinToString(","),
+            "threshold" to "-1", "highlightthresh" to "4", "abbreviated" to "", "read_comments" to "", "pieces" to "",
+        ), mapOf("X-Requested-With" to "XMLHttpRequest", "Referer" to "https://${thread.host}/"))
+        if (r.status != 200) throw java.io.IOException("Slashdot comments answered HTTP ${r.status}")
+        return parseFetched(r.text())
+    }
+
+    fun parseFetched(js: String): List<Comment> {
+        val out = ArrayList<Comment>()
+        val re = Regex("""comment_(\d+):\s*"((?:[^"\\]|\\.)*)"""")
+        for (m in re.findAll(js)) {
+            val cid = m.groupValues[1]
+            val html = unescapeJs(m.groupValues[2])
+            val doc = Jsoup.parseBodyFragment(html)
+            val body = doc.selectFirst("#comment_body_$cid") ?: doc.selectFirst("#comment_body_") ?: continue
+            // the fetched block carries the cid only in its ids when the server fills them
+            out.add(commentNode(doc, cid, 0, body))
+        }
+        return out
+    }
+
+    private fun unescapeJs(s: String): String {
+        val sb = StringBuilder(s.length)
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            if (c == '\\' && i + 1 < s.length) {
+                when (val n = s[i + 1]) {
+                    'n' -> sb.append('\n'); 't' -> sb.append('\t'); 'r' -> {}
+                    '/' -> sb.append('/'); '"' -> sb.append('"'); '\\' -> sb.append('\\')
+                    'u' -> if (i + 5 < s.length) { sb.append(s.substring(i + 2, i + 6).toInt(16).toChar()); i += 4 } else sb.append(n)
+                    else -> sb.append(n)
+                }
+                i += 2
+            } else { sb.append(c); i++ }
+        }
+        return sb.toString()
     }
 }
 

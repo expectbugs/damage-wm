@@ -872,6 +872,12 @@ object SelfCheck {
         awaitTrue("the strip opens with its number") { feedWin.title() == "xkcd 3296" && feedScripted.ops.any { it.startsWith("comic:") } }
         settle(shell, "feed-comic")
         check("the strip painted", Pack.inkFraction(shell.comp.composed) > 0.02)
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)                     // one notch up from the top wraps onto the bar
+        awaitTrue("the bar under focus, on prev at the latest strip") { feedWin.comicFocusLabel() == "prev" }
+        settle(shell, "feed-comic-bar")
+        shell.postGesture(EvenHubMsg.EV_CLICK)                          // a tap flips (the xkcd homepage's bar)
+        awaitTrue("the previous strip opens") { feedWin.title() == "xkcd 3295" }
+        settle(shell, "feed-comic-prev")
         repeat(2) { shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK) }     // strip → list → root
         awaitTrue("root again") { feedWin.title() == "feed" }
         feedRow("8bt")

@@ -148,14 +148,28 @@ class FeedWindowTest {
             awaitTrue("the strip opens with its number in the title") { r.win.title() == "xkcd 3296" }
             // the strip is asked at the shell's document column (564 at full width), 16 levels, the auto policy
             awaitTrue("the strip was asked at the document column, 16 levels, auto") { r.feed.ops.any { it.startsWith("comic:") && it.endsWith(":${Probe.docContentWidth() - 32}:16:AUTO") } }
+            // the strip and its alt text do not fit above the bar: one notch UP from the top
+            // wraps onto the bar; 3296 is the latest, so it lands on prev
+            awaitTrue("panning first") { r.win.comicFocusLabel() == null }
+            r.up()
+            awaitTrue("the bar under focus, on prev at the latest strip") { r.win.comicFocusLabel() == "prev" }
+            r.tap()                                            // a tap flips
+            awaitTrue("the previous strip opens") { r.win.title() == "xkcd 3295" && r.feed.ops.any { it == "comicAt:xkcd:3295" } }
+            r.up()
+            awaitTrue("now next is where the bar opens") { r.win.comicFocusLabel() == "next" }
+            r.down(5)                                          // next → prev → random → first → latest → menu
+            awaitTrue("menu under focus") { r.win.comicFocusLabel() == "menu" }
             r.tap()
             awaitTrue("comic actions") { r.win.levelDepth() == 4 }
-            // the cursor rests on the first row that can act — Flag, since a
-            // comic has no comments — so Next item is two notches down
+            // the cursor rests on the first row that can act — Flag, since a comic has no comments
             awaitTrue("the cursor rests past the dim Comments row") { s(r, "actCursor") == "1" }
-            r.down(2)                                          // Flag → Mark read → Next item
+            r.back(); awaitTrue("back on the strip") { r.win.title() == "xkcd 3295" }
+            // the focus stays where it was (menu); first goes to strip 1 through the numbered archive
+            awaitTrue("still on menu") { r.win.comicFocusLabel() == "menu" }
+            r.up(2)                                            // menu → latest → first
+            awaitTrue("first under focus") { r.win.comicFocusLabel() == "first" }
             r.tap()
-            awaitTrue("next strip opens") { r.win.title() == "xkcd 3295" }
+            awaitTrue("strip 1 opens") { r.win.title() == "xkcd 1" && r.feed.ops.any { it == "comicAt:xkcd:1" } }
             r.back(); awaitTrue("list") { r.win.title() == "xkcd" }
             r.back(); awaitTrue("root") { r.win.title() == "feed" }
             r.down(2)                                          // xkcd → smbc → 8bt

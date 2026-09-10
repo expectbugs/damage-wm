@@ -36,6 +36,11 @@ interface FeedProvider : AutoCloseable {
     fun bingeIndex(sourceId: String): List<Episode>
     fun bingeEpisode(sourceId: String, num: Int, width: Int, levels: Int, mode: LineArt): EpisodePack
     fun comments(itemId: String): List<Comment>
+    /** A comic source numbered like xkcd: its whole archive's range (1..latest), else null. */
+    fun comicRange(sourceId: String): IntRange?
+    /** The strip numbered [num] of such a source, fetched if the list does not hold it; null when
+     *  the number does not exist (xkcd 404). */
+    fun comicAt(sourceId: String, num: Int): Item?
     /** Fetch now (paced); null = every source. */
     fun refresh(sourceId: String?)
     /** A typed subreddit or a chosen section becomes a transient source (kept while pinned). */

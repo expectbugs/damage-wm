@@ -74,7 +74,7 @@ object FeedCheck {
         fun fx(name: String): ByteArray = Files.readAllBytes(dir.resolve(name))
         val png = fx("xkcd-3200.png")
         val routes = HashMap<String, Pair<Int, ByteArray>>()
-        val headers = HashMap<String, Map<String, List<String>>>()
+        val fixtureHeaders = HashMap<String, Map<String, List<String>>>()
         routes[RedditAtom.url("popular")] = 200 to fx("reddit-popular.atom.xml")
         routes[SlashdotRss.url("Main")] = 200 to fx("slashdot-main.rdf.xml")
         routes[XkcdFetcher.latestUrl()] = 200 to fx("xkcd-latest.json")
@@ -86,12 +86,14 @@ object FeedCheck {
         routes["https://www.smbc-comics.com/comics/1788823653-20260909.png"] = 200 to png
         routes["https://www.smbc-comics.com/comics/178882955220260909after.png"] = 200 to png
         routes[EightBit.pageUrl(1)] = 200 to fx("eightbit-rest-page1.json")
-        headers[EightBit.pageUrl(1)] = mapOf("X-WP-TotalPages" to listOf("1"))
+        fixtureHeaders[EightBit.pageUrl(1)] = mapOf("X-WP-TotalPages" to listOf("1"))
         routes["https://www.nuklearpower.com/2001/03/02/episode-001-were-going-where/"] = 200 to fx("eightbit-episode-001.html")
         routes["https://www.nuklearpower.com/comics/8-bit-theater/010302.jpg"] = 200 to png
-        val http = FeedHttp { url ->
-            val r = routes[url] ?: (404 to "no fixture for $url".toByteArray())
-            HttpReplyB(r.first, headers[url] ?: emptyMap(), r.second)
+        val http = object : FeedHttp {
+            override fun get(url: String, headers: Map<String, String>): HttpReplyB {
+                val r = routes[url] ?: (404 to "no fixture for $url".toByteArray())
+                return HttpReplyB(r.first, fixtureHeaders[url] ?: emptyMap(), r.second)
+            }
         }
         println("fixtures from $dir")
         val engine = FeedEngine(SourceCfg.DEFAULTS, FeedStore(tmp), http, AwtImages(), scope,
@@ -188,6 +190,22 @@ object FeedCheck {
                 catch (e: Exception) { check("comments: ${e.message}", false) }
             }
             break
+        }
+        // a Slashdot story: the summary, the source under its heading, the thread from the page and ajax.pl
+        engine.sources().firstOrNull { it.kind == SourceKind.SLASHDOT && it.count > 0 }?.let { sd ->
+            val story = engine.items(sd.id, 0, 30).items.maxByOrNull { it.comments }!!
+            val t0 = System.currentTimeMillis()
+            try {
+                val a = engine.article(story.id)
+                val h = a.blocks.indexOfFirst { it.kind == "h" && it.text.startsWith("from ") }
+                println("slashdot '${story.title.take(50)}': ${a.blocks.size} blocks · ${if (h >= 0) a.blocks[h].text else "no source"} · ${if (a.extracted) "extracted" else "floor: ${a.note}"} · ${System.currentTimeMillis() - t0} ms")
+                check("a Slashdot story carries its source article", h >= 0 && a.blocks.size > h + 1)
+                val t1 = System.currentTimeMillis()
+                val cs = engine.comments(story.id)
+                println("slashdot thread: ${cs.size} comments (the feed says ${story.comments}) · ${cs.count { it.depth > 0 }} replies · ${System.currentTimeMillis() - t1} ms")
+                cs.take(2).forEach { println("    ${it.author} · ${it.score} · ${it.title.take(30)}: ${it.text.take(60)}") }
+                check("a Slashdot thread comes through", cs.isNotEmpty())
+            } catch (e: Exception) { check("slashdot story/thread: ${e.message}", false) }
         }
         engine.close()
     }

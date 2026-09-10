@@ -1,8 +1,9 @@
 # Feed on glass — design + build record (2026-09-09)
 
 **Status: DESIGN SETTLED with Adam 2026-09-09 (fifteen verdicts, §1); BUILT the same day,
-M1–M5 (§8 is the as-built record; `HANDOFF.md` §43 the build's own account); APK 42/0.42
-staged; NOT YET ON GLASS — the walk (§3.8 → §8) waits on the install.** The next window after
+M1–M5 (§8 is the as-built record; `HANDOFF.md` §43 the build's own account); ON GLASS the same
+evening, and its five findings fixed that night (§8.2); APK 43/0.43 staged; the measured walk
+(§3.8 → §8.1) still owed.** The next window after
 Games in the `EXPLOSION.md` §20 wow order (Feed + comics, #5). Not a G2CC
 conversion — G2CC never had a feed window ("a feed without images was not worth building"),
 so `WINDOWS.md` step 2 has nothing to mine; Reader (a reading window: one tap opens, the page's
@@ -491,13 +492,47 @@ design and this section says what runs:
 - **A first sight is a baseline.** A source's first status on a device sets `seen` to its newest
   stamp and announces nothing; notices start from the second fetch, and only behind the row.
 
-**Battery at the end of the build:** core **519** tests (the 14 parser/engine tests, 6 window
+**Battery at the end of the build (before §8.2's changes; after them core 521, the rest unchanged):** core **519** tests (the 14 parser/engine tests, 6 window
 tests over a real shell, 2 channel/switch tests over a loopback host), desktop **12**,
-`--selfcheck` (228 checks) with the Feed walk and its three ink checks (source list 4.7 %, item
+`--selfcheck` (228 checks; 230 after §8.2) with the Feed walk and its three ink checks (source list 4.7 %, item
 list 13.4 %, article 7.6 %), green 3 of 3 once the harness waited for the rows, `--snapshot` with eight Feed scenes at 480 and 288 (57 PNGs), `--feed-check`
 over the fixtures and `--feed-check live` against the real sites (all five fetched cleanly,
 1,218 pages indexed, xkcd 3296 at 596×218 inverted 16.4 % ink), lint 0. APK 42/0.42 staged; the
 PC service restarted onto the same core.
+
+### 8.2 The first evening on glass (Adam, 2026-09-09) — five findings, all changed the same night
+
+Adam installed 0.42 and walked Feed. What he saw, what it was, what runs now:
+
+1. **A Reddit post showed its image and title but not its text.** Reddit lets an image, video
+   or gallery post carry a body, and 6 of the 25 popular entries did; the article builder
+   dropped the body for every kind but TEXT. Now the poster's own words come FIRST for every
+   kind, then the image / the `video · not shown` line / the extracted link under a `from
+   <domain>` heading — and the comments view opens with the post's text above the thread.
+2. **A Slashdot story showed only the editor's summary.** The RSS description carries no source
+   link (its only anchors are share buttons); the story PAGE's `div.body` links the source in
+   its prose. The article is now the summary, then `from <domain>` and the source article
+   extracted; when the source will not extract, the summary stands and the note says why.
+3. **Slashdot comments** — Adam: *"if a way can be found … that would be ideal."* The story
+   page, fetched now, renders the top of the thread server-side: 8 bodies of 9 for a 9-comment
+   story, 100 of 176 for "Star Trek Turns 60", each in `li#tree_<cid>` with its depth in the
+   `commtree` nesting, its title, its `(Score:5, Insightful)` and its author; the ones below
+   the threshold and those listed in `D2.noshow_comments([...])` come from the `comments_fetch`
+   call §2.2 had already found works once it has ids. (Why the 2026-09-09 afternoon page had
+   an empty tree — the same URL, the same user agent — is not known; the probes that morning
+   ran minutes after the story posted. Grade S.) `SlashdotRss.parseThread` + `fetchMissing`;
+   the `Comments` row is live for Slashdot; comments render `title` (when not `Re:`), `author
+   · score · age`, the text, indented by depth.
+4. **The reading text was far too big.** The window sized Alegreya at 20; the Reader uses 17.
+   17 now, and the per-app `Font size` row (the shell's, `default` = the global) scales it.
+5. **Flipping through comics wanted the xkcd homepage's buttons, not a menu.** The comic level
+   is a canvas with a bar under the strip — `next · prev · random · first · latest · menu` —
+   the ring moving the highlight and a tap pressing it; a strip that fits above the bar rests on
+   it at once, a taller one pans, and one notch UP from the top wraps onto the bar (the list
+   grammar's wrap-to-end). xkcd flips by NUMBER through the whole archive: `FeedEngine.comicAt`
+   fetches any strip on demand (missing numbers skipped, `random` re-drawn), the range from the
+   latest known; SMBC and the generic image feeds flip through their list. The archive keeps its
+   endless document.
 
 ### 8.1 Measured on glass
 

@@ -410,7 +410,15 @@ Reddit popular, Slashdot, xkcd, SMBC and the 8-Bit Theater archive. `core/…/wi
   flags with enough of the item to list after retention, `seen`) and `feed.binge.<id>` (episode,
   strip). Read marks UNION on a live apply; flags are LWW; a source with nothing reports no record.
 - **The window** (`FeedWindow`) is the Reader grammar — one tap opens, the Document's tap is the
-  actions level — with nine levels; `rootRowId()` and `levelName` are the harness accessors.
+  actions level — with nine levels; `rootRowId()`, `levelName`, `itemsLoaded()` and
+  `comicFocusLabel()` are the harness accessors. The comic level is a CANVAS (2026-09-09
+  evening, `FEED.md` §8.2): the strip and its text above a bar of six buttons the ring walks
+  and a tap presses; xkcd flips by number through its whole archive (`comicAt`/`comicRange` on
+  the provider, the engine fetching any strip on demand).
+- **Slashdot** (`FEED.md` §8.2): the article is the summary, then the source the story page
+  links under `from <domain>`; the thread is the story page's rendered tree
+  (`SlashdotRss.parseThread`) plus `POST ajax.pl op=comments_fetch` for the ids it lists but
+  does not render (`fetchMissing`) — the one POST in the engine, through `FeedHttp.post`.
 - **Harnesses:** `--feed-check` (fixtures, offline) and `--feed-check live` (one paced fetch per
   configured source, read-only, a temp dir); the selfcheck walk (`feedChecks`) and eight snapshot
   scenes. `ScriptedFeed` (core main) is the scripted world all three share.

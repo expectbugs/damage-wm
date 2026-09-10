@@ -66,6 +66,7 @@ class ScriptedFeed(
         summary = "Google plans to invest at least \$15 billion in AI infrastructure in Finland through 2028, its largest single investment in Europe.",
         body = "<p>Google plans to invest at least \$15 billion in AI infrastructure in Finland through 2028, its largest single investment in Europe.</p>",
         kind = ItemKind.LINK, target = "https://slashdot.org/story/26/09/09/$i/x", comments = if (i % 3 == 0) -1 else 4 + i * 9,
+        commentsUrl = "https://slashdot.org/story/26/09/09/$i/x",
         extra = listOf("hardware", "mobile", "linux", "science")[i % 4], seenMs = nowMs,
     )
 
@@ -170,7 +171,19 @@ class ScriptedFeed(
         ops.add("comments:$itemId")
         val it = item(itemId) ?: throw IllegalArgumentException("no such item")
         if (it.commentsUrl.isEmpty()) throw IllegalStateException("comments are not reachable for this source")
+        if (it.source == "slashdot") return (0 until 6).map { i -> Comment("reader$i", 0L, "A Slashdot comment, number $i, threaded under the story, with the moderation it earned.", i % 3,
+            title = if (i == 0) "The Texas of Europe" else "Re:The Texas of Europe", score = "${5 - i % 3}, Insightful") }
         return (0 until 6).map { i -> Comment("commenter$i", nowMs - i * 600_000L, "Comment number $i says something ordinary about the post, at a length that wraps once or twice on the panel.\nA second paragraph of it.", 0) }
+    }
+
+    override fun comicRange(sourceId: String): IntRange? = if (sourceId == "xkcd") 1..3296 else null
+
+    override fun comicAt(sourceId: String, num: Int): Item? {
+        ops.add("comicAt:$sourceId:$num")
+        if (sourceId != "xkcd") throw IllegalArgumentException("not numbered")
+        if (num < 1 || num > 3296 || num == 3290) return null           // 3290 plays the famously missing number
+        itemsBy["xkcd"]?.firstOrNull { it.num == num }?.let { return it }
+        return xkcd(num, num % 4).copy(title = "Strip $num")
     }
 
     override fun refresh(sourceId: String?) { ops.add("refresh:$sourceId") }

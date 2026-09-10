@@ -6,6 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -79,6 +80,8 @@ class FeedNetTest {
             val ep = remote.bingeEpisode("8bt", 3, 564, 16, LineArt.AUTO)
             assertEquals(3, ep.episode.num); assertEquals(564, ep.strip.w)
             assertEquals(6, remote.comments(link.id).size)
+            assertEquals(1..3296, remote.comicRange("xkcd")); assertNull(remote.comicRange("smbc"))
+            assertEquals(1000, remote.comicAt("xkcd", 1000)!!.num); assertNull(remote.comicAt("xkcd", 3290))
             // browse makes a transient source the status list then carries
             val b = remote.browse(SourceKind.REDDIT, "linux")
             assertEquals("r:linux", b.id)

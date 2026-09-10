@@ -54,6 +54,11 @@ class FeedEngine(
 
     @Volatile private var fetchMs: Long = fetchMs
     private val sources = LinkedHashMap<String, SourceState>()
+    /** Strips fetched by NUMBER outside a source's list (xkcd's whole archive
+     *  through the comic bar) — bounded, id-keyed like the list's own. */
+    private val extraItems = object : LinkedHashMap<String, Item>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Item>?): Boolean = size > 300
+    }
     private val lock = Any()
     private val listeners = CopyOnWriteArrayList<FeedProvider.Listener>()
     @Volatile private var focusedId: String? = null
@@ -248,7 +253,29 @@ class FeedEngine(
     override fun item(itemId: String): Item? {
         val all = synchronized(lock) { sources.values.toList() }
         for (s in all) s.file.items.firstOrNull { it.id == itemId }?.let { return it }
+        synchronized(extraItems) { extraItems[itemId] }?.let { return it }
         return null
+    }
+
+    // ================================================================ comics by number (xkcd)
+    override fun comicRange(sourceId: String): IntRange? {
+        val s = source(sourceId)
+        if (s.cfg.kind != SourceKind.XKCD) return null
+        val latest = s.file.items.maxOfOrNull { it.num } ?: return null
+        return 1..latest
+    }
+
+    override fun comicAt(sourceId: String, num: Int): Item? {
+        val s = source(sourceId)
+        if (s.cfg.kind != SourceKind.XKCD) throw IllegalArgumentException("'${s.cfg.name}' is not numbered")
+        s.file.items.firstOrNull { it.num == num }?.let { return it }
+        val id = FeedIds.id(sourceId, "xkcd:$num")
+        synchronized(extraItems) { extraItems[id] }?.let { return it }
+        val r = http.get(XkcdFetcher.url(num))
+        if (r.status == 404) return null
+        val it = XkcdFetcher.parseOne(Fetchers.body(r, "xkcd $num"), sourceId)
+        synchronized(extraItems) { extraItems[it.id] = it }
+        return it
     }
 
     // ================================================================ articles
@@ -267,31 +294,61 @@ class FeedEngine(
         return Article(it.id, it.title, blocks, extracted = false, note = note)
     }
 
-    private fun buildArticle(it: Item): Article = when (it.kind) {
-        ItemKind.TEXT -> Article(it.id, it.title,
-            Extract.fragment(it.body, it.link).ifEmpty { listOf(Block("p", it.summary.ifEmpty { "(no text)" })) }, extracted = true)
-        ItemKind.IMAGE -> Article(it.id, it.title, listOf(Block("img", it.title, it.image.ifEmpty { it.target })), extracted = true)
-        ItemKind.VIDEO -> Article(it.id, it.title, listOf(Block("p", "video · not shown")), extracted = true, note = "video")
-        ItemKind.COMIC -> Article(it.id, it.title, listOfNotNull(if (it.alt.isNotEmpty()) Block("p", it.alt) else null), extracted = true)
-        ItemKind.LINK -> {
-            val url = it.target.ifEmpty { it.link }
-            try {
-                val r = http.get(url)
-                when {
-                    r.status != 200 -> floor(it, "HTTP ${r.status} · showing the summary")
-                    !isHtml(r) -> floor(it, "not a web page · showing the summary")
-                    else -> {
-                        val blocks = Extract.article(r.text(), url)
-                        if (blocks.isEmpty()) floor(it, "could not extract · showing the summary")
-                        else Article(it.id, it.title, blocks, extracted = true)
-                    }
+    private fun domainOf(url: String): String = try { java.net.URI(url).host?.removePrefix("www.") ?: url } catch (e: Exception) { url }
+
+    /** Fetch [url] and extract it: the blocks, or null with the reason. */
+    private fun extractUrl(url: String): Pair<List<Block>?, String> {
+        return try {
+            val r = http.get(url)
+            when {
+                r.status != 200 -> null to "HTTP ${r.status}"
+                !isHtml(r) -> null to "not a web page"
+                else -> Extract.article(r.text(), url).let { b -> if (b.isEmpty()) null to "could not extract" else b to "" }
+            }
+        } catch (e: RateLimited) {
+            throw e
+        } catch (e: Exception) {
+            null to (e.message ?: "fetch failed").take(60)
+        }
+    }
+
+    private fun buildArticle(it: Item): Article {
+        // the poster's own words come first, whatever the post points at (Adam,
+        // 2026-09-09 on glass: an image post's text is the point of the post)
+        val own = Extract.fragment(it.body, it.link)
+        return when (it.kind) {
+            ItemKind.TEXT -> Article(it.id, it.title, own.ifEmpty { listOf(Block("p", it.summary.ifEmpty { "(no text)" })) }, extracted = true)
+            ItemKind.IMAGE -> Article(it.id, it.title, own + Block("img", it.title, it.image.ifEmpty { it.target }), extracted = true)
+            ItemKind.VIDEO -> Article(it.id, it.title, own + Block("p", "video · not shown"), extracted = true, note = "video")
+            ItemKind.COMIC -> Article(it.id, it.title, listOfNotNull(if (it.alt.isNotEmpty()) Block("p", it.alt) else null), extracted = true)
+            ItemKind.LINK -> {
+                val kind = try { source(it.source).cfg.kind } catch (e: Exception) { null }
+                if (kind == SourceKind.SLASHDOT) slashdotArticle(it, own) else {
+                    val url = it.target.ifEmpty { it.link }
+                    val (blocks, why) = extractUrl(url)
+                    if (blocks == null) floor(it, "$why · showing the summary")
+                    else if (own.isEmpty()) Article(it.id, it.title, blocks, extracted = true)
+                    else Article(it.id, it.title, own + Block("h", "from ${domainOf(url)}") + blocks, extracted = true)
                 }
-            } catch (e: RateLimited) {
-                throw e
-            } catch (e: Exception) {
-                floor(it, "${(e.message ?: "fetch failed").take(60)} · showing the summary")
             }
         }
+    }
+
+    /** A Slashdot story is an editor's summary that links its source; the
+     *  reader wants both (Adam, 2026-09-09): the summary, then the source
+     *  article under a `from <domain>` heading. The story page is fetched once
+     *  here and its source link kept for the article; the same page carries
+     *  the comment tree ([comments]). */
+    private fun slashdotArticle(it: Item, summary: List<Block>): Article {
+        val page = try { http.get(it.link) } catch (e: RateLimited) { throw e } catch (e: Exception) { null }
+        val floorBlocks = summary.ifEmpty { if (it.summary.isNotEmpty()) listOf(Block("p", it.summary)) else emptyList() }
+        if (page == null || page.status != 200) return Article(it.id, it.title, floorBlocks, extracted = false,
+            note = "story page ${page?.status?.let { s -> "HTTP $s" } ?: "unreachable"} · showing the summary")
+        val src = SlashdotRss.sourceFrom(page.text(), it.link)
+        if (src.isEmpty()) return Article(it.id, it.title, floorBlocks, extracted = true, note = "no source link in the story")
+        val (blocks, why) = extractUrl(src)
+        return if (blocks == null) Article(it.id, it.title, floorBlocks + Block("h", "from ${domainOf(src)}") + Block("p", "$why · ${src}"), extracted = false, note = "$why · showing the summary")
+            else Article(it.id, it.title, floorBlocks + Block("h", "from ${domainOf(src)}") + blocks, extracted = true)
     }
 
     private fun isHtml(r: HttpReplyB): Boolean {
@@ -406,9 +463,27 @@ class FeedEngine(
         val now = clock()
         if (cached != null && now - cached.atMs < COMMENTS_TTL_MS) return cached.comments
         if (it.commentsUrl.isEmpty()) throw IllegalStateException("comments are not reachable for this source")
-        val r = http.get(it.commentsUrl)
-        if (r.status != 200) throw IOException("comments answered HTTP ${r.status}")
-        val list = RedditAtom.parseComments(r.body)
+        val kind = try { source(it.source).cfg.kind } catch (e: Exception) { SourceKind.REDDIT }
+        val list = when (kind) {
+            SourceKind.SLASHDOT -> {
+                // the story page renders the top of the thread; the rest by id through ajax.pl (FEED.md §8.2)
+                val r = http.get(it.commentsUrl)
+                if (r.status != 200) throw IOException("story page answered HTTP ${r.status}")
+                val thread = SlashdotRss.parseThread(r.text(), it.commentsUrl)
+                val rest = if (thread.missing.isEmpty()) emptyList() else try {
+                    SlashdotRss.fetchMissing(http, thread, thread.missing)
+                } catch (e: RateLimited) { throw e } catch (e: Exception) {
+                    Log.w("feed", "Slashdot: ${thread.missing.size} more comments not fetched: ${e.message}")
+                    listOf(Comment("", 0L, "${thread.missing.size} more comments could not be fetched: ${e.message}", 0))
+                }
+                thread.comments + rest
+            }
+            else -> {
+                val r = http.get(it.commentsUrl)
+                if (r.status != 200) throw IOException("comments answered HTTP ${r.status}")
+                RedditAtom.parseComments(r.body)
+            }
+        }
         store.saveComments(itemId, FeedStore.CommentsFile(now, list))
         return list
     }

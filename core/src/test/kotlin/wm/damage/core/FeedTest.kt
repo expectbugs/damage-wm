@@ -45,7 +45,13 @@ class FeedTest {
         val log = ArrayList<String>()
         fun on(url: String, status: Int, body: ByteArray, headers: Map<String, List<String>> = emptyMap()) { routes[url] = Triple(status, body, headers) }
         fun on(url: String, status: Int, body: String, headers: Map<String, List<String>> = emptyMap()) = on(url, status, body.toByteArray(), headers)
-        override fun get(url: String): HttpReplyB {
+        val posts = LinkedHashMap<String, Pair<Int, String>>()
+        override fun post(url: String, form: Map<String, String>, headers: Map<String, String>): HttpReplyB {
+            log.add("POST $url ${form["op"] ?: ""} ${form["cids"] ?: ""}".trim())
+            val r = posts[url] ?: return HttpReplyB(404, emptyMap(), "no post route for $url".toByteArray())
+            return HttpReplyB(r.first, emptyMap(), r.second.toByteArray())
+        }
+        override fun get(url: String, headers: Map<String, String>): HttpReplyB {
             log.add(url)
             val r = routes[url] ?: return HttpReplyB(404, emptyMap(), "no route for $url".toByteArray())
             return HttpReplyB(r.first, r.third, r.second)
@@ -105,6 +111,28 @@ class FeedTest {
         val linux = SlashdotRss.parse(fixture("slashdot-linux.rdf.xml"), "s:linux")
         assertEquals(15, linux.size)
         assertEquals(12, SlashdotRss.SECTIONS.size)
+    }
+
+    @Test
+    fun slashdotStoryPageGivesTheSourceLinkAndTheThread() {
+        val page = fixture("slashdot-story-page.html").toString(Charsets.UTF_8)
+        val url = "https://hardware.slashdot.org/story/26/09/09/2151202/google-to-invest-record-15-billion-in-ai-infrastructure-in-finland"
+        assertTrue(SlashdotRss.sourceFrom(page, url).startsWith("https://www.cnbc.com/2026/09/09/google-finland"), "the first outbound link in the story body")
+        val t = SlashdotRss.parseThread(page, url)
+        assertEquals(8, t.comments.size, "the page renders the top of the thread")
+        assertEquals("24093420", t.discussionId)
+        assertEquals("hardware.slashdot.org", t.host)
+        assertEquals(listOf(0, 1, 2, 1, 0, 0, 0), t.comments.take(7).map { it.depth }, "depth from the commtree nesting (a reply to a reply sits at 2)")
+        val first = t.comments[0]
+        assertEquals("\"The Texas of Europe\"", first.title)
+        assertTrue(first.score.isNotEmpty() && first.author.isNotEmpty(), "score '${first.score}' by '${first.author}'")
+        assertTrue(first.text.contains("fullbacks of chess"))
+        assertEquals(1, t.missing.size, "one comment sat below the threshold: ${t.missing}")
+        // the ajax answer is a JS object literal with the html per cid
+        val js = """{ eval_first: "D2.d2_comment_order(0);", html: { comment_66331614: "<div id=\"comment_top_66331614\" class=\"commentTop\"><div class=\"title\"><h4><a id=\"comment_link_66331614\">Hidden one</a> <span id=\"comment_score_66331614\" class=\"score\">(Score:0)</span></h4></div><div class=\"details\"><span class=\"by\">by Anonymous Coward</span></div><div class=\"commentBody\"><div id=\"comment_body_66331614\"><p>Fetched \/ later.<\/p></div></div></div>" } }"""
+        val fetched = SlashdotRss.parseFetched(js)
+        assertEquals(1, fetched.size)
+        assertEquals("Hidden one", fetched[0].title); assertEquals("Anonymous Coward", fetched[0].author); assertEquals("Fetched / later.", fetched[0].text); assertEquals("0", fetched[0].score)
     }
 
     @Test
@@ -434,13 +462,24 @@ class FeedTest {
             val engine = FeedEngine(SourceCfg.DEFAULTS, store, http, fakeDecoder, scope, prefetchArticles = false, clock = { now }, runLoop = false)
             for (id in listOf("popular", "xkcd", "smbc", "8bt")) assertTrue(engine.fetchNow(id), id)
 
-            // a text post's article is its own selftext; an image post is its image
+            // a text post's article is its own selftext; an image post is its own words, then the image
             val pop = engine.items("popular", 0, 30).items
             val textPost = pop.first { it.kind == ItemKind.TEXT }
             val a = engine.article(textPost.id)
             assertTrue(a.extracted); assertTrue(a.blocks.isNotEmpty())
-            val imagePost = pop.first { it.kind == ItemKind.IMAGE }
-            assertEquals("img", engine.article(imagePost.id).blocks[0].kind)
+            val bare = pop.first { it.kind == ItemKind.IMAGE && it.body.isEmpty() }
+            assertEquals("img", engine.article(bare.id).blocks[0].kind)
+            val worded = pop.first { it.kind == ItemKind.IMAGE && it.body.isNotEmpty() }
+            val wa = engine.article(worded.id)
+            assertEquals("p", wa.blocks[0].kind, "the poster's words come first: ${wa.blocks}")
+            assertEquals("img", wa.blocks.last().kind)
+            // comics by number: the archive's range and any strip in it, a missing number null
+            assertEquals(1..3296, engine.comicRange("xkcd"))
+            http.on(XkcdFetcher.url(1000), 200, fixture("xkcd-1000.json"))
+            val old = engine.comicAt("xkcd", 1000)!!
+            assertEquals(1000, old.num); assertEquals(old, engine.item(old.id), "a fetched strip is an item")
+            assertNull(engine.comicAt("xkcd", 3290), "xkcd 3290 answers 404 in this world")
+            assertEquals(xkItems(engine)[0], engine.comicAt("xkcd", 3296), "a listed strip comes from the list")
             // a link post extracts its target; a page that will not extract shows the floor and is not cached
             val linkPost = pop.first { it.kind == ItemKind.LINK }
             http.on(linkPost.target, 200, PAGE, mapOf("Content-Type" to listOf("text/html")))
@@ -507,4 +546,36 @@ class FeedTest {
     }
 
     private fun ComicPack.inverted() = strip.inverted
+    private fun xkItems(e: FeedEngine) = e.items("xkcd", 0, 5).items
+
+    @Test
+    fun engineSlashdotSummaryThenSourceAndTheThread() {
+        val tmp = Files.createTempDirectory("damage-feed-slashdot")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val http = Replay()
+            http.on(SlashdotRss.url("Main"), 200, fixture("slashdot-main.rdf.xml"))
+            val story = "https://hardware.slashdot.org/story/26/09/09/2151202/google-to-invest-record-15-billion-in-ai-infrastructure-in-finland"
+            http.on(story, 200, fixture("slashdot-story-page.html"), mapOf("Content-Type" to listOf("text/html")))
+            val page = fixture("slashdot-story-page.html").toString(Charsets.UTF_8)
+            val src = SlashdotRss.sourceFrom(page, story)
+            http.on(src, 200, PAGE, mapOf("Content-Type" to listOf("text/html")))
+            http.posts["https://hardware.slashdot.org/ajax.pl"] = 200 to """{ html: { comment_66331614: "<div id=\"comment_body_66331614\"><p>Below the threshold.</p></div>" } }"""
+            val engine = FeedEngine(SourceCfg.DEFAULTS.take(2), FeedStore(tmp), http, fakeDecoder, scope, prefetchArticles = false, clock = { 1_700_000_000_000L }, runLoop = false)
+            engine.fetchNow("slashdot")
+            val it = engine.items("slashdot", 0, 15).items.first { it.title.startsWith("Google to Invest") }
+            assertEquals(story, it.commentsUrl, "the story page is the thread")
+            val a = engine.article(it.id)
+            assertTrue(a.extracted, a.note)
+            assertTrue(a.blocks[0].kind == "p" && a.blocks[0].text.startsWith("Google plans to invest"), "the summary first: ${a.blocks[0]}")
+            val h = a.blocks.indexOfFirst { it.kind == "h" && it.text == "from cnbc.com" }
+            assertTrue(h > 0, "then the source under its heading: ${a.blocks.map { it.kind + ":" + it.text.take(20) }}")
+            assertEquals("The Headline", a.blocks[h + 1].text)
+            val cs = engine.comments(it.id)
+            assertEquals(9, cs.size, "8 rendered + 1 fetched by id")
+            assertEquals("Below the threshold.", cs.last().text)
+            assertTrue(http.log.any { it.startsWith("POST https://hardware.slashdot.org/ajax.pl comments_fetch 66331614") }, http.log.filter { it.startsWith("POST") }.toString())
+            engine.close()
+        } finally { scope.coroutineContext[kotlinx.coroutines.Job]?.cancel(); tmp.toFile().deleteRecursively() }
+    }
 }
