@@ -151,9 +151,10 @@ is fetched, not moved — a pull breaks `research/verify_cfw.py`'s 2.2.6.10 pins
 - **On-glass verdicts** still owed for Torrents and the keyboard, Files (menus, viewers, the
   thumbnail lens, theme icons), Games (`HOLDEM.md` §17.4), Music (the one-time grants —
   `DAILY.md` — and the on-phone items).
-- **The next window** is Adam's pick; Feed + comics (`EXPLOSION.md` §20 #5) is the standing
-  candidate. `WINDOWS.md` is the checklist and §6 the latency bar; the clean-room licensing rule
-  (`CLAUDE.md`) binds any window that drives someone else's work.
+- **The next window is Feed + comics — DESIGN SETTLED 2026-09-09, `FEED.md` is the record and
+  §5 its build order (five milestones; §7 the kickoff).** Not built. `WINDOWS.md` is the
+  checklist and §6 the latency bar; the clean-room licensing rule (`CLAUDE.md`) binds any window
+  that drives someone else's work.
 - **The Reader transitional cleanup**: remove the legacy-offsets dual-write in `ReaderWindow`
   (fields marked; `SubstrateTest`'s migration pin goes with it).
 - **The icon-quality pass**: one drawn icon per app at 20 px + 56 px (the release path).

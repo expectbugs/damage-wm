@@ -448,6 +448,19 @@ DamageWM face. Assets stay personal-only, like FF1.
 
 ## 11. FEED
 
+> ✅ **DESIGN SETTLED 2026-09-09 — `FEED.md` is the record (fifteen verdicts, the verified
+> source facts, the window, the two-engine switch, the build order); NOT BUILT.** Adam's
+> verdicts supersede the grades below: sources day one are **Reddit r/popular (anonymous),
+> Slashdot, xkcd, 8-Bit Theater (binge), SMBC**; the root is the **source list**, not a river;
+> comments in where reachable (Reddit, flat — Slashdot's are behind a client-side fetch whose
+> id list is not exposed anonymously); flag in; images on; inversion automatic; fit-to-width
+> only; 16 gray levels default with a row; notifications default off; **the phone runs the
+> engine itself when the PC is unreachable** (verdict 15). 🪓 Cut by him: Hacker News, 11.9
+> Open on PC (*"the glasses are intended to be used away from PC exclusively"*), 11.10 the
+> Reader hand-off, 11.11 YouTube (*"we don't do video"*), a Reddit login, any manga (One
+> Punch Man asked and refused on facts), a 1:1 zoom, and a headless browser for either site
+> (probed: both refuse headless Chromium).
+
 The §13 promise: *"a Reddit-style feed with endless scroll."* No G2CC ancestor — G2CC could not
 afford images, and a feed without images was not worth building. It is now.
 
@@ -672,7 +685,9 @@ sequencing per window):
 4. **Music** (adaptive PC-library ↔ Spotify per §16.10) — ✅ **BUILT 2026-09-01/02** (`MUSIC.md`,
    `HANDOFF.md` §24; review round 1 + two ultrareview runs done the same day — §24.2–§24.3; the
    on-phone measured items are what remain)
-5. **Feed** + comics
+5. **Feed** + comics — ✅ **DESIGN SETTLED 2026-09-09** (`FEED.md`: Reddit popular ·
+   Slashdot · xkcd · 8-Bit Theater binge · SMBC; source-list root; the phone runs the engine
+   when the PC is unreachable); **not built** — the build is the next step
 6. **Mail**
 7. **SMS** (+ caller-ID source)
 8. **Info** (useful-stats steer)
