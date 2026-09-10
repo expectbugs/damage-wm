@@ -207,6 +207,9 @@ class FeedWindow(
     fun rootRowId(): String? = (srcRows().getOrNull(srcModel.cursor) as? SRow.Src)?.s?.id
     /** The level's name — for harnesses. */
     val levelName: String get() = level.name
+    /** The open list has rows — a harness clicks nothing before this is true
+     *  (a click on the loading row does nothing, honestly). */
+    fun itemsLoaded(): Boolean = items.isNotEmpty()
 
     // ------------------------------------------------------------ helpers
     private fun setNotice(s: String) {

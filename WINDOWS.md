@@ -12,7 +12,7 @@ as code), and the G2CC original (`/home/user/G2CC/server/src/windows/<app>.ts`) 
 interaction facts only, no code taken** (clean-room rule, `CLAUDE.md`) — when one exists
 (Torrents had none; step 2 then has nothing to mine).
 
-**The six worked precedents:** `ReaderWindow` (List → Document → Actions, async content,
+**The seven worked precedents:** `ReaderWindow` (List → Document → Actions, async content,
 per-item sub-records, images), `TmuxWindow` (Canvas, a live provider over the content port,
 quick keys, typed text with confirm, alerts), **`FilesWindow`** (2026-09-01 — the
 tap-=-context-menu grammar via `MenuSurface`, the §16.10 window channel via
@@ -30,10 +30,15 @@ window with **no host at all**: pure Kotlin, nothing outside itself, so it runs 
 every `DESIGN.md` §10 configuration; a `CanvasView` table at four heights; its own **stereo
 planes** via the new `contentPlanes`; a reusable game kit under `windows/games/kit/` that names
 no card game; a world that advances only while you are looking at it; and a determinism contract
-where the persisted record is an ACTION LOG the engine replays). Read them before writing a
-seventh — Files and Torrents are the worked examples of MenuSurface and WinNet, Torrents of the
-keyboard, Music of a two-host contract, push frames and the exclusive mode, Games of a
-host-free window and of a canvas that owns its own depth.
+where the persisted record is an ACTION LOG the engine replays), and **`FeedWindow`** (2026-09-09,
+`FEED.md` — ONE engine class on both hosts: the PC's serves the phone over the channel and the
+phone's own, parked, takes over after a PC-loss threshold with a deliberate switchback; the
+Reader grammar over nine levels; reading state in synced records with a union rule for read
+marks; an endless archive Document; images as strips on demand from `view()`). Read them before
+writing an eighth — Files and Torrents are the worked examples of MenuSurface and WinNet,
+Torrents of the keyboard, Music of a two-host contract, push frames and the exclusive mode,
+Games of a host-free window and of a canvas that owns its own depth, Feed of a fetch engine
+that lives in core and of a fallback that switches only one way by itself.
 
 ---
 
@@ -352,6 +357,25 @@ All four rows of the agreed build order are CODE, and so is the keyboard that fo
 - **Blind gesture scripts drift.** A live walk that assumes where the Main or Settings cursor
   rests changes the wrong rows within a dozen steps (§28.2 changed five settings by accident).
   Snap, look, then act — or ask the shell (`menuLabels`, `rootRow`) rather than counting.
+- **A harness script is one JVM method** (Feed, 2026-09-09). `SelfCheck.script` and
+  `Snapshot.script` each stopped compiling — "Method too large", the 64 KB limit — when one
+  more window's walk joined them. Give every window's walk and scenes a function of their own
+  (`torrentsChecks`, `gamesChecks`, `feedChecks`, `feedScenes`) and pass the local helpers in.
+- **A MAIN entry presents the root; it does not move the root cursor.** A harness that clicks
+  row 0 after `toWindow` opens whatever the cursor rested on last (the Feed snapshot opened the
+  archive instead of Reddit). Give the window a `rootRowId()`-class accessor and walk to the row
+  by identity.
+- **A class's `init` runs where it is written.** A field declared below the `init` block is
+  null inside it (`ScriptedFeed`'s title list). Declare state above the block that uses it.
+- **A test that reads the cursor right after posting notches reads the old cursor.** Wait for
+  the identity the notches should land on before recording it (the Feed identity-cursor test
+  recorded the wrong item and blamed the window).
+- 🔴 **A harness clicks nothing before the rows landed.** A list opens INSTANTLY (its title and
+  depth are right) while its page is still on its way; a click posted then lands on the loading
+  row, does nothing, and every later step of a blind script is one level off — the Feed
+  selfcheck failed 2 of 4 runs this way and its snapshot photographed the Reader library where
+  the archive should have been. Give the window an `itemsLoaded()`-class accessor and wait on
+  it; the core tests already waited on `itemCursorId`.
 
 
 ## 6. Latency standards — the bar for every window written after 2026-09-05 (`HANDOFF.md` §37)

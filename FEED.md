@@ -1,7 +1,9 @@
 # Feed on glass — design + build record (2026-09-09)
 
-**Status: DESIGN SETTLED with Adam 2026-09-09 (fifteen verdicts, §1); NOT BUILT.** The next
-window after Games in the `EXPLOSION.md` §20 wow order (Feed + comics, #5). Not a G2CC
+**Status: DESIGN SETTLED with Adam 2026-09-09 (fifteen verdicts, §1); BUILT the same day,
+M1–M5 (§8 is the as-built record; `HANDOFF.md` §43 the build's own account); APK 42/0.42
+staged; NOT YET ON GLASS — the walk (§3.8 → §8) waits on the install.** The next window after
+Games in the `EXPLOSION.md` §20 wow order (Feed + comics, #5). Not a G2CC
 conversion — G2CC never had a feed window ("a feed without images was not worth building"),
 so `WINDOWS.md` step 2 has nothing to mine; Reader (a reading window: one tap opens, the page's
 tap is the actions level), Files (image strips), Torrents (a live list over the channel, the
@@ -450,6 +452,55 @@ grammar, image strips, per-item sub-records), `FilesWindow.kt`'s Viewer (strip D
 `MusicWindow.kt`'s backend switch and `Back to PC library` row, `DESIGN.md` §4.6–§4.8. Then
 M1 → M5 in order, the battery green after each, the numbers last.
 
-## 8. Measured on glass
+## 8. As built (2026-09-09) — deviations from §3–§5, the numbers, what waits
 
-*(empty until the walk)*
+Built in one session, a commit per milestone (`a66f2c8` M1 · `95fe6c8` M2 · `3ecba02` M3+M4 ·
+M5 = this record). Where the build departed from the plan above, the plan text stands as the
+design and this section says what runs:
+
+- **No Readability4J.** Its 1.0.8 pulls jackson-module-kotlin 2.9 and a 2019 Kotlin stdlib into
+  the APK; `Extract.kt` is our own scorer on jsoup (MIT), in Readability's spirit and none of its
+  code: paragraphs score their parent and grandparent, link-heavy containers are penalised,
+  `article`/`main` favoured, and a page under 200 characters of prose yields nothing so the
+  feed's own text shows. Live today it turned a Reddit link post into 8 blocks.
+- **Strips are fit to the shell's document column, not to 596.** `docContentWidth()` is 564 at
+  full width (the column the rail and margins leave); §2.6's numbers are priced at 596 and are
+  a few percent high for that reason. The engine caches per width, so a Size change re-derives.
+- **Line art is three per-comic rows** (`xkcd art`, `SMBC art`, `8-Bit art`: auto / never /
+  always) with no global row — the global one would have said nothing the three do not.
+  Article images always follow the automatic rule.
+- **Slashdot comments are out** exactly as §2.2 found: the row is dim, `not reachable · N on
+  the site`. Reddit's are flat per post.
+- **The phone engine adopts the PC's list.** `SourceStatus.cfg` carries each configured source
+  over the channel and `FeedEngine.adopt` takes on the ones the phone lacks, so a source added in
+  `config.json` reaches the fallback; nothing is ever removed on the phone.
+- **Over the channel a strip is deflate(packed nibbles)** with its dimensions in the answer's
+  data — the compositor's own bytes, no JSON of a byte array. The tests pin them byte-identical.
+- **`ScriptedFeed` lives in core's main sources** (the `SimMusicPlayer` precedent) so the core
+  tests and both desktop harnesses share one scripted world; its stamps are relative to now so
+  the scenes' ages read the same every day.
+- **The harness scripts hit the JVM's 64 KB method limit.** `SelfCheck.script` and
+  `Snapshot.script` each stopped compiling with one more call in them; the Torrents walk, the
+  Feed walk and the Feed scenes are functions of their own now (Games already was). The
+  harnesses step to source rows by identity (`FeedWindow.rootRowId()`), never by counting —
+  the MAIN entry keeps the root cursor where it was, which is what the first blind version got
+  wrong.
+- **The oracle walk fails under load.** `OracleWalkTest` reported "the shell did not settle" once
+  when `:core:test` ran in the same gradle invocation as `:phone:assembleDebug`; alone it passes
+  twice in a row. Run the APK build separately from the batteries.
+- **A first sight is a baseline.** A source's first status on a device sets `seen` to its newest
+  stamp and announces nothing; notices start from the second fetch, and only behind the row.
+
+**Battery at the end of the build:** core **519** tests (the 14 parser/engine tests, 6 window
+tests over a real shell, 2 channel/switch tests over a loopback host), desktop **12**,
+`--selfcheck` (228 checks) with the Feed walk and its three ink checks (source list 4.7 %, item
+list 13.4 %, article 7.6 %), green 3 of 3 once the harness waited for the rows, `--snapshot` with eight Feed scenes at 480 and 288 (57 PNGs), `--feed-check`
+over the fixtures and `--feed-check live` against the real sites (all five fetched cleanly,
+1,218 pages indexed, xkcd 3296 at 596×218 inverted 16.4 % ink), lint 0. APK 42/0.42 staged; the
+PC service restarted onto the same core.
+
+### 8.1 Measured on glass
+
+*(the walk waits on the 0.42 install — `tools/glassdrive.py`, snap before every tap, one step
+per snap around Mark all read; then `tools/journal_report.py`'s per-gesture section into the
+table §3.8 left blank)*

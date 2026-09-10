@@ -613,7 +613,7 @@ object Snapshot {
         iconsSettled()
         save(sim, out, "60-feed-sources")
         shell.postGesture(EvenHubMsg.EV_CLICK)             // popular
-        waitFor("the item list") { feedWin.title() == "popular" && feedWin.levelDepth() == 2 }
+        waitFor("the item list") { feedWin.title() == "popular" && feedWin.levelDepth() == 2 && feedWin.itemsLoaded() }
         settle(shell, "feed")
         save(sim, out, "61-feed-items")
         shell.postGesture(EvenHubMsg.EV_CLICK)             // one tap opens
@@ -628,7 +628,8 @@ object Snapshot {
         waitFor("root") { feedWin.title() == "feed" }
         feedRow("xkcd")
         shell.postGesture(EvenHubMsg.EV_CLICK)             // xkcd
-        waitFor("xkcd") { feedWin.title() == "xkcd" }
+        waitFor("xkcd") { feedWin.title() == "xkcd" && feedWin.itemsLoaded() }
+        settle(shell, "feed")
         shell.postGesture(EvenHubMsg.EV_CLICK)
         waitFor("the strip") { feedWin.title() == "xkcd 3296" && feedScripted.ops.any { it.startsWith("comic:") } }
         settle(shell, "feed")
@@ -652,7 +653,8 @@ object Snapshot {
         settle(shell, "feed")
         save(sim, out, "66-feed-sources-288")
         shell.postGesture(EvenHubMsg.EV_CLICK)
-        waitFor("popular at 288") { feedWin.title() == "popular" }
+        waitFor("popular at 288") { feedWin.title() == "popular" && feedWin.itemsLoaded() }
+        settle(shell, "feed")
         shell.postGesture(EvenHubMsg.EV_CLICK)
         waitFor("the article at 288") { feedWin.title() == "article" }
         settle(shell, "feed")

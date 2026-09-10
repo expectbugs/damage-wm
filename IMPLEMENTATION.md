@@ -389,6 +389,37 @@ and all of it has run on the radio daily since the phone's own first light later
   placeholder until the mode-10 feed exists; head tracking defaults OFF.
 - ~~Texture caching (Babcock's in-progress firmware work)~~ — **it shipped**, see below.
 
+## Feed + comics (2026-09-09, FEED.md — one engine on both hosts, a deliberate switchback)
+
+Reddit popular, Slashdot, xkcd, SMBC and the 8-Bit Theater archive. `core/…/windows/feed/`:
+
+- **`FeedEngine` is the whole engine and runs on both hosts** (`FEED.md` §3.6): the configured
+  sources on a pacer (one coroutine per due source; feeds at the `Fetch` row, comics hourly, the
+  archive index weekly), the per-kind fetchers (`Fetchers.kt`), `FeedStore` (files under
+  `~/.damage/feed` on the PC, the app's `files/feed` on the phone), `Extract` (jsoup),
+  `Strips` (fit → §3.4 inversion → 16/8/4 levels → packed 4bpp). The PC's engine is
+  `Config.feedEngine`; it also serves the phone through `FeedService` on the window channel.
+  The phone builds its own engine, **paused**, and `SwitchingFeedProvider` resumes it after the
+  `PC loss` threshold; `Back to PC` in the root menu parks it again. Nothing switches back on
+  its own.
+- **`FeedHttp` is the seam** (`RealFeedHttp` over `Http.request`, redirects followed by hand;
+  `PacedHttp` in front: one request per minute per Reddit host, a second elsewhere, `Retry-After`
+  honoured, a long wait thrown as `RateLimited` with its time). Tests replay the fixtures under
+  `core/src/test/resources/feed/` — the real bytes of 2026-09-09.
+- **Reading state is the shell's, never the engine's:** `feed.src.<id>` (read ids capped at 600,
+  flags with enough of the item to list after retention, `seen`) and `feed.binge.<id>` (episode,
+  strip). Read marks UNION on a live apply; flags are LWW; a source with nothing reports no record.
+- **The window** (`FeedWindow`) is the Reader grammar — one tap opens, the Document's tap is the
+  actions level — with nine levels; `rootRowId()` and `levelName` are the harness accessors.
+- **Harnesses:** `--feed-check` (fixtures, offline) and `--feed-check live` (one paced fetch per
+  configured source, read-only, a temp dir); the selfcheck walk (`feedChecks`) and eight snapshot
+  scenes. `ScriptedFeed` (core main) is the scripted world all three share.
+- **Config:** `feedSources` (the day-one five when absent; `kind: "rss"` + `url` [+ `image`]
+  for a later title), `feedUserAgent`, `feedDataDir`. Nothing here is a credential.
+- ⚠ **Comics are the heaviest thing the shell ships** (`FEED.md` §2.6, modeled): an xkcd first
+  screen is 5–13 KB, an 8-Bit Theater page 30–54 KB at 16 levels (17 KB at 4). The numbers on
+  glass are owed (§8.1).
+
 ## Music (2026-09-01/02, MUSIC.md · DESIGN.md §4.9) — the phone plays, the PC serves
 
 The third app-wave window, built whole overnight (M1–M6, `HANDOFF.md` §24). The G2CC music

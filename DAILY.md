@@ -74,6 +74,24 @@ runs every read-only probe against the real database and computes one viz blob.
 **Deploy is unchanged**: `./gradlew :desktop:stageJar && sudo rc-service damage restart`
 (the media endpoint binds with the service); the APK by `:phone:stageApk` from the setup page.
 
+## Feed + comics (2026-09-09, `FEED.md`) — one engine on both hosts
+
+- **Nothing to configure for day one.** The service fetches the five sources (Reddit popular,
+  Slashdot, xkcd, SMBC, the 8-Bit Theater archive) into `~/.damage/feed/` on their pacer and
+  serves the phone over the content port. Your own sources go in `~/.damage/config.json` as
+  `feedSources` (the day-one five apply when the key is absent — copy them from
+  `SourceCfg.DEFAULTS` and add; `kind: "rss"` + `url` [+ `"image": true` for a webcomic]).
+  `feedUserAgent` is the one string every fetch carries. No credentials anywhere.
+- **The phone fetches for itself when the PC is unreachable** for the `PC loss` threshold
+  (Settings → Feed, default 1 min) and says `phone engine` in Main's row; it does NOT switch back
+  by itself — the root menu's `Back to PC` row does. Its files live in the app's own storage.
+- **Reddit is paced to one request a minute** (it answers bursts with 429s); a typed subreddit
+  right after a fetch says `reddit.com rate-limited · retry N s` on the source's lens.
+- **Checks:** `bin/damage --feed-check` (offline, the captured fixtures) and
+  `bin/damage --feed-check live` (one paced fetch per configured source, read-only, a temp
+  directory deleted after — about a minute: xkcd walks 30 numbers a second apart, the archive
+  index is 14 pages).
+
 ## Ops crib
 
 - `sudo rc-service damage start|stop|status` — the PC side. **Stop it before any

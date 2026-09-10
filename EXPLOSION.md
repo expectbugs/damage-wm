@@ -448,8 +448,9 @@ DamageWM face. Assets stay personal-only, like FF1.
 
 ## 11. FEED
 
-> ✅ **DESIGN SETTLED 2026-09-09 — `FEED.md` is the record (fifteen verdicts, the verified
-> source facts, the window, the two-engine switch, the build order); NOT BUILT.** Adam's
+> ✅ **DESIGN SETTLED AND BUILT 2026-09-09 — `FEED.md` is the record (fifteen verdicts, the
+> verified source facts, the window, the two-engine switch; §8 the as-built account),
+> `HANDOFF.md` §43 the build; APK 0.42 staged, the on-glass walk owed.** Adam's
 > verdicts supersede the grades below: sources day one are **Reddit r/popular (anonymous),
 > Slashdot, xkcd, 8-Bit Theater (binge), SMBC**; the root is the **source list**, not a river;
 > comments in where reachable (Reddit, flat — Slashdot's are behind a client-side fetch whose
@@ -685,9 +686,10 @@ sequencing per window):
 4. **Music** (adaptive PC-library ↔ Spotify per §16.10) — ✅ **BUILT 2026-09-01/02** (`MUSIC.md`,
    `HANDOFF.md` §24; review round 1 + two ultrareview runs done the same day — §24.2–§24.3; the
    on-phone measured items are what remain)
-5. **Feed** + comics — ✅ **DESIGN SETTLED 2026-09-09** (`FEED.md`: Reddit popular ·
-   Slashdot · xkcd · 8-Bit Theater binge · SMBC; source-list root; the phone runs the engine
-   when the PC is unreachable); **not built** — the build is the next step
+5. **Feed** + comics — ✅ **BUILT 2026-09-09, the same day it was designed** (`FEED.md`, `HANDOFF.md`
+   §43: Reddit popular · Slashdot · xkcd · 8-Bit Theater binge · SMBC; source-list root; ONE
+   engine class on both hosts, the phone's taking over after a PC-loss threshold with a
+   deliberate switchback); on-glass verdicts owed (APK 0.42 staged)
 6. **Mail**
 7. **SMS** (+ caller-ID source)
 8. **Info** (useful-stats steer)

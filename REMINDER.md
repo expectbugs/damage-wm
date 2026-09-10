@@ -11,16 +11,19 @@ on every plane, the depth ladder) → the sections they cite.
 - **LIVE as the all-day daily driver.** CFW g2flash `a5d1c31` (reports `2.2.6.10`; detect by
   `EVENCFW/`, never the version). The **phone APK drives** — radio and shell — and the OpenRC
   `damage` service on beardos is the data host and standby (`HANDOFF.md` §19, `DAILY.md`).
-- **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games.
+- **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games · **Feed**
+  (2026-09-09, `FEED.md` — designed and built in one session, not yet on glass).
 - **Builds:** APK **0.40 installed** (2026-09-09; Adam: *"significantly faster and more
-  responsive"*); **0.41 staged** (`~/.damage/damage-wm.apk`, the setup page) with §42: the page
-  traffic sleeps with the glasses, no lease release after a link loss, atlas chunks journaled as
-  flushes, silent checks counted, the keeper's transitions in the journal, `/log` on every host;
-  the service runs the same core.
-- **Battery at HEAD:** core **497** · desktop **11** · `--selfcheck`
-  (200 checks, the truth oracle on every settle; run ×3 — it is a rate) ·
-  snapshots · `--epub-check` · `--music-check` · `--games-check` · lint 21 rules / 0 ·
-  `:phone:assembleDebug`.
+  responsive"*); **0.42 staged** (`~/.damage/damage-wm.apk`, the setup page) = 0.41's §42
+  fixes (the page traffic sleeps with the glasses, no lease release after a link loss, the
+  keeper in the journal, `/log`) **plus the Feed window** (`HANDOFF.md` §43); the service runs
+  the same core and serves `feed` on the content port.
+- **Battery at HEAD:** core **519** · desktop **12** · `--selfcheck`
+  (228 checks, the truth oracle on every settle, the Feed walk included; run ×3 — it is a rate) ·
+  snapshots (57, eight of them Feed) · `--epub-check` · `--music-check` · `--games-check` ·
+  `--feed-check` (fixtures; `live` for the real sites) · lint 21 rules / 0 ·
+  `:phone:assembleDebug` (run it SEPARATELY from the test batteries — a concurrent APK build
+  made the oracle walk miss a settle once).
 
 ## Measured on glass, 0.40 (2026-09-07 → 09, Adam's use — `HANDOFF.md` §42.0)
 
@@ -38,6 +41,11 @@ flush: handle 17 ms median / 66 p90.
 
 ## 🔴 The next session
 
+0. **Feed on glass** (`FEED.md` §8.1, `HANDOFF.md` §43.4): 0.42 installed → the walk with
+   `tools/glassdrive.py` through every Feed level (one step per snap around Mark all read; the
+   strips at 16 levels and at 4 are the judgment Adam owes), `journal_report.py`'s per-gesture
+   rows into `FEED.md` §3.8's table, his `feedSources` beyond the day-one five, and the phone
+   fallback tried once with the service stopped.
 1. **Read the 0.41 journal and `/log` after Adam's first day on it** — the two things §42 could
    not explain are instrumented now: the **arm rebuilds** (a `supervision timeout` on
    alternating arms every ~50 min, 41 in 2.5 days; §42.2 lists ten candidates and the cheap
@@ -151,10 +159,10 @@ is fetched, not moved — a pull breaks `research/verify_cfw.py`'s 2.2.6.10 pins
 - **On-glass verdicts** still owed for Torrents and the keyboard, Files (menus, viewers, the
   thumbnail lens, theme icons), Games (`HOLDEM.md` §17.4), Music (the one-time grants —
   `DAILY.md` — and the on-phone items).
-- **The next window is Feed + comics — DESIGN SETTLED 2026-09-09, `FEED.md` is the record and
-  §5 its build order (five milestones; §7 the kickoff).** Not built. `WINDOWS.md` is the
-  checklist and §6 the latency bar; the clean-room licensing rule (`CLAUDE.md`) binds any window
-  that drives someone else's work.
+- **Feed + comics is BUILT (2026-09-09, `FEED.md` §8, `HANDOFF.md` §43) — its on-glass walk is
+  item 0 above.** The next window after it is Adam's pick from `EXPLOSION.md` §20: Mail (#6),
+  SMS (#7, with the caller-ID source), Info (#8), Notices (#9). `WINDOWS.md` is the checklist
+  (seven precedents now) and §6 the latency bar.
 - **The Reader transitional cleanup**: remove the legacy-offsets dual-write in `ReaderWindow`
   (fields marked; `SubstrateTest`'s migration pin goes with it).
 - **The icon-quality pass**: one drawn icon per app at 20 px + 56 px (the release path).

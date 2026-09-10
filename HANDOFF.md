@@ -3722,3 +3722,77 @@ checks, all pass each run) · `--snapshot` ×2 (49 each) · epub (380/404 images
 · music · games · lint 0 · `:phone:assembleDebug`. APK **0.41** staged; the service restarted
 on the same core. Docs: this section, `REMINDER.md` rewritten to it, `DAILY.md` (the
 `/log` line, the recovery), `IMPLEMENTATION.md`, `WINDOWS.md` §6 (the 0.40 bar), `CLAUDE.md`.
+
+## 43. Feed + comics designed and built in one session (2026-09-09)
+
+Adam picked Feed + comics (`EXPLOSION.md` §20 #5) as the next window and answered fifteen
+verdicts (`FEED.md` §1): Reddit popular anonymously, Slashdot, xkcd, the 8-Bit Theater archive
+and SMBC; the source list as the root; the phone fetching for itself when the PC is unreachable;
+Hacker News, YouTube, Open on PC, a Reddit login, manga and a 1:1 zoom out. The design pass probed
+every source live and priced every strip through the firmware's RLE (§2 there); the build then
+ran M1–M5 with the battery green after each.
+
+### 43.1 What the probes settled (grade M unless said)
+
+- Reddit's JSON listings refuse non-browser clients; the Atom feeds work but a burst of three
+  anonymous fetches drew two 429s and recovered in about two minutes, so the engine holds Reddit
+  to one request a minute. Headless Chromium (`~/aria/fetch_page.py`) is refused outright by
+  Reddit ("blocked by network security") and put behind a Cloudflare check by Slashdot — Adam
+  asked whether it would solve both; it solves neither.
+- Slashdot's comments load client-side through `D2.ajaxFetchComments` → `POST /ajax.pl
+  op=comments_fetch`; the endpoint answers per-comment HTML for a `cids` list, but the anonymous
+  page carries no id list, `fetch_all=1` answers empty, and the classic `comments.pl` answers a
+  challenge page. Out; the count shows.
+- 8-Bit Theater is WordPress: the REST category lists 1,313 posts, 1,218 of them episodes
+  (`Episode NNN: …`), each page with one comic image; early years JPEG (about twice the PNG
+  years on the wire). xkcd has a JSON record per strip and 2× images for recent ones. SMBC's
+  RSS carries the strip and the hovertext; the bonus panel is on the page in a hidden div.
+- One Punch Man (asked): Viz holds the English licence, MangaDex has none of it in English, and a
+  manga page prices at 57 KB per screen, three screens a page. Out on both counts.
+
+### 43.2 What was built, by milestone
+
+- **M1 the engine** (`a66f2c8`): fetchers for the five kinds and a generic RSS/Atom adapter, the
+  paced http seam, our own jsoup scorer (Readability4J dropped for its Jackson 2.9 pull), strips,
+  a file store with retention, `--feed-check` over the fixtures and live. 14 tests pinned to the
+  captured bytes.
+- **M2 the window** (`95fe6c8`): nine levels in the Reader grammar, the synced records with the
+  union rule, the endless archive with the keyboard jump, Browse a subreddit / a section with
+  recents and Pin, Mark all read behind a confirm, the Flagged list, deep links, twelve Settings
+  rows, notices default off with a first-sight baseline; `IconKind.FEED`; six window tests over a
+  real shell; the selfcheck walk and eight snapshot scenes. Both harness scripts crossed the JVM's
+  64 KB method limit and were split.
+- **M3+M4 the channel and the phone** (`3ecba02`): `FeedService`/`RemoteFeedProvider` with strips
+  as deflated 4bpp rows, `changed`/`state` pushes, a status cache; `SwitchingFeedProvider` — the
+  phone engine after the `PC loss` threshold, back only by hand; the phone adopts the PC's
+  source list; APK 42/0.42.
+- **M5 the record**: `FEED.md` §8, this section, `IMPLEMENTATION.md`, `REMINDER.md`,
+  `WINDOWS.md` (a seventh precedent), `EXPLOSION.md`, `DAILY.md`, `CLAUDE.md` counts, memory.
+
+### 43.3 Decisions made inside the plan
+
+- Strips are fit to the shell's document column (564 at full width), not the design's 596.
+- Three per-comic `art` rows instead of a global `Line art` row plus overrides.
+- The article's images are demanded from the loop's `view()` (the Torrents page-demand rule)
+  and re-demanded after a relayout; a restored actions or comments level is restored after the
+  list re-opens the item; a restored reading position waits for the article.
+- The harnesses walk to source rows by identity (`rootRowId()`); the MAIN entry keeps the root
+  cursor on the last source, which the first blind script got wrong.
+- The oracle walk's one failure in this session came under a concurrent APK build; twice green
+  alone. Batteries and the APK build run separately from now on.
+- **The harnesses raced the page load** (found by running each harness more than once, the
+  standing rule): "the xkcd list" is true the instant the level opens, the click that followed
+  landed on the loading row, and the rest of the walk was one level off — the selfcheck failed 2
+  of 4 runs, the snapshot 3 of 5, and one snapshot of "the archive" was the Reader library. Both
+  harnesses now wait on `FeedWindow.itemsLoaded()` before any click on a list (`WINDOWS.md` §5).
+
+### 43.4 What waits
+
+- **The walk on glass** (`FEED.md` §8.1): install 0.42, `tools/glassdrive.py` through every level
+  (one step per snap around Mark all read), `journal_report.py`'s per-gesture rows into the
+  table, and Adam's verdicts on the strips at 16 levels versus 4 on the real panel.
+- **Adam's own sources** in `config.json` (`feedSources`) beyond the day-one five, and the
+  `Notify` rows he wants on.
+- The **phone fallback on a real PC loss** — the switch is tested over a loopback host, not yet
+  over Tailscale with the service down.
+

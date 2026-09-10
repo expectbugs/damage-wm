@@ -843,6 +843,7 @@ object SelfCheck {
         check("Feed source list ink <= 15% (was ${"%.1f".format(inkFeedSources * 100)}%)", inkFeedSources <= 0.15)
         shell.postGesture(EvenHubMsg.EV_CLICK)                          // popular
         awaitTrue("popular opens one level down") { feedWin.title() == "popular" && feedWin.levelDepth() == 2 }
+        awaitTrue("popular's rows landed") { feedWin.itemsLoaded() }   // never a click on the loading row
         settle(shell, "feed-items")
         val inkFeedItems = Pack.inkFraction(shell.comp.composed)
         check("Feed item list ink <= 15% (was ${"%.1f".format(inkFeedItems * 100)}%)", inkFeedItems <= 0.15)
@@ -865,6 +866,8 @@ object SelfCheck {
         feedRow("xkcd")
         shell.postGesture(EvenHubMsg.EV_CLICK)
         awaitTrue("the xkcd list") { feedWin.title() == "xkcd" }
+        awaitTrue("xkcd's rows landed") { feedWin.itemsLoaded() }
+        settle(shell, "feed-xkcd-list")
         shell.postGesture(EvenHubMsg.EV_CLICK)
         awaitTrue("the strip opens with its number") { feedWin.title() == "xkcd 3296" && feedScripted.ops.any { it.startsWith("comic:") } }
         settle(shell, "feed-comic")

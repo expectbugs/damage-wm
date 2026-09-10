@@ -67,8 +67,8 @@ is unavailable and hands back on its return. The PC never claims in daily use** 
 remote` keeps the claim path as the explicit dev override). **`REMINDER.md` is the orientation
 file and the entry point**; `HANDOFF.md` the dated records (§19–§42 are current); `DAILY.md` the
 ops crib; `IMPLEMENTATION.md` what runs and how. App layer: **Main · Settings · Reader · Tmux ·
-Files · Torrents · Music · Games** (`WINDOWS.md` is the conversion checklist; `TMUX.md`,
-`TORRENTS.md`, `MUSIC.md`, `HOLDEM.md` the per-window records).
+Files · Torrents · Music · Games · Feed** (`WINDOWS.md` is the conversion checklist; `TMUX.md`,
+`TORRENTS.md`, `MUSIC.md`, `HOLDEM.md`, `FEED.md` the per-window records).
 
 **Five whole-codebase reviews (`HANDOFF.md` §25–§30) and the latency pass (§32–§36) left rules
 that bind every change.** The short list — each with its record:
@@ -120,12 +120,16 @@ Damage` and the APK-wide `Phone notifications` switch, and the shell never gates
 source on a hidden field — a Global row that disappears leaves a persisted value nothing can undo).
 
 **After ANY code change run the whole battery and keep it green:** `./gradlew :core:test`
-(497 tests, including the per-lens oracle, the §25–§31 review pins, the §40 latency pins, the §42 sleep/release pins and the random-gesture
-oracle walk), `./gradlew :desktop:test` (11 tests: the BlueZ glue
-over a fake link and the config file's safety), `desktop --selfcheck` (200 checks, the truth oracle on every settle), `desktop --snapshot DIR` (look at the lens
+(519 tests, including the per-lens oracle, the §25–§31 review pins, the §40 latency pins, the §42 sleep/release pins, the random-gesture
+oracle walk and the Feed parser/window/channel pins), `./gradlew :desktop:test` (12 tests: the BlueZ glue
+over a fake link, the config file's safety, the real xkcd PNG through the decoder), `desktop --selfcheck` (228 checks, the truth oracle on every settle, the Feed walk included), `desktop --snapshot DIR` (look at the lens
 renders), `desktop --epub-check ~/books`, `desktop --music-check` (the real library, read-only bar the additive schema migration),
 `desktop --games-check` (the Hold'em ecology over hundreds of simulated tournaments — pure
-in-memory, touches nothing), `python3 tools/lint.py`, `./gradlew :phone:assembleDebug`.
+in-memory, touches nothing), `desktop --feed-check` (the feed engine over the captured fixtures
+through the real decoder; `live` fetches the real sites once, read-only, in a temp dir),
+`python3 tools/lint.py`, `./gradlew :phone:assembleDebug` — **the APK build in its OWN
+invocation**: run in the same gradle call as `:core:test` it loaded the box enough for the
+oracle walk to miss a settle once (2026-09-09).
 After any CARD-ART change also run `desktop --card-render` and look at `design/shots/cards/` at
 true 1×.
 ⚠ **Run `--snapshot` (and any harness you suspect) MORE THAN ONCE.** Three defects in the snapshot
