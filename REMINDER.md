@@ -157,8 +157,9 @@ re-put to Adam in the Phase 0 refinery.
   it, `sudo rc-service tailscale restart` (connections opened from the tunnel address stay unanswered until
   re-dialled). `~/.local/bin/yt-dlp` self-updated to 2026.08.19 (`yt-dlp -U`).
 - **`~/damage-cfw`** (2026-09-12, `FORK.md` §10): the firmware fork, cloned from `reference/g2flash` at
-  `a5d1c31`, branch `damage`, the §10 flasher fix carried over; first commit `b3bdd5c`; `origin` is upstream
-  g2flash (fetch only), `reference` the pinned local clone; nothing pushed anywhere.
+  `a5d1c31`, branch `damage`, the §10 flasher fix carried over; first commit `b3bdd5c`; remotes: `github` =
+  Adam's public fork `https://github.com/expectbugs/damage-cfw` (branch `damage` tracks it), `origin` = upstream
+  g2flash (fetch only, never pushed to), `reference` = the pinned local clone.
 
 ## How to resume
 

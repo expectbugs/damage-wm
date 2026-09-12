@@ -327,7 +327,7 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
 | this plan and its log | `damagewm/FORK.md` |
 | the firmware contract (v1 facts by pointer, v2 by design) | `damagewm/FIRMWARE.md` |
 | conformance vectors (Phase 1) | `damagewm/firmware/vectors/` (data; consumed by the fork's host tests and the Kotlin simulator) |
-| the firmware fork | `~/damage-cfw` (GPL-3.0; branch `damage`; `origin` = upstream g2flash; `reference` = the pinned clone) |
+| the firmware fork | `~/damage-cfw` (GPL-3.0; branch `damage`; `github` = `https://github.com/expectbugs/damage-cfw`, public; `origin` = upstream g2flash, fetch only; `reference` = the pinned clone) |
 | the pinned upstream clone (never moved) | `damagewm/reference/g2flash` at `a5d1c31` (`research/verify_cfw.py` pins it) |
 | the decompile corpus and subsystem docs | `damagewm/reference/evenRealities-openCFW/g2/` |
 | records | `HANDOFF.md` §48 onward; `CLAIMS.md` rows added per phase; memory `damage-cfw-fork.md` |
