@@ -12,7 +12,8 @@ what they cite.
   the plan. `FORK.md` has the phases (0 measure/research/decide → 1 pipeline + first flash → 2 drawing v2 → 3 motion
   engine → 4 local input → 5 firmware chrome → 6 the shell and every window, animated → 7 offline home → 8 docs and
   readiness), the decisions D1–D8, the flash ritual and the assumptions table. `FIRMWARE.md` is the contract both
-  the fork (`~/damage-cfw`, created, uncommitted) and the simulator implement. **Nothing flashed; Phase 0 not started.**
+  the fork (`~/damage-cfw`, branch `damage`, first commit `b3bdd5c`) and the simulator implement. **Nothing
+  flashed; Phase 0 not started.**
 - **Latency hardened without the firmware (2026-09-12, `HANDOFF.md` §47):** the APK re-asks for its priority
   (Global `Link` row, `high` default) whenever the link slows; slow parameters flip the regime at once (`LINK SLOW`,
   one notice); the brightness write is answered and re-sent once; the standby claims only when both arms advertise
@@ -156,7 +157,8 @@ re-put to Adam in the Phase 0 refinery.
   it, `sudo rc-service tailscale restart` (connections opened from the tunnel address stay unanswered until
   re-dialled). `~/.local/bin/yt-dlp` self-updated to 2026.08.19 (`yt-dlp -U`).
 - **`~/damage-cfw`** (2026-09-12, `FORK.md` §10): the firmware fork, cloned from `reference/g2flash` at
-  `a5d1c31`, branch `damage`, the §10 flasher fix carried over; working tree, not committed.
+  `a5d1c31`, branch `damage`, the §10 flasher fix carried over; first commit `b3bdd5c`; `origin` is upstream
+  g2flash (fetch only), `reference` the pinned local clone; nothing pushed anywhere.
 
 ## How to resume
 

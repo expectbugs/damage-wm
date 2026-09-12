@@ -336,5 +336,5 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
 
 - **2026-09-12** — Plan written after a discussion session (`HANDOFF.md` §48). Decisions D1–D8
   proposed. `FIRMWARE.md` skeleton written. `~/damage-cfw` created from `a5d1c31` on branch `damage`
-  with the flasher fix carried over (working tree, not yet committed). Nothing flashed. Phase 0 not
-  started. Next: M0.1 and the R0.x reads.
+  with the flasher fix carried over — first commit `b3bdd5c` (the Damage repo's record: `d16e5c1`).
+  Nothing flashed. Phase 0 not started. Next: M0.1 and the R0.x reads.
