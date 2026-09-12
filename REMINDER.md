@@ -1,85 +1,65 @@
 # Where we are, and what to do next
 
 **The entry point for a fresh session**: what is true now, what comes next, where the records are. History lives
-in `HANDOFF.md`; this file only points at it. Read `CLAUDE.md` → this file → `HANDOFF.md` §46 (the popover spec) → §44 → §43 (Feed; §43.6 the
-polish protocol) → §42 → §41 → what they cite.
+in `HANDOFF.md`; this file only points at it. Read `CLAUDE.md` → this file → **`FORK.md`** (the plan; §11 is the
+progress log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` §48 (the fork decided) → §47 → §46 → §44 → §43 → §42 →
+what they cite.
 
-## Where we are (2026-09-12)
+## Where we are (2026-09-12, evening)
 
-- **Latency hardened without the firmware (2026-09-12, `HANDOFF.md` §47)** after a day the glasses moved both
-  arms to 105 ms / latency 4 at noon and every flush waited ~470 ms more for three hours: the APK now re-asks
-  for its priority (Global `Link` row, `high` default) whenever the link slows; slow parameters flip the regime
-  at once, show `LINK SLOW` and raise one notice; the floor is watched on the minute; the brightness write is
-  answered and re-sent once; the standby claims only when both arms advertise to the PC; a full atlas evicts the
-  faces the window is not drawing and repacks; Files shows its cached folder first and Torrents keeps its
-  snapshot; Tailscale leaves beardos around the VPN (the phone answered direct in 32 ms, was 62–1,108 ms via
-  a relay; qBittorrent stays on the tunnel). **What the next `/log` answers:** whether the firmware keeps asking
-  for its idle set against the re-asks (the `link` notes count them), and whether `balanced` changes the
-  ~50-minute rebuilds (§42.2: none in the 3 h on the slow set, n=1).
-- **`POPOVER.md` is a complete spec, not built** (2026-09-12, `HANDOFF.md` §46): one popover family
-  (menu · notice · confirm · peek · deck · ask) on one modal stack, and the Claude path (`damage-show`,
-  a user-level skill, `~/.damage/decks/`). Built whole when Adam calls it; its place in the queue is his.
-- **The docs were de-bloated 2026-09-11** (`HANDOFF.md` §45): repo docs 1,174 → 866 KB, memory 211 → 61 KB,
-  nothing lost that a checker could see. Keep them lean.
+- **🔴 The CFW fork and the Damage rebuild are the ONLY work (Adam, 2026-09-12; `HANDOFF.md` §48).** All other
+  Damage work is suspended until `FORK.md` Phase 8 closes: no new windows, no Feed polish, no popover build outside
+  the plan. `FORK.md` has the phases (0 measure/research/decide → 1 pipeline + first flash → 2 drawing v2 → 3 motion
+  engine → 4 local input → 5 firmware chrome → 6 the shell and every window, animated → 7 offline home → 8 docs and
+  readiness), the decisions D1–D8, the flash ritual and the assumptions table. `FIRMWARE.md` is the contract both
+  the fork (`~/damage-cfw`, created, uncommitted) and the simulator implement. **Nothing flashed; Phase 0 not started.**
+- **Latency hardened without the firmware (2026-09-12, `HANDOFF.md` §47):** the APK re-asks for its priority
+  (Global `Link` row, `high` default) whenever the link slows; slow parameters flip the regime at once (`LINK SLOW`,
+  one notice); the brightness write is answered and re-sent once; the standby claims only when both arms advertise
+  to the PC; a full atlas evicts and repacks; Files and Torrents serve their last answer first; Tailscale leaves
+  beardos around the VPN (the phone answered direct in 32 ms). **What the next `/log` answers** (now `FORK.md`
+  M0.6 and R0.4 inputs): whether the firmware keeps asking for its idle set against the re-asks, and whether
+  `balanced` changes the ~50-minute rebuilds (§42.2: none in 3 h on the slow set, n=1).
+- **`POPOVER.md` is a complete spec, not built** (`HANDOFF.md` §46) — built in `FORK.md` Phase 6a (D3).
 - **LIVE as the all-day daily driver.** CFW g2flash `a5d1c31` (reports `2.2.6.10`; detect by `EVENCFW/`, never
   the version). The phone APK drives — radio and shell; the OpenRC `damage` service on beardos is the data host
-  and standby (`HANDOFF.md` §19, `DAILY.md`). **G2CC's server is RETIRED (2026-09-10, `HANDOFF.md` §44) — never
-  start it by hand:** the setup page is Damage's (`desktop/SetupServer.kt`, same URL and token), the 25 adaptive
-  playlists refresh under Damage (`MUSIC.md` §9.8, measured identical), qBittorrent is the `qbittorrent` service.
-- **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games · Feed (`FEED.md`).
-  **Builds:** APK **0.42 installed** (0.43 was staged, never installed); **0.44 staged** (`~/.damage/damage-wm.apk`,
-  `http://beardos:7300/setup`) = 0.43's Feed fixes + §47's link, atlas and cache work. The service runs 0.44's core.
-- **Battery at HEAD (measured 2026-09-12):** core **533** · desktop **15** · `--selfcheck` 230 checks (the truth
-  oracle on every settle; run ×3 — it is a rate) · snapshots 57 · `--epub-check` · `--music-check` ·
-  `--games-check` · `--feed-check` (`live` = the real sites) · lint 21 rules / 0 · `:phone:assembleDebug` in its
-  OWN gradle call (with `:core:test` it once made the oracle walk miss a settle).
+  and standby (`HANDOFF.md` §19, `DAILY.md`). **G2CC's server is RETIRED (`HANDOFF.md` §44) — never start it by
+  hand:** the setup page is Damage's (`desktop/SetupServer.kt`), the playlists refresh under Damage, qBittorrent
+  is the `qbittorrent` service.
+- **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games · Feed. **Builds:** APK
+  **0.42 installed**; **0.44 staged** (`~/.damage/damage-wm.apk`, `http://beardos:7300/setup`) = 0.43's Feed
+  fixes + §47's link, atlas and cache work. The service runs 0.44's core.
+- **Battery at HEAD (measured 2026-09-12):** core **533** · desktop **15** · `--selfcheck` 230 checks (run ×3 —
+  it is a rate) · snapshots 57 · `--epub-check` · `--music-check` · `--games-check` · `--feed-check` · lint 21
+  rules / 0 · `:phone:assembleDebug` in its OWN gradle call.
 
-## Measured on glass, 0.40 (2026-09-07 → 09, Adam's use — `HANDOFF.md` §42.0)
+## Measured on glass (grade M)
 
-Time to first visible change per gesture (`tools/journal_report.py`, the phone's journal; median / p90):
+Time to first ack per gesture, the phone's journal (`tools/journal_report.py`):
 
-| gesture | first flush | first visible | burst total |
-|---|---:|---:|---:|
-| window list notch | 540 B / 2.1 KB | 108 / 229 ms | 1.6 KB |
-| Main notch | 716 B / 1.9 KB | 117 / 247 ms | 1.2 KB |
+| gesture | first flush | first ack | source |
+|---|---|---:|---|
+| window notch, 0.40 → 0.42 (2026-09-07 → 12, n=5,257) | 437 B / 1.2 KB / 3.7 KB (median / p75 / p90) | 105 / 204 / 522 ms | §48.1 |
+| Main notch, 0.40 (§42.0) | 716 B / 1.9 KB | 117 / 247 ms | §42.0 |
+| whole window gesture (burst) | — | 342 ms median, 3.0 s p90 | §48.1 |
 
-Was, on 0.32 (§37.2): Main 830–860 ms, a window list 221–645 ms. The cache served 1,075 rects over 2,235 flushes;
-`proof` refusals 126 (1,372 on 0.38 — the §41.9 retry works). Phone CPU per flush: 17 ms median / 66 p90.
+The ack precedes the panel refresh (§48.1, verified): what the eye waits for is longer than these. A flush under
+100 B acks in ~60 ms; each KB adds ~140 ms; the tail is pixel bytes. Phone CPU per flush: 17 ms median / 66 p90.
 
-## 🔴 The next session
+## 🔴 The next session — `FORK.md` Phase 0
 
-0. **Feed polish** — `HANDOFF.md` §43.6 is the protocol, `FEED.md` §8.3 the numbered list. Confirm 0.43 is
-   installed; **the measured walk before any change** (`FEED.md` §8.4: `tools/glassdrive.py` through every level,
-   one step per snap around Mark all read, the rows into `FEED.md` §3.8; watch the comic canvas); Adam's
-   verdicts (16 vs 4 gray levels for 8-Bit Theater, the bar, the text size); then §8.3 by number. Never re-open
-   `FEED.md` §1's verdicts.
-1. **Read the 0.44 journal and `/log` after Adam's first day on it** — the **re-asks** (`link` notes "asking
-   for high again (#n)": a firmware that keeps asking for its idle set shows as a count climbing every 5 s;
-   then the ask to Babcock is to gate the idle request on the lease), the **arm rebuilds** (`supervision
-   timeout` on alternating arms every ~50 min, 41 in 2.5 days; §42.2's ten candidates; §47's n=1: none in 3 h
-   on the slow parameters — a day on `Link = balanced` is the cheap test) and the **wake loop** (three
-   minutes of session attempts after Silent Mode off, 2026-09-09 15:06; §42.3 — the `keeper: start failed: …`
-   notes name it). Fix what they name. `tools/journal_report.py` now prints the parameters per hour.
-2. **The atlas across a rebuild** (§42.4): the firmware keeps the cache now that a link loss sends no release; the
-   shell still re-uploads 16–63 KB per rebuild. One glass measurement (item 20 below) gates the skip.
-3. **Then the ranked list below**, and the next window (`WINDOWS.md` §6 is the bar) — or the popover
-   build (`POPOVER.md` §8), whichever Adam calls first.
-
-## Where the remaining latency and jank live (ranked by expected gain)
-
-1. **The radio** — one packet per usable connection event at 15 ms, slave latency 1 (~8 KB/s, measured; the PC
-   gets ~50 KB/s). Latency 0 at 7.5 ms during a session is up to 4× (modeled): a firmware ask to Babcock; the
-   two-arm capture (item 5 below) settles the phone's write path.
-2. **The arm rebuilds** (item 1 above): each ~9 s of blank plus a keyframe and the atlas.
-3. **Frame pacing is the jank** — up to four ack-gated flushes per notch, ack jitter 2–3× the median. Tie frames
-   to the measured regime as the wheel does; jump-cut when three are in flight.
-4. **Back to Main / a switch between heights** (§42.0: 3.3 KB / 526 ms; 1.7 KB / 282 ms): the 17 B seed and the
-   depth planes ship in one first flush. Screen plane first — `Slide fill = auto`'s logic.
-5. **The atlas across a rebuild** (item 2), then **cache persistence across sessions** (a firmware ask).
-6. **Kerning in cached text** — mode 14's per-glyph x-adjust bytes via `TextureCache.layout`'s kerning lambda,
-   ~1 B per pair; only if Adam's eye dislikes flat advances.
-7. **Cold start** — three eaten CREATEs ≈ 6 s per link edge (§34.3): lower `CAPABILITY_REASK_MS`, or CREATE only
-   after the prelude's ack.
+0. **Read `FORK.md` §11** (the log) and do the next item. Phase 0 is measurement and research, no firmware, no
+   Damage code beyond dev tools: M0.1 the diagnostic overlay probe (heap free, present time), M0.2 the 240 fps
+   video, M0.3 the two-arm BTSnoop with the APK driving (+ Wi-Fi off), M0.4 the 2M PHY request, M0.5 the sid-0x0F
+   logger probe, M0.6 the battery baseline on `high` and `balanced`; R0.1–R0.6 the decompile reads (input path,
+   inter-lens sync, refresh path, connection-parameter policy, stock helpers, heap); `FIRMWARE.md` from skeleton to
+   draft; **the motion explosion and refinery with Adam**; lock D1–D8. Exit: the numbers in a table, the verb set,
+   the contract draft, the decisions.
+1. **Read the 0.44 journal and `/log` after Adam's first day on it** — it is M0.6 and the R0.4 input: the re-asks
+   (`link` notes "asking for high again (#n)"), the arm rebuilds (`supervision timeout` on alternating arms every
+   ~50 min; §42.2's ten candidates; a day on `balanced` is the cheap test), the wake loop (§42.3; the
+   `keeper: start failed: …` notes name it). Fix only what blocks daily use; everything else waits for the fork.
+2. **The atlas across a rebuild** (§42.4) is now `FORK.md` F1.5 (cache-keep with a generation and CRC).
 
 ## Measured numbers to price with (grade M unless said)
 
@@ -94,8 +74,9 @@ The daily path is the PHONE's. Isolated flushes, APK-driven (§33.1, §35.2):
 | 6 KB + | 1,036–1,140 ms | 1,295–1,543 |
 
 Why (grade I): one AA packet per usable connection event; 15 ms interval with slave latency 1 = every 30 ms;
-242 B / 30 ms ≈ 8 KB/s. PC-direct BlueZ sends ~6 packets per event (~50 KB/s). `overview.md` §5.2's
-`ms ≈ 60 + bytes/50` is PC-direct only — price nothing with it.
+242 B / 30 ms ≈ 8 KB/s. PC-direct BlueZ sends ~6 packets per event (~50 KB/s). The firmware's receive path parses
+one packet per ATT write (§48.1, grade C). `overview.md` §5.2's `ms ≈ 60 + bytes/50` is PC-direct only — price
+nothing with it. The fork's levers for this are `FORK.md` F1.6–F1.8, each gated on M0.3.
 
 ## Standing rules learnt the hard way (pointers)
 
@@ -106,55 +87,59 @@ the jar under a running instance (§29); never answer a refused image with more 
 sleeps with the shell — no release after a link loss (§36, §42). Not in that list: `handleMs` in the journal
 INCLUDES the assemble (§35.1); in a live walk never scroll in Music's root, and the tmux pane's SECOND tap is the
 keys list (a third sends a key); `tools/journal_report.py`'s per-gesture section judges every window (§42).
+**For the fork:** never flash without Adam's in-the-moment go; the dry-run staircase first; read every patch
+source; plain wording in every file, comment and commit (`HANDOFF.md` §48.5).
 
-## 🔴 Still unmeasured on glass
+## 🔴 Still unmeasured on glass (the fork's Phase 0 takes most of these)
 
 | # | what | why it matters |
 |---|---|---|
 | 1 | **Safe area** — draw a border, shrink until fully visible, store it | `DESIGN.md` §2.2b: 480 vs 288 is a *calibrated setting* |
-| 2 | Ring **fast-spin coalescing + event-rate ceiling** | the focus model's limits |
-| 3 | **Comfortable disparity** — ramp 0/4/8/12/16 | and whether stock FAR already spends the budget |
+| 2 | Ring **fast-spin coalescing + event-rate ceiling** | the focus model's limits; `FORK.md` Phase 4 |
+| 3 | **Comfortable disparity** — ramp 0/4/8/12/16 | stock FAR does NOT stack (§48.1, verified); the ramp itself: `FORK.md` T3/T4 |
 | 4 | **The rect budget of 5** (graded I) | derived from `cfw_diag()`, never observed; failure is silent |
-| 5 | **Two-arm BTSnoop capture with the APK driving** — via the bug-report mail path (no adb) | packets per event (§37); the bulk-LEFT / control-RIGHT split (graded I); one supervision-timeout drop from the radio's side (§42.2) |
+| 5 | **Two-arm BTSnoop capture with the APK driving** — via the bug-report mail path (no adb) | `FORK.md` M0.3: packets per event; the arm split (graded I); one drop from the radio's side (§42.2) |
 | 7 | **msgId-255 behaviour under CFW** | it ends the link on stock |
 | 8 | **Chrome legibility** at the real faces on glass | renders cannot answer it |
 | 9 | **WEA/CMAS visibility to a normal Android app** (Pixel 10a) | `DESIGN.md` §4.5's emergency promise rides on it |
 | 10 | **Connected RSSI** on glass | the status bar's link cell |
-| 15 | **Is the sid-0x01 prelude required** by the CFW before CREATE? (graded U) | and the 2 s re-ask: three eaten CREATEs per cold start ≈ 6 s (§34.3) |
-| 19 | **Cached text by default?** Adam's eye on kerning-free text at 100 %/130 % | the gate on leaving the row on by default; the numbers are in (§42.0) |
-| 20 | **A draw into a released cache** — the ImgResCmd status it returns | gates the atlas surviving a rebuild (§42.4) |
+| 15 | **Is the sid-0x01 prelude required** by the CFW before CREATE? (graded U) | three eaten CREATEs per cold start ≈ 6 s (§34.3) |
+| 19 | **Cached text by default?** Adam's eye on kerning-free text | moot after `FORK.md` Phase 2 (kerning on) |
+| 20 | **A draw into a released cache** — the ImgResCmd status it returns | replaced by `FORK.md` F1.5 (a queryable generation and CRC) |
 | 21 | **Temple long-press accident rate** (gloves) | §1.2's bare-long-press no-op guards it |
 | 24 | **Does the firmware enter Silent Mode by itself** (wear detection, idle)? | the journal will say |
-| 25 | **The arm rebuilds' cause** (§42.2) | ~9 s of blank a dozen times a day |
-| 26 | **The wake loop's cause** (§42.3) | Adam's "some doing" after Silent Mode off |
+| 25 | **The arm rebuilds' cause** (§42.2) | `FORK.md` M0.5 (a boot banner settles reset-or-stall) and M0.6 |
+| 26 | **The wake loop's cause** (§42.3) | the `keeper: start failed: …` notes name it |
+| 27 | **Free heap and present/worker time on glass** | `FORK.md` M0.1 — sets the cache, scratch and tick budgets |
+| 28 | **True user-perceived latency** (ring press → visible change; the ack is only a lower bound) | `FORK.md` M0.2 |
 
-Closed since the last version: the §38 wake (2026-09-06 20:45, 19 s), the watchdog silent on a healthy day, the
-atlas upload (20 s for 63 KB), the height-change seed (17 B), the 2-frame wheel (`Slide frames` 4).
-**Cheap probes nobody has run:** the CFW logger service (sid 0x0F — a boot banner settles §42.2's
-reboot-or-stall) and the file-export service (sid 198/199 — `NOT_SUPPORT` is a safe answer).
+**Cheap probes nobody has run:** the CFW logger service (sid 0x0F — M0.5) and the file-export service (sid
+198/199 — `NOT_SUPPORT` is a safe answer).
 
 ## Upstream CFW (checked 2026-09-06 — `HANDOFF.md` §41.11)
 
-Five g2flash commits past our pinned `a5d1c31`, all on stock base 2.2.9.22 (`EVENCFW/18`, 127 bytes) — §41.11
-lists them; nothing affects the installed build. `reference/g2flash` is fetched, not moved — a pull breaks
-`research/verify_cfw.py`'s 2.2.6.10 pins.
+Five g2flash commits past our pinned `a5d1c31`, all on stock base 2.2.9.22 — nothing affects the installed build.
+`reference/g2flash` is fetched, not moved — a pull breaks `research/verify_cfw.py`'s 2.2.6.10 pins. **D1: the fork
+stays on 2.2.6.10** (the decompile corpus is 2.2.6.10); 2.2.9's gains can be ported later.
 
-## Other open work (not the next session's)
+## Suspended work (resumes after `FORK.md` Phase 8)
 
 - **On-glass verdicts owed:** Torrents + the keyboard; Files (menus, viewers, the thumbnail lens, theme icons);
-  Games (`HOLDEM.md` §17.4); Music (the grants — `DAILY.md` — and the on-phone items); Tmux (flow size/wrap
-  feel, quick-key order, alert patterns, ssh latency). **The next window** is Adam's pick from `EXPLOSION.md`
-  §20: Mail (#6), SMS (#7, with the caller-ID source), Info (#8), Notices (#9); `WINDOWS.md` is the checklist.
-- The Reader legacy-offsets dual-write in `ReaderWindow` (`SubstrateTest`'s migration pin goes with it) · the
-  icon-quality pass (one drawn icon per app at 20 px + 56 px) · the unused `Profiler` Global row (remove or wire)
-  · **watch-items:** the left-lens seam residue after a handover, the ~20 s seam silent-loss window, the media
-  endpoint logging nothing on success, `slappy` (tmux host) offline 22 days.
+  Games (`HOLDEM.md` §17.4); Music (the grants — `DAILY.md`); Tmux (flow size/wrap feel, quick-key order, alert
+  patterns, ssh latency). They fold into Phase 6's per-window verdict sessions.
+- **Feed polish** (`HANDOFF.md` §43.6, `FEED.md` §8.3) — folds into Phase 6c. Never re-open `FEED.md` §1's verdicts.
+- **The next window** — Adam's pick from `EXPLOSION.md` §20: Mail (#6), SMS (#7), Info (#8), Notices (#9); FF1
+  (§10.9) first if he says so; all after Phase 8.
+- The Reader legacy-offsets dual-write · the icon-quality pass · the unused `Profiler` Global row · **watch-items:**
+  the left-lens seam residue after a handover, the ~20 s seam silent-loss window, the media endpoint logging
+  nothing on success, `slappy` (tmux host) offline.
 
 ## Open design questions (not hardware-blocked)
 
 Where system-state detail lives (the status bar shows telemetry; the deeper view wants an Info window —
 `EXPLOSION.md` §9). Undesigned windows inherit Clear Sans until earned; the curated font-library expansion is
-option-only (B612 never a default).
+option-only (B612 never a default). `DESIGN.md` §0's cost-based exclusions (fades, dim-behind, banners) are
+re-put to Adam in the Phase 0 refinery.
 
 ## System changes made for this project
 
@@ -168,8 +153,10 @@ option-only (B612 never a default).
 - **`/etc/local.d/tailscale-bypass.start`** (2026-09-12, `HANDOFF.md` §47): Tailscale's marked traffic
   (fwmark 0x80000) routes via the LAN gateway (table 100, rule pref 5200) instead of ProtonVPN's redirected
   default; runs at boot and by hand. qBittorrent and every unmarked socket keep the tunnel. After a change to
-  it, `sudo rc-service tailscale restart` (connections opened from the tunnel address are black-holed until
+  it, `sudo rc-service tailscale restart` (connections opened from the tunnel address stay unanswered until
   re-dialled). `~/.local/bin/yt-dlp` self-updated to 2026.08.19 (`yt-dlp -U`).
+- **`~/damage-cfw`** (2026-09-12, `FORK.md` §10): the firmware fork, cloned from `reference/g2flash` at
+  `a5d1c31`, branch `damage`, the §10 flasher fix carried over; working tree, not committed.
 
 ## How to resume
 
@@ -182,4 +169,5 @@ TOKEN=$(python3 -c "import json;print(json.load(open('/home/user/.damage/config.
 curl -s "http://aphone:7403/journal?token=$TOKEN" | python3 tools/journal_report.py -   # the phone's journal, per-gesture numbers included
 curl -s "http://aphone:7403/log?token=$TOKEN&tail=400"                                 # the phone's log (0.41+), no adb
 python3 tools/glassdrive.py aphone $TOKEN --pace 2.5 double wait:3 snap:/tmp/a.png …    # drive the glasses; snap before every tap
+python3 research/verify_cfw.py                        # before any flashing conversation (the fork's own verify script comes in Phase 1)
 ```

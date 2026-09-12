@@ -105,6 +105,13 @@ implementation exists, read it — including ours.
 | …and the split is the OPTIMAL/required one | **I** ⚠ | still inferred from Faceclaw's code; **the two-arm capture has never been taken** |
 | ~~CFW ack latency~~ (measured — see the transport table) · mode-8 BATCHING in practice | **M** | the one-flush-per-frame architecture runs daily (1,488 journalled flushes) |
 | msgId-255 under CFW · the mode-8 CEILINGS (max rects/bytes before refusal) | **U** | unprobed BY DESIGN — the transport cycles msgId and the compositor caps at 5 rects, so neither limit is ever approached |
+| **The image success ack is sent BEFORE the decode/present step is queued** (2.2.6.10) — the journal's ack times are a lower bound on what the eye waits for | **V** | decompile corpus (`reference/evenRealities-openCFW/g2/research/corpus/apollo-main/ghidra/decomp/`): in the chunk-complete branch of the EvenHub dispatcher `FUN_004da834`, the status-4 sender `FUN_004da4a4` runs before `FUN_004da382` queues the deferred image work (2026-09-12, `HANDOFF.md` §48.1) |
+| **The stock receive path parses ONE AA packet per ATT write** | **C** | openCFW's clean-room `transport_protocol.c` (`TPL_ReceivePacket` reads one packet's length and ignores the rest of the write), pinned by their host oracle; not observed on our wire — `FORK.md` M0.3 |
+| **The panel-refresh queue carries a rect** (stock callers pass 576×288, the CFW 640×480) | **V** | `FUN_00474066(0,0,0,0,w,h)` call sites; the display task `FUN_00473c44` hands the four words to the ULED manager's async refresh. Whether the panel driver refreshes only that rect: **U** (`FORK.md` F1.7) |
+| **Stock's display-position / near-far offsets are applied INSIDE the 576→640 copy the CFW replaces** — they never stack on Damage's depth | **V** | `FUN_0046ca14` (the stock copier, both call sites redirected to `display_copy_hook`) positions the 576×288 buffer with x ≤ 64 / y ≤ 192 offsets before the GPU preprocess. Closes `DESIGN.md` §3.3's (U) |
+| The two arms sync over a UART carrying TinyFrame (master/slave listeners) | **I** | openCFW `g2-uart-sync-recovery.md` + `g2-sync-framework-recovery.md`; latency unmeasured (`FORK.md` R0.2, F1.3) |
+| The ring's own link ends at the glasses (the glasses are central; RingLink states) | **V** | openCFW `g2-app-ble-central-recovery.md`; the phone sees ring input only as the glasses' SysEvents on RIGHT |
+| The glasses' connection-parameter policy is a mapped first-party object (`app_connect_params.c`, 14 functions; fast/slow at 25 and 72 units) | **V** | openCFW `g2-app-connect-params-recovery.md`; where the measured slave latency 1 comes from is **U** (`FORK.md` R0.4) |
 
 ## Input
 

@@ -15,7 +15,9 @@ System-wide rules in `~/.claude/CLAUDE.md` apply. This file holds Damage-specifi
 (grades every load-bearing claim V/M/C/I/S/U; **an `S` or `U` claim is not built on without
 checking**) → `DESIGN.md` (the shell design contract, locked with Adam; wins on SHELL DESIGN; its §0
 lists what is deliberately excluded — read it before proposing anything) → this file (wins on RULES)
-→ `REMINDER.md` (the entry point: what is true now, what is next).
+→ `REMINDER.md` (the entry point: what is true now, what is next) → **`FORK.md` (wins on the ORDER OF
+WORK since 2026-09-12: the CFW fork and the Damage rebuild are the only work until its Phase 8 closes) →
+`FIRMWARE.md` (wins on the firmware contract v2)**.
 
 **Gates.**
 - `python3 tools/lint.py` after any geometry, layout or drawn-string change: 21 rules for the failure
@@ -32,6 +34,11 @@ lists what is deliberately excluded — read it before proposing anything) → t
 ---
 
 ## Status and the order of work
+
+**🔴 2026-09-12: all other work is suspended for the CFW fork and the Damage rebuild (`FORK.md`,
+`HANDOFF.md` §48).** No new windows, no Feed polish, no popover build outside the plan, until `FORK.md`
+Phase 8 closes. The fork is its own GPL-3.0 repo (`~/damage-cfw`); Damage stays clean-room and holds
+only the contract (`FIRMWARE.md`). Never flash without Adam's in-the-moment go; dry-run first.
 
 **LIVE as the all-day daily driver.** CFW g2flash `a5d1c31` (reports `2.2.6.10`; detect by the
 `EVENCFW/` capability string, never the version; first light 2026-08-30). Topology (`HANDOFF.md`
@@ -66,7 +73,8 @@ Claude path (spec, 2026-09-12, not built).
 plan → a couple hundred feature-creep scope explosions ("feature creep is my RELIGION") → heavy
 refinery back to reality → consistency passes against the research → a final plan in real code →
 then slowly, carefully, execute. Explosion and refinery are DONE (`EXPLOSION.md`; §20 = the verdicts
-and the build order). **Current phase: converting windows one at a time** — Adam's per-window
+and the build order). **Current phase: the CFW fork and the Damage rebuild (`FORK.md`); window conversion resumes after
+its Phase 8.** The conversion method, for then — Adam's per-window
 verdicts first, then build against `DamageWindow` (`core/…/shell/WindowContract.kt`) per
 `WINDOWS.md`, reading the G2CC original (`/home/user/G2CC/server/src/windows/`, read-only) for
 interaction facts only. Precedents: Files and Torrents (MenuSurface, the window channel), Torrents
@@ -296,7 +304,10 @@ put links, APK paths and key actions **last** (terminal scrolling is hard at his
 
 Dramatic phrasing about firmware, radios, memory and recovery has repeatedly tripped the model's own
 safety checks, often enough that Adam has had to switch models mid-session. Standing constraint on
-chat and every file we author: the facts stay sharp; choose the plain word.
+chat and every file we author: the facts stay sharp; choose the plain word. During the firmware fork
+(`FORK.md`) this matters more, not less: every new document opens with the "Context for the reader"
+block `FORK.md` and `FIRMWARE.md` use (a personal device, the published patch method, display-rendering
+work), and commit messages, comments and reviewer prompts follow the table below.
 
 | when you mean | write |
 |---|---|

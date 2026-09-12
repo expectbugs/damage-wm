@@ -2602,3 +2602,69 @@ Not done, by design: the atlas skip across a rebuild (§42.4 — one glass measu
 subsetting (the recorder's all-or-nothing rule would send more strings to pixels), anything on the
 firmware. The `balanced` experiment and the re-ask's behaviour against a firmware that keeps asking are
 what the next `/log` answers.
+
+## 48. The CFW fork decided: all other work suspended (2026-09-12, evening)
+
+A discussion-only session (nothing built, nothing flashed) on what a fork of the custom firmware
+could give Damage. Adam's ruling at the end: **fork it, rebuild all of Damage on it, every existing
+window fully animated, all other work suspended until that is complete, tested and in daily use;
+new windows after.** The plan is `FORK.md`; the contract is `FIRMWARE.md`; both written this session.
+
+### 48.1 What was read, and what it settled (grades in `CLAIMS.md`)
+
+Every g2flash patch source, openCFW's subsystem recovery docs and its 2.2.6.10 decompile corpus
+(7,449 functions), the phone's journal (61,292 flushes, read-only through `/journal`), AOSP's GATT
+priority table, and the repo's own records.
+
+- **The image ack precedes the panel refresh** (V): in the chunk-complete branch of the EvenHub
+  dispatcher `FUN_004da834`, the status-4 sender `FUN_004da4a4` runs before `FUN_004da382` queues the
+  deferred decode/present. The journal's ack times are a lower bound on what the eye waits for.
+- **One AA packet per ATT write** (C): openCFW's reconstruction of `TPL_ReceivePacket` reads one
+  packet's length and ignores the rest of the write.
+- **The panel-refresh queue carries a rect** (V): stock callers pass 576×288, the CFW passes 640×480
+  (`FUN_00474066(0,0,0,0,w,h)`; the display task `FUN_00473c44` hands the four words to the ULED
+  manager's async refresh). Whether the panel driver refreshes only that rect: U.
+- **Stock's display-position / near-far offsets live in the copy the CFW replaces** (V): `FUN_0046ca14`
+  positions the 576×288 buffer inside 640×480 with offsets capped at 64 and 192 and calls the GPU
+  preprocess; both of its call sites are redirected to `display_copy_hook`. Nothing stacks on Damage's
+  depth (closes `DESIGN.md` §3.3's (U)).
+- **The two arms sync over a UART carrying TinyFrame, master/slave** (I): openCFW `uart_sync.c` and
+  the sync-framework recovery. Latency unmeasured.
+- **The ring's own link ends at the glasses** (V): `app_ble_central.c`'s RingLink states; the phone
+  sees ring input only as the glasses' SysEvents (RIGHT).
+- **The connection-parameter policy is a mapped first-party object** (V): `app_connect_params.c`,
+  14 functions, fast/slow classification at 25 and 72 units, profile table via `_connectParamReq_impl`.
+- **Android HIGH priority asks 11.25–15 ms at latency 0** (V, AOSP config). Where the measured
+  latency 1 comes from is unknown — an earlier "the glasses' choice" was a guess and is withdrawn.
+- **Journal, 0.40 onward (M):** window notch first ack 105 / 204 / 522 ms median / p75 / p90; whole
+  gesture 342 ms median, 3.0 s p90; the tail is pixel bytes (large content boxes); a flush under
+  100 B acks in ~60 ms and each KB adds ~140 ms; 5,949 rects served as cached draws over 7,960
+  flushes; `proof` refusals 179.
+
+### 48.2 Corrections to earlier statements in the same session
+
+The ring already reaches the glasses directly (the earlier "glasses handle the ring themselves"
+meant: act on the event locally, as stock's own UI does). The atlas re-upload after an arm rebuild
+needs no firmware (§42.4 already plans the skip); only persistence across sessions does. Headroom
+for appended code is ≈337 KB under g2flash's conservative ceiling, not 350–400.
+
+### 48.3 The decisions (proposed, in force until the Phase 0 close)
+
+D1 base 2.2.6.10 + `a5d1c31` · D2 the fork is its own GPL-3.0 repo, Damage stays clean-room ·
+D3 popovers built in Phase 6 · D4 offline home in scope, last · D5 new windows after · D6 motion
+answers input only · D7 the "instant" targets · D8 Damage-only. `FORK.md` §2 has the reasons.
+
+### 48.4 What was written
+
+`FORK.md` (the plan: phases 0–8, the flash ritual, the assumptions table, the log), `FIRMWARE.md`
+(the contract skeleton), this section, `REMINDER.md` rewritten to start here, `CLAUDE.md`'s read
+order and status, `CLAIMS.md` rows, memory (`damage-cfw-fork.md`, the state file, the index, and a
+pointer in the global memory). `~/damage-cfw` created from `reference/g2flash` at `a5d1c31` on
+branch `damage` with the §10 flasher fix carried over — a working tree, not committed. The repo's
+own working tree (these docs) is not committed either.
+
+### 48.5 Wording
+
+Adam asked twice this session for plain wording: the model's safety checks tripped repeatedly on
+firmware, radio and memory phrasing, and the build will be worse. `FORK.md` and `FIRMWARE.md` open
+with a "Context for the reader" block for that reason; keep it in every new file.
