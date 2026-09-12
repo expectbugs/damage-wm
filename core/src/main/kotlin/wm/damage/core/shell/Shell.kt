@@ -618,6 +618,10 @@ class Shell(
         // what turns a driver change from a multi-second teardown (Adam's two
         // blinks per WiFi edge) into a repaint — the G2CC decoupling.
         val adopted = transport.state.value.started
+        // §47: the radio's priority is a setting — told to the transport before
+        // the connect so the first request already asks for it, and again on
+        // an adopted session so a handback re-asserts it
+        transport.setLinkPriority(settings.linkPriority)
         try {
             if (adopted) {
                 Log.i("shell", "adopting the transport's live session (a takeover/handback) — no re-choreography, one keyframe")
@@ -1788,6 +1792,8 @@ class Shell(
 
     // ------------------------------------------------------------------ ticks
     private fun handleMinute() {
+        noteLinkRegime()          // §47: a parameter change while idle shows within the minute
+        watchFloor()
         if (mode == Mode.EXCLUSIVE) { paintExclusiveDelta(); return }   // the window's own clock surface
         if (mode == Mode.SILENT) {
             val c = wallClock()
@@ -1896,7 +1902,10 @@ class Shell(
                     journal.note("fault", "${ev.what}: ${ev.detail}")
                 }
             }
-            is TransportEvent.Note -> journal.note(ev.kind, ev.detail)   // a fact: the journal only
+            is TransportEvent.Note -> {
+                journal.note(ev.kind, ev.detail)   // a fact: the journal only
+                if (ev.kind == "link") noteLinkRegime()   // §47: the transport's own parameter facts
+            }
         }
     }
 
@@ -1983,6 +1992,13 @@ class Shell(
     private var atlasSeenVersion = -1
     private var atlasBytesSent = 0L
     private var atlasFailed = false
+    /** §47: when the last repack ran (pacing between rebuilds), and whether a
+     *  face is still pixels for want of room after one — the status cell. */
+    private var lastAtlasRepackMs = 0L
+    private var atlasFullShown = false
+    /** §47: the frame at which a refused face is tried again (the faces it
+     *  needs room from may be stale by then); -1 = no retry pending. */
+    private var atlasRetryAtFrame = -1L
 
     /** Fonts on the glasses right now (tests, status). */
     val cachedFontsLive: Set<FontSpec> get() = cachedText?.live ?: emptySet()
@@ -2005,6 +2021,9 @@ class Shell(
         atlasSeenVersion = -1
         atlasBytesSent = 0L
         atlasFailed = false
+        lastAtlasRepackMs = 0L
+        atlasRetryAtFrame = -1L
+        if (atlasFullShown) { atlasFullShown = false; if (statusText == "atlas full") setStatus("ok") }
     }
 
     private fun atlasEnable() {
@@ -2066,11 +2085,26 @@ class Shell(
         // 64 KiB cache holds about a dozen faces, and the rows', the lens's
         // and the bars' are where a notch's bytes are
         val wanted = ct.seenSpecs().sortedByDescending { ct.usageOf(it) }
+        var stillFull = false
+        var repacked = false
+        val clock = ct.useClock
         for (spec in wanted) {
             if (a.has(spec) || a.isRefused(spec)) continue
-            if (a.add(spec)) added++
-            else journal.note("atlas", "font $spec stays pixels — the cache is full (${a.used} B)")
+            // §47: a face nobody has drawn for a window of frames takes no
+            // room from one that is being drawn — it is packed only into
+            // room that is free anyway, never after the repack that just
+            // made room for the current window's faces
+            val recent = clock - ct.lastUseOf(spec) <= ATLAS_RECENT_FRAMES
+            if (!recent && (repacked || a.price(spec) > a.free)) continue
+            if (a.add(spec)) { added++; continue }
+            // full — evict the faces the current window is not drawing and
+            // try once more, or say why not (deferred, nothing stale)
+            if (recent && atlasEvictFor(spec, a, ct) && a.add(spec)) { added++; repacked = true; continue }
+            journal.note("atlas", "font $spec stays pixels — the cache is full (${a.used} B)")
+            stillFull = true
         }
+        if (stillFull && !atlasFullShown) { atlasFullShown = true; setStatus("atlas full") }
+        else if (!stillFull && atlasFullShown) { atlasFullShown = false; if (statusText == "atlas full") setStatus("ok") }
         // §41: icons — drawn at least twice, heaviest first, into what the
         // fonts leave (a quarter of the cache at most, `GlyphAtlas.IMAGE_BUDGET`)
         var icons = 0
@@ -2101,6 +2135,69 @@ class Shell(
         post(Msg.Pump)
     }
 
+    /**
+     * §47 (2026-09-12): the cache is full and [spec] needs room. Evict every
+     * resident face not drawn in the last [ATLAS_RECENT_FRAMES] frames — if
+     * together they free [spec]'s price — then repack the survivors
+     * (heaviest first, as they were packed) and the icons drawn in the same
+     * window of frames. True when the caller may try `add` again. The measured case: ten faces and 23 icons filled the
+     * 64 KiB by 12:59 on 2026-09-12 and the tmux window's mono faces
+     * stayed pixels for the afternoon, with only a journal line to say so.
+     *
+     * What makes it safe: every font and icon comes off the live sets
+     * BEFORE the rewrite (a mode-14 draw against a half-written table would
+     * draw the wrong glyphs), so the glasses draw pixels until the whole new
+     * content is acked — the lapse path's discipline (§40). Paced: at most
+     * one repack per [ATLAS_REPACK_PACE_MS] (a repack is up to 64 KiB of
+     * link), never while a chunk is in flight (its ack would move the
+     * watermark of a cache that no longer exists — deferred to the next
+     * grow instead). A face drawn within the window is never a victim: the
+     * chrome's and the current window's faces are drawn every frame.
+     */
+    private fun atlasEvictFor(spec: FontSpec, a: GlyphAtlas, ct: CachedText): Boolean {
+        val now = System.currentTimeMillis()
+        val clock = ct.useClock
+        // every "not now" answer books a retry a window of frames ahead
+        // (pumpAtlas honours it): by then a chunk has landed, the pacing is
+        // up, or the faces around the refused one have gone stale
+        atlasRetryAtFrame = clock + ATLAS_RECENT_FRAMES + 1
+        if (atlasInFlight != null) {
+            journal.note("atlas", "repack for $spec deferred — a chunk is in flight")
+            return false
+        }
+        if (lastAtlasRepackMs != 0L && now - lastAtlasRepackMs < ATLAS_REPACK_PACE_MS) {
+            journal.note("atlas", "repack for $spec deferred — one ran ${(now - lastAtlasRepackMs) / 1000} s ago")
+            return false
+        }
+        val residents = a.specs()
+        val stale = residents.filter { clock - ct.lastUseOf(it) > ATLAS_RECENT_FRAMES }.sortedBy { ct.lastUseOf(it) }
+        if (stale.isEmpty()) {
+            journal.note("atlas", "nothing to evict for $spec — every resident face was drawn in the last $ATLAS_RECENT_FRAMES frames")
+            return false
+        }
+        val need = a.price(spec)
+        // EVERY stale face goes, not just enough for this one: a repack costs
+        // the same rewrite however many leave, the window in use is about to
+        // ask for its other faces too, and the pacing would hold those for
+        // 45 s if this repack left them no room
+        val evict = stale
+        val freed = evict.sumOf { a.bytesOf(it) }
+        if (freed < need) {
+            journal.note("atlas", "evicting ${evict.size} stale font(s) would free $freed B; $spec needs $need B — stays pixels")
+            return false
+        }
+        atlasRetryAtFrame = -1L
+        val keep = residents.filter { it !in evict }.sortedByDescending { ct.usageOf(it) }
+        val keepImages = a.imageKeys().filter { clock - ct.imageLastUse(it) <= ATLAS_RECENT_FRAMES }.sortedByDescending { ct.imageUsage(it) }
+        val droppedIcons = a.imageKeys().size - keepImages.size
+        // off the glasses first: pixels everywhere until the new content is acked
+        atlasLive(emptySet(), emptySet(), "repacking — ${evict.size} font(s) not drawn in $ATLAS_RECENT_FRAMES frames ($freed B) and $droppedIcons icon(s) evicted for $spec")
+        val used = a.repack(keep, keepImages)
+        lastAtlasRepackMs = now
+        journal.note("atlas", "repacked: ${keep.size} font(s) and ${keepImages.size} icon(s) kept, $used B in use, ${wm.damage.core.wire.CfwModes.TEXTURE_CACHE_SIZE - used} B free for $spec (needs $need B)")
+        return true
+    }
+
     /** [specs] and [images] are on the glasses: the recorder blits from them
      *  from now on and the compositor may ship them as draws. The surface
      *  repaints once so belief holds the atlas's pixels — what the glasses
@@ -2122,7 +2219,14 @@ class Shell(
     private suspend fun pumpAtlas(st: LinkState): Boolean {
         val ct = cachedText ?: return false
         if (settings.cachedText != "on" || atlasFailed || glassesSilent) return false
-        if (ct.seenVersion != atlasSeenVersion) atlasGrow()
+        if (atlasRetryAtFrame >= 0 && ct.useClock >= atlasRetryAtFrame) {
+            // §47: a refused face gets its retry — the refusals are
+            // forgotten so `add` prices it again against a cache whose
+            // stale faces may now be evictable
+            atlasRetryAtFrame = -1L
+            atlas?.unrefuseAll()
+            atlasGrow()
+        } else if (ct.seenVersion != atlasSeenVersion) atlasGrow()
         if (atlasInFlight != null || atlasQueue.isEmpty()) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         val chunk = atlasQueue.removeFirst()
@@ -2290,7 +2394,12 @@ class Shell(
     private var linkSlowState = false
     private var linkSlowFlipAt = 0L
     private fun linkSlow(): Boolean {
-        val ema = transport.state.value.transferMsPerKbEma
+        val st = transport.state.value
+        // §47 (2026-09-12): the connection parameters decide AT ONCE, no dwell —
+        // 105 ms / latency 4 is ~525 ms before a packet can even leave, and the
+        // EMA took ten flushes to say so on glass
+        if (paramsSlow(st)) return true
+        val ema = st.transferMsPerKbEma
         val want = if (linkSlowState) ema > SLOW_LINK_MS_PER_KB * 0.7 else ema > SLOW_LINK_MS_PER_KB * 1.3
         if (want != linkSlowState && flushesSubmitted - linkSlowFlipAt >= REGIME_DWELL_FLUSHES) {
             linkSlowState = want
@@ -2299,14 +2408,26 @@ class Shell(
         return linkSlowState
     }
 
+    /** The worst wait the parameters allow before the peripheral must listen:
+     *  interval × (latency + 1). 15 ms / 1 = 30, 48.75 / 0 = 49, 105 / 4 = 525. */
+    private fun paramsSlow(st: LinkState): Boolean =
+        st.linkIntervalMs > 0 && st.linkIntervalMs * (st.linkLatency + 1) >= SLOW_PARAMS_MS
+
     private fun spinFrames(): Int = if (linkSlow()) 2 else 4
 
     private var lastLinkSlow: Boolean? = null
     private var lastLinkParams = ""
+    /** The parameters-slow episode the status cell and the notice track (§47). */
+    private var linkParamsSlowShown = false
+    /** Consecutive minute ticks with the ack floor above [FLOOR_ALERT_MS] (§47). */
+    private var slowFloorMinutes = 0
+    private var floorAlerted = false
 
     /** Journal the link regime when it flips and the connection parameters
      *  when the platform reports them — so the phone's journal carries the
-     *  answer to "was the priority request granted" (no adb needed). */
+     *  answer to "was the priority request granted" (no adb needed). Since
+     *  §47 also the status cell and one notice per episode: slow parameters
+     *  are a state the wearer should see, not a journal line to find later. */
     private fun noteLinkRegime() {
         val st = transport.state.value
         val slow = linkSlow()
@@ -2318,6 +2439,43 @@ class Shell(
         if (st.linkParams != lastLinkParams) {
             lastLinkParams = st.linkParams
             if (st.linkParams.isNotEmpty()) journal.note("link", "connection parameters: ${st.linkParams}")
+        }
+        val ps = paramsSlow(st)
+        if (ps && !linkParamsSlowShown) {
+            linkParamsSlowShown = true
+            setStatus("LINK SLOW")
+            services.notifyInternal("link", "the glasses slowed the link to %.0f ms / latency %d — asking for the %s parameters again"
+                .format(st.linkIntervalMs, st.linkLatency, settings.linkPriority))
+        } else if (!ps && linkParamsSlowShown) {
+            linkParamsSlowShown = false
+            if (statusText == "LINK SLOW") setStatus("ok")
+            services.notifyInternal("link", "link parameters back to %.0f ms / latency %d".format(st.linkIntervalMs, st.linkLatency))
+        }
+    }
+
+    /** §47: the ack floor watched on the minute — two ticks above
+     *  [FLOOR_ALERT_MS] raise one notice, the fall below it another. The EMA
+     *  moves only with flushes, so an idle link keeps its last reading and
+     *  the notice waits for the next gesture to clear. A pacing decision on a
+     *  measurement, never a timeout: nothing is cancelled. */
+    private fun watchFloor() {
+        val st = transport.state.value
+        if (!st.started) { slowFloorMinutes = 0; return }
+        if (st.floorMsEma > FLOOR_ALERT_MS) {
+            slowFloorMinutes++
+            if (slowFloorMinutes >= FLOOR_ALERT_MINUTES && !floorAlerted) {
+                floorAlerted = true
+                journal.note("link", "floor %.0f ms for %d min (parameters %s)".format(st.floorMsEma, slowFloorMinutes, st.linkParams.ifEmpty { "unreported" }))
+                services.notifyInternal("link", "every flush is waiting ~%.0f ms on the radio (%d min) — parameters %s"
+                    .format(st.floorMsEma, slowFloorMinutes, st.linkParams.ifEmpty { "unreported" }))
+            }
+        } else {
+            slowFloorMinutes = 0
+            if (floorAlerted) {
+                floorAlerted = false
+                journal.note("link", "floor back to %.0f ms".format(st.floorMsEma))
+                services.notifyInternal("link", "radio floor back to %.0f ms".format(st.floorMsEma))
+            }
         }
     }
 
@@ -2599,6 +2757,14 @@ class Shell(
             HostSetting("Cached text", { ShellSettings.CACHED_TEXT },
                 { settings.cachedText },
                 { v -> applySettings(settings.copy(cachedText = v)) }),
+            // §47 (2026-09-12): the radio's connection priority — high (the
+            // 15 ms regime every fast flush was measured on) or balanced (the
+            // on-glass experiment for the ~50-minute arm rebuilds). The phone
+            // asks for it at connect and again, paced, whenever the glasses
+            // move the link to slower parameters.
+            HostSetting("Link", { ShellSettings.LINK_PRIORITIES },
+                { settings.linkPriority },
+                { v -> applySettings(settings.copy(linkPriority = v)) }),
         )
     }
 
@@ -2650,8 +2816,10 @@ class Shell(
         val rebright = s.brightness != settings.brightness || s.brightnessAuto != settings.brightnessAuto
         val reclock = s.silentClock != settings.silentClock
         val recache = s.cachedText != settings.cachedText
+        val relink = s.linkPriority != settings.linkPriority
         settings = s
         if (rebright) transport.setBrightness(s.brightnessAuto, s.brightness)
+        if (relink) transport.setLinkPriority(s.linkPriority)
         if (recache) { if (s.cachedText == "on") atlasEnable() else atlasDisable("the setting is off") }
         // liveApplySync passes persist=false: the store already holds the
         // EXACT synced record; putting our clamped re-encoding would re-stamp
@@ -3618,6 +3786,22 @@ class Shell(
         const val SLOW_LINK_MS_PER_KB = 50.0
         /** Flushes between two regime flips, at least (§41). */
         const val REGIME_DWELL_FLUSHES = 10L
+        /** §47: interval × (latency + 1) at or above this is the slow regime
+         *  at once. The fast set is 15 ms / 1 (30), Android's balanced grant
+         *  30–50 ms / 0; the glasses' idle set 105 ms / 4 (525). */
+        const val SLOW_PARAMS_MS = 100.0
+        /** §47: an ack floor above this for [FLOOR_ALERT_MINUTES] minute
+         *  ticks raises the notice — the fast floor measures ~60 ms, the slow
+         *  parameters ~530. */
+        const val FLOOR_ALERT_MS = 250.0
+        const val FLOOR_ALERT_MINUTES = 2
+        /** §47: a face not drawn in this many frames may be evicted from a
+         *  full atlas; a repack runs at most once per [ATLAS_REPACK_PACE_MS].
+         *  Derived, not measured: a window switch composes a handful of
+         *  frames, so the previous window's faces are stale a few notches
+         *  in, while the chrome's are drawn every frame and never qualify. */
+        const val ATLAS_RECENT_FRAMES = 12L
+        const val ATLAS_REPACK_PACE_MS = 45_000L
         /** Consecutive ImgResCmd refusals that put the glasses to sleep (§36). */
         const val REFUSALS_TO_SLEEP = 3
         /** The asleep shell's check pacing (§37.0): the glasses' own state is

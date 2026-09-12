@@ -107,10 +107,38 @@ class RemoteTorrentsProvider(
     host: String, port: Int, token: String, private val scope: CoroutineScope,
     private val idlePaceMs: Long = 15_000,
     private val onState: (String) -> Unit = {},
+    /** §47 (2026-09-12): where the last snapshot is kept across restarts, so
+     *  the window has its list the moment it opens after an APK restart and
+     *  the first poll sends the disk's version cursor (an unchanged list
+     *  costs no blob on the relay). Null = memory only. */
+    cacheDir: java.nio.file.Path? = null,
 ) : TorrentsProvider {
 
     private val listeners = CopyOnWriteArrayList<TorrentsProvider.Listener>()
-    @Volatile private var snap: Snapshot? = null
+    private val snapPath: java.nio.file.Path? = cacheDir?.resolve("snapshot.json")
+    @Volatile private var snap: Snapshot? = snapPath?.let { path ->
+        if (!java.nio.file.Files.isRegularFile(path)) null
+        else try {
+            json.decodeFromString(Snapshot.serializer(), java.nio.file.Files.readString(path, Charsets.UTF_8))
+                .also { Log.i("torrents-remote", "snapshot ${it.version} from the cache: ${it.transfers.size} transfer(s)") }
+        } catch (e: Exception) {
+            Log.w("torrents-remote", "cached snapshot unreadable — starting empty: ${e.message}")
+            null
+        }
+    }
+
+    /** The snapshot's bytes to disk, whole then moved into place. */
+    private fun remember(blob: ByteArray) {
+        val path = snapPath ?: return
+        try {
+            java.nio.file.Files.createDirectories(path.parent)
+            val tmp = path.resolveSibling("snapshot.json.${System.nanoTime()}.tmp")
+            java.nio.file.Files.write(tmp, blob)
+            java.nio.file.Files.move(tmp, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+        } catch (e: Exception) {
+            Log.w("torrents-remote", "snapshot cache write failed (${e.message}) — kept in memory only")
+        }
+    }
     @Volatile private var hostState = ""
     @Volatile private var chanState = "connecting to $host"
     private var lastSeq = -1L
@@ -185,7 +213,7 @@ class RemoteTorrentsProvider(
                 hostState = "host snapshot not understood"    // said, never silently stale (P8)
                 null
             }
-            if (s != null) snap = s
+            if (s != null) { snap = s; remember(a.blob!!) }
         }
         val evs = try {
             (a.data["events"] as? JsonArray)?.let { json.decodeFromJsonElement(ListSerializer(TorrentEvent.serializer()), it) }

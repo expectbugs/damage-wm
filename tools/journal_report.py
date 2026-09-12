@@ -13,7 +13,7 @@ separated by more than a second, keyed by the first flush's label), and every
 `link`/`keeper`/`fault`/`panic` note. Stdlib only; a line that is not JSON is
 skipped and counted.
 """
-import collections, datetime, json, statistics, sys
+import collections, datetime, json, re, statistics, sys
 
 BANDS = [(0, 500), (500, 1500), (1500, 3000), (3000, 6000), (6000, 10**9)]
 # §42: flushes further apart than this belong to different gestures
@@ -37,23 +37,45 @@ def main(path):
     if not done: print('no completed flushes'); return
     print(f'{len(done)} acked flushes, {datetime.datetime.fromtimestamp(done[0][0]/1000):%Y-%m-%d %H:%M} → {datetime.datetime.fromtimestamp(done[-1][0]/1000):%Y-%m-%d %H:%M}\n')
 
-    def table(groups, title):
+    # §47: the connection parameters in force, from the shell's `link` notes
+    # ("connection parameters: L 15.00ms/1/5000ms … · R …") — the worst arm's
+    # interval/latency, as a column per hour: the 105 ms / 4 regime of
+    # 2026-09-12 cost every flush ~470 ms and only this column shows it
+    # next to the ack medians it explains.
+    params = []
+    for n in notes:
+        if n.get('kind') != 'link' or 'connection parameters' not in n.get('detail', ''): continue
+        pairs = re.findall(r'(\d+(?:\.\d+)?)ms/(\d+)/', n['detail'])
+        if pairs: params.append((n['t'], f'{max(float(i) for i, _ in pairs):g}/{max(int(l) for _, l in pairs)}'))
+    params.sort()
+    def params_at(t):
+        cur = None
+        for pt, txt in params:
+            if pt <= t: cur = txt
+            else: break
+        return cur or '-'
+
+    def table(groups, title, extra=None):
         print(title)
-        print(f'{"":18s} {"n":>6s} ' + ' '.join(f'{lo//1000 if lo>=1000 else lo}{"K" if lo>=1000 else "B"}-{(hi//1000 if hi<10**9 else "")}{"K" if 1000<=hi<10**9 else ""}'.rjust(11) for lo, hi in BANDS))
+        print(f'{"":18s} {"n":>6s} ' + ' '.join(f'{lo//1000 if lo>=1000 else lo}{"K" if lo>=1000 else "B"}-{(hi//1000 if hi<10**9 else "")}{"K" if 1000<=hi<10**9 else ""}'.rjust(11) for lo, hi in BANDS)
+              + ('  params' if extra else ''))
         for k in sorted(groups):
             v = groups[k]
             cells = []
             for lo, hi in BANDS:
                 s = [a for b, a in v if lo <= b < hi]
                 cells.append(f'{med(s):5d}({len(s):4d})' if s else '     -     ')
-            print(f'{k:18s} {len(v):6d} ' + ' '.join(cells))
+            print(f'{k:18s} {len(v):6d} ' + ' '.join(cells) + (f'  {extra(k)}' if extra else ''))
         print()
 
-    byhour = collections.defaultdict(list); byvia = collections.defaultdict(list)
+    byhour = collections.defaultdict(list); byvia = collections.defaultdict(list); lastInHour = {}
     for t, b, a, via, hm, am, lab, _ts in done:
-        byhour[datetime.datetime.fromtimestamp(t/1000).strftime('%m-%d %H')].append((b, a))
+        h = datetime.datetime.fromtimestamp(t/1000).strftime('%m-%d %H')
+        byhour[h].append((b, a))
+        lastInHour[h] = max(lastInHour.get(h, 0), t)
         byvia[via].append((b, a))
-    table(byhour, 'median ack ms (n) by hour and flush size:')
+    table(byhour, 'median ack ms (n) by hour and flush size (params = worst arm interval ms/latency in force at the hour\'s end):',
+          extra=lambda h: params_at(lastInHour[h]))
     table(byvia, 'by transport (via):')
 
     tot = sum(a for _, _, a, *_ in done)

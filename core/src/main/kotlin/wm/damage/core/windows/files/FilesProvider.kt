@@ -56,6 +56,13 @@ interface FilesProvider {
 
     fun locations(): List<FLocation>
     fun list(dir: String, showHidden: Boolean): List<FEntry>
+
+    /** §47: what this provider last answered for [locations] / [list], from
+     *  its own store, without a round trip — the window shows it at once
+     *  and the live answer follows. Null = nothing held (the PC's own
+     *  provider, a folder never listed). Off-loop like everything else. */
+    fun cachedLocations(): List<FLocation>? = null
+    fun cachedList(dir: String, showHidden: Boolean): List<FEntry>? = null
     fun stat(path: String): FStat
 
     /** Recursive size — slow on cold disks; call off-loop, narrate the op. */

@@ -8,7 +8,7 @@ SHELL drives, always; the PC is the DATA PROVIDER.** This file is the ops crib.
 | piece | job | kept alive by |
 |---|---|---|
 | **phone APK** (Target = glasses) | THE driver — owns the BLE radio and runs the shell; serves the seam :7402 (status probe + explicit dev claims) and the replica :7403 | foreground service + wakelock + Doze exemption + `BootReceiver` (reboot/update) |
-| **beardos `damage` service** | data host + standby: books, tmux, state sync, the window channel :7401 (Files · Torrents · Music · Feed, theme icons), the media endpoint :7404, the PC replica :7403, the setup page :7300 (`/setup` + `/damage-apk`, G2CC's URL and token kept); probes the phone every 5 s and drives PC-direct BLE ONLY while the APK is away | OpenRC `/etc/init.d/damage` (supervise-daemon, `default` runlevel, `--no-preview`, `auto` = standby; after `postgresql-17` / `qdrant` / `qbittorrent`, `~/.local/bin` on PATH for the Ask lane's `claude`, `--enable-native-access` for the Postgres socket driver — 2026-09-10) |
+| **beardos `damage` service** | data host + standby: books, tmux, state sync, the window channel :7401 (Files · Torrents · Music · Feed, theme icons), the media endpoint :7404, the PC replica :7403, the setup page :7300 (`/setup` + `/damage-apk`, G2CC's URL and token kept); probes the phone every 5 s and drives PC-direct BLE ONLY while the APK is away for 30 s AND both arms advertise to its adapter (`HANDOFF.md` §47) | OpenRC `/etc/init.d/damage` (supervise-daemon, `default` runlevel, `--no-preview`, `auto` = standby; after `postgresql-17` / `qdrant` / `qbittorrent`, `~/.local/bin` on PATH for the Ask lane's `claude`, `--enable-native-access` for the Postgres socket driver — 2026-09-10) |
 | **beardos `qbittorrent` service** | the Torrents backend: `qbittorrent-nox` on Adam's own profile (`~/.config/qBittorrent`), Web API `127.0.0.1:8090` | OpenRC `qbittorrent` (Gentoo's script + `/etc/conf.d/qbittorrent`, `default` runlevel, 2026-09-10) |
 
 **Who drives when** (automatic, event-driven, pacing not timeouts): APK up → the phone shell drives — home,
@@ -87,7 +87,8 @@ without writing a row.
 - Logs: `~/.damage/damage.log` (the service; the standby narration), `~/.damage/journal.jsonl` (the PC's flush
   journal, only while a PC stack drives), phone `adb logcat -s damage` + the on-phone status line.
 - **The phone's journal, no adb** (`HANDOFF.md` §32): `curl -s 'http://aphone:7403/journal?token=…' | python3
-  tools/journal_report.py -` (`&tail=2000000` for the last ~2 MB) — the ack curve by hour and radio path, CPU
+  tools/journal_report.py -` (`&tail=2000000` for the last ~2 MB) — the ack curve by hour (with the connection
+  parameters in force per hour since §47: `105/4` is the slow set, `15/1` the fast) and radio path, CPU
   per flush, the cache's account, **time to first visible change per gesture** (the number a window is judged
   by), the `link`/`keeper` notes. The daily driver's real curve; the PC journal's is the standby's.
 - **The phone's log, no adb** (APK 0.41+, §42): `curl -s 'http://aphone:7403/log?token=…&tail=400'` (the last
@@ -127,6 +128,14 @@ without writing a row.
   phone (Tmux, Files, Torrents, Reader content, Music, Feed) rides this service — :7401, plus :7404 for Music.
 - "Scans forever" while the phone says Connected → the stale-ACL recovery is still **toggle phone Bluetooth**
   (the scan fails loudly and rides the ON edge back in).
+- **`LINK SLOW` in the status cell** (§47): the glasses moved the link to their idle parameters (105 ms /
+  latency 4); the APK is re-asking for the fast set every 5 s per arm — the `link` notes count the re-asks.
+  If it never clears, the firmware keeps winning: that is the ask to Babcock (gate the idle request on the
+  lease). Global `Link` = `balanced` is the experiment for the ~50-minute rebuilds. **`atlas full`**: a face
+  stayed pixels even after evicting what the window is not drawing — the cache is genuinely full.
+- **The phone ↔ PC path** should be DIRECT (`tailscale ping aphone` → "via <ip:port>", ~30 ms). "via DERP"
+  means the bypass is not in force (`sudo /etc/local.d/tailscale-bypass.start`, then `sudo rc-service
+  tailscale restart`) or the phone's network blocks it; either way the windows still work, slower.
 - **Torrents (`TORRENTS.md`):** qBittorrent's Web API at `http://127.0.0.1:8090` (loopback only;
   `LocalHostAuth=false` = no credentials in our path) and the TorrentLeech account from `~/.damage/config.json`
   (`torrentleechUser` / `torrentleechPass`; `qbtUrl`, and `qbtUser`/`qbtPass` only if localhost auth is ever

@@ -59,7 +59,7 @@ class YouTube(
         require(query.isNotEmpty()) { "yt search called with an empty query" }
         require(n >= 1) { "yt search called with n=$n (must be at least 1)" }
         val argv = listOf(
-            ytDlp, "--no-download", "--flat-playlist", "--dump-json", "ytsearch$n:$query",
+            ytDlp, *JS_RUNTIME, "--no-download", "--flat-playlist", "--dump-json", "ytsearch$n:$query",
         )
         Log.i(TAG, "search \"$query\" (top $n)")
         val r = try {
@@ -143,7 +143,7 @@ class YouTube(
         // libraries' YouTube dirs stay one shape.
         val template = dir.resolve("%(title)s [%(id)s].%(ext)s").toString()
         val argv = listOf(
-            ytDlp,
+            ytDlp, *JS_RUNTIME,
             "-f", "bestaudio",              // audio-only: no video stream is fetched
             "-x", "--audio-format", "opus", // …and the extractor writes Ogg Opus
             "--embed-metadata",             // real tags, so the indexer reads more than the filename
@@ -313,6 +313,12 @@ class YouTube(
 
     private companion object {
         const val TAG = "music-yt"
+
+        /** 2026-09-12: YouTube extraction needs a JavaScript runtime since
+         *  yt-dlp 2025.09 ("No supported JavaScript runtime could be found",
+         *  every grab a 403 for weeks). Only deno is on by default; this
+         *  host has node. `yt-dlp --help` (2026.09) documents the flag. */
+        val JS_RUNTIME = arrayOf("--js-runtimes", "node")
 
         /** A song is never this big — a mis-picked hour-long upload stops
          *  early instead of filling the disk (G2CC used the same ceiling). */

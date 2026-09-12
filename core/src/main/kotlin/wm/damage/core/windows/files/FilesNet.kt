@@ -78,11 +78,20 @@ class FilesService(private val p: FilesProvider) : WinService {
 class RemoteFilesProvider(
     host: String, port: Int, token: String, scope: CoroutineScope,
     private val onState: (String) -> Unit = {},
+    /** §47: where the last answers live between round trips and across
+     *  restarts; null = no cache (tests of the channel alone). */
+    cacheDir: java.nio.file.Path? = null,
 ) : FilesProvider, AutoCloseable {
 
     private val ch = RemoteWin(host, port, token, "files", scope, onState = onState)
+    private val cache: ListingCache? = cacheDir?.let {
+        try { ListingCache(it) } catch (e: Exception) { wm.damage.core.util.Log.w("files-remote", "listing cache at $it unavailable: ${e.message}"); null }
+    }
 
     override fun stateLine(): String = ch.stateLine
+
+    override fun cachedLocations(): List<FLocation>? = cache?.locations()
+    override fun cachedList(dir: String, showHidden: Boolean): List<FEntry>? = cache?.list(dir, showHidden)
 
     private fun args(vararg kv: Pair<String, Any?>): JsonObject = buildJsonObject {
         for ((k, v) in kv) when (v) {
@@ -97,12 +106,13 @@ class RemoteFilesProvider(
 
     override fun locations(): List<FLocation> =
         json.decodeFromJsonElement(ListSerializer(FLocation.serializer()),
-            ch.request("locations").data["locs"]!!.jsonArray)
+            ch.request("locations").data["locs"]!!.jsonArray).also { cache?.putLocations(it) }
 
     override fun list(dir: String, showHidden: Boolean): List<FEntry> =
         json.decodeFromString(ListSerializer(FEntry.serializer()),
             (ch.request("list", args("dir" to dir, "hidden" to showHidden)).blob
                 ?: throw IllegalStateException("no listing came back")).toString(Charsets.UTF_8))
+            .also { cache?.putList(dir, showHidden, it) }
 
     override fun stat(path: String): FStat =
         json.decodeFromJsonElement(FStat.serializer(), ch.request("stat", args("path" to path)).data)

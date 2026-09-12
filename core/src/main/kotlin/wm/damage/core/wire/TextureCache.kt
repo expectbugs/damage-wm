@@ -122,6 +122,22 @@ object TextureCache {
             return off
         }
 
+        /** The bytes [addFont] would write for this font as the cache stands:
+         *  the table plus every glyph (and the tofu) whose bytes are not in
+         *  the cache yet, identical glyphs counted once. */
+        fun priceFont(glyphs: Map<Char, Image>, tofu: Image): Int = priceEncoded(glyphs, tofu).first
+
+        private fun priceEncoded(glyphs: Map<Char, Image>, tofu: Image): Pair<Int, Map<Char, ByteArray>> {
+            val tofuEnc = tofu.encode()
+            val encs = HashMap<Char, ByteArray>(glyphs.size)
+            val fresh = HashSet<String>()
+            var need = CfwModes.FONT_TABLE_BYTES
+            fun price(enc: ByteArray) { val k = enc.toHexKey(); if (k !in seen && fresh.add(k)) need += enc.size }
+            price(tofuEnc)
+            for ((c, g) in glyphs) { val e = g.encode(); encs[c] = e; price(e) }
+            return need to encs
+        }
+
         /**
          * Reserve and fill a font table for [glyphs] (character -> image). Every
          * character 32..127 gets an entry; anything absent from [glyphs] points at
@@ -134,12 +150,7 @@ object TextureCache {
             // 18:05:46) and the cache was full for good. Dedup counts as the
             // writes below will: identical bytes cost once.
             val tofuEnc = tofu.encode()
-            val encs = HashMap<Char, ByteArray>(glyphs.size)
-            val fresh = HashSet<String>()
-            var need = CfwModes.FONT_TABLE_BYTES
-            fun price(enc: ByteArray) { val k = enc.toHexKey(); if (k !in seen && fresh.add(k)) need += enc.size }
-            price(tofuEnc)
-            for ((c, g) in glyphs) { val e = g.encode(); encs[c] = e; price(e) }
+            val (need, encs) = priceEncoded(glyphs, tofu)
             if (bytes.size() + need > CfwModes.TEXTURE_CACHE_SIZE)
                 throw LintError("no room for a $need B font: ${bytes.size()} B of " +
                     "${CfwModes.TEXTURE_CACHE_SIZE} used — nothing written")

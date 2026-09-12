@@ -250,6 +250,19 @@ class RemoteTransportClient(
         }
     }
 
+    /** The priority rides the seam in [Ctl.detail] (2026-09-12) — the far
+     *  end's radio is the one that asks the platform. */
+    override fun setLinkPriority(name: String) {
+        val o = out ?: run { Log.w("remote-transport", "link priority '$name' not sent: seam not connected"); return }
+        scope.launch {
+            try {
+                o.send(Ctl(t = "linkpriority", detail = name))
+            } catch (e: Exception) {
+                Log.w("remote-transport", "link priority over the seam not sent: ${e.message}")
+            }
+        }
+    }
+
     /** From the server's grant (the phone yielded its shell for us) until
      *  start() completes or fails: the arbitration holds the radio off. */
     @Volatile private var engagedFlag = false
@@ -907,6 +920,7 @@ class RemoteTransportServer(
                         }
                     }
                     "brightness" -> inner.setBrightness(c.auto, c.level)
+                    "linkpriority" -> inner.setLinkPriority(c.detail)
                     "restart" -> scope.launch {
                         try { inner.restartSession("remote driver: ${c.detail}") } catch (e: Exception) {
                             Log.w("transport-server", "restart: ${e.message}")

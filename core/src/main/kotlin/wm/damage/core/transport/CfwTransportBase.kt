@@ -123,9 +123,12 @@ abstract class CfwTransportBase(
      *  fire-and-forget like the lease (msgId 0; the firmware's ack is not
      *  awaited — a lost write is corrected by the next push or session start). */
     override fun setBrightness(auto: Boolean, level: Int) {
-        if (!_state.value.started) return
-        Log.i(name, "brightness -> ${if (auto) "auto" else "$level"}")
-        controlQueue.trySend(CtlWork.Settings(sessionEpoch.get(), SettingsMsg.brightnessWrite(0, auto, level)))
+        val v = if (auto) "auto" else "$level"
+        if (!_state.value.started) { Log.w(name, "brightness -> $v not sent: no session (the next start pushes it)"); return }
+        Log.i(name, "brightness -> $v")
+        // §47: answered, and re-sent once if a later answer shows it was eaten
+        controlQueue.trySend(CtlWork.Settings(sessionEpoch.get(), SettingsMsg.brightnessWrite(0, auto, level),
+            ackWanted = true, label = "brightness"))
     }
 
     protected val _events = MutableSharedFlow<TransportEvent>(extraBufferCapacity = 1024)
@@ -161,7 +164,13 @@ abstract class CfwTransportBase(
         /** [failed] completes with the reason if the write never goes out —
          *  a gate waiting for this query's answer must not park forever on a
          *  write failure that ends no link (round 7 D1). */
-        class Settings(epoch: Long, val payload: ByteArray, val failed: CompletableDeferred<String>? = null) : CtlWork(epoch)
+        class Settings(epoch: Long, val payload: ByteArray, val failed: CompletableDeferred<String>? = null,
+            /** §47 (2026-09-12): a WRITE whose answer is awaited — the firmware
+             *  answers a sid-0x09 write with a `09-00` carrying the msgId
+             *  (G2CC docs/G2_BLE_PROTOCOL.md §3 row 15, capture; faceclaw
+             *  awaits the same ack). A write a later answer shows was never
+             *  answered is re-sent ONCE, then a fault. */
+            val ackWanted: Boolean = false, val label: String = "settings", val retry: Int = 0) : CtlWork(epoch)
         class Lease(epoch: Long, val op: Int, val written: CompletableDeferred<Unit>? = null) : CtlWork(epoch)
         /** The sid-0x01 connect prelude (LaunchMsg); [failed] completes with the
          *  reason if the write never goes out, like [Settings]. */
@@ -236,6 +245,17 @@ abstract class CfwTransportBase(
     /** msgId -> pending. Written under [wire], completed by the notify thread. */
     private val pendingAcks = ConcurrentHashMap<Int, PendingAck>()
     private var pendingSeq = 0L        // wire-mutex-confined, like the msgId counter
+
+    /** §47: a settings WRITE awaiting its `09-00` answer, by msgId. The
+     *  firmware answers sid-0x09 requests in order on the RIGHT arm, so a
+     *  later answer (a device-info READ's, 60 s apart at most) releases an
+     *  earlier write as lost — the §34 rule, on the control lane. */
+    private class PendingSettings(val payload: ByteArray, val label: String, val retry: Int, val seq: Long)
+    private val pendingSettings = ConcurrentHashMap<Int, PendingSettings>()
+    /** Issue order of EVERY sid-0x09 request this session, by msgId (reads
+     *  included) — what "sent after it" means for the release rule. */
+    private val settingsSeqByMsgId = ConcurrentHashMap<Int, Long>()
+    private var settingsSeq = 0L       // wire-mutex-confined
 
     /** msgId -> when it was released as lost, so a late ack for it is named as
      *  late (the rule fired early) rather than "unknown". Cleared per session. */
@@ -385,6 +405,14 @@ abstract class CfwTransportBase(
                 // Parsed before everything else — while it is on, every image
                 // is refused, and the shell must know before it sends one.
                 SettingsMsg.parseSilentModePush(frame.payload)?.let { on -> noteSilent(on, "pushed"); return }
+                // §47: an answer to one of OUR sid-0x09 requests (a READ's or
+                // a WRITE's cmdId, never a device-initiated message's) — the
+                // write it answers is done, and any write sent before it and
+                // still unanswered is lost (re-sent once). Before the
+                // capability gate's early return below, which must not hide it.
+                if (frame.flag == SettingsMsg.FLAG_RESPONSE &&
+                    Pb.varintField(frame.payload, 1)?.toInt() in setOf(1, 2))
+                    Pb.varintField(frame.payload, 2)?.let { onSettingsResponse(it.toInt()) }
                 SettingsMsg.parseSilentRestored(frame.payload)?.let { on -> noteSilent(on, "read") }
                 // Battery rides EVERY device-info response (payload f4.12/13 —
                 // G2CC §10, capture-confirmed), the capability-gate answer and
@@ -414,6 +442,34 @@ abstract class CfwTransportBase(
                 if (pct != null) emitBattery(ringPct = pct)
                 else Log.i(name, "sid-0x91 ring relay without rawData battery: " +
                     frame.payload.take(24).joinToString("") { "%02x".format(it) })
+            }
+        }
+    }
+
+    /** §47: the firmware answered msgId [id] on sid 0x09. Completes the
+     *  write under it, if one waits, and releases every write issued BEFORE
+     *  it that is still waiting — the firmware answers in order, so those
+     *  answers are not coming. A released write is re-sent once; a second
+     *  loss is a fault the wearer sees (the glasses then hold their own
+     *  value for that setting). */
+    private fun onSettingsResponse(id: Int) {
+        val answered = pendingSettings.remove(id)
+        if (answered != null) Log.i(name, "settings write '${answered.label}' msgId $id answered" +
+            (if (answered.retry > 0) " (the re-send)" else ""))
+        val seq = settingsSeqByMsgId[id] ?: return
+        for ((pid, p) in pendingSettings.entries.toList()) {
+            if (p.seq >= seq || !pendingSettings.remove(pid, p)) continue
+            if (p.retry == 0) {
+                val text = "settings write '${p.label}' msgId $pid not answered before msgId $id (sent after it) was — re-sent once"
+                Log.w(name, text)
+                emitNote("control", text)
+                if (!controlQueue.trySend(CtlWork.Settings(sessionEpoch.get(), p.payload,
+                        ackWanted = true, label = p.label, retry = p.retry + 1)).isSuccess)
+                    Log.e(name, "re-send of '${p.label}' could not be queued")
+            } else {
+                val text = "'${p.label}' write lost twice (msgId $pid, after a re-send) — the glasses may hold their own ${p.label}"
+                Log.e(name, text)
+                emitFault("settings", text)
             }
         }
     }
@@ -1036,6 +1092,10 @@ abstract class CfwTransportBase(
             if (p.windowed) window.release()
             p.done.completeExceptionally(LintError("$why (msgId $id un-acked)"))
         }
+        for ((id, p) in pendingSettings.entries.toList()) {
+            if (pendingSettings.remove(id, p)) Log.w(name, "settings write '${p.label}' msgId $id unanswered: $why")
+        }
+        settingsSeqByMsgId.clear()
         updateState { it.copy(inFlight = WINDOW - window.availablePermits) }
         while (true) {
             val w = imageQueue.tryReceive().getOrNull() ?: break
@@ -1441,7 +1501,20 @@ abstract class CfwTransportBase(
                         }
                         is CtlWork.Settings -> try {
                             wire.withLock {
-                                val payload = restampMsgId(work.payload, nextMsgIdLocked())
+                                val id = nextMsgIdLocked()
+                                val seq = ++settingsSeq
+                                settingsSeqByMsgId[id] = seq
+                                if (work.ackWanted) {
+                                    val prior = pendingSettings.put(id, PendingSettings(work.payload, work.label, work.retry, seq))
+                                    if (prior != null) {
+                                        // never answered across a whole msgId cycle: a fact,
+                                        // never a stall (the slot it held is nothing)
+                                        val text = "settings write '${prior.label}' msgId $id never answered (counter cycled)"
+                                        Log.w(name, text)
+                                        emitNote("control", text)
+                                    }
+                                }
+                                val payload = restampMsgId(work.payload, id)
                                 for (p in AaFrame.frame(nextSeqLocked(), SettingsMsg.SID,
                                         SettingsMsg.FLAG_REQUEST, payload)) {
                                     writePacket(Arm.RIGHT, p)

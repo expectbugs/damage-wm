@@ -164,7 +164,8 @@ class YouTubeTest {
         assertEquals("https://www.youtube.com/watch?v=bbbbbbbbbbb", hits[1].url)
 
         val argv = argvOf(rec)
-        assertEquals(listOf("--no-download", "--flat-playlist", "--dump-json", "ytsearch10:boards of canada"), argv)
+        // §47 (2026-09-12): node is the JavaScript runtime YouTube extraction needs
+        assertEquals(listOf("--js-runtimes", "node", "--no-download", "--flat-playlist", "--dump-json", "ytsearch10:boards of canada"), argv)
     }
 
     @Test

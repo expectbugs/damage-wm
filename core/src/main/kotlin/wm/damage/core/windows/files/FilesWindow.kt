@@ -364,6 +364,17 @@ class FilesWindow(
             services?.setOperation("listing locations")
         }
         bg.launch(Dispatchers.IO) {
+            // §47: the provider's own copy first, so the list is up at once
+            // over a slow channel; the live answer replaces it below
+            val cached = if (quiet) null else try { provider.cachedLocations() } catch (e: Exception) {
+                Log.w("files", "cached locations unreadable: ${e.message}"); null
+            }
+            if (cached != null && cached.isNotEmpty()) services?.runOnShell {
+                if (seq != navSeq) return@runOnShell
+                adoptLocations(cached)
+                listState = "cached · refreshing"
+                services?.requestRender(this@FilesWindow)
+            }
             val (locs, err) = try {
                 provider.locations() to null
             } catch (e: Exception) {
@@ -372,21 +383,24 @@ class FilesWindow(
             }
             services?.runOnShell {
                 if (seq != navSeq) return@runOnShell
-                if (err == null) {
-                    locations = locs
-                    // the Reader hand-off prefix comes from the HOST's own
-                    // Books location (the phone cannot know the PC's path)
-                    locs.firstOrNull { it.kind == "books" }?.let { booksDir = it.path }
-                    locs.firstOrNull { it.kind == "home" }?.let { hostHome = it.path }
-                }
+                if (err == null) adoptLocations(locs)
                 if (!quiet) {
                     listState = err ?: ""
                     if (err != null) setNotice(err)
                     services?.setOperation("idle")
                 }
+                if (err == null && cached != null && cached == locs) return@runOnShell   // nothing changed: no second paint
                 services?.requestRender(this@FilesWindow)
             }
         }
+    }
+
+    /** The locations as shown; the Reader hand-off prefix comes from the
+     *  HOST's own Books location (the phone cannot know the PC's path). */
+    private fun adoptLocations(locs: List<FLocation>) {
+        locations = locs
+        locs.firstOrNull { it.kind == "books" }?.let { booksDir = it.path }
+        locs.firstOrNull { it.kind == "home" }?.let { hostHome = it.path }
     }
 
     private fun locIcon(kind: String): List<String> = when (kind) {
@@ -506,6 +520,18 @@ class FilesWindow(
         listState = "listing"
         services?.setOperation("listing")
         bg.launch(Dispatchers.IO) {
+            // §47: this folder as the provider last saw it, at once; the live
+            // listing follows. A folder never listed shows "listing" as before.
+            val cached = try { provider.cachedList(dir, showHidden) } catch (e: Exception) {
+                Log.w("files", "cached listing of $dir unreadable: ${e.message}"); null
+            }
+            if (cached != null) services?.runOnShell {
+                if (seq != navSeq || cwd != dir) return@runOnShell
+                entries = cached
+                listState = "cached · refreshing"
+                if (browseModel.cursor >= rows().size) browseModel.cursor = 0
+                services?.requestRender(this@FilesWindow)
+            }
             val (list, err) = try {
                 provider.list(dir, showHidden) to null
             } catch (e: Exception) {
@@ -515,8 +541,9 @@ class FilesWindow(
             services?.runOnShell {
                 if (seq != navSeq || cwd != dir) return@runOnShell
                 // an error must not leave the PREVIOUS folder's rows live and
-                // commit-able under the new title (review Fi#4)
-                entries = if (err == null) list else emptyList()
+                // commit-able under the new title (review Fi#4) — THIS
+                // folder's cached rows may stay, under the error line (§47)
+                entries = if (err == null) list else (cached ?: emptyList())
                 listState = err ?: ""
                 if (err != null) { setNotice(err); pendingSelectName = null }
                 services?.setOperation("idle")

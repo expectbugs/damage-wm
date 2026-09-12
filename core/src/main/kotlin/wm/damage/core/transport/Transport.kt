@@ -53,6 +53,15 @@ interface Transport {
      *  session start. Default: ignored (a transport with no panel). */
     fun setBrightness(auto: Boolean, level: Int) {}
 
+    /** The connection priority the radio should hold (2026-09-12, `HANDOFF.md`
+     *  §47): one of [ShellSettings.LINK_PRIORITIES] — "high" (Android's
+     *  11.25–15 ms interval) or "balanced" (30–50 ms). The phone's transport
+     *  asks the platform for it at connect time and asks AGAIN, paced,
+     *  whenever the glasses move the link to slower parameters (measured
+     *  2026-09-12: 105 ms / latency 4 for three hours, every flush ~470 ms
+     *  slower). Default: no radio to ask. */
+    fun setLinkPriority(name: String) {}
+
     /** Hold or drop the framebuffer lease on demand (2026-09-05, `HANDOFF.md`
      *  §36): the shell drops it while the glasses are in the firmware's Silent
      *  Mode — with the lease held nothing paints anyway, and without it the
@@ -234,6 +243,12 @@ data class LinkState(
      *  grants or refuses the priority request without an API to ask; the
      *  parameters callback is the only place the answer appears. */
     val linkParams: String = "",
+    /** The same parameters as numbers (2026-09-12): the LARGEST connection
+     *  interval over the arms in ms, and the largest slave latency — 0 until
+     *  the platform reports them. The shell's slow-link regime reads these
+     *  at once instead of waiting for the ack EMA to notice. */
+    val linkIntervalMs: Double = 0.0,
+    val linkLatency: Int = 0,
     /** The firmware's Silent Mode as last pushed or read (§36). */
     val glassesSilent: Boolean = false,
     val capability: String? = null,

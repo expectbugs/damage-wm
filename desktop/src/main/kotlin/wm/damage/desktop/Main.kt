@@ -16,6 +16,7 @@ import kotlinx.serialization.json.Json
 import wm.damage.core.content.ContentHostServer
 import wm.damage.core.content.LocalContent
 import wm.damage.core.replica.ReplicaServer
+import wm.damage.core.comp.Journal
 import wm.damage.core.shell.HostSetting
 import wm.damage.core.shell.Persistence
 import wm.damage.core.shell.Shell
@@ -668,11 +669,15 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
 
     // THE STANDBY LOOP (§19.2). Probe the phone's seam on pacing: the APK
     // wanting the radio (or an APK too old to be asked) keeps the PC out;
-    // absent-or-idle for STANDBY_DEBOUNCE consecutive probes starts a plain
-    // BLE stack; the APK's return stops it — the handback.
+    // absent-or-idle for STANDBY_DEBOUNCE consecutive probes AND both arms
+    // advertising to this adapter (§47) starts a plain BLE stack; the APK's
+    // return stops it — the handback.
+    val standbyScan = StandbyScan(cfg)
+    val standbyJournal = Journal(Path.of(cfg.dataDir).resolve("journal.jsonl"))
     launch(Dispatchers.IO) {
         var absentStreak = 0
         var bleBroken = false
+        var notAdvertisingSaid = false
         while (isActive) {
             if (standbyOn.get()) {
                 if (!hostBound) {
@@ -694,7 +699,16 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
                 val phoneOwns = r is wm.damage.core.transport.SeamProbe.Result.Reachable &&
                     r.wantsRadio != false        // null = an APK too old to ask: conservative
                 if (phoneOwns) {
+                    if (absentStreak > 0) {
+                        // §47: the return is a fact for the journal too — the
+                        // relay dropped the phone for this long
+                        val gone = absentStreak * STANDBY_PROBE_MS / 1000
+                        Log.i("damage", "standby: the phone is back after $absentStreak missed probe(s) (~$gone s)")
+                        standbyJournal.note("keeper", "standby: the phone is back after $absentStreak missed probe(s) (~$gone s)")
+                    }
                     absentStreak = 0
+                    notAdvertisingSaid = false
+                    standbyScan.stop()
                     val d = (r as wm.damage.core.transport.SeamProbe.Result.Reachable).detail
                     standbyNote.set("standby: phone drives" + (d.takeIf { it.isNotEmpty() }?.let { " · $it" } ?: ""))
                     if (stack() != null && standbyOn.get())
@@ -707,9 +721,34 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
                         if (absentStreak < STANDBY_DEBOUNCE) {
                             standbyNote.set("standby: $why ($absentStreak/$STANDBY_DEBOUNCE)")
                         } else {
-                            standbyNote.set("standby → PC-direct BLE ($why)")
-                            Log.i("damage", "standby: $why for $absentStreak probes — starting the PC BLE stack")
-                            swapStack("ble", "standby: $why")
+                            // §47 (2026-09-12): a phone that is only unreachable over
+                            // the network is still driving the glasses — nine such
+                            // claims in two days, every one handed straight back. The
+                            // arms advertise only once the phone has let go of them.
+                            when (standbyScan.armsAdvertising()) {
+                                null -> {
+                                    // BlueZ cannot tell: the debounce alone decides, as before
+                                    standbyNote.set("standby → PC-direct BLE ($why; the adapter cannot scan)")
+                                    Log.i("damage", "standby: $why for $absentStreak probes, the adapter cannot scan — starting the PC BLE stack")
+                                    standbyJournal.note("keeper", "standby claim: $why for $absentStreak probes (no scan)")
+                                    swapStack("ble", "standby: $why")
+                                }
+                                false -> {
+                                    standbyNote.set("standby: $why ($absentStreak probes) — the arms are not advertising here; not claiming")
+                                    if (!notAdvertisingSaid) {
+                                        notAdvertisingSaid = true
+                                        Log.i("damage", "standby: $why for $absentStreak probes, but the arms are not advertising to this adapter — the phone still holds them; not claiming")
+                                        standbyJournal.note("keeper", "standby: $why for $absentStreak probes — arms not advertising, not claiming")
+                                    }
+                                }
+                                true -> {
+                                    standbyNote.set("standby → PC-direct BLE ($why, both arms advertise)")
+                                    Log.i("damage", "standby: $why for $absentStreak probes and both arms advertise — starting the PC BLE stack")
+                                    standbyJournal.note("keeper", "standby claim: $why for $absentStreak probes, both arms advertising")
+                                    standbyScan.stop()
+                                    swapStack("ble", "standby: $why")
+                                }
+                            }
                         }
                     }
                 }
@@ -783,6 +822,58 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
 
 /** Standby pacing (§19.2): probe cadence, and how many consecutive
  *  absent-or-idle probes it takes before the PC starts its own BLE stack —
- *  the debounce that rides out an APK restart or update. */
+ *  the debounce that rides out an APK restart or update. Six since §47
+ *  (30 s): two rode out nothing on a relayed tailnet that dropped the
+ *  phone for 10 s at a time; the arms' advertising is the real gate. */
 private const val STANDBY_PROBE_MS = 5_000L
-private const val STANDBY_DEBOUNCE = 2
+private const val STANDBY_DEBOUNCE = 6
+
+/**
+ * §47: whether BOTH arms are advertising to this adapter — the one signal
+ * that the phone has let go of them (a connected peripheral does not
+ * advertise; a phone that is merely unreachable over the network keeps its
+ * links). Discovery runs only while the phone is absent and stops the
+ * moment it is back or the PC claims (the transport runs its own scan).
+ * Null when BlueZ cannot scan on this machine — said once, and the caller
+ * falls back to the debounce alone.
+ */
+private class StandbyScan(private val cfg: Config) {
+    private var link: BlueZDbus? = null
+    private var scanning = false
+    private var broken = false
+
+    fun armsAdvertising(): Boolean? {
+        if (broken) return null
+        try {
+            val l = link ?: BlueZDbus().also { link = it }
+            if (!scanning) {
+                l.startDiscovery()
+                scanning = true
+                Log.i("damage", "standby: scanning for the arms (BlueZ discovery on) — a claim needs both to advertise")
+                return false            // give the scan a probe interval before judging
+            }
+            if (!l.discovering()) {
+                scanning = false        // ended on its own (adapter off, bluetoothd restarted): restart next probe
+                Log.w("damage", "standby: the discovery ended on its own — restarting it on the next probe")
+                return false
+            }
+            val peers = l.peers()
+            fun seen(p: BlueZLink.Peer) = p.rssi != null && !p.connected
+            fun isLeft(p: BlueZLink.Peer) = seen(p) && (p.address.equals(cfg.leftAddress, true) && cfg.leftAddress.isNotEmpty() ||
+                p.name.startsWith(BlueZTransport.NAME_PREFIX) && BlueZTransport.LEFT_INFIX in p.name)
+            fun isRight(p: BlueZLink.Peer) = seen(p) && (p.address.equals(cfg.rightAddress, true) && cfg.rightAddress.isNotEmpty() ||
+                p.name.startsWith(BlueZTransport.NAME_PREFIX) && BlueZTransport.RIGHT_INFIX in p.name)
+            return peers.any(::isLeft) && peers.any(::isRight)
+        } catch (e: Exception) {
+            broken = true
+            Log.e("damage", "standby: BlueZ cannot scan for the arms (${e.message}) — the debounce alone decides claims", e)
+            return null
+        }
+    }
+
+    fun stop() {
+        if (!scanning) return
+        scanning = false
+        try { link?.stopDiscovery() } catch (e: Exception) { Log.w("damage", "standby: stopDiscovery: ${e.message}") }
+    }
+}

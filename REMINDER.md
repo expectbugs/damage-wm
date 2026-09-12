@@ -6,6 +6,16 @@ polish protocol) → §42 → §41 → what they cite.
 
 ## Where we are (2026-09-12)
 
+- **Latency hardened without the firmware (2026-09-12, `HANDOFF.md` §47)** after a day the glasses moved both
+  arms to 105 ms / latency 4 at noon and every flush waited ~470 ms more for three hours: the APK now re-asks
+  for its priority (Global `Link` row, `high` default) whenever the link slows; slow parameters flip the regime
+  at once, show `LINK SLOW` and raise one notice; the floor is watched on the minute; the brightness write is
+  answered and re-sent once; the standby claims only when both arms advertise to the PC; a full atlas evicts the
+  faces the window is not drawing and repacks; Files shows its cached folder first and Torrents keeps its
+  snapshot; Tailscale leaves beardos around the VPN (the phone answered direct in 32 ms, was 62–1,108 ms via
+  a relay; qBittorrent stays on the tunnel). **What the next `/log` answers:** whether the firmware keeps asking
+  for its idle set against the re-asks (the `link` notes count them), and whether `balanced` changes the
+  ~50-minute rebuilds (§42.2: none in the 3 h on the slow set, n=1).
 - **`POPOVER.md` is a complete spec, not built** (2026-09-12, `HANDOFF.md` §46): one popover family
   (menu · notice · confirm · peek · deck · ask) on one modal stack, and the Claude path (`damage-show`,
   a user-level skill, `~/.damage/decks/`). Built whole when Adam calls it; its place in the queue is his.
@@ -17,9 +27,9 @@ polish protocol) → §42 → §41 → what they cite.
   start it by hand:** the setup page is Damage's (`desktop/SetupServer.kt`, same URL and token), the 25 adaptive
   playlists refresh under Damage (`MUSIC.md` §9.8, measured identical), qBittorrent is the `qbittorrent` service.
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games · Feed (`FEED.md`).
-  **Builds:** APK **0.42 installed**; **0.43 staged** (`~/.damage/damage-wm.apk`, `http://beardos:7300/setup`)
-  = the evening's Feed fixes (`HANDOFF.md` §43.4). The service runs 0.43's core.
-- **Battery at HEAD (measured 2026-09-11):** core **525** · desktop **15** · `--selfcheck` 230 checks (the truth
+  **Builds:** APK **0.42 installed** (0.43 was staged, never installed); **0.44 staged** (`~/.damage/damage-wm.apk`,
+  `http://beardos:7300/setup`) = 0.43's Feed fixes + §47's link, atlas and cache work. The service runs 0.44's core.
+- **Battery at HEAD (measured 2026-09-12):** core **533** · desktop **15** · `--selfcheck` 230 checks (the truth
   oracle on every settle; run ×3 — it is a rate) · snapshots 57 · `--epub-check` · `--music-check` ·
   `--games-check` · `--feed-check` (`live` = the real sites) · lint 21 rules / 0 · `:phone:assembleDebug` in its
   OWN gradle call (with `:core:test` it once made the oracle walk miss a settle).
@@ -43,10 +53,13 @@ Was, on 0.32 (§37.2): Main 830–860 ms, a window list 221–645 ms. The cache 
    one step per snap around Mark all read, the rows into `FEED.md` §3.8; watch the comic canvas); Adam's
    verdicts (16 vs 4 gray levels for 8-Bit Theater, the bar, the text size); then §8.3 by number. Never re-open
    `FEED.md` §1's verdicts.
-1. **Read the 0.41 journal and `/log` after Adam's first day on it** — the **arm rebuilds** (`supervision
-   timeout` on alternating arms every ~50 min, 41 in 2.5 days; §42.2's ten candidates — start with the `link`
-   notes and `/log` around one drop) and the **wake loop** (three minutes of session attempts after Silent Mode
-   off, 2026-09-09 15:06; §42.3 — the `keeper: start failed: …` notes name it). Fix what they name.
+1. **Read the 0.44 journal and `/log` after Adam's first day on it** — the **re-asks** (`link` notes "asking
+   for high again (#n)": a firmware that keeps asking for its idle set shows as a count climbing every 5 s;
+   then the ask to Babcock is to gate the idle request on the lease), the **arm rebuilds** (`supervision
+   timeout` on alternating arms every ~50 min, 41 in 2.5 days; §42.2's ten candidates; §47's n=1: none in 3 h
+   on the slow parameters — a day on `Link = balanced` is the cheap test) and the **wake loop** (three
+   minutes of session attempts after Silent Mode off, 2026-09-09 15:06; §42.3 — the `keeper: start failed: …`
+   notes name it). Fix what they name. `tools/journal_report.py` now prints the parameters per hour.
 2. **The atlas across a rebuild** (§42.4): the firmware keeps the cache now that a link loss sends no release; the
    shell still re-uploads 16–63 KB per rebuild. One glass measurement (item 20 below) gates the skip.
 3. **Then the ranked list below**, and the next window (`WINDOWS.md` §6 is the bar) — or the popover
@@ -152,6 +165,11 @@ option-only (B612 never a default).
   `127.0.0.1:8090`, `LocalHostAuth=false`; OpenRC `qbittorrent` — `DAILY.md`. OpenRC `damage`
   (`/etc/init.d/damage`): after `postgresql-17` / `qdrant` / `qbittorrent`, `~/.local/bin` on PATH,
   `--enable-native-access=ALL-UNNAMED` (`HANDOFF.md` §44.1).
+- **`/etc/local.d/tailscale-bypass.start`** (2026-09-12, `HANDOFF.md` §47): Tailscale's marked traffic
+  (fwmark 0x80000) routes via the LAN gateway (table 100, rule pref 5200) instead of ProtonVPN's redirected
+  default; runs at boot and by hand. qBittorrent and every unmarked socket keep the tunnel. After a change to
+  it, `sudo rc-service tailscale restart` (connections opened from the tunnel address are black-holed until
+  re-dialled). `~/.local/bin/yt-dlp` self-updated to 2026.08.19 (`yt-dlp -U`).
 
 ## How to resume
 

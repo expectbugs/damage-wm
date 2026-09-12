@@ -205,6 +205,10 @@ class PathTransport(
         active?.transport?.setBrightness(auto, level)
     }
 
+    override fun setLinkPriority(name: String) {
+        active?.transport?.setLinkPriority(name)
+    }
+
     override suspend fun setLeaseWanted(wanted: Boolean) { active?.transport?.setLeaseWanted(wanted) }
     override suspend fun restartSession(reason: String): Boolean = active?.transport?.restartSession(reason) ?: false
 

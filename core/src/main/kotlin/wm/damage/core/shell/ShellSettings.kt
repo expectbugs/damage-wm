@@ -85,6 +85,14 @@ data class ShellSettings(
      *  once per lease and every plane-0 string ships as a mode-14 draw
      *  instead of its pixels. Additive. */
     val cachedText: String = "off",
+    /** The radio's connection priority (2026-09-12, `HANDOFF.md` §47): "high"
+     *  (the default — Android's 11.25–15 ms interval, the regime every
+     *  measured fast flush ran on) or "balanced" (30–50 ms — for the
+     *  on-glass experiment of whether the ~50-minute arm rebuilds follow the
+     *  fast parameters). The phone asks for it at connect and asks AGAIN,
+     *  paced, whenever the glasses move the link to slower parameters.
+     *  Additive. */
+    val linkPriority: String = "high",
 
     /** Head tracking — default OFF (§7.1: "that would get old FAST"). */
     val headTracking: Boolean = false,
@@ -170,6 +178,7 @@ data class ShellSettings(
         slideFrames = if (slideFrames in SLIDE_FRAMES) slideFrames else "auto",
         slideFill = if (slideFill in SLIDE_FILLS) slideFill else "auto",
         cachedText = if (cachedText in CACHED_TEXT) cachedText else "off",
+        linkPriority = if (linkPriority in LINK_PRIORITIES) linkPriority else "high",
     )
 
     companion object {
@@ -203,6 +212,8 @@ data class ShellSettings(
         val SLIDE_FILLS = listOf("auto", "split", "whole")
         /** The texture-cache switch (§40). */
         val CACHED_TEXT = listOf("off", "on")
+        /** The radio's connection priority (§47, 2026-09-12): the Global row's order. */
+        val LINK_PRIORITIES = listOf("high", "balanced")
         fun fromJson(o: JsonObject?): ShellSettings =
             if (o == null) ShellSettings()
             else try {

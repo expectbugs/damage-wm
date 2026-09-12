@@ -249,7 +249,8 @@ class ShellService : Service() {
         // cached the same way. App-alone the window is honestly unavailable
         // (a filesystem does not cache) — the staleness line says so.
         val fp = wm.damage.core.windows.files.RemoteFilesProvider(
-            prefs.host, prefs.contentPort, prefs.token, scope)
+            prefs.host, prefs.contentPort, prefs.token, scope,
+            cacheDir = dataDir.resolve("wincache/files"))          // §47: the last answers, at once
         filesProvider = fp
         sh.register(wm.damage.core.windows.files.FilesWindow(text, fp, scope, AndroidImages()))
         // Torrents (2026-09-01, TORRENTS.md): qBittorrent + TorrentLeech live on
@@ -257,7 +258,8 @@ class ShellService : Service() {
         // own pacing (2 s focused / 15 s idle) and shows the host's own
         // staleness when qBittorrent is down. App-alone: honestly unavailable.
         val torp = wm.damage.core.windows.torrents.RemoteTorrentsProvider(
-            prefs.host, prefs.contentPort, prefs.token, scope)
+            prefs.host, prefs.contentPort, prefs.token, scope,
+            cacheDir = dataDir.resolve("wincache/torrents"))       // §47: the last snapshot, at once
         torrentsProvider = torp
         sh.register(wm.damage.core.windows.torrents.TorrentsWindow(text, torp, scope))
         // Music (2026-09-02, MUSIC.md): the library rides the window channel

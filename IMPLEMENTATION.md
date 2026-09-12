@@ -201,7 +201,7 @@ fat jar to the STABLE `~/.damage/damage.jar`; the OpenRC service `/etc/init.d/da
 |---|---|
 | **app + home PC** (the default — §10.1 row 1 as INTENDED, §19) | APK (Target = glasses) DRIVES; the `damage` service is the data host: live library, tmux, state sync. The PC never claims |
 | app alone | the APK with no PC reachable: its own shell, cached library + cached books, staleness said; sync catches up on reconnect |
-| PC-direct BLE (the rare case) | auto's standby starts a BLE stack after ~2 probes of APK absence and hands back on its return; or `--transport ble` manually |
+| PC-direct BLE (the rare case) | auto's standby starts a BLE stack after 6 probes (30 s) of APK absence AND both arms advertising to the PC's adapter (§47 — a phone that is only unreachable over the network still holds them), and hands back on its return; or `--transport ble` manually |
 | PC drives through the phone | `--transport remote` ONLY — the explicit dev override (the old daily mode, kept for development) |
 | laptop-direct with the simulator | `:desktop:run --args="--transport sim"` — the development environment |
 | browser replica | `http://<desktop-or-phone>:7403/?token=…` from any machine on the tailnet — the PHONE's is the live view in the default configuration |
@@ -219,6 +219,8 @@ fat jar to the STABLE `~/.damage/damage.jar`; the OpenRC service `/etc/init.d/da
 - **The seam status probe** (`SeamProbe` / `Ctl t="status"`): a non-claiming "does the APK want the radio?"; an
   old APK answers `busy`, read as YES.
 - **Desktop `auto` = STANDBY**: one process-wide store feeding the sync channel and any stack; probe every 5 s;
+  a claim needs six missed probes AND both arms advertising to the adapter (`StandbyScan`, §47), every claim and
+  refusal a `keeper` journal note;
   APK absent/idle ×2 → a plain `ble` stack; APK back → stop it (the lease fails open and the phone
   re-choreographs). A BlueZ-less machine stands by as data host only, loudly. `SyncTest` ×6 pins it.
 
@@ -444,6 +446,15 @@ The firmware's **64 KiB lease-scoped texture cache** and three draw modes; wire 
 - Two corrections from reading the source: the sim no longer attaches an `EventSource` to long-press events
   (`EvenHubMsg.reportsSource`); the capability gate runs against the real `EVENCFW/16` string (`REQUIRED_CAPS`
   stays at five, version checks through `SettingsMsg.contractVersion`).
+
+**Full-cache eviction (`HANDOFF.md` §47, 2026-09-12).** A face that does not fit evicts every resident face not
+drawn in the last 12 frames (`Shell.ATLAS_RECENT_FRAMES`) when together they free its price; `GlyphAtlas.repack`
+rebuilds the packed bytes from the survivors (heaviest first) and the recently drawn icons and resets the upload
+watermarks, so the glasses are rewritten from the guard up with every font off the live set until the last chunk
+is acked — the lapse path's discipline. Paced 45 s (`ATLAS_REPACK_PACE_MS`), never with a chunk in flight; a
+refused face books a retry a window of frames ahead; a stale face never re-enters over a recent one. `atlas
+full` in the status cell only when a face is still pixels after all that. `AtlasRepackTest` pins it with belief
+= glass throughout.
 
 **Adopted (`HANDOFF.md` §40.6).** `core/comp/CachedText.kt`: `GlyphAtlas` renders a font's glyphs 32..126
 through the host's rasterizer and packs them with `TextureCache.Builder`; `CachedText` wraps every host's

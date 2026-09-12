@@ -18,6 +18,7 @@ import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -109,7 +110,22 @@ class BleTransport(
             // official app), is exactly the unknown this answers
             setConnectionParametersListener { _, interval, latency, timeout ->
                 noteLinkParams(arm, "updated", interval, latency, timeout)
+                onParamsUpdated(arm, interval, latency)
             }
+        }
+
+        /** Ask the platform for the configured priority (§47). The request is
+         *  best-effort and stands ALONE in the queue: inside an atomic queue a
+         *  failed child ends the queue (Nordic 2.7.5) and would drop the MTU
+         *  and notification requests behind it. */
+        fun requestPriority(arm: Arm, why: String) {
+            val target = priorityTarget
+            requestConnectionPriority(target)
+                .with(ConnectionParametersUpdatedCallback { _, interval, latency, timeout ->
+                    noteLinkParams(arm, "granted", interval, latency, timeout)
+                })
+                .fail { _, status -> Log.w("ble", "$arm connection priority request ($why) status $status (continuing)") }
+                .enqueue()
         }
 
         /** The manager's own view of the MTU (23 until negotiated). */
@@ -174,12 +190,7 @@ class BleTransport(
             // (Nordic 2.7.5: the child's failure marks the queue finished and
             // `hasMore()` stops it), which would drop the MTU and notification
             // requests behind it.
-            requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
-                .with(ConnectionParametersUpdatedCallback { _, interval, latency, timeout ->
-                    noteLinkParams(arm, "granted", interval, latency, timeout)
-                })
-                .fail { _, status -> Log.w("ble", "$arm connection priority request status $status (continuing)") }
-                .enqueue()
+            requestPriority(arm, "connect")
             beginAtomicRequestQueue()
                 .add(requestMtu(REQUESTED_MTU)
                     .with { _, mtu -> negotiatedMtu = mtu; Log.i("ble", "$arm MTU negotiated $mtu") }
@@ -225,7 +236,87 @@ class BleTransport(
             val p = linkParamsByArm[a] ?: return@mapNotNull null
             "${a.name.first()} $p${phyByArm[a]?.let { " $it" } ?: ""}"
         }.joinToString(" · ")
-        updateState { it.copy(linkParams = s) }
+        // §47: the worst arm as numbers, so the shell's regime reads them at once
+        val interval = intervalUnitsByArm.values.maxOrNull()?.let { it * 1.25 } ?: 0.0
+        val latency = latencyByArm.values.maxOrNull() ?: 0
+        updateState { it.copy(linkParams = s, linkIntervalMs = interval, linkLatency = latency) }
+    }
+
+    // ------------------------------------------------------------ §47: the priority
+    /** The configured priority (Global `Link`): HIGH by default. */
+    @Volatile private var priorityTarget = BluetoothGatt.CONNECTION_PRIORITY_HIGH
+    @Volatile private var priorityName = "high"
+    private val intervalUnitsByArm = java.util.concurrent.ConcurrentHashMap<Arm, Int>()
+    private val latencyByArm = java.util.concurrent.ConcurrentHashMap<Arm, Int>()
+    private val reaskJobs = java.util.concurrent.ConcurrentHashMap<Arm, Job>()
+    private val lastReaskMs = java.util.concurrent.ConcurrentHashMap<Arm, Long>()
+    private val reasks = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** The Global `Link` row (§47): "high" or "balanced". A change while the
+     *  arms are up is asked for at once; the next connect asks for it in
+     *  its initialize. */
+    override fun setLinkPriority(name: String) {
+        val target = when (name) {
+            "balanced" -> BluetoothGatt.CONNECTION_PRIORITY_BALANCED
+            "high" -> BluetoothGatt.CONNECTION_PRIORITY_HIGH
+            else -> { Log.w("ble", "unknown link priority '$name' ignored (high | balanced)"); return }
+        }
+        if (target == priorityTarget) return
+        priorityTarget = target
+        priorityName = name
+        Log.i("ble", "link priority -> $name")
+        for ((arm, m) in managers) if (m.linkUp) m.requestPriority(arm, "setting")
+    }
+
+    /** The interval above which the configured priority counts as lost:
+     *  Android grants HIGH at 11.25–15 ms and BALANCED at 30–50 ms
+     *  (BluetoothGatt.CONNECTION_PRIORITY_* documentation); the glasses'
+     *  own fast set is 15 ms / latency 1 and their idle set 105 ms / 4. */
+    private fun maxIntervalMs(): Double =
+        if (priorityTarget == BluetoothGatt.CONNECTION_PRIORITY_BALANCED) 60.0 else 30.0
+
+    /**
+     * §47 (2026-09-12): a parameter update on a live arm. The glasses move
+     * the link to their idle set themselves (105 ms / latency 4 at 12:00:02
+     * that day, after a stock-UI excursion; the captures show the same
+     * 30 → 90 ms move under the official app) and the platform applies a
+     * peripheral's request without asking the app — the only answer is to
+     * ask for OUR priority again. Paced per arm ([PRIORITY_REASK_MS], a
+     * pacing between requests, not a bound on anything) and only if the
+     * link is STILL slow when the pacing is up: the connect sequence passes
+     * through 48.75 ms on its way to 15 and must not be answered.
+     */
+    private fun onParamsUpdated(arm: Arm, intervalUnits: Int, latency: Int) {
+        intervalUnitsByArm[arm] = intervalUnits
+        latencyByArm[arm] = latency
+        publishLinkParams()
+        val m = managers.getValue(arm)
+        if (!m.linkUp || !running) return
+        if (intervalUnits * 1.25 <= maxIntervalMs()) return
+        if (reaskJobs[arm]?.isActive == true) return          // one pending re-ask per arm
+        reaskJobs[arm] = scope.launch {
+            val wait = PRIORITY_REASK_MS - (System.currentTimeMillis() - (lastReaskMs[arm] ?: 0L))
+            if (wait > 0) delay(wait)
+            val now = System.currentTimeMillis()
+            val stillSlow = (intervalUnitsByArm[arm] ?: 0) * 1.25 > maxIntervalMs()
+            if (!m.linkUp || !running || !stillSlow) return@launch
+            lastReaskMs[arm] = now
+            val n = reasks.incrementAndGet()
+            val text = "$arm at %.2f ms / latency %d — asking for $priorityName again (#$n this session)"
+                .format((intervalUnitsByArm[arm] ?: 0) * 1.25, latencyByArm[arm] ?: 0)
+            Log.i("ble", text)
+            emitNote("link", text)
+            m.requestPriority(arm, "re-ask #$n")
+        }
+    }
+
+    private fun resetPriorityBookkeeping() {
+        for (j in reaskJobs.values) j.cancel()
+        reaskJobs.clear()
+        lastReaskMs.clear()
+        intervalUnitsByArm.clear()
+        latencyByArm.clear()
+        reasks.set(0)
     }
 
     /** HCI units: interval × 1.25 ms, latency in intervals, timeout × 10 ms. */
@@ -256,6 +347,7 @@ class BleTransport(
     }
 
     override suspend fun connectLink() {
+        resetPriorityBookkeeping()          // §47: per session, like the counters
         // a previous session that ended in a link loss may have left the
         // surviving arm's linkUp standing: this session counts only the
         // connections it makes itself. A GATT connection left up by an
@@ -456,6 +548,11 @@ class BleTransport(
         const val CONNECT_RETRY_MS = 500
 
         const val RSSI_EVERY_TICKS = 10
+
+        /** §47: pacing between two priority re-asks on one arm. A ping-pong
+         *  with a firmware that keeps asking for its idle set costs one
+         *  small request per pacing, each journaled with its count. */
+        const val PRIORITY_REASK_MS = 5_000L
 
         /** Re-issue a still-hunting scan on this pacing — under the ~30 min
          *  point where Android silently downgrades a long scan, and far under

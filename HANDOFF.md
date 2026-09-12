@@ -2523,3 +2523,82 @@ always from measured ink; the migration order MENU → NOTICE → CONFIRM → PE
 build; the `deck.v1` format, `damage-show`, the user-level skill, `~/.damage/decks/`; six milestones
 (`POPOVER.md` §8). Open on glass: the disparity step, the default width, the per-type latency.
 Queue position: Adam's call (`REMINDER.md`).
+
+## 47. Latency hardening without touching the firmware (2026-09-12)
+
+**The day's finding (measured, the phone's journal and `/log`):** at 12:00:02 the glasses moved BOTH arms
+from 15 ms / latency 1 to **105 ms / latency 4 / 6 s supervision** — 23 s after a stock-UI foreground
+excursion (`FOREGROUND_ENTER` 11:59:31, `EXIT` 11:59:39) that followed no rebuild. The APK asks for
+`CONNECTION_PRIORITY_HIGH` once, at connect, and the platform applies a peripheral's parameter request
+without asking the app, so the link stayed there for three hours: the 0-byte flush median went from
+55–76 ms to **531 / 537 ms** (12:00 / 13:00), a 500 B–1 KB flush from 130–240 to ~590 ms, a 6 KB+
+flush from 868 to ~3,150 ms — every gesture ~470 ms slower, the modeled worst case of five 105 ms
+intervals. The captures already describe the firmware moving the link between an active 30 ms and an
+idle 90–105 ms / latency 4 (`overview.md` §5.1). One data point for §42.2, n=1: **zero
+supervision-timeout rebuilds in the 3 h on the slow set** against one every 50–80 min on the fast set
+that morning (06:20, 07:40, 08:30, 09:22, 10:14).
+
+**The second finding (measured):** the phone reached beardos through a Tailscale relay in Chicago —
+62 / 147 / 420 / 1,108 ms per ping, no direct path — because ProtonVPN pushes a gateway redirect and
+beardos's tailscaled reached every DERP through France (172–300 ms to each). The PC's standby missed the
+phone for two consecutive 5 s probes nine times in two days and started its BLE stack each time, handing
+back within a minute. Adam's mosh sessions come from the phone over the same path. Also found: the
+texture cache full from 12:59 (62–64 KB of 64 KB; the tmux mono faces "stay pixels" with only a journal
+line to say so); Music's YouTube grab failing with a 403 (yt-dlp 2026.06.09, no JavaScript runtime).
+
+Adam's ruling: everything on our end, no firmware change; qBittorrent MUST keep the VPN; Tailscale need
+not; no router access. Eleven changes, built and verified together:
+
+1. **The radio asks for its priority again** (`phone/BleTransport.kt`): every parameter update on a
+   live arm above the target's ceiling (high: 30 ms; balanced: 60 ms) schedules ONE paced re-ask per
+   arm (`PRIORITY_REASK_MS` = 5 s), sent only if the link is still slow when the pacing is up (the
+   connect passes through 48.75 ms on its way to 15 and must not be answered). Each re-ask is logged
+   and journaled with its count. The parameters also reach `LinkState` as numbers
+   (`linkIntervalMs`, `linkLatency`).
+2. **Global `Link` row** (`high · balanced`, high the default; `ShellSettings.linkPriority`,
+   `Transport.setLinkPriority`, over the seam as `Ctl t="linkpriority"`): pushed to the transport
+   before every start and on change. `balanced` is the on-glass experiment for the §42.2 rebuilds.
+3. **The regime flips on the parameters at once** (`Shell.linkSlow`: interval × (latency + 1) ≥ 100 ms
+   is slow, no EMA dwell), **`LINK SLOW` in the status cell and one notice per episode**, both cleared
+   on recovery; re-evaluated on every flush, on `link` notes and on the minute.
+4. **The floor watch**: two minute ticks with the ack floor above 250 ms raise one notice with the
+   parameters in force; the fall below it another. A pacing decision on a measurement, never a timeout.
+5. **Settings writes are answered** (`CfwTransportBase`): the brightness write registers its msgId;
+   the firmware's `09-00` (G2CC §3 row 15; faceclaw awaits the same ack) completes it; a LATER
+   sid-0x09 answer releases an earlier unanswered write as lost (the §34 rule on the control lane) and
+   it is **re-sent once**; a second loss is a `settings` fault. The session-start push is the eaten
+   class of §34. `GlassFirmwareSim` answers writes and has an `eatSettingsWrites` knob. A push with no
+   session is logged, not dropped.
+6. **The standby claims only when both arms advertise to the PC's adapter** (`desktop/Main.kt`
+   `StandbyScan`): six probes (30 s) of APK absence, then BlueZ discovery — a phone that is merely
+   unreachable over the network still holds the arms (they do not advertise while connected). Every
+   claim, refusal and return is logged and journaled as a `keeper` note. If BlueZ cannot scan the
+   debounce alone decides, said once.
+7. **Atlas eviction and repack** (`GlyphAtlas.repack`, `Shell.atlasEvictFor`): a full cache evicts
+   every resident face not drawn in the last 12 frames (`ATLAS_RECENT_FRAMES`) when together they free
+   the new face's price, repacks the survivors and the recently drawn icons, and rewrites the glasses
+   from the guard up with every font off the live set meanwhile (the lapse path's discipline). Paced
+   45 s, never with a chunk in flight; a refused face books a retry a window of frames ahead; a stale
+   face never re-enters over a recent one. `atlas full` in the status cell only when a face is still
+   pixels after that. `AtlasRepackTest` pins it with belief = glass throughout.
+8. **Files shows the cached folder first** (`ListingCache`, `RemoteFilesProvider(cacheDir)`,
+   `FilesWindow`): the phone keeps the last locations and listings as JSON under
+   `wincache/files` (200 listings, atomic writes, a torn file dropped); the window shows them under
+   `cached · refreshing` and the live answer replaces them — or stays under the error line.
+9. **Torrents keeps its last snapshot on disk** (`wincache/torrents/snapshot.json`): the list is up
+   the moment the window opens after an APK restart and the first poll sends the disk's version.
+10. **`tools/journal_report.py` prints the parameters in force per hour** (from the `link` notes) next
+    to the ack medians they explain.
+11. **Tailscale around the VPN** (`/etc/local.d/tailscale-bypass.start`, OpenRC `local`): tailscaled
+    marks its sockets with fwmark 0x80000; one rule ahead of its own sends that traffic to table 100,
+    whose default is the LAN gateway. Applied and measured the same afternoon: the phone answered
+    **direct in 32 ms** (was 62–1,108 ms via the relay), beardos's relay connections leave from the LAN
+    address, qBittorrent's 256 connections still leave from the tunnel, the default route unchanged.
+    The one transient: the relay connections opened from the tunnel address were black-holed by the
+    new rule until `rc-service tailscale restart` re-dialled them. Also: yt-dlp updated to 2026.08.19
+    and `--js-runtimes node` on both yt-dlp calls.
+
+Not done, by design: the atlas skip across a rebuild (§42.4 — one glass measurement gates it), glyph
+subsetting (the recorder's all-or-nothing rule would send more strings to pixels), anything on the
+firmware. The `balanced` experiment and the re-ask's behaviour against a firmware that keeps asking are
+what the next `/log` answers.

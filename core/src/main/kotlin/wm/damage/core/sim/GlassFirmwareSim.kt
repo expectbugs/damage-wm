@@ -165,6 +165,11 @@ class GlassFirmwareSim() : LensPanels {
     }
     var brightnessAuto = true
     var brightnessLevel: Int? = null
+    /** Test knob (§47): eat this many settings WRITES — no store, no answer —
+     *  the session-start class of loss the re-send exists for. */
+    @Volatile var eatSettingsWrites = 0
+    /** Settings writes answered (§47), for tests. */
+    @Volatile var settingsWritesAnswered = 0
 
     var capabilityString = "EVENCFW/16 img640 imgz rle wakelease directfb fbguard " +
         "wearnotify cleanup11 texcache12 teximg13 texstr14 font15 micctl"
@@ -960,6 +965,11 @@ class GlassFirmwareSim() : LensPanels {
             // Settings WRITE. The only one Damage sends is brightness — f3 =
             // DeviceReceiveInfoFromAPP{f1 = brightness{f1=auto[, f2=level]}}
             // (faceclaw BleProtocol.buildSetBrightness). Stored for tests.
+            if (eatSettingsWrites > 0) {
+                eatSettingsWrites--
+                diag.event("settings", "write EATEN (test knob, ${eatSettingsWrites} more)")
+                return
+            }
             val info = Pb.bytesField(payload, 3)
             val bri = info?.let { Pb.bytesField(it, 1) }
             if (bri != null) {
@@ -969,6 +979,14 @@ class GlassFirmwareSim() : LensPanels {
             } else {
                 diag.event("settings", "unmodeled settings write: ${payload.take(16).joinToString("") { "%02x".format(it) }}")
             }
+            // §47: the answer — `09-00` echoing the msgId (G2CC
+            // docs/G2_BLE_PROTOCOL.md §3 row 15: `09-20 type 1` → `09-00`;
+            // faceclaw awaits the same ack). Body shape beyond f1/f2 is not
+            // modeled: the transport matches on f2 alone.
+            val msgId = (Pb.varintField(payload, 2) ?: 0L).toInt()
+            settingsWritesAnswered++
+            diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), SettingsMsg.SID,
+                SettingsMsg.FLAG_RESPONSE, Pb.cat(Pb.v(1, 1), Pb.v(2, msgId)), AaFrame.TYPE_RESPONSE).single())
         }
     }
 

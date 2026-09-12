@@ -50,12 +50,19 @@ import wm.damage.core.wire.TextureCache
 class GlyphAtlas(private val base: TextRasterizer) {
 
     /** One packed font: its table, its 96 images (tofu where the face has no
-     *  glyph) and the box height every glyph shares. */
-    class Entry(val font: TextureCache.Font, val images: Array<TextureCache.Image>, val lineH: Int)
+     *  glyph), the box height every glyph shares, the rendered glyphs and
+     *  tofu a repack re-places without rendering again (§47), and the bytes
+     *  it took when packed (dedup makes it an upper bound). */
+    class Entry(val font: TextureCache.Font, val images: Array<TextureCache.Image>, val lineH: Int,
+        val glyphs: Map<Char, TextureCache.Image>, val tofu: TextureCache.Image, val bytes: Int)
 
-    private val builder = TextureCache.Builder()
+    /** A face rendered but not yet placed — priced by [price], placed by [add]. */
+    private class Rendered(val glyphs: Map<Char, TextureCache.Image>, val tofu: TextureCache.Image, val lineH: Int)
+
+    private var builder = TextureCache.Builder()
     private val entries = HashMap<FontSpec, Entry>()
     private val refused = HashSet<FontSpec>()
+    private val rendered = HashMap<FontSpec, Rendered>()
 
     /** One packed icon (§41): its cache offset and the 4-bit image. */
     class ImageEntry(val offset: Int, val image: TextureCache.Image, val bytes: Int)
@@ -99,6 +106,7 @@ class GlyphAtlas(private val base: TextRasterizer) {
     private val chunkEnds = ArrayDeque<Int>()
 
     val used: Int get() = builder.used
+    val free: Int get() = builder.free
     fun entry(spec: FontSpec): Entry? = entries[spec]
     fun has(spec: FontSpec) = spec in entries
     fun isRefused(spec: FontSpec) = spec in refused
@@ -107,15 +115,8 @@ class GlyphAtlas(private val base: TextRasterizer) {
     fun isAcked(spec: FontSpec): Boolean =
         entries[spec]?.let { it.font.tableOffset + CfwModes.FONT_TABLE_BYTES <= ackedBytes } ?: false
 
-    /**
-     * Render and pack [spec]. False, and remembered, when it does not fit
-     * what is left of the 64 KiB (a fit is first come, first served — the
-     * fonts a session draws first are the lens's, which is where the bytes
-     * are). Glyphs are rendered at full level; the draw's LUT dims them.
-     */
-    fun add(spec: FontSpec): Boolean {
-        if (spec in entries) return true
-        if (spec in refused) return false
+    /** Render every glyph of [spec] once (kept until [add] places it). */
+    private fun render(spec: FontSpec): Rendered = rendered.getOrPut(spec) {
         val m: FontMetrics = base.metrics(spec)
         val h = (m.ascent + m.descent).coerceIn(1, CfwModes.MAX_TEXTURE_DIM)
         val glyphs = HashMap<Char, TextureCache.Image>()
@@ -136,16 +137,77 @@ class GlyphAtlas(private val base: TextRasterizer) {
             val x = i % tw; val y = i / tw
             if (x == 0 || x == tw - 1 || y == 0 || y == h - 1) 15 else 0
         })
+        Rendered(glyphs, tofu, h)
+    }
+
+    /** The bytes [spec] would take in the cache as it stands (table included,
+     *  glyphs already present counted once) — what an eviction must free. */
+    fun price(spec: FontSpec): Int = entries[spec]?.bytes ?: render(spec).let { builder.priceFont(it.glyphs, it.tofu) }
+
+    /** The bytes [spec] took when it was packed; 0 when it is not resident. */
+    fun bytesOf(spec: FontSpec): Int = entries[spec]?.bytes ?: 0
+
+    /** §47: forget every refusal — the shell retries a refused face once the
+     *  faces around it have gone stale enough to evict (a refusal is a
+     *  short-cut past re-pricing, never a verdict for the session). */
+    fun unrefuseAll() { refused.clear(); refusedImages.clear() }
+
+    /**
+     * Render and pack [spec]. False, and remembered, when it does not fit
+     * what is left of the 64 KiB (a fit is first come, first served — the
+     * fonts a session draws first are the lens's, which is where the bytes
+     * are). Glyphs are rendered at full level; the draw's LUT dims them.
+     */
+    fun add(spec: FontSpec): Boolean {
+        if (spec in entries) return true
+        if (spec in refused) return false
+        val r = render(spec)
         return try {
-            val font = builder.addFont(glyphs, tofu)
-            val images = Array(CfwModes.FONT_TABLE_CHARS) { i -> glyphs[(i + TextureCache.FIRST_CHAR).toChar()] ?: tofu }
-            entries[spec] = Entry(font, images, h)
+            val before = builder.used
+            val font = builder.addFont(r.glyphs, r.tofu)
+            val images = Array(CfwModes.FONT_TABLE_CHARS) { i -> r.glyphs[(i + TextureCache.FIRST_CHAR).toChar()] ?: r.tofu }
+            entries[spec] = Entry(font, images, r.lineH, r.glyphs, r.tofu, builder.used - before)
+            rendered.remove(spec)
             true
         } catch (e: LintError) {
             refused += spec
             Log.w("atlas", "font $spec stays pixels — the texture cache is full (${builder.used} B used): ${e.message}")
             false
         }
+    }
+
+    /**
+     * §47 (2026-09-12): rebuild the cache with only [keepFonts] and
+     * [keepImages], in that order — the fonts first, heaviest first, then
+     * the icons into what they leave. Every offset changes, so the caller
+     * has ALREADY taken every font and icon off the live sets (the glasses
+     * are about to be rewritten from the guard up, and a mode-14 draw
+     * against a half-written table would draw the wrong glyphs); the upload
+     * watermarks reset so [takeUpload] hands out the whole new content, and
+     * the refusals are forgotten so the faces that did not fit get their
+     * turn. A kept font that fit before fits again (removing bytes never
+     * costs room); one that somehow does not is refused loudly, not kept
+     * half-placed. Returns the bytes in use after the rebuild.
+     */
+    fun repack(keepFonts: List<FontSpec>, keepImages: List<Any>): Int {
+        val fonts = keepFonts.mapNotNull { s -> entries[s]?.let { s to it } }
+        val icons = keepImages.mapNotNull { k -> images[k]?.let { k to it.image } }
+        builder = TextureCache.Builder()
+        entries.clear(); refused.clear()
+        images.clear(); refusedImages.clear(); imageBytes = 0
+        for ((s, e) in fonts) {
+            try {
+                val before = builder.used
+                val font = builder.addFont(e.glyphs, e.tofu)
+                entries[s] = Entry(font, e.images, e.lineH, e.glyphs, e.tofu, builder.used - before)
+            } catch (x: LintError) {
+                refused += s
+                Log.e("atlas", "repack: kept font $s no longer fits (${builder.used} B used) — refused: ${x.message}")
+            }
+        }
+        for ((k, img) in icons) if (!addImage(k, img)) Log.e("atlas", "repack: kept icon $k no longer fits")
+        forgetUpload()
+        return builder.used
     }
 
     /** The mode-12 messages for the packed bytes not yet sent, each at most
@@ -210,7 +272,16 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
     @Volatile var liveImages: Set<Any> = emptySet()
     @Volatile var target: Gray8? = null
 
-    private class ImageInfo(val image: TextureCache.Image, var uses: Int, var usage: Long)
+    private class ImageInfo(val image: TextureCache.Image, var uses: Int, var usage: Long, var lastUse: Long = 0L)
+
+    /** §47: a frame counter — bumped by [endFrame], stamped on every draw —
+     *  so the shell can tell a face the current window keeps drawing from
+     *  one the previous window left behind. */
+    @Volatile var useClock = 0L
+        private set
+    private val lastUse = HashMap<FontSpec, Long>()
+    fun lastUseOf(spec: FontSpec): Long = synchronized(seen) { lastUse[spec] ?: 0L }
+    fun imageLastUse(key: Any): Long = synchronized(seen) { seenImages[key]?.lastUse ?: 0L }
     /** Icons drawn on the target so far, with the 4-bit image the atlas
      *  will pack (quantised once) and how often and how large. */
     private val seenImages = LinkedHashMap<Any, ImageInfo>()
@@ -244,6 +315,7 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
             }
             info.uses++
             info.usage += bm.w.toLong() * bm.h
+            info.lastUse = useClock
             if (info.uses == PACK_AFTER_USES) seenVersion++      // the shell's cue to grow the atlas
         }
         if (key !in liveImages) return false
@@ -288,9 +360,9 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
     fun frameDraws(): List<TextDraw> = synchronized(draws) { draws.toList() }
 
     /** The compositor consumed the frame: records die with it. */
-    fun endFrame() = synchronized(draws) { draws.clear(); imageDraws.clear() }
+    fun endFrame() { synchronized(draws) { draws.clear(); imageDraws.clear() }; useClock++ }
 
-    fun clearSeen() = synchronized(seen) { seen.clear(); seenImages.clear(); usage.clear() }
+    fun clearSeen() = synchronized(seen) { seen.clear(); seenImages.clear(); usage.clear(); lastUse.clear() }
 
     private fun liveEntry(spec: FontSpec): GlyphAtlas.Entry? =
         if (spec in live) atlas?.entry(spec) else null
@@ -336,6 +408,7 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
             val r = Rect(x, y, maxOf(1, base.measure(text, font)), base.metrics(font).let { it.ascent + it.descent })
             lastRect[font] = r
             usage[font] = (usage[font] ?: 0L) + r.w.toLong() * r.h
+            lastUse[font] = useClock
         }
         val e = liveEntry(font)
         if (e == null) {
