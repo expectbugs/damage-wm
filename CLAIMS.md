@@ -1,13 +1,10 @@
 # Claims register — what we actually know, and how well
 
-**Purpose.** `overview.md` states hundreds of facts. Some are measured from our own captures, some
-come from Even's own schemas, some are one person's prose that hardened into "fact" through
-repetition. **Four times in two days a claim in the "fact" tier turned out to be wrong**, each time
-because documentation disagreed with working code. This file grades every load-bearing claim so the
-next phase knows which ground is solid.
-
-Created 2026-08-17, at the end of the research phase, as the "passes for consistency and adherence
-to the research/documentation" step.
+**Purpose.** `overview.md` states hundreds of facts — some measured from our own captures, some
+from Even's own schemas, some one person's prose hardened into "fact" by repetition. **Four times
+in two days a "fact" turned out to be wrong**, each time because documentation disagreed with
+working code. This file grades every load-bearing claim. Created 2026-08-17, at the end of the
+research phase, as the "passes for consistency and adherence" step.
 
 ## Grades
 
@@ -21,8 +18,7 @@ to the research/documentation" step.
 | **U** | **Unverified / unknown** — open question, or blocked on hardware | none |
 
 **Rule that produced every correction so far:** *prose describes, code runs.* Where an exercised
-implementation exists, read it. Documentation is a summary written by someone who already knew what
-they meant — including ours.
+implementation exists, read it — including ours.
 
 ---
 
@@ -41,9 +37,9 @@ they meant — including ours.
 | Fragment gaps are trimodal: 0–1 / 12–17 / 56–61 ms | **M** | capture, n=256 |
 | Controller ACL pool = 12 packets; peak outstanding = 4 | **M** | capture; refutes buffer-credit exhaustion |
 | Stalls are host-side (half resume at zero outstanding) | **M** | capture |
-| ~~No `LE_Conn_Update` is ever issued for handle 65 (R lens)~~ | ❌ | **withdrawn 2026-09-05** (`research/linkparams.py`, `HANDOFF.md` §32): `allbutimages.log` holds THREE host `LE_Connection_Update` commands for handle 65, each answering a peripheral L2CAP 0x12 request. What is true: the official app never asks on its own; the glasses ask |
+| ~~No `LE_Conn_Update` is ever issued for handle 65 (R lens)~~ | ❌ | **withdrawn 2026-09-05** (`research/linkparams.py`, `HANDOFF.md` §32): `allbutimages.log` holds THREE host `LE_Connection_Update` commands for handle 65, each answering a peripheral L2CAP 0x12 request. True: the official app never asks on its own; the glasses ask |
 | **The display link (handle 65 = the RIGHT lens, address checked) runs at a 30 ms interval when active and is moved by the GLASSES to 90 ms / slave latency 4 when idle; DLE on (247 B), 1M PHY** | **M** | both captures, `research/linkparams.py` — the connection setup IS inside both windows, contrary to the README's old "known gap" |
-| The journal's slow regime (08-31 13:00 →, `HANDOFF.md` §31.6) is the PHONE's radio path, the fast one PC-direct BlueZ | **M** | 🆕 2026-09-05 §33: measured on the phone's OWN journal, APK-driven, isolated flushes — < 500 B **72 ms**, 3–6 KB 667, 6 KB+ **1,036 ms** median (five days of it: 68 · 200 · 390 · 641 · 1,237). Was C on the PC log's `driving via remote:aphone` |
+| The journal's slow regime (08-31 13:00 →, `HANDOFF.md` §31.6) is the PHONE's radio path, the fast one PC-direct BlueZ | **M** | 2026-09-05 §33: measured on the phone's OWN journal, APK-driven, isolated flushes — < 500 B **72 ms**, 3–6 KB 667, 6 KB+ **1,036 ms** median (five days: 68 · 200 · 390 · 641 · 1,237). Was C on the PC log's `driving via remote:aphone` |
 | **The phone's stack grants `CONNECTION_PRIORITY_HIGH`: 15 ms interval, slave latency 1, 1M PHY on both arms — and the transfer term is unchanged (~120 ms/KB)** | **M** | the APK's `link` journal notes (§33.2); the interval is not the wall |
 | **The phone's shell loop costs 74–127 ms handling + 53–84 ms assembling per flush** (PC: 4 + 2) | **M** | `handleMs`/`assembleMs` in the phone journal, §33.3; WHERE inside the loop is **U** until the split lands |
 | **Time to first visible change per notch on the phone path: Reader 221–625 ms (first flush 1.2–4.3 KB), tmux history 352–645 ms (2.4–4.3 KB), a list with a lens repaint 830–860 ms (5.9–6.0 KB)** | **M** | the 0.32 walk, `HANDOFF.md` §37.2; the first flush's bytes decide it |
@@ -57,7 +53,7 @@ they meant — including ours.
 | **Leaving the firmware's Silent Mode ends the EvenHub page: every image is refused until a fresh CREATE; a page created WHILE silent accepts its warmup and first flush and is refused a second later** (n=1 for the second half) | **M** | the phone journal 22:04:02 → 22:09:25, `HANDOFF.md` §38.1; Faceclaw's own comment "silent mode blocks app launches" corroborates the reading |
 | Cause of the ~10× shortfall | **U** | HCI can't separate stack / app cadence / BT-WiFi coexistence |
 | Image ack latency median 176 ms | **M** | capture, stock 2.2.2 only |
-| **CFW ack latency — the CURVE: `ms ≈ 60 + bytes/50`** | ⚠ **M, but SCOPED to four hours** | 2026-08-31, n=1,488 journalled flushes on the real pair PC-direct (`overview.md` §5.2): floor median 60 ms (min 33), transfer ~50–75 KB/s, dense full-frame 2–4 fps. Supersedes the 2026-08-30 ~50 ms floor-only EMA. Scope: one host (beardos/BlueZ) PC-direct — since §19 that is the STANDBY path; the phone path (the daily driver) is unmeasured. 🔴 **And scoped in TIME (2026-09-05, `HANDOFF.md` §31):** the same journal now holds 11,210 flushes, and a step change between 03:00 and 13:00 on 08-31 leaves the FLOOR intact (55–78 ms) while the TRANSFER term collapses ~6× — a 6–12 KB flush goes from a 196 ms median to **1,193 ms**, i.e. ~50 KB/s to ~7 KB/s, the §5.1 stock-path figure. 10,063 of the 11,210 are on the slow side, and Adam's own on-glass observation agrees with it. Do not price anything with the `/50` slope; use the measured table in §31.1. Why it changed is UNKNOWN — 🆕 **narrowed 2026-09-05 (§32): the slow side is the phone's radio path** (see the row below); the mechanism inside that path is still open |
+| **CFW ack latency — the CURVE: `ms ≈ 60 + bytes/50`** | ⚠ **M, but SCOPED to four hours** | 2026-08-31, n=1,488 journalled flushes on the real pair PC-direct (`overview.md` §5.2): floor median 60 ms (min 33), transfer ~50–75 KB/s, dense full-frame 2–4 fps. Supersedes the 2026-08-30 ~50 ms floor-only EMA. Scope: one host (beardos/BlueZ) PC-direct — since §19 the STANDBY path. 🔴 **Scoped in TIME too (2026-09-05, `HANDOFF.md` §31):** the journal now holds 11,210 flushes; a step change between 03:00 and 13:00 on 08-31 leaves the FLOOR intact (55–78 ms) while the TRANSFER term collapses ~6× — a 6–12 KB flush goes from a 196 ms median to **1,193 ms** (~50 KB/s → ~7 KB/s, the §5.1 stock-path figure). 10,063 of 11,210 are on the slow side; Adam's on-glass observation agrees. Price with the measured table in §31.1, never the `/50` slope. **Narrowed 2026-09-05 (§32): the slow side is the phone's radio path** (row above); the mechanism inside that path is still open |
 | msgId (`MagicRandom`, pb field 2) is effectively 1 byte | **C** | our hardware finding + g2-kit, independently |
 | ~1000 B wall applies to **layout frames only** | **M** | largest layout frame observed = 401 B; image chunks are 4096 B / 18 fragments |
 
@@ -144,9 +140,9 @@ Everything here backs a decision in [`DESIGN.md`](DESIGN.md).
 
 | claim | grade | basis |
 |---|---|---|
-| **A mode-9 rect-copy has NO alignment requirement** — full uint16 coords, any x/y/w/h | **V** | `zlib_glue.c` mode 9: *"full uint16 coords; the rects may overlap"*, validated for same-size and in-bounds only, and `rect_copy_4bpp` "takes a whole-byte fast path when left/width are even, else a nibble path". ⚠ The 4×2 grid (GEO001) is a **mode-3** rule — mode 3 encodes `left/4` and `top/2`. Damage still keeps its declared copies on the 4×2 grid, but for its OWN reason: `Compositor.moveCells` carries the per-lens `unknown` marks with the copy and is cell-quantised. Recorded 2026-09-05 after this was asserted the other way round in review §31 without reading the source |
+| **A mode-9 rect-copy has NO alignment requirement** — full uint16 coords, any x/y/w/h | **V** | `zlib_glue.c` mode 9: *"full uint16 coords; the rects may overlap"*, validated for same-size and in-bounds only; `rect_copy_4bpp` "takes a whole-byte fast path when left/width are even, else a nibble path". ⚠ The 4×2 grid (GEO001) is a **mode-3** rule (`left/4`, `top/2`). Damage keeps its declared copies on the 4×2 grid for its OWN reason: `Compositor.moveCells` carries the per-lens `unknown` marks with the copy and is cell-quantised. Recorded 2026-09-05 after review §31 asserted the reverse without reading the source |
 | **Only mode-3 deltas consume a `fid`** — mode 9 rect-copies **and the cached draws 13/14/15** are free against the ring | **V** | `zlib_glue.c`: the sole `cfw_diag()` call sites are the mode-6 keyframe and the mode-3 delta. Re-checked against `a5d1c31`; still exactly two |
-| **The cached draws 13/14/15 are FLAT: the mode byte's "lenses differ" high bit is ignored and one (x, y) draws into each lens's shadow** | **V** | `zlib_glue.c` header ("most modes ignore it; for mode 3 … for mode 9 …") and the mode 13/14/15 dispatch, which passes one `src` to `cfw_texture_draw_*` on the arm's own shadow. Recorded 2026-09-06 (`HANDOFF.md` §40.6). **Served on every plane since §41.4 all the same:** the flat draw lands at nominal x and ONE stereo mode-9 copy (two rect-sets, `draw.c` `rect_copy_4bpp` overlap-safe by reverse iteration — **V**) slides each lens's copy to its own x; the compositor proves the result per lens before it ships |
+| **The cached draws 13/14/15 are FLAT: the mode byte's "lenses differ" high bit is ignored and one (x, y) draws into each lens's shadow** | **V** | `zlib_glue.c` header ("most modes ignore it; for mode 3 … for mode 9 …") and the mode 13/14/15 dispatch, which passes one `src` to `cfw_texture_draw_*` on the arm's own shadow. Recorded 2026-09-06 (`HANDOFF.md` §40.6). **Served on every plane since §41.4 all the same:** the flat draw lands at nominal x and ONE stereo mode-9 copy (two rect-sets; `draw.c` `rect_copy_4bpp` is overlap-safe by reverse iteration — **V**) slides each lens's copy to its own x; the compositor proves the result per lens before it ships |
 | **Only an EXACT hit in the 16-deep ring is skipped.** A stale fid that has aged out is flagged and then **APPLIED** | **V** | `cfw_diag()` body — the ring is a short-window filter, not a safety net |
 | `f_skip` fires on any forward gap > 1; `f_reorder` on any backward step | **V** | same |
 | The fid wrap `0xFFFE → 1` computes `d = 3` in uint16 ⇒ trips **`f_skip`**, once per 65 k rects | **V** | same, arithmetic checked |
@@ -195,7 +191,7 @@ Everything here backs a decision in [`DESIGN.md`](DESIGN.md).
 | A start-choreography request that lands during the firmware's teardown of a PREVIOUS session can be **eaten** (capability query and carrier CREATE both observed) | **M** | three parked starts; both gates now RE-ASK on a 2 s pacing tick and each has rescued a start since |
 | `Sys_ItemEvent` events 9/10 arrive with **source 0** on the wire (EventSource absent) | **M** | run logs; the shell's ring-only filter had discarded them — the switcher was unreachable until 9/10 skipped it |
 | A deliberate ~1 s hold raises event 9 from ring AND temple; accidental brushes end early (their event-10s mean "a touch ended") | **M** | five deliberate holds → five 9+10 pairs; zero 9s across a full day of ordinary use |
-| 🔴 **Ring battery is not available to any open-source path — NOT PURSUED (cosmetic).** The glasses can't relay it; the ring exposes no standard source; and — checked directly — **Faceclaw does not read ring battery either.** The only reader is the closed Even SDK (`DeviceStatus.batteryLevel`). | **C+M** | (1) glasses relay: openCFW `pb_service_ring.c` (instruction-level recovery of our 2.2.6.10 base) — the 0x91 service decodes → accepts `commandId=EVENT` only → echoes it; never fills `RawData`; + zero rawData frames across both captures. (2) ring direct link (hardware probe, since reverted): vendor GATT `bae80001-…` (notify `bae80011`/`bae80013`, write `bae80010`/`bae80012`), **no standard Battery Service**, **no battery in the advertisement** (mfr 0x5245 = reversed MAC + serial only), and the link is **request/response** — subscribing both notify chars + physically tapping the ring gave **zero frames** (gestures go ring→glasses, its bonded primary). Battery would need polling that vendor protocol, whose frame carries a 4-byte rolling field + a **custom 2-byte checksum matching no standard CRC-16** (offline scan, 47 clean frames). (3) **Faceclaw**: its battery state is `{headset, headsetCharging}`, its chrome draws Phone+G2 only, its ring decoder (`FaceclawRingEventDecoder`) is **gestures only**, its device-info probe hits the glasses — a full-tree grep finds no ring-battery read. ⚠ **Earlier notes calling this "the Faceclaw-proven second connection" were wrong**: Faceclaw connects to the ring for GESTURES, never battery. |
+| 🔴 **Ring battery is not available to any open-source path — NOT PURSUED (cosmetic).** The glasses can't relay it; the ring exposes no standard source; **Faceclaw does not read ring battery either.** The only reader is the closed Even SDK (`DeviceStatus.batteryLevel`). | **C+M** | (1) glasses relay: openCFW `pb_service_ring.c` (instruction-level recovery of our 2.2.6.10 base) — the 0x91 service accepts `commandId=EVENT` only and echoes it, never fills `RawData`; zero rawData frames across both captures. (2) ring direct link (hardware probe, since reverted): vendor GATT `bae80001-…` (notify `bae80011`/`bae80013`, write `bae80010`/`bae80012`), **no standard Battery Service**, **no battery in the advertisement** (mfr 0x5245 = reversed MAC + serial only), **request/response** link — subscribing both notify chars + tapping the ring gave **zero frames** (gestures go ring→glasses, its bonded primary). Battery would mean polling that vendor protocol: a 4-byte rolling field + a **custom 2-byte checksum matching no standard CRC-16** (offline scan, 47 clean frames). (3) **Faceclaw**: battery state `{headset, headsetCharging}`, chrome draws Phone+G2 only, `FaceclawRingEventDecoder` is **gestures only**, its device-info probe hits the glasses — a full-tree grep finds no ring-battery read. ⚠ **Earlier notes calling this "the Faceclaw-proven second connection" were wrong**: Faceclaw connects to the ring for GESTURES, never battery. |
 
 ## Deployment topology (added 2026-08-20 — `DESIGN.md` §10)
 
@@ -217,19 +213,17 @@ Everything here backs a decision in [`DESIGN.md`](DESIGN.md).
 
 ## The five things most worth distrusting
 
-1. **`CompressMode 1 = RLE`** — single-source, uncited, never exercised. Moot in practice (we always send 0) but do not build on it.
-2. **The arm split (bulk → LEFT)** — WORKS daily, but its optimality is still inferred from someone else's code. **The two-arm capture is still owed** (start BTSnoop before connecting).
-3. **Container name cap** — 14 vs 16, and our own data supports neither.
+1. **`CompressMode 1 = RLE`** — single-source, uncited, never exercised. Moot in practice (we always send 0); do not build on it.
+2. **The arm split (bulk → LEFT)** — WORKS daily; optimality still inferred from someone else's code. **The two-arm capture is still owed** (start BTSnoop before connecting).
+3. **Container name cap** — 14 vs 16; our own data supports neither.
 4. **Width headroom = depth budget** — author's prose only; it constrains layout if true.
 4b. ~~**Per-notch scroll**~~ — **resolved 2026-08-30/31: works, in daily use** (the fixed-cursor
-   design it carried is live). Only the fast-spin coalescing question remains.
-5. **"No firmware read-back path"** — the vendor's own service enum contains a file-export service we have never probed. If it works, the one irreversible thing about this project stops being irreversible.
-6. 🆕 **The rect budget of 5** (`DESIGN.md` §8.2) — graded **I**, derived from reading `cfw_diag()`, never observed. It governs how much damage fits in one flush, and being wrong is *silent*: a retransmitted batch whose fids have aged out gets re-applied instead of skipped. The mitigation that does not depend on the number being right is **never putting the same fid on the wire twice**; the budget itself still wants a deliberate probe (`REMINDER.md` item 4).
+   design is live). Only the fast-spin coalescing question remains.
+5. **"No firmware read-back path"** — the vendor's service enum contains a file-export service never probed. If it works, the one irreversible thing about this project stops being irreversible.
+6. **The rect budget of 5** (`DESIGN.md` §8.2) — graded **I**, derived from reading `cfw_diag()`, never observed. Being wrong is *silent*: a retransmitted batch whose fids have aged out is re-applied instead of skipped. The mitigation independent of the number is **never putting the same fid on the wire twice**; the budget still wants a deliberate probe (`REMINDER.md` item 4).
 
 ## What could not be resolved before flashing *(historical — the flash happened 2026-08-30: ack latency is measured, the cross-version flash took, the arm split runs daily but unproven-optimal; msgId-255 / the batch ceilings / stale-base remain unprobed by design)*
 
 CFW ack latency · msgId-255 under CFW · real mode-8 batch limits · stale-compositing-base behaviour ·
-whether the arm split is right · whether 2.2.2 → CFW actually takes.
-
-**Do not build a plan that quietly assumes any of these are knowable in advance.** The failure mode
-is a schedule that stalls at the one-way door.
+whether the arm split is right · whether 2.2.2 → CFW actually takes. **Do not build a plan that
+quietly assumes any of these are knowable in advance.**

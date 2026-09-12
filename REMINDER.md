@@ -1,98 +1,72 @@
 # Where we are, and what to do next
 
-**This file is the entry point for a fresh session.** It says what is true now, what the next
-session does, and where the records are. History lives in `HANDOFF.md` (§1–§42); this file only
-points at it. Read in this order: `CLAUDE.md` → this file → `HANDOFF.md` §43 (Feed: designed,
-built, on glass and fixed in one day; §43.6 is the resume protocol for its polish) → §42 (the two
-journals read, what 0.41 fixed, the two open link mysteries) → §41 (the cache on every plane, the
-depth ladder) → the sections they cite.
+**The entry point for a fresh session**: what is true now, what comes next, where the records are. History lives
+in `HANDOFF.md`; this file only points at it. Read `CLAUDE.md` → this file → `HANDOFF.md` §46 (the popover spec) → §44 → §43 (Feed; §43.6 the
+polish protocol) → §42 → §41 → what they cite.
 
-## Where we are (2026-09-10)
+## Where we are (2026-09-12)
 
-- **2026-09-10 (`HANDOFF.md` §44): G2CC's server is RETIRED — never start it by hand.** The
-  setup page is the `damage` service's own (`SetupServer.kt`: same URL, same token, same
-  Tailscale-only gate), the 25 adaptive playlists refresh under Damage (`MUSIC.md` §9.8 —
-  measured identical to the memberships G2CC left), qBittorrent is the headless `qbittorrent`
-  service, and the init script starts after Postgres/Qdrant with `~/.local/bin` on its PATH.
-- **LIVE as the all-day daily driver.** CFW g2flash `a5d1c31` (reports `2.2.6.10`; detect by
-  `EVENCFW/`, never the version). The **phone APK drives** — radio and shell — and the OpenRC
-  `damage` service on beardos is the data host and standby (`HANDOFF.md` §19, `DAILY.md`).
-- **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games · **Feed**
-  (2026-09-09, `FEED.md` — designed, built, walked by Adam on glass and its five findings fixed,
-  all in one day; the polish session is next, `HANDOFF.md` §43.6).
-- **Builds:** APK **0.42 installed** (2026-09-09 evening — the Feed build Adam walked; it
-  carries 0.41's §42 fixes: the page traffic sleeps with the glasses, no lease release after a
-  link loss, the keeper in the journal, `/log`); **0.43 staged** (`~/.damage/damage-wm.apk`, the
-  setup page — served by Damage itself since 2026-09-10, same URL) = the evening's Feed fixes (`HANDOFF.md` §43.4: the comic bar and the 17 px text
-  need it; the post text, source articles and Slashdot threads come from the PC and reach 0.42
-  already). The service runs the same core as 0.43 and serves `feed` on the content port.
-- **Battery at HEAD:** core **521** · desktop **12** · `--selfcheck`
-  (230 checks, the truth oracle on every settle, the Feed walk included; run ×3 — it is a rate) ·
-  snapshots (57, eight of them Feed) · `--epub-check` · `--music-check` · `--games-check` ·
-  `--feed-check` (fixtures; `live` for the real sites) · lint 21 rules / 0 ·
-  `:phone:assembleDebug` (run it SEPARATELY from the test batteries — a concurrent APK build
-  made the oracle walk miss a settle once).
+- **`POPOVER.md` is a complete spec, not built** (2026-09-12, `HANDOFF.md` §46): one popover family
+  (menu · notice · confirm · peek · deck · ask) on one modal stack, and the Claude path (`damage-show`,
+  a user-level skill, `~/.damage/decks/`). Built whole when Adam calls it; its place in the queue is his.
+- **The docs were de-bloated 2026-09-11** (`HANDOFF.md` §45): repo docs 1,174 → 866 KB, memory 211 → 61 KB,
+  nothing lost that a checker could see. Keep them lean.
+- **LIVE as the all-day daily driver.** CFW g2flash `a5d1c31` (reports `2.2.6.10`; detect by `EVENCFW/`, never
+  the version). The phone APK drives — radio and shell; the OpenRC `damage` service on beardos is the data host
+  and standby (`HANDOFF.md` §19, `DAILY.md`). **G2CC's server is RETIRED (2026-09-10, `HANDOFF.md` §44) — never
+  start it by hand:** the setup page is Damage's (`desktop/SetupServer.kt`, same URL and token), the 25 adaptive
+  playlists refresh under Damage (`MUSIC.md` §9.8, measured identical), qBittorrent is the `qbittorrent` service.
+- **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games · Feed (`FEED.md`).
+  **Builds:** APK **0.42 installed**; **0.43 staged** (`~/.damage/damage-wm.apk`, `http://beardos:7300/setup`)
+  = the evening's Feed fixes (`HANDOFF.md` §43.4). The service runs 0.43's core.
+- **Battery at HEAD (measured 2026-09-11):** core **525** · desktop **15** · `--selfcheck` 230 checks (the truth
+  oracle on every settle; run ×3 — it is a rate) · snapshots 57 · `--epub-check` · `--music-check` ·
+  `--games-check` · `--feed-check` (`live` = the real sites) · lint 21 rules / 0 · `:phone:assembleDebug` in its
+  OWN gradle call (with `:core:test` it once made the oracle walk miss a settle).
 
 ## Measured on glass, 0.40 (2026-09-07 → 09, Adam's use — `HANDOFF.md` §42.0)
 
-Time to first visible change per gesture, from `tools/journal_report.py` over the phone's
-journal (median / p90):
+Time to first visible change per gesture (`tools/journal_report.py`, the phone's journal; median / p90):
 
 | gesture | first flush | first visible | burst total |
 |---|---:|---:|---:|
 | window list notch | 540 B / 2.1 KB | 108 / 229 ms | 1.6 KB |
 | Main notch | 716 B / 1.9 KB | 117 / 247 ms | 1.2 KB |
 
-Was, on 0.32 (§37.2): Main 830–860 ms, a window list 221–645 ms. The cache served 1,075 rects
-over 2,235 flushes; `proof` refusals 126 (1,372 on 0.38 — the §41.9 retry works). Phone CPU per
-flush: handle 17 ms median / 66 p90.
+Was, on 0.32 (§37.2): Main 830–860 ms, a window list 221–645 ms. The cache served 1,075 rects over 2,235 flushes;
+`proof` refusals 126 (1,372 on 0.38 — the §41.9 retry works). Phone CPU per flush: 17 ms median / 66 p90.
 
 ## 🔴 The next session
 
-0. **Feed polish — `HANDOFF.md` §43.6 is the protocol, `FEED.md` §8.3 the numbered list.**
-   In order: confirm 0.43 is installed; **the measured walk before any change** (`FEED.md`
-   §8.4: `tools/glassdrive.py` through every level, one step per snap around Mark all read,
-   `journal_report.py`'s per-gesture rows into `FEED.md` §3.8; the comic canvas is the case to
-   watch); Adam's verdicts (16 vs 4 gray levels for 8-Bit Theater, the bar's feel, the text
-   size); then §8.3 by number — the Reddit comments pace first (a comments fetch inside a
-   minute of the listing's waits out the pace), the honest line for a Slashdot page that came
-   without its tree, the by-number restore; ask before an SMBC archive or a bar on the 8-Bit
-   archive; one deliberate fallback try with the service stopped; his `feedSources` beyond the
-   day-one five. Never re-open `FEED.md` §1's verdicts.
-1. **Read the 0.41 journal and `/log` after Adam's first day on it** — the two things §42 could
-   not explain are instrumented now: the **arm rebuilds** (a `supervision timeout` on
-   alternating arms every ~50 min, 41 in 2.5 days; §42.2 lists ten candidates and the cheap
-   discriminators — start with the `link` notes and the `/log` lines around one drop, then
-   G2CC's stock-era logs for the same cadence) and the **wake loop** (three minutes of
-   session attempts after Silent Mode off on 2026-09-09 15:06; §42.3 — the `keeper: start
-   failed: …` notes will name it). Fix what they name.
-2. **The atlas across a rebuild** (§42.4): the firmware keeps the cache on both lenses now that
-   a link loss sends no release; the shell still re-uploads 16–63 KB per rebuild. One glass
-   measurement gates the skip (what status a draw into a released cache returns).
-3. **Then the ranked latency list below**, and the next window (`WINDOWS.md` §6 is the bar).
+0. **Feed polish** — `HANDOFF.md` §43.6 is the protocol, `FEED.md` §8.3 the numbered list. Confirm 0.43 is
+   installed; **the measured walk before any change** (`FEED.md` §8.4: `tools/glassdrive.py` through every level,
+   one step per snap around Mark all read, the rows into `FEED.md` §3.8; watch the comic canvas); Adam's
+   verdicts (16 vs 4 gray levels for 8-Bit Theater, the bar, the text size); then §8.3 by number. Never re-open
+   `FEED.md` §1's verdicts.
+1. **Read the 0.41 journal and `/log` after Adam's first day on it** — the **arm rebuilds** (`supervision
+   timeout` on alternating arms every ~50 min, 41 in 2.5 days; §42.2's ten candidates — start with the `link`
+   notes and `/log` around one drop) and the **wake loop** (three minutes of session attempts after Silent Mode
+   off, 2026-09-09 15:06; §42.3 — the `keeper: start failed: …` notes name it). Fix what they name.
+2. **The atlas across a rebuild** (§42.4): the firmware keeps the cache now that a link loss sends no release; the
+   shell still re-uploads 16–63 KB per rebuild. One glass measurement (item 20 below) gates the skip.
+3. **Then the ranked list below**, and the next window (`WINDOWS.md` §6 is the bar) — or the popover
+   build (`POPOVER.md` §8), whichever Adam calls first.
 
 ## Where the remaining latency and jank live (ranked by expected gain)
 
-1. **The radio itself.** The phone path moves one packet per usable connection event at 15 ms
-   with slave latency 1 (~8 KB/s, measured); the PC gets ~50 KB/s from the same glasses.
-   Latency 0 at 7.5 ms while a session is active is up to 4× (modeled) — a firmware-side ask
-   to Babcock; a two-arm capture with the APK driving (row 5 below) settles whether the
-   phone's write path is the other half of the wall.
-2. **The arm rebuilds** (item 1 above): each is ~9 s of blank plus a keyframe and the atlas.
-3. **Frame pacing is the jank.** A notch is up to four flushes gated on acks, and ack jitter
-   runs 2–3× the median, so frames land unevenly. Tie the frame count to the measured link
-   regime as the wheel does, and jump-cut to the final frame when three flushes are already
-   in flight.
-4. **Back to Main / a window switch between heights** (§42.0: 3.3 KB / 526 ms; 1.7 KB / 282
-   ms): the seed is 17 B but the depth planes ship as deltas in the same first flush. Send the
-   screen plane first, the depth planes a flush later — `Slide fill = auto`'s logic.
-5. **The atlas across a rebuild** (item 2 above), then **cache persistence across sessions**
-   — a firmware ask (a checksum the phone can verify).
-6. **Kerning in cached text.** Mode 14 carries per-glyph x-adjust bytes and
-   `TextureCache.layout` takes a kerning lambda: ~1 B per pair. If Adam's eye dislikes the
-   flat advances.
-7. **Cold start.** Three eaten CREATEs ≈ 6 s per link edge (§34.3): lower
-   `CAPABILITY_REASK_MS`, or send the CREATE only after the prelude's ack.
+1. **The radio** — one packet per usable connection event at 15 ms, slave latency 1 (~8 KB/s, measured; the PC
+   gets ~50 KB/s). Latency 0 at 7.5 ms during a session is up to 4× (modeled): a firmware ask to Babcock; the
+   two-arm capture (item 5 below) settles the phone's write path.
+2. **The arm rebuilds** (item 1 above): each ~9 s of blank plus a keyframe and the atlas.
+3. **Frame pacing is the jank** — up to four ack-gated flushes per notch, ack jitter 2–3× the median. Tie frames
+   to the measured regime as the wheel does; jump-cut when three are in flight.
+4. **Back to Main / a switch between heights** (§42.0: 3.3 KB / 526 ms; 1.7 KB / 282 ms): the 17 B seed and the
+   depth planes ship in one first flush. Screen plane first — `Slide fill = auto`'s logic.
+5. **The atlas across a rebuild** (item 2), then **cache persistence across sessions** (a firmware ask).
+6. **Kerning in cached text** — mode 14's per-glyph x-adjust bytes via `TextureCache.layout`'s kerning lambda,
+   ~1 B per pair; only if Adam's eye dislikes flat advances.
+7. **Cold start** — three eaten CREATEs ≈ 6 s per link edge (§34.3): lower `CAPABILITY_REASK_MS`, or CREATE only
+   after the prelude's ack.
 
 ## Measured numbers to price with (grade M unless said)
 
@@ -106,28 +80,19 @@ The daily path is the PHONE's. Isolated flushes, APK-driven (§33.1, §35.2):
 | 3–6 KB | 543–667 ms | 708–838 |
 | 6 KB + | 1,036–1,140 ms | 1,295–1,543 |
 
-Why (grade I, consistent to within noise): one AA packet per usable connection event; 15 ms
-interval with slave latency 1 = every 30 ms; 242 B / 30 ms ≈ 8 KB/s. PC-direct BlueZ sends ~6
-packets per event (~50 KB/s), which is the whole difference between the two regimes.
-`overview.md` §5.2's `ms ≈ 60 + bytes/50` is PC-direct only. Price nothing with it.
+Why (grade I): one AA packet per usable connection event; 15 ms interval with slave latency 1 = every 30 ms;
+242 B / 30 ms ≈ 8 KB/s. PC-direct BlueZ sends ~6 packets per event (~50 KB/s). `overview.md` §5.2's
+`ms ≈ 60 + bytes/50` is PC-direct only — price nothing with it.
 
 ## Standing rules learnt the hard way (pointers)
 
-- A rect a paint returns is a promise; measure ink, never a line height (§27).
-- A wait decides on ONE evaluation; a scripted scene pins its seed; run a harness more than once,
-  twenty when the question is a rate (§27.6, §30, §36.3).
-- The harness is part of the system under review (§30). Live-drive the real program before
-  calling a round done (§28.2, §33): snap between steps, one step per snap near an irreversible row,
-  never scroll in Music's root, the tmux pane's SECOND tap is the keys list (a third sends a key).
-- Never rebuild the jar under a running instance (§29); `stageJar` replaces atomically.
-- Never answer a refused image with more images (§36). Hold the lease while awake; drop it on
-  purpose while the glasses are silent; **and send nothing into a page that has ended** (§42:
-  the keepalive and the carrier refresh sleep with the shell).
-- A stop after a link loss releases nothing (§42): the write cannot reach the dropped arm, and
-  the surviving lens's cache is worth keeping for the rebuild seconds away.
-- `handleMs` in the journal INCLUDES the assemble (§35.1).
-- Read the journal through `tools/journal_report.py` — its per-gesture section is the number
-  every window is judged by; `/log` is the phone's log without adb (§42).
+`CLAUDE.md`'s short list binds: a rect a paint returns is a promise — measure ink, never a line height (§27); a
+wait decides on ONE evaluation, a scene pins its seed, a rate is measured twenty times, the harness is part of
+the system under review (§27.6, §30, §36.3); live-drive before calling a round done (§28.2, §33); never rebuild
+the jar under a running instance (§29); never answer a refused image with more images, and the page traffic
+sleeps with the shell — no release after a link loss (§36, §42). Not in that list: `handleMs` in the journal
+INCLUDES the assemble (§35.1); in a live walk never scroll in Music's root, and the tmux pane's SECOND tap is the
+keys list (a third sends a key); `tools/journal_report.py`'s per-gesture section judges every window (§42).
 
 ## 🔴 Still unmeasured on glass
 
@@ -150,54 +115,43 @@ packets per event (~50 KB/s), which is the whole difference between the two regi
 | 25 | **The arm rebuilds' cause** (§42.2) | ~9 s of blank a dozen times a day |
 | 26 | **The wake loop's cause** (§42.3) | Adam's "some doing" after Silent Mode off |
 
-Closed since the last version of this table: the §38 wake (seen 2026-09-06 20:45, 19 s), the
-watchdog silent on a healthy day, the atlas upload cost (20 s for 63 KB, idle chunks), the
-keyframe seed on a height change (17 B), the 2-frame wheel (Adam took `Slide frames` 4).
-
-**Cheap probes nobody has run:** the CFW logger service (sid 0x0F — a boot banner would settle
-§42.2's reboot-or-stall) and the file-export service (sid 198/199 — `NOT_SUPPORT` is a safe
-answer).
+Closed since the last version: the §38 wake (2026-09-06 20:45, 19 s), the watchdog silent on a healthy day, the
+atlas upload (20 s for 63 KB), the height-change seed (17 B), the 2-frame wheel (`Slide frames` 4).
+**Cheap probes nobody has run:** the CFW logger service (sid 0x0F — a boot banner settles §42.2's
+reboot-or-stall) and the file-export service (sid 198/199 — `NOT_SUPPORT` is a safe answer).
 
 ## Upstream CFW (checked 2026-09-06 — `HANDOFF.md` §41.11)
 
-g2flash has five commits past our pinned `a5d1c31`, all on a **new stock base 2.2.9.22**
-(`EVENCFW/18`, exactly 127 bytes): a lost-ACK fix stock 2.2.9 needs and our 2.2.6 base does not,
-compass config options, an ambient-light mode 16, the tap-then-long gesture as event 11 with
-the raw source passed to the sender (an ATTRIBUTED long-press, grade I), and a flasher that does
-2.2.9's auth handshake before BEGIN. **Nothing affects the installed build.** `reference/g2flash`
-is fetched, not moved — a pull breaks `research/verify_cfw.py`'s 2.2.6.10 pins.
+Five g2flash commits past our pinned `a5d1c31`, all on stock base 2.2.9.22 (`EVENCFW/18`, 127 bytes) — §41.11
+lists them; nothing affects the installed build. `reference/g2flash` is fetched, not moved — a pull breaks
+`research/verify_cfw.py`'s 2.2.6.10 pins.
 
 ## Other open work (not the next session's)
 
-- **On-glass verdicts** still owed for Torrents and the keyboard, Files (menus, viewers, the
-  thumbnail lens, theme icons), Games (`HOLDEM.md` §17.4), Music (the one-time grants —
-  `DAILY.md` — and the on-phone items).
-- **Feed + comics is BUILT and on glass (2026-09-09, `FEED.md` §8, `HANDOFF.md` §43) — its
-  polish is item 0 above.** The next window after it is Adam's pick from `EXPLOSION.md` §20:
-  Mail (#6), SMS (#7, with the caller-ID source), Info (#8), Notices (#9). `WINDOWS.md` is the
-  checklist (seven precedents now) and §6 the latency bar.
-- **The Reader transitional cleanup**: remove the legacy-offsets dual-write in `ReaderWindow`
-  (fields marked; `SubstrateTest`'s migration pin goes with it).
-- **The icon-quality pass**: one drawn icon per app at 20 px + 56 px (the release path).
-- **The `Profiler` Global row is unused** (nothing reads it) — remove or wire it.
-- **Watch-items:** the left-lens seam residue after a handover; the ~20 s seam silent-loss
-  window; the media endpoint logs nothing on success.
+- **On-glass verdicts owed:** Torrents + the keyboard; Files (menus, viewers, the thumbnail lens, theme icons);
+  Games (`HOLDEM.md` §17.4); Music (the grants — `DAILY.md` — and the on-phone items); Tmux (flow size/wrap
+  feel, quick-key order, alert patterns, ssh latency). **The next window** is Adam's pick from `EXPLOSION.md`
+  §20: Mail (#6), SMS (#7, with the caller-ID source), Info (#8), Notices (#9); `WINDOWS.md` is the checklist.
+- The Reader legacy-offsets dual-write in `ReaderWindow` (`SubstrateTest`'s migration pin goes with it) · the
+  icon-quality pass (one drawn icon per app at 20 px + 56 px) · the unused `Profiler` Global row (remove or wire)
+  · **watch-items:** the left-lens seam residue after a handover, the ~20 s seam silent-loss window, the media
+  endpoint logging nothing on success, `slappy` (tmux host) offline 22 days.
 
 ## Open design questions (not hardware-blocked)
 
-- Where system-state detail lives (the status bar shows telemetry; the deeper view wants an Info
-  window — `EXPLOSION.md` §9).
-- Per-window typefaces for windows not yet designed inherit Clear Sans until earned; the curated
-  font-library expansion is option-only (B612 never a default).
+Where system-state detail lives (the status bar shows telemetry; the deeper view wants an Info window —
+`EXPLOSION.md` §9). Undesigned windows inherit Clear Sans until earned; the curated font-library expansion is
+option-only (B612 never a default).
 
 ## System changes made for this project
 
-- `/etc/portage/package.accept_keywords/damage-fonts` — `~amd64` for eight font data packages.
-- 56 `media-fonts/*` packages installed; `design/fonts.json` pins the evaluated candidates; the
-  locked faces are Clear Sans, Fira Sans, Alegreya, JetBrains Mono — `tools/lint.py` checks glyph
-  coverage against exactly those.
-- `net-p2p/qbittorrent-5.1.4` rebuilt with USE `webui` (`/etc/portage/package.use/60-qbittorrent`);
-  Web UI on `127.0.0.1:8090`, `LocalHostAuth=false` — `DAILY.md`.
+- Fonts: `/etc/portage/package.accept_keywords/damage-fonts` (`~amd64`, eight packages); 56 `media-fonts/*`
+  installed; `design/fonts.json` pins the candidates; the locked faces are Clear Sans, Fira Sans, Alegreya,
+  JetBrains Mono (`tools/lint.py` checks coverage against exactly those).
+- `net-p2p/qbittorrent-5.1.4` with USE `webui` (`/etc/portage/package.use/60-qbittorrent`); Web UI
+  `127.0.0.1:8090`, `LocalHostAuth=false`; OpenRC `qbittorrent` — `DAILY.md`. OpenRC `damage`
+  (`/etc/init.d/damage`): after `postgresql-17` / `qdrant` / `qbittorrent`, `~/.local/bin` on PATH,
+  `--enable-native-access=ALL-UNNAMED` (`HANDOFF.md` §44.1).
 
 ## How to resume
 

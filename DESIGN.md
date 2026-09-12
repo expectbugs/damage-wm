@@ -7,17 +7,14 @@ for the CFW direct-framebuffer path.
 **Precedence.** `overview.md` wins on *facts*; `CLAUDE.md` wins on *rules*; **this file wins on
 shell design.**
 
-**What is measured and what is modeled.** Ink coverage, per-face compression, glyph coverage and
-full-screen keyframe cost are **measured** from real 1× renders (`design/render_shots.py`, output in
-`design/shots/`). The per-interaction *delta* costs in §8 are still **modeled** from the 576×288
-capture measurements — every table says which. Two tools enforce the rest:
-**`tools/lint.py`** (the build gate, §9.2b) and **`tools/geometry.py`** (the rules it shares with
-the compositor).
+**Measured vs modeled.** Ink coverage, per-face compression, glyph coverage and full-screen
+keyframe cost are **measured** from real 1× renders (`design/render_shots.py` → `design/shots/`).
+The per-interaction *delta* costs in §8 are **modeled** from the 576×288 capture measurements —
+every table says which. `tools/lint.py` (the build gate, §9.2b) and `tools/geometry.py` (the rules
+it shares with the compositor) enforce the rest.
 
-📍 **New here? Read `REMINDER.md` first** — project state, what comes next, and what is still
-unmeasured on glass. **If you are deciding implementation, read §10 (deployment topology) before
-anything else** — it is the only part of this document that constrains *how* the shell is written,
-and it rules out one otherwise-obvious runtime choice.
+📍 New here? Read `REMINDER.md` first. Deciding implementation? Read §10 (deployment topology)
+first — the only part of this document that constrains *how* the shell is written.
 
 > Grades from [`CLAIMS.md`](CLAIMS.md): **V** vendor-authoritative · **M** measured · **C**
 > corroborated · **I** inferred · **S** single-source ⚠ · **U** unknown.
@@ -30,12 +27,12 @@ Recorded so they are not re-proposed. These are *decisions*, not oversights.
 
 | excluded | why |
 |---|---|
-| ❌ **The piezo buzzer, entirely** | Adam, 2026-08-17: *"no tone/buzzer. i do not want my glasses to emit sound."* Mode 5 is never sent. Out-of-band alerting goes to the phone instead (§9.3) |
-| ⚠ ~~❌ **Scroll acceleration / velocity**~~ **RE-OPENED 2026-08-30 · ✅ SHIPPED 2026-08-31** | The original reasoning: scroll and tap are hard to distinguish on the ring's small sensor, especially gloved, so every notch is one step, always. **Adam reversed this after using Reader on glass** — one line per notch inside a book is far too little, and he asked for accelerated scrolling "like firmware scroll", with a lines-per-notch setting as the fallback. Two things also changed underneath the original call: ack latency measured at ~50 ms rather than 176 ms, which makes motion much cheaper, and first light showed tap and scroll arriving as cleanly distinguished event types rather than as one ambiguous stream. **Shipped 2026-08-31: a per-notch step setting (1–8 lines) plus a direction-gated ramp — notches ≤250 ms apart multiply the step up to 6×. Verdict the same day, on glass: the ramp is too uneven — "lets just default the scrolling to 5 lines per notch - configurable." So the DEFAULT is 5 lines/notch with acceleration OFF; both configurable in the Settings window's Reader category. Lists stay strictly one item per notch: acceleration over selections would overshoot them.** |
-| ⚠ ~~❌ **User-settable chrome/app typography**~~ **REVERSED 2026-08-31 · ✅ SHIPPED** | §Type locked "the system face is not negotiable per window" and one fixed chrome face. **Adam reversed it**: Settings → Global now sets font/size/style for chrome + Main, and every app category sets font/size/style for that app's content — each option previewed in its own face. The §Type MEASUREMENTS still stand (they price the choices); only the lock moved from "decided once" to "his to change at runtime". `core/text/Style.kt`; defaults render byte-identically |
+| ❌ **The piezo buzzer, entirely** | Adam, 2026-08-17: *"no tone/buzzer. i do not want my glasses to emit sound."* Mode 5 is never sent. Out-of-band alerting goes to the phone (§9.3) |
+| ⚠ ~~❌ **Scroll acceleration / velocity**~~ **RE-OPENED 2026-08-30 · ✅ SHIPPED 2026-08-31** | Original reasoning: scroll and tap are hard to distinguish on the ring's small sensor, especially gloved, so every notch was one step. **Adam reversed this after using Reader on glass** — one line per notch in a book is far too little; he asked for acceleration "like firmware scroll" with a lines-per-notch setting as the fallback. Two facts had also changed: ack latency measured ~50 ms rather than 176 ms, and first light showed tap and scroll arriving as distinct event types. **Shipped 2026-08-31: a per-notch step setting (1–8 lines) plus a direction-gated ramp — notches ≤250 ms apart multiply the step up to 6×. Same-day verdict on glass: the ramp is too uneven — "lets just default the scrolling to 5 lines per notch - configurable." DEFAULT = 5 lines/notch, acceleration OFF; both in Settings → Reader. Lists stay one item per notch: acceleration over selections would overshoot them.** |
+| ⚠ ~~❌ **User-settable chrome/app typography**~~ **REVERSED 2026-08-31 · ✅ SHIPPED** | §Type locked "the system face is not negotiable per window" and one fixed chrome face. **Adam reversed it**: Settings → Global sets font/size/style for chrome + Main; every app category sets font/size/style for that app's content, each option previewed in its own face. The §Type MEASUREMENTS still price the choices; only the lock moved from "decided once" to "his to change at runtime". `core/text/Style.kt`; defaults render byte-identically |
 | ❌ **Wear / unwear differentiation** | not wanted for now. `wearnotify` stays banked, unused |
 | ❌ **Head tracking on by default** | available, **defaults OFF** — his head moves constantly at work (§7.1) |
-| ❌ **Long-press as a live gesture by default** | reversed 2026-08-30: it is the most common accidental press by far, all day, gloves worst — **defaults OFF (a no-op)**; the §1.3 chord opens the switcher; a Settings row restores the direct open |
+| ❌ **Long-press as a live gesture by default** | reversed 2026-08-30: the most common accidental press by far, gloves worst — **defaults OFF (a no-op)**; the §1.3 chord opens the switcher; a Settings row restores the direct open |
 | ❌ **Dithering** | halves compression; the 4-bit downsample looks better without it |
 | ❌ **A quit path** | the WM runs always (§1.6) |
 | ❌ **Split view** | deferred — optional stretch feature, not the first design |
@@ -43,29 +40,23 @@ Recorded so they are not re-proposed. These are *decisions*, not oversights.
 | ❌ **Using the 16 px side gutters for content** | they stay **depth margin**. Adam, 2026-08-17 |
 | ❌ **The ribbon** | retired 2026-08-18 — a third window list competing with Main and the switcher, both of which did it better (§4.1) |
 | ❌ **Segmented battery icons** | measured worse than a plain fill bar at this width, and 20× the run boundaries (§4.1) |
-| ❌ **A generic "overlay" abstraction** | the switcher, the notification surface, the context menu (§4.7) and the keyboard (§4.8) are **bespoke**, designed independently |
+| ⚠ ~~❌ **A generic "overlay" abstraction**~~ **REVERSED 2026-09-12 (Adam) · SPEC `POPOVER.md`** | was: the switcher, the notification surface, the context menu (§4.7) and the keyboard (§4.8) are bespoke. Now: **one popover family** (menu · notice · confirm · peek · deck · ask) on **one modal stack** (§4.11); the wheel and the keyboard keep their own presentations on that stack. Not built |
+| ❌ **Dimming the content behind a popover** | Adam, 2026-09-11: no dim-in-place op exists, so dimming is a repaint of the surroundings, ≈ +0.5 s each way — *"we want less latency, not more"* (`POPOVER.md` §2) |
+| ❌ **Banners / timed popovers** | Adam, 2026-09-12. A no-focus banner over a live window needs the window to paint under an overlay (a layered repaint the shell does not have). The silent-mode 5 s notice variant stays as the NOTICE type's own policy |
 
 ---
 
 ## 1. Input grammar — ring only
 
-**The R1 ring is the only input device.** Temple touchpads are deliberately unused. ⚠ The CFW no
-longer enforces that for us: an earlier `g2flash/patches/gesture_fwd.c` gated both halves of the
-long-press pair on the ring's source byte (`4`), but the shipped `a5d1c31` forwards events 9/10
-from **any** source while the framebuffer lease is held, handing the raw source byte to a stock
-sender that drops it for those event types (below). Ring-only is therefore *our* rule: the
-attributed gestures are filtered on `EventSource = 2`, and the unattributed pair is kept harmless
-by §1.2's no-op default.
-
-🔴 **The ring-only rule's mechanics, corrected 2026-08-31 (HANDOFF.md §12).** "Ring only" is
-enforced by source byte for the attributed gestures (tap / double-tap / scroll carry
-`EventSource = 2`) — but **events 9/10 are UNATTRIBUTED by firmware design** (`EventSource` is
-absent for them; they decode as source 0) and MUST skip that check. The first implementation
-filtered them out with everything else, which made the switcher unreachable by both routes for
-two days while `LongPressTest` passed — its harness supplied 9/10 with the flattering ring
-source. The suite now supplies them with source 0, the wire truth. What keeps the temple (the
-second unattributed source since `a5d1c31`) harmless is §1.2's bare-long-press-is-a-no-op
-default, not the source filter.
+**The R1 ring is the only input device.** Temple touchpads are deliberately unused. The CFW no
+longer enforces that for us: the shipped `a5d1c31` forwards events 9/10 from **any** source while
+the framebuffer lease is held (an earlier `g2flash/patches/gesture_fwd.c` gated them on the ring's
+source byte `4`). Ring-only is *our* rule: the attributed gestures (tap / double-tap / scroll) are
+filtered on `EventSource = 2`, but **events 9/10 are UNATTRIBUTED by firmware design**
+(`EventSource` absent; they decode as source 0) and MUST skip that check — the first implementation
+filtered them out too, which made the switcher unreachable for two days while `LongPressTest`
+passed on a flattering ring source (corrected 2026-08-31, `HANDOFF.md` §12; the suite now supplies
+source 0). What keeps the temple's stray press harmless is §1.2's no-op default, not the filter.
 
 ### 1.1 The five events
 
@@ -77,12 +68,11 @@ default, not the source filter.
 | **long-press** | CFW `SysEvent 9` `RING_LONG_PRESS_EVENT` — fires when the hold threshold trips, *while still held* | **V** |
 | **long-press release** | CFW `SysEvent 10` `RING_LONG_PRESS_RELEASE_EVENT` | **V** |
 
-⚠ Do not conflate the two source numberings: protobuf `EventSourceType` is `1=GLASSES_R, 2=RING,
-3=GLASSES_L`; the firmware's internal source byte is `0/1 = L/R temple, 4 = ring`.
+⚠ Two source numberings: protobuf `EventSourceType` is `1=GLASSES_R, 2=RING, 3=GLASSES_L`; the
+firmware's internal source byte is `0/1 = L/R temple, 4 = ring`.
 
-⚠ The hold threshold is a stock firmware constant, never read from the image; on glass a
-deliberate hold of roughly a second raises event 9 (`HANDOFF.md` §11). Nothing in the grammar
-depends on its exact value (§1.3).
+⚠ The hold threshold is a stock firmware constant, never read from the image; on glass a deliberate
+hold of roughly a second raises event 9 (`HANDOFF.md` §11). Nothing in the grammar depends on it.
 
 ### 1.2 Semantics
 
@@ -95,17 +85,16 @@ depends on its exact value (§1.3).
 | **long-press release** | refreshes the §1.3 chord window (so it runs from letting go); otherwise nothing |
 
 🔴 **Revised 2026-08-30 (Adam): long-press defaults to a NO-OP, everywhere.** The accidental
-long-press is the most common misfire by far — constant at work, all day, worst with gloves on —
-and it is the documented gloves chain that founded this project (`overview.md` §6). A gesture that
-fires by itself all day cannot carry a live meaning by default. The Settings row **"Long-press":
-off (default) / switcher** restores the direct open for anyone it does not bother; with it off,
-the switcher opens by the §1.3 chord, and the §4.5 focused-notice long-press is a no-op too.
+long-press is the most common misfire by far — all day, worst with gloves — and it is the gloves
+chain that founded this project (`overview.md` §6). A gesture that fires by itself all day cannot
+carry a live meaning by default. Settings **"Long-press": off (default) / switcher** restores the
+direct open; with it off, the §1.3 chord opens the switcher and the §4.5 focused-notice long-press
+is a no-op too.
 
 ### 1.3 The switcher — ALT+TAB
 
-**Revised 2026-08-17.** The earlier design (hold to peek, release commits) was replaced because a
-ring is *"rife with accidental presses"* and a gesture where letting go commits a navigation is
-exactly the wrong shape for that.
+**Revised 2026-08-17.** The earlier design (hold to peek, release commits) was replaced: a ring is
+*"rife with accidental presses"*, and letting go must not commit a navigation.
 
 ```
 long-press, double-tap → switcher opens — the CHORD (default; "Long-press · switcher" makes long-press alone open it)
@@ -117,20 +106,17 @@ double-tap          → also cancels (it is one step on the back stack, §1.4)
 
 **Revised again 2026-08-30 — the chord.** With long-press off (§1.2), the wheel opens by
 **long-press, then double-tap immediately after letting go**: `SysEvent 9` arms an **800 ms
-window**, the release (`SysEvent 10`) refreshes it — so the clock runs from letting go — and a
+window**, the release (`SysEvent 10`) refreshes it — the clock runs from letting go — and a
 double-tap inside the window opens the wheel. Any other gesture ends the chord and keeps its own
-meaning. The shape is deliberate: the ARMING event is the rare one, so no common gesture is ever
-delayed or re-meant; a bare accidental long-press does nothing at all; the full accidental chord
-needs an accidental double-tap inside the same 0.8 s — and even that only opens a wheel that
-cancel restores, so §1.7 still holds. A mistimed deliberate chord degrades to plain back
-(recoverable). Feedback is the §9.2 input echo: the "hold" glyph in the status cell IS the armed
-indicator. This is a **sequence window**, the same species as §4.5's grace — nothing is held, so
-§11's retirement of held gestures stands. In **silent mode the long-press never arms** (§1.5):
-gloves-on is where accidental presses are the most common, and double-tap must always mean wake
-there. ✅ Answered on hardware (2026-08-30/31, `HANDOFF.md` §11): event 10 fires after almost
-every touch-end (its name describes the hook site, not the semantics), event 9 is the real
-long-press, and the chord is confirmed on glass — five deliberate holds, five clean event-9s,
-zero accidental ones across a day of use.
+meaning. The ARMING event is the rare one, so no common gesture is delayed or re-meant; the full
+accidental chord needs an accidental double-tap inside the same 0.8 s and only opens a wheel that
+cancel restores (§1.7 holds); a mistimed deliberate chord degrades to plain back. The "hold" glyph
+in the status cell (§9.2 input echo) IS the armed indicator. A **sequence window**, like §4.5's
+grace — nothing is held. In **silent mode the long-press never arms** (§1.5): double-tap must
+always mean wake there. ✅ Confirmed on hardware (2026-08-30/31, `HANDOFF.md` §11): event 10 fires
+after almost every touch-end (its name describes the hook site, not the semantics), event 9 is the
+real long-press; five deliberate holds, five clean event-9s, zero accidental ones across a day of
+use.
 
 **Nothing commits on release.** A stray long-press opens a cancellable list and changes nothing.
 
@@ -145,18 +131,16 @@ zero accidental ones across a day of use.
     …in order of recentness
 ```
 
-⇒ **long-press · double-tap · tap = switch to the most recent inactive window.** That is ALT+TAB, in three
-unambiguous gestures, with an explicit cancel and no timing dependency.
+⇒ **long-press · double-tap · tap = switch to the most recent inactive window.** ALT+TAB in three
+unambiguous gestures, with an explicit cancel and no timing dependency. It retired two open items:
+the hold threshold no longer prices the interaction, and "is hold-plus-scroll comfortable?" needs
+no answer.
 
-✅ **This also retires two open items**: the hold-threshold no longer prices the interaction, and
-"is hold-plus-scroll physically comfortable?" no longer needs answering — nothing is held.
-
-⚠ **It does move a cost around.** Under the old grammar release always navigated, so nothing was
-ever restored. Now cancelling has to put back what was there, and there is no off-panel scratch on
-this hardware. With live preview (§4.3) this settles into a good shape: **commit is the cheap path
-and cancel is the expensive one** (~250 ms vs ~520–750 ms at the stock-formula pricing — the
-measured curve shrinks both, the ratio survives) — the common action is fast and the rare one
-pays. It is also why the panel is small and centred.
+⚠ **It moves a cost.** Under the old grammar release always navigated, so nothing was ever
+restored; now cancel has to put back what was there, and there is no off-panel scratch on this
+hardware. With live preview (§4.3) **commit is the cheap path and cancel the expensive one**
+(~250 ms vs ~520–750 ms at stock-formula pricing; the measured curve shrinks both, the ratio
+survives). It is also why the panel is small and centred.
 
 ### 1.4 The back stack
 
@@ -174,35 +158,31 @@ Everything hidden but the clock.
 
 #### 🔑 The clock is a small SEVEN-SEGMENT DIGITAL readout, flush top-right
 
-**Third revision, Adam 2026-08-31 (mid-session, wearing it):** *"move the silent mode clock back
-to the top right … all the way up and all the way right, and forget analog, make it good-looking
-digital numbers … something quality."* History, so nobody re-litigates it: 2026-08-18 he rejected
-a large centred digital clock (*"way too huge and centered and bold"*) for a small dim analog
-face top-right; 2026-08-30 he asked for top-left and better; 2026-08-31 on glass he settled it —
-**digital, top-right, flush to the corner, quality.** The 2026-08-18 objection was to *huge and
-centered*, not to digits.
+**Third revision, Adam 2026-08-31 (on glass):** *"move the silent mode clock back to the top right
+… all the way up and all the way right, and forget analog, make it good-looking digital numbers …
+something quality."* History, so nobody re-litigates it: 2026-08-18 he rejected a large centred
+digital clock (*"way too huge and centered and bold"*) for a small dim analog face top-right;
+2026-08-30 he asked for top-left and better; 2026-08-31 he settled it — **digital, top-right,
+flush to the corner, quality.** The 2026-08-18 objection was to *huge and centered*, not to digits.
 
 **`144×48` at the safe rect's top-right corner** (box edges touch it; digits 2–4 px inside).
-Classic LED-clock **seven-segment digits, drawn, never typed** — the locked faces stay four —
-with tapered hexagonal segments, softened edge rows, corner gaps, 12-hour, no leading zero.
-Horizontal segments are single long RLE runs, so the whole readout prices like a few short
-lines. **Minutes only — it repaints once a minute, 60 flushes/hour**, and deep idle (§5.15)
-stays completely intact. (The analog face survives unused in `Icons.analogClock` in case it
-returns as a setting.)
+**Seven-segment digits, drawn, never typed** — the locked faces stay four — tapered hexagonal
+segments, softened edge rows, corner gaps, 12-hour, no leading zero. Horizontal segments are single
+long RLE runs. **Minutes only — 60 flushes/hour**; deep idle (§5.15) stays intact. (The analog face
+survives unused in `Icons.analogClock`.)
 
 **Size is a Global setting (2026-09-01, Adam — `Silent clock`):** **large** = the 144×48 box
-above (the default); **medium** = a 112×34 seven-segment box, same corner; **small** = the
-title bar clock's EXACT size and position (the chrome clock cell's text readout, on black).
+(default); **medium** = a 112×34 seven-segment box, same corner; **small** = the title bar clock's
+EXACT size and position (the chrome clock cell's text readout, on black).
 `ShellSettings.silentClock`; the minute tick damages whichever box is active.
 
-**Measured: 0.5 % ink, 174 B, 192 ms (stock-formula pricing)** — the seven-segment readout costs
-FEWER bytes than the analog face did (174 vs 178 B): angled hands were RLE-expensive, horizontal
-segments are runs. Compare the 1.6 % / 1,165 B the 2026-08-18 *centred* digital clock cost — the
-objection then was huge-and-centered, and this one is 144×48 in a corner.
+**Measured: 0.5 % ink, 174 B, 192 ms (stock-formula pricing)** — fewer bytes than the analog face
+(178 B): angled hands were RLE-expensive, horizontal segments are runs. The 2026-08-18 *centred*
+digital clock cost 1.6 % / 1,165 B.
 
-⚠ **On seconds.** Bytes are not the constraint (a whole silent frame is 174 B) — the constraint is
-that anything sub-minute runs the radio continuously and contradicts deep idle (§5.15), on a
-device whose **only power control is the case, which stays home during the workday**.
+⚠ **On seconds.** Bytes are not the constraint (a whole silent frame is 174 B); anything sub-minute
+runs the radio continuously and contradicts deep idle (§5.15), on a device whose **only power
+control is the case, which stays home during the workday**.
 
 | option | flushes/hour | |
 |---|---|---|
@@ -214,53 +194,50 @@ Temporary popup notifications still appear. **All input swallowed except double-
 returns to Main. **The same law runs a window's exclusive mode** (§4.9, Music Mode): everything
 swallowed except double-tap, which returns to the window; notices in this small form.
 
-🔑 **This completes the gloves fix.** `overview.md` §6: glove-induced ring long-press → "End
-Feature?" → app ended, or a second long-press → Firmware Menu → Silent Mode. The dialog no longer
-exists (CFW patch), and in silent mode a stray long-press is swallowed by us — it does not even
-arm the §1.3 chord (2026-08-30), so double-tap always means wake here. **The chain has no
-first step left.**
+🔑 **This completes the gloves fix** (`overview.md` §6: glove-induced ring long-press → "End
+Feature?" → app ended, or a second long-press → Firmware Menu → Silent Mode). The dialog no longer
+exists (CFW patch), and in silent mode a stray long-press is swallowed and does not arm the §1.3
+chord (2026-08-30). **The chain has no first step left.**
 
-✅ **A G2CC hazard that is structurally impossible here.** `DE_DESIGN.md` records a rule learned
-twice: *"a scroll=true clock as the SOLE text region kills ALL input incl. double-tap; the v1.2
-blank screen did exactly that (wake took many taps)."* Under Damage the event antenna is the
-carrier layout's dummy full-screen text container (`content=" "`, `isEventCapture=true`), and
-**silent mode is a paint, not a layout change** — the antenna cannot be lost.
+✅ **A G2CC hazard that cannot occur here.** `DE_DESIGN.md`: *"a scroll=true clock as the SOLE text
+region kills ALL input incl. double-tap; the v1.2 blank screen did exactly that (wake took many
+taps)."* Under Damage the event antenna is the carrier layout's dummy full-screen text container
+(`content=" "`, `isEventCapture=true`), and **silent mode is a paint, not a layout change**.
 
 ⇒ **Rule: never tear down or rebuild the carrier layout to change what is on screen.** Keep
 Faceclaw's periodic `TextContainerUpgrade{ContentOffset=0, ContentLength=1, Content=" "}`.
 
 ### 1.5b The firmware's Silent Mode is the glasses asleep (2026-09-05, `HANDOFF.md` §36)
 
-The both-temple long-press is the stock hardware escape (§1.6), and in that mode the firmware
-**refuses every image** and says so with a push. The shell treats it as the glasses being
-asleep: it keeps composing and stops sending, drops the lease so the stock firmware owns the
-display and the temples, tells the phone once (naming the gesture that wakes them), and when
-the glasses say they are awake it **rebuilds the session** (`HANDOFF.md` §38): leaving Silent
-Mode ends the firmware's EvenHub page, so the wake is a fresh connect, CREATE and keyframe
-through the session keeper — G2CC's path — never a keyframe into the old session. The shell's
-own silent mode (§1.5) is a different thing — a black surface the shell keeps painting.
+The both-temple long-press is the stock hardware escape (§1.6); in that mode the firmware **refuses
+every image** and says so with a push. The shell treats it as the glasses being asleep: keeps
+composing, stops sending, drops the lease so the stock firmware owns the display and the temples,
+tells the phone once (naming the gesture that wakes them), and when the glasses report awake it
+**rebuilds the session** (`HANDOFF.md` §38): leaving Silent Mode ends the firmware's EvenHub page,
+so the wake is a fresh connect, CREATE and keyframe through the session keeper — never a keyframe
+into the old session. The shell's own silent mode (§1.5) is a black surface the shell keeps
+painting.
 
 ### 1.6 There is no quit
 
 The WM runs always, like G2CC. ⚠ **Consequence: the framebuffer lease is the liveness contract** —
 sid 0x09 field 101 op 5, **both arms, renewed every 45 s against a 90 s expiry.** It fails *open*:
-stop renewing and stock LVGL silently repaints over us. With no quit path there is nothing to
-distinguish "gone" from "idle", so a missed renewal is a hard error.
+stop renewing and stock LVGL silently repaints over us. With no quit path nothing distinguishes
+"gone" from "idle", so a missed renewal is a hard error.
 
 The stock **both-temple long-press → Silent Mode** stays as the hardware escape hatch. Ring-only
 makes it un-triggerable by accident.
 
 ### 1.7 Misfire tolerance is a design requirement
 
-Scroll-vs-tap ambiguity on a small sensor, gloved, is a **stated daily problem**. The design
-answer is to make misfires cheap rather than to prevent them:
+Scroll-vs-tap ambiguity on a small sensor, gloved, is a **stated daily problem**. Make misfires
+cheap rather than trying to prevent them:
 
 - **Cursor rest discipline** — after any menu/state change the cursor resets to a harmless cell.
-  (G2CC, verbatim: *"a stray tap had aborted a $5 turn."*)
+  (G2CC: *"a stray tap had aborted a $5 turn."*)
 - **Irreversible actions are never at a cursor rest position**, and never at index 0/1.
 - **Every navigation is undoable** by double-tap; the back stack is the undo stack.
-- **Input echo** — the status bar shows the last gesture actually received, so an ambiguous
-  physical action becomes an observable one (§9.2).
+- **Input echo** — the status bar shows the last gesture actually received (§9.2).
 
 ---
 
@@ -276,9 +253,8 @@ Mode-3 boxes encode as `[left/4][top/2][width/4][height/2]`, one byte each (`zli
 ### 2.2 The layout
 
 🔴 **Revised 2026-08-31 (REFINEMENT.md §1): the bars are inset to the content extent, x 16–624.**
-Chrome now sits BEHIND the content plane (§3.1), and a stereo shift needs the same 16 px side
-budget the content has — a full-width rect cannot shift at all without leaving the panel. The
-16 px strips beside the bars are shift gutters, level 0, exactly like §3.3's.
+Chrome sits BEHIND the content plane (§3.1), and a stereo shift needs the same 16 px side budget
+the content has. The 16 px strips beside the bars are shift gutters, level 0, like §3.3's.
 
 ```
         0  16                                    424          544  624  640
@@ -302,31 +278,27 @@ x = 320**, the same axis as the switcher wheel and Main's lens.
 ### 🔴 2.2b Express this layout RELATIVE to a calibrated safe rect, not absolute
 
 Every number in this file is written against a full 640×480. **That is the assumption to build on**
-(Adam, 2026-08-18) — but it is an assumption, because usable extent is fit-dependent:
+(Adam, 2026-08-18) — but usable extent is fit-dependent:
 
 > *"You can lose part of the top or bottom to optical occlusion depending how the glasses sit on
 > your face."* — the CFW author
 
-Designing for the worst case surrenders FoV we may not need to; designing for the best case risks a
-UI that does not work at the desk it is meant for. **So it is a calibration, exactly like
-disparity (§3.4):** a ramp draws a border and shrinks it until it is fully visible, and that safe
-rect is stored as a setting. `640×480` and Faceclaw's `640×288` then stop being two designs and
-become two values of one parameter. **State (2026-09-01):** the border ramp has not been run
-(`REMINDER.md` → still unmeasured, #1); what wearing it settled is the *direction* — Adam's fit
-always shows the top and loses the bottom (§2.5) — so the working parameter today is the Size
-setting's four TOP-aligned heights (§4.2), global with per-app overrides. *(A vertical-position
-setting once fell out of this too — retired 2026-08-31 for the same reason.)*
+**So it is a calibration, like disparity (§3.4):** a ramp draws a border and shrinks it until it is
+fully visible, and that safe rect is stored as a setting; `640×480` and Faceclaw's `640×288` become
+two values of one parameter. **State (2026-09-01):** the border ramp has not been run
+(`REMINDER.md` → still unmeasured, #1); wearing it settled the *direction* — Adam's fit always
+shows the top and loses the bottom (§2.5) — so the working parameter today is the Size setting's
+four TOP-aligned heights (§4.2), global with per-app overrides. *(A vertical-position setting was
+retired 2026-08-31 for the same reason.)*
 
-⚠ **Cheap now, expensive to retrofit.** It means no hardcoded `34` / `210` / `450` anywhere: the
-bars, the lens and the content band are all positioned *from the safe rect* —
-`core/…/geom/Layout.kt` takes the safe rect as its one input and `GeometryTest` sweeps it.
+⚠ **Cheap now, expensive to retrofit:** no hardcoded `34` / `210` / `450` anywhere. The bars, the
+lens and the content band are positioned *from the safe rect* — `core/…/geom/Layout.kt` takes it
+as its one input and `GeometryTest` sweeps it.
 
-✅ **The importance gradient is what makes it degrade gracefully**, and we already have it. Rendered
-with 56 px occluded top and bottom (`design/shots/cmp-480-ribbon-occluded.png`), the 2026-08-18
-layout (ribbon era, same importance ordering) loses only the top bar and the status bar — clock,
-battery, telemetry — and keeps **every dashboard row and the lens**. Load-bearing content is
-centred; the outermost rows carry the things that are right to lose. That is §2.5, demonstrated
-rather than asserted.
+✅ **The importance gradient makes it degrade gracefully.** Rendered with 56 px occluded top and
+bottom (`design/shots/cmp-480-ribbon-occluded.png`), the 2026-08-18 layout loses only the top bar
+and the status bar — clock, battery, telemetry — and keeps **every dashboard row and the lens**
+(§2.5).
 
 ### 2.3 Cell table
 
@@ -338,12 +310,6 @@ rather than asserted.
 | top bar | Title — `▣ WINDOW · document` | 16 | 408 | 0 | 32 |
 | | Battery ×2 (G glasses · P phone), 58 px pitch, 30 px body | 424 | 120 | 0 | 32 |
 | | Clock | 544 | 80 | 0 | 32 |
-
-🔴 **The clock cell's 80 is a FLOOR, not a constant** (2026-09-05, `HANDOFF.md` §30): it holds the
-widest `h:mm` plus its AM/PM marker at 100 % exactly, so one step up the font ladder the marker was
-drawn INSIDE the last digit. The shell measures the cell for the chrome face in use and the title
-cell takes what is left; the marker's x is measured from the widest time the face can print, not
-from the time on screen, so it cannot jitter as the minute changes.
 | divider | | 16 | 608 | 32 | 2 |
 | content | (nominal, ±d for depth) | 16 | 608 | 34 | 416 |
 | divider | | 16 | 608 | 450 | 2 |
@@ -355,8 +321,14 @@ from the time on screen, so it cannot jitter as the minute changes.
 
 Every value divides: x/w by 4, y/h by 2. ✅ Both bars tile 16 → 624. ✅
 
-*(Optional variant: merging Current operation + Status into one 260 px marquee cell is cleaner and
-handles long messages better under NO TRUNCATION. Kept separate by default, as specified.)*
+🔴 **The clock cell's 80 is a FLOOR, not a constant** (2026-09-05, `HANDOFF.md` §30): it holds the
+widest `h:mm` plus its AM/PM marker at 100 % exactly, so one step up the font ladder the marker was
+drawn INSIDE the last digit. The shell measures the cell for the chrome face in use and the title
+cell takes what is left; the marker's x is measured from the widest time the face can print, not
+from the time on screen, so it cannot jitter as the minute changes.
+
+*(Optional variant: merging Current operation + Status into one 260 px marquee cell handles long
+messages better under NO TRUNCATION. Kept separate by default.)*
 
 ### 2.4 Rules
 
@@ -365,45 +337,38 @@ handles long messages better under NO TRUNCATION. Kept separate by default, as s
 3. **Nothing is ever silently cut. Two mechanisms, chosen by context.** *Marquee* where motion is
    wanted and the element is focused (Main's lens, the switcher's centre item) — mode 9 takes full
    uint16 coords, so a horizontal marquee is a shift plus a small fill; step by 4. *A `▸`
-   continuation mark* on everything persistent and unfocused (unfocused Main rows, list rows) —
-   it advertises that more exists without putting permanent motion in the periphery or costing a
-   flush forever.
-   🔴 **Worded honestly (Adam's push, 2026-09-01):** the mark does not make a cut acceptable —
-   the guarantees behind it do. NO TRUNCATION's absolute half governs **content**: documents wrap
-   and scroll, bodies scroll, the tmux flow wraps — nothing content-level is ever elided. Rows and
-   titles are **handles** to content, and a handle may be elided only when the cut is
-   **advertised** (the mark appears exactly when something was clipped) and the full text is
-   **reachable in place** (focus it and the lens shows it whole; descend and the content is all
-   there). The ellipsis ban is style, not principle — the drawn `▸` is a solid closed form that
-   survives 1× where dot-triples grey out (§2.4 rule 9), and it points at the mechanism rather
-   than stating an omission — but an ellipsis with the same guarantees would satisfy the same
-   rule. The shared fit helper draws the mark whenever it clips, so an unadvertised cut is
-   impossible by construction, not by discipline. The Title is not covered by the reachability
-   rule — it is covered by a stronger one: §4.1's short-by-design contract.
+   continuation mark* on everything persistent and unfocused (unfocused Main rows, list rows) — it
+   advertises that more exists without permanent motion in the periphery.
+   🔴 **The guarantees behind the mark make a cut acceptable, not the mark (Adam's push,
+   2026-09-01).** NO TRUNCATION's absolute half governs **content**: documents wrap and scroll,
+   bodies scroll, the tmux flow wraps — nothing content-level is ever elided. Rows and titles are
+   **handles**, and a handle may be elided only when the cut is **advertised** (the mark appears
+   exactly when something was clipped) and the full text is **reachable in place** (focus it and
+   the lens shows it whole; descend and the content is all there). The ellipsis ban is style, not
+   principle — the drawn `▸` survives 1× where dot-triples grey out (rule 9) — an ellipsis with the
+   same guarantees would satisfy the same rule. The shared fit helper draws the mark whenever it
+   clips, so an unadvertised cut is impossible by construction. The Title is covered by a stronger
+   rule: §4.1's short-by-design contract.
 4. **Full height 480 is the default.** Content is 416, bars are thin.
 5. **Layout snaps to the damage grid** — every cell edge, text baseline and glyph origin lands on
    4 px x / 2 px y so a dirty rect never has to grow to cover a stray pixel.
 6. **Chrome is identical across every window** ⇒ a window switch repaints the **content area only**,
    never the bars.
 7. **Line height is a multiple of 2 px, baselines on the grid.** Otherwise scrolling by exactly N
-   lines produces an unaligned mode-3 fill and the rect grows to cover. Trivial now, painful to
-   retrofit.
+   lines produces an unaligned mode-3 fill and the rect grows to cover.
 8. **One 8 px design grid** — a multiple of both damage axes. Every inset, padding, icon size and
-   cell edge sits on it, so alignment is guaranteed by construction rather than by discipline.
+   cell edge sits on it.
 9. **Icon language for 16-level mono at FAR:** thick strokes, closed forms, no hairlines. A thin
    line plus AA at small angular size is mush.
 
 ### 2.5 Safe area
 
-Usable extent is fit-dependent — *"You can lose part of the top or bottom to optical occlusion
-depending how the glasses sit on your face."* Nothing load-bearing goes in the outermost rows. The
-status bar is the most at-risk element here and its contents are telemetry, which is the right
-thing to lose.
+Usable extent is fit-dependent (§2.2b). Nothing load-bearing goes in the outermost rows; the status
+bar is the most at-risk element and its contents are telemetry, the right thing to lose.
 
-🔑 **Adam's own fit, measured by wearing it (2026-08-31): the TOP is always visible; it is the
-BOTTOM that goes under occlusion when the glasses ride high.** That is why every reduced band is
-top-aligned (§4.2 Size) and why the status bar being the sacrificial edge is the right ordering
-for him specifically, not just in principle.
+🔑 **Adam's own fit, measured by wearing it (2026-08-31): the TOP is always visible; the BOTTOM
+goes under occlusion when the glasses ride high.** Hence every reduced band is top-aligned (§4.2
+Size) and the status bar is the sacrificial edge for him specifically.
 
 ---
 
@@ -422,18 +387,17 @@ for him specifically, not just in principle.
 >
 > ⚠ **Amended 2026-08-31 (Adam):** the bars and Main keep the GLOBAL depth setting, but the
 > focused APP's content plane uses a per-app depth (Settings → <app> → Depth, default 8 on the
-> 0/4/8/12/16 ladder) — app content pops forward of, or parks behind, the chrome. The ladder,
-> the horizontal-only rule and the forward-for-focus language below are unchanged.
+> 0/4/8/12/16 ladder). The ladder, the horizontal-only rule and the forward-for-focus language
+> below are unchanged.
 
 🔴 **Adam, 2026-08-17, correcting an inference we had recorded as his preference:**
 
 > "the main window as far back as depth comfortably allows, and notifications and the like to pop
 > over it in front of it."
 
-🔴 **Revised 2026-08-31 (REFINEMENT.md §1), after wearing it:** chrome was sharing plane 0 with
-the selection and read as competing for attention. Adam: the bars belong **"as far back as depth
-allows"** — behind the content plane, never with the selection. Chrome joins the back; the
-direction of the ladder is unchanged.
+🔴 **Revised 2026-08-31 (REFINEMENT.md §1), after wearing it:** chrome on plane 0 with the
+selection read as competing for attention. Adam: the bars belong **"as far back as depth allows"**
+— behind the content plane, never with the selection.
 
 | plane | contents | disparity (2026-09-06) |
 |---|---|---|
@@ -443,18 +407,19 @@ direction of the ladder is unchanged.
 | **−1** (far) | **main content** (Main at D; an app at its own row, else D) | D, or the app's value |
 | **−1** (far) | **chrome** — both bars and their dividers, always the Global row | D |
 
-**Depth is a z-order *signal*, not decoration** — the eye reads the layering pre-attentively, so
-you know something popped before you read it. **Modal depth = modal state**: a confirm dialog one
-step forward, and the depth itself says "this is blocking."
+🆕 **Popovers (2026-09-12, §4.11):** the FOCUSED popover owns plane 0; one beneath it in the stack
+recedes by the Global `Popover step` (default one notch) via a per-lens mode-9 copy; content stays at
+−1. At most two visible.
+
+**Depth is a z-order *signal*, not decoration** — the eye reads the layering pre-attentively.
+**Modal depth = modal state**: a confirm dialog one step forward says "this is blocking."
 
 🆕 **A window may name its own regions inside the content plane (2026-09-04).**
 `DamageWindow.contentPlanes(content)` returns up to `Shell.MAX_WINDOW_PLANES` (4) rects with the
 plane each should sit on; the shell validates them (grid-legal, inside the content area, capped in
-number) and folds them into the plane map. Everything above still holds — horizontal offsets only,
-never vertical, never different content per eye, small magnitudes — this only lets a window say
-*which part of itself* leans forward. Games brings your two hole cards to plane 0 and leaves the
-table at the content plane, so your own hand reads as yours without lighting one extra pixel; a
-window that returns an empty list is exactly as it was.
+number) and folds them into the plane map. Horizontal offsets only, never different content per
+eye, small magnitudes. Games brings your two hole cards to plane 0 and leaves the table at the
+content plane; an empty list is exactly as before.
 
 ### 3.2 Mechanism, from source
 
@@ -466,10 +431,10 @@ mode 9 stereo:  [9|80][Lsrc][Ldst][Rsrc][Rdst]                    +16 bytes
 ```
 
 - **Disparity is quantized to 4 px** — `left` is one byte ×4. Ladder: 0, 4, 8, 12, 16. No fine
-  adjustment exists. ✅ *In daily use since 2026-08-31* (chrome at −2, content at −1, per-app
-  depth) and Adam's on-glass verdict: "Depth reads well on glass." The calibration ramp and the
-  stock-FAR interaction stay open (§11 item 2). Faceclaw still contains no stereo code — this
-  project's daily driver is the exercised implementation.
+  adjustment exists. ✅ *In daily use since 2026-08-31* (then chrome at −2, content at −1, per-app
+  depth); Adam's on-glass verdict: "Depth reads well on glass." The calibration ramp and the
+  stock-FAR interaction stay open (§11 #2). Faceclaw contains no stereo code — this project's daily
+  driver is the exercised implementation.
 - **Cost is negligible.** Depth is the cheapest visual feature on the device.
 - **Scrolling stereo content works** — mode 9 has its own lenses-differ form.
 
@@ -486,15 +451,14 @@ horizontal offset, our disparity stacks on it and could exceed divergence.
 
 - **Depth is a per-layer property applied at the transport boundary.** The compositor renders in
   plain 608×416 coordinates; the emitter applies ±d when building the box pair.
-- **A stereo rect makes the two lenses' shadows genuinely diverge** ⇒ the host-side shadow model is
+- **A stereo rect makes the two lenses' shadows diverge** ⇒ the host-side shadow model is
   **per-lens**. Stereo is a property of a whole composited element, always painted as a unit;
   never partially update a stereo region with a non-stereo delta.
 - ✅ Content parks far permanently, so a popup appearing does **not** force the content to repaint
   its stereo boxes. Only the popup rect is new.
-- **IPD / convergence calibration is a first-class WM setting** — misaligned images are what
-  actually cause eye strain, so this is a comfort win independent of any effect. Shipped as the
-  Depth rows (0/4/8/12/16 — scroll previews live, tap keeps, double-tap reverts; §4.2). The ramp
-  as a guided calibration is still owed (§11 #2).
+- **IPD / convergence calibration is a first-class WM setting** — misaligned images are what cause
+  eye strain. Shipped as the Depth rows (0/4/8/12/16 — scroll previews live, tap keeps, double-tap
+  reverts; §4.2). The ramp as a guided calibration is still owed (§11 #2).
 - Horizontal offsets only, never vertical (the wire format would allow vertical — the guard is
   ours). Never different *content* per eye.
 
@@ -512,70 +476,55 @@ horizontal offset, our disparity stacks on it and could exceed divergence.
 32 ├──── window position · attention marks ───────────────────────────────────┤ 2
 ```
 
-**Ink budget ≤ 8 %.** This bar is permanent, so it is where ink discipline matters most.
+**Ink budget ≤ 8 %.** This bar is permanent, so ink discipline matters most here.
 
 #### 🔴 The ribbon is retired (2026-08-18)
 
-Adam: *"forget the ribbon entirely, the switcher makes it redundant. Main already acts as a full
-launcher/list while switcher acts as an ALT+TAB, we don't need to waste space putting a second
-crappier switcher in the title bar."*
-
-He is right, and the comparison renders make the case: a 3-cell ribbon showed **3** windows against
-the switcher's whole wheel and Main's **11 rows**, and at the Main level it was a straight duplicate
-of the list beneath it. It was a third window-list competing with two better ones.
-
-**Nothing is lost, because its three jobs all had better homes:**
+Adam: *"forget the ribbon entirely, the switcher makes it redundant … we don't need to waste space
+putting a second crappier switcher in the title bar."* The renders agreed: a 3-cell ribbon showed
+**3** windows against the switcher's whole wheel and Main's **11 rows**, and at the Main level it
+duplicated the list beneath it.
 
 | the ribbon did | now |
 |---|---|
 | name the current window | the **Title**, merged (below) |
 | show position in the window set | the **divider**, which already carried it |
 | flag windows wanting attention | the **divider** too — see below |
-| switching | the **switcher** (§4.3) and **Main** (§4.2), which both did it better |
+| switching | the **switcher** (§4.3) and **Main** (§4.2) |
 
-⇒ **240 px of permanent chrome recovered**, and it went to the battery readout, which needed it.
+⇒ **240 px of permanent chrome recovered**, spent on the battery readout.
 
 #### Title — window and document, merged
 
-With no ribbon there is no redundancy left to avoid, so the two halves rejoin into one line:
 **`▣ WINDOW · document`** — icon, window name at head level, context dimmer. 408 px (296 until the
-2026-09-01 battery-cell trim, below). Overflow takes
-the `▸` continuation mark, never a marquee (§2.4 rule 3).
+2026-09-01 battery-cell trim, below). Overflow takes the `▸` continuation mark, never a marquee
+(§2.4 rule 3).
 
-🔴 **The Title contract (Adam, 2026-09-01): the Title is SHORT BY DESIGN — its content must
-never be long enough to cut.** The context half is terse and bounded; unbounded or variable
-content (message bodies, senders, anything beyond a document name's head) belongs to the content
-area or the notification surface, never to chrome — **which is exactly why notifications are a
-popup here instead of G2CC's title-bar cram.** The `▸` fit guard stays as the tripwire, but a
-Title that takes the mark is a window defect to fix at the source, not a feature. Naturally
-unbounded names (a long book title) are the tolerated residue: rare, and the full name is always
-one step away inside the window itself.
+🔴 **The Title contract (Adam, 2026-09-01): the Title is SHORT BY DESIGN — its content must never
+be long enough to cut.** The context half is terse and bounded; unbounded or variable content
+(message bodies, senders, anything beyond a document name's head) belongs to the content area or
+the notification surface — **which is why notifications are a popup here instead of G2CC's
+title-bar cram.** The `▸` fit guard stays as the tripwire, but a Title that takes the mark is a
+window defect to fix at the source. Naturally unbounded names (a long book title) are the tolerated
+residue: rare, and the full name is one step away inside the window.
 
 #### 🔑 The divider absorbs the ribbon's remaining job
 
-The `608×2` rule is lit regardless, so it carries both axes of "where am I":
-
-- a **dim track** the full width, one slot per window;
-- a **bright segment** at your position;
-- **medium ticks** at any window wanting attention.
-
-Zero extra pixels, zero extra bytes — it is inside a rect that ships anyway. **The ribbon's
-information survives; only its 240 px did not.**
+The `608×2` rule is lit regardless, so it carries both axes of "where am I": a **dim track** the
+full width, one slot per window; a **bright segment** at your position; **medium ticks** at any
+window wanting attention. Zero extra bytes — it is inside a rect that ships anyway.
 
 #### 🔑 Battery — a plain fill bar, deliberately NOT segmented
 
 `G▓▓▓▓▒  P▓▓▓▒▒` — glasses, phone. *(The **R** ring cell was removed 2026-08-31: ring battery
 has no open-source source — the glasses can't relay it and the ring's own link needs protocol RE,
-`CLAIMS.md`. A blank cell for an unreachable value is empty chrome. Faceclaw shows the same two,
-Phone + G2, for the same reason.)* **30 px body** plus nub, **58 px pitch in a 120 px
-cell** (`x 424–544` — the cell shrank from 176 when the ring gauge went, 2026-09-01: the two
-survivors closed up against the clock and the freed space went to the Title), with the letter
-**capitalised and set larger** (14 px bold) so the device is identified at a glance. The Title
-is now **408 px** — wide enough for `▣ WINDOW · document` without the continuation mark in most
-cases.
+`CLAIMS.md`. Faceclaw shows the same two for the same reason.)* **30 px body** plus nub, **58 px
+pitch in a 120 px cell** (`x 424–544` — the cell shrank from 176 when the ring gauge went,
+2026-09-01; the freed space went to the Title, now **408 px**), with the letter **capitalised and
+set larger** (14 px bold) so the device is identified at a glance.
 
 Adam asked for granularity: *"I want to visibly see the difference between 45% and 50%, if
-possible."* **Three encodings were rendered and compared** (`design/shots/battery-granularity.png`):
+possible."* Three encodings rendered and compared (`design/shots/battery-granularity.png`):
 
 | encoding | verdict |
 |---|---|
@@ -583,29 +532,27 @@ possible."* **Three encodings were rendered and compared** (`design/shots/batter
 | 16 segments + brightness on the partial | better, still needs attention to read |
 | ✅ **20 segments, pure length** | **clearly monotonic — and at this width the segments merge into a solid bar anyway** |
 
-🔑 **So the answer is not to segment at all.** Segmentation solves a *small-width* problem, and
-removing the ribbon removed the width constraint. A plain fill gives **~0.9 px per percent**, so 45 %
-and 50 % differ by ~2.8 px — read instantly as length, which the eye does far better than
-brightness. And it is the cheapest option available: **one run per row instead of twenty.** The
-legible choice is again the cheap one.
+🔑 **So do not segment at all.** Segmentation solves a *small-width* problem, and removing the
+ribbon removed the width constraint. A plain fill gives **~0.9 px per percent**, so 45 % and 50 %
+differ by ~2.8 px — read as length, which the eye does far better than brightness — and it is the
+cheapest option: **one run per row instead of twenty.**
 
 **Brightness still tracks charge** (`level = clamp(2 + 8×pct/100, 2, 10)`), and **≤ 20 % pulses**
-`15 · 8 · 3 · 8 · 15 · 8 · 3` — attention carried by change, not by steady level (§4.1 battery
-rules, settable off / on / escalating).
+`15 · 8 · 3 · 8 · 15 · 8 · 3` — attention carried by change, not by steady level (settable off /
+on / escalating).
 
-⚠ **Halving the width costs the granularity target, and that is a deliberate trade.** Adam,
-2026-08-18: *"I'd make the battery icons half that width though, that's a bit much."* At a 30 px body
-the fill area is 24 px:
+⚠ **Halving the width costs the granularity target — a deliberate trade.** Adam, 2026-08-18:
+*"I'd make the battery icons half that width though, that's a bit much."* At a 30 px body the fill
+area is 24 px:
 
 | body | px per % | 45 % vs 50 % |
 |---|---|---|
 | 60 px | 0.54 | **2.7 px** — clearly visible |
 | **30 px** (adopted) | 0.24 | **1.2 px** — at the edge of readable |
 
-⇒ The 5 % discrimination he originally asked for is **no longer reliable from the bar alone.** That
-is fine because he named the fallback himself: **exact percentages live in the Info/Stats surface.**
-The bar is for glancing — is it fine, getting low, or urgent — and the number is for checking. Worth
-recording so nobody later "fixes" the bar by widening it again without knowing why it is narrow.
+⇒ The 5 % discrimination is **no longer reliable from the bar alone**; he named the fallback:
+**exact percentages live in the Info/Stats surface.** The bar is for glancing. Do not "fix" it by
+widening it without knowing why it is narrow.
 
 #### Clock
 
@@ -614,16 +561,14 @@ space, which is what makes 80 px enough.
 
 ### 4.2 Main — the dashboard, and the WM's settings
 
-The rest state, reached by double-tap from any window root. With the ribbon retired (§4.1),
-Main and the switcher are the *only* two window lists in the shell.
+The rest state, reached by double-tap from any window root. With the ribbon retired (§4.1), Main
+and the switcher are the *only* two window lists in the shell.
 
 #### 🔑 The organizing principle: on this display, transparency IS ink coverage
 
-The G2 is an additive see-through micro-LED panel. **Level 0 does not emit — it is literally
-transparent.** So "enough transparency to not be distracting" is not an alpha channel and not a
-compositing mode: it is simply *how few pixels you light*.
-
-That collapses three separate goals into one number:
+The G2 is an additive see-through micro-LED panel: **level 0 does not emit — it is transparent.**
+"Enough transparency to not be distracting" is not an alpha channel; it is *how few pixels you
+light*, which collapses several goals into one number:
 
 | goal | mechanism |
 |---|---|
@@ -632,13 +577,9 @@ That collapses three separate goals into one number:
 | cheaper on the wire | fewer lit pixels ⇒ longer level-0 RLE runs |
 | more legible against a real-world background | high contrast between a sparse mark and true black |
 
-🔑 **The prettiest Main, the least distracting Main, and the cheapest Main are the same Main.** No
-tradeoff to manage. This is the single most G2-specific fact in the whole shell design and it
-should drive every decision below.
-
-⇒ **Adopt an INK BUDGET as a first-class, lintable design metric** — the fraction of pixels above
-level 0. The layout linter (§9.2b) can compute it from a rendered surface and fail the build when a
-surface exceeds its budget. The budgets, against the current renders:
+🔑 **The prettiest Main, the least distracting Main, and the cheapest Main are the same Main** —
+the most G2-specific fact in the shell design. ⇒ **The INK BUDGET is a first-class, lintable
+metric** — the fraction of pixels above level 0:
 
 | surface | budget | **measured** |
 |---|---|---|
@@ -653,27 +594,21 @@ surface exceeds its budget. The budgets, against the current renders:
 
 ✅ **Measured 2026-08-18 from real renders** — `design/render_shots.py` composes each screen at
 true 1× 640×480 in the locked faces, quantises to 4 bpp, and runs the firmware's own RLE through
-deflate level 6.
-
-🔑 **`tools/lint.py` rule BUD007 compares this table against the actual renders**, so it cannot
-drift silently. It already caught the table claiming 5.1 % for Main-resting when the render said
-4.6 % — and 5.1 % would have been *over budget*. Regenerate the shots and re-run the gate after any
-design change. **Every budget is met with wide margin**, which says the budgets were
-set conservatively rather than that the design is sparse by luck. Shots in `design/shots/`.
+deflate level 6. **`tools/lint.py` rule BUD007 compares this table against the actual renders** —
+it caught the table claiming 5.1 % for Main-resting when the render said 4.6 %, and 5.1 % would
+have been *over budget*. Regenerate the shots and re-run the gate after any design change.
 
 ⚠ **Those are full-screen KEYFRAME costs, not per-interaction deltas.** Cold entry to a screen:
-**174 B (silent, today's readout) → ~8.5 KB (a dense mail list, 2026-08-18 render).** Compression
-ratios land at **0.008–0.056×**, so the
-0.03–0.05× band used throughout §8 was sound but slightly optimistic — the measured full-screen
+**174 B (silent) → ~8.5 KB (a dense mail list, 2026-08-18 render).** Compression ratios land at
+**0.008–0.056×**, so the 0.03–0.05× band used throughout §8 was slightly optimistic — the measured
 keyframe sits at the **pessimistic end** of the modelled range. Do not plan against the low end.
 
-**Design consequences, all in the same direction:** no filled panels, no boxes, no backgrounds —
-background pixels are pure waste on an additive display. Structure comes from *spacing and
-brightness*, not from rules and frames. Type does the work.
+**Design consequences:** no filled panels, no boxes, no backgrounds. Structure comes from *spacing
+and brightness*, not from rules and frames.
 
 #### Geometry — a fixed cursor band with the list panning through it
 
-`overview.md` §12 already settled **fixed cursor + panning list**. Applied here:
+`overview.md` §12 settled **fixed cursor + panning list**:
 
 ```
         ┌──────────────────────────────────────────────────────────┐ y 34
@@ -699,44 +634,36 @@ brightness*, not from rules and frames. Type does the work.
 `16 + 5×32 + 64 + 5×32 + 16 = 416` ✅ · every y and height even ✅
 
 🔑 **The lens band is at `y 210, h 64` — its centre is y = 242, the exact centre of the content
-area.** The content area centres on x = 320, the switcher wheel centres on (320, 242), and this band
-centres on 242 too. **Everything focal in the WM sits on one axis.** That is what will make it read
-as designed rather than assembled.
+area.** The content area centres on x = 320, the switcher wheel on (320, 242). **Everything focal
+in the WM sits on one axis.**
 
 🆕 **Those are the 100 % numbers, and the FLOORS** (2026-09-04, `HANDOFF.md` §29). The 32 px row
 holds Clear Sans 18's measured 27 px of ink under the rows' 5 px offset exactly, and one step up
-the font ladder the row directly above the lens lost its descenders to the lens fill. The row
-pitch and the lens band are now measured from the row face through whatever transform is on
-screen (`Shell.listRhythm`: rows `5 + ink`, lens `2 × ink + 10`, even, never below 32 / 64), the
-rows above hang from the lens with any remainder under the top pad (at 32 every height mode
-divides exactly, so 100 % is this drawing to the pixel), and a window places its second lens line
-below the first line's measured ink (`Draw.lineBelow`), never at a constant.
+the font ladder the row above the lens lost its descenders to the lens fill. The row pitch and the
+lens band are measured from the row face through whatever transform is on screen
+(`Shell.listRhythm`: rows `5 + ink`, lens `2 × ink + 10`, even, never below 32 / 64), the rows
+above hang from the lens with any remainder under the top pad (at 32 every height mode divides
+exactly), and a window places its second lens line below the first line's measured ink
+(`Draw.lineBelow`), never at a constant.
 
-**The list pans; the lens does not move.** So scrolling is `mode 8 { mode 9 shift + mode 3 fill of
+**The list pans; the lens does not move.** Scrolling is `mode 8 { mode 9 shift + mode 3 fill of
 the newly exposed row + mode 3 repaint of the lens }` — the shift moves every row on-device for
-zero pixel bytes, and the highlight never has to be erased and redrawn because it never moves.
+zero pixel bytes, and the highlight never has to be erased because it never moves.
 
-**The list wraps**, and **Settings is its last entry** — so from the top row, **one scroll up lands
-on Settings**. Out of the way and one gesture away at the same time, with no pinned row eating
-space.
+**The list wraps**, and **Settings is its last entry** — from the top row, **one scroll up lands on
+Settings**.
 
 #### Contents — and no truncation, honestly
 
 **Three columns: icon, window name (small caps, dim), live summary (brighter).** Numerics
-right-align into a column so the eye can scan them.
+right-align into a column. **In the lens, the focused window shows its full summary, wrapped over
+two lines** — 64 px is exactly two 32 px lines. Unfocused rows show one line and, when there is
+more, the **right-edge continuation mark `▸`** — reachable (focus it and the lens reveals it in
+full) and advertised (§2.4 rule 3). Wrapping every row instead would turn a glanceable dashboard
+into a wall.
 
-**In the lens, the focused window shows its full summary, wrapped over two lines** — 64 px of band
-is exactly two 32 px lines.
-
-⚠ **How a long summary is handled, because "no truncation" is a hard rule here.** Unfocused rows
-show one line and, when there is more, a **right-edge continuation mark `▸`** — never an ellipsis,
-never a silent cut. The mark says *"there is more here, focus me"*, which is the opposite of silent
-mangling: the information is always **reachable** (scroll to it and the lens reveals it in full),
-and its existence is always **advertised**. Wrapping every row to full length instead would make
-the list unscannable and turn a glanceable dashboard into a wall.
-
-🟡 If two lines still is not enough for some window, the lens can marquee its second line
-horizontally — mode 9 makes that nearly free (§2.4 rule 3). Held in reserve; not the default.
+🟡 If two lines still is not enough, the lens can marquee its second line horizontally — mode 9
+makes that nearly free (§2.4 rule 3). Held in reserve; not the default.
 
 #### Depth — one language, three places
 
@@ -744,58 +671,47 @@ horizontally — mode 9 makes that nearly free (§2.4 rule 3). Held in reserve; 
 - **plane 0** — the **lens band**, lifted forward
 - **plane +1** — emergency only (§4.5)
 
-The focused row literally comes off the page. Cost: **+4 bytes**, one extra stereo box pair on the
-lens rect.
-
-🔑 **"Focused comes forward" is now the WM's system-wide depth language** — the notification taking
-focus (§4.5), the switcher wheel's centre item (§4.3), and Main's lens all use it. One idea, three
-surfaces. ⚠ Brightness remains the primary cue everywhere, since a user calibrated to `d = 0` sees
-no depth at all.
+Cost: **+4 bytes**, one extra stereo box pair on the lens rect. 🔑 **"Focused comes forward" is
+the WM's system-wide depth language** — the notification taking focus (§4.5), the switcher's
+centre item (§4.3), and Main's lens. ⚠ Brightness remains the primary cue everywhere, since a user
+calibrated to `d = 0` sees no depth at all.
 
 #### Resting state — the answer to "not horribly distracting"
-
-Main has two appearances:
 
 | state | what shows |
 |---|---|
 | **active** — you are interacting | full dashboard, full ramp, ≤ 15 % ink |
 | **resting** — input has gone quiet | the lens row and the bars only; other rows drop to level 2–3 or away entirely. ≤ 5 % ink |
 
-This is the direct answer to *"enough transparency to not be horribly distracting if I need to look
-through it"* — at work you glance, then look **through** the glasses at real work, and a full-
-brightness dashboard sitting there is exactly the distraction to avoid.
-
-✅ **And the resting state is CHEAPER to transmit than the active one**, because less ink means
-longer level-0 runs. The comfortable choice and the fast choice are again the same choice.
-
-The transition uses the same "input has gone quiet" signal as live preview (§4.3) and the
-notification focus grace (§4.5) — scheduler priority, not a timer.
+This answers *"enough transparency to not be horribly distracting if I need to look through it"*,
+and the resting state is also CHEAPER to transmit (longer level-0 runs). The transition uses the
+same "input has gone quiet" signal as live preview (§4.3) and the notification focus grace (§4.5)
+— scheduler priority, not a timer.
 
 #### ⚙ Settings — inside Main, as Adam asked
 
 The last list entry opens the WM's global settings. **Organized as DIRECTORIES since 2026-08-31**
-(Adam, same day, after inline headers proved too slow: *"the categories should be DIRECTORIES …
-it takes way way too long to scroll through 50 different things"*): the top level lists the
-categories — **Global** (the table below + the host's display-target rows), then **one per app**:
-every app category carries Font · Font size · Font style · Depth (§0's typography reversal, §3.1's
-per-app depth) plus the rows that window contributes through `DamageWindow.appSettings()` (Reader:
-Scroll step · Scroll accel · Size · Reset progress; Tmux: Update · Context rows · Alerts · Size;
-Torrents: Notify · done · Notify · errors · Poll · Size; Files: none; Music: six Notify rows, the
-playback rows, Music Mode's six surfaces, Sleep, Pre-transcode, Rescan, Size — about thirty) — tap descends into a
-category, double-tap climbs out, exactly the §4.6 level pattern.
+(Adam, after inline headers proved too slow: *"the categories should be DIRECTORIES … it takes way
+way too long to scroll through 50 different things"*): the top level lists the categories —
+**Global** (the table below + the host's display-target rows), then **one per app**: every app
+category carries Font · Font size · Font style · Depth (§0's typography reversal, §3.1's per-app
+depth) plus the rows that window contributes through `DamageWindow.appSettings()` (Reader: Scroll
+step · Scroll accel · Size · Reset progress; Tmux, Torrents and Music their own — Music about
+thirty; Files: none; each window's record lists them) — tap descends into a category, double-tap
+climbs out (§4.6).
 
 🔑 **The global/override pattern** (Adam, 2026-08-31): any per-app shadow of a global setting
-offers **"global" as its DEFAULT option** plus the global setting's own values; a non-global
-choice overrides the global for that app only. Reader's Size row is the first instance
-(global / 288 / 352 / 416 / 480, applied on focus per §2's per-app height).
+offers **"global" as its DEFAULT option** plus the global setting's own values; a non-global choice
+overrides the global for that app only. Reader's Size row is the first instance (global / 288 /
+352 / 416 / 480, applied on focus per §2's per-app height).
 
 | setting | notes |
 |---|---|
 | **Brightness** | the panel's own, sid 0x09 — distinct from our 16-level content ramp. One ladder with **auto at its foot** (2026-09-04, `HANDOFF.md` §29): a notch up from auto leaves it at the stored level, a notch down from 0 % is auto again, nothing sits below auto — before, a brightness touched once on the glasses stayed manual for good |
-| **Size** | **four heights — 288 / 352 / 416 / 480 — always TOP-aligned** (revised 2026-08-31, Adam: *"I can always see the top, it's the lower areas that get cut off if I wear the glasses too high"* — so the vertical-position setting was useless and is retired). Per-app shadows follow the global/override pattern below |
+| **Size** | **four heights — 288 / 352 / 416 / 480 — always TOP-aligned** (revised 2026-08-31, Adam: *"I can always see the top, it's the lower areas that get cut off if I wear the glasses too high"* — so the vertical-position setting was retired). Per-app shadows follow the global/override pattern |
 | **Depth** | the disparity ramp, 0/4/8/12/16 (§3.1 revised 2026-09-06: it moves everything, the selection one notch nearer; each app's own `Depth` row defaults to `global`) |
 | **Presence** | the resting-state ink floor — one knob for "how much is it in my way" |
-| **Font · Font size · Font style** | chrome + Main's face, scale and style, each option previewed in its own face (§Type's defaults, changeable since 2026-08-31); every app category carries the same three rows for its content. 🔴 **Chrome grows only until its bar is full** (2026-09-05): §2.3's bars are a fixed 32 px and 28 px, so the CHROME half of the global scale is capped to the measured ink the shortest bar can hold — Clear Sans reaches 115 %, Alegreya 100 % — while CONTENT keeps the whole ladder. Uncapped, the title inks into the divider at 130 % and the status line's descenders land below the safe rect at a reduced height, both outside the only rect chrome damages (`HANDOFF.md` §27.2). 🔴 **The chrome surfaces' own rhythm is measured too** (2026-09-04, `HANDOFF.md` §28.2): the menu's title band and row pitch, the notification box's source band, body pitch and visible-line count, the wheel's centre band — each with its design number as the FLOOR, so 100 % is unchanged and a grown face never puts ink outside the surface's own rect. 🔴 **And the list rhythm** (2026-09-04, `HANDOFF.md` §29): the row pitch, the lens band and every window's second lens line are measured from the row face the same way — the design's 32 / 64 are the floors — after the row above the lens was seen losing its descenders at 115 % |
+| **Font · Font size · Font style** | chrome + Main's face, scale and style, each option previewed in its own face (§Type's defaults, changeable since 2026-08-31); every app category carries the same three rows for its content. 🔴 **Chrome grows only until its bar is full** (2026-09-05): §2.3's bars are a fixed 32 px and 28 px, so the CHROME half of the global scale is capped to the measured ink the shortest bar can hold — Clear Sans reaches 115 %, Alegreya 100 % — while CONTENT keeps the whole ladder. Uncapped, the title inks into the divider at 130 % and the status line's descenders land below the safe rect at a reduced height, both outside the only rect chrome damages (`HANDOFF.md` §27.2). 🔴 **The chrome surfaces' own rhythm is measured too** (2026-09-04, `HANDOFF.md` §28.2): the menu's title band and row pitch, the notification box's source band, body pitch and visible-line count, the wheel's centre band — each with its design number as the FLOOR. 🔴 **And the list rhythm** (2026-09-04, `HANDOFF.md` §29): row pitch, lens band and every window's second lens line are measured from the row face — the design's 32 / 64 are the floors — after the row above the lens lost its descenders at 115 % |
 | **Silent clock** | large (the 144×48 seven-segment box, default) / medium / small — §1.5 |
 | **Head tracking** | default OFF (§7.1) |
 | **Long-press** | **off** (default — §1.2 revised 2026-08-30: a bare long-press is a no-op; the §1.3 chord opens the switcher) / switcher |
@@ -807,20 +723,17 @@ choice overrides the global for that app only. Reader's Size row is the first in
 | **Battery alert** | off / on / escalating — the ≤ 20 % pulse (§4.1) |
 | **Profiler · Diag overlay** | the status-bar profiler (off by default) and the mode-7 diagnostic overlay (on since bring-up; a sticky flag is a hard error either way — §9.2) |
 
-🔑 **Every appearance setting previews LIVE as you scroll its value.** Brightness changes the panel
-as you move; depth changes the disparity as you move; size re-lays out as you move. **This is the
-only sane way to set a perceptual value on a HUD** — you cannot pick a comfortable disparity from a
-number, you pick it by looking. It reuses the live-preview machinery from §4.3 rather than adding
-any.
+🔑 **Every appearance setting previews LIVE as you scroll its value** — brightness, depth, size
+change as you move; you pick a comfortable disparity by looking, not from a number. It reuses the
+live-preview machinery from §4.3.
 
 ⚠ Size changes re-lay out the whole shell ⇒ a keyframe (~1.1 s at stock-formula pricing, ~0.3 s on
-the measured CFW curve, §8.4). Fine for a setting, but it is the one setting that cannot preview
-per notch: it is staged while scrolling and applied on tap (the font rows stage the same way — a
-face change is a relayout too).
+the measured CFW curve, §8.4) — the one setting that cannot preview per notch: staged while
+scrolling, applied on tap (the font rows stage the same way — a face change is a relayout too).
 🔴 **A staged row SAYS so.** Its value carries `(tap applies)` and its hint reads *"scroll picks ·
-tap applies · double-tap reverts"*, not the live rows' *"scroll adjusts live · tap keeps"* — the
-one wording was on every row until 2026-09-05 (`HANDOFF.md` §30), so scrolling Size three notches
-left the panel exactly where it was under a line claiming otherwise.
+tap applies · double-tap reverts"*, not the live rows' *"scroll adjusts live · tap keeps"* — the one
+wording was on every row until 2026-09-05 (`HANDOFF.md` §30), so scrolling Size three notches left
+the panel where it was under a line claiming otherwise.
 
 #### Cost
 
@@ -835,17 +748,15 @@ protocol floor, not the bandwidth floor.
 
 ### 4.3 Switcher — the wheel
 
-🔴 **Bespoke, not a generic overlay.** Adam, 2026-08-17: the switcher and the notification surface
-are **designed independently** — their own geometry, motion, content and input handling. They share
-only the compositor's layer/z-order plumbing, because there is exactly one compositor and one
-damage tracker. There is deliberately **no generic "overlay" abstraction** pulling them toward
-looking and behaving the same.
+🔴 **Bespoke, not a generic overlay** (Adam, 2026-08-17; §0 — since 2026-09-12 a bespoke PRESENTATION on
+the §4.11 modal stack): its own geometry, motion, content and
+input handling; only the compositor's layer/z-order plumbing is shared with the notification
+surface.
 
 #### Form: a vertical drum, seen head-on
 
-Not a flat list. A wheel *coming at you* — the centre window faces you square, its neighbours curve
-away above and below, foreshortened and fading into the panel edge. Scrolling spins the drum to the
-next detent.
+A wheel *coming at you* — the centre window faces you square, its neighbours curve away above and
+below, foreshortened and fading into the panel edge. Scrolling spins the drum to the next detent.
 
 ```
         ┌────────────────────────┐  y 154
@@ -864,28 +775,26 @@ next detent.
 | | value |
 |---|---|
 | panel | `x 200, y 154, w 240, h 176` — centred on x=320 and on the content band's centre y=242 |
-| bands | above 44 · **centre 88** · below 44 — the design's numbers, and the FLOOR; the centre band grows with the name's MEASURED INK (ascent **and** descent, plus two rows) up the font ladder and the neighbours shrink to match, each clamped so its own ink stays off the band rules. 🔴 Sized from the ASCENT (2026-09-04, §28.2) the lower rule was painted straight through the centre name — at 100 % as well as at 130 %; corrected 2026-09-05, `HANDOFF.md` §30 |
+| bands | above 44 · **centre 88** · below 44 — the design's numbers, and the FLOOR; the centre band grows with the name's MEASURED INK (ascent **and** descent, plus two rows) up the font ladder and the neighbours shrink to match, each clamped so its own ink stays off the band rules. 🔴 Sized from the ASCENT (2026-09-04, §28.2) the lower rule was painted through the centre name at 100 % as well as 130 %; corrected 2026-09-05, `HANDOFF.md` §30 |
 | centre item | 64×64 icon + 4 gap + 20 title |
 | grid | x/w ÷4 ✅ · y/h ÷2 ✅ |
 
 **The drum model.** Slots sit on a cylinder rotating about a horizontal axis, detents 60° apart:
 vertical scale = `cos θ`, screen offset ∝ `sin θ`, brightness falls with `cos θ`. At **θ = ±60°,
-`cos 60° = 0.5` exactly** — so the neighbours land at precisely half height, which is Adam's *"half
-the above-window and half the below-window"* falling straight out of the geometry rather than being
-fudged. Their outer edges fade to background, so they read as curving out of view.
+`cos 60° = 0.5` exactly** — the neighbours land at half height, Adam's *"half the above-window and
+half the below-window"* falling out of the geometry. Their outer edges fade to background.
 
 #### 🔑 Why a *vertical* drum is the cheap one
 
-A cylinder rotating about a horizontal axis foreshortens **vertically only** — horizontal extent is
-constant, so every scanline keeps its run structure. **RLE encodes horizontal runs.** A horizontal
-carousel would resample across the run direction and shred compression; this one is compression-
-friendly by construction. The fancy choice is also the cheap choice.
+A cylinder about a horizontal axis foreshortens **vertically only**, so every scanline keeps its
+run structure — and **RLE encodes horizontal runs.** A horizontal carousel would resample across
+the run direction and shred compression.
 
 #### The cost, and the condition it depends on
 
 Panel = 42,240 px = **21,120 B raw**. Every spin frame repaints the whole panel — as **one rect**
-with depth off, or as **three** (one per band) once per-band depth is on, since a single rect carries
-a single disparity. Same pixels either way; the split adds ~30 B of framing and 2 fids.
+with depth off, or as **three** (one per band) with per-band depth, since a single rect carries a
+single disparity. Same pixels either way; the split adds ~30 B of framing and 2 fids.
 
 | compression | per frame | 4-frame spin |
 |---|---|---|
@@ -893,76 +802,60 @@ a single disparity. Same pixels either way; the split adds ~30 B of framing and 
 | **sparse panel (expected)** | **~1,060 B / 96 ms** | **~4.2 KB / ~384 ms** |
 | dense AA, smooth gradients | ~2,530 B / 230 ms ✗ | ~10 KB / ~920 ms ✗ |
 
-The ack floor buys **1,936 B of transfer** (176 ms × 11 KB/s — stock-formula pricing; the
-measured CFW curve is ~3–5× cheaper, §8.4). Stay under that and the pipeline is
-ack-bound, so with three flushes in flight a frame lands every ~59 ms and a 4-frame spin is
-**~240 ms** — snappy. Go over it and the wheel becomes bandwidth-bound and visibly slow.
+The ack floor buys **1,936 B of transfer** (176 ms × 11 KB/s — stock-formula pricing; the measured
+CFW curve is ~3–5× cheaper, §8.4). Under that the pipeline is ack-bound: with three flushes in
+flight a frame lands every ~59 ms and a 4-frame spin is **~240 ms**. Over it the wheel becomes
+bandwidth-bound and visibly slow.
 
 🔴 **Therefore the fade MUST be quantised, not smooth.** Four discrete brightness tiers (centre
-full, neighbours ~50 %, their outer edges ~25 %, background 0), not a per-pixel ramp. A smooth
-gradient turns every row into unique values and defeats RLE — it is the difference between the
-1,060 B row and the 2,530 B row. At 16 levels a smooth fade would band visibly anyway, so tiers
-look *more* deliberate, not less.
-
-Same discipline on the icons: solid shapes, thick strokes, few levels (§2.4 rule 9), pure black
-background so each row is one long run.
+full, neighbours ~50 %, their outer edges ~25 %, background 0), not a per-pixel ramp — the
+difference between the 1,060 B row and the 2,530 B row; at 16 levels a smooth fade would band
+anyway. Same discipline on the icons: solid shapes, thick strokes, few levels (§2.4 rule 9), pure
+black background so each row is one long run.
 
 #### Motion
 
 - **4 frames per detent, ease-out** — decelerating angular steps, "quickly and then stop at each."
 - 🔑 **The quantization grid constrains damage *rects*, not their contents.** The panel rect is
-  fixed at `200,154,240,176` for every frame, so the drum can rotate with sub-pixel smoothness
-  inside it. **The wheel is the one place in the WM where motion is free of the 4 px/2 px grid** —
-  everything else scrolls coarsely, this glides.
-- **Retargeting, not queueing** (§6.3). A second notch mid-spin re-aims the drum at the new target,
-  so scrolling fast through five windows plays **one continuous rotation**, not five spins. Without
-  this the wheel would be ~250 ms × N and feel terrible.
-- The panel rect never moves ⇒ no alignment work and no rect growth. **1 fid per frame flat, 3 with
-  per-band depth** — a 4-frame spin spends 4 or 12 fids, both inside the ≤5-rects-per-batch budget
-  (§8.2).
+  fixed at `200,154,240,176` for every frame, so the drum rotates with sub-pixel smoothness inside
+  it — **the one place in the WM where motion is free of the 4 px/2 px grid.**
+- **Retargeting, not queueing** (§6.3). A second notch mid-spin re-aims the drum, so scrolling fast
+  through five windows plays **one continuous rotation** (~250 ms × N otherwise).
+- The panel rect never moves ⇒ no rect growth. **1 fid per frame flat, 3 with per-band depth** — a
+  4-frame spin spends 4 or 12 fids, inside the ≤5-rects-per-batch budget (§8.2).
 
 #### Depth — the flagship use of stereo
 
-The drum is where perspective and disparity can agree, which is exactly when stereo reads well
-instead of reading as strain.
+Perspective and disparity agree here, which is when stereo reads well instead of as strain.
 
 - **Centre band at plane 0; the two neighbour bands at −1**, matching the content depth behind
-  them — so the drum visibly curves back *into* the scene.
+  them — the drum curves back *into* the scene.
 - 🔴 **The wheel owns the depth story while open (corrected 2026-08-31, on glass).** The window
   behind it is a preview, so the shell must NOT keep lifting that window's lens band to plane 0 —
-  the band spans the full content width and runs through the wheel's rows, so it dragged the
-  entire width forward, background included (Adam's report). While the wheel is open, the only
-  plane-0 region is the wheel's centre band.
+  the band spans the full content width and dragged the entire width forward, background included
+  (Adam's report). While the wheel is open, the only plane-0 region is the wheel's centre band.
 - **The frame is four horizontal rules (2026-08-31):** a fixed one-tier-dimmer pair at the panel's
-  top and bottom edges framing the upper and lower slots (dim edges support the curving-away
-  read), and the brighter sliding pair bracketing the centre. Without the outer pair the drum read
-  as one highlighted row, not a wheel. Horizontal rules only — one run each; a vertical border
-  would split every panel row per frame (§4.5's cost).
-- Costs 3 rects instead of 1 (+4 B each for the stereo box pair, ~30 B of extra framing). Well
-  inside budget, negligible bytes, and the bands are contiguous so the pixel count is unchanged.
-- 🟡 **Stretch:** interpolate an item's disparity as it rotates forward. The ladder is quantised to
-  4 px and content parks around +12, giving **12 → 8 → 4 → 0 across exactly the four spin frames** —
-  the depth steps and the animation steps line up on their own. Default is the simpler fixed-band
-  version; this is a polish pass once the wheel is real.
+  top and bottom edges framing the upper and lower slots, and the brighter sliding pair bracketing
+  the centre. Without the outer pair the drum read as one highlighted row. Horizontal rules only —
+  a vertical border would split every panel row per frame (§4.5).
+- Costs 3 rects instead of 1 (+4 B each for the stereo box pair, ~30 B of extra framing); the bands
+  are contiguous so the pixel count is unchanged.
+- 🟡 **Stretch:** interpolate an item's disparity as it rotates forward — content parks around +12,
+  giving **12 → 8 → 4 → 0 across exactly the four spin frames**. Default is the fixed-band version.
 
 #### Contents and behaviour
 
-Rows are **windows only**. Each carries its icon (the theme icon or the drawn fallback, §4.7), its
-name, and a **dirty tick** when it has new content (§4.1). *(The original design put a real
-downscaled thumbnail of the window's composed frame here; that is unbuilt — the texture cache that
-would make it cheap landed in firmware 2026-08-30, but the compositor does not use it yet,
-`IMPLEMENTATION.md` → The texture cache.)*
-
-Long titles marquee inside the 240 px band; they are never truncated (§2.4 rule 3).
+Rows are **windows only**: icon (the theme icon or the drawn fallback, §4.7), name, and a **dirty
+tick** when it has new content (§4.1). *(The original design put a downscaled thumbnail of the
+window's composed frame here; unbuilt — the texture cache that would make it cheap landed in
+firmware 2026-08-30, `IMPLEMENTATION.md` → The texture cache.)* Long titles marquee inside the
+240 px band; never truncated (§2.4 rule 3).
 
 #### 🔑 Live preview — the wheel drives the window behind it
 
 **Adam, 2026-08-17.** Scrolling the wheel repaints the window *behind* the panel to the selected
-one, so the wheel previews rather than describes. Tapping then merely closes the panel — the window
-is already there.
-
-**The panel covers 42,240 of the content area's 252,928 px — 16.7%. 83 % of the target window is
-visible around it**, so this is a real preview, not a peephole.
+one; tapping merely closes the panel. **The panel covers 42,240 of the content area's 252,928 px —
+16.7%. 83 % of the target window is visible around it.**
 
 | | bytes | ms |
 |---|---|---|
@@ -970,50 +863,39 @@ visible around it**, so this is a real preview, not a peephole.
 | **commit (tap)** — only the panel region still shows the old window | 0.6–1.1 KB | **234–272** |
 | **cancel (long-press)** — restore the original window everywhere | 3.8–6.3 KB | **521–751** |
 
-🔑 **This inverts the economics in the right direction: committing becomes the cheap path and
-cancelling becomes the expensive one.** The common action is fast; the rare one pays.
+🔑 Committing is the cheap path and cancelling the expensive one — the common action is fast.
 
 **Three rules make it work.**
 
 1. 🔴 **Preview is a RENDER, never an ACTIVATION.** The WM composes the target window's stored
-   state and paints it; it runs **no lifecycle hooks**. Scrolling past five windows must not start
-   five pollers, open five connections, or — G2CC's hard-won lesson — leak the mic to a window you
-   never entered. Only **tap** commits and activates.
-   ✅ **This costs no new machinery**, because full persistence (§9.1) already requires every window
-   to hold a restorable composed state. The preview just paints what persistence already stores.
-2. 🔴 **Preview is the lowest-priority flush.** At 645–893 ms a settle is far too slow to fire on
-   every notch, and perfectly fine to fire once scrolling stops. It is scheduled *behind* the wheel
-   spin and behind any pending input, so while you keep scrolling it never gets a slot, and the
-   moment you pause it goes out. **That is scheduler priority, not a debounce timer** — it obeys
-   NO TIMEOUTS by construction rather than by exception.
-3. **Speculate while the wheel is open.** The switcher is idle between notches, so pre-render and
-   pre-deflate the adjacent windows' previews (§5.5). The settle then costs transmission only.
+   state and paints it; **no lifecycle hooks** run. Scrolling past five windows must not start five
+   pollers, open five connections, or — G2CC's lesson — leak the mic to a window you never entered.
+   Only **tap** commits and activates. No new machinery: full persistence (§9.1) already requires
+   every window to hold a restorable composed state.
+2. 🔴 **Preview is the lowest-priority flush.** At 645–893 ms a settle is too slow to fire on every
+   notch and fine to fire once scrolling stops: scheduled *behind* the wheel spin and any pending
+   input, so while you keep scrolling it never gets a slot. **Scheduler priority, not a debounce
+   timer** — NO TIMEOUTS by construction.
+3. **Speculate while the wheel is open.** Pre-render and pre-deflate the adjacent windows' previews
+   (§5.5). The settle then costs transmission only.
 
-**Felt behaviour:** the spin is immediate (~240 ms, §above), the preview settles in behind it a
-beat later. Scroll fast and you get pure wheel motion with no preview churn; stop, and the window
-resolves behind the drum.
-
-**Details that follow:**
-
-- The **top bar previews too** — its Title names the selected window, which reinforces where you
-  are. It **snaps rather than animating** while the switcher is open: the wheel is already carrying
-  the motion, and two competing animations would compete for both attention and bytes.
+- The **top bar previews too** — its Title names the selected window — and **snaps rather than
+  animating** while the switcher is open: the wheel already carries the motion.
 - The content-behind repaint goes as **one rect** covering the whole content area with the panel
   redrawn over it in the same mode-8 batch (sub-messages apply to the shadow in order, so the later
-  panel wins). That wastes the 17 % under the panel but beats four frame-strips, which would cost
-  three extra rects and lose cross-rect zlib sharing. The cost oracle (§9.2b) makes the final call.
-- 🟡 **Optional, if it proves janky:** fall back to previewing only the *thumbnail* in the wheel and
-  leaving the window behind untouched. That is the design as originally specified and costs nothing
-  to keep as a setting.
+  panel wins). That wastes the 17 % under the panel but beats four frame-strips (three extra rects,
+  lost cross-rect zlib sharing). The cost oracle (§9.2b) makes the final call.
+- 🟡 **Optional, if it proves janky:** preview only the *thumbnail* in the wheel and leave the
+  window behind untouched — the design as originally specified; a setting.
 
 ⚠ **System state and notifications are no longer here.** Removing the info popup orphaned them —
-notifications get their own bespoke surface; deeper system detail is a window, i.e. app-layer work.
-Live telemetry stays in the status bar (§4.4). Tracked as open item #5.
+notifications get their own bespoke surface; deeper system detail is app-layer work. Live
+telemetry stays in the status bar (§4.4). Open item #5.
 
 **Notifications while the wheel is open (decided 2026-08-25).** A notice that arrives while the
 switcher is open waits behind the wheel — queued, unshown — and unfurls with its normal grace when
 the wheel closes; a box already on screen when the wheel opens goes back to the queue unread and
-returns after. The wheel owns the screen; nothing repaints over it.
+returns after. The wheel owns the screen.
 
 ### 4.4 Status bar
 
@@ -1027,37 +909,33 @@ returns after. The wheel owns the screen; nothing repaints over it.
 
 #### 🔴 There are two links and they fail completely differently
 
-The status bar originally showed one. With §10's topology there are always two:
-
 | link | what its failure means |
 |---|---|
 | **transport ↔ glasses (BLE)** | nothing works; the screen may be frozen or already lost to stock LVGL |
 | **shell ↔ content host** (Tailscale / WSS) | **the shell works fully**; some windows are stale, a few are unavailable (§10.5) |
 
-Collapsing those into one indicator makes "re-seat my glasses" indistinguishable from "wait for
-signal," and the correct response differs. So the 120 px cell carries both: **four filled BLE bars
-(~40 px) on the right, host state on the left**, with the dBm numeral appearing only when the radio
-link is poor (≤ −75).
-
-**Host state stays near the ink floor while healthy** — a single dim mark — and spends ink only when
-the host is gone, exactly as the battery does (§4.1). And it reports **duration, not just state**:
-G2CC's `ConnectionManager` already tracks `offlineSince`, so `PC 4m` is free and far more actionable
+One indicator would make "re-seat my glasses" indistinguishable from "wait for signal." So the
+120 px cell carries both: **four filled BLE bars (~40 px) on the right, host state on the left**,
+with the dBm numeral appearing only when the radio link is poor (≤ −75). **Host state stays near
+the ink floor while healthy** — a single dim mark — and reports **duration, not just state**:
+G2CC's `ConnectionManager` already tracks `offlineSince`, so `PC 4m` is free and more actionable
 than `offline`.
 
-⚠ *Which* link and how: both transports read RSSI from the **RIGHT** (command) arm every 10th
-maintenance tick (~10 s). The APK reads it from the live GATT connection; BlueZ reports it only
-while the device is being seen by the scanner, so the PC-direct cell may carry bars without a
-numeral. No value has been checked against a real signal on glass yet (§11 #4).
+⚠ Both transports read RSSI from the **RIGHT** (command) arm every 10th maintenance tick (~10 s).
+The APK reads it from the live GATT connection; BlueZ reports it only while the device is being seen
+by the scanner, so the PC-direct cell may carry bars without a numeral. No value has been checked
+against a real signal on glass yet (§11 #4).
 
-**Per-window capability lives elsewhere and costs nothing new:** Main's existing summary line already
-has a slot per window, so a window that is unavailable offline simply says so there (§10.5).
+**Per-window capability lives elsewhere:** Main's summary line already has a slot per window, so a
+window that is unavailable offline says so there (§10.5).
 
 ---
 
 ### 4.5 Notifications
 
-🔴 **Bespoke, and deliberately not the switcher.** Different geometry, different motion, different
-gestures. They share only the compositor's layer plumbing (§4.3).
+🔴 **Bespoke, and deliberately not the switcher** (§4.3, §0). **2026-09-12:** it becomes the NOTICE
+type of the popover family (§4.11, `POPOVER.md` §4) — every rule in this section stands as that
+type's policy; only the presentation moves.
 
 #### Form
 
@@ -1078,27 +956,18 @@ A box over the content that **takes focus**, sized to its content up to a cap, s
 
 ##### 🔑 The box is a hole, not a card
 
-The panel is additive: **level 0 emits nothing, so it is literally see-through.** There is no such
-thing as an opaque dark panel — Faceclaw's colour-key note confirms it from the other side, where
-"1 = intentional opaque black" is *"identical to 0 after 4bpp quantisation."* You cannot draw a
-dark card. You can only add light.
-
-So the notification does not *cover* content with a panel. **It clears its region to transparency
-and floats marks in the gap** — the content beneath vanishes and the real world becomes the
-notification's background.
-
-That is unique to this display, it is the **least ink of any option**, and it is the most striking:
-a small bright mark on true black, punched into a busy screen, is far more arresting than a large
-dim panel would be. ⇒ **Assertive here means contrast, motion and depth — never area or fill.**
+The panel is additive: **level 0 emits nothing, so it is see-through.** There is no opaque dark
+panel — Faceclaw's colour-key note confirms it from the other side, where "1 = intentional opaque
+black" is *"identical to 0 after 4bpp quantisation."* So the notification **clears its region to
+transparency and floats marks in the gap** — the real world becomes the background. Least ink of
+any option, and a small bright mark on true black is more arresting than a large dim panel.
+⇒ **Assertive here means contrast, motion and depth — never area or fill.**
 
 ##### Rules, not borders — and the reason is RLE
 
 RLE runs **horizontally**. A horizontal rule is *one long run per row*; a vertical accent bar splits
-every single row into three tokens. For a 104-row box that is ~200 extra tokens for a decoration.
-
-⇒ **Bracket the box with two horizontal rules.** Cheapest possible structure, clean editorial
-treatment, and it is already the shell's motif — the top and bottom dividers are rules that carry
-meaning (§4.1, §4.6).
+every row into three tokens — ~200 extra tokens for a 104-row box. ⇒ **Bracket the box with two
+horizontal rules**, the shell's motif already (§4.1, §4.6).
 
 ##### Layout
 
@@ -1128,21 +997,15 @@ it struck through the source, the `+N` badge and the timestamp until 2026-09-05,
 | sender / subject | 12 | the thing the eye scans for |
 | urgency marker | 15 | reserved; spent only when something is wrong |
 
-Hierarchy is expressed as **brightness and spacing, never as boxes or fills** — the same discipline
-as Main (§4.2) and the top bar (§4.1). The right-aligned timestamp echoes Main's right-aligned
-numerics.
-
-**The bottom rule carries scroll position** within the message; the queue depth rides in the source
-line as `+2`. One meaning per element — both rules are already lit, so both are free information
-(§4.6).
+Hierarchy is **brightness and spacing, never boxes or fills** (§4.2, §4.1). **The bottom rule
+carries scroll position** within the message; the queue depth rides in the source line as `+2`.
+Both rules are already lit, so both are free information (§4.6).
 
 ##### 🔑 It unfurls from a rule, and the animation is free
 
-No fades — motion must be translation or reveal (§6.2). So the box does **not** slide in across the
-content (that would repaint both its old and new position every frame, ~2× the box per frame).
-Instead it **grows downward from a single 2 px rule at its final position.**
-
-Damage per frame is only the newly revealed strip:
+No fades (§6.2). The box does **not** slide in across the content (that would repaint both its old
+and new position every frame, ~2× the box per frame); it **grows downward from a single 2 px rule
+at its final position**, so damage per frame is only the newly revealed strip:
 
 | | bytes |
 |---|---|
@@ -1150,46 +1013,37 @@ Damage per frame is only the newly revealed strip:
 | **total unfurl** | **≤ 645 B** |
 | one static paint of the same box | 387–645 B |
 
-✅ **The arrival animation costs the same as painting it once.** And it is native to the design —
-the shell's signature is meaningful horizontal rules, so a notification unfurling *out of* a rule is
-the language speaking rather than an effect applied. Ease-out over 3–4 frames; furl in reverse to
-dismiss, then restore the content beneath.
+✅ **The arrival animation costs the same as painting it once.** Ease-out over 3–4 frames; furl in
+reverse to dismiss, then restore the content beneath.
 
 ##### The focus transition is the notification stepping toward you
 
-The grace period (§4.5) needs a visible before/after. Depth supplies it: the box unfurls at **plane
-−1**, with the content, and **steps to plane 0** when it takes focus. It literally moves toward you
-at the moment it becomes actionable — the most physically legible "now I am listening" signal
-available, for **+4 bytes**. Brightness steps with it (dim → full) and remains the primary cue, since
-a user calibrated to `d = 0` sees no depth at all.
+The grace period (below) needs a visible before/after: the box unfurls at **plane −1** and
+**steps to plane 0** when it takes focus — see "The focus indicator is free" under Focus grace
+period.
 
 ##### Silent mode
 
-`200×56` — the same language with one body line and no queue indicator. Nothing animates beyond the
-unfurl; the box is gone in 5 s and a fussy countdown is not worth the round trips.
-🟡 *Optional:* the bottom rule as a depleting dwell track. Costs ~3 extra flushes for decoration —
-off by default, and the one place in the shell where flushes would be spent on ornament.
+`200×56` — one body line and no queue indicator. Nothing animates beyond the unfurl; the box is
+gone in 5 s. 🟡 *Optional:* the bottom rule as a depleting dwell track — ~3 extra flushes for
+decoration, off by default.
 
 ##### Emergency alerts
 
-Their own treatment, and the shape rule below is what makes it cheap: a **full-content-width band**
-(608 px) with **doubled rules** top and bottom, at **plane +1**.
-
-Wide, short and heavily bracketed reads instantly as *not a normal notification*, and at
-**948–1,581 B** it is still inside the 1,936 B ack floor — one round trip, same as everything else.
-Level 15 is finally spent here.
+A **full-content-width band** (608 px) with **doubled rules** top and bottom, at **plane +1**.
+Wide, short and heavily bracketed reads as *not a normal notification*, and at **948–1,581 B** it
+is still inside the 1,936 B ack floor. Level 15 is spent here.
 
 ##### 🔑 The shape heuristic, which generalises past this surface
 
-RLE token count scales with the number of **rows**; run length grows with **width**. So for a given
+RLE token count scales with the number of **rows**; run length grows with **width**. For a given
 pixel count:
 
 > **Wide-and-short compresses better than tall-and-narrow.**
 
-`608×42` and `248×104` are the same area, but the wide one has 42 rows of long runs against 104 rows
-of short ones. **Width is the cheap axis on this display.** Prefer banners to columns, rows to
-sidebars, and horizontal structure to vertical — which is, conveniently, also the better shape for a
-glanceable HUD.
+`608×42` and `248×104` are the same area, but the wide one has 42 rows of long runs against 104
+rows of short ones. **Width is the cheap axis on this display.** Prefer banners to columns, rows to
+sidebars — also the better shape for a glanceable HUD.
 
 #### Gestures
 
@@ -1200,86 +1054,61 @@ glanceable HUD.
 | **long-press** | ⚪ nothing by default (§1.2, 2026-08-30); with "Long-press · switcher" set: dismiss **without** marking read |
 | **scroll** | scroll the body (it holds focus, §1.4) |
 
-✅ **This assignment is accident-optimal, and that matters more here than anywhere.** The most
-accident-prone gesture on this hardware is the **ring long-press** — it is the entire documented
-gloves failure chain and the founding problem of this project (`overview.md` §6). It is assigned to
-the **most recoverable outcome**: nothing navigates, nothing is lost, the notification stays unread
-and waiting. Tap is the consequential one and is still reversible and undoable by double-tap.
-That is §1.7's misfire-tolerance rule satisfied without having to be applied.
-**Revised 2026-08-30:** with long-press defaulting to a no-op (§1.2), even that recoverable
-outcome no longer fires by accident — a stray long-press leaves the box exactly as it was. "Get
-it off my screen unread" is now the §1.3 chord: opening the wheel parks the box back in the
-queue UNREAD (the decision-6 mechanics), and it returns when the wheel closes.
-
-⚠ **One real collision: while a notification holds focus, long-press means "dismiss unread", not
-"open the switcher."** Since notifications stay until dismissed, an ignored notification blocks
-ALT+TAB until it is cleared. Modal focus capturing a gesture is normal, and dismiss-then-switch is
-two gestures — but it is a genuine cost of "stays until dismissed", so it is recorded rather than
-buried. **2026-08-30: the collision is gone by default** — a bare long-press means nothing in
-both places, and the chord opens the wheel over a focused box (which steps aside unread).
+✅ **Accident-optimal.** The most accident-prone gesture — the ring long-press (`overview.md` §6) —
+maps to the **most recoverable outcome**: nothing navigates, nothing is lost, the notification stays
+unread; tap is the consequential one and is undoable by double-tap (§1.7). **Revised 2026-08-30:**
+with long-press a no-op (§1.2), a stray long-press leaves the box exactly as it was. "Get it off my
+screen unread" is now the §1.3 chord: opening the wheel parks the box back in the queue UNREAD (the
+decision-6 mechanics), and it returns when the wheel closes. ⚠ **One collision, recorded:** with
+long-press enabled, a focused notification takes it as "dismiss unread", not "open the switcher",
+so an ignored notification blocks ALT+TAB until cleared (two gestures). **Gone by default since
+2026-08-30** — the chord opens the wheel over a focused box, which steps aside unread.
 
 #### 🔑 Focus grace period
 
 **Adam, 2026-08-18.** The box **appears immediately** but does **not take focus for 2–3 s**, so a
 gesture aimed at the underlying window still lands there: *"to avoid accidentally tapping a
 notification the moment it appears when my intent was to select an action in the underlying
-window."*
-
-✅ **Well-defined, because input here is a CURSOR model, not a pointer model.** The box covering
-something on screen does not change what a tap hits — the underlying window's cursor is state, not
-a screen position. So "route the gesture to the window underneath" is exact, not approximate.
-
-✅ **Not a NO TIMEOUTS violation**, by the same reasoning as the 5 s silent dismissal above: this is
-a scheduled UI state transition, not a time-bounded execution wrapper. Nothing is abandoned, no
-work is cancelled, no failure is hidden.
+window."* Well-defined because input is a CURSOR model, not a pointer model: the underlying
+window's cursor is state, not a screen position. Not a NO TIMEOUTS violation — a scheduled UI
+state transition, not a time-bounded execution wrapper (see Silent mode below).
 
 **Rules:**
 
 1. **The grace restarts on every input.** Focus transfers at the next lull, not on a fixed clock —
-   so an interaction that is actively in progress is *never* interrupted. 2–3 s is the floor, not
-   the whole rule. This is the same "settle when the input stream goes quiet" signal the live
-   preview uses (§4.3 rule 2), and it should share that machinery.
-2. 🔴 **The grace does NOT apply to the next item in a queue you are actively clearing.** If you
-   double-tap to dismiss and the next box appears, a fixed grace would send your following gestures
-   to the window underneath while you are trying to clear the backlog. The grace protects against
-   *unexpected* focus theft; a queue you are working through is expected.
-3. **Emergency alerts get the same grace, with no special case** (Adam, 2026-08-18 — correcting an
-   earlier draft that had them take focus immediately and *swallow* input instead. That was wrong:
-   swallowing ate gestures aimed at the underlying window, which is precisely the problem the grace
-   period exists to fix, so the exception violated the rule it was nested inside). One grace rule,
-   everything.
+   an interaction in progress is *never* interrupted. 2–3 s is the floor. Same "settle when the
+   input stream goes quiet" signal as live preview (§4.3 rule 2); share the machinery.
+2. 🔴 **The grace does NOT apply to the next item in a queue you are actively clearing.** A fixed
+   grace would send your following gestures to the window underneath while you clear the backlog.
+   The grace protects against *unexpected* focus theft; a queue you are working through is expected.
+3. **Emergency alerts get the same grace, with no special case** (Adam, 2026-08-18 — correcting a
+   draft that had them take focus immediately and *swallow* input, which ate gestures aimed at the
+   underlying window, the very problem the grace exists to fix). One grace rule, everything.
 4. Moot in silent mode — notifications there never take focus at all.
 
 ##### The focus indicator is free, and it should be depth
 
-The box must look different before and after it takes focus, or the delay just inverts the bug it
-was added to prevent.
+The box must look different before and after it takes focus, or the delay inverts the bug it was
+added to prevent. 🔑 **Arrive at plane −1 (with the content), step forward to plane 0 on taking
+focus.** An **emergency alert steps to plane +1 instead** — same mechanism, bigger jump, so the
+depth ladder encodes urgency (§3.1's crossed-disparity slot, deliberately the uncomfortable
+direction for the one case where discomfort is the point). **+4 bytes** for the stereo box pair.
 
-🔑 **Arrive at plane −1 (with the content), step forward to plane 0 on taking focus.** An
-**emergency alert steps to plane +1 instead** — same mechanism, bigger jump, so the depth ladder
-itself encodes urgency (§3.1's crossed-disparity slot, deliberately the uncomfortable direction for
-the one case where discomfort is the point). The
-notification literally *comes forward* when it becomes actionable — pre-attentive, needs no reading,
-consistent with the layer rule that popups come forward (§3.1), and it costs **+4 bytes** for the
-stereo box pair. It is also a small motion, which is what §6 asks for everywhere.
-
-⚠ **Depth is the enhancement, not the primary cue** — if disparity is calibrated to `d = 0` the
-depth signal vanishes entirely. **Brightness is the primary indicator**: dim on arrival, full on
-focus, in quantised steps (§8.5). One box repaint, 390–650 B — one round trip.
+⚠ **Depth is the enhancement, not the primary cue** — at `d = 0` it vanishes. **Brightness is the
+primary indicator**: dim on arrival, full on focus, in quantised steps (§8.5). One box repaint,
+390–650 B — one round trip.
 
 #### Silent mode
 
 Smaller box, **auto-dismisses after 5 s**, and **stays unread**.
 
-✅ **The 5 s dismissal is NOT a NO TIMEOUTS violation, and the distinction is worth stating so the
-rule is not weakened by accident.** The rule targets time-bounded *execution* — `wait_for`,
-`timeout=`, wrappers that abandon work and hide failure. A scheduled UI transition abandons
-nothing, cancels nothing, and hides no error; it is the same class as the clock's minute tick and
-the 5 s idle chrome tick (§8.3). G2CC did exactly this: *"while BLANKED, every priority pops for
-10 s then auto-re-blanks."*
+✅ **The 5 s dismissal is NOT a NO TIMEOUTS violation.** The rule targets time-bounded *execution* —
+`wait_for`, `timeout=`, wrappers that abandon work and hide failure. A scheduled UI transition
+abandons nothing and hides no error; same class as the clock's minute tick and the 5 s idle chrome
+tick (§8.3). G2CC did the same: *"while BLANKED, every priority pops for 10 s then auto-re-blanks."*
 
 ⚠ **Deliberate divergence from G2CC:** G2CC *"marked seen at display"* for those pops. Damage keeps
-them **unread** — silent mode means you are not reading, so it must not count as having read.
+them **unread** — silent mode means you are not reading.
 
 In silent mode notifications are **display-only**. All input except double-tap is swallowed (§1.5),
 so acting on one means leaving silent mode and going to the app — and since it stayed unread,
@@ -1287,25 +1116,17 @@ nothing is lost.
 
 #### Read state
 
-**Activating an app auto-marks that app's unread notifications read.**
-
-🔑 **This is the second consumer of the render-vs-activation rule (§4.3), and it validates it.**
-Live preview scrolls the switcher through windows *without* activating them — so **previewing Mail
-must not mark Mail's notifications read.** Only **tap** commits, activates, and clears. Had preview
-been an activation, spinning the wheel past Mail would silently mark your unread mail as read.
+**Activating an app auto-marks that app's unread notifications read.** The second consumer of the
+render-vs-activation rule (§4.3): **previewing Mail must not mark Mail's notifications read.** Only
+**tap** commits, activates, and clears.
 
 #### Sources — filtered, unlike G2CC
 
 **SMS/MMS · Mail · Music · Damage-specific**, plus emergency alerts. **Not** general phone
-notifications.
-
-🔑 **The filter is what makes focus-taking tolerable, so it is load-bearing, not hygiene.** We
-have no spare gesture to focus a passive notification, so an interactive notification *must* take
-focus on arrival — which means every notification interrupts. G2CC forwarded everything, which is
-exactly why its notifications had to be crammed into a title bar rather than given a real surface.
-Filtering to a handful of sources is what buys the box its focus.
-
-Origin splits usefully:
+notifications. 🔑 **The filter is what makes focus-taking tolerable — load-bearing, not hygiene.**
+There is no spare gesture to focus a passive notification, so an interactive one *must* take focus
+on arrival, which means every notification interrupts. G2CC forwarded everything, which is why its
+notifications were crammed into a title bar.
 
 | origin | sources |
 |---|---|
@@ -1316,11 +1137,10 @@ Origin splits usefully:
 🔑 **Where the toggles live (Adam, 2026-09-01):** every source that belongs to an app has its
 on/off row **in that app's Settings category** — Tmux → Alerts, Torrents → Notify · done /
 Notify · errors, Music → its six Notify rows — never in Global. Global keeps `Notify · Damage`
-(the WM's own events belong to no app) and the APK-wide `Phone notifications` switch. The window
-gates its own `notifyInternal` calls on its rows; the shell filter (`noticeAllowed`) keeps the
-historical SMS/Mail fields for the apps still to come, which will carry their rows when they
-exist. It no longer gates `music` (2026-09-02): a Global row that has gone must not leave a
-hidden persisted gate behind.
+(the WM's own events) and the APK-wide `Phone notifications` switch. The window gates its own
+`notifyInternal` calls on its rows; the shell filter (`noticeAllowed`) keeps the historical
+SMS/Mail fields for the apps still to come. It no longer gates `music` (2026-09-02): a Global row
+that has gone must not leave a hidden persisted gate behind.
 
 #### 🔴 Emergency alerts — the one genuinely unverified piece
 
@@ -1332,17 +1152,16 @@ Candidate paths, none confirmed:
 2. The `Telephony.CellBroadcasts` provider — likely gated behind a privileged/signature permission.
 3. Detecting the full-screen intent these alerts use instead of an ordinary notification.
 
-Two rules regardless of which works:
+Two rules regardless:
 
-- 🔴 **Damage is never the only path.** The phone still sounds and displays the alert. Damage is a
-  redundant surface. A "must not miss" channel that can break silently is worse than no channel.
+- 🔴 **Damage is never the only path.** The phone still sounds and displays the alert. A "must not
+  miss" channel that can break silently is worse than no channel.
 - 🔴 **Startup self-test.** Verify at launch that the emergency path is live and say so loudly if it
   is not — the failure must surface during setup, not during a tornado.
 
 **Gestures — tap dismisses.** 🔑 Adam, 2026-08-18: *"a single tap when they DO have focus should
 dismiss them same as a double-tap, because there's no app to switch to for those."* Tap's normal
-meaning (open in the source app) has **no referent** for an emergency alert, so leaving it mapped
-there would be a gesture that does nothing. Mapping it to dismiss means every gesture does something:
+meaning has **no referent** here:
 
 | gesture | on an emergency alert |
 |---|---|
@@ -1350,15 +1169,12 @@ there would be a gesture that does nothing. Mapping it to dismiss means every ge
 | **double-tap** | dismiss + mark read |
 | **long-press** | nothing by default (§1.2); with long-press enabled: dismiss without marking read |
 
-⚠ **Easy dismissal is correct here, not a risk.** The grace period already guarantees it cannot be
-hit by an in-flight gesture, and the purpose of surfacing the alert on the glasses is *"to ensure I
-don't miss it"* — once it has been displayed and the grace has elapsed, that purpose is served.
-Hardening dismissal further would add annoyance, not safety. The alert also remains in the phone's
-own alert history and in Damage's notification history (§4.5 is never the only path).
+⚠ **Easy dismissal is correct here.** The grace period guarantees it cannot be hit by an in-flight
+gesture, and the purpose — *"to ensure I don't miss it"* — is served once displayed. The alert
+remains in the phone's own alert history and in Damage's notification history.
 
-**Treatment:** its own presentation, not the standard box. This is finally the use for **plane +1**,
-the crossed-disparity slot reserved in §3.1 and otherwise off by default. An emergency alert
-**cancels any pending confirm rather than stacking on it** — losing a confirm is safe, a
+**Treatment:** its own presentation, not the standard box, on **plane +1** (§3.1). An emergency
+alert **cancels any pending confirm rather than stacking on it** — losing a confirm is safe, a
 mis-landed gesture is not.
 
 #### Queueing — adopted 2026-08-18
@@ -1368,7 +1184,7 @@ mis-landed gesture is not.
 - **Carry G2CC's `interruptible()` rule**: a notification must not repaint over a confirm or other
   irreversible step. *"The 'nothing reaches CC unread' guarantee means a notification overlay must
   never repaint over a dictation-confirm card."*
-- The next box in an actively-cleared queue skips the focus grace — see the grace rules above.
+- The next box in an actively-cleared queue skips the focus grace (rule 2 above).
 
 #### Cost — notifications are effectively free
 
@@ -1380,8 +1196,7 @@ mis-landed gesture is not.
 | scroll one line (mode 9 shift + one-line fill) | 150–300 B | 190–203 |
 | dismiss (repaint covered region) | same as appear | same |
 
-All well under the 1,936 B the ack floor buys, so every one of these is ack-bound, not
-bandwidth-bound — a notification costs one round trip and nothing more.
+All under the 1,936 B the ack floor buys — every one is ack-bound: one round trip.
 
 ---
 
@@ -1389,9 +1204,7 @@ bandwidth-bound — a notification costs one round trip and nothing more.
 
 Adam, 2026-08-18: the switcher *"is the best-looking part of our system so far"*, and he wants
 **more graphics and eyecandy wherever it makes sense and does not remove information.** The
-switcher's distinguishing feature is that it is the only surface using icons. So propagate them.
-
-**One icon set, four places:**
+switcher is the only surface using icons — so propagate them.
 
 | where | how |
 |---|---|
@@ -1400,78 +1213,71 @@ switcher's distinguishing feature is that it is the only surface using icons. So
 | **Main's lens** | ~~24 px~~ → **band-height (56 px class) — revised 2026-09-01, Adam:** *"when that app is selected and has two lines available, the icon should take up both lines, so it can be a better more visually appealing icon"* — the focused row's icon spans the 64 px lens band at the switcher-class size; summary text starts right of it |
 | notification source line | 16 px ahead of `SMS · MOM` (§4.5) |
 
-Learning the vocabulary is free: the switcher and Main both show icon *beside* name constantly, so
-the icon becomes readable on its own without ever having replaced a label.
+The switcher and Main both show icon *beside* name constantly, so the icon becomes readable on its
+own without ever replacing a label.
 
-🆕 **One drawn icon per app, two scales** (2026-09-01): each `IconKind` is designed once at
-quality and rendered at 56 px (switcher centre, Main's lens) and 20 px (rows). **Re-scoped the
-same night by the theme-icons ruling (§4.7): the user's desktop theme supplies icons at render
-time wherever it can; the drawn set is the FALLBACK and the release path** — the quality pass
-targets the drawn set. The band-height lens icon LANDED (56 px, `MainSurface`; the §4.2 ink
-table was regenerated with it — Main resting measures 4.8 %, so the icon rides at rest inside the
-5 % budget, the same gate that caught the row-icons-at-rest regression, §9.2b). Each new window's
-icon is drawn once, at both scales, as it is built (`REMINDER.md` → the icon-quality pass).
+🆕 **One drawn icon per app, two scales** (2026-09-01): each `IconKind` is designed once and
+rendered at 56 px (switcher centre, Main's lens) and 20 px (rows). **Re-scoped the same night by
+the theme-icons ruling (§4.7): the desktop theme supplies icons at render time wherever it can; the
+drawn set is the FALLBACK and the release path** — the quality pass targets the drawn set. The
+band-height lens icon LANDED (56 px, `MainSurface`; §4.2's ink table was regenerated with it —
+Main resting measures 4.8 %, inside the 5 % budget, the gate that caught the row-icons-at-rest
+regression, §9.2b). Each new window's icon is drawn once, at both scales, as it is built
+(`REMINDER.md` → the icon-quality pass).
 
-**Drawing rules** (§2.4 rule 9, and they are also the compression rules): thick strokes, closed
-forms, no hairlines, few levels, solid fills. Measured cost of adding icons to all eleven Main rows
-plus the lens: **ink 7.1 % → 8.1 %, bytes +8 %** (2026-08-18 render) — well inside the 15 % budget.
+**Drawing rules** (§2.4 rule 9, also the compression rules): thick strokes, closed forms, no
+hairlines, few levels, solid fills. Measured cost of icons on all eleven Main rows plus the lens:
+**ink 7.1 % → 8.1 %, bytes +8 %** (2026-08-18 render).
 
 ✅ **Three more adopted 2026-08-18:**
 
 - ⚪ ~~**Icon-only ribbon side cells.**~~ Adopted and then **made moot within the day** when the
-  ribbon itself was retired (§4.1). Recorded rather than deleted because the *principle* survived
-  and is used elsewhere: **the thing you are in is named, its neighbours are pictured** — which is
-  exactly what the switcher wheel does with its centre item versus its foreshortened neighbours.
+  ribbon was retired (§4.1). Recorded because the *principle* survived in the switcher wheel:
+  **the thing you are in is named, its neighbours are pictured.**
 - **A compass TAPE** replaces the `NE` label: three sectors with the current one under a fixed
   centre mark. Wide-and-short is the cheap shape (§4.5), and a tape is unambiguous about which way
-  it scrolls, which a rotating arrow would not be. Paid for by rebalancing the status bar to
-  `op 160 · status 132 · thru 128 · tape 100 · link 120` — `op 128` since the bars were inset to
-  608 px (§2.3): the op cell absorbs the width difference.
+  it scrolls. Paid for by rebalancing the status bar to `op 160 · status 132 · thru 128 · tape 100
+  · link 120` — `op 128` since the bars were inset to 608 px (§2.3).
 - **Coarse block progress bars** wherever there is a genuine quantity — build progress in the lens,
   reading position on a row. **Discrete blocks, never a smooth bar**: solid blocks are long RLE
-  runs, a gradient is not. Same rule as the switcher's quantised fade.
+  runs (the switcher's quantised-fade rule).
 
 Measured after all three plus row icons: **ink 8.7 %, 7,861 B** (2026-08-18; §4.2's table is
-current) — still inside the 15 % budget.
+current) — inside the 15 % budget.
 
-❌ **Not adopted: a gesture legend.** Faceclaw puts one on every screen (`▲▼ item · launch · ·· row`),
-and it is genuinely smart *there* — because its gestures change per screen. **Ours do not.** Tap,
-double-tap, long-press (a no-op by default, §1.2) and scroll mean the same thing in every
-window; only notifications differ.
-A legend would teach nothing and cost a permanent row of ink. ⇒ **The uniform grammar buys back the
-screen space Faceclaw spends explaining itself.** That is the payoff for keeping §1.2 rigid.
+❌ **Not adopted: a gesture legend.** Faceclaw puts one on every screen (`▲▼ item · launch · ·· row`)
+because its gestures change per screen. **Ours do not** — tap, double-tap, long-press (a no-op by
+default, §1.2) and scroll mean the same thing in every window; only notifications differ. A legend
+would teach nothing and cost a permanent row of ink. ⇒ **The uniform grammar buys back the screen
+space Faceclaw spends explaining itself.**
 
 ---
 
 ### 4.6 The content area and window chrome
 
 `x 16, y 34, w 608, h 416` — **82.3 % of the panel, against G2CC's 64.2 %, and 2.37× the pixels.**
-G2CC also spent a permanent 96 px on its menu list; Damage spends **zero**, for the reason below.
+G2CC also spent a permanent 96 px on its menu list; Damage spends **zero**.
 
 #### 🔑 There is no per-window chrome, because tap already descends
 
-G2CC needed a persistent menu region because the firmware owned interaction. We don't: **tap always
-descends.** A window's actions are a *level*, not a *region* —
+G2CC needed a persistent menu region because the firmware owned interaction. Here **tap always
+descends** — a window's actions are a *level*, not a *region*:
 
 ```
 content list  ──tap an item──▶  that item's actions  ──tap──▶  done
               ◀──double-tap──                        ◀──double-tap──
 ```
 
-which is exactly what G2CC's Files window already did (*"tapping a FILE opens the ACTIONS level —
-Open / Move / Copy / Rename / Del / Stats"*), generalised to every window. **Window-level** actions
-live at the end of the list, reachable in **one notch up from the top by wrapping** — the identical
-pattern that puts Settings at the end of Main's list (§4.2). Same gesture, same place, at both
-levels. *(A document window has no rows to end: Reader opens its level — Resume · Chapters · Jump ·
-Bookmark · Library — with a tap on the page.)*
-
-⇒ The window gets the whole content area. That is where the 2.37× comes from — it is not extra
-panel, it is mostly *chrome we stopped drawing*.
+G2CC's Files window already did this (*"tapping a FILE opens the ACTIONS level — Open / Move / Copy
+/ Rename / Del / Stats"*), generalised to every window. **Window-level** actions live at the end of
+the list, reachable in **one notch up from the top by wrapping** — the pattern that puts Settings at
+the end of Main's list (§4.2). *(A document window has no rows to end: Reader opens its level —
+Resume · Chapters · Jump · Bookmark · Library — with a tap on the page.)* ⇒ The window gets the
+whole content area; the 2.37× is mostly *chrome we stopped drawing*.
 
 #### The three content modes — and what they really declare
 
-The mode a window picks is a statement about **who owns damage**, which is the only thing that
-matters to its cost:
+The mode a window picks is a statement about **who owns damage**:
 
 | mode | WM provides | window owns | one scroll step |
 |---|---|---|---|
@@ -1480,63 +1286,54 @@ matters to its cost:
 | **Canvas** | the viewport, and the SHIFT when a repaint translated | everything, including damage | its own, less the translation |
 
 **List and Document are nearly free because the WM tracks damage for them.** Canvas hands that back
-to the window, and the honest number is: **a full-frame 608×416 canvas repaint is 3.8–6.3 KB and
-~1.57 fps.** A canvas window that tracks its own damage runs as fast as its damage is small; one
-that repaints everything runs at 1.5 fps. That is the whole story for games, stated up front rather
-than discovered.
+to the window: **a full-frame 608×416 canvas repaint is 3.8–6.3 KB and ~1.57 fps.** A canvas that
+tracks its own damage runs as fast as its damage is small; one that repaints everything runs at
+1.5 fps.
 
 🆕 **A canvas may carry its own button bar under the SAME wrap rule** (2026-09-09, Feed's comic
-level, `FEED.md` §8.2): a row of labels at the canvas's bottom, the ring moving a highlight
-along it and a tap pressing — entered by scrolling past the content's end, or by ONE NOTCH UP
-FROM THE TOP, exactly as a list wraps to its menu row; the content that fits above the bar rests
-on it. The grammar is unchanged (tap descends/presses, double-tap backs, scroll moves); only
-the target of a notch is the canvas's business. Clear the rect first — a canvas owns its
-background.
+level, `FEED.md` §8.2): a row of labels at the canvas's bottom, the ring moving a highlight along
+it and a tap pressing — entered by scrolling past the content's end, or by ONE NOTCH UP FROM THE
+TOP, as a list wraps to its menu row; the content that fits above the bar rests on it. The grammar
+is unchanged; only the target of a notch is the canvas's business. Clear the rect first — a canvas
+owns its background.
 
-🆕 **One thing the WM does give a canvas, since 2026-09-05** (`HANDOFF.md` §31): if a repaint moved
-the content vertically, the shell finds the translation by comparing the frames and sends the mode-9
-shift plus the newly exposed strip, exactly as List and Document have always done. It is DETECTED,
-not declared — a canvas window needs no new field and cannot get it wrong, and a pane the terminal
-itself scrolled is covered as much as one the ring scrolled. Before it, a tmux scroll shipped
-7.4–10.8 KB where the same scroll now ships ~5 KB. Exclusive mode's own damage path takes the same
-rule for any band big enough to be worth a copy.
+🆕 **The WM does give a canvas one thing, since 2026-09-05** (`HANDOFF.md` §31): if a repaint moved
+the content vertically, the shell finds the translation by comparing the frames and sends the
+mode-9 shift plus the newly exposed strip, as List and Document always have. DETECTED, not
+declared — a canvas window needs no new field, and a pane the terminal itself scrolled is covered
+as much as one the ring scrolled. Before it, a tmux scroll shipped 7.4–10.8 KB where the same
+scroll now ships ~5 KB. Exclusive mode's own damage path takes the same rule for any band big
+enough to be worth a copy.
 
-**List mode reuses Main's lens verbatim** — band at `y 210, h 64`, centre on **y = 242**, list panning
-through it, cursor fixed (`overview.md` §12). So Main, the switcher wheel, and every list window all
-put the focal element on the same axis. **The lens is a WM primitive, not a Main feature.**
+**List mode reuses Main's lens verbatim** — band at `y 210, h 64`, centre on **y = 242**, list
+panning through it, cursor fixed (`overview.md` §12). **The lens is a WM primitive, not a Main
+feature.**
 
 #### The scroll rail
 
-The WM reserves `x 612, w 12` and draws the rail itself as a layer above the window, so nothing has
-to be negotiated. **List and Document content is therefore 596 wide**; Canvas gets the full 608 and
-handles its own indication.
-
-- A filled thumb, not an outline (§8.5) — 75–125 B, and it only repaints when it would move by ≥2 px,
-  which drops most updates on a long list.
-- This is ours now. G2CC kept fighting the firmware's overflow scrollbar; that widget no longer
-  exists in our world.
+The WM reserves `x 612, w 12` and draws the rail itself as a layer above the window. **List and
+Document content is therefore 596 wide**; Canvas gets the full 608 and handles its own indication.
+A filled thumb, not an outline (§8.5) — 75–125 B, repainted only when it would move by ≥2 px, which
+drops most updates on a long list. G2CC kept fighting the firmware's overflow scrollbar; that
+widget no longer exists here.
 
 #### 🔑 The dividers are the WM's status rails
 
-The top divider already carries window position and attention marks (§4.1). The bottom one — `608×2` at `y 450` — is
-lit anyway, so give it the other axis: **back-stack depth.** N bright segments = N levels deep.
+The top divider carries window position and attention marks (§4.1). The bottom one — `608×2` at
+`y 450` — is lit anyway, so it carries **back-stack depth**: N bright segments = N levels deep.
 
 | divider | axis | tells you |
 |---|---|---|
 | top, `y 32` | horizontal | **which window** — position in the full set |
 | bottom, `y 450` | vertical | **how deep** — levels on the back stack |
 
-Zero extra pixels, zero extra bytes, both inside rects that were being sent regardless. Together
-they answer "where am I?" on both axes without a breadcrumb bar costing a row of ink.
-
-And the **breadcrumb text is already free too**: the top bar's Title is *"what is inside this window
-right now"* (§4.1), so `Mail · Jane Doe · Reply` encodes the depth in prose while the bottom divider
-encodes it as a glance. Neither costs new chrome.
+Zero extra bytes, both inside rects sent regardless. The **breadcrumb text is free too**: the Title
+is *"what is inside this window right now"* (§4.1), so `Mail · Jane Doe · Reply` encodes the depth
+in prose while the bottom divider encodes it as a glance.
 
 #### Depth
 
-Content sits at **plane −1**; the **lens comes forward to plane 0**, the same "focused comes forward"
-language as the notification taking focus and the switcher's centre item (§3.1). Document and Canvas
+Content sits at **plane −1**; the **lens comes forward to plane 0** (§3.1). Document and Canvas
 have no focused row, so they sit flat at −1.
 
 #### Ink
@@ -1551,7 +1348,7 @@ Budgets — the measured values are in §4.2's table (list 8.3 %, document 7.7 %
 
 #### What a window declares to the shell
 
-The chrome-facing half, as designed. **The full contract now exists as code and is larger —
+The chrome-facing half, as designed. **The full contract is code and is larger —
 `core/…/shell/WindowContract.kt` is the authority and `WINDOWS.md` §2 the one-screen summary**
 (adds needs, preferredHeight, appSettings, styleTransform, per-item sub-records,
 open(target)/restoreStateLive, typed text, back/levelDepth, and the ShellServices verbs).
@@ -1567,59 +1364,55 @@ open(target)/restoreStateLive, typed text, back/levelDepth, and the ShellService
 | **actions** | the wrap-to-end actions level, above |
 
 ⚠ **`summary` must be cheap and side-effect-free** — it is called for every window on every Main
-render. G2CC learned this the hard way and split `preview()` out of `view()` for exactly this reason:
-*"MUST be cheap + side-effect-free… NEVER spawn a subprocess or ping the phone."* Carry that rule.
+render. G2CC split `preview()` out of `view()` for this reason: *"MUST be cheap + side-effect-free…
+NEVER spawn a subprocess or ping the phone."*
 
 ### 4.7 The 2026-09-01 additions, settled with Adam (built the same night)
 
-Three shell surfaces/mechanisms designed during the app-contract session (`HANDOFF.md`
-§20–§22); recorded here because this file is the shell authority:
+Three shell surfaces/mechanisms designed during the app-contract session (`HANDOFF.md` §20–§22).
+**2026-09-12:** the context menu becomes the MENU type of the popover family (§4.11); its rules stand.
 
-- **The floating context menu** (Adam: *"a tap should work like a right-click"*): a 248-wide
-  HOLE in the content — not a card — at **plane 0** (248 at 100 %; its title band and the rule
-  under it follow the title face's MEASURED ink, and the rule is painted BEFORE the title so a
-  collision cannot hide itself — the rule struck through every menu title until 2026-09-05, §30;
-  since 2026-09-04,
-  `HANDOFF.md` §29, the box grows with the chrome face by the ratio its row pitch grew, so a
-  label keeps the room it was designed with under the 120 % cap, and a detail the tail-keeping
+- **The floating context menu** (Adam: *"a tap should work like a right-click"*): a 248-wide HOLE
+  in the content — not a card — at **plane 0** (248 at 100 %; its title band and the rule under it
+  follow the title face's MEASURED ink, and the rule is painted BEFORE the title so a collision
+  cannot hide itself — the rule struck through every menu title until 2026-09-05, §30; since
+  2026-09-04, `HANDOFF.md` §29, the box grows with the chrome face by the ratio its row pitch grew,
+  so a label keeps the room it was designed with under the 120 % cap, and a detail the tail-keeping
   fit cuts at its head carries the mark on that edge), cursor opening on **the first row that can
-  act** (put the primary action, Open, there; irreversible rows never at 0/1 per §1.7 — and a menu
-  whose first row is dim opens one row down instead of on a tap that does nothing,
-  2026-09-05 §30), scroll moves, tap commits,
-  double-tap cancels, a pan window for long menus. It owns the screen like the wheel: ordinary
-  notices defer behind it (decision 6 extended), an EMERGENCY cancels it — losing a menu is
-  safe, a missed alert is not. `MenuSurface.kt`; Files' whole grammar rides it.
-- **Deep links + the notification signature**: a notice carries source · thread (coalescing
-  key) · body · appId · target · urgency, and **tap = commit + activate + `open(target)`** in
-  the owning window — never on preview. `DamageWindow.open(target)` takes an opaque per-window
-  target ("book:<id>"); a failed resolution is loud. A hand-off (`openWindow`) records the
-  caller, and a root-level back returns to it.
+  act** (put the primary action, Open, there; irreversible rows never at 0/1 per §1.7 — a menu
+  whose first row is dim opens one row down, 2026-09-05 §30), scroll moves, tap commits, double-tap
+  cancels, a pan window for long menus. It owns the screen like the wheel: ordinary notices defer
+  behind it (decision 6 extended), an EMERGENCY cancels it — losing a menu is safe, a missed alert
+  is not. `MenuSurface.kt`; Files' whole grammar rides it.
+- **Deep links + the notification signature**: a notice carries source · thread (coalescing key) ·
+  body · appId · target · urgency, and **tap = commit + activate + `open(target)`** in the owning
+  window — never on preview. `DamageWindow.open(target)` takes an opaque per-window target
+  ("book:<id>"); a failed resolution is loud. A hand-off (`openWindow`) records the caller, and a
+  root-level back returns to it.
 - **Theme icons** (Adam: use his desktop theme's icons, grayscale, *"for everything in DamageWM
-  that uses icons"*): icons resolve from the DESKTOP THEME at render time (Papirus-Dark today;
-  the PC rasterizes, the phone fetches over the content port, both cache) with the drawn
-  `IconKind` set as the FALLBACK and the release path — third-party icon assets never enter the
-  repo, the APK, or a release. Main's focused lens takes the 56 px band-height icon (§4.5b).
+  that uses icons"*): icons resolve from the DESKTOP THEME at render time (Papirus-Dark today; the
+  PC rasterizes, the phone fetches over the content port, both cache) with the drawn `IconKind` set
+  as the FALLBACK and the release path — third-party icon assets never enter the repo, the APK, or
+  a release. Main's focused lens takes the 56 px band-height icon (§4.5b).
 
 ---
 
 ### 4.8 The keyboard — a wireframe keyboard driven by the ring (2026-09-01, Adam's design)
 
-Adam, 2026-09-01: *"now would be a good time to also implement a Universal Keyboard into
-DamageWM, one that can be brought up when needed and used via the Ring. I suggest a picture of
-a keyboard with an arrow to select row then key, with all regular keys and special keys
+Adam, 2026-09-01: *"implement a Universal Keyboard into DamageWM … used via the Ring. I suggest a
+picture of a keyboard with an arrow to select row then key, with all regular keys and special keys
 available. Should be implemented globally and activated when requested."* His verdicts the same
-evening: **stay in the row after typing** · **QWERTY, with a Settings option for other layouts**
-· **no history row** · **the draft is kept on cancel** · **key outlines — "an image of an actual
-keyboard wireframe-style where I can move the highlight to select the key."**
+evening: **stay in the
+row after typing** · **QWERTY, with a Settings option for other layouts** · **no history row** ·
+**the draft is kept on cancel** · **key outlines — "an image of an actual keyboard wireframe-style
+where I can move the highlight to select the key."**
 
-**What it is.** The fourth bespoke shell surface (§0: no generic overlay abstraction — the
-wheel, the notification box, the context menu and the keyboard are each their own design). A
-window asks for it (`ShellServices.openKeyboard`); it never opens on a gesture, so §1's
-grammar is untouched. Requesters today: Torrents (search), Tmux ("Type…" — the composed line
-still stages its run confirm), Files (rename / new folder, pre-filled with the current name),
-Music (Ask, library search, YouTube search, playlist name, rename playlist).
-The phone strip, the browser page and the desktop preview remain the fast paths; the keyboard
-is the pocket-stays-closed path.
+**What it is.** The fourth bespoke shell surface (§0). A window asks for it
+(`ShellServices.openKeyboard`); it never opens on a gesture, so §1's grammar is untouched.
+Requesters today: Torrents (search), Tmux ("Type…" — the composed line still stages its run
+confirm), Files (rename / new folder, pre-filled with the current name), Music (Ask, library
+search, YouTube search, playlist name, rename playlist). The phone strip, the browser page and the
+desktop preview remain the fast paths; the keyboard is the pocket-stays-closed path.
 
 **Grammar — two stages, wrap on both axes:**
 
@@ -1628,20 +1421,20 @@ is the pocket-stays-closed path.
 | **ROW** (opens here, on the home row) | moves the row highlight, wrapping | enters the row, cursor on its FIRST key | closes the keyboard — cancel, **draft kept** (the requester receives it and pre-fills the next open) |
 | **KEY** | moves the key highlight along the row, wrapping — no key is ever more than half a row away | types the key (or acts: Shift, Symbols, Backspace, ↵) and **stays in the row** — same-row runs are the common case | back to ROW |
 
-`↵` commits (the keyboard closes, the requester receives the text). A bare long-press is the
-§1.2 no-op (with "Long-press: switcher" set it cancels the keyboard, as it cancels the menu);
-the §1.3 chord opens the wheel over the keyboard, which cancels it (draft kept).
-Silent mode, a relayout, and an emergency cancel it the same way; ordinary notices wait behind
-it (decision 6, as for the menu). A typed line from a replica while the keyboard is open
-**becomes the draft and commits** — a real keyboard beat the ring to it.
+`↵` commits (the keyboard closes, the requester receives the text). A bare long-press is the §1.2
+no-op (with "Long-press: switcher" set it cancels the keyboard, as it cancels the menu); the §1.3
+chord opens the wheel over the keyboard, which cancels it (draft kept). Silent mode, a relayout,
+and an emergency cancel it the same way; ordinary notices wait behind it (decision 6, as for the
+menu). A typed line from a replica while the keyboard is open **becomes the draft and commits** — a
+real keyboard beat the ring to it.
 
-**Misfire tolerance (§1.7), by placement:** every row's first key is harmless (`1`, `q`, `a`,
-`⇧`, `?123`); `↵` sits at the END of the home row, `Clear` at the END of the bottom row —
-never index 0/1, never a rest position. A stray tap types a letter, undone by `⌫`.
+**Misfire tolerance (§1.7), by placement:** every row's first key is harmless (`1`, `q`, `a`, `⇧`,
+`?123`); `↵` sits at the END of the home row, `Clear` at the END of the bottom row — never index
+0/1, never a rest position. A stray tap types a letter, undone by `⌫`.
 
-**Layout** (12 units of 48 px = 576 px, centred in the content area; row pitch adapts to the
-height mode — 48 px at 480, 34 px at 288, 28 px at 288 with a live row — so the keyboard fits
-every Size; a row's label size is the largest that fits every label of that row):
+**Layout** (12 units of 48 px = 576 px, centred in the content area; row pitch adapts to the height
+mode — 48 px at 480, 34 px at 288, 28 px at 288 with a live row — so the keyboard fits every Size; a
+row's label size is the largest that fits every label of that row):
 
 ```
  text line:  prompt ·  draft with caret  (pans, never cuts — the cut is marked and reachable)
@@ -1653,39 +1446,36 @@ every Size; a row's label size is the largest that fits every label of that row)
  [ requester rows: e.g. Tmux's Esc · Tab · ↑ · ↓ · ← · → · Enter · Ctrl-C — live keys, sent as tapped ]
 ```
 
-Shift: one tap = the next key capitalized, a second tap = caps lock, a third = off. `?123`
-swaps the three letter rows for the symbol layer (`! @ # $ % ^ & * ( ) { }` / `+ = [ ] ; : " <
-> ~ ↵↵` / `⇧⇧` `` ` `` `\` `|` `?` `⌫⌫`, two units each — every printable ASCII character is
-reachable across the two layers; `KeyboardTest` pins that, the digit row is on both). `←`/`→`
-move the caret, `Del` deletes forward, `Clear` empties the draft. The **requester rows** are
-optional and belong to the caller: up to six live keys make one row, up to twelve two rows,
-more is refused loudly — Tmux supplies its non-character quick keys with the harmless ones
-(Esc, Tab, the arrows) first so the row's rest position never sends Enter; Torrents, Files and Music
-supply none.
+Shift: one tap = the next key capitalized, a second tap = caps lock, a third = off. `?123` swaps
+the three letter rows for the symbol layer (`! @ # $ % ^ & * ( ) { }` / `+ = [ ] ; : " < > ~ ↵↵` /
+`⇧⇧` `` ` `` `\` `|` `?` `⌫⌫`, two units each — every printable ASCII character is reachable
+across the two layers; `KeyboardTest` pins that, the digit row is on both). `←`/`→` move the caret,
+`Del` deletes forward, `Clear` empties the draft. The **requester rows** are optional and belong to
+the caller: up to six live keys make one row, up to twelve two rows, more is refused loudly — Tmux
+supplies its non-character quick keys with the harmless ones (Esc, Tab, the arrows) first so the
+row's rest position never sends Enter; Torrents, Files and Music supply none.
 
 **Layouts.** Settings → Global → `Keyboard`: **qwerty** (default) · **abc** (three alphabetic
 rows). Same specials, same geometry.
 
 **Look — a wireframe.** Every key is a 2 px outline on the 4×2 grid with its label centred; the
-surface is a HOLE like the menu (the content under it is captured and restored). Text drawn
-on it — the prompt, the draft, a pre-filled file name — shows every glyph the face cannot draw
-as `?` (one per UTF-16 unit, so the caret never drifts); the prompt is a handle fitted to a
-third of the line with the mark. Brightness
-carries focus: at the ROW stage the focused row's outlines and labels rise to BODY (the rest
-FAINT/DIM) with a `▸` at the row's left edge; at the KEY stage the focused key's outline and
-label go to HEAD, its row BODY, the other rows FAINT/DIM. Latched modifiers show at HEAD. The
-outlines' cost is paid ONCE when the keyboard opens (one flush of the box); afterwards a
-scroll repaints two key cells and a keypress repaints the text line — all well inside the
+surface is a HOLE like the menu (the content under it is captured and restored). Text drawn on it
+— the prompt, the draft, a pre-filled file name — shows every glyph the face cannot draw as `?`
+(one per UTF-16 unit, so the caret never drifts); the prompt is a handle fitted to a third of the
+line with the mark. Brightness carries focus: at the ROW stage the focused row's outlines and
+labels rise to BODY (the rest FAINT/DIM) with a `▸` at the row's left edge; at the KEY stage the
+focused key's outline and label go to HEAD, its row BODY, the other rows FAINT/DIM. Latched
+modifiers show at HEAD. The outlines' cost is paid ONCE when the keyboard opens (one flush of the
+box); afterwards a scroll repaints two key cells and a keypress repaints the text line — inside the
 ~100 ms class. **Measured (selfcheck, 2026-09-01): the open keyboard is 9–11 % ink** over the whole
-panel (9.2 % and 11.2 % in two runs; the transfers list behind it sets the rest) — the
-wireframe costs less than a dense list.
+panel (9.2 % and 11.2 % in two runs; the transfers list behind it sets the rest).
 
 **Depth.** Plane 0, forward of the content, like the menu and the notification box (§3.1).
 
 **Cost and persistence.** Nothing persists in the shell; the draft belongs to the requester
-(Torrents saves its search draft in its record) — a shell stop, a keeper restart, a window
-commit and a relayout all hand the draft back before the surface goes. The keyboard adds one
-back-stack segment to the bottom divider while open (§4.6's depth rail).
+(Torrents saves its search draft in its record) — a shell stop, a keeper restart, a window commit
+and a relayout all hand the draft back before the surface goes. The keyboard adds one back-stack
+segment to the bottom divider while open (§4.6's depth rail).
 
 **Not in this design, deliberately:** a history/suggestions row (Adam: no), predictive text,
 per-window key remaps, a gesture to open it (§1 is not negotiable).
@@ -1694,56 +1484,51 @@ per-window key remaps, a gesture to open it (§1 is not negotiable).
 
 ### 4.9 Exclusive mode — a window owns the whole panel (2026-09-02, Music Mode)
 
-`MUSIC.md` verdict 16 (*"Silent Mode with music décor"*) needed a shell mode between WINDOW
-and SILENT: the focused window paints the **whole panel** — no bars, no dividers, no rail —
-and the ring is **swallowed except double-tap, which returns to the window** (the §1.5 path
-generalized: a long-press never arms the chord, so the chord cannot fire; the temple's stray
-event 9 is harmless here for the same reason). Temporary notices still show, in silent mode's
-small auto-dismissing form (verdict 23). No menu, no keyboard, no switcher inside it.
+`MUSIC.md` verdict 16 (*"Silent Mode with music décor"*) needed a shell mode between WINDOW and
+SILENT: the focused window paints the **whole panel** — no bars, no dividers, no rail — and the
+ring is **swallowed except double-tap, which returns to the window** (the §1.5 path generalized: a
+long-press never arms the chord; the temple's stray event 9 is harmless for the same reason).
+Temporary notices still show, in silent mode's small auto-dismissing form (verdict 23). No menu, no
+keyboard, no switcher inside it.
 
 **Contract** (`WindowContract.kt`): `ShellServices.enterExclusive(window)` (LOOP-ONLY; refused
 unless the window is focused) / `exitExclusive()`; the window implements
-`paintExclusive(g, safe, full): List<Rect>` — the layout's **safe rect at the window's own
-height** (every Size works: Music Mode stacks its surfaces at 480 and shortens them at 288) —
-returning **one rect per surface that changed** (the fid budget: a visualizer painted bar by
-bar would be silently skipped), and `onExclusive(on)` to start and stop its own pacing (a
-visualizer's frame ticks, a lyric scheduler). The shell calls a full paint on entry, on a
-relayout, after every notice dismissal and on a live-synced record; a delta paint on every
-`requestRender` and on the minute tick (the window's clock surface, if it has one).
+`paintExclusive(g, safe, full): List<Rect>` — the layout's **safe rect at the window's own height**
+(every Size works: Music Mode stacks its surfaces at 480 and shortens them at 288) — returning
+**one rect per surface that changed** (the fid budget: a visualizer painted bar by bar would be
+silently skipped), and `onExclusive(on)` to start and stop its own pacing (a visualizer's frame
+ticks, a lyric scheduler). The shell calls a full paint on entry, on a relayout, after every notice
+dismissal and on a live-synced record; a delta paint on every `requestRender` and on the minute
+tick (the window's clock surface, if it has one).
 
-**Persistence:** the mode is saved like SILENT (`shell.state.mode = EXCLUSIVE` + the window
-id) and **restores only when that window is registered on the restoring host** — a driver
-swap to a host without it lands in the window's root or Main, loudly normal.
+**Persistence:** the mode is saved like SILENT (`shell.state.mode = EXCLUSIVE` + the window id)
+and **restores only when that window is registered on the restoring host** — a driver swap to a
+host without it lands in the window's root or Main, loudly normal.
 
-**Music Mode's surfaces** (`MUSIC.md` §8.3, each on/off in Settings → Music): the Now Playing
-card (art 120 px at 416/480, 56 px at 288/352 · title · artist · album · a 20-block bar — it
-repaints on track change and every 5 % of progress), the lyrics (the remainder in whole 22 px
-lines: 3 at 288 … up to 9 at 480, the current line HEAD-bright, the scheduler flushing a line
-ahead of its stamp), the visualizer strip (608 × 48 at 288/352, × 64 at 416/480, at the bottom,
-Bars · Scope · Pulse · Meter at 4/8/12 Hz — each frame ONE rect), the queue peek (next two
-above the strip — **one at 288**, the same ladder), the seven-segment **medium** clock
-top-right, and the PC link line under it.
+**Music Mode's surfaces** (`MUSIC.md` §8.3, each on/off in Settings → Music): the Now Playing card
+(art 120 px at 416/480, 56 px at 288/352 · title · artist · album · a 20-block bar — it repaints on
+track change and every 5 % of progress), the lyrics (the remainder in whole 22 px lines: 3 at 288 …
+up to 9 at 480, the current line HEAD-bright, the scheduler flushing a line ahead of its stamp),
+the visualizer strip (608 × 48 at 288/352, × 64 at 416/480, at the bottom, Bars · Scope · Pulse ·
+Meter at 4/8/12 Hz — each frame ONE rect), the queue peek (next two above the strip — **one at
+288**, the same ladder), the seven-segment **medium** clock top-right, and the PC link line under
+it.
 
-🔴 **A returned rect is a PROMISE, and every band is sized by MEASURED ink** (2026-09-05).
-`paintExclusive` is the one place a window declares its own damage; ink it puts outside those
-rects is painted into `composed` and never sent, so the belief and the glass agree while the
-composed frame silently diverges — and the next keyframe produces the difference out of nowhere.
-The card's progress row was placed at `r.bottom - 14` under a face whose ink is 20 px and ran
-4 px past the card at 288 and 352. Size the band from `ascent + descent`, never from a line
-height or a constant. `--selfcheck` runs the per-lens truth oracle on every settle, so a band
-that does not hold what it draws fails the gate (`HANDOFF.md` §27.2).
-Measured on the sim (`--selfcheck`, 2026-09-02): Music Mode at 480 with Bars is under the
-30 % canvas note; the achievable visualizer rate on glass and the Bluetooth lyric offset
-are **measured items**, not modeled here (`MUSIC.md` §12).
+🔴 **A returned rect is a PROMISE, and every band is sized by MEASURED ink** (2026-09-05;
+`CLAUDE.md`'s standing rule). `paintExclusive` is the one place a window declares its own damage;
+ink outside those rects is painted into `composed` and never sent. The card's progress row was
+placed at `r.bottom - 14` under a face whose ink is 20 px and ran 4 px past the card at 288 and
+352. Size the band from `ascent + descent`, never from a line height or a constant; `--selfcheck`
+runs the per-lens truth oracle on every settle (`HANDOFF.md` §27.2). Measured on the sim (`--selfcheck`, 2026-09-02): Music Mode at 480 with Bars is under the
+30 % canvas note; the achievable visualizer rate on glass and the Bluetooth lyric offset are
+**measured items**, not modeled here (`MUSIC.md` §12).
 
 ### 4.10 Activation source — switcher resumes, Main presents the root (2026-09-04)
 
-Adam's general rule, stated while designing Games and applied to every window:
+Adam's general rule, stated while designing Games:
 
 > *"Going to Games from the switcher should auto-resume … Going to Games from Main should present
-> the Games List … This should be true of any window that has multiple base functions (like
-> Reader… Similarly, going to Tmux from Main should present a list of sessions, but Switcher to
-> Tmux should go directly into the last session where I left off)."*
+> the Games List … This should be true of any window that has multiple base functions."*
 
 `onActivate(ctx, from)` carries an `ActivationSource`:
 
@@ -1756,21 +1541,52 @@ Adam's general rule, stated while designing Games and applied to every window:
 
 Three rules that are easy to get wrong:
 
-1. **`MAIN` changes the entry POINT, never the stored state.** Deep state survives; navigating
-   back down lands exactly where it was. §9.1 is not weakened.
+1. **`MAIN` changes the entry POINT, never the stored state.** Deep state survives; navigating back
+   down lands exactly where it was. §9.1 is not weakened.
 2. **Resetting the level is not enough — reset the container and the cursor too.** Reader's Main
-   entry left a subfolder open, which is depth 2, so a single double-tap ascended *inside* the
-   window instead of leaving it. The pin asserts `levelDepth() == 1` after a MAIN activation.
+   entry left a subfolder open (depth 2), so a single double-tap ascended *inside* the window
+   instead of leaving it. The pin asserts `levelDepth() == 1` after a MAIN activation.
 3. **A window whose root IS its live surface has nothing to present.** Music's root is NOW PLAYING
    (`MUSIC.md`, `HANDOFF.md` §24.4), so its Main entry is not a browse list.
 
 **A preview is a render, never an activation** (§4.3 rule 1): the switcher's preview must not call
 `onActivate` with any source.
 
-🆕 **Settings takes a `cat:<name>` deep link (2026-09-04).** A window that offers "my settings" as
-a row calls `services.openWindow("settings", "cat:Games")` and lands in its own category, with the
-§16.2 back-to-caller still in force. Without it the row opened Settings wherever it was last left
-— the same surprise the activation rule above exists to remove.
+🆕 **Settings takes a `cat:<name>` deep link (2026-09-04).** A window that offers "my settings" as a
+row calls `services.openWindow("settings", "cat:Games")` and lands in its own category, with the
+§16.2 back-to-caller still in force. Without it the row opened Settings wherever it was last left.
+
+### 4.11 The popover family — one surface, one modal stack (2026-09-12, spec `POPOVER.md`; not built)
+
+Adam, 2026-09-12: the popover is a general tool for every window and app; notifications are one type
+of it; stacking is wanted; banners are not; nothing behind it dims; built all at once. Reverses the §0
+row above. The design, in the shell's terms:
+
+- **Types:** MENU (§4.7's menu) · NOTICE (§4.5) · CONFIRM (one shape for every irreversible act:
+  title, body, Cancel at rest, the act second) · PEEK (a window level presented as a popover when it
+  fits; long reading stays full) · DECK (rich read-only content) · ASK (check / radio / text rows +
+  Done, the answer reported to the owner). The wheel (§4.3) and the keyboard (§4.8) keep their
+  presentations; all of them sit on **one modal stack** and the shell asks its top.
+- **Form:** §4.5's hole, not a card — cleared, two horizontal rules, no fills, ink ≤ 25 %; width =
+  min(the app's cap, measured content), ×4, floor 248, cap 608; **height from measured ink, never a
+  parameter**; centred on x 320 / y 242; the body scrolls; all four heights.
+- **Width is the app's call** (verdict 5): a per-app default, a per-app `Popover width` Settings row,
+  and a value at spawn. Global `Popover width` is the default cap (480), `Popover step` the stack step.
+- **Depth and stacking** (§3.1): the focused popover owns plane 0 (cached text is flat there); the one
+  beneath recedes by the step with a per-lens copy (+4 B/rect); at most two visible, the rest queue
+  behind `+N`. Global `Depth` moves everything.
+- **Focus:** the top has focus; the ring grammar is unchanged (tap acts on the row, double-tap
+  dismisses, scroll moves). An arrival never steals focus from an interactive popover — it shows
+  DIM above and takes focus when the top is dismissed; the §4.5 grace applies over a window; an
+  emergency cancels MENU/CONFIRM/PEEK and takes focus over DECK/ASK. The window's paint stays
+  suspended beneath.
+- **Content:** markdown subset, kv rows, tables that reflow to cards, drawn charts, images as strips
+  in a later flush, drawn check marks. Every string linted at spawn; a refusal is loud.
+- **Result:** `dismissed | committed(row) | answered(checked, text?) | superseded`, on the loop.
+- **The Claude path:** a `deck.v1` JSON pushed by `damage-show` to the service, taught to every
+  session by a user-level skill; history in `~/.damage/decks/` as a Files location. `POPOVER.md` §5.
+
+Costs (modeled, `POPOVER.md` §2.3): open ≤ 1 KB, dismiss 1–3 KB, a plane step +4 B/rect.
 
 ## 5. Compositor engine
 
@@ -1778,73 +1594,61 @@ All adopted 2026-08-17.
 
 1. **Price damage partitions by actually compressing them.** Enumerate candidate splits (1 box,
    2-way, … up to the rect budget), deflate each, take the true minimum. Compute is free and the
-   wire is scarce; Faceclaw uses fixed gap thresholds instead. ⚠ Each rect gets its **own zlib
-   stream** (no `inflateSetDictionary` exists — verified), so splitting always loses cross-rect
-   sharing. That loss must be part of the price.
+   wire is scarce; Faceclaw uses fixed gap thresholds. ⚠ Each rect gets its **own zlib stream** (no
+   `inflateSetDictionary` exists — verified), so splitting always loses cross-rect sharing. That
+   loss is part of the price.
 2. **Mode 9 is a general primitive, not a scroll trick.** Any change expressible as *translation +
    small fill* is near-free. **Before emitting pixels, ask whether the delta is a translation.**
 3. **Any list or strip that moves by a whole row/cell is a mode-9 shift plus one fill** — never a
-   repaint. Main's panning list is the live case (§4.2); the retired ribbon was the first, and the
-   rule outlived it. ⚠ It requires uniform row/cell extents: **a translation cannot resize**, which
-   is precisely what ended the unequal-width ribbon (§4.1).
+   repaint. Main's panning list is the live case (§4.2). ⚠ It requires uniform row/cell extents:
+   **a translation cannot resize**, which is what ended the unequal-width ribbon (§4.1).
 4. **Occlusion culling** — never transmit pixels a higher layer covers.
 5. **Speculative pre-compression** — while idle, render and deflate the likely next frames (the
    next scroll position, the switcher's adjacent windows). The flush becomes a memcpy.
-6. **Hash before send** — never emit a rect whose content did not actually change.
+6. **Hash before send** — never emit a rect whose content did not change.
 7. **A real fid allocator**, with hard assertions on outstanding depth. Collisions are **silently
-   skipped** by firmware; this is the bug class that eats compositors invisibly. See §8.2.
+   skipped** by firmware. See §8.2.
 8. **Never keyframe** — ~1.1 s. Cold start and detected divergence only.
 9. **Per-lens shadow model** (stereo has been live since 2026-08-31).
 10. **Cross-window deltas** — a switch computes the delta from the *current screen* to the target's
-    composed frame, not from black. With chrome identical everywhere (§2.4 rule 6) and layouts
-    often similar, this is far smaller than a repaint.
-11. **Optimistic paint** — at this latency, "the tap selects the highlighted item" is right nearly
-    always. Paint the result immediately, reconcile if wrong.
+    composed frame, not from black. With chrome identical everywhere (§2.4 rule 6) this is far
+    smaller than a repaint.
+11. **Optimistic paint** — "the tap selects the highlighted item" is right nearly always. Paint the
+    result immediately, reconcile if wrong.
 12. **Two shadows: composed and transmitted.** Damage is computed against what was *sent*, not what
-    was last composed — advancing on send, rolling back on failure. Without this a pipeline
-    transmits stale pixels.
+    was last composed — advancing on send, rolling back on failure. Otherwise a pipeline transmits
+    stale pixels.
 13. **Backpressure coalescing.** When the pipe is full and new damage arrives, merge it into the
-    pending flush rather than queueing. Always transmit latest state, never a backlog — this is
-    what stops animation degrading into lag under load.
+    pending flush rather than queueing. Always transmit latest state, never a backlog.
 14. **Damage epochs.** Stamp damage with a counter so late-arriving state is discarded, not painted.
-15. **Deep idle.** When nothing changes, stop flushing entirely except the clock tick. Frees the
-    link and reduces contention with whatever causes the 10× throughput shortfall.
+15. **Deep idle.** When nothing changes, stop flushing entirely except the clock tick.
 16. **Reconnect without a keyframe.** The lease tells you whether the shadow is still yours: held
     continuously ⇒ intact ⇒ resume with deltas; lapsed ⇒ stock repainted over us ⇒ keyframe
     required. Turns a ~1.1 s reconnect into ~0.
 17. **The sacrificial warmup frame is the splash.** The firmware silently drops the first burst
     after CREATE, so a throwaway frame is required regardless — make it the boot logo.
 18. **Texture-cache readiness now.** Content-hash every rect and make the hash the cache key, so
-    adopting Babcock's cache is a transport swap rather than a rewrite.
+    adopting the firmware cache is a transport swap rather than a rewrite.
 
 **Implementation status (2026-08-24, `core/…/comp/Compositor.kt`, after eight review rounds).**
-Rules 2, 3, 4, 6, 7, 8, 11, 13, 14, 15 and 17 are implemented as written. Rule 1 is implemented
-as a merge toward the rect budget followed by a *priced* pass (neighbours merge when the
-compressed union is cheaper than the parts). Rules 9 and 12 were superseded by one mechanism the
-reviews forced: the compositor keeps an expected shadow **per lens** and renders the per-lens
-**truth** of the nominal frame under the plane map (regions vacate to black — the seam; pieces
-render at their shift, far to near, nearest wins; the 16 px insets are the transparent shift
-budget of §3.3), then emits whatever makes shadow equal truth. Damage is still computed against
-what was *sent*, but a lost flush no longer "rolls back" to a snapshot — it marks the per-lens
-cells it touched **unknown**, because other flushes land around it and no snapshot can say what
-the glass holds. Rule 16 is partial: a lease loss requests a keyframe; reconnect itself is still
-host-driven. Rules 5 (speculative pre-compression), 10 (cross-window deltas from the current
-screen) are **not built yet** — the seam is designed to take them. Rule 18 (content-hash cache
-keys) is built as the texture-cache path (2026-09-06, `HANDOFF.md` §40.6): the cache is in CFW
-`a5d1c31`, `wire/CfwModes.kt` + `wire/TextureCache.kt` encode modes 11–14, and behind the Global
-`Cached text` row plane-0 text ships as mode-14 draws under a byte-exact proof — off until seen
-on glass, `IMPLEMENTATION.md` → The texture
-cache.) `LensOracleTest` pins the per-lens model against the firmware simulator; see
-`IMPLEMENTATION.md` → "Review hardening".
-
-**Finishing build (2026-08-25).** Rule 16's reconnect is now the session keeper's: a link end
-restarts the session (a keyframe follows, since the lease cannot survive the gap). The three
-unbuilt rules attach at named seams: rule 5 (speculative pre-compression) inside
-`Compositor.assembleFlush`'s payload compression, where a cache keyed by (rect, content hash)
-would be consulted first; rule 10 (cross-window deltas) in `Shell.commitWindow`, which today
-repaints the content area — the compositor's per-lens diff already sends only what changed, so
-the rule reduces to composing the target's frame before the switch; rule 18 (content-hash cache
-keys) at `Emit.encode`, the single place every payload passes through.
+Rules 2, 3, 4, 6, 7, 8, 11, 13, 14, 15 and 17 are implemented as written. Rule 1 is a merge toward
+the rect budget followed by a *priced* pass (neighbours merge when the compressed union is cheaper
+than the parts). Rules 9 and 12 were superseded by one mechanism the reviews forced: an expected
+shadow **per lens** and the per-lens **truth** of the nominal frame under the plane map (regions
+vacate to black — the seam; pieces render at their shift, far to near, nearest wins; the 16 px
+insets are the transparent shift budget of §3.3); the compositor emits whatever makes shadow equal
+truth, and a lost flush marks the per-lens cells it touched **unknown** rather than rolling back to
+a snapshot. Rule 16: a lease loss requests a keyframe; reconnect is the session keeper's
+(2026-08-25 — a link end restarts the session and a keyframe follows). Rules 5 and 10 are **not
+built**; their seams are `Compositor.assembleFlush`'s payload compression (a cache keyed by (rect,
+content hash)) and `Shell.commitWindow` (compose the target's frame before the switch; the
+per-lens diff already sends only what changed). Rule 18 is built as the texture-cache path
+(2026-09-06, `HANDOFF.md` §40.6): the cache is in CFW `a5d1c31`, `wire/CfwModes.kt` +
+`wire/TextureCache.kt` encode modes 11–14, and behind the Global `Cached text` row plane-0 text
+ships as mode-14 draws under a byte-exact proof — off until seen on glass (`IMPLEMENTATION.md` →
+The texture cache); `Emit.encode` is the single place every payload passes through.
+`LensOracleTest` pins the per-lens model against the firmware simulator (`IMPLEMENTATION.md` →
+"Review hardening").
 
 ---
 
@@ -1852,24 +1656,20 @@ keys) at `Emit.encode`, the single place every payload passes through.
 
 **Adam: graphical effects are first-class.** *"ribbon scrolling should slide the elements rather
 than snap, just quickly and then stop at each… subtle and quick but awesome and pleasing"*, in
-every facet and function. *(The ribbon he was describing has since been retired — §4.1 — but the
-instruction was about motion everywhere, and it governs the switcher wheel, Main's panning list and
-every page turn.)*
+every facet and function. *(The ribbon is retired — §4.1 — but the instruction was about motion
+everywhere: the switcher wheel, Main's panning list and every page turn.)*
 
 ### 6.1 Why it is nearly free
 
 With three flushes in flight a small delta completes every ~59 ms (stock-formula pricing — the
-measured curve is cheaper, §8.4), so **a 4-frame slide is ~236 ms
-— about the latency you would have eaten anyway.** Animation converts waiting time into motion rather
-than adding time. And because mode 9 makes translation free, **the damage during a slide is only
-the newly exposed strip**, so an animated transition can cost *fewer* bytes than snapping to the
-end state.
+measured curve is cheaper, §8.4), so **a 4-frame slide is ~236 ms — about the latency you would
+have eaten anyway.** And because mode 9 makes translation free, **the damage during a slide is
+only the newly exposed strip**, so an animated transition can cost *fewer* bytes than snapping to
+the end state.
 
 ### 6.2 The motion vocabulary
 
 > **Rule: any transition not expressible as translation + small fill is too expensive.**
-
-That constraint produces a coherent physical language rather than a grab-bag:
 
 - **Slide** — list panning, window switches, page turns.
 - **Reveal / cover** — overlays entering from an edge.
@@ -1883,26 +1683,25 @@ That constraint produces a coherent physical language rather than a grab-bag:
   it never queues. Otherwise fast scrolling backs up into visible lag.
 - **Motion yields to input.** The frame scheduler always preempts an in-progress animation for a
   response to new input. 🆕 **Mechanised 2026-09-05 (`HANDOFF.md` §32):** one of the three
-  in-flight slots is reserved for the pump that follows a ring event; animation frames, pushes
-  and the visualizer run at most two deep.
+  in-flight slots is reserved for the pump that follows a ring event; animation frames, pushes and
+  the visualizer run at most two deep.
 - 🆕 **Frames per notch are a Global setting (2026-09-05, §37; Adam — built 2026-09-06, §40.4).**
-  `Slide frames: off · 2 · 4 · auto · 8 · 12`, `auto` = the halving rule below and the DEFAULT.
-  The setting resamples the ease-out sequence to at most that many steps (each still a multiple
-  of 2 px, the last taking what is left); `off` is one copy and one strip.
+  `Slide frames: off · 2 · 4 · auto · 8 · 12`, `auto` = the halving rule and the DEFAULT. The
+  setting resamples the ease-out sequence to at most that many steps (each still a multiple of
+  2 px, the last taking what is left); `off` is one copy and one strip.
 - 🆕 **A live window may keep the link busy while it is the active window (Adam, 2026-09-05).**
-  Tmux frames, Music's card and visualizer, Torrents' polls: he is watching them. The rule is
-  about cost per update (§8.6), not cadence — and a parked window holds no loop (§4.6).
+  Tmux frames, Music's card and visualizer, Torrents' polls: he is watching them. The rule is about
+  cost per update (§8.6), not cadence — and a parked window holds no loop (§4.6).
 - 🆕 **Motion follows the measured link (2026-09-05, §32).** The transport keeps a transfer-term
   EMA (ms per KB over flushes of 1 KB and more, against a floor EMA from small ones); above
   50 ms/KB — the phone path measured ~125, PC-direct ~20 — the wheel spins in **2** frames per
-  notch instead of 4. Each spin frame is a ~0.9 KB repaint of the drum, so four of them are
-  ~0.8 s of link time through the phone. The slides keep their frames: their strips are small and
-  the first frame is as fast as a snap. Nothing adapts until a real flush has been timed; the
-  harnesses (instant timing) always see 4. On-glass verdict owed.
+  notch instead of 4. Each spin frame is a ~0.9 KB repaint of the drum, so four of them are ~0.8 s
+  of link time through the phone. The slides keep their frames: their strips are small and the
+  first frame is as fast as a snap. Nothing adapts until a real flush has been timed; the harnesses
+  (instant timing) always see 4. On-glass verdict owed.
 - 🟡 **Progressive band painting** (spreading one big repaint across flushes) is experimental, to
-  be tried only where it demonstrably helps. ⚠ Note a mode-8 batch **presents atomically**, so
-  there is no banding effect *within* a flush — it only exists if we deliberately spread across
-  flushes, and that costs more total bytes.
+  be tried only where it demonstrably helps. ⚠ A mode-8 batch **presents atomically**, so there is
+  no banding *within* a flush — only if we deliberately spread across flushes, at more total bytes.
 
 ---
 
@@ -1921,13 +1720,12 @@ default**, opt-in per feature, never a required input path.
 
 CFW mode 10, heading via the stock sid-0x08 notifier. **8 sectors** (N NE E SE S SW W NW) in the
 status bar. ⚠ **Drawn, not fed (2026-09-01):** `Chrome` paints the tape from a heading string, but
-no heading source exists yet — the sid-0x08 read-out is unbuilt and the cell shows its rest mark.
+the sid-0x08 read-out is unbuilt and the cell shows its rest mark.
 
-🔴 **Hysteresis is mandatory, not polish.** Heading changes constantly as his head moves; a naive
-implementation would emit a flush every time the reading crosses a sector boundary and turn the
-compass into a flush firehose. **Rules:** update only on the idle chrome tick (§8.3), only when
-the 8-way sector actually changes, and with a deadband around each boundary so it cannot flicker
-between N and NE.
+🔴 **Hysteresis is mandatory.** Heading changes constantly as his head moves; a naive
+implementation would flush every time the reading crosses a sector boundary. **Rules:** update
+only on the idle chrome tick (§8.3), only when the 8-way sector changes, and with a deadband around
+each boundary so it cannot flicker between N and NE.
 
 ### 7.3 Wear detection — excluded for now
 
@@ -1942,18 +1740,18 @@ between N and NE.
 **Adopted and shipped** (`CfwTransportBase.WINDOW = 3`). The ack floor is *latency*, not service
 time — ~176 ms on stock, **~60 ms measured on the CFW** (`overview.md` §5.2); the CFW's
 snapshot/deferred FIFO exists to make pipelined deltas safe, and Faceclaw ships `WINDOW_SIZE = 3`
-on exactly this path. Keeping the window full gives **~15–17 fps on small damage** at the stock
-figure, not ~5.7. The fps figure is graded **C/I** — read from his code, never measured as a rate
-on our wire. 🆕 **One of the three is reserved for input (2026-09-05, §32):** a pump that follows
-anything other than a ring event or a typed line stops at two in flight, so a gesture's first
-flush never waits behind three animation, push or visualizer frames — each 150–1,200 ms on the
-phone's measured curve. Pure animation therefore pipelines two deep, not three; responsiveness
-was traded for animation throughput on purpose.
+on this path. Keeping the window full gives **~15–17 fps on small damage** at the stock figure, not
+~5.7. The fps figure is graded **C/I** — read from his code, never measured as a rate on our wire.
+🆕 **One of the three is reserved for input (2026-09-05, §32):** a pump that follows anything other
+than a ring event or a typed line stops at two in flight, so a gesture's first flush never waits
+behind three animation, push or visualizer frames — each 150–1,200 ms on the phone's measured
+curve. Pure animation pipelines two deep, not three; responsiveness was traded for animation
+throughput on purpose.
 
 ### 8.2 🔴 Frame-id discipline — read from `cfw_diag()`, not inferred
 
-The rect budget looked like a simple `floor(16/window)` cap. Reading the firmware's actual
-duplicate detector changes the answer:
+The rect budget looked like a simple `floor(16/window)` cap. The firmware's actual duplicate
+detector changes the answer:
 
 ```c
 static int cfw_diag(int has_fid, uint16_t fid) {
@@ -1970,23 +1768,23 @@ static int cfw_diag(int has_fid, uint16_t fid) {
 ```
 
 🔑 **Only an exact hit in the 16-deep ring causes a skip.** A stale fid that has *aged out* is
-flagged and then **applied** — silently clobbering newer pixels. The ring is a short-window filter,
-not a safety net, so "keep enough history in the ring" is the wrong thing to engineer toward.
+flagged and then **applied** — overwriting newer pixels. The ring is a short-window filter, not a
+safety net, so "keep enough history in the ring" is the wrong thing to engineer toward.
 
 **The method, in order:**
 
 1. **Never put the same fid on the wire twice.** On a missed ack, do *not* retransmit — recompute
-   damage for that region and send it with a **fresh** fid. Costs the same bytes or fewer (the
-   region may have changed), and it eliminates the aged-out-stale-duplicate hazard outright. This
-   is the only duplicate source that scales with rect count.
+   damage for that region and send it with a **fresh** fid. Same bytes or fewer, and it removes
+   the aged-out-stale-duplicate hazard outright. This is the only duplicate source that scales
+   with rect count.
 2. **The ring's remaining job is firmware-internal re-processing** (the snapshot FIFO / cross-lens
-   completion path — what the code's *"re-processed message"* comment refers to). That duplicate
-   arrives immediately, within a few fids, so 16 covers it at any sane rect count. **The ring
-   therefore stops constraining the budget.**
-3. **Keep `rects × window ≤ 16` as a free invariant anyway.** It costs nothing, because the
-   compression-optimal partition is almost always 1–3 rects: every rect carries its own zlib stream
-   (no `inflateSetDictionary` exists — verified) plus ~15 B of framing, so splitting usually loses.
-   The cost oracle (§9.2) picks the split; this is just a ceiling it rarely touches.
+   completion path — the code's *"re-processed message"* comment). That duplicate arrives within a
+   few fids, so 16 covers it at any sane rect count. **The ring therefore stops constraining the
+   budget.**
+3. **Keep `rects × window ≤ 16` as a free invariant anyway.** The compression-optimal partition is
+   almost always 1–3 rects: every rect carries its own zlib stream (no `inflateSetDictionary`
+   exists — verified) plus ~15 B of framing, so splitting usually loses. The cost oracle (§9.2)
+   picks the split; this is a ceiling it rarely touches.
 4. **The budget is a product — trade depth for rects on demand.** `R×W ≤ 16` gives R=5 at W=3,
    R=8 at W=2, R=16 at W=1. A rare wide split drops the pipeline for one flush instead of being
    forced to merge.
@@ -1994,8 +1792,8 @@ not a safety net, so "keep enough history in the ring" is the wrong thing to eng
 5b. ✅ **Only mode-3 deltas consume a fid.** Verified: the sole `cfw_diag()` call sites are the
    mode-6 keyframe (`cfw_diag(0,0)`, rebaseline) and the mode-3 delta. **Mode 9 rect-copies are free
    against the fid budget**, so `rects × window ≤ 16` counts mode-3 sub-messages only. Every
-   translation-based effect in this design — Main's list pan, the switcher spin's neighbours,
-   marquees, endless scroll — is therefore cheap in *both* budgets at once.
+   translation-based effect — Main's list pan, the switcher spin's neighbours, marquees, endless
+   scroll — is cheap in *both* budgets at once.
 6. 🔴 **Handle the 16-bit wrap deliberately.** fid lives in `[1, 0xFFFE]` (0xFFFF is the ring
    sentinel). At the wrap `d = (uint16_t)(1 - 0xFFFE) = 3`, which trips **`f_skip`**. Cross it
    during deep idle and clear the flags immediately after with **mode 7 sub 0** (which resets both
@@ -2029,8 +1827,8 @@ still rides the first flush.
 ### 8.4 Modeled costs
 
 ⚠ **All modeled**, area-scaled from the 576×288 measurements via `ms ≈ bytes/11000 × 1000 + 176`.
-🆕 **The real CFW path is measured (2026-08-31, `overview.md` §5.2): `ms ≈ 60 + bytes/50`** (⚠ PC-direct
-only — the daily path is the phone's, ~70 ms + ~120 ms/KB, `REMINDER.md`; 2026-09-05) —
+🆕 **The real CFW path is measured (2026-08-31, `overview.md` §5.2): `ms ≈ 60 + bytes/50`** (⚠
+PC-direct only — the daily path is the phone's, ~70 ms + ~120 ms/KB, `REMINDER.md`; 2026-09-05) —
 every row below is conservative by roughly 3–5× on hardware. Kept as the modeled baseline the
 design was proven against; quote §5.2 for anything current.
 
@@ -2046,8 +1844,8 @@ design was proven against; quote §5.2 for anything current.
 
 ### 8.6 Time to first visible change (2026-09-05, `HANDOFF.md` §37)
 
-The number a person feels is not bytes per screen but **the first flush a gesture produces**: its
-bytes plus one floor. On the phone path (~70 ms + ~120 ms/KB) the 0.32 walk measured, per notch:
+The number a person feels is **the first flush a gesture produces**: its bytes plus one floor. On
+the phone path (~70 ms + ~120 ms/KB) the 0.32 walk measured, per notch:
 
 | surface | first flush | first visible change | why |
 |---|---:|---:|---|
@@ -2055,29 +1853,27 @@ bytes plus one floor. On the phone path (~70 ms + ~120 ms/KB) the 0.32 walk meas
 | tmux history notch | 2.4–4.3 KB | 352–645 ms | one flush: the copy + a 5-line strip |
 | a list notch (Torrents, Main) | 5.9–6.0 KB | 830–860 ms | the LENS repaint rides in the first flush |
 
-The rule that follows: **the first flush carries the translation; the heavy fill follows.** A list
-notch's first flush should be the two band copies and the small strip (under 500 B, ~100 ms);
-the lens repaint (icon, bold title, detail line) goes in the second. And the fill itself gets
-cheap through the texture cache (§5 #18). Chrome-only flushes (§8.3) must not sit between a
-gesture and its first frame. **Built 2026-09-06 (§40.2):** the lens repaint is posted one message
-on; a strip worth a flush of its own (12,000 px, ~1 KB) is sent BLANK with the translation and
-filled on the next pump, for list and document slides and for a canvas whose repaint translated;
-`FirstFlushTest` measures the shapes in the simulator. **Walked on glass 2026-09-06 (0.37,
-`HANDOFF.md` §41.0):** a window list notch 155 / 227 ms (median / p90) to first visible change,
-a Main notch 257 / 409 ms (first flush 1.1 KB — the two real-text strips), back to Main 704 /
-984 ms, a window switch with a height change 1.1–2.7 s (the keyframe, since seeded with the
-screen plane only, §41.3). Chrome-only flushes fell to 122 of 1,225.
+The rule: **the first flush carries the translation; the heavy fill follows.** A list notch's first
+flush should be the two band copies and the small strip (under 500 B, ~100 ms); the lens repaint
+(icon, bold title, detail line) goes in the second. The fill itself gets cheap through the texture
+cache (§5 #18). Chrome-only flushes (§8.3) must not sit between a gesture and its first frame.
+**Built 2026-09-06 (§40.2):** the lens repaint is posted one message on; a strip worth a flush of
+its own (12,000 px, ~1 KB) is sent BLANK with the translation and filled on the next pump, for list
+and document slides and for a canvas whose repaint translated; `FirstFlushTest` measures the shapes
+in the simulator. **Walked on glass 2026-09-06 (0.37, `HANDOFF.md` §41.0):** a window list notch
+155 / 227 ms (median / p90) to first visible change, a Main notch 257 / 409 ms (first flush 1.1 KB
+— the two real-text strips), back to Main 704 / 984 ms, a window switch with a height change
+1.1–2.7 s (the keyframe, since seeded with the screen plane only, §41.3). Chrome-only flushes fell
+to 122 of 1,225.
 
 ### 8.5 Rendering optimizations
 
 - **Snap glyphs to the 4 px grid** — crisp vertical stems, AA only on curves. Prettier *and* fewer
-  gray runs *and* fewer bytes. Directly addresses *"zlib+RLE doesn't play nice with antialiased
-  fonts."*
+  gray runs *and* fewer bytes. Addresses *"zlib+RLE doesn't play nice with antialiased fonts."*
 - **A restrained gray ramp** — ~5 levels for UI (bg / dim chrome / text / bright / highlight), all
-  16 reserved for imagery. Fewer distinct values = longer RLE runs. Restraint is a compression
-  optimization here.
+  16 reserved for imagery. Fewer distinct values = longer RLE runs.
 - **Filled highlights, never outlined.** A filled bar is one long run; an outline is many short
-  ones. The cheap choice is also the more legible one at FAR.
+  ones. Also more legible at FAR.
 - **Run-aware quantizer** — on near-ties when downsampling to 4bpp, prefer the neighbour's value to
   extend runs.
 
@@ -2091,34 +1887,28 @@ screen plane only, §41.3). Chrome-only flushes fell to 122 of 1,225.
 *still* wrong: *"if i enter Focus mode to scroll in Tmux and have to temporarily change windows, i
 come back to the live tail and lose my place, i fuckin HATE that."*
 
-The contract:
-
-1. **Persist mode, not just position.** The Tmux failure is precisely that a *mode*
-   (frozen/Focus) was lost while the *offset* was kept. Restoring a window restores everything the
-   user could see or was doing — scroll offset, focus level, cursor, frozen-vs-live, open dialogs,
-   partially entered input.
+1. **Persist mode, not just position.** The Tmux failure is that a *mode* (frozen/Focus) was lost
+   while the *offset* was kept. Restoring a window restores everything the user could see or was
+   doing — scroll offset, focus level, cursor, frozen-vs-live, open dialogs, partially entered
+   input.
 2. **The WM owns it, apps cannot forget it.** A window declares a state blob; the shell saves and
    restores it. Not per-app opt-in.
 3. **Survives WM restart**, not just window switches. Disk-backed.
 4. 🔑 **A regression gate makes it stick.** In the byte-exact simulator (§9.2): switch away, switch
-   back, **assert the composed frame is byte-identical.** That turns "I had to push for this
-   repeatedly" into a test that fails loudly instead of a discipline that erodes.
-   ✅ `ShellBehaviorTest.switchAwayAndBackIsByteIdentical`.
+   back, **assert the composed frame is byte-identical.** ✅
+   `ShellBehaviorTest.switchAwayAndBackIsByteIdentical`.
 
 ### 9.2 Observability
 
-- 🔑 **A byte-exact offline simulator.** We already have a faithful port of the firmware's RLE
-  decoder (round-tripped through 301 cases). Wrap it: apply our real mode-3/6/8/9 stream to a
-  modeled per-lens shadow and render what the lens *would* show. **The whole WM becomes
-  developable and regression-testable with no glasses**, and it catches the stale-base/divergence
-  class of bug that is otherwise invisible until it is on your face. Nothing like the EvenHub
-  simulator, which lies. ✅ Built — `core/…/sim/GlassFirmwareSim.kt`, pinned by `LensOracleTest`
-  and run by `desktop --selfcheck`.
-- **Deterministic frame journal** — every flush with its rects, bytes, fids, ack latency, replayable
-  into the simulator. That is how you debug something you cannot attach a debugger to.
-  ✅ `core/…/comp/Journal.kt`.
-- 🔑 **The mode-7 flags are a free loss/ordering telemetry channel, not a debug toy.** Reading
-  `cfw_diag()` shows each maps to a distinct real condition:
+- 🔑 **A byte-exact offline simulator.** A faithful port of the firmware's RLE decoder
+  (round-tripped through 301 cases), wrapped: apply our real mode-3/6/8/9 stream to a modeled
+  per-lens shadow and render what the lens *would* show. **The whole WM is developable and
+  regression-testable with no glasses**, and it catches the stale-base/divergence class of bug
+  that is otherwise invisible until it is on your face. ✅ `core/…/sim/GlassFirmwareSim.kt`, pinned
+  by `LensOracleTest` and run by `desktop --selfcheck`.
+- **Deterministic frame journal** — every flush with its rects, bytes, fids, ack latency,
+  replayable into the simulator. ✅ `core/…/comp/Journal.kt`.
+- 🔑 **The mode-7 flags are a free loss/ordering telemetry channel.** From `cfw_diag()`:
 
   | flag | means |
   |---|---|
@@ -2127,38 +1917,34 @@ The contract:
   | `f_reorder` | a delta arrived out of order |
   | `f_snap_of` | snapshot FIFO overflow — we outran the firmware |
 
-  Those are exactly the compositor's failure modes, reported by the firmware for free. `f_skip` in
-  particular is a **transmission-loss detector** we would otherwise have to build. Wire them to the
-  status indicator and to automatic resync; leave the overlay ON during bring-up. ⚠ Whitelist the
-  one expected `f_skip` at each fid wrap (§8.2 #6). ✅ Wired: `TransportEvent.DiagFlags` → a
-  `PANIC` status, a journal note and a keyframe request; the overlay defaults ON
-  (`ShellSettings.diagOverlay`).
-- **Status-bar profiler** — flush rate, damage bytes, rect count, fid depth, ack. Toggleable, off
-  by default in normal use (it is itself a flush consumer). ✅ Settings → Global → Profiler.
-- **Input echo** — the last gesture actually received, shown in the status cell. Turns the
-  ambiguous scroll-vs-tap physical action into an observable one (§1.7).
+  Exactly the compositor's failure modes, reported by the firmware for free; `f_skip` is a
+  **transmission-loss detector**. ⚠ Whitelist the one expected `f_skip` at each fid wrap (§8.2
+  #6). ✅ Wired: `TransportEvent.DiagFlags` → a `PANIC` status, a journal note and a keyframe
+  request; the overlay defaults ON (`ShellSettings.diagOverlay`).
+- **Status-bar profiler** — flush rate, damage bytes, rect count, fid depth, ack. Off by default (it
+  is itself a flush consumer). ✅ Settings → Global → Profiler.
+- **Input echo** — the last gesture actually received, shown in the status cell (§1.7).
 - **The logger service (sid 0x0F)** — `logStr` streamed to host would surface the CFW's own
   `evenhub_ui: decompress failed, mode=%u raw_len=%u`. Our worst failure mode is silent garbage on
-  the lens; this is what makes it loud. Untested lead (**V** schema, **U** on our firmware) — still
+  the lens; this makes it loud. Untested lead (**V** schema, **U** on our firmware) — still
   unprobed 2026-09-01 (`REMINDER.md` → cheap probes).
 
 ### 9.2b Build-time gates and runtime guards
 
 - 🔑 **A thorough layout linter, as a build gate.** Every silent failure mode on this hardware
-  becomes a compile error, because the hardware will never tell you: unaligned rect (x/w ×4,
-  y/h ×2), rect count over budget, `rects × window > 16`, chrome cell content overflowing its box,
-  layout/CREATE frame >1000 B, image fragment >3800 B, fid gap or reuse, stereo box pair with
-  mismatched size, mode-3 delta with no prior keyframe, box out of 640×480 bounds, and a surface
-  over its ink budget. **NO SILENT FAILURES, pushed left to build time.** Adam: *"minimizing the
+  becomes a build error: unaligned rect (x/w ×4, y/h ×2), rect count over budget, `rects × window
+  > 16`, chrome cell content overflowing its box, layout/CREATE frame >1000 B, image fragment
+  >3800 B, fid gap or reuse, stereo box pair with mismatched size, mode-3 delta with no prior
+  keyframe, box out of 640×480 bounds, and a surface over its ink budget. Adam: *"minimizing the
   chances of a bug making it to the glasses as much as possible."*
 
   ✅ **`tools/lint.py` + `tools/geometry.py` exist and pass** (2026-08-18; 21 rules since SYM002
   landed 2026-09-04, `--selftest` green, 0 findings at HEAD).
 
-  ⚠ **Most of these are RUNTIME properties, not static ones** — a rect computed at frame time is
-  invisible to a source linter. So the rules live in **`tools/geometry.py` as a library the
-  compositor calls on every emit**, and the linter runs the same functions statically over the
-  spec's declared geometry and over rendered surfaces. One definition, two callers.
+  ⚠ **Most of these are RUNTIME properties** — a rect computed at frame time is invisible to a
+  source linter. So the rules live in **`tools/geometry.py` as a library the compositor calls on
+  every emit**, and the linter runs the same functions statically over the spec's declared geometry
+  and over rendered surfaces. One definition, two callers.
 
   | rule | catches |
   |---|---|
@@ -2186,30 +1972,25 @@ The contract:
 
   🔑 **`--selftest` proves 16 of the 21 rules fire** (18 cases; GEO006 · GEO007 · BUD006 · BUD007 ·
   SYM001 are exercised by the repo run instead), against known-bad inputs, and that valid geometry
-  stays silent. *A gate nobody has seen fail is a gate nobody trusts.*
+  stays silent.
 
-  ✅ **It caught a real regression on its first full run.** Adding row icons (§4.5b) pushed
-  **Main's resting state from 4.1 % to 5.4 %, over its 5 % budget.** The fix was design, not a
-  raised budget: icons are solid shapes and the costly part of that surface, and §4.2 already said
-  the non-lens rows go "away entirely" at rest — so the resting state now keeps the dim names and
-  drops the icons. **4.6 %, passing.** That is exactly the drift the gate exists to catch, and it
-  found it within minutes of existing.
+  ✅ **It caught a real regression on its first full run:** row icons (§4.5b) pushed **Main's
+  resting state from 4.1 % to 5.4 %, over its 5 % budget.** The fix was design, not a raised
+  budget — the resting state keeps the dim names and drops the icons: **4.6 %, passing.**
 
   It also lints **DESIGN.md's own §2.3 cell table**, which is machine-readable (the runtime layout,
   `core/…/geom/Layout.kt`, is written to the same table). Both real layout bugs so far — the
   96/128/96 ribbon and the 250 px notification width — were errors *in that table*, found by eye.
-  They would now fail the build.
 
   It reads the real **`cmap`** of every locked face (§Type). ⚠ *`PIL.getmask().getbbox()` is not a
-  coverage test — a tofu box has a bounding box too, and that false negative is exactly how U+25B8
-  reached three separate renders before anyone noticed.*
+  coverage test — a tofu box has a bounding box too, and that false negative is how U+25B8 reached
+  three separate renders before anyone noticed.*
 
   **Scope is strings passed to a drawing call, not every literal in the repo.** The first cut
-  flagged 45 findings — newlines, docstrings, log lines — which is how a rule gets ignored. Narrowed
-  to drawn strings it reported **2 real findings and nothing else** on its first run (both fixed;
-  the gate exits 0 today). Verified against a fixture: it
-  catches a literal in `d.text(...)` *and* inside an f-string, while ignoring docstrings, `print()`
-  calls, safe glyphs (`·`, `—` are in all four faces), and any line marked `# lint:allow-symbols`.
+  flagged 45 findings (newlines, docstrings, log lines), which is how a rule gets ignored; narrowed
+  to drawn strings it reported **2 real findings** (both fixed). A fixture verifies it catches a
+  literal in `d.text(...)` *and* inside an f-string, and ignores docstrings, `print()` calls, safe
+  glyphs (`·`, `—` are in all four faces), and any line marked `# lint:allow-symbols`.
 
   ```
   tools/lint.py                      # gate the shell; exit 1 on any finding
@@ -2224,20 +2005,19 @@ The contract:
 - **Startup capability gate.** Read the `EVENCFW/` string (sid-0x09 settings READ response, field
   100) and require `img640 directfb fbguard imgz rle`; refuse loudly otherwise. Needs no timeout —
   tag 100 sits above the stock field range so stock decoders skip it. Also catches a future CFW
-  that changes semantics, instead of painting garbage.
+  that changes semantics.
 - **Cost oracle.** The compositor reports what each layout decision costs in bytes and flushes
-  *while it is being made*. Compute is free — run it on every change, and let it pick rect splits
-  (§8.2 #3).
+  *while it is being made*. Run it on every change, and let it pick rect splits (§8.2 #3).
 - **"Why is it slow" attribution.** Journal plus profiler splits every millisecond into ack,
   transfer, compose and animation. The 10× throughput shortfall is the biggest unsolved problem in
   this ecosystem — its author says debugging it *"would make a much bigger difference than
-  compression tuning"* — so a WM that measures it on real traffic is worth something upstream too.
+  compression tuning"*.
 
 ### 9.3 Error surfacing — the phone is the out-of-band channel
 
 With the buzzer excluded, **the phone APK raises a phone notification on serious errors**
-(✅ `ShellService.urgentNotification`, channel "Damage errors"). That is the *only* alert path that
-works when the display itself is what is broken.
+(✅ `ShellService.urgentNotification`, channel "Damage errors") — the only alert path that works
+when the display itself is what is broken.
 
 Severity worth escalating to the phone: framebuffer lease lost · decompress failure ·
 `ImgResCmd.ErrorCode` · link down · fid collision detected · sustained ack-timeout streak.
@@ -2263,11 +2043,11 @@ Full Main rendered in six faces at two sizes (`design/render_shots.py`, shots in
 | URW Gothic @1.00 | 7.1 % | 7,976 B | 1.05× |
 | *any face @0.85* | 5.0–5.9 % | 5,930–6,874 B | **0.78–0.90×** |
 
-⚠ **A correction to an earlier version of this section.** It claimed *"condensed uses less ink and
-costs more bytes — do not reach for a condensed face to save bandwidth."* That generalised from a
-single measurement. Re-tested across the URW set: **DejaVu Condensed is 1.13×, but Helvetica Narrow
-is 0.98× — the best of the whole set.** Condensing is not the variable; **the specific face is.**
-Measure the face you intend to ship; do not reason from its width class.
+⚠ **A correction to an earlier version of this section**, which claimed *"condensed uses less ink
+and costs more bytes — do not reach for a condensed face to save bandwidth"* from a single
+measurement. Across the URW set: **DejaVu Condensed is 1.13×, but Helvetica Narrow is 0.98× — the
+best of the whole set.** Condensing is not the variable; **the specific face is.** Measure the face
+you intend to ship.
 
 **The full set, Main rendered in each at 1.0×:**
 
@@ -2287,14 +2067,14 @@ Measure the face you intend to ship; do not reason from its width class.
 #### 🔴 All renders are TRUE 1× from 2026-08-18 — the 2× ones were flattering
 
 Adam: *"lets only render them at actual 1x size, to keep this honest."* Every shot in
-`design/shots/` is now native 640×480 with no upscaling. The earlier 2× views made delicate faces
-look far better than they will on glass, and reordered the field when corrected:
+`design/shots/` is native 640×480 with no upscaling. The 2× views made delicate faces look far
+better than they will on glass, and reordered the field when corrected:
 
 - ✅ **Survive at 1×:** DejaVu Sans, Liberation Sans, URW Gothic, Bookman, Century Schoolbook —
   all sturdy-stroked.
-- ❌ **Collapse at 1×:** Times, Palatino, Courier — the serifs and thin strokes grey out, which is
-  exactly the hairline failure §2.4 rule 9 warns about. **Chancery is unreadable** at UI size
-  (G2CC used it for menus at a larger size; that does not carry over).
+- ❌ **Collapse at 1×:** Times, Palatino, Courier — the serifs and thin strokes grey out, the
+  hairline failure §2.4 rule 9 warns about. **Chancery is unreadable** at UI size (G2CC used it for
+  menus at a larger size; that does not carry over).
 
 ⇒ **At this angular size, stroke weight decides legibility and letterform character is secondary.**
 
@@ -2305,34 +2085,30 @@ look far better than they will on glass, and reordered the field when corrected:
 candidates are resolved to files in `design/fonts.json` and rendered as five 1× specimen sheets:
 `specimen-{sans,geometric,serif,mono,display}.png`.
 
-**A find from the survey: `B612`**, the typeface Airbus commissioned for aircraft cockpit
-displays — designed for legibility on an emissive screen read in a glance under load.
+**`B612`**, the typeface Airbus commissioned for aircraft cockpit displays, came out of the survey.
 🔴 **Ruled out as a default by Adam — final, 2026-09-01, after repeated re-proposals across
 sessions** (*"It looks like shit, let it go"*): **B612 is NEVER a default for anything.** It may
 ride the font-library expansion as one user-selectable option among many; nothing more. Do not
-re-propose it, and do not read this section's survey enthusiasm as standing advice — the
-measurements below stay as records, the advocacy does not.
+re-propose it — the measurements below stay as records, the advocacy does not.
 
-Also newly available and directly relevant: **Clear Sans** (Intel, legibility-designed), **Fira
-Sans** (Mozilla, for small screens), **IBM Plex**, **Source Sans/Serif**, **EB Garamond** (the
-actual Garamond Adam asked for), **Gentium** (legibility-designed serif), and a deep mono bench —
-**JetBrains Mono, Hack, Iosevka, Intel One Mono, Cascadia, Source Code Pro**.
+Also newly available: **Clear Sans** (Intel, legibility-designed), **Fira Sans** (Mozilla, for
+small screens), **IBM Plex**, **Source Sans/Serif**, **EB Garamond** (the actual Garamond Adam
+asked for), **Gentium** (legibility-designed serif), and a deep mono bench — **JetBrains Mono,
+Hack, Iosevka, Intel One Mono, Cascadia, Source Code Pro**.
 
 ⚠ **Bitmap faces cannot be used the way we use type.** `Terminus` (what Faceclaw ships) and
-`Glass TTY VT220` exist only at fixed pixel sizes and cannot be scaled or antialiased. They are
-labelled as such on the specimen sheet rather than silently dropped. Our whole typographic argument
-rests on **AA TrueType at arbitrary sizes**, so they are reference points, not candidates.
+`Glass TTY VT220` exist only at fixed pixel sizes and cannot be scaled or antialiased; they are
+labelled as such on the specimen sheet. Our typographic argument rests on **AA TrueType at
+arbitrary sizes**, so they are reference points, not candidates.
 
 ⚠ Of Adam's original wishlist, **Optima, Univers, Syntax, Lucida, Matrix and Peignot have no free
 equivalent installed.** Helvetica/Times/Garamond/Futura-ish/Bookman/Century are all covered.
 
 #### Main rendered in the top candidates — x-height normalised
 
-⚠ **Comparing faces at the same nominal pt size is not a fair test** — a face with a big x-height
-simply looks larger and wins on legibility for a reason that has nothing to do with its letterforms.
-Every figure below is **normalised to DejaVu Sans's x-height** first, so the comparison is about the
-type and not about nominal sizing. `design/shots/main-<face>.png`, plus a stacked A/B of the same
-crop in `main-font-compare.png`.
+⚠ **Comparing faces at the same nominal pt size is not a fair test** — a big x-height simply looks
+larger. Every figure below is **normalised to DejaVu Sans's x-height** first.
+`design/shots/main-<face>.png`, plus a stacked A/B of the same crop in `main-font-compare.png`.
 
 | face | x-height | scale | ink | bytes | vs DejaVu |
 |---|---|---|---|---|---|
@@ -2347,13 +2123,13 @@ crop in `main-font-compare.png`.
 | Source Sans 3 | 0.490 | 1.12 | 9.0 % | 8,548 B | 1.11× |
 | Cantarell | 0.480 | 1.15 | 9.0 % | 8,696 B | 1.13× |
 
-**B612 costs ~11 % more than DejaVu at matched x-height** — recorded as measurement only; see the
-🔴 ruling above (never a default).
+**B612 costs ~11 % more than DejaVu at matched x-height** — measurement only; see the 🔴 ruling
+above (never a default).
 
 #### 🔴 UI symbols must be DRAWN, never typed
 
 The A/B sheet showed tofu boxes where the `▸` continuation mark should be. Verified against the
-real font `cmap`s, not guessed:
+real font `cmap`s:
 
 | symbol | missing from |
 |---|---|
@@ -2377,42 +2153,37 @@ surface, and `mixed-fonts.png` shows four windows each in a face chosen for its 
 |---|---|---|
 | 🔑 **SYSTEM FACE — all chrome, everywhere, plus Main** | **Clear Sans** | Intel's legibility-designed UI face. Measured **cheapest and lowest-ink of every candidate on every surface** — 8,555 B vs Fira's 9,491 B on the mail list, ~10 % less. Chrome is permanent, so the permanently-cheapest face belongs there |
 | **Mail** and other dense lists | **Fira Sans** | designed by Mozilla for small screens; humanist warmth that survives a dense list |
-| **Reader** and long-form | **Alegreya** | an actual literature serif. In `mixed-fonts.png` the page stops reading as *a window with text in it* and starts reading as *a page* — which is the identity-cue claim made visible |
+| **Reader** and long-form | **Alegreya** | an actual literature serif. In `mixed-fonts.png` the page stops reading as *a window with text in it* and starts reading as *a page* |
 | **Terminal** and any column-aligned view | **JetBrains Mono** | alignment is functional here, not decorative |
 | every other window | **Clear Sans** (system face) | until that app is designed and earns an override |
 
-*(B612 was the earlier pick for Main and was swapped out on Adam's call. 🔴 **2026-09-01, final:
-NEVER a default for anything** — the "revisit for digit-heavy surfaces" advice that used to live
-here is retracted; it kept re-seeding a pitch Adam had already rejected repeatedly. Digit-heavy
-surfaces use the system face or drawn digits — `Icons.sevenSegClock` is the quality precedent.
-What Adam DOES want is **a lot more font options**: a curated expansion from `design/fonts.json`'s
-66 surveyed candidates — sturdy-at-1× survivors only, OFL/Apache-clean for APK bundling, an
-x-height normalisation and a lint coverage-table row per face, all selectable in the existing
-typography rows, **defaults untouched**, per-face byte tax surfaced in the cost oracle per rule 3
-below. B612 may ride along as one option among many.)*
+*(B612 was the earlier pick for Main, swapped out on Adam's call. 🔴 **2026-09-01, final: NEVER a
+default for anything** — the "revisit for digit-heavy surfaces" advice that used to live here is
+retracted; digit-heavy surfaces use the system face or drawn digits (`Icons.sevenSegClock`). What
+Adam DOES want is **a lot more font options**: a curated expansion from `design/fonts.json`'s 66
+surveyed candidates — sturdy-at-1× survivors only, OFL/Apache-clean for APK bundling, an x-height
+normalisation and a lint coverage-table row per face, selectable in the existing typography rows,
+**defaults untouched**, per-face byte tax surfaced in the cost oracle per rule 3 below.)*
 
-⚠ ~~**The system face is not negotiable per window.**~~ **REVERSED 2026-08-31 by Adam** (see
-§0): chrome + Main follow Settings → Global (font/size/style), and each app can override its
-content's font/size/style — all choices drawn from the four LOADED faces below, previewed in
-their own face. The table above remains the DEFAULT assignment and the measured price list.
+⚠ ~~**The system face is not negotiable per window.**~~ **REVERSED 2026-08-31 by Adam** (§0):
+chrome + Main follow Settings → Global (font/size/style), and each app can override its content's
+font/size/style — all choices drawn from the four LOADED faces, previewed in their own face. The
+table above remains the DEFAULT assignment and the measured price list.
 
-**Cost across surfaces** (x-height normalised): Clear Sans is consistently the cheapest — on the
-mail list it is **8,555 B against Fira's 9,491 B, ~10 % less** — while Nunito is consistently the
-inkiest at 9.4–9.7 %. Humor Sans is legible only at display sizes: it has effectively one case, so
-a dense list renders as all small-caps.
+**Cost across surfaces** (x-height normalised): Clear Sans is consistently the cheapest (the
+8,555 B vs 9,491 B above); Nunito is consistently the inkiest at 9.4–9.7 %; Humor Sans is legible
+only at display sizes — effectively one case, so a dense list renders as all small-caps.
 
-⚠ **The first cut of `mixed-fonts.png` accidentally varied the chrome along with the content, and
-that is exactly why §4.1's rule exists** — stacked, the shifting bars read as four different
-programs rather than one shell with four windows. The demo now holds chrome on the system face and
-varies only content, which is the intended design.
+⚠ **The first cut of `mixed-fonts.png` accidentally varied the chrome along with the content** —
+stacked, the shifting bars read as four different programs rather than one shell with four windows.
+That is why rule 1 below exists; the demo now holds chrome on the system face.
 
 #### 🔴 UI symbols must be DRAWN, never typed
 
-⇒ **Rule: every UI symbol is a drawn shape, like the icons already are (§4.5b).** Typing them would
-ship boxes on glass **and** would silently couple typeface choice to symbol coverage — which
-directly breaks the per-window font freedom adopted above. Only plain text goes through the font.
-The linter enforces it: SYM001 (§9.2b) flags any drawn string with a codepoint the target face
-cannot render.
+⇒ **Rule: every UI symbol is a drawn shape, like the icons (§4.5b).** Typing them would ship boxes
+on glass **and** couple typeface choice to symbol coverage, which breaks per-window font freedom.
+Only plain text goes through the font. SYM001 (§9.2b) flags any drawn string with a codepoint the
+target face cannot render.
 
 ⚠ Renders are not legibility *on glass*. Content faces are answered by daily reading (Reader on
 Alegreya, Tmux on JetBrains Mono, Torrents on Fira Sans); chrome at bar size is the half still
@@ -2421,22 +2192,16 @@ open (§11 #8).
 #### 🔑 Per-window typefaces — free, and partly functional
 
 Adam, 2026-08-18: *"varied fonts depending on the content/window, where it makes sense, since the PC
-is rendering the content anyway so font variation is practically free."*
-
-Correct, and it earns more than eyecandy:
-
-- **With the ribbon retired (§4.1), typeface becomes a free identity cue.** You know you are in
-  Reader because it *looks* like Reader — information carried at zero ink cost, the same class of
-  trick as the divider.
-- **Some of it is functional, not decorative.** Terminal *needs* mono for column alignment; a long-
-  form reader genuinely wants a book face. This is not a skin.
+is rendering the content anyway so font variation is practically free."* With the ribbon retired
+(§4.1), typeface becomes a free identity cue — you know you are in Reader because it *looks* like
+Reader — and some of it is functional: Terminal *needs* mono for column alignment; a long-form
+reader wants a book face.
 
 **Rules:**
 
 1. 🔴 **Chrome is ONE face across every window, always.** The bars are the constant frame; varying
-   them per window would read as chaos and would defeat the identity cue by making everything
-   variable. (Which face is Adam's to set — Settings → Global, the 2026-08-31 reversal — but it is
-   one face everywhere.)
+   them per window would read as chaos and defeat the identity cue. (Which face is Adam's to set —
+   Settings → Global, the 2026-08-31 reversal — but it is one face everywhere.)
 2. Content faces are the window's default, from the sturdy-at-1× list above, overridable per app in
    Settings.
 3. ⚠ **A face choice is a permanent byte tax on that window** (0.98×–1.17× measured). A window that
@@ -2450,23 +2215,20 @@ Correct, and it earns more than eyecandy:
 **Decided 2026-08-19/20.** Adam: *fully powered when the app and the home PC are both present,
 with no sacrifices; falling back to what the app can do alone when the PC drops; able to run from a
 small bridge on any BLE+WiFi device with no phone at all; and able to be driven directly from a
-laptop over Bluetooth with no app, bridge or PC.* Cross-platform, so Windows, macOS and Linux users
-all get it.
+laptop over Bluetooth with no app, bridge or PC.* Cross-platform: Windows, macOS and Linux.
 
 > 📍 **If you are deciding implementation, read this section first.** It is the only part of this
 > document that constrains *how* the shell is written rather than how it looks.
 
 ### 10.1 Three roles, four deployments
 
-There are only three roles in the system:
-
 | role | owns |
 |---|---|
 | **TRANSPORT** | the BLE links, the framebuffer lease, msgId/seq/fid discipline, fragment writes, event forwarding. Must be within Bluetooth range |
-| **SHELL** | input grammar, focus, back stack, switcher, damage tracking, rasterization, compression — everything in §1–§9 of this document |
+| **SHELL** | input grammar, focus, back stack, switcher, damage tracking, rasterization, compression — everything in §1–§9 |
 | **CONTENT** | mail, files, terminal, AI, the library — the things *inside* windows |
 
-Every configuration Adam asked for is a placement of those three:
+Every configuration is a placement of those three:
 
 | configuration | transport | shell | content |
 |---|---|---|---|
@@ -2477,8 +2239,7 @@ Every configuration Adam asked for is a placement of those three:
 
 🔑 **The shell moves between rows.** So it must be *one implementation that relocates*, and the
 seams between roles must be **protocols, not function calls** — neither side knowing whether its
-peer is in-process or across a network. Given that, all four configurations are the same three
-components with different link types, and no configuration is a special case.
+peer is in-process or across a network. No configuration is a special case.
 
 > 🔴 **Row 1's shell placement is the INTENT, confirmed by Adam 2026-08-31** (`HANDOFF.md` §19):
 > in the default configuration the **phone shell drives** and the PC's job is to *provide data*
@@ -2491,102 +2252,86 @@ components with different link types, and no configuration is a special case.
 ### 10.2 What this forces on the runtime
 
 - 🔴 **The shell must run on Android *and* desktop.** The "app alone" row requires it. That rules
-  out a Python shell, which is otherwise the house language — **the single most expensive thing to
-  discover late.** Kotlin/JVM and TypeScript both satisfy it — resolved as Kotlin/JVM (§11 #11).
-- ✅ **But the protocol split means each role picks its own best tool.** Transport on Android is
-  Kotlin (`phone/BleTransport.kt`, hardware-proven 2026-08-31); on desktop the SHIPPED transport
-  is Kotlin/JVM over bluez-dbus + dbus-java
-  (`desktop/BlueZLink.kt` — MIT, hardware-proven; macOS/Windows parity deferred per §10.7).
-  Content can be anything the host likes.
-- ✅ **The offline simulator becomes just another transport.** `BleTransport` / `SimTransport` /
+  out a Python shell, otherwise the house language — resolved as Kotlin/JVM (§11 #11).
+- ✅ **The protocol split means each role picks its own best tool.** Transport on Android is Kotlin
+  (`phone/BleTransport.kt`, hardware-proven 2026-08-31); on desktop the SHIPPED transport is
+  Kotlin/JVM over bluez-dbus + dbus-java (`desktop/BlueZLink.kt` — MIT, hardware-proven;
+  macOS/Windows parity deferred per §10.7). Content can be anything the host likes.
+- ✅ **The offline simulator is just another transport.** `BleTransport` / `SimTransport` /
   `RemoteTransport` behind one interface — G2CC's own `DisplaySink` pattern, one level up.
 
 ### 10.3 Part of this is not optional
 
-⚠ **The framebuffer lease already forces transport-side liveness.** sid 0x09 field 101 op 5, both
-arms, 45 s renewal against a 90 s expiry, **failing open** (§1.6). If the PC drives it across the
-network, **any gap over 90 seconds costs the screen** and recovery is a full keyframe. The same
-applies to the EvenHub keepalive when idle and to the carrier layout's periodic text upgrade.
-
-⇒ Transport is necessarily stateful and liveness-critical **in every configuration**, including the
-bridge. This was never a question of whether the phone should hold state — only how much.
+⚠ **The framebuffer lease forces transport-side liveness** (§1.6: both arms, 45 s renewal against
+a 90 s expiry, **failing open**). If the PC drives it across the network, **any gap over 90 seconds
+costs the screen** and recovery is a full keyframe. The same applies to the EvenHub keepalive when
+idle and to the carrier layout's periodic text upgrade. ⇒ Transport is stateful and
+liveness-critical **in every configuration**, including the bridge.
 
 ### 10.4 The offline seam is already drawn
 
-🔑 **The shell/content split lands exactly on §4.6's content modes**, which is good evidence it is
-the natural seam:
+🔑 **The shell/content split lands on §4.6's content modes:** **List** and **Document** — the WM
+already owns their damage tracking, so if the bytes are local they work offline with **no new
+machinery**; **Canvas** — the window owns its own damage, so it is host-dependent by nature.
 
-- **List** and **Document** — the WM already owns their damage tracking. If the bytes are local
-  they work offline with **no new machinery**.
-- **Canvas** — the window owns its own damage, so it is host-dependent by nature.
-
-🔑 **And offline capability is a free consequence of a contract §9.1 already demands.** Full
-persistence requires every window to declare a state blob the shell can restore, and §4.3's live
-preview requires that blob be sufficient to *render* the window without activating it. **A window
-that can be previewed is a window that can be read offline.** The change is "replicate those blobs
-to wherever the shell is," not "build offline apps."
-
-Reader is the easy case: declare the book as its cache — an epub is tiny — and page turns become
-pure shell. ✅ The APK caches the library and the books, so app-alone reading works
-(`IMPLEMENTATION.md` → Configurations wired today).
+🔑 **Offline capability is a consequence of §9.1.** Full persistence requires every window to
+declare a state blob the shell can restore, and §4.3's live preview requires that blob be
+sufficient to *render* the window without activating it. **A window that can be previewed is a
+window that can be read offline.** Reader is the easy case: declare the book as its cache — an epub
+is tiny — and page turns become pure shell. ✅ The APK caches the library and the books, so
+app-alone reading works (`IMPLEMENTATION.md` → Configurations wired today).
 
 ### 10.5 Capability is a function of what is present
 
 Extend §4.6's window contract with one field: **what the window NEEDS** (BLE · host · phone APIs).
-The shell marks a window unavailable when its needs are not met, using the same surface as staleness.
-✅ `DamageWindow.needs` (`Need { HOST, PHONE_APIS, BLE }`).
+The shell marks a window unavailable when its needs are not met, using the same surface as
+staleness. ✅ `DamageWindow.needs` (`Need { HOST, PHONE_APIS, BLE }`).
 
 ⚠ **The bridge and laptop-direct configurations cannot have phone integration at all.** SMS,
 notifications, media state and phone battery come from Android APIs; a Pi or a laptop cannot see
-them. That is not an implementation gap to close later — it is a limit of what that box can know,
-and the shell should say so rather than pretend.
+them. A limit of what that box can know — the shell should say so.
 
 ### 10.6 The bridge appliance — already designed and bought
 
 `/home/user/G2CC/docs/HAT_BRIDGE_SPEC.md` (design locked 2026-06-08, **BOM purchased, never built**
-because the v0.7 software fix made the connection problems vanish). It is exactly the config-3
-device:
+because the v0.7 software fix made the connection problems vanish). It is the config-3 device:
 
 **Seeed XIAO ESP32-C5** · 3 × 420 mAh · dual-band 2.4/5 GHz u.FL FPC antenna mounted **outside the
 hat, right side, 1–2″ from the glasses' temple-tip antenna** · WSS to the PC's cloudflared tunnel.
 
-Two things changed in its favour since it was specced. Under the CFW the framing is **simpler** than
-the `f1=0/3/5/7` port it planned — `CompressMode = 0` plus a mode byte — and if the host pre-deflates,
-**the bridge needs no zlib and no 153 KB shadow at all**; it forwards bytes and owns liveness.
+Two things changed in its favour: under the CFW the framing is **simpler** than the `f1=0/3/5/7`
+port it planned — `CompressMode = 0` plus a mode byte — and if the host pre-deflates, **the bridge
+needs no zlib and no 153 KB shadow at all**; it forwards bytes and owns liveness.
 
 🔑 **It is also a controlled experiment on the throughput mystery.** Its board was chosen because
 *"dual-band dodges WiFi/BLE coexistence"* — and BT/WiFi coexistence on the phone's combo radio is
-**one of the three surviving candidate causes** of the ~10× shortfall in `overview.md` §5.1,
-explicitly the one invisible at the HCI layer. Putting WiFi on 5 GHz and BLE on 2.4 removes the
-contention entirely. If throughput jumps on the hat, that isolates the cause of a defect the
-firmware's own author says *"would make a much bigger difference than compression tuning."*
+**one of the three surviving candidate causes** of the ~10× shortfall in `overview.md` §5.1, the
+one invisible at the HCI layer. WiFi on 5 GHz and BLE on 2.4 removes the contention. If throughput
+jumps on the hat, that isolates a cause the firmware's own author says *"would make a much bigger
+difference than compression tuning."*
 
 ⚠ Unmeasured: **1260 mAh running WiFi 6 plus BLE for a full workday.** The spec has a hybrid power
 policy but no power budget, and that number decides whether it is wearable or a desk toy.
 
 ### 10.7 What this genuinely costs
 
-Three real prices, none of them fatal, all of them worth knowing before committing:
-
 1. **Damage coalescing depends on tight transport feedback.** §5.13's backpressure rule needs the
    pipe's depth; a network hop makes that signal stale. Mitigation: transport owns the sliding
    window and reports depth, shell targets a slightly conservative value. Costs a little throughput
    in bridge mode.
-2. ⚠ **"No sacrifices" is not achievable across all platforms, because BLE stacks differ in what
-   they permit.** macOS will not let an application set connection parameters at all and hides MAC
-   addresses behind opaque UUIDs; Windows WinRT is limited; only Android exposes
-   `requestConnectionPriority`. Since §5.1's shortfall may itself be connection-parameter related,
-   **a Mac may simply be slower, with nothing to be done about it.**
+2. ⚠ **"No sacrifices" is not achievable across all platforms, because BLE stacks differ.** macOS
+   will not let an application set connection parameters at all and hides MAC addresses behind
+   opaque UUIDs; Windows WinRT is limited; only Android exposes `requestConnectionPriority`. Since
+   §5.1's shortfall may itself be connection-parameter related, **a Mac may simply be slower, with
+   nothing to be done about it.**
 3. **It multiplies the work** — three components, a protocol spec, two or three BLE backends, and an
-   appliance, against "PC composes, phone displays." That is the refinery's problem, but it is not
-   free.
+   appliance, against "PC composes, phone displays."
 
 ### 10.8 Build order
 
-**Laptop-direct first.** It sounds like the exotic configuration; it is actually the *development
-environment* — one process, real glasses, a real debugger, no phone and no network to blame. Get it
-working, then split out transport for the bridge, then relocate the shell to Android for the phone
-rows. This inverts the phone-first assumption and is the cheaper path.
+**Laptop-direct first.** It sounds exotic; it is the *development environment* — one process, real
+glasses, a real debugger, no phone and no network to blame. Then split out transport for the
+bridge, then relocate the shell to Android for the phone rows.
 
 ✅ Followed as written: desktop first (2026-08-24), PC-direct BLE first light 2026-08-30, the APK
 shell live 2026-08-31 and the primary driver since (`HANDOFF.md` §19). The bridge appliance
@@ -2621,9 +2366,8 @@ long-press hold threshold?" — nothing is held any more, and no interaction is 
 📍 **`REMINDER.md` carries the list of what is still unmeasured on glass** — these items plus the
 ones in `overview.md` §11 — and what comes next. Start a fresh session there.
 
-**On #7.** Beardos has a working BLE radio, but beardos is at *home* and the glasses are at
-*work*, so PC-direct only ever works at his desk. The daily path is **phone composes → BLE →
-glasses, with the PC providing content over Tailscale** (`HANDOFF.md` §19), which decides where
-the BLE stack lives, where RSSI comes from, and where phone-side error notifications originate.
-**"Ack latency" in the status bar means the wire ack (phone↔glasses)** — the number that prices
-frames.
+**On #7.** Beardos is at *home* and the glasses are at *work*, so PC-direct only works at his desk.
+The daily path is **phone composes → BLE → glasses, with the PC providing content over Tailscale**
+(`HANDOFF.md` §19) — which decides where the BLE stack lives, where RSSI comes from, and where
+phone-side error notifications originate. **"Ack latency" in the status bar means the wire ack
+(phone↔glasses)** — the number that prices frames.

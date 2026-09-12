@@ -1,25 +1,18 @@
 # Feed on glass — design + build record (2026-09-09)
 
-**Status: DESIGN SETTLED with Adam 2026-09-09 (fifteen verdicts, §1); BUILT the same day,
-M1–M5 (§8 is the as-built record; `HANDOFF.md` §43 the build's own account); ON GLASS the same
-evening, and its five findings fixed that night (§8.2); APK 43/0.43 staged; the measured walk
-(§3.8 → §8.1) still owed.** The next window after
-Games in the `EXPLOSION.md` §20 wow order (Feed + comics, #5). Not a G2CC
-conversion — G2CC never had a feed window ("a feed without images was not worth building"),
-so `WINDOWS.md` step 2 has nothing to mine; Reader (a reading window: one tap opens, the page's
-tap is the actions level), Files (image strips), Torrents (a live list over the channel, the
-keyboard, paging) and Music (a window written once against a contract with two hosts and a
-deliberate switchback) are the precedents.
+**Status: DESIGN SETTLED with Adam 2026-09-09 (fifteen verdicts, §1); BUILT the same day, M1–M5
+(§8 as built; `HANDOFF.md` §43 the build's account); ON GLASS that evening, five findings fixed
+that night (§8.2); APK 43/0.43 staged; the measured walk (§3.8 → §8.4) still owed.** #5 in the
+`EXPLOSION.md` §20 wow order; no G2CC ancestor. Precedents: Reader (one tap opens; the page's tap
+is the actions level), Files (image strips), Torrents (a live list over the channel, the keyboard,
+paging), Music (one window, two hosts, a deliberate switchback).
 
-The §11 promise, verbatim: *"a Reddit-style feed with endless scroll."* Adam's steer since:
-the root is a **source list** (*"I will usually want one at a time. Slashdot content is far
-different from a xkcd comic"*), the glasses are used **away from the PC exclusively** (so no
-Open-on-PC), and the window must keep working **on the phone alone** wherever plain HTTP
-reaches (*"Let's do the phone fallback for everything that we can"*).
-
-Precedence: `overview.md` facts · `CLAUDE.md` rules · `DESIGN.md` shell design · `EXPLOSION.md`
-§16 contract · `WINDOWS.md` checklist and latency bar. This file is the window's design
-rationale and, after the build, its record; `IMPLEMENTATION.md` → "Feed" will be what runs.
+The §11 promise, verbatim: *"a Reddit-style feed with endless scroll."* Adam's steer since: the
+root is a **source list** (*"I will usually want one at a time. Slashdot content is far different
+from a xkcd comic"*), the glasses are used **away from the PC exclusively** (so no Open-on-PC), and
+the window keeps working **on the phone alone** wherever plain HTTP reaches (*"Let's do the phone
+fallback for everything that we can"*). Where §3–§5 (design) and §8 (as built) differ, §8 is what
+runs; `IMPLEMENTATION.md` → "Feed" is the running inventory.
 
 ---
 
@@ -28,9 +21,9 @@ rationale and, after the build, its record; `IMPLEMENTATION.md` → "Feed" will 
 | # | question | verdict |
 |---|---|---|
 | 1 | sources day one | **Reddit** (r/popular, anonymous — *"no need for a login"*; a typed subreddit through the keyboard to browse one on demand) · **Slashdot** (the main feed; a section chosen from a list on demand) · **xkcd** · **8-Bit Theater** (the binge archive) · **SMBC**. **Hacker News is OUT.** |
-| 2 | other comics | none beyond the three. One Punch Man was asked about and is out on facts (§2.6): the licensed manga has no English on any open source and a manga page prices at ~57 KB per screen, three screens a page. The adapters stay generic (an RSS entry's first image; a WordPress archive walk) so a title later is a config line plus a price check. |
+| 2 | other comics | none beyond the three. One Punch Man was asked about and is out on facts (§2.6): the licensed manga has no English on any open source and a manga page prices at ~57 KB per screen, three screens a page. The adapters stay generic (an RSS entry's first image; a WordPress archive walk), so a later title is a config line plus a price check. |
 | 3 | root | **the SOURCE LIST**, one source at a time. The merged "river" is rejected. |
-| 4 | comments | **in** where reachable: Reddit, flat, per post. Slashdot comments are **not reachable** (§2.2) — the count is shown and the row is dim. |
+| 4 | comments | **in** where reachable: Reddit, flat, per post. Slashdot comments were judged **not reachable** (§2.2) — reversed as built, §8.2 item 3. |
 | 5 | read-later flag | **in** — a Flagged list reachable from the root menu. |
 | 6 | mark read | **on open**. |
 | 7 | article images | **on** by default; a Settings row. |
@@ -44,11 +37,11 @@ rationale and, after the build, its record; `IMPLEMENTATION.md` → "Feed" will 
 | 15 | phone fallback | **YES, for everything plain HTTP reaches**: the engine is core Kotlin and runs on the phone whenever the PC is unreachable; switchback is deliberate (§3.6). |
 
 Recorded so it is not re-pitched: Hacker News; a Reddit login or private feed token; the merged
-river as root; a 1:1 zoom with sideways panning (each pan is a full ~17 KB repaint); YouTube;
-a Reader hand-off (Feed's Document IS the reading view); Open on PC; manga of any kind;
-**a headless browser for Reddit or Slashdot** (probed 2026-09-09 with `~/aria/fetch_page.py`:
-Reddit answers headless Chromium with "blocked by network security", Slashdot puts it behind a
-Cloudflare bot check — the plain feeds are the only path, §2.1–§2.2).
+river as root; a 1:1 zoom with sideways panning (each pan is a full ~17 KB repaint); YouTube; a
+Reader hand-off (Feed's Document IS the reading view); Open on PC; manga of any kind; **a headless
+browser for Reddit or Slashdot** (probed 2026-09-09 with `~/aria/fetch_page.py`: Reddit answers
+headless Chromium with "blocked by network security", Slashdot puts it behind a Cloudflare bot
+check — the plain feeds are the only path, §2.1–§2.2).
 
 ---
 
@@ -56,70 +49,65 @@ Cloudflare bot check — the plain feeds are the only path, §2.1–§2.2).
 
 ### 2.1 Reddit
 
-- `https://www.reddit.com/r/popular/.rss` and `/r/<name>/.rss` answer Atom with 25 entries:
-  title, link (the post), `<published>`, author (`/u/…`), a `content` block holding the
-  "submitted by … [link] [comments]" HTML (and the selftext HTML for text posts), and a
-  `media:thumbnail` for image posts. The JSON listings (`.json`) answer **403** to both a plain
-  and a Firefox user agent. old.reddit post pages redirect to login.
-- **Rate limit, measured:** the first anonymous feed fetch answered 200; a burst of three within
-  seconds answered 200 · 429 · 429; the same URL answered 200 again about two minutes later. A
-  15-minute pacer per feed is far inside this, but a *typed* subreddit is an immediate fetch and
-  can meet a 429 — the engine paces Reddit to **one request per 60 s per host**, honours
-  `Retry-After`, and says `Reddit rate-limited · retry 60 s` on the state line.
-- **Comments:** `<post link>/.rss` answers Atom (28 entries seen) with each comment's HTML in
-  `content`, flat — nesting and score are not in the feed. Shown flat, newest last.
-- Headless Chromium (`fetch_page.py`) is refused outright ("blocked by network security").
+- `https://www.reddit.com/r/popular/.rss` and `/r/<name>/.rss`: Atom, 25 entries — title, link,
+  `<published>`, author (`/u/…`), a `content` block with the "submitted by … [link] [comments]"
+  HTML (plus the selftext HTML for text posts), a `media:thumbnail` for image posts. The `.json`
+  listings answer **403** to a plain and a Firefox user agent. old.reddit post pages redirect to
+  login. Headless Chromium is refused ("blocked by network security").
+- **Rate limit, measured:** first anonymous fetch 200; a burst of three within seconds 200 · 429 ·
+  429; the same URL 200 again about two minutes later. A 15-minute pacer per feed is far inside
+  this, but a *typed* subreddit is an immediate fetch — the engine paces Reddit to **one request
+  per 60 s per host**, honours `Retry-After`, and says `Reddit rate-limited · retry 60 s`.
+- **Comments:** `<post link>/.rss` answers Atom (28 entries seen), each comment's HTML in
+  `content`, flat — no nesting, no score. Shown flat, newest last.
 
 ### 2.2 Slashdot
 
-- RSS 1.0 (RDF) at `https://rss.slashdot.org/Slashdot/slashdot<Section>`, 15 items each, with
-  `slash:section`, `slash:comments` (the count) and `slash:department`; the description carries
-  the story summary. Sections that exist (probed, 200): **Main, Apple, AskSlashdot, Developers,
-  Games, Hardware, IT, Linux, Mobile, Politics, Science, Search** (Books, Entertainment, Idle,
-  Technology, YRO, Meta answer 404). The table lives in `SlashdotFeed.kt` with this lineage.
-- Story pages fetch fine with a browser user agent (71 KB HTML); the comment listing in them is
-  empty (`<ul id="commentlisting">` holds one hidden `<li>`; the noscript block says to switch
-  to the classic discussion system).
-- **Comments are loaded client-side** by `D2.ajaxFetchComments` (`a.fsdn.com/sd/comments-minified.js`):
-  a POST to `/ajax.pl` with `op=comments_fetch`, `discussion_id`, `threshold`,
-  `highlightthresh`, `abbreviated`, `read_comments`, `pieces`, and either `cids` or
-  `fetch_all=1`/`fetch_num=N`. Probed with the story page's cookies and referer: a call with a
-  `cids` list answers per-comment HTML (so the endpoint works), but the discussion's comment-id
-  list is not in the anonymous page (`D2.noshow_comments([])`), `fetch_all=1` without `cids`
-  answers an empty 200, the classic `comments.pl` path answers a 403 challenge page, and
-  headless Chromium meets the Cloudflare bot check. ⇒ **Slashdot comments are out**; the count
-  from the feed is shown. Do not re-probe without a new fact.
+- RSS 1.0 (RDF) at `https://rss.slashdot.org/Slashdot/slashdot<Section>`, 15 items, with
+  `slash:section`, `slash:comments` (the count), `slash:department`; the description is the story
+  summary. Sections that exist (probed, 200): **Main, Apple, AskSlashdot, Developers, Games,
+  Hardware, IT, Linux, Mobile, Politics, Science, Search** (Books, Entertainment, Idle, Technology,
+  YRO, Meta answer 404). The table lives in `SlashdotFeed.kt` with this lineage.
+- Story pages fetch with a browser user agent (71 KB HTML). That morning `<ul id="commentlisting">`
+  held one hidden `<li>`; **that evening the same pages rendered the thread server-side** (§8.2
+  item 3). Why the morning answer was empty is not known — grade S.
+- Comments load client-side via `D2.ajaxFetchComments` (`a.fsdn.com/sd/comments-minified.js`): a
+  POST to `/ajax.pl` with `op=comments_fetch`, `discussion_id`, `threshold`, `highlightthresh`,
+  `abbreviated`, `read_comments`, `pieces`, and `cids` or `fetch_all=1`/`fetch_num=N`. Probed with
+  the page's cookies and referer: a `cids` call answers per-comment HTML (used by the build for the
+  ids in `D2.noshow_comments`); `fetch_all=1` without `cids` answers an empty 200; the classic
+  `comments.pl` answers a 403 challenge; headless Chromium meets the Cloudflare bot check. Do not
+  re-probe those paths without a new fact.
 
 ### 2.3 xkcd
 
-- `https://xkcd.com/info.0.json` (latest) and `/<n>/info.0.json`: `num`, `title`,
-  `safe_title`, `alt` (the hover text — part of the joke, always shown under the strip), `img`,
-  `day/month/year`, `link`. Latest on 2026-09-09: **3296**. Strips are typically 740 px wide
-  PNGs (272 to 742 tall in the sample); `<name>_2x.png` exists for recent strips (3296: yes) and
-  is used when present. Numbers are not contiguous (404 is famously missing) — walk by `num`,
-  skip a missing one loudly in the log, never fail the source.
+- `https://xkcd.com/info.0.json` (latest) and `/<n>/info.0.json`: `num`, `title`, `safe_title`,
+  `alt` (the hover text — part of the joke, always shown under the strip), `img`,
+  `day/month/year`, `link`. Latest on 2026-09-09: **3296**. Strips are typically 740 px wide PNGs
+  (272 to 742 tall in the sample); `<name>_2x.png` exists for recent strips (3296: yes) and is used
+  when present. Numbers are not contiguous (404 is missing) — walk by `num`, skip a missing one
+  loudly in the log, never fail the source.
 
 ### 2.4 8-Bit Theater (nuklearpower.com)
 
 - WordPress. `wp-json/wp/v2/posts?categories=4&per_page=100&order=asc&orderby=date&_fields=id,date,link,title`
-  lists the category ("8-Bit Theater", id 4): **1,313 posts over 14 pages**, oldest first;
-  `X-WP-Total` in the headers. `content.rendered` is EMPTY (ComicPress keeps the comic apart).
-  Episode titles are `Episode NNN: …`; posts in the category that are not episodes are skipped
-  by the walker and counted in the log, never shown as blank pages.
-- Each episode page carries exactly one comic image, `<img src="…/comics/8-bit-theater/YYMMDD.(jpg|png)">`,
-  plus `rel="prev"`/`rel="next"` links. Episode 001 (2001-03-02) is a 630×878 JPEG; Episode
-  1224 (2010-03-20) is a 720×936 palette PNG; 1224's `next` is "the epilogue" (2010-06-01).
-  The early JPEG years cost about twice the PNG years on the wire (§2.6).
-- The index (1,313 rows: number, title, date, page URL) is fetched **once** and cached
-  forever; a page's image URL is read from the page on first open and cached with it.
+  lists the category (id 4): **1,313 posts over 14 pages**, oldest first; `X-WP-Total` in the
+  headers. `content.rendered` is EMPTY (ComicPress keeps the comic apart). Episode titles are
+  `Episode NNN: …`; non-episode posts are skipped by the walker and counted in the log.
+- Each episode page carries one comic image, `<img src="…/comics/8-bit-theater/YYMMDD.(jpg|png)">`,
+  plus `rel="prev"`/`rel="next"`. Episode 001 (2001-03-02) is a 630×878 JPEG; Episode 1224
+  (2010-03-20) a 720×936 palette PNG; 1224's `next` is "the epilogue" (2010-06-01). The JPEG years
+  cost about twice the PNG years on the wire (§2.6).
+- The index (1,313 rows: number, title, date, page URL) is fetched **once** and cached forever; a
+  page's image URL is read on first open and cached with it.
 
 ### 2.5 SMBC
 
-- `https://www.smbc-comics.com/comic/rss` (the `/rss.php` path is a 301 to it): 20 items; the
-  description holds the comic `<img>` and a `Hovertext:` paragraph. The comic page has the strip
-  as `<img id="cc-comic" title="<hovertext>">` and the bonus panel in a hidden
-  `<div id="aftercomic"><img src="…after.png">` — the bonus panel is part of the joke, so it is
-  shown under the strip, always, with no button. Today's strip is a 900×1103 RGBA PNG.
+- `https://www.smbc-comics.com/comic/rss` (`/rss.php` is a 301 to it): 20 items; the description
+  holds the comic `<img>` and a `Hovertext:` paragraph. The page has the strip as `<img
+  id="cc-comic" title="<hovertext>">` and the bonus panel in a hidden `<div id="aftercomic"><img
+  src="…after.png">` — part of the joke, so it is always shown under the strip, no button. Today's
+  strip is a 900×1103 RGBA PNG.
 
 ### 2.6 Modeled costs (596 wide, 16 levels, no dither, the firmware's RLE, `zlib` 6; timed with the §37 numbers — NOT measured on glass)
 
@@ -136,47 +124,39 @@ Cloudflare bot check — the plain feeds are the only path, §2.1–§2.2).
 | 8BT ep. 001, 4 levels | | 17.7 KB | 33.6 KB | ~2.2 s |
 | manga page (1200×1696), for the record | 0.50× | 57.2 KB | 103.5 KB | ~6.9 s |
 
-Inverting a strip changes its bytes by under 1 % (the same runs, reversed) and drops xkcd's ink
-from 97 % to 17 %; SMBC and 8BT are colour art on lit backgrounds and stay 70–90 % ink either
-way. Nearest-neighbour downsampling saved 8 % on 8BT, not enough to change the picture. After
-the first screen a notch ships five 32 px strips (160 px of 416), about 1/2.6 of the screen
-figure. **Comics are the heaviest thing the shell has shipped**; the source list, the item lists
-and the article Documents are ordinary List/Document costs.
+Inverting changes bytes by under 1 % and drops xkcd's ink from 97 % to 17 %; SMBC and 8BT are
+colour art on lit backgrounds, 70–90 % ink either way. Nearest-neighbour downsampling saved 8 % on
+8BT. After the first screen a notch ships five 32 px strips (160 px of 416), about 1/2.6 of the
+screen figure. **Comics are the heaviest thing the shell has shipped.** As built, strips are fit
+to 564, not 596 (§8.1) — these numbers are a few percent high.
 
 ### 2.7 Libraries and runtimes
 
-- **jsoup** (MIT) and **Readability4J** (Apache-2.0, a Kotlin port of Mozilla's Readability on
-  jsoup) run on both the JVM and Android — about 700 KB of APK. Article extraction runs wherever
-  the engine runs.
-- XML through `javax.xml.parsers` (DOM; present on both runtimes; external entities and DTD
-  loading OFF). HTTP through `HttpURLConnection` (both runtimes; the `LyricsFetch` precedent),
-  behind a `FeedHttp` seam so tests replay today's captured responses.
-- Image decode through the existing `ImageDecoder` seam (AWT on the desktop, `BitmapFactory` on
-  the phone); scaling, inversion, quantization and strip cutting are core code (the Files
-  `fitToWidth` / `appendStrips` shape).
+**jsoup** (MIT) on both runtimes; Readability4J was planned and dropped (§8.1) — `Extract.kt` is
+our own scorer on jsoup. XML through `javax.xml.parsers` (DOM; external entities and DTD loading
+OFF). HTTP through `HttpURLConnection` (the `LyricsFetch` precedent) behind a `FeedHttp` seam so
+tests replay the captured responses. Image decode through the existing `ImageDecoder` seam (AWT /
+`BitmapFactory`); scaling, inversion, quantization and strip cutting are core code (the Files
+`fitToWidth` / `appendStrips` shape).
 
 ---
 
 ## 3. The window (`FeedWindow`, id `feed`)
 
-**Declares:** `needs` = **none** on every host — the engine runs locally on the desktop, and on
-the phone the remote engine is preferred with the local one as the fallback, so the window is
-available whenever either can run (the staleness line says which serves) · face **Fira Sans**
-for every list and for comments, **Alegreya** for the article Document (`EXPLOSION.md` §16.6's
-locked per-window defaults) · icon `IconKind.FEED` (theme names `application-rss`,
-`feedreader`, `internet-feed-reader`, `internet-news-reader`, `com.gitlab.newsflash` — all in
-Papirus-Dark; the drawn fallback is the rss mark: a dot and two arcs, judged at 20 and 56 px
-at 1×) · `preferredHeight` from its Size row · title forms (short by design, §4.1): `feed` ·
-`<source>` (`popular`, `r/linux`, `slashdot`, `linux`, `xkcd`, `smbc`, `8-bit`) · `article` ·
-`comments` · `xkcd 3296` · `8bt 412` · `flagged`.
+**Declares:** `needs` = **none** on every host — the desktop runs the engine locally; the phone
+prefers the remote engine with its own as fallback (the staleness line says which serves) · face
+**Fira Sans** for lists and comments, **Alegreya** for the article Document (`EXPLOSION.md` §16.6)
+· icon `IconKind.FEED` (theme names `application-rss`, `feedreader`, `internet-feed-reader`,
+`internet-news-reader`, `com.gitlab.newsflash` — all in Papirus-Dark; the drawn fallback is the rss
+mark, a dot and two arcs, judged at 20 and 56 px at 1×) · `preferredHeight` from its Size row ·
+title forms: `feed` · `<source>` (`popular`, `r/linux`, `slashdot`, `linux`, `xkcd`, `smbc`,
+`8-bit`) · `article` · `comments` · `xkcd 3296` · `8bt 412` · `flagged`.
 
 ### 3.1 Grammar — the Reader shape, not the Files shape
 
-Reading is the loop, so **one tap opens**: a source row opens its list, an item row opens the
-item. Actions live where Reader puts them — **the Document's tap** opens the item's actions
-level, and **the wrap-end row** of every list opens that level's menu (`MenuSurface`). Files'
-tap-is-a-menu grammar would cost two taps per article; it stays with windows whose rows have
-several equal actions.
+Reading is the loop, so **one tap opens**; actions sit on **the Document's tap** and on **the
+wrap-end row** of every list (`MenuSurface`). Files' tap-is-a-menu grammar would cost two taps per
+article.
 
 ```
 SOURCES (List, root) ─tap─▶ ITEMS (List, one source) ─tap─▶ ARTICLE (Doc) ─tap─▶ item ACTIONS (List)
@@ -187,68 +167,54 @@ SOURCES (List, root) ─tap─▶ ITEMS (List, one source) ─tap─▶ ARTICLE 
    ◀── double-tap backs one level everywhere; the keyboard's own back is §4.8
 ```
 
-- **SOURCES** (List, root; `ActivationSource.MAIN` lands here, `SWITCHER` resumes). Rows in
-  config order: name (bold while it has unread) · `12 new` · the fetch age. Lens: name · one
-  detail line — `25 items · 12 unread · fetched 4 m ago`, or the staleness line when the engine
-  is behind (`PC unreachable 40 s`, `phone engine · PC down 3 m`, `Reddit rate-limited · retry
-  50 s`). Pinned browses (a subreddit or a section the user pinned) are rows here too, after
-  the configured ones. The 8-Bit Theater row reads `page 412 of 1225`. Cursor rest: row 0 on
-  descent, the row left on ascent.
-- **ITEMS** (List; one source). Row: a flag mark at the left when flagged (a drawn glyph,
-  judged at 1× beside real titles) · title (fit) · a short tail per kind — Reddit `↑ 45 cmts ·
-  3 h · r/linux` (the Atom has no score; the tail is comments and age), Slashdot `59 cmts · 2 h
-  · linux`, xkcd `#3296 · Tue`, SMBC the date. Unread at `Level.BODY`, read at `Level.DIM`.
-  Lens: title bold, wrapped to the two lens lines through `Draw.lineBelow`, else title + detail
-  (domain · author · age). Newest first. **Paging**: the engine keeps up to 500 per source; the
-  window asks for pages of 50 with a version cursor and the cursor follows the item's IDENTITY
-  (the id, or the wrap-end row) across snapshots — a fetch that inserts rows never moves the row
-  under the cursor (the Torrents lesson). Empty = one honest row (`nothing yet` / the state
-  line). Wrap-end row `<source>` → the source menu: Mark all read (confirm) · Refresh · Browse…
-  (Reddit: the keyboard for a subreddit name; Slashdot: the twelve sections as a list) · up to
-  five recent browses as rows · Pin / Unpin (a browsed source becomes a root row).
+- **SOURCES** (root; `ActivationSource.MAIN` lands here, `SWITCHER` resumes). Rows in config order:
+  name (bold while unread) · `12 new` · fetch age; pinned browses after; the 8-Bit Theater row reads
+  `page 412 of 1225`. Lens: `25 items · 12 unread · fetched 4 m ago` or the staleness line (`PC
+  unreachable 40 s` / `phone engine · PC down 3 m` / `Reddit rate-limited · retry 50 s`). Cursor:
+  row 0 on descent, the row left on ascent.
+- **ITEMS** (one source). Row: drawn flag mark when flagged · title (fit) · tail per kind — Reddit
+  `↑ 45 cmts · 3 h · r/linux` (the Atom has no score), Slashdot `59 cmts · 2 h · linux`, xkcd
+  `#3296 · Tue`, SMBC the date; unread `Level.BODY`, read `Level.DIM`. Lens: title bold on two
+  lines (`Draw.lineBelow`), else title + domain · author · age. Newest first. **Paging**: up to 500
+  per source in the engine, pages of 50 on a version cursor; the cursor follows the item's IDENTITY
+  across snapshots, so an inserting fetch never moves the row under it. Empty = one honest row.
+  Source menu: Mark all read (confirm) · Refresh · Browse… (Reddit: keyboard; Slashdot: the twelve
+  sections) · up to five recent browses · Pin / Unpin (a browsed source becomes a root row).
 - **ARTICLE** (Document, Alegreya): title (`HEAD`) · byline (`DIM`: source · author · age · `45
-  comments`) · the extracted body as paragraphs, or the feed's own summary when extraction
-  yields less than it · inline images as whole-line strips (Reader's shape) while `Images` is
-  on, each with a visible placeholder line when it will not decode · a Reddit image post shows
-  the image itself; a video post shows one line, `video · not shown`. Opening marks the item
-  read (verdict 6). Extraction is an engine call, off-loop: the op cell says `loading article`,
-  a failure is a notice (`could not extract · showing the summary`) and the summary shows —
-  never a blank page. The newest ten unread items per source are extracted ahead by the PC
-  engine on each fetch; the phone engine extracts on demand only (battery). Tap → **item
-  ACTIONS** (List): Comments (n) — dim with `not reachable` for Slashdot and with `none` at
-  zero · Flag / Unflag · Mark unread · Next item · Back to list. Cursor rests on Comments or,
-  when it is dim, one row down (the §30 rule).
-- **COMMENTS** (Document, Fira Sans): author · age on a `DIM` line, the comment text wrapped
-  under it, entries separated by spacing (no rules, no boxes — §4.2). Fetched on demand, cached
-  15 min, the same loading/failure discipline as the article.
-- **COMIC** (as designed: a Document; **as built, §8.2 item 5: a CANVAS**): the strip fit to the
-  document column (never upscaled), inverted per §3.4, quantized per `Comic levels`, cut into
-  32 px strips; the title line above it; xkcd's alt text and SMBC's hovertext wrapped under it in
-  Alegreya; SMBC's bonus panel under that; and a bar of six buttons at the bottom — `next · prev
-  · random · first · latest · menu` — the ring moving the highlight, a tap pressing. A strip
-  that fits above the bar rests on it; a taller one pans, and one notch up from the top wraps
-  onto the bar. `menu` → item ACTIONS (Flag · Mark unread · Back to strip).
-- **BINGE** (Document, endless — the 8-Bit Theater row): one virtual document, episode after
-  episode: an episode line (`HEAD`: `Episode 412 · <title>`), the strip, the next episode line,
-  the next strip. The engine pre-scales the next two episodes; scrolling within a screen of the
-  loaded end demands the next, scrolling to the loaded top demands the previous, inserted above
-  with `topLine` shifted by the inserted strip count so the view does not jump (the Files
-  restore-top shape). Position = the episode number and the strip offset inside it, a
-  sub-record (§3.5). Tap → **binge ACTIONS**: Next episode · Previous episode · Jump to
-  episode… (the keyboard, digits) · First · Latest · Back. Title `8bt 412`.
-- **FLAGGED** (List, from the root menu): flagged items across sources, the item row shape plus
-  the source name in the tail.
-- **Staleness reaches every level and Main's row** (`WINDOWS.md` §1, the §30 rule): the title
-  carries it wherever the level does not paint it, and the summary carries it into Main:
-  `12 new · popular 8 · xkcd 1` / `PC unreachable 40 s`.
+  comments`) · extracted paragraphs, or the feed's summary when extraction yields less · inline
+  images as whole-line strips while `Images` is on (a visible placeholder line when one will not
+  decode) · a Reddit image post shows the image, a video post `video · not shown`. Opening marks
+  read (verdict 6). Extraction is off-loop: the op cell says `loading article`; a failure is a
+  notice (`could not extract · showing the summary`), never a blank page. The PC engine extracts
+  the newest ten unread per source ahead; the phone on demand only (battery). Tap → **item
+  ACTIONS**: Comments (n) — dim with `none` at zero · Flag / Unflag · Mark unread · Next item · Back
+  to list; cursor on Comments or, when dim, one row down (the §30 rule).
+- **COMMENTS** (Document, Fira Sans): author · age (`DIM`), the text under it, entries separated by
+  spacing (no rules, no boxes — §4.2); on demand, cached 15 min, the article's failure discipline.
+- **COMIC**: designed as a Document; **as built a CANVAS with a six-button bar — §8.2 item 5.** The
+  strip fit to the document column (never upscaled), inverted per §3.4, quantized per `Comic
+  levels`, cut into 32 px strips; the title above; xkcd's alt text / SMBC's hovertext wrapped under
+  it in Alegreya; SMBC's bonus panel under that. `menu` → item ACTIONS (Flag · Mark unread · Back to
+  strip).
+- **BINGE** (Document, endless — the 8-Bit Theater row): episode line (`HEAD`: `Episode 412 ·
+  <title>`), strip, next episode line, next strip, one virtual document. The engine pre-scales the
+  next two episodes; within a screen of the loaded end the next is demanded, at the loaded top the
+  previous, inserted above with `topLine` shifted by the inserted strip count so the view does not
+  jump (the Files restore-top shape). Position = episode + strip offset, a sub-record (§3.5). Tap →
+  **binge ACTIONS**: Next episode · Previous episode · Jump to episode… (keyboard, digits) · First ·
+  Latest · Back. Title `8bt 412`.
+- **FLAGGED** (from the root menu): flagged items across sources, the source name in the tail.
+- **Staleness reaches every level and Main's row** (`WINDOWS.md` §1): the title carries it where
+  the level does not paint it; the summary carries it into Main (`12 new · popular 8 · xkcd 1` /
+  `PC unreachable 40 s`).
 
 ### 3.2 Heights
 
 Every level at 288 / 352 / 416 / 480 with the Size row (Torrents' shape). Lists pan through the
 kit's measured rhythm; Documents show `docContentHeight() / lineH` lines. Strips are 32 px: an
-ordinary xkcd (596×218, 7 strips) fits one 288 screen (224 px of content) with room to spare;
-an 8BT page (774 px, 25 strips) is about three 288 screens or two 480 screens. Snapshot scenes
-cover 288 and 480 for the source list, an item list, an article, a comic and the binge.
+ordinary xkcd (596×218, 7 strips) fits one 288 screen (224 px of content) with room to spare; an
+8BT page (774 px, 25 strips) is about three 288 screens or two 480 screens. Snapshot scenes cover
+288 and 480 for the source list, an item list, an article, a comic and the binge.
 
 ### 3.3 Settings → Feed (HostSetting rows; Font / Font size / Font style and Depth are the shell's automatic per-app rows)
 
@@ -256,7 +222,7 @@ cover 288 and 480 for the source list, an item list, an article, a comic and the
 |---|---|---|---|
 | Size | global · 288 · 352 · 416 · 480 | global | the standard row |
 | Images | on · off | on | verdict 7; article images only — comics are always drawn |
-| xkcd art · SMBC art · 8-Bit art | auto · never · always | auto | verdict 8, one row per comic source (no global row — as built, §8.1); article images always follow the automatic rule |
+| xkcd art · SMBC art · 8-Bit art | auto · never · always | auto | verdict 8, one row per comic source (no global row — §8.1); article images always follow the automatic rule |
 | Comic levels | 16 · 8 · 4 | 16 | verdict 10; a change re-derives strips from the cached source image, never a refetch |
 | Fetch | 5 min · 15 min · 30 min · 60 min | 15 min | feeds; comics check hourly regardless |
 | Keep | 7 d · 30 d · 90 d | 30 d | with the 500-per-source cap |
@@ -271,76 +237,63 @@ has no `feedSources`, and every default above is a row.
 ### 3.4 Line art: the automatic decision
 
 Per image, once, cached with the strips: a 16-bin luminance histogram of the decoded image; if
-more than 60 % of pixels sit in the top two bins (a white page) the image is drawn inverted
-(ink becomes light), else as-is. xkcd inverts (measured 96.5 % lit → 16.8 %); SMBC and 8BT do
-not (colour on colour). `never` / `always` override per comic source. Article images follow
-the same rule under `auto` — a diagram inverts, a photo does not.
+more than 60 % of pixels sit in the top two bins (a white page) the image is drawn inverted (ink
+becomes light), else as-is. xkcd inverts (measured 96.5 % lit → 16.8 %); SMBC and 8BT do not.
+`never` / `always` override per comic source. Article images follow the same rule under `auto` —
+a diagram inverts, a photo does not.
 
 ### 3.5 State and sync (§16.4 — the phone fallback decides this)
 
-Reading state lives in the **shell's synced store**, never inside an engine, so the PC engine
-and the phone engine see one truth and the §16.4 note "host-side feed read marks" is
-superseded for this window:
+Reading state lives in the **shell's synced store**, never inside an engine, so both engines see
+one truth (§16.4's "host-side feed read marks" note is superseded here):
 
-- **Main record** (`window.feed`): level, the open source id, the open item id and its doc
-  position, list cursors by identity, the five recent browses per kind, pinned browses.
-- **`feed.src.<id>`** (one sub-record per source): the read set and the flagged set as item ids,
-  bounded by retention, and `lastSeen` (the newest item id announced). **Read marks merge as a
-  UNION on live apply** — reading is monotone, so two devices reading different items of one
-  source within a sync gap never undo each other; `Mark unread` is the one edit LWW can revert,
-  and only while the other device still carries the mark. Flags are LWW. Never an empty blob
-  (the §25 #8 tombstone lesson): a source with nothing read reports no record.
-- **`feed.binge.<comic>`**: `{episode, strip}` — LWW, the Reader per-book precedent, so the
-  archive continues on any device exactly where it stopped.
-- **Items themselves are not synced.** Each engine fetches its own; item ids are derived from
-  the entry's guid or link (a stable hash), so read marks match across engines.
-- Continuity test: read on shell A → sync → shell B shows the same rows dim, the same binge
-  page, the same open article at the same line.
+- **`window.feed`**: level, open source id, open item id + doc position, list cursors by identity,
+  the five recent browses per kind, pinned browses.
+- **`feed.src.<id>`** (per source): read set + flagged set as item ids (bounded by retention) and
+  `lastSeen` (the newest item id announced). **Read marks merge as a UNION on live apply** —
+  reading is monotone, so two devices reading different items within a sync gap never undo each
+  other; `Mark unread` is the one edit LWW can revert, and only while the other device still
+  carries the mark. Flags are LWW. Never an empty blob (the §25 #8 tombstone lesson): a source with
+  nothing read reports no record.
+- **`feed.binge.<comic>`**: `{episode, strip}`, LWW (the Reader per-book precedent).
+- **Items are not synced**; ids derive from the entry's guid or link (a stable hash), so read marks
+  match across engines. Continuity test: read on shell A → sync → shell B shows the same rows dim,
+  the same binge page, the same article at the same line.
 
 ### 3.6 The engine, the providers, and the switch (`core/…/windows/feed/`)
 
-**`FeedEngine`** is pure Kotlin and runs anywhere: the source list → per-kind fetchers
-(`RedditAtom`, `SlashdotRss`, `Xkcd`, `EightBit`, `Smbc`, and a generic `RssImage`/`Rss` for
-later titles) → **`FeedStore`** (files under a data dir: one JSON file per source with its
-items, extracted text per item, the 8BT index, and the strip cache as raw 4-bit rows with a
-small header) → **`Extract`** (Readability4J → paragraphs; the feed's summary as the floor) →
-**`Strips`** (decode through `ImageDecoder`, fit to 596, the §3.4 decision, quantize to N
-levels, cut to 32 px). **`FeedHttp`** is the seam: `get(url) → text`, `bytes(url)`, one user
-agent, a per-host pacer (Reddit 60 s), `Retry-After` honoured, every refusal said with a
-duration. Pacing and liveness only — no timeouts anywhere. The pacer runs at `Fetch` for
-feeds and hourly for comics, and never on the shell loop.
+**`FeedEngine`** is pure Kotlin and runs anywhere: per-kind fetchers (`RedditAtom`, `SlashdotRss`,
+`Xkcd`, `EightBit`, `Smbc`, a generic `RssImage`/`Rss`) → **`FeedStore`** (one JSON per source
+with its items, extracted text per item, the 8BT index, the strip cache as raw 4-bit rows with a
+small header) → **`Extract`** (paragraphs; the summary as the floor) → **`Strips`** (decode
+through `ImageDecoder`, fit to the column, §3.4, quantize, cut to 32 px). **`FeedHttp`** is the
+seam: `get(url) → text`, `bytes(url)`, one user agent, a per-host pacer (Reddit 60 s),
+`Retry-After` honoured, every refusal said with a duration; no timeouts. The pacer runs at `Fetch`
+for feeds, hourly for comics, never on the shell loop.
 
-**Providers on the §16.10 channel** (`{"t":"win","win":"feed"}`): `FeedService` adapts the
-PC's engine to the wire; `RemoteFeedProvider` is the phone's client. Ops: `sources` (the list
-with counts and the engine's state line) · `items` (source, version cursor, page) · `article`
-(item → text blob) · `comic` (item → strips blob) · `binge` (comic, episode → the episode
-line + strips blob; `index` → the episode table) · `comments` (item → text blob) · `refresh`
-(source or all) · `browse` (kind + name → a transient source id) · push `changed` (source,
-version) so an active list repaints only what changed. Strips ride the blob lane as the packed
-4-bit rows the compositor wants, deflated.
+**Providers on the §16.10 channel** (`{"t":"win","win":"feed"}`): `FeedService` (PC) and
+`RemoteFeedProvider` (phone). Ops: `sources` (counts + state line) · `items` (source, version
+cursor, page) · `article` (text blob) · `comic` (strips blob) · `binge` (comic, episode → episode
+line + strips blob; `index` → the episode table) · `comments` (text blob) · `refresh` (source or
+all) · `browse` (kind + name → a transient source id) · push `changed` (source, version) so an
+active list repaints only what changed. Strips ride the blob lane as packed 4-bit rows, deflated.
 
-**The switch (verdict 15, Music's shape):** `SwitchingFeedProvider` wraps `remote` (preferred)
-and `local` (the phone's own engine). The remote serves while its channel is up; when the
-channel's staleness passes the `PC loss` threshold, the phone engine starts its pacer and
-serves, with a notice `PC unreachable 1 min · fetching on the phone` and the summary naming
-the engine (`phone engine`). **Switchback is deliberate**: when the channel is back, a `Back to
-PC` row appears in the root menu (detail: `the PC is reachable`); tapping it parks the phone
-engine and returns to the remote. The phone engine holds no pacer while parked (§6 rule 4). On
-the desktop the local engine is the only provider and nothing switches. What the phone engine
-cannot do is exactly what needs the PC and nothing else: nothing in this window does — every
-source is plain HTTP (§2) — so the fallback is complete; the one difference is that the phone
-extracts articles on demand rather than ahead.
+**The switch (verdict 15, Music's shape):** `SwitchingFeedProvider` wraps `remote` (preferred) and
+`local`. Past the `PC loss` threshold the phone engine starts its pacer and serves, with a notice
+`PC unreachable 1 min · fetching on the phone` and the summary naming `phone engine`.
+**Switchback is deliberate**: a `Back to PC` row (detail `the PC is reachable`) appears in the root
+menu when the channel is back; tapping it parks the phone engine (no pacer, no socket). On the
+desktop the local engine is the only provider. Every source is plain HTTP (§2), so the fallback is
+complete; the one difference is that the phone extracts on demand rather than ahead.
 
-**Announcements** (the notification sources): the engine that is serving decides "new since
-`lastSeen`" per source once per fetch; the window raises `notifyInternal("feed", "3 new ·
-xkcd 3297 …", appId = "feed", thread = <source id>, target = "src:<id>")` (a single new comic
-targets `item:<id>`), gated on the source kind's row. Coalescing per source thread means a
-PC standby shell and the phone shell raising the same event replace rather than stack.
+**Announcements**: the serving engine decides "new since `lastSeen`" per source once per fetch;
+the window raises `notifyInternal("feed", "3 new · xkcd 3297 …", appId = "feed", thread = <source
+id>, target = "src:<id>")` (a single new comic targets `item:<id>`), gated on the source kind's
+row; coalescing per thread means a PC standby shell and the phone shell replace rather than stack.
 
-**Deep links** (`open(target)`): `src:<id>` → that source's list; `item:<id>` → the item
-(the article or the comic) with the level path synthesized so back returns to the list;
-`binge:<comic>` → the archive at its saved position; an unresolvable target returns false
-(loud, per §16.1).
+**Deep links** (`open(target)`): `src:<id>` → the source's list; `item:<id>` → the item with the
+level path synthesized so back returns to the list; `binge:<comic>` → the archive at its saved
+position; an unresolvable target returns false (loud, §16.1).
 
 ### 3.7 Config (`~/.damage/config.json`; the standing secrets rule is moot — nothing here is a credential)
 
@@ -362,9 +315,9 @@ generic adapter for a later title.
 
 ### 3.8 Latency profile — targets, then measured
 
-The bar (`WINDOWS.md` §6): a list notch's first flush under ~1 KB and first visible change
-under ~250 ms at the median. Targets per gesture, to be measured with `tools/glassdrive.py` +
-`tools/journal_report.py` after the build and written into §8:
+The bar (`WINDOWS.md` §6): a list notch's first flush under ~1 KB and first visible change under
+~250 ms at the median. Targets per gesture, to be measured with `tools/glassdrive.py` +
+`tools/journal_report.py` into §8.4:
 
 | gesture | first flush (target) | note |
 |---|---:|---|
@@ -380,88 +333,70 @@ under ~250 ms at the median. Targets per gesture, to be measured with `tools/gla
 
 ## 4. Tests, harnesses, gates
 
-- **Captured fixtures** under `core/src/test/resources/feed/`: today's Reddit popular Atom, a
-  post `.rss`, the Slashdot RDF (two sections), xkcd JSON (latest, 1000, a missing number), the
-  8BT REST page and an episode page, the SMBC RSS and a comic page, and small PNG/JPEG samples
-  — replayed through `FeedHttp`, so every parser is pinned to real bytes and a format change
-  shows up as a loud parse refusal in the test, never a quietly empty list.
-- **`ScriptedFeed`** (desktop): a deterministic provider with a seeded set of sources and
-  items, scripted refresh events (new items arriving under the cursor), a scripted rate-limit,
-  a scripted PC loss for the switch. The selfcheck walks: root → a source → an article →
-  actions → comments → flag → flagged list → a comic → the binge (next, previous, jump) →
-  Browse (keyboard) → Pin → Mark all read (confirm) → the switch and the `Back to PC` row.
-- **Core tests**: parser pins per source; the read-set union; the tombstone rule (no empty
-  blob); the persistence round-trip (byte-identical frame); the continuity test (§3.5);
-  `open(target)` for every form; the identity cursor across an inserting refresh; the §3.4
-  decision on the sample images; the strip cutter's byte-exactness against the Python pricing
-  script's output for one strip (the same bytes, or the model is wrong).
-- **Snapshot scenes** at 288 and 480: source list, an item list, an article, xkcd, the binge.
-  `--feed-check`: the engine against the fixtures end to end (parse → store → extract →
-  strips), read-only, touching nothing outside a temp dir.
-- **Lint** (`tools/lint.py`): every drawn string, the rss mark's rects, the ink budgets.
+- **Captured fixtures** under `core/src/test/resources/feed/` (Reddit popular Atom, a post `.rss`,
+  Slashdot RDF ×2, xkcd JSON — latest, 1000, a missing number — the 8BT REST page + an episode
+  page, SMBC RSS + a comic page, small PNG/JPEG samples), replayed through `FeedHttp`; a format
+  change is a loud parse refusal, never a quietly empty list.
+- **`ScriptedFeed`**: seeded sources and items, scripted refreshes (new items under the cursor), a
+  scripted rate-limit, a scripted PC loss. The selfcheck walks root → source → article → actions →
+  comments → flag → flagged → a comic → the binge (next, previous, jump) → Browse (keyboard) → Pin
+  → Mark all read (confirm) → the switch and the `Back to PC` row.
+- **Core tests**: parser pins per source; the read-set union; the tombstone rule; the persistence
+  round-trip (byte-identical frame); continuity (§3.5); `open(target)` for every form; the identity
+  cursor across an inserting refresh; the §3.4 decision on the samples; the strip cutter's bytes
+  against the Python pricing script's output for one strip.
+- **Snapshot scenes** at 288 and 480: source list, item list, article, xkcd, binge. `--feed-check`:
+  the engine over the fixtures end to end, read-only, in a temp dir; `live` fetches the real sites
+  once. **Lint**: every drawn string, the rss mark's rects, the ink budgets.
 - **The live walk** before the round is called done (`HANDOFF.md` §33): every level on glass
-  through `glassdrive.py`, one step per snap around Mark all read, the numbers into §8.
+  through `glassdrive.py`, one step per snap around Mark all read, the numbers into §8.4.
 
 ## 5. Build order — five milestones, a commit after each ✅ DONE 2026-09-09 (`a66f2c8` · `95fe6c8` · `3ecba02` · `693c122`, then `fa3747d` for §8.2)
 
-1. **M1 engine**: `FeedHttp`, the five fetchers + the generic one, `FeedStore`, `Extract`,
-   `Strips`, the pacer, the announcements; fixtures + parser pins; `--feed-check`. Desktop deps:
-   jsoup + Readability4J.
-2. **M2 window**: `FeedWindow` (every level, four heights, the menus, the keyboard browse,
-   Settings rows, notifications, summary, deep links, sub-records with the union rule),
-   `ScriptedFeed`, the selfcheck walk, snapshot scenes, `IconKind.FEED` (theme names + the
-   drawn mark), desktop registration in both the auto/standby stack and `--host-only`.
-3. **M3 channel + switch**: `FeedService` (+ push), `RemoteFeedProvider`,
-   `SwitchingFeedProvider` with the `PC loss` row and the `Back to PC` row; tests over a fake
-   link.
-4. **M4 phone**: the engine hosted in the APK (data dir under the app's files, the pacer under
-   the foreground service, `BitmapFactory` through the existing decoder), `ShellService`
-   registration, the APK deps; version bump; staged.
-5. **M5 record**: this file → build record (as-built numbers, deviations), `IMPLEMENTATION.md`
-   "Feed", `HANDOFF.md`, `REMINDER.md`, `WINDOWS.md` (a seventh precedent: the reading grammar +
-   the two-engine switch), `EXPLOSION.md` §11/§20 status, memory; jar staged, service
-   restarted; then the live walk and §8.
+**M1** engine (`FeedHttp`, the fetchers, `FeedStore`, `Extract`, `Strips`, the pacer, the
+announcements, fixtures, `--feed-check`) `a66f2c8` · **M2** window (`FeedWindow`, `ScriptedFeed`,
+the selfcheck walk, snapshots, `IconKind.FEED`, desktop registration in the auto/standby stack and
+`--host-only`) `95fe6c8` · **M3** channel + switch (`FeedService` + push, `RemoteFeedProvider`,
+`SwitchingFeedProvider`, the `PC loss` and `Back to PC` rows) with **M4** phone (the engine in the
+APK — data dir under the app's files, the pacer under the foreground service, `BitmapFactory`
+through the decoder) `3ecba02` · **M5** the record `693c122` · the evening's fixes `fa3747d`.
 
 ## 6. Traps and rules for the builder
 
 - **Loop-only mutation** through `runOnShell`; generation guards on every completion (a late
-  article must not replace the item the user moved to); demand work from `view()` or
-  completions, never from a paint (the L1 class); never a provider call on the loop.
+  article must not replace the item the user moved to); demand work from `view()` or completions,
+  never from a paint; never a provider call on the loop.
 - **Cursor by identity** on every live list; a refresh that inserts rows re-resolves it.
 - **`saveSubState` never returns an empty blob**; a source with no read marks reports nothing.
 - **A restored level below the top loads on the way back** (`MusicWindow.ensureLoaded`).
 - **Listeners idempotent; `detach()` in a stack stop's `finally`** (the keeper restart class).
-- **Dynamic text everywhere** through `Draw.dynamic` at wrap time: feed titles carry emoji,
-  curly quotes, CJK and HTML entities (decode entities BEFORE wrapping; the C1 mojibake lesson).
+- **Dynamic text everywhere** through `Draw.dynamic` at wrap time: feed titles carry emoji, curly
+  quotes, CJK and HTML entities (decode entities BEFORE wrapping; the C1 mojibake lesson).
 - **Lint's SYM002 reads every Kotlin literal**: no `½`, no arrows, no glyphs outside the locked
   faces in any string the window might draw.
-- **A strip cache is derived state**: `Comic levels` and `Line art` changes re-derive from the
-  cached source image; a refetch is never the answer to a settings change.
+- **A strip cache is derived state**: `Comic levels` and line-art changes re-derive from the cached
+  source image; a refetch is never the answer to a settings change.
 - **The phone engine never runs while the remote serves**; parked means no pacer, no socket.
-- **Reddit's 429 is a normal state, not a defect**: paced, said with the retry time, never
-  retried inside the pacing, never a stacked notice.
-- **An 8BT post that is not an episode is skipped and counted**, never a blank page; a missing
-  xkcd number the same.
-- **Ink**: article Documents ≤ 25 %; a comic is the window's call and is said so in the record
-  — do not "fix" a 90 % comic by dimming it.
+- **Reddit's 429 is a normal state, not a defect**: paced, said with the retry time, never retried
+  inside the pacing, never a stacked notice.
+- **An 8BT post that is not an episode is skipped and counted**, never a blank page; a missing xkcd
+  number the same.
+- **Ink**: article Documents ≤ 25 %; a comic is the window's call and is said so in the record — do
+  not "fix" a 90 % comic by dimming it.
 - **Measured vs modeled**: every number in §2.6 and §3.8 is modeled until the walk measures it.
 - **Wording**: `CLAUDE.md`'s plain-engineering table in comments, notices and this record.
 
 ## 7. Kickoff for the POLISH session (the build is done; this replaces the build kickoff)
 
-Read, in order: `CLAUDE.md` (loaded), `REMINDER.md`, `HANDOFF.md` §43 whole (§43.6 is the
-resume protocol), this file's §1 (the verdicts — never re-litigated), §3 (the contract as
-designed) and §8 (what runs, what departed, the known limits), `WINDOWS.md` §5–§6,
-`IMPLEMENTATION.md` → "Feed". Then, in this order: the measured walk (§8.4) before any change,
-Adam's verdicts on what he sees, §8.3's list by number, and the battery green after each
-change (`CLAUDE.md` — the APK build in its own gradle call; every harness more than once).
+Read `REMINDER.md`, `HANDOFF.md` §43 (§43.6 is the resume protocol), this file's §1, §3 and §8,
+`WINDOWS.md` §5–§6, `IMPLEMENTATION.md` → "Feed". Then: the measured walk (§8.4) before any
+change, Adam's verdicts on what he sees, §8.3's list by number, the battery green after each
+change.
 
 ## 8. As built (2026-09-09) — the record a polish session works from
 
-Built in one session, a commit per milestone (`a66f2c8` M1 · `95fe6c8` M2 · `3ecba02` M3+M4 ·
-`693c122` M5), on glass the same evening, and Adam's five findings fixed that night
-(`fa3747d`). `HANDOFF.md` §43 is the build's own account and §43.6 where the next session
-picks up. Where the build departed from §3–§5, the plan text above stands as the DESIGN and
+Commits per milestone: §5. `HANDOFF.md` §43 is the build's own account and §43.6 where the next
+session picks up. Where the build departed from §3–§5, the plan text stands as the DESIGN and
 this section says what RUNS.
 
 ### 8.1 Deviations from the plan
@@ -469,103 +404,96 @@ this section says what RUNS.
 - **No Readability4J.** Its 1.0.8 pulls jackson-module-kotlin 2.9 and a 2019 Kotlin stdlib into
   the APK; `Extract.kt` is our own scorer on jsoup (MIT), in Readability's spirit and none of its
   code: paragraphs score their parent and grandparent, link-heavy containers are penalised,
-  `article`/`main` favoured, and a page under 200 characters of prose yields nothing so the
-  feed's own text shows.
+  `article`/`main` favoured, and a page under 200 characters of prose yields nothing so the feed's
+  own text shows.
 - **Strips are fit to the shell's document column, not to 596.** `docContentWidth()` is 564 at
-  full width (the column the rail and margins leave); §2.6's numbers are priced at 596 and are
-  a few percent high for that reason. The engine caches strips per width, levels and policy.
+  full width; §2.6's numbers are a few percent high. The engine caches strips per width, levels
+  and policy.
 - **Line art is three per-comic rows** (`xkcd art`, `SMBC art`, `8-Bit art`: auto / never /
-  always) with no global row. Article images always follow the automatic rule.
-- **The comic level is a CANVAS, not a Document** (§8.2 item 5): the strip, its text and a bar
-  of six buttons under it. The archive (8-Bit Theater) keeps the endless Document of §3.1.
-- **Slashdot comments are IN** (§8.2 item 3), reversing §2.2's "out": the story page renders
-  the thread server-side and the rest comes by id through the call §2.2 found.
-- **Reddit's article leads with the poster's own words** for every kind of post (§8.2 item 1).
-- **The reading text is Alegreya 17**, the Reader's size, not 20 (§8.2 item 4).
-- **The phone engine adopts the PC's list.** `SourceStatus.cfg` carries each configured source
-  over the channel and `FeedEngine.adopt` takes on the ones the phone lacks, so a source added in
-  `config.json` reaches the fallback; nothing is ever removed on the phone.
-- **Over the channel a strip is deflate(packed nibbles)** with its dimensions in the answer's
-  data — the compositor's own bytes, no JSON of a byte array. The tests pin them byte-identical.
-- **`ScriptedFeed` lives in core's main sources** (the `SimMusicPlayer` precedent) so the core
-  tests and both desktop harnesses share one scripted world; its stamps are relative to now so
-  the scenes' ages read the same every day.
+  always), no global row. Article images always follow the automatic rule.
+- **Four of the evening's findings changed the plan** (§8.2): the comic level is a CANVAS with a
+  bar (item 5; the 8-Bit archive keeps the endless Document); Slashdot comments are IN (item 3,
+  reversing §2.2); a Reddit article leads with the poster's own words (item 1); the reading text
+  is Alegreya 17, not 20 (item 4).
+- **The phone engine adopts the PC's list.** `SourceStatus.cfg` carries each configured source over
+  the channel and `FeedEngine.adopt` takes on the ones the phone lacks; nothing is ever removed on
+  the phone.
+- **Over the channel a strip is deflate(packed nibbles)** with its dimensions in the answer's data
+  — the compositor's own bytes, no JSON of a byte array; the tests pin them byte-identical.
+- **`ScriptedFeed` lives in core's main sources** (the `SimMusicPlayer` precedent) so the core tests
+  and both desktop harnesses share one scripted world; its stamps are relative to now.
 - **A first sight is a baseline.** A source's first status on a device sets `seen` to its newest
   stamp and announces nothing; notices start from the second fetch, and only behind the row.
 
 ### 8.2 The first evening on glass (Adam, 2026-09-09) — five findings, all changed the same night
 
-Adam installed 0.42 and walked Feed. What he saw, what it was, what runs now:
+Adam installed 0.42 and walked Feed.
 
-1. **A Reddit post showed its image and title but not its text.** Reddit lets an image, video
-   or gallery post carry a body, and 6 of the 25 popular entries did; the article builder
-   dropped the body for every kind but TEXT. Now the poster's own words come FIRST for every
-   kind, then the image / the `video · not shown` line / the extracted link under a `from
-   <domain>` heading — and the comments view opens with the post's text above the thread.
-2. **A Slashdot story showed only the editor's summary.** The RSS description carries no source
-   link (its only anchors are share buttons); the story PAGE's `div.body` links the source in
-   its prose. The article is now the summary, then `from <domain>` and the source article
-   extracted (`SlashdotRss.sourceFrom`); when the source will not extract (the NYT answers 403)
-   the summary stands, the heading names the source and the note says why.
-3. **Slashdot comments** — Adam: *"if a way can be found … that would be ideal."* The story
-   page, fetched that evening, renders the top of the thread server-side: 8 bodies of 9 for a
-   9-comment story, 100 of 176 for "Star Trek Turns 60", each in `li#tree_<cid>` with its depth
-   in the `commtree` nesting, its title, its `(Score:5, Insightful)` and its author; the ones
-   below the threshold and those listed in `D2.noshow_comments([...])` come from the
-   `comments_fetch` POST §2.2 had already found works once it has ids (`parseThread` +
-   `fetchMissing`, the one POST in the engine). The `Comments` row is live for Slashdot;
-   comments render `title` (when not `Re:`), `author · score · age`, the text, indented by
-   depth. 🟡 **Why the same URL answered with an EMPTY tree that morning** (the §2.2 probes ran
-   minutes after the story posted, with the same user agent) **is not known — grade S**; if a
-   story shows no comments while the feed counts some, that is the shape to look for.
-4. **The reading text was far too big.** The window sized Alegreya at 20; the Reader uses 17.
-   17 now, and the per-app `Font size` row (the shell's, `default` = the global) scales it.
-5. **Flipping through comics wanted the xkcd homepage's buttons, not a menu.** The comic level
-   is a canvas with a bar under the strip — `next · prev · random · first · latest · menu` —
-   the ring moving the highlight and a tap pressing it; a strip that fits above the bar rests
-   on it at once, a taller one pans, and one notch UP from the top wraps onto the bar (the list
-   grammar's wrap-to-end, `DESIGN.md` §4.6). xkcd flips by NUMBER through the whole archive:
-   `FeedEngine.comicAt` fetches any strip on demand (missing numbers skipped, `random`
-   re-drawn), the range from the latest known (`comicRange`); SMBC and the generic image feeds
-   flip through their list. The bar's focus stays where it was when the menu opened. The first
-   canvas painted over the list it replaced — the snapshot showed it — a canvas clears its rect
-   first (`WINDOWS.md` §5).
+1. **A Reddit post showed its image and title but not its text.** An image, video or gallery post
+   can carry a body (6 of 25 popular entries did); the builder dropped it for every kind but TEXT.
+   Now the poster's own words come FIRST for every kind, then the image / `video · not shown` / the
+   extracted link under a `from <domain>` heading; the comments view opens with the post's text
+   above the thread.
+2. **A Slashdot story showed only the editor's summary.** The RSS description has no source link
+   (its only anchors are share buttons); the story PAGE's `div.body` links it. Now: the summary,
+   then `from <domain>` and the source article extracted (`SlashdotRss.sourceFrom`); when the
+   source will not extract (the NYT answers 403) the summary stands, the heading names the source
+   and the note says why.
+3. **Slashdot comments** — Adam: *"if a way can be found … that would be ideal."* The story page,
+   fetched that evening, renders the top of the thread server-side (8 bodies of 9 for a 9-comment
+   story; 100 of 176 for "Star Trek Turns 60"), each in `li#tree_<cid>` with its depth in the
+   `commtree` nesting, title, `(Score:5, Insightful)` and author; those below the threshold and
+   those in `D2.noshow_comments([...])` come from the `comments_fetch` POST §2.2 found
+   (`parseThread` + `fetchMissing`, the one POST in the engine). Rendered: `title` (when not `Re:`),
+   `author · score · age`, the text, indented by depth. 🟡 **Why the same URL answered with an
+   EMPTY tree that morning** (the §2.2 probes ran minutes after the story posted, same user agent)
+   **is not known — grade S**; a story showing no comments while the feed counts some is the shape
+   to look for.
+4. **The reading text was far too big.** Alegreya at 20; the Reader uses 17. 17 now; the per-app
+   `Font size` row (`default` = the global) scales it.
+5. **Flipping through comics wanted the xkcd homepage's buttons, not a menu.** The comic level is a
+   canvas with a bar under the strip — `next · prev · random · first · latest · menu` — the ring
+   moving the highlight, a tap pressing; a strip that fits above the bar rests on it at once, a
+   taller one pans, and one notch UP from the top wraps onto the bar (the list grammar's
+   wrap-to-end, `DESIGN.md` §4.6). xkcd flips by NUMBER through the whole archive
+   (`FeedEngine.comicAt` fetches any strip on demand, missing numbers skipped, `random` re-drawn,
+   the range from `comicRange`); SMBC and the generic image feeds flip through their list. The
+   bar's focus stays where it was when the menu opened. The first canvas painted over the list it
+   replaced (the snapshot showed it) — a canvas clears its rect first (`WINDOWS.md` §5).
 
 ### 8.3 Known limits and rough edges — the polish session's list
 
-Nothing here is a silent failure; each says what it does. In the order a reader on glass meets them:
+Nothing here is a silent failure; each says what it does. In the order a reader on glass meets
+them:
 
-1. **Reddit comments right after a fetch say `reddit rate-limited · retry N s`.** The pace is
-   one request a minute per host, and a comments fetch is a Reddit request like the listing
-   fetch before it. Opening comments within a minute of the feed's own fetch waits out the
-   rest of that minute. A smarter budget (a comments request allowed on its own slot) is the
-   first thing to price.
+1. **Reddit comments right after a fetch say `reddit rate-limited · retry N s`.** One request a
+   minute per host, and a comments fetch is a Reddit request like the listing fetch before it. A
+   smarter budget (a comments request on its own slot) is the first thing to price.
 2. **Reddit comments are flat.** The post's `.rss` carries no nesting and no score; old.reddit's
-   threaded HTML redirects to login and the JSON refuses non-browser clients (§2.1). Only a
-   login would change this and Adam said no login.
-3. **A Slashdot story whose page came without its tree shows `no comments yet`** although the
-   feed counts some (item 3's grade-S mystery). The honest line for that state — `the story page
+   threaded HTML redirects to login and the JSON refuses non-browser clients (§2.1). Only a login
+   would change this and Adam said no login.
+3. **A Slashdot story whose page came without its tree shows `no comments yet`** although the feed
+   counts some (item 3's grade-S mystery). The honest line for that state — `the story page
    carried no comments this time · N on the site` — is not written yet.
-4. **A source behind a paywall or bot check shows the summary** with `from <domain>` and the
-   HTTP status (the NYT, 403). Nothing more is possible without an account; no archive service is
-   consulted.
+4. **A source behind a paywall or bot check shows the summary** with `from <domain>` and the HTTP
+   status (the NYT, 403). Nothing more without an account; no archive service is consulted.
 5. **SMBC and a generic image feed flip within their fetched list** (20 for SMBC); `first` is the
-   oldest fetched, not the oldest ever. An archive walk for SMBC (its site is not WordPress) is
-   a separate adapter, if Adam wants an SMBC binge.
-6. **A comic opened by number and left open does not restore after a restart** when it is
-   outside the source's list: the restore re-opens through the list and says `that item is
-   gone`. Persisting the number (`openItemNum`) and re-fetching it is the fix.
-7. **The 8-Bit Theater archive has no bar** — Adam asked for the bar "for comics like xkcd";
-   the archive is an endless document with its actions on tap. Ask before adding one.
+   oldest fetched, not the oldest ever. An SMBC archive walk (its site is not WordPress) is a
+   separate adapter, if Adam wants an SMBC binge.
+6. **A comic opened by number and left open does not restore after a restart** when it is outside
+   the source's list: the restore re-opens through the list and says `that item is gone`.
+   Persisting the number (`openItemNum`) and re-fetching it is the fix.
+7. **The 8-Bit Theater archive has no bar** — Adam asked for the bar "for comics like xkcd"; the
+   archive is an endless document with its actions on tap. Ask before adding one.
 8. **The phone fallback is tested over a loopback host, not over Tailscale with the service
    stopped.** One deliberate try, with the journal read after, is owed.
-9. **`Notify` rows are off** (verdict 13) and untried on glass; the first-sight baseline means
-   the first fetch after turning a row on announces nothing.
+9. **`Notify` rows are off** (verdict 13) and untried on glass; the first-sight baseline means the
+   first fetch after turning a row on announces nothing.
 10. **The measured walk is owed** (§8.4): every number in §2.6 and §3.8 is modeled.
 
 ### 8.4 Measured on glass
 
-*(the walk waits — `tools/glassdrive.py`, snap before every tap, one step per snap around Mark
-all read; then `tools/journal_report.py`'s per-gesture section into the table §3.8 left blank;
-the comic canvas is the case to watch: a bar highlight change is a small repaint, a pan is a
-detected translation, a flip is a whole strip)*
+*(the walk waits — `tools/glassdrive.py`, snap before every tap, one step per snap around Mark all
+read; then `tools/journal_report.py`'s per-gesture section into the table §3.8 left blank; the
+comic canvas is the case to watch: a bar highlight change is a small repaint, a pan is a detected
+translation, a flip is a whole strip)*

@@ -1,95 +1,77 @@
 # Damage — a framebuffer window manager for the Even Realities G2
 
 **What this is:** a personal, first-party project on hardware Adam owns — his own G2 glasses,
-his own phone and PC, his own home network. The custom firmware is installed on a consumer
-wearable he bought, and the Bluetooth wire format recorded below was worked out from captures
-of his own pair. This is ordinary device interoperability and display-rendering work, done so
-he can run his own software on his own display. **The name is the graphics term** — *damage*
-is the set of screen regions that changed since the last frame (the X11 DAMAGE extension), and
-batching a frame's damage into one message is the thesis (§5).
+phone, PC and home network. The custom firmware is installed on a consumer wearable he bought;
+the Bluetooth wire format below was worked out from captures of his own pair. **The name is the
+graphics term** — *damage* is the set of screen regions that changed since the last frame (the
+X11 DAMAGE extension); batching a frame's damage into one message is the thesis (§5).
 
 **Status (2026-09-02): BUILT, FLASHED, LIVE as the all-day daily driver, and into the app
-wave.** The research phase this file records closed 2026-08-17; the shell was built
-2026-08-24/25, the CFW installed 2026-08-30 (`HANDOFF.md` §10), first light the same day (§11),
-the refinement wave 2026-08-31 (§12), the phone APK became the primary driver with the PC as
-data provider + standby the same night (§19), and 2026-09-01 brought the first G2CC window
-conversion (Files) with the shared app machinery (§22) and then Torrents + the on-glass keyboard
-(§23), 2026-09-01/02 Music (§24 — `MUSIC.md`) and 2026-09-04 Games · Hold'em (§26 —
-`HOLDEM.md`). App layer: Main · Settings · Reader · Tmux ·
-Files · Torrents · Music · Games. This file
-remains **the fact record** — read it with [`CLAIMS.md`](CLAIMS.md) for grades; the app wave's
-own records are `EXPLOSION.md`, `WINDOWS.md` and `TORRENTS.md`.
-⚠ Facts below marked "our firmware is 2.2.2.20" are historical: **the pair now runs the CFW**
-(g2flash `a5d1c31`, reporting `2.2.6.10`; detect by `EVENCFW/`, never the version).
+wave.** Research closed 2026-08-17; shell built 2026-08-24/25; CFW installed 2026-08-30
+(`HANDOFF.md` §10), first light the same day (§11); refinement wave 2026-08-31 (§12); phone APK
+primary driver with the PC as data provider + standby the same night (§19); Files 2026-09-01
+(§22), Torrents + the on-glass keyboard (§23), Music 2026-09-01/02 (§24, `MUSIC.md`), Games ·
+Hold'em 2026-09-04 (§26, `HOLDEM.md`). App layer: Main · Settings · Reader · Tmux · Files ·
+Torrents · Music · Games. This file is **the fact record** — read it with
+[`CLAIMS.md`](CLAIMS.md) for grades; the app wave's records are `EXPLOSION.md`, `WINDOWS.md`,
+`TORRENTS.md`. ⚠ Facts below marked "our firmware is 2.2.2.20" are historical: **the pair now
+runs the CFW** (g2flash `a5d1c31`, reporting `2.2.6.10`; detect by `EVENCFW/`, never the version).
 
 What closed the phase: both BTSnoop captures recovered and re-decoded against Even's own 27
-protobuf schemas; the CFW image verified reproducible offline byte-for-byte; Faceclaw's window
-manager read for prior art; every load-bearing claim graded in `CLAIMS.md`; and the
-two-month-old image-retention probe finally run on hardware (§1). What is still unmeasured on
-hardware is the short table in `REMINDER.md` ("Still unmeasured on glass"); `CLAIMS.md` grades each.
+protobuf schemas; the CFW image verified reproducible offline; Faceclaw read for prior art;
+every load-bearing claim graded in `CLAIMS.md`; the image-retention probe run on hardware (§1).
+What is still unmeasured on hardware is the table in `REMINDER.md` ("Still unmeasured on glass").
 
 This document is the complete carry-over from the research that produced the decision (2026-08-15).
 
-> 📋 **Read [`CLAIMS.md`](CLAIMS.md) alongside this.** It grades every load-bearing claim here as
-> vendor-authoritative / measured / corroborated / inferred / single-source / unknown. Four claims
-> that sat in this document stated as fact turned out to be wrong within two days, each time
-> because prose disagreed with working code. `CLAIMS.md` says which ground is solid, lists the five
-> things most worth distrusting (the pre-flash unknowns are resolved or marked in place).
+> 📋 **Read [`CLAIMS.md`](CLAIMS.md) alongside this** — it grades every claim here (V/M/C/I/S/U)
+> and lists the things most worth distrusting. Four claims stated here as fact were wrong within
+> two days, each time because prose disagreed with working code.
 
-> 🎨 **The shell is fully specified: [`DESIGN.md`](DESIGN.md)** (locked 2026-08-17/18, grown
-> with the shipped revisions since).
-> Ring-only input grammar · exact 640×480 cell geometry on the mode-3 quantization grid · the
-> corrected depth layer order · motion, persistence and failure policy · the six shell surfaces
-> (top bar, Main + settings, switcher wheel, status bar, notifications, content area) · the locked
-> typeface assignments · and per-frame costs, now **measured from real renders** rather than
-> modeled. It is the successor to G2CC's `docs/DE_DESIGN.md` and **wins on shell design**; this
-> file still wins on facts.
->
-> Two things exist alongside it that a fresh session must know about:
-> - **`tools/lint.py` + `tools/geometry.py`** — the build gate from `DESIGN.md` §9.2b (the
->   SYM/GEO/BUD/FID rule set, 21 rules). `tools/lint.py --selftest` fires 16 of them in 18 cases; `tools/lint.py` gates the
->   repo and currently exits 0. **Run it after any geometry or layout change.**
-> - **`design/render_shots.py`** — renders every shell surface at **true 1× 640×480**, 4bpp
->   quantized, priced through the firmware's own RLE. Output in `design/shots/`. This is how ink
->   budgets and byte costs got measured; regenerate after any design change.
+> 🎨 **The shell is specified in [`DESIGN.md`](DESIGN.md)** (locked 2026-08-17/18, grown with the
+> shipped revisions): input grammar, 640×480 cell geometry on the mode-3 grid, depth order,
+> motion/persistence/failure policy, the shell surfaces, the locked typefaces, per-frame costs
+> **measured from real renders**. Successor to G2CC's `docs/DE_DESIGN.md`; **wins on shell
+> design**; this file wins on facts. Alongside it: **`tools/lint.py` + `tools/geometry.py`** (the
+> `DESIGN.md` §9.2b build gate — SYM/GEO/BUD/FID, 21 rules; `--selftest` fires 16 in 18 cases;
+> the repo run exits 0; run after any geometry or layout change) and **`design/render_shots.py`**
+> (every surface at **true 1× 640×480**, 4bpp, priced through the firmware's RLE, output in
+> `design/shots/`; regenerate after any design change).
 
-**Repo/package identifier:** `damage-wm` (the bare word "Damage" is the project name; the
-qualified form keeps logs and issues greppable).
+**Repo/package identifier:** `damage-wm` ("Damage" is the project name; the qualified form keeps
+logs and issues greppable).
 
 ---
 
 ## 1. What we are building, and why
 
-**Damage** is a from-scratch window manager and compositor for Adam's own Even Realities G2
-smart glasses. It treats the glasses as a **dumb framebuffer**: the PC composes complete
-scenes with real fonts and arbitrary layout, and pushes pixels. This requires **custom
-firmware** (`g2flash`), which replaces the vendor's EvenHub container model with direct
-framebuffer access.
+**Damage** is a from-scratch window manager and compositor for Adam's own Even Realities G2.
+It treats the glasses as a **plain framebuffer**: the PC composes complete scenes with real fonts
+and arbitrary layout and pushes pixels. This requires **custom firmware** (`g2flash`), which
+replaces the vendor's EvenHub container model with direct framebuffer access.
 
-It is the successor to **G2CC** (`/home/user/G2CC`), a *working, shipped* system that Damage does
-not replace on disk or edit. Damage has been the daily driver since 2026-08-31; G2CC stays as the
-historical fallback (its stock-firmware display path no longer applies to this pair, which runs
-the CFW).
+It succeeds **G2CC** (`/home/user/G2CC`), a *working, shipped* system that Damage does not
+replace on disk or edit. Damage has been the daily driver since 2026-08-31; G2CC is the
+historical fallback (its stock-firmware display path no longer applies to this pair).
 
 ### Why this, and why now
 
-G2CC originally *was* a framebuffer design. It pivoted away in commit **`709d18c`**
-(2026-06-10, "tiles nixed for sessions — Adam's hardware verdict"). The commit message is the
-whole reason:
+G2CC originally *was* a framebuffer design. It pivoted away in commit **`709d18c`** (2026-06-10,
+"tiles nixed for sessions — Adam's hardware verdict"):
 
 > 15-20s taps with no feedback: every menu state change is an f1=7 rebuild and the renderer
 > conservatively re-pushes ALL FOUR tiles per rebuild **(retention probe never run)** — a
 > multi-second ack-gated tile storm per interaction.
 
-The pivot to firmware text/menus bought "single ~62-86ms text/list writes" and made the system
-usable — at the cost of every design ambition. Images were avoided everywhere because they cost
-seconds. The custom firmware removes **every named cause of that failure**:
+The pivot to firmware text/menus bought "single ~62-86ms text/list writes" at the cost of every
+design ambition; images were avoided everywhere because they cost seconds. The CFW removes every
+named cause:
 
 | what ended the original design | what the CFW does about it |
 |---|---|
 | `f1=7` rebuild on every menu state change | EvenHub layout system removed entirely — rebuilds do not exist |
 | re-push all four tiles per rebuild | **dirty rects** — send only changed pixels |
-| *(retention probe never run)* | ✅ **PROBE RUN 2026-08-17 — see below.** The re-push was not conservatism, it was required |
+| *(retention probe never run)* | ✅ **PROBE RUN 2026-08-17 — see below.** The re-push was required, not conservatism |
 | 288×144 image-container cap forcing a 2×2 grid | one 640×480 framebuffer (the 576×288 container survives only as the carrier — §4.1) |
 | no wire compression, ~13 KB/tile | zlib+RLE on the wire |
 | ~1000 B multi-packet wall on layout frames | gone — not an EvenHub message |
@@ -97,53 +79,33 @@ seconds. The custom firmware removes **every named cause of that failure**:
 
 ### ✅ The retention probe, finally run (2026-08-17) — and it vindicates the whole decision
 
-Commit `709d18c` ended the original framebuffer design partly on a *suspicion*: the renderer
-re-pushed all four tiles on every rebuild, and the parenthetical **"(retention probe never run)"**
-left open the possibility that this was needless conservatism — that images survived a menu change
-and G2CC was simply throwing away throughput.
+**Adam ran it on hardware, 2026-08-17: on a menu change the image disappears entirely and does
+not come back until it is redrawn.** ⇒ **Images are NOT retained across an EvenHub layout
+change; the four-tile re-push was mandatory.** Corroborated by g2-kit's `containers.md`: *"A
+Cmd=7 UpdateContainer whose inner container has multiple ImageObjects atomically tears down the
+old object list and rebuilds. For images, this invalidates the tile buffers — you have to re-push
+Cmd=3 UpdateImageRawData for every tile id before the frame will render,"* and a REBUILD *"can
+silently blow away sibling containers in the plugin task."* **Graded M.**
 
-**Adam ran it on hardware, 2026-08-17. Result: on a menu change the image disappears entirely and
-does not come back until it is redrawn.**
+Consequences: (1) the pivot away from framebuffer-on-stock was correct; (2) **the CFW is the only
+path, not an optimisation** — under stock EvenHub any layout change discards image content, so
+damage tracking cannot help while firmware containers own the layout; (3) this is a
+*hardware-confirmed* ceiling on G2CC, not a defect awaiting a fix *(and since 2026-08-30 a return
+to it would also mean flashing stock back)*.
 
-⇒ **Images are NOT retained across an EvenHub layout change. The re-push was mandatory, not
-conservative.** The 15–20 s taps were not an implementation failure that better code could have
-fixed — they were the firmware's container model working as designed.
-
-This is independently corroborated by g2-kit's `containers.md`, which documents the same behaviour
-from the other side: *"A Cmd=7 UpdateContainer whose inner container has multiple ImageObjects
-atomically tears down the old object list and rebuilds. For images, this invalidates the tile
-buffers — you have to re-push Cmd=3 UpdateImageRawData for every tile id before the frame will
-render."* It further warns that a REBUILD *"can silently blow away sibling containers in the plugin
-task."* Two independent sources, one of them our own hardware. **Graded M.**
-
-Three consequences worth carrying forward:
-
-1. **The pivot away from framebuffer-on-stock was correct**, and for a better reason than we knew.
-2. **The CFW is not an optimisation, it is the only path.** Under stock EvenHub *any* layout change
-   discards image content, so no amount of clever damage tracking helps while firmware containers
-   own the layout. Under CFW there are no containers to rebuild and the entire failure class is
-   gone — which is precisely why the mode-8 batching thesis is viable there and was not here.
-3. ⚠ **It also prices the fallback honestly.** If Damage stalls and we return to G2CC, this is a
-   *hardware-confirmed* ceiling on that codebase, not a bug waiting to be fixed. *(And since
-   2026-08-30 the pair runs the CFW, so that route would also mean flashing stock back.)*
-
-The restriction that makes `g2flash` **wrong for today's G2CC** — *"you cannot mix this mode
-with EvenHub list or text containers"* — costs the framebuffer design **nothing**, because it
-uses no firmware containers by definition.
+g2flash's restriction — *"you cannot mix this mode with EvenHub list or text containers"* — costs
+the framebuffer design nothing: it uses no firmware containers.
 
 ### What this unlocks that G2CC could never have
 
-- **Custom fonts** — real TrueType/bitmap faces, any size, real kerning, and **anti-aliased
-  text at 16 gray levels** (the stock LVGL font is effectively 1-bit). Biggest single visual win.
-- **Overlays / z-order** — the official app can pop a notification *on top of* content; G2CC
-  could not, which is why notifications were crammed into the title bar. Real modal dialogs.
-- **Arbitrary layout** — divide the canvas however you like; no region ids, no container budget.
-- **Images everywhere** — thumbnails in a file manager, embedded images in mail/MMS, real game
-  frames, a proper ebook reader. Every G2CC app was shaped by avoiding images.
-- **Endless scroll** — see §5.
-- **More input** — long-press and long-press-release become app events (§6).
-- **Piezo buzzer** — audio feedback on a device with no speaker *(available; excluded by Adam —
-  `DESIGN.md` §0, mode 5 is never sent)*.
+- **Custom fonts** — real TrueType/bitmap faces, kerning, **anti-aliased text at 16 gray levels**
+  (the stock LVGL font is effectively 1-bit). Biggest single visual win.
+- **Overlays / z-order** — notifications on top of content, real modal dialogs (G2CC crammed
+  notifications into the title bar).
+- **Arbitrary layout** — no region ids, no container budget.
+- **Images everywhere** — thumbnails, embedded images, game frames, an ebook reader.
+- **Endless scroll** (§5); **more input** — long-press and release as app events (§6).
+- **Piezo buzzer** *(available; excluded by Adam — `DESIGN.md` §0, mode 5 is never sent)*.
 - **Wear/unwear detection, magnetometer compass, per-lens (stereo) output.**
 
 ### Adam's stated build methodology (follow this order)
@@ -153,9 +115,8 @@ uses no firmware containers by definition.
 > passes for consistency and adherence to the research/documentation → a final plan of the
 > actual implementation via real code → **then** slowly and carefully start executing.
 
-Bank the research and documentation **before** the scope explosion, so there is something solid
-to refine back down toward. "Feature creep is my RELIGION" — the explosion phase is deliberate
-and wanted; the refinery phase is what keeps it shippable.
+Bank research and documentation **before** the scope explosion. "Feature creep is my RELIGION" —
+the explosion is deliberate; the refinery keeps it shippable.
 
 ---
 
@@ -189,19 +150,17 @@ reporting `2.2.6.10`) and the ring `2.2.6.0009` — `HANDOFF.md` §10/§10.13.
 
 ### 🔴🔴 THE CANVAS IS 640×480, NOT 576×288 (2026-08-17, from the CFW author)
 
-**Source: James Babcock, by email, answering our question directly.** This is the single largest
-factual correction in this document, and every layout number written before today is scoped to the
-wrong surface.
+**Source: James Babcock, by email, answering our question directly** — the largest factual
+correction in this document; every layout number written before it is scoped to the wrong surface.
 
 > "The full 640x480 area is visible. You can lose part of the top or bottom to optical occlusion
 > depending how the glasses sit on your face, but if they're centered right a full-screen UI can
 > usefully use the whole thing."
 
-We had it backwards. We assumed a 576×288 *panel* sitting inside a 640×480 *shadow*, with the
-difference being off-screen margin. In fact **the panel is 640×480 and stock simply does not use
-all of it.** The CFW source agrees and always did: `FW_DISPLAY_COPY` is described as "the stock
-**576x288 → 640x480** packed copy," `FW_DISPLAY_FB` is "the stock copier's **640x480** destination,"
-and `PANEL_W/PANEL_H` are 640/480 with `copy_panel()` moving all 153,600 bytes. 576×288 is the
+We had assumed a 576×288 *panel* inside a 640×480 *shadow*. In fact **the panel is 640×480 and
+stock does not use all of it.** The CFW source agrees: `FW_DISPLAY_COPY` is "the stock **576x288 →
+640x480** packed copy," `FW_DISPLAY_FB` "the stock copier's **640x480** destination," and
+`PANEL_W/PANEL_H` are 640/480 with `copy_panel()` moving all 153,600 bytes. 576×288 is the
 **EvenHub container** geometry — a carrier, not the display.
 
 | | old assumption | actual |
@@ -210,16 +169,11 @@ and `PANEL_W/PANEL_H` are 640/480 with `copy_panel()` moving all 153,600 bytes. 
 | pixels | 165,888 | **307,200 (1.85×)** |
 | raw 4bpp full frame | 82,944 B | **153,600 B** |
 
-**Consequences, in both directions:**
-
-- ✅ **We have 1.85× the canvas we were designing for.** Re-scope every layout.
-- ❌ **Off-panel scratch does not exist** (old unknown #2 — resolved by having its premise deleted).
-  Pre-render-then-flip-in via a zero-pixel mode-9 copy has nowhere to hide. See §12.
-- ⚠ **Full-screen keyframes cost ~1.85× more area** than the 576×288 scenes the early numbers
-  used. The 640×480 measurement now exists: §5.2 — a dense ~10 KB keyframe lands ~200–270 ms on
-  the CFW curve. **Dirty-rect costs are unaffected**, which is the case that actually matters.
-- 🆕 **Safe-area rule:** usable extent is **fit-dependent** (his occlusion caveat). Keep load-bearing
-  UI inside a centred safe area and treat the outer rows as bonus, never as required.
+**Consequences:** 1.85× the canvas; ❌ **off-panel scratch does not exist** (old unknown #2,
+resolved by deleting its premise — nowhere to pre-render-then-flip via mode 9; §12); full-screen
+keyframes cost ~1.85× more area (measured: a dense ~10 KB keyframe lands ~200–270 ms on the CFW
+curve, §5.2) while **dirty-rect costs are unaffected**; and **usable extent is fit-dependent** —
+keep load-bearing UI centred, outer rows are bonus.
 
 #### Refinement, same day — what the headroom is actually *for*
 
@@ -228,57 +182,45 @@ and `PANEL_W/PANEL_H` are 640/480 with `copy_panel()` moving all 153,600 bytes. 
 > **covering up too much FoV is annoying. Most Faceclaw UI is 640x288 for this reason**, but the
 > Terminal app is full height so that it can fit a verbose Fable end of turn summary."
 
-Two things that change how we should use the canvas:
+1. **The 64 columns of width headroom (640 − 576) are the stereo-shift budget** — what §7's
+   "lenses differ" flag spends. Full-640-wide spends the depth allowance on pixels (not a hard
+   rule — he uses full width himself).
+2. **His default is 640×288**, for a reason Adam holds independently: covering too much field of
+   view is annoying (the same instinct as display distance FAR, §7). Full height is a per-app
+   choice (his Terminal).
 
-1. **The 64 columns of width headroom (640 − 576) are the stereo-shift budget.** That is what §7's
-   "lenses differ" flag spends. Render full-640-wide and you have spent your depth allowance on
-   pixels. Not a hard rule — he uses full width himself — but it is a trade we did not know we
-   were making.
-2. **His own default is 640×288, not 640×480**, and the reason is one Adam holds independently:
-   covering too much field of view is annoying. That is the same instinct behind setting display
-   distance to FAR so the HUD stays ignorable at work and while driving (§7). Full height is a
-   deliberate per-app choice (his Terminal), not the baseline.
-
-⇒ **Working guidance: 640×288 default; 640×480 available when a specific app earns it; leave width
-margin if that app wants depth.**
-*(Built: 288 is Faceclaw's default; Damage ships **480 as the Global default** — Adam's fit loses
-the bottom, so the four sizes 288/352/416/480 are TOP-aligned — with a per-app `preferredHeight`:
+⇒ **Working guidance: 640×288 default; 640×480 when a specific app earns it; leave width margin if
+that app wants depth.** *(Built: Damage ships **480 as the Global default** — Adam's fit loses the
+bottom, so the four sizes 288/352/416/480 are TOP-aligned — with a per-app `preferredHeight`:
 Reader, Tmux and Music prefer 480; Files, Torrents and Music offer global + all four —
 `DESIGN.md` §2.2b/§2.4 rule 4/§4.2, `REFINEMENT.md` §2.)*
 
 ### 🔴 Two corrections to the table above (2026-08-17)
 
-Both were assumptions that had hardened into "hardware facts." Both are load-bearing.
+Both were assumptions that had hardened into "hardware facts."
 
 **1. The ~1000 B multi-packet wall applies to LAYOUT frames, not image data.** The original claim
-(`G2CC/docs/DE_DESIGN.md:175`) is scoped: an **`e0-20` layout/launch frame** (`f1=0` / `f1=7`) past
-~4–5 AA packets (~1000 B) gets no ack and no error; layout frames are ack-gated and hard-reject
-above ~1000 B. Generalising that to "a single message" was wrong. **Image `f1=3` chunks are 4096 B
-across ~18 AA packets and work** — that is the official app's own behaviour in our captures, and
-Faceclaw ships 3800-byte fragments continuously.
-
-⇒ Read literally, the old row would cap a mode-8 batch at 1000 B. The CFW permits ~153 KB.
-**That single over-generalisation would have crippled the batching thesis this project is named
-after.** Keep the ~1000 B limit in mind *only* when building CREATE/REBUILD layout frames.
+(`G2CC/docs/DE_DESIGN.md:175`) is scoped: an **`e0-20` layout/launch frame** (`f1=0` / `f1=7`)
+past ~4–5 AA packets (~1000 B) gets no ack and no error. **Image `f1=3` chunks are 4096 B across
+~18 AA packets and work** — the official app's own behaviour in our captures; Faceclaw ships
+3800-byte fragments continuously. Read literally, the old row would have capped a mode-8 batch
+at 1000 B where the CFW permits ~153 KB. Keep the ~1000 B limit *only* for CREATE/REBUILD frames.
 
 **2. "Right lens is the one you drive" is wrong for CFW image traffic — the reference
-implementation drives LEFT.** In Faceclaw, `ConnectionOptions.sendImagesToLeft = true` is a
+implementation drives LEFT.** In Faceclaw `ConnectionOptions.sendImagesToLeft = true` is a
 hardcoded final; **all five image call sites pass it**, `writeMessage()` resolves
-`writeAddress = isLeftArmMessage ? leftAddress : rightAddress` to exactly one address, and **no
-image message anywhere is constructed with `leftArm = false`.** Control traffic — heartbeat,
-settings, shutdown, audio, IMU — uses builders without that parameter and goes to Right.
+`writeAddress = isLeftArmMessage ? leftAddress : rightAddress` to one address, and **no image
+message is constructed with `leftArm = false`.** Control traffic (heartbeat, settings, shutdown,
+audio, IMU) goes to Right. So the reference split is **bulk pixels → LEFT, control + events →
+RIGHT** — keeping the ack/event link clear of image traffic. It fits `zlib_glue.c`, which moved
+image handling to the deferred path because "the sync-completion path (`image_complete`) runs on
+only the RECEIVING lens, so doing the work there leaves the other lens blank" — the firmware
+propagates cross-lens, so **either** arm may receive.
 
-The reference arm split is therefore **bulk pixels → LEFT, control + events → RIGHT**, which reads
-as a deliberate optimisation: keep the ack/event link clear of image traffic. It fits
-`zlib_glue.c`, which moved image handling into the deferred path precisely because "the
-sync-completion path (`image_complete`) runs on only the RECEIVING lens, so doing the work there
-leaves the other lens blank" — the firmware propagates cross-lens, so **either** arm may receive.
-
-**Grade: the split WORKS (M — Damage has run it daily since 2026-08-30); its optimality is still
-inferred** from reading Babcock's code, not from a capture of our own. It decides whether a frame
-flush is one message or two and which link carries it, so **the two-arm capture is still owed**
-(`REMINDER.md` item 5; start BTSnoop before connecting). What survives unchanged: **subscribe to
-RIGHT for async events**; Left is silent.
+**Grade: the split WORKS (M — daily since 2026-08-30); its optimality is still inferred** from
+Babcock's code, not from a capture of our own. **The two-arm capture is still owed**
+(`REMINDER.md` item 5; start BTSnoop before connecting). Unchanged: **subscribe to RIGHT for async
+events**; Left is silent.
 
 ---
 
@@ -293,13 +235,13 @@ RIGHT for async events**; Left is silent.
 | 2.2.8.x | **localization/stability only — no graphics work.** Current stock as of 2026-08 |
 
 **The ~3.5× platform jump happened in 2.2.6.10 + SDK 0.0.12 (July 2026):** 200×100 image
-updates went from ~2 fps to ~7 fps. Our 2.2.2 predates it entirely.
+updates went from ~2 fps to ~7 fps. Our 2.2.2 predated it.
 
 ### Reversibility (verified)
 
-- **`g2flash` is write-only.** No firmware read-back/dump path is known (the vendor file-export
-  service in §11 is the one unprobed lead). *(Historical consequence: the running 2.2.2 could not be
-  imaged before it was replaced 2026-08-30.)*
+- **`g2flash` is write-only.** No firmware read-back path is known (the vendor file-export
+  service in §11 is the one unprobed lead). *(So the running 2.2.2 could not be imaged before it
+  was replaced 2026-08-30.)*
 - Even's CDN is content-addressed (`https://cdn.evenreal.co/firmware/<md5>.bin`) — not
   version-enumerable.
 - **A public archive exists**: `SybilSight-webflasher` `public/firmware-updates/source-files/`
@@ -308,39 +250,33 @@ updates went from ~2 fps to ~7 fps. Our 2.2.2 predates it entirely.
   2.2.8.9, 2.2.8.10, 2.2.8.11, 2.2.8.11-runtime-fix — plus 11 R1 images including
   `r1/2.2.0.0014` (**our ring's exact version**).
 - ⚠ **2.2.2 is NOT in that archive** (it jumps 2.2.0.24 → 2.2.4.34). **Leaving 2.2.2 was the one
-  genuinely irreversible step — taken 2026-08-30.** Every *other* version is one SHA-pinned
-  download away.
+  irreversible step — taken 2026-08-30.** Every *other* version is one SHA-pinned download away.
 - **CFW itself is easily reversible**: an official-app OTA "will fully remove the custom
   firmware and restore stock behavior"; or flash an unmodified image with g2flash; or Faceclaw's
   "Uninstall firmware".
-- **Flash 2.2.2 → CFW directly.** `g2flash` writes a whole EVENOTA container; no need to update
-  to official latest first. *(Verified 2026-08-30 on our own pair: 2.2.2.20 → CFW, both lenses,
-  all six components, zero resends — `HANDOFF.md` §10.)*
+- **Flash 2.2.2 → CFW directly** — `g2flash` writes a whole EVENOTA container. *(Verified
+  2026-08-30 on our own pair: 2.2.2.20 → CFW, both lenses, six components, zero resends —
+  `HANDOFF.md` §10.)*
 
 ### Unrecoverable-image risk (researched precisely — judged acceptable, decision made)
 
 The bootloader programs the main app to `dst = preamble[0x14]`, `len = preamble[0]&0xFFFFFF`,
 **with no bounds check**. Reaching the OTA flag `0x7FE000` overwrites it and the BLE-bond/KV NV
-band; reaching MRAM end `0x800000` faults mid-erase → **permanent BLE-unrecoverable bootloop,
-SWD-only recovery** (open the glasses, attach a debugger — not restorable over the radio).
-`check_mainapp_fits_mram()` in `g2flash.py` is "the ONLY guard."
+band; reaching MRAM end `0x800000` faults mid-erase → a boot loop **not restorable over the
+radio, SWD-only recovery**. `check_mainapp_fits_mram()` in `g2flash.py` is "the ONLY guard."
 
 **This fires only on an ENLARGED image — and the CFW IS enlarged.** ⚠ *Corrected 2026-08-16; the
-earlier claim that the patch set is length-preserving was wrong, and it was load-bearing for this
-entire risk assessment.* Patch 19 of 25 appends **20,127 bytes** of appended blobs at offset
-4301227, and patches 20–25 exist purely to clean up after it: main-app subheader payload size, TOC
-entry size, **preamble length (low 24 bits)**, preamble CRC32, and component CRC32c ×2. Measured
-from the archived images: stock 2.2.6.10 installed main image **3,523,364 B** → CFW **3,543,491 B**
-(+20,127 — exactly the blob).
+earlier claim that the patch set is length-preserving was wrong and was load-bearing for this
+assessment.* Patch 19 of 25 appends **20,127 bytes** at offset 4301227; patches 20–25 clean up
+after it: main-app subheader payload size, TOC entry size, **preamble length (low 24 bits)**,
+preamble CRC32, component CRC32c ×2. Measured from the archived images: stock 2.2.6.10 main image
+**3,523,364 B** → CFW **3,543,491 B** (+20,127 — exactly the blob).
 
-Safety therefore rests on three other things, not on length-preservation:
-1. the patch set **does** bump the preamble length, so the bootloader programs the right count;
-2. `check_mainapp_fits_mram()` validates it; and
-3. **headroom** — CFW image end `0x007991C3` vs the OTA flag at `0x7FE000` = **~403 KB of slack**.
-
-The SHA-256 pins on the stock download and the patched output still do their job: they prove you
-got exactly the reviewed image. **Danger zone remains: writing our own patches that grow the main
-app without bumping the preamble length.**
+Safety rests on three things, not length-preservation: (1) the patch set **does** bump the
+preamble length; (2) `check_mainapp_fits_mram()` validates it; (3) **headroom** — CFW image end
+`0x007991C3` vs the OTA flag at `0x7FE000` = **~403 KB**. The SHA-256 pins on stock download and
+patched output prove you got the reviewed image. **The remaining hazard: our own patches that grow
+the main app without bumping the preamble length.**
 
 Second hazard: the c0/c1 OTA path has **no block index and no dedup** — re-sending an
 already-written block double-advances the flash offset and leaves it inconsistent. Hence
@@ -348,27 +284,24 @@ already-written block double-advances the flash offset and leaves it inconsisten
 
 ### ✅ The image is reproducible from sources we hold — verified offline (2026-08-17)
 
-`research/verify_cfw.py` rebuilds the CFW from our local stock image and checks every pinned hash.
-It needs no network and no glasses. **All checks pass:**
+`research/verify_cfw.py` rebuilds the CFW from our local stock image and checks every pinned
+hash — no network, no glasses. **All checks pass:**
 
 - local stock 2.2.6.10 **==** the base SHA-256 both patch sets pin
 - g2flash's 25 patches **==** g2flash's own pinned output
 - SybilSight's 28 patches **==** their pinned output **and** the archived `g2-2.2.6.11.bin`,
   byte for byte
 - **no Thumb-bit defect** in either rebuilt blob (14 constant interworking branches, all Thumb —
-  run against *our own rebuild*, not just the archived file)
+  run against *our own rebuild*)
 - delta between the two CFW images: **15 bytes in 6 runs** — three ASCII version digits
-  (`s200_v2.2.6.1`**0**→**1**, settings-reported version, product-test 0x24) plus their CRC fixups
+  (`s200_v2.2.6.1`**0**→**1**, settings-reported version, product-test 0x24) plus CRC fixups
 
-⇒ The thing we would flash is **not a binary we downloaded and trusted**; it is one we can
-regenerate and diff. **Re-run this before any flashing conversation** — it is free.
-
-Mitigations that exist: `--stop-before flash` (full dry run, no writes), `--lens left|right|both`
-(arms flash one at a time), an interactive "my warranty is void" prompt, and the webflasher's
-stricter transfer protocol (explicit ACK per 4 KiB block, END verification per component,
-ambiguous ACK timeout restarts the whole component rather than replaying a block). *(The webflasher
-has since dropped CFW support upstream; our flashes go through `g2flash.py` PC-direct —
-`HANDOFF.md` §10.)*
+**Re-run this before any flashing conversation.** Mitigations: `--stop-before flash` (full dry
+run, no writes), `--lens left|right|both`, an interactive "my warranty is void" prompt, and the
+webflasher's stricter transfer protocol (explicit ACK per 4 KiB block, END verification per
+component, an ambiguous ACK restarts the whole component rather than replaying a block). *(The
+webflasher has since dropped CFW support upstream; our flashes go through `g2flash.py` PC-direct
+— `HANDOFF.md` §10.)*
 
 ---
 
@@ -380,8 +313,8 @@ a small u8 mode. Custom modes **3/6/8/9/13/14/15 operate on the full 640×480 ph
 (packed 4bpp shadow); they go around LVGL, serialize on the stock display semaphore, and
 `display_copy_hook` copies straight into the physical framebuffer before panel refresh.
 
-**⚠ Updated 2026-08-30 for g2flash `a5d1c31`** (was `877c8d9`). Modes 3/6/8/9 are **unchanged** —
-the update is purely additive — but mode 8's accepted sub-mode set grew and modes 11–15 are new.
+**⚠ Updated 2026-08-30 for g2flash `a5d1c31`** (was `877c8d9`): purely additive — modes 3/6/8/9
+**unchanged**, mode 8's accepted sub-mode set grew, modes 11–15 new.
 
 | mode | payload | meaning |
 |---|---|---|
@@ -401,60 +334,55 @@ the update is purely additive — but mode 8's accepted sub-mode set grew and mo
 
 ### 🆕 The texture cache (modes 11–15, g2flash `a5d1c31`, 2026-08-30)
 
-The thing Babcock said he was building has landed. A **64 KiB, lease-scoped, phone-owned** cache,
-allocated and zeroed from firmware heap 13 on the first mode-12 write.
+A **64 KiB, lease-scoped, phone-owned** cache, allocated and zeroed from firmware heap 13 on the
+first mode-12 write.
 
 **A cached image is `[width:u8][height:u8][4bpp RLE]` covering exactly `width*height` pixels —
-with NO pad nibble**, unlike modes 3/6, whose RLE runs over packed rows including the odd-row pad.
-Same token alphabet, different pixel stream. Max 255×255 per image. The scanner walks tokens until
-the pixel count is met, so an image carries no explicit byte length.
+NO pad nibble**, unlike modes 3/6, whose RLE runs over packed rows including the odd-row pad.
+Same token alphabet, different pixel stream. Max 255×255. The scanner walks tokens until the
+pixel count is met, so an image carries no explicit byte length.
 
-**A "font" is just a table of 96 little-endian uint16 offsets** for characters 32…127, each
-pointing at a cached image. Several fonts can share one cache and share glyphs. Mode 14 advances x
-by each glyph's **image width** and applies **no kerning of its own**; string bytes **1…31** are
-inline x adjustments of `b - 11`, i.e. **−10…+20 px**, which is the only fit channel available.
-Byte 0 and bytes > 127 make the firmware reject the **whole string**, and it validates every
-character before drawing any of them.
+**A "font" is a table of 96 little-endian uint16 offsets** for characters 32…127, each pointing
+at a cached image; fonts can share a cache and glyphs. Mode 14 advances x by each glyph's **image
+width**, applies **no kerning**; string bytes **1…31** are inline x adjustments of `b - 11`
+(**−10…+20 px**), the only fit channel. Byte 0 and bytes > 127 make the firmware reject the
+**whole string**; it validates every character before drawing any.
 
 **The options byte** (modes 13/14/15): low nibble = top output colour; `lut[i] = (i * top) / 15`;
 bit 4 (`0x10`) makes source colour 0 transparent, tested on the **original** level before the LUT;
 bit 5 (`0x20`) reverses the ramp (`source = 15 - i`).
 
-**Lifetime:** the cache is freed on lease expiry, on FB_RELEASE, on a *fresh* acquire after a
-lapse, and on mode 11 — but **kept across a renewal**. So an atlas is uploaded once per lease.
-Modes 12/13/14/15 all hard-require an active FB lease.
+**Lifetime:** freed on lease expiry, on FB_RELEASE, on a *fresh* acquire after a lapse, and on
+mode 11 — **kept across a renewal**, so an atlas is uploaded once per lease. Modes 12/13/14/15 all
+require an active FB lease.
 
-**Why this matters to Damage:** it converts text and chrome from per-frame pixel payload into
-per-frame *references*. A line of cached glyphs costs `9 + len` bytes on the wire regardless of how
-much ink it puts on the panel, and it rides inside the same single mode-8 flush as the pixel
-deltas. Since only mode 3 burns a fid, cached draws are also free of the 16-deep duplicate ring
-that caps deltas at ~6 per batch.
+**Why it matters:** text and chrome become per-frame *references* instead of pixels — a line of
+cached glyphs costs `9 + len` bytes regardless of ink, rides in the same mode-8 flush as the
+deltas, and (only mode 3 burns a fid) is free of the 16-deep ring that caps deltas at ~6 per batch.
 
-**❌ Mode 15 is deliberately unused.** Its glyphs come from an LVGL font chain that lives inside
-the firmware, so no offline model can predict the pixels it produces — and the compositor's
-per-lens belief, the thing `LensOracleTest` pins, would stop being exact. Modes 13/14 draw from a
-cache *we* wrote, so the model reproduces them bit for bit. The simulator refuses mode 15 loudly
-rather than guessing. (It would also be the wrong typeface: `DESIGN.md` locks four faces and the
-stock 20 px font is none of them.)
+**❌ Mode 15 is deliberately unused.** Its glyphs come from an LVGL font chain inside the firmware,
+so no offline model can predict its pixels and the compositor's per-lens belief (`LensOracleTest`)
+would stop being exact; modes 13/14 draw from a cache *we* wrote, so the model reproduces them bit
+for bit. The simulator refuses mode 15 loudly. (It is also the wrong typeface: `DESIGN.md` locks
+four faces; the stock 20 px font is none of them.)
 
-**The capability string changed shape too** — `EVENCFW/8 img576 img640 imgz rle wakelease directfb
-fbguard wearnotify compass10` became `EVENCFW/16 img640 imgz rle wakelease directfb fbguard
-wearnotify cleanup11 texcache12 teximg13 texstr14 font15 micctl`. ⚠ `img576` and `compass10` were
-deleted **purely to fit under 127 bytes**; both features still work. Never gate on them.
+**The capability string changed shape** — `EVENCFW/8 img576 img640 imgz rle wakelease directfb
+fbguard wearnotify compass10` (`patches/settings_ext.c:325` at the 2026-08-16 review; `/6` in
+earlier notes) became `EVENCFW/16 img640 imgz rle wakelease directfb fbguard wearnotify cleanup11
+texcache12 teximg13 texstr14 font15 micctl`. ⚠ `img576` and `compass10` were deleted **purely to
+fit under 127 bytes**; both features still work. Never gate on tokens beyond
+`SettingsMsg.REQUIRED_CAPS`.
 
-**Mode-3 addressing is QUANTIZED** — this answers old unknown #6. `left`/`width` are ×4 and
-`top`/`height` are ×2, each a **single byte**, so: left ∈ 0…636 step 4, top ∈ 0…478 step 2, and
-the box is bounds-checked against 640×480. The quantization is deliberate: multiples of 4 make
-`left>>1` and `bw>>1` whole byte offsets, so each box row lands as a plain byte run with no nibble
-shifting. **`fid` is a uint16 frame counter** and a fid still present in the last-16 ring is
-**silently skipped, not rejected** — re-applying a delta out of order would leave the shadow inconsistent.
-Mode 9 uses full uint16 coords with no quantization.
+**Mode-3 addressing is QUANTIZED** (answers old unknown #6): `left`/`width` ×4, `top`/`height`
+×2, each a **single byte** — left ∈ 0…636 step 4, top ∈ 0…478 step 2, bounds-checked against
+640×480. Deliberate: multiples of 4 make `left>>1` and `bw>>1` whole byte offsets, so each box row
+is a plain byte run. **`fid` is a uint16 frame counter**; a fid still in the last-16 ring is
+**silently skipped, not rejected**. Mode 9 uses full uint16 coords, no quantization.
 
-**Mode 8's rect limit — corrected 2026-08-17.** An earlier version of this section said "mode 8 has
-no practical rect limit; `CFW_RECT_MAX = 16` is a debug-overlay constant, *not* a batch limit."
-The first half of that is right and the conclusion is wrong. `count` is a u8 and the size cap is
-`118 + 320*480` ≈ 153 KB, and `CFW_RECT_MAX` really is only the overlay-outline array — **but there
-is a second, real 16-shaped limit via a different mechanism.** Faceclaw:
+**Mode 8's rect limit — corrected 2026-08-17.** An earlier version said "mode 8 has no practical
+rect limit; `CFW_RECT_MAX = 16` is a debug-overlay constant." Half right: `count` is a u8, the
+size cap is `118 + 320*480` ≈ 153 KB, and `CFW_RECT_MAX` is only the overlay-outline array — **but
+a second, real 16-shaped limit exists by another mechanism.** Faceclaw:
 
 ```java
 MULTI_RECT_MAX_RECTS = 6;
@@ -462,84 +390,63 @@ MULTI_RECT_MAX_RECTS = 6;
 // ring holds 16, so keep several batches of history within it.
 ```
 
-**Every mode-3 sub-message inside a mode-8 batch burns its own `fid`**, and `recent_fids[]` is
-`CFW_FID_RING = 16` deep. Overfill it across successive batches and a legitimate new delta can
-collide with a still-remembered fid — which the firmware **silently skips**, not rejects (§4 mode
-table). The reference implementation runs **6 rects per batch** to keep several batches of history
-inside the ring. Treat 6 as the known-good working value and 16 as the hard ceiling on
-*outstanding fid history*, not on rects per message.
+**Every mode-3 sub-message in a batch burns its own `fid`**, and `recent_fids[]` is
+`CFW_FID_RING = 16` deep. Overfill it across successive batches and a new delta can collide with
+a remembered fid, which the firmware **silently skips**. Treat 6 as the known-good value and 16 as
+the ceiling on *outstanding fid history*, not rects per message.
 
 ⚠ **The budget prices mode-3 deltas ONLY.** Verified in `debug.c`: `cfw_diag()` is called from
-exactly two places in `zlib_glue.c` — the mode-6 keyframe (to rebaseline, `has_fid = 0`) and the
-mode-3 delta. Modes 9/13/14/15 never touch the ring. So a batch may carry six deltas *plus* as
-many rect-copies and cached draws as fit under `bmp_max`, and the cached-draw modes are the way to
-add content to a flush once the delta budget is spent.
+exactly two places in `zlib_glue.c` — the mode-6 keyframe (rebaseline, `has_fid = 0`) and the
+mode-3 delta. Modes 9/13/14/15 never touch the ring, so a batch may carry six deltas *plus* as
+many rect-copies and cached draws as fit under `bmp_max`.
 
-Two more Faceclaw thresholds worth inheriting: `MULTI_RECT_MIN_PAYLOAD = 900` (don't bother
-splitting when the single bounding box already compresses below this) and the rule that multi-rect
-falls back to one bounding box whenever the split isn't actually smaller.
+Two more Faceclaw thresholds: `MULTI_RECT_MIN_PAYLOAD = 900` (do not split when the single
+bounding box already compresses below this), and multi-rect falls back to one bounding box
+whenever the split is not smaller.
 
 ### ⚠ The stale-compositing-base hazard — the failure mode that eats mode-3 deltas
 
-Undocumented here until 2026-08-17, and it is the exact way a damage-tracking compositor fails
-silently. Faceclaw's `INCREMENTAL_FRAMES` flag is now set `true`, but its comment still records why
-it was once disabled:
+Faceclaw's `INCREMENTAL_FRAMES` flag is now `true`, but its comment records why it was once off:
 
 > *"the firmware-side display buffer is not always the previous frame (occasionally two frames
 > back, apparently display-driver buffer swapping), so partial updates composite onto stale
 > content per-lens."*
 
-A mode-3 delta assumes the shadow holds frame N−1. If the driver hands back a buffer from N−2, the
-delta composites onto the wrong base and the screen quietly diverges — **per lens**, so the two eyes
-can disagree. `zlib_glue.c` states this is fixed at the source: the worker now runs on a per-frame
-**snapshot** drained in order by `image_deferred` rather than the live reconstruction buffer, "so
-successive deltas compose onto the shadow in the right order." The flag being re-enabled is
-consistent with that fix having worked.
+A delta onto an N−2 base diverges the screen **per lens**. `zlib_glue.c` states this is fixed at
+the source: the worker runs on a per-frame **snapshot** drained in order by `image_deferred`, "so
+successive deltas compose onto the shadow in the right order." The re-enabled flag is consistent
+with that.
 
-⇒ **Do not treat delta correctness as free.** The CFW's diagnostic flags (`f_reorder`, `f_skip`,
-`f_dup`, `f_snap_of`, surfaced by **mode 7 sub 2**) exist precisely to detect this class of
-divergence. *As built (bring-up is over):* the shell treats any set flag as a hard error — a
-`PANIC` status, an urgent notice, a forced keyframe and a mode-7 sub-0 clear (`Shell.kt`,
-`CfwTransportBase`) — but only the byte-exact simulator reports flags to it; on hardware the flags
-live in the on-panel overlay, which Damage never switches on (no mode-7 sub-2 is ever sent).
-Hardware divergence is guarded instead by the per-lens shadow/truth model, `LensOracleTest` and a
-keyframe at every session start (`IMPLEMENTATION.md` → "Review hardening"); the only on-glass
-anomaly on record is the one-shot left-lens seam residue after a handover (`REMINDER.md`
-watch-items). Switching the overlay on for a session is a one-line probe if divergence is ever
-suspected — that is what NO SILENT FAILURES means here.
+⇒ The CFW's diagnostic flags (`f_reorder`, `f_skip`, `f_dup`, `f_snap_of`, surfaced by **mode 7
+sub 2**) detect this class. *As built:* the shell treats any set flag as a hard error — `PANIC`
+status, urgent notice, forced keyframe, mode-7 sub-0 clear (`Shell.kt`, `CfwTransportBase`) — but
+only the byte-exact simulator reports flags to it; on hardware they live in the on-panel overlay,
+which Damage never switches on (no mode-7 sub-2 is sent). Hardware divergence is guarded by the
+per-lens shadow/truth model, `LensOracleTest` and a keyframe at every session start
+(`IMPLEMENTATION.md` → "Review hardening"); the only on-glass anomaly on record is the one-shot
+left-lens seam residue after a handover (`REMINDER.md` watch-items). Switching the overlay on is a
+one-line probe if divergence is ever suspected.
 
-**Keepalive is handled for us** (answers old unknown #4): `image_worker()` calls
-`FW_KEEPALIVE_RESET()` on **every** top-level image message, hitting the same leaf the stock
-sid-0x0c heartbeat handler uses. A steady mode-3/6/8/9 stream keeps the EvenHub context alive on
-its own, with no interleaved heartbeat needed.
+**Keepalive is handled for us** (old unknown #4): `image_worker()` calls `FW_KEEPALIVE_RESET()` on
+**every** top-level image message — the same leaf the stock sid-0x0c heartbeat uses — so a steady
+mode-3/6/8/9 stream needs no interleaved heartbeat.
 
-- **RLE applies to modes 3 and 6 ONLY** — pixels are RLE'd first and the **RLE stream** is what
-  gets deflated (`zlib(rle(px))`, not `zlib(px)`).
+- **RLE applies to modes 3 and 6 ONLY**, and the **RLE stream** is what gets deflated
+  (`zlib(rle(px))`, not `zlib(px)`).
 - **HIGH BIT of the mode byte = "lenses differ."** Mode 3: two boxes (L then R, **same size**)
-  **sharing one zlib payload** — a stereo *shift* without duplicating pixels; each lens draws at
-  its own box. Mode 9: two rect-sets. See §7.
-- Capability string as of the 2026-08-16 review (`patches/settings_ext.c:325` — was `/6` in
-  earlier notes): `EVENCFW/8 img576 img640 imgz rle wakelease directfb fbguard wearnotify
-  compass10`. ⚠ Historical — **the INSTALLED a5d1c31 advertises `EVENCFW/16 … cleanup11
-  texcache12 teximg13 texstr14 font15 micctl`** (and dropped `img576`/`compass10` from the
-  string for space while keeping both features — never gate on tokens beyond
-  `SettingsMsg.REQUIRED_CAPS`).
+  **sharing one zlib payload** — a stereo *shift* without duplicating pixels. Mode 9: two
+  rect-sets. See §7.
 
 ### 🔑 The architectural consequence — mode 8 batching
 
 **The ack floor — 176 ms on stock, ~60 ms measured on the CFW (§5.2) — is per *message*, not per
-*rect*.** Mode 8 batches multiple ops into one
-atomic message. A compositor with proper damage tracking — clock tick + status icon + a content
-line + a notification — flushes **all of it in one round trip**, not four.
-
-That inverts the cost model: it is not N regions × the floor, it is **one ack floor + total
-compressed damage bytes, once per frame** (`ms ≈ 60 + bytes/50`, measured). **A damage-tracking compositor with a single flush per frame is
-the design the firmware is asking for**, and it is what makes a real multi-window WM viable.
-This is the single most important design insight in this document — and the project's name.
+*rect*.** A damage-tracking compositor — clock tick + status icon + content line + notification —
+flushes **all of it in one round trip**: **one ack floor + total compressed damage bytes, once per
+frame** (`ms ≈ 60 + bytes/50`, measured). A single flush per frame is the design the firmware is
+asking for, and the project's name.
 
 ### 🔴 4.1 The direct-framebuffer LEASE is mandatory (discovered 2026-08-16)
 
-**This was missing from every earlier version of this document and it is a hard requirement.**
 `directfb` is not free — `display_copy_hook` only preserves our frame while a **volatile
 90-second lease** is held. Source: `g2flash/patches/settings_ext.c`, confirmed against Faceclaw's
 `FaceclawBleCommunicator.java`.
@@ -560,28 +467,27 @@ field 101, bytes = ['F','C', version=1, op, nonceLo, nonceHi]
   op 5 FB_ACQUIRE        op 6 FB_RELEASE     op 7 WEAR_QUERY
 ```
 
-- **Lease lifetime is 90 s; Faceclaw renews every 45 s** (`FACECLAW_WAKE_LEASE_RENEW_MS = 45_000`).
-- **Must be sent to BOTH arms** — `display_copy_hook` runs per-lens. Faceclaw enqueues right then
-  left and waits for both.
+- **Lifetime 90 s; Faceclaw renews every 45 s** (`FACECLAW_WAKE_LEASE_RENEW_MS = 45_000`).
+- **Sent to BOTH arms** — `display_copy_hook` runs per-lens. Faceclaw enqueues right then left
+  and waits for both.
 - The framebuffer lease (5/6) is **independent** of the wake lease (1/2). Damage needs 5/6.
-- ⚠ **Fail-open is the design**: if we stop renewing, stock repaints resume and our screen is
-  silently overwritten. This is a *correctness* requirement, not an optimization.
+- ⚠ **Fail-open is the design**: stop renewing and stock repaints silently overwrite our screen.
+  A *correctness* requirement.
 
 **Capability detection** is the same channel, **field 100** on the sid-0x09 settings READ
 response: a string starting `EVENCFW/`. Tag 100 is above the stock fields (1..19), so stock
-decoders skip it — meaning **detection needs no timeout-based probing** (it satisfies our
-NO TIMEOUTS rule by construction). Faceclaw requires the tokens `img640`, `fbguard`, `wearnotify`;
-Damage requires the five in `SettingsMsg.REQUIRED_CAPS` (`img640 directfb fbguard imgz rle`), reads
-the contract version from `EVENCFW/<n>`, and treats every other token as optional (a5d1c31 dropped
-two for space — see the texture-cache section).
+decoders skip it — detection needs no timeout-based probing. Faceclaw requires `img640`,
+`fbguard`, `wearnotify`; Damage requires the five in `SettingsMsg.REQUIRED_CAPS` (`img640 directfb
+fbguard imgz rle`), reads the contract version from `EVENCFW/<n>`, and treats every other token
+as optional (a5d1c31 dropped two for space — see the texture-cache section).
 
-**Frame-id discipline:** Faceclaw advances the mode-3 `fid` by 1 per delta and keeps it in
-**`[1, 0xFFFE]`**, avoiding the CFW's `0xFFFF` "empty" ring sentinel. Damage must do the same.
+**Frame-id discipline:** Faceclaw advances the mode-3 `fid` by 1 per delta within **`[1,
+0xFFFE]`**, avoiding the CFW's `0xFFFF` "empty" ring sentinel. Damage does the same.
 
 ### 🔴 The carrier layout still needs a dummy TEXT container
 
-g2flash's README says to "create a layout with a single 576×288 image container." **Taken literally
-that is wrong and would cost days.** `BleProtocol.buildCreateMixedImagePage` actually emits:
+g2flash's README says "create a layout with a single 576×288 image container." Taken literally
+that is wrong. `BleProtocol.buildCreateMixedImagePage` emits:
 
 ```
 ContainerTotalNum = 1 + tiles.length
@@ -590,26 +496,23 @@ field 4 = ImageObject(s)          e.g. "img00", id 10, 0,0, 576x288
 field 5 = widgetId 10000
 ```
 
-A **full-screen invisible text container holding a single space.** So G2CC's hard-won rule —
-*"every page needs a text region; image-only layouts ack but never paint"* (§7) — **survives intact
-under the CFW**, and that dummy widget doubles as the page's one required `isEventCapture` antenna.
+A **full-screen invisible text container holding a single space** — G2CC's rule *"every page
+needs a text region; image-only layouts ack but never paint"* survives under the CFW, and the
+dummy widget is the page's one `isEventCapture` antenna. It is also the widget the lease exists
+for: `settings_ext.c` says the lease is needed "while its EvenHub layout contains
+**swipe-capturing stock widgets**" — its repaints are what the FB lease suppresses. Neither
+requirement can be dropped independently.
 
-This also closes a loop with the framebuffer lease above. `settings_ext.c` says the lease is needed
-"while its EvenHub layout contains **swipe-capturing stock widgets**" — *this dummy text container
-is that widget.* The layout requirement and the lease requirement are **the same fact seen from two
-ends**: you must have a stock text widget present, and its repaints are exactly what the FB lease
-suppresses. Neither can be dropped independently.
-
-The image container is `576×288` **on purpose**, not because that is the surface size — that
-carrier gives the firmware two 165,888-byte allocations, and the CFW reuses buffer A for its
-640×480 packed-4bpp shadow (§4). Faceclaw also sends a periodic `TextContainerUpgrade`
-(`ContentOffset=0, ContentLength=1, Content=" "`) against that container.
+The image container is `576×288` **on purpose**: that carrier gives the firmware two
+165,888-byte allocations, and the CFW reuses buffer A for its 640×480 packed-4bpp shadow (§4).
+Faceclaw also sends a periodic `TextContainerUpgrade` (`ContentOffset=0, ContentLength=1,
+Content=" "`) against that container.
 
 ### canvas480 — the openCFW/SybilSight alternative
 
-A **576×480 packed-4bpp virtual canvas (138,240 B) held on-device**, while stock scanout
-deliberately stays 576×288 (they refused to touch the display config — that would read past the
-proven buffer). The phone **pans** the 288-row viewport through `viewportY = 0…192`.
+A **576×480 packed-4bpp virtual canvas (138,240 B) held on-device**, stock scanout deliberately
+left at 576×288 (touching the display config would read past the proven buffer). The phone
+**pans** the 288-row viewport through `viewportY = 0…192`.
 
 ```
 keyframe  [10][0][viewportY LE16][576 LE16][480 LE16][zlib(rle(packed4bpp))]
@@ -619,62 +522,53 @@ release   [10][2]
 
 Top-down, high nibble first, **288-byte row stride**. The keyframe is decoded into a fresh
 allocation and swapped only after full zlib/RLE validation; a malformed frame preserves the
-previous canvas.
-
-**Trade-off vs mode 8/9:** canvas480 pans are ~5 bytes and buttery, but bounded to 192 rows
-before a full re-seed (~850 ms hitch). Mode 8/9 shift-and-fill is **unbounded** — true endless
-scroll.
+previous canvas. **Trade-off vs mode 8/9:** pans are ~5 bytes but bounded to 192 rows before a
+full re-seed (~850 ms hitch); mode 8/9 shift-and-fill is **unbounded**.
 
 ### ⚠ The mode-10 "collision" is not real, and canvas480 is not an option for us
 
-*Corrected 2026-08-16.* **There is no shipped or offered CFW containing canvas480.** The only CFW
-the SybilSight webflasher installs is **2.2.6.11**, and it is g2flash commit `877c8d9`'s output
-**byte-identical** plus exactly **three version-string patches** (30 bytes of ASCII: package
-identity `s200_v2.2.6.10`→`.11`, the settings-reported version, and the product-test `0x24`
-version). Its `cfw_patches-2.2.6.11.json` pins `g2flash_output_sha256` equal to g2flash main's own
-output hash. Its capability marker ends **`compass10`** — i.e. g2flash's semantics for mode 10.
+*Corrected 2026-08-16.* **No shipped or offered CFW contains canvas480.** The only CFW the
+SybilSight webflasher installs is **2.2.6.11** = g2flash commit `877c8d9`'s output
+**byte-identical** plus **three version-string patches** (30 bytes of ASCII: package identity
+`s200_v2.2.6.10`→`.11`, the settings-reported version, the product-test `0x24` version). Its
+`cfw_patches-2.2.6.11.json` pins `g2flash_output_sha256` equal to g2flash main's own output hash;
+its capability marker ends **`compass10`** — g2flash's semantics for mode 10.
 
-canvas480 exists only in openCFW's **unreleased** `g2/releases/g2-2.2.6.12/`, which forks from the
+canvas480 exists only in openCFW's **unreleased** `g2/releases/g2-2.2.6.12/`, forked from the
 **older** g2flash commit `d5eb48dd` ("the last pinned revision before Faceclaw's wake-lease
-patches") and advertises `EVENCFW/4 img576 imgz rle xordelta stereo canvas480` — note what is
-**missing**: no `img640`, no `directfb`, no `fbguard`, no `wearnotify`. It predates the
-direct-framebuffer work entirely.
+patches"), advertising `EVENCFW/4 img576 imgz rle xordelta stereo canvas480` — no `img640`,
+`directfb`, `fbguard` or `wearnotify`. It predates the direct-framebuffer work.
 
-⇒ **canvas480 is not a superset of the 2.2.6.11 line, it is a fork off an older base.** Choosing it
-would mean giving up the 640×480 shadow and the `display_copy_hook` direct-framebuffer path — which
-*is* Damage's architecture. **Decision: we are on the 2.2.6.11 / g2flash-main line. canvas480 is
-closed as an option**, and the "pick a branch or merge them ourselves" item is retired.
+⇒ **canvas480 is a fork off an older base, not a superset.** Choosing it would give up the
+640×480 shadow and `display_copy_hook` — Damage's architecture. **Decision: the 2.2.6.11 /
+g2flash-main line; canvas480 is closed**, and the "pick a branch or merge them" item is retired.
 
 ---
 
 ## 5. Measured and modeled performance numbers
 
-**Pricing formula used throughout:** `ms ≈ bytes / 11000 × 1000 + 176`
-*(corrected 2026-08-17 — was `/16571`; see §5.1. Numbers below the correction line use 11000.)*
-(our measured throughput + our measured ack latency, both from stock 2.2.2 captures).
+**Pricing formula used throughout:** `ms ≈ bytes / 11000 × 1000 + 176` — our measured stock
+throughput + ack latency, both from stock 2.2.2 captures *(corrected 2026-08-17 — was `/16571`;
+see §5.1)*.
 
 🆕 **Superseded for the CFW direct-framebuffer path (measured 2026-08-31, §5.2):**
-`ms ≈ 60 + bytes / 50` — a ~60 ms floor and ~50–75 KB/s of transfer, both measured from
-1,488 journalled flushes on the real pair, PC-direct. **Every stock-formula table below is
-now conservative by roughly 3–5× on the CFW path.** The old formula still describes the
-stock-app path and stays for that reason.
+`ms ≈ 60 + bytes / 50` — a ~60 ms floor and ~50–75 KB/s of transfer from 1,488 journalled
+flushes on the real pair, PC-direct. **Every stock-formula table below is conservative by roughly
+3–5× on the CFW path.** The old formula stays because it still describes the stock-app path.
 
 ### What G2CC's design costs today (the baseline we're beating)
 
 G2CC tiles are 240×111 (content pane 480×222, 2×2). Packed 4bpp = **13,438 B/tile** = 4 chunks
-at `MAX_IMAGE_CHUNK=4096`, each ack-gated:
-
-- per tile ≈ **1,515 ms** · **4-tile screen ≈ 6.1 s** (0.16 fps)
+at `MAX_IMAGE_CHUNK=4096`, each ack-gated: per tile ≈ **1,515 ms** · **4-tile screen ≈ 6.1 s**
+(0.16 fps).
 
 ### What the CFW does to the same screen
 
-Measured with a representative full-screen 576×288 G2CC-style scene composed with real DejaVu
-TrueType. ✅ *Corrected 2026-08-16: the script was **not** lost — it is checked in at
-`research/fbfeas.py`, alongside `research/lz4bench.py` and `research/rlinks.py`.*
-
-**Re-measured 2026-08-17** after two corrections: `research/fbfeas.py` now implements the
-firmware's **real** RLE token format (it previously modelled a byte-level RLE — see below), and
-throughput is repriced at the measured 11 KB/s rather than the optimistic 16.6 (§5.1).
+A representative full-screen 576×288 G2CC-style scene composed with real DejaVu TrueType, by
+`research/fbfeas.py` (checked in alongside `research/lz4bench.py` and `research/rlinks.py`; an
+earlier note calling it lost was wrong, corrected 2026-08-16). **Re-measured 2026-08-17** with
+the firmware's **real** RLE token format (see below) and throughput repriced at the measured
+11 KB/s (§5.1).
 
 | | bytes (old model) | **bytes (real RLE)** | time |
 |---|---|---|---|
@@ -684,17 +578,15 @@ throughput is repriced at the measured 11 KB/s rather than the optimistic 16.6 (
 | CFW dirty rect — one text line repaint | 2,726 | **2,038** | **361 ms** |
 | stock LZ4 full screen (no CFW), for comparison | 9,253 | 9,253 | 1,017 ms |
 
-203 ms is ~176 ms ack + transfer ⇒ **still at the protocol floor, not bandwidth-bound.** The
-headline result survives both corrections: a cursor move costs ~294 B against a 4-tile screen's
-13,438 B/tile.
+203 ms is ~176 ms ack + transfer ⇒ **at the protocol floor, not bandwidth-bound.** A cursor move
+costs ~294 B against a 4-tile screen's 13,438 B/tile.
 
 ### ✅ Antialiased text is cheaper than we modelled — and the RLE fix is why
 
-The old `fbfeas.py` used a **byte-level** RLE (runs of identical *packed bytes*, always 2 bytes per
-token). The firmware's actual encoder (`zlib_glue.c`) is **nibble-level** with a **1-byte short
-token** `[cnt4|color4]` for runs of 1–15, escaping to 2- and 4-byte forms. Fixed 2026-08-17 and
-**verified by round-tripping 301 cases through a faithful port of the firmware's own decoder**,
-including the 16-bit escape path.
+The old `fbfeas.py` used a **byte-level** RLE (always 2 bytes per token). The firmware's encoder
+(`zlib_glue.c`) is **nibble-level** with a **1-byte short token** `[cnt4|color4]` for runs of
+1–15, escaping to 2- and 4-byte forms. Fixed 2026-08-17, **verified by round-tripping 301 cases
+through a faithful port of the firmware's own decoder**, including the 16-bit escape path.
 
 | | old model | real RLE | gain |
 |---|---|---|---|
@@ -702,15 +594,11 @@ including the 16-bit escape path.
 | cursor rect | 334 B | 294 B | 1.14× |
 | **one text line** | 2,726 B | **2,038 B** | **1.34×** |
 
-**The largest gain is on the text line — which is the antialiased case.** That is the expected
-direction: AA turns glyph edges into short runs, and the firmware spends 1 byte where our model
-spent 2. So Babcock's warning that zlib+RLE "doesn't play nice with antialiased fonts" is real but
-**we had been over-estimating its cost, not under-estimating it.**
-
-⚠ Note these numbers *are* AA-inclusive and always were: `fbfeas.py` renders with PIL TrueType onto
-an `"L"` image (antialiased by default) and maps 0–255 → 0–15, so AA survives as real gray levels
-into the 4bpp pack. We are not about to be surprised by AA cost — but see §11 #2, because texture
-caching is still the thing that makes AA text cheap at *scale*.
+**The largest gain is on the text line — the antialiased case**: AA turns glyph edges into short
+runs, and the firmware spends 1 byte where our model spent 2. Babcock's warning that zlib+RLE
+"doesn't play nice with antialiased fonts" is real, but **we had over-estimated its cost.** These
+numbers *are* AA-inclusive: `fbfeas.py` renders with PIL TrueType onto an `"L"` image and maps
+0–255 → 0–15. Texture caching is still what makes AA text cheap at *scale* (§11 #2).
 
 ## 5.1 🔴 Throughput is ~10× under spec — analysed from the recovered captures (2026-08-17)
 
@@ -720,13 +608,10 @@ Babcock, by email, independently and without our numbers:
 > haven't found yet; the spec sheets say 1Mbit but actual throughput is more like a tenth that.
 > **Debugging that would make a much bigger difference than compression tuning.**)"
 
-1 Mbit = 125 KB/s. A tenth is ~12.5 KB/s. Our measured band and g2-kit's ~8.8 KB/s both sit there —
-**three independent parties hitting the same wall, and the firmware author does not know why.**
-
-⚪ Note this is a **different kind of problem from ack latency** (§11 #1), which is a constant to be
-measured and doesn't change any decision. A 10× throughput shortfall is a suspected **defect** —
-potentially *fixable*, and fixing it improves every number in this document at once. That is what
-makes it worth chasing when latency wasn't.
+1 Mbit = 125 KB/s; a tenth is ~12.5 KB/s. Our measured band and g2-kit's ~8.8 KB/s both sit
+there — three independent parties at the same wall, cause unknown to the firmware author. Unlike
+ack latency (§11 #1, a constant that changes no decision), this is a suspected **defect** —
+potentially fixable, and fixing it improves every number here at once.
 
 ### What the captures show (`captures/imagestatus.log`, handle 65 = R lens)
 
@@ -738,33 +623,28 @@ makes it worth chasing when latency wasn't.
 | **12–17 ms** | 85 | one connection interval apart |
 | **56–61 ms** | 45 | ~4 intervals, radio idle |
 
-Measured end-to-end across multi-fragment bursts: **7–13 KB/s**; best instantaneous 240 B / 13 ms
-≈ 18.5 KB/s. The old 16.6 KB/s figure took only the fast mode and is ~30–50 % rosy.
+End-to-end across multi-fragment bursts: **7–13 KB/s**; best instantaneous 240 B / 13 ms ≈
+18.5 KB/s. The old 16.6 KB/s took only the fast mode (~30–50 % rosy).
 
 ### 🆕 A second measurement, from the flash itself (2026-08-30) — **the radio is not the wall**
 
-Installing the CFW moved **4,339,457 B per lens in 171 s**, twice, with **zero block resends** in
-all twelve component transfers. That is **~25 KB/s effective goodput**, ack round trips and
-FILE_CHECK/END overhead included; the main image alone ran 3,562,570 B across 870 blocks in 134 s
-(**~26 KB/s**). The two lenses agreed to within a second on every component.
+Installing the CFW moved **4,339,457 B per lens in 171 s**, twice, **zero block resends** across
+all twelve component transfers: **~25 KB/s effective goodput** including ack round trips and
+FILE_CHECK/END overhead; the main image alone 3,562,570 B / 870 blocks / 134 s (**~26 KB/s**).
+Both lenses agreed to within a second per component.
 
-⚠ **Do not restate this as "throughput is 25 KB/s."** It is a different path in three ways at once:
-the OTA characteristic (`c0`/`c1`, 4096 B blocks) rather than the EvenHub image path, PC-direct
-over BlueZ rather than phone-to-glasses through the official app, and a host that was doing
-nothing else. It is **not** a like-for-like correction of the 7–13 KB/s figure and does not retire
-it.
-
-What it *does* establish is a lower bound the radio can sustain: **~2× the EvenHub band, on the
-same hardware, in the same room**. So whatever costs us the missing 10×, at least half of the gap
-is **not** a physical-layer or connection-interval ceiling — it is above that, in the message
-path. That narrows the hunt this section describes and is the first new evidence on it since the
-capture analysis. It says nothing about **ack latency** — §5.2 measured that the next day.
+⚠ **Not "throughput is 25 KB/s"** — a different path three ways: the OTA characteristic
+(`c0`/`c1`, 4096 B blocks) not the EvenHub image path; PC-direct BlueZ not the official app on a
+phone; an otherwise idle host. It does not retire the 7–13 KB/s figure. What it establishes is a
+lower bound the radio sustains — **~2× the EvenHub band, same hardware, same room** — so at least
+half the missing 10× is above the physical layer, in the message path. It says nothing about
+ack latency (§5.2).
 
 ### 🆕 5.2 The direct-framebuffer path measured on hardware (2026-08-31)
 
-**Measured on Adam's pair, CFW `a5d1c31`, PC-direct over BlueZ**, from the shell's own journal:
-every successful flush records its wire bytes and its submit→ack time (fragmentation included).
-n = 1,488 across the first-light and first-refinement sessions.
+**Adam's pair, CFW `a5d1c31`, PC-direct over BlueZ**, from the shell's journal: every successful
+flush records wire bytes and submit→ack time (fragmentation included). n = 1,488 across the
+first-light and first-refinement sessions.
 
 | flush size | n | median submit→ack |
 |---|---:|---:|
@@ -774,101 +654,85 @@ n = 1,488 across the first-light and first-refinement sessions.
 | 6 – 15 KB (dense window paints) | 46 | **201 ms** |
 | 24.6 KB (the heaviest stereo paint seen) | 1 | 540 ms |
 
-⇒ **`ms ≈ 60 + bytes/50`** (a ~60 ms floor + ~50–75 KB/s of transfer). Against the stock-path
-model (`176 + bytes/11`) the floor is ~3× lower and the transfer term ~4–7× faster. A dense
-full-screen 640×480 keyframe (~10 KB) lands in ~200–270 ms ⇒ **~4 fps sustained full-frame**;
-the heaviest frame observed (24.6 KB) ⇒ ~2 fps. That answers "how fast is full-screen imagery"
-(REFINEMENT.md §6) at the honest level: 2–4 fps for dense frames, faster for sparse ones, and
-small-damage batches ride the 60 ms floor.
+⇒ **`ms ≈ 60 + bytes/50`** (~60 ms floor + ~50–75 KB/s). Against the stock model
+(`176 + bytes/11`) the floor is ~3× lower, the transfer term ~4–7× faster. A dense 640×480
+keyframe (~10 KB) lands in ~200–270 ms ⇒ **~4 fps full-frame**; the heaviest frame (24.6 KB) ⇒
+~2 fps. That answers `REFINEMENT.md` §6: 2–4 fps for dense frames, small-damage batches ride the
+60 ms floor.
 
 🔴 **CORRECTION (2026-09-05, `HANDOFF.md` §31.6): this table is FOUR HOURS of one session.** The
-same journal now holds 11,210 flushes. Cut by hour, a step change falls between 03:00 and 13:00 on
-08-31: the floor stays put (55–78 ms throughout) while the transfer term collapses about 6× —
-6–12 KB goes from a 196 ms median (n=25 here) to **1,193 ms** (n=277), i.e. ~50 KB/s down to
-~7 KB/s, which is the §5.1 stock-path figure. 10,063 of the 11,210 flushes are after the step, and
-Adam's on-glass report of 1–1.5 s for a ~10 KB scroll agrees with the slow side. **Price work with
-the measured table in `HANDOFF.md` §31.1, not with the `/50` slope below.** What changed is unknown
-— a second BLE central (the APK mission started that morning), distance, a connection-interval
-renegotiation and a write-path change are all untested candidates.
+journal now holds 11,210 flushes; a step change falls between 03:00 and 13:00 on 08-31: the floor
+holds (55–78 ms throughout) while the transfer term collapses ~6× — 6–12 KB goes from a 196 ms
+median (n=25) to **1,193 ms** (n=277), ~50 KB/s down to ~7 KB/s, the §5.1 stock-path figure.
+10,063 of 11,210 flushes are after the step; Adam's on-glass report of 1–1.5 s for a ~10 KB
+scroll agrees. **Price work with the measured table in `HANDOFF.md` §31.1, not the `/50` slope.**
 
-⚠ **Scope:** one host (beardos, BlueZ, otherwise idle), PC-direct — the phone path is
-unmeasured and may differ, and since §19 the PHONE is the primary daily driver, so this curve
-describes the standby path; do not price the daily path with it unmeasured. 🆕 **2026-09-05
-(`HANDOFF.md` §32): the slow regime of §31.6 IS the phone path** — the service log for those
-hours reads `driving via remote:aphone` and the journal's stall notes name `aphone`. Graded C
-(the journal had no transport field; it carries `via` now). So the daily driver is priced by
-§31.1's slow rows, and the ~6× between the two radio paths is the phone's BLE stack, not the
-glasses. **Measured on the phone itself the same afternoon (`HANDOFF.md` §33, grade M):** < 500 B
-72 ms, 3–6 KB 667 ms, 6 KB+ 1,036 ms median, isolated flushes, with HIGH priority GRANTED
-(15 ms / latency 1 / 1M) — the interval is not the wall.
+⚠ **Scope:** one host (beardos, BlueZ, idle), PC-direct — since §19 the standby path. 🆕
+**2026-09-05 (`HANDOFF.md` §32): the slow regime IS the phone path** — the service log for those
+hours reads `driving via remote:aphone`, the journal's stall notes name `aphone` (graded C; the
+journal carries `via` now). **Measured on the phone itself the same afternoon (`HANDOFF.md` §33,
+grade M):** < 500 B **72 ms**, 3–6 KB **667 ms**, 6 KB+ **1,036 ms** median, isolated flushes,
+HIGH priority GRANTED (15 ms / latency 1 / 1M) — the interval is not the wall.
 
-🔑 **Why the phone path is ~8 KB/s (2026-09-05, `HANDOFF.md` §37; grade I, consistent to within
+🔑 **Why the phone path is ~8 KB/s (2026-09-05, `HANDOFF.md` §37; grade I, consistent within
 noise):** Android's GATT allows one outstanding write, so the APK sends **one 242 B AA packet per
-usable connection event**; the granted parameters are 15 ms with **slave latency 1**, so the
-glasses listen every 30 ms; 242 B / 30 ms ≈ 8 KB/s — the measured transfer term. BlueZ on the PC
-queues freely and sends ~6 packets per event, which is the whole gap between the two regimes.
-The levers, in order: slave latency 0 (a firmware-side preference — Babcock's), and bytes (the
-texture cache). §5.1's "the host is not feeding the radio" was right about the phone; the PC path
-never had the problem. This also does
-**not** retire the 7–13 KB/s row above, which is the stock EvenHub path on stock firmware. The ~10× shortfall question (§5.1) is about that path;
-this section says the CFW path on this host clears at least ~50 KB/s of it.
+usable connection event**; at 15 ms / **slave latency 1** the glasses listen every 30 ms;
+242 B / 30 ms ≈ 8 KB/s — the measured transfer term. BlueZ queues freely (~6 packets per event),
+which is the whole ~6× gap between the two radio paths. Levers, in order: slave latency 0 (a
+firmware-side preference — Babcock's), then bytes (the texture cache). §5.1's "the host is not
+feeding the radio" was right about the phone; the PC path never had the problem. None of this
+retires the 7–13 KB/s row (stock EvenHub path on stock firmware).
 
 ### Four hypotheses tested and REFUTED
 
-- ❌ **One write per connection event** — 60 gaps at 0–1 ms prove multiple packets per event happen.
+- ❌ **One write per connection event** — 60 gaps at 0–1 ms prove multiple packets per event.
 - ❌ **Controller buffer-credit exhaustion** — `HCI Read Buffer Size` reports **ACL max 1021 B,
-  12 packets**; peak outstanding on handle 65 was **4**. Never within 8 buffers of the ceiling.
+  12 packets**; peak outstanding on handle 65 was **4**.
 - ❌ **Radio contention between the three links** — across 90 stalls, handles 64 (L lens) and 66
-  (ring) produced **13 events total**. They are silent while the R lens stalls.
-- ❌ **Ack-gating** — real, and it *is* what the 45–75 ms band looks like for small control messages
-  (as §9 documents). But inside runs of 240-byte image fragments the slow gaps contain **nothing**:
-  78 NOCP bookkeeping events, and one gap with literally nothing at all.
+  (ring) produced **13 events total**.
+- ❌ **Ack-gating** — real, and it *is* the 45–75 ms band for small control messages (§9). But
+  inside runs of 240-byte image fragments the slow gaps contain **nothing**: 78 NOCP bookkeeping
+  events, one gap with nothing at all.
 
 ### What it actually is
 
-**Half of the ≥40 ms stalls resumed with ZERO packets outstanding.** Everything acked, buffers
-free, radio idle — and the host still waited ~60 ms before handing over the next fragment.
-
-⇒ **The bottleneck sits above the controller and below the app's ack logic. The radio is ready and
-the host is not feeding it.**
+**Half of the ≥40 ms stalls resumed with ZERO packets outstanding** — everything acked, buffers
+free, radio idle, and the host still waited ~60 ms. ⇒ **The bottleneck sits above the controller
+and below the app's ack logic: the host is not feeding the radio.**
 
 ### 🔑 The lead worth sending upstream
 
 🔴 **CORRECTED 2026-09-05** (`research/linkparams.py`, `captures/README.md`, `HANDOFF.md` §32).
-The paragraph that stood here said the official app never issues an `LE Connection Update` for
-the display link and that handle 65 "runs on whatever it landed on". **The captures say
-otherwise:** both hold handle 65's connection setup (peer = the RIGHT lens, address checked);
-it connects at **30 ms** (`imagestatus.log`, unchanged for the window) or 48.75 → 30 ms
-(`allbutimages.log`), and in the latter the **glasses** ask three times (L2CAP 0x12: 15–30 ms,
-then 90–105 ms/latency 4, then 15–30 ms) and the phone's stack **grants each with an
-`LE_Connection_Update` for 65**. Handles 64 and 66 read as before (30–50 ms and 90–105/4). The
-narrower truth: the *app* never asks on its own for 65; the peripheral drives it between an
-active 30 ms and an idle 90 ms/lat 4. At 30 ms and ~1.6 packets per event, 7–13 KB/s is what
-you get — so the phone-side question is whether `CONNECTION_PRIORITY_HIGH` (11.25–15 ms) is
-granted at all; the APK now logs the answer (§32).
+This paragraph used to say the official app never issues an `LE Connection Update` for the
+display link and handle 65 "runs on whatever it landed on". **The captures say otherwise:** both
+hold handle 65's connection setup (peer = the RIGHT lens, address checked); it connects at
+**30 ms** (`imagestatus.log`, unchanged for the window) or 48.75 → 30 ms (`allbutimages.log`),
+where the **glasses** ask three times (L2CAP 0x12: 15–30 ms, then 90–105 ms/latency 4, then
+15–30 ms) and the phone's stack **grants each with an `LE_Connection_Update` for 65**. Handles 64
+and 66: 30–50 ms and 90–105/4. The narrower truth: the *app* never asks on its own for 65; the
+peripheral drives it between an active 30 ms and an idle 90 ms/lat 4. At 30 ms and ~1.6 packets
+per event, 7–13 KB/s is what you get — so the phone-side question is whether
+`CONNECTION_PRIORITY_HIGH` (11.25–15 ms) is granted; the APK now logs the answer (§32).
 
-And this meets Faceclaw where it is stuck. It *does* call
-`requestConnectionPriority(CONNECTION_PRIORITY_HIGH)` on every connection — so the obvious fix is
-already in — but `FaceclawBleCommunicator.java:1309` says:
+Faceclaw *does* call `requestConnectionPriority(CONNECTION_PRIORITY_HIGH)` on every connection,
+but `FaceclawBleCommunicator.java:1309` says:
 
 > `// requestConnectionPriority has no callback in this Android compile target, so there is`
 > *(…no way to confirm it was granted.)*
 
-**He requests high priority and cannot verify it took effect. A BTSnoop capture answers exactly
-that** — the `LE Connection Update` and its resulting interval are right there in the HCI log.
-That is a verification path he does not currently have, and it is precisely "something wrong with
-the BLE link config."
+**He cannot verify it took effect; a BTSnoop capture answers exactly that** — the
+`LE Connection Update` and resulting interval are in the HCI log.
 
 ### ⚠ Honest limits
 
 - ~~**Handle 65's actual connection interval is NOT in this corpus.**~~ **It is — 30 ms active,
-  90 ms/lat 4 idle, per the correction above (2026-09-05).** The recapture that still matters is
-  one with the APK driving, to see whether the priority request moves it.
+  90 ms/lat 4 idle (correction above, 2026-09-05).** The recapture that still matters is one with
+  the APK driving, to see whether the priority request moves it.
 - HCI alone cannot separate the ~60 ms host stall into Android-stack scheduling, app write
-  cadence, or **BT/Wi-Fi coexistence** on the phone's combo radio — all three produce this
-  signature, and coexistence is invisible at this layer.
+  cadence, or **BT/Wi-Fi coexistence** on the phone's combo radio — coexistence is invisible at
+  this layer.
 - Removing the stalls alone gets ~1.5–2×; the 12–17 ms per-fragment floor is the larger gap to
-  125 KB/s. Both would need to move.
+  125 KB/s.
 
 ### LZ4 ratios on our real content
 
@@ -878,8 +742,8 @@ Measured on 14 real FF1 NES frames from `/home/user/G2CC/games/ff1/bridge/spike_
 - **13 of 14 compressed to a single chunk**; ratios **0.13–0.24×** (one boot screen at 0.39×)
 - flat black 0.01× · flat-shaded UI 0.01–0.16× · photographic screenshot **0.64×** · random
   noise **1.00× (expands)**
-- ⚠ **Floyd-Steinberg dithering roughly halves the benefit** (0.24× → 0.34×). Do not dither;
-  the extra entropy costs more than the visual gain. G2's own guidance agrees.
+- ⚠ **Floyd-Steinberg dithering roughly halves the benefit** (0.24× → 0.34×). Do not dither.
+  G2's own guidance agrees.
 
 ### Scroll cost — and the design rule it forces
 
@@ -891,20 +755,17 @@ Measured on 14 real FF1 NES frames from `/home/user/G2CC/games/ff1/bridge/spike_
 | 20 rows | ~460–860 B | ~210 ms |
 | 40 rows | ~920–1,700 B | ~250 ms |
 
-**It is ack-dominated, not bandwidth-dominated.** A 40-row jump costs barely more than a 1-row
-nudge. ⇒ **Scroll in COARSE steps.** One ring notch = one text line or several, never pixels.
-Fine-grained smooth scrolling buys nothing and costs a round trip per row.
-
-*(Stock-formula times; on the CFW curve each step is ~65–95 ms and the shape is the same. Shipped:
-Reader defaults to 5 lines per notch, configurable, with the acceleration ramp present but off by
-default — `REFINEMENT.md` §3b; lists stay one item per notch.)*
+**Ack-dominated, not bandwidth-dominated** — a 40-row jump costs barely more than a 1-row nudge.
+⇒ **Scroll in COARSE steps**: one ring notch = one text line or several, never pixels. *(Stock
+times; on the CFW curve each step is ~65–95 ms, same shape. Shipped: Reader defaults to 5 lines
+per notch, configurable, acceleration ramp present but off — `REFINEMENT.md` §3b; lists stay one
+item per notch.)*
 
 ### Endless scroll — solved primitive
 
-`mode 8 { mode 9 shift + mode 3 fill }` is the classic terminal scroll: shift existing pixels
-on-device, transmit only the newly exposed strip, atomically. **Content length is irrelevant** —
-you are a viewport over server-side content. Unbounded, no re-seed. Good for a Reddit-style
-feed, a terminal, and an ebook reader.
+`mode 8 { mode 9 shift + mode 3 fill }`: shift existing pixels on-device, transmit only the newly
+exposed strip, atomically. Content length is irrelevant — a viewport over server-side content,
+unbounded, no re-seed.
 
 ### The community's numbers, for calibration
 
@@ -919,18 +780,16 @@ feed, a terminal, and an ebook reader.
 
 ### Two speedups available on STOCK firmware (no CFW)
 
-1. **Sliding-window pipelining.** `g2-kit`'s `ImageStreamer` keeps **4 fragments in flight**
-   instead of ack-gating each; `g2flash`'s `video-bench.ts` exposes `G2_WINDOW` (default 2,
-   1=serial). G2CC's `G2Renderer` is strictly serial — this is free throughput. Their tolerance
-   rule: slide forward through up to ~3 consecutive missed acks; rebuild/reset beyond that.
-   *(Their published throughput table — 1 tile ~20 fps, 8 tiles ~5 fps, "~8.8 KB/s ceiling" — is
-   **internally inconsistent**: 8 × 288×144 at 4bpp and 5 fps is ~830 KB/s, not 8.8. Treat the
-   technique as proven, the numbers as unverified.)*
-   **Third data point (2026-08-17):** Faceclaw ships `WINDOW_SIZE = 3` *on CFW*, noting it
-   "requires firmware that accepts pipelined image messages (the CFW snapshot/deferred FIFO)."
-   So pipelining is proven on exactly our target path, and 3 is the known-good depth.
-   ⚠ Its ack-miss tolerance is `MAX_CONSECUTIVE_ACK_TIMEOUTS = 8`, versus g2-kit's ~3 —
-   unexplained divergence, low stakes, but do not treat either number as authoritative.
+1. **Sliding-window pipelining.** `g2-kit`'s `ImageStreamer` keeps **4 fragments in flight**;
+   `g2flash`'s `video-bench.ts` exposes `G2_WINDOW` (default 2, 1=serial). G2CC's `G2Renderer` is
+   strictly serial. Their tolerance rule: slide through up to ~3 consecutive missed acks, reset
+   beyond. *(Their throughput table — 1 tile ~20 fps, 8 tiles ~5 fps, "~8.8 KB/s ceiling" — is
+   **internally inconsistent**: 8 × 288×144 at 4bpp and 5 fps is ~830 KB/s. Technique proven,
+   numbers unverified.)* **Third data point (2026-08-17):** Faceclaw ships `WINDOW_SIZE = 3` *on
+   CFW*, noting it "requires firmware that accepts pipelined image messages (the CFW
+   snapshot/deferred FIFO)" — proven on our target path; 3 is the known-good depth. ⚠ Its
+   ack-miss tolerance is `MAX_CONSECUTIVE_ACK_TIMEOUTS = 8` versus g2-kit's ~3 — unexplained; do
+   not treat either as authoritative.
 2. **Stock LZ4** (`CompressMode=2`) — see §8.
 
 ---
@@ -940,62 +799,55 @@ feed, a terminal, and an ebook reader.
 Source: `g2flash` `patches/gesture_fwd.c`. Input dispatcher `FUN_004424a2` turns each gesture
 into a UI event code posted via `FUN_0045fc80(ctx, code, data)`.
 
-- **Source byte at `0x2034dc30`: 0/1 = left/right temple touchpad, 4 = R1 ring.** The byte
-  exists inside the firmware — ⚠ but for events 9/10 it never reaches the host: a5d1c31 sends
-  them with `EventSource` ABSENT (proto3 zero-omission; verified at instruction level,
-  `CLAIMS.md`), so **a long-press is unattributed on the wire** and per-source long-press
-  grammar cannot be built. Tap/scroll events do carry a real source byte.
+- **Source byte at `0x2034dc30`: 0/1 = left/right temple touchpad, 4 = R1 ring.** ⚠ For events
+  9/10 it never reaches the host: a5d1c31 sends them with `EventSource` ABSENT (proto3
+  zero-omission; verified at instruction level, `CLAIMS.md`), so **a long-press is unattributed
+  on the wire** and per-source long-press grammar cannot be built. Tap/scroll carry a real source.
 - **long-press = subtype 3.** In EvenHub it calls `FUN_0046a644`, the **"End this feature?"
-  dialog**. g2flash **replaces that call** ⇒ emits SysEvent **9**. ⚠ The `source == ring` gate
-  described here was the PRE-a5d1c31 build: **the installed firmware raises event 9 from either
-  temple as well as the ring** (the §1.2 bare-long-press no-op is what keeps the extra
-  accidental sources harmless).
+  dialog**. g2flash **replaces that call** ⇒ SysEvent **9**. ⚠ The `source == ring` gate was the
+  PRE-a5d1c31 build: **the installed firmware raises event 9 from either temple as well as the
+  ring** (the §1.2 bare-long-press no-op keeps the extra accidental sources harmless).
 - **ring release-long-press = subtype 0xe** → `FUN_0045fc80(ctx, 0x4a, coords)`, which the
   EvenHub UI handler **drops** (no 0x4a case). g2flash intercepts ⇒ SysEvent **10**
-  `RING_LONG_PRESS_RELEASE_EVENT`. Enables true press-and-hold / hold-to-confirm. **DONE/proven.**
+  `RING_LONG_PRESS_RELEASE_EVENT`. True press-and-hold / hold-to-confirm. **Proven.**
 - Scoped to **EvenHub foreground** (`app == 0xe0`); outside it, stock behavior is byte-for-byte
   unchanged.
-- **double / both-temple long-press → stock Silent Mode: NOT patched by anyone.** A system-level
-  gesture outside the EvenHub branch. Ours to write if we want it. Adam says it never fires
-  accidentally — **recommend leaving it as a hardware escape hatch** in case our own software wedges.
-- ⚠ **Removing the dialog removes the only stock way to quit an app.** Damage must provide its own
-  quit path (Faceclaw does exactly this, plus a 10 s keepalive). Since a5d1c31 the dialog is
-  suppressed only while the FB lease is held — lose the lease and it returns, a safety net.
+- **Both-temple long-press → stock Silent Mode: NOT patched by anyone.** A system-level gesture
+  outside the EvenHub branch. Adam says it never fires accidentally — **kept as the hardware
+  escape hatch**.
+- ⚠ **Removing the dialog removes the only stock way to quit an app** (Faceclaw provides its own
+  quit path plus a 10 s keepalive; Damage's design has no quit path — `DESIGN.md` §1.6). Since
+  a5d1c31 the dialog is suppressed only while the FB lease is held — lose the lease and it
+  returns, a safety net.
 
 ### 🔑 6.1 Per-notch scroll — G2CC's boundary-only limitation does not carry over
 
-**G2CC could only see scroll at the ends.** `WINDOW_API.md` is explicit: `onContentScroll?(dir)` is
-a *"scroll-notch **boundary** event"*, fires only in `fullBleed` + `scrollContent` text mode, and
-**"never fires outside fullBleed."** Everywhere else the firmware list widget owned selection and
-you got `List_ItemEvent{CurrentSelectItemIndex}` on *selection*, never per notch.
+**G2CC could only see scroll at the ends.** `WINDOW_API.md`: `onContentScroll?(dir)` is a
+*"scroll-notch **boundary** event"*, fires only in `fullBleed` + `scrollContent` text mode, and
+**"never fires outside fullBleed."** Elsewhere the firmware list widget owned selection and you
+got `List_ItemEvent{CurrentSelectItemIndex}` on *selection*, never per notch.
 
-**The cause was the widget, not the gesture.** A firmware text container with pre-paginated content
-taller than its viewport *is a scrolling widget*: it scrolls internally and only notifies the host
-when it cannot scroll further. G2CC was reading the ends of a scroll the firmware was performing.
+**The cause was the widget, not the gesture.** A firmware text container with content taller
+than its viewport scrolls internally and notifies the host only at the ends. Under the CFW carrier
+layout the event-capture container holds a **single space** (§4.1), which can never scroll
+internally ⇒ **every notch is immediately at the boundary and is delivered.**
 
-**Under the CFW carrier layout that inverts.** The event-capture container is a full-screen text
-container whose content is a **single space** (§4.1). One space in a 576×288 region can never
-scroll internally ⇒ **every scroll gesture is immediately at the boundary, so every notch is
-delivered.** The limitation is not lifted; it becomes universal and therefore useless as a limit.
+⚠ **The CFW does not patch scroll at all.** `gesture_fwd.c` touches only long-press (subtype 3)
+and ring release-long-press (subtype 0xe); scroll handling is byte-for-byte stock. The win is a
+consequence of the framebuffer layout, not the firmware — arguably available to G2CC's original
+framebuffer design too.
 
-⚠ **Be precise about where the win comes from: the CFW does not patch scroll at all.**
-`gesture_fwd.c` touches exactly two things — long-press (subtype 3) and ring release-long-press
-(subtype 0xe). Scroll handling is byte-for-byte stock. What changed is that we stopped using a
-scrollable firmware widget. **This was a consequence of the framebuffer layout, not of the
-firmware** — which means it was arguably available to the original G2CC framebuffer design too.
-
-**Evidence — now M: per-notch delivery is observed in daily use since 2026-08-30 (`CLAIMS.md`). The
-original corroboration, before our own wire confirmed it:** Faceclaw's `DashboardInputEvent`
-carries `{type:"scroll-up"}` / `{type:"scroll-down"}`, and its apps consume them as per-notch
-deltas — `file-browser.ts:274` and `launcher-app.ts:206` both do
-`const delta = event.type === "scroll-down" ? 1 : -1` against a list index. The clincher is
-**pinball**: *"click flips both flippers, scroll-up/down flips left/right individually."* That is
-unplayable on boundary-only events.
+**Evidence — now M: per-notch delivery observed in daily use since 2026-08-30 (`CLAIMS.md`).**
+Original corroboration: Faceclaw's `DashboardInputEvent` carries `{type:"scroll-up"}` /
+`{type:"scroll-down"}` and its apps consume them per notch — `file-browser.ts:274` and
+`launcher-app.ts:206` both do `const delta = event.type === "scroll-down" ? 1 : -1`; **pinball**
+(*"click flips both flippers, scroll-up/down flips left/right individually"*) is unplayable on
+boundary-only events.
 
 ### 🆕 A second, independent input path: the ring's own BLE link
 
-Faceclaw also connects to the R1 ring over **its own link** and decodes gestures host-side,
-going around the glasses' UI layer entirely (`FaceclawRingEventDecoder.java`). Two frame shapes:
+Faceclaw also connects to the R1 ring over **its own link** and decodes gestures host-side
+(`FaceclawRingEventDecoder.java`). Two frame shapes:
 
 ```
 11-byte "charger" gesture:  00 09 61 00 <code> <param:16LE> <tick:32LE>
@@ -1007,18 +859,17 @@ going around the glasses' UI layer entirely (`FaceclawRingEventDecoder.java`). T
     05 param<=1 SWIPE_FORWARD, else SWIPE_BACKWARD
 ```
 
-Raw swipes with **no container involved and nothing to reach a boundary of** — plus a 32-bit tick,
-so velocity/acceleration is available if we ever want it.
+Raw swipes with no container and nothing to reach a boundary of — plus a 32-bit tick, so
+velocity is available.
 
-❌ **This corrects our own doc.** `G2CC/docs/G2_BLE_PROTOCOL.md` §11 states of the ring link:
+❌ **This corrects our own doc.** `G2CC/docs/G2_BLE_PROTOCOL.md` §11 says of the ring link:
 *"Navigation input does NOT come over this link (it goes ring→glasses→`e0-01`). This link is
-battery/firmware/sensors only."* **Faceclaw demonstrably decodes gestures from it.** That claim is
+battery/firmware/sensors only."* Faceclaw demonstrably decodes gestures from it; the claim is
 wrong or incomplete. (G2CC is read-only — the correction lives here and in `CLAIMS.md`.)
 
 **Still open (`REMINDER.md` item 2):** whether the ring coalesces very fast spins, and its
 event-rate ceiling. Damage holds no ring link of its own (the 2026-08-31 ring-battery probe was
-reverted — `HANDOFF.md` §19.3), so its cost against throughput is moot for now (§5.1 shows the
-ring nearly silent during transfers anyway).
+reverted — `HANDOFF.md` §19.3); §5.1 shows the ring nearly silent during transfers anyway.
 
 ### 🔴 The single most concrete win — Adam's #1 daily annoyance, already fixed
 
@@ -1026,15 +877,14 @@ At work Adam wears gloves. The failure chain on stock G2CC (historical since 202
 
 1. double-tap → G2CC mini-silent-mode (tiny clock, ignores all input but another double-tap)
 2. gloves force a **ring long_press** → **"End Feature?" menu** overrides mini-silent-mode
-3. then either a glove **tap** → selects End Feature → **ends G2CC** until the phone notices
-   and refreshes, or another glove **long_press** → **Firmware Menu**, whose first item is
-   **Silent Mode**, which then gets selected → **firmware Silent Mode, no clock, no notifications**
+3. then either a glove **tap** → End Feature → **ends G2CC** until the phone refreshes, or
+   another glove **long_press** → **Firmware Menu**, first item **Silent Mode**, selected →
+   **firmware Silent Mode, no clock, no notifications**
 
 **The CFW patch removes the call that opens that dialog.** Ring long-press becomes SysEvent 9,
-delivered to our app, which in silent mode simply ignores it. **The chain stops at step 2 and
-every downstream step becomes unreachable.** This is not modeled or estimated — it is a specific
-shipped patch. *(The pre-a5d1c31 build gated it on `source == ring`; the installed a5d1c31 raises
-event 9 from either temple too, and the shell's bare-long-press no-op keeps every source harmless —
+which our app ignores in silent mode; the chain stops at step 2. A specific shipped patch, not a
+model. *(The pre-a5d1c31 build gated it on `source == ring`; the installed a5d1c31 raises event 9
+from either temple too, and the shell's bare-long-press no-op keeps every source harmless —
 confirmed in daily use since 2026-08-31, `DESIGN.md` §0/§1.2.)*
 
 ---
@@ -1042,48 +892,40 @@ confirmed in daily use since 2026-08-31, `DESIGN.md` §0/§1.2.)*
 ## 7. Stereo / depth — what it actually is
 
 The "lenses differ" flag carries **the same pixels, one payload, at a different position per
-lens**. It is **binocular disparity control**, *not* independent per-eye content.
+lens** — **binocular disparity control**, *not* independent per-eye content.
 
-- **Per-object depth: yes** — each mode-3 op has its own L/R box pair; batch several in a mode 8
-  for multiple elements at different apparent depths.
-- **Per-pixel depth: no** — no depth buffer. Granularity is the rect; each element is a flat card.
-- **True stereoscopic 3D: not via this flag** (one shared payload can't be two different views).
-  Technically possible via `G2_IMAGE_ARM` (writes image data to a chosen arm; arms are separate
-  BLE links) at ~2× payload and 2× writes — but the ack returns on R either way, so the pipelines
-  aren't independent.
-- **Why it won't look volumetric:** fixed accommodation (the optics present one focal distance,
-  so disparity gives vergence cues with no focus cue — small offsets read as depth, large ones as
-  strain), no motion parallax, monochrome, 16 levels.
+- **Per-object depth: yes** — each mode-3 op has its own L/R box pair; batch several in a mode 8.
+- **Per-pixel depth: no** — granularity is the rect; each element is a flat card.
+- **True stereoscopic 3D: not via this flag.** Technically possible via `G2_IMAGE_ARM` (image
+  data to a chosen arm; arms are separate BLE links) at ~2× payload and 2× writes — but the ack
+  returns on R either way, so the pipelines are not independent.
+- **Why it won't look volumetric:** fixed accommodation (one focal distance — vergence cue, no
+  focus cue; small offsets read as depth, large ones as strain), no motion parallax, monochrome.
 
-**Best uses:** IPD/convergence calibration (a genuine comfort win — misaligned images are what
-cause eye strain), and subtle depth separation for overlays/modals.
-
-**Rules:** never different content per eye (binocular rivalry — genuinely unpleasant);
+**Best uses:** IPD/convergence calibration (misaligned images cause eye strain) and subtle depth
+separation for overlays/modals. **Rules:** never different content per eye (binocular rivalry);
 **horizontal offsets only, never vertical**; consistent disparity per object; small magnitudes.
 
-⚠ **Stock already owns a global depth setting** ("near/mid/far" in the official app; 2.2.8 notes
-mention *"Fixed display distance settings not applying correctly on G2"*, and openCFW's canvas480
-says its calls *"deliberately do not reuse the stock 0…12 optical screen-height setting"*).
-**Adam deliberately sets it to FAR** so the display is easy to ignore at work and while driving.
+⚠ **Stock already owns a global depth setting** ("near/mid/far"; 2.2.8 notes mention *"Fixed
+display distance settings not applying correctly on G2"*; openCFW's canvas480 *"deliberately
+do[es] not reuse the stock 0…12 optical screen-height setting"*). **Adam sets it to FAR** so the
+display is easy to ignore at work and while driving.
 
-🔴 **Corrected 2026-08-17 by Adam directly.** An earlier version of this section inferred from the
-FAR setting that we should "push background elements farther, never foreground nearer." **That was
-our inference, not his preference, and it is backwards.** His actual stated preference:
+🔴 **Corrected 2026-08-17 by Adam directly.** An earlier version inferred from the FAR setting
+that we should "push background elements farther, never foreground nearer." **That was our
+inference, not his preference, and it is backwards.** His stated preference:
 
 > "the main window as far back as depth comfortably allows, and notifications and the like to pop
 > over it in front of it."
 
-⇒ **The layer order is: main content parked at the far end of the comfortable range; popups,
-notifications and modals come FORWARD toward the screen plane.** The FAR display-distance setting
-remains his baseline for ignorability; the *relative* separation between content and popup is what
-does the perceptual work, so a modest content push plus popups at plane 0 delivers the effect
-without approaching the divergence limit. See `DESIGN.md` §3 for the ladder and the calibration
-plan.
+⇒ **Main content parked at the far end of the comfortable range; popups, notifications and
+modals come FORWARD toward the screen plane.** FAR stays his baseline for ignorability; the
+*relative* separation does the perceptual work. Ladder and calibration plan: `DESIGN.md` §3.
 
-Built and in daily use: the ladder in `DESIGN.md` §3, chrome on the back plane (`REFINEMENT.md` §1),
-per-app content depth (`HANDOFF.md` §17); Adam on glass: *"Depth reads well."* Still uncalibrated:
-the comfortable-disparity ramp (`REMINDER.md` item 3). **It was never a reason to choose this
-architecture.**
+Built and in daily use: the `DESIGN.md` §3 ladder, chrome on the back plane (`REFINEMENT.md` §1),
+per-app content depth (`HANDOFF.md` §17); Adam on glass: *"Depth reads well."* Still
+uncalibrated: the comfortable-disparity ramp (`REMINDER.md` item 3). Depth was never a reason to
+choose this architecture.
 
 ---
 
@@ -1093,8 +935,8 @@ architecture.**
 
 Earlier versions of this document stated **"1 = RLE, 2 = LZ4"** as settled fact. It is not.
 `ImageRawDataUpdate.CompressMode = 5` is a **bare `uint32`** in Even's own FileDescriptorProto —
-**there is no `ImageCompressFormat` enum anywhere in the 27 vendor schemas** (grepped, 2026-08-17).
-The schema pins the *field*; it says nothing about the *values*.
+**no `ImageCompressFormat` enum exists in any of the 27 vendor schemas** (grepped, 2026-08-17).
+The schema pins the *field*, not the *values*.
 
 | value | evidence | grade |
 |---|---|---|
@@ -1103,14 +945,14 @@ The schema pins the *field*; it says nothing about the *values*.
 | **1** = "RLE" | **two prose comments by one author** — `patch_compress.py:31` and `demos/video-bench.ts:23`. No firmware address, no decompiled dispatch, no capture. Both cite `notes/fw-2.2.6.10-lz4-images.md`, **which is not in the repo**. And **nothing anywhere ever sends 1** — not g2flash, faceclaw, g2-kit, or Even's SDK | ❌ **single-source, uncorroborated, never exercised — TREAT AS UNKNOWN** |
 
 **G2CC's June 2026 probe is not evidence either way.** It guessed `f5 ∈ {1,2,3}` and always sent
-**RLE4** bytes — but it ran on **2.2.2**, which predates the feature entirely and has no decoder.
-Inconclusive by construction; do not read it as confirming *or* refuting the mapping.
+**RLE4** bytes — on **2.2.2**, which predates the feature and has no decoder. Inconclusive by
+construction.
 
-**On our 2.2.2 the field most likely has no stock meaning at all.** g2flash's *older* CFW repurposed
-it outright: `patches/decompress.c`'s `frag_write` treated **any nonzero CompressMode as "the
-payload is 1bpp, expand it 1→4."** That only works if stock ignored the field. `patches_main.c`
-says the expander "was dropped in the 2.2.6.10 rebase — stock now uses CompressMode itself" — which
-establishes *that* the field became meaningful in 2.2.6.10, not *which value maps to what*.
+**On 2.2.2 the field most likely had no stock meaning.** g2flash's *older* CFW repurposed it:
+`patches/decompress.c`'s `frag_write` treated **any nonzero CompressMode as "the payload is 1bpp,
+expand it 1→4"** — only possible if stock ignored the field. `patches_main.c` says the expander
+"was dropped in the 2.2.6.10 rebase — stock now uses CompressMode itself" — establishing *that*
+the field became meaningful in 2.2.6.10, not *which value maps to what*.
 
 ### ✅ Answered by the author, 2026-08-17 — and the practical answer is "always send 0"
 
@@ -1121,30 +963,25 @@ Babcock, by email:
 > the stock Android app, but **signals its own compression method with CompressMode=0 and some
 > header bytes in the data field**."
 
-Everything in the grading table above survives. "Unused in older firmwares" confirms the inference
-that the field has **no stock meaning on our 2.2.2** — which is exactly why g2flash's old
-`frag_write` could repurpose any nonzero value for its 1bpp expander. "Even's first-party compression
-mode" in newer firmwares confirms it became meaningful at 2.2.6.10.
+The grading table survives intact: "unused in older firmwares" confirms no stock meaning on 2.2.2
+(why the old `frag_write` could repurpose it); "Even's first-party compression mode" confirms it
+became meaningful at 2.2.6.10. ⚠ **He did not confirm `1 = RLE`** — that row stays ungraded, and
+is now **moot in practice**.
 
-⚠ **He did not confirm `1 = RLE`.** He described the field's role without giving values, so that
-row stays ungraded — and it is now **moot in practice**.
-
-🔑 **The operative rule: the CFW path always sends `CompressMode = 0`.** Our "header bytes in the
-data field" are the mode byte itself (3/6/8/9 — §4). This matches Faceclaw's
-`BleProtocol.java:175` verbatim: *"CompressMode stays 0: the CFW's zlib path is detected from the
-buffer's..."* ⇒ Damage never sets a nonzero CompressMode, and the `1`-vs-`2` question never has to
-be answered.
+🔑 **The operative rule: the CFW path always sends `CompressMode = 0`.** The "header bytes in the
+data field" are the mode byte itself (3/6/8/9 — §4); Faceclaw's `BleProtocol.java:175`:
+*"CompressMode stays 0: the CFW's zlib path is detected from the buffer's..."* ⇒ Damage never sets
+a nonzero CompressMode, and the `1`-vs-`2` question never has to be answered.
 - `CompressMode=2` feeds the payload to `LZ4_decompress_safe(src, dst, srcLen, dstCapacity)` at
   **`0x0054f338`**.
 - ⚠ It expects a raw **LZ4 BLOCK, not an LZ4 frame.** Most npm/py LZ4 libraries emit frames
   (magic `0x184D2204`), which the decoder **rejects**. `g2flash` `demos/lz4.ts` is a
-  dependency-free block compressor written for exactly this. Decoder rules: last 5 bytes always
-  literals (LASTLITERALS), no match may start in the last 12 bytes (MFLIMIT).
+  dependency-free block compressor for exactly this. Decoder rules: last 5 bytes always literals
+  (LASTLITERALS), no match may start in the last 12 bytes (MFLIMIT).
 - Firmware decompresses into `malloc(W*H)` sized from the container ⇒ **payload must inflate to
   ≤ W×H bytes.**
 - **An unknown CompressMode is silently "treated as raw"** — garbage on the lens, not an error.
-  *This exactly explains G2CC's June "garbled underline" result on 2.2.2: wrong codec, and
-  firmware with no decoder at all.*
+  *This explains G2CC's June "garbled underline" on 2.2.2: wrong codec, firmware with no decoder.*
 - Failure logs `evenhub_ui: decompress failed, mode=%u raw_len=%u`.
 
 ---
@@ -1157,8 +994,8 @@ be answered.
 |---|---|
 | **[jimrandomh/g2flash](https://github.com/jimrandomh/g2flash)** | **THE custom firmware.** GPL-3.0. Author **James Babcock**. Patches stock 2.2.6.10. `patches/zlib_glue.c` = the mode table; `patches/gesture_fwd.c` = input; `patches/patch_compress.py` = the patcher; `demos/lz4.ts` = LZ4 block encoder; `demos/video-bench.ts` = the benchmark; `demos/detect-cfw.ts` = capability probe; `g2flash.py` = the flasher |
 | **[jimrandomh/faceclaw](https://github.com/jimrandomh/faceclaw)** | the reference UI on that CFW. **Ships `app/fonts/terminus/*.bdf`** and renders its own framebuffer UI — proof the architecture works |
-| **[Commute773/g2-kit-unofficial](https://github.com/Commute773/g2-kit-unofficial)** | ★31. **An independent from-scratch RE of the BLE stack — the same category of work as ours.** `ble/gen/*_pb.ts` = **generated protobuf schemas** for ~20 message families, each embedding the **vendor's own `FileDescriptorProto`** — the single most valuable artifact in the ecosystem (§9.1). ⚠ **`ble/docs/`'s 11 prose docs are materially unreliable — read the `.ts`, not the `.md`** (§9.1). *(jimrandomh's copy is a byte-identical fork existing only to pin a dependency SHA.)* |
-| **[kalanihelekunihi/evenRealities-openCFW](https://github.com/kalanihelekunihi/evenRealities-openCFW)** | Author **Kalani Helekunihi** (company: AM Guru). Three things: (a) a byte-exact **reconstruction** of stock 2.2.6.10 — ~5% source-owned, an analysis project, nothing to adopt; (b) an **unreleased** `g2-2.2.6.12` build = older g2flash `d5eb48dd` + **canvas480** (see §4 — not the CFW anyone installs); (c) **the independent review of g2flash**, which is the genuinely valuable part: `tools/thumb_branch_audit.py`, the evenai_thumb HardFault writeup, and a regression test |
+| **[Commute773/g2-kit-unofficial](https://github.com/Commute773/g2-kit-unofficial)** | ★31. **An independent from-scratch RE of the BLE stack.** `ble/gen/*_pb.ts` = **generated protobuf schemas** for ~20 message families, each embedding the **vendor's own `FileDescriptorProto`** — the most valuable artifact in the ecosystem (§9.1). ⚠ **`ble/docs/`'s 11 prose docs are materially unreliable — read the `.ts`, not the `.md`.** *(jimrandomh's copy is a byte-identical fork pinning a dependency SHA.)* |
+| **[kalanihelekunihi/evenRealities-openCFW](https://github.com/kalanihelekunihi/evenRealities-openCFW)** | Author **Kalani Helekunihi** (AM Guru). (a) a byte-exact **reconstruction** of stock 2.2.6.10 — ~5% source-owned, an analysis project; (b) an **unreleased** `g2-2.2.6.12` build = older g2flash `d5eb48dd` + **canvas480** (§4 — not the CFW anyone installs); (c) **the independent review of g2flash** — the valuable part: `tools/thumb_branch_audit.py`, the evenai_thumb HardFault writeup, a regression test |
 | **[AM-Guru/SybilSight-webflasher](https://github.com/AM-Guru/SybilSight-webflasher)** | MIT. Deployed at **webflasher.sybilsight.com**. Browser flasher over Web Bluetooth **and the charging case's CH340 USB serial** (`1A86:7523`). Backup set (512 KiB case flash + option block + temple identity snapshots + matching official glasses bundle). **Hosts the 19-image firmware archive.** Case-USB pogo bridge pushes to a *responsive* temple — **not an unresponsive-device rescue** |
 | **[i-soxi/even-g2-protocol](https://github.com/i-soxi/even-g2-protocol)** | the original community BLE RE reference (G2CC's original upstream) |
 | **[nickustinov/even-g2-notes](https://github.com/nickustinov/even-g2-notes)** | **`docs/performance.md`** (the fps/cost model) and **`docs/display.md`** (container rules, glyph inventory, fullwidth-CJK monospace trick) |
@@ -1172,23 +1009,20 @@ be answered.
 ### Gotchas from g2-kit worth borrowing (`ble/docs/gotchas.md`)
 
 - **The first Cmd=3 burst after CREATE is silently dropped** — fragments ack, render fires, lens
-  stays blank. Push a sacrificial warmup frame; treat frame 2 as the first real one.
+  stays blank. Push a sacrificial warmup frame.
 - Fragment `seq` is a **group key, not a counter** — incrementing per fragment makes the firmware
   drop everything.
-- `magic` is **effectively uint8** (firmware compares only the low byte) — the same wall as our
-  msgId-255 finding, hit from the other side.
+- `magic` is **effectively uint8** (firmware compares only the low byte) — our msgId-255 wall.
 - **`sid=0x80` (dev_config) disabled a pair** — non-terminally; needed power-cycle + re-pair.
   **Stay on `sid=0x09`.**
-- Multi-fragment messages must not interleave on the characteristic — one reassembly buffer keyed
-  by transport `seq`. Serialize writes.
+- Multi-fragment messages must not interleave — one reassembly buffer keyed by transport `seq`.
 - Audio is on service `6450`, not `7450`.
 - **Stuck-session trap:** after an aborted image stream, re-creating the container with an
-  *adjacent* `MapSessionId` inherits the aborted session's buffers — the "new" session gets the old
-  one's broken state. Bump the session counter by **≥2** on reset. Symptom: a fresh CREATE
-  succeeds but the first Cmd=3 burst never acks and never renders.
-- **1×1 transparent image = soft sleep.** Lens goes dark but the plugin task and event pipeline
-  stay alive, so taps still fire. Much cheaper than a Cmd=9 teardown for a silent/idle mode.
-- Container **name cap is 14 chars**, hard and silent (our doc says ≤16 — untested, cheap to check).
+  *adjacent* `MapSessionId` inherits the aborted session's buffers. Bump the session counter by
+  **≥2** on reset. Symptom: a fresh CREATE succeeds but the first Cmd=3 burst never acks or renders.
+- **1×1 transparent image = soft sleep.** Lens dark, plugin task and event pipeline alive, taps
+  still fire. Cheaper than a Cmd=9 teardown for an idle mode.
+- Container **name cap is 14 chars**, hard and silent (our doc says ≤16 — untested).
 - TextContainer `capture_events` **defaults false**; lists and images capture by default.
 
 ---
@@ -1200,21 +1034,20 @@ be answered.
 > **g2-kit's prose docs (`ble/docs/*.md`) are materially wrong. Its code (`ble/*.ts`) is right.
 > Read their `.ts`, never their `.md`.**
 
-✅ **Independently confirmed by Babcock 2026-08-17**, unprompted, in the same words we'd reached:
+✅ **Independently confirmed by Babcock 2026-08-17**, unprompted:
 
 > "g2-kit-unofficial is **older reverse engineering work** by nebulani/Commute773; **the best
 > source of truth for how to format messages is faceclaw.**"
 
 ⇒ **Source-of-truth ordering for wire format, highest first:**
-1. **Even's own protobuf schemas** (`g2-kit/ble/gen/*_pb.ts` — vendor `FileDescriptorProto`s; §9.1)
+1. **Even's own protobuf schemas** (`g2-kit/ble/gen/*_pb.ts` — vendor `FileDescriptorProto`s)
 2. **Faceclaw + g2flash source** — the exercised CFW implementation
-3. **Our own BTSnoop captures** — authoritative for stock 2.2.2 and the official app specifically
+3. **Our own BTSnoop captures** — authoritative for stock 2.2.2 and the official app
 4. g2-kit's `ble/*.ts`
-5. ❌ **g2-kit's `ble/docs/*.md` — do not use.** Notably he did *not* dispute the `is_last`
-   contradiction we raised; he routed around it (see §8: always send `CompressMode = 0`).
+5. ❌ **g2-kit's `ble/docs/*.md` — do not use.** He did *not* dispute the `is_last` contradiction
+   we raised; he routed around it (§8: always send `CompressMode = 0`).
 
-Same repo, same author, and they contradict each other everywhere checked. Our capture-derived
-spec agrees with their **code** and disagrees with their **docs**, every time:
+Our capture-derived spec agrees with their **code** and disagrees with their **docs**, every time:
 
 | claim | their `.md` | their `.ts` | ours | correct |
 |---|---|---|---|---|
@@ -1228,47 +1061,42 @@ spec agrees with their **code** and disagrees with their **docs**, every time:
 | GATT UUIDs | `6E40FFF0/fff1/fff2` (a Nordic UART base!) | `…0e8ac72e5401/5402` | same | **us + their code + g2flash** |
 
 Our CRC claim was verified computationally: CRC-16/CCITT-FALSE over the documented keepalive
-payload `080c104f7200` = `0xCC79`, on-wire LE `79 cc`. Exactly as `G2_BLE_PROTOCOL.md` §2 states.
+payload `080c104f7200` = `0xCC79`, on-wire LE `79 cc` — as `G2_BLE_PROTOCOL.md` §2 states.
 
-⚠ Their `is_last` claim is **actively dangerous**: field 5 is `CompressMode`, so following their
-doc and writing `is_last=true` emits **`CompressMode = 1`** — a nonzero compression mode over
-*uncompressed* bytes. Whatever 1 means (see §8: unverified), that is a misinterpretation, and an
-unknown CompressMode is **silently "treated as raw"** rather than rejected. The empirical proof of
-this exact failure mode on real hardware is Even's own SDK 0.0.12 regression: a wrong nonzero
+⚠ Their `is_last` claim is a real hazard: field 5 is `CompressMode`, so writing `is_last=true`
+emits **`CompressMode = 1`** over *uncompressed* bytes, and an unknown CompressMode is **silently
+"treated as raw"**. Even's own SDK 0.0.12 regression is the proof on hardware: a wrong nonzero
 `compressMode` over plain bytes → garbled small images, `sendFailed` on large ones.
 
 ### The artifact that settles it: Even's own schema
 
 `ble/gen/EvenHub_pb.ts` embeds a base64 `FileDescriptorProto` — **the vendor's actual
-`EvenHub.proto`** (package `g2.evenhub`, vendor CamelCase names). Decode it with a plain varint
+`EvenHub.proto`** (package `g2.evenhub`, vendor CamelCase names). Decode with a plain varint
 walker; the base64 ships **unpadded**, so pad it first.
 
 **Every wrapper field number in `G2_BLE_PROTOCOL.md` is confirmed exactly:** `Cmd=1`,
 `MagicRandom=2`, `CreateMessage=3`, `ImgRawMsg=5`, `RebuildContainer=7`, `TextUpgrade=9`,
-`ShutDownCmd=11`, `DevEvent=13`, `HeartPacketCmd=14`. All three container property tables,
+`ShutDownCmd=11`, `DevEvent=13`, `HeartPacketCmd=14`; all three container property tables,
 `TextContainerUpgrade{ContentOffset=3, ContentLength=4}`, and `OsEventTypeList` 0–8 match too.
-Our RE stands up 1:1 against the vendor's own definitions.
 
 **Four things the schema gave us that we did not have:**
 
 1. **`ImgRawMsg.f3` is `MapSessionId`, not a nonce.** `G2_BLE_PROTOCOL.md` §6.5 calls it a
    "per-push nonce… set it to anything per push." It is a **session id with real semantics** —
-   see the stuck-session trap above. This is the one place our doc is genuinely wrong.
-   *(G2CC is not to be edited; record the correction here.)*
-2. **`ImgRawMsg.f5 = CompressMode`** — the field G2CC's June probe hunted and never recovered.
-   ⚠ The schema gives the **field only**: it is a bare `uint32`, and **no `ImageCompressFormat`
-   enum exists in any of the 27 vendor schemas**. Value semantics rest on evidence, not the
-   schema: `0` confirmed, `2` strong, **`1` unverified**. See §8.
+   the stuck-session trap above. The one place our doc is genuinely wrong *(G2CC is not edited;
+   the correction lives here)*.
+2. **`ImgRawMsg.f5 = CompressMode`** — the field G2CC's June probe hunted. ⚠ The schema gives the
+   **field only** (bare `uint32`, **no `ImageCompressFormat` enum in any of the 27 schemas**);
+   values rest on evidence: `0` confirmed, `2` strong, **`1` unverified**. See §8.
 3. **EvenHub has IMU** — `Cmd 19/20`, `IMU_CtrlCmd{IMUReportEn, reportFrq}`,
    `IMU_Report_Data{double x, y, z}`, `OsEventTypeList.IMU_DATA_REPORT = 8`. See §2.
 4. **`Sys_ItemEvent.f2 = EventSource`**: `1 = GLASSES_R`, `2 = RING`, `3 = GLASSES_L`. Our
-   capture's unlabeled `f13.f3={f1=3 f2=2}` therefore decodes as **double-tap from the ring** —
-   closing the "input source byte" open item in `G2_BLE_PROTOCOL.md` §14.
-   ⚠ **Different numbering from the CFW's internal source byte** at `0x2034dc30` (0/1 = L/R
-   temple, 4 = ring). Do not conflate the two.
+   capture's unlabeled `f13.f3={f1=3 f2=2}` decodes as **double-tap from the ring** — closing
+   `G2_BLE_PROTOCOL.md` §14's "input source byte" item. ⚠ **Different numbering from the CFW's
+   internal source byte** at `0x2034dc30` (0/1 = L/R temple, 4 = ring). Do not conflate.
 
-Also resolved: **`e0-02` is the firmware's abort frame** emitted on reassembly failure — g2-kit
-triggered it by incrementing `seq` per fragment. `G2_BLE_PROTOCOL.md` §5 lists it as "observed
+Also resolved: **`e0-02` is the firmware's abort frame** on reassembly failure — g2-kit
+triggered it by incrementing `seq` per fragment. `G2_BLE_PROTOCOL.md` §5 had it as "observed
 once, empty… low confidence — do not rely."
 
 ## 9.2 Schema-validated re-decode of both captures (2026-08-17)
@@ -1301,30 +1129,26 @@ several *names* (it predates the schemas; do not edit G2CC — corrections live 
 
 ### 🔑 `PIPE_ROLE_CHANGE` — the mechanism behind "the right lens is the one you drive"
 
-The official app explicitly sends `sid 0x80, commandId 5 = PIPE_ROLE_CHANGE` with
-`asCmdRole = 1 = RIGHT` at connect. `eGlassesLR` is `{BOTH=0, RIGHT=1, LEFT=2}`.
-
-So "R is the command lens" is **not a hardware property — it is a runtime setting the host
-chooses**, and `BOTH` is a legal value. That reframes the arm-split question (§2): the *command
-role* governs control and events, which is consistent with Faceclaw sending bulk pixels to LEFT
-while keeping RIGHT as the command lens. Damage never sends it — the connect prelude is the
-sid-0x01 launch only (`HANDOFF.md` §8) — and the split runs daily without it; still unprobed.
+The official app sends `sid 0x80, commandId 5 = PIPE_ROLE_CHANGE` with `asCmdRole = 1 = RIGHT`
+at connect. `eGlassesLR` is `{BOTH=0, RIGHT=1, LEFT=2}`. So "R is the command lens" is **a runtime
+setting the host chooses, not a hardware property**, and `BOTH` is legal. Consistent with Faceclaw
+sending bulk pixels LEFT while RIGHT stays the command lens (§2). Damage never sends it — the
+connect prelude is the sid-0x01 launch only (`HANDOFF.md` §8) — and the split runs daily without
+it; still unprobed.
 
 ### What the image path actually does
 
-- **`CompressMode` is absent on all 13 official-app image pushes.** ✅ Our claim, now definitive.
-- **`MapSessionId` is constant across the fragments of one image and changes per push**, using
-  small ints (25–237, n=13, 7 unique) with erratic deltas — **random per push, not a counter.**
-  Faceclaw instead uses large random uint32s. Both work.
-- **Longest container name the official app ever uses is 8 chars** (`imgsolid`). Our "≤16 char"
-  claim is *unsupported by our own data*; g2-kit's "14 hard cap" remains single-source. Unresolved.
-- **`imgmax` is exactly 288×144 and painted** ✅ — the SDK cap is real, and G2CC's conservative
-  288×129 was over-cautious.
-- Largest **layout** frame observed: **401 B** — comfortably under the ~1000 B layout wall (§2).
+- **`CompressMode` is absent on all 13 official-app image pushes.** ✅ Definitive.
+- **`MapSessionId` is constant across one image's fragments and changes per push** — small ints
+  (25–237, n=13, 7 unique), erratic deltas: **random per push, not a counter.** Faceclaw uses
+  large random uint32s. Both work.
+- **Longest container name the official app uses is 8 chars** (`imgsolid`). Our "≤16" claim is
+  unsupported by our own data; g2-kit's "14 hard cap" remains single-source. Unresolved.
+- **`imgmax` is exactly 288×144 and painted** ✅ — the SDK cap is real; G2CC's 288×129 was
+  over-cautious.
+- Largest **layout** frame observed: **401 B** — under the ~1000 B layout wall (§2).
 
 ### 🔴 What failure looks like on the wire (this is what NO SILENT FAILURES needs)
-
-Real failures occur in normal operation, and until now we had never seen one decoded:
 
 ```
 [+47.19s] e0-02  empty frame                    <- abort signal
@@ -1334,104 +1158,91 @@ Real failures occur in normal operation, and until now we had never seen one dec
           container=mximg session=25 total=10118 fragIdx=1   <- retried, SAME session, failed again
 ```
 
-Three things fall out:
-
-1. **`e0-02` lands 0.56 s before the first failure.** Our doc had it as "observed once, empty… low
-   confidence — do not rely." Combined with g2-kit's independent account of an abort frame on
-   `sid=0xe0 flag=02`, this is now **corroborated**, not a curiosity.
-2. **Failure is reported in `ImgResCmd.ErrorCode` (field 8)**, carrying container name, session id,
-   total size and fragment index. Damage must read that field — it is the difference between a
-   loud failure and a blank lens. ⚠ *`ImgResCmd` field 1 is `ContainerID`, not an error code; an
-   earlier pass of this analysis conflated them.*
-3. **Retrying with the same `MapSessionId` failed identically.** That is the stuck-session trap
-   g2-kit warns about, observed on our own wire. **Bump the session id on retry.**
+1. **`e0-02` lands 0.56 s before the first failure** — with g2-kit's independent account of an
+   abort frame on `sid=0xe0 flag=02`, now **corroborated**.
+2. **Failure is reported in `ImgResCmd.ErrorCode` (field 8)** with container name, session id,
+   total size and fragment index. Damage must read that field. ⚠ *`ImgResCmd` field 1 is
+   `ContainerID`, not an error code; an earlier pass conflated them.*
+3. **Retrying with the same `MapSessionId` failed identically** — the stuck-session trap on our
+   own wire. **Bump the session id on retry.**
 
 Also seen: `TEXT_DATA_FAILED` and `SHUTDOWN_FAILED` (the latter twice, on `exitMode` shutdowns —
-possibly just how the firmware reports "already gone"; noted, not explained).
+possibly how the firmware reports "already gone"; noted, not explained).
 
 ### How much to trust all this — honest assessment
 
-Adoption is **tiny** (pulled live from the GitHub API 2026-08-16): g2flash ★22 / 3 forks /
-**0 issues ever** / 1 contributor, created 2026-06-23; faceclaw ★16 / 3 / 0; openCFW ★18 / 2 / 0;
-webflasher ★2 / 0 forks / 2 issues **both self-filed by the author**. **Zero mentions of "g2flash"
-or "faceclaw" anywhere on Reddit** — searched all of Reddit, not just r/EvenRealities.
-
-**The gradient is the real story.** The *protocol* layer has genuine adoption —
-even-g2-protocol ★178/31 forks, even-g2-notes ★111/9, g2-kit ★31/5 — while the *firmware* layer
-has almost none. People consume the RE and avoid the flashing.
+Adoption is **tiny** (GitHub API, 2026-08-16): g2flash ★22 / 3 forks / **0 issues ever** /
+1 contributor, created 2026-06-23; faceclaw ★16 / 3 / 0; openCFW ★18 / 2 / 0; webflasher ★2 /
+0 forks / 2 issues **both self-filed by the author**. **Zero mentions of "g2flash" or "faceclaw"
+anywhere on Reddit.** The *protocol* layer has real adoption — even-g2-protocol ★178/31 forks,
+even-g2-notes ★111/9, g2-kit ★31/5 — the *firmware* layer almost none: people consume the RE and
+avoid the flashing.
 
 ### There is exactly one third-party CFW user, and they are active
 
-`Danxtream/faceclaw` (+4 commits) and `Danxtream/g2flash` (+3), both pushed 2026-08-16, are
-building **H.264 video playback on the CFW**: their own 2,551–2,635-line `zlib_glue.c` variants
-against upstream's 1,512, a `patches/h264/` tree, and committed Android logcat from real glasses
-(MACs `C4:AF:F2:54:38:29` R / `C4:60:45:13:B3:36` L, `fwside=1`/`2` matching the CFW's `FW_SIDE()`).
-Someone other than the two authors is building and flashing modified CFW, and it boots.
+`Danxtream/faceclaw` (+4 commits) and `Danxtream/g2flash` (+3), pushed 2026-08-16: **H.264
+playback on the CFW** — 2,551–2,635-line `zlib_glue.c` variants against upstream's 1,512, a
+`patches/h264/` tree, committed Android logcat from real glasses (MACs `C4:AF:F2:54:38:29` R /
+`C4:60:45:13:B3:36` L, `fwside=1`/`2` matching `FW_SIDE()`). Modified CFW flashed by a third
+party, and it boots. ⚠ Their **"13fps" is not a measurement** — `present=0 frames=0` throughout,
+~1.55 s inter-ack gaps are host-side timer pacing. The logs *do* establish on-glass H.264
+`decode=39–42 µs` (compute is not the bottleneck) and a working `sid=0x09` wear-detect ACK.
+`Mojashi/g2flash` is +2 from July; the remaining forks are mirrors.
 
-⚠ Their commit message says **"13fps." It is not a measurement** — `present=0 frames=0` throughout
-both logs (the pipeline never presents), and the ~1.55 s inter-ack gaps are host-side timer pacing.
-**Sim-or-glass discipline applies to fork commit messages too.** What the logs *do* establish:
-on-glass H.264 `decode=39–42 µs` (compute is not the bottleneck — our thesis, confirmed from the
-other side) and a working `sid=0x09` wear-detect ACK. `Mojashi/g2flash` is +2 from July; the
-remaining forks are pure mirrors.
-
-**But it is not n=1.** Two independent authors cross-reference, and Helekunihi **audited Babcock's
+**It is not n=1.** Two independent authors cross-reference, and Helekunihi **audited Babcock's
 patches at instruction level**:
 
 - **Scope rejections** (`release.json` `removed_features`): `faceclaw-wake-lease`,
   `faceclaw-idle-double-tap-takeover`, `faceclaw-even-ai-interception`, plus the settings
-  field-101 decoder; `"native_even_ai_behavior": "stock"`. These are product-scope choices —
-  Faceclaw claims the wake word and idle double-tap for its own UI; SybilSight wanted stock
-  "Hey Even" to keep working. **Not safety judgments.**
-- 🔴 **A real HardFault bug he found in an early CFW 2.2.6.11**
+  field-101 decoder; `"native_even_ai_behavior": "stock"`. Product-scope choices (SybilSight
+  wanted stock "Hey Even" to keep working), **not safety judgments.**
+- 🔴 **A real HardFault defect he found in an early CFW 2.2.6.11**
   (`components/apollo_main/evenai_thumb/`): the `even_ai_display_ctrl` trampoline resumed the
   stock body via `bx r12` to `0x004E1FD6` — **bit 0 clear ⇒ requests ARM state**; Apollo510
-  (Cortex-M55) has no ARM state ⇒ UsageFault/INVSTATE; the stock vector table installs **no**
-  MemManage/BusFault/UsageFault handler (all three vectors zero) ⇒ escalates to **HardFault**,
-  which logs `/log/hardfault.txt` then spins (`b .`) until the **external watchdog resets the
-  temple, dropping the BLE link.** Fix = one byte, `0xD6`→`0xD7`. **It survived the author's own
-  review because the one path that avoids the `bx` (`op==START` with a valid lease) is exactly
-  the path his app exercises — it reproduces most reliably when the host app is NOT connected.**
-  He also shipped `tools/thumb_branch_audit.py` (scans a Thumb-2 blob for `movw/movt → bx|blx`
-  with bit 0 clear) plus a regression test.
+  (Cortex-M55) has none ⇒ UsageFault/INVSTATE; the stock vector table installs **no**
+  MemManage/BusFault/UsageFault handler (all three vectors zero) ⇒ **HardFault**, which logs
+  `/log/hardfault.txt` then loops (`b .`) until the **external watchdog resets the temple,
+  dropping the BLE link.** Fix = one byte, `0xD6`→`0xD7`. **It survived the author's own review
+  because the one path that avoids the `bx` (`op==START` with a valid lease) is the path his app
+  exercises — it reproduces most reliably when the host app is NOT connected.** He also shipped
+  `tools/thumb_branch_audit.py` (scans a Thumb-2 blob for `movw/movt → bx|blx` with bit 0 clear)
+  plus a regression test.
 
   ### ✅ It is fixed, and we verified that ourselves
 
-  The bug was in a build from g2flash `6d5c5859`, also called "2.2.6.11" — which is why the
-  archive keys images by SHA prefix (`2.2.6.11-105032302d02`). **g2flash fixed it upstream on
-  2026-08-07**, commit message *"Fix a crash that occurred when using the custom firmware with
-  stock Even AI"*; `patches/settings_ext.c:300` now reads `movw r12, #0x1fd7` with the comment
-  *"0x004e1fd6 | Thumb bit; BX needs bit 0 set"*. **Verified 2026-08-16 by running Helekunihi's
-  own auditor against the exact image on disk** (extract the appended blob first — it is
-  `g2-2.2.6.11.bin[4301227:]`, 20,127 bytes):
+  The defect was in a build from g2flash `6d5c5859`, also called "2.2.6.11" — why the archive
+  keys images by SHA prefix (`2.2.6.11-105032302d02`). **g2flash fixed it upstream 2026-08-07**
+  (*"Fix a crash that occurred when using the custom firmware with stock Even AI"*);
+  `patches/settings_ext.c:300` now reads `movw r12, #0x1fd7` with the comment *"0x004e1fd6 |
+  Thumb bit; BX needs bit 0 set"*. **Verified 2026-08-16 with Helekunihi's own auditor against
+  the exact image on disk** (extract the appended blob first — `g2-2.2.6.11.bin[4301227:]`,
+  20,127 bytes):
 
   ```
   python3 reference/evenRealities-openCFW/g2/tools/thumb_branch_audit.py <blob> --base 0x00794324
   → 14 constant interworking branches, ALL Thumb.  0x00796e8a = 0x004e1fd7.  ZERO defects.
   ```
 
-  (14 branches vs the 9 in his writeup because HEAD's blob added compass, wear-notify and the
-  buzzer sequencer since `6d5c5859`.) **Re-run this audit before any flash** — it is free.
+  (14 branches vs the 9 in his writeup: HEAD's blob added compass, wear-notify and the buzzer
+  sequencer since `6d5c5859`.) **Re-run this audit before any flash.**
 
-⇒ **Corroboration is n=2 with instruction-level independent review, a defect found, and a fix that
-flowed upstream and that we independently confirmed.** That is a working review loop, and a
-materially better trust story than "one author's say-so." We are the third serious consumer of this
-ecosystem (live on it since 2026-08-30). Read patches before flashing them.
+⇒ **Corroboration is n=2 with instruction-level independent review, a defect found, a fix that
+flowed upstream and that we confirmed.** We are the third serious consumer of this ecosystem
+(live on it since 2026-08-30). Read patches before flashing them.
 
 ---
 
 ## 10. G2CC assets to mine (do not modify G2CC)
 
-> ✅ **The BTSnoop corpus is recovered and now lives in `captures/`** (2026-08-17). It had been lost
-> from `/tmp/g2cap-cap/`; both sessions were recovered from Adam's mailbox, where they had been
-> sent from the phone as Android **bugreport** zips. All four segments verify `orig_len ==
-> incl_len` (unfiltered), record counts match §0 of `G2_BLE_PROTOCOL.md` exactly, and `SHA256SUMS`
-> pins them. **This is the only ground truth for stock 2.2.2, and 2.2.2 is not in the public
-> archive — it is unreproducible once we leave it.** See `captures/README.md`, including the known
-> gap (handle 65's connect is outside both windows).
+> ✅ **The BTSnoop corpus lives in `captures/`** (recovered 2026-08-17 from Adam's mailbox, where
+> both sessions had been sent from the phone as Android **bugreport** zips, after being lost from
+> `/tmp/g2cap-cap/`). All four segments verify `orig_len == incl_len` (unfiltered), record counts
+> match §0 of `G2_BLE_PROTOCOL.md`, `SHA256SUMS` pins them. **The only ground truth for stock
+> 2.2.2, which is not in the public archive.** See `captures/README.md` (its old "known gap" —
+> handle 65's connect outside both windows — was corrected 2026-09-05, §5.1).
 
 `/home/user/G2CC` is a working, shipped system. **Read from it; never edit it.** The pre-pivot
-framebuffer pipeline is all still in the tree:
+framebuffer pipeline is still in the tree:
 
 | path | what |
 |---|---|
@@ -1452,107 +1263,81 @@ framebuffer pipeline is all still in the tree:
 
 ### 🆕 The hat bridge is being resurrected (2026-08-20)
 
-`HAT_BRIDGE_SPEC.md` was design-locked 2026-06-08 and **the entire BOM was bought but never built**,
-because the v0.7 software fix (foreground service + wake lock + faster recovery) made the connection
-problems vanish. §1 of that spec says so outright.
+`HAT_BRIDGE_SPEC.md` was design-locked 2026-06-08; **the entire BOM was bought but never built**
+because the v0.7 software fix (foreground service + wake lock + faster recovery) made the
+connection problems vanish (its §1 says so). It is the bridge appliance `DESIGN.md` §10 needs for
+the no-phone configurations: **Seeed XIAO ESP32-C5** (dual-band WiFi 6 + BLE 5), 3 × 420 mAh, a
+dual-band u.FL FPC antenna **outside the hat, right side, 1–2″ from the glasses' temple-tip
+antenna**, WSS home to the PC's cloudflared tunnel.
 
-It is exactly the bridge appliance `DESIGN.md` §10 needs for the no-phone configurations:
-**Seeed XIAO ESP32-C5** (dual-band WiFi 6 + BLE 5), 3 × 420 mAh, a dual-band u.FL FPC antenna
-mounted **outside the hat, right side, 1–2″ from the glasses' temple-tip antenna**, WSS home to the
-PC's cloudflared tunnel.
+Easier now than when specced: under the CFW the framing is simpler than the `f1=0/3/5/7` port it
+planned (`CompressMode = 0` plus a mode byte), and if the host pre-deflates **the bridge needs
+neither zlib nor the 153 KB shadow** — it forwards bytes and owns the lease.
 
-Two things now make it easier than when it was specced: under the CFW the framing is **simpler**
-than the `f1=0/3/5/7` port it planned (`CompressMode = 0` plus a mode byte), and if the host
-pre-deflates, **the bridge needs neither zlib nor the 153 KB shadow** — it forwards bytes and owns
-the lease.
+🔑 **It is also a controlled experiment on §5.1.** The board was chosen because *"dual-band dodges
+WiFi/BLE coexistence"* — one of the **three surviving candidates** for the ~10× shortfall, and the
+one invisible at the HCI layer. WiFi on 5 GHz + BLE on 2.4 removes the contention; a throughput
+jump on the hat would isolate a cause nobody has named, including the CFW author.
 
-🔑 **And it is a controlled experiment on §5.1.** Its board was chosen because *"dual-band dodges
-WiFi/BLE coexistence"* — and coexistence on the phone's combo radio is one of the **three surviving
-candidates** for the ~10× throughput shortfall, specifically the one that is invisible at the HCI
-layer and therefore unresolvable from the captures alone. WiFi on 5 GHz and BLE on 2.4 removes the
-contention outright. **If throughput jumps on the hat, that isolates a cause nobody has been able to
-name** — including the CFW author, who says debugging it *"would make a much bigger difference than
-compression tuning."*
+⚠ The number that decides wearability: **1260 mAh running WiFi 6 plus BLE for a full workday.**
+The spec has a hybrid power policy and no measured budget.
 
-⚠ The number that decides whether it is wearable: **1260 mAh running WiFi 6 plus BLE for a full
-workday.** The spec has a hybrid power policy and no measured budget.
-
-*(Status 2026-09-02: no build record since this note — the phone APK is the daily bridge
-(`HANDOFF.md` §19), and the §5.1 coexistence experiment the hat would run is still unrun;
-`DESIGN.md` §11 items 13–14 carry it.)*
+*(Status 2026-09-02: no build since this note — the phone APK is the daily bridge (`HANDOFF.md`
+§19); the coexistence experiment is still unrun; `DESIGN.md` §11 items 13–14 carry it.)*
 
 ---
 
 ## 11. Open unknowns — resolve these before/while building
 
 1. ✅ **CFW ack latency — the whole CURVE measured 2026-08-31: `ms ≈ 60 + bytes/50` (§5.2,
-   n=1,488 flushes).** First light's ~50 ms EMA established the floor a day earlier; §5.2
-   superseded it and is the number to quote.
-
-   The original reasoning, kept because it still holds and explains why this never gated
-   anything: every number in §5 is priced with 176 ms from stock 2.2.2 captures. *Re-graded
-   2026-08-17 — this was previously marked 🔴 "the single most load-bearing unmeasured value," and
-   that was wrong.* **It is a tuning constant, not a design input.** Apply the decision-relevance
-   test:
-   - *Flash or not* — unchanged across any plausible value. The CFW removes every named cause of
-     G2CC's 6.1 s screen (§1); the margin is large enough that refining the input changes nothing.
-   - *Damage tracking + one mode-8 flush per frame* — **latency-monotonic.** Higher ack latency
-     makes batching **more** correct, not less. The architecture never flips.
-   - *Coarse scroll* — holds anywhere above ~50 ms of ack, i.e. the entire plausible range.
-
-   What it actually moves: scroll step size, sliding-window depth, game frame budget. All tuned
-   **after** first light, on our own content, where our own measurement beats any third-party
-   number we would have to translate anyway. **Measure it on the far side; do not gate on it.**
+   n=1,488 flushes).** First light's ~50 ms EMA gave the floor a day earlier; §5.2 supersedes it.
+   *Re-graded 2026-08-17 from 🔴 "the single most load-bearing unmeasured value" — that was
+   wrong.* **It is a tuning constant, not a design input**: flash-or-not is unchanged across any
+   plausible value (§1's margin is large); batching is **latency-monotonic** (higher ack latency
+   makes it *more* correct); coarse scroll holds anywhere above ~50 ms. What it moves — scroll
+   step, window depth, game frame budget — is tuned after first light on our own content.
 2. ~~Whether **off-screen scratch** is usable~~ — **RESOLVED 2026-08-17 by deleting its premise.**
-   There is no off-panel margin: the **full 640×480 is visible** (§2). Pre-render-off-panel-then-
-   flip-in is gone, and so is save-under via mode 9 (§12).
-
-   **The replacement is better than what we were asking for.** Babcock, same email:
+   The **full 640×480 is visible** (§2); pre-render-then-flip-in and save-under via mode 9 (§12)
+   are gone. The replacement is better. Babcock, same email:
 
    > "Pre-sending stuff to move in is what I was talking about with **texture caching**. There are
    > **multiple screens' worth of available or reclaimable memory**, but there's a bit of reverse
    > engineering and plumbing work left."
 
-   Multiple screens of on-device cache beats a 640×480 margin by a wide margin — and ✅ **it
-   LANDED in the installed a5d1c31 (2026-08-30)**: modes 12/13/14 (+11 teardown, 15 refused),
-   lease-scoped 64 KiB, fully documented in §4. **Adopted 2026-09-06 behind the Global `Cached
+   ✅ **It LANDED in the installed a5d1c31 (2026-08-30)**: modes 12/13/14 (+11 teardown, 15
+   refused), lease-scoped 64 KiB, documented in §4. **Adopted 2026-09-06 behind the Global `Cached
    text` row (`HANDOFF.md` §40.6)** — plane-0 text as mode-14 draws under a byte-exact proof; off
    until the on-glass checks (REMINDER items 19–20) have run. ⚠ Modes 13/14 draw one x into both
    lenses (they ignore the lens bit, `zlib_glue.c`), so depth planes stay pixels.
 
-   🔴 **Why it matters — the author's own reason for building it:**
+   🔴 **The author's own reason for building it:**
 
    > "Deflate (zlib, 32kb window)+RLE. This is almost as good as PNG and mostly good enough
    > (**but it doesn't play nice with antialiased fonts, hence the texture cache**)."
 
-   §1 calls anti-aliased text at 16 levels "the biggest single visual win" and §12 has it as a
-   settled decision. The author of the compression path is saying AA fonts are exactly what it
-   handles worst — the same mechanism as our dithering finding (§5), since AA turns glyph edges
-   into short high-entropy runs. Our own re-measurement shows the cost is **lower than we modelled**
-   (§5), so AA text is viable today — but **texture caching is what makes it cheap at scale**, and
-   that makes it the single highest-value thing to track in his work.
-
-   *(The "32kb window" checks out against the code: `FW_INIT2(strm, 15, …)`, windowBits 15 = 32768.)*
+   AA text at 16 levels is §1's biggest visual win and a §12 decision; AA turns glyph edges into
+   short high-entropy runs (the same mechanism as the dithering finding, §5). Our re-measurement
+   shows the cost **lower than modelled** (§5), so AA text is viable today — **texture caching is
+   what makes it cheap at scale.** *(The "32kb window" checks out: `FW_INIT2(strm, 15, …)`,
+   windowBits 15 = 32768.)*
 3. Whether the **msgId-255 wall** persists under CFW — **unprobed by design**: the transport cycles
    msgId so the wall is never approached (`CLAIMS.md`).
-4. ~~**Keepalive/heartbeat contract** in CFW mode~~ — **RESOLVED 2026-08-16.** `image_worker()`
-   calls `FW_KEEPALIVE_RESET()` on every top-level image message (the same leaf the stock sid-0x0c
-   handler uses), so a steady mode-3/6/8/9 stream is self-sustaining. The stock counter at
-   `0x200745AC` fires teardown past 899 ticks; we simply never get there while rendering. Built:
-   the transport's control lane sends an idle keepalive beside the 45 s lease renewal
-   (`CfwTransportBase`).
+4. ~~**Keepalive/heartbeat contract** in CFW mode~~ — **RESOLVED 2026-08-16** (§4:
+   `FW_KEEPALIVE_RESET()` on every top-level image message). The stock counter at `0x200745AC`
+   fires teardown past 899 ticks; we never get there while rendering. Built: the transport's
+   control lane sends an idle keepalive beside the 45 s lease renewal (`CfwTransportBase`).
 5. ~~**Typed-text input** path~~ — **BUILT 2026-08-31**: `DamageWindow.onTypedText` +
    `Transport.injectText`; a line typed on the phone strip, the browser replica or the desktop
-   preview reaches the focused window, always staged behind the window's own confirm (Tmux,
-   Files, Torrents and Music consume it).
-6. ~~**Dirty-rect addressing constraints**~~ — **RESOLVED 2026-08-16**, see §4: mode 3 is
-   quantized (left/width ×4, top/height ×2, one byte each, bounds-checked to 640×480); mode 8 is
-   size-capped (~153 KB), not count-capped; `CFW_RECT_MAX=16` is a debug-overlay limit only.
+   preview reaches the focused window, staged behind the window's own confirm (Tmux, Files,
+   Torrents and Music consume it).
+6. ~~**Dirty-rect addressing constraints**~~ — **RESOLVED 2026-08-16**, §4: mode 3 quantized
+   (left/width ×4, top/height ×2, one byte each, bounds-checked to 640×480); mode 8 size-capped
+   (~153 KB), not count-capped; `CFW_RECT_MAX=16` is a debug-overlay limit only.
 7. ~~Whether **2.2.2 → CFW direct flash** is accepted~~ — **RESOLVED 2026-08-30: done on our own
    pair** (2.2.2.20 → CFW, both lenses, six components, zero resends — `HANDOFF.md` §10). The
-   prior de-risking held: Faceclaw's onboarding classifier (`app/g2/firmware-compat.ts`) sets
-   `FLASHABLE_STOCK_VERSION = [2,2,6,10]`, so 2.2.2.20 classified as `flashable-stock`, and the
-   patch set targets the *stock 2.2.6.10 image it ships* — g2flash writes a whole EVENOTA container.
+   prior de-risking held: Faceclaw's `app/g2/firmware-compat.ts` sets `FLASHABLE_STOCK_VERSION =
+   [2,2,6,10]`, so 2.2.2.20 classified as `flashable-stock`, and the patch set targets the *stock
+   2.2.6.10 image it ships* — g2flash writes a whole EVENOTA container.
 
 ### New leads opened 2026-08-16 (from Even's own schemas — see §9.1)
 
@@ -1560,70 +1345,56 @@ workday.** The spec has a hybrid power policy and no measured budget.
   `BLE_LOGGER_SWITCH_SET`, `BLE_LOGGER_LEVEL_SET`, `DEVICE_SEND_LOGGER_DATA` (device → phone
   `logStr`), `REQUEST_FILE_NAME`, `DELETE_FILE_NAME`. **If `bleTransEn` works on our firmware we
   get live on-glass logs** — including the CFW's `evenhub_ui: decompress failed, mode=%u
-  raw_len=%u`. That converts our worst failure mode (silent garbage on the lens) into a visible
-  error, which is exactly what the NO SILENT FAILURES rule wants. **Highest-value untested lead.**
+  raw_len=%u` — turning silent garbage on the lens into a visible error. **Highest-value untested
+  lead.**
 - 🟡 **A file EXPORT service exists** — `UX_EVEN_FILE_SERVICE_CMD_EXPORT_ID = 198` /
   `RAW_EXPORT_DATA = 199`, with `eEvenFileExportServiceCID {EXPORT_START, EXPORT_DATA,
-  EXPORT_RESULT_CHECK}`. There are also `UX_OTA_EXPORT_FILE_CMD_ID = 194` / `195` with **no
-  schema in this corpus**. ⚠ **This is NOT evidence of a firmware dump path** — it is a *file*
-  service, and the main app image is not necessarily a file in that namespace. But it is the first
-  real lead against "no read-back path exists," and it is worth a read-only probe. `common.proto`
-  gives us a safe probe: `eErrorCode` has explicit `NOT_SUPPORT = 8` / `SUPPORT = 9`.
-- 🟡 **`BleConnectParam { MTU, connInterval, setSpeed: SLOW|FAST }`** exists on sid 0x80,
-  `commandId = BLE_CONNECT_PARAM (7)`. Our link ramps 15 → 30 → 90 ms because the *firmware*
-  requests the low-power state ~2 s after connect. A `setSpeed = FAST` may pin it — a direct lever
-  on the ~60 ms ack floor (§5.2); unprobed. ⚠ On the dangerous sid; see below.
-- ✅ **We now know exactly why sid 0x80 is dangerous.** `dev_config_protocol.proto`:
-  `UNPAIR_INFO = 9` and **`RESTORE_TO_FACTORY_SETTINGS = 13`**. That is the unrecoverable state g2-kit hit.
-  The rule sharpens from "never touch sid 0x80" to **"commandIds 9 and 13 are irreversible;
-  4 (AUTHENTICATION) and 128 (TIME_SYNC) are what the official app already sends."**
+  EXPORT_RESULT_CHECK}`; also `UX_OTA_EXPORT_FILE_CMD_ID = 194` / `195` with **no schema in this
+  corpus**. ⚠ **NOT evidence of a firmware dump path** — a *file* service, and the main app image
+  is not necessarily a file in that namespace — but the first real lead against "no read-back
+  path", worth a read-only probe. `common.proto` `eErrorCode` has explicit `NOT_SUPPORT = 8` /
+  `SUPPORT = 9`.
+- 🟡 **`BleConnectParam { MTU, connInterval, setSpeed: SLOW|FAST }`** on sid 0x80, `commandId =
+  BLE_CONNECT_PARAM (7)`. Our link ramps 15 → 30 → 90 ms because the *firmware* requests the
+  low-power state ~2 s after connect; `setSpeed = FAST` may pin it — a lever on the ~60 ms floor
+  (§5.2); unprobed. ⚠ On the dangerous sid; see below.
+- ✅ **Why sid 0x80 is dangerous.** `dev_config_protocol.proto`: `UNPAIR_INFO = 9` and
+  **`RESTORE_TO_FACTORY_SETTINGS = 13`** — the state g2-kit hit. The rule sharpens to
+  **"commandIds 9 and 13 are irreversible; 4 (AUTHENTICATION) and 128 (TIME_SYNC) are what the
+  official app already sends."**
 - ⚠ **Ring biometrics: the schema exists but the glasses never send it — CORRECTED 2026-08-31.**
-  `ring.proto` on `UX_RING_DATA_RELAY_ID = 145` (our `91-XX`) defines
-  `RingRawData{battery=1, chargeStates=2, hr, spo2, hrv, temp, actKcal, allKcal, steps +
-  timestamps}` — but the stock firmware's 0x91 service only registers the ring MAC (`EVENT`) and
-  never fills `RawData` (verified against firmware source + both captures; `CLAIMS.md`). An
-  earlier note here called ring battery "solved" via the relay — that was wrong. The only
-  source is the closed Even SDK over the ring's own link; not pursued (cosmetic). See
-  `CAPABILITIES.md` (ring biometrics) and `EXPLOSION.md` §13.
+  `ring.proto` on `UX_RING_DATA_RELAY_ID = 145` (our `91-XX`) defines `RingRawData{battery=1,
+  chargeStates=2, hr, spo2, hrv, temp, actKcal, allKcal, steps + timestamps}` — but the stock
+  firmware's 0x91 service only registers the ring MAC (`EVENT`) and never fills `RawData`
+  (verified against firmware source + both captures; `CLAIMS.md`). An earlier note here called
+  ring battery "solved" via the relay — wrong. The only source is the closed Even SDK over the
+  ring's own link; not pursued (cosmetic). See `CAPABILITIES.md` and `EXPLOSION.md` §13.
 - ✅ **sid 0x0D is `sync_info`, not "configuration query"** — `sync_info_data_msg
-  {backgroundAppID, foregroundAppID}`. It tells us when EvenHub is fore/backgrounded, which
-  Damage needs in order to know whether its surface is actually visible.
-- ✅ **The init-frame labels that conflicted with the vendor schemas were re-decoded 2026-08-17**
-  — the settled table is §9.2 (`81-20` = case battery, `04-20` = `NotificationControl` with a
-  7 s display time, `07-20` = EVEN_AI, `0c-20` = QUICKLIST, `10-20` = ONBOARDING, `20-20` =
-  MODULE_CONFIGURE; `0e-20` = `UI_HEALTH_APP_ID` is the one not in that table).
+  {backgroundAppID, foregroundAppID}`: when EvenHub is fore/backgrounded, i.e. whether our
+  surface is visible.
+- ✅ **The conflicting init-frame labels were re-decoded 2026-08-17** — the settled table is §9.2
+  (`81-20` = case battery, `04-20` = `NotificationControl` with a 7 s display time, `07-20` =
+  EVEN_AI, `0c-20` = QUICKLIST, `10-20` = ONBOARDING, `20-20` = MODULE_CONFIGURE; `0e-20` =
+  `UI_HEALTH_APP_ID` is the one not in that table).
 8. ~~**Transport for flashing**~~ — **RESOLVED, then EXERCISED.** beardos's Intel AX201 /
    BlueZ 5.86 ran the whole flash PC-direct 2026-08-30 (`HANDOFF.md` §10: ~25 KB/s OTA goodput,
-   unbonded host, both arms) and the PC drove the glasses within the hour — the 2026-08-15
-   caveats (link params, advertising with the phone off) are answered on hardware.
-9. ~~The webflasher "recovery set" question~~ — **MOOT since 2026-08-30**: it existed only to
-   protect the 2.2.2 fallback, and 2.2.2 is gone (the webflasher also dropped CFW support
-   upstream).
+   unbonded host, both arms) and drove the glasses within the hour — the 2026-08-15 caveats (link
+   params, advertising with the phone off) are answered on hardware.
+9. ~~The webflasher "recovery set" question~~ — **MOOT since 2026-08-30**: it existed to protect
+   the 2.2.2 fallback, and 2.2.2 is gone (the webflasher also dropped CFW support upstream).
 
 ### On the "cheapest high-value experiment"
 
-*(Historical — pre-flash reasoning; the flash happened 2026-08-30. Kept for the lesson at the end.)*
+*(Historical — pre-flash reasoning; kept for the lesson.)* `g2flash` `demos/video-bench.ts` has
+an **`lz4` mode that runs on STOCK 2.2.6.10**, reporting framerate and byte counts. Earlier text
+called it the cheapest high-value experiment. Two corrections: *(2026-08-16)* **not cheap** —
+2.2.2 → 2.2.6.10 **is** the irreversible step; *(2026-08-17)* **not high-value** — it measures
+ack latency, a tuning constant (#1). After first light it is a fine way to price the ack
+round-trip (sweep `G2_WINDOW` 1, 2, 4) — calibration, not a checkpoint.
 
-`g2flash` `demos/video-bench.ts` has an **`lz4` mode that runs on STOCK 2.2.6.10**, reporting
-achieved framerate and byte counts with **no custom firmware**. Earlier text called this the
-cheapest high-value experiment. Two corrections, in order:
-
-1. *2026-08-16:* it is **not cheap** — going 2.2.2 → 2.2.6.10 **is** the irreversible step, since
-   2.2.2 is not in the archive. The "no CFW required" framing hid that it costs the same one-way
-   door as flashing the CFW itself.
-2. *2026-08-17:* **and it is not high-value either.** What it measures is ack latency, which
-   unknown #1 above re-grades as a tuning constant. Paying an irreversible cost to refine a number
-   that changes no decision is the worst trade in the project.
-
-⇒ **Do not run this as a gating pre-flash experiment.** After first light it is a perfectly good
-way to price the ack round-trip — sweep `G2_WINDOW` (1, 2, 4) — but as *calibration for tuning*,
-not as a checkpoint anything waits on.
-
-**The general lesson, worth more than the specific finding:** a number can be load-bearing for a
-decision *already made* and carry zero weight for every decision still open. §5's estimates
-answered "is this architecture viable at all," and they answered it with enormous margin. Once the
-margin is that large, refining the input is wasted motion. **Before elevating any unknown, ask
-which open decision changes if the answer flips. If none does, it is not a blocker.**
+**The general lesson:** a number can be load-bearing for a decision *already made* and carry
+zero weight for every decision still open. **Before elevating any unknown, ask which open
+decision changes if the answer flips. If none does, it is not a blocker.**
 
 ---
 
@@ -1631,82 +1402,70 @@ which open decision changes if the answer flips. If none does, it is not a block
 
 - **Damage tracking with a single mode-8 flush per frame** is the core architecture (§4).
 - **Coarse scroll steps**, never per-pixel (§5).
-- **Fixed cursor + panning list**: pin the selection to a fixed screen row and pan content under
-  it. This recovers the near-zero-latency scrolling that the firmware list widget gave G2CC for
-  free — and improves on it with smooth pixel scrolling. **This is the answer to the one genuine
-  regression of leaving firmware containers.**
-  🔑 **Dependency, identified 2026-08-17: this design requires PER-NOTCH scroll input, and it is
-  only buildable because we get it (§6.1).** Under G2CC's firmware containers, scroll was a
-  *boundary* event — the widget owned the scroll and only reported the ends — so a fixed-cursor
-  panning list could not have been driven at all. Dropping firmware containers is what supplies
-  the input this decision rests on. ✅ Upgraded to **M** 2026-08-30: per-notch delivery is
-  observed in daily use on our own wire (every ring notch arrives as its own SCROLL event); the
-  page-flip fallback was never needed. Still open: coalescing under very fast spins
+- **Fixed cursor + panning list**: pin the selection to a screen row and pan content under it —
+  recovers the free scrolling the firmware list widget gave G2CC, the one genuine regression of
+  leaving firmware containers. 🔑 **Dependency (2026-08-17): requires PER-NOTCH scroll input
+  (§6.1)** — under G2CC's containers scroll was a *boundary* event, so this list could not have
+  been driven. ✅ **M** since 2026-08-30: every ring notch arrives as its own SCROLL event in
+  daily use; the page-flip fallback was never needed. Open: coalescing under very fast spins
   (`REMINDER.md` item 2).
 - ~~**Save-under for overlays** via mode 9 (pending unknown #2)~~ — **retired 2026-08-17**; its
-  premise (off-panel scratch) does not exist, the full 640×480 is visible (§2). **The fallback is
-  the build:** overlays repaint the covered region with mode 3 (~215 ms stock-priced, ~65–100 ms
-  on the CFW curve for a 300×80 box); the context menu captures and restores the under-content
-  the same way (`DESIGN.md` §4.7). Texture caching — the real version of what save-under was
-  reaching for — has landed in firmware and is adopted for plane-0 text behind a setting
-  (`HANDOFF.md` §40.6; §11 #2).
-- **No dithering** — it halves compression and the host does better 4-bit downsampling anyway.
+  premise (off-panel scratch) does not exist (§2). **The fallback is the build:** overlays repaint
+  the covered region with mode 3 (~215 ms stock-priced, ~65–100 ms on the CFW curve for a 300×80
+  box); the context menu captures and restores the under-content the same way (`DESIGN.md`
+  §4.7). Texture caching — the real version of what save-under reached for — has landed and is
+  adopted for plane-0 text behind a setting (`HANDOFF.md` §40.6; §11 #2).
+- **No dithering** — it halves compression; the host does better 4-bit downsampling anyway.
 - **Anti-aliased text at 16 levels** — the biggest visual upgrade available.
 - **Keep the both-temple silent-mode gesture** as a hardware escape hatch.
-- **Damage must provide its own quit path** (the CFW removes the stock one).
+- ~~**Damage must provide its own quit path** (the CFW removes the stock one)~~ — **superseded by
+  the locked design: no quit path** (`DESIGN.md` §1.6; the both-temple gesture is the escape).
 - Depth: **main content parked far, popups come forward toward the screen plane** (Adam direct,
-  2026-08-17 — this *reverses* an earlier inferred rule; see §7 and `DESIGN.md` §3).
+  2026-08-17 — *reverses* an earlier inferred rule; §7 and `DESIGN.md` §3).
 
 **Added 2026-08-17 — hard-won tuning from Faceclaw's damage tracker** (`BleImageOptimizer.java`,
-the closest existing analogue to what Damage does). These are results, not preferences:
+the closest existing analogue). Results, not preferences:
 
 - 🔑 **Deflate level 6, not 9 and not 1.** His comment: level 9 (BEST_COMPRESSION) costs
   **18–109 ms per frame** on the BLE worker; level 1 (BEST_SPEED) **inflated typical payloads from
-  ~2.7 KB past the 3800 B fragment boundary, adding a whole extra ack round trip (~350 ms).**
-  Level 6 keeps payloads inside one fragment at about half the CPU. The tuning target is the
-  **fragment boundary**, not the compression ratio — non-obvious, and we'd have got it wrong.
-  *(`research/fbfeas.py` already uses level 6.)*
-- **One long-lived `Deflater` per thread** — constructing one allocates a native zlib stream, which
-  is measurable at per-frame rates.
-- **Splitting into multiple rects is not free beyond the byte count:** ~15 fixed bytes per rect
-  (seglen + mode-3 header + fid + zlib framing) **plus the loss of cross-rect zlib dictionary
-  sharing**. Only split across gaps big enough to pay for both. Keep gap thresholds above the
-  4px/2px box alignment so aligned rects can never overlap.
-- His splitter is two-pass: extend **vertical bands** across changed rows hopping gaps < V_GAP,
-  then split each band into **horizontal clusters** hopping column gaps < H_GAP, then tighten each
-  cluster's rows. Diff scan runs in **packed-byte coordinates** (1 byte = 2 px) and reports both
-  the bounding box and how many disjoint column-clusters the change splits into.
-- **Window geometry worth borrowing:** two height modes — `min` = 288 px (the stock band, "leaving
-  most of the field of view clear") and `max` = 480 px (terminal-style views) — plus a **vertical
-  position setting** (top/upper/centre/lower/bottom) that slides the 288 band within the 480 px
-  screen. That is a genuinely good use of the extra height: **placement rather than more content**,
-  which is exactly the FAR/ignorable tradeoff (§7). *(Damage's answer, 2026-08-31: per-app height
-  with four TOP-aligned sizes 288/352/416/480; a vertical-position setting was built and retired
-  the same day because Adam's fit always shows the top and loses the bottom — `DESIGN.md`
-  §2.2b/§2.5.)*
-- **Colour-key compositing:** pixel 0 = transparent, **1 = intentional opaque black** (identical to
-  0 after 4bpp quantisation). Shell layers need this to composite at all.
-- **Layer stack with lazy `paintBelow`:** a layer only pays to paint what's underneath if it
-  actually samples it, and `paintOverBase` lets a layer composite against the base directly,
-  skipping intermediates. **This is the practical substitute for save-under** now that off-panel
-  scratch is gone (§11 #2).
+  ~2.7 KB past the 3800 B fragment boundary, adding an extra ack round trip (~350 ms).** Level 6
+  keeps payloads inside one fragment at about half the CPU. The tuning target is the **fragment
+  boundary**, not the ratio. *(`research/fbfeas.py` uses level 6.)*
+- **One long-lived `Deflater` per thread** — constructing one allocates a native zlib stream,
+  measurable at per-frame rates.
+- **Splitting into multiple rects costs more than the byte count:** ~15 fixed bytes per rect
+  (seglen + mode-3 header + fid + zlib framing) **plus lost cross-rect zlib dictionary sharing**.
+  Split only across gaps big enough to pay for both; keep gap thresholds above the 4px/2px box
+  alignment so aligned rects never overlap. His splitter: **vertical bands** across changed rows
+  (gaps < V_GAP), then **horizontal clusters** per band (column gaps < H_GAP), then tighten rows;
+  the diff scan runs in **packed-byte coordinates** (1 byte = 2 px).
+- **Window geometry:** `min` = 288 px (the stock band, "leaving most of the field of view clear")
+  and `max` = 480 px (terminal-style views), plus a **vertical position setting**
+  (top/upper/centre/lower/bottom) sliding the 288 band within 480 — **placement rather than more
+  content** (§7). *(Damage's answer, 2026-08-31: per-app height with four TOP-aligned sizes
+  288/352/416/480; a vertical-position setting was built and retired the same day because Adam's
+  fit always shows the top and loses the bottom — `DESIGN.md` §2.2b/§2.5.)*
+- **Colour-key compositing:** pixel 0 = transparent, **1 = intentional opaque black** (identical
+  to 0 after 4bpp quantisation). Shell layers need this to composite at all.
+- **Layer stack with lazy `paintBelow`:** a layer pays to paint what is underneath only if it
+  samples it; `paintOverBase` composites against the base directly — the practical substitute
+  for save-under (§11 #2).
 
 **Added 2026-08-17, from the reference implementation (§2, §4, §4.1):**
 
 - **Carrier layout = one 576×288 image container + one full-screen dummy text container**
-  (`content=" "`, `isEventCapture=true`). Not optional; see §4.1.
+  (`content=" "`, `isEventCapture=true`). Not optional; §4.1.
 - **Hold the direct-framebuffer lease** — sid 0x09 field 101 op 5, **both arms, renew every 45 s**
-  against a 90 s expiry. Fail-open means forgetting it silently loses the screen.
+  against a 90 s expiry. Fail-open: forgetting it silently loses the screen.
 - **Arm split: bulk pixels → LEFT, control + events → RIGHT.** Subscribe on Right regardless.
-  Runs daily (it works); optimality still unproven — the two-arm capture is owed (§2,
-  `REMINDER.md` item 5).
+  Runs daily; optimality unproven — the two-arm capture is owed (§2, `REMINDER.md` item 5).
 - **≈6 rects per mode-8 batch**, not 16; `fid` in `[1,0xFFFE]`, +1 per delta (§4).
 - **Window 3 in-flight image messages.** Pipelining is proven on CFW; do not ship strictly serial.
 - **Treat any sticky mode-7 flag** (`f_reorder`/`f_skip`/`f_dup`/`f_snap_of`) **as a hard
-  error** — built (panic keyframe + clear). The on-panel overlay itself was never switched on
-  during bring-up; the flags reach the shell only from the simulator (§4).
+  error** — built (panic keyframe + clear); the on-panel overlay was never switched on, the flags
+  reach the shell only from the simulator (§4).
 - **Image fragments ≤ 3800 B** (the 4096 cap with envelope headroom) — two independent sources.
-- ⚠ **Layout/CREATE frames must stay under ~1000 B.** That limit is real, and applies *only* here.
+- ⚠ **Layout/CREATE frames must stay under ~1000 B.** Real, and applies *only* here.
 
 ## 13. What we want to build on top
 
@@ -1715,20 +1474,18 @@ Everything G2CC does, rebuilt without the image tax, plus what was never possibl
 - **FF1** rendered properly instead of avoided
 - **Far more games** — real frames at interactive rates *(`EXPLOSION.md` §10; not started — dense
   full-frame is a measured 2–4 fps, §5.2)*
-- **A real ebook reader** — proper typography, AA text, endless scroll *(BUILT — Reader)*
+- **A real ebook reader** — typography, AA text, endless scroll *(BUILT — Reader)*
 - **A file manager with real icons and thumbnails** *(BUILT 2026-09-01 — Files)*
 - **Mail and MMS with embedded images** *(designed in `EXPLOSION.md` §1/§2; not started)*
 - **A Reddit-style feed** with endless scroll *(`EXPLOSION.md` §11; not started)*
 - Real **modal dialogs**, **toast notifications**, **z-order**, **overlapping windows** *(the
-  notification box, the switcher wheel, the context menu and the keyboard are built as bespoke
-  overlays — `DESIGN.md` §4.3/§4.5/§4.7/§4.8)*
-- Access to the whole PC library — books, data, imagery, everything *(the content host + the
-  window channel, `HANDOFF.md` §19/§22)*
+  notification box, switcher wheel, context menu and keyboard are bespoke overlays — `DESIGN.md`
+  §4.3/§4.5/§4.7/§4.8)*
+- Access to the whole PC library *(the content host + the window channel, `HANDOFF.md` §19/§22)*
 
-Shipped beyond the list: Tmux (2026-08-31), Torrents (2026-09-01) and Music (2026-09-01/02,
-`MUSIC.md`; reviewed three ways the same day — `HANDOFF.md` §24.2–§24.3). Next: the on-phone
-measured items for Music, then the wow order in `EXPLOSION.md` §20 — Games (#1) or Feed + comics
-(#5), Adam's pick.
+Shipped beyond the list: Tmux (2026-08-31), Torrents (2026-09-01), Music (2026-09-01/02,
+`MUSIC.md`), Games (2026-09-04, `HOLDEM.md`), Feed + comics (2026-09-09, `FEED.md`). What is next
+lives in `REMINDER.md`, never here.
 
 ---
 
@@ -1742,69 +1499,59 @@ level has **no license at all**.
 
 ### ⚠ Licensing is no longer fully open (2026-08-17)
 
-Adam asked Babcock directly whether he could borrow heavily from Faceclaw and g2flash. The answer
-was yes — **"subject to GPL."** So:
-
-- **Personal use: unchanged.** GPL-3.0 imposes no obligation on software you don't distribute, and
-  personal use *is* the stated goal (§1). Borrow freely.
-- **Public release: constrained, not deferred.** If Damage derives substantially from Faceclaw or
-  g2flash, **GPL-3.0 attaches on distribution** — reciprocal source release for the whole derived
-  work. That is now a known input to the release decision rather than an open question.
-- **The cheapest way to keep the option open** is to keep the boundary clean *as we build*: our own
-  compositor, layout engine and font rasteriser in our own tree, with borrowed CFW-protocol
-  knowledge (wire formats, constants, the lease protocol) kept separate from borrowed *code*.
-  Facts about a wire protocol are not copyrightable; his implementation of them is.
-  **Not a reason to avoid reading his code — a reason to know which is which while doing it.**
+Adam asked Babcock directly whether he could borrow heavily from Faceclaw and g2flash: yes —
+**"subject to GPL."** So: **personal use unchanged** (GPL-3.0 imposes nothing on software you do
+not distribute); **public release constrained, not deferred** — if Damage derives substantially
+from Faceclaw or g2flash, **GPL-3.0 attaches on distribution**. The cheapest way to keep the
+option open is a clean boundary *as we build*: our own compositor, layout engine and rasteriser,
+with borrowed CFW-protocol knowledge (wire formats, constants, the lease protocol) kept separate
+from borrowed *code*. Facts about a wire protocol are not copyrightable; his implementation is.
+Not a reason to avoid reading his code — a reason to know which is which.
 
 ### 🔴 DECIDED 2026-08-20 — clean room, and it is no longer hypothetical
 
-**Damage contains no `faceclaw` or `g2flash` code, and never will.** Protocol knowledge only; the design does
-not need the implementation. An off-the-cuff public comment saying Damage would use *"some borrowed
-code from FaceClaw"* is **retracted**.
+**Damage contains no `faceclaw` or `g2flash` code, and never will.** Protocol knowledge only. An
+off-the-cuff public comment saying Damage would use *"some borrowed code from FaceClaw"* is
+**retracted**.
 
-What Damage *does* borrow heavily is **G2CC** — Adam's own, licence his to set, and far more mature:
-shipped, tested, and in daily use. Anything he does not control stays out of any release exactly as
-it already does in G2CC — but note the 2026-09-02 refinement (`CLAUDE.md`): the line is
-**redistribution, not implementation**, so the *window* that drives a third party's game may ship
-while the game itself never does. Universal Paperclips is fetched from the author's site at run time
-and hash-pinned; FF1 runs on a ROM the user rips from their own cartridge. **Even's SDK and
-third-party fonts with unclear terms have no such path and stay out unconditionally.**
+What Damage *does* borrow heavily is **G2CC** — Adam's own, licence his to set, shipped and in
+daily use. Anything he does not control stays out of any release — with the 2026-09-02 refinement
+(`CLAUDE.md`): the line is **redistribution, not implementation**, so the *window* that drives a
+third party's game may ship while the game never does (Universal Paperclips fetched from the
+author's site at run time and hash-pinned; FF1 on a ROM the user rips from their own cartridge).
+**Even's SDK and third-party fonts with unclear terms have no such path and stay out
+unconditionally.**
 
-**Why the timing matters:** a public, cross-platform release is now intended (§10 of `DESIGN.md`)
-and compensation is a live possibility. GPL-3.0 attaching to the whole derived work would foreclose
-options that are open today. The boundary costs nothing to keep before the compositor exists and is
-close to unfixable afterwards. The rule is in `CLAUDE.md`.
+**Why the timing matters:** a public, cross-platform release is intended (`DESIGN.md` §10) and
+compensation is a live possibility; GPL-3.0 attaching to the whole derived work would foreclose
+options open today. The boundary costs nothing to keep before the compositor exists and is close
+to unfixable afterwards. The rule is in `CLAUDE.md`.
 
 ## 15. Collaboration — the Babcock thread (opened 2026-08-16)
 
-He reached out first, having noticed the overlap between G2CC and Faceclaw (he found the address by
-grepping `adam` in the public g2cc repo — see the hygiene note below). Current state:
+He reached out first, having noticed the overlap between G2CC and Faceclaw (he found the address
+by grepping `adam` in the public g2cc repo — hygiene note below).
 
-- **His offer:** pull changes and add credits, **or work in a shared repo** — he prefers the latter,
-  noting "the natural scope for a G2 UI replacement project is a bit larger than the scope of all
+- **His offer:** pull changes and add credits, **or work in a shared repo** — he prefers the
+  latter: "the natural scope for a G2 UI replacement project is a bit larger than the scope of all
   the stock firmware and apps combined."
-- **His current work, all relevant to us:** (a) **EvenHub compatibility** — running EvenHub apps in
-  a webview, rasterising the layout to an image and sending that, plus extensions over the stock API
-  to give app devs a reason to switch firmware; (b) **font configurability** (he prefers small
-  fonts, ships Terminus 6×12, doesn't expect it to suit everyone); (c) 🔑 **a texture cache in the
-  firmware protocol** — see §11 #2; it LANDED in a5d1c31 (2026-08-30), the firmware now
-  installed.
-- **Adam's stated position:** personal use, no Hub compatibility wanted, **PC-powered with the phone
-  as a Tailscale bridge** — which he flagged to Babcock as possibly incompatible with Faceclaw's
-  phone-resident design. That is the honest seam: **Faceclaw runs on the phone, Damage runs on the
-  PC.** Collaborate below the UI (firmware, wire format, capability negotiation); stay independent
-  above it (compositor, apps, fonts).
-- **What we have already given back:** the g2-kit docs-vs-code discrepancies, including the
-  `is_last` / `CompressMode` footgun, raised because `faceclaw/CLAUDE.md` still points contributors
-  at `g2-kit/ble/docs/`.
+- **His current work:** (a) **EvenHub compatibility** — EvenHub apps in a webview, the layout
+  rasterised to an image and sent, plus extensions over the stock API; (b) **font
+  configurability** (he prefers small fonts, ships Terminus 6×12); (c) 🔑 **a texture cache in the
+  firmware protocol** — §11 #2; LANDED in a5d1c31 (2026-08-30), the installed firmware.
+- **Adam's stated position:** personal use, no Hub compatibility wanted, **PC-powered with the
+  phone as a Tailscale bridge** — flagged to Babcock as possibly incompatible with Faceclaw's
+  phone-resident design. The seam: **Faceclaw runs on the phone, Damage on the PC.** Collaborate
+  below the UI (firmware, wire format, capability negotiation); stay independent above it.
+- **Given back so far:** the g2-kit docs-vs-code discrepancies, including the `is_last` /
+  `CompressMode` hazard, raised because `faceclaw/CLAUDE.md` still points contributors at
+  `g2-kit/ble/docs/`.
 
 ### Hygiene: contact details are exposed via the public G2CC repo
 
-Babcock made contact by finding Adam's address in `github.com/expectbugs/G2CC`, which is public and
-carries it in both tracked files and commit metadata. **The specific inventory has been redacted
-from this document** — it lived here only as a to-do, and enumerating addresses and their file
-locations in a public repo is the same mistake it was describing.
-
-⚠ The load-bearing part is unchanged and worth keeping: **a working-tree scrub does not remove
-anything from git history.** Deciding what to expose has to happen *before* the first push, not
-after. **Adam's call; G2CC is not ours to edit** (§10).
+Babcock found Adam's address in `github.com/expectbugs/G2CC`, which is public and carries it in
+tracked files and commit metadata. The specific inventory has been redacted from this document —
+enumerating addresses and their file locations in a public repo is the mistake it described. The
+load-bearing part: **a working-tree scrub does not remove anything from git history.** Deciding
+what to expose has to happen *before* the first push. **Adam's call; G2CC is not ours to edit**
+(§10).

@@ -1,242 +1,152 @@
 # Damage — implementation notes
 
-**First stage built 2026-08-24; finishing build 2026-08-25 (`HANDOFF.md` §8); LIVE ON HARDWARE
-since first light 2026-08-30 (§11); the refinement wave landed 2026-08-31 (§12); the DAILY
-DRIVER went live 2026-08-31 (§13.3b–§17, `DAILY.md`) and was RE-SHAPED the same night by the
-§19 correction: the PHONE SHELL is the primary driver (it owns the radio AND the shell, always,
-while the APK is up); the OpenRC `damage` service is the DATA PROVIDER — content + tmux +
-last-write-wins state sync on the content port — plus a STANDBY that drives PC-direct BLE only
-while the APK is unavailable and hands the radio back when it returns.** The shell core, the
-byte-exact glass simulator, the desktop program, and the phone APK — Reader, Tmux, **Files
-(2026-09-01, the first conversion)**, **Torrents (2026-09-01 evening, with the §4.8 keyboard)**,
-**Music (2026-09-02 — the phone plays, the PC serves; Music Mode = the shell's exclusive mode)**,
-**Games · Hold'em (2026-09-04 — pure Kotlin, no host at all)**,
-Main and Settings at the app layer, the full shell underneath, everything on the **CFW display
-contract** (modes 3/6/8/9 + the 11–15 texture-cache wire layer, the FB lease, the capability gate).
-
-**2026-09-01 (later) — two chrome tweaks (Adam):** the battery cell shrank to its two gauges
-(120 px, flush against the clock — the title gained 56 px), and the silent-mode clock size
-became a Global setting (`Silent clock`: large / medium seven-segment, small = the title bar
-clock's cell — `DESIGN.md` §1.5).
-
-**2026-09-01 — the FILES build + the §16 machinery + an 8-round review loop run to
-convergence (79→20→28→9→3→3→2→0 — HANDOFF.md §22):** the
-Files window (locations with capacity bars · tap-=-context-menu grammar · text/image/PDF
-viewers · clipboard Copy/Cut→Paste · trash with Restore and double-confirm purge · typed
-rename/mkdir · Open-on-PC · EPUB→Reader hand-off) over the new shared machinery: the
-**MenuSurface** floating context menu, the **WinNet** generic window channel
-(`{"t":"win","win":…}` on the content port, blob answers), **theme icons everywhere**
-(Papirus-Dark via desktop `ThemeIcons` + phone `RemoteIcons` over a content-port icon op;
-drawn set = fallback and release path; Main's lens icon is band-height 56 px), the §16.4
-**state substrate** (per-item sub-records with reported-guarded tombstones, merge-on-load,
-post-start reconciliation, the continuity gates), `open(target)`/`openWindow` deep links with
-back-to-caller, the grown notification signature (appId/thread/target), and `Draw.fit`/
-`Draw.dynamic` (every cut advertised; external text '?'-substitutes instead of throwing).
-Module map additions: `core.windows.files`, `core.net` (WinNet), `core.util.Exec`
-(deadlock-proof subprocess runner), shell `MenuSurface`/`Draw`, `gfx.IconSource`, desktop
-`ThemeIcons`, phone `RemoteIcons`.
+What runs and how. First stage 2026-08-24; finishing build 2026-08-25 (`HANDOFF.md` §8); live on hardware
+since 2026-08-30 (§11); the daily driver since 2026-08-31 (`DAILY.md`), re-shaped the same night by §19: **the
+phone shell is the primary driver (radio and shell, while the APK is up); the OpenRC `damage` service is the
+data provider — content + tmux + last-write-wins state sync on the content port — and a standby that drives
+PC-direct BLE only while the APK is away.** One `:core` library holds the shell, the byte-exact glass
+simulator, the compositor and every window (Main · Settings · Reader · Tmux · Files · Torrents · Music · Games
+· Feed) on the CFW display contract (modes 3/6/8/9, the 11–15 texture-cache layer, the FB lease, the capability
+gate). Per-window records: `TMUX.md`, `TORRENTS.md`, `MUSIC.md`, `HOLDEM.md`, `FEED.md`; Files is `HANDOFF.md`
+§22 — it brought the shared machinery `WINDOWS.md` §4 lists (`MenuSurface`, the WinNet channel, theme icons via
+desktop `ThemeIcons` + phone `RemoteIcons` with the drawn set as fallback and release path, the §16.4 state
+substrate, deep links, the notification signature, `Draw.fit` / `Draw.dynamic`). Two chrome facts of
+2026-09-01 (Adam): the battery cell is its two gauges (120 px, flush against the clock; the title gained 56 px)
+and the silent-mode clock size is the Global `Silent clock` row (`DESIGN.md` §1.5).
 
 ## The two locked decisions
 
-**Runtime: Kotlin/JVM** (the first build's open item #11, closed by it). One `:core` library holds the entire
-shell — compositor, wire codecs, simulator, surfaces, Reader — and runs
-unmodified inside the desktop JVM program and the Android APK. Core uses no
-AWT and no android.*; platform text rasterization enters through
-`wm.damage.core.text.TextRasterizer` (AWT on desktop, android.graphics on the
-phone), with faces x-height-normalised to the §Type measurements on both.
+**Runtime: Kotlin/JVM** (open item #11). One `:core` library holds the entire shell — compositor, wire
+codecs, simulator, surfaces, windows — and runs unmodified inside the desktop JVM program and the Android
+APK. Core uses no AWT and no `android.*`; platform text rasterization enters through
+`wm.damage.core.text.TextRasterizer` (AWT on desktop, `android.graphics` on the phone), faces
+x-height-normalised to the §Type measurements on both.
 
-**The transport ↔ shell seam** (open item #12, likewise closed) is
-`wm.damage.core.transport.Transport`:
+**The transport ↔ shell seam** (open item #12) is `wm.damage.core.transport.Transport`:
 
 ```
 shell  ──FlushRequest{ops: Keyframe|Delta|Copy|StereoPair, epoch, wide}──▶  transport
        ◀──TransportEvent{Input, FlushDone, Lease, Link, DiagFlags, Fault}──
 ```
 
-- Ops are NOMINAL coordinates + per-op disparity; the emitter builds the
-  per-lens stereo boxes (§3.4). Payloads arrive pre-compressed (zlib(rle)) —
-  compression is the shell's job (§10.1).
-- **Fids are stamped by the transport at EMIT time** (§8.2 #5), via the shared
-  `Emit` encoder every implementation uses.
-- `submit()` enqueues in call order and returns; the backpressure signal
-  §5.13's coalescing rides on is `LinkState.inFlight` against `window`, which
-  the shell's pump gates on (the fragment window inside the transport backs
-  it). A `wide` flush drains the window and runs at depth 1 — §8.2 #4's
-  rects-for-depth trade.
-- The same interface serializes over TCP (`RemoteTransportClient/Server`,
-  length-prefixed JSON + binary): the shell can live on the PC while the
-  transport lives on the phone, or the reverse. The server admits ONE driver;
-  claim/yield callbacks let the phone's local shell hand over and take back —
-  the "both able to take over" requirement.
+- Ops are NOMINAL coordinates + per-op disparity; the emitter builds the per-lens stereo boxes (§3.4).
+  Payloads arrive pre-compressed (zlib(rle)) — compression is the shell's job (§10.1).
+- **Fids are stamped by the transport at EMIT time** (§8.2 #5), via the shared `Emit` encoder.
+- `submit()` enqueues in call order and returns; the backpressure signal is `LinkState.inFlight` against
+  `window`, which the shell's pump gates on. A `wide` flush drains the window and runs at depth 1.
+- The same interface serializes over TCP (`RemoteTransportClient/Server`, length-prefixed JSON + binary):
+  the shell can live on the PC while the transport lives on the phone, or the reverse. The server admits
+  ONE driver; claim/yield callbacks let the phone's local shell hand over and take back.
 
-Every transport shares `CfwTransportBase` — the full choreography (capability
-gate → carrier CREATE → lease both arms + 45 s renewal → warmup splash → idle
-keepalive → fragmenting ≤3800 B → msgId/session discipline) — so both live
-BLE paths run the exact protocol brain the sim exercises on every selfcheck.
+Every transport shares `CfwTransportBase` — the full choreography (capability gate → carrier CREATE → lease
+both arms + 45 s renewal → warmup splash → idle keepalive → fragmenting ≤ 3800 B → msgId/session
+discipline) — so both live BLE paths run the protocol brain the sim exercises on every selfcheck.
 
 ## Module map
 
 ```
-core/       wm.damage.core.geom       panel constants, Rect, the runtime lint gate
-                                      (same rule IDs as tools/geometry.py), Layout
-                                      (safe-rect-relative, §2.2b), fid discipline
-            wm.damage.core.gfx        Gray8 compose surface, firmware-exact nibble
-                                      RLE (pinned to fbfeas.py vectors), 4bpp pack,
-                                      level-6 deflate, drawn icons/shapes (§4.5b)
-            wm.damage.core.wire       CRC-16, protobuf, AA envelope + reassembly,
-                                      EvenHub carrier messages, sid-0x09 lease +
-                                      capability, mode 3/6/8/9 builders (all byte
-                                      layouts read from zlib_glue.c)
-            wm.damage.core.sim        GlassFirmwareSim — the byte-exact model:
-                                      per-lens shadows, cfw_diag fid ring + flags,
-                                      warmup drop, msgId-255 silence, stuck sessions,
-                                      lease fail-open, silent rejects made loud
-            wm.damage.core.transport  the seam + Emit + CfwTransportBase +
-                                      SimTransport + Remote client/server
-            wm.damage.core.comp       the compositor (one mode-8 flush per frame,
-                                      §5 rules), JSONL journal
-            wm.damage.core.shell      Shell orchestrator, input grammar, chrome,
-                                      Main, switcher, notifications, silent mode,
-                                      ContentKit (lens/list/document), slides,
-                                      persistence, settings, MenuSurface, the
-                                      §4.8 KeyboardSurface (2026-09-01)
-            wm.damage.core.windows.reader  Reader + EPUB extraction
-            wm.damage.core.windows.files   FILES (2026-09-01): the window, the
-                                      Local/Remote providers, FilesService on
-                                      the win channel, trash manifest
-            wm.damage.core.windows.tmux    Tmux window + providers + TmuxNet
-            wm.damage.core.windows.torrents TORRENTS (2026-09-01): QbtClient (Web
-                                      API 2.11), the TorrentLeech adapter + Html
-                                      reader, Local/Remote providers, TorrentsNet
-            wm.damage.core.windows.music   MUSIC (2026-09-02): MusicModel (types +
-                                      the MusicLibrary/MusicPlayer contracts), the
-                                      Db seam + MusicDb (every SQL), Qdrant,
-                                      MediaCache/transcoder + MediaServer (Range),
-                                      Art, LibraryScan, LocalMusicLibrary + MusicNet
-                                      (service + remote with disk caches, push
-                                      frames), QueueEngine, PlayerCore + Sim/Mirror
-                                      players, LyricsSync, Viz renderers, Resolver +
-                                      ClaudeOneShot + EmbedQuery, LyricsFetch,
-                                      YouTube, Enrich, MusicWindow (+ Music Mode)
-            wm.damage.core.windows.games   GAMES (2026-09-04): GamesWindow (the
-                                      hub, the table and its levels) · kit/ —
-                                      Rng (counter-based splitmix64), Cards,
-                                      HandEval, Pots (side pots + settlement),
-                                      Money (formatting, drawn chips, the
-                                      seven-segment scoreboard), CardArt,
-                                      HandFan, TableLayout, Seats, ActionLevel,
-                                      Bankroll — none of which names a card
-                                      game · holdem/ — HoldemRules, HoldemTable
-                                      (the engine: an action LOG the view is
-                                      replayed from), Equity, HoldemBot,
-                                      HoldemView · roster/ — Character, Mood,
-                                      Roster, Background (the ecology)
-            wm.damage.core.net        WinNet — the §16.10 generic window
-                                      channel (wreq/wres + raw blob answers)
+core/       wm.damage.core.geom       panel constants, Rect, the runtime lint gate (same rule IDs as
+                                      tools/geometry.py), Layout (safe-rect-relative, §2.2b), fid discipline
+            wm.damage.core.gfx        Gray8 compose surface, firmware-exact nibble RLE (pinned to fbfeas.py),
+                                      4bpp pack, level-6 deflate, drawn icons/shapes (§4.5b)
+            wm.damage.core.wire       CRC-16, protobuf, AA envelope + reassembly, EvenHub carrier messages,
+                                      sid-0x09 lease + capability, mode 3/6/8/9 builders, CfwModes (11–15),
+                                      TextureCache (byte layouts from zlib_glue.c / texture_cache.c)
+            wm.damage.core.sim        GlassFirmwareSim — the byte-exact model: per-lens shadows, cfw_diag fid
+                                      ring + flags, warmup drop, msgId-255 silence, lease fail-open, the
+                                      texture cache, silent rejects made loud
+            wm.damage.core.transport  the seam + Emit + CfwTransportBase + SimTransport + Remote client/server
+                                      + PathTransport
+            wm.damage.core.comp       the compositor (one mode-8 flush per frame, §5), CachedText, CanvasShift,
+                                      the JSONL journal
+            wm.damage.core.shell      Shell, input grammar, chrome, Main, switcher, notifications, silent mode,
+                                      ContentKit (lens/list/document), slides, persistence, settings,
+                                      MenuSurface, KeyboardSurface (§4.8), ShellKeeper
+            wm.damage.core.windows.reader   Reader + EPUB extraction
+            wm.damage.core.windows.files    the window, Local/Remote providers, FilesService, trash manifest
+            wm.damage.core.windows.tmux     Tmux window + providers + TmuxNet
+            wm.damage.core.windows.torrents QbtClient (Web API 2.11), TorrentLeech + Html, providers, TorrentsNet
+            wm.damage.core.windows.music    MusicModel (the MusicLibrary/MusicPlayer contracts), Db + MusicDb,
+                                      Qdrant, MediaCache + MediaServer, Art, LibraryScan, AdaptivePlaylists,
+                                      LocalMusicLibrary + MusicNet, QueueEngine, PlayerCore + Sim/Mirror
+                                      players, LyricsSync, Viz, Resolver + ClaudeOneShot + EmbedQuery,
+                                      LyricsFetch, YouTube, Enrich, MusicWindow (+ Music Mode)
+            wm.damage.core.windows.games    GamesWindow · kit/ — Rng (counter-based splitmix64), Cards,
+                                      HandEval, Pots, Money, CardArt, HandFan, TableLayout, Seats,
+                                      ActionLevel, Bankroll (none names a card game) · holdem/ — HoldemRules,
+                                      HoldemTable (an action LOG replayed), Equity, HoldemBot, HoldemView ·
+                                      roster/ — Character, Mood, Roster, Background
+            wm.damage.core.windows.feed     FeedModel, FeedHttp (+ PacedHttp), FeedXml, Fetchers, Extract,
+                                      Strips, FeedStore, FeedEngine (both hosts), FeedProvider, FeedNet,
+                                      FeedWindow, ScriptedFeed
+            wm.damage.core.net        WinNet — the §16.10 window channel (wreq/wres + blob answers + wpush)
             wm.damage.core.sync       SyncNet/RemoteSync — LWW state sync
-            wm.damage.core.util       Log · Exec (deadlock-proof subprocess
-                                      runner — stderr drains concurrently) · Http
+            wm.damage.core.util       Log · Exec (subprocess runner, stderr drained concurrently) · Http
                                       (HttpURLConnection, no timeouts, multipart)
-            wm.damage.core.content    library providers: local dir, TCP host,
-                                      remote client with copy-on-open caching;
-                                      + the win/icon dispatch (2026-09-01)
-desktop/    AWT rasterizer · Swing lens preview (integer-scaled, default 4x;
-            keyboard + mouse = ring) · CLI · ThemeIcons (Papirus-Dark from
-            xfconf, rsvg-convert, mem+disk cache, serves the phone) · PgDb
-            (pgjdbc over the Unix socket) · MusicPlugins · MusicCheck ·
-            ScriptedMusic · GamesCheck (--games-check) · CardSheet
-            (--card-render)
-audio/      the enrichment package taken over from G2CC (Adam's code) +
-            viz.py (the DVIZ visualizer blobs) — run on G2CC's venv for now
-phone/      Android app: foreground ShellService, on-screen lens view (touch =
-            ring), AndroidText (bundled OFL/Apache fonts), BleTransport (LIVE
-            on hardware since 2026-08-31), transport seam server, wakelock +
-            Doze exemption + BootReceiver, §9.3 urgent phone notifications,
-            RemoteIcons (theme bitmaps fetched + theme-keyed disk cache)
+            wm.damage.core.content    library providers: local dir, TCP host, remote client with copy-on-open
+                                      caching; the win/icon dispatch
+            wm.damage.core.text       TextRasterizer, Style/StyleTransform, GlyphCaches, Wrap
+desktop/    AWT rasterizer · Swing lens preview (integer-scaled, default 4×; keyboard + mouse = ring) · CLI ·
+            ThemeIcons (Papirus-Dark from xfconf, rsvg-convert, mem+disk cache, serves the phone) · PgDb ·
+            MusicPlugins · MusicCheck · ScriptedMusic · ScriptedTmux · ScriptedTorrents · GamesCheck ·
+            CardSheet · FeedCheck · SelfCheck · Snapshot · SetupServer (/setup + /damage-apk on :7300) ·
+            BlueZLink/BlueZTransport (PC-direct BLE)
+audio/      the enrichment package taken over from G2CC (Adam's code) + viz.py — run on G2CC's venv for now
+phone/      foreground ShellService, on-screen lens view (touch = ring), AndroidText (bundled OFL/Apache
+            fonts), BleTransport (LIVE since 2026-08-31), transport seam server, wakelock + Doze exemption +
+            BootReceiver, §9.3 urgent phone notifications, RemoteIcons, AndroidMusicPlayer, MusicListener,
+            SpotifyRemote
 ```
 
 ## The finishing build (2026-08-25)
 
-Adam's target: *flash the firmware, install the app, and it works — usable from the app or the PC
-with a mouse, on a pixel-exact replica.* `HANDOFF.md` §8 holds the decisions, the fixed design
-and the item-by-item log; this is the map of what it added.
+Adam's target: *flash the firmware, install the app, and it works — usable from the app or the PC with a
+mouse, on a pixel-exact replica.* `HANDOFF.md` §8 is the record; what it added:
 
-- **Every transport owns a mirror** (`Transport.mirror: LensPanels`): a `GlassFirmwareSim` fed
-  the exact packets the transport writes (after each write succeeds); the sim transport's mirror
-  is its sim. Its `decode`/`fid`/`session` events surface as `mirror/<kind>` faults — the model
-  predicting a silent rejection. Every replica draws it. `Transport.injectInput` lets a replica's
-  gesture enter the transport's event flow, so it reaches whichever shell drives.
-- **The connect prelude** (`wire/LaunchMsg.kt`): one sid-0x01 app-launch request after both arms
-  are up and an 800 ms settle, acked on its msgId, before the capability gate — the CFW
-  reference's sequence. The 7-packet sid-0x80 sequence is never sent. The model treats the
-  prelude as required (graded U; a missing prelude shows as a blank panel).
-- **The divergence check** (`Shell.checkMirrorAgreement`): at rest, the compositor's belief per
-  lens must equal the mirror through the emitter's quantiser; a disagreement is reported once per
-  episode (status `DIVERGE`, journal, urgent notice) and answered with one keyframe.
-- **The session keeper** (`shell/ShellKeeper.kt`): the reconnect loop both hosts use — a link end
-  restarts the session after a 2 s pause, forever, no timeouts; a capability refusal is terminal
-  (`onTerminal`); `pause`/`resume` for takeovers. **Since 2026-08-31 ("the session outlives the
-  driver", HANDOFF §16): `pause` YIELDS — `shell.stop(stopTransport=false)` — so the glasses
-  session (lease renewal included) keeps running with no driver, and `Shell.start()` ADOPTS a
-  live session (skips the choreography, rebaselines with one wide keyframe). The seam server
-  answers a claim of a live session with an adopt-grant, never re-choreographs, and NEVER stops
-  the owner's session on driver loss or release — a WiFi edge is now two invisible repaints, not
-  two teardowns (the G2CC decoupling: its BLE session's lifetime never depended on the server
-  link). The transport's OWNING host still tears it down for real (stack teardown, target
-  switch). `HandoverTest` ×4 pins it — `preludeAcks == 1` across claim/silent-death/release/
-  pause/resume is the probe.**
-- **The arbitration** (`transport/PathTransport.kt`): concurrent attempts over the candidate paths
-  (the phone's seam first by a head start, PC-direct BLE after), the first to start wins and the
-  rest are cancelled, a failed attempt is retried with backoff while the search is open, a
-  refused path is disabled for the run; a working path is held until it ends.
-  ⛔ **No longer the desktop's default (§19, 2026-08-31): `auto` is the STANDBY policy now** —
-  see "Phone-primary + sync" below. The class stays (tested; `--transport remote` remains the
-  explicit claim-and-drive dev override).
-- **The phone**: `BleTransport` rebuilt on G2CC's driver + the reference's sequence (RIGHT then
-  LEFT, `retry(10, 500)`, MTU 512 checked ≥ 245, priority HIGH, notify enable surfaced, cached
-  pair addresses, RSSI poll); `ShellService` on the keeper (a seam claim pauses it, a release
-  resumes it; a refusal falls back to the simulator with a persistent notification); the
-  **Target** switch (strip button with confirm + a Settings row) persisted in `Prefs`; `LensView`
-  draws the mirror, touch goes through `injectInput`; the browser replica is served on 7403.
-- **PC-direct BLE** (`desktop/BlueZLink.kt`, `BlueZTransport.kt`): `bluez-dbus` 0.3.5 + `dbus-java`
-  5.2.0 (both MIT) on the system bus; `Device1.Connect` called raw so a refusal keeps its reason;
-  MTU from `Properties.Get`; notifications from `PropertiesChanged(Value)`; `Connected=false` ends
-  the session. Unit-tested over a fake link whose far end is the firmware model; hardware-proven at first
-  light 2026-08-30 (`HANDOFF.md` §11, the section below) and since §19 the STANDBY path — it
-  drives only while the APK is away.
-- **The seam carries the mirror**: `RemoteTransportServer` streams changed row ranges of both
-  panels through one ordered outbox with events and state, so a panel update precedes the
-  `done` of its flush; `RemoteTransportClient.mirror` applies them (display-only, `exact=false`).
-- **The replicas**: the desktop `Preview` (mouse = ring: wheel notch, left tap, right double-tap,
-  hold ≥ 600 ms long-press then release; Tab lens, B both; a status strip under the lens image;
-  **integer-scaled, default 4×** since 2026-08-31 — Adam asked for "at least four times" the 1×
-  window; nearest-neighbour only, `-`/`=` adjust, auto-clamped to the screen. Legibility judgment
-  still belongs to true-1× renders or glass — `design/render_shots.py` stays 1×);
-  the browser page (`replica/ReplicaServer.kt` — dependency-free HTTP + RFC 6455, token-gated,
-  per-client dirty-row panel frames + 1 Hz status; `replica.html` — two 640×480 canvases,
-  pixelated, the same mouse/keyboard mapping, reconnect with backoff). Served by the desktop
+- **Every transport owns a mirror** (`Transport.mirror: LensPanels`): a `GlassFirmwareSim` fed the exact packets
+  the transport writes; its `decode`/`fid`/`session` events surface as `mirror/<kind>` faults. Every replica
+  draws it; `Transport.injectInput` lets a replica's gesture reach whichever shell drives.
+- **The connect prelude** (`wire/LaunchMsg.kt`): one sid-0x01 app-launch request after both arms are up and an
+  800 ms settle, acked on its msgId, before the capability gate; the 7-packet sid-0x80 sequence is never sent.
+  The model treats the prelude as required (graded U).
+- **The divergence check** (`Shell.checkMirrorAgreement`): at rest the compositor's belief per lens must equal
+  the mirror through the emitter's quantiser; a disagreement is reported once per episode (status `DIVERGE`,
+  journal, urgent notice) and answered with one keyframe.
+- **The session keeper** (`shell/ShellKeeper.kt`): a link end restarts the session after a 2 s pause, forever,
+  no timeouts; a capability refusal is terminal (`onTerminal`). Since §16 **`pause` YIELDS**
+  (`shell.stop(stopTransport=false)`): the glasses session, lease renewal included, keeps running with no
+  driver, and `Shell.start()` ADOPTS a live session (one wide keyframe). The seam server answers a claim of a
+  live session with an adopt-grant and never stops the owner's session on driver loss; only the OWNING host
+  tears it down. `HandoverTest` ×4 (`preludeAcks == 1` across claim / silent death / release / pause / resume).
+- **The arbitration** (`transport/PathTransport.kt`): concurrent attempts over the candidate paths, first to
+  start wins, a refused path disabled for the run. ⛔ Not the desktop's default since §19 — `auto` is the
+  STANDBY policy; `--transport remote` is the explicit claim-and-drive dev override.
+- **The phone**: `BleTransport` on G2CC's driver + the reference's sequence (RIGHT then LEFT, `retry(10, 500)`,
+  MTU 512 checked ≥ 245, priority HIGH, cached pair addresses, RSSI poll); `ShellService` on the keeper (a seam
+  claim pauses it, a release resumes it); the **Target** switch in `Prefs`; `LensView` draws the mirror.
+- **PC-direct BLE** (`desktop/BlueZLink.kt`, `BlueZTransport.kt`): `bluez-dbus` 0.3.5 + `dbus-java` 5.2.0 (both
+  MIT) on the system bus; `Device1.Connect` called raw so a refusal keeps its reason; MTU from
+  `Properties.Get`; notifications from `PropertiesChanged(Value)`; `Connected=false` ends the session.
+  Unit-tested over a fake link whose far end is the firmware model; the STANDBY path since §19.
+- **The seam carries the mirror**: `RemoteTransportServer` streams changed row ranges of both panels through
+  one ordered outbox, so a panel update precedes the `done` of its flush (`RemoteTransportClient.mirror`,
+  display-only).
+- **The replicas**: the desktop `Preview` (**integer-scaled, default 4×** at Adam's ask — legibility judgment
+  still belongs to true-1× renders or glass) and the browser page (`replica/ReplicaServer.kt` — dependency-free
+  HTTP + RFC 6455, token-gated, dirty-row panel frames + 1 Hz status; `replica.html`), served by the desktop
   (`replicaPort` 7403) and the phone.
-- **Host-supplied Settings rows** (`HostSetting`): the display target on both hosts — staged on
-  scroll, applied on tap, reverted on double-tap; applying rebuilds the stack.
-- **Decision 6**: an ORDINARY notification arriving while the switcher wheel, the context menu
-  or the keyboard is open waits behind it; an EMERGENCY cancels the surface (the keyboard's
-  draft kept) and shows first (the 2026-09-01 review rounds).
-
-**2026-08-30 — long-press defaults off (`DESIGN.md` §1.2/§1.3 revised).** A bare long-press is a
-no-op everywhere — it is the most common accidental press, all day, gloves worst — and in silent
-mode it does not even arm. The switcher opens by the chord: long-press, then double-tap within
-800 ms of the release (event 9 arms, event 10 refreshes, any other gesture ends it; a mistimed
-chord is plain back; the input echo's "hold" glyph is the armed indicator). The Settings row
-**"Long-press": off / switcher** restores the direct open — which also restores the focused
-notice's dismiss-unread long-press; by default that job belongs to the chord (the wheel parks the
-box unread and returns it on close). `LongPressTest` pins the grammar; whether the real ring
-delivers the release event was answered on hardware: event 10 fires after almost every
-touch-end — see `HANDOFF.md` §11.
+- **Host-supplied Settings rows** (`HostSetting`): the display target on both hosts — staged on scroll, applied
+  on tap, reverted on double-tap; applying rebuilds the stack.
+- **Decision 6**: an ORDINARY notification arriving while the wheel, the context menu or the keyboard is open
+  waits behind it; an EMERGENCY cancels the surface (the keyboard's draft kept) and shows first.
+- **Long-press defaults off** (2026-08-30, `DESIGN.md` §1.2/§1.3): a bare long-press is a no-op everywhere. The
+  switcher opens by the chord: long-press, then double-tap within 800 ms of the release (event 9 arms, event 10
+  refreshes; a mistimed chord is plain back). The Settings row **"Long-press": off / switcher** restores the
+  direct open. `LongPressTest`; on hardware event 10 fires after almost every touch-end (§11).
 
 ## Running it
 
-Desktop (laptop-direct with the sim standing in for glass — §10.8's
-development environment; also serves ~/books to the phone):
+Desktop (the sim standing in for glass; also serves `~/books` to the phone):
 
 ```
 ./gradlew :desktop:run                        # AUTO = STANDBY (§19): data host (content+tmux+sync) + replica; probes the phone, BLE-drives ONLY while the APK is away
@@ -244,51 +154,46 @@ development environment; also serves ~/books to the phone):
 ./gradlew :desktop:run --args="--transport ble"   # PC-direct BLE only (manual)
 ./gradlew :desktop:run --args="--remote HOST"     # claim the phone's transport and drive through it — the EXPLICIT dev override
 ./gradlew :desktop:run --args="--ble-info"    # adapter enumeration only (no discovery)
-./gradlew :desktop:run --args="--selfcheck"   # the 189-check scripted gate (Files, Torrents, keyboard, Music and Games walks, the truth oracle on every settle)
-./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface
+./gradlew :desktop:run --args="--selfcheck"   # the 230-check scripted gate (every window's walk, the truth oracle on every settle)
+./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface (57 scenes)
 ./gradlew :desktop:run --args="--epub-check"  # parse every book in ~/books
-./gradlew :desktop:run --args="--music-check" # the real g2cc library, read-only bar the additive schema migration: counts, the catalog, lanes, cache keys, Qdrant, one viz blob
+./gradlew :desktop:run --args="--music-check" # the real g2cc library, read-only bar the additive schema migration: counts, catalog, lanes, cache keys, Qdrant, one viz blob, the adaptive-playlist derivation
 ./gradlew :desktop:run --args="--games-check" # the Hold'em ecology over hundreds of simulated tournaments (pure in-memory; add `deep` for a longer run)
 ./gradlew :desktop:run --args="--card-render" # the card sheets into design/shots/cards/ at true 1x
-./gradlew :desktop:run --args="--host-only"   # content host alone (books + tmux + sync, no stack ever)
-./gradlew :desktop:test                       # 11 tests: the BlueZ glue over the fake link + the config file's safety
+./gradlew :desktop:run --args="--feed-check [DIR] [live]"  # the feed engine over the captured fixtures; `live` = one paced fetch per source, read-only, temp dir
+./gradlew :desktop:run --args="--host-only"   # content host alone (books + tmux + sync + setup page, no stack ever)
+./gradlew :desktop:test                       # 15 tests: the BlueZ glue over the fake link, the config file's safety, SetupServer, the xkcd PNG through the decoder
 ```
 
-Preview: mouse wheel scroll · left click tap · right click double-tap · press-and-hold
-long-press (release on let-go) · keys ↑/↓ Enter Backspace Space R · Tab lens · B both ·
--/= window scale (integer nearest-neighbour, default 4×, clamped to the screen).
-The browser replica link is printed at start (`http://<host>:7403/?token=…`); the same server
-answers `GET /journal?token=…[&tail=N]` with that host's flush journal (2026-09-05, `HANDOFF.md`
-§32 — the phone's, without adb; `tools/journal_report.py -` reads it from stdin) and
-`GET /log?token=…[&tail=N]` with the process's last 4,000 log lines (`Log.recent`, §42). Config in
-`~/.damage/config.json` (books dir, ports, token — generated on first run and must match
-`damage-secrets.properties` before building the APK; an UNREADABLE file — a stray comma in a
-hand edit — runs defaults for that start with a loud log line and is never rewritten — the phone host, the cached pair
-addresses, the tmux hosts/quick keys/snippets/wait patterns, the qBittorrent URL and the
-TorrentLeech credentials, the `music*` keys of `MUSIC.md` §9.7 and `mediaPort`; the `Config`
-class in `desktop/Main.kt` is the key list).
+Preview: mouse wheel scroll · left click tap · right click double-tap · press-and-hold long-press · keys
+↑/↓ Enter Backspace Space R T(type) · Tab lens · B both · -/= window scale (integer, default 4×). The browser
+replica link is printed at start (`http://<host>:7403/?token=…`); the same server answers
+`GET /journal?token=…[&tail=N]` (that host's flush journal — `tools/journal_report.py -` reads it from
+stdin) and `GET /log?token=…[&tail=N]` (the process's last 4,000 log lines, `Log.recent`).
+
+Config in `~/.damage/config.json` — books dir, ports, token (generated on first run; must match
+`damage-secrets.properties` before building the APK), the phone host, the cached pair addresses, the tmux
+hosts/quick keys/snippets/wait patterns, `qbtUrl` + the TorrentLeech credentials, the `music*` keys of
+`MUSIC.md` §9.7 and `mediaPort`, `feedSources`/`feedUserAgent`/`feedDataDir`, `setupPort`/`setupToken`; the
+`Config` class in `desktop/Main.kt` is the key list. An UNREADABLE file runs defaults for that start, loudly,
+and is never rewritten.
 
 Phone:
 
 ```
 ./gradlew :phone:assembleDebug
 # -> phone/build/outputs/apk/debug/phone-debug.apk  (sideload on the Pixel 10a)
+./gradlew :phone:stageApk      # -> ~/.damage/damage-wm.apk, served by the service's /setup page on :7300
 ```
 
-The APK's daily default is Target=glasses: it DRIVES the pair over BLE as the primary driver
-(§19), fetches content from beardos over Tailscale, **copies each book locally on open**, and
-falls back to its caches when the PC is unreachable; it plays music from the PC's media
-endpoint (:7404) or its prefetch cache. It serves the seam on :7402 (probe/claim)
-and its replica on :7403. Distribution: `./gradlew :phone:stageApk` → `~/.damage/damage-wm.apk`
-→ the service's own `/setup` page on :7300 (`desktop/SetupServer.kt`, 2026-09-10 — G2CC's URL,
-token and Tailscale-only gate kept; its server retired). The SIM target remains the on-phone dev mode.
+The APK's daily default is Target = glasses: it DRIVES the pair over BLE (§19), fetches content from beardos
+over Tailscale, copies each book locally on open, falls back to its caches when the PC is unreachable, plays
+music from :7404 or its prefetch cache, serves the seam on :7402 (probe/claim) and its replica on :7403. The
+SIM target is the on-phone dev mode. Run the APK build in its OWN gradle invocation (`CLAUDE.md`).
 
-**The all-day daily driver (2026-08-31, `DAILY.md`):** `--no-preview` runs any mode headless
-(no Swing/X — set before AWT loads); `:desktop:stageJar` copies the fat jar to the STABLE
-`~/.damage/damage.jar`; the OpenRC service `/etc/init.d/damage` (supervise-daemon, `default`
-runlevel, user `user`) runs it in `auto` forever. Deploy = `stageJar` + `rc-service damage
-restart`; stop the service before any `:desktop:run` dev session (one central, one set of
-ports). `DAILY.md` is the ops crib and the one-time phone sequencing.
+**The all-day daily driver** (`DAILY.md`): `--no-preview` runs any mode headless; `:desktop:stageJar` copies the
+fat jar to the STABLE `~/.damage/damage.jar`; the OpenRC service `/etc/init.d/damage` runs it in `auto`. Deploy
+= `stageJar` + `rc-service damage restart`; stop the service before any `:desktop:run` dev session.
 
 ## Configurations wired today
 
@@ -303,880 +208,423 @@ ports). `DAILY.md` is the ops crib and the one-time phone sequencing.
 
 ## Phone-primary + sync (2026-08-31 night, `HANDOFF.md` §19 — the corrected §8.1 reading)
 
-- **`Persistence` is the sync substrate**: schema v2 with a per-key stamp, re-stamped only on
-  real value change; `tryApplyRemote` is strict last-write-wins (equal values adopt the higher
-  stamp silently and never re-apply); legacy stores migrate in place with mtime stamps.
-- **`core/sync/SyncNet.kt`** rides the content port exactly like the tmux channel
-  (`{"t":"sync"}` upgrade): handshake exchanges stamp maps + clocks (skew-normalized), newer
-  records flow both ways, then live pushes; the client (`RemoteSync`, in the phone's
-  `startStack`) reconnects keeper-style and re-handshakes every 5 min so a lost push always
-  heals. `shell.settings` + `window.<id>` sync; `shell.state` (per-device UI) never does.
-- **`Shell.postSync`** applies a record on the loop: freshen the key from the LIVE window
-  first, then LWW, then live-apply (restyle for settings; restore + repaint for the focused
-  window). The driving shell's state is newest by construction, so sync flows driver → idle.
-- **The seam status probe** (`SeamProbe` / `Ctl t="status"`): a non-claiming question — "does
-  the APK want the radio?" — answered by the phone from Target + liveness. An old APK answers
-  `busy`, read as YES (never contend with an APK that cannot be asked).
-- **Desktop `auto` = STANDBY**: one shared process-wide store feeding the sync channel and any
-  stack; probe every 5 s; APK absent/idle ×2 → build a plain `ble` stack; APK back → stop it
-  (the handback; the lease fails open and the phone re-choreographs). A BlueZ-less machine
-  stands by as data host only, loudly. PC deploys no longer touch the display at all.
-- Pinned by `SyncTest` ×6 (store LWW + migration, both-ways convergence + live push over a real
-  loopback host, old-host refusal survived, freshen-beats-older in a live shell, probe answers
-  without claiming).
+- **`Persistence` is the sync substrate**: schema v2 with a per-key stamp, re-stamped only on real value change;
+  `tryApplyRemote` is strict last-write-wins; legacy stores migrate in place with mtime stamps.
+- **`core/sync/SyncNet.kt`** rides the content port (`{"t":"sync"}` upgrade): the handshake exchanges stamp maps
+  + clocks (skew-normalized), newer records flow both ways, then live pushes; the client (`RemoteSync`, in the
+  phone's `startStack`) reconnects keeper-style and re-handshakes every 5 min. `shell.settings` + `window.<id>`
+  sync; `shell.state` (per-device UI) never does.
+- **`Shell.postSync`** applies a record on the loop: freshen the key from the LIVE window first, then LWW, then
+  live-apply. The driving shell's state is newest by construction, so sync flows driver → idle.
+- **The seam status probe** (`SeamProbe` / `Ctl t="status"`): a non-claiming "does the APK want the radio?"; an
+  old APK answers `busy`, read as YES.
+- **Desktop `auto` = STANDBY**: one process-wide store feeding the sync channel and any stack; probe every 5 s;
+  APK absent/idle ×2 → a plain `ble` stack; APK back → stop it (the lease fails open and the phone
+  re-choreographs). A BlueZ-less machine stands by as data host only, loudly. `SyncTest` ×6 pins it.
 
 ## Confirmed on hardware — first light, 2026-08-30
 
-The glasses run the CFW and the PC has driven them. `HANDOFF.md` §11 is the record.
-
-- **`BlueZTransport` works** — scan by name, RIGHT then LEFT, MTU 247, notifications, write
-  pacing, and **no bonding was needed**. It ran correctly the first time it ever saw a radio.
-- **The whole choreography works**: prelude, capability gate, carrier CREATE, both leases, the
-  warmup drop, then a painting shell.
-- **Input works** over ring → glasses → `e0-01`: scroll, tap and double-tap all arrive.
-- **The session keeper works** — two unplanned link ends, both recovered without help.
-- **Ack latency measured at ~50 ms**, against the modeled 176 ms. ⚠ Idle shell: the floor, not the
-  curve. See `HANDOFF.md` §11.1 before quoting it.
-
-Three defects surfaced within minutes and are fixed: the ack **status enum** read as an error code,
-the journal rewriting a closed stream, and inbound input never being logged. The first is the one
-worth remembering — **the simulator modeled success as an absent field, so no offline test could
-have caught it.** A model that errs toward permissive is worse than no model.
+`HANDOFF.md` §11 is the record. `BlueZTransport` worked the first time it saw a radio — scan by name, RIGHT
+then LEFT, MTU 247, notifications, write pacing, **no bonding needed**; the whole choreography (prelude,
+capability gate, carrier CREATE, both leases, the warmup drop) painted; ring input arrived over `e0-01`; the
+keeper recovered two unplanned link ends. **Ack latency ~50 ms** against the modeled 176 — an idle-shell
+floor, not the curve (§11.1). Three defects fixed within minutes; the one to remember: the ack **status
+enum** read as an error code because **the simulator modeled success as an absent field** — a model that
+errs toward permissive is worse than no model.
 
 ## The refinement wave (2026-08-31) — `HANDOFF.md` §12 is the full record
 
-Chrome depth, coarse scroll, Reader folders/chapters/images, per-app height, the digital clock,
-Settings directories, brightness + battery on the wire, the 4× preview — all live the same day.
-The one trap worth restating here: **the switcher had not worked since first light because our source
-filter discarded the unattributed events 9/10 (source 0)** — a test default that "helpfully"
-supplies what the wire omits is a model erring permissive; supply what the firmware actually
-sends. Do not reintroduce a source gate on events 9/10.
+Chrome depth, coarse scroll, Reader folders/chapters/images, per-app height, the digital clock, Settings
+directories, brightness + battery on the wire, the 4× preview. The one trap worth restating: **the switcher
+had not worked since first light because our source filter discarded the unattributed events 9/10 (source
+0)** — a test default that supplies what the wire omits. Do not reintroduce a source gate on events 9/10.
 
 ## The APK-mission prep (2026-08-31, HANDOFF.md §13 — before any phone-radio test)
 
-What "the phone as the default driver" needs beyond shared core, mined from the G2CC Android app
-(the heavily-tested reference) and from the seam's failure model. All built and battery-green,
-and all of it has run on the radio daily since the phone's own first light later that day (§13.2):
+Mined from G2CC's Android app and the seam's failure model; on the radio daily since the phone's first light
+the same day (§13.2):
 
-- **The seam heartbeat** (`RemoteTransport.kt`, both ends): each side sends a bare `ping` every
-  5 s; a side that has SEEN its peer speak the protocol treats 20 s of total silence as the link
-  ending — loudly, into the existing hardened teardown, so a silent path death (Tailscale, the
-  common case away from home) hands the glasses back to the phone shell in seconds instead of
-  TCP retransmission's many minutes. A peer that never pings keeps the old TCP-event-only
-  behaviour, so version skew cannot false-trip it. `SeamLivenessTest` (3 tests, raw-socket fake
-  peers that go quiet WITHOUT closing) pins both directions and the skew guard.
-- **The pocket-liveness trio** (each a G2CC factory finding): a PARTIAL_WAKE_LOCK while a
-  GLASSES stack runs (the FGS type stops process termination, NOT Doze CPU throttling — G2CC measured
-  delay() ticks gapping 13–28 s on a 10 s cadence; our lease renews every 45 s against the 90 s
-  fail-open), the battery-optimization exemption (asked once at first run; its absence stays in
-  the status line; a boot-time revocation raises a re-grant notification), and a `BootReceiver`
-  (BOOT_COMPLETED + MY_PACKAGE_REPLACED → auto-start, only when Target=GLASSES and the exemption
-  holds) so the default path survives reboots and sideload updates.
-- **Scan hardening** (`BleTransport.scanForPair`): Bluetooth turning off mid-scan does not
-  reliably reach `onScanFailed` — the await would park forever (G2CC's "scanning forever"
-  class), and toggling phone BT is the documented at-work recovery, so a BT-state receiver now
-  fails the scan loudly and the keeper rides the ON edge back in. A still-hunting scan is also
-  re-issued every 20 min, under Android's ~30-min silent downgrade to opportunistic.
-- **Distribution**: `./gradlew :phone:stageApk` stages the debug APK to `~/.damage/damage-wm.apk`;
-  the G2CC server's `/setup` page grew a DamageWM box and a `/damage-apk` endpoint (additive
-  twin of `/apk` — same Tailscale+token gate, mtime-stamped filename). (APK 3/0.3 at the
-  time; versions have moved on — the gradle file is the authority.) **2026-09-10:** G2CC's
-  server is retired; `desktop/SetupServer.kt` serves `/setup` + `/damage-apk` on the same port
-  with the same token and gate (`setupPort` / `setupToken` in `config.json`, `HANDOFF.md` §44).
-
-- ~~The phone's `BleTransport` has still never run on hardware~~ — **it passed its own first
-  light later the same day (2026-08-31, first try) and owns the radio all day now.** It is
-  written from G2CC's proven driver; the capability gate refuses any firmware without an
-  `EVENCFW` string, so stock glasses cannot be painted even by mistake.
-- Compass, IMU, wear detection: per `DESIGN.md` (§7) — compass cell draws a
-  placeholder until the mode-10 feed exists; head tracking defaults OFF.
-- ~~Texture caching (Babcock's in-progress firmware work)~~ — **it shipped**, see below.
+- **The seam heartbeat** (`RemoteTransport.kt`, both ends): a bare `ping` every 5 s; a side that has SEEN its
+  peer speak the protocol treats 20 s of total silence as the link ending — loudly — so a silent path death
+  (Tailscale) hands the glasses back to the phone shell in seconds. A peer that never pings keeps the
+  TCP-event-only behaviour. `SeamLivenessTest` ×3.
+- **The pocket-liveness trio**: a PARTIAL_WAKE_LOCK while a GLASSES stack runs (the FGS type stops process
+  termination, not Doze CPU throttling — G2CC measured `delay()` ticks gapping 13–28 s on a 10 s cadence; the
+  lease renews every 45 s against the 90 s fail-open); the battery-optimization exemption (asked once; its
+  absence stays in the status line; a boot-time revocation raises a re-grant notification); a `BootReceiver`
+  (BOOT_COMPLETED + MY_PACKAGE_REPLACED → auto-start when Target=GLASSES and the exemption holds).
+- **Scan hardening** (`BleTransport.scanForPair`): Bluetooth turning off mid-scan does not reliably reach
+  `onScanFailed`, so a BT-state receiver fails the scan loudly and the keeper rides the ON edge back in; a
+  still-hunting scan is re-issued every 20 min, under Android's ~30-min silent downgrade to opportunistic.
+- **Distribution**: `./gradlew :phone:stageApk` → `~/.damage/damage-wm.apk`; since 2026-09-10
+  `desktop/SetupServer.kt` serves `/setup` + `/damage-apk` on :7300 with G2CC's URL, token and Tailscale-only
+  gate (`setupPort` / `setupToken` in `config.json`, `HANDOFF.md` §44).
+- The capability gate refuses any firmware without an `EVENCFW` string. Compass, IMU, wear detection: per
+  `DESIGN.md` §7 — a placeholder compass cell until the mode-10 feed exists; head tracking defaults OFF.
 
 ## Feed + comics (2026-09-09, FEED.md — one engine on both hosts, a deliberate switchback)
 
-Reddit popular, Slashdot, xkcd, SMBC and the 8-Bit Theater archive. `core/…/windows/feed/`
-(4,600 lines, 2026-09-09): `FeedModel.kt` (the data classes, `FeedIds`, `FeedFmt`) ·
-`FeedHttp.kt` (`FeedHttp` get/post with headers, `RealFeedHttp`, `PacedHttp`, `RateLimited`) ·
-`FeedXml.kt` (a namespace-aware DOM helper, `FeedDates`) · `Fetchers.kt` (`RedditAtom`,
-`SlashdotRss` with `sourceFrom`/`parseThread`/`fetchMissing`/`parseFetched`, `XkcdFetcher`,
-`SmbcFetcher`, `RssFetcher`, `EightBit`) · `Extract.kt` (the jsoup scorer) · `Strips.kt` (fit,
-the §3.4 decision, levels, pack/unpack/cut, the cache file form) · `FeedStore.kt` (files +
-retention) · `FeedEngine.kt` (the engine = the local provider; `adopt`, `pause`, `comicAt`) ·
-`FeedProvider.kt` (the seam) · `FeedNet.kt` (`FeedService`, `RemoteFeedProvider`,
-`SwitchingFeedProvider`, `FeedWire`) · `FeedWindow.kt` (1,900 lines: nine levels, the comic
-canvas, the records, the settings) · `ScriptedFeed.kt` (the scripted world). Desktop:
-`FeedCheck.kt` (`--feed-check [DIR] [live]`), the `feedChecks` walk in `SelfCheck.kt`, the
-`feedScenes` in `Snapshot.kt`, `FeedStripsTest`. Tests: `FeedTest` (parsers on the captured
-fixtures, the extractor, the pacer, strips, the store, the engine), `FeedWindowTest` (the
-grammar over a real shell), `FeedNetTest` (a loopback host, the switch). Fixtures:
-`core/src/test/resources/feed/` — the real bytes of 2026-09-09 including a rendered Slashdot
-story page.
+Reddit popular, Slashdot, xkcd, SMBC, the 8-Bit Theater archive; `FEED.md` §8 is the record. `core/…/windows/feed/`:
+`FeedModel` · `FeedHttp` (`RealFeedHttp`, `PacedHttp` — one request per minute per Reddit host, a second
+elsewhere, `Retry-After` honoured, `RateLimited`) · `FeedXml` · `Fetchers` (`RedditAtom`, `SlashdotRss`,
+`XkcdFetcher`, `SmbcFetcher`, `RssFetcher`, `EightBit`) · `Extract` (jsoup) · `Strips` (fit, the §3.4 decision,
+16/8/4 levels, packed 4bpp) · `FeedStore` · `FeedEngine` (the engine = the local provider; `adopt`, `pause`,
+`comicAt`) · `FeedProvider` · `FeedNet` (`FeedService`, `RemoteFeedProvider`, `SwitchingFeedProvider`) ·
+`FeedWindow` (nine levels, the comic canvas, the records, the settings) · `ScriptedFeed`. Desktop: `FeedCheck`
+(`--feed-check [DIR] [live]`), `feedChecks` in `SelfCheck`, `feedScenes` in `Snapshot`. Tests: `FeedTest`,
+`FeedWindowTest`, `FeedNetTest`, `FeedStripsTest`; fixtures `core/src/test/resources/feed/`.
 
-- **`FeedEngine` is the whole engine and runs on both hosts** (`FEED.md` §3.6): the configured
-  sources on a pacer (one coroutine per due source; feeds at the `Fetch` row, comics hourly, the
-  archive index weekly), the per-kind fetchers (`Fetchers.kt`), `FeedStore` (files under
-  `~/.damage/feed` on the PC, the app's `files/feed` on the phone), `Extract` (jsoup),
-  `Strips` (fit → §3.4 inversion → 16/8/4 levels → packed 4bpp). The PC's engine is
-  `Config.feedEngine`; it also serves the phone through `FeedService` on the window channel.
-  The phone builds its own engine, **paused**, and `SwitchingFeedProvider` resumes it after the
-  `PC loss` threshold; `Back to PC` in the root menu parks it again. Nothing switches back on
-  its own.
-- **`FeedHttp` is the seam** (`RealFeedHttp` over `Http.request`, redirects followed by hand;
-  `PacedHttp` in front: one request per minute per Reddit host, a second elsewhere, `Retry-After`
-  honoured, a long wait thrown as `RateLimited` with its time). Tests replay the fixtures under
-  `core/src/test/resources/feed/` — the real bytes of 2026-09-09.
-- **Reading state is the shell's, never the engine's:** `feed.src.<id>` (read ids capped at 600,
-  flags with enough of the item to list after retention, `seen`) and `feed.binge.<id>` (episode,
-  strip). Read marks UNION on a live apply; flags are LWW; a source with nothing reports no record.
-- **The window** (`FeedWindow`) is the Reader grammar — one tap opens, the Document's tap is the
-  actions level — with nine levels; `rootRowId()`, `levelName`, `itemsLoaded()` and
-  `comicFocusLabel()` are the harness accessors. The comic level is a CANVAS (2026-09-09
-  evening, `FEED.md` §8.2): the strip and its text above a bar of six buttons the ring walks
-  and a tap presses; xkcd flips by number through its whole archive (`comicAt`/`comicRange` on
-  the provider, the engine fetching any strip on demand).
-- **Slashdot** (`FEED.md` §8.2): the article is the summary, then the source the story page
-  links under `from <domain>`; the thread is the story page's rendered tree
-  (`SlashdotRss.parseThread`) plus `POST ajax.pl op=comments_fetch` for the ids it lists but
-  does not render (`fetchMissing`) — the one POST in the engine, through `FeedHttp.post`.
-- **Harnesses:** `--feed-check` (fixtures, offline) and `--feed-check live` (one paced fetch per
-  configured source, read-only, a temp dir); the selfcheck walk (`feedChecks`) and eight snapshot
-  scenes. `ScriptedFeed` (core main) is the scripted world all three share.
-- **Config:** `feedSources` (the day-one five when absent; `kind: "rss"` + `url` [+ `image`]
-  for a later title), `feedUserAgent`, `feedDataDir`. Nothing here is a credential.
-- ⚠ **Comics are the heaviest thing the shell ships** (`FEED.md` §2.6, modeled): an xkcd first
-  screen is 5–13 KB, an 8-Bit Theater page 30–54 KB at 16 levels (17 KB at 4). The numbers on
-  glass are owed (§8.1).
+- **`FeedEngine` runs on both hosts** (`FEED.md` §3.6): the PC's is `Config.feedEngine` (files under
+  `~/.damage/feed`) and serves the phone through `FeedService` on the window channel; the phone's own (the app's
+  `files/feed`) starts PAUSED and `SwitchingFeedProvider` resumes it after the `PC loss` threshold; `Back to PC`
+  in the root menu parks it. Nothing switches back on its own.
+- **Reading state is the shell's:** `feed.src.<id>` (read ids capped at 600, flags, `seen`) and `feed.binge.<id>`
+  (episode, strip); read marks UNION on a live apply, flags are LWW. Harness accessors: `rootRowId()`,
+  `levelName`, `itemsLoaded()`, `comicFocusLabel()`.
+- **Slashdot**: the story page's rendered thread (`SlashdotRss.parseThread`) plus `POST ajax.pl op=comments_fetch`
+  for the ids it lists but does not render (`fetchMissing`) — the one POST in the engine.
+- **Config:** `feedSources` (the day-one five when absent), `feedUserAgent`, `feedDataDir`. No credentials.
+- ⚠ **Comics are the heaviest thing the shell ships** (`FEED.md` §2.6, modeled): an xkcd first screen 5–13 KB, an
+  8-Bit Theater page 30–54 KB at 16 levels (17 KB at 4). On-glass numbers owed (§8.1).
 
 ## Music (2026-09-01/02, MUSIC.md · DESIGN.md §4.9) — the phone plays, the PC serves
 
-The third app-wave window, built whole overnight (M1–M6, `HANDOFF.md` §24). The G2CC music
-SYSTEM is Damage's now: Postgres `g2cc`, Qdrant `g2cc_music`, the 8.1 GB transcode cache read
-in place, the enrichment package (copied into `audio/`, his own code), yt-dlp. Two contracts,
-one window: `wm.damage.core.windows.music`.
+The G2CC music SYSTEM is Damage's: Postgres `g2cc`, Qdrant `g2cc_music`, the 8.1 GB transcode cache read in
+place, the enrichment package (`audio/`, Adam's own code), yt-dlp. Two contracts (`MusicLibrary` +
+`MusicPlayer`), one window: `wm.damage.core.windows.music`. `MUSIC.md` is the record, `HANDOFF.md` §24 the build.
 
-- **The library (PC)** — `MusicDb` holds every query (the catalog in one blob: tracks joined
-  with their `track_meta` profile + lyric/art bits, artists and albums grouped
-  case-insensitively, playlists, the vocabulary, the recent ids; search; the lane queries; the
-  playlist CRUD with the adaptive guard; lyrics by the additive `track_id` link or the legacy
-  key; play history; the library walk's upserts) against a `Db` seam — the driver (`PgDb`:
-  pgjdbc + junixsocket, peer auth) lives in :desktop so the APK never carries JDBC. `Qdrant`
-  (search / recommend / retrieve), `MediaCache` (profiles `<quality>-<mono|stereo>-<loudnorm|
-  flat>`, the legacy cache = `standard-mono-loudnorm`, one ffmpeg at a time, `.part` +
-  atomic move, a resumable pre-transcode job), `MediaServer` (a ServerSocket HTTP/1.1 server:
-  `GET /track/<id>?token=&profile=`, 200/206 with `Accept-Ranges`, a malformed Range answers
-  the whole file), `Art` (ffmpeg extracts the embedded picture as raw gray, box-sampled; folder
-  images; `.none` markers), `LibraryScan` (ffprobe, format + stream tags, incremental, deletion
-  scoped to walked roots), `LocalMusicLibrary` (composes them + the leaf modules; the catalog
-  is a cached field, refreshed on a SHAPE-only fingerprint — counts, the newest track / playlist /
-  membership stamps and the count of FOUND lyrics (it flips `hasLyrics`); never a lyric fetch stamp
-  or play history, which change with every play; `recent(n)` is its own op so the list is live), `MusicService`/`RemoteMusicLibrary`
-  (`MusicNet.kt` — every op on the `music` window channel; the catalog behind a version
-  cursor; art/viz/lyrics cached per track on the phone; the §16.10 PUSH slice's first use:
-  catalog bumps and grab progress as unsolicited `wpush` frames — `WinNet` gained
-  `WinService.Push`).
-- **The leaf modules** (delegated, interfaces fixed in `Plugins.kt`): `Resolver` (the three
-  lanes — deterministic per `resolver.ts`'s semantics, the strict-JSON plan through
-  `ClaudeOneShot`, the embedding lane through `EmbedQuery` + Qdrant), `LyricsFetch` (tags ·
-  `.lrc` · LRCLIB · NetEase · the Musixmatch route behind the toggle; a FAULT throws, a MISS is
-  null), `YouTube` (yt-dlp search + the audio-only grab with streamed progress), `Viz`
-  (Bars · Scope · Pulse · Meter — pure, one rect per frame, measured ink budgets), `Enrich`
-  (the passes per track + `viz.py`), and on the phone `MusicListener` + `SpotifyRemote`.
-- **The player logic** — `QueueEngine` (pure: modes, next/prev, shuffle-keeps-current, the
-  low-water fill request, remove/move/insert, `qid` identity, JSON) and `PlayerCore` (the
-  transport rules: prev ≥ 3 s restarts, a skip before 80 % is `skipped`, never auto-play on
-  restore; the radio / library-random fill; sleep as a deadline checked on ticks; the boost
-  that ends with the track; hold-my-volume — a drop ≥ 25 points not ours is the limiter,
-  re-set at most 3× in 10 min, then said; prefetch bookkeeping; the Spotify fallback state
-  machine, switchback deliberate) over a `Sink` — `SimMusicPlayer` (tests, selfcheck),
-  `AndroidMusicPlayer` (ExoPlayer + a media3 `MediaSession` over a `ForwardingPlayer` so the
-  buds' next/previous move OUR queue; audio focus; a 60–300 s load control; `setPreferredAudioDevice`
-  with Auto refusing to start without an external output; the volume broadcast + a 1 s poll;
-  `LoudnessEnhancer` boost; `TrackCache` prefetch; `SpotifyRemote`; the listener's notice),
-  and `MirrorMusicPlayer` (the desktop: shows the synced record, refuses transport loudly, hands
-  the record back byte-equal).
-- **The window** — NOW PLAYING (the root since 2026-09-03, verdict 4 reversed: a canvas, not a
-  list — art 160/120/88 px by height, title, artist — album, the PC/Spotify and boost/sleep
-  badges, the state glyph + elapsed / progress / total, the media level with the queue position
-  (drawn HOT at or below `PlayerCore.QUIET_PCT` = 10 %), and the current synced lyric line when
-  one is loaded and it fits. **Scroll = volume live, tap = the Music menu**, no cursor) → the
-  Music menu (§8.2) → QUEUE (a level now: rows + the row menu; opens RESTING on the current
-  entry and follows `qid`; its own wrap-end row is the menu) · TRACK INFO for the current
-  track · BROWSE (artists → artist → tracks, albums, moods & genres,
-  playlists → playlist with edit mode, collections as a folder tree, recent, search and
-  YouTube through the keyboard) · LYRICS (a canvas: the current line bright, the scheduler
-  flushing a line ahead of its stamp, scroll = ±50 ms per output device, plain pages) · SEEK ·
-  VOLUME (live) · TRACK INFO · MUSIC MODE (the shell's exclusive mode: card / lyrics / visualizer
-  / queue peek / clock / PC link stacked per height). Ask plays through the lanes with the
-  honest lane line; Search → results (→ "Search YouTube for this"); a grab stages a confirm,
-  its progress rides the title, its done notification deep-links `t:<id>` and offers Play now /
-  Play next. Confirms: Replace-queue-while-playing · Clear · Delete playlist (Cancel-first,
-  the unrecoverable row at index 2) · Save over (asked twice). Settings → Music: the six
-  notify toggles, Volume, Volume boost, Hold my volume, Output, Quality, Channels,
-  Normalization, Default mode, Prefetch, Lyrics offset, Lyrics sources, Visualizer + rate,
-  the six Music Mode surfaces, Spotify fallback, Sleep, Pre-transcode, Rescan, Size. Global
-  gained **Phone notifications** (off — errors go to glass notices and the log).
-- **The shell's EXCLUSIVE mode** (`DESIGN.md` §4.9): `enterExclusive`/`exitExclusive`,
-  `paintExclusive(g, safe, full)` returning one rect per surface, notices in the silent form,
-  persisted and restored with the window.
-- 🔴 **Music Mode's bands hold what they draw** (2026-09-05): the card's height and every row in
-  it, the queue peek's rows and the PC badge's band are all derived from the faces' MEASURED ink,
-  never from a constant. `paintExclusive` is the one place a window declares its own damage
-  rects, so a row placed by a guessed offset paints into `composed` and never ships — the card's
-  progress row at `r.bottom - 14` under a 20 px ink did exactly that at 288 and 352
-  (`HANDOFF.md` §27.2). At 288 the peek shows ONE row: the §8.3 ladder, not a lost feature.
-- **Harnesses**: `ScriptedMusic` drives the selfcheck walk (empty queue → browse → artist →
-  play → the card → the row menu → the Music menu → Ask through the keyboard → lyrics →
-  Music Mode at 480/Bars and 288/Scope with the swallow test → the off-screen track-change
-  notice, then the queue ADVANCING inside Music Mode so its surfaces repaint as deltas, then the
-  whole walk again at 130 % and at the tallest face) and the snapshot scenes 30–39;
-  `--music-check` probes the real Postgres / Qdrant /
-  cache read-only (plus one viz precompute) and asserts that a track the catalog FLAGS as having
-  art actually extracts one — before 2026-09-05 it built its catalog through the bare
-  `MusicDb.catalog`, whose default art predicate answers false for every track, so the count was
-  structurally 0 and the extraction was printed rather than checked; core tests: `MusicTest`, `MusicWindowTest`,
-  `MusicModeTest`, `ResolverTest`, `LyricsFetchTest`, `YouTubeTest`, `VizTest`, `EnrichTest`.
-  Battery at the Now Playing root (2026-09-03): core 319 · desktop 9 · selfcheck 139 ·
-  snapshots 36 · lint 0. After the same day's whole-codebase review (`HANDOFF.md` §25):
-  core **329** (+10 pins in `Review20260903Test`), the rest unchanged.
+- **The library (PC)** — `MusicDb` (every query) against a `Db` seam; the driver (`PgDb`: pgjdbc + junixsocket,
+  peer auth) lives in `:desktop` so the APK never carries JDBC. `Qdrant`; `MediaCache` (profiles
+  `<quality>-<mono|stereo>-<loudnorm|flat>`, the legacy cache = `standard-mono-loudnorm`, one ffmpeg at a time);
+  `MediaServer` (HTTP/1.1 on :7404: `GET /track/<id>?token=&profile=`, 200/206 with `Accept-Ranges`); `Art`;
+  `LibraryScan`; `AdaptivePlaylists` (`MUSIC.md` §9.8: refreshed at start, after a grab's enrichment, after a
+  rescan; no write when nothing changed); `LocalMusicLibrary` (the catalog is a cached field refreshed on a
+  SHAPE-only fingerprint — never a lyric fetch stamp or play history); `MusicNet` (`MusicService` /
+  `RemoteMusicLibrary`: every op on the `music` window channel, the catalog behind a version cursor, catalog
+  bumps and grab progress as `wpush` frames).
+- **The leaf modules** (`Plugins.kt`): `Resolver` (three lanes; `ClaudeOneShot`, `EmbedQuery`), `LyricsFetch`
+  (tags · `.lrc` · LRCLIB · NetEase · Musixmatch behind the toggle; a FAULT throws, a MISS is null), `YouTube`,
+  `Viz` (Bars · Scope · Pulse · Meter), `Enrich`; on the phone `MusicListener` + `SpotifyRemote`.
+- **The player** — `QueueEngine` (pure; `qid` identity) and `PlayerCore` (hold-my-volume: a drop ≥ 25 points not
+  ours is the limiter, re-set at most 3× in 10 min, then said; the Spotify fallback, switchback deliberate) over
+  a `Sink`: `SimMusicPlayer`, `AndroidMusicPlayer` (ExoPlayer + a media3 `MediaSession` over a `ForwardingPlayer`
+  so the buds' next/previous move OUR queue; `setPreferredAudioDevice`, Auto refusing to start without an
+  external output; `LoudnessEnhancer`; `TrackCache` prefetch), `MirrorMusicPlayer` (desktop, read-only).
+- **The window** — NOW PLAYING is the root (2026-09-03, verdict 4 reversed: a canvas; the level drawn HOT at or
+  below `PlayerCore.QUIET_PCT` = 10 %; **scroll = volume, tap = the Music menu**) → QUEUE (follows `qid`) · TRACK
+  INFO · BROWSE · LYRICS (scroll = ±50 ms per output) · SEEK · VOLUME · MUSIC MODE (the shell's EXCLUSIVE mode:
+  `enterExclusive`/`exitExclusive`, `paintExclusive(g, safe, full)` returning one rect per surface). Delete
+  playlist is Cancel-first with the unrecoverable row at index 2; Save over is asked twice. Global gained
+  **Phone notifications** (off).
+- 🔴 **Music Mode's bands hold what they draw** (§27.2): `paintExclusive` is the one place a window declares its
+  own damage rects, so every band is sized from MEASURED ink — a row placed by a guessed offset (`r.bottom - 14`
+  under a 20 px ink) painted into `composed` and never shipped at 288 and 352.
+- **Harnesses**: `ScriptedMusic` (the selfcheck walk incl. Music Mode with the queue ADVANCING, then at 130 % and
+  the tallest face; snapshot scenes 30–39); `--music-check` (read-only; asserts a track the catalog FLAGS as
+  having art extracts one); `MusicTest`, `MusicWindowTest`, `MusicModeTest`, `ResolverTest`, `LyricsFetchTest`,
+  `YouTubeTest`, `VizTest`, `EnrichTest`, `AdaptivePlaylistsTest`.
 
 ## Games · Hold'em (2026-09-04, HOLDEM.md — the first window with no host)
 
-Everything it needs is in `:core`, so it runs identically in every `DESIGN.md` §10
-configuration: no provider, no channel, no `needs`. What is worth knowing to work on it:
+Everything it needs is in `:core` — no provider, no channel, no `needs`. `HOLDEM.md` is the record (§17 the
+deviations). To work on it:
 
-- **The persisted table is an ACTION LOG.** `HoldemTable` stores `(seed, handNo, start stacks,
-  busted order, button, actions)` and re-derives the deck, every holding, the board, the pot and
-  whose turn it is by replaying it (`replay()`, behind a volatile `cache`). There is no second
-  copy of a hand that could drift from the first. `nextHand()` is the only thing that advances
-  the seed forward.
-- **Randomness is counter-based, never a stream position.** `Rng` is splitmix64 keyed by
-  `(tournamentSeed, handNo, seat, decisionNo)`, so the same question always gets the same answer
-  no matter when it is asked, and nothing has to persist an RNG cursor. Key ORDER matters —
-  `(1,0)` and `(0,1)` are different draws.
-- **Decisions run off the loop and come back through `runOnShell`,** generation-stamped with
-  `pacerGen`. Bump the generation whenever the world the answer was for stops being the world on
-  screen (leaving the table, a restore, a deactivation) or an answer for a table you have left
-  will be applied to the one you are looking at.
-- **The pacer is a pacing loop, not a timeout** (the Three Absolute Rules). Bots wait for Adam
-  forever; `Settings → Games → Bot pace` sets the delay between their actions and a tap while
-  they are acting skips the pacing until it is your turn again.
-- 🔴 **The play-out hand-off runs ON THE LOOP**, and that is deliberate and measured:
-  `--games-check` prints **13 ms for a whole 6-seat tournament** at `CHEAP_ROLLOUTS`, less than
-  `maybeBackground` already spends on the same loop. It was a background coroutine once, on the
-  belief that it took seconds; that window let a NEW table have its cast cleared by the OLD
-  table's settlement and let a restart lose the prize pool (`HOLDEM.md` §17.2c). Do not put it
-  back without measuring first.
-- **The world only advances while he is looking at it** (verdict 27). `Background.playTournament`
-  is driven from the pacer, never from a schedule and never from wall-clock.
-- **The kit names no card game.** `windows/games/kit/` is `Cards`/`HandEval`/`Pots`/`Money`/
-  `CardArt`/`HandFan`/`TableLayout`/`Seats`/`ActionLevel`/`Bankroll`; blackjack, hearts and gin
-  are meant to reuse it whole.
-- **Correctness is oracle-backed.** `core/src/test/resources/holdem/sidepots.json` (3,000
-  scenarios) and `hands.json` (2,000 rankings) were generated with `pokerkit` (MIT) in a scratch
-  venv by `research/gen_sidepots.py`. **Nothing third-party is in the repo** — only the corpus,
-  which is ours.
-- **Harnesses:** `--games-check` runs the ecology over hundreds of simulated tournaments and
-  prints differentiation, affordability and the money-supply drift (flat or negative is the
-  design; compounding growth is the failure). `--card-render` writes the card sheets to
-  `design/shots/cards/` at true 1× — the only honest way to judge the art. The window's own
-  harness accessors (`tableRunning`, `isMyTurn`, `handIsComplete`, `myStack`, `levelName`,
-  `rootRow`, `historyDocLines`, …) exist so a test asks the table what it is doing instead of
-  counting notches, the `Shell.menuLabels` precedent.
+- **The persisted table is an ACTION LOG.** `HoldemTable` stores `(seed, handNo, start stacks, busted order,
+  button, actions)` and re-derives everything by replaying it (`replay()`, behind a volatile `cache`);
+  `nextHand()` alone advances the seed.
+- **Randomness is counter-based:** `Rng` is splitmix64 keyed by `(tournamentSeed, handNo, seat, decisionNo)`; key
+  ORDER matters; nothing persists an RNG cursor.
+- **Decisions run off the loop and return through `runOnShell`,** stamped with `pacerGen`; bump it whenever the
+  world the answer was for stops being the world on screen.
+- **The pacer is a pacing loop, not a timeout:** bots wait for Adam forever; `Settings → Games → Bot pace`.
+- 🔴 **The play-out hand-off runs ON THE LOOP, deliberately and measured:** `--games-check` prints **13 ms for a
+  whole 6-seat tournament**. As a coroutine it cleared a NEW table's cast with the OLD table's settlement and
+  lost the prize pool on a restart (`HOLDEM.md` §17.2c). Do not put it back without measuring first.
+- **The world only advances while he is looking at it** (verdict 27): `Background.playTournament` runs from the
+  pacer, never a schedule or the wall clock.
+- **The kit names no card game** (`windows/games/kit/`); blackjack, hearts and gin are meant to reuse it whole.
+- **Oracle-backed:** `core/src/test/resources/holdem/sidepots.json` (3,000 scenarios) and `hands.json` (2,000
+  rankings), generated with `pokerkit` (MIT) in a scratch venv by `research/gen_sidepots.py`; only the corpus is
+  in the repo.
+- **Harnesses:** `--games-check` (FAILS on a rising money-supply growth rate), `--card-render` (true 1×), and the
+  window's accessors (`tableRunning`, `isMyTurn`, `handIsComplete`, `myStack`, `levelName`, `rootRow`,
+  `historyDocLines`, …) so a test asks the table instead of counting notches.
 
 ## Torrents + the keyboard (2026-09-01, TORRENTS.md · DESIGN.md §4.8)
 
-The second app-wave window, built whole on Adam's rule (*"every app … completely built to its
-best state before we move on"*), and the fourth bespoke shell surface. `wm.damage.core.windows.torrents`:
+`wm.damage.core.windows.torrents`; `TORRENTS.md` is the record:
 
-- **`QbtClient`** — qBittorrent Web API **2.11** over `HttpURLConnection` (core runs in the APK;
-  no `java.net.http`): `sync/maindata` (rid 0, always full — one request carries the list and
-  the session line), `torrents/properties|files|trackers`, the 5.x verbs `torrents/stop|start|
-  recheck|delete`, multipart `torrents/add`, `auth/login` only when credentials exist (beardos
-  bypasses auth on loopback). Every key was read from the 5.1.4 source, never remembered.
-- **`TorrentLeech`** — the tracker session (form login → cookie jar in `~/.damage/tl-cookies.json`;
-  ONE re-login on a logged-out answer, paced to one login a minute inside `login()` itself on
-  every path, and a refusal latch that fires only when the site answers with its login FORM —
-  a maintenance page is paced, never latched; review round 4), the site's own JSON listing endpoint for browse AND
-  search (`torrents/browse/list/…`, 35 rows a page), the torrent page parsed by a stdlib
-  `Html` reader for its landmarks (info table · description · NFO · files · download link), the
-  `.torrent` bytes fetched with the session and refused unless bencoded, the profile page read
-  for five stats and nothing else. **Format drift is a loud `TlException("format changed: …")`**
-  — never an empty list. The 40-category tree (9 groups) is a constant with its lineage.
-- **`LocalTorrentsProvider`** (PC) — the poll loop (15 s idle; the fastest focused party sets
-  the pace — the local shell and the phone are tracked separately), snapshot diffing into
-  EVENTS (done / error / added / removed) with a monotonic sequence + a per-process epoch, the
-  persisted announced set (`~/.damage/torrents.json`: a first run baselines silently, a restart
-  announces what finished while the service was down, nothing announces twice), `xdg-open`.
-- **`TorrentsNet`** — `TorrentsService` on the §16.10 window channel (`snap` with a version
-  cursor: unchanged = no blob; events since a sequence within an epoch; every op) and
-  `RemoteTorrentsProvider` (phone): its own paced poll (2 s focused / 15 s idle, woken by
-  attach and focus), event replay, the channel's staleness first, the host's second.
-- **`TorrentsWindow`** — TRANSFERS (activity sort: errors first, then downloads, checking,
-  seeds, stopped; six filters incl. **seeding < 1 week** for TL's hit-and-run rule; rows =
-  icon · name · 10-block bar · state word, the LENS carries the live numbers + a 12-block bar +
-  an 8-column speed history; the cursor follows its row's identity across live snapshots) →
-  the transfer MENU (Details — Refresh from the document · Start/Stop · Recheck · Open in
-  Files (a `path:` deep link Files now accepts) · Open on PC · Delete · Delete + files behind
-  a double confirm with the unrecoverable row at index 2) → DETAILS (a document: state, speeds, ratio, peers, dates, paths, the file
-  list) · the wrap-end Torrents MENU (Browse · Search via the keyboard · recents · Filter · Sort ·
-  Seeding < 1 week · Refresh · Stats) → CATEGORIES (Newest + 40 rows with group icons) →
-  LISTING (endless pages, a loading pseudo-row, paced retry in place, FL mark, seeders/leechers
-  with drawn arrows) → TORRENT (a document: info, description, NFO in mono, files) → the add
-  MENU (Add / Add stopped behind a confirm, Open on PC). Notifications `torrent · done/error`
-  deep-link to `t:<hash>` and are gated by Settings → Torrents (Notify · done / errors / Poll /
-  Size). `open("t:<hash>")` and `open("tl:<fid>")` synthesize the level path. A replica-typed
-  line searches. Face Fira Sans; icon theme `qbittorrent` with a drawn fallback.
-- **`KeyboardSurface`** (`shell/`) — DESIGN.md §4.8: the wireframe keyboard, row-then-key with
-  wrap on both axes, stay-in-row after typing, QWERTY/abc from Settings → Global → Keyboard,
-  the symbol layer, Shift once/lock, caret editing (←/→/Del/Clear), a panning text line that
-  marks its cut, up to two requester rows of LIVE keys (Tmux's non-character quick keys,
-  harmless ones at each row's head), the draft handed back on cancel. `ShellServices.openKeyboard(spec, owner)` — the menu's refusal rules; the
-  shell routes gestures to it, cancels it under the wheel / silent / relayout / an emergency
-  (draft kept), defers ordinary notices behind it, commits a replica-typed line through it.
-  Requesters: Torrents Search, Tmux "Type…", Files Rename / New folder (pre-filled).
-- **Settings**: the unused Global rows `Notify · SMS/Mail/Music` are gone — each app's toggles
-  live in its own category from now on (`WINDOWS.md` §1); Global keeps `Notify · Damage` and
-  gained `Keyboard`.
-- **Harnesses**: `ScriptedTorrents` (desktop) drives the selfcheck's torrents walk (transfers →
-  menu → details → browse → listing → page → add-confirm → keyboard search → the done
-  notification, plus the ink budgets: transfers 9.0 %, details 6.4 %) and the snapshot scenes
-  15–22; `TorrentsTest` ×7 (the client against a fake Web API, the adapter against fixtures incl.
-  drift and expiry, the provider's diff/baseline/persistence, the window grammar, persistence +
-  continuity, the remote provider over a real loopback host) and `KeyboardTest` ×22.
+- **`QbtClient`** — qBittorrent Web API **2.11** over `HttpURLConnection`: `sync/maindata` (rid 0, always full),
+  `torrents/properties|files|trackers`, the 5.x verbs `torrents/stop|start|recheck|delete`, multipart
+  `torrents/add`, `auth/login` only when credentials exist. Every key read from the 5.1.4 source.
+- **`TorrentLeech`** — form login → cookie jar `~/.damage/tl-cookies.json`; ONE re-login on a logged-out answer,
+  paced to one login a minute inside `login()`; the refusal latch fires only on the site's login FORM; the JSON
+  listing endpoint for browse AND search (`torrents/browse/list/…`, 35 rows a page); a stdlib `Html` reader;
+  `.torrent` bytes refused unless bencoded. **Format drift is a loud `TlException("format changed: …")`**.
+- **`LocalTorrentsProvider`** (PC) — the poll loop (15 s idle; the fastest focused party sets the pace), snapshot
+  diffing into EVENTS with a monotonic sequence + a per-process epoch, the announced set
+  (`~/.damage/torrents.json`: a first run baselines silently, nothing announces twice), `xdg-open`.
+- **`TorrentsNet`** — `TorrentsService` on the window channel (`snap` with a version cursor, events since a
+  sequence within an epoch) and `RemoteTorrentsProvider` (phone: 2 s focused / 15 s idle, event replay).
+- **`TorrentsWindow`** — TRANSFERS (six filters incl. **seeding < 1 week**; the cursor follows row identity) →
+  the transfer MENU (… Delete + files behind a double confirm, the unrecoverable row at index 2) → DETAILS · the
+  wrap-end MENU (Browse · Search via the keyboard · …) → CATEGORIES → LISTING → TORRENT → the add MENU.
+  Notifications `torrent · done/error` deep-link to `t:<hash>`, gated by Settings → Torrents;
+  `open("t:<hash>")` / `open("tl:<fid>")`. Face Fira Sans; icon theme `qbittorrent`.
+- **`KeyboardSurface`** (`shell/`, `DESIGN.md` §4.8) — row-then-key with wrap on both axes, stay-in-row after
+  typing, QWERTY/abc from Settings → Global → Keyboard, the symbol layer, Shift once/lock, caret editing, a
+  panning text line that marks its cut, up to two requester rows of LIVE keys, the draft handed back on cancel;
+  the shell cancels it under the wheel / silent / relayout / an emergency (draft kept) and commits a
+  replica-typed line through it. Requesters: Torrents Search, Tmux "Type…", Files Rename / New folder.
+- **Harnesses**: `ScriptedTorrents` (ink budgets: transfers 9.0 %, details 6.4 %; snapshot scenes 15–22);
+  `TorrentsTest` ×7, `KeyboardTest` ×22.
 
 ## Tmux (2026-08-31, TMUX.md — all refinery verdicts locked, built in one pass)
 
-The first app-layer window past Reader, and the first CANVAS window. The glasses are a
-viewer/controller of the REAL tmux server via discrete commands (`=session:` exact targeting,
-no `-C` attach — the G2CC Phase-5 safety shape); `wm.damage.core.windows.tmux`:
+The first CANVAS window: a viewer/controller of the REAL tmux server via discrete commands (`=session:` exact
+targeting, no `-C` attach). `wm.damage.core.windows.tmux`; `TMUX.md` is the record:
 
-- **`Sgr`** parses `capture-pane -e` into styled cells AND styled runs: 16/256/truecolour by
-  luminance onto the 16 grays (foregrounds floor at 3 — readable beats faithful),
-  bold/dim/underline/reverse, unknown escapes counted never eaten. 🔴 **The GRID is RETIRED
-  (2026-08-31 evening, Adam: "it's just text ... kill the grid entirely"): `FlowRender` is the
-  view** — the provider captures NORMAL panes with `-J` (logical lines), flow wraps them at the
-  content width through the per-app font/size/style (all three now really apply — on the grid,
-  Font size compensated to zero by construction), rule lines collapse to drawn rules, a small
-  tail marker stands in for the cursor, the tail anchors terminal-style. **`TermRender` (the
-  grid, fractional pitch, inverted cursor, context rows) survives only as the alternate-screen
-  fallback** — `#{alternate_on}` panes capture row-exact and render through it. History is the
-  SAME flow over the frozen deep capture (5 display lines/notch, position rail, scroll-down at
-  the live edge returns to live). Capture pacing defaults to 1 s, Settings → Tmux → Update
-  (0.5/1/2/5 s) adjusts it live over the wire (`tpace`) and persists.
-- **`LocalTmuxProvider`** execs `sh -c` scripts — ONE per host per tick (status 2.5 s, capture
-  1 s pushed on change — the Update setting adjusts it live), so an ssh host (verdict 1:
-  multi-host; hosts are opted in via `tmuxHosts` when actually alive — the default is empty
-  since §15) costs one round trip per tick. Waiting-pattern EDGE alerts (verdict 3: on
-  for all, per-session mute, GLASS only); `g2-N` auto-naming; literals cross ssh single-quote
-  escaped. ssh gets BatchMode+ConnectTimeout=5 on connection ESTABLISHMENT only — the
-  equivalent of a refused connect, retried next tick; every loop is pacing, no timeouts.
-- **`TmuxNet`** rides the CONTENT port: `{"t":"tmux"}` after the hello turns the connection
-  into a push channel (status/frames/alerts + id-correlated requests). `RemoteTmuxProvider`
-  (the phone) reconnects keeper-style, re-asserts its subscription, and surfaces "PC
-  unreachable Ns" as the §10.5 staleness line. Config (quick keys/snippets/patterns) is served
-  WITH the session list, so `~/.damage/config.json` on the PC is the one tuning point.
-- **`TmuxWindow`** — the grammar: SESSIONS (waiting pinned, lens shows the tail line) →
-  LIVE (canvas; **scroll-up IS scrollback**, tap descends) → HISTORY (a FROZEN snapshot rendered
-  through the SAME live fit — same face/size/width, colours kept, 5 rows/notch, a slim position
-  rail; the notch that reaches the live edge RETURNS TO LIVE — revised same day: the old
-  reading-size DocView read as "a different font at a different size", his words) → KEYS (verdict 4 + Left/Right,
-  Adam 2026-08-31) → SNIPPETS / WINDOWS (viewing a window targets `=s:idx` — never `select-window`, which is
-  an explicit Session… action) / SESSION_ACTIONS (mute · Fit pane 64×22 · select · rename ·
-  the `kill-session` confirm). **Typed text always stages a TYPE_CONFIRM** (run = literal + Enter, the G2CC
-  2026-06-18 semantics); every provider failure rides the title notice. Settings live in the
-  Settings window's **Tmux category** (verdict 6): Context rows · Alerts · Size (default 480).
-- **Shell additions**: `CanvasView.onScroll/onTap` (routed like DocView's),
-  `DamageWindow.onTypedText` + LOUD shell refusal when nothing accepts,
-  `Transport.injectText` → `TransportEvent.Text` across every transport and the seam
-  (`"typed"`), `ShellServices.docContentHeight`. **Typed-text entry points**: the desktop
-  preview (key T), the browser replica's text bar, the phone strip's `type` button — all ride
-  the transport, so they reach whichever shell drives.
-- **Harnesses**: `ScriptedTmux` (deterministic provider) drives the tmux selfcheck checks (part
-  of the 134-check gate) and four snapshot scenes (09b–09e); `TmuxTest.kt` holds 27 core tests in
-  six classes — `SgrTest` ×4, `TermRenderTest` ×4, `FlowRenderTest` ×6, `TmuxProviderTest` ×3,
-  `TmuxNetTest` ×1, `TmuxWindowTest` ×9 (SGR, fit at both height modes, cursor inversion, the
-  flow view, provider parse/edge-alerts/quoting, the wire round trip incl. pacing, the full
-  window grammar, the alternate-screen fallback, persistence). Building the scenes also caught a LATENT snapshot-harness
-  drift: the fixed two-double-tap walk back to Main broke silently when the shelf grew folders
-  — the walk now ascends deterministically and the waits are labeled.
+- **`Sgr`** parses `capture-pane -e` (16/256/truecolour by luminance onto the 16 grays, foregrounds floor at 3).
+  🔴 **The GRID is RETIRED** (2026-08-31, Adam: "it's just text ... kill the grid entirely"): **`FlowRender` is
+  the view** — NORMAL panes captured with `-J`, wrapped at the content width through the per-app font/size/style;
+  `TermRender` survives only for `#{alternate_on}` panes. History is the SAME flow over the frozen deep capture
+  (5 display lines/notch; the notch that reaches the live edge returns to live). Capture pacing 1 s; Settings →
+  Tmux → Update (0.5/1/2/5 s) adjusts it live over the wire (`tpace`).
+- **`LocalTmuxProvider`** execs `sh -c` scripts — ONE per host per tick (status 2.5 s, capture 1 s pushed on
+  change); hosts opt in via `tmuxHosts` (default empty); waiting-pattern EDGE alerts (per-session mute, GLASS
+  only); ssh gets BatchMode+ConnectTimeout=5 on connection ESTABLISHMENT only, one multiplexed connection per
+  host (`~/.damage/ssh-*`, 60 s persist).
+- **`TmuxNet`** rides the CONTENT port (`{"t":"tmux"}` after the hello → a push channel); `RemoteTmuxProvider`
+  (phone) reconnects keeper-style and surfaces `PC unreachable Ns`. Config (quick keys/snippets/patterns) is
+  served WITH the session list — `~/.damage/config.json` on the PC is the one tuning point.
+- **`TmuxWindow`** — SESSIONS → LIVE (canvas; **scroll-up IS scrollback**) → HISTORY → KEYS → SNIPPETS / WINDOWS
+  (targets `=s:idx`, never `select-window`) / SESSION_ACTIONS (mute · Fit pane 64×22 · select · rename · the
+  `kill-session` confirm). **Typed text always stages a TYPE_CONFIRM**; a quiet host says so on every level and
+  in Main's row (§30); the alert's tap opens the session (§29). Settings → Tmux: Context rows · Alerts · Update
+  · Size (default 480).
+- **Shell additions**: `CanvasView.onScroll/onTap`, `DamageWindow.onTypedText` + LOUD refusal when nothing
+  accepts, `Transport.injectText` → `TransportEvent.Text` across every transport and the seam (`"typed"`); entry
+  points: the desktop preview (key T), the browser replica's text bar, the phone strip's `type` button.
+- **Harnesses**: `ScriptedTmux` (the tmux selfcheck checks, snapshot scenes 09b–09e); `TmuxTest.kt` (27, six classes).
 
-**On-glass verdicts still owed (`REMINDER.md` item 3):** the flow view's default size/wrap feel (the grid
-retirement removed the fit-80/7.6 px question outright — Font size is a real knob now),
+On-glass verdicts still owed (`REMINDER.md` → Other open work): the flow view's default size/wrap feel,
 quick-key order, alert-pattern tuning against real Claude sessions, ssh-host latency feel.
-The pixel path is the architecture; texture-cache glyphs stay a later optimization behind
-`REMINDER.md`'s still-unmeasured items 19–20.
 
 ## User typography + per-app depth (2026-08-31 evening, Adam's ask — a §Type reversal)
 
-Settings grew user-directed type (`core/text/Style.kt`): **Global → Font / Font size / Font
-style** restyle CHROME AND MAIN (a recorded reversal of §Type's "the system face is not
-negotiable" — his call), and **every app category gets Font / Font size / Font style / Depth**
-rows. Each candidate option previews IN ITS OWN font while cycling (`HostSetting.optionFont`
-returning `raw=true` specs the transforms cannot restyle). One mechanism carries all of it: a
-`StyleTransform` rewrites every `FontSpec` at the rasterizer seam — the shell's chrome surfaces
-draw through a `StyledText` wrapper with the global transform (SYSTEM-face swap + scale +
-style force), and every window routes its measuring/drawing through its own per-app transform
-(`DamageWindow.styleTransform` → the `styledText()` chokepoint; Reader and Tmux — including
-`TermRender` — go through it), so wrap and render agree by construction. Content scaling MOVED
-here from the platform adapters (their `contentScaleProvider` is retired to 1.0 — double-scaling
-was the hazard). **Depth**: the focused app's content plane uses its own depth (default 8, the
-0/4/8/12/16 ladder) while the bars and Main stay on the global setting — app content pops
-forward of (or parks behind) the chrome. At every default the whole feature is render-neutral
-(snapshot-verified byte-identical below the clock). `StyleTest` ×5 pins the transform edges,
-clamps and the raw passthrough.
+`core/text/Style.kt`: **Global → Font / Font size / Font style** restyle CHROME AND MAIN (a recorded reversal
+of §Type's "the system face is not negotiable" — his call), and **every app category gets Font / Font size /
+Font style / Depth** rows; each option previews IN ITS OWN font while cycling (`HostSetting.optionFont`,
+`raw=true`). One mechanism: a `StyleTransform` rewrites every `FontSpec` at the rasterizer seam — chrome draws
+through a `StyledText` wrapper with the global transform, every window routes measuring/drawing through its
+own per-app transform (`DamageWindow.styleTransform` → `styledText()`), so wrap and render agree by
+construction. Content scaling MOVED here from the platform adapters (their `contentScaleProvider` is retired
+to 1.0 — double-scaling was the hazard). At every default the feature is render-neutral (snapshot-verified
+byte-identical below the clock). `StyleTest` ×5 pins the edges. **Depth** has since moved to the §41.2
+ladder (`DESIGN.md` §3): the Global row moves everything with the selection bar one notch nearer; the per-app
+`Depth` row (default `global`) moves only that app's content.
 
 ## The texture cache (2026-08-30, CFW `a5d1c31`)
 
-The firmware grew a **64 KiB lease-scoped texture cache** and three draw modes. The wire and
-model layers are built and green; the compositor adopted them behind the Global `Cached text` row
-on 2026-09-06 (the paragraph "Adopted behind…" below).
+The firmware's **64 KiB lease-scoped texture cache** and three draw modes; wire and model layers built
+2026-08-30, adopted by the compositor behind the Global `Cached text` row 2026-09-06.
 
-**Built:**
+- `wire/CfwModes.kt` — `cleanup()` (11), `cacheUpdate()` (12), `drawImage()` (13), `drawCachedText()` (14),
+  `options()`, `xAdjust()`; every builder refuses what the firmware would reject in silence (mode 13's exact
+  7-byte body, mode 14's `8 + strlen`, byte 0 and bytes > 127, writes past 64 KiB, an adjust outside −10…+20).
+  `batch()` accepts sub-modes 3/6/9/13/14/15.
+- `wire/TextureCache.kt` — the atlas layout: image encoding (`[w][h][RLE of exactly w*h pixels]`, no row pad), a
+  deduplicating offset allocator, 96-entry font tables, chunked mode-12 messages. Two invariants: **offsets 0–1
+  stay zero** (an unfilled table entry points at a guaranteed-rejected image) and **every table entry is
+  filled** (the firmware validates a whole string before drawing any of it).
+- `gfx/Codec.kt` — `Rle.encodeLevels`/`decodeLevels` over a bare pixel run (`RleParityTest` still holds).
+- `sim/GlassFirmwareSim.kt` — modes 11/12/13/14 modeled byte-exactly (the lease gate, whole-list validation, the
+  LUT with its integer truncation, transparency tested pre-LUT, per-glyph advance by image width). Mode 15 is
+  **refused loudly**. The cache is dropped on lease expiry and on mode 11. `TextureCacheTest` + `AckStatusTest`: 44.
+- Two corrections from reading the source: the sim no longer attaches an `EventSource` to long-press events
+  (`EvenHubMsg.reportsSource`); the capability gate runs against the real `EVENCFW/16` string (`REQUIRED_CAPS`
+  stays at five, version checks through `SettingsMsg.contractVersion`).
 
-- `wire/CfwModes.kt` — `cleanup()` (11), `cacheUpdate()` (12), `drawImage()` (13),
-  `drawCachedText()` (14), plus `options()` and `xAdjust()`. Every builder refuses what the
-  firmware would reject in silence: mode 13's exact 7-byte body, mode 14's `8 + strlen`, byte 0
-  and bytes > 127 in a string, writes past the 64 KiB end, an adjust outside −10…+20.
-  `batch()` now accepts sub-modes 3/6/9/13/14/15.
-- `wire/TextureCache.kt` — atlas layout: image encoding (`[w][h][RLE of exactly w*h pixels]`, no
-  row pad), a deduplicating offset allocator, 96-entry font tables, and chunked mode-12 messages.
-  Two invariants worth keeping: **offsets 0–1 stay zero** so an unfilled table entry points at a
-  guaranteed-rejected image, and **every table entry is filled** (unmapped characters get a
-  visible tofu box) because the firmware validates a whole string before drawing any of it — one
-  unmapped character would otherwise drop the entire line.
-- `gfx/Codec.kt` — `Rle.encodeLevels`/`decodeLevels`, the same token alphabet over a bare pixel
-  run. The packed-row `Rle.encode`/`decode` are untouched, so `RleParityTest`'s pinning still holds.
-- `sim/GlassFirmwareSim.kt` — modes 11/12/13/14 modeled byte-exactly: the lazily allocated cache,
-  the lease gate, whole-list validation before any write, the LUT with its integer truncation,
-  transparency tested pre-LUT, per-glyph advance by image width. Mode 15 is **refused loudly**.
-  The cache is dropped on lease expiry and on mode 11.
-- `TextureCacheTest` + `AckStatusTest` — 44 tests today.
+**Adopted (`HANDOFF.md` §40.6).** `core/comp/CachedText.kt`: `GlyphAtlas` renders a font's glyphs 32..126
+through the host's rasterizer and packs them with `TextureCache.Builder`; `CachedText` wraps every host's
+rasterizer, blits strings from those same images (the firmware's TRANSPARENT LUT draw) and records them per
+frame; the compositor ships a rect as one clear plus mode-14 draws only when black plus the records equals the
+composed pixels byte for byte. The upload (`DisplayOp.CacheWrite`, one ≤ 3 KB chunk per idle pump after the
+keyframe) is `Shell.pumpAtlas`; fonts go live on the batch's last ack; a lease lapse forgets the upload.
 
-**Two corrections that came out of reading the new source, both already applied:**
-
-- 🔴 The sim used to attach an `EventSource` to long-press events. The firmware never does: the
-  stock sender writes that field only for `EventType` 0 and 3, verified at instruction level. The
-  model now omits it (`EvenHubMsg.reportsSource`), so nothing can come to depend on a field that
-  is absent on glass.
-- The capability gate now runs against the real `EVENCFW/16` string. `img576` and `compass10`
-  vanished from it while their features live on, so `REQUIRED_CAPS` stays at the five that matter
-  and version checks go through `SettingsMsg.contractVersion`.
-
-**Adopted behind the Global `Cached text` row (2026-09-06, `HANDOFF.md` §40.6; off until seen
-on glass).** `core/comp/CachedText.kt`: `GlyphAtlas` renders a font's glyphs 32..126 through the
-host's rasterizer into advance-width boxes and packs them with `TextureCache.Builder`;
-`CachedText` wraps every host's rasterizer (desktop, snapshot, selfcheck, phone), blits strings
-in fonts the glasses hold from those same images (the firmware's TRANSPARENT LUT draw, shared
-with `Compositor.emitCached`'s proof) and records them per frame; the compositor ships a
-plane-0 rect as one clear plus mode-14 draws only when black plus the records equals the composed
-pixels byte for byte. The upload (`DisplayOp.CacheWrite`, bare mode-12 images, one ≤ 3 KB chunk
-per idle pump after the keyframe) is the shell's (`Shell.pumpAtlas`); fonts go live on the batch's
-last ack; a lease lapse forgets the upload and the re-acquire sends it again. Mode 11 in
-`stop()` is still held.
-
-**Every plane, and icons (2026-09-06, `HANDOFF.md` §41).** Cached draws are flat in the
-firmware, so a rect on a depth plane ships as a BASE delta over the rect widened by the
-disparity (the composed pixels with every draw's box black — a rule or a divider rides it), the
-draws at nominal x, and one per-lens mode-9 copy (`DisplayOp.CopyPair` → `CfwModes.copyStereo`)
-that slides each lens's copy to its own x; `Compositor.emitCached` builds the firmware's result
-per lens (base, draws, the staged copy) and compares it with that lens's truth byte for byte, one
-region at exactly that disparity under the whole widened rect, before anything ships — else
-pixels, with the reason counted into the journal's `cacheMiss`. `CachedText` records draws made
-into a slide's temp through a relay that composes the temp's landing offset (`via`/`viaInto`;
-`Slide` and the shell's slice painters use it), moves records with a translation
-(`moveRecords`), and draws a string with a character outside 32..126 as its cacheable RUNS plus
-the host's character. Icons cross `IconPaint.blit` (the drawn set renders once per kind and size
-— `IconPaint.drawKind`) and `CachedText` is the `IconRecorder`: quantised once, packed after two
-uses and after the fonts within `GlyphAtlas.IMAGE_BUDGET`, drawn through the firmware's LUT
-(`CachedText.blitImage`) and shipped as mode-13 draws in the same shape. Fonts pack heaviest
-first (`usageOf`); a font that does not fit writes nothing (`Builder.addFont` sizes first); the
-atlas keeps an ACKED watermark and every acked font goes live on the next grow (the off → on
-flip). The keyframe seeds the screen plane only (`Compositor.seedFrame`).
+**Every plane, and icons (§41).** Cached draws are flat in the firmware, so a rect on a depth plane ships as a
+BASE delta over the rect widened by the disparity (every draw's box black), the draws at nominal x, and one
+per-lens mode-9 copy (`DisplayOp.CopyPair` → `CfwModes.copyStereo`) that slides each lens's copy to its own x;
+`Compositor.emitCached` builds the firmware's result per lens and compares it with that lens's truth before
+anything ships — else pixels, the reason counted into `cacheMiss`. `CachedText` records draws into a slide's
+temp through a relay (`via`/`viaInto`), moves records with a translation (`moveRecords`), and draws a string
+with a character outside 32..126 as its cacheable RUNS plus the host's character. Icons cross `IconPaint.blit`
+(`CachedText` is the `IconRecorder`; mode-13 draws). Fonts pack heaviest first (`usageOf`); the atlas keeps an
+ACKED watermark; the keyframe seeds the screen plane only (`Compositor.seedFrame`).
 
 ## Review hardening (rounds 2–8, 2026-08-24)
 
-After the first build, seven rounds of independent review (fresh reviewer
-agents per subsystem, every candidate verified by trace, timing or pixel
-simulation before a fix) found and fixed ~70 real defects. The mechanisms that came out
-of them are load-bearing and easy to break by accident:
+Seven rounds of independent review after the first build (every candidate verified by trace, timing or pixel
+simulation before a fix) found ~70 real defects; the reviews since (`HANDOFF.md` §25–§42) added to the list.
+These mechanisms are load-bearing and easy to break by accident:
 
-- 🆕 **The latency build (2026-09-06, `HANDOFF.md` §40)** — five mechanisms, each pinned:
-  chrome's telemetry cells repaint only when `allowTelemetry` (`Chrome.sync`; the last painted
-  text survives `invalidate()`); a notch's first flush is the translation — the lens repaint is
-  posted one message on (`Shell.paintOptimisticLens`) and a strip past `Slide.SPLIT_FILL_PX`
-  goes out blank and is filled on the next pump (`Slide.fillDeferred`, `Shell.applyCanvasFill`);
-  `Compositor.partition` merges the globally cheapest within-owner pair first (proportional shares
-  starved a plane and shipped a whole band for a scrollbar thumb); `CfwTransportBase.watchdogTick`
-  probes a session that has gone quiet and rebuilds it, and the connect prelude re-asks every 2 s
-  like the two gates below it (a rebuilt session into silence used to park forever);
-  `Compositor.emitCached` ships text as mode-14 draws only under a byte-exact proof — since §41 in
-  LENS space, on every plane, with a per-lens copy behind the flat draw. Do not put the
-  proportional shares back, do not let telemetry ride a content-neutral repaint or a gesture's
-  first flush, and never emit a cached draw on a depth plane WITHOUT its `CopyPair` — the
-  firmware draws it flat, and only the copy puts it at each lens's x.
-- 🆕 **The glasses can be asleep (2026-09-05, `HANDOFF.md` §36).** The firmware's
-  Silent Mode refuses every image; the glasses push the state and the READ
-  response restores it (`SettingsMsg.parseSilentModePush` / `parseSilentRestored`
-  → `TransportEvent.SilentMode`). `Shell.enterSilentGlasses` stops SENDING
-  (the pump still animates and syncs chrome, then returns before the flush),
-  releases the lease on purpose (`Transport.setLeaseWanted(false)` — the
-  renewal loop honours `leaseWanted`), notifies once — and **the wake is a
-  session REBUILD** (`HANDOFF.md` §38): `Shell.wakeGlasses` calls
-  `Transport.restartSession`, which quiets the link observers, ends the link
-  and reports it through `onLinkDown`; the keeper stops the shell and starts
-  it again from the prelude up, and `Shell.start` adopts the glasses' state
-  from that session's READ (`LinkState.glassesSilent`) before its first
-  frame — asleep at once if they are still silent, painting otherwise. Leaving
-  Silent Mode ends the firmware's EvenHub page (measured: four minutes of
-  refusals after the push OFF on 0.34), so no keyframe into the old session
-  can wake it; the black-keyframe probe is gone. Three consecutive ImgResCmd
-  refusals are the fallback for a missed push, and a sleeping shell's check
-  (every 60 s and on a ring event, `Shell.silentTick`) asks for the rebuild
-  when the glasses themselves say they are awake — once per pacing, never an unbounded loop. The system events 4/5/7 (`FOREGROUND_ENTER`/`EXIT`, `SYSTEM_EXIT`)
-  are journaled as `event` notes now instead of being dropped as gestures;
-  nothing is keyed on them yet. The simulator's `carrierLost` models the page
-  ending with the mode (refused until a CREATE), so a wake that keyframes
-  instead of rebuilding fails `SilentGlassesTest`. Do not put the old "panic →
-  keyframe" reaction back in front of a refusal: it sent a 20 KB keyframe every
-  3.5 s for fifteen minutes on 2026-09-05. `SilentGlassesTest` ×4 and
-  `ShellKeeperTest.aRestartRequestRebuildsTheSessionOnce` pin it.
-- 🆕 **The latency pass (2026-09-05, `HANDOFF.md` §32)** — seven mechanisms, all
-  pixel-identical (49 scenes compared against the untouched build):
-  the journal's submit line carries `via` / `handleMs` / `assembleMs` (the
-  §31.6 regimes turned out to be two radio paths, and nothing said which);
-  `Compositor.compress` is memoised for ONE assemble (cleared at both ends);
-  both rasterizers cache measures and coverage masks by text + resolved font
-  (`core/text/GlyphCaches.kt`, bounded by wholesale clearing); `Wrap.wrap`
-  decides from an additive estimate outside a ±24 px band and measures
-  exactly inside it (`WrapEstimateTest` pins equality with the old loop);
-  `Shell.pump` reserves one window slot for the pump that follows a ring
-  event (`pumpPriority`); `LinkState.transferMsPerKbEma` (flushes ≥ 1 KB,
-  against `floorMsEma` from flushes < 400 B) is the regime discriminator and
-  the wheel spins in 2 frames above 50 ms/KB; `Persistence.saveAsync` writes
-  on one daemon thread in submission order while `save()` (shutdown, the
-  sync channel) waits its turn. Do not put the write back on the loop, do
-  not let the memo outlive an assemble, and keep the estimate band — a line
-  the estimate accepts with 24 px to spare cannot overrun `Draw.fit`.
-- 🆕 **The `queued` counter is honest, and the loop says whether it is alive**
-  (`Shell.post` / `loop()`'s `finally` / `quiescenceReport`, `HANDOFF.md`
-  §31.8): `isQuiescent()` reads `queued`, so a message counted but never
-  delivered would leave the shell permanently "busy" to every harness and every
-  gate. `post()` undoes its own count on a refused `trySend` and says so; the
-  loop's `finally` drains what is left and decrements for it; and the report
-  distinguishes `LOOP-ENDED` from `in=<Msg>/<ms>ms`. Do not make `post()` fire
-  and forget again — a silent failure in this counter is invisible everywhere
-  else.
-- 🆕 **A canvas repaint that TRANSLATED is transmitted as the translation**
-  (`CanvasShift` + `Shell.paintCanvasOf`, `HANDOFF.md` §31): a `CanvasView`
-  owns its damage, and the arm was `paint(); damage(content)` — every row moves
-  in a scroll, so the diff correctly found the whole area changed and shipped
-  it (measured: a tmux scroll cost 7.4–10.8 KB, and 6–12 KB measures a median
-  1,193 ms on the glasses). The shell DETECTS the shift by comparing the frame
-  before with the frame after and declares it; it does not ask the window,
-  because a window that reported a translation it did not make would put wrong
-  pixels on the glass and because detection covers windows nobody has written
-  yet. Exclusive mode's own damage path goes through the same helper.
-  `declareShift(movePending = false)` is the canvas ORDER — damage recorded
-  after the move must not be translated. Do not replace this with a field on
-  the window contract.
-- 🆕 **A CLOSED wheel is not spinning** (`Switcher.spinning` / `close`, `HANDOFF.md` §30):
-  the frame loop posts another `Msg.Pump` for as long as `spinning` is true and
-  `isQuiescent()` reads the same flag, and the drum is stepped only while the
-  wheel is OPEN — so a scroll followed by a commit or a cancel inside the four
-  animation frames left the flag true for ever: an unbounded loop of empty
-  frames and a shell that never reported itself idle. `close()` stops the drum
-  and the flag is `open &&`-gated. The oracle walk is what caught it.
-- 🆕 **A harness compares the shell to the glass through `Shell.sampleIdle`**
-  (§30): `isQuiescent()` answers about one instant from another thread, and a
-  caller that then reads `comp.composed`, `comp.planes` and the two sim panels
-  one after another is reading across a window the shell can repaint inside.
-  That torn sample failed the standing `--selfcheck` oracle about one run in
-  ten (measured 2/20 on the unchanged tree, 20/20 after). `sampleIdle` runs the
-  reading ON the loop with nothing else queued; `SelfCheck.runOracle` and
-  `OracleWalkTest.assertOracle` both go through it, and so does `--snapshot`'s
-  `save()` — the PNGs are what a person judges the design by. A `Msg.Run` that
-  reaches a stopped loop runs its `dropped` arm so the caller is never left
-  suspended.
-- 🆕 **A line box is the LARGER of the face's line height and its measured ink**
-  (§30): AWT ceils ascent and descent separately and the height once, so the
-  ink is a row TALLER than the line height at several scales (JetBrains Mono 16
-  inks 25 against a 24 px line at 115 %). `FlowRender.lineH`, `TermRender`'s
-  cell, the keyboard's centring and the Hold'em history all take the max; every
-  DocView's line height was already measured from ink.
-- 🆕 **The shell loop survives an `Error`, loudly** (`Shell.loop`, `HANDOFF.md` §29):
-  the catch was `Exception` only, and an `Error` out of a handler ended the loop
-  with the display frozen behind a keeper status that still read "running".
-  Both the message handler and the pump catch `Error` too, log it, note the
-  journal and set the status cell to ERROR. Do not narrow it back.
-- 🆕 **An event notice a tap should answer carries `appId` and a `target`**
-  (`TmuxWindow.alert` → `open("session:<host>:<name>")`, §29): the tmux alert
-  was app-less and its tap only dismissed the box. The Torrents done/error and
-  Music notices were already shaped this way; a new window's event notice
-  must be too, and must coalesce on a per-ITEM thread, not the window.
-- 🆕 **The context menu's box follows the row face** (`MenuSurface.boxW`, §29):
-  the design's 248 at 100 %, grown by the ratio the row pitch grew; and a
-  detail the tail-keeping fit cut at its head carries the drawn mark on that
-  edge. NO TRUNCATION means an advertised cut on either edge.
-- 🆕 **The list rhythm is measured, with the design as the floor** (2026-09-04,
-  `HANDOFF.md` §29): `Layout` carries `rowH` / `lensH` (defaults 32 / 64,
-  the §2.3 numbers), `Shell.listRhythm()` derives them from the row face's
-  measured ink through the transform on screen (Main's chrome transform or
-  the focused window's per-app one) on every `syncLayout`, `ContentKit`
-  hangs the rows above from the lens, the slides use `layout.rowH`, and
-  every window's second lens line is placed by `Draw.lineBelow` from the
-  first line's ink. `Review29Test` counts the row above the lens's ink
-  rows at 130 % with a rasterizer whose ink follows the size. Do not put
-  `Layout.ROW_H` back into a paint path or `+34` back into a lens.
-- 🆕 **The shell's own surfaces measure their rhythm from the chrome face**
-  (2026-09-04 late, `HANDOFF.md` §28.2): the menu's title band and row pitch
-  (`MenuSurface.titleH()/rowH()`), the notification box's source band, body
-  pitch and visible-line count (`Notifications.srcH()/pitch()/roomFor()`),
-  and the wheel's centre band (`Switcher.paint`'s `bandH`). The design
-  numbers are the FLOOR, so 100 % is pixel-identical; above it the scale cap
-  below is no longer the only thing between a grown face and undamaged ink.
-  The Hold'em table does the same for its status band, your line and the
-  seat rows (`TableLayout(statusH, lineH)`, `HoldemView.paintSeat`). Do not
-  put a pitch constant back in any of them.
-- 🆕 **A generation bump and its in-flight flag are ONE operation**
-  (`GamesWindow.cancelPacer`, §28.1): whoever invalidates a pending decision
-  also clears `thinking`, and a superseded completion never touches it.
-  Split, the table stalled until a tap.
-- 🆕 **Windows scan their root at registration, quietly** (Reader's shelf,
-  Files' locations — §28.1): Main's lens must never describe a scan nobody
-  started. No op-cell narration, no notice, no `navSeq` bump from that path.
-- 🆕 **`Config.load` never writes back an unreadable file** (§28.1): the
-  defaults run for that start only, loudly, and the file is left to fix.
-- 🆕 **Chrome text is placed from MEASURED ink and its scale is capped to its
-  bar** (2026-09-05). §4.2's font ladder reaches 130 % and scales chrome too,
-  but §2.3's bars are a fixed 32 px and 28 px. `Chrome.fitY` reduces each
-  line's inset so its ink cannot leave its cell — the cell is the only rect
-  that paint damages — and `Shell.chromeScale()` caps the chrome's effective
-  scale to what the SHORTEST bar can hold, measured against the chosen face,
-  while CONTENT keeps the full ladder. Do not restore a constant inset here:
-  the status bar had been running 2 px past its own bar since it was drawn,
-  invisible at full height because the panel edge clipped it and visible at a
-  reduced height as ink below the safe rect (`HANDOFF.md` §27.2).
-- **Compositor per-lens model.** The compositor reasons per lens, not in
-  nominal rects. It keeps an expected shadow of what each lens shows, renders
-  the per-lens TRUTH of the nominal frame under the plane map (the nominal
-  frame is the transparent base every shift may spill over — §3.3's insets;
-  each region vacates its nominal area to black, the seam; region pieces
-  render at their shift far to near, the nearest wins), diffs shadow against
-  truth on the 4×2 damage grid, merges the differences toward the pipelined
-  rect budget (coarsened by row bands first so merging stays cheap; within a
-  piece, then across pieces of one disparity but never across a pixel of
-  another plane; a final priced pass merges neighbours whose compressed
-  union is cheaper — §5.1, §8.2's "1–3 rects"). ⚠ **That "never across another
-  plane" rule binds the plane-0 REMAINDER group too** — it is not a rectangle,
-  so `coarsen()` and `partition()`'s within-owner merge can both union across a
-  region unless guarded (`remainderPieces()`; review 2026-09-03, `HANDOFF.md`
-  §25 #1–2). A flat delta carrying a region's pixels paints them at the wrong
-  shift on BOTH lenses, outside the scanned area — and belief and glass then
-  agree on the wrong thing, so the divergence check cannot see it. The oracle
-  that can: recompute the per-lens truth of `composed` under `planes` and
-  compare it to `expectedLens()` (§25.1). 🆕 That oracle is a STANDING GATE
-  since 2026-09-05: `--selfcheck` runs it on every settle and `OracleWalkTest`
-  runs it over a seeded random walk at all four heights. It catches the wider
-  class too — ink painted into `composed` that no damage rect ever carried,
-  which is how the Music Mode card's overrun and both chrome overruns were
-  found (`HANDOFF.md` §27.2). And emits whatever closes
-  the gap: nominal deltas at their disparity (split when a delta's bytes would
-  exceed a mode-8 sub-message's 16-bit length or the bytes left in the
-  batch; a keyframe past the sub-message length ships bare), black stereo
-  pairs for seam strips BOUNDED TO THE SCANNED AREA (the round-2 L2 fix —
-  `L2ProbeTest`). Every planned op is applied to the shadows as
-  it is planned, so its effect on the OTHER lens (a far piece spilling under
-  a nearer one) is seen and repaired in the same flush, in later-wins order.
-  What the 16-fid ring or the batch's byte cap (bmp_max) cannot carry stays
-  dirty for the next flush, which continues at the wide aim. A lost flush
-  marks the per-lens cells it touched UNKNOWN — transmitted again from the
-  truth, with the marks following any copy applied since as a coalesced
-  frontier — because no byte snapshot can say what the glass holds once
-  other flushes have landed around it. Plane changes, seam cleanup, keyframe follow-ups and reclaims
-  are not special cases — they are differences between shadow and truth.
-  `LensOracleTest` pins it: after every flush the belief equals the firmware
-  model's lens panels, and at rest each lens equals an independently written
-  truth, across depth 8/12/16 and every shell transition; `Round5Test`,
-  `Round6Test` and `Round7Test` add lost flushes, cell noise under a box,
-  text-shaped damage economy, oversize payloads, rollback after many copies
-  and the batch byte cap. A frame the firmware can never accept
-  (three failed keyframes) halts the pump with one notice until the content
-  changes.
-- **Transport session lifecycle.** Queued work carries a session epoch;
-  `stop()` and `onLinkDown()` bump it and SWEEP (a failed `start()` sweeps without bumping): pending
-  acks fail, window permits return, both queues drain loudly, a start parked
-  on the capability gate is answered with a sentinel and refuses. A flush
-  never spans the 0xFFFE→1 fid wrap (pre-clear + restart); a failed encode
-  hands its fids back; completions leave in submission order; msgId cycles
-  1..249. The window-full-no-ack stall is REPORTED as a fault, never acted on.
-- **Shell.** start/stop serialize on a mutex (a stop during start waits and
-  never saves defaults over unread state). A notification box is LIFTED
-  (its under-snapshot restored) before any slide steps beneath it and
-  repainted after. Every dynamic chrome string is sanitised to the locked
-  glyph set and fitted with the continuation mark.
-- **Content.** Host reachability is decided in one place
-  (`RemoteContent.withHost`) with attempt ordering; local disk failures never
+- **The latency build (§40)** — chrome's telemetry cells repaint only when `allowTelemetry` (`Chrome.sync`); a
+  notch's first flush is the translation — the lens repaint is posted one message on
+  (`Shell.paintOptimisticLens`) and a strip past `Slide.SPLIT_FILL_PX` goes out blank and is filled on the next
+  pump (`Slide.fillDeferred`, `Shell.applyCanvasFill`); `Compositor.partition` merges the globally cheapest
+  within-owner pair first (proportional shares starved a plane); `CfwTransportBase.watchdogTick` rebuilds a
+  quiet session and the connect prelude re-asks every 2 s; `Compositor.emitCached` ships text as mode-14 draws
+  only under a byte-exact proof in LENS space, on every plane, with a per-lens copy behind the flat draw. Do not
+  put the proportional shares back, do not let telemetry ride a content-neutral repaint or a gesture's first
+  flush, never emit a cached draw on a depth plane WITHOUT its `CopyPair`.
+- **The glasses can be asleep (§36, §38).** The firmware's Silent Mode refuses every image; the glasses push the
+  state and the READ response restores it (`SettingsMsg.parseSilentModePush` / `parseSilentRestored` →
+  `TransportEvent.SilentMode`). `Shell.enterSilentGlasses` stops SENDING (the pump returns before the flush),
+  releases the lease on purpose (`Transport.setLeaseWanted(false)`), notifies once. **The wake is a session
+  REBUILD**: `Shell.wakeGlasses` → `Transport.restartSession` → `onLinkDown`; the keeper restarts the shell from
+  the prelude up and `Shell.start` adopts the glasses' state from that session's READ (`LinkState.glassesSilent`)
+  before its first frame — leaving Silent Mode ends the firmware's EvenHub page (measured: four minutes of
+  refusals after the push OFF on 0.34), so no keyframe into the old session can wake it. Three consecutive
+  ImgResCmd refusals are the fallback for a missed push; `Shell.silentTick` (every 60 s and on a ring event)
+  asks for the rebuild when the glasses say they are awake, once per pacing. System events 4/5/7 are journaled
+  as `event` notes; the simulator's `carrierLost` models the page ending. Do not put the old "panic → keyframe"
+  reaction back in front of a refusal (a 20 KB keyframe every 3.5 s for fifteen minutes, 2026-09-05).
+  `SilentGlassesTest` ×4, `ShellKeeperTest.aRestartRequestRebuildsTheSessionOnce`.
+- **The latency pass (§32)** — pixel-identical: the journal's submit line carries `via` / `handleMs` /
+  `assembleMs`; `Compositor.compress` is memoised for ONE assemble; both rasterizers cache measures and coverage
+  masks (`core/text/GlyphCaches.kt`); `Wrap.wrap` decides from an additive estimate outside a ±24 px band and
+  measures exactly inside it (`WrapEstimateTest`); `Shell.pump` reserves one window slot for the pump after a
+  ring event (`pumpPriority`); `LinkState.transferMsPerKbEma` (flushes ≥ 1 KB, against `floorMsEma` from
+  flushes < 400 B) is the regime discriminator — the wheel spins in 2 frames above 50 ms/KB;
+  `Persistence.saveAsync` writes on one daemon thread in submission order. Do not put the write back on the
+  loop, do not let the memo outlive an assemble, keep the estimate band.
+- **The `queued` counter is honest** (`Shell.post` / `loop()`'s `finally` / `quiescenceReport`, §31.8):
+  `isQuiescent()` reads `queued`; `post()` undoes its own count on a refused `trySend`; the loop's `finally`
+  drains what is left; the report distinguishes `LOOP-ENDED` from `in=<Msg>/<ms>ms`. Do not make `post()` fire
+  and forget again.
+- **A canvas repaint that TRANSLATED is transmitted as the translation** (`CanvasShift` + `Shell.paintCanvasOf`,
+  §31): `paint(); damage(content)` shipped the whole area on every scroll (measured: a tmux scroll 7.4–10.8 KB;
+  6–12 KB is a median 1,193 ms). The shell DETECTS the shift from the frames before and after; it never asks the
+  window. `declareShift(movePending = false)` is the canvas ORDER. Never a field on the window contract.
+- **A CLOSED wheel is not spinning** (`Switcher.spinning` / `close`, §30): a commit or cancel inside the four
+  animation frames left the flag true for ever — an unbounded loop of empty frames. `close()` stops the drum;
+  the flag is `open &&`-gated.
+- **A harness compares the shell to the glass through `Shell.sampleIdle`** (§30): a read from another thread
+  crosses a window the shell can repaint inside (the standing oracle failed 2/20 on an unchanged tree, 20/20
+  after). `SelfCheck.runOracle`, `OracleWalkTest.assertOracle` and `--snapshot`'s `save()` go through it; a
+  `Msg.Run` reaching a stopped loop runs its `dropped` arm.
+- **A line box is the LARGER of the face's line height and its measured ink** (§30): AWT ceils ascent and descent
+  separately (JetBrains Mono 16 inks 25 against a 24 px line at 115 %). `FlowRender.lineH`, `TermRender`'s
+  cell, the keyboard's centring and the Hold'em history all take the max.
+- **The shell loop survives an `Error`, loudly** (`Shell.loop`, §29): the handler and the pump catch `Error`, log
+  it, note the journal, set the status cell to ERROR. Do not narrow it back to `Exception`.
+- **An event notice a tap should answer carries `appId` and a `target`** and coalesces per ITEM
+  (`TmuxWindow.alert` → `open("session:<host>:<name>")`, §29).
+- **The context menu's box follows the row face** (`MenuSurface.boxW`, §29): the design's 248 at 100 %, grown by
+  the ratio the row pitch grew; a detail cut at its head carries the drawn mark on that edge.
+- **The list rhythm is measured, with the design as the floor** (§29): `Layout.rowH` / `lensH` (defaults 32 /
+  64), `Shell.listRhythm()` derives them from the row face's measured ink through the transform on screen on
+  every `syncLayout`; `ContentKit` hangs the rows above from the lens; every window's second lens line is placed
+  by `Draw.lineBelow`. `Review29Test`. Do not put `Layout.ROW_H` back into a paint path or `+34` into a lens.
+- **The shell's own surfaces measure their rhythm from the chrome face** (§28.2): `MenuSurface.titleH()/rowH()`,
+  `Notifications.srcH()/pitch()/roomFor()`, `Switcher.paint`'s `bandH`, `TableLayout(statusH, lineH)` +
+  `HoldemView.paintSeat`. The design numbers are the FLOOR, so 100 % is pixel-identical. No pitch constants.
+- **A generation bump and its in-flight flag are ONE operation** (`GamesWindow.cancelPacer`, §28.1).
+- **Windows scan their root at registration, quietly** (§28.1): no op-cell narration, no notice, no `navSeq` bump.
+- **`Config.load` never writes back an unreadable file** (§28.1): defaults for that start only, loudly.
+- **Chrome text is placed from MEASURED ink and its scale is capped to its bar** (2026-09-05): `Chrome.fitY`
+  keeps each line's ink inside its cell; `Shell.chromeScale()` caps the chrome's scale to what the SHORTEST bar
+  (28 px) can hold while CONTENT keeps the full 130 % ladder (the status bar ran 2 px past its own bar from the
+  day it was drawn, §27.2).
+- **Compositor per-lens model.** The compositor reasons per lens: an expected shadow per lens; the per-lens
+  TRUTH of the nominal frame under the plane map (each region vacates its nominal area to black — the seam;
+  pieces render far to near, the nearest wins); a diff on the 4×2 damage grid; merging toward the pipelined rect
+  budget (row bands first; within a piece, then across pieces of one disparity, **never across a pixel of
+  another plane**; a final priced pass merges neighbours whose compressed union is cheaper — §5.1, §8.2).
+  ⚠ **That rule binds the plane-0 REMAINDER group too** — not a rectangle, so `coarsen()` and `partition()` can
+  both union across a region unless guarded (`remainderPieces()`; §25 #1–2): a flat delta carrying a region's
+  pixels paints them at the wrong shift on BOTH lenses, belief and glass then agree on the wrong thing, and the
+  divergence check cannot see it. The oracle that can recomputes the per-lens truth of `composed` under `planes`
+  against `expectedLens()` — **a STANDING GATE since 2026-09-05** (every `--selfcheck` settle; `OracleWalkTest`
+  at all four heights); it also catches ink painted into `composed` that no damage rect carried (§27.2). The
+  emitter sends whatever closes the gap: nominal deltas at their disparity (split at a mode-8 sub-message's
+  16-bit length or the batch's remaining bytes), black stereo pairs for seam strips BOUNDED TO THE SCANNED AREA
+  (`L2ProbeTest`); every planned op is applied to the shadows as it is planned, so its effect on the OTHER lens
+  is repaired in the same flush; what the 16-fid ring or the batch byte cap cannot carry stays dirty for the next
+  flush; a lost flush marks the cells it touched UNKNOWN, transmitted again from the truth. `LensOracleTest`
+  (belief = the firmware model's panels after every flush; at rest each lens = an independently written truth,
+  depth 8/12/16, every transition); `Round5Test`–`Round7Test` (lost flushes, cell noise under a box, oversize
+  payloads, rollback after many copies, the batch byte cap). Three failed keyframes halt the pump with one notice.
+- **Transport session lifecycle.** Queued work carries a session epoch; `stop()` and `onLinkDown()` bump it and
+  SWEEP (a failed `start()` sweeps without bumping): pending acks fail, window permits return, both queues drain
+  loudly, a start parked on the capability gate is answered with a sentinel. A flush never spans the 0xFFFE→1
+  fid wrap; a failed encode hands its fids back; completions leave in submission order; msgId cycles 1..249.
+  The window-full-no-ack stall is REPORTED as a fault, never acted on.
+- **Shell.** start/stop serialize on a mutex (a stop during start waits and never saves defaults over unread
+  state). A notification box is LIFTED before any slide steps beneath it and repainted after. Every dynamic
+  chrome string is sanitised to the locked glyph set and fitted with the continuation mark.
+- **Content.** Host reachability is decided in one place (`RemoteContent.withHost`); local disk failures never
   read as "PC gone"; the cache keeps the listing's real extension.
-
-Four more joined the list with the 2026-09-03 whole-codebase review (`HANDOFF.md` §25):
-
-- **A surface's WRAP width and its DRAW bound must be the same number.**
-  `Notifications` wrapped the silent form's body to the window form's box and
-  drew it unbounded: ink outside the damaged rect, which nothing sends and a
-  later keyframe reveals. `SILENT_W` + `bodyLines(n, l, silent)` + fitted
-  draws. The same class was fixed twice before (MenuSurface's detail,
-  SettingsWindow's value) — check it in every new surface.
-- **Dynamic text goes through `Draw.dynamic`, everywhere, without exception.**
-  A glyph the face lacks is a visible `?` and one log line, never silent tofu.
-  Sanitise at WRAP time when the caller wraps (`FlowRender`, the Files viewer)
-  so measure and draw agree; at draw time otherwise (`Draw.fit(…, dynamic(…))`).
-  `Epub.fold` handles what no locked face can draw at the extraction boundary
-  — the cp1252 mojibake range, U+2011, the zero-width formatters.
-- **A window with async levels must load a RESTORED level it did not push.**
-  `restoreState` only reloads the top; `back()` calls `ensureLoaded()`
-  (`MusicWindow`). Files and Torrents each have their own version of this.
-- **`saveSubState()` never reports an EMPTY blob.** An empty object is the
-  §16.4a removal TOMBSTONE, and the sub-keys are syncable: reporting one
-  fresh-stamps a deletion of the peer's real record. The shell refuses one
-  loudly (once per key per session) as a backstop.
-
-- 🆕 **The page traffic sleeps with the shell** (`CfwTransportBase.pageTrafficWanted`, §42):
-  the 4 s keepalive and the 30 s carrier refresh go out only while the shell wants the lease
-  and the glasses do not say they are silent — one night of Silent Mode was 8,641 unacked
-  keepalives. The 60 s device-info READ is the wake poll and stays.
-- 🆕 **A stop after a link loss sends no lease release** (`stop()` reads `connected` before the
-  sweep, §42): the write into the dropped arm was a fault at every rebuild, and the release
-  that reached the survivor freed that lens's texture cache for a lease re-acquired seconds
-  later (a renewal keeps it — `settings_ext.c`). A deliberate stop releases both arms, best
-  effort per arm. The pins: `ShellKeeperTest`, `SilentGlassesTest`.
-- 🆕 **The keeper narrates into the journal** (`Shell.journalNote`, `keeper` notes, §42) and
-  every host serves `/log` — a start that fails before the shell's `build` note used to leave
-  no line at all; silent checks are counted (`silentChecks`), not journaled one a minute; atlas
-  chunks are `ATLAS` submits with their `via`.
+- **From the 2026-09-03 review (§25):** a surface's WRAP width and its DRAW bound are the same number
+  (`Notifications`: `SILENT_W` + `bodyLines(n, l, silent)`); dynamic text goes through `Draw.dynamic` everywhere
+  (`Epub.fold` handles the cp1252 mojibake range, U+2011 and the zero-width formatters at extraction); a window
+  with async levels loads a RESTORED level on `back()` (`MusicWindow.ensureLoaded`); `saveSubState()` never
+  reports an EMPTY blob (the §16.4a tombstone — the shell refuses one loudly, once per key per session).
+- **The page traffic sleeps with the shell** (`CfwTransportBase.pageTrafficWanted`, §42): the 4 s keepalive and
+  the 30 s carrier refresh go out only while the shell wants the lease and the glasses do not say they are
+  silent (one night of Silent Mode was 8,641 unacked keepalives). The 60 s device-info READ is the wake poll.
+- **A stop after a link loss sends no lease release** (`stop()` reads `connected` before the sweep, §42): the
+  write into the dropped arm was a fault at every rebuild, and the release that reached the survivor freed that
+  lens's texture cache (a renewal keeps it — `settings_ext.c`). A deliberate stop releases both arms, best
+  effort per arm. `ShellKeeperTest`, `SilentGlassesTest`.
+- **The keeper narrates into the journal** (`Shell.journalNote`, `keeper` notes, §42) and every host serves
+  `/log`; silent checks are counted (`silentChecks`); atlas chunks are `ATLAS` submits with their `via`.
 
 ## Verification
 
-- `./gradlew :core:test` — **484** unit/integration tests (2026-09-06's latency build, `HANDOFF.md` §40, on top of 2026-09-05's fifth whole-codebase
-  review — `HANDOFF.md` §30 — added `Review30Test.kt`, thirteen pins: the notification rule off its
-  source line, the menu rule off its title, the Games documents holding their ink, Files saying why
-  an empty list is empty, the clock marker clear of the time, the medium clock's even digits, the
-  switcher band holding its name, the Hold'em seat strip inside its band AND still drawing the
-  money, tmux saying a host is quiet on every level, a staged settings row saying the tap applies,
-  the flow line box holding its ink, a wheel closed mid-spin not spinning, and the shell settling
-  after a wheel cancelled mid-spin — plus the Torrents staleness page and the Music dim transport
-  rows in their own files, each run against the unfixed tree and watched to fail; 2026-09-04-evening's fourth
-  whole-codebase review — `HANDOFF.md` §29 — added `Review29Test.kt`, eight pins: the row above
-  the lens keeping its ink at 130 %, a grown rhythm legal at every height, the ladder labels, the
-  failed-start release before the disconnect, brightness back to auto, the custom-amount
-  keyboard's verb, the loop surviving an `Error`, the menu box following the face — plus the tmux
-  alert deep link in `TmuxTest` and the Music idle caption in `MusicWindowTest`, each run against
-  the unfixed tree and watched to fail; 2026-09-04-late's third
-  whole-codebase review — `HANDOFF.md` §28 — added `Review28Test.kt`: five classes, one pin per
-  verified defect, each run against the unfixed tree and watched to fail — the two pacer stalls,
-  the book at 130 %, the tmux line inside its rect, the Main lenses before activation, the scaled
-  menu, status band and wheel inside their rects, the tmux script's blank filter; 2026-09-05's
-  whole-codebase review
-  added `OracleWalkTest` — a seeded random walk of the §1 grammar over a real shell at all four
-  heights, asserting belief = glass = per-lens TRUTH after every settle, with its own
-  surface-coverage gate — and `Review20260905Test`, the cash-out net pin; 2026-09-04's Games build added
-  `ActivationTest` ×6 — the shell's switcher-resume / Main-root rule across every window —
-  `GamesKitTest`, `HoldemEngineTest` (incl. the 3,000-scenario side-pot oracle and the
-  2,000-hand ranking corpus), `HoldemBotTest`, `GamesWindowTest`, `GamesReview20260904Test` ×14
-  — one pin per verified review defect — and `GamesLive20260904Test`, whose pins come from
-  driving the live program: every suit pip is ONE connected shape at every ladder rung, a drawn
-  chip stack is never a single bar, and the opponent strip reads from the seat on your left;
-  2026-09-03's whole-codebase
-  review added `Review20260903Test` ×10 — one pin per verified defect, each confirmed to
-  FAIL against the unfixed tree: the compositor's two plane-guard paths, the silent notice
-  box, the cp1252 entity remap, the extractor's fold, the Reader's and the flow
-  renderer's glyph substitution, Music's restored-level load, the mirror tombstone and
-  the quiet-stream latch; 2026-09-02's whole-codebase review 2
-  added `Round9Test` ×2 — the notification source fit and the media endpoint's range contract;
-  2026-09-01/02 added the Music set:
-  `MusicTest` ×8, `MusicWindowTest` ×7, `MusicModeTest` ×2, `ResolverTest` ×19, `LyricsFetchTest`
-  ×24, `YouTubeTest` ×13, `VizTest` ×12, `EnrichTest` ×11 — plus `--music-check` against the real
-  library, not part of the suite; 2026-09-01 evening added
-  `TorrentsTest` ×7 and `KeyboardTest` ×22 — the Torrents build and its four review rounds —
-  and a `GeometryTest` pin for the chrome tweaks; 2026-09-01 added
-  `SubstrateTest` ×10 — incl. the Reader CONTINUITY gate, the stamp-0 baseline pin, the
-  poisoned-restore pin, the settings-echo pin — `FilesTest` ×8 incl. the pdfpage-restore and
-  emergency-first pins, `ReviewRound1Test` ×6 incl. the 4-byte UTF-8 seam, `L2ProbeTest` (the
-  compositor seam-clamp regression), and the R6 tmux pins: deep-park re-arm + the
-  peer-left-session drop) (§19 added `SyncTest` ×6: the stamped
-  store's LWW, migration, the sync channel over a real loopback host, the shell's
-  freshen-then-apply, the seam status probe; the flow rework added `FlowRenderTest`
-  ×6 plus the pacing/alternate-fallback window tests and the wire-pacing round trip —
-  `TmuxTest.kt` holds 27 today across its six classes;
-  2026-08-31 added `TmuxTest` ×16,
-  `SeamLivenessTest` ×3, `HandoverTest` ×4, `StyleTest` ×5 and the tmux freeze/bleed regressions; the refinement wave added
-  `BatteryBrightnessTest`, `EpubChaptersImagesTest`, and the wire-true source-0 injections in
-  `LongPressTest`; the finishing build added
-  `MirrorTeeTest`, `PreludeTest`, `DivergenceTest`, `ShellKeeperTest`,
-  `WheelAndHostSettingsTest`, `SeamMirrorTest`, `SeamSessionTest`,
-  `ReplicaServerTest`, `PathTransportTest`, the review rounds' regression
-  tests inside them, and `LongPressTest` — the 2026-08-30 grammar); `./gradlew :desktop:test` — the BlueZ glue over a fake
-  link, and `ConfigTest` — an unreadable `config.json` is left untouched, a tokenless one is
-  completed (11). The first stage's 47: RLE parity against the
-  Python reference implementation, CRC vectors, the geometry/fid rule fixtures
-  shared with `tools/lint.py --selftest`, full pipeline round trips through
-  the sim (stereo divergence per lens, mode-8 scroll batches, duplicate-fid
-  skip, msgId-255 silence, lease expiry, warmup drop, out-of-order aborts),
-  the shell behaviour/persistence gates, and `Round3Test` (a fid wrap inside
-  a flush, a busy plane map's keyframe within the fid ring, a plane change
-  with no pixel change, stop-during-start, same-instance transport restart).
-- `--selfcheck` — the whole stack scripted end to end with real fonts,
-  asserting ink budgets, input grammar, persistence byte-behaviour, and zero
-  faults/failed flushes/sticky flags. **200 checks.** ⚠ Its Games checks live in an extracted
-  `gamesChecks()` and its font-ladder walk in `typeLadderTopEnd()` — inline, the method passed
-  the JVM's 64 KB method limit and would not compile. Split the next window's checks the same way.
-- 🆕 **The per-lens TRUTH oracle runs on EVERY `--selfcheck` settle** (279 of them, 2026-09-05).
-  The shell's own divergence check compares its BELIEF to the glass, so a defect that writes
-  wrong pixels into the shadow and then SENDS them is invisible to it — and so is ink painted
-  into `composed` that no damage rect ever carried. The oracle recomputes the truth of
-  `comp.composed` under `comp.planes`, splitting the panel by plane PIECES, and compares that.
-  It found the Music Mode card's overrun and both chrome overruns (`HANDOFF.md` §27.2); a
-  `oracleRuns >= 100` check keeps it from quietly stopping.
-- 🆕 **The font ladder's TOP END is walked** (`typeLadderTopEnd`): every window again at 130 %,
-  then at the tallest face (Alegreya) at 480 AND at 288 — at 480 an overflowing chrome line is
-  clipped away by the panel edge and looks fine, at 288 those rows are real panel. Music Mode is
-  driven with the queue ADVANCING so its surfaces repaint as deltas, which is what exposes ink
-  outside a declared rect.
-- `--games-check` — the Hold'em ecology over hundreds of simulated tournaments, in memory,
-  touching nothing: does skill separate from variance, can the tables fill, and does the money
-  supply's GROWTH RATE fall rather than rise. ⚠ It reports the rate early-against-late and FAILS
-  on a rising one (2026-09-05): the old head-to-tail ratio reports a large number for any
-  monotone series and so could not tell §5.3's flattening from its named failure — and it
-  asserted nothing at all.
-- `--card-render` — the card sheets at every ladder rung into `design/shots/cards/`, at true 1×.
-  🔴 Never judge card art scaled up: at 2× a detached stem and a merged pip both look fine.
-- 🆕 **Two type-ladder checks inside `--selfcheck`** measure against the REAL rasterizer: the
-  three-line lens at 2/28/48 in a 64 px box, and the 480 table's history band. Both of those
-  ladders shipped wrong once by being picked rather than measured (`HOLDEM.md` §17.2, §17.2b),
-  and both checks were confirmed to FAIL against the numbers they replaced.
-- `--snapshot` — renders what the LEFT LENS PANEL holds (post-wire truth,
-  through pack → RLE → deflate → fragmenting → sim firmware → shadow), at
-  true 1x. This harness caught the stereo vacated-strip ghost within minutes
-  of existing.
-  - 🔴 **A wait decides on ONE evaluation.** `while (!cond) delay(); if (!cond) fail` re-tests a
-    condition the loop already passed, and every periodic tick (the clock posts a message a
-    second; the Hold'em pacer posts its own) can flip it back — a settle that succeeded then
-    reports failure with an empty pending list. That shape produced an intermittent failure that
-    moved between scenes for a whole review round (`HANDOFF.md` §27.6). Both harnesses now break
-    out on success and report the captured result; the bounds (60 s settle, 120 s wait) are
-    backstops against a state that can never arrive, and anything over 5 s prints its cost.
-  - **The games scenes pin their world** (`gamesWin.roster.worldSeed = …`, `GamesCheck`'s
-    precedent). Seeded from the wall clock, a scene was a different tournament every run and its
-    script's assumptions held by luck.
-  - ⚠ **Run it more than once.** Three harness defects in §27.6 were each invisible in a single
-    run. The PNGs are not byte-identical between runs either — the chrome clock is live, and so is
-    the status line's throughput readout (`785K/s · 1ms` one run, `1664K/s · 1ms` the next), which
-    means a plain `diff -rq` between two snapshot directories reports ALL 49 scenes even on an
-    unchanged tree. 🔴 **To compare two BUILDS**, keep both installs on disk — build, copy
-    `desktop/build/install/desktop` aside, `git stash`, build, copy aside, `git stash pop` — run
-    them back to back inside one minute, and then judge by WHERE the pixels differ, not whether
-    they do: the status readout sits inside `x∈[240,400]` in a band ≤16 rows tall, and the live
-    scenes are `11-files-locations`, `38-music-mode-480-bars` and `39-music-mode-288-scope`.
-    `10-silent.png` draws no status line and IS byte-stable — it is the useful canary.
-- `tools/lint.py` still gates the repo at 0 findings; its geometry rules are
-  mirrored 1:1 (same rule IDs) in `wm.damage.core.geom.Geometry`, and
-  `GeometryTest` pins both to the same fixtures.
+Battery at HEAD (2026-09-10, `HANDOFF.md` §44.4): `:core:test` **525** · `:desktop:test` **15** · `--selfcheck`
+**230** checks · `--snapshot` **57** scenes · `--epub-check` (380/404 images) · `--music-check` · `--games-check`
+(400 tournaments) · `--feed-check` · `tools/lint.py` **0** · `:phone:assembleDebug` in its own gradle call.
+Every review's pins were run against the unfixed tree and watched to fail before they counted.
+
+- `./gradlew :core:test` — RLE parity against the Python reference, CRC vectors, the geometry/fid fixtures shared
+  with `tools/lint.py --selftest` (`GeometryTest`), pipeline round trips through the sim, `Round3Test`;
+  `MirrorTeeTest`, `PreludeTest`, `DivergenceTest`, `ShellKeeperTest`, `WheelAndHostSettingsTest`,
+  `SeamMirrorTest`, `SeamSessionTest`, `ReplicaServerTest`, `PathTransportTest`, `LongPressTest`;
+  `LensOracleTest`, `Round5Test`–`Round7Test`, `L2ProbeTest`; `SeamLivenessTest`, `HandoverTest`, `SyncTest`,
+  `StyleTest`, `BatteryBrightnessTest`, `EpubChaptersImagesTest`; `TmuxTest`; `SubstrateTest` (the Reader
+  CONTINUITY gate), `FilesTest`, `ReviewRound1Test`; `TorrentsTest`, `KeyboardTest`; the Music set;
+  `Round9Test`; `Review20260903Test`; `ActivationTest`, `GamesKitTest`, `HoldemEngineTest` (the 3,000-scenario
+  side-pot oracle, the 2,000-hand ranking corpus), `HoldemBotTest`, `GamesWindowTest`,
+  `GamesReview20260904Test`, `GamesLive20260904Test`; `Review20260905Test`; `OracleWalkTest` (a seeded random
+  walk of the §1 grammar at all four heights, belief = glass = per-lens TRUTH after every settle);
+  `Review28Test`, `Review29Test`, `Review30Test`; `WrapEstimateTest` and the §40 pins; `SilentGlassesTest` and
+  the §42 pins; `TextureCacheTest`, `AckStatusTest`; `FeedTest`, `FeedWindowTest`, `FeedNetTest`.
+- `./gradlew :desktop:test` — the BlueZ glue over a fake link, `ConfigTest` (an unreadable `config.json` is left
+  untouched, a tokenless one completed), `SetupServerTest`, `FeedStripsTest` (the real xkcd PNG through the decoder).
+- `--selfcheck` — the whole stack scripted end to end with real fonts: ink budgets, input grammar, persistence
+  byte-behaviour, zero faults/failed flushes/sticky flags. **The per-lens TRUTH oracle runs on EVERY settle**
+  (`oracleRuns >= 100` keeps it from quietly stopping); it found the Music Mode card's overrun and both chrome
+  overruns (§27.2). **The font ladder's TOP END is walked** (`typeLadderTopEnd`: every window at 130 %, then
+  Alegreya at 480 AND 288) with Music Mode's queue ADVANCING so its surfaces repaint as deltas; two type-ladder
+  checks measure the three-line lens (2/28/48 in a 64 px box) and the 480 table's history band against the REAL
+  rasterizer (`HOLDEM.md` §17.2). ⚠ Each window's checks live in their own method (`gamesChecks()`,
+  `feedChecks()`, `typeLadderTopEnd()`) — inline, the script passed the JVM's 64 KB method limit. Run it more
+  than once: it is a rate.
+- `--games-check` — the ecology over hundreds of tournaments in memory: does skill separate from variance, can the
+  tables fill, does the money supply's GROWTH RATE fall (it FAILS on a rising rate, early-against-late).
+- `--card-render` — the card sheets at every ladder rung into `design/shots/cards/`, at true 1×. Never judge card
+  art scaled up: at 2× a detached stem and a merged pip both look fine.
+- `--snapshot` — what the LEFT LENS PANEL holds (post-wire truth through pack → RLE → deflate → fragmenting → sim
+  firmware → shadow), at true 1×. **A wait decides on ONE evaluation** (`while (!cond) delay(); if (!cond) fail`
+  re-tests a condition the loop already passed and a periodic tick can flip back — §27.6; the 60 s settle /
+  120 s wait bounds are backstops; anything over 5 s prints its cost). **The games scenes pin their world**
+  (`gamesWin.roster.worldSeed = …`). **Run it more than once**, and never compare two runs with `diff -rq`: the
+  clock and the throughput readout (`785K/s · 1ms` vs `1664K/s · 1ms`) differ on an unchanged tree. **To compare
+  two BUILDS** keep both installs on disk (build, copy `desktop/build/install/desktop` aside, `git stash`, build,
+  copy aside, `git stash pop`), run them inside one minute, and judge by WHERE the pixels differ: the status
+  readout sits inside `x∈[240,400]` in a band ≤ 16 rows tall; the live scenes are `11-files-locations`,
+  `38-music-mode-480-bars`, `39-music-mode-288-scope`; `10-silent.png` draws no status line and IS
+  byte-stable — the useful canary.
+- `tools/lint.py` gates the repo at 0 findings; its geometry rules are mirrored 1:1 (same rule IDs) in
+  `wm.damage.core.geom.Geometry`, and `GeometryTest` pins both to the same fixtures.
