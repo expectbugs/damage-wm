@@ -3051,6 +3051,14 @@ First pass (grade M, `research/linkparams.py` and a completed-packets count; the
 - **The audio device is a new variable**: the journal's `SLOW regime` flips today (13:26, 17:11, 17:17,
   17:41; a 283 ms floor for two minutes at 17:10) happened with that device streaming; whether the
   §31 slow side is the phone's radio time-sharing with A2DP is now testable in this capture.
+  **Tested the same evening (grade M):** the device is Adam's Pixel Bud (one earbud at work, music from
+  Damage's Music window). Joining the capture's per-ten-second earbud packet counts to the journal's
+  per-flush ack times: the bud streamed only ~3 of 24 minutes; while it streamed the glasses' tiny-flush
+  floor rose (median 56 → 72 ms, p90 90 → 197 ms) and the transfer term did not move (1.5–4 KB flushes
+  ~490 ms median with the bud busy or idle) — the slow side is not the earbud. The 227 choppy-audio
+  reports all fall in those streaming minutes: the two 15 ms links cost the earbud's audio, which is a
+  design input for the link levers (F1.6's fast-link hold would make it worse) and a question for Adam
+  (does the music sound choppy at work?).
 
 **Today's journal (read over Tailscale at 18:02, grade M):** 0.45 installed at 13:25:43; both lenses at
 15 ms / 1 all afternoon; **no supervision timeout in 4.5 hours worn at work** — every link end today is
