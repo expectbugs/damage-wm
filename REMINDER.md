@@ -26,7 +26,10 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
   the telemetry record's field 4 is the status register the contract's §1.2 requires (the C, the simulator, both
   test sets); the boot-count read withdrawn (stock keeps `kvbooCount` only in the KV store, the RAM word it was
   read from is referenced by nothing); DamageCaps read from the capability answer only; arena 13 = 839,680 B.
-  Both trees carry the fixes **uncommitted**.
+  Committed and pushed (`c1c1017`; the fork `7377e0c`). **Adam's answer (§50.6): during the drop-free overnight
+  windows the glasses were in the charging case** — the first variable that switches the ~50-minute arm drops off;
+  `FORK.md` M0.7 (one evening of placement: unfolded on the desk, folded on the desk, the case) splits charging, the
+  fold and the case detect. Still to ask: where they were 18:07→22:35 on the 13th.
 - **Latency hardened without the firmware (2026-09-12, `HANDOFF.md` §47):** the APK re-asks for its priority
   (Global `Link` row, `high` default) whenever the link slows; slow parameters flip the regime at once (`LINK SLOW`,
   one notice); the brightness write is answered and re-sent once; the standby claims only when both arms advertise
@@ -133,7 +136,7 @@ source; plain wording in every file, comment and commit (`HANDOFF.md` §48.5).
 | 20 | **A draw into a released cache** — the ImgResCmd status it returns | replaced by `FORK.md` F1.5 (a queryable generation and CRC) |
 | 21 | **Temple long-press accident rate** (gloves) | §1.2's bare-long-press no-op guards it |
 | 24 | **Does the firmware enter Silent Mode by itself** (wear detection, idle)? | the journal will say |
-| 25 | **The arm rebuilds' cause** (§42.2) | `FORK.md` M0.5 (a boot banner settles reset-or-stall) and M0.6 |
+| 25 | **The arm rebuilds' cause** (§42.2) | `FORK.md` M0.5 (a boot banner settles reset-or-stall), M0.6, and **M0.7** (in the charging case the drops stopped for 9.5 h — §50.6) |
 | 26 | **The wake loop's cause** (§42.3) | the `keeper: start failed: …` notes name it |
 | 27 | **Free heap and worker/copy time on glass** | `FORK.md` M0.1 (`probe:diag=show`, APK 0.45) — sets the cache and scratch budgets |
 | 27b | **The panel transfer time per present** (a full 153,602-byte frame on both drivers; nothing times it today) | `FORK.md` F1.3 — sets the tick ceiling |

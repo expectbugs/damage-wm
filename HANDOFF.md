@@ -2885,4 +2885,33 @@ build, and the next staged build (with its version bump) carries them.
 
 Both trees carry the fixes uncommitted (Adam's call). The fork's candidate is still not a candidate:
 F1.3, F1.5, F1.6, F1.7 and the self-test op remain (`FORK.md` Phase 1). Adam's side (§49.7) is
-unchanged. Nothing flashed.
+unchanged. Nothing flashed. (Committed and pushed on Adam's word later the same morning: Damage
+`c1c1017`, the fork `7377e0c`.)
+
+### 50.6 Adam's answer on the quiet windows: the glasses were in the charging case
+
+Asked where the glasses were during 2026-09-13's two drop-free overnight windows (22:35→05:05 and
+05:06→08:04, session up, lease renewed throughout), Adam: **in the charging case in the bedroom**. So
+the case (charging, folded, lid closed, stationary, unworn) is the first variable that switches the
+~50-minute arm drops off, while the night of 2026-09-07/08 — six rebuilds on the silent clock (§42.0),
+the glasses out of the case (§42.2's RF line: on a desk; Adam to confirm) — had them on. Against §42.2's
+ten (grade: an inference from two nights, n=1 each, not a proof):
+
+- **Fits poorly:** item 1 as written (a free-running per-arm clock would keep ticking in the case for
+  9.5 h); item 6 (a deep sleep on a low-traffic link predicts *more* drops overnight, and the case night
+  had the least traffic and none); item 7's case half (a closed case attenuates more than a desk and had
+  no drops).
+- **Fits:** a task that runs only while the glasses are active — unfolded, on battery or out of the
+  case (items 1 or 2 gated on that state: a reset clock or a periodic self-test that pauses when
+  folded/charging); item 8 (a battery-saver duty cycle that is off while charging); item 7's worn
+  half (the head and the pocket between an arm and the phone — but the desk night's drops need the
+  desk to have been far from the phone, or this half is out too).
+- **Neutral:** items 4 and 5 (the phone was idle on both nights); items 9 and 10 only if the desk
+  night's silent-clock traffic differed from the case night's, which the journals can say.
+
+**Open:** where the glasses were 18:07→22:35 on the 13th (no drop is recorded there either; if they
+were worn at home with the session up, the work environment joins the variables). **The cheap
+discriminator is placement, not tooling — `FORK.md` M0.7:** an evening with the session up and the
+logger on: two hours unfolded on the desk on battery (drops expected, and M0.5's log lines across one),
+then two hours folded on the desk on battery, then the case. Charging, the fold and the case detect
+come apart in one evening.

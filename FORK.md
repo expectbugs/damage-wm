@@ -128,6 +128,7 @@ Size is relative (S/M/L/XL). "Flashes" counts candidate flashes; fix flashes are
 | M0.4 | 2M PHY request from the APK (`probe:phy=2m`, APK 0.45; `probe:phy=1m` returns) | measured, not assumed |
 | M0.5 | the sid-0x0F log stream across an arm rebuild (`probe:logger=on`, APK 0.45: RAM-only on the glasses, re-sent after each session start; lines land in the journal as `glasslog` notes) | what the surviving arm logs as the other drops → reset vs stall, the hold-back rule's N |
 | M0.6 | the glasses' battery changes journaled (`battery` notes, APK 0.45; `journal_report.py --since`) over a day on `Link = high` and a day on `balanced` (the §47 experiment) | the battery baseline every later soak compares against |
+| M0.7 | **the case experiment** (added 2026-09-14, `HANDOFF.md` §50.6 — in the charging case the ~50-minute arm drops stopped for 9.5 h, on a desk they did not): one evening, session up, `probe:logger=on` — ~2 h unfolded on the desk on battery, ~2 h folded on the desk on battery, then the case; the journal's `link` notes say which condition drops | which of charging, the fold and the case detect gates the drops; with M0.5's log lines across a drop, reset vs stall — the hold-back rule's N and §42.2's ten narrowed by placement alone |
 
 **Research (decompile corpus + openCFW docs; findings into `CLAIMS.md`):**
 
@@ -378,4 +379,5 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   `f9211ea2…`, 26 entries, no new site); the boot-count read withdrawn — stock keeps `kvbooCount` only
   in the KV store, nothing in the image references the RAM word it was read from (F1.2 amended); the
   transport reads DamageCaps from the capability answer only; arena 13 is 839,680 B (0xCD000), not
-  839,808. Nothing flashed. Next: unchanged (Adam's side, §49.7).
+  839,808. Nothing flashed. Adam's answer on the quiet windows: the glasses were in the charging case
+  (§50.6) — M0.7 added, the evening placement experiment. Next: unchanged (Adam's side, §49.7) plus M0.7.
