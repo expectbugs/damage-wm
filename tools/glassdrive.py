@@ -10,7 +10,11 @@ STEPs, in order: a gesture (tap double up down hold release), `wait:SECONDS`,
 `pace:SECONDS` (change the gap between the following gestures; the switcher
 chord is `pace:0.3 hold release double pace:2.5`),
 `snap:PATH.png` (both lenses side by side, 1×, from the mirror as it stands),
-`status` (print the last status frame). Gestures are paced by --pace seconds
+`status` (print the last status frame), `probe:NAME=VALUE` (a Phase 0 measurement
+probe for the host's transport, `HANDOFF.md` §49 — `probe:diag=show|hide` the
+firmware's diagnostic overlay, `probe:logger=on|off` the glasses' own log stream
+into the journal as `glasslog` notes, `probe:phy=2m|1m` the radio PHY ask; APK
+0.45+). Gestures are paced by --pace seconds
 so each flush is isolated in the journal (§31.1's method). Every gesture is
 echoed with a timestamp so the journal's flushes can be matched to it.
 
@@ -85,6 +89,11 @@ async def main():
             elif s.startswith('snap:'):
                 png(s[5:], panels)
                 print(f'{time.strftime("%H:%M:%S")} +{time.time()-t0:6.1f}s  snap -> {s[5:]} (frames L={got[0]} R={got[1]})')
+            elif s.startswith('probe:') and '=' in s:
+                name, value = s[6:].split('=', 1)
+                await ws.send(json.dumps({'t': 'probe', 'name': name, 'value': value}))
+                print(f'{time.strftime("%H:%M:%S")} +{time.time()-t0:6.1f}s  probe {name}={value}')
+                await asyncio.sleep(0.5)
             elif s == 'status':
                 print(f'status: {status}')
             else:

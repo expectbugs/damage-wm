@@ -345,6 +345,7 @@ class ShellService : Service() {
         try {
             val rs = ReplicaServer(prefs.replicaPort, prefs.token, { mirror }, { replicaStatus() },
                 onInput = { postGesture(it) }, onText = { postText(it) },
+                onProbe = { n, v -> transport?.devProbe(n, v) ?: Log.w("service", "probe $n=$v with no transport") },
                 journalPath = { filesDir.toPath().resolve("journal.jsonl") })
             rs.start()
             replica = rs

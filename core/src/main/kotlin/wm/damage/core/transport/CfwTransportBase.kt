@@ -24,8 +24,11 @@ import wm.damage.core.geom.LintError
 import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.util.Log
 import wm.damage.core.wire.AaFrame
+import wm.damage.core.wire.CfwModes
+import wm.damage.core.wire.DamageMsg
 import wm.damage.core.wire.EvenHubMsg
 import wm.damage.core.wire.LaunchMsg
+import wm.damage.core.wire.LoggerMsg
 import wm.damage.core.wire.Pb
 import wm.damage.core.wire.RingMsg
 import wm.damage.core.wire.SettingsMsg
@@ -119,6 +122,82 @@ abstract class CfwTransportBase(
         }
     }
 
+    /** Phase 0 probe state (§49): the log stream is wanted until a `logger=off`
+     *  probe; the firmware ends it at every session CREATE, so each start
+     *  re-sends the switch while this holds. Not persisted: a process restart
+     *  leaves it off. */
+    @Volatile private var loggerWanted = false
+
+    override fun devProbe(name: String, value: String) {
+        Log.i(this.name, "probe: $name=$value")
+        emitNote("probe", "$name=$value")
+        val started = _state.value.started
+        when (name) {
+            "diag" -> {
+                val sub = when (value) {
+                    "show" -> 2
+                    "hide" -> 1
+                    else -> { Log.w(this.name, "probe diag=$value: expected show | hide"); return }
+                }
+                if (!started) { Log.w(this.name, "probe diag=$value not sent: no session"); return }
+                // CfwModes.diag: [7][sub] rides the image lane like every mode
+                // message; it burns no fid and draws only into the physical
+                // framebuffer, never the shadow the mirror models
+                imageQueue.trySend(ImgWork.Raw(sessionEpoch.get(), CfwModes.diag(sub), null))
+            }
+            "logger" -> {
+                val on = when (value) {
+                    "on" -> true
+                    "off" -> false
+                    else -> { Log.w(this.name, "probe logger=$value: expected on | off"); return }
+                }
+                loggerWanted = on
+                if (!started) { Log.w(this.name, "probe logger=$value: no session yet (the next start sends it)"); return }
+                controlQueue.trySend(loggerSwitch(sessionEpoch.get(), on))
+            }
+            // FIRMWARE.md §3 (a Damage build only; an upstream build ignores field 112)
+            "telemetry", "flags" -> {
+                val (op, arg) = when {
+                    name == "telemetry" && value == "read" -> DamageMsg.OP_TELEMETRY to (telemetryIds.incrementAndGet() and 0xFFFF)
+                    name == "flags" && value == "clear" -> DamageMsg.OP_FLAGS_CLEAR to 0
+                    name == "flags" && value == "probe" -> DamageMsg.OP_FLAGS_SET to DamageMsg.FLAG_PROBE
+                    name == "flags" && value.startsWith("0x") && value.drop(2).toIntOrNull(16) in 0..0xFFFF ->
+                        DamageMsg.OP_FLAGS_SET to value.drop(2).toInt(16)
+                    else -> { Log.w(this.name, "probe $name=$value: expected telemetry=read or flags=clear|probe|0xNNNN"); return }
+                }
+                if (!started) { Log.w(this.name, "probe $name=$value not sent: no session"); return }
+                if (damageCaps == null) emitNote("probe", "$name=$value sent to a build without DamageCaps — expect no answer")
+                controlQueue.trySend(CtlWork.BothArms(sessionEpoch.get(), SettingsMsg.SID, "damage op $op") { DamageMsg.control(op, arg) })
+            }
+            else -> Log.w(this.name, "probe $name=$value: not a probe this transport runs (diag, logger, telemetry, flags)")
+        }
+    }
+
+    private fun loggerSwitch(epoch: Long, on: Boolean) =
+        CtlWork.BothArms(epoch, LoggerMsg.SID, "logger switch (${if (on) "on" else "off"})") { id -> LoggerMsg.switchSet(id, on) }
+
+    /** FIRMWARE.md §0: the last DamageCaps a READ response carried (null = none). */
+    @Volatile private var damageCaps: DamageMsg.Caps? = null
+    private val telemetryIds = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** One sid-0x0F message from [arm] (LoggerMsg): a log line becomes a
+     *  `glasslog` journal note, the switch's answer a log line. */
+    private fun onLoggerFrame(arm: Arm, payload: ByteArray) {
+        val m = LoggerMsg.parse(payload)
+        val a = arm.name.first()
+        when {
+            m == null -> Log.w(name, "sid-0x0F frame from $arm did not parse: " +
+                payload.take(48).joinToString("") { "%02x".format(it) })
+            m.cmd == LoggerMsg.CMD_DEVICE_SEND_DATA && m.logStr != null -> emitNote("glasslog", "$a ${m.logStr}")
+            m.cmd == LoggerMsg.CMD_SWITCH_SET -> {
+                Log.i(name, "logger switch answered by $arm: bleTransEn=${m.transEn} msgId=${m.magic}")
+                emitNote("probe", "logger switch answered by $arm (bleTransEn=${m.transEn})")
+            }
+            else -> Log.i(name, "sid-0x0F cmd ${m.cmd} from $arm: " +
+                payload.take(48).joinToString("") { "%02x".format(it) })
+        }
+    }
+
     /** Panel brightness (2026-08-31): a sid-0x09 write on the control lane,
      *  fire-and-forget like the lease (msgId 0; the firmware's ack is not
      *  awaited — a lost write is corrected by the next push or session start). */
@@ -175,6 +254,10 @@ abstract class CfwTransportBase(
         /** The sid-0x01 connect prelude (LaunchMsg); [failed] completes with the
          *  reason if the write never goes out, like [Settings]. */
         class Launch(epoch: Long, val failed: CompletableDeferred<String>? = null) : CtlWork(epoch)
+        /** §49 probes: one fire-and-forget message written to BOTH arms (each arm
+         *  answers for itself) — the log stream's switch (sid 0x0F) and the Damage
+         *  control ops (sid 0x09 field 112). [payload] gets the msgId. */
+        class BothArms(epoch: Long, val sid: Int, val label: String, val payload: (Int) -> ByteArray) : CtlWork(epoch)
     }
 
     private val imageQueue = Channel<ImgWork>(Channel.UNLIMITED)
@@ -405,6 +488,12 @@ abstract class CfwTransportBase(
                 // Parsed before everything else — while it is on, every image
                 // is refused, and the shell must know before it sends one.
                 SettingsMsg.parseSilentModePush(frame.payload)?.let { on -> noteSilent(on, "pushed"); return }
+                // FIRMWARE.md §3: a Damage build's telemetry record (commandId 3, field 111)
+                DamageMsg.parseTelemetry(frame.payload)?.let { t ->
+                    Log.i(name, "glass telemetry from $arm: ${t.describe()}")
+                    emitNote("glass", "${arm.name.first()} ${t.describe()}")
+                    return
+                }
                 // §47: an answer to one of OUR sid-0x09 requests (a READ's or
                 // a WRITE's cmdId, never a device-initiated message's) — the
                 // write it answers is done, and any write sent before it and
@@ -424,6 +513,7 @@ abstract class CfwTransportBase(
                     Log.d(name, "settings frame outside the capability gate ignored")
                     return
                 }
+                damageCaps = DamageMsg.parseCaps(frame.payload)
                 val cap = SettingsMsg.parseCapability(frame.payload)
                 if (cap != null) {
                     capabilityChannel.trySend(cap)
@@ -434,6 +524,7 @@ abstract class CfwTransportBase(
                     capabilityChannel.trySend("")
                 }
             }
+            LoggerMsg.SID -> onLoggerFrame(arm, frame.payload)
             RingMsg.SID -> {
                 // The ring data relay. Whether the glasses push RingRawData
                 // unprompted is an open probe (CAPABILITIES.md §3) — read what
@@ -484,6 +575,9 @@ abstract class CfwTransportBase(
         if (glassesPct != null && glassesPct != lastLoggedGlassesPct) {
             lastLoggedGlassesPct = glassesPct
             Log.i(name, "battery: glasses $glassesPct%${if (glassesCharging == true) " (charging)" else ""}")
+            // §49 (FORK.md M0.6): the journal keeps every change, so a day's
+            // drain can be read from /journal — /log's tail holds under a day
+            emitNote("battery", "glasses $glassesPct%${if (glassesCharging == true) " charging" else ""}")
         }
         if (ringPct != null && ringPct != lastLoggedRingPct) {
             lastLoggedRingPct = ringPct
@@ -821,6 +915,12 @@ abstract class CfwTransportBase(
 
             updateState { it.copy(started = true, leaseHeld = true, detail = "") }
             startInProgress = false
+            // §49 probe: the CREATE above ended the firmware's log stream
+            if (loggerWanted) controlQueue.trySend(loggerSwitch(epoch, true))
+            // FIRMWARE.md §0: what the READ answered about a Damage build, once per session
+            val caps = damageCaps
+            emitNote("glass", if (caps == null) "no DamageCaps field: an upstream g2flash build"
+                else "DamageCaps contract ${caps.contract} features 0x${caps.features.toString(16)}")
         } catch (e: Exception) {
             startInProgress = false
             // Roll back COMPLETELY (round 3 D4): a failed start must not leave
@@ -1128,6 +1228,7 @@ abstract class CfwTransportBase(
                 ?: Log.w(name, "settings write dropped: $why")
             is CtlWork.Launch -> w.failed?.complete(why)
                 ?: Log.w(name, "prelude write dropped: $why")
+            is CtlWork.BothArms -> Log.w(name, "${w.label} dropped: $why")
         }
     }
 
@@ -1523,6 +1624,23 @@ abstract class CfwTransportBase(
                         } catch (e: Exception) {
                             work.failed?.complete(e.message ?: e.toString())
                             throw e
+                        }
+                        is CtlWork.BothArms -> wire.withLock {
+                            // each arm acts on (and answers) its own copy; each write is
+                            // attempted on its own so an arm that is gone does not keep
+                            // the other from its copy
+                            val id = nextMsgIdLocked()
+                            val payload = work.payload(id)
+                            for (arm in Arm.entries) {
+                                try {
+                                    for (p in AaFrame.frame(nextSeqLocked(), work.sid, 0x20, payload)) writePacket(arm, p)
+                                } catch (e: kotlinx.coroutines.CancellationException) {
+                                    throw e                     // the lane is ending: not a write failure
+                                } catch (e: Exception) {
+                                    Log.w(name, "${work.label} not written to $arm: ${e.message}")
+                                    emitNote("probe", "${work.label} not written to $arm: ${e.message}")
+                                }
+                            }
                         }
                         is CtlWork.Launch -> try {
                             wire.withLock {

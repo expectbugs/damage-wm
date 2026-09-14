@@ -25,6 +25,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import no.nordicsemi.android.ble.BleManager
+import no.nordicsemi.android.ble.PhyRequest
 import no.nordicsemi.android.ble.callback.ConnectionParametersUpdatedCallback
 import no.nordicsemi.android.ble.callback.PhyCallback
 import no.nordicsemi.android.ble.ktx.suspend
@@ -125,6 +126,22 @@ class BleTransport(
                     noteLinkParams(arm, "granted", interval, latency, timeout)
                 })
                 .fail { _, status -> Log.w("ble", "$arm connection priority request ($why) status $status (continuing)") }
+                .enqueue()
+        }
+
+        /** §49 probe (FORK.md M0.4): ask for a PHY on this arm. The controllers
+         *  settle it between themselves; the answer, whatever it is, is logged and
+         *  journaled — a refusal leaves the link on the PHY it had. */
+        fun requestPhy(mask: Int, label: String) {
+            setPreferredPhy(mask, mask, PhyRequest.PHY_OPTION_NO_PREFERRED)
+                .with(PhyCallback { _, tx, rx ->
+                    notePhy(arm, tx, rx)
+                    emitNote("link", "$arm PHY after the $label request: ${phyName(tx)}/${phyName(rx)}")
+                })
+                .fail { _, status ->
+                    Log.w("ble", "$arm PHY request ($label) status $status")
+                    emitNote("probe", "$arm PHY request ($label) status $status")
+                }
                 .enqueue()
         }
 
@@ -328,11 +345,31 @@ class BleTransport(
         publishLinkParams()
     }
 
+    private fun phyName(p: Int) = when (p) { PhyCallback.PHY_LE_1M -> "1M"; PhyCallback.PHY_LE_2M -> "2M"; PhyCallback.PHY_LE_CODED -> "coded"; else -> "phy$p" }
+
     private fun notePhy(arm: Arm, tx: Int, rx: Int) {
-        fun name(p: Int) = when (p) { PhyCallback.PHY_LE_1M -> "1M"; PhyCallback.PHY_LE_2M -> "2M"; PhyCallback.PHY_LE_CODED -> "coded"; else -> "phy$p" }
-        Log.i("ble", "$arm PHY tx ${name(tx)} rx ${name(rx)}")
-        phyByArm[arm] = "phy ${name(tx)}/${name(rx)}"
+        Log.i("ble", "$arm PHY tx ${phyName(tx)} rx ${phyName(rx)}")
+        phyByArm[arm] = "phy ${phyName(tx)}/${phyName(rx)}"
         publishLinkParams()
+    }
+
+    /** §49: the phone's radio adds the PHY probe; diag and logger are the base's. */
+    override fun devProbe(name: String, value: String) {
+        if (name != "phy") return super.devProbe(name, value)
+        Log.i("ble", "probe: $name=$value")
+        emitNote("probe", "$name=$value")
+        val mask = when (value) {
+            "2m" -> PhyRequest.PHY_LE_2M_MASK
+            "1m" -> PhyRequest.PHY_LE_1M_MASK
+            else -> { Log.w("ble", "probe phy=$value: expected 2m | 1m"); return }
+        }
+        var asked = 0
+        for ((arm, m) in managers) {
+            if (!m.linkUp) { Log.w("ble", "probe phy=$value: $arm is not connected"); continue }
+            m.requestPhy(mask, value)
+            asked++
+        }
+        if (asked == 0) emitNote("probe", "phy=$value not asked: no arm connected")
     }
 
     private fun reasonName(reason: Int): String = when (reason) {

@@ -209,6 +209,11 @@ class PathTransport(
         active?.transport?.setLinkPriority(name)
     }
 
+    override fun devProbe(name: String, value: String) {
+        active?.transport?.devProbe(name, value)
+            ?: wm.damage.core.util.Log.w("path", "probe $name=$value: no path is driving")
+    }
+
     override suspend fun setLeaseWanted(wanted: Boolean) { active?.transport?.setLeaseWanted(wanted) }
     override suspend fun restartSession(reason: String): Boolean = active?.transport?.restartSession(reason) ?: false
 

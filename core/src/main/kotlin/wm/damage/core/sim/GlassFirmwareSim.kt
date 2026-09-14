@@ -6,8 +6,10 @@ import wm.damage.core.transport.Arm
 import wm.damage.core.transport.LensPanels
 import wm.damage.core.wire.AaFrame
 import wm.damage.core.wire.CfwModes
+import wm.damage.core.wire.DamageMsg
 import wm.damage.core.wire.EvenHubMsg
 import wm.damage.core.wire.LaunchMsg
+import wm.damage.core.wire.LoggerMsg
 import wm.damage.core.wire.Pb
 import wm.damage.core.wire.SettingsMsg
 
@@ -87,6 +89,15 @@ class GlassFirmwareSim() : LensPanels {
          *  and zeroes it, dropped again when the lease ends or mode 11 runs
          *  (texture_cache.c cfw_texture_cache_update / cfw_texture_cache_release). */
         var textureCache: ByteArray? = null
+        /** cfw_ctx diag_hide, inverted: mode 7 sub 2 shows the overlay, sub 1 hides
+         *  it (zlib_glue.c); it draws into the physical framebuffer only, so the
+         *  modeled panel is unchanged — this is state for tests. */
+        var overlayShown = false
+        /** The stock log stream's RAM switch (LoggerMsg): set by a sid-0x0F
+         *  BLE_LOGGER_SWITCH_SET, cleared by the next app start (a CREATE). */
+        var loggerOn = false
+        /** `FIRMWARE.md` §3 flags; cleared at every texture-cache release point. */
+        var damageFlags = 0
     }
 
     val left = LensCtx()
@@ -119,6 +130,11 @@ class GlassFirmwareSim() : LensPanels {
     /** Modeled glasses battery (f4.12 of the settings READ response) and the
      *  last brightness write accepted (null level = auto). */
     var batteryPct = 87
+
+    /** `FIRMWARE.md` §0: null models the installed upstream build (no field 110, field 112
+     *  ignored); a contract number models a Damage build — DamageCaps on every READ and
+     *  the §3 control ops answered. */
+    @Volatile var damageContract: Int? = null
 
     /** The firmware's Silent Mode (§36): while on, every image is refused
      *  with ImgResCmd status 5 (measured on the real pair 2026-09-05) and the
@@ -195,6 +211,7 @@ class GlassFirmwareSim() : LensPanels {
             EvenHubMsg.SID -> evenHub(arm, frame.payload, now)
             SettingsMsg.SID -> settings(arm, frame.payload, now)
             LaunchMsg.SID -> launch(frame.payload)
+            LoggerMsg.SID -> logger(arm, frame.payload)
             else -> diag.event("sid", "unmodeled sid 0x${frame.sid.toString(16)} — ignored")
         }
     }
@@ -260,6 +277,9 @@ class GlassFirmwareSim() : LensPanels {
                     return
                 }
                 layoutCreated = true
+                // LoggerMsg: every display-thread app start ends the log stream (FUN_0044227E);
+                // the page starts on both lenses (graded I), so both switches clear
+                left.loggerOn = false; right.loggerOn = false
                 carrierLost = false       // a new slot — the one thing that ends a §37.0 refusal
                 warmupPending = true      // the first image burst after CREATE is silently dropped
                 img = null
@@ -527,6 +547,10 @@ class GlassFirmwareSim() : LensPanels {
                 true
             }
             7 -> {
+                if (src.size >= 2 && (src[1].toInt() == 1 || src[1].toInt() == 2)) {
+                    ctx(arm).overlayShown = src[1].toInt() == 2
+                    diag.event("diag", "$arm mode-7 sub-${src[1]}: overlay ${if (src[1].toInt() == 2) "shown" else "hidden"}")
+                }
                 if (src.size >= 2 && src[1].toInt() == 0) {
                     val c2 = ctx(arm)
                     c2.fDup = false; c2.fSkip = false; c2.fReorder = false
@@ -543,6 +567,7 @@ class GlassFirmwareSim() : LensPanels {
                 // the texture cache is freed, snapshots are dropped, the overlay hides.
                 c.leaseDeadline = 0
                 c.textureCache = null
+                c.damageFlags = 0
                 stockPattern(c.panel)
                 diag.event("cleanup", "$arm mode-11 session cleanup: FB lease released, " +
                     "texture cache freed, stock repaints")
@@ -640,6 +665,7 @@ class GlassFirmwareSim() : LensPanels {
     private fun fbLeaseActive(arm: Arm, now: Long): Boolean {
         val c = ctx(arm)
         if (c.leaseDeadline == 0L || now >= c.leaseDeadline) {
+            c.damageFlags = 0
             if (c.textureCache != null) {
                 c.textureCache = null
                 diag.event("texture", "$arm texture cache freed: the FB lease has lapsed")
@@ -904,6 +930,8 @@ class GlassFirmwareSim() : LensPanels {
         val fields = try { Pb.fields(payload) } catch (e: IllegalArgumentException) {
             diag.event("proto", "unparseable 09 payload"); return
         }
+        val damage = fields.firstOrNull { it.field == DamageMsg.CONTROL_FIELD }?.bytes
+        if (damage != null && damageContract != null) { damageControl(arm, damage, now); return }
         val control = fields.firstOrNull { it.field == SettingsMsg.CONTROL_FIELD }?.bytes
         if (control != null && control.size == 6 && control[0] == 'F'.code.toByte() &&
             control[1] == 'C'.code.toByte()
@@ -921,6 +949,7 @@ class GlassFirmwareSim() : LensPanels {
                     // or this narration can never fire (review 2026-09-02)
                     val hadCache = c.textureCache != null
                     if (!fbLeaseActive(arm, now)) {
+                        c.damageFlags = 0
                         if (hadCache)
                             diag.event("texture", "$arm fresh FB lease after a lapse — " +
                                 "texture cache freed; the atlas must be uploaded again")
@@ -933,6 +962,7 @@ class GlassFirmwareSim() : LensPanels {
                     releasesSeen++
                     ctx(arm).leaseDeadline = 0
                     ctx(arm).textureCache = null          // settings_ext.c releases it here
+                    ctx(arm).damageFlags = 0              // FIRMWARE.md §3: with the cache
                     stockPattern(ctx(arm).panel)
                     diag.event("lease", "$arm FB lease released — stock repaints, " +
                         "texture cache freed")
@@ -958,6 +988,10 @@ class GlassFirmwareSim() : LensPanels {
                     if (reportSilentRestored) Pb.v(SettingsMsg.SILENT_RESTORED_FIELD, if (silentMode) 1 else 0) else ByteArray(0))),
                 Pb.l(SettingsMsg.CAPABILITY_FIELD, capabilityString.toByteArray(Charsets.UTF_8)),
                 Pb.l(SettingsMsg.MIC_STATUS_FIELD, micStatusBody()),
+                damageContract?.let { v ->
+                    Pb.l(DamageMsg.CAPS_FIELD, Pb.cat(Pb.s(1, "DMG"), Pb.v(2, v),
+                        Pb.v(3, DamageMsg.FEATURE_TELEMETRY or DamageMsg.FEATURE_FLAGS)))
+                } ?: ByteArray(0),
             )
             diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), SettingsMsg.SID,
                 SettingsMsg.FLAG_RESPONSE, resp, AaFrame.TYPE_RESPONSE).single())
@@ -1016,6 +1050,82 @@ class GlassFirmwareSim() : LensPanels {
         diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), EvenHubMsg.SID, EvenHubMsg.FLAG_EVENT,
             payload, AaFrame.TYPE_RESPONSE).single())
     }
+
+    // ------------------------------------------------------------------ Damage control (FIRMWARE.md §3)
+    /** The §3 ops on [arm]: the flag set (bit 15 PROBE the only implemented bit) and the
+     *  telemetry reply every op gets. Modeled fields only — the sim has no timings, heap
+     *  arenas, panel record or boot count, and a record leaves out what is not known. */
+    private fun damageControl(arm: Arm, body: ByteArray, now: Long) {
+        if (body.size != 6 || body[0] != 'D'.code.toByte() || body[1] != 'M'.code.toByte() || body[2].toInt() != 1) {
+            diag.event("damage", "$arm malformed field-112 body — no answer")
+            return
+        }
+        val c = ctx(arm)
+        val op = body[3].toInt() and 0xFF
+        val arg = (body[4].toInt() and 0xFF) or ((body[5].toInt() and 0xFF) shl 8)
+        var requestId = 0
+        val status = when (op) {
+            DamageMsg.OP_TELEMETRY -> { requestId = arg; DamageMsg.STATUS_OK }
+            DamageMsg.OP_FLAGS_SET ->
+                if (arg and DamageMsg.FLAG_PROBE.inv() != 0) DamageMsg.STATUS_UNSUPPORTED
+                else { c.damageFlags = arg; DamageMsg.STATUS_OK }
+            DamageMsg.OP_FLAGS_CLEAR -> { c.damageFlags = 0; DamageMsg.STATUS_OK }
+            else -> DamageMsg.STATUS_MALFORMED
+        }
+        val leased = fbLeaseActive(arm, now)          // notices a lapse first: flags then read 0
+        val diagBits = (if (c.fReorder) 1 else 0) or (if (c.fSkip) 2 else 0) or (if (c.fDup) 4 else 0)
+        val record = Pb.cat(
+            Pb.v(1, requestId), Pb.v(2, now), Pb.v(3, c.damageFlags), Pb.v(4, status),
+            Pb.v(11, diagBits), Pb.v(12, if (leased) c.leaseDeadline - now else 0L), Pb.v(14, fwSide(arm)),
+        )
+        diag.event("damage", "$arm op $op status $status flags 0x${c.damageFlags.toString(16)}")
+        diag.notify(arm, AaFrame.frame(nextSeq(), SettingsMsg.SID, SettingsMsg.FLAG_RESPONSE,
+            Pb.cat(Pb.v(1, 3), Pb.v(2, 0), Pb.l(DamageMsg.TELEMETRY_FIELD, record)), AaFrame.TYPE_RESPONSE).single())
+    }
+
+    @Synchronized
+    fun damageFlags(arm: Arm): Int = ctx(arm).damageFlags
+
+    // ------------------------------------------------------------------ logger (sid 0x0F)
+    /** LoggerMsg: only BLE_LOGGER_SWITCH_SET is modeled — the RAM switch and
+     *  its answer {cmd 1, magic, bleTransEn} on the arm it came in on. No log
+     *  lines are generated; any other cmd is reported, never answered. */
+    private fun logger(arm: Arm, payload: ByteArray) {
+        val m = LoggerMsg.parse(payload)
+        if (m == null) { diag.event("logger", "$arm unparseable sid-0x0F payload"); return }
+        if (m.cmd != LoggerMsg.CMD_SWITCH_SET || m.transEn == null) {
+            diag.event("logger", "$arm sid-0x0F cmd ${m.cmd} (unmodeled) — ignored")
+            return
+        }
+        ctx(arm).loggerOn = m.transEn == 1
+        diag.event("logger", "$arm log stream ${if (m.transEn == 1) "on" else "off"}")
+        diag.notify(arm, AaFrame.frame(nextSeq(), LoggerMsg.SID, SettingsMsg.FLAG_RESPONSE,
+            Pb.cat(Pb.v(1, LoggerMsg.CMD_SWITCH_SET), Pb.v(2, m.magic ?: 0), Pb.v(3, m.transEn)),
+            AaFrame.TYPE_RESPONSE).single())
+    }
+
+    // ------------------------------------------------------------------ conformance vectors
+    /** `FIRMWARE.md` §9: one completed image message into [arm]'s dispatch — what the
+     *  deferred handler receives on each lens — for `ConformanceVectorTest`, which
+     *  runs the same vector files the fork's host harness runs through the C.
+     *  True where the firmware returns 0. */
+    @Synchronized
+    fun conformanceMessage(arm: Arm, message: ByteArray, now: Long): Boolean = dispatchImage(arm, message, now)
+
+    /** The framebuffer lease op for [arm] through the modeled sid-0x09 control path. */
+    @Synchronized
+    fun conformanceLease(arm: Arm, acquire: Boolean, now: Long) =
+        settings(arm, SettingsMsg.control(if (acquire) SettingsMsg.OP_FB_ACQUIRE else SettingsMsg.OP_FB_RELEASE, 1), now)
+
+    /** CRC-32 (zlib polynomial) over [arm]'s packed 640x480 shadow, rows in order. */
+    @Synchronized
+    fun shadowCrc32(arm: Arm): Long = java.util.zip.CRC32().also { it.update(ctx(arm).shadow) }.value
+
+    @Synchronized
+    fun overlayShown(arm: Arm): Boolean = ctx(arm).overlayShown
+
+    @Synchronized
+    fun loggerOn(arm: Arm): Boolean = ctx(arm).loggerOn
 
     /** Sticky diagnostic flags for [arm] — the mode-7 overlay's content. */
     @Synchronized

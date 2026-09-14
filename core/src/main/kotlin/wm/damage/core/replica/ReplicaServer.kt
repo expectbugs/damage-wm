@@ -39,6 +39,9 @@ import wm.damage.core.wire.EvenHubMsg
  *   server → client binary   [arm u8][y0 u16 LE][rows u16 LE][rows × stride bytes]
  *   server → client text     {"t":"status", ...}
  *   client → server text     {"t":"input","ev":"tap|double|up|down|hold|release"}
+ *   client → server text     {"t":"probe","name":"diag|logger|phy|telemetry|flags","value":"…"}  — a Phase 0
+ *                            measurement probe for the host's transport (Transport.devProbe;
+ *                            `HANDOFF.md` §49); the page never sends it, `tools/glassdrive.py` does
  *
  * Per client, one sender thread builds each panel frame AT SEND TIME from
  * the live mirror against what that client last received, so a slow viewer
@@ -59,6 +62,8 @@ class ReplicaServer(
     /** A typed LINE from the page's text bar (TMUX.md verdict 1) — rides
      *  Transport.injectText; the focused window stages it behind a confirm. */
     private val onText: (String) -> Unit = {},
+    /** A Phase 0 probe (name, value) for the host's transport — §49. */
+    private val onProbe: (String, String) -> Unit = { n, v -> Log.w("replica", "probe $n=$v: this host runs no probes") },
     /** This host's flush journal, served at `GET /journal?token=T[&tail=N]`;
      *  `GET /log?token=T[&tail=N]` serves the process's recent log lines (§42).
      *  (2026-09-05, `HANDOFF.md` §32) — the phone has no adb on Adam's
@@ -377,6 +382,15 @@ class ReplicaServer(
                     val line = o["line"]?.jsonPrimitive?.content
                     if (line.isNullOrBlank()) Log.w("replica", "empty typed line ignored")
                     else onText(line)
+                }
+                "probe" -> {
+                    val name = o["name"]?.jsonPrimitive?.content
+                    val value = o["value"]?.jsonPrimitive?.content
+                    if (name.isNullOrBlank() || value.isNullOrBlank()) Log.w("replica", "probe without a name or value ignored")
+                    else {
+                        Log.i("replica", "probe $name=$value from ${sock.inetAddress}")
+                        onProbe(name, value)
+                    }
                 }
                 "hb" -> {}
                 else -> Log.w("replica", "unknown message ${o["t"]} ignored")

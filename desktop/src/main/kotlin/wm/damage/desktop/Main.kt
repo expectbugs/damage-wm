@@ -804,6 +804,8 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         )
     }, onInput = { t -> stack()?.transport?.injectInput(t) },
         onText = { line -> stack()?.transport?.injectText(line) },
+        onProbe = { n, v -> stack()?.transport?.devProbe(n, v)
+            ?: Log.w("damage", "probe $n=$v: no shell stack on this host (the phone drives)") },
         journalPath = { Path.of(cfg.dataDir).resolve("journal.jsonl") })
     try {
         replica.start()

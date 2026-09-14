@@ -62,6 +62,24 @@ interface Transport {
      *  slower). Default: no radio to ask. */
     fun setLinkPriority(name: String) {}
 
+    /**
+     * A Phase 0 measurement probe (`FORK.md` M0.1/M0.4/M0.5, `HANDOFF.md` §49),
+     * reached only from the replica port's token-gated `probe` message
+     * (`tools/glassdrive.py probe:NAME=VALUE`) — never from the shell:
+     *
+     *   diag   = show | hide   the firmware's diagnostic overlay (mode 7 sub 2 / 1)
+     *   logger = on | off      the stock log stream on sid 0x0F ([wm.damage.core.wire.LoggerMsg])
+     *   phy    = 2m | 1m       ask the radio for a PHY (the phone's transport only)
+     *   telemetry = read       a Damage build's telemetry record (`FIRMWARE.md` §3)
+     *   flags  = clear | probe | 0xNNNN   a Damage build's flag set (§3)
+     *
+     * Every probe is logged and journaled as a `probe` note; one this transport
+     * cannot run says so. Default: none.
+     */
+    fun devProbe(name: String, value: String) {
+        wm.damage.core.util.Log.w("transport", "probe $name=$value: this transport runs no probes")
+    }
+
     /** Hold or drop the framebuffer lease on demand (2026-09-05, `HANDOFF.md`
      *  §36): the shell drops it while the glasses are in the firmware's Silent
      *  Mode — with the lease held nothing paints anyway, and without it the
