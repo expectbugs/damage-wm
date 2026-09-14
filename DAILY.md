@@ -116,9 +116,13 @@ without writing a row.
   per heap arena) — `diag=hide` removes it. `logger=on` streams the glasses' own log lines into the journal as
   `glasslog` notes (RAM-only on the glasses; re-sent after every session start; `logger=off` stops it) — read
   with `journal_report.py - --since … --glasslog`. `phy=2m` asks the radio for 2M PHY (`link` notes carry the
-  answer; `phy=1m` goes back). `telemetry=read` and `flags=probe|clear` answer only on a Damage firmware build
+  answer; `phy=1m` goes back — answered 2026-09-14: the glasses have no 2M PHY, the probe only shows the refusal). `telemetry=read` and `flags=probe|clear` answer only on a Damage firmware build
   (the installed one is upstream and ignores them; the `probe` note says so). The glasses' battery changes are
   `battery` notes (the report's battery section).
+- **A BTSnoop capture** (the recipe verified from the stack's source, `captures/README.md`): Bluetooth off → Developer
+  options → HCI snoop log = Enabled → ten seconds → Bluetooth on → the session → a full bug report with Bluetooth on;
+  the zip must hold `btsnoop_hci.log`, not only `btsnooz_hci.log`. Mailed reports are read from the phone's Sent folder
+  on beardos (`~/Mail/marzello.net/Sent`) when the inbox copy does not arrive.
 - Remote tmux hosts ride one multiplexed ssh connection (`~/.damage/ssh-*` control sockets, 60 s persist) — a
   stale socket there is safe to delete.
 - Views while headless: the phone screen or replica (`http://aphone:7403/?token=…`); the PC replica

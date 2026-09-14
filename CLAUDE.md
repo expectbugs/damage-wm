@@ -48,8 +48,10 @@ WORK since 2026-09-12: the CFW fork and the Damage rebuild are the only work unt
 `HANDOFF.md` §48).** No new windows, no Feed polish, no popover build outside the plan, until `FORK.md`
 Phase 8 closes. The fork is its own GPL-3.0 repo (`~/damage-cfw`); Damage stays clean-room and holds
 only the contract (`FIRMWARE.md`). Never flash without Adam's in-the-moment go; dry-run first.
-**Phase 0 in progress since 2026-09-13** (`FORK.md` §11, `HANDOFF.md` §49): reads in `CLAIMS.md` and
-`research/fork-reads-2026-09-13.md`; the probes in APK 0.45; `MOTION.md` awaits Adam's refinery.
+**Phase 0 closed by Adam's ruling on 2026-09-14 bar M0.1** (`HANDOFF.md` §50.9; the reads in `CLAIMS.md` and
+`research/fork-reads-2026-09-13.md`): **Phase 1 — the fork pipeline and the first flash — is the work.** M0.1 (the
+overlay read, one minute on glass) before the flash, never before the build; `MOTION.md` and D1–D8 at Adam's pace
+before Phase 3; the arm drops are recorded and not the work.
 
 **LIVE as the all-day daily driver.** CFW g2flash `a5d1c31` (reports `2.2.6.10`; detect by the
 `EVENCFW/` capability string, never the version; first light 2026-08-30). Topology (`HANDOFF.md`

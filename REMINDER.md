@@ -6,7 +6,7 @@ progress log) → `FIRMWARE.md` (the contract) → **`HANDOFF.md` §49 (Phase 0 
 decided) → §47 → §46 → §44 → §43 → §42 → what they cite. For firmware facts: `CLAIMS.md` ("Firmware internals read
 for the fork") → `research/fork-reads-2026-09-13.md` → the image itself through `research/fwread.py`.
 
-## Where we are (2026-09-14, after midnight)
+## Where we are (2026-09-14, evening)
 
 - **🔴 The CFW fork and the Damage rebuild are the ONLY work (Adam, 2026-09-12; `HANDOFF.md` §48).** All other
   Damage work is suspended until `FORK.md` Phase 8 closes: no new windows, no Feed polish, no popover build outside
@@ -17,7 +17,7 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
 - **Phase 0 started 2026-09-13 (`HANDOFF.md` §49, `FORK.md` §11):** R0.2/R0.3/R0.4/R0.6 and the sid-0x0F handler
   read (`CLAIMS.md` "Firmware internals read for the fork"); two plan corrections (every present sends the whole
   panel — F1.7 rewritten; the overlay's `p` is the copy only — M0.1/F1.3 amended; §3.1's boot-path rule corrected);
-  the probes built (APK **0.45 staged**); **the v1 conformance vectors pass: the simulator matches the firmware C
+  the probes built (APK 0.45, installed 2026-09-14 13:25); **the v1 conformance vectors pass: the simulator matches the firmware C
   on all 35 steps, both lenses**; `MOTION.md` drafted for the refinery. The fork (pushed to `github/damage`):
   the toolchain pin and `tools/verify.py` (`6db86e2`, the no-feature baseline `1920dda6…`), the x86 host harness
   (`cd802ec`), the Phase 1 settings extension — DamageCaps, telemetry, flags, no new patch site (`a8f3610`;
@@ -52,9 +52,9 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
   hand:** the setup page is Damage's (`desktop/SetupServer.kt`), the playlists refresh under Damage, qBittorrent
   is the `qbittorrent` service.
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games · Feed. **Builds:** APK
-  **0.44 installed** (its journal says so); **0.45 staged** (`~/.damage/damage-wm.apk`, `http://beardos:7300/setup`)
-  = 0.44 + the §49 probes, the `battery` notes and the DamageCaps/telemetry parser. The service runs 0.44's core
-  (the PC needs no redeploy for the probes: the seam protocol is unchanged).
+  **0.45 installed** (2026-09-14 13:25, its journal says so) = 0.44 + the §49 probes, the `battery` notes and the
+  DamageCaps/telemetry parser; nothing staged — the next build is 0.46 with Phase 1's keeper (`HANDOFF.md` §50.9).
+  The service runs 0.44's core (the PC needs no redeploy: the seam protocol is unchanged).
 - **Battery at HEAD (measured 2026-09-14, after the review's fixes):** core **540** · desktop **15** · `--selfcheck`
   230 checks ×3, 0 fail (it is a rate) · snapshots 57 · `--epub-check` · `--music-check` · `--games-check` ·
   `--feed-check` · lint 21 rules / 0 · `:phone:assembleDebug` in its OWN gradle call. The fork: `tools/verify.py`

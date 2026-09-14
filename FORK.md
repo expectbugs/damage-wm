@@ -126,9 +126,9 @@ Size is relative (S/M/L/XL). "Flashes" counts candidate flashes; fix flashes are
 | M0.2 | 240 fps phone video through a lens: a stock dashboard scroll (cadence, the bounce) and a Damage notch (ring press → first visible change) | the real user-perceived numbers; if filming fails, Phase 1 telemetry is the fallback |
 | M0.3 | BTSnoop with the APK driving (bug-report mail path) plus one Wi-Fi-off session | packets per connection event, PHY, the arm split, one arm drop from the radio's side → the link levers |
 | M0.4 | 2M PHY request from the APK (`probe:phy=2m`, APK 0.45; `probe:phy=1m` returns) — **answered 2026-09-14 without the request:** the phone's record of the glasses' link-layer feature set has the LE 2M PHY bit clear (`CLAIMS.md`); the probe stays as a check | measured, not assumed |
-| M0.5 | the sid-0x0F log stream across an arm rebuild (`probe:logger=on`, APK 0.45: RAM-only on the glasses, re-sent after each session start; lines land in the journal as `glasslog` notes) | what the surviving arm logs as the other drops → reset vs stall, the hold-back rule's N |
+| M0.5 | the sid-0x0F log stream across an arm rebuild (`probe:logger=on`, APK 0.45: RAM-only on the glasses, re-sent after each session start; lines land in the journal as `glasslog` notes) — **dropped as a pre-test 2026-09-14 (`HANDOFF.md` §50.9):** F1.2's uptime answers reset-vs-stall after the flash; the probe stays available | what the surviving arm logs as the other drops → reset vs stall, the hold-back rule's N |
 | M0.6 | the glasses' battery changes journaled (`battery` notes, APK 0.45; `journal_report.py --since`) over a day on `Link = high` and a day on `balanced` (the §47 experiment) | the battery baseline every later soak compares against |
-| M0.7 | **the phone-state experiment** (added 2026-09-14, redesigned the same evening, `HANDOFF.md` §50.6 — the glasses sat in the charging case through the 13th's fourteen daytime drops AND its two quiet nights, so the variable is the phone's day/night state): glasses in the case in the bedroom, session up, `probe:logger=on`, the snoop Enabled — ~2 h with the phone beside the case, screen off; ~2 h with the phone in another room in normal use; the journal's `link` notes say which condition drops, the snoop's vendor quality events what the radio saw before a timeout | whether distance/walls, the phone's activity or a periodic phone-side event gates the drops; with M0.5's log lines across a drop, reset vs stall — the hold-back rule's N and §42.2's ten narrowed |
+| M0.7 | **the phone-state experiment** (added 2026-09-14, redesigned the same evening, `HANDOFF.md` §50.6 — the glasses sat in the charging case through the 13th's fourteen daytime drops AND its two quiet nights, so the variable is the phone's day/night state): glasses in the case in the bedroom, session up, `probe:logger=on`, the snoop Enabled — ~2 h with the phone beside the case, screen off; ~2 h with the phone in another room in normal use; the journal's `link` notes say which condition drops, the snoop's vendor quality events what the radio saw before a timeout | whether distance/walls, the phone's activity or a periodic phone-side event gates the drops; with M0.5's log lines across a drop, reset vs stall — the hold-back rule's N and §42.2's ten narrowed — **optional since §50.9** |
 
 **Research (decompile corpus + openCFW docs; findings into `CLAIMS.md`):**
 
@@ -175,8 +175,9 @@ conservative ceiling today), preamble/TOC/checksum fixups, **a host build of the
 the boot count** (field 111 telemetry), **F1.4 done** (field 112 flag ops; only bit 15 PROBE implemented),
 no new patch site, `host/test_damage_ext.py` 11/11 (reviewed 2026-09-14: field 4 is the status register,
 `FIRMWARE.md` §11; pin `f9211ea2…`). **Still to build for the candidate:** F1.3 (the transfer stamp — a new
-site at `0x00473CE4`), F1.5, F1.6 (a new site on `FUN_00476CBC`'s entry), F1.7 (JBD-only), F1.8 (if M0.3
-says), the self-test op.
+site at `0x00473CE4`), F1.5, F1.7 (JBD-only), the self-test op, and Damage's keeper on uptime; F1.6 dropped unless
+slow-set episodes return (`HANDOFF.md` §50.9); F1.8 pending the per-event M0.3 read (the first pass: ~2 packets per
+interval with the host feeding faster).
 
 **Firmware features (flags, default off):**
 

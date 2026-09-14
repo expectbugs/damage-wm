@@ -63,6 +63,9 @@ PC-direct BlueZ only while the APK is unavailable, handing the radio back on its
 - **2026-09-12 — the firmware fork decided** (`FORK.md`, `HANDOFF.md` §48): a Damage build of the custom
   firmware (`~/damage-cfw`, GPL-3.0, its own repo) so the glasses can animate and answer the ring
   themselves; every existing window is rebuilt on it, fully animated, before any new window.
+- **2026-09-14 — Phase 0 reviewed and closed bar one read** (`HANDOFF.md` §50): the 13th's work corrected in four
+  places, the first two-arm captures with the APK driving, no 2M PHY on the glasses, Adam's ruling that the arm drops
+  are not the work; Phase 1 — the fork pipeline and the first flash — is next.
 - **2026-09-13 — Phase 0 begun** (`HANDOFF.md` §49): the firmware's refresh, link-policy, lens-link,
   memory and log paths read at instruction level (`CLAIMS.md`, `research/fork-reads-2026-09-13.md`);
   measurement probes in the APK; the fork builds reproducibly and runs its drawing code on the PC, where
