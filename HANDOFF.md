@@ -3062,6 +3062,40 @@ First pass (grade M, `research/linkparams.py` and a completed-packets count; the
   buffer absorbs at today's traffic: a margin the links spend, not an audible defect. A design input for
   the link levers (F1.6's fast-link hold spends more of it), not a problem to fix.
 
+### 50.9 Adam's two rulings at the end of the day: the drops are not the work; Phase 1 is
+
+**The 7th/8th night, answered:** Labor Day; the phone was with him, the glasses in the case in the
+basement bedroom, the phone upstairs with him a few times. So two nights in the case with the phone in the
+room gave six rebuilds (the 7th/8th, APK 0.40/0.41) and none (the 13th, APK 0.44 with §47's link
+changes); the 13th's day in the case with the phone about the house gave fourteen; today worn at work gave
+none. The distance reading of §50.8 does not survive the 7th/8th; the APK version joins the candidates;
+the cause stays **U**, and §42.2's ten stand with the constraints of §49.1, §50.6 and §50.8 on them.
+
+**His ruling:** the connection feels solid, he never notices a drop while using Damage, and distance
+measurements are not what he is here for. The work is the firmware: fonts, scrolling and animations as
+smooth and quick as the stock ones. Asked whether more testing is needed first, the answer given (and
+recorded in `FORK.md` Phase 0 and `REMINDER.md`):
+
+- **Necessary before the first flash:** only M0.1, the overlay read (free heap per arena sizes the cache,
+  scratch and staged content; the copy time bounds the tick) — one minute with `probe:diag=show`.
+- **Answered or made unnecessary:** M0.4 (no 2M PHY); M0.3's questions bar the drop (both lenses at
+  15 ms / 1, DLE 247, ~two packets per interval, the arm split as designed); **M0.5 and M0.7** — the
+  reset-vs-stall question is what the drops mattered for (a reset clears anything uploaded to the glasses
+  and would trip the hold-back rule), and F1.2's uptime answers it after the first flash for free, while
+  the keeper re-uploads on every session start anyway. Both are dropped as pre-tests; the journal keeps
+  counting.
+- **Useful, not blocking, passive or at his pace:** M0.6 (day one on `high` is running; day two on
+  `balanced` was the drop experiment and is optional now), M0.2 (the 240 fps baseline for D7's target),
+  the `MOTION.md` refinery and D1–D8 — needed before Phase 3 fixes the verb set, not before Phase 1 or 2.
+- **Scope trim proposed:** F1.6 (the fast-link hold) is dropped from the candidate unless the journal
+  shows slow-set episodes again — the link held 15 ms / 1 all day without it, and it would spend the
+  earbud's margin. Phase 1's candidate is then F1.3 (the transfer stamp), F1.5 (cache-keep), F1.7 (the
+  JBD partial-refresh timing, if the panel is JBD), the self-test op, and the keeper's arm/hold-back
+  protocol on uptime; the flash after M0.1 and the ritual, with his go.
+
+**So: ready to proceed with Phase 1 in a fresh session.** The R0.1 input-path read and R0.5 run in
+parallel, offline, for Phases 4 and 5.
+
 **Today's journal (read over Tailscale at 18:02, grade M):** 0.45 installed at 13:25:43; both lenses at
 15 ms / 1 all afternoon; **no supervision timeout in 4.5 hours worn at work** — every link end today is
 Adam's Bluetooth toggle; the DamageCaps probe reports the installed build as upstream, as it should; the
