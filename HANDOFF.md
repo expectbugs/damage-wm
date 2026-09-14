@@ -2941,3 +2941,16 @@ the phone's dumps):
 - The phone's controller: HCI 6.0, 251-octet LE packets, 13 LE buffers, suggested default data
   length 27; the negotiated length is the full capture's to say.
 - A classic device tried to pair at 16:44:32 and failed authentication at 16:45:39; unrelated.
+
+**The second report (16:55:07), read the same way:** again only the ring (`btsnooz_hci.log` 105 KB,
+16:54:09→16:56:51, plus the first ring as `.last`), no `btsnoop_hci.log`. It could not have differed from
+the first: the same Bluetooth stack instance (no toggle since 16:16; the connection list identical), and
+the option had been set to Disabled at 16:54:16 (the property reads `disabled`; the event log has that
+change) — so it tested "off before the report", which gives nothing. The first report's timeline is now
+pinned by its event log (from 16:10:29, exactly one `bt_hci_snoop_log` change, 16:16:35) and the stack's
+start (providers loading 16:16:49): the property was `full` before the stack started, no SELinux denial
+touches the log directory in either report, and the file still was not written or not included. Cause
+open (candidates: the property landing after the stack's read despite the event order; a GMS-pushed change
+to the stack's snoop logger since June — `INIT_gd_hal_snoop_logger_socket`; a report-type difference). The
+discriminating test is Adam's: option Enabled, a few seconds, Bluetooth off and on, a few minutes of use, a
+report with Bluetooth on; then, if still nothing, Bluetooth off before the report.
