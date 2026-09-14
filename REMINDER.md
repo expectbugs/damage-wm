@@ -26,10 +26,11 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
   the telemetry record's field 4 is the status register the contract's §1.2 requires (the C, the simulator, both
   test sets); the boot-count read withdrawn (stock keeps `kvbooCount` only in the KV store, the RAM word it was
   read from is referenced by nothing); DamageCaps read from the capability answer only; arena 13 = 839,680 B.
-  Committed and pushed (`c1c1017`; the fork `7377e0c`). **Adam's answer (§50.6): during the drop-free overnight
-  windows the glasses were in the charging case** — the first variable that switches the ~50-minute arm drops off;
-  `FORK.md` M0.7 (one evening of placement: unfolded on the desk, folded on the desk, the case) splits charging, the
-  fold and the case detect. Still to ask: where they were 18:07→22:35 on the 13th. **The bug reports (§50.7):** the stack reads the snoop mode once at start (its source);
+  Committed and pushed (`c1c1017`; the fork `7377e0c`). **Adam's answer (§50.6, corrected): the glasses were in the charging case, untouched, from the
+  night of the 12th to 13:15 on the 14th — through the 13th's fourteen daytime drops AND its quiet nights.** So the
+  phone's day/night state is the variable, not the glasses'; `FORK.md` M0.7 now varies the phone with the glasses fixed
+  in the case (beside it screen-off vs another room in use). Still to ask: the phone's whereabouts by day on the 13th,
+  whether the audio device `98:3A:1F:EE:84:77` was connected, and the phone's place on the night of the 7th/8th. **The bug reports (§50.7):** the stack reads the snoop mode once at start (its source);
   `btsnooz_hci.log` in a zip proves it started in Disabled mode — today's two and June 5 12:15 did, the selection
   having landed after the stack came up; Adam chose Enabled every time. Recipe: Bluetooth off → Enabled → ten
   seconds → Bluetooth on → session → report; the check is `btsnoop_hci.log` present and no `btsnooz_hci.log`. The
@@ -140,7 +141,7 @@ source; plain wording in every file, comment and commit (`HANDOFF.md` §48.5).
 | 20 | **A draw into a released cache** — the ImgResCmd status it returns | replaced by `FORK.md` F1.5 (a queryable generation and CRC) |
 | 21 | **Temple long-press accident rate** (gloves) | §1.2's bare-long-press no-op guards it |
 | 24 | **Does the firmware enter Silent Mode by itself** (wear detection, idle)? | the journal will say |
-| 25 | **The arm rebuilds' cause** (§42.2) | `FORK.md` M0.5 (a boot banner settles reset-or-stall), M0.6, and **M0.7** (in the charging case the drops stopped for 9.5 h — §50.6) |
+| 25 | **The arm rebuilds' cause** (§42.2) | `FORK.md` M0.5 (a boot banner settles reset-or-stall), M0.6, and **M0.7** (the glasses sat in the case through drops and quiet nights alike: the phone's state is the variable — §50.6) |
 | 26 | **The wake loop's cause** (§42.3) | the `keeper: start failed: …` notes name it |
 | 27 | **Free heap and worker/copy time on glass** | `FORK.md` M0.1 (`probe:diag=show`, APK 0.45) — sets the cache and scratch budgets |
 | 27b | **The panel transfer time per present** (a full 153,602-byte frame on both drivers; nothing times it today) | `FORK.md` F1.3 — sets the tick ceiling |

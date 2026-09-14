@@ -2888,7 +2888,7 @@ F1.3, F1.5, F1.6, F1.7 and the self-test op remain (`FORK.md` Phase 1). Adam's s
 unchanged. Nothing flashed. (Committed and pushed on Adam's word later the same morning: Damage
 `c1c1017`, the fork `7377e0c`.)
 
-### 50.6 Adam's answer on the quiet windows: the glasses were in the charging case
+### 50.6 Adam's answer on the quiet windows: the glasses were in the charging case (corrected below: the whole time)
 
 Asked where the glasses were during 2026-09-13's two drop-free overnight windows (22:35→05:05 and
 05:06→08:04, session up, lease renewed throughout), Adam: **in the charging case in the bedroom**. So
@@ -2915,6 +2915,34 @@ discriminator is placement, not tooling — `FORK.md` M0.7:** an evening with th
 logger on: two hours unfolded on the desk on battery (drops expected, and M0.5's log lines across one),
 then two hours folded on the desk on battery, then the case. Charging, the fold and the case detect
 come apart in one evening.
+
+**Corrected the same evening (Adam): the glasses were in the charging case the whole time from the
+night of the 12th until 13:15 on the 14th — through the fourteen daytime drops of the 13th as well as
+both quiet windows, untouched.** So the case switched nothing off: with the glasses fixed in the case in
+the bedroom, the drops ran 08:04→18:07 (a Sunday; Adam and the phone up and about the house) and stopped
+22:35→08:04 (night; the phone presumably in the bedroom, screen off, charging). The variable that moved is
+the **phone's** state, not the glasses'. Everything above that reads the case, the fold or charging as the
+gate is withdrawn, and M0.7 is redesigned below. Adam also never saw any of the drops, on the 13th or the
+14th: the 8–15 s recoveries are the journal's, not a user observation. The desk night of the 7th/8th (six
+rebuilds on the silent clock) is a night whose phone placement is unknown.
+
+Against §42.2's ten, with the glasses' state constant across drop hours and quiet hours: a firmware task
+gated on wearing, folding or charging (items 1/2/8 in the gated reading) **loses** — nothing about the
+glasses changed at 08:04 or at 18:07; RF's head half loses (unworn), RF's distance-and-walls half **gains**
+(the phone moved about the house by day and lay in the bedroom by night); the phone's controller and
+coexistence (item 4) **gains**; a periodic phone-side event tied to the screen or to daytime activity
+(Wi-Fi scans, Play services work, a classic audio device connected by day — `98:3A:1F:EE:84:77` was on
+the phone's radio in the 14th's captures) is a **new** candidate; traffic-driven faults (items 9/10) gain
+one specific form: daytime notifications pushed to the glasses are traffic the night does not have. The
+50-minute regularity still fits a periodic phone-side event better than plain RF.
+
+**M0.7 redesigned: vary the phone, fix the glasses.** Glasses in the case in the bedroom as on the 13th,
+session up, `probe:logger=on`, the snoop Enabled: two hours with the phone beside the case, screen off;
+two hours with the phone in another room in normal use; the journal's `link` notes say which condition
+drops, the BTSnoop's vendor quality events say what the radio saw before a timeout, the log lines say
+reset or stall. Three questions for Adam: where the phone was on the 13th by day (about the house, ever
+out of range), whether the audio device `98:3A:1F:EE:84:77` was connected that day, and where the phone
+was on the night of the 7th/8th.
 
 ### 50.7 The first bug report: a filtered ring, and M0.4 answered from the stack dump
 
