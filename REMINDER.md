@@ -30,7 +30,9 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
   night of the 12th to 13:15 on the 14th — through the 13th's fourteen daytime drops AND its quiet nights.** So the
   phone's day/night state is the variable, not the glasses'; `FORK.md` M0.7 now varies the phone with the glasses fixed
   in the case (beside it screen-off vs another room in use). Still to ask: the phone's whereabouts by day on the 13th,
-  whether the audio device `98:3A:1F:EE:84:77` was connected, and the phone's place on the night of the 7th/8th. **The bug reports (§50.7):** the stack reads the snoop mode once at start (its source);
+  what the audio device `98:3A:1F:EE:84:77` is and whether it was connected that day, and where the phone was on
+  the night of the 7th/8th. **Today's journal: no drop in 4.5 h worn at work** (§50.8) — the drops follow the phone's
+  distance and surroundings. Four full captures kept locally (`captures/apk-20260914-*`), none spanning a drop yet. **The bug reports (§50.7):** the stack reads the snoop mode once at start (its source);
   `btsnooz_hci.log` in a zip proves it started in Disabled mode — today's two and June 5 12:15 did, the selection
   having landed after the stack came up; Adam chose Enabled every time. Recipe: Bluetooth off → Enabled → ten
   seconds → Bluetooth on → session → report; the check is `btsnoop_hci.log` present and no `btsnooz_hci.log`. The
