@@ -380,6 +380,6 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   in the KV store, nothing in the image references the RAM word it was read from (F1.2 amended); the
   transport reads DamageCaps from the capability answer only; arena 13 is 839,680 B (0xCD000), not
   839,808. Nothing flashed. Adam's answer on the quiet windows: the glasses were in the charging case
-  (§50.6) — M0.7 added, the evening placement experiment. His first bug report (16:44): the snoop was still
-  filtered (the stack's dump says so; setting first, then the Bluetooth toggle), but its stack dump answered M0.4 — no
-  LE 2M PHY on the glasses (§50.7). Next: unchanged (Adam's side, §49.7) plus M0.7 and the capture redone.
+  (§50.6) — M0.7 added, the evening placement experiment. His first bug report (16:44) carried only the
+  snoop ring, not the full log, with the option Enabled and the order right — cause open, a fresh toggle and a
+  report is the test; its stack dump answered M0.4 — no LE 2M PHY on the glasses (§50.7). Next: unchanged (Adam's side, §49.7) plus M0.7 and the capture redone.

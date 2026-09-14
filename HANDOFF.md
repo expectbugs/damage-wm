@@ -2920,11 +2920,17 @@ come apart in one evening.
 
 Adam mailed a bug report from work (`bugreport-stallion-…-2026-09-14-16-44-22.zip`, read from the
 Maildir on beardos). Not the capture: the zip holds only `FS/data/misc/bluetooth/logs/btsnooz_hci.log`
-(85 KB, the in-memory ring, 16:43:05→16:46:41, 685 of 1,747 records with their bodies stripped) and the
-Bluetooth stack's own dump says `SnoopLogMode=FILTERED` while the phone property already read
-`btsnooplogmode=full` (set 16:16:35). The stack reads the mode when it starts, so the order is: the
-setting to Enabled, then Bluetooth off and on, then the hour of use, then the report; the check is a
-`btsnoop_hci.log` of megabytes in the zip. What the report gave anyway (grade M, the phone's dumps):
+(85 KB, the in-memory ring every mode keeps, 16:43:05→16:46:41, 685 of 1,747 records with their bodies
+stripped) and no `btsnoop_hci.log`, the file the stack writes in Enabled mode — June's captures
+(`captures/README.md`) came out of bug reports on this same phone build with it present. The developer
+option WAS Enabled (Adam's screenshot; the property `persist.bluetooth.btsnooplogmode=full`), and the
+phone's log has the order right: Bluetooth off 16:15:41, the option changed 16:16:35, Bluetooth on by
+16:16:49. (A first reading blamed a `SnoopLogMode=FILTERED` line and the order; that line is the NFC
+service's, and the order is above — both withdrawn, `a75fa38` corrected.) Why the stack wrote no file is
+open; the likeliest is the selection landing after the stack had started (14 s between the dialog and
+Bluetooth on), and the two-minute test is a fresh Bluetooth off/on with the option already Enabled, then a
+report — the check is `btsnoop_hci.log` of megabytes in the zip. What the report gave anyway (grade M,
+the phone's dumps):
 
 - **M0.4 answered without the request:** the stack's `shim::acl` dump records each lens's link-layer
   feature set from the feature exchange, `0x2f 0x4c 0x01 0x07 0xa8 0x19 0x00 0x00` — bit 8 (LE 2M PHY)
