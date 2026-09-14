@@ -150,6 +150,13 @@ comics, Hold'em deal/flip/chips/showdown; Settings previews), then Adam's verdic
 list fixes the verb set. Revisit `DESIGN.md` §0's cost-based exclusions (fades, dim-behind,
 banners): Adam's call now that cost is gone. Lock D1–D8.
 
+**Status 2026-09-14 (`HANDOFF.md` §50.9, Adam's ruling):** M0.4 answered (no 2M PHY); M0.3 done bar a
+drop (four full captures); M0.5 and M0.7 dropped as pre-tests (F1.2's uptime answers reset-vs-stall after
+the flash; the keeper re-uploads on every start anyway); M0.6 day one on `high` running, day two optional;
+M0.2, the refinery and D1–D8 at Adam's pace before Phase 3. **Only M0.1 (one minute) stands between here
+and Phase 1's build and flash.** The arm drops are recorded (§42.2, §49.1, §50.6, §50.8), cause U, and not
+this plan's work: Adam never sees one while wearing the glasses.
+
 **Exit:** the numbers in a table; the verb set; the contract draft; the decisions. No flash.
 
 ### Phase 1 — The fork pipeline and the first flash (size M; 1 flash)
@@ -180,7 +187,7 @@ says), the self-test op.
 | F1.3 | presented-notify: after the panel transfer, (sequence, copy µs, transfer µs) to the phone when enabled — the transfer stamp wraps the display task's refresh call (`bl FUN_004CA564` at `0x00473CE4`), the only place it can be timed; from RIGHT, and from LEFT if R0.2 shows its notify path works |
 | F1.4 | flag op: arm/disarm per feature; all cleared on lease lapse — **source done 2026-09-13** (field 112; flags clear at every texture-cache release point) |
 | F1.5 | cache-keep across a lease lapse with a generation id and CRC the phone can query; cache size configurable up to the R0.6 budget |
-| F1.6 | fast-link hold: the glasses' idle-parameter request is skipped while the lease is held — site: a lease-gated entry wrapper on `FUN_00476CBC` that turns event 0xA4 into no request (R0.4); a latency-0 profile only if M0.3 says the phone would use it. **Design input 2026-09-14 (`CLAIMS.md`): Adam's earbud streams A2DP from the same phone radio; while the two 15 ms links run the phone's quality reports flag the stream, though Adam hears no cut-outs — the links spend the earbud's margin. A faster or held link spends more of it; the shell knows when its Music window plays, so the lever can be conditional** |
+| F1.6 | fast-link hold: the glasses' idle-parameter request is skipped while the lease is held — site: a lease-gated entry wrapper on `FUN_00476CBC` that turns event 0xA4 into no request (R0.4); a latency-0 profile only if M0.3 says the phone would use it. **Design input 2026-09-14 (`CLAIMS.md`): Adam's earbud streams A2DP from the same phone radio; while the two 15 ms links run the phone's quality reports flag the stream, though Adam hears no cut-outs — the links spend the earbud's margin. A faster or held link spends more of it; the shell knows when its Music window plays, so the lever can be conditional. Dropped from the Phase 1 candidate (`HANDOFF.md` §50.9) unless the journal shows slow-set episodes again: the link held 15 ms / 1 all day without it** |
 | F1.7 | panel-transfer experiment (rewritten 2026-09-13 — the async refresh ignores the rect on both drivers, so a smaller rect on the queue changes nothing): F1.3's stamp gives the full-frame transfer time; on a JBD4010 pair, a blocking partial refresh (`+0x2C`) of a small rect is timed against it; on an A6N-G pair the partial path moves no pixels and the lever is out of reach without a driver change |
 | F1.8 | multi-packet ATT writes (walk concatenated AA packets in one write) — only if M0.3 says the phone is one-write-per-event; MTU 517 on the phone side |
 
@@ -377,9 +384,12 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   load-bearing addresses re-read at instruction level (all held); the telemetry record's field 4 made
   the status register `FIRMWARE.md` §1.2 requires (the C, the simulator, both test sets; fork pin
   `f9211ea2…`, 26 entries, no new site); the boot-count read withdrawn — stock keeps `kvbooCount` only
-  in the KV store, nothing in the image references the RAM word it was read from (F1.2 amended); the
-  transport reads DamageCaps from the capability answer only; arena 13 is 839,680 B (0xCD000), not
-  839,808. Nothing flashed. Adam's answer on the quiet windows: the glasses were in the charging case
-  (§50.6) — M0.7 added, the evening placement experiment. His first bug report (16:44) carried only the
-  snoop ring, not the full log, with the option Enabled and the order right — cause open, a fresh toggle and a
-  report is the test; its stack dump answered M0.4 — no LE 2M PHY on the glasses (§50.7). Next: unchanged (Adam's side, §49.7) plus M0.7 and the capture redone.
+  in the KV store (F1.2 amended); the transport reads DamageCaps from the capability answer only; arena
+  13 is 839,680 B. Then Adam's day: the glasses were in the charging case, untouched, through the 13th's
+  fourteen drops and its quiet nights (§50.6, corrected); the snoop recipe verified from the stack's source
+  and Adam cleared of ever choosing Filtered (§50.7); M0.4 answered from a bug report's stack dump (no 2M
+  PHY); four full two-arm captures with the APK driving, local in `captures/apk-20260914-*` (§50.8); the
+  earbud measured — not the slow side, its audio fine to Adam's ear; today's journal: no drop in 4.5 h worn
+  at work, battery ~7.5 %/h. **Adam's ruling (§50.9): the drops are not the work; Phase 1 proceeds in a
+  fresh session** — M0.1 first, then F1.3, F1.5, F1.7, the self-test op and the keeper's arm/hold-back on
+  uptime; F1.6 dropped unless slow-set episodes return. Nothing flashed.

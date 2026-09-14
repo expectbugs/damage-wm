@@ -77,24 +77,24 @@ Time to first ack per gesture, the phone's journal (`tools/journal_report.py`):
 The ack precedes the panel refresh (§48.1, verified): what the eye waits for is longer than these. A flush under
 100 B acks in ~60 ms; each KB adds ~140 ms; the tail is pixel bytes. Phone CPU per flush: 17 ms median / 66 p90.
 
-## 🔴 The next session — `FORK.md` Phase 0, continued
+## 🔴 The next session — `FORK.md` Phase 1 (Adam's ruling, 2026-09-14, `HANDOFF.md` §50.9)
 
-0. **Read `FORK.md` §11 and `HANDOFF.md` §49**, then ask Adam for what his side produced (§49.7): the overlay line
-   (M0.1: `f13/20/27`, `w`, `p`), (M0.4 is answered — no LE 2M PHY on the glasses, §50.7), the glass log
-   lines around an arm drop (M0.5: `journal_report.py --since … --glasslog`), the battery days (M0.6: the report's
-   battery section per stretch), the BTSnoop zip (M0.3), the video (M0.2), where the glasses were in the quiet
-   windows, his cuts to `MOTION.md`, D1–D8.
-1. **Reads still open:** R0.1 (the input path: the gesture mapper `FUN_00442D86`, how input reaches the other lens,
-   where a bound scroll can run), R0.3's MSPI clock (a modeled transfer time before F1.3 measures it), R0.4's
-   profile words and the submit's checks (the F1.6 wrapper's conditions), R0.5 (RTC, fuel gauge, crc32, kvdb), the
-   file-export service for the glasses' own log files (read-only lead).
-2. **Phase 1's candidate still needs** F1.3 (the transfer stamp — a new site at `0x00473CE4`), F1.2's boot count (a
-   verified source, §50.2), F1.5 (cache-keep),
-   F1.6 (the link gate — a new site on `FUN_00476CBC`'s entry), F1.7 (JBD-only), F1.8 (only if M0.3 says), and the
-   self-test op; each new site reviewed against §3.1 in `tools/verify.py`'s list. One candidate flash per phase.
-3. **Owed:** the core suite ×20 on this tree and the unchanged tree, and what presses the comic bar's `first` in
-   `FeedWindowTest.deepLinksResolveEveryForm` (§49.6).
-4. **The atlas across a rebuild** (§42.4) is `FORK.md` F1.5 (cache-keep with a generation and CRC).
+0. **Before the flash, one minute of Adam's:** M0.1 — `probe:diag=show`, read the overlay line (`f13/20/27` free
+   KiB, `w`, `p`), `probe:diag=hide`. It sizes the cache, scratch and staged content and bounds the tick.
+1. **Build the rest of the Phase 1 candidate in the fork:** F1.3 (the transfer stamp at `0x00473CE4`, a new site —
+   review it against §3.1), F1.5 (cache-keep with generation and CRC), F1.7 (the JBD partial-refresh timing, if
+   telemetry field 10 says JBD), the self-test op (`FIRMWARE.md` §3/§9); F1.6 dropped unless the journal shows
+   slow-set episodes again. Every change: `host/run_vectors.py`, `host/test_damage_ext.py`, `tools/verify.py`.
+2. **Damage's side:** the keeper's arm/hold-back protocol on uptime (field 2; a boot count only once it has a
+   verified source), `glass` notes, `journal_report.py` columns, cache-keep in the atlas path; APK 0.46 with them.
+3. **The flash ritual** (`FORK.md` §7) with Adam's in-the-moment go; dry-run first; both lenses; then the
+   capability read, the self-test on glass, telemetry, features armed one at a time, a soak day.
+4. **At Adam's pace, before Phase 3:** the `MOTION.md` refinery, D1–D8, the 240 fps video (M0.2). M0.6 day one on
+   `high` is running; day two on `balanced` is optional. The arm drops are recorded and not the work (cause U;
+   §42.2's ten with §49.1/§50.6/§50.8's constraints); F1.2's uptime will say reset or stall after the flash.
+5. **Offline, in parallel:** R0.1 (the input path, for Phase 4), R0.5 (RTC, fuel gauge, crc32, kvdb, for Phases
+   5/7), the proper per-event M0.3 read of `captures/apk-20260914-*` (local files).
+6. **Owed:** the core suite ×20 and the comic-bar `first` trigger (§49.6).
 
 ## Measured numbers to price with (grade M unless said)
 
