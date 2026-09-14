@@ -5,15 +5,22 @@ in `HANDOFF.md`; this file only points at it. Read `CLAUDE.md` → this file →
 progress log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` §48 (the fork decided) → §47 → §46 → §44 → §43 → §42 →
 what they cite.
 
-## Where we are (2026-09-12, evening)
+## Where we are (2026-09-13, night)
 
 - **🔴 The CFW fork and the Damage rebuild are the ONLY work (Adam, 2026-09-12; `HANDOFF.md` §48).** All other
   Damage work is suspended until `FORK.md` Phase 8 closes: no new windows, no Feed polish, no popover build outside
   the plan. `FORK.md` has the phases (0 measure/research/decide → 1 pipeline + first flash → 2 drawing v2 → 3 motion
   engine → 4 local input → 5 firmware chrome → 6 the shell and every window, animated → 7 offline home → 8 docs and
   readiness), the decisions D1–D8, the flash ritual and the assumptions table. `FIRMWARE.md` is the contract both
-  the fork (`~/damage-cfw`, branch `damage`, first commit `b3bdd5c`) and the simulator implement. **Nothing
-  flashed; Phase 0 not started.**
+  the fork (`~/damage-cfw`, branch `damage`) and the simulator implement. **Nothing flashed.**
+- **Phase 0 started 2026-09-13 (`HANDOFF.md` §49, `FORK.md` §11):** R0.2/R0.3/R0.4/R0.6 and the sid-0x0F handler
+  read (`CLAIMS.md` "Firmware internals read for the fork"); two plan corrections (every present sends the whole
+  panel — F1.7 rewritten; the overlay's `p` is the copy only — M0.1/F1.3 amended; §3.1's boot-path rule corrected);
+  the probes built (APK **0.45 staged**); **the v1 conformance vectors pass: the simulator matches the firmware C
+  on all 35 steps, both lenses**; `MOTION.md` drafted for the refinery. The fork (local commits, not pushed):
+  the toolchain pin and `tools/verify.py` (`6db86e2`, the no-feature baseline `1920dda6…`), the x86 host harness
+  (`cd802ec`), the Phase 1 settings extension — DamageCaps, telemetry, flags, no new patch site (`a8f3610`,
+  `b88eb6b9…`, not flashed).
 - **Latency hardened without the firmware (2026-09-12, `HANDOFF.md` §47):** the APK re-asks for its priority
   (Global `Link` row, `high` default) whenever the link slows; slow parameters flip the regime at once (`LINK SLOW`,
   one notice); the brightness write is answered and re-sent once; the standby claims only when both arms advertise
@@ -28,11 +35,15 @@ what they cite.
   hand:** the setup page is Damage's (`desktop/SetupServer.kt`), the playlists refresh under Damage, qBittorrent
   is the `qbittorrent` service.
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games · Feed. **Builds:** APK
-  **0.42 installed**; **0.44 staged** (`~/.damage/damage-wm.apk`, `http://beardos:7300/setup`) = 0.43's Feed
-  fixes + §47's link, atlas and cache work. The service runs 0.44's core.
-- **Battery at HEAD (measured 2026-09-12):** core **533** · desktop **15** · `--selfcheck` 230 checks (run ×3 —
-  it is a rate) · snapshots 57 · `--epub-check` · `--music-check` · `--games-check` · `--feed-check` · lint 21
-  rules / 0 · `:phone:assembleDebug` in its OWN gradle call.
+  **0.44 installed** (its journal says so); **0.45 staged** (`~/.damage/damage-wm.apk`, `http://beardos:7300/setup`)
+  = 0.44 + the §49 probes, the `battery` notes and the DamageCaps/telemetry parser. The service runs 0.44's core
+  (the PC needs no redeploy for the probes: the seam protocol is unchanged).
+- **Battery at HEAD (measured 2026-09-13):** core **540** · desktop **15** · `--selfcheck` 230 checks ×3, 0 fail
+  (it is a rate) · snapshots 57 · `--epub-check` · `--music-check` · `--games-check` · `--feed-check` · lint 21
+  rules / 0 · `:phone:stageApk` in its OWN gradle call. The fork: `tools/verify.py` all pass ·
+  `host/run_vectors.py` 7/7 · `host/test_damage_ext.py` 8/8. ⚠ `HANDOFF.md` §49.6: `FeedWindowTest.deepLinks…`
+  misses in 3 of 7 full core runs (0 of 3 on the unchanged tree): the window flips to comic #1, which the scripted
+  provider cannot serve; what presses `first` is unknown — owed ×20 and the trigger.
 
 ## Measured on glass (grade M)
 
@@ -47,20 +58,23 @@ Time to first ack per gesture, the phone's journal (`tools/journal_report.py`):
 The ack precedes the panel refresh (§48.1, verified): what the eye waits for is longer than these. A flush under
 100 B acks in ~60 ms; each KB adds ~140 ms; the tail is pixel bytes. Phone CPU per flush: 17 ms median / 66 p90.
 
-## 🔴 The next session — `FORK.md` Phase 0
+## 🔴 The next session — `FORK.md` Phase 0, continued
 
-0. **Read `FORK.md` §11** (the log) and do the next item. Phase 0 is measurement and research, no firmware, no
-   Damage code beyond dev tools: M0.1 the diagnostic overlay probe (heap free, present time), M0.2 the 240 fps
-   video, M0.3 the two-arm BTSnoop with the APK driving (+ Wi-Fi off), M0.4 the 2M PHY request, M0.5 the sid-0x0F
-   logger probe, M0.6 the battery baseline on `high` and `balanced`; R0.1–R0.6 the decompile reads (input path,
-   inter-lens sync, refresh path, connection-parameter policy, stock helpers, heap); `FIRMWARE.md` from skeleton to
-   draft; **the motion explosion and refinery with Adam**; lock D1–D8. Exit: the numbers in a table, the verb set,
-   the contract draft, the decisions.
-1. **Read the 0.44 journal and `/log` after Adam's first day on it** — it is M0.6 and the R0.4 input: the re-asks
-   (`link` notes "asking for high again (#n)"), the arm rebuilds (`supervision timeout` on alternating arms every
-   ~50 min; §42.2's ten candidates; a day on `balanced` is the cheap test), the wake loop (§42.3; the
-   `keeper: start failed: …` notes name it). Fix only what blocks daily use; everything else waits for the fork.
-2. **The atlas across a rebuild** (§42.4) is now `FORK.md` F1.5 (cache-keep with a generation and CRC).
+0. **Read `FORK.md` §11 and `HANDOFF.md` §49**, then ask Adam for what his side produced (§49.7): the overlay line
+   (M0.1: `f13/20/27`, `w`, `p`), the PHY answer (M0.4: `link` notes "PHY after the 2m request"), the glass log
+   lines around an arm drop (M0.5: `journal_report.py --since … --glasslog`), the battery days (M0.6: the report's
+   battery section per stretch), the BTSnoop zip (M0.3), the video (M0.2), where the glasses were in the quiet
+   windows, his cuts to `MOTION.md`, D1–D8.
+1. **Reads still open:** R0.1 (the input path: the gesture mapper `FUN_00442D86`, how input reaches the other lens,
+   where a bound scroll can run), R0.3's MSPI clock (a modeled transfer time before F1.3 measures it), R0.4's
+   profile words and the submit's checks (the F1.6 wrapper's conditions), R0.5 (RTC, fuel gauge, crc32, kvdb), the
+   file-export service for the glasses' own log files (read-only lead).
+2. **Phase 1's candidate still needs** F1.3 (the transfer stamp — a new site at `0x00473CE4`), F1.5 (cache-keep),
+   F1.6 (the link gate — a new site on `FUN_00476CBC`'s entry), F1.7 (JBD-only), F1.8 (only if M0.3 says), and the
+   self-test op; each new site reviewed against §3.1 in `tools/verify.py`'s list. One candidate flash per phase.
+3. **Owed:** the core suite ×20 on this tree and the unchanged tree, and what presses the comic bar's `first` in
+   `FeedWindowTest.deepLinksResolveEveryForm` (§49.6).
+4. **The atlas across a rebuild** (§42.4) is `FORK.md` F1.5 (cache-keep with a generation and CRC).
 
 ## Measured numbers to price with (grade M unless said)
 
@@ -111,7 +125,9 @@ source; plain wording in every file, comment and commit (`HANDOFF.md` §48.5).
 | 24 | **Does the firmware enter Silent Mode by itself** (wear detection, idle)? | the journal will say |
 | 25 | **The arm rebuilds' cause** (§42.2) | `FORK.md` M0.5 (a boot banner settles reset-or-stall) and M0.6 |
 | 26 | **The wake loop's cause** (§42.3) | the `keeper: start failed: …` notes name it |
-| 27 | **Free heap and present/worker time on glass** | `FORK.md` M0.1 — sets the cache, scratch and tick budgets |
+| 27 | **Free heap and worker/copy time on glass** | `FORK.md` M0.1 (`probe:diag=show`, APK 0.45) — sets the cache and scratch budgets |
+| 27b | **The panel transfer time per present** (a full 153,602-byte frame on both drivers; nothing times it today) | `FORK.md` F1.3 — sets the tick ceiling |
+| 27c | **Which panel Adam's pair has** (A6N-G or JBD4010 — decides whether a partial refresh exists) | `probe:telemetry=read` on a Damage build (field 10), or the boot log |
 | 28 | **True user-perceived latency** (ring press → visible change; the ack is only a lower bound) | `FORK.md` M0.2 |
 
 **Cheap probes nobody has run:** the CFW logger service (sid 0x0F — M0.5) and the file-export service (sid
@@ -157,7 +173,9 @@ re-put to Adam in the Phase 0 refinery.
   it, `sudo rc-service tailscale restart` (connections opened from the tunnel address stay unanswered until
   re-dialled). `~/.local/bin/yt-dlp` self-updated to 2026.08.19 (`yt-dlp -U`).
 - **`~/damage-cfw`** (2026-09-12, `FORK.md` §10): the firmware fork, cloned from `reference/g2flash` at
-  `a5d1c31`, branch `damage`, the §10 flasher fix carried over; first commit `b3bdd5c`; remotes: `github` =
+  `a5d1c31`, branch `damage`, the §10 flasher fix carried over; first commit `b3bdd5c`; 2026-09-13 local commits
+  `6db86e2` (our clang's pin + `tools/verify.py`), `cd802ec` (`host/`), `a8f3610` (the settings extension), not
+  pushed; `g2_2.2.6.10.bin` in its root is a symlink to `fws/2.2.6.10/e287…bin`; remotes: `github` =
   Adam's public fork `https://github.com/expectbugs/damage-cfw` (branch `damage` tracks it), `origin` = upstream
   g2flash (fetch only, never pushed to), `reference` = the pinned local clone.
 
@@ -172,5 +190,10 @@ TOKEN=$(python3 -c "import json;print(json.load(open('/home/user/.damage/config.
 curl -s "http://aphone:7403/journal?token=$TOKEN" | python3 tools/journal_report.py -   # the phone's journal, per-gesture numbers included
 curl -s "http://aphone:7403/log?token=$TOKEN&tail=400"                                 # the phone's log (0.41+), no adb
 python3 tools/glassdrive.py aphone $TOKEN --pace 2.5 double wait:3 snap:/tmp/a.png …    # drive the glasses; snap before every tap
-python3 research/verify_cfw.py                        # before any flashing conversation (the fork's own verify script comes in Phase 1)
+python3 research/verify_cfw.py                        # before any flashing conversation: the INSTALLED image's provenance
+python3 tools/glassdrive.py aphone $TOKEN probe:diag=show   # §49 probes (APK 0.45+): diag=show|hide · logger=on|off · phy=2m|1m · telemetry=read · flags=clear|probe
+curl -s "http://aphone:7403/journal?token=$TOKEN" | python3 tools/journal_report.py - --since 2026-09-14 --glasslog
+(cd ~/damage-cfw && python3 tools/verify.py)           # the fork's image: pin, reproducibility, Thumb-bit audit, size guard, site list
+(cd ~/damage-cfw && python3 host/run_vectors.py && python3 host/test_damage_ext.py)   # the fork's C on the PC: vectors, the §3 contract
+python3 firmware/make_vectors.py                      # rewrite the vector INPUTS; then the fork's run_vectors.py --write fills expectations
 ```

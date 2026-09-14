@@ -110,6 +110,15 @@ without writing a row.
   double wait:3 snap:/tmp/a.png down down tap …` sends ring gestures through the phone's replica and saves
   both lenses at 1× — snap before every tap (§29.2: one step per snap near an irreversible row; never scroll
   in Music's root).
+- **Phase 0 probes** (APK 0.45+, `HANDOFF.md` §49; dev only — the shell never sends them): `python3
+  tools/glassdrive.py aphone TOKEN probe:NAME=VALUE`. `diag=show` puts the firmware's diagnostic line at the
+  top-left of both lenses (`OK w…us p…us f13/20/27=…k`: flags, the last message's worker and copy time, free KiB
+  per heap arena) — `diag=hide` removes it. `logger=on` streams the glasses' own log lines into the journal as
+  `glasslog` notes (RAM-only on the glasses; re-sent after every session start; `logger=off` stops it) — read
+  with `journal_report.py - --since … --glasslog`. `phy=2m` asks the radio for 2M PHY (`link` notes carry the
+  answer; `phy=1m` goes back). `telemetry=read` and `flags=probe|clear` answer only on a Damage firmware build
+  (the installed one is upstream and ignores them; the `probe` note says so). The glasses' battery changes are
+  `battery` notes (the report's battery section).
 - Remote tmux hosts ride one multiplexed ssh connection (`~/.damage/ssh-*` control sockets, 60 s persist) — a
   stale socket there is safe to delete.
 - Views while headless: the phone screen or replica (`http://aphone:7403/?token=…`); the PC replica

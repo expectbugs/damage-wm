@@ -55,8 +55,10 @@ Proposed 2026-09-12; treated as in force; Adam confirms or changes them at the c
 ## 3. Principles that bind every phase
 
 1. **Small, inert by default, fail-open.** The fork keeps g2flash's shape: one appended code block,
-   a short list of redirected call sites, no change to any code that runs before the first radio
-   message. Every new behaviour sits behind a per-feature flag the phone arms per session; flags
+   a short list of redirected call sites, and no NEW site on a path that runs before the first radio
+   message. (Corrected 2026-09-13: the inherited a5d1c31 set already has two such paths — the
+   primary heap arena's size, at boot, and the display task's copy call, which passes straight
+   through for every stock refresh from boot on; `tools/verify.py` lists every site for review.) Every new behaviour sits behind a per-feature flag the phone arms per session; flags
    clear when the lease lapses (Phase 7's persisted flag is the designed exception). A phone that is
    gone leaves stock behaviour behind within 90 s.
 2. **Hold-back after a reset.** The firmware exposes a boot counter and uptime. The keeper never
@@ -118,26 +120,26 @@ Size is relative (S/M/L/XL). "Flashes" counts candidate flashes; fix flashes are
 
 | id | what | answers |
 |---|---|---|
-| M0.1 | diagnostic overlay on for one probe session (a dev tool sends mode 7 sub 2, never the shell), read on glass by eye or photo, then sub 1 | free KiB of arenas 13/20/27; worker and present microseconds → heap budget, first tick-rate estimate |
+| M0.1 | diagnostic overlay on for one probe session (`glassdrive.py probe:diag=show`, APK 0.45; never the shell), read on glass by eye or photo, then `probe:diag=hide` | free KiB of arenas 13/20/27 and which arena holds the container buffers; worker µs and the shadow → framebuffer copy µs → the heap budget. **Not the tick ceiling:** the overlay's `p` excludes the panel transfer, which nothing times today (`CLAIMS.md` 2026-09-13) — F1.3 measures it |
 | M0.2 | 240 fps phone video through a lens: a stock dashboard scroll (cadence, the bounce) and a Damage notch (ring press → first visible change) | the real user-perceived numbers; if filming fails, Phase 1 telemetry is the fallback |
 | M0.3 | BTSnoop with the APK driving (bug-report mail path) plus one Wi-Fi-off session | packets per connection event, PHY, the arm split, one arm drop from the radio's side → the link levers |
-| M0.4 | 2M PHY request from the APK (`setPreferredPhy`, Nordic 2.7.5) | measured, not assumed |
-| M0.5 | the sid-0x0F logger probe across an arm rebuild | reset vs stall → the hold-back rule's N |
-| M0.6 | the hourly battery READ journaled over a day on `Link = high` and a day on `balanced` (the §47 experiment) | the battery baseline every later soak compares against |
+| M0.4 | 2M PHY request from the APK (`probe:phy=2m`, APK 0.45; `probe:phy=1m` returns) | measured, not assumed |
+| M0.5 | the sid-0x0F log stream across an arm rebuild (`probe:logger=on`, APK 0.45: RAM-only on the glasses, re-sent after each session start; lines land in the journal as `glasslog` notes) | what the surviving arm logs as the other drops → reset vs stall, the hold-back rule's N |
+| M0.6 | the glasses' battery changes journaled (`battery` notes, APK 0.45; `journal_report.py --since`) over a day on `Link = high` and a day on `balanced` (the §47 experiment) | the battery baseline every later soak compares against |
 
 **Research (decompile corpus + openCFW docs; findings into `CLAIMS.md`):**
 
 | id | subject | where to look |
 |---|---|---|
 | R0.1 | the input path: the gesture mapper `FUN_00442d86` (subtypes 0/2/4/6/8/10/0xc/0xe/0x10), which subtypes are scroll, how input is mirrored to the other lens, how the EvenHub UI handler turns them into SysEvents | corpus; `g2flash/patches/gesture_fwd.c` for the two known sites |
-| R0.2 | the inter-lens link: `uart_sync.c` + the sync framework (master/slave TinyFrame over a UART); how a display step runs on both lenses together | `g2-uart-sync-recovery.md`, `g2-sync-framework-recovery.md` |
-| R0.3 | the refresh path: the display task `FUN_00473c44` passes the queued rect to the ULED manager's async refresh; whether either panel driver honours the rect (JBD4010 and Hongshi A6N-G both have partial-refresh entries); which panel Adam's pair has (chip-id read) | `g2-uled-manager-recovery.md`, `g2-uled-jbd4010-recovery.md`, `g2-uled-a6ng-recovery.md` |
-| R0.4 | the connection-parameter policy (`app_connect_params.c`, 14 functions mapped): the fast and slow profiles (`_connectParamReq_impl` and its profile table), where the idle request is issued, the cleanest lease-gated redirect | `g2-app-connect-params-recovery.md`, `tools/manifests/g2-app-connect-params-*.tsv` |
+| R0.2 | the inter-lens link: `uart_sync.c` + the sync framework (master/slave TinyFrame over a UART); how a display step runs on both lenses together — **read 2026-09-13** (`CLAIMS.md`): RIGHT forwards the completion through `FUN_00464BB2`, a non-blocking queued send; the UART rate is U | `g2-uart-sync-recovery.md`, `g2-sync-framework-recovery.md` |
+| R0.3 | the refresh path: the display task `FUN_00473c44` passes the queued rect to the ULED manager's async refresh; whether either panel driver honours the rect (JBD4010 and Hongshi A6N-G both have partial-refresh entries); which panel Adam's pair has (chip-id read) — **read 2026-09-13** (`CLAIMS.md`): the async path sends the whole panel on both drivers; JBD4010's partial path writes per row, A6N-G's moves nothing; the selector and the active-record word are known, Adam's panel is U; still open: the MSPI clock that sets the transfer time | `g2-uled-manager-recovery.md`, `g2-uled-jbd4010-recovery.md`, `g2-uled-a6ng-recovery.md` |
+| R0.4 | the connection-parameter policy (`app_connect_params.c`, 14 functions mapped): the fast and slow profiles (`_connectParamReq_impl` and its profile table), where the idle request is issued, the cleanest lease-gated redirect — **read 2026-09-13** (`CLAIMS.md`): a 60 s timer carrying the slow event is armed at connect and after every update; every submit enters `FUN_00476CBC` (the F1.6 site); the profile words and the checks inside the submit are still unread | `g2-app-connect-params-recovery.md`, `tools/manifests/g2-app-connect-params-*.tsv` |
 | R0.5 | stock helpers to call: RTC getter, fuel-gauge getters, crc32, kvdb read/write (Phase 7's persisted flag), the dashboard launch path and module registry (Phase 7) | `g2-drv-rtc-recovery.md`, the chg_bq27427 overlay, `ui_module_registry.c`, `ui_startup_app.c` |
-| R0.6 | heap: which arena holds the container buffers; a budget for cache growth, scratch and staged content | M0.1 plus `patch_compress.py`'s arena notes |
+| R0.6 | heap: which arena holds the container buffers; a budget for cache growth, scratch and staged content — **read 2026-09-13**: arena 13 or 20 (I, sizes); M0.1's readout decides | M0.1 plus `patch_compress.py`'s arena notes |
 
 **Design work:** `FIRMWARE.md` v2 filled in from a skeleton to a draft; the conformance-vector
-format; **the motion explosion and refinery** — every animation idea per surface and window (shell:
+format; **the motion explosion and refinery** (the explosion's draft list: `MOTION.md`, 2026-09-13) — every animation idea per surface and window (shell:
 Main notch with recede/pan/advance, wheel spin, popover reveal/cover and depth step, notification
 slide, the keyboard, height switch, back-to-Main, the wake; windows: Reader page slide, list panning
 with bounce, Files/Torrents rows, Music card and Music Mode, Tmux history scroll, Feed strips and
@@ -161,15 +163,15 @@ conservative ceiling today), preamble/TOC/checksum fixups, **a host build of the
 | id | feature |
 |---|---|
 | F1.1 | capability: a new settings field `DMG/<contract-version>` plus a feature bitmask, separate from field 100 (`SettingsMsg.REQUIRED_CAPS` unchanged) |
-| F1.2 | telemetry op: heap free (13/20/27), uptime, boot count, flags, last status code, last N frames' worker/present microseconds |
-| F1.3 | presented-notify: after the frame copy, (sequence, timings) to the phone when enabled; from RIGHT, and from LEFT if R0.2 shows its notify path works |
+| F1.2 | telemetry op: heap free (13/20/27), uptime, boot count (the stock KV `kvbooCount`, no new write), flags, last status code, last N frames' worker/copy microseconds, the active panel record (RAM `0x20074530` → which driver) |
+| F1.3 | presented-notify: after the panel transfer, (sequence, copy µs, transfer µs) to the phone when enabled — the transfer stamp wraps the display task's refresh call (`bl FUN_004CA564` at `0x00473CE4`), the only place it can be timed; from RIGHT, and from LEFT if R0.2 shows its notify path works |
 | F1.4 | flag op: arm/disarm per feature; all cleared on lease lapse |
 | F1.5 | cache-keep across a lease lapse with a generation id and CRC the phone can query; cache size configurable up to the R0.6 budget |
-| F1.6 | fast-link hold: the glasses' idle-parameter request is skipped while the lease is held (if R0.4 finds a clean site); a latency-0 profile only if M0.3 says the phone would use it |
-| F1.7 | refresh-rect experiment: present with the batch's bounding rect instead of the full panel; F1.3 measures the difference |
+| F1.6 | fast-link hold: the glasses' idle-parameter request is skipped while the lease is held — site: a lease-gated entry wrapper on `FUN_00476CBC` that turns event 0xA4 into no request (R0.4); a latency-0 profile only if M0.3 says the phone would use it |
+| F1.7 | panel-transfer experiment (rewritten 2026-09-13 — the async refresh ignores the rect on both drivers, so a smaller rect on the queue changes nothing): F1.3's stamp gives the full-frame transfer time; on a JBD4010 pair, a blocking partial refresh (`+0x2C`) of a small rect is timed against it; on an A6N-G pair the partial path moves no pixels and the lever is out of reach without a driver change |
 | F1.8 | multi-packet ATT writes (walk concatenated AA packets in one write) — only if M0.3 says the phone is one-write-per-event; MTU 517 on the phone side |
 
-**Damage:** capability parsing; the arm / hold-back protocol in the keeper; `glass` journal notes;
+**Damage:** capability parsing; the arm / hold-back protocol in the keeper; `glass` journal notes (the probe notes of APK 0.45 are the start);
 `journal_report.py` columns for present time and local latency; cache-keep (skip the atlas upload
 when generation and CRC match); MTU and packing if F1.8 ships.
 
@@ -295,24 +297,24 @@ in-the-moment go.** 7. Dry-run staircase (`--stop-before heartbeat` → `file_ch
 8. Both lenses, one at a time, the same image (the cross-lens deferred path runs the same code on
 both). 9. Reconnect, capability check, self-test on glass, telemetry read. 10. Arm features one at a
 time. 11. Soak. 12. Journal and `/log` read. Rollback = reflash the last-known-good image, kept built
-in `fws/`. The site list of every candidate is reviewed against §3.1 (no boot-path code) before step 6.
+in `fws/`. The site list of every candidate (`~/damage-cfw/tools/verify.py` step 6) is reviewed against §3.1 (no new boot-path site) before step 6.
 
 ## 8. Assumptions this plan rests on, and where each is checked
 
 | assumption | grade now | checked in |
 |---|---|---|
 | free heap is enough for a bigger cache, scratch and staged content | unknown | M0.1, R0.6 |
-| the panel can present at 30–60 Hz | unknown (present time unmeasured) | M0.1, F1.3 |
+| the panel can present at 30–60 Hz | unknown — every present is a 153,602-byte transfer whose duration nothing measures | F1.3 (M0.2's video bounds it from outside) |
 | the two lenses can start a program together with no visible mismatch | inferred (stock does it over the UART sync) | T3 |
 | local input can be handled on both lenses via stock's mirror | inferred | R0.1, Phase 4 |
 | the ack precedes render on 2.2.6.10 | verified (decompile) | — |
-| the refresh queue carries a rect | verified (decompile); honoured by the panel: unknown | F1.7 |
+| the refresh queue carries a rect | verified (decompile); honoured by the async refresh: **no** (verified, instruction level, 2026-09-13); a JBD4010 partial path exists, untimed | F1.3, F1.7 |
 | the glasses' idle link request can be gated on the lease | inferred (policy object mapped) | R0.4, F1.6 |
 | one packet per ATT write is the phone-path limit | inferred | M0.3 |
 | depth changes per notch are comfortable all day | unknown | T3, T4 |
 | battery cost of the fast link and local motion is acceptable | unknown | M0.6, every soak |
 | stock's near/far setting does not stack on Damage's depth | verified (the copy the CFW replaces applies it) | — |
-| an appended code block cannot affect boot | by construction (no boot-path sites) | every flash's site review |
+| an appended code block cannot affect boot | not by construction: a5d1c31 already changes the heap arena size at boot and routes the display copy through a pass-through from boot on (both in daily use since 2026-08-30); new sites stay off boot paths | every flash's site review (`tools/verify.py`) |
 
 ## 9. Out of scope, on purpose
 
@@ -338,3 +340,13 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   proposed. `FIRMWARE.md` skeleton written. `~/damage-cfw` created from `a5d1c31` on branch `damage`
   with the flasher fix carried over — first commit `b3bdd5c` (the Damage repo's record: `d16e5c1`).
   Nothing flashed. Phase 0 not started. Next: M0.1 and the R0.x reads.
+- **2026-09-13** — Phase 0 started (`HANDOFF.md` §49). Read: R0.2, R0.3 (mostly), R0.4, R0.6, and the
+  sid-0x0F logger handler — facts in `CLAIMS.md`. Two corrections to this plan: the async refresh
+  sends the whole panel whatever the rect (F1.7 rewritten), and M0.1's overlay does not time the
+  panel transfer (M0.1 and F1.3 amended). Built APK 0.45 (staged, not installed): the probes M0.1
+  (`diag`), M0.4 (`phy`), M0.5 (`logger`) behind the replica port's `probe` message, and `battery`
+  journal notes for M0.6; `journal_report.py --since`, the battery and glass-log sections.
+  `MOTION.md` drafted (the explosion's candidate list). Our clang builds a different image from the
+  same sources (`CLAIMS.md`) — the fork's pins become ours in Phase 1. Measured: 14 arm link ends
+  today, none overnight. Nothing flashed. Next: Adam's probe session (M0.1, M0.4, M0.5), the two
+  battery days (M0.6), the capture and the video (M0.3, M0.2), the refinery on `MOTION.md`.

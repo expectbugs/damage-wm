@@ -19,10 +19,13 @@ with a contract-version bump.
 
 - The installed firmware advertises `EVENCFW/16 …` in settings field 100. Damage keeps requiring
   `SettingsMsg.REQUIRED_CAPS` from it (`img640 directfb fbguard imgz rle`).
-- **v2 (draft, Phase 1):** a second settings field, number ≥ 110 (upstream g2flash uses 100–105),
-  `DMG/<contract-version>` followed by a little-endian u32 **feature bitmask**. Damage requires the
-  contract version it was built for and reads the bitmask for what is present. Nothing is ever
-  gated on a token that could be dropped for space (the `img576` lesson).
+- **v2 (draft, Phase 1; shape fixed 2026-09-13):** every sid-0x09 READ response carries field **110
+  `DamageCaps`**, a nested message appended after upstream's fields 100 and 104:
+  `{ 1: string "DMG", 2: uint32 contract, 3: uint32 features }` — e.g. `0a 03 44 4d 47 10 01 18 00`.
+  Damage requires the contract version it was built for and reads `features` for what is present
+  (bit 0 telemetry, bit 1 flags; later bits are added with their features). A response without
+  field 110 is upstream g2flash. Nothing is ever gated on a token that could be dropped for space
+  (the `img576` lesson): the field is a few bytes and has its own number.
 - Contract versions are integers. A bump means an existing op changed shape or meaning; adding an
   op or a flag bit does not bump it.
 
@@ -59,14 +62,37 @@ the CFW replaces.
 
 - **Telemetry request** (sid 0x09 control field, new op): reply carries heap free per arena
   (13/20/27, KiB), uptime (ms tick), boot count, flags in force, last status code, the last N
-  frames' worker and present microseconds, cache generation and CRC, panel type.
-- **Presented notify** (when enabled): after the frame copy, `(sequence, worker_us, present_us)`
-  to the phone; from RIGHT; from LEFT too if its notify path is shown to work.
+  frames' worker, copy and panel-transfer microseconds, cache generation and CRC, panel type.
+  Sources (read 2026-09-13, `CLAIMS.md`): boot count = the stock KV `kvbooCount`, which every start
+  already increments (no new write); panel type = the active operations record at RAM `0x20074530`
+  (`0x0070AFE4` A6N-G, `0x0070B024` JBD4010); the copy time is today's `last_present_us`; the
+  transfer time is new — every present is a full 153,602-byte panel transfer on both drivers, run by
+  the display task after the frame copy, so its stamp wraps the refresh call (`0x00473CE4`).
+- **Presented notify** (when enabled): after the panel transfer, `(sequence, worker_us, copy_us,
+  transfer_us)` to the phone; from RIGHT; from LEFT too if its notify path is shown to work.
 - **Flag op:** arm / disarm by bit; a reply echoes the flags in force.
+- **Wire shapes (draft, fixed 2026-09-13):**
+  - *Request* (phone → each arm): sid 0x09 `G2SettingPackage{ 1: commandId 1, 2: magic 0, 112: body }`,
+    body = 6 bytes `['D','M', version 1, op, argLo, argHi]` (the shape of upstream's field-101 lease
+    control). Ops: **1 TELEMETRY** (arg = a request id the reply echoes) · **2 FLAGS_SET** (arg = the
+    complete flag set wanted, low 16 bits; bit 15 = PROBE) · **3 FLAGS_CLEAR** (arg ignored). Every op
+    replies with the telemetry record; an unknown op replies with status 1. A body of the wrong length,
+    marker or version gets no reply.
+  - *Reply* (each arm that can send; RIGHT for certain): sid 0x09 `G2SettingPackage{ 1: commandId 3,
+    2: magic 0, 111: DamageTelemetry }`, fields in this order, a field omitted when its value is not
+    known: `1 request id · 2 uptime ms · 3 flags in force · 4 this op's status · 5 last worker µs · 6 last
+    copy µs · 7/8/9 free KiB in arenas 13/20/27 · 10 the active panel record address · 11 sticky
+    diagnostics (bit 0 reorder, 1 skip, 2 dup, 3 snapshot overflow, 4 allocation) · 12 lease ms left ·
+    13 boot count · 14 lens (1 right, 2 left)` — all uint32 varints.
+  - *Flags:* a FLAGS_SET naming a bit this build does not implement changes nothing and sets last
+    status 2 (unsupported); bit 15 PROBE has no behaviour and exists so arming, the echo and the
+    clear-on-lapse can be proven on glass before any feature relies on them. Flags clear on lease
+    expiry, FB_RELEASE, a fresh acquire and mode 11 — the texture cache's release points.
+  - *Status codes:* 0 ok · 1 malformed request · 2 unsupported flag.
 - **Self-test op:** runs the conformance vectors held on the glasses' side (uploaded by the phone in
   chunks, like cache writes) against scratch memory, never the visible shadow, and replies with one
   CRC per vector step per lens. The phone compares against the simulator.
-- **Status codes:** one byte; `0` ok; the table is written with the first op that can refuse.
+- **Status codes:** one byte; the table grows with each op that can refuse (above).
 
 ## 4. v2 drawing ops (Phase 2) — *draft*
 
@@ -128,15 +154,28 @@ content, the stock override gesture, stock fallback on any failure. Written afte
 
 ## 9. Conformance vectors (Phase 1)
 
-- **Location:** `damagewm/firmware/vectors/*.json` (data, no code).
-- **Shape:** `{ "name", "contract": <version>, "start": <shadow seed or "black">, "steps":
-  [ { "ops": [<hex messages>], "tick": <n or 0>, "expect": { "L": "<crc32 hex>", "R": "<crc32 hex>",
-  "scratch": [...] } } ] }`.
+- **Location:** `damagewm/firmware/vectors/*.json` (data, no code). Inputs are written by
+  `firmware/make_vectors.py` (Damage, clean-room, from the documented message formats).
+- **Shape (as built 2026-09-13):** `{ "name", "contract": <version>, "start": "zero", "steps":
+  [ { "ops": [ {"tick": ms} | {"lease": "acquire"|"release"} | {"msg": "<hex>"} … ],
+  "expect": { "L": "<crc32 hex>", "R": "<crc32 hex>", "rc": { "L": [..], "R": [..] } } } ] }`. A
+  `msg` is one completed image message as the deferred handler receives it; `rc` lists each
+  message's return (0 accepted, −1 refused) in order; `tick` sets the firmware millisecond clock
+  (the lease deadlines run on it). Later phases add ops (program upload/play, self-test) and
+  `"scratch"` expectations.
 - **CRC:** CRC-32, zlib polynomial `0xEDB88320`, over the packed 4bpp shadow rows in order (320
   bytes per row, 480 rows), per lens; scratch and layers the same way over their own bytes.
-- **Who runs them:** the fork's host test build (x86, stubbed entry points), the Kotlin simulator
-  (`core` tests), and the glasses through the self-test op. All three must agree before a flash is
-  called good.
+- **Who runs them:** the fork's host build (`~/damage-cfw/host/run_vectors.py`: the unchanged patch
+  sources compiled for 32-bit x86 with the firmware's addresses mapped; `--write` fills the
+  expectations), the Kotlin simulator (`ConformanceVectorTest` in `core`), and — from Phase 1's
+  flash — the glasses through the self-test op. All three must agree before a flash is called good.
+  For v1 (the installed firmware) the C wrote the expectations; a disagreement is a finding about the
+  simulator or the docs, never a reason to edit an expectation by hand.
+- **v1 set (2026-09-13):** 7 vectors, 35 steps — keyframes, mono and stereo deltas at the panel's
+  edges, overlapping and odd-coordinate copies, a batch, refusals (out of bounds, a repeated fid, a
+  batch with a non-shadow sub-message that has already changed the shadow), the texture cache
+  (options, clipping, an x-adjust byte, a refused string), the lease (renewal keeps the cache, a
+  lapse refuses and frees it). **The simulator matches the C on every step, both lenses.**
 
 ## 10. Lifecycle
 
@@ -148,3 +187,7 @@ Reset: boot count increments; the phone's keeper applies the hold-back rule befo
 ## 11. Change log
 
 - 2026-09-12 — skeleton written with `FORK.md`.
+- 2026-09-13 — §3: telemetry sources named from the Phase 0 reads (boot count, panel type, the
+  panel-transfer stamp); the presented notify carries the transfer time. §9: the vector shape as
+  built, the two runners, the v1 set (the simulator matches the C). §0/§3: the DamageCaps field and
+  the control/telemetry wire shapes fixed for Phase 1.

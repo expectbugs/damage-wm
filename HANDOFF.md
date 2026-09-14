@@ -2668,3 +2668,117 @@ own working tree (these docs) is not committed either.
 Adam asked twice this session for plain wording: the model's safety checks tripped repeatedly on
 firmware, radio and memory phrasing, and the build will be worse. `FORK.md` and `FIRMWARE.md` open
 with a "Context for the reader" block for that reason; keep it in every new file.
+
+## 49. Phase 0 begins: the reads, two plan corrections, the probe build, the host harness (2026-09-13)
+
+A research and tooling session for the fork (`FORK.md` Phase 0), with Adam's go for everything that
+needs no glasses ("do everything you can do without me"). Nothing flashed; nothing installed; APK
+0.45 staged; fork commits local, not pushed. Plain wording kept throughout (the model's safety checks
+tripped once mid-session on firmware reading; Adam filed feedback).
+
+### 49.1 Measured today (the phone's `/log` and `/journal`, read-only; grade M)
+
+- APK 0.44 installed. Link parameters 15 ms / latency 1 in every hour since 09-12 15:00; no slow-set
+  episode since §47.
+- **Arm link ends:** 14 supervision timeouts, alternating RIGHT/LEFT, 47–55 min apart from 08:04 to
+  18:07 (per arm ~100 min); **none from 22:35 to 05:05 or from 05:06 to 08:04**, with the session up
+  throughout (the lease renewed every 45 s: 113 + 407 + 238 renewals). The display came back 8.2–15.3 s
+  after each end; twice 35–38 s (the first restart ended on the other arm). A new constraint on
+  §42.2's ten; no explanation is favoured by it alone. A free discriminator only Adam has: where the
+  glasses were during the quiet windows.
+- Time to first ack since 0.40 (bursts): WINDOW first flush 391 / 3,239 B (median / p90) → **89 / 494
+  ms** (n=10,367); MAIN 106 / 228 B → **68 / 96 ms** (n=7,346).
+- `/log` holds 4,000 lines ≈ 20 h, most of them lease renewals — a day's battery trace needs the
+  journal (§49.4).
+
+### 49.2 Read (facts graded in `CLAIMS.md`, "Firmware internals read for the fork")
+
+- **Refresh path:** both panel drivers' async refresh clamps the end coordinates and then sends a
+  fixed 153,602-byte frame; the rect never reaches the transfer. The rect-honouring blocking path
+  writes per row on JBD4010 and moves no pixels on A6N-G. Panel selection: config key 1 byte 0x06;
+  the active record at RAM `0x20074530`. The QSPI write waits on a semaphore on the display manager
+  task; the gate take waits 1,000 ms.
+- **The overlay's `p` is the copy only** — the panel transfer runs after the hook, timed by nothing.
+- **Link policy:** a 60 s timer carrying the slow event is armed at connect and after every update;
+  every parameter submit enters `FUN_00476CBC` (entry bytes `70 b5 88 b0 05 00 0c 00`). The profile
+  words and the submit's own checks are unread; latency 1's origin stays U.
+- **Inter-lens:** RIGHT forwards the image completion (id 0x0B, 16 B) with `FUN_00464BB2`, a queued,
+  non-blocking send (refuses ≥ 10,241 B). UART rate U.
+- **Heap:** the carrier's two 165,888 B buffers live in arena 13 or 20 (I); M0.1 decides.
+- **Logger (sid 0x0F):** BLE_LOGGER_SWITCH_SET is a RAM switch, cleared at every app start; the
+  file-list request moves the link to its fast profile and scans storage; two commands remove files.
+- **Build:** our clang 22.1.8 builds the unchanged a5d1c31 sources into `1920dda6…`, not upstream's
+  `d4054ab1…` (19 of 26 entries differ); the Thumb-bit audit and the size guard pass.
+- Method note: the corpus decompile showed both async refresh entries taking no arguments; the
+  instructions read two stack arguments. Instruction-level reads decide.
+
+### 49.3 Corrections to `FORK.md`
+
+F1.7 rewritten (a smaller rect on the queue changes nothing; time the transfer, and on JBD4010 a
+partial refresh against it). M0.1 amended (heap and copy time, not the tick ceiling) and F1.3 stamps
+the transfer at the display task's refresh call (`0x00473CE4`). F1.2 adds the panel record and the
+stock KV boot counter. F1.6 names its site. **§3.1 corrected:** a5d1c31 already has two sites on
+boot-time paths (the primary heap arena's size; the display copy call, a pass-through from boot on) —
+the rule is "no NEW site on such a path", reviewed from `tools/verify.py`'s site list.
+
+### 49.4 Built in Damage (APK 0.45 staged, not installed)
+
+- **Probes** (dev only, never the shell): the replica port takes `{"t":"probe","name","value"}`;
+  `tools/glassdrive.py probe:NAME=VALUE` sends it. `Transport.devProbe`: `diag=show|hide` (mode 7 sub
+  2/1 on the image lane — it burns no fid and draws only into the physical framebuffer), `logger=on|off`
+  (sid 0x0F cmd 1 to both arms, re-sent after each session start while wanted; answers as `probe`
+  notes, lines as `glasslog` notes — `LoggerMsg`), `phy=2m|1m` (phone only), `telemetry=read` and
+  `flags=clear|probe|0xNNNN` (the Damage build's ops; an upstream build ignores them and the note says
+  so). Every probe is journaled.
+- **`battery` notes** on every change of the glasses' level (M0.6 reads the journal, not `/log`).
+- **The simulator** models the overlay toggle, the log switch (cleared by a CREATE) and, behind
+  `damageContract`, a Damage build's DamageCaps and control ops (`FIRMWARE.md` §0/§3).
+- **`tools/journal_report.py`:** `--since`, a battery drain summary per discharging stretch, `probe`
+  notes listed, `glasslog` lines counted (`--glasslog` prints them).
+- **Conformance vectors (`FIRMWARE.md` §9):** `firmware/make_vectors.py` writes the v1 inputs
+  (clean-room, from the documented formats); the fork's C wrote the expectations;
+  `ConformanceVectorTest` runs them through the simulator — **it matches on all 35 steps, both
+  lenses**, and fails when one expectation is altered.
+- Tests: `DevProbeTest` (3), `ConformanceVectorTest` (1), `DamageMsgTest` (3). The inert Settings row
+  "Diag overlay" stays inert (Phase 6a removes or wires it).
+- **The battery at the end:** core 540 · desktop 15 · `--selfcheck` ×3 (0 fail, the oracle on 429 settled
+  surfaces) · snapshots 57 (looked at) · epub/music/games/feed checks · lint 0 · `:phone:stageApk` alone
+  (0.45, 26.9 MB, `~/.damage/damage-wm.apk`).
+- `MOTION.md`: the explosion's candidate list (~89 candidates, 12 shell surfaces, 7 windows, the verb
+  tally, five §0 re-put questions, two doc tensions flagged).
+
+### 49.5 Built in the fork (`~/damage-cfw`, local commits `6db86e2` `cd802ec` `a8f3610`)
+
+- The patch set pinned to our clang (`6db86e2`, `1920dda6…`, the no-feature baseline) and
+  `tools/verify.py` (stock hash, pin, reproducibility, Thumb-bit audit, size guard, the site list).
+- `host/`: the unchanged patch sources for 32-bit x86 with the firmware's addresses mapped at their
+  exact values and a small jump at each firmware entry point; `run_vectors.py`; the two ARM-assembly
+  shims under `#ifndef CFW_HOST` (the glasses build is byte-identical).
+- `patches/damage_ext.c` (`a8f3610`, pin `b88eb6b9…`): DamageCaps, the control ops and the telemetry
+  record, flags cleared at every texture-cache release point — no new patch site;
+  `host/test_damage_ext.py` checks the bytes against the contract (8 checks pass); the block grows
+  2,796 B, 382 KB stays below the OTA flag. **Not flashed; the Phase 1 candidate still lacks F1.3
+  (transfer stamp), F1.5, F1.6, F1.7.**
+
+### 49.6 A Feed test that misses in full suite runs (mechanism found; trigger not)
+
+`FeedWindowTest.deepLinksResolveEveryForm` (a 20 s wait for the xkcd strip's title): **3 misses in 7 full core
+runs of this session's tree** (runs 1, 3 and the last), 0 in 3 runs of the unchanged tree (a separate worktree),
+0 in 6 targeted runs of the Feed classes (with and without `DevProbeTest` first). `OracleWalkTest` missed once
+(run 2; its known load sensitivity). Run 3 also caught a race in the new `DevProbeTest` (fixed).
+
+**The mechanism, from the last failing run's own log:** during the deep-link test the window flipped to comic #1
+(`feed: comic 'Strip 1': no such item`) — the target of the bar's `first` button (`FeedWindow.flip`). The scripted
+provider's `comicAt()` builds a numbered comic without storing it in `itemsBy`, so `comic(id)` cannot find it; the
+load fails and the title never becomes `xkcd N`. **Not yet known: what presses `first` mid-test** (candidates: a
+gesture from an earlier step processed late; a focus left on the bar by `comicFocus = firstEnabledButton()` meeting a
+queued tap; a `pendingOpenItemId` path opening before the list lands; a restored comic position). No path from this
+session's diff to Feed input was found (the new notes and probe replies raise no input events). 0/3 on the unchanged
+tree does not exclude a pre-existing rate near 40 % (P ≈ 0.19). Owed: twenty full runs of each tree, and the trigger.
+Feed work is suspended (`FORK.md`), so no fix was made.
+
+### 49.7 Adam's side (the list handed over at the end of the session)
+
+Install APK 0.45; the probe session (M0.1 overlay read, M0.4 PHY ask, M0.5 log stream through one arm
+drop); a day on `Link = high` then a day on `balanced` (M0.6); the bug-report BTSnoop (M0.3); the 240
+fps video (M0.2); where the glasses were in the quiet windows; the refinery on `MOTION.md`; D1–D8.
