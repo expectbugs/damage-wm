@@ -2984,3 +2984,32 @@ the session → a full bug report, Bluetooth on. The check in the zip: `btsnoop_
 `btsnooz_hci.log`. Never set Disabled while a capture is wanted (the next start deletes it). For a capture
 that must span a ~50-minute drop, keep the glasses mostly idle: the file holds 65,535 packets before it
 rotates, and one previous file is kept.
+
+### 50.8 The first two-arm captures with the APK driving (M0.3, first pass)
+
+Adam's third and fourth reports of the day (17:12:41 and 17:25:35; their mails never reached the inbox,
+the phone's Sent copies carried them) hold the full unfiltered log: **0 truncated records** in both.
+Banked as `captures/apk-20260914-1705-1712.log` (the 17:12 report's `.last`: the stack started 17:05:17
+in Enabled mode, both lenses connected 17:05:22/24, the session ended by Bluetooth off at 17:12:16 — 9,188
+records, 7 min) and `captures/apk-20260914-1712-1727.log` (the 17:25 report's live file: stack start
+17:12:17, the lenses back at 17:14:46/50, 5,886 records, 15 min); `SHA256SUMS` extended. The 17:12
+report's own live file (17:12:17→17:14:41, no lens yet) is a prefix of the second and was not kept.
+
+First pass (grade M, `research/linkparams.py` and a completed-packets count; the proper M0.3 read is owed):
+- **The link as the journal says:** both lenses connect at their advertised interval (RIGHT 18.75 ms,
+  LEFT 45 ms), the phone commands 30–50 ms then 11.25–15 ms, and both settle at **15 ms / latency 1 /
+  5,000 ms** within two seconds; DLE tx 247 / rx 251 on both after the MTU exchange (247); no PHY
+  update, no later parameter change in either session (the glasses' 60 s slow timer produced no request
+  in 7 and 13 minutes on `Link = high`).
+- **The arm split as designed:** in the 17:05 session 3,523 outbound ACL packets went to LEFT (the
+  images), 80 to RIGHT (control); the keepalive (`f1=12`) every 4 s and the lease renewal (`f101`) to both
+  arms at 45 s are in the frames.
+- **Packets per connection event, first pass:** grouping the controller's Number-of-Completed-Packets
+  events into 15 ms windows on the LEFT arm gives mostly **two** completed packets per window during a
+  flush (1,519 of 1,956 windows in the 17:05 session; 1 in 390; a few 4s), and the host hands packets to
+  the controller faster than that (median 5.7 ms apart), so the link, not the host, paces a flush at
+  about two 247-byte packets per interval. A per-event read from the timestamps is the proper M0.3 answer.
+- **No drop in either capture** (every disconnect is 0x16, Adam's Bluetooth toggles). The file rotates at
+  65,535 packets keeping one `.last`: at the 17:05 session's rate (~1,300 records a minute in use) two
+  files span about 100 minutes, more when the glasses are idle — a report taken within an hour after a
+  drop, or at the end of the day, should hold one.
