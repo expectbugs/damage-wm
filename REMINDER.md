@@ -29,7 +29,10 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
   Committed and pushed (`c1c1017`; the fork `7377e0c`). **Adam's answer (§50.6): during the drop-free overnight
   windows the glasses were in the charging case** — the first variable that switches the ~50-minute arm drops off;
   `FORK.md` M0.7 (one evening of placement: unfolded on the desk, folded on the desk, the case) splits charging, the
-  fold and the case detect. Still to ask: where they were 18:07→22:35 on the 13th.
+  fold and the case detect. Still to ask: where they were 18:07→22:35 on the 13th. **His first bug report (§50.7):**
+  the snoop was still FILTERED (the stack's dump says `SnoopLogMode=FILTERED`, only the 3.5-minute ring, bodies
+  stripped) — the setting must be Enabled BEFORE the Bluetooth toggle, and the next zip must hold `btsnoop_hci.log`;
+  its stack dump answered M0.4 anyway: the glasses' feature set has no LE 2M PHY.
 - **Latency hardened without the firmware (2026-09-12, `HANDOFF.md` §47):** the APK re-asks for its priority
   (Global `Link` row, `high` default) whenever the link slows; slow parameters flip the regime at once (`LINK SLOW`,
   one notice); the brightness write is answered and re-sent once; the standby claims only when both arms advertise
@@ -73,7 +76,7 @@ The ack precedes the panel refresh (§48.1, verified): what the eye waits for is
 ## 🔴 The next session — `FORK.md` Phase 0, continued
 
 0. **Read `FORK.md` §11 and `HANDOFF.md` §49**, then ask Adam for what his side produced (§49.7): the overlay line
-   (M0.1: `f13/20/27`, `w`, `p`), the PHY answer (M0.4: `link` notes "PHY after the 2m request"), the glass log
+   (M0.1: `f13/20/27`, `w`, `p`), (M0.4 is answered — no LE 2M PHY on the glasses, §50.7), the glass log
    lines around an arm drop (M0.5: `journal_report.py --since … --glasslog`), the battery days (M0.6: the report's
    battery section per stretch), the BTSnoop zip (M0.3), the video (M0.2), where the glasses were in the quiet
    windows, his cuts to `MOTION.md`, D1–D8.

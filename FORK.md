@@ -125,7 +125,7 @@ Size is relative (S/M/L/XL). "Flashes" counts candidate flashes; fix flashes are
 | M0.1 | diagnostic overlay on for one probe session (`glassdrive.py probe:diag=show`, APK 0.45; never the shell), read on glass by eye or photo, then `probe:diag=hide` | free KiB of arenas 13/20/27 and which arena holds the container buffers; worker µs and the shadow → framebuffer copy µs → the heap budget. **Not the tick ceiling:** the overlay's `p` excludes the panel transfer, which nothing times today (`CLAIMS.md` 2026-09-13) — F1.3 measures it |
 | M0.2 | 240 fps phone video through a lens: a stock dashboard scroll (cadence, the bounce) and a Damage notch (ring press → first visible change) | the real user-perceived numbers; if filming fails, Phase 1 telemetry is the fallback |
 | M0.3 | BTSnoop with the APK driving (bug-report mail path) plus one Wi-Fi-off session | packets per connection event, PHY, the arm split, one arm drop from the radio's side → the link levers |
-| M0.4 | 2M PHY request from the APK (`probe:phy=2m`, APK 0.45; `probe:phy=1m` returns) | measured, not assumed |
+| M0.4 | 2M PHY request from the APK (`probe:phy=2m`, APK 0.45; `probe:phy=1m` returns) — **answered 2026-09-14 without the request:** the phone's record of the glasses' link-layer feature set has the LE 2M PHY bit clear (`CLAIMS.md`); the probe stays as a check | measured, not assumed |
 | M0.5 | the sid-0x0F log stream across an arm rebuild (`probe:logger=on`, APK 0.45: RAM-only on the glasses, re-sent after each session start; lines land in the journal as `glasslog` notes) | what the surviving arm logs as the other drops → reset vs stall, the hold-back rule's N |
 | M0.6 | the glasses' battery changes journaled (`battery` notes, APK 0.45; `journal_report.py --since`) over a day on `Link = high` and a day on `balanced` (the §47 experiment) | the battery baseline every later soak compares against |
 | M0.7 | **the case experiment** (added 2026-09-14, `HANDOFF.md` §50.6 — in the charging case the ~50-minute arm drops stopped for 9.5 h, on a desk they did not): one evening, session up, `probe:logger=on` — ~2 h unfolded on the desk on battery, ~2 h folded on the desk on battery, then the case; the journal's `link` notes say which condition drops | which of charging, the fold and the case detect gates the drops; with M0.5's log lines across a drop, reset vs stall — the hold-back rule's N and §42.2's ten narrowed by placement alone |
@@ -380,4 +380,6 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   in the KV store, nothing in the image references the RAM word it was read from (F1.2 amended); the
   transport reads DamageCaps from the capability answer only; arena 13 is 839,680 B (0xCD000), not
   839,808. Nothing flashed. Adam's answer on the quiet windows: the glasses were in the charging case
-  (§50.6) — M0.7 added, the evening placement experiment. Next: unchanged (Adam's side, §49.7) plus M0.7.
+  (§50.6) — M0.7 added, the evening placement experiment. His first bug report (16:44): the snoop was still
+  filtered (the stack's dump says so; setting first, then the Bluetooth toggle), but its stack dump answered M0.4 — no
+  LE 2M PHY on the glasses (§50.7). Next: unchanged (Adam's side, §49.7) plus M0.7 and the capture redone.

@@ -31,7 +31,7 @@ implementation exists, read it — including ours.
 | ~232 B payload per AA fragment (240 B on wire) | **C** | measured + g2-kit's `chunkSize ?? 232` |
 | MTU 247 negotiated (glasses answer 517) | **M** | capture |
 | MTU 247 is the *app's choice*, not a hardware ceiling | **I** | Faceclaw requests 512; AA `len` is 1 byte so per-frame gain is capped |
-| 1M PHY only, 2M rejected | **M** | capture (no 2M PHY update events) |
+| **1M PHY only: the glasses' controller does not implement the LE 2M PHY** — feature bit 8 is clear in the link-layer feature set the phone recorded at the feature exchange (LE Coded PHY, bit 11, is set; data length extension, bit 5, is set) — so `FORK.md` M0.4 is answered without the request | **M** | the stock-2.2.2 capture (no 2M PHY update events) and the phone's Bluetooth stack dump in the 2026-09-14 16:44 bug report (`shim::acl` `peer_features … 0x2f 0x4c 0x01 0x07 0xa8 0x19 0x00 0x00`, both lenses, the CFW). The phone's controller offers 251-octet LE packets (`le_acl_data_packet_length 251`, `le_suggested_default_data_length 27`); what the link negotiates is the full capture's to say |
 | **Throughput 7–13 KB/s end-to-end** | **M** | `captures/imagestatus.log`, multi-fragment bursts |
 | ~~16.6 KB/s~~ | ❌ | **withdrawn** — was the fast mode of a trimodal distribution |
 | Fragment gaps are trimodal: 0–1 / 12–17 / 56–61 ms | **M** | capture, n=256 |

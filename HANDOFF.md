@@ -2915,3 +2915,23 @@ discriminator is placement, not tooling — `FORK.md` M0.7:** an evening with th
 logger on: two hours unfolded on the desk on battery (drops expected, and M0.5's log lines across one),
 then two hours folded on the desk on battery, then the case. Charging, the fold and the case detect
 come apart in one evening.
+
+### 50.7 The first bug report: a filtered ring, and M0.4 answered from the stack dump
+
+Adam mailed a bug report from work (`bugreport-stallion-…-2026-09-14-16-44-22.zip`, read from the
+Maildir on beardos). Not the capture: the zip holds only `FS/data/misc/bluetooth/logs/btsnooz_hci.log`
+(85 KB, the in-memory ring, 16:43:05→16:46:41, 685 of 1,747 records with their bodies stripped) and the
+Bluetooth stack's own dump says `SnoopLogMode=FILTERED` while the phone property already read
+`btsnooplogmode=full` (set 16:16:35). The stack reads the mode when it starts, so the order is: the
+setting to Enabled, then Bluetooth off and on, then the hour of use, then the report; the check is a
+`btsnoop_hci.log` of megabytes in the zip. What the report gave anyway (grade M, the phone's dumps):
+
+- **M0.4 answered without the request:** the stack's `shim::acl` dump records each lens's link-layer
+  feature set from the feature exchange, `0x2f 0x4c 0x01 0x07 0xa8 0x19 0x00 0x00` — bit 8 (LE 2M PHY)
+  clear, bit 11 (LE Coded PHY) set, bit 5 (data length extension) set. The 2M request would be
+  refused; `CLAIMS.md`'s "1M PHY only" row now carries this.
+- Both lenses connected at 16:17:05 (R) and 16:17:09 (L), after his toggle, and were still up at 16:46
+  with no disconnect event — the ring spans no drop.
+- The phone's controller: HCI 6.0, 251-octet LE packets, 13 LE buffers, suggested default data
+  length 27; the negotiated length is the full capture's to say.
+- A classic device tried to pair at 16:44:32 and failed authentication at 16:45:39; unrelated.
