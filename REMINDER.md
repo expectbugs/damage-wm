@@ -29,11 +29,11 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
   Committed and pushed (`c1c1017`; the fork `7377e0c`). **Adam's answer (§50.6): during the drop-free overnight
   windows the glasses were in the charging case** — the first variable that switches the ~50-minute arm drops off;
   `FORK.md` M0.7 (one evening of placement: unfolded on the desk, folded on the desk, the case) splits charging, the
-  fold and the case detect. Still to ask: where they were 18:07→22:35 on the 13th. **His first bug report (§50.7):**
-  only the 3.5-minute snoop ring, no `btsnoop_hci.log`, although the option was Enabled and the order right (off →
-  setting → on, per the phone's log; June's captures came from this build with the file present) — cause open; the
-  test is a fresh Bluetooth off/on, then a report, and the check is `btsnoop_hci.log` in the zip. Its stack dump
-  answered M0.4 anyway: the glasses' feature set has no LE 2M PHY.
+  fold and the case detect. Still to ask: where they were 18:07→22:35 on the 13th. **The bug reports (§50.7):** the stack reads the snoop mode once at start (its source);
+  `btsnooz_hci.log` in a zip proves it started in Disabled mode — today's two and June 5 12:15 did, the selection
+  having landed after the stack came up; Adam chose Enabled every time. Recipe: Bluetooth off → Enabled → ten
+  seconds → Bluetooth on → session → report; the check is `btsnoop_hci.log` present and no `btsnooz_hci.log`. The
+  first report's stack dump answered M0.4 anyway: the glasses' feature set has no LE 2M PHY.
 - **Latency hardened without the firmware (2026-09-12, `HANDOFF.md` §47):** the APK re-asks for its priority
   (Global `Link` row, `high` default) whenever the link slows; slow parameters flip the regime at once (`LINK SLOW`,
   one notice); the brightness write is answered and re-sent once; the standby claims only when both arms advertise

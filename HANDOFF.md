@@ -2954,3 +2954,33 @@ open (candidates: the property landing after the stack's read despite the event 
 to the stack's snoop logger since June — `INIT_gd_hal_snoop_logger_socket`; a report-type difference). The
 discriminating test is Adam's: option Enabled, a few seconds, Bluetooth off and on, a few minutes of use, a
 report with Bluetooth on; then, if still nothing, Bluetooth off before the report.
+
+**Settled from the stack's source and eleven earlier reports (grade V for the mechanism, M for the
+history).** The Bluetooth stack's snoop logger (`packages/modules/Bluetooth/system/gd/hal/snoop_logger.cc`,
+AOSP main, read 2026-09-14: `GetBtSnoopMode`, the `SnoopLogger` constructor, `DumpSnoozLogToFile`, `Start`):
+- the mode is read from `persist.bluetooth.btsnooplogmode` **once, when the stack starts** (the module's
+  constructor); nothing watches the property afterwards — the AOSP page says the same: "Restart Bluetooth
+  for logging to take effect";
+- in Disabled mode packets go to an in-memory ring only, and `btsnooz_hci.log` is written into a bug
+  report **only in Disabled mode** ("btsnoop log is enabled, skip dumping btsnooz log") — so **a zip with
+  `btsnooz_hci.log` proves the stack was in Disabled mode when the report ran**, whatever the property
+  read by then; a zip with `btsnoop_hci.log` and no snooz file proves Enabled;
+- a stack that starts in Disabled mode **deletes** the existing `btsnoop_hci.log` files; one that starts in
+  Filtered deletes the unfiltered ones (the constructor); files rotate at 65,535 packets, keeping one
+  `.last`.
+
+Applied to the mailbox (eleven reports since June 1, all `BUGREPORT_FULL`, same build, same Google
+flags): every report with `btsnoop_hci.log` (June 1, 3 18:04, 5 13:10, 7, 9) had the stack started with
+the property already `full`; every report with only `btsnooz_hci.log` had the stack started while the
+property still read `disabled` — including June 5 12:15 and today's first, where the property read `full`
+by report time but the option's dialog had been opened only 6 and 14 s before the stack came up, so the
+selection landed after the read. **Adam chose Enabled every time; the property says so in every failing
+report. The June-era note blaming "Filtered", and this morning's, were wrong.** In every June success the
+app's clean disconnects (0x16) came seconds before the report and the file kept growing afterwards, so
+Bluetooth was on at report time: turning it off first is not part of the recipe.
+
+**The recipe, verified by mechanism:** Bluetooth off → select Enabled → wait ten seconds → Bluetooth on →
+the session → a full bug report, Bluetooth on. The check in the zip: `btsnoop_hci.log` present and no
+`btsnooz_hci.log`. Never set Disabled while a capture is wanted (the next start deletes it). For a capture
+that must span a ~50-minute drop, keep the glasses mostly idle: the file holds 65,535 packets before it
+rotates, and one previous file is kept.
