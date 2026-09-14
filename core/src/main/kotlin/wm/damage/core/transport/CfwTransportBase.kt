@@ -513,14 +513,19 @@ abstract class CfwTransportBase(
                     Log.d(name, "settings frame outside the capability gate ignored")
                     return
                 }
-                damageCaps = DamageMsg.parseCaps(frame.payload)
                 val cap = SettingsMsg.parseCapability(frame.payload)
                 if (cap != null) {
+                    // FIRMWARE.md §0: the READ answer that carries field 100 is the
+                    // one that says whether this is a Damage build (field 110) — read
+                    // both from that frame, so no other settings frame arriving
+                    // inside the gate window can reset the answer
+                    damageCaps = DamageMsg.parseCaps(frame.payload)
                     capabilityChannel.trySend(cap)
                 } else if (frame.flag == SettingsMsg.FLAG_RESPONSE) {
                     // A settings response WITHOUT the EVENCFW field IS the answer
                     // (stock firmware): forward emptiness so the gate refuses
                     // loudly instead of hanging in silence.
+                    damageCaps = null
                     capabilityChannel.trySend("")
                 }
             }

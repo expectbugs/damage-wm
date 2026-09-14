@@ -10,8 +10,8 @@ glasses. Plain wording throughout.
 
 **Status 2026-09-13:** v1 is the installed contract (g2flash `a5d1c31`) and is only pointed at. v2:
 §0 and §3's wire shapes are fixed for Phase 1 (draft) and implemented on both sides — the fork's
-`patches/damage_ext.c` and Damage's `DamageMsg` + simulator — without the transfer stamp or the self-test
-op yet; §9's vector format is built and the v1 set passes on both; §4–§8 are still the decided shape only,
+`patches/damage_ext.c` and Damage's `DamageMsg` + simulator — without the transfer stamp, the boot count or
+the self-test op yet (reviewed 2026-09-14, §11); §9's vector format is built and the v1 set passes on both; §4–§8 are still the decided shape only,
 filled in phase by phase (`FORK.md` §5).
 A section marked *draft* may change until its phase's test stop passes; after that it changes only
 with a contract-version bump.
@@ -24,7 +24,8 @@ with a contract-version bump.
   `SettingsMsg.REQUIRED_CAPS` from it (`img640 directfb fbguard imgz rle`).
 - **v2 (draft, Phase 1; shape fixed 2026-09-13):** every sid-0x09 READ response carries field **110
   `DamageCaps`**, a nested message appended after upstream's fields 100 and 104:
-  `{ 1: string "DMG", 2: uint32 contract, 3: uint32 features }` — e.g. `0a 03 44 4d 47 10 01 18 00`.
+  `{ 1: string "DMG", 2: uint32 contract, 3: uint32 features }` — e.g. `0a 03 44 4d 47 10 01 18 00`
+  (contract 1, no features; the Phase 1 build ends `18 03`: telemetry and flags).
   Damage requires the contract version it was built for and reads `features` for what is present
   (bit 0 telemetry, bit 1 flags; later bits are added with their features). A response without
   field 110 is upstream g2flash. Nothing is ever gated on a token that could be dropped for space
@@ -45,8 +46,8 @@ with a contract-version bump.
    Programs present once per tick.
 5. **Flags.** Every v2 behaviour is off until the phone arms it for the session; all flags clear on
    lease lapse (the persisted offline-home flag excepted, Phase 7).
-6. **Hold-back.** Boot count and uptime are readable; the phone never re-arms a feature within N
-   seconds of a reset that followed its arming (N from `FORK.md` M0.5).
+6. **Hold-back.** Uptime is readable (and a boot count once F1.2 sources one); the phone never
+   re-arms a feature within N seconds of a reset that followed its arming (N from `FORK.md` M0.5).
 7. **Both lenses run the same code.** A candidate is flashed to both arms before use.
 8. **Budgets are declared.** Cache size, scratch size, program table size and tick rate are
    numbers in this file once measured, and lint checks Damage against them.
@@ -64,13 +65,18 @@ the CFW replaces.
 ## 3. v2 telemetry, flags and self-test (Phase 1) — *draft*
 
 - **Telemetry request** (sid 0x09 control field, new op): reply carries heap free per arena
-  (13/20/27, KiB), uptime (ms tick), boot count, flags in force, last status code, the last N
-  frames' worker, copy and panel-transfer microseconds, cache generation and CRC, panel type.
-  Sources (read 2026-09-13, `CLAIMS.md`): boot count = the stock KV `kvbooCount`, which every start
-  already increments (no new write); panel type = the active operations record at RAM `0x20074530`
-  (`0x0070AFE4` A6N-G, `0x0070B024` JBD4010); the copy time is today's `last_present_us`; the
-  transfer time is new — every present is a full 153,602-byte panel transfer on both drivers, run by
-  the display task after the frame copy, so its stamp wraps the refresh call (`0x00473CE4`).
+  (13/20/27, KiB), uptime (ms tick), flags in force, the status register, the last frame's worker,
+  copy and (F1.3) panel-transfer microseconds, cache generation and CRC (F1.5), panel type, and a
+  boot count once it has a source. Sources (read 2026-09-13/14, `CLAIMS.md`): panel type = the
+  active operations record at RAM `0x20074530` (`0x0070AFE4` A6N-G, `0x0070B024` JBD4010); the
+  copy time is today's `last_present_us`; the transfer time is new — every present is a full
+  153,602-byte panel transfer on both drivers, run by the display task after the frame copy, so its
+  stamp wraps the refresh call (`0x00473CE4`); the boot count — stock keeps `kvbooCount` only in the
+  KV store (each start reads it into a stack temporary through the KV get `FUN_0054116E`, adds one
+  and writes it back through `FUN_005411F2`; no RAM word holds it), so the record omits field 13
+  until a cached read through that API has a checked precedent from the settings context.
+  The heap figures come from the overlay's own walk (bounded, every size word range-checked
+  before it is read; an arena that does not validate is omitted).
 - **Presented notify** (when enabled): after the panel transfer, `(sequence, worker_us, copy_us,
   transfer_us)` to the phone; from RIGHT; from LEFT too if its notify path is shown to work.
 - **Flag op:** arm / disarm by bit; a reply echoes the flags in force.
@@ -83,10 +89,15 @@ the CFW replaces.
     marker or version gets no reply.
   - *Reply* (each arm that can send; RIGHT for certain): sid 0x09 `G2SettingPackage{ 1: commandId 3,
     2: magic 0, 111: DamageTelemetry }`, fields in this order, a field omitted when its value is not
-    known: `1 request id · 2 uptime ms · 3 flags in force · 4 this op's status · 5 last worker µs · 6 last
-    copy µs · 7/8/9 free KiB in arenas 13/20/27 · 10 the active panel record address · 11 sticky
+    known: `1 request id · 2 uptime ms · 3 flags in force · 4 the status register · 5 last worker µs ·
+    6 last copy µs · 7/8/9 free KiB in arenas 13/20/27 · 10 the active panel record address · 11 sticky
     diagnostics (bit 0 reorder, 1 skip, 2 dup, 3 snapshot overflow, 4 allocation) · 12 lease ms left ·
-    13 boot count · 14 lens (1 right, 2 left)` — all uint32 varints.
+    13 boot count (not sent by the Phase 1 build, above) · 14 lens (1 right, 2 left)` — all uint32
+    varints. **The status register (field 4)** holds the status recorded by the last op that records
+    one: FLAGS_SET (0, or 2 for a bit this build lacks), FLAGS_CLEAR (0), a malformed or unknown
+    request (1 — recorded even when, for a bad body, nothing is answered). TELEMETRY records nothing,
+    so a refusal the phone did not see is still readable afterwards (§1.2); a lease lapse clears the
+    flags but not the register.
   - *Flags:* a FLAGS_SET naming a bit this build does not implement changes nothing and sets last
     status 2 (unsupported); bit 15 PROBE has no behaviour and exists so arming, the echo and the
     clear-on-lapse can be proven on glass before any feature relies on them. Flags clear on lease
@@ -195,3 +206,9 @@ Reset: boot count increments; the phone's keeper applies the hold-back rule befo
   panel-transfer stamp); the presented notify carries the transfer time. §9: the vector shape as
   built, the two runners, the v1 set (the simulator matches the C). §0/§3: the DamageCaps field and
   the control/telemetry wire shapes fixed for Phase 1.
+- 2026-09-14 — the review of the Phase 0/1 work (`HANDOFF.md` §50). §3 field 4 is the status
+  register §1.2 already required (TELEMETRY records nothing; a malformed body records 1 without a
+  reply); the C, the simulator and both test sets follow (fork pin `f9211ea2…`). Field 13 (boot
+  count) withdrawn from the Phase 1 build: stock keeps the counter only in the KV store, and the RAM
+  word openCFW names is referenced by nothing in the image. The record carries the last frame's
+  timings, not the last N.

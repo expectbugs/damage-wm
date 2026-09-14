@@ -98,6 +98,10 @@ class GlassFirmwareSim() : LensPanels {
         var loggerOn = false
         /** `FIRMWARE.md` §3 flags; cleared at every texture-cache release point. */
         var damageFlags = 0
+        /** `FIRMWARE.md` §3 field 4, a register: the status the last recording op left
+         *  (FLAGS_SET, FLAGS_CLEAR, a malformed or unknown request); TELEMETRY records
+         *  nothing, and a lease lapse clears the flags, never this. */
+        var damageStatus = 0
     }
 
     val left = LensCtx()
@@ -1056,29 +1060,30 @@ class GlassFirmwareSim() : LensPanels {
      *  telemetry reply every op gets. Modeled fields only — the sim has no timings, heap
      *  arenas, panel record or boot count, and a record leaves out what is not known. */
     private fun damageControl(arm: Arm, body: ByteArray, now: Long) {
+        val c = ctx(arm)
         if (body.size != 6 || body[0] != 'D'.code.toByte() || body[1] != 'M'.code.toByte() || body[2].toInt() != 1) {
-            diag.event("damage", "$arm malformed field-112 body — no answer")
+            c.damageStatus = DamageMsg.STATUS_MALFORMED   // recorded, not answered (§3)
+            diag.event("damage", "$arm malformed field-112 body — status 1 recorded, no answer")
             return
         }
-        val c = ctx(arm)
         val op = body[3].toInt() and 0xFF
         val arg = (body[4].toInt() and 0xFF) or ((body[5].toInt() and 0xFF) shl 8)
         var requestId = 0
-        val status = when (op) {
-            DamageMsg.OP_TELEMETRY -> { requestId = arg; DamageMsg.STATUS_OK }
+        when (op) {
+            DamageMsg.OP_TELEMETRY -> requestId = arg      // records no status: field 4 is the register
             DamageMsg.OP_FLAGS_SET ->
-                if (arg and DamageMsg.FLAG_PROBE.inv() != 0) DamageMsg.STATUS_UNSUPPORTED
-                else { c.damageFlags = arg; DamageMsg.STATUS_OK }
-            DamageMsg.OP_FLAGS_CLEAR -> { c.damageFlags = 0; DamageMsg.STATUS_OK }
-            else -> DamageMsg.STATUS_MALFORMED
+                if (arg and DamageMsg.FLAG_PROBE.inv() != 0) c.damageStatus = DamageMsg.STATUS_UNSUPPORTED
+                else { c.damageFlags = arg; c.damageStatus = DamageMsg.STATUS_OK }
+            DamageMsg.OP_FLAGS_CLEAR -> { c.damageFlags = 0; c.damageStatus = DamageMsg.STATUS_OK }
+            else -> c.damageStatus = DamageMsg.STATUS_MALFORMED   // unknown op: recorded and answered
         }
         val leased = fbLeaseActive(arm, now)          // notices a lapse first: flags then read 0
         val diagBits = (if (c.fReorder) 1 else 0) or (if (c.fSkip) 2 else 0) or (if (c.fDup) 4 else 0)
         val record = Pb.cat(
-            Pb.v(1, requestId), Pb.v(2, now), Pb.v(3, c.damageFlags), Pb.v(4, status),
+            Pb.v(1, requestId), Pb.v(2, now), Pb.v(3, c.damageFlags), Pb.v(4, c.damageStatus),
             Pb.v(11, diagBits), Pb.v(12, if (leased) c.leaseDeadline - now else 0L), Pb.v(14, fwSide(arm)),
         )
-        diag.event("damage", "$arm op $op status $status flags 0x${c.damageFlags.toString(16)}")
+        diag.event("damage", "$arm op $op status ${c.damageStatus} flags 0x${c.damageFlags.toString(16)}")
         diag.notify(arm, AaFrame.frame(nextSeq(), SettingsMsg.SID, SettingsMsg.FLAG_RESPONSE,
             Pb.cat(Pb.v(1, 3), Pb.v(2, 0), Pb.l(DamageMsg.TELEMETRY_FIELD, record)), AaFrame.TYPE_RESPONSE).single())
     }

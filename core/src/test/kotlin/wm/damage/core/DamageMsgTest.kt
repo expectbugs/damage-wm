@@ -47,7 +47,7 @@ class DamageMsgTest {
         val record = Pb.cat(Pb.v(1, 42), Pb.v(2, 5000), Pb.v(3, 0x8000), Pb.v(4, 0), Pb.v(10, 0x0070B024), Pb.v(12, 90000), Pb.v(14, 2))
         val t = assertNotNull(DamageMsg.parseTelemetry(Pb.cat(Pb.v(1, 3), Pb.v(2, 0), Pb.l(111, record))))
         assertEquals(42L, t.requestId); assertEquals(0x8000L, t.flags); assertEquals(90000L, t.leaseMsLeft); assertEquals(2L, t.lens)
-        assertEquals("id=42 uptimeMs=5000 flags=0x8000 status=0 panel=0x70b024(JBD4010) leaseMs=90000 lens=2", t.describe())
+        assertEquals("id=42 uptimeMs=5000 flags=0x8000 lastStatus=0 panel=0x70b024(JBD4010) leaseMs=90000 lens=2", t.describe())
     }
 
     @Test
@@ -79,12 +79,17 @@ class DamageMsgTest {
                 until("both arms armed") { Arm.entries.all { sim.damageFlags(it) == DamageMsg.FLAG_PROBE } }
                 until("both arms answered with the flag in force") { has("glass", "R ") && has("glass", "L ") && has("glass", "flags=0x8000") }
                 t.devProbe("flags", "0x0001")
-                until("an unimplemented bit answers status 2") { has("glass", "status=2") }
+                until("an unimplemented bit answers with the register at 2") { has("glass", "lastStatus=2") }
                 assertTrue(Arm.entries.all { sim.damageFlags(it) == DamageMsg.FLAG_PROBE }, "a refused set changes nothing")
                 // a lease lapse on the glasses' clock clears the flags (the texture cache's release points)
                 clock += 200_000L
                 t.devProbe("telemetry", "read")
                 until("the lapse cleared both arms") { Arm.entries.all { sim.damageFlags(it) == 0 } }
+                // the register is not the flags: the refusal is still readable after the lapse,
+                // and only a recording op (here FLAGS_CLEAR) writes it
+                until("the lapse left the register alone") { has("glass", "flags=0x0 lastStatus=2") }
+                t.devProbe("flags", "clear")
+                until("FLAGS_CLEAR records 0") { has("glass", "flags=0x0 lastStatus=0") }
                 t.devProbe("flags", "bogus")
                 t.stop()
             } finally {

@@ -2796,3 +2796,93 @@ tick wording), `CAPABILITIES.md` and `overview.md` (the logger handler read), `R
 scratchpad's reading notes and helpers moved into the repo as `research/fork-reads-2026-09-13.md` and
 `research/fwread.py`. Damage (`origin/main`) and the fork (`github/damage`; never `origin`, which is
 upstream g2flash) pushed.
+
+## 50. Review of the Phase 0 work: four corrections, nothing new built (2026-09-14, after midnight)
+
+Adam asked for a review of the 2026-09-13 session's part of Phase 0 — errors, misconceptions, bad
+assumptions — with every finding checked before it was fixed, no agents. Read: every Damage and fork
+commit of the session (`a04cb17`..`d4b2c79`; `6db86e2`..`7e3ab53`), the plan, the contract, the
+record, and the stock image itself at instruction level where the new code or a claim leaned on it.
+Nothing flashed; nothing installed; both trees left uncommitted for Adam.
+
+### 50.1 Re-read at instruction level and held (`research/fwread.py`)
+
+The transfer count word `0x25802` at both panel templates; the display task's type-3 sequence (the
+copy hook at `0x00473C8E`, the gate give at `0x00473C92`, the panel-on check, the refresh call at
+`0x00473CE4`); the gate take's 1,000 ms; the slow-timer arm at `0x00477A5A`–`0x00477A62`;
+`FUN_00476CBC`'s entry bytes; the logger clear's one caller and its two display-thread call sites;
+the panel-record literal at `0x004CA664`. The stock settings sender copies a message body into its
+own queue block before it returns (`FUN_00475B14` → `FUN_0047564E`), so a5d1c31's "stable storage"
+reply buffers are conservative and one telemetry reply buffer per lens is enough. The heap walk the
+telemetry reuses is bounded and range-checks every word before reading it (a5d1c31 `malloc.c`), so
+running it from the settings context reads nothing it has not validated.
+
+### 50.2 Found and fixed
+
+1. **The telemetry record's field 4 contradicted the contract's own design rule.** `FIRMWARE.md`
+   §1.2 says a refused op "records a status code the telemetry op returns as `last status`"; the C
+   and the simulator both sent *this op's* status, so a TELEMETRY read always answered 0 and a
+   refusal the phone missed was gone. Phase 2's drawing ops refuse without a reply (the image ack
+   precedes the deferred step), so the register is the mechanism that rule exists for. Fixed on both
+   sides: field 4 is the status register — FLAGS_SET, FLAGS_CLEAR and a malformed or unknown request
+   record it, TELEMETRY records nothing, a lease lapse clears the flags and not the register, a
+   malformed body records 1 even though it gets no reply (the simulator had not recorded that
+   either). `host/test_damage_ext.py` 8 → 11 checks, `DamageMsgTest` extended (the register survives
+   the lapse; FLAGS_CLEAR records 0); the journal names the field `lastStatus`. Fork pin
+   `b88eb6b9…` → **`f9211ea2…`** (26 entries, no new site; the block 41,782 B; 382 KB below the OTA
+   flag; `tools/verify.py` all pass; vectors 7/7).
+2. **The boot count was read from a RAM word nothing in the image references.** `damage_ext.c` read
+   `0x20074988` (openCFW's "`kvbooCount` value") as field 13. Instruction level (`FUN_004D96D8`,
+   `0x004D99DE`–`0x004D9A38`): stock reads the counter through the KV get `FUN_0054116E` into a
+   *stack temporary*, adds one, writes it back through `FUN_005411F2`; `fwread.py refs 0x20074988`
+   finds no literal anywhere; the KV get takes a lock and has callers only in the KV module and one
+   other subsystem — none in the settings path. A direct RAM read cannot source the count, and a KV
+   call from the settings context has no stock precedent yet. Withdrawn: the record omits field 13;
+   `FIRMWARE.md` §1.6/§3, `FORK.md` §3.2/F1.2 and `CLAIMS.md` say so and name the candidate (a cached
+   read through the KV get, after its use from that context is checked). The hold-back rule keeps
+   uptime, which detects a reset on its own.
+3. **The transport read DamageCaps from any settings frame inside the capability gate**, so a frame
+   arriving in that window after the READ's answer (a lease answer, a push) would reset it to "an
+   upstream build". Now it is read from the same frame that carries field 100, and cleared only by a
+   stock-firmware answer — the capability channel's own logic, mirrored.
+4. **Arena 13 is 839,680 B (0xCD000), not 839,808.** The arena init `FUN_004842E6` passes 0x2D000
+   (arena 27, the a5d1c31 site patches it to 0x2CC00), 0xCD000 (arena 13) and 0x400 (a third arena at
+   `0x20378D9C`) to `FUN_0048413C`; a5d1c31's constant was right, the note was a slip. `CLAIMS.md`
+   and `research/fork-reads-2026-09-13.md` corrected, the arena-size claim now instruction-level.
+
+Smaller: `FIRMWARE.md` §3's prose said the record carries "the last N frames'" timings while the
+wire shape (and both implementations) carry the last frame's — the prose now matches, per-frame
+history is the presented notify's (F1.3); §0's example bytes now say which build they describe;
+`MOTION.md` §0's CB row said cached blits are flat without saying that Phase 2's per-lens cached
+draws lift that, which would have misled the refinery.
+
+### 50.3 Checked and left alone
+
+The C's reply from LEFT rides the same sender the image acks use (LEFT answers what is written to
+it); the simulator handles field 112 and returns without the stock write path, as it does for the
+lease (Damage never sends both in one message); `nextMsgIdLocked` never yields 0, so a `magic 0`
+answer to a probe or lease write cannot match a pending settings write; the flag-clear points in the
+C are exactly the four texture-cache release points; the response buffer holds the three appended
+fields with room (≈193 of 256 B); mode 7 sub 1/2 semantics match `zlib_glue.c`; the Nordic PHY
+request's masks and callback constants are the library's; `journal_report.py --since` pairs a `done`
+after the cut with a missing `submit` safely. The plain-wording scan of every line added on
+2026-09-13 in both repos found nothing to change.
+
+### 50.4 The battery after the fixes
+
+Run after every edit, in this order, on the fixed tree: `:core:test` **540**, 0 failures (the §49.6 Feed miss
+did not show this run) · `:desktop:test` 15 tests, 0 failures, 0 errors · `--selfcheck` ×3: ALL CHECKS PASS each time, the truth oracle on
+429 settled surfaces · `--snapshot` 57 scenes (Main, the notification over the Reader and the Hold'em table
+looked at; nothing in the fixes touches rendering) · `--epub-check` 380/404 images · `--music-check` ·
+`--games-check` · `--feed-check` (fixtures) all pass · `tools/lint.py` 0 findings · `:phone:assembleDebug`
+in its own gradle call (recompiled the phone module against the new core; the APK packaged). The fork:
+`tools/verify.py` all pass (pin `f9211ea2…`, 26 entries, the 41,782-byte block, 382 KB below the OTA flag) ·
+`host/run_vectors.py` 7/7 · `host/test_damage_ext.py` 11/11. The staged APK 0.45 predates the two phone-side
+changes (the DamageCaps gate read, the `lastStatus` label); both are harmless against the installed upstream
+build, and the next staged build (with its version bump) carries them.
+
+### 50.5 State
+
+Both trees carry the fixes uncommitted (Adam's call). The fork's candidate is still not a candidate:
+F1.3, F1.5, F1.6, F1.7 and the self-test op remain (`FORK.md` Phase 1). Adam's side (§49.7) is
+unchanged. Nothing flashed.

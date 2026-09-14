@@ -10,9 +10,11 @@ package wm.damage.core.wire
  *  - field 112 `DamageControl` in a request: `['D','M',1,op,argLo,argHi]`; ops
  *    1 TELEMETRY (arg = request id), 2 FLAGS_SET (arg = the complete set), 3 FLAGS_CLEAR
  *  - field 111 `DamageTelemetry` in the reply to every op: uint32 fields 1 request id ·
- *    2 uptime ms · 3 flags · 4 this op's status · 5 worker µs · 6 copy µs · 7/8/9 free KiB in
- *    arenas 13/20/27 · 10 panel record · 11 sticky diagnostics · 12 lease ms left · 13 boot
- *    count · 14 lens; a field is absent when the firmware does not know it
+ *    2 uptime ms · 3 flags · 4 the status register (what the last recording op left — FLAGS_SET,
+ *    FLAGS_CLEAR, a malformed or unknown request; TELEMETRY records nothing) · 5 worker µs ·
+ *    6 copy µs · 7/8/9 free KiB in arenas 13/20/27 · 10 panel record · 11 sticky diagnostics ·
+ *    12 lease ms left · 13 boot count (not sent by the Phase 1 build) · 14 lens; a field is
+ *    absent when the firmware does not know it
  *
  * Requests are fire-and-forget like the lease (MagicRandom 0) and go to both arms.
  */
@@ -60,7 +62,7 @@ object DamageMsg {
         val requestId get() = fields[1]
         val uptimeMs get() = fields[2]
         val flags get() = fields[3]
-        val status get() = fields[4]
+        val lastStatus get() = fields[4]
         val leaseMsLeft get() = fields[12]
         val lens get() = fields[14]
 
@@ -75,7 +77,7 @@ object DamageMsg {
         }
     }
 
-    private val NAMES = mapOf(1 to "id", 2 to "uptimeMs", 3 to "flags", 4 to "status", 5 to "workerUs",
+    private val NAMES = mapOf(1 to "id", 2 to "uptimeMs", 3 to "flags", 4 to "lastStatus", 5 to "workerUs",
         6 to "copyUs", 7 to "free13KiB", 8 to "free20KiB", 9 to "free27KiB", 10 to "panel", 11 to "diag",
         12 to "leaseMs", 13 to "boots", 14 to "lens")
 

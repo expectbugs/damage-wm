@@ -499,8 +499,9 @@ fork's C (`~/damage-cfw`).
   matching on both lenses.
 - **`DamageMsg` + the simulator's `damageContract`** — the Phase 1 settings extension from the contract text:
   DamageCaps parsed at the capability gate, telemetry parsed on any sid-0x09 frame before the §47 answer
-  matching, flags modeled with the texture cache's release points. `DamageMsgTest` covers the bytes, a Damage
-  build and the installed upstream build (which answers nothing).
+  matching, flags modeled with the texture cache's release points, field 4 a status register (the last
+  recording op's status; TELEMETRY records nothing — `HANDOFF.md` §50). `DamageMsgTest` covers the bytes, a
+  Damage build and the installed upstream build (which answers nothing).
 - **`research/fwread.py`** — the stock image at instruction level (disassembly, the corpus decompile, stored
   words, literal references, call sites, strings); `research/fork-reads-2026-09-13.md` the notes it produced.
 

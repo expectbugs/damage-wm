@@ -94,7 +94,8 @@ working detail a next read starts from.
 
 ## R0.6 — heap arenas
 
-- Arena 13: descriptor `0x20000354`, base `0x2013BE70`, 839,808 B (the texture cache's). Arena 20: gated
+- Arena 13: descriptor `0x20000354`, base `0x2013BE70`, 839,680 B = 0xCD000 (the texture cache's; the size
+  `FUN_004842E6` passes to the arena init at `0x004842F6`, read 2026-09-14 — an earlier note said 839,808). Arena 20: gated
   by `*0x20074ABC == 0x20208E70`, 460,800 B. Arena 27 (primary): descriptor `0x20000338`, base
   `0x20279670`, 184,320 B less the 1 KiB a5d1c31 reserves (V, a5d1c31 `malloc.h`/`debug.c`).
 - The EvenHub carrier's two 165,888 B buffers (A display, B reconstruction) cannot fit arena 27, so they
@@ -120,6 +121,29 @@ working detail a next read starts from.
   lens; **cmds 5/6** remove log files (V). Damage sends none of them.
 - Related lead (U): the file export service names `eEvenFileServiceType_LOGGER_FILE` — the glasses' own
   log files might be readable over that service; not probed.
+
+## Read 2026-09-14 (the review of this session's work)
+
+- **The boot counter** (R0.5, partial): `FUN_004D96D8` (the KV reset/migration path; `FUN_004D9A84`
+  before it is a small KV getter) at `0x004D99DE`–`0x004D9A38`: `ldr r4 = "kvbooCount"` (`0x0078BF6C`),
+  `FUN_0054116E(0, key, sp+0x14, 4)` reads the value into a stack temporary, `adds r0, #1`, then
+  `FUN_005411F2(0, key, sp+0x14, 4)` writes it back (V). No RAM word holds the value: `fwread.py refs
+  0x20074988` finds no literal in the image. `FUN_0054116E` takes and gives a lock (`FUN_004490CC`) around
+  a FlashDB lookup; its callers are `FUN_004D956C/959C/96D8` and `FUN_005105F0/00510620/0051079C`
+  (V) — none in the sid-0x09 settings path. So a boot count for telemetry means calling the KV get from
+  the settings context, which has no stock precedent there; the Phase 1 build omits field 13.
+- **The settings sender copies**: `FUN_00475B14` → `FUN_0047564E(type, sid, buf, len)`: `FUN_00474CD2`
+  (the pool allocator) gets `len + 14` bytes, `FUN_00439BE4` copies the body into it, the block is queued
+  (V, decompile). A caller's buffer is free on return.
+- **Arena init** `FUN_004842E6` (V, `0x004842E8`–`0x0048430C`): `FUN_0048413C(0x20000338, base, 0x2D000)`
+  (arena 27, the a5d1c31 site patches the size to 0x2CC00), `FUN_0048413C(0x20000354, 0x2013BE70,
+  0xCD000)` (arena 13), `FUN_0048413C(0x20000370, 0x20378D9C, 0x400)` (a 1 KiB third arena).
+- Re-read and held: the transfer count word `0x25802` at both templates (`0x0076B2C0`, `0x0076B170`);
+  the display task's type-3 sequence (`0x00473C8E` hook, `0x00473C92` gate give, the panel-on check,
+  `0x00473CE4` refresh); the gate take's 1,000 ms (`0x0047383C`); the slow-timer arm at
+  `0x00477A5A`–`0x00477A62`; `FUN_00476CBC`'s entry bytes; `FUN_00458E48`'s single caller `0x00442284`
+  in `FUN_0044227E`, itself called at `0x00443A2C` and `0x00443F70`; the panel-record literal at
+  `0x004CA664`.
 
 ## Boot-time paths in the inherited patch set
 

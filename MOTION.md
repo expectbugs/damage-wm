@@ -26,7 +26,7 @@ easing tables, one step per tick):
 |---|---|---|
 | **MV** | move rect, per lens | translate a rect by an integer step each tick; a per-lens x carries depth during the move |
 | **FILL** | fill rect | paint a rect one level (the newly exposed strip after a move) |
-| **CB** | cached blit + LUT ramp | draw a cached image/glyph, its LUT top nibble stepped per tick — a brightness rise/fall or dim in place, flat (no per-lens) |
+| **CB** | cached blit + LUT ramp | draw a cached image/glyph, its LUT top nibble stepped per tick — a brightness rise/fall or dim in place. Flat in v1 (today's modes 13/14); Phase 2's per-lens cached draws (`FIRMWARE.md` §4) give it a per-lens form, so a CB candidate can carry depth once that lands |
 | **VS** | vertical-scale blit | draw a cached image scaled vertically (fixed-point step, nearest row) — vertical squash/stretch |
 | **PB** | progressive blit + offset | reveal a cached page from an edge, more of it each tick — the unfurl / slide-in |
 | **WAIT** | wait | hold N ticks (stagger, dwell) |

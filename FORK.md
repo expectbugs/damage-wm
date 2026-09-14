@@ -61,7 +61,7 @@ Proposed 2026-09-12; treated as in force; Adam confirms or changes them at the c
    through for every stock refresh from boot on; `tools/verify.py` lists every site for review.) Every new behaviour sits behind a per-feature flag the phone arms per session; flags
    clear when the lease lapses (Phase 7's persisted flag is the designed exception). A phone that is
    gone leaves stock behaviour behind within 90 s.
-2. **Hold-back after a reset.** The firmware exposes a boot counter and uptime. The keeper never
+2. **Hold-back after a reset.** The firmware exposes uptime (and a boot counter once F1.2 sources one). The keeper never
    re-arms a feature automatically when the glasses reset within N seconds of it being armed; it
    disarms, journals it and tells Adam. This keeps a faulty feature from repeating on every reconnect.
 3. **Byte-exact by construction.** Every new op and motion verb is defined in integer arithmetic in
@@ -163,9 +163,10 @@ conservative ceiling today), preamble/TOC/checksum fixups, **a host build of the
 **Built 2026-09-13, before the Phase 0 close with Adam's go (not flashed):** the pin to our clang and
 `tools/verify.py` (stock hash, pin, reproducibility, Thumb-bit audit, size guard, the changed-site list);
 `host/` (the unchanged sources for 32-bit x86 with the firmware's addresses mapped; `run_vectors.py`);
-`patches/damage_ext.c` — **F1.1 done** (field 110 DamageCaps), **F1.2 done except the transfer time**
-(field 111 telemetry), **F1.4 done** (field 112 flag ops; only bit 15 PROBE implemented), no new patch
-site, `host/test_damage_ext.py` 8/8. **Still to build for the candidate:** F1.3 (the transfer stamp — a new
+`patches/damage_ext.c` — **F1.1 done** (field 110 DamageCaps), **F1.2 done except the transfer time and
+the boot count** (field 111 telemetry), **F1.4 done** (field 112 flag ops; only bit 15 PROBE implemented),
+no new patch site, `host/test_damage_ext.py` 11/11 (reviewed 2026-09-14: field 4 is the status register,
+`FIRMWARE.md` §11; pin `f9211ea2…`). **Still to build for the candidate:** F1.3 (the transfer stamp — a new
 site at `0x00473CE4`), F1.5, F1.6 (a new site on `FUN_00476CBC`'s entry), F1.7 (JBD-only), F1.8 (if M0.3
 says), the self-test op.
 
@@ -174,7 +175,7 @@ says), the self-test op.
 | id | feature |
 |---|---|
 | F1.1 | capability: settings field 110 `DamageCaps {1 "DMG", 2 contract, 3 features}`, separate from field 100 (`SettingsMsg.REQUIRED_CAPS` unchanged) — **source done 2026-09-13** |
-| F1.2 | telemetry op: heap free (13/20/27), uptime, boot count (the stock KV `kvbooCount`, no new write), flags, last status code, last N frames' worker/copy microseconds, the active panel record (RAM `0x20074530` → which driver) |
+| F1.2 | telemetry op: heap free (13/20/27), uptime, flags, the status register, the last frame's worker/copy microseconds, the active panel record (RAM `0x20074530` → which driver); the boot count once it has a source — stock keeps `kvbooCount` only in the KV store (read into a stack temporary at each start, `CLAIMS.md` 2026-09-14), so a cached read through the KV get `FUN_0054116E` is the candidate, after its use from the settings context is checked |
 | F1.3 | presented-notify: after the panel transfer, (sequence, copy µs, transfer µs) to the phone when enabled — the transfer stamp wraps the display task's refresh call (`bl FUN_004CA564` at `0x00473CE4`), the only place it can be timed; from RIGHT, and from LEFT if R0.2 shows its notify path works |
 | F1.4 | flag op: arm/disarm per feature; all cleared on lease lapse — **source done 2026-09-13** (field 112; flags clear at every texture-cache release point) |
 | F1.5 | cache-keep across a lease lapse with a generation id and CRC the phone can query; cache size configurable up to the R0.6 budget |
@@ -371,3 +372,10 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   end of the session. Nothing flashed. Next: Adam's side (`HANDOFF.md` §49.7) — install 0.45, the probe
   session (M0.1, M0.4, M0.5), the two battery days (M0.6), the capture and the video (M0.3, M0.2), where the
   glasses were in the quiet windows, the refinery on `MOTION.md`, D1–D8.
+- **2026-09-14** — Review of the 2026-09-13 work (`HANDOFF.md` §50), nothing built beyond fixes: the
+  load-bearing addresses re-read at instruction level (all held); the telemetry record's field 4 made
+  the status register `FIRMWARE.md` §1.2 requires (the C, the simulator, both test sets; fork pin
+  `f9211ea2…`, 26 entries, no new site); the boot-count read withdrawn — stock keeps `kvbooCount` only
+  in the KV store, nothing in the image references the RAM word it was read from (F1.2 amended); the
+  transport reads DamageCaps from the capability answer only; arena 13 is 839,680 B (0xCD000), not
+  839,808. Nothing flashed. Next: unchanged (Adam's side, §49.7).

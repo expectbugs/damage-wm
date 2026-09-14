@@ -6,7 +6,7 @@ progress log) → `FIRMWARE.md` (the contract) → **`HANDOFF.md` §49 (Phase 0 
 decided) → §47 → §46 → §44 → §43 → §42 → what they cite. For firmware facts: `CLAIMS.md` ("Firmware internals read
 for the fork") → `research/fork-reads-2026-09-13.md` → the image itself through `research/fwread.py`.
 
-## Where we are (2026-09-13, night)
+## Where we are (2026-09-14, after midnight)
 
 - **🔴 The CFW fork and the Damage rebuild are the ONLY work (Adam, 2026-09-12; `HANDOFF.md` §48).** All other
   Damage work is suspended until `FORK.md` Phase 8 closes: no new windows, no Feed polish, no popover build outside
@@ -20,8 +20,13 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
   the probes built (APK **0.45 staged**); **the v1 conformance vectors pass: the simulator matches the firmware C
   on all 35 steps, both lenses**; `MOTION.md` drafted for the refinery. The fork (pushed to `github/damage`):
   the toolchain pin and `tools/verify.py` (`6db86e2`, the no-feature baseline `1920dda6…`), the x86 host harness
-  (`cd802ec`), the Phase 1 settings extension — DamageCaps, telemetry, flags, no new patch site (`a8f3610`,
-  `b88eb6b9…`, not flashed).
+  (`cd802ec`), the Phase 1 settings extension — DamageCaps, telemetry, flags, no new patch site (`a8f3610`;
+  reviewed and re-pinned 2026-09-14, `f9211ea2…`, not flashed).
+- **Reviewed 2026-09-14 (`HANDOFF.md` §50):** the 09-13 work re-read against the stock image, four corrections —
+  the telemetry record's field 4 is the status register the contract's §1.2 requires (the C, the simulator, both
+  test sets); the boot-count read withdrawn (stock keeps `kvbooCount` only in the KV store, the RAM word it was
+  read from is referenced by nothing); DamageCaps read from the capability answer only; arena 13 = 839,680 B.
+  Both trees carry the fixes **uncommitted**.
 - **Latency hardened without the firmware (2026-09-12, `HANDOFF.md` §47):** the APK re-asks for its priority
   (Global `Link` row, `high` default) whenever the link slows; slow parameters flip the regime at once (`LINK SLOW`,
   one notice); the brightness write is answered and re-sent once; the standby claims only when both arms advertise
@@ -40,10 +45,10 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
   **0.44 installed** (its journal says so); **0.45 staged** (`~/.damage/damage-wm.apk`, `http://beardos:7300/setup`)
   = 0.44 + the §49 probes, the `battery` notes and the DamageCaps/telemetry parser. The service runs 0.44's core
   (the PC needs no redeploy for the probes: the seam protocol is unchanged).
-- **Battery at HEAD (measured 2026-09-13):** core **540** · desktop **15** · `--selfcheck` 230 checks ×3, 0 fail
-  (it is a rate) · snapshots 57 · `--epub-check` · `--music-check` · `--games-check` · `--feed-check` · lint 21
-  rules / 0 · `:phone:stageApk` in its OWN gradle call. The fork: `tools/verify.py` all pass ·
-  `host/run_vectors.py` 7/7 · `host/test_damage_ext.py` 8/8. ⚠ `HANDOFF.md` §49.6: `FeedWindowTest.deepLinks…`
+- **Battery at HEAD (measured 2026-09-14, after the review's fixes):** core **540** · desktop **15** · `--selfcheck`
+  230 checks ×3, 0 fail (it is a rate) · snapshots 57 · `--epub-check` · `--music-check` · `--games-check` ·
+  `--feed-check` · lint 21 rules / 0 · `:phone:assembleDebug` in its OWN gradle call. The fork: `tools/verify.py`
+  all pass (pin `f9211ea2…`) · `host/run_vectors.py` 7/7 · `host/test_damage_ext.py` 11/11. ⚠ `HANDOFF.md` §49.6: `FeedWindowTest.deepLinks…`
   misses in 3 of 7 full core runs (0 of 3 on the unchanged tree): the window flips to comic #1, which the scripted
   provider cannot serve; what presses `first` is unknown — owed ×20 and the trigger.
 
@@ -73,7 +78,8 @@ The ack precedes the panel refresh (§48.1, verified): what the eye waits for is
    where a bound scroll can run), R0.3's MSPI clock (a modeled transfer time before F1.3 measures it), R0.4's
    profile words and the submit's checks (the F1.6 wrapper's conditions), R0.5 (RTC, fuel gauge, crc32, kvdb), the
    file-export service for the glasses' own log files (read-only lead).
-2. **Phase 1's candidate still needs** F1.3 (the transfer stamp — a new site at `0x00473CE4`), F1.5 (cache-keep),
+2. **Phase 1's candidate still needs** F1.3 (the transfer stamp — a new site at `0x00473CE4`), F1.2's boot count (a
+   verified source, §50.2), F1.5 (cache-keep),
    F1.6 (the link gate — a new site on `FUN_00476CBC`'s entry), F1.7 (JBD-only), F1.8 (only if M0.3 says), and the
    self-test op; each new site reviewed against §3.1 in `tools/verify.py`'s list. One candidate flash per phase.
 3. **Owed:** the core suite ×20 on this tree and the unchanged tree, and what presses the comic bar's `first` in
