@@ -3017,11 +3017,13 @@ rotates, and one previous file is kept.
 
 Adam's third and fourth reports of the day (17:12:41 and 17:25:35; their mails never reached the inbox,
 the phone's Sent copies carried them) hold the full unfiltered log: **0 truncated records** in both.
-Banked as `captures/apk-20260914-1705-1712.log` (the 17:12 report's `.last`: the stack started 17:05:17
-in Enabled mode, both lenses connected 17:05:22/24, the session ended by Bluetooth off at 17:12:16 — 9,188
-records, 7 min) and `captures/apk-20260914-1712-1727.log` (the 17:25 report's live file: stack start
-17:12:17, the lenses back at 17:14:46/50, 5,886 records, 15 min); `SHA256SUMS` extended. The 17:12
-report's own live file (17:12:17→17:14:41, no lens yet) is a prefix of the second and was not kept.
+Kept locally as `captures/apk-20260914-1705-1712.log` (the 17:12 report's `.last`: the stack started
+17:05:17 in Enabled mode, both lenses connected 17:05:22/24, the session ended by Bluetooth off at 17:12:16
+— 9,188 records, 7 min), `captures/apk-20260914-1712-1731.log` (the same file the 17:54 report's `.last`
+completed: 17:12:17→17:31:48, 6,571 records) and `captures/apk-20260914-1731-1756.log` (the 17:54 report's
+live file, 15,187 records, 24 min, the busy one); `SHA256SUMS` and the README track them, the files
+themselves stay out of git like the June corpus (`captures/` is ignored for the addresses it carries).
+Earlier prefixes of the same files (the 17:25 and 17:44 reports) were not kept.
 
 First pass (grade M, `research/linkparams.py` and a completed-packets count; the proper M0.3 read is owed):
 - **The link as the journal says:** both lenses connect at their advertised interval (RIGHT 18.75 ms,
@@ -3041,3 +3043,23 @@ First pass (grade M, `research/linkparams.py` and a completed-packets count; the
   65,535 packets keeping one `.last`: at the 17:05 session's rate (~1,300 records a minute in use) two
   files span about 100 minutes, more when the glasses are idle — a report taken within an hour after a
   drop, or at the end of the day, should hold one.
+- **Vendor quality reports are in the log** (`persist.bluetooth.bqr.event_mask` is set): 475 BQR events in
+  the 17:31 capture — 227 "A2DP audio choppy" reports for the classic audio device `98:3A:1F:EE:84:77`
+  (RSSI −54…−74), which shared the phone's radio with both lenses throughout today's sessions; two
+  "approach LSTO" reports for RIGHT's first connection attempt at 17:32:14 (RSSI −127, then 0x3e, then a
+  clean retry). So a capture that spans an arm drop will carry the radio's early warning with RSSI.
+- **The audio device is a new variable**: the journal's `SLOW regime` flips today (13:26, 17:11, 17:17,
+  17:41; a 283 ms floor for two minutes at 17:10) happened with that device streaming; whether the
+  §31 slow side is the phone's radio time-sharing with A2DP is now testable in this capture.
+
+**Today's journal (read over Tailscale at 18:02, grade M):** 0.45 installed at 13:25:43; both lenses at
+15 ms / 1 all afternoon; **no supervision timeout in 4.5 hours worn at work** — every link end today is
+Adam's Bluetooth toggle; the DamageCaps probe reports the installed build as upstream, as it should; the
+eaten-control-message re-sends fire and are acked. Battery, day one on `high`: 100 % at 13:25 → 67 % at
+17:50, about 7.5 %/h worn and in use. Put next to the 13th: fourteen drops in the case at home on a
+Sunday, none in the case at night, none worn at work. **The picture is the phone's distance and
+surroundings, not the glasses' state or wearing.** One reading unifies the 50-minute regularity with
+that: a periodic per-arm pause on the glasses (a flash write, a calibration, a link-layer procedure)
+that a strong link survives through retransmission and a marginal one does not, at the 5 s supervision
+timeout — a candidate, not a finding; M0.7 with the phone in another room is the test, and the BQR
+events would show the RSSI in the run-up.
