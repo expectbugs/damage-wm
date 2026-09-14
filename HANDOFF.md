@@ -3056,9 +3056,11 @@ First pass (grade M, `research/linkparams.py` and a completed-packets count; the
   per-flush ack times: the bud streamed only ~3 of 24 minutes; while it streamed the glasses' tiny-flush
   floor rose (median 56 → 72 ms, p90 90 → 197 ms) and the transfer term did not move (1.5–4 KB flushes
   ~490 ms median with the bud busy or idle) — the slow side is not the earbud. The 227 choppy-audio
-  reports all fall in those streaming minutes: the two 15 ms links cost the earbud's audio, which is a
-  design input for the link levers (F1.6's fast-link hold would make it worse) and a question for Adam
-  (does the music sound choppy at work?).
+  reports all fall in those streaming minutes. Adam's ear: **no cut-outs, no choppiness** (the work floor is
+  loud, so a lower bitrate would pass unnoticed, but drop-outs would stand out). So the reports are the
+  controller's bookkeeping — missed slots and retransmissions above its threshold — that the earbud's
+  buffer absorbs at today's traffic: a margin the links spend, not an audible defect. A design input for
+  the link levers (F1.6's fast-link hold spends more of it), not a problem to fix.
 
 **Today's journal (read over Tailscale at 18:02, grade M):** 0.45 installed at 13:25:43; both lenses at
 15 ms / 1 all afternoon; **no supervision timeout in 4.5 hours worn at work** — every link end today is
