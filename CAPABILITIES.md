@@ -73,8 +73,8 @@ over you.
 |---|---|---|
 | Settings: brightness, silent mode, head-up, wear, lens x/y, dominant hand, units | sid 0x09 `G2SettingPackage` — **brightness write exercised on our own wire 2026-08-31** (faceclaw's form; the panel follows live) | ✅ M (brightness) / V |
 | **Gesture remapping** (`APP_Send_Gesture_Control{screenOn, operationType, apptype}`) | sid 0x09 — never probed. *(Historical: a candidate for the gloves problem *without* the CFW; the CFW is installed and that chain is closed — `overview.md` §6)* | ❓ V |
-| **On-device logger over BLE** — `logStr` streamed to host, file list/delete | sid 0x0F `logger.proto` · **would make CFW decompress failures visible** | 🟡 V |
-| **File export from device** (`EXPORT_START/DATA/RESULT_CHECK`) | sid 198/199 · **never probed. If it works, "no firmware read-back" stops being true** | ❓ V |
+| **On-device logger over BLE** — `logStr` streamed to host, file list/delete | sid 0x0F `logger.proto` · **would make CFW decompress failures visible**. Handler read 2026-09-13 (`CLAIMS.md`): the switch is a RAM flag, one notification per line (≤ 128 B), cleared at every app start; the file list moves the link to its fast profile first. Probe built (`probe:logger=on`, APK 0.45), not yet run on glass | 🟡 V |
+| **File export from device** (`EXPORT_START/DATA/RESULT_CHECK`) | sid 198/199 · **never probed. If it works, "no firmware read-back" stops being true**. The image names an `eEvenFileServiceType_LOGGER_FILE` export type (2026-09-13): the glasses' own log files may be readable this way | ❓ V |
 | Foreground/background app awareness | sid 0x0D `sync_info{backgroundAppID, foregroundAppID}` | 🟡 V |
 | Connection-parameter control (`MTU`, `connInterval`, `SLOW\|FAST`) | sid 0x80 cmd 7 — ⚠ **same sid as `UNPAIR`(9) and `RESTORE_FACTORY`(13)** | ❓ V |
 | Command-lens role (`BOTH` / `RIGHT` / `LEFT`) | sid 0x80 cmd 5 `PIPE_ROLE_CHANGE` — settable, not fixed | 🟡 M |

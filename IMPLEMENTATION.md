@@ -51,10 +51,14 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
                                       4bpp pack, level-6 deflate, drawn icons/shapes (§4.5b)
             wm.damage.core.wire       CRC-16, protobuf, AA envelope + reassembly, EvenHub carrier messages,
                                       sid-0x09 lease + capability, mode 3/6/8/9 builders, CfwModes (11–15),
-                                      TextureCache (byte layouts from zlib_glue.c / texture_cache.c)
+                                      TextureCache (byte layouts from zlib_glue.c / texture_cache.c),
+                                      LoggerMsg (sid 0x0F, the Phase 0 log probe), DamageMsg (FIRMWARE.md
+                                      §0/§3: DamageCaps, the control ops, the telemetry record)
             wm.damage.core.sim        GlassFirmwareSim — the byte-exact model: per-lens shadows, cfw_diag fid
                                       ring + flags, warmup drop, msgId-255 silence, lease fail-open, the
-                                      texture cache, silent rejects made loud
+                                      texture cache, silent rejects made loud; the overlay toggle and the
+                                      log switch; a Damage build behind `damageContract`; the conformance
+                                      doors (`conformanceMessage`, `conformanceLease`, `shadowCrc32`)
             wm.damage.core.transport  the seam + Emit + CfwTransportBase + SimTransport + Remote client/server
                                       + PathTransport
             wm.damage.core.comp       the compositor (one mode-8 flush per frame, §5), CachedText, CanvasShift,
@@ -473,6 +477,33 @@ with a character outside 32..126 as its cacheable RUNS plus the host's character
 (`CachedText` is the `IconRecorder`; mode-13 draws). Fonts pack heaviest first (`usageOf`); the atlas keeps an
 ACKED watermark; the keyframe seeds the screen plane only (`Compositor.seedFrame`).
 
+## The fork's Phase 0 pieces (2026-09-13, `HANDOFF.md` §49, `FORK.md`)
+
+Damage stays clean-room: it holds the contract (`FIRMWARE.md`), data and its own implementation, never the
+fork's C (`~/damage-cfw`).
+
+- **Probes** — `Transport.devProbe(name, value)`, reached only from the replica port's token-gated
+  `{"t":"probe","name","value"}` (`ReplicaServer`, the phone's `ShellService`, the desktop's `Main`) and sent by
+  `tools/glassdrive.py probe:NAME=VALUE`; the shell never calls it. `CfwTransportBase`: `diag=show|hide` queues
+  `CfwModes.diag(2|1)` on the image lane (no fid; draws only into the physical framebuffer, so the mirror is
+  unchanged); `logger=on|off` writes `LoggerMsg.switchSet` to BOTH arms through `CtlWork.BothArms` and, while
+  wanted, again after every session start (a CREATE ends the stream on the glasses); `telemetry=read` and
+  `flags=clear|probe|0xNNNN` write `DamageMsg.control` to both arms. `BleTransport` adds `phy=2m|1m`
+  (`setPreferredPhy`, the answer journaled). Every probe is a `probe` journal note; log lines are `glasslog`
+  notes; a Damage build's telemetry is a `glass` note, as is the DamageCaps line at every session start.
+- **`battery` notes** — every change of the glasses' level (`emitBattery`), so a day's drain reads from
+  `/journal` (`journal_report.py --since`, the battery section).
+- **Conformance vectors** — `firmware/make_vectors.py` writes the inputs (the documented v1 message formats);
+  the fork's `host/run_vectors.py --write` fills the expectations from its C; `ConformanceVectorTest` runs
+  every file through `GlassFirmwareSim` per lens (shadow CRC-32 and every return code). 7 vectors, 35 steps,
+  matching on both lenses.
+- **`DamageMsg` + the simulator's `damageContract`** — the Phase 1 settings extension from the contract text:
+  DamageCaps parsed at the capability gate, telemetry parsed on any sid-0x09 frame before the §47 answer
+  matching, flags modeled with the texture cache's release points. `DamageMsgTest` covers the bytes, a Damage
+  build and the installed upstream build (which answers nothing).
+- **`research/fwread.py`** — the stock image at instruction level (disassembly, the corpus decompile, stored
+  words, literal references, call sites, strings); `research/fork-reads-2026-09-13.md` the notes it produced.
+
 ## Review hardening (rounds 2–8, 2026-08-24)
 
 Seven rounds of independent review after the first build (every candidate verified by trace, timing or pixel
@@ -593,7 +624,7 @@ These mechanisms are load-bearing and easy to break by accident:
 
 ## Verification
 
-Battery at HEAD (2026-09-10, `HANDOFF.md` §44.4): `:core:test` **525** · `:desktop:test` **15** · `--selfcheck`
+Battery at HEAD (2026-09-13, `HANDOFF.md` §49.4): `:core:test` **540** · `:desktop:test` **15** · `--selfcheck`
 **230** checks · `--snapshot` **57** scenes · `--epub-check` (380/404 images) · `--music-check` · `--games-check`
 (400 tournaments) · `--feed-check` · `tools/lint.py` **0** · `:phone:assembleDebug` in its own gradle call.
 Every review's pins were run against the unfixed tree and watched to fail before they counted.
@@ -610,7 +641,9 @@ Every review's pins were run against the unfixed tree and watched to fail before
   `GamesReview20260904Test`, `GamesLive20260904Test`; `Review20260905Test`; `OracleWalkTest` (a seeded random
   walk of the §1 grammar at all four heights, belief = glass = per-lens TRUTH after every settle);
   `Review28Test`, `Review29Test`, `Review30Test`; `WrapEstimateTest` and the §40 pins; `SilentGlassesTest` and
-  the §42 pins; `TextureCacheTest`, `AckStatusTest`; `FeedTest`, `FeedWindowTest`, `FeedNetTest`.
+  the §42 pins; `TextureCacheTest`, `AckStatusTest`; `FeedTest`, `FeedWindowTest`, `FeedNetTest`; `DevProbeTest`,
+  `ConformanceVectorTest`, `DamageMsgTest` (§49). ⚠ `FeedWindowTest.deepLinksResolveEveryForm` misses in some
+  full runs (§49.6: the window flips to comic #1, which `ScriptedFeed` cannot serve; the trigger is unknown).
 - `./gradlew :desktop:test` — the BlueZ glue over a fake link, `ConfigTest` (an unreadable `config.json` is left
   untouched, a tokenless one completed), `SetupServerTest`, `FeedStripsTest` (the real xkcd PNG through the decoder).
 - `--selfcheck` — the whole stack scripted end to end with real fonts: ink budgets, input grammar, persistence

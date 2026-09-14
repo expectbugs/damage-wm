@@ -2673,8 +2673,8 @@ with a "Context for the reader" block for that reason; keep it in every new file
 
 A research and tooling session for the fork (`FORK.md` Phase 0), with Adam's go for everything that
 needs no glasses ("do everything you can do without me"). Nothing flashed; nothing installed; APK
-0.45 staged; fork commits local, not pushed. Plain wording kept throughout (the model's safety checks
-tripped once mid-session on firmware reading; Adam filed feedback).
+0.45 staged; both repos committed and pushed at the end (§49.8). Plain wording kept throughout (the
+model's safety checks tripped once mid-session on firmware reading; Adam filed feedback).
 
 ### 49.1 Measured today (the phone's `/log` and `/journal`, read-only; grade M)
 
@@ -2710,7 +2710,9 @@ tripped once mid-session on firmware reading; Adam filed feedback).
 - **Build:** our clang 22.1.8 builds the unchanged a5d1c31 sources into `1920dda6…`, not upstream's
   `d4054ab1…` (19 of 26 entries differ); the Thumb-bit audit and the size guard pass.
 - Method note: the corpus decompile showed both async refresh entries taking no arguments; the
-  instructions read two stack arguments. Instruction-level reads decide.
+  instructions read two stack arguments. Instruction-level reads decide. The working detail (addresses,
+  templates, the open questions per read) is `research/fork-reads-2026-09-13.md`; the tool is
+  `research/fwread.py` (`dis`, `fn`, `word`, `refs`, `calls`, `strings`, `owner`).
 
 ### 49.3 Corrections to `FORK.md`
 
@@ -2747,7 +2749,7 @@ the rule is "no NEW site on such a path", reviewed from `tools/verify.py`'s site
 - `MOTION.md`: the explosion's candidate list (~89 candidates, 12 shell surfaces, 7 windows, the verb
   tally, five §0 re-put questions, two doc tensions flagged).
 
-### 49.5 Built in the fork (`~/damage-cfw`, local commits `6db86e2` `cd802ec` `a8f3610`)
+### 49.5 Built in the fork (`~/damage-cfw`, commits `6db86e2` `cd802ec` `a8f3610`, pushed to `github/damage`)
 
 - The patch set pinned to our clang (`6db86e2`, `1920dda6…`, the no-feature baseline) and
   `tools/verify.py` (stock hash, pin, reproducibility, Thumb-bit audit, size guard, the site list).
@@ -2782,3 +2784,15 @@ Feed work is suspended (`FORK.md`), so no fix was made.
 Install APK 0.45; the probe session (M0.1 overlay read, M0.4 PHY ask, M0.5 log stream through one arm
 drop); a day on `Link = high` then a day on `balanced` (M0.6); the bug-report BTSnoop (M0.3); the 240
 fps video (M0.2); where the glasses were in the quiet windows; the refinery on `MOTION.md`; D1–D8.
+
+### 49.8 Documentation brought up to date, both repos pushed
+
+At Adam's request the docs were checked for what this session made stale and brought current:
+`CLAUDE.md` (the fork's gates: `tools/verify.py`, the vectors, instruction-level reads; Phase 0 in
+progress; core 540), `README.md` (the fork and Phase 0 in the history, the start-here table, commands),
+`IMPLEMENTATION.md` (module map, "The fork's Phase 0 pieces", the battery and test list), `FORK.md` (§4's
+transfer-time wording, Phase 1's built/remaining list, §10's file table, §11), `FIRMWARE.md` (status, §5's
+tick wording), `CAPABILITIES.md` and `overview.md` (the logger handler read), `REMINDER.md`, memory. The
+scratchpad's reading notes and helpers moved into the repo as `research/fork-reads-2026-09-13.md` and
+`research/fwread.py`. Damage (`origin/main`) and the fork (`github/damage`; never `origin`, which is
+upstream g2flash) pushed.

@@ -2,8 +2,9 @@
 
 **The entry point for a fresh session**: what is true now, what comes next, where the records are. History lives
 in `HANDOFF.md`; this file only points at it. Read `CLAUDE.md` → this file → **`FORK.md`** (the plan; §11 is the
-progress log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` §48 (the fork decided) → §47 → §46 → §44 → §43 → §42 →
-what they cite.
+progress log) → `FIRMWARE.md` (the contract) → **`HANDOFF.md` §49 (Phase 0 begun, the latest record)** → §48 (the fork
+decided) → §47 → §46 → §44 → §43 → §42 → what they cite. For firmware facts: `CLAIMS.md` ("Firmware internals read
+for the fork") → `research/fork-reads-2026-09-13.md` → the image itself through `research/fwread.py`.
 
 ## Where we are (2026-09-13, night)
 
@@ -17,7 +18,7 @@ what they cite.
   read (`CLAIMS.md` "Firmware internals read for the fork"); two plan corrections (every present sends the whole
   panel — F1.7 rewritten; the overlay's `p` is the copy only — M0.1/F1.3 amended; §3.1's boot-path rule corrected);
   the probes built (APK **0.45 staged**); **the v1 conformance vectors pass: the simulator matches the firmware C
-  on all 35 steps, both lenses**; `MOTION.md` drafted for the refinery. The fork (local commits, not pushed):
+  on all 35 steps, both lenses**; `MOTION.md` drafted for the refinery. The fork (pushed to `github/damage`):
   the toolchain pin and `tools/verify.py` (`6db86e2`, the no-feature baseline `1920dda6…`), the x86 host harness
   (`cd802ec`), the Phase 1 settings extension — DamageCaps, telemetry, flags, no new patch site (`a8f3610`,
   `b88eb6b9…`, not flashed).
@@ -25,9 +26,10 @@ what they cite.
   (Global `Link` row, `high` default) whenever the link slows; slow parameters flip the regime at once (`LINK SLOW`,
   one notice); the brightness write is answered and re-sent once; the standby claims only when both arms advertise
   to the PC; a full atlas evicts and repacks; Files and Torrents serve their last answer first; Tailscale leaves
-  beardos around the VPN (the phone answered direct in 32 ms). **What the next `/log` answers** (now `FORK.md`
-  M0.6 and R0.4 inputs): whether the firmware keeps asking for its idle set against the re-asks, and whether
-  `balanced` changes the ~50-minute rebuilds (§42.2: none in 3 h on the slow set, n=1).
+  beardos around the VPN (the phone answered direct in 32 ms). **2026-09-13's `/log` (§49.1):** no slow-set
+  episode since 09-12 15:00 (so the re-ask question has not come up again); the ~50-minute arm drops continue on
+  `high` — 14 on 09-13, alternating arms, none from 22:35 to 08:04 with the session up. Whether `balanced` changes
+  them is the second M0.6 day.
 - **`POPOVER.md` is a complete spec, not built** (`HANDOFF.md` §46) — built in `FORK.md` Phase 6a (D3).
 - **LIVE as the all-day daily driver.** CFW g2flash `a5d1c31` (reports `2.2.6.10`; detect by `EVENCFW/`, never
   the version). The phone APK drives — radio and shell; the OpenRC `damage` service on beardos is the data host
@@ -54,6 +56,8 @@ Time to first ack per gesture, the phone's journal (`tools/journal_report.py`):
 | window notch, 0.40 → 0.42 (2026-09-07 → 12, n=5,257) | 437 B / 1.2 KB / 3.7 KB (median / p75 / p90) | 105 / 204 / 522 ms | §48.1 |
 | Main notch, 0.40 (§42.0) | 716 B / 1.9 KB | 117 / 247 ms | §42.0 |
 | whole window gesture (burst) | — | 342 ms median, 3.0 s p90 | §48.1 |
+| window notch, 0.40 → 0.44 bursts (to 2026-09-13, n=10,367) | 391 B / 3.2 KB (median / p90) | 89 / 494 ms | §49.1 |
+| Main notch, 0.40 → 0.44 bursts (n=7,346) | 106 B / 228 B | 68 / 96 ms | §49.1 |
 
 The ack precedes the panel refresh (§48.1, verified): what the eye waits for is longer than these. A flush under
 100 B acks in ~60 ms; each KB adds ~140 ms; the tail is pixel bytes. Phone CPU per flush: 17 ms median / 66 p90.
@@ -173,9 +177,9 @@ re-put to Adam in the Phase 0 refinery.
   it, `sudo rc-service tailscale restart` (connections opened from the tunnel address stay unanswered until
   re-dialled). `~/.local/bin/yt-dlp` self-updated to 2026.08.19 (`yt-dlp -U`).
 - **`~/damage-cfw`** (2026-09-12, `FORK.md` §10): the firmware fork, cloned from `reference/g2flash` at
-  `a5d1c31`, branch `damage`, the §10 flasher fix carried over; first commit `b3bdd5c`; 2026-09-13 local commits
-  `6db86e2` (our clang's pin + `tools/verify.py`), `cd802ec` (`host/`), `a8f3610` (the settings extension), not
-  pushed; `g2_2.2.6.10.bin` in its root is a symlink to `fws/2.2.6.10/e287…bin`; remotes: `github` =
+  `a5d1c31`, branch `damage`, the §10 flasher fix carried over; first commit `b3bdd5c`; 2026-09-13 commits
+  `6db86e2` (our clang's pin + `tools/verify.py`), `cd802ec` (`host/`), `a8f3610` (the settings extension), pushed;
+  `g2_2.2.6.10.bin` in its root is a symlink to `fws/2.2.6.10/e287…bin` (git-ignored); remotes: `github` =
   Adam's public fork `https://github.com/expectbugs/damage-cfw` (branch `damage` tracks it), `origin` = upstream
   g2flash (fetch only, never pushed to), `reference` = the pinned local clone.
 
@@ -196,4 +200,5 @@ curl -s "http://aphone:7403/journal?token=$TOKEN" | python3 tools/journal_report
 (cd ~/damage-cfw && python3 tools/verify.py)           # the fork's image: pin, reproducibility, Thumb-bit audit, size guard, site list
 (cd ~/damage-cfw && python3 host/run_vectors.py && python3 host/test_damage_ext.py)   # the fork's C on the PC: vectors, the §3 contract
 python3 firmware/make_vectors.py                      # rewrite the vector INPUTS; then the fork's run_vectors.py --write fills expectations
+python3 research/fwread.py dis 0x473c44 0x473d70      # the stock image at instruction level: dis · fn · word · refs · calls · strings · owner
 ```

@@ -1346,7 +1346,10 @@ The spec has a hybrid power policy and no measured budget.
   `logStr`), `REQUEST_FILE_NAME`, `DELETE_FILE_NAME`. **If `bleTransEn` works on our firmware we
   get live on-glass logs** — including the CFW's `evenhub_ui: decompress failed, mode=%u
   raw_len=%u` — turning silent garbage on the lens into a visible error. **Highest-value untested
-  lead.**
+  lead.** *2026-09-13 (`CLAIMS.md`, `research/fork-reads-2026-09-13.md`): the 2.2.6.10 handler read at
+  instruction level — `BLE_LOGGER_SWITCH_SET` is a RAM switch (no storage write) cleared at every app
+  start, each line is one sid-0x0F notification of ≤ 128 bytes, `REQUEST_FILE_NAME` first moves the link to
+  its fast profile; the probe is in APK 0.45 (`probe:logger=on`), not yet run on glass.*
 - 🟡 **A file EXPORT service exists** — `UX_EVEN_FILE_SERVICE_CMD_EXPORT_ID = 198` /
   `RAW_EXPORT_DATA = 199`, with `eEvenFileExportServiceCID {EXPORT_START, EXPORT_DATA,
   EXPORT_RESULT_CHECK}`; also `UX_OTA_EXPORT_FILE_CMD_ID = 194` / `195` with **no schema in this

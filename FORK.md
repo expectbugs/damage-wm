@@ -81,12 +81,14 @@ Proposed 2026-09-12; treated as in force; Adam confirms or changes them at the c
 
 **Firmware (contract v2, `FIRMWARE.md`), all behind flags:**
 - *Telemetry:* heap free per arena, uptime, boot count, flags in force, last status code, per-frame
-  worker/present microseconds (DWT), a per-frame "presented" notify (sequence, timings) on request.
+  worker, copy and panel-transfer microseconds (DWT), a per-frame "presented" notify (sequence, timings)
+  on request.
 - *Drawing:* per-lens (depth-aware) cached image and glyph draws; images with 16-bit dimensions and
   a clip rect; font tables up to 224 entries with kerning adjust bytes; unquantized fill; LUT over a
   rect (dim or brighten in place); invert; save-under scratch for popovers; a larger texture cache
   with a generation id and CRC that survives lease lapses.
-- *Motion engine:* a fixed tick (rate set from the measured present time, 30–60 Hz); programs
+- *Motion engine:* a fixed tick (rate set from the measured panel-transfer time — every present sends the
+  whole panel — 30–60 Hz if that allows); programs
   uploaded as data — tracks of move-per-lens, fill, cached blit with a LUT ramp, vertical-scale
   blit, progressive blit with an offset (slide-in of a cached page) — on integer easing tables;
   play / stop / retarget; a declared end state; a completion event; the start synchronized across
@@ -158,22 +160,33 @@ reproducible), the Thumb-bit audit, the size ceiling (≈337 KB of headroom unde
 conservative ceiling today), preamble/TOC/checksum fixups, **a host build of the patch sources**
 (x86, stubbed firmware entry points) that runs the conformance vectors, and the on-glass self-test op.
 
+**Built 2026-09-13, before the Phase 0 close with Adam's go (not flashed):** the pin to our clang and
+`tools/verify.py` (stock hash, pin, reproducibility, Thumb-bit audit, size guard, the changed-site list);
+`host/` (the unchanged sources for 32-bit x86 with the firmware's addresses mapped; `run_vectors.py`);
+`patches/damage_ext.c` — **F1.1 done** (field 110 DamageCaps), **F1.2 done except the transfer time**
+(field 111 telemetry), **F1.4 done** (field 112 flag ops; only bit 15 PROBE implemented), no new patch
+site, `host/test_damage_ext.py` 8/8. **Still to build for the candidate:** F1.3 (the transfer stamp — a new
+site at `0x00473CE4`), F1.5, F1.6 (a new site on `FUN_00476CBC`'s entry), F1.7 (JBD-only), F1.8 (if M0.3
+says), the self-test op.
+
 **Firmware features (flags, default off):**
 
 | id | feature |
 |---|---|
-| F1.1 | capability: a new settings field `DMG/<contract-version>` plus a feature bitmask, separate from field 100 (`SettingsMsg.REQUIRED_CAPS` unchanged) |
+| F1.1 | capability: settings field 110 `DamageCaps {1 "DMG", 2 contract, 3 features}`, separate from field 100 (`SettingsMsg.REQUIRED_CAPS` unchanged) — **source done 2026-09-13** |
 | F1.2 | telemetry op: heap free (13/20/27), uptime, boot count (the stock KV `kvbooCount`, no new write), flags, last status code, last N frames' worker/copy microseconds, the active panel record (RAM `0x20074530` → which driver) |
 | F1.3 | presented-notify: after the panel transfer, (sequence, copy µs, transfer µs) to the phone when enabled — the transfer stamp wraps the display task's refresh call (`bl FUN_004CA564` at `0x00473CE4`), the only place it can be timed; from RIGHT, and from LEFT if R0.2 shows its notify path works |
-| F1.4 | flag op: arm/disarm per feature; all cleared on lease lapse |
+| F1.4 | flag op: arm/disarm per feature; all cleared on lease lapse — **source done 2026-09-13** (field 112; flags clear at every texture-cache release point) |
 | F1.5 | cache-keep across a lease lapse with a generation id and CRC the phone can query; cache size configurable up to the R0.6 budget |
 | F1.6 | fast-link hold: the glasses' idle-parameter request is skipped while the lease is held — site: a lease-gated entry wrapper on `FUN_00476CBC` that turns event 0xA4 into no request (R0.4); a latency-0 profile only if M0.3 says the phone would use it |
 | F1.7 | panel-transfer experiment (rewritten 2026-09-13 — the async refresh ignores the rect on both drivers, so a smaller rect on the queue changes nothing): F1.3's stamp gives the full-frame transfer time; on a JBD4010 pair, a blocking partial refresh (`+0x2C`) of a small rect is timed against it; on an A6N-G pair the partial path moves no pixels and the lever is out of reach without a driver change |
 | F1.8 | multi-packet ATT writes (walk concatenated AA packets in one write) — only if M0.3 says the phone is one-write-per-event; MTU 517 on the phone side |
 
-**Damage:** capability parsing; the arm / hold-back protocol in the keeper; `glass` journal notes (the probe notes of APK 0.45 are the start);
-`journal_report.py` columns for present time and local latency; cache-keep (skip the atlas upload
-when generation and CRC match); MTU and packing if F1.8 ships.
+**Damage:** capability parsing (DamageCaps and the telemetry record: **done 2026-09-13**, `DamageMsg`, the
+simulator's `damageContract`); the arm / hold-back protocol in the keeper; `glass` journal notes (started:
+the probe, glass and battery notes of APK 0.45); `journal_report.py` columns for the transfer time and
+local latency; cache-keep (skip the atlas upload when generation and CRC match); MTU and packing if F1.8
+ships.
 
 **Test stop T1:** host vectors and simulator green · the flash ritual (§7) · self-test on glass ·
 features armed one at a time · a soak day · journal and `/log` read · fix flash if needed.
@@ -328,11 +341,14 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
 |---|---|
 | this plan and its log | `damagewm/FORK.md` |
 | the firmware contract (v1 facts by pointer, v2 by design) | `damagewm/FIRMWARE.md` |
-| conformance vectors (Phase 1) | `damagewm/firmware/vectors/` (data; consumed by the fork's host tests and the Kotlin simulator) |
+| conformance vectors | `damagewm/firmware/vectors/` (data) — inputs written by `damagewm/firmware/make_vectors.py`; expectations by the fork's `host/run_vectors.py --write`; checked by `ConformanceVectorTest` and `host/run_vectors.py` |
+| the motion explosion | `damagewm/MOTION.md` (draft, for Adam's refinery) |
+| the Phase 0 reads | `damagewm/CLAIMS.md` ("Firmware internals read for the fork") and `damagewm/research/fork-reads-2026-09-13.md`; the tool `damagewm/research/fwread.py` |
+| the fork's checks | `~/damage-cfw/tools/verify.py` (the candidate image), `~/damage-cfw/host/` (the C on the PC: vectors, `test_damage_ext.py`) |
 | the firmware fork | `~/damage-cfw` (GPL-3.0; branch `damage`; `github` = `https://github.com/expectbugs/damage-cfw`, public; `origin` = upstream g2flash, fetch only; `reference` = the pinned clone) |
 | the pinned upstream clone (never moved) | `damagewm/reference/g2flash` at `a5d1c31` (`research/verify_cfw.py` pins it) |
 | the decompile corpus and subsystem docs | `damagewm/reference/evenRealities-openCFW/g2/` |
-| records | `HANDOFF.md` §48 onward; `CLAIMS.md` rows added per phase; memory `damage-cfw-fork.md` |
+| records | `HANDOFF.md` §48 onward (§49 = 2026-09-13); `CLAIMS.md` rows added per phase; memory `damage-cfw-fork.md` |
 
 ## 11. Progress log
 
@@ -347,6 +363,11 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   (`diag`), M0.4 (`phy`), M0.5 (`logger`) behind the replica port's `probe` message, and `battery`
   journal notes for M0.6; `journal_report.py --since`, the battery and glass-log sections.
   `MOTION.md` drafted (the explosion's candidate list). Our clang builds a different image from the
-  same sources (`CLAIMS.md`) — the fork's pins become ours in Phase 1. Measured: 14 arm link ends
-  today, none overnight. Nothing flashed. Next: Adam's probe session (M0.1, M0.4, M0.5), the two
-  battery days (M0.6), the capture and the video (M0.3, M0.2), the refinery on `MOTION.md`.
+  same sources (`CLAIMS.md`). With Adam's go, Phase 1 groundwork too: the fork pinned to our clang with
+  `tools/verify.py` (`6db86e2`), the x86 host harness and the v1 conformance vectors — **the simulator
+  matches the fork's C on all 35 steps** (`cd802ec`) — and F1.1/F1.2/F1.4 in source (`a8f3610`, not
+  flashed); Damage's side in `a04cb17`. Measured: 14 arm link ends today, none overnight. §3.1's boot-path
+  rule corrected. A Feed test misses in some full core runs (`HANDOFF.md` §49.6). Both repos pushed at the
+  end of the session. Nothing flashed. Next: Adam's side (`HANDOFF.md` §49.7) — install 0.45, the probe
+  session (M0.1, M0.4, M0.5), the two battery days (M0.6), the capture and the video (M0.3, M0.2), where the
+  glasses were in the quiet windows, the refinery on `MOTION.md`, D1–D8.

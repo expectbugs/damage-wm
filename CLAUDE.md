@@ -26,8 +26,17 @@ WORK since 2026-09-12: the CFW fork and the Damage rebuild are the only work unt
   SYM002 checks every Kotlin string literal. `--selftest` passes; the repo run exits 0. Keep it so.
 - `python3 design/render_shots.py` after any design change; read the numbers. Everything renders at
   **true 1× 640×480**: a 2× view flatters delicate type and misled us for several passes.
-- `python3 research/verify_cfw.py` before any flashing conversation (offline; proves the image is
-  reproducible from held sources and carries no Thumb-bit defect).
+- `python3 research/verify_cfw.py` before any flashing conversation (offline; proves the INSTALLED image is
+  reproducible from held sources and carries no Thumb-bit defect). **For a fork candidate:**
+  `(cd ~/damage-cfw && python3 tools/verify.py)` — the pin, reproducibility with our clang, the Thumb-bit
+  audit, the size guard and the list of changed sites (review it against `FORK.md` §3.1: no new site on a
+  boot-time path).
+- **The conformance vectors** (`FIRMWARE.md` §9): after any change to the fork's patch sources run
+  `(cd ~/damage-cfw && python3 host/run_vectors.py && python3 host/test_damage_ext.py)`; after any change to
+  the simulator or the wire encoders, `ConformanceVectorTest` (in `:core:test`) must stay green. A
+  disagreement is a finding, never a reason to edit an expectation by hand.
+- **A firmware fact is decided at instruction level** (`python3 research/fwread.py dis|fn|word|refs|calls|strings`):
+  the decompile corpus hides arguments and misses functions (`HANDOFF.md` §49.2).
 - `DESIGN.md` §10 (three roles, four deployments) binds the runtime: **the shell runs on Android and
   desktop, so it is not Python.**
 
@@ -39,13 +48,15 @@ WORK since 2026-09-12: the CFW fork and the Damage rebuild are the only work unt
 `HANDOFF.md` §48).** No new windows, no Feed polish, no popover build outside the plan, until `FORK.md`
 Phase 8 closes. The fork is its own GPL-3.0 repo (`~/damage-cfw`); Damage stays clean-room and holds
 only the contract (`FIRMWARE.md`). Never flash without Adam's in-the-moment go; dry-run first.
+**Phase 0 in progress since 2026-09-13** (`FORK.md` §11, `HANDOFF.md` §49): reads in `CLAIMS.md` and
+`research/fork-reads-2026-09-13.md`; the probes in APK 0.45; `MOTION.md` awaits Adam's refinery.
 
 **LIVE as the all-day daily driver.** CFW g2flash `a5d1c31` (reports `2.2.6.10`; detect by the
 `EVENCFW/` capability string, never the version; first light 2026-08-30). Topology (`HANDOFF.md`
 §19): the **phone APK is the primary driver** (radio and shell); the OpenRC `damage` service on
 beardos is the **data provider** (content, tmux, last-write-wins state sync) and a **standby** that
 drives PC-direct BLE only while the APK is away. The PC never claims in daily use (`--transport
-remote` is the dev override). `HANDOFF.md` holds the dated records (§19–§44 current), `DAILY.md` the
+remote` is the dev override). `HANDOFF.md` holds the dated records (§19–§49 current), `DAILY.md` the
 ops crib, `IMPLEMENTATION.md` what runs and how. App layer: Main · Settings · Reader · Tmux · Files ·
 Torrents · Music · Games · Feed. `WINDOWS.md` is the conversion checklist; `TMUX.md`, `TORRENTS.md`,
 `MUSIC.md`, `HOLDEM.md`, `FEED.md` the per-window records; `POPOVER.md` the popover family + the
@@ -87,7 +98,7 @@ staging**; **each app's notification toggles live in its own Settings category, 
 gates an app's source on a hidden field).
 
 **After ANY code change run the whole battery and keep it green:**
-`./gradlew :core:test` (525) · `./gradlew :desktop:test` (15) · `desktop --selfcheck` (230 checks, the
+`./gradlew :core:test` (540) · `./gradlew :desktop:test` (15) · `desktop --selfcheck` (230 checks, the
 truth oracle on every settle) · `desktop --snapshot DIR` (look at the renders) · `desktop --epub-check ~/books` · `desktop --music-check` · `desktop --games-check` · `desktop --feed-check` (`live` fetches
 the real sites once, read-only) · `python3 tools/lint.py` · `./gradlew :phone:assembleDebug` **in its
 own gradle invocation** (run with `:core:test` it loaded the box enough for the oracle walk to miss a

@@ -8,8 +8,11 @@ simulator (`core/.../sim/GlassFirmwareSim.kt`, Kotlin, written from this text an
 C — `CLAUDE.md`, clean room). A conformance-vector set proves both agree, on the host and on the
 glasses. Plain wording throughout.
 
-**Status 2026-09-12: skeleton.** v1 is the installed contract (g2flash `a5d1c31`) and is only
-pointed at. v2 sections carry the decided shape and are filled in phase by phase (`FORK.md` §5).
+**Status 2026-09-13:** v1 is the installed contract (g2flash `a5d1c31`) and is only pointed at. v2:
+§0 and §3's wire shapes are fixed for Phase 1 (draft) and implemented on both sides — the fork's
+`patches/damage_ext.c` and Damage's `DamageMsg` + simulator — without the transfer stamp or the self-test
+op yet; §9's vector format is built and the v1 set passes on both; §4–§8 are still the decided shape only,
+filled in phase by phase (`FORK.md` §5).
 A section marked *draft* may change until its phase's test stop passes; after that it changes only
 with a contract-version bump.
 
@@ -110,7 +113,8 @@ the CFW replaces.
 
 ## 5. v2 motion programs (Phase 3) — *draft*
 
-- **Tick:** a fixed period in ms, chosen from the measured present time (30–60 Hz). A program
+- **Tick:** a fixed period in ms, chosen from the measured panel-transfer time (a present sends the whole
+  panel on both drivers — `CLAIMS.md` 2026-09-13; 30–60 Hz if that allows). A program
   advances one step per tick; each step mutates the shadow and presents once.
 - **Program:** an id, a duration in ticks, a list of tracks, and a **declared end state** (the
   ops that, applied to the pre-program shadow, give the post-program shadow — the phone's model
