@@ -3241,3 +3241,21 @@ re-upload only after a rebuild that completes inside the lease's remaining time 
 LEFT's cache can be verified (an inter-lens report, Phase 4). Then: "update the documentation to reflect
 the current state, then commit and push the progress so far" — done in this section's commit, both repos
 (the fork to `github/damage`, never `origin`).
+
+### 51.9 The queue for the next session (before Adam is home), and the state handed over
+
+Adam's instruction at the end of the session: record the queue so a fresh session can run it. **The queue, his
+order of preference:** (1) the bounded atlas skip — his ruling in §51.8, where and how in `REMINDER.md`'s
+next-session section; (2) R0.1, the input path and the slave→master inter-lens send; (3) R0.5; (4) the per-event
+M0.3 read of the four captures; (5) the core suite ×20 for the Feed miss; (6) optionally a stamp on CACHE_INFO's
+CRC. None needs the glasses or a firmware change (6 excepted); the fork stays at pin `5ff9159b…`. **His part when
+home** is the same section's part B: the source and site review, M0.1, the install, the flash ritual with his go.
+
+**State handed over:** Damage `ca8fe4f` and the fork `2aded36` pushed (`origin/main`, `github/damage`); APK 0.46
+staged and not installed; the `damage` service on 0.44's core, not restarted; nothing flashed. The battery of
+§51.6 is the last measurement on this tree. The traps a fresh session should carry: gradle invocations one at a
+time; never rebuild the jar under the running service; a core change bound for the phone is APK 0.47; only
+RIGHT answers (a test that waits for LEFT's reply waits forever); the sim's `seeded`, the lease's `lapseSettled`
+and the C's `dmg_lease_settled` are per lens; `FeedWindowTest.deepLinksResolveEveryForm` is a known rate; the
+corpus decompile can hide a disabled check behind "unreachable block" warnings — `fwread.py sha` checks the
+bytes.

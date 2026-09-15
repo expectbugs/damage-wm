@@ -420,5 +420,6 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   runner and APK 0.46 in Damage. Read at instruction level: the stock senders refuse on the left lens — every
   reply and notify is RIGHT's; Adam chose the bounded atlas skip (no flag) and left CACHE_KEEP unarmed until LEFT
   can be verified (§51.8). F1.7 waits on the panel type. Nothing flashed; both trees committed and pushed on his
-  word from work. Next: the bounded skip (built without him), M0.1 (one minute), the site review (`tools/verify.py`
-  step 6: `0x00473CE4` in `FUN_00473C44`), his go, the ritual.
+  word from work (Damage `ca8fe4f`, the fork `2aded36`). Next (`HANDOFF.md` §51.9, `REMINDER.md`): the queue
+  before he is home — the bounded skip, R0.1, R0.5, the M0.3 read, the core suite ×20 — then M0.1 (one minute), the
+  site review (`tools/verify.py` step 6: `0x00473CE4` in `FUN_00473C44`), his go, the ritual.

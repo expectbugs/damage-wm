@@ -20,6 +20,8 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
   every op blind. **Adam's ruling on the atlas (§51.8): the bounded skip** — re-upload skipped only after a
   rebuild inside the lease's remaining time on the dropped arm, no flag (to build); CACHE_KEEP stays unarmed
   until LEFT can be verified. The design calls made without him are listed in §51.4. F1.7 waits on the panel type.
+  **The queue for the next session is the section below** (§51.9): the bounded skip first, then R0.1, R0.5, the
+  M0.3 read, the core suite ×20; Adam's part when home.
 - **🔴 The CFW fork and the Damage rebuild are the ONLY work (Adam, 2026-09-12; `HANDOFF.md` §48).** All other
   Damage work is suspended until `FORK.md` Phase 8 closes: no new windows, no Feed polish, no popover build outside
   the plan. `FORK.md` has the phases (0 measure/research/decide → 1 pipeline + first flash → 2 drawing v2 → 3 motion
@@ -92,29 +94,63 @@ Time to first ack per gesture, the phone's journal (`tools/journal_report.py`):
 The ack precedes the panel refresh (§48.1, verified): what the eye waits for is longer than these. A flush under
 100 B acks in ~60 ms; each KB adds ~140 ms; the tail is pixel bytes. Phone CPU per flush: 17 ms median / 66 p90.
 
-## 🔴 The next session — `FORK.md` Phase 1: Adam's review, M0.1, the flash (`HANDOFF.md` §51)
+## 🔴 The next session — the queue before Adam is home, then his part (`HANDOFF.md` §51.9)
 
-0. **Adam's review of the evening's build:** `HANDOFF.md` §51.4's design calls (he has read them; §51.8), the
-   new site in `tools/verify.py` step 6 against `FORK.md` §3.1, `patches/damage_ext.c` read whole (read the
-   patch source before flashing it). **Without him, before he is home:** the bounded atlas skip (his ruling —
-   skip the re-upload after a rebuild that completes inside the lease's remaining time on the arm that dropped;
-   an `atlas` note says which way it went), then the offline reads R0.1 / R0.5 and the per-event M0.3 read.
-1. **M0.1, one minute of Adam's, before the flash:** `probe:diag=show`, read the overlay line (`f13/20/27` free
-   KiB, `w`, `p`), `probe:diag=hide`. It sizes the cache, the self-test's scratch (150 KB of arena 13,
-   transient) and staged content, and bounds the tick.
-2. **Install 0.46** (the setup page) — its journal names the build; against the installed upstream firmware the
-   new probes answer "without DamageCaps".
-3. **The flash ritual** (`FORK.md` §7) with Adam's in-the-moment go; dry-run staircase first; both lenses; then
-   the capability read (`features 0x1f`), the self-test on glass (`glassdrive.py … selftest:firmware/vectors/v1-keyframe.json`,
-   then delta / copy / batch / refusals — RIGHT reports), `probe:telemetry=read` (uptime, the panel record →
-   F1.7's question, the heap figures), features armed one at a time (`probe:flags=0x8000`, then `0x0001`, then
-   `0x0003`), a soak day with PRESENTED on (`journal_report.py`'s transfer section is the tick's ceiling).
-4. **At Adam's pace, before Phase 3:** the `MOTION.md` refinery, D1–D8, the 240 fps video (M0.2). M0.6 day one on
-   `high` is running; day two on `balanced` is optional. The arm drops are recorded and not the work (cause U;
-   §42.2's ten with §49.1/§50.6/§50.8's constraints); F1.2's uptime will say reset or stall after the flash.
-5. **Offline, in parallel:** R0.1 (the input path, for Phase 4), R0.5 (RTC, fuel gauge, crc32, kvdb, for Phases
-   5/7), the proper per-event M0.3 read of `captures/apk-20260914-*` (local files).
-6. **Owed:** the core suite ×20 and the comic-bar `first` trigger (§49.6).
+**State to start from:** both trees clean and pushed (Damage `ca8fe4f`, the fork `2aded36`); the fork's candidate is
+final at pin `5ff9159b…` and needs no firmware change for anything below; APK 0.46 is staged, not installed;
+nothing flashed; the OpenRC `damage` service runs 0.44's core and must **not** be restarted (Adam is at work on
+it). Gradle invocations one at a time (the oracle walk misses settles under parallel load); the full battery after
+any code change (`CLAUDE.md`); a core change that should reach the phone means APK **0.47** (bump versionCode
+and versionName together, `:phone:stageApk` alone). Plain wording everywhere.
+
+**A. The queue (no glasses needed; Adam's order of preference, 2026-09-14 evening):**
+
+1. **The bounded atlas skip** (Adam's ruling, §51.8; option 3 of §51.4 item 6; §42.4's plan). After a session
+   rebuild, keep the atlas belief instead of resetting it when the rebuild completed inside the lease's remaining
+   time on BOTH arms — each arm judged by its own last successful lease write (the `CtlWork.Lease` lane knows per
+   arm which writes went out; a write into a dropped arm fails as a `control` fault, so it does not count). The
+   installed renewal rule then keeps both caches and no firmware flag is involved, which is why LEFT needs no
+   report. Where: `Shell.kt` ≈ line 680 (`atlasReset()` at session start, after the transport's `start()` has
+   awaited the lease); add a transport predicate (e.g. `leaseCarriedOver()`: for each arm, now − last successful
+   lease write < `SettingsMsg.LEASE_EXPIRY_MS`, measured at the new session's acquire) and, when it holds, skip
+   `atlasReset()` and the re-upload but keep the keyframe. Journal an `atlas` note either way ("kept across the
+   rebuild: L gap 12 s, R gap 12 s" / "reset: L gap 131 s") so the saving is measured; the Silent-Mode wake (the
+   lease dropped on purpose) resets by construction. Tests: a `SimTransport` restart inside the window keeps
+   `sim.cacheAllocated(arm)` on both arms and the shell's cached fonts stay live (see `DamageMsgTest`'s restart
+   pattern and the existing atlas tests: `grep -rn atlas core/src/test`); a restart after a lapse resets;
+   `--selfcheck` ×3. Then APK 0.47.
+2. **R0.1, the input path** (offline, `research/fwread.py`): the gesture mapper `FUN_00442d86` (subtypes
+   0/2/4/6/8/10/0xc/0xe/0x10 — which are scroll), how input is mirrored to the other lens, how the EvenHub UI
+   handler turns them into SysEvents (`gesture_fwd.c` has the two known sites); AND the slave→master send on the
+   inter-lens link (`sync_interface_api.c` `[0x004646F0,0x00466010)`, `FUN_00464BB2` → `FUN_00464772`; the UART
+   worker `[0x00541790,0x00541AF8)`; openCFW `g2-uart-sync-recovery.md`, `g2-sync-framework-recovery.md`) — Phase
+   4 needs the first, and option 2 for the atlas (LEFT reporting its cache through RIGHT) rides the second. Facts
+   into `CLAIMS.md` and `research/fork-reads-2026-09-13.md` (append a dated section); decide at instruction level.
+3. **R0.5** (offline): the RTC getter (`g2-drv-rtc-recovery.md`), the fuel-gauge getters (the chg_bq27427
+   overlay), the KV store's read/write (`FUN_0054116E` / `FUN_005411F2`, and whether a cached read from the
+   settings context has a precedent — the boot count's blocker), the dashboard launch path and module registry
+   (`ui_module_registry.c`, `ui_startup_app.c`) — for Phases 5 and 7.
+4. **The per-event M0.3 read** of the four captures (`captures/apk-20260914-*.log`, local; `captures/README.md`,
+   `SHA256SUMS`; the first-pass tool `research/linkparams.py`): packets per connection event on LEFT from the
+   Number-of-Completed-Packets timestamps (§50.8's first pass: ~2 per 15 ms window, the host feeding faster) —
+   F1.8's question (multi-packet ATT writes pay only if the phone is one-write-per-event).
+5. **The core suite ×20** in the background, one run at a time, for the Feed miss (§49.6: `FeedWindowTest.
+   deepLinksResolveEveryForm`, 4 misses in 9 full runs so far, 0 in targeted runs): the rate and, from the failing
+   runs' logs, what presses `first` (the candidates are listed in §49.6). No Feed fix without Adam (Feed is
+   suspended work); the finding goes to `HANDOFF.md`.
+6. **Optional:** a DWT stamp around the CACHE_INFO CRC in the fork's `damage_apply_control`, reported as a
+   telemetry field, so the CRC's cost is measured on glass rather than modeled (~2–3 ms). A fork change: the
+   host tests, `gen_patches.py`, the pin in `build_cfw.sh`/`DAMAGE.md`/here, `tools/verify.py`.
+
+**B. Adam's part, when home:** `patches/damage_ext.c` read whole and the site list (`tools/verify.py` step 6:
+`0x00473CE4` in `FUN_00473C44`) reviewed against `FORK.md` §3.1; **M0.1**, one minute: `probe:diag=show`, read
+the overlay line (`f13/20/27` free KiB, `w`, `p`), `probe:diag=hide` — it sizes the self-test's scratch (150 KB of
+arena 13, transient) and any cache growth; **install 0.46 (or 0.47)** from the setup page; **the flash ritual**
+(`FORK.md` §7) with his in-the-moment go — dry-run staircase first, both lenses; then the capability read
+(`features 0x1f`), the on-glass self-test (`glassdrive.py … selftest:firmware/vectors/v1-keyframe.json`, then
+delta / copy / batch / refusals — RIGHT reports), `probe:telemetry=read` (uptime, the panel record → F1.7, the
+heap figures), features armed one at a time (`probe:flags=0x8000`, then `0x0001`), a soak day with PRESENTED on
+(`journal_report.py`'s transfer section is the tick's ceiling). CACHE_KEEP (`0x0002`) stays unarmed.
 
 ## Measured numbers to price with (grade M unless said)
 
