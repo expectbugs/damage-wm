@@ -92,6 +92,8 @@ private data class Ctl(
     val gPct: Int? = null,
     val gChg: Boolean? = null,
     val rPct: Int? = null,
+    // 2026-09-15 (§54): a flush's writer tag; an older peer reads "" (no atlas is kept on it)
+    val writer: String = "",
 )
 
 @Serializable
@@ -117,6 +119,8 @@ data class WireState(
     // 2026-09-05 (§32): defaults so a peer on an older build still decodes
     val floorMsEma: Double = 60.0, val transferMsPerKbEma: Double = 20.0, val linkParams: String = "",
     val glassesSilent: Boolean = false,
+    // 2026-09-15 (§54): the bounded atlas skip's facts; an older peer reads "not carried"
+    val leaseCarried: Boolean = false, val leaseCarry: String = "", val cacheWriter: String = "",
 )
 
 // named on both sides: the two classes order their fields differently, and a
@@ -125,12 +129,14 @@ private fun LinkState.toWire() = WireState(connected = connected, started = star
     inFlight = inFlight, window = window, ackMsEma = ackMsEma, bytesPerSecEma = bytesPerSecEma,
     capability = capability, rssiDbm = rssiDbm, transportName = transportName, detail = detail,
     floorMsEma = floorMsEma, transferMsPerKbEma = transferMsPerKbEma, linkParams = linkParams,
-    glassesSilent = glassesSilent)
+    glassesSilent = glassesSilent,
+    leaseCarried = leaseCarried, leaseCarry = leaseCarry, cacheWriter = cacheWriter)
 
 private fun WireState.toState() = LinkState(connected = connected, started = started, leaseHeld = leaseHeld,
     inFlight = inFlight, window = window, ackMsEma = ackMsEma, bytesPerSecEma = bytesPerSecEma,
     floorMsEma = floorMsEma, transferMsPerKbEma = transferMsPerKbEma, linkParams = linkParams,
     glassesSilent = glassesSilent,
+    leaseCarried = leaseCarried, leaseCarry = leaseCarry, cacheWriter = cacheWriter,
     capability = capability, rssiDbm = rssiDbm, transportName = "remote:$transportName", detail = detail)
 
 private fun DataOutputStream.send(c: Ctl, blob: ByteArray? = null) {
@@ -560,7 +566,7 @@ class RemoteTransportClient(
         try {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 o.send(Ctl(t = "flush", id = id, epoch = flush.epoch, label = flush.label, ops = ops,
-                    wide = flush.wide), blob)
+                    wide = flush.wide, writer = flush.writer), blob)
             }
         } catch (e: Throwable) {
             // A flush that never left has no `done` coming: its entry must go
@@ -904,7 +910,7 @@ class RemoteTransportServer(
                             val clientId = c.id
                             try {
                                 val innerId = runBlocking {
-                                    inner.submit(FlushRequest(ops, c.epoch, c.label, c.wide))
+                                    inner.submit(FlushRequest(ops, c.epoch, c.label, c.wide, c.writer))
                                 }
                                 val prev = rendezvous.putIfAbsent(innerId, clientId)
                                 if (prev is TransportEvent.FlushDone) {

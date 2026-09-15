@@ -157,6 +157,14 @@ def main(path, since_ms=0, glasslog=False):
     for n in notes:
         if n['kind'] in ('link', 'panic', 'halt', 'build', 'watchdog', 'restart', 'keeper', 'probe') or (n['kind'] == 'fault' and 'stall' in n['detail']):
             print(f'  {datetime.datetime.fromtimestamp(n["t"]/1000):%m-%d %H:%M:%S} {n["kind"]}: {n["detail"][:110]}')
+    # HANDOFF.md §54: the atlas at each session start — kept across the rebuild (no upload)
+    # or reset, with the transport's per-arm lease gaps; the saving is these lines
+    starts = [n for n in notes if n['kind'] == 'atlas' and (n['detail'].startswith('kept across') or n['detail'].startswith('reset'))]
+    if starts:
+        kept = sum(1 for n in starts if n['detail'].startswith('kept across'))
+        print(f'\natlas at session start: {len(starts)} session(s), {kept} kept across a rebuild, {len(starts) - kept} reset')
+        for n in starts:
+            print(f'  {datetime.datetime.fromtimestamp(n["t"]/1000):%m-%d %H:%M:%S} {n["detail"][:150]}')
     glass = [n for n in notes if n['kind'] == 'glasslog']
     if glass:
         per_arm = collections.Counter(n['detail'][:1] for n in glass)

@@ -234,6 +234,14 @@ class GlyphAtlas(private val base: TextRasterizer) {
         ackedBytes = maxOf(ackedBytes, end)
     }
 
+    /** The chunks past the acked watermark may or may not have landed (the link ended
+     *  with their acks owed — §54): they go again from that mark. A mode-12 write is a
+     *  plain copy at an offset, so a chunk that did land is rewritten with its own bytes. */
+    fun rewindToAcked() {
+        sentBytes = ackedBytes
+        chunkEnds.clear()
+    }
+
     /** The glasses freed the cache (the lease lapsed): everything goes again. */
     fun forgetUpload() {
         sentBytes = TextureCache.GUARD

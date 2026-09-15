@@ -464,6 +464,84 @@ abstract class CfwTransportBase(
      *  rollback release it. */
     @Volatile private var leaseRequested = false
 
+    // ------------------------------------------------- the lease log (the bounded atlas skip)
+    /**
+     * Per arm, what this transport knows about the lease on the glasses (2026-09-15,
+     * `HANDOFF.md` §54 — Adam's ruling of §51.8): the [nowMs] times of the ACQUIRE writes
+     * that left for the arm and are taken as having ARRIVED, newest last, and whether a
+     * RELEASE left for it since the last of them. A write that left within
+     * [LINK_SETTLE_MS] of the link's end is struck at the end ([leaseLinkEnded]): the
+     * platform reports a write as done when its stack took it, and the packets of the
+     * last seconds before a supervision timeout were never exchanged. A RELEASE is never
+     * struck — one that may have arrived has freed the cache. Both are the conservative
+     * direction: a doubt costs one atlas upload, never a lens drawing from a missing cache.
+     */
+    private class LeaseLog {
+        val acquires = ArrayDeque<Long>()
+        var released = false
+    }
+    private val leaseLog = mapOf(Arm.LEFT to LeaseLog(), Arm.RIGHT to LeaseLog())   // guarded by itself
+    /** The carry-over is decided once per session, at its first ACQUIRE. */
+    @Volatile private var leaseCarryDecided = false
+
+    private fun leaseWritten(arm: Arm, op: Int, now: Long) = synchronized(leaseLog) {
+        val l = leaseLog.getValue(arm)
+        when (op) {
+            SettingsMsg.OP_FB_ACQUIRE -> {
+                // a repeat of the same instant (the instant test clock) is one fact; the record
+                // keeps the newest few (never by age: a renewal written just before a link end is
+                // struck at the end, and the one before it must still be there — 2026-09-15, a
+                // test race showed an age prune emptying the record that way)
+                if (l.acquires.lastOrNull() != now) l.acquires.addLast(now)
+                while (l.acquires.size > LEASE_LOG_DEPTH) l.acquires.removeFirst()
+                l.released = false
+            }
+            SettingsMsg.OP_FB_RELEASE -> l.released = true
+        }
+    }
+
+    /** The link ended at [now]: the acquires of the last [LINK_SETTLE_MS] may never have
+     *  reached the glasses and are struck from the record. */
+    private fun leaseLinkEnded(now: Long) = synchronized(leaseLog) {
+        for (l in leaseLog.values) {
+            while (l.acquires.isNotEmpty() && now - l.acquires.last() < LINK_SETTLE_MS) l.acquires.removeLast()
+        }
+    }
+
+    /**
+     * At the session's first ACQUIRE: was the previous lease still inside its window on
+     * both arms, so that this write is a RENEWAL on the glasses and the texture cache
+     * stays (`CLAIMS.md`: freed on expiry, FB_RELEASE, a fresh acquire and mode 11; kept
+     * on a renewal)? The window is the firmware's 90 s less [LEASE_CARRY_MARGIN_MS] for
+     * the two writes' own delivery. The answer and its facts go to [LinkState] for the
+     * shell, which journals them either way.
+     */
+    private fun decideLeaseCarry(now: Long) {
+        if (leaseCarryDecided) return
+        leaseCarryDecided = true
+        var carried = true
+        val parts = ArrayList<String>(2)
+        synchronized(leaseLog) {
+            for (arm in Arm.entries) {
+                val l = leaseLog.getValue(arm)
+                val tag = arm.name.first()
+                val last = l.acquires.lastOrNull()
+                when {
+                    l.released -> { parts += "$tag released"; carried = false }
+                    last == null -> { parts += "$tag no lease on record"; carried = false }
+                    else -> {
+                        val gap = now - last
+                        parts += "$tag gap ${String.format(java.util.Locale.ROOT, "%.1f", gap / 1000.0)} s"   // a journal fact: one spelling on every locale
+                        if (gap >= LEASE_CARRY_WINDOW_MS) carried = false
+                    }
+                }
+            }
+        }
+        val detail = parts.joinToString(", ")
+        Log.i(name, "lease carry-over at this session's acquire: ${if (carried) "a renewal on both arms" else "not a renewal"} ($detail; window ${LEASE_CARRY_WINDOW_MS / 1000} s)")
+        updateState { it.copy(leaseCarried = carried, leaseCarry = detail) }
+    }
+
     private class PendingAck(val flushId: Long, val windowed: Boolean) {
         val done = CompletableDeferred<EvenHubMsg.Ack>()
         /** Registration order (msgId wraps at 249; this never does): the
@@ -916,6 +994,8 @@ abstract class CfwTransportBase(
         watchdogProbed = false
         leaseRequested = false
         startInProgress = true
+        leaseCarryDecided = false
+        updateState { it.copy(leaseCarried = false, leaseCarry = "") }
         try {
             connectLink()
             // `running` only once a link exists (round 8): the maintenance
@@ -1112,6 +1192,7 @@ abstract class CfwTransportBase(
                     controlQueue.trySend(CtlWork.Lease(epoch, SettingsMsg.OP_FB_RELEASE, released))
                     awaitReleaseWrite(released, "after the failed start")
                 }
+                leaseLinkEnded(nowMs())    // §54
                 try {
                     disconnectLink()
                 } catch (d: Exception) {
@@ -1305,6 +1386,7 @@ abstract class CfwTransportBase(
             controlQueue.trySend(CtlWork.Lease(epoch, SettingsMsg.OP_FB_RELEASE, released))
             awaitReleaseWrite(released, "at stop")
         }
+        leaseLinkEnded(nowMs())            // §54
         try {
             disconnectLink()
         } catch (e: Exception) {
@@ -1413,6 +1495,7 @@ abstract class CfwTransportBase(
         running = false
         started = false
         sessionEpoch.incrementAndGet()     // the session is over: queued work is stale
+        leaseLinkEnded(nowMs())            // §54: the last seconds' lease writes may not have arrived
         sweepSession("link down: $reason")
         if (teeMirror) mirrorSim.linkReset()
         updateState { it.copy(connected = false, started = false, leaseHeld = false) }
@@ -1482,6 +1565,10 @@ abstract class CfwTransportBase(
                 for (op in work.request.ops) {
                     final = writeImage((op as DisplayOp.CacheWrite).payload, work.epoch)
                     bytes += op.payload.size
+                    // §54: the writer is on record once the bytes left, acked or not —
+                    // a chunk that left may have landed
+                    val w = work.request.writer
+                    updateState { it.copy(cacheWriter = w) }
                 }
                 completeAsync(final, work.id, bytes, t0, done = null)
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -1836,6 +1923,9 @@ abstract class CfwTransportBase(
                                 // never wedge behind a stuck ack.
                                 try {
                                     wire.withLock {
+                                        // §54: the session's first acquire decides the atlas
+                                        // carry-over from the record BEFORE it joins the record
+                                        if (work.op == SettingsMsg.OP_FB_ACQUIRE) decideLeaseCarry(nowMs())
                                         for (arm in Arm.entries) {
                                             val nonce = (nowMs() and 0xFFFF).toInt()
                                             try {
@@ -1843,6 +1933,7 @@ abstract class CfwTransportBase(
                                                         SettingsMsg.FLAG_REQUEST, SettingsMsg.control(work.op, nonce))) {
                                                     writePacket(arm, p)
                                                 }
+                                                leaseWritten(arm, work.op, nowMs())
                                             } catch (e: Exception) {
                                                 // §42: a RELEASE is best effort per arm — an arm that
                                                 // is gone cannot take it and needs none (its lease
@@ -1946,6 +2037,23 @@ abstract class CfwTransportBase(
          *  well inside it; a reset can hide inside it only if the glasses reset within this
          *  long of booting. */
         private const val RESET_SLACK_MS = 10_000L
+
+        /** §54, the bounded atlas skip. A lease write that left within this long of
+         *  the link's end is not taken as arrived: the platform's write callback means
+         *  its stack took the packet, the supervision timeout (5,000 ms in every
+         *  parameter set the phone has reported, `HANDOFF.md` §47) is how long the
+         *  last exchange can predate the report, and a lease write can queue behind
+         *  a flush's fragments on the same arm (a 6 KB flush is ~25 packets, up to
+         *  ~2.6 s at the slow 105 ms interval). Derived, not measured. */
+        const val LINK_SETTLE_MS = 10_000L
+        /** The two writes' own delivery (the old lease's last acquire, the new one) and
+         *  the two clocks, taken off the firmware's 90 s expiry: a rebuild's acquire
+         *  counts as a renewal only when the last acquire taken as arrived is younger
+         *  than this. Derived, not measured. */
+        const val LEASE_CARRY_MARGIN_MS = 10_000L
+        const val LEASE_CARRY_WINDOW_MS = SettingsMsg.LEASE_EXPIRY_MS - LEASE_CARRY_MARGIN_MS
+        /** Acquire writes remembered per arm — renewals are 45 s apart, so two would do. */
+        private const val LEASE_LOG_DEPTH = 8
 
         /** Reporting threshold for the stall diagnostic — well past any
          *  measured ack (176 ms median, 7–13 KB/s); reports, never acts. */

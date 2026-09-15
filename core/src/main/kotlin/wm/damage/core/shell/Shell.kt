@@ -677,14 +677,15 @@ class Shell(
                 try { current!!.onExclusive(true) } catch (e: Exception) { Log.e("shell", "onExclusive at restore", e) }
             }
             syncLayout()   // §2: a restored window brings its preferred height
-            // §40: a new session, a fresh atlas — the glasses hold nothing
-            // of the old one (the cache went with the lease). Reset BEFORE the
-            // first compose, so the fonts that compose draws are the ones
-            // packed first; uploaded AFTER the keyframe below, chunk by
-            // chunk, only while nothing else is pending, so the first paint
-            // and every gesture come first.
+            // §40: a new session, a fresh atlas — unless the glasses still
+            // hold the old one (§54, the bounded skip: the rebuild's acquire
+            // was a renewal on both arms). Decided BEFORE the first compose,
+            // so the fonts that compose draws are the ones packed first — or
+            // the ones already on the glasses; uploaded AFTER the keyframe
+            // below, chunk by chunk, only while nothing else is pending, so
+            // the first paint and every gesture come first.
             journal.note("build", buildTag.ifEmpty { "unstamped host" } + " · session start via ${transport.state.value.transportName}")
-            atlasReset()
+            atlasAtSessionStart(adopted)
             composeFullSurface()
             comp.requestKeyframe()
             if (settings.cachedText == "on") post(Msg.Run { atlasEnable() })
@@ -1994,6 +1995,9 @@ class Shell(
     private var atlasSeenVersion = -1
     private var atlasBytesSent = 0L
     private var atlasFailed = false
+    /** §54: chunks that failed without a refusal in a row (a link end, a sweep) — reset
+     *  by an ack; at [ATLAS_UNDELIVERED_LIMIT] the feature is switched off like a refusal. */
+    private var atlasUndelivered = 0
     /** §47: when the last repack ran (pacing between rebuilds), and whether a
      *  face is still pixels for want of room after one — the status cell. */
     private var lastAtlasRepackMs = 0L
@@ -2005,6 +2009,82 @@ class Shell(
     /** Fonts on the glasses right now (tests, status). */
     val cachedFontsLive: Set<FontSpec> get() = cachedText?.live ?: emptySet()
     val cachedTextActive: Boolean get() = comp.cachedText != null
+
+    /** This shell's mark on every cache write it submits ([FlushRequest.writer]):
+     *  the transport remembers the last writer, and a kept cache is trusted only
+     *  when that was this shell (§54). One per instance: the keeper restarts the
+     *  same instance, a new process starts with no atlas anyway. */
+    private val atlasTag = "shell-" + java.lang.Long.toHexString(java.util.concurrent.ThreadLocalRandom.current().nextLong() and 0xFFFFFFFFL)
+
+    /**
+     * §54 (2026-09-15), Adam's ruling of `HANDOFF.md` §51.8 — the bounded atlas
+     * skip. Every session start used to throw the atlas away and upload it again:
+     * 16 KB on the silent clock and up to 63 KB in a window, ~20 s of link, a
+     * dozen times a day (§42.4). The glasses keep the texture cache across a
+     * rebuild whenever the new acquire is a RENEWAL on both lenses — written
+     * inside the previous lease's 90 s (`CLAIMS.md`: freed on expiry, FB_RELEASE,
+     * a fresh acquire and mode 11, never on a renewal) — so when the transport
+     * says its first acquire was one ([LinkState.leaseCarried]) and the last
+     * cache write through it was this shell's, the atlas stays as it is: the
+     * fonts the glasses hold are live from the first compose, the chunk that was
+     * in flight at the link end goes again, the keyframe follows as always. Every
+     * other case resets: an adopted session (another shell may have uploaded into
+     * the same lease), cached text off, no atlas yet, a release (the Silent-Mode
+     * wake included — the shell dropped the lease on purpose), a gap past the
+     * window, or another writer. An `atlas` note goes to the journal either way
+     * with the transport's gaps, so the saving is measured and a wrong keep is
+     * traceable. No firmware flag is involved: CACHE_KEEP stays unarmed, only
+     * RIGHT could report it, and the renewal rule holds for both lenses by
+     * construction.
+     */
+    private fun atlasAtSessionStart(adopted: Boolean) {
+        val ct = cachedText
+        val a = atlas
+        val st = transport.state.value
+        val reset: String? = when {
+            ct == null -> null                                  // no cache path on this host: nothing to say
+            a == null -> "no atlas from a previous session"
+            adopted -> "an adopted session (a takeover or handback): another shell may have written the cache"
+            settings.cachedText != "on" -> "cached text is off"
+            !st.leaseCarried -> "the acquire was not a renewal on both arms — " +
+                st.leaseCarry.ifEmpty { "the transport reports no carry-over" }
+            st.cacheWriter != atlasTag -> "the last cache write through the transport was not this shell's" +
+                (if (st.cacheWriter.isEmpty()) "" else " (${st.cacheWriter})")
+            else -> null
+        }
+        if (ct != null && a != null && reset == null) { atlasKeep(ct, a, st); return }
+        atlasReset()
+        if (reset == null) return
+        // the transport's gaps ride every reset note too, unless the reason already quotes them
+        val facts = if (st.leaseCarry.isEmpty() || reset.contains(st.leaseCarry)) "" else " (${st.leaseCarry})"
+        journal.note("atlas", "reset — $reset$facts")
+    }
+
+    /** The kept path of [atlasAtSessionStart]: the glasses hold [a]'s acked bytes. */
+    private fun atlasKeep(ct: CachedText, a: GlyphAtlas, st: LinkState) {
+        ct.target = comp.composed
+        wm.damage.core.gfx.IconPaint.recorder = ct
+        ct.clearSeen()
+        ct.endFrame()
+        atlasQueue.clear()
+        atlasInFlight = null
+        atlasPendingSpecs.clear()
+        atlasSeenVersion = -1
+        atlasBytesSent = 0L
+        atlasFailed = false            // a link end, not a refusal, took the last chunk's ack
+        atlasUndelivered = 0
+        atlasRetryAtFrame = -1L
+        if (atlasFullShown) { atlasFullShown = false; if (statusText == "atlas full") setStatus("ok") }
+        a.rewindToAcked()              // what was in flight at the link end goes again
+        val held = a.specs().filter { a.isAcked(it) }.toSet()
+        val heldImages = a.imageKeys().filter { a.isImageAcked(it) }.toSet()
+        for (spec in a.specs()) if (spec !in held) atlasPendingSpecs.add(spec)
+        ct.live = held
+        ct.liveImages = heldImages
+        comp.cachedText = if (held.isEmpty() && heldImages.isEmpty()) null else ct
+        journal.note("atlas", "kept across the rebuild (${st.leaseCarry}): ${held.size} font(s) and " +
+            "${heldImages.size} icon(s) live, ${a.ackedBytes} B on the glasses, ${a.used - a.ackedBytes} B to go again")
+    }
 
     private fun atlasReset() {
         val ct = cachedText ?: return
@@ -2023,6 +2103,7 @@ class Shell(
         atlasSeenVersion = -1
         atlasBytesSent = 0L
         atlasFailed = false
+        atlasUndelivered = 0
         lastAtlasRepackMs = 0L
         atlasRetryAtFrame = -1L
         if (atlasFullShown) { atlasFullShown = false; if (statusText == "atlas full") setStatus("ok") }
@@ -2233,7 +2314,7 @@ class Shell(
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         val chunk = atlasQueue.removeFirst()
         val id = try {
-            transport.submit(FlushRequest(listOf(DisplayOp.CacheWrite(chunk)), comp.epoch, "ATLAS"))
+            transport.submit(FlushRequest(listOf(DisplayOp.CacheWrite(chunk)), comp.epoch, "ATLAS", writer = atlasTag))
         } catch (e: Exception) {
             Log.e("shell", "atlas chunk submit failed", e)
             atlasFailed = true
@@ -2254,11 +2335,30 @@ class Shell(
         journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)
         val ct = cachedText ?: return
         if (!ev.ok) {
+            if (ev.error?.contains("ImgResCmd") != true && ++atlasUndelivered < ATLAS_UNDELIVERED_LIMIT) {
+                // §54: not the glasses' answer but the link's end or the session's
+                // sweep (the ack never came): the chunk may or may not have landed,
+                // so it goes again from the acked mark — in this session if the
+                // link is still up, or in the next under the kept atlas. Bounded:
+                // a third such failure in a row is treated like a refusal below
+                // (no unbounded re-send of a chunk the transport cannot carry)
+                atlas?.rewindToAcked()
+                atlasQueue.clear()
+                atlasSeenVersion = -1
+                journal.note("atlas", "chunk ${ev.id} not delivered (${ev.error}) — it goes again from ${atlas?.ackedBytes ?: 0} B")
+                return
+            }
             atlasFailed = true
-            atlasDisable("the glasses refused a cache write: ${ev.error}")
-            setStatus("atlas refused")
+            if (ev.error?.contains("ImgResCmd") == true) {
+                atlasDisable("the glasses refused a cache write: ${ev.error}")
+                setStatus("atlas refused")
+            } else {
+                atlasDisable("$atlasUndelivered chunks in a row were not delivered, the last: ${ev.error}")
+                setStatus("atlas off")
+            }
             return
         }
+        atlasUndelivered = 0
         atlas?.acked()
         if (atlasQueue.isEmpty()) {
             // the last chunk of this batch: every font whose bytes are acked
@@ -3802,6 +3902,8 @@ class Shell(
          *  Derived, not measured: a window switch composes a handful of
          *  frames, so the previous window's faces are stale a few notches
          *  in, while the chrome's are drawn every frame and never qualify. */
+        /** §54: undelivered atlas chunks in a row before cached text is switched off. */
+        const val ATLAS_UNDELIVERED_LIMIT = 3
         const val ATLAS_RECENT_FRAMES = 12L
         const val ATLAS_REPACK_PACE_MS = 45_000L
         /** Consecutive ImgResCmd refusals that put the glasses to sleep (§36). */

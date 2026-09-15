@@ -186,3 +186,189 @@ copy redirects at `0x00473C8E`/`0x00473D68`, which pass straight through for eve
   table at `0x006983AC` are data no corpus function owns; `FUN_0048ED00` writes a "TPF1" header with the
   `0xEDB88320` literal as a field and `FUN_0048ECAE(buf, 0x1c)` as its checksum — not a general crc32.
   R0.5 stays open on this; the fork carries its own 16-entry table (64 B of rodata).
+
+## Read 2026-09-15: R0.1 — the input path, and how each lens learns of the other's input
+
+Context for the reader: a personal device, the published patch method, display-rendering work. These
+are reads of the stock 2.2.6.10 image (run address = file offset + 0x437FE0) for `FORK.md` Phase 4
+(local input) and the atlas option 2 of `HANDOFF.md` §51.4 (a LEFT→RIGHT report). Every function
+below hashes SAME against the corpus header (`fwread.py sha`) unless marked "missed by the corpus".
+
+**The display thread's input handler, `FUN_00442D86` = `inputEventDataHandler` in
+`framework\sync\display_thread.c` (its log tag and path are in its pool, `0x00443758`/`0x0044375C`;
+1,780 B, SAME).** Called from the display thread's message loop `FUN_004437E0` at `0x00443FB0` for a
+queue message whose first byte is **7** (`ldrb r0,[r7]; cmp r0,#7` at `0x00443FA4`), with r0 = the
+record at RAM `0x2034DC30` (the loop copies the message body there) and r1 = the message's length word.
+The record: `u16 devType @0` (the input source: 0/1 = left/right temple touchpad, 4 = ring —
+`gesture_fwd.c`'s `EVT_SRC`), `u32 eventId @2`, `u32 value @6` (read as two `i16` x/y for ids 4, 5
+and 0xE). It looks up the foreground UI context (`FUN_0045F8E6(*0x200744D0)`; null → "current active
+page is null, exit", return −1) and posts one UI event through `FUN_0045F8FC(ctx, code, &data)` per
+event id (the compare chain `0x00442E1A`–`0x00442E40` read at instruction level; the rest from the
+decompile of the same bytes):
+
+| eventId | UI event code posted | what the log line calls it |
+|---|---|---|
+| 0 | 10 (data = the u16 at @0) | (no line) — `input 0 1 0` in the shell help is "inject double click", so 0 is the single click and 1 the double |
+| 1 | 0x48 | (no line) — double click |
+| 2 | 0x3F (data = value) | (no line) |
+| 3 | — | the long press: gates `FUN_00442D64()` ("long press function is disabled!" when 1: a press is posted as code 8 instead) and `FUN_0045BBF4()` (a BLE-role flag: "terminal mode … send long press event to terminal global id" → code 8 when the page id is 0x30); otherwise, with the ctx byte `+0xB == 0`: page 0xE0 (EvenHub) → `FUN_0046AE9C(1, 0xE0)` (the stock force-quit dialog — `gesture_fwd.c`'s site 1), any other page → **on RIGHT only** (`FUN_0045A568() == 1`) `FUN_00464B2E(3, 0, 0, 0)`, a message "app 3, kind 1" to the peer; with `+0xB == 1` the page's own long-press handling (`FUN_0045FAA8`, `FUN_00460374`) |
+| 4 | 0x44 (x, y) | "x_offset = %d, y_offset = %d" |
+| 5 | 0x45 (x, y) | "x_offset = %d, y_offset = %d" |
+| 6 | 0x4B (only when `FUN_00442D64() == 1`) | "onboarding is running, send imu lookup event to onboarding" |
+| 7 | 0x49 | (no line) |
+| 8 | 0x40 (value) | (no line) |
+| 9 | 0x41 (value) | "IMU_COMPASS_DIRECTION, eventValue = %d" |
+| 0xA | nothing | "JBD_CHANGE_BRIGHTNESS no use now" |
+| 0xB | `FUN_0046C622(value); FUN_0046C984()` | "APP_CHANGE_Y_COORDINATE, eventValue = %d" |
+| 0xC | `FUN_0046C600(value); FUN_0046C9AA()` | "APP_CHANGE_X_COORDINATE, eventValue = %d" |
+| 0xD | nothing (falls through) | — (the input manager uses 0xD as "press" below) |
+| 0xE | 0x4A (x, y) | "x_offset = %d, y_offset = %d" — the release (`gesture_fwd.c`'s site 2) |
+| 0xF | 0x4F (value) | "SYSTEM_EXIT_NOTIFY, eventValue = %d" |
+| 0x10 | 0x50 (value) | "IMU_COMPASS_CAL_STATE, eventValue = %d" |
+| > 0x10 | nothing | "unknow input eventID = %d" |
+
+So the scroll of a temple slide or a ring swipe is NOT one of these ids by name: the ids 2, 7, 8 (and
+0/1 for the clicks) are the touch-side gestures; which of 2/7/8 the slider's SLIDE_L/SLIDE_R and the
+ring's swipes become is decided by the touch processor and the ring service before the input manager
+(below), and is **U** until those objects are read (the gesture processor `[0x00502D56,0x00503298)`
+names its events PRESS/RELEASE/SINGLE/DOUBLE/LONG/SLIDE_L/SLIDE_R/ERROR in the table at `0x00503250`).
+
+**The EvenHub page turns UI events into the messages the phone sees (`[0x004935CC,0x0049729C)`, read
+at instruction level; the corpus has no entries for these two).** `0x004949C0(ctx, ?, container)`:
+with a container record, `FUN_004DA16A(1, rec+0x1C, rec+0x20, 0, ctx, 0)` — **kind 1, the item CLICK
+of a container** (its id word and 16-byte name). `0x00494A78(direction, container)`:
+`FUN_004DA16A(2, rec+0x1C, rec+0x20, direction ? 1 : 2, 0, 0)` — **kind 2, a container SCROLL with
+direction 1 (top) or 2 (bottom)**. Both are reached through the page's stored callback tables (their
+Thumb addresses sit at `0x0049556C`/`0x0049559C` and `0x004963FC`/`0x0049642C`, two side-specific
+tables), not by BL. The sender `FUN_004DA16A(kind, id, name, eventType, p5, rawSource)` (536 B, SAME):
+kind 0 = a SysEvent (field 4 = 3, byte 8 = the type, byte 9 = the source **only for types 0 and 3**:
+raw 0 → 3 GLASSES_L, 1 → 1 GLASSES_R, 4 → 2 RING — the rule `EvenHubMsg.kt` already states); kind 2 =
+the list event (field 4 = 2, the id, the name, byte 0x1C = the direction); kind 1 = the item event
+(field 4 = 1, the id, the name, byte 0x60 = eventType, word 0x5C = p5). So under Damage's carrier
+layout the per-notch SCROLL is the dummy text container's kind-2 message and the CLICK is its kind-1
+message — the container path, not a SysEvent; the SysEvents 4/5 (foreground enter/exit) come from
+`FUN_004E0D3A` (its cases 0x42/0x43), and a third site at `0x00496C5C` sends type 6 from RIGHT only
+(`FUN_0045A570() == 1`) and then `FUN_00464C36(0xE0, …)` to the peer — an exit path.
+
+**Who injects input into a display thread — the sync framework, on both lenses, and nothing else.**
+The display thread's five message posters follow its startup function: `FUN_004441EC` (type 2),
+`FUN_004442D0` (3), `FUN_004443CC` (5), `FUN_004444B8` (8) and **`FUN_004445A4(u16 devType, u32
+eventId, u32 value)` = type 7 with the 10-byte record above**, each a queue put with a 1,000 ms wait
+that stops in `FUN_005FA0A4` and an unbounded loop when the queue is full (the same shape as the
+sync sends below). `FUN_004445A4` has exactly two BL callers in the image (`fwread.py calls`):
+`0x0045B9D2` in `FUN_0045B850` = **`SlaveInputEventReplyListener`** (the framework's handler for a
+peer packet whose command byte is 7: logs "received input event command, input dev type / id / value",
+answers through `FUN_0049225A`, then injects) and `0x0045DE5E` inside a function the corpus missed
+whose pool names **`_MasterInputEventDataCmd_Listener`** (`0x0045E660`) — the slave's handler for the
+master's input packets. So every input event reaches a display thread only through the framework's
+listeners, on the master from the slave's packet and on the slave from the master's.
+
+**The input manager `FUN_004C5DBC` (`platform\input\service_input_manager.c`, 907 B, SAME) runs on
+the non-LEFT lens only:** `bl FUN_0045A568; cmp r0,#2; bne …; movs r0,#0; b return` at
+`0x004C5DC4`–`0x004C5DCE` (instruction level). It copies a 12-byte record `{u16 devType, u32 eventId,
+u32 value, u8, u8}`, logs "InputDevType = %d, eventID = %d, diffx = %d, speed = %d" (ids 4/5 carry
+diffx/speed), runs `FUN_004C5A58` (the **both-temple long press**: devType 0 and 1 each with id 0xD
+within 2,000 ms of each other arm a 1,000 ms timer `FUN_0047697E(…, 1000)`; id 0xE clears the arm's
+stamp; "onboarding is running, not process both long press event" gates it) and `FUN_004C5C6E` (the
+touch-release duration statistics: id 0xD stamps, 0xE stamps the release; past 5,000 ms held a record
+is written through `FUN_0048EB32`), then a **cross-device lockout**: an event from a different
+device than the last one within 1,000 ms (`0x3E9`) is dropped ("input event check failed, do not
+inject to UI layer"), a release (0xE) clears the device latch; then, unless `FUN_004C5C30()` says a
+both-long-press is in progress ("both long press event, reject other event") or `FUN_0046B0EC() == 0`
+(a not-ready state), it **sends the event to the peers: `FUN_00465748(devType, eventId, value, 0)`**
+("send input event to peers…"); id 0x1010 goes instead as `FUN_00464B2E(0x109, 0, 0, 0)`.
+
+**The sync API's input send `FUN_00465748` (`sync_interface_api.c`, 962 B, SAME; the lens branches
+read at instruction level, `0x004658EC`–`0x00465AAA`):** builds a 12-byte packet `{3, 7, u16 devType,
+u32 eventId, u32 value}` (byte 1 = 7 = the input command); on RIGHT (`== 1`) it stamps the packet's
+tag word 3 and posts to the queue at `*0x00465FC8` (a 2,000 ms wait; a full queue → the stop above); on LEFT
+(`== 2`) the tag is 0, the post goes to `*0x00465D54` and the UART worker is woken with flag bit 2
+(`FUN_004495E4(*0x00465FA4, 2)` — the "drain the sync-framework send queue" bit of openCFW's
+`uart_sync.c` read). The general send `FUN_00464772(app, body, len, tag, kind, 2, 0)` has the same two
+branches (`0x0046496A`–`0x00464A5C`): **both lenses can send over the inter-lens link; nothing in the
+send path refuses by lens.** The slave→master direction is what the master's
+`SlaveInputEventReplyListener` receives.
+
+**What this settles for Phase 4 and the atlas.** (1) A hook in `inputEventDataHandler` (or on
+`FUN_004445A4`'s callers) sees every input event on BOTH lenses, already de-bounced and cross-device
+locked by RIGHT's input manager, with its source and id — the natural place for a local reaction
+(`FORK.md` §6). (2) The both-temple long press is detected on RIGHT before any UI code; the 1,000 ms
+timer's callback is the Silent-Mode path (U: not followed). (3) LEFT can send to RIGHT (V); a LEFT →
+RIGHT cache report (option 2 of §51.4 item 6) is a new command id in the framework's listener on
+RIGHT, which then answers the phone — Phase 4 work, not needed for the bounded skip. (4) The stock
+input event ids for the slides/swipes (2, 7, 8 by elimination) and the ring's raw codes are **U** until
+the touch processor and the ring service are read; Damage's per-notch scroll is the kind-2 container
+message either way (V). (5) Which lens is the framework's "master": the input manager and every reply
+run on lens 1 (RIGHT); the UART worker runs `FUN_00471528` only on lens 2 (`0x00541928`); the
+TinyFrame role byte itself was not read — **I** that RIGHT is the master.
+
+## Read 2026-09-15: R0.5 — the stock helpers the later phases call
+
+- **RTC.** openCFW closes `driver\rtc\drv_rtc.c` at `[0x0047EE78,0x0047EEFA)` = `DRV_RtcSetTime`
+  (130 B; the only caller `0x0044A20C`); it maps application fields into the 40-byte Ambiq structure
+  and calls the HAL setter `am_hal_rtc_time_set` at `0x004D3ADC` (AmbiqSuite 5.1.0, exact) with
+  `am_util_time_computeDayofWeek` at `0x004D3CF8`. The **getter** openCFW ships (`rtc_time_get.c`) reads
+  the Apollo510 RTC registers directly (`0x40004820`/`0x40004824` counter low/up, control `0x40004800`);
+  its stock counterpart is named in `tools/manifests/g2-drv-rtc-function-map.tsv` and was not decoded
+  here — for the silent clock (Phase 5) the HAL's `am_hal_rtc_time_get` is the call to find
+  (`fwread.py calls` on the setter's HAL sibling), **U** for now. The stock time-of-day the dashboard
+  shows comes through `service_kvdb_time.c` and the pb settings; the phone sets it.
+- **Fuel gauge (`driver\chg\drv_bq27427.c`, `[0x0053AFC0,0x0053C2A4)`).** The live record at RAM
+  **`0x20073B18`** (`+4` state of charge %, `+8` mV, `+0xC` signed mA, `+0x10` centi-°C — openCFW's
+  table, grade C for the offsets) is referenced by seven literal pools in the image (`fwread.py refs`:
+  `0x004AD97C`, `0x004C6CA0`, `0x00512608`, `0x0053AF6C`, `0x0053C284`, `0x005709B0`, `0x00576A30`), so a
+  read of it from the fork is the kind of RAM read a5d1c31 already does — the writer is the gauge
+  object's periodic wrapper (`0x0053C0F4` → `FUN_0053C024`, called from `0x004C688A`). The stock
+  battery percentage the phone sees (field 4.12) is the same record. Verify the `+4` offset at
+  instruction level before a patch reads it (one `dis` of `FUN_0053C024`'s store).
+- **KV store (`platform\service\flashDB\kv\service_kvdb.c`, FlashDB 2.1.1).** `FUN_0054116E(u8 db,
+  const char *key, void *buf, u16 len)` → `FUN_0054454A(ctx + db·0x8AC, key, &blob)`
+  (`fdb_kv_get_blob`; returns the size read; logs "…" at line 0xF1 when the blob's saved length is 0)
+  and `FUN_005411F2(db, key, buf, len)` → `FUN_0054503A` (`fdb_kv_set_blob`, returns the negated
+  FlashDB status). Both bracket the call with `FUN_004490CC()`, which is **not a lock** — it is the
+  tick reader (`FUN_0044900E` then `FUN_00454EFE`; the input manager uses its return as "now") —
+  correcting `HANDOFF.md` §50's "the KV get takes a lock"; FlashDB's own lock/unlock callbacks
+  (installed with control commands 2 and 3 at init) serialize the store. Callers of the get: the KV
+  service itself (`FUN_004D956C/959C/96D8`) and `service_kvdb_*` readers (`FUN_005105F0`,
+  `FUN_00510620`, `FUN_0051079C`), all on the KV/settings-side paths — no caller on the BLE receive task,
+  so the "cached read from the settings context" of F1.2 still has no precedent (**U**); a once-per-lease
+  read is cheap (one FlashDB lookup) and the lock it waits on is the store's.
+- **Dashboard launch and the module registry (openCFW's `ui_startup_app.c`, `ui_module_registry.c`,
+  grade C: recovered ABI, not read here).** The startup policy at stock `0x00442BA8(system_status,
+  input_type)`: input types 0/1/4 → operation 0/1/2 → the policy `0x0046651F` → application type 0 →
+  **app id 0**, type 1 → **app id 3**; every other type logs and maps to 0. App 3 is the id the
+  display thread's long-press branch sends to the peer and compares the page against, and the
+  "SID_UI_FOREGROUND_MEUN_ID, start menu" line of the schedule manager is its sibling: **app 3 = the
+  dashboard/home (I)**. The registry: `count` at `0x200744D4`, 16-byte entries from `0x20066230`
+  `{service id, data handler, ui handler, state pointer}`, the state's byte `+0xB` is the mode the
+  input handler tests, the display manager at `0x200744D0` (gesture_fwd's `UI_CTX`; its `+0x1C`/`+0x20`
+  are the two UI contexts), the stage word at `0x200744DC`. An app start is the display thread's type-2
+  message → `FUN_0044228A(app, 2, …)` walks the registry (`*0x00442CD4` entries of 16 B at
+  `*0x00442CD8`) and calls the entry's handler `+8`, then `FUN_0045F3C8` activates it. Phase 7's offline
+  home is a registry entry of its own or a redirect of app 3's — a design choice for then.
+
+## Read 2026-09-15: M0.3 — packets per connection event, from the three APK captures
+
+`research/perevent.py` (offline, stdlib): per arm, the controller's Number-of-Completed-Packets
+reports (HCI event 0x13) against the outbound ACL records. **Measured (grade M):**
+
+| capture | LEFT: completed per report while more were queued | gap between busy reports | RIGHT (control) |
+|---|---|---|---|
+| 17:05–17:12 (7 min) | 2 × 1,423, 1 × 63 | median 60.1 ms; 1,133 of 1,956 gaps are 4 intervals of 15 ms | 1 per report, gaps 4–13 intervals |
+| 17:12–17:31 (quieter) | 2 × 348, 1 × 11 | median 25.0 ms; the mode is 2 intervals | 1 per report |
+| 17:31–17:56 (24 min) | 2 × 1,458, 1 × 64 | median 60.1 ms; 1,159 of 2,184 gaps are 4 intervals | 1 per report |
+
+So during a flush the phone's controller gets **two full 247-byte packets across per served
+connection event, and LEFT is served every 60 ms (four 15 ms intervals) in the two busy sessions,
+every ~25–30 ms in the quiet one** — 2 × 247 B / 60 ms = 8.2 KB/s, the daily-path figure the journal
+measures (`REMINDER.md`: ~120 ms per KB). The host had more queued than the link took in 95 % of the
+busy reports: the link paces, not the phone. The packets are full (779,833 B in 3,523 packets on LEFT
+= 221 B average against the 247-byte DLE), so **a bigger ATT write cannot help; only more served events,
+or more packets per served event, can** (`FORK.md` F1.8 rewritten). Why LEFT is served every fourth
+event in two sessions and every second in the third is **U** — the candidates: the lens's own
+controller sharing its radio time between the phone link and the ring link (which lens owns the ring
+follows the dominant hand: `[ble.master][RingSwitch] dominant_hand=%u owner=%d`), the phone's
+controller interleaving two 15 ms links plus the classic audio link (its packet counts per 30 s do not
+follow the cadence, `perevent.py`'s table), the peripheral's own latency use, an Ambiq LL cap on
+packets per event, the phone's LE scheduling window — none tested; a capture with the ring asleep or
+unpaired would separate the first from the rest.

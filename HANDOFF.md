@@ -3456,3 +3456,194 @@ committed and pushed on Adam's word the same night:** the fork `2935a66` (`githu
 `damage` service on 0.44's core, not restarted; APK 0.48 staged over 0.47, not installed. The §51.9 queue stands unchanged, the bounded atlas skip first; Adam's part is §51.9's part B with the
 two reviews' diffs to read and commit first (the fork to `github/damage`, never `origin`), plus one ruling:
 whether a FLAGS_SET with no lease held should be refused (§53.1 item 2).
+
+## 54. The queue run while Adam was at work: the bounded atlas skip, R0.1, R0.5, M0.3's per-event read, the core suite ×20 (2026-09-15)
+
+Adam's instruction for the session: read the documentation, then run `REMINDER.md`'s queue (§51.9) as far as it
+goes without him. Nothing flashed, nothing installed, the `damage` service untouched; the Damage tree left
+modified and **uncommitted** for his review (the global rule: commit on his word); the fork untouched (pin
+`c5e4f8b7…` stands — none of this needed a firmware change). Plain wording throughout.
+
+### 54.1 The bounded atlas skip, built (queue item 1; Adam's ruling §51.8, §42.4's plan)
+
+The shell no longer throws its atlas away at every session start when the glasses still hold it.
+- **Transport (`CfwTransportBase`).** A per-arm lease log: the times of the ACQUIRE writes that left for
+  the arm and are taken as having arrived, and whether a RELEASE left since. A write of the last
+  `LINK_SETTLE_MS` (10 s) before a link end is struck at the end (`onLinkDown`, `stop()`, the failed-start
+  rollback): the platform's write callback means its stack took the packet, the last exchange can predate a
+  supervision timeout by 5 s (`5000ms` in every parameter set the phone has reported), and a lease write can
+  queue behind a flush's fragments on the same arm. A RELEASE is never struck: one that may have arrived has
+  freed the cache. At the session's first ACQUIRE (`decideLeaseCarry`, before the write joins the record)
+  both arms must be inside `LEASE_CARRY_WINDOW_MS` = 90 s − `LEASE_CARRY_MARGIN_MS` (10 s, the two writes'
+  own delivery); the answer and the per-arm facts go to `LinkState.leaseCarried` / `leaseCarry` ("L gap
+  12.3 s, R gap 12.3 s" / "L released" / "R no lease on record"), forwarded over the seam (`WireState`, an
+  older peer reads "not carried"). Both constants are derived, not measured — the journal's gaps will say
+  whether they are loose or tight.
+- **The writer tag.** A cache another shell wrote into through the same transport (a takeover over the
+  seam) holds that shell's atlas: every cache write carries `FlushRequest.writer` (the shell's per-instance
+  tag), the transport keeps the last writer in `LinkState.cacheWriter`, and the kept path requires it to be
+  this shell's. Chosen over a write counter because the counter's copy through `PathTransport`'s state
+  collector could lag the flush event by a dispatch and reset every rebuild on the standby host.
+- **Shell (`atlasAtSessionStart`, in place of the unconditional `atlasReset()`).** Kept when: cached text
+  is on, the session is not adopted (a takeover/handback resets — another shell may have uploaded into the
+  same lease), the transport says the acquire was a renewal on both arms, and the last writer was this
+  shell. Then (`atlasKeep`) the acked fonts and icons are live from the FIRST compose (the keyframe carries
+  the same pixels), the chunk in flight at the link end goes again from the acked mark
+  (`GlyphAtlas.rewindToAcked`: a mode-12 write is a copy at an offset, so a chunk that did land is rewritten
+  with its own bytes), and the keyframe follows as always. Every other case resets as before. An `atlas`
+  note either way: "kept across the rebuild (L gap 20.0 s, R gap 20.0 s): 6 font(s) and 0 icon(s) live,
+  1214 B on the glasses, 0 B to go again" / "reset — the acquire was not a renewal on both arms — L gap
+  200.0 s, R gap 200.0 s" / "reset — the last cache write through the transport was not this shell's
+  (another-shell) (L gap 20.0 s, R gap 20.0 s)" / "reset — no atlas from a previous session (…)".
+  `journal_report.py` lists them under "atlas at session start: N session(s), K kept, M reset".
+- **A chunk whose ack a link end took is no longer a refusal** (`atlasDone`): a `FlushDone` without
+  `ImgResCmd` in its error (a sweep, a link end) rewinds to the acked mark and re-queues instead of disabling
+  cached text for the session with `setStatus("atlas refused")` — a misreport that had been there since §40.
+- **Tests (`AtlasCarryTest`, 5):** a clocked `CfwTransportBase` over the model with the keeper: kept inside
+  the window (the fonts live at once, no upload, the model's cache generation unchanged, the notches ship
+  `drawtext` ops with no failed flush and glass = belief); reset past the window (the note's gaps, the
+  re-upload, glass = belief); a foreign writer resets, then a release resets ("L released, R released");
+  the lease log on its own (writes inside 10 s of a link end struck, a 79 s gap kept, an 86 s gap not, a
+  release sticky); the atlas rewind. **Watched to fail on the old code:** the kept test failed at "the kept
+  note" with the keep disabled (and at the first-session note on the untouched shell).
+- **The premise on glass** is `CLAIMS.md`'s renewal rule (the four release sites in `settings_ext.c`); the
+  bounded skip is the first thing that depends on it in daily use. After the flash `probe:cache=info`
+  before and after a rebuild (RIGHT's generation and CRC unchanged) checks it; before the flash the journal's
+  `atlas` notes and any `cacheMiss`/refusal after a "kept" note are the evidence. A wrong keep on LEFT would
+  be the lens-mismatch class in silence — the 10 s settle and the 10 s margin are there for that.
+- **Self-review after the twenty runs (§54.7), three small changes on the same tree:** the per-arm gap is
+  formatted with `Locale.ROOT` (a journal fact spelt one way on every locale); the lease log keeps the newest
+  `LEASE_LOG_DEPTH` (8) acquires instead of pruning by age — an age prune emptied the record when a renewal
+  written at a jumped test clock was then struck at the link end, and the same shape (a renewal just before a
+  link end, struck; the one before it needed) is the real case; and the re-send of an undelivered chunk is
+  bounded (`ATLAS_UNDELIVERED_LIMIT` = 3 in a row switches cached text off with its own note, never a "refused"
+  status for a link fault).
+- **APK 0.49** staged (`~/.damage/damage-wm.apk`, 23:21, 26.9 MB; 0.48 never installed); re-staged after the
+  self-review's changes at 01:40 on the 15th (27.5 MB; the same number: nothing was installed in between).
+
+### 54.2 R0.1 — the input path (queue item 2; `research/fork-reads-2026-09-13.md` "R0.1", `CLAIMS.md`)
+
+Read at instruction level where it counts (every function SAME against the corpus header):
+- The mapper `FUN_00442D86` is the display thread's `inputEventDataHandler` (its own log tag): a 10-byte
+  record `{u16 devType, u32 eventId, u32 value}` at `0x2034DC30`, one UI event code per id (the table is in
+  the notes; the long-press branch holds `gesture_fwd.c`'s two sites; ids 0xA/0xD post nothing).
+- **Input reaches a display thread only through the sync framework, on both lenses**: the type-7 poster
+  `FUN_004445A4` has exactly two callers — the master's `SlaveInputEventReplyListener` and the slave's
+  `_MasterInputEventDataCmd_Listener` (a function the corpus missed). A hook there sees every event on both
+  lenses, already de-bounced — Phase 4's place.
+- The input manager `FUN_004C5DBC` runs on the non-LEFT lens only (`cmp r0,#2; bne` at its entry): the
+  both-temple long press (ids 0xD on both temples within 2 s → a 1,000 ms timer), a 1,000 ms cross-device
+  lockout, then the send to the peers `FUN_00465748(devType, eventId, value, 0)`.
+- **Both lenses can send over the inter-lens link** (`FUN_00465748`, `FUN_00464772`: RIGHT posts to one
+  queue, LEFT to another and wakes the UART worker with flag bit 2; a post that waits 2 s without room ends
+  in `FUN_005FA0A4` and an unbounded loop — a shape any Phase 3 sender must respect). The slave→master
+  direction the atlas option 2 (§51.4 item 6) would ride exists; it is Phase 4 work.
+- Under the carrier layout the per-notch SCROLL is the EvenHub page's kind-2 container message with
+  direction 1/2 and the CLICK its kind-1 item message (`0x00494A78`, `0x004949C0`) — the container path,
+  which is why a scroll has no source; the SysEvent sender's source rule (types 0 and 3 only) reconfirmed.
+- Still U: which event ids the temple slides and ring swipes carry (the touch processor
+  `[0x00502D56,0x00503298)` and the ring service are the next reads); the TinyFrame role byte (RIGHT is the
+  master by every other sign — I).
+
+### 54.3 R0.5 — the stock helpers (queue item 3; the notes "R0.5", `CLAIMS.md`)
+
+The KV get/set (`FUN_0054116E`/`FUN_005411F2`) are FlashDB `get_blob`/`set_blob` with **no lock of their
+own** — the bracketing `FUN_004490CC` is the tick reader (the input manager uses it as "now"), which corrects
+§50's "the KV get takes a lock"; FlashDB's installed callbacks serialize the store; no caller sits on the
+BLE receive task (F1.2's precedent stays U). The fuel-gauge record `0x20073B18` is referenced from seven
+literal pools (the offsets `+4` % / `+8` mV / `+0xC` mA / `+0x10` centi-°C are openCFW's, C — one store to
+read before a patch uses them). The RTC setter is `DRV_RtcSetTime` at `0x0047EE78` over AmbiqSuite's
+`am_hal_rtc_time_set`; the stock getter is still to name (openCFW's own reads the registers). App 3 is the
+dashboard/home by three independent signs (I); the module registry (`0x20066230`, 16-byte entries, the
+count at `0x200744D4`, the display manager at `0x200744D0`) per openCFW's recovered ABI (C).
+
+### 54.4 M0.3 — the per-event read (queue item 4; `research/perevent.py`, grade M)
+
+Over the three APK captures: **during a flush the controller gets two full 247-byte packets across per served
+connection event on LEFT, and LEFT is served every 60 ms (four 15 ms intervals) in the two busy sessions,
+every ~25–30 ms in the quiet one** — 2 × 247 B / 60 ms = 8.2 KB/s, the journal's daily-path number; the
+host had more queued than the link took in 95 % of those reports (1,423 of 1,486; 1,458 of 1,522), so the
+link paces, not the phone; the packets average 221 B (779,833 B in 3,523). RIGHT's control writes complete
+one per report. **So F1.8 (bigger ATT writes) buys nothing and is dropped in that form** (`FORK.md`); the
+lever is more served events or more packets per served event, and why LEFT is served every fourth event
+in two sessions and every second in the third is U — the notes list the candidates (the lens sharing its
+radio with the ring link, whose owner follows the dominant hand; the phone interleaving its two 15 ms
+links and the classic audio link, whose packet counts do not follow the cadence; the peripheral's own
+latency use; an LL cap). A capture with the ring asleep or unpaired separates the first from the rest.
+
+### 54.5 The battery, and the core suite ×20 (queue item 5)
+
+On the finished tree, gradle one invocation at a time: `:core:test` **555** (550 + 5; the first full run
+had the known Feed miss of §49.6 AND one oracle-walk settle miss — `h=416 step 100 (LONG_PRESS): the shell
+did not settle` — with `fwread.py`'s disassembler runs in parallel; alone, the oracle walk passed and the
+second full run was clean) · `:desktop:test` **15** · `--selfcheck` ×3 ALL CHECKS PASS (429 surfaces) ·
+`--snapshot` 57 · `--epub-check` 380/404 · `--music-check` · `--games-check` · `--feed-check` · lint 0 ·
+`:phone:stageApk` alone (0.49). **The ×20 loop:** `./gradlew :core:cleanTest :core:test --no-build-cache
+--no-daemon` (without `--no-build-cache` gradle restores the result FROM-CACHE in 0.4 s — the first attempt at the
+loop measured nothing; without `--no-daemon` Claude Code's low-memory guard ended the loop in its third run with
+the gradle daemon at 2.7 GB and the Kotlin daemon at 2.2 GB resident, `free` at 1 GB and `available` at 13 GB —
+the machine was not short, the guard reads free). **22 genuine full runs today:**
+
+| failure | runs | note |
+|---|---|---|
+| `FeedWindowTest.deepLinksResolveEveryForm` ("did not converge: the strip []") | 4 of 22 | the §49.6 rate, ~18 %; the finding below |
+| `OracleWalkTest` settle miss (`h=416 step 100 (LONG_PRESS)`) | 1 of 22 | the first battery run, with `fwread.py`'s disassembler running beside it; passed alone and in every quiet run |
+| `java.util.NoSuchElementException` in `AtlasCarryTest.aReleaseOrAnotherWriterResetsTheAtlas` (run 3), `SubstrateTest.virginStoreBaselinesLoseToRealRecords` (run 9), `TorrentsTest.persistenceRoundTripAndContinuityRestoreTheOpenDetailsAndTheRecents` (run 10) | 3 of 22 | never recorded before; the console frame is each test's `runBlocking` line, the XMLs were wiped by the next run's `cleanTest` — a targeted loop of the five classes with every failure's XML kept is the reproduction (§54.7) |
+| `MusicModeTest.musicModeAt288` ("nothing moved: no rect") | 1 of 22 | same |
+| `SeamSessionTest.aSeamThatEndsFailsTheOutstandingFlushOnceBeforeItsLinkDown` | 1 of 22 | same |
+
+**The Feed miss, one step further (§49.6's "what presses `first`"):** the logged line is `loadComic`'s
+(`FeedWindow.kt:1149`, "comic 'Strip 1': no such item") for an item titled "Strip 1" — an item only
+`ScriptedFeed.comicAt` builds, for a number outside its stored list; the only caller that asks for number 1
+is `flip("first")`, and `flip` is reached only from `comicTap()`, the comic view's tap callback, with
+`comicFocus` on the bar's "first" button (index 3 of `next, prev, random, first, latest, menu`). The focus rests
+on "first" only through `firstEnabledButton()` in one transient state: no comic range yet and a list of exactly
+one item that is not the open one (`neighbours()`'s list branch: next/prev/random disabled, "first" enabled by
+`items.isNotEmpty()`). In every failing run the line follows the session-start lines within a few 50 ms lease
+renewals, i.e. during the deep-link steps. The test posts one gesture, the rig's start click (`Rig.start()`:
+`shell.start(); postGesture(EV_CLICK)`), and waits for nothing after it — `title()` is already "feed" at the
+root level — so the test's direct `open(...)` calls race that click. A click the shell routes to Main opens
+Feed and `goRoot()`s it; a click that reaches the comic view is the flip. Which of the two the late click
+becomes, and how the one-item list state arises, is not settled from the logs the XML keeps (WARN level only).
+Grade **I**. The cheap experiment is a rig that waits for the start click to land (or a WARN line in `comicTap`
+naming the focus and the source) — a change to Feed's test rig, so Adam's call (`FORK.md`: Feed is suspended).
+
+### 54.7 Reproducing the five one-off failures (the targeted loop, then the final loop)
+
+The five classes of §54.5's table ran 25 times each, alone, no daemon, every failure's XML kept: **one failure
+in 25 runs** — `AtlasCarryTest.theAtlasIsResetWhenTheRebuildComesAfterTheLeaseWindow` with the note "L no
+lease on record, R no lease on record" instead of the 200 s gaps: the test moves the clock 200 s and ends the
+link; when the renewal loop (every 50 ms in instant mode) wrote an acquire at the jumped clock before the link
+end, the age prune dropped the 200 s-old acquire, the strike then dropped the young one, and the record was
+empty. A test race, but the fix is the transport's: the newest-eight rule above (nothing struck can take the
+previous acquire with it). The three `NoSuchElementException`s, the Music-mode miss and the seam miss did not
+reproduce in 125 class-runs; they need the full suite around them (its load, its order, its heap) — the final
+loop on the reviewed tree keeps every failure's XML for the trace.
+
+**The final loop, eight full runs on the reviewed tree (no daemon, no build cache, every failure's XML kept):
+6 clean; run 5 the Feed miss; run 7 the seam miss, now with its line** — `SeamSessionTest.kt:82`,
+`assertTrue(client.state.value.started)` right after `client.start()` returned: the seam client's state is a
+copy of the server's, forwarded as a `state` message, and it can land a moment after the start's own reply —
+a test that reads the state without waiting for it (2 misses in 30 runs today; the fix is a wait for
+`started` in the test, one line, left for Adam with the rest of the diff). No `NoSuchElementException` in the
+eight; the three of the earlier loop stay untraced — the loop scripts now keep every failure's XML, so the
+next one that happens will carry its trace. **The day's total: 30 genuine full runs — the Feed miss 5, the
+seam miss 2, the three untraced exceptions, the Music-mode miss 1, the oracle-walk settle miss 1 (under
+parallel load); 18 runs clean.** The rest of the battery on the same reviewed tree: `:desktop:test` 15 ·
+`--selfcheck` ×2 ALL CHECKS PASS · `--snapshot` 57 · `--epub-check` 380/404 · `--music-check` · `--games-check` ·
+`--feed-check` · lint 0 · `:phone:stageApk` alone (0.49 re-staged, 01:40).
+
+### 54.6 State and next
+
+**Queue item 6 (a DWT stamp around the CACHE_INFO CRC) was left alone on purpose:** it changes the fork's
+candidate — the sources Adam is about to read, the pin in three places, `verify.py`'s site list — for a
+~2–3 ms figure the first `probe:cache=info` after the flash can be timed from the phone's side (the request
+to the reply, minus the link's floor). Not worth a third pin before his review.
+
+Damage modified and uncommitted (the diff is the deliverable; `git status` lists it); the fork untouched
+(`c5e4f8b7…`); APK 0.49 staged; nothing flashed; the service on 0.44's core. **Adam's part is unchanged
+(§51.9 part B):** the source and site review, M0.1, install **0.49**, the flash ritual with his go; plus
+the ruling of §53.1 (a FLAGS_SET with no lease held). **Next for a session without him:** the touch
+processor and the ring service (the ids behind 2/7/8 and the ring's raw codes), the RTC getter's stock
+name, a fuel-gauge store at instruction level, the TinyFrame role byte; a capture with the ring asleep for
+the 60 ms question.

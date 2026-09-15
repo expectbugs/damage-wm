@@ -107,8 +107,14 @@ the CFW replaces.
   and every cached draw refused there in silence. **Adam's ruling (2026-09-14 evening, `HANDOFF.md`
   §51.8): the phone skips the re-upload only after a rebuild that completes inside the lease's remaining
   time on the arm that dropped** — the bounded skip, §42.4's plan, where the installed renewal rule
-  already keeps both caches and no flag is involved. CACHE_KEEP itself stays **unarmed** until LEFT's
-  cache can be verified (an inter-lens report, Phase 4); the firmware side is inert until armed.
+  already keeps both caches and no flag is involved. **Built 2026-09-15 (`HANDOFF.md` §54, Damage only —
+  no wire shape changed):** the transport logs its lease writes per arm, strikes the ones of the last
+  10 s before a link end (never exchanged, or queued behind a flush), and decides at the rebuild's
+  acquire whether both arms were inside 90 s less a 10 s margin; a release on either arm, a first session
+  or another shell's cache write through the same transport reset instead. CACHE_KEEP itself stays
+  **unarmed** until LEFT's cache can be verified (an inter-lens report, Phase 4); the firmware side is
+  inert until armed. After the flash, `probe:cache=info` before and after a rebuild (generation and CRC
+  unchanged on RIGHT) is the on-glass check of the premise.
 - **Flag op:** arm / disarm by bit; a reply echoes the flags in force.
 - **Wire shapes (draft, fixed 2026-09-13):**
   - *Request* (phone → each arm): sid 0x09 `G2SettingPackage{ 1: commandId 1, 2: magic 0, 112: body }`,
@@ -209,6 +215,13 @@ the CFW replaces.
 - **Behaviour:** a bound event runs its program at once on both lenses (through stock's input
   mirror) and reports an **applied-state event** to the phone: event, sequence number, the
   program's end-state parameter (viewport index, edge hit). Unbound events reach the phone as today.
+- **Where the hook sits (R0.1, read 2026-09-15 — `CLAIMS.md`, `research/fork-reads-2026-09-13.md`):**
+  every input event reaches a lens's display thread only through the sync framework's listeners
+  (`FUN_004445A4`'s two callers), already de-bounced and cross-device locked by RIGHT's input manager, as
+  `{u16 devType, u32 eventId, u32 value}` — so a hook on the display thread's `inputEventDataHandler`
+  (`FUN_00442D86`, the function `gesture_fwd.c` already patches) sees the same event on both lenses, and
+  the binding table needs no mirror of its own. The ids behind the slides and the ring's swipes are still
+  to be read (the touch processor, the ring service).
 - **Reconciliation:** the phone applies the same program in its model when the event arrives;
   sequence numbers order local and phone-started changes; a mismatch is a `divergence` note and a
   keyframe, never silent.
@@ -304,3 +317,6 @@ phone's keeper applies the hold-back rule before re-arming.
   both sides, fork pin `c5e4f8b7…`); a FLAGS_SET with no lease held is taken and in force until the next
   release point on both sides, refusing it instead left open for Adam; a begin runs under the self-test's
   active mark. No wire shape changed.
+- 2026-09-15 — the bounded atlas skip built on the Damage side (`HANDOFF.md` §54; §3's F1.5 paragraph):
+  a per-arm lease log in the transport, the decision at the rebuild's acquire, the shell's kept path.
+  No firmware change, no wire shape changed; CACHE_KEEP stays unarmed.

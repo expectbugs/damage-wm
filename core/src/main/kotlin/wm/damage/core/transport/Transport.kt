@@ -189,6 +189,9 @@ data class FlushRequest(
     val label: String = "",
     /** Rects exceed the pipelined budget: run with the window drained (§8.2 #4). */
     val wide: Boolean = false,
+    /** §54: for a cache write, who is writing (the shell's own tag) — the transport
+     *  remembers the last one ([LinkState.cacheWriter]). Nothing else reads it. */
+    val writer: String = "",
 )
 
 sealed class TransportEvent {
@@ -277,6 +280,21 @@ data class LinkState(
     val capability: String? = null,
     val rssiDbm: Int? = null,
     val transportName: String = "none",
+    /** The bounded atlas skip (2026-09-15, `HANDOFF.md` §54; Adam's ruling §51.8): at
+     *  this session's first lease ACQUIRE, whether the previous lease was still inside
+     *  its window on BOTH arms — so the acquire was a renewal on the glasses and the
+     *  texture cache survived the rebuild (`CLAIMS.md`: the cache is freed on expiry,
+     *  FB_RELEASE, a fresh acquire and mode 11, never on a renewal). False until the
+     *  session's acquire has gone out, and for every reason the cache cannot be
+     *  trusted; [leaseCarry] says which, per arm ("L gap 12.3 s, R gap 12.3 s",
+     *  "L released", "R no lease on record"). */
+    val leaseCarried: Boolean = false,
+    val leaseCarry: String = "",
+    /** The [FlushRequest.writer] of the last mode-12 cache write this transport wrote
+     *  ("" before any). The shell trusts a kept cache only when the last writer was
+     *  itself: a cache another shell wrote into through the same transport (a takeover
+     *  over the seam) holds that shell's atlas, not this one's. */
+    val cacheWriter: String = "",
     /** What the transport is doing right now, for status lines: "scanning for
      *  the pair", "connecting RIGHT", "connect prelude", "" once driving. */
     val detail: String = "",

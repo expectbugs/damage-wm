@@ -467,6 +467,23 @@ frame; the compositor ships a rect as one clear plus mode-14 draws only when bla
 composed pixels byte for byte. The upload (`DisplayOp.CacheWrite`, one ≤ 3 KB chunk per idle pump after the
 keyframe) is `Shell.pumpAtlas`; fonts go live on the batch's last ack; a lease lapse forgets the upload.
 
+**Kept across a rebuild (`HANDOFF.md` §54, 2026-09-15 — Adam's bounded skip, §51.8).** A session start no
+longer throws the atlas away when the glasses still hold it. `CfwTransportBase` keeps a per-arm lease log
+(the newest `LEASE_LOG_DEPTH` = 8 ACQUIRE writes taken as arrived — never pruned by age; whether a RELEASE went
+out since): a write of the last `LINK_SETTLE_MS` (10 s) before a link end is struck (the platform's write callback means its stack took
+the packet, the last exchange can predate a supervision timeout by 5 s, and a lease write can queue behind
+a flush on the same arm), a release is never struck. At the session's first ACQUIRE the transport decides
+whether both arms were inside `LEASE_CARRY_WINDOW_MS` (90 s less a 10 s margin) and puts the answer and
+the per-arm gaps in `LinkState.leaseCarried` / `leaseCarry` (over the seam too). `Shell.atlasAtSessionStart`
+keeps the atlas when the transport says so, cached text is on, the session is not adopted and the last
+cache write through the transport was this shell's (`FlushRequest.writer` = the shell's tag →
+`LinkState.cacheWriter`): the acked fonts are live from the first compose, the chunk in flight at the link
+end goes again (`GlyphAtlas.rewindToAcked`), the keyframe follows. Every other case resets. An `atlas` note
+either way ("kept across the rebuild (L gap 12.3 s, R gap 12.3 s): …" / "reset — …"); `journal_report.py`
+lists them under "atlas at session start". A chunk whose ack a link end took is no longer a refusal
+(`atlasDone`): it goes again from the acked mark, at most `ATLAS_UNDELIVERED_LIMIT` (3) times in a row before
+cached text is switched off with its own note. `AtlasCarryTest` pins all of it against the model.
+
 **Every plane, and icons (§41).** Cached draws are flat in the firmware, so a rect on a depth plane ships as a
 BASE delta over the rect widened by the disparity (every draw's box black), the draws at nominal x, and one
 per-lens mode-9 copy (`DisplayOp.CopyPair` → `CfwModes.copyStereo`) that slides each lens's copy to its own x;
