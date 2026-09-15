@@ -135,7 +135,7 @@ and versionName together, `:phone:stageApk` alone). Plain wording everywhere.
    lease dropped on purpose) resets by construction. Tests: a `SimTransport` restart inside the window keeps
    `sim.cacheAllocated(arm)` on both arms and the shell's cached fonts stay live (see `DamageMsgTest`'s restart
    pattern and the existing atlas tests: `grep -rn atlas core/src/test`); a restart after a lapse resets;
-   `--selfcheck` ×3. Then APK 0.47.
+   `--selfcheck` ×3. Then APK 0.49 (0.48 is staged, not installed; bump both numbers).
 2. **R0.1, the input path** (offline, `research/fwread.py`): the gesture mapper `FUN_00442d86` (subtypes
    0/2/4/6/8/10/0xc/0xe/0x10 — which are scroll), how input is mirrored to the other lens, how the EvenHub UI
    handler turns them into SysEvents (`gesture_fwd.c` has the two known sites); AND the slave→master send on the
