@@ -121,6 +121,10 @@ data class WireState(
     val glassesSilent: Boolean = false,
     // 2026-09-15 (§54): the bounded atlas skip's facts; an older peer reads "not carried"
     val leaseCarried: Boolean = false, val leaseCarry: String = "", val cacheWriter: String = "",
+    // 2026-09-15 (`FIRMWARE.md` §4): the Damage build and the session's contract-2 state, so a shell
+    // across the seam lays out and draws for what the glasses answer; an older peer reads "upstream, v1"
+    val damageContract: Int = 0, val damageFeatures: Int = 0, val flagsInForce: Int = 0,
+    val cacheSize: Int = wm.damage.core.wire.CfwModes.TEXTURE_CACHE_SIZE,
 )
 
 // named on both sides: the two classes order their fields differently, and a
@@ -130,13 +134,15 @@ private fun LinkState.toWire() = WireState(connected = connected, started = star
     capability = capability, rssiDbm = rssiDbm, transportName = transportName, detail = detail,
     floorMsEma = floorMsEma, transferMsPerKbEma = transferMsPerKbEma, linkParams = linkParams,
     glassesSilent = glassesSilent,
-    leaseCarried = leaseCarried, leaseCarry = leaseCarry, cacheWriter = cacheWriter)
+    leaseCarried = leaseCarried, leaseCarry = leaseCarry, cacheWriter = cacheWriter,
+    damageContract = damageContract, damageFeatures = damageFeatures, flagsInForce = flagsInForce, cacheSize = cacheSize)
 
 private fun WireState.toState() = LinkState(connected = connected, started = started, leaseHeld = leaseHeld,
     inFlight = inFlight, window = window, ackMsEma = ackMsEma, bytesPerSecEma = bytesPerSecEma,
     floorMsEma = floorMsEma, transferMsPerKbEma = transferMsPerKbEma, linkParams = linkParams,
     glassesSilent = glassesSilent,
     leaseCarried = leaseCarried, leaseCarry = leaseCarry, cacheWriter = cacheWriter,
+    damageContract = damageContract, damageFeatures = damageFeatures, flagsInForce = flagsInForce, cacheSize = cacheSize,
     capability = capability, rssiDbm = rssiDbm, transportName = "remote:$transportName", detail = detail)
 
 private fun DataOutputStream.send(c: Ctl, blob: ByteArray? = null) {
@@ -299,7 +305,7 @@ class RemoteTransportClient(
      *  still outstanding is answered as failed, loudly, so the shell rolls
      *  back its cells and its in-flight bookkeeping empties (round 2, b2-1). */
     private fun failOutstanding(why: String) {
-        for (id in pendingSubmits.keys.toList()) {
+        for (id in ArrayList(pendingSubmits.keys)) {       // toArray's snapshot: toList() can throw on a concurrent removal
             if (pendingSubmits.remove(id) != null)
                 emit(TransportEvent.FlushDone(id, false, 0, 0, why), "FlushDone $id")
         }
@@ -509,7 +515,8 @@ class RemoteTransportClient(
             "silent" -> emit(TransportEvent.SilentMode(c.held), "SilentMode")
             "present" -> {
                 val v = c.detail.split(':').map { it.toLongOrNull() }
-                if (v.size == 4 && v.all { it != null }) emit(TransportEvent.Presented(v[0]!!, v[1]!!, v[2]!!, v[3]!!), "Presented")
+                // contract 2 adds the path as a fifth number; an older peer sends four (path 0, the full refresh)
+                if ((v.size == 4 || v.size == 5) && v.all { it != null }) emit(TransportEvent.Presented(v[0]!!, v[1]!!, v[2]!!, v[3]!!, v.getOrNull(4) ?: 0L), "Presented")
                 else Log.w("remote-transport", "malformed present control: ${c.detail}")
             }
             "state" -> c.state?.let { st -> updateState { st.toState() } }
@@ -562,6 +569,9 @@ class RemoteTransportClient(
                 is DisplayOp.StereoPair -> op.payload
                 is DisplayOp.CacheWrite -> op.payload
                 is DisplayOp.DrawText -> op.text
+                // contract 2: the same bytes the op list counted above, in the same order
+                is DisplayOp.DrawText2 -> op.text
+                is DisplayOp.CacheWrite2 -> op.payload
                 else -> null
             } ?: continue
             p.copyInto(blob, off)
@@ -1010,7 +1020,7 @@ class RemoteTransportServer(
         is TransportEvent.SilentMode -> Ctl(t = "silent", held = ev.on)
         is TransportEvent.Battery -> Ctl(t = "batt", gPct = ev.glassesPct, gChg = ev.glassesCharging, rPct = ev.ringPct)
         // FIRMWARE.md §3 (F1.3): the four numbers, colon-separated, like a note's kind:detail
-        is TransportEvent.Presented -> Ctl(t = "present", detail = "${ev.seq}:${ev.workerUs}:${ev.copyUs}:${ev.transferUs}")
+        is TransportEvent.Presented -> Ctl(t = "present", detail = "${ev.seq}:${ev.workerUs}:${ev.copyUs}:${ev.transferUs}:${ev.path}")
         is TransportEvent.FlushDone -> null   // delivered per-flush with id mapping
     }
 

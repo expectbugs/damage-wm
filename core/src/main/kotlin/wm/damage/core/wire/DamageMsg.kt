@@ -62,6 +62,9 @@ object DamageMsg {
     const val OP_CACHE_SIZE = 5
     /** The largest CACHE_SIZE a Phase 2 build takes (budget A, `FIRMWARE.md` §4). */
     const val CACHE_BUDGET_KIB = 160
+    /** The smallest CACHE_SIZE a build takes: the v1 window modes 12/13/14 address is the first 64 KiB
+     *  of whatever the cache is, so a smaller cache would put their bounds past its end (2026-09-15 review). */
+    const val CACHE_MIN_KIB = 64
 
     /** Bit 0: a field-113 notify after each panel transfer of a Damage frame (F1.3). */
     const val FLAG_PRESENTED = 1 shl 0
@@ -83,7 +86,7 @@ object DamageMsg {
     const val STATUS_NO_LEASE = 3
     /** CACHE_SIZE while the cache is allocated: the size stands. */
     const val STATUS_ALLOCATED = 4
-    /** CACHE_SIZE of zero or over [CACHE_BUDGET_KIB]. */
+    /** CACHE_SIZE below [CACHE_MIN_KIB] (zero included) or over [CACHE_BUDGET_KIB]. */
     const val STATUS_BUDGET = 5
 
     /** The reasons of an image-lane refusal (field 24), by number. */

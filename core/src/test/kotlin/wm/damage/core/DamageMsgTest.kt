@@ -397,6 +397,58 @@ class DamageMsgTest {
         }
     }
 
+    /** 2026-09-15 review: a refusal (status 2) and RIGHT's copy of it carry the same unchanged flags as a
+     *  refusal of the next set would, so a dropped bit's duplicate completed the NEXT bit's waiter as a
+     *  refusal too — the wish 0x8005 on a Phase 1 build lost PROBE along with DRAW2. A read with its own
+     *  id drains the copy before the next set. */
+    @Test
+    fun aDroppedBitsDuplicateRefusalDoesNotDropTheNextBit(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val sim = GlassFirmwareSim().also { it.damageContract = 1; it.duplicateControlReplies = true; it.duplicateReplyDelayMs = 1 }
+            var clock = 1_000_000L
+            val t = SimTransport(sim, scope, SimTransport.Timing(instant = false, ackMs = 5, bytesPerSec = 1000.0), clock = { clock })
+            val notes = ArrayList<Pair<String, String>>()
+            val faults = ArrayList<String>()
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                t.events.collect {
+                    if (it is TransportEvent.Note) synchronized(notes) { notes.add(it.kind to it.detail) }
+                    if (it is TransportEvent.Fault) synchronized(faults) { faults.add("${it.what}: ${it.detail}") }
+                }
+            }
+            t.devProbe("flags", "0x8005")                                  // a wish carried over from a Phase 2 build
+            t.start(Zl.encodeCfw(Pack.rect(Gray8(640, 480), Rect(0, 0, 640, 480))))
+            until("bits 0 and 15 armed on both arms") { Arm.entries.all { sim.damageFlags(it) == 0x8001 } }
+            until("the keeper noted both bits") { synchronized(notes) { notes.count { it.first == "keeper" && "armed bit" in it.second } == 2 } }
+            delay(300)
+            val flagFaults = synchronized(faults) { faults.filter { it.startsWith("flags") } }
+            assertEquals(1, flagFaults.size, "one fault, bit 2's: $flagFaults")
+            assertTrue("bit 2 is not implemented" in flagFaults.single(), flagFaults.single())
+            assertEquals(0x8001, t.state.value.flagsInForce)
+            t.stop()
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /** `FIRMWARE.md` §0: mode 16 is a Damage build's and modes 17–24 contract 2's; on any other build the
+     *  model treats them as modes with no handler (recorded 8), and the presented notify's path field is
+     *  contract 2's — the mirror of an older build must not accept what the glasses would not. */
+    @Test
+    fun theModelGatesTheDamageModesOnTheBuildsContract() {
+        val fill = wm.damage.core.wire.CfwModes.fill(Rect(0, 0, 8, 8), 5)
+        for (contract in listOf<Int?>(null, 1)) {
+            val sim = GlassFirmwareSim().also { it.damageContract = contract; it.forceLease(Arm.LEFT, 100_000L) }
+            kotlin.test.assertFalse(sim.dispatchForTest(Arm.LEFT, fill, 1_000L), "contract $contract: mode 21 has no handler")
+            assertEquals(8, sim.refusalRecord(Arm.LEFT)[1], "contract $contract: recorded as a mode with no handler")
+        }
+        val upstream = GlassFirmwareSim().also { it.forceLease(Arm.LEFT, 100_000L) }
+        kotlin.test.assertFalse(upstream.dispatchForTest(Arm.LEFT, wm.damage.core.wire.CfwModes.selfTestBegin(), 1_000L), "an upstream build has no self-test")
+        val v2 = GlassFirmwareSim().also { it.damageContract = 2; it.forceLease(Arm.LEFT, 100_000L) }
+        kotlin.test.assertFalse(v2.dispatchForTest(Arm.LEFT, byteArrayOf(16), 1_000L))
+        assertEquals(listOf(16, 1), v2.refusalRecord(Arm.LEFT).take(2), "a mode-16 message with no sub-op records length (1)")
+    }
+
     /** `FIRMWARE.md` §4: a contract-2 start takes the cache size and arms DRAW2 BEFORE the shell
      *  can paint (the v2 atlas and draws answer only under the flag), and reports both in the
      *  link state; a mode-19 write then allocates the session's cache on both lenses. */

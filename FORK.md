@@ -187,7 +187,7 @@ features armed one at a time · a soak day · journal and `/log` read · fix fla
 **Exit:** every telemetry field populated (the boot count withdrawn); the cache survives a rebuild without re-upload
 (seen on glass, §54.1); no hold-back events; the soak = ordinary wear during Phase 2's build (Adam, §56).
 
-### Phase 2 — Drawing contract v2, phone-driven (size L; 1 flash) — **BUILT on both sides 2026-09-15 (pin `aacdc63a…`, `HANDOFF.md` §60) bar Reader's page staging; not flashed**
+### Phase 2 — Drawing contract v2, phone-driven (size L; 1 flash) — **BUILT on both sides 2026-09-15 (pin `55746389…` after the review, `HANDOFF.md` §60–§61) bar Reader's page staging; not flashed**
 
 **Firmware (`FIRMWARE.md` §4, drafted 2026-09-15):** per-lens cached image and string draws (modes 17/18), the v2
 image record (u16 dims), the 224-entry table, cache write v2 (19), clip (20), fill (21), LUT over rect (22),
@@ -461,3 +461,8 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   runner — `Contract2Test` pins it, gated on DamageCaps bit 5 + DRAW2; Reader's page staging is the one Phase 2
   item left. A live defect found from Adam's report at work and fixed for APK 0.50 (`HANDOFF.md` §59: a lens
   reboot inside the atlas skip's window; a keeper race on the duplicate replies). Nothing flashed.
+- **2026-09-15 (night)** — The review of Phase 2 on both sides (`HANDOFF.md` §61): 10 fork defects and 12 Damage ones
+  fixed and pinned (among them a heap overrun behind a sub-64 KiB `CACHE_SIZE`, hints after a skipped refresh, the partial
+  call's width, the v2 atlas upload's alignment, kerning on the v1 path, the hold-back and a lost lease vs DRAW2, the
+  carry decision's evidence, the self-test's live cache writes); `FIRMWARE.md` §4 amended; 2 vectors added. Fork pin
+  `55746389…`, no new site. Nothing flashed.

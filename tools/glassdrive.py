@@ -73,19 +73,29 @@ async def selftest(ws, host, port, token, path):
             m = re.search(r'glass telemetry from RIGHT: (.*)$', line)
             if m: return dict(kv.split('=', 1) for kv in m.group(1).split() if '=' in kv)
         return None
+    def is_live(m): return (int(m[:2], 16) & 0x7f) in (12, 19)   # a cache write goes to the live cache the steps read
+    # the flags in force now: a vector's flag set is added to them and they are put back afterwards, so
+    # the session's own wish (PRESENTED, PROBE) survives the run (2026-09-15 review)
+    await probe('telemetry', 'read'); await asyncio.sleep(0.8)
+    before = right_telemetry() or {}
+    flags_before = int(before.get('flags', '0x0'), 16)
+    vec_flags = [int(op['flags']) for op in ops_all if 'flags' in op]
     # a v2 vector's control ops run before the begin, so DRAW2 and the cache size are in force
     # for every step (the same order as the fork's host/run_self_test.py)
     for op in ops_all:
-        if 'flags' in op: await probe('flags', '0x%04x' % int(op['flags'])); await asyncio.sleep(0.5)
+        if 'flags' in op: await probe('flags', '0x%04x' % (flags_before | int(op['flags']))); await asyncio.sleep(0.5)
         elif 'cachesize' in op: await probe('cachesize', str(int(op['cachesize']))); await asyncio.sleep(0.5)
+    if any(is_live(m) for st in vec['steps'] for m in (op['msg'] for op in st['ops'] if 'msg' in op)):
+        print(f'  {vec["name"]} writes the live texture cache: the shell drops its atlas for this session (cached text is pixels until the next session or a Cached text toggle)')
     await probe('selftest', 'begin'); await asyncio.sleep(0.6)
     fails = 0; steps_seen = 0
     for i, st in enumerate(vec['steps']):
         msgs = [op['msg'] for op in st['ops'] if 'msg' in op]
+        steps = [m for m in msgs if not is_live(m)]          # what the self-test counts (fields 20-22)
         if any('tick' in op for op in st['ops'] if 'msg' not in op) and i > 0:
             print(f'  step {i}: a tick op has no self-test form — skipped')
         for m in msgs:
-            if (int(m[:2], 16) & 0x7f) in (12, 19):   # a cache write goes to the live cache the steps read
+            if is_live(m):
                 await probe('selftest', 'live:' + m); await asyncio.sleep(0.6 + len(m) / 40000)
                 continue
             await probe('selftest', 'step:' + m); await asyncio.sleep(0.4 + len(m) / 40000)
@@ -94,13 +104,15 @@ async def selftest(ws, host, port, token, path):
         for attempt in range(6):                      # pacing: the step runs on the deferred handler after the ack
             await probe('telemetry', 'read'); await asyncio.sleep(0.8)
             got = right_telemetry()
-            if got and int(got.get('stSteps', 0)) >= steps_seen + len(msgs): break
-        steps_seen += len(msgs)
+            if got and int(got.get('stSteps', 0)) >= steps_seen + len(steps): break
+        steps_seen += len(steps)
         if not got or int(got.get('stSteps', 0)) < steps_seen:
             fails += 1; print(f'  FAIL step {i}: the glasses report stSteps={got.get("stSteps") if got else None}, expected {steps_seen}'); continue
         crc_ok = got.get('stCrc') == want['R']
-        # the refusal field is the LAST step's: a step that carried no message says nothing new about it
-        rc_ok = (not msgs) or (got.get('stRefused') == ('1' if want['rc']['R'][-1] != 0 else '0'))
+        # the refusal field is the last STEP's: a live cache write is no step, and a step that carried
+        # no self-test message says nothing new about it
+        last_step = max((k for k, m in enumerate(msgs) if not is_live(m)), default=None)
+        rc_ok = last_step is None or (got.get('stRefused') == ('1' if want['rc']['R'][last_step] != 0 else '0'))
         # a v2 vector: the refusal record's mode and reason (its sequence is the live count; not compared)
         ref = want.get('ref', {}).get('R')
         ref_ok = True
@@ -111,6 +123,8 @@ async def selftest(ws, host, port, token, path):
               + (f', refusal record {got.get("refMode")}/{got.get("refReason")} (expected {ref[0]}/{ref[1]})' if ref is not None and vec.get('contract', 1) >= 2 else ''))
         fails += not (crc_ok and rc_ok and ref_ok)
     await probe('selftest', 'end')
+    if vec_flags and before: await probe('flags', '0x%04x' % flags_before); await asyncio.sleep(0.5)   # the session's own set again
+    elif vec_flags: print(f'  the flags in force were not read before the run: the vector\'s set 0x{max(vec_flags):04x} stays — probe flags=… to restore the wish')
     print(f'{vec["name"]}: {"all steps match on RIGHT" if not fails else f"{fails} step(s) differ"} (LEFT runs the same steps but cannot report — FIRMWARE.md §3)')
 
 async def main():

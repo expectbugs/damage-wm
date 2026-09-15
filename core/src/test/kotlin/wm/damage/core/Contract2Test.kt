@@ -97,9 +97,9 @@ class Contract2Test {
         override fun restoreState(state: JsonObject) {}
     }
 
-    private class Rig(scope: CoroutineScope) {
+    private class Rig(scope: CoroutineScope, contract: Int = 2) {
         val tmp = Files.createTempDirectory("damage-contract2")
-        val sim = GlassFirmwareSim().also { it.damageContract = 2 }
+        val sim = GlassFirmwareSim().also { it.damageContract = contract }
         val text = CachedText(KernText())
         val spy = SpyTransport(SimTransport(sim, scope, SimTransport.Timing(instant = true)))
         val shell = Shell(text, spy, Persistence(tmp.resolve("state.json")), tmp.resolve("journal.jsonl"), scope)
@@ -215,8 +215,10 @@ class Contract2Test {
             repeat(4) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_TOP) }
             rig.settle("back")
             rig.assertGlassMatchesBelief("after scrolling back")
-            val miss = rig.shell.comp.cacheMissSummary()
-            assertTrue("proof=" !in miss && "edge=" !in miss, "no context proof or edge miss on contract 2: $miss")
+            // every flush's misses, from the journal (the compositor's summary is the last assemble's only)
+            val misses = Files.readAllLines(rig.tmp.resolve("journal.jsonl")).filter { "\"ev\":\"submit\"" in it }
+                .mapNotNull { Regex("\"cacheMiss\":\"([^\"]*)\"").find(it)?.groupValues?.get(1) }.filter { it.isNotEmpty() }
+            assertTrue(misses.none { "proof=" in it || "edge=" in it }, "no context proof or edge miss on contract 2, in any flush: $misses")
             assertTrue(rig.all().drop(1).none { f -> f.ops.any { it is DisplayOp.StereoPair } }, "every black box is a fill on contract 2: ${rig.all().drop(1).filter { f -> f.ops.any { it is DisplayOp.StereoPair } }.map(::shape)}")
             rig.shell.stop()
         } finally {
@@ -274,6 +276,59 @@ class Contract2Test {
             scope.cancel()
             rig.tmp.toFile().deleteRecursively()
         }
+    }
+
+    /** 2026-09-15 review: the recorder kerns on every atlas, so the v1 path (the installed Phase 1
+     *  build) must carry the same adjust bytes and re-render with them — it laid out and proved
+     *  with none, every kerned string missed its proof and went as pixels. */
+    @Test
+    fun onAContractOneBuildKernedTextStillShipsAsCachedDrawsWithItsAdjustBytes(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope, contract = 1)
+        try {
+            rig.shell.start(); rig.settle("start")
+            assertTrue(!rig.spy.state.value.draw2, "the Phase 1 build has no v2 ops")
+            rig.shell.services.runOnShell { rig.shell.services.openWindow("rows", null) }
+            rig.settle("open rows")
+            rig.shell.updateSettings { it.copy(cachedText = "on") }
+            rig.until("the v1 atlas uploads and the fonts go live") { rig.shell.cachedTextActive && rig.shell.cachedFontsLive.isNotEmpty() }
+            rig.settle("after the upload")
+            val n0 = rig.all().size
+            rig.shell.updateSettings { it.copy(heightMode = 352) }         // a keyframe on v1: every run repaints through the cache
+            rig.settle("height switch")
+            val draws = rig.all().drop(n0).flatMap { it.ops }.filterIsInstance<DisplayOp.DrawText>()
+            assertTrue(draws.any { d -> d.text.any { it.toInt() == 9 || it.toInt() == 10 } },
+                "kerned strings ship as mode-14 draws carrying their adjust bytes: ${rig.all().drop(n0).map(::shape)} misses ${rig.shell.comp.cacheMissSummary()}")
+            rig.assertGlassMatchesBelief("kerned v1 draws, both lenses")
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /** 2026-09-15 review: on a v2 atlas the soft hyphen and the C1 controls are the host's (the platform
+     *  draws them as nothing; the table could only hold the tofu box), and a run holds at most 128 codes
+     *  so its string with an adjust between every pair stays inside the u8 length. */
+    @Test
+    fun theSoftHyphenAndTheControlsStayTheHostsAndRunsFitTheirLength() {
+        val base = KernText()
+        val ct = CachedText(base)
+        val atlas = wm.damage.core.comp.GlyphAtlas(base, v2 = true, capacity = 160 * 1024)
+        ct.atlas = atlas
+        val f = FontSpec(Face.SYSTEM, 18)
+        assertTrue(atlas.add(f), "the face packs")
+        ct.live = setOf(f)
+        val g = Gray8(640, 480)
+        ct.target = g
+        ct.draw(g, 10, 20, "co\u00ADop\u0085x", f, Level.BODY)
+        assertEquals(listOf("co", "op", "x"), ct.frameDraws().map { it.text }, "the soft hyphen and NEL split the runs")
+        ct.endFrame()
+        val long = "ta".repeat(150)                                        // 300 codes, a kern between every pair
+        ct.draw(g, 0, 60, long, f, Level.BODY)
+        val runs = ct.frameDraws()
+        assertTrue(runs.all { it.text.length <= 128 }, "runs of at most 128 codes (2 x 128 - 1 = 255 B with adjusts): ${runs.map { it.text.length }}")
+        for (r in runs) wm.damage.core.wire.TextureCache.layout(r.text, atlas.entry(f)!!.font, ct.kernOf(f))   // fits its u8 length, or throws
     }
 
     /** The recorder on a v2 atlas: a string is its cacheable runs (Latin-1 but DEL) and the

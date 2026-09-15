@@ -161,7 +161,10 @@ object TextureCache {
         }
 
         /** Add already-encoded record bytes (a caller that encoded once for both the blit
-         *  and the cache), returning the offset in bytes. */
+         *  and the cache), returning the offset in bytes. On a v2 cache the record is padded
+         *  on both sides, so the packed content always ends on a 4-byte boundary: an upload
+         *  resumes from that end, and a mode-19 offset in 4-byte units cannot name an odd one
+         *  (2026-09-15 review: an icon left the end at 1–3 mod 4 and the next upload landed early). */
         fun addEncoded(enc: ByteArray): Int {
             val key = enc.toHexKey()
             seen[key]?.let { return it }
@@ -171,6 +174,7 @@ object TextureCache {
                 throw LintError("texture atlas overflows the $capacity B " +
                     "cache: $off B used, ${enc.size} B more needed")
             bytes.write(enc)
+            if (v2) pad()
             seen[key] = off
             return off
         }
@@ -269,8 +273,11 @@ object TextureCache {
             return n
         }
 
-        /** One write message for [all]'s bytes from [pos]. */
+        /** One write message for [all]'s bytes from [pos]. A v2 chunk must start on a 4-byte
+         *  boundary: its offset field is in 4-byte units and would round an odd start down. */
         fun chunk(all: ByteArray, pos: Int, maxMessage: Int): ByteArray {
+            if (v2 && pos % 4 != 0)
+                throw LintError("a mode-19 chunk cannot start at byte $pos: its offset is in 4-byte units")
             val n = chunkLen(all.size, pos, maxMessage)
             val data = all.copyOfRange(pos, pos + n)
             return if (v2) CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(pos / 4, data)), capacity)

@@ -74,9 +74,13 @@ class ConformanceVectorTest {
                     if (want != got) problems += "$name step $i lens $lens: shadow crc $got, the C gives $want"
                     val wantRc = expect["rc"]!!.jsonObject[lens]!!.jsonArray.map { it.jsonPrimitive.int }
                     if (wantRc != rcs) problems += "$name step $i lens $lens: return codes $rcs, the C gives $wantRc"
-                    expect["ref"]?.jsonObject?.get(lens)?.jsonArray?.map { it.jsonPrimitive.int }?.let { wantRef ->
+                    // contract 2 vectors carry the refusal record on every step: a missing one is a
+                    // comparison silently skipped, not a pass (2026-09-15 review)
+                    val wantRef = expect["ref"]?.jsonObject?.get(lens)?.jsonArray?.map { it.jsonPrimitive.int }
+                    if (wantRef == null && contract >= 2) problems += "$name step $i lens $lens: no refusal record expectation on a contract-2 vector"
+                    wantRef?.let {
                         val gotRef = sim.refusalRecord(arm)
-                        if (wantRef != gotRef) problems += "$name step $i lens $lens: refusal record $gotRef, the C gives $wantRef"
+                        if (it != gotRef) problems += "$name step $i lens $lens: refusal record $gotRef, the C gives $it"
                     }
                 }
             }
@@ -95,6 +99,7 @@ class ConformanceVectorTest {
         val zeroCrc = "%08x".format(java.util.zip.CRC32().also { it.update(ByteArray(320 * 480)) }.value)
         val problems = ArrayList<String>()
         var ran = 0
+        val vectorsRan = HashSet<String>()
         for (f in files) {
             val vec = Json.parseToJsonElement(Files.readString(f)).jsonObject
             val name = vec["name"]!!.jsonPrimitive.content
@@ -145,10 +150,19 @@ class ConformanceVectorTest {
                     val live = "%08x".format(sim.shadowCrc32(arm))
                     if (live != zeroCrc) problems += "$name step $i lens $lens: the live shadow changed ($live)"
                     ran++
+                    vectorsRan += name
                 }
             }
         }
         assertTrue(ran > 0, "no drawing vectors ran")
+        // every vector without a lease release has a self-test form: one that ran no step is a skip,
+        // not a pass (the fork's run_self_test.py printed PASS for skipped vectors until 2026-09-15)
+        for (f in files) {
+            val vec = Json.parseToJsonElement(Files.readString(f)).jsonObject
+            val name = vec["name"]!!.jsonPrimitive.content
+            val releases = vec["steps"]!!.jsonArray.any { st -> st.jsonObject["ops"]!!.jsonArray.any { o -> o.jsonObject["lease"]?.jsonPrimitive?.content == "release" } }
+            if (name != "v1-lease" && !releases && name !in vectorsRan) problems += "$name: a drawing vector ran no self-test step"
+        }
         assertEquals(emptyList(), problems, "the self-test path disagrees with the normal path:\n" + problems.joinToString("\n"))
     }
 

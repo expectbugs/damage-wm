@@ -743,8 +743,10 @@ class GlassFirmwareSim() : LensPanels {
                 c.cacheGen++                                 // FIRMWARE.md §3 (F1.5)
                 true
             }
-            16 -> selfTest(arm, c, src, now)
-            in 17..24 -> dispatchV2(arm, c, src, now, present, batch)
+            // `FIRMWARE.md` §0: mode 16 is a Damage build's, 17–24 contract 2's; on any other build they
+            // are modes with no handler (recorded 8, then the stock BMP loader refuses them)
+            16 -> if (damageContract != null) selfTest(arm, c, src, now) else noHandler(arm, c, src)
+            in 17..24 -> if ((damageContract ?: 0) >= 2) dispatchV2(arm, c, src, now, present, batch) else noHandler(arm, c, src)
             13, 14 -> {
                 // the C's order: the message's length, then the lease, then the records
                 val m = modeByte and 0x7F
@@ -781,13 +783,16 @@ class GlassFirmwareSim() : LensPanels {
                     "know the resulting pixels. Damage does not emit mode 15 by design.")
                 false
             }
-            else -> {
-                diag.event("decode", "$arm unmodeled mode ${modeByte and 0x7F} — BMP fallback would run")
-                // a BMP ('B') records nothing; any other mode is recorded as unknown, then the
-                // stock loader refuses it as the firmware does
-                if ((modeByte and 0x7F) != 0x42) refuse(c, src, REF_MODE) else false
-            }
+            else -> noHandler(arm, c, src)
         }
+    }
+
+    private fun noHandler(arm: Arm, c: LensCtx, src: ByteArray): Boolean {
+        val mode = src[0].toInt() and 0x7F
+        diag.event("decode", "$arm unmodeled mode $mode — BMP fallback would run")
+        // a BMP ('B') records nothing; any other mode is recorded as unknown, then the
+        // stock loader refuses it as the firmware does
+        return if (mode != 0x42) refuse(c, src, REF_MODE) else false
     }
 
     /** The texture cache's allocation: the session's size (op 5's, or the 64 KiB default). */
@@ -849,6 +854,7 @@ class GlassFirmwareSim() : LensPanels {
             c.lapseSettled = true
             c.cacheKeepLatched = c.damageFlags and DamageMsg.FLAG_CACHE_KEEP != 0
             if (!c.cacheKeepLatched) releaseCache(c)
+            else if (c.textureCache == null) c.cacheBytes = 0     // the size asked for goes, kept cache or not (§4)
             c.slots.fill(null)                           // save-under: freed at every release point
             c.damageFlags = 0
         }
@@ -866,6 +872,7 @@ class GlassFirmwareSim() : LensPanels {
         if (!c.lapseSettled) leaseEnded(arm, c)
         freeScratch(c)
         if (!c.cacheKeepLatched) releaseCache(c)
+        else if (c.textureCache == null) c.cacheBytes = 0
         c.slots.fill(null)
         c.cacheKeepLatched = false
         c.lapseSettled = false
@@ -1059,7 +1066,8 @@ class GlassFirmwareSim() : LensPanels {
         // RIGHT only, the sender's lens rule
         c.presentSeq++
         if (c.damageFlags and DamageMsg.FLAG_PRESENTED != 0 && arm == Arm.RIGHT) {
-            val body = Pb.cat(Pb.v(1, c.presentSeq), Pb.v(2, 0), Pb.v(3, 0), Pb.v(4, 0), Pb.v(5, fwSide(arm)), Pb.v(6, c.lastPath))
+            val body = Pb.cat(Pb.v(1, c.presentSeq), Pb.v(2, 0), Pb.v(3, 0), Pb.v(4, 0), Pb.v(5, fwSide(arm)),
+                if ((damageContract ?: 0) >= 2) Pb.v(6, c.lastPath) else ByteArray(0))
             diag.notify(arm, AaFrame.frame(nextSeq(), SettingsMsg.SID, SettingsMsg.FLAG_RESPONSE,
                 Pb.cat(Pb.v(1, 3), Pb.v(2, 0), Pb.l(DamageMsg.PRESENTED_FIELD, body)), AaFrame.TYPE_RESPONSE).single())
         }
@@ -1073,7 +1081,7 @@ class GlassFirmwareSim() : LensPanels {
      *  (no begin, the lease lapsed) is refused and not counted. Modes 13/14 read the live
      *  cache; a cache write or a non-drawing mode is refused and counted. */
     private fun selfTest(arm: Arm, c: LensCtx, src: ByteArray, now: Long): Boolean {
-        if (src.size < 2) return false
+        if (src.size < 2) return refuse(c, src, REF_LENGTH)       // `FIRMWARE.md` §4: every image-lane refusal records
         when (src[1].toInt() and 0xFF) {
             0 -> {
                 if (!fbLeaseActive(arm, now)) { diag.event("selftest", "$arm begin refused: no FB lease"); return refuse(c, src, REF_NO_LEASE) }
@@ -1368,7 +1376,7 @@ class GlassFirmwareSim() : LensPanels {
                 // contract 2: the size the cache is allocated at by its first write
                 if (!contract2) c.damageStatus = DamageMsg.STATUS_MALFORMED
                 else if (!fbLeaseActive(arm, now)) c.damageStatus = DamageMsg.STATUS_NO_LEASE
-                else if (arg == 0 || arg > DamageMsg.CACHE_BUDGET_KIB) c.damageStatus = DamageMsg.STATUS_BUDGET
+                else if (arg < DamageMsg.CACHE_MIN_KIB || arg > DamageMsg.CACHE_BUDGET_KIB) c.damageStatus = DamageMsg.STATUS_BUDGET
                 else if (c.textureCache != null) c.damageStatus = DamageMsg.STATUS_ALLOCATED
                 else { c.cacheBytes = arg * 1024; c.damageStatus = DamageMsg.STATUS_OK }
             else -> c.damageStatus = DamageMsg.STATUS_MALFORMED   // unknown op: recorded and answered
@@ -1493,28 +1501,46 @@ class GlassFirmwareSim() : LensPanels {
             if (c.damageFlags and DamageMsg.FLAG_DRAW2 == 0) { diag.event("decode", "$arm mode-$mode with DRAW2 not armed"); return refuse(c, src, REF_DRAW2) }
             return true
         }
-        fun rectAt(i: Int): Rect? {
+        fun rectOk(i: Int): Rect? {
             val r = Rect(rd16at(src, i), rd16at(src, i + 2), rd16at(src, i + 4), rd16at(src, i + 6))
             return if (r.w == 0 || r.h == 0 || r.right > Geometry.PANEL_W || r.bottom > Geometry.PANEL_H) null else r
+        }
+        /** The rect this lens takes from a plain rect at [i] or a per-lens pair starting there: a pair
+         *  is checked whole on both lenses — both rects inside the panel, not empty, one size — before
+         *  either lens takes its own (`FIRMWARE.md` §4), so the lenses cannot decide differently. */
+        fun rectAt(i: Int): Rect? {
+            if (!pair) return rectOk(i)
+            val l = rectOk(i) ?: return null
+            val r = rectOk(i + 8) ?: return null
+            if (l.w != r.w || l.h != r.h) return null
+            return if (left) l else r
         }
         val clip = Rect(0, 0, Geometry.PANEL_W, Geometry.PANEL_H).let { p -> batch?.clip?.let { p.intersect(it) } ?: p }
         when (mode) {
             19 -> {
-                val size = cacheSizeOf(c)
+                // `FIRMWARE.md` §4, mode 19: every entry's shape (1), the lease (3), DRAW2 (9), every entry
+                // inside the session's cache (5); a list with no data is then accepted with nothing written
                 var pos = 1
-                var hasData = false
                 while (pos < src.size) {
                     if (src.size - pos < 4) return refuse(c, src, REF_LENGTH)
-                    val off = rd16at(src, pos) * 4
                     val len = rd16at(src, pos + 2)
                     pos += 4
                     if (len > src.size - pos) return refuse(c, src, REF_LENGTH)
+                    pos += len
+                }
+                if (!leaseAndFlag()) return false
+                val size = cacheSizeOf(c)
+                var hasData = false
+                pos = 1
+                while (pos < src.size) {
+                    val off = rd16at(src, pos) * 4
+                    val len = rd16at(src, pos + 2)
+                    pos += 4
                     if (off > size || len > size - off) return refuse(c, src, REF_RECORD)
                     if (len > 0) hasData = true
                     pos += len
                 }
                 if (!hasData) return true
-                if (!leaseAndFlag()) return false
                 val cache = c.textureCache ?: allocateCache(arm, c)
                 pos = 1
                 while (pos < src.size) {
@@ -1531,7 +1557,7 @@ class GlassFirmwareSim() : LensPanels {
                 if (src.size != (if (pair) 17 else 9)) return refuse(c, src, REF_LENGTH)
                 if (present || batch == null) { diag.event("decode", "$arm mode-20 outside a batch"); return refuse(c, src, REF_NO_BATCH) }
                 if (!leaseAndFlag()) return false
-                val r = rectAt(if (pair && !left) 9 else 1) ?: return refuse(c, src, REF_BOUNDS)
+                val r = rectAt(1) ?: return refuse(c, src, REF_BOUNDS)
                 batch.clip = r
                 return true
             }
@@ -1588,7 +1614,7 @@ class GlassFirmwareSim() : LensPanels {
             21 -> {
                 if (src.size != (if (pair) 18 else 10)) return refuse(c, src, REF_LENGTH)
                 if (!leaseAndFlag()) return false
-                val r = rectAt(if (pair && !left) 9 else 1) ?: return refuse(c, src, REF_BOUNDS)
+                val r = rectAt(1) ?: return refuse(c, src, REF_BOUNDS)
                 val level = src[src.size - 1].toInt() and 0xFF
                 if (level > 15) return refuse(c, src, REF_VALUE)
                 r.intersect(clip)?.let { a -> for (y in a.y until a.bottom) for (x in a.x until a.right) setNibble(c.shadow, c.stride, x, y, level) }
@@ -1598,7 +1624,7 @@ class GlassFirmwareSim() : LensPanels {
             22 -> {
                 if (src.size != (if (pair) 25 else 17)) return refuse(c, src, REF_LENGTH)
                 if (!leaseAndFlag()) return false
-                val r = rectAt(if (pair && !left) 9 else 1) ?: return refuse(c, src, REF_BOUNDS)
+                val r = rectAt(1) ?: return refuse(c, src, REF_BOUNDS)
                 val lb = src.size - 8
                 val lut = IntArray(16) { i -> val b = src[lb + i / 2].toInt() and 0xFF; if (i and 1 == 0) b shr 4 else b and 0x0F }
                 r.intersect(clip)?.let { a ->
@@ -1625,7 +1651,7 @@ class GlassFirmwareSim() : LensPanels {
                         return true
                     }
                     else -> {
-                        val r = rectAt(if (pair && !left) 11 else 3) ?: return refuse(c, src, REF_BOUNDS)
+                        val r = rectAt(3) ?: return refuse(c, src, REF_BOUNDS)
                         val held = c.slotBytes - (c.slots[slot]?.bytes ?: 0)     // the slot's own bytes are replaced
                         if (held + CfwModes.saveBytes(r) > CfwModes.SAVE_BUDGET) return refuse(c, src, REF_SCRATCH)
                         val levels = ByteArray(r.w * r.h)

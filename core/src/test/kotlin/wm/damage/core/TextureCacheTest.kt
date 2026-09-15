@@ -743,6 +743,88 @@ class AckStatusTest {
         assertEquals(content.size, pos, "the chunks cover the whole atlas past the guard")
     }
 
+    /** A lease, the 160 KiB cache and DRAW2 on both lenses of a contract-2 model. */
+    private fun armedV2(now: Long): GlassFirmwareSim {
+        val sim = GlassFirmwareSim().also { it.damageContract = 2 }
+        var seq = 1
+        for (arm in Arm.entries) {
+            sim.forceLease(arm, now + SettingsMsg.LEASE_EXPIRY_MS)
+            for (body in listOf(wm.damage.core.wire.DamageMsg.control(wm.damage.core.wire.DamageMsg.OP_CACHE_SIZE, 160),
+                    wm.damage.core.wire.DamageMsg.control(wm.damage.core.wire.DamageMsg.OP_FLAGS_SET, wm.damage.core.wire.DamageMsg.FLAG_DRAW2)))
+                for (p in wm.damage.core.wire.AaFrame.frame(seq++, SettingsMsg.SID, 0x20, body)) sim.write(arm, p, now)
+        }
+        return sim
+    }
+
+    @Test
+    fun aV2AtlasGrownAfterAnOddSizedIconUploadsEveryRecordAtItsOwnOffset() {
+        // 2026-09-15 review: an icon record ends 1–3 bytes past a 4-byte boundary; the next upload
+        // started there and its mode-19 offset (4-byte units) rounded down, so every byte of it landed
+        // early on the glasses and its pad zeros overwrote the previous icon's tail
+        val now = 1_000L
+        val sim = armedV2(now)
+        val atlas = wm.damage.core.comp.GlyphAtlas(FakeText(), v2 = true, capacity = 160 * 1024)
+        val icon1 = TextureCache.Image(5, 3, ByteArray(15) { (it % 15 + 1).toByte() })     // 15 one-byte tokens: a 19 B record
+        val icon2 = TextureCache.Image(3, 2, ByteArray(6) { (it + 1).toByte() })           // a 10 B record
+        fun upload() { for (m in atlas.takeUpload()) for (arm in Arm.entries) assertTrue(sim.dispatchForTest(arm, m, now), "chunk ${m.size} B accepted on $arm") }
+        assertTrue(atlas.addImage("one", icon1)); upload()
+        assertTrue(atlas.addImage("two", icon2)); upload()
+        for ((key, img) in listOf("one" to icon1, "two" to icon2)) {
+            val e = atlas.image(key)!!
+            sim.fillShadowForTest(Arm.LEFT, 0)
+            assertTrue(sim.dispatchForTest(Arm.LEFT, CfwModes.drawImage2(e.offset / 4, 0, 0, CfwModes.options(top = 15, transparent = false), img.w, img.h), now),
+                "icon $key draws from its own offset (refused: ${sim.refusalRecord(Arm.LEFT)})")
+            val p = sim.snapshot(Arm.LEFT)
+            for (i in 0 until img.w * img.h) {
+                val x = i % img.w; val y = i / img.w
+                val b = p[y * 320 + (x shr 1)].toInt() and 0xFF
+                assertEquals(img.levels[i].toInt(), if (x and 1 == 0) b shr 4 else b and 0x0F, "icon $key pixel ($x,$y) on glass")
+            }
+        }
+    }
+
+    @Test
+    fun aV2FontIsNotAckedUntilItsWholeTwoTwentyFourEntryTableIs() {
+        // 2026-09-15 review: the acked test measured a v2 table as the v1 table's 192 B, so a chunk
+        // ending inside the last 256 B of the 448 B table put the font live with its Latin-1 half unwritten
+        val atlas = wm.damage.core.comp.GlyphAtlas(FakeText(), v2 = true, capacity = 160 * 1024)
+        val spec = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18)
+        assertTrue(atlas.add(spec))
+        val table = atlas.entry(spec)!!.font.tableOffset
+        assertEquals(atlas.used, table + CfwModes.FONT2_TABLE_BYTES, "the table is the last thing packed")
+        val firstChunk = table + 200 - TextureCache.GUARD2                                  // a chunk ending 200 B into the table
+        val chunks = atlas.takeUpload(maxMessage = firstChunk + 5)
+        assertTrue(chunks.size >= 2, "the upload splits inside the table: ${chunks.map { it.size }}")
+        atlas.acked()
+        assertEquals(table + 200, atlas.ackedBytes)
+        assertFalse(atlas.isAcked(spec), "a table 200 of 448 B on the glasses is not a font the glasses hold")
+        repeat(chunks.size - 1) { atlas.acked() }
+        assertTrue(atlas.isAcked(spec), "the whole table acked: the font is held")
+    }
+
+    /** `FIRMWARE.md` §4, mode 24 in the model (2026-09-15 review: no test showed the model's panel
+     *  keeping ONLY the hinted rows, or which of two hints wins): what the oracle relies on to catch a
+     *  short hint before glass does. */
+    @Test
+    fun theModelsPanelKeepsOnlyTheHintedRowsAndTheLaterHintWins() {
+        val now = 1_000L
+        val sim = armedV2(now)
+        fun px(x: Int, y: Int): Int = (sim.snapshot(Arm.LEFT)[y * 320 + (x shr 1)].toInt() and 0xFF).let { if (x and 1 == 0) it shr 4 else it and 0x0F }
+        val rows = { y: Int -> wm.damage.core.geom.Rect(0, y, 640, 10) }
+        assertTrue(sim.dispatchForTest(Arm.LEFT, CfwModes.batch(listOf(CfwModes.fill(rows(100), 5), CfwModes.fill(rows(300), 9),
+            CfwModes.presentHint(100, 109))), now))
+        assertEquals(5, px(10, 105), "the hinted rows reach the panel")
+        assertEquals(0, px(10, 305), "a changed row outside the hint does not — the shadow holds it, the panel waits for a full refresh")
+        assertEquals(1, sim.lastPath(Arm.LEFT), "the partial path ran")
+        assertTrue(sim.dispatchForTest(Arm.LEFT, CfwModes.batch(listOf(CfwModes.fill(rows(200), 7),
+            CfwModes.presentHint(0, 9), CfwModes.presentHint(200, 209))), now))
+        assertEquals(7, px(10, 205), "the later hint wins")
+        assertEquals(0, px(10, 305), "still not sent")
+        assertTrue(sim.dispatchForTest(Arm.LEFT, CfwModes.batch(listOf(CfwModes.fill(rows(0), 1))), now))
+        assertEquals(9, px(10, 305), "an unhinted present sends the whole shadow")
+        assertEquals(0, sim.lastPath(Arm.LEFT))
+    }
+
     @Test
     fun layoutCarriesKerningAsAdjustBytesAndLatinOneCodes() {
         val b = TextureCache.Builder(v2 = true)

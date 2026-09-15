@@ -114,7 +114,11 @@ class AndroidText(
             val p = paint(font)
             val pair = p.measureText("$a$b")
             val apart = p.measureText(a.toString()) + p.measureText(b.toString())
-            Math.round(pair - apart).coerceIn(-10, 20)
+            val k = Math.round(pair - apart)
+            // the adjust byte carries −10..+20; belief and glass both take the clamped value, and a pair
+            // past it says so once (memoised) rather than moving silently (2026-09-15 review)
+            if (k !in -10..20) Log.w("text", "kern '$a$b' in $font measures $k px, past the adjust byte's -10..+20 — drawn at ${k.coerceIn(-10, 20)}")
+            k.coerceIn(-10, 20)
         }
 
     override fun draw(surface: Gray8, x: Int, y: Int, text: String, font: FontSpec, level: Int) {

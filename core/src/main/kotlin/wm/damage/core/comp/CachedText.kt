@@ -102,6 +102,8 @@ class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val 
         return true
     }
 
+    /** Where an upload of the whole atlas starts: past the guard (2 B on a v1 cache, 4 on a v2 one). */
+    val uploadStart: Int get() = builder.guard
     /** Packed bytes queued for the glasses — the upload watermark. */
     var sentBytes = builder.guard
         private set
@@ -124,7 +126,7 @@ class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val 
     fun specs(): Set<FontSpec> = entries.keys.toSet()
     /** True when [spec]'s glyphs AND table have been acked by the glasses. */
     fun isAcked(spec: FontSpec): Boolean =
-        entries[spec]?.let { it.font.tableOffset + CfwModes.FONT_TABLE_BYTES <= ackedBytes } ?: false
+        entries[spec]?.let { it.font.tableOffset + it.font.glyphOffsets.size * 2 <= ackedBytes } ?: false   // 192 B (v1) or 448 B (v2)
 
     /** Render every glyph of [spec] once (kept until [add] places it). */
     private fun render(spec: FontSpec): Rendered = rendered.getOrPut(spec) {
@@ -410,19 +412,23 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
      *  draw carries, and what [blit] advances by, so belief and glass agree (Phase 2). */
     fun kernOf(font: FontSpec): (Char, Char) -> Int = { a, b -> base.kern(a, b, font) }
 
-    /** The codes a cached run may hold: 32..126 on a v1 atlas, Latin-1 but DEL on a v2 one. */
+    /** The codes a cached run may hold: 32..126 on a v1 atlas, Latin-1 on a v2 one but DEL, the C1
+     *  controls and the soft hyphen — codes the platform draws as nothing, which the table could only
+     *  hold as the tofu box (2026-09-15 review); the host draws them as it always did. */
     private fun cacheableCode(c: Int): Boolean =
-        c in TextureCache.FIRST_CHAR..(if (atlas?.v2 == true) TextureCache.LAST_CHAR2 else GlyphAtlas.LAST_GLYPH) && c != 127
+        if (atlas?.v2 == true) c in TextureCache.FIRST_CHAR..TextureCache.LAST_CHAR2 && c !in 127..159 && c != 0xAD
+        else c in TextureCache.FIRST_CHAR..GlyphAtlas.LAST_GLYPH
 
     /** §41: [text] as the cacheable RUNS the atlas draws and the characters
      *  between them the host draws — a status line's "·" on a v1 atlas, an
-     *  arrow. Runs are capped at the u8 length the draw carries. */
+     *  arrow. Runs are capped so the draw's u8 length holds the run with an
+     *  adjust byte between every pair ([MAX_RUN] codes, 2 × [MAX_RUN] − 1 bytes). */
     private inline fun forEachRun(text: String, f: (run: String, cached: Boolean) -> Unit) {
         var i = 0
         while (i < text.length) {
             if (cacheableCode(text[i].code)) {
                 var j = i
-                while (j < text.length && j - i < 0xFF && cacheableCode(text[j].code)) j++
+                while (j < text.length && j - i < MAX_RUN && cacheableCode(text[j].code)) j++
                 f(text.substring(i, j), true)
                 i = j
             } else {
@@ -550,6 +556,9 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
         /** Records kept per frame; a frame that paints more than this is a
          *  full repaint the pixel path serves anyway. */
         const val MAX_DRAWS = 1024
+        /** The codes one cached run holds: with a kerning adjust between every pair the string is
+         *  2 × 128 − 1 = 255 bytes, the u8 length (a 255-code run could need 509 and went to pixels). */
+        const val MAX_RUN = 128
         /** An icon is packed once it has been drawn this often (§41). */
         const val PACK_AFTER_USES = 2
         /** Icons remembered between grows, oldest out first. */
@@ -570,10 +579,12 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
             }
         }
 
-        /** Mode 14 draws 32..127 from a u8 string; DEL is tofu, so 32..126 ([v2]: Latin-1 but DEL). */
+        /** Mode 14 draws 32..127 from a u8 string; DEL is tofu, so 32..126 ([v2]: Latin-1 but DEL, the
+         *  C1 controls and the soft hyphen). */
         fun cacheable(text: String, v2: Boolean = false): Boolean =
             text.isNotEmpty() && text.length <= 0xFF &&
-                text.all { it.code in TextureCache.FIRST_CHAR..(if (v2) TextureCache.LAST_CHAR2 else GlyphAtlas.LAST_GLYPH) && it.code != 127 }
+                text.all { if (v2) it.code in TextureCache.FIRST_CHAR..TextureCache.LAST_CHAR2 && it.code !in 127..159 && it.code != 0xAD
+                    else it.code in TextureCache.FIRST_CHAR..GlyphAtlas.LAST_GLYPH }
 
         /**
          * The firmware's draw (`cfw_texture_render` with TRANSPARENT): source

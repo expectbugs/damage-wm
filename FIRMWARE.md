@@ -11,7 +11,7 @@ glasses. Plain wording throughout.
 **Status 2026-09-15 (evening):** v1 is the installed base (g2flash `a5d1c31`), pointed at in §2. §0 and §3 (the Phase 1
 extension: DamageCaps, telemetry, flags, the presented notify, cache-keep, the self-test) are **installed on Adam's
 pair since 2026-09-15** (fork pin `c5e4f8b7…`, `HANDOFF.md` §55); the boot count stays withdrawn (§11). **§4 is built
-on both sides (Adam's word on `HANDOFF.md` §57's decisions; fork pin `aacdc63a…`, `HANDOFF.md` §60), not flashed:** the
+on both sides (Adam's word on `HANDOFF.md` §57's decisions; fork pin `55746389…` after the review, `HANDOFF.md` §60–§61), not flashed:** the
 host C, the simulator and the v2 vectors agree; the glasses' turn comes with the Phase 2 flash. §5–§8 are the decided
 shape only. **Only the RIGHT lens can send** (`CLAIMS.md`): every reply and notify is
 RIGHT's; the left lens's state is inferred from the same writes. CACHE_KEEP stays unarmed (the atlas skip is the
@@ -156,8 +156,10 @@ the CFW replaces.
   frees the scratch; so does every lease release point. The phone drives a vector's messages as
   steps and compares RIGHT's fields 20–22 with the vector's expectations (`tools/glassdrive.py
   selftest:`); LEFT runs the same steps and, by the senders' lens rule, cannot report — its
-  verification waits for an inter-lens report (Phase 4, R0.1). The lease and cache vectors have no
-  self-test form (a tick cannot be set on the glasses; a live cache write is refused).
+  verification waits for an inter-lens report (Phase 4, R0.1). A vector that releases the lease has no
+  self-test form (a tick cannot be set on the glasses); a step carrying a cache write is refused, so since
+  Phase 2 the runners send a vector's cache writes LIVE (§4), and the phone's shell drops its atlas for the
+  session at the first such write.
 - **Status codes:** one byte; the table grows with each op that can refuse (above).
 
 ## 4. v2 drawing ops (Phase 2) — *built 2026-09-15 evening (`HANDOFF.md` §60); changes only with a contract bump once T2 passes*
@@ -166,48 +168,62 @@ Design pass `HANDOFF.md` §57, Adam's word on its eleven decisions as recommende
 lane (both lenses run it), needs the lease, needs flag bit 2 **DRAW2** armed, and inside a mode-8 batch mutates
 without presenting. **The order of an op's checks is part of the contract, since the reason recorded (fields 23–25)
 is:** length (1) → not in a batch (10, modes 20 and 24) → the lease (3; the check settles a lapse) → DRAW2 (9) →
-the op's own (bounds 2, record 5, code 6, scratch 7, value 12, no memory 11). A per-lens form takes the first rect
+the op's own (bounds 2, record 5, code 6, scratch 7, value 12, no memory 11, in the order each row below gives; the
+draw ops 17/18/21/22/23 find no shadow buffer (4) before any of it). A per-lens form takes the first rect
 or x on LEFT and the second on RIGHT (`FW_SIDE`). The mode byte's high bit means
 "lenses differ" exactly as modes 3 and 9: the left lens takes the first rect or x, the right the second, one
 payload. v1 modes 3–15 stay untouched (D8: the pipeline still diffs against upstream). Numbers are little-endian;
-a rect is `l u16 · t u16 · w u16 · h u16` in pixels, unquantized, inside the panel; a per-lens pair has one size.
+a rect is `l u16 · t u16 · w u16 · h u16` in pixels, unquantized, inside the panel and not empty (else 2); **a per-lens
+pair is checked whole on both lenses** — both rects inside the panel and not empty, the two the same size — before either
+lens takes its own, and a pair that fails is refused (2) on both, so the lenses cannot decide one message differently
+(the left lens cannot report). On a mode with no per-lens form (19, 24, 23's subs 1 and 2) the high bit is ignored.
 Cache offsets are **u16 in 4-byte units** (`off4`, reach 256 KiB); the phone keeps records 4-byte aligned.
 
 | mode | payload after the mode byte | semantics |
 |---|---|---|
 | **17** image draw (`0x91` per-lens) | `off4 u16 · x s16 (or xL s16 · xR s16) · y s16 · options u8` | draws a **v2 image record** at (x, y); anything outside the panel or the clip is dropped, negative x and y allowed — a progressive blit or a scroll inside a tall record is a clip plus an offset; options as v1 (top nibble, bit 4 transparent, bit 5 inverse) |
 | **18** string draw (`0x92`) | `font off4 u16 · x s16 (or xL · xR) · y s16 · options u8 · len u8 · bytes` | mode 14 with the **224-entry table** (codes 32..255, Latin-1, entry `code − 32`); glyphs are v1 records, advance = glyph width; bytes 1..31 = x adjust `b − 11` (the phone computes pair kerning and emits adjusts), 0 refused; the whole string validated before a pixel |
-| **19** cache write v2 | `{ off4 u16 · len u16 · data }…` | mode 12 with `off4` offsets over the session's cache size (op 5); the whole list validated first; bumps the generation |
+| **19** cache write v2 | `{ off4 u16 · len u16 · data }…` | mode 12 with `off4` offsets over the session's cache size (op 5); the whole list validated first, in this order: every entry's shape inside the message (1), the lease (3), DRAW2 (9), every entry inside the cache (5); a list with no data is then accepted and writes nothing; the first write allocates the cache (11); bumps the generation |
 | **20** clip (`0x94`) | `rect` (or `rectL · rectR`) | only inside a batch: the v2 draws, fills and LUTs (17/18/21/22) after it in the same batch stay inside it — a later clip replaces it; the batch's end resets it (the clip is batch context on the worker's stack, so it cannot leak); outside a batch refused (10); the v1 ops and mode 23 ignore it |
 | **21** fill (`0x95`) | `rect` (or pair) `· level u8` | nibble-exact fill 0..15, no fid, no zlib — the strip after a copy, a popover's hole, a background |
 | **22** LUT over rect (`0x96`) | `rect` (or pair) `· lut 8 B` (16 nibbles, entry i in nibble i, the high nibble of a byte first — the packed rows' order) | every pixel p becomes lut[p]: dim, brighten, invert in place — the dim behind a deck that `POPOVER.md` verdict 3 priced at +0.5 s is ~20 B in the deck's own batch |
-| **23** save-under (`0x97` for a capture) | sub 0 `[0][slot][rect (or pair)]` · sub 1 `[1][slot]` · sub 2 `[2][slot]` | four slots, 48 KiB between them; sub 0 **capture** copies the shadow's rect into the slot as tight packed rows ((w+1)/2 bytes per row, from arena 13; a capture into a used slot replaces it, the old bytes not counted against the budget); sub 1 **restore** writes it back at the captured rect (an empty slot refused, 7); sub 2 **free** (an empty slot: nothing). Slot ≥ 4 or over budget: 7; sub > 2: 12. Every slot is freed at every release point and by mode 11; each lens keeps its own by construction; a self-test step uses the self-test's own slots |
-| **24** present hint | `y0 u16 · y1 u16` | inside a batch only (10); rows inclusive, 0 ≤ y0 ≤ y1 ≤ 479 (else 2); a later hint replaces it. The batch's present transfers rows y0..y1 through the JBD4010's per-row partial entry (`+0x2C`, called from the Phase 1 refresh hook with the queued job's six arguments and the rows in place of y0/y1; `CLAIMS.md`) instead of the full refresh (F1.7); on any other panel record the full refresh runs. Field 26 (and the presented notify's field 6) says which ran (0 full, 1 rows) and the F1.3 stamp times it, so the phone A/Bs per flush. **The rows must cover every pixel the batch changed: the panel shows nothing else until the next full refresh** — the simulator's panel keeps only the hinted rows too, so a short hint fails the oracle before it reaches glass |
+| **23** save-under (`0x97` for a capture) | sub 0 `[0][slot][rect (or pair)]` · sub 1 `[1][slot]` · sub 2 `[2][slot]` | four slots, 48 KiB between them; sub 0 **capture** copies the shadow's rect into the slot as tight packed rows ((w+1)/2 bytes per row, from arena 13; a capture into a used slot replaces it, the old bytes not counted against the budget); sub 1 **restore** writes it back at the captured rect (an empty slot refused, 7); sub 2 **free** (an empty slot: nothing). The length is sub 0's (11, or 19 under the high bit) or 3 for any other sub (1); then the lease (3), DRAW2 (9), sub > 2 (12), slot ≥ 4 (7), an empty slot on restore (7), the rect or pair (2), the budget (7, a pair priced from its one size), the allocation (11). Every slot is freed at every release point and by mode 11; each lens keeps its own by construction; a self-test step uses the self-test's own slots |
+| **24** present hint | `y0 u16 · y1 u16` | inside a batch only (10); rows inclusive, 0 ≤ y0 ≤ y1 ≤ 479 (else 2); a later hint replaces it. The batch's present transfers rows y0..y1 through the JBD4010's per-row partial entry (`+0x2C`, called from the Phase 1 refresh hook as `(0, 0, 0, y0, 640, y1)` — a Damage job's own arguments whatever job carries the refresh, since a stock job queues 576×288 and the entry sizes each row from x1; `CLAIMS.md`) instead of the full refresh (F1.7); on any other panel record the full refresh runs, and so it does when the previous Damage frame was never transferred (its refresh skipped with the panel off: its hinted rows are not this frame's) or while the diagnostic overlay is shown. Field 26 (and the presented notify's field 6) says which ran (0 full, 1 rows) and the F1.3 stamp times it, so the phone A/Bs per flush. **The rows must cover every pixel the batch changed: the panel shows nothing else until the next full refresh** — the simulator's panel keeps only the hinted rows too, so a short hint fails the oracle before it reaches glass |
 
 **v2 image record:** `[w u16][h u16][RLE of w·h pixels]`, w 1..640, h 1..2048, the v1 token format, no row pad,
 validated at draw. A glyph stays a v1 record (`[w u8][h u8]…`). **Font table v2:** 224 × `off4 u16` = 448 B.
 
-**Control ops (sid 0x09, §3's body):** **5 CACHE_SIZE** (arg = KiB, 1..160) sets the size the cache is allocated at
-by its first write (mode 12 or 19); status 3 with no lease, 5 for zero or over the budget, 4 once the cache is
+**Control ops (sid 0x09, §3's body):** **5 CACHE_SIZE** (arg = KiB, 64..160 — modes 12/13/14 bound their records by the
+first 64 KiB of whatever the cache is, so a smaller one would put those bounds past its end) sets the size the cache is allocated at
+by its first write (mode 12 or 19); status 3 with no lease, 5 below 64 or over 160, 4 once the cache is
 allocated (the size stands); field 18 reports the allocated size, field 19's CRC covers all of it; the size asked
-for goes with the cache at every release point (the next session asks again). The v1 window addressed by modes
+for goes at every release point, whether the cache went or CACHE_KEEP kept it (the next session asks again). A
+request is only that: the allocation keeps its own size, and every bound reads the allocated one. The v1 window addressed by modes
 12/13/14 stays the first 64 KiB; a v2 record or table may lie anywhere in the allocated size. **FLAGS_SET with no
 lease → status 3** (Adam's ruling), and so CACHE_SIZE. Status codes: 0 ok · 1 malformed · 2 unsupported flag · 3 no
-lease · 4 cache allocated · 5 over budget. **Contract version 2** (FLAGS_SET's meaning changed); DamageCaps features
+lease · 4 cache allocated · 5 outside 64..160 KiB. **Contract version 2** (FLAGS_SET's meaning changed); DamageCaps features
 bit 5 = the v2 drawing ops, bit 6 = the link edits below (the Phase 2 build answers `18 7f`).
 
 **Refusals become readable (§1.2 for the image lane):** the dispatcher records every image-lane refusal, v1 modes
 included, as telemetry fields **23** the mode byte as received · **24** reason · **25** the copy sequence at the time,
 sticky until the next refusal or mode 7 sub 0. Reasons: 1 length (a message, entry or sub-message not its shape) ·
-2 bounds (a rect, box, clip, row range or level outside its range) · 3 no lease · 4 no shadow buffer · 5 a record,
+2 bounds (a rect, box, clip or row range outside its range, an empty rect, a per-lens pair not one size) · 3 no lease · 4 no shadow buffer · 5 a record,
 offset or table outside the cache or malformed (a v1 write past the 64 KiB window too) · 6 a string byte that is
 neither an adjust nor a glyph · 7 scratch (a slot out of range, empty on restore, over budget; the self-test's scratch
 missing) · 8 a mode with no handler, or one not allowed where it sits (a nested batch, a cache write in a batch, a
 non-drawing self-test step) · 9 DRAW2 not armed · 10 a clip or hint outside a batch · 11 an allocation failed · 12
-a value outside its range (a level, a LUT, a sub-op) · 13 a zlib or RLE stream that does not decode to its size. The
-v1 modes' order: no shadow (4) → length (1) → the lease (3) → record (5) → code (6); mode 3's box checks (2) and its
-stream (13) after the length; a batch records its own structural refusals (1/8) and leaves a failed sub-message's
-record standing; a mode this build has no handler for records 8, then the stock BMP path runs as before. A duplicate
+a value outside its range (a fill's level, a sub-op) · 13 a zlib or RLE stream that does not decode to its size. The
+v1 modes' order as built (upstream's checks, each now recording its reason): mode 12 checks each entry's shape (1) and
+the 64 KiB window (5) entry by entry, accepts a list with no data, then the lease (3) and the allocation (11); modes 13,
+14 and 15: no shadow (4) → the header's length (1) → the lease (3) → the string's own length (1; 14 and 15) → the table
+or font (5) → byte by byte, a code (6) or a glyph record (5); modes 3, 6 and 9 need no lease — 3: length (1) → the
+boxes (2) → a duplicate fid skipped unrecorded → no shadow (4) → the stream (13); 6: shorter than its header, recorded
+as length (1) on the way to the BMP path → no shadow (4) → the stream (13); 9: length (1) → sizes and bounds (2) → no
+shadow (4). Mode 16: alone (1) · a begin without the lease (3), whose scratch allocation fails (11) or that a release
+point ended (7) · an unknown sub (12) · a step shorter than 3 (1), without the lease (3), without a begin (7), carrying
+what a step may not (8), then its message's own reason. A batch is not all-or-nothing: it records its own structural
+refusals (1/8), a refused sub-message ends it and leaves that sub-message's record standing, the sub-messages before
+it have already changed the shadow, and nothing presents until the next present; a mode this build has no handler for records 8, then the stock BMP path runs as before. A duplicate
 fid stays a silent skip (v1). Field **26** is the last Damage transfer's path (0 full, 1 rows). The ack still precedes
 the decode, so the shell reads them at its next telemetry read and journals a `glass` refusal note. The DWT µs figures
 are calibrated against one OS tick and read ~2.4 % low (§3's tick note).
@@ -228,8 +244,11 @@ lens's box plus the draws placed per lens by modes 17/18 — no widening, no `Co
 the exclusive exit, a font-scale relayout) is a whole-panel fill plus the diff's draws, never a keyframe; a flush
 whose changed rows span at most 240 carries a mode-24 hint (the model keeps only the hinted rows on its panel, so
 a short hint fails the oracle); kerning is the platform's pair measure as adjust bytes (Android; AWT none); the
-`present` records carry the path and `tools/journal_report.py` splits the transfer by it. Still to build: Reader's
-page staging as v2 records with a clip + draw page turn.
+`present` records carry the path and `tools/journal_report.py` splits the transfer by it. DRAW2 is the session's, not
+the wish's: a hold-back that catches it keeps it off at later starts until a hand-set flag set asks for bit 2 (the
+session then draws with v1 shapes over a 64 KiB atlas), a lease that ends drops it from the link state at once and, on a
+Damage build, the shell rebuilds the session to arm it again, and an atlas of the other contract is never drawn from
+(2026-09-15 review, `HANDOFF.md` §61). Still to build: Reader's page staging as v2 records with a clip + draw page turn.
 
 **Vectors (the v2 set, built; expectations from the C, the simulator equal on every step):** `v2-perlens` (17/18
 with two x's, negative x and y) · `v2-image16` (300×300 and 640×600 records across the 64 KiB line in a 160 KiB
@@ -241,7 +260,13 @@ level, past the panel, empty) · `v2-lut` (dim, invert, brighten, per-lens, past
 `v2-cachesize` (op 5's statuses, a write and draw past 64 KiB, the v1 window unchanged, the size gone with a fresh
 lease) · `v2-refusals` (a reason per step, v1 modes among them, the record sticky) · `v2-flags` (no lease 3, unarmed 9,
 armed, disarmed, with PROBE, released, a fresh lease) · `v2-hint` (rows, the whole panel, y0 > y1, past the panel, a
-later hint winning; the partial path itself is `test_damage_ext.py`'s, against the shim's JBD4010 and A6N-G records).
+later hint winning; the partial path itself is `test_damage_ext.py`'s, against the shim's JBD4010 and A6N-G records) ·
+`v2-edges` (the Phase 2 review, 2026-09-15: transparency tested on the source, records one column and one row too big, a
+refused write leaving its good entry unwritten, per-lens pairs refused whole on both lenses, the save-under pool's exact
+edge, a refused capture keeping its slot, a restore and a v1 copy ignoring the clip, length before batch, the high bit
+ignored on 24/23/19) · `v2-lifecycle` (`[16]` alone, op 5 below 64 KiB, DRAW2 before bounds and records, mode 19's lease
+and empty list, the size asked for gone under a latched CACHE_KEEP, the slots freed by a release and by mode 11, mode 7
+sub 0 clearing the record).
 A step's expectation now carries `ref` = [mode, reason, sequence, status] beside the CRCs and return codes. The
 self-test form runs every drawing vector (v1-cache too): a cache write is sent live, the control ops before the begin,
 a vector that releases the lease has none, and the refusal's sequence (the live count) is not compared.
@@ -325,7 +350,8 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   flash — the glasses through the self-test (mode 16). All three must agree before a flash is called
   good. For v1 (the installed firmware) the C wrote the expectations; a disagreement is a finding about
   the simulator or the docs, never a reason to edit an expectation by hand.
-- **The self-test form (2026-09-14):** a drawing vector (every v1 vector but `v1-lease` and `v1-cache`)
+- **The self-test form (2026-09-14; cache writes sent live since Phase 2, §4):** a drawing vector (every vector but
+  `v1-lease` and those that release the lease)
   also runs as `[16][0]`, then each step's messages as `[16][1][message]`; the scratch CRC after each
   step must equal the step's `L`/`R` expectation and the refusal its last `rc`. The host C runs it
   (`host/run_self_test.py`), the simulator runs it (`ConformanceVectorTest`, the self-test form), and
@@ -400,3 +426,10 @@ phone's keeper applies the hold-back rule before re-arming.
   23's three shapes and its pool; mode 24's inclusive rows, the partial entry's call and field 26; the clip's scope;
   the LUT's nibble order; op 5's lease rule and the v1 window; reasons 11–13 and the v1 modes' order; features `18 7f`.
   §0's status: contract 2 not flashed. §9: the `ref` expectation and the self-test form's rules for the v2 set.
+- 2026-09-15 (night) — the review of Phase 2 (`HANDOFF.md` §61), fork and simulator changed together, the vectors
+  regenerated from the C (every existing expectation unchanged) plus `v2-edges` and `v2-lifecycle`: op 5 takes 64..160 KiB
+  (a smaller cache put the v1 modes' bounds past its end) and a request no longer shares the allocated size's field; a
+  per-lens pair is checked whole on both lenses; mode 19's order is length → lease → DRAW2 → record; mode 16's refusals
+  are recorded; mode 24's partial call is a Damage job's own (0, 0, 0, y0, 640, y1), and the refresh is full after a frame
+  the panel-off path never transferred or while the overlay shows; §4 states each op's order, the v1 modes' order as
+  built, the ignored high bit, and that a batch is not all-or-nothing. Contract version unchanged (not flashed).

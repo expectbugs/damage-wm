@@ -280,12 +280,18 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     }
 
     private fun assembleFlushInner(rectBudget: Int): Assembled? {
+        // a reseed owed on a session that no longer answers the v2 ops (DRAW2 went with a lease) is a
+        // keyframe: a mode-21 fill there would be refused and leave belief black over the old glass
+        if (needsReseed && !v2) { needsReseed = false; needsKeyframe = true }
         val keyframe = needsKeyframe
         val ops = ArrayList<DisplayOp>()
         val touched = ArrayList<Touched>()
         val full = Rect(0, 0, width, height)
 
-        val copies = ArrayList(pendingCopies)
+        // a reseed paints the whole panel from black, as a keyframe does: declared copies have
+        // nothing to move (black onto black) and are not replayed or sent (the keyframe path skips
+        // their replay below)
+        val copies = if (needsReseed && !keyframe) ArrayList() else ArrayList(pendingCopies)
         pendingCopies.clear()
         val hints = ArrayList(pendingDamage)
         pendingDamage.clear()
@@ -980,8 +986,12 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      */
     private fun emitCached(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int? {
         lastMiss = null
-        // contract 2: a v2 atlas draws per lens — no widening, no copy, no retry on the context
-        if (cachedText?.atlas?.v2 == true) return emitCachedV2(rect, d, ops, touched, fidsLeft, bytesLeft)
+        // contract 2: a v2 atlas draws per lens — no widening, no copy, no retry on the context. An
+        // atlas of the other contract than the session's (between a lease lost and the rebuild) is
+        // not drawn from at all: its offsets and modes are the wrong ones for what answers
+        val atlas = cachedText?.atlas ?: return null
+        if (atlas.v2 != v2) return miss("contract")
+        if (atlas.v2) return emitCachedV2(rect, d, ops, touched, fidsLeft, bytesLeft)
         emitCachedAt(rect, d, ops, touched, fidsLeft, bytesLeft)?.let { return it }
         // A depth-plane rect whose proof failed on its CONTEXT — the copy
         // leaves |d| columns on each far side that must already be right, so
@@ -1044,7 +1054,8 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         for (dr in draws) {
             if (dr.spec !in src.live) return miss("font-not-live")
             val e = atlas.entry(dr.spec) ?: return miss("font-not-live")
-            val bytes = try { wm.damage.core.wire.TextureCache.layout(dr.text, e.font) } catch (t: wm.damage.core.geom.LintError) { return miss("layout") }
+            // the recorder kerns on every atlas (`CachedText.kernOf`): mode 14 carries the same adjust bytes
+            val bytes = try { wm.damage.core.wire.TextureCache.layout(dr.text, e.font, src.kernOf(dr.spec)) } catch (t: wm.damage.core.geom.LintError) { return miss("layout") }
             if (dr.x < 0 || dr.y < 0 || dr.x >= width || dr.y >= height) return miss("edge")
             textOps.add(DisplayOp.DrawText(e.font.tableOffset, dr.x, dr.y,
                 wm.damage.core.wire.CfwModes.options(top = wm.damage.core.gfx.Pack.level(dr.level), transparent = true), bytes))
@@ -1075,7 +1086,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         System.arraycopy(base.pix, 0, flat.pix, 0, base.pix.size)
         for (dr in draws) {
             val e = atlas.entry(dr.spec) ?: return miss("font-not-live")
-            CachedText.blit(flat, dr.x - w.x, dr.y - w.y, dr.text, e, dr.level)
+            CachedText.blit(flat, dr.x - w.x, dr.y - w.y, dr.text, e, dr.level, src.kernOf(dr.spec))
         }
         for (im in images) {
             val e = atlas.image(im.key) ?: return miss("image-not-live")

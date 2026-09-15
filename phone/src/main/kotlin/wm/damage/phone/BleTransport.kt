@@ -357,12 +357,17 @@ class BleTransport(
      *  the PHY callback journals the answer as a `link` note ("PHY after the link request"). */
     override fun onDamageBuild(caps: wm.damage.core.wire.DamageMsg.Caps) {
         if (!caps.has(wm.damage.core.wire.DamageMsg.FEATURE_LINK)) return
+        // a `phy=1m` probe is an A/B the rebuilds must not undo (2026-09-15 review)
+        if (phyProbe == "1m") { emitNote("link", "the build offers LE 2M (DamageCaps bit 6), but phy=1m was probed — not requested"); return }
         for ((arm, m) in managers) {
             if (!m.linkUp) continue
             m.requestPhy(PhyRequest.PHY_LE_2M_MASK, "link")
         }
         emitNote("link", "the build offers LE 2M (DamageCaps bit 6): 2M requested on both arms")
     }
+
+    /** The last `phy=` probe's choice, kept across rebuilds (null until one is probed). */
+    @Volatile private var phyProbe: String? = null
 
     /** §49: the phone's radio adds the PHY probe; diag and logger are the base's. */
     override fun devProbe(name: String, value: String) {
@@ -374,6 +379,7 @@ class BleTransport(
             "1m" -> PhyRequest.PHY_LE_1M_MASK
             else -> { Log.w("ble", "probe phy=$value: expected 2m | 1m"); return }
         }
+        phyProbe = value
         var asked = 0
         for ((arm, m) in managers) {
             if (!m.linkUp) { Log.w("ble", "probe phy=$value: $arm is not connected"); continue }

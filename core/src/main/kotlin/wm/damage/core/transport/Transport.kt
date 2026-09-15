@@ -338,3 +338,9 @@ data class LinkState(
 val LinkState.draw2: Boolean
     get() = damageFeatures and wm.damage.core.wire.DamageMsg.FEATURE_DRAW2 != 0 &&
         flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_DRAW2 != 0
+
+/** The cache an atlas lays out over this session: the session's size with DRAW2 in force, the v1
+ *  64 KiB otherwise — a size taken before an arming that did not happen (a hold-back, a refusal)
+ *  is not a v1 atlas's (2026-09-15 review: the v1 builder refused it and cached text stayed off). */
+val LinkState.atlasCapacity: Int
+    get() = if (draw2) cacheSize else wm.damage.core.wire.CfwModes.TEXTURE_CACHE_SIZE

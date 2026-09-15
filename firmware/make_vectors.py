@@ -419,6 +419,51 @@ def vectors_v2(kf):
         step(msg(batch(hint(0, 480), fill(rect(0, 0, 8, 8), 1)))),                 # y1 past the panel: refused (2)
         step(msg(batch(hint(10, 20), hint(30, 40), fill(rect(0, 0, 640, 480), 5)))),   # the later hint wins
     ]})
+    # the Phase 2 review (2026-09-15): the check orders, the per-lens pair rule, and behaviours §4 states
+    # that no vector pinned — `v2-edges` keeps a self-test form (no release, no control op mid-run)
+    edge = Cache2()
+    dot = edge.add(image2(2, 1, [1, 0]))                                          # source 1, then source 0
+    w641 = edge.add(u16(641) + u16(1) + rle([5] * 641))                            # a record one column too wide
+    h2049 = edge.add(u16(1) + u16(2049) + rle([5] * 2049))                         # and one row too tall
+    unwritten = edge.reserve(8)                                                   # a record the refused write below never fills
+    inv = [15 - i for i in range(16)]
+    v.append({"name": "v2-edges", "steps": [
+        step(*arm, *[msg(m) for m in edge.messages()]),
+        step(msg(fill(rect(0, 0, 640, 480), 15)), msg(draw2(dot, 10, 10, 0x14))),     # transparency tests the SOURCE: 1 lands as 1*4/15 = 0, 0 is skipped
+        step(msg(draw2(w641, 0, 0, 0x0F))),                                       # w 641: refused (5)
+        step(msg(draw2(h2049, 0, 0, 0x0F))),                                      # h 2049: refused (5)
+        step(msg(cache_write2((unwritten, image2(2, 2, [7, 7, 7, 7])), (0xFFFF, bytes(8)))),   # the second entry past the cache: refused (5) whole
+             msg(draw2(unwritten, 20, 10, 0x0F))),                                # so the first was never written: refused (5)
+        step(msg(fill_pair(rect(0, 0, 10, 10), rect(635, 0, 10, 10), 7))),        # the right rect past the panel: refused (2) on BOTH lenses
+        step(msg(fill_pair(rect(0, 0, 10, 10), rect(0, 0, 20, 10), 7))),          # two sizes: refused (2) on both
+        step(msg(batch(clip_pair(rect(0, 0, 100, 100), rect(600, 0, 100, 100)), fill(rect(0, 0, 640, 480), 3)))),   # a clip pair past the panel: refused (2)
+        step(msg(lut_pair(rect(0, 0, 10, 10), rect(0, 0, 11, 10), inv))),         # two sizes: refused (2)
+        step(msg(capture_pair(0, rect(0, 0, 512, 192), rect(8, 0, 512, 192)))),  # exactly the 49,152 B pool: taken
+        step(msg(capture(1, rect(0, 0, 1, 1)))),                                  # one byte more: refused (7)
+        step(msg(capture(0, rect(0, 0, 640, 480))), msg(fill(rect(0, 0, 640, 480), 1)), msg(restore(0))),   # a refused capture into a used slot keeps it
+        step(msg(fill(rect(0, 0, 640, 480), 2)), msg(batch(clip(rect(0, 0, 10, 10)), restore(0)))),   # a restore ignores the clip
+        step(msg(batch(clip(rect(0, 0, 10, 10)), copy((0, 0, 100, 100), (200, 200, 100, 100))))),     # and so does a v1 copy
+        step(msg(clip(rect(0, 0, 64, 64)) + b"\x00")),                          # a clip the wrong length at the top level: length (1) before batch (10)
+        step(msg(batch(bytes([0x98]) + u16(0) + u16(479), fill(rect(0, 0, 8, 8), 6)))),   # the high bit on a mode with no per-lens form: ignored
+        step(msg(bytes([0x97, 1, 0]))),                                           # a restore under the high bit: ignored, restores
+        step(msg(bytes([0x93]) + u16(unwritten) + u16(5) + image2(2, 1, [3, 3])), msg(draw2(unwritten, 30, 30, 0x0F))),   # 0x93: a mode-19 write, drawn
+    ]})
+    far2 = Cache2(start=80000)
+    far2off = far2.add(image2(8, 8, [9] * 64))
+    v.append({"name": "v2-lifecycle", "steps": [
+        step({"tick": 1000}, msg(kf), msg(bytes([16]))),                          # a mode-16 message with no sub-op: refused (1), recorded
+        step({"lease": "acquire"}, cachesize(63)),                                # below 64 KiB: status 5
+        step(cachesize(64)),                                                      # 64 KiB: status 0
+        step(msg(fill(rect(600, 0, 41, 10), 5))),                                 # past the panel, DRAW2 unarmed: DRAW2 (9) before bounds (2)
+        step(*[msg(m) for m in far2.messages()]),                                 # a write past the cache, DRAW2 unarmed: 9 before record (5)
+        step({"lease": "release"}, msg(cache_write2((4, bytes(4))))),              # no lease: 3
+        step({"lease": "acquire"}, msg(bytes([19]))),                             # an empty list, DRAW2 unarmed: 9
+        step(flags(0x0002), cachesize(128), {"lease": "release"}, {"lease": "acquire"}, flags(DRAW2),
+             *[msg(m) for m in far2.messages()]),                                 # CACHE_KEEP latched, no cache up: the 128 KiB asked went with the release — 64 KiB, refused (5)
+        step(msg(capture(0, rect(0, 0, 100, 100))), {"lease": "release"}, {"lease": "acquire"}, flags(DRAW2), msg(restore(0))),   # the release freed the slot: 7
+        step(msg(capture(1, rect(0, 0, 100, 100))), msg(bytes([11])), {"lease": "acquire"}, flags(DRAW2), msg(restore(1))),     # so does mode 11
+        step(msg(fill(rect(0, 0, 8, 8), 16)), msg(bytes([7, 0]))),                # a refusal, then mode 7 sub 0 clears the record
+    ]})
     for vec in v:
         vec["contract"] = 2
         vec["start"] = "zero"

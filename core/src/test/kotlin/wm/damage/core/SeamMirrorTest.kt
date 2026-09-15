@@ -27,6 +27,7 @@ import wm.damage.core.transport.RemoteTransportClient
 import wm.damage.core.transport.RemoteTransportServer
 import wm.damage.core.transport.SimTransport
 import wm.damage.core.transport.TransportEvent
+import wm.damage.core.transport.draw2
 import wm.damage.core.wire.EvenHubMsg
 
 /** HANDOFF.md §8.2 "the seam carries the mirror": over a loopback seam the
@@ -35,6 +36,55 @@ import wm.damage.core.wire.EvenHubMsg
 class SeamMirrorTest {
 
     private fun freePort(): Int = ServerSocket(0).use { it.localPort }
+
+    /** 2026-09-15 review: the seam counted a v2 op's bytes (a mode-18 string, a mode-19 chunk) in the
+     *  flush's blob but never copied them in, so the far end read zeros and every later op's bytes
+     *  shifted; and it did not carry the contract-2 state, so a shell across it never drew with v2. */
+    @Test
+    fun theSeamCarriesContractTwoStateAndItsOpsBytes(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val port = freePort()
+        val sim = GlassFirmwareSim().also { it.damageContract = 2 }
+        val inner = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+        val server = RemoteTransportServer(inner, port, "tok", scope)
+        server.start()
+        try {
+            val client = RemoteTransportClient("127.0.0.1", port, "tok", scope)
+            val done = HashMap<Long, Boolean>()
+            scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                client.events.collect { ev -> if (ev is TransportEvent.FlushDone) synchronized(done) { done[ev.id] = ev.ok } }
+            }
+            client.start(Zl.encodeCfw(Pack.rect(Gray8(640, 480), Rect(0, 0, 640, 480))))
+            val t0 = System.currentTimeMillis()
+            while (!(client.state.value.draw2 && client.state.value.cacheSize == 160 * 1024) && System.currentTimeMillis() - t0 < 5_000) delay(5)
+            assertTrue(client.state.value.draw2, "the far end's DRAW2 reaches the client: ${client.state.value}")
+            assertEquals(160 * 1024, client.state.value.cacheSize)
+            suspend fun ship(ops: List<wm.damage.core.transport.DisplayOp>): Boolean {
+                val id = client.submit(FlushRequest(ops, 1L, "seam-v2"))
+                val t1 = System.currentTimeMillis()
+                while (synchronized(done) { id !in done } && System.currentTimeMillis() - t1 < 10_000) delay(5)
+                return synchronized(done) { done[id] } ?: error("flush $id never completed")
+            }
+            // a 4x2 record of level 11 at byte 4096, then a draw of it beside a fill that follows it in the batch
+            val rec = wm.damage.core.wire.TextureCache.Image2(4, 2, ByteArray(8) { 11 }).encode()
+            assertTrue(ship(listOf(wm.damage.core.transport.DisplayOp.CacheWrite2(wm.damage.core.wire.CfwModes.cacheUpdate2(
+                listOf(wm.damage.core.wire.CfwModes.CacheWrite2(1024, rec)), 160 * 1024)))))
+            assertTrue(ship(listOf(
+                wm.damage.core.transport.DisplayOp.DrawImage2(1024, 100, 100, 50, 0x0F, 4, 2),
+                wm.damage.core.transport.DisplayOp.Fill(Rect(200, 60, 8, 4), Rect(200, 60, 8, 4), 7))))
+            // no font table at 0: refused on the glasses for its record (5) — a string that arrived as zeros is a code (6)
+            assertTrue(ship(listOf(wm.damage.core.transport.DisplayOp.DrawText2(0, 0, 0, 400, 0x0F, byteArrayOf(0x41)))))
+            val p = sim.panel(Arm.LEFT)
+            fun px(x: Int, y: Int) = (p[y * 320 + (x shr 1)].toInt() and 0xFF).let { if (x and 1 == 0) it shr 4 else it and 0x0F }
+            assertEquals(11, px(100, 50), "the record the seam wrote draws")
+            assertEquals(7, px(200, 60), "the fill after it lands")
+            assertEquals(listOf(18, 5), sim.refusalRecord(Arm.LEFT).take(2), "the string reached the glasses as its own bytes")
+            client.stop()
+        } finally {
+            server.close()
+            scope.cancel()
+        }
+    }
 
     @Test
     fun clientMirrorTracksTheServerSimAndPanelsPrecedeDone(): Unit = runBlocking {

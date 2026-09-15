@@ -49,7 +49,7 @@ WORK since 2026-09-12: the CFW fork and the Damage rebuild are the only work unt
 `HANDOFF.md` §48).** No new windows, no Feed polish, no popover build outside the plan, until `FORK.md`
 Phase 8 closes. The fork is its own GPL-3.0 repo (`~/damage-cfw`); Damage stays clean-room and holds
 only the contract (`FIRMWARE.md`). Never flash without Adam's in-the-moment go; dry-run first.
-**Phase 1 flashed 2026-09-15 (`HANDOFF.md` §55); Phase 2 built on both sides the same day and NOT flashed (§60);
+**Phase 1 flashed 2026-09-15 (`HANDOFF.md` §55); Phase 2 built on both sides the same day, reviewed that night and NOT flashed (§60–§61);
 Reader's page staging is the one Phase 2 item left.** `REMINDER.md` holds the state and the next steps; `MOTION.md`
 and D1–D8 at Adam's pace before Phase 3; the arm drops are recorded and not the work.
 

@@ -40,6 +40,7 @@ import wm.damage.core.text.TextRasterizer
 import wm.damage.core.transport.Arm
 import wm.damage.core.transport.FlushRequest
 import wm.damage.core.transport.Transport
+import wm.damage.core.transport.atlasCapacity
 import wm.damage.core.transport.draw2
 import wm.damage.core.transport.TransportEvent
 import wm.damage.core.util.Log
@@ -1868,6 +1869,12 @@ class Shell(
                     services.notifyInternal("lease", "framebuffer lease lost — ${ev.detail}", urgent = true)
                     comp.requestKeyframe()
                     atlasLapsed()                // §40: the cache went with the lease
+                    // a Damage build cleared the session's flags and the cache's size with the lease
+                    // (`FIRMWARE.md` §3, §4): the renewal that follows is a fresh acquire nothing re-arms,
+                    // so the session is rebuilt — the start takes the size, arms DRAW2 and the wanted
+                    // flags again and the shell adopts the glasses as they are (2026-09-15 review)
+                    if (transport.state.value.damageContract > 0 && !restartRequested)
+                        requestRebuild("the framebuffer lease lapsed on a Damage build — its flags went with it")
                 } else if (statusText == "LEASE LOST") {
                     setStatus("ok")
                     atlasLeaseBack()             // §40: the cache is allocatable again
@@ -2016,6 +2023,9 @@ class Shell(
      *  when that was this shell (§54). One per instance: the keeper restarts the
      *  same instance, a new process starts with no atlas anyway. */
     private val atlasTag = "shell-" + java.lang.Long.toHexString(java.util.concurrent.ThreadLocalRandom.current().nextLong() and 0xFFFFFFFFL)
+    /** The last cache writer the atlas has already accounted for — on record at the session's start or a
+     *  fresh atlas, or one it dropped the atlas for — so only a NEW foreign writer drops it. */
+    private var atlasForeignWriter = ""
 
     /**
      * §54 (2026-09-15), Adam's ruling of `HANDOFF.md` §51.8 — the bounded atlas
@@ -2042,6 +2052,7 @@ class Shell(
         val ct = cachedText
         val a = atlas
         val st = transport.state.value
+        atlasForeignWriter = st.cacheWriter      // a writer already on record is this decision's; only a later one drops the atlas
         val reset: String? = when {
             ct == null -> null                                  // no cache path on this host: nothing to say
             a == null -> "no atlas from a previous session"
@@ -2049,8 +2060,8 @@ class Shell(
             settings.cachedText != "on" -> "cached text is off"
             !st.leaseCarried -> "the acquire was not a renewal on both arms — " +
                 st.leaseCarry.ifEmpty { "the transport reports no carry-over" }
-            a.v2 != st.draw2 || a.capacity != st.cacheSize ->
-                "the session's contract differs (atlas ${if (a.v2) "v2" else "v1"} ${a.capacity / 1024} KiB, session ${if (st.draw2) "v2" else "v1"} ${st.cacheSize / 1024} KiB)"
+            a.v2 != st.draw2 || a.capacity != st.atlasCapacity ->
+                "the session's contract differs (atlas ${if (a.v2) "v2" else "v1"} ${a.capacity / 1024} KiB, session ${if (st.draw2) "v2" else "v1"} ${st.atlasCapacity / 1024} KiB)"
             st.cacheWriter != atlasTag -> "the last cache write through the transport was not this shell's" +
                 (if (st.cacheWriter.isEmpty()) "" else " (${st.cacheWriter})")
             else -> null
@@ -2122,9 +2133,10 @@ class Shell(
             // contract 2 (`FIRMWARE.md` §4): with DRAW2 in force the atlas is a v2 layout over the
             // session's cache (mode 19, 224-entry tables, per-lens draws); otherwise the v1 one
             val st = transport.state.value
-            atlas = GlyphAtlas(ct.base, v2 = st.draw2, capacity = st.cacheSize)
+            atlasForeignWriter = st.cacheWriter  // a fresh atlas writes over whatever is there
+            atlas = GlyphAtlas(ct.base, v2 = st.draw2, capacity = st.atlasCapacity)
             ct.atlas = atlas
-            journal.note("atlas", "built for ${if (st.draw2) "contract 2 (per-lens draws, ${st.cacheSize / 1024} KiB)" else "the v1 cache (64 KiB, flat draws)"}")
+            journal.note("atlas", "built for ${if (st.draw2) "contract 2 (per-lens draws, ${st.atlasCapacity / 1024} KiB)" else "the v1 cache (64 KiB, flat draws)"}")
         }
         atlasGrow()
     }
@@ -2158,7 +2170,7 @@ class Shell(
     /** The lease is held again after a lapse: the atlas goes up again. */
     private fun atlasLeaseBack() {
         val a = atlas ?: return
-        if (settings.cachedText == "on" && a.sentBytes <= wm.damage.core.wire.TextureCache.GUARD) atlasGrow()
+        if (settings.cachedText == "on" && a.sentBytes <= a.uploadStart) atlasGrow()
     }
 
     /** Add every font seen since the last look — the ones drawn on plane 0
@@ -2284,7 +2296,7 @@ class Shell(
         atlasLive(emptySet(), emptySet(), "repacking — ${evict.size} font(s) not drawn in $ATLAS_RECENT_FRAMES frames ($freed B) and $droppedIcons icon(s) evicted for $spec")
         val used = a.repack(keep, keepImages)
         lastAtlasRepackMs = now
-        journal.note("atlas", "repacked: ${keep.size} font(s) and ${keepImages.size} icon(s) kept, $used B in use, ${wm.damage.core.wire.CfwModes.TEXTURE_CACHE_SIZE - used} B free for $spec (needs $need B)")
+        journal.note("atlas", "repacked: ${keep.size} font(s) and ${keepImages.size} icon(s) kept, $used B in use, ${a.free} B free for $spec (needs $need B)")
         return true
     }
 
@@ -3342,6 +3354,14 @@ class Shell(
         comp.v2 = transport.state.value.draw2   // contract 2 (`FIRMWARE.md` §4): fills, the reseed, the hint
         if (!running || !transport.state.value.started) return
         val st = transport.state.value
+        // a cache write that was not this shell's landed in the live cache mid-session (the self-test's
+        // `live:` writes, 2026-09-15 review): the atlas's bytes on the glasses are no longer what it
+        // packed, so nothing draws from them — pixels until the next session or a Cached text toggle
+        if (atlas != null && st.cacheWriter.isNotEmpty() && st.cacheWriter != atlasTag && st.cacheWriter != atlasForeignWriter) {
+            atlasForeignWriter = st.cacheWriter
+            journal.note("atlas", "the texture cache was written by '${st.cacheWriter}' mid-session — the atlas is dropped, cached text is pixels until the next session or a Cached text toggle")
+            atlasReset()
+        }
         // One slot is RESERVED for the response to input (2026-09-05,
         // `HANDOFF.md` §32): animation frames, poll-driven repaints and the
         // visualizer may keep at most window-1 flushes in flight, so a

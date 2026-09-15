@@ -4002,3 +4002,106 @@ point from another task during the step would have freed the step's slots as the
 is deferred to the step's epilogue like the scratch's (`damage_live_slots_release`; the window §53.2 closed for the
 scratch). **Battery:** core 566 · desktop 15 · `--selfcheck` ×3 · the window checks · lint 0; APK 0.51 staged.
 **Nothing flashed; no Phase 2 flash before a worn day on the Phase 1 build is read (§56).**
+
+## 61. The review of Phase 2 on both sides (2026-09-15, night)
+
+Context for the reader: a personal device, the published patch method, display-rendering work. Adam's instruction:
+review today's Phase 2 code (Damage `df65623`, the fork `0ace692`), verify every finding, fix it the best way, verify
+the fixes. Method: six fresh reviewers in parallel (the fork's draw ops; its control plane and link edits; the
+simulator against the contract text; the encoders and atlas; the compositor; the transport), my own read of the same,
+every finding re-read at the code (instruction level for firmware facts) before a line changed, every fix pinned by a
+test watched to fail on the unfixed tree. Nothing flashed, nothing installed, the `damage` service untouched; both
+trees left uncommitted for Adam's review.
+
+### 61.1 Fixed in the fork (pin `55746389…`, was `aacdc63a…`)
+1. **Op 5 took 1..63 KiB, and modes 12/13/14 bound their records by the 64 KiB window of any cache**: a write and a
+   read past the allocation (host, a guard-page build). Now 64..160 (status 5 below); `damage_cache_size` never reads
+   below 64 KiB.
+2. **One field held both the size asked for and the allocated size**: op 5 on the settings task could land after the
+   worker's first allocation and widen every bound past the block; under a latched CACHE_KEEP the request outlived a
+   release. Now `dmg_cache_req` (op 5 only, cleared at every release point) and `dmg_cache_bytes` (written before the
+   pointer is published, cleared after it is withdrawn).
+3. **A per-lens pair was checked only for the lens's own half** (modes 20–23): the lenses could decide one message
+   differently, and LEFT cannot report. Both rects and one size are checked on both lenses first.
+4. **Mode 19 checked records before the lease and DRAW2**, so a lapse read as "record"; now length → lease → DRAW2 →
+   record, an empty list after them.
+5. **A hint latched for a frame whose refresh the panel-off path skipped** sent only the latest frame's rows when the
+   panel came back; the preserved frame's first refresh did the same with a stale hint. The refresh is full after an
+   untransferred frame, while the diagnostic overlay shows and once after it is hidden.
+6. **The partial call passed the carrying job's x1**: a stock job queues 576×288 and the entry sizes each row from x1
+   (`FUN_00592CB4`, read at instruction level), so a stock refresh that took a pending Damage frame sent 288 of 320
+   bytes per row. Now `(0, 0, 0, y0, 640, y1)` always.
+7. **The self-test swapped slot sets under a check another task could preempt** (a free of a swapped-out buffer).
+   Mode 23 now picks the set by the step's own mark; nothing is swapped.
+8. Mode 16's refusals recorded (`[16]` alone 1, a failed scratch 11, a begin a release ended 7); fields 23–25 read
+   under a write count, so a reply never mixes two refusals.
+9. Tooling: `run_self_test.py` printed PASS for vectors it skipped; the shim's stock refresh used 640×480 (hid 6); the
+   host checks go 57 → 69 (panel-off hints, the partial's arguments under a held job (the shim's new `hold`), the overlay shown and hidden, op 5's floor, the
+   latched request, mode 19's order, the pair on both lenses, `[16]`).
+10. Records: the slow link record has a second pool word (`0x0047775C`) and `FUN_00477ADC` loads `0x004786C8` too,
+    all for log lines only — `CLAIMS.md` corrected; the edit stands.
+
+### 61.2 Fixed on the Damage side
+1. **The v2 atlas upload landed 1–3 bytes early after an icon**: records pad before, not after, so the watermark sat
+   off a 4-byte boundary and the next mode-19 offset rounded down (the previous icon's tail and every new record
+   corrupt on glass, belief unaware). Records pad on both sides; a chunk off the boundary throws.
+2. **A v2 font counted as held once 192 of its 448 table bytes were acked** (Latin-1 draws refused, 5).
+3. **Kerning broke the v1 cached path on the installed build**: the recorder kerned, `emitCachedAt` neither laid out
+   nor proved with it, so every kerned string missed its proof (APK 0.51 on the Phase 1 build). Mode 14 carries the
+   same adjust bytes; the v1 path uses them.
+4. **A size taken before an arming that did not happen** (a hold-back, a refusal) built a v1 atlas at 160 KiB and threw:
+   cached text off for the session. `LinkState.atlasCapacity`.
+5. **The hold-back held DRAW2 for one session only** (the start added it back); a hold-back also cleared the reset the
+   carry decision reads. DRAW2 is a session extra with its own latch (lifted by a hand-set flag set with bit 2); the
+   hold-back has its own marker.
+6. **A lease lost mid-session left DRAW2 and the size in the link state**; nothing re-armed them, so every v2 op after
+   the renewal was refused. The state drops both with the lease; on a Damage build the shell rebuilds; an atlas of the
+   other contract is never drawn from; a reseed owed on a v1 session is a keyframe.
+7. **The carry decision spent its evidence before the shell acted**: a start that ended after its ACQUIRE let the next
+   one carry an atlas a rebooted lens no longer held (§59 again). The reboot marks stand until a start completes, an
+   unfinished decision means not carried, RIGHT's reset-check record without field 18 means not carried, and a link
+   loss, an unnamed reason or BlueZ's reasonless end count as reboot-like.
+8. **A dropped bit's duplicate refusal completed the next bit's waiter** (status 2 carries unchanged flags): a read
+   with its own id drains it.
+9. **`glassdrive.py selftest:` wrote vectors into the live cache under the shell's atlas** (wrong glyphs, belief
+   unaware), counted those writes as steps (false FAILs) and replaced the flags wish. A live write marks the cache
+   foreign and the shell drops its atlas for the session; steps counted, flags restored.
+10. **The seam counted DrawText2/CacheWrite2 bytes but never copied them** (latent: it carried no contract-2 state
+    either, so no shell across it drew v2). Bytes, state and the present path carried.
+11. Smaller: C1 controls and the soft hyphen stay the host's on a v2 atlas; runs cap at 128 codes (a kerned 255-code
+    run needed 509 B); a kern past −10..+20 is logged; a `phy=1m` probe survives rebuilds; the reset check needs the
+    telemetry feature; the lease-back re-upload read the v1 guard; a reseed no longer replays declared copies; the
+    repack note's free bytes; op 5's probe floor.
+12. **Found by the battery, not today's code:** `Iterable.toList()` on a `ConcurrentHashMap` view reads `size()` and then
+    the iterator, so an entry removed between them throws; it did in `sweepSession` (`ShellKeeperTest`, a
+    `NoSuchElementException` out of `onLinkDown`, which would leave a link end unreported). Snapshots through `toArray`
+    in the transport, the seam, `TmuxNet` and `WinNet`.
+13. The simulator from the amended §4: op 5's floor, the request gone under a latch, pairs whole, mode 19's order,
+    `[16]` alone, modes 16–24 gated on the build's contract, field 6 on contract 2. `ConformanceVectorTest` requires
+    `ref` on contract-2 vectors and fails a drawing vector that ran no self-test step.
+
+### 61.3 Contract and vectors
+`FIRMWARE.md` §4 states each op's order, the v1 modes' order as built, the pair rule, the ignored high bit, the batch
+that is not all-or-nothing, mode 16's reasons, op 5's 64..160 and the request/allocation split, and the partial call;
+§3/§9 the live cache writes of the self-test form. Vectors regenerated from the C — every existing expectation byte for
+byte unchanged — plus `v2-edges` (18 steps, a self-test form) and `v2-lifecycle` (11). Contract version unchanged.
+
+### 61.4 Looked at, not changed
+- A kern more negative than the next glyph's width puts ink outside a draw's rect: no locked face kerns that far.
+- A `CACHE_SIZE` lost on the wire: a lost write ends the link, and the next start asks again.
+- The automatic 2M request waits in the arm's queue for `onPhyUpdate` (Nordic 2.7.5 adds a 1 s fallback on Android 13
+  only): unmeasured — watch for the `link` note "PHY after the link request" on the first Phase 2 session.
+- A renewal written after the lease expired with no maintenance tick in between is a fresh acquire the transport
+  cannot see; the mirror's faults say so. Rare (a frozen process).
+- After a budget-limited reseed the follow-up flushes find no records (the frame's records end with each assemble):
+  measured on `Contract2Test`'s rows window the reseed fits one flush (736 B, 17 draws; the v1 keyframe
+  there 741 B), so the follow-up path was not reached; it is the keyframe's own follow-up behaviour, unchanged.
+- The per-pair kern lookup on the phone allocates per call; unmeasured (`textMs` in the journal).
+
+**Battery:** core 579 (four full runs: the last green; the misses along the way were `FeedWindowTest.deepLinks…`
+(§49.6), `Review20260905Test.cashingOut…` once — green alone ×3 and in the next three runs, cause not found — and
+the two races fixed above) · desktop 15 · `--selfcheck` ×3 · `--snapshot` (57 renders, looked at) · epub · music ·
+games · feed checks · lint 0 · `:phone:assembleDebug` (0.52, not staged). The fork: `tools/verify.py` all pass (pin
+`55746389…`, the same sites), `run_vectors.py` 20 vectors, `run_self_test.py` 16, `test_damage_ext.py` 69. The new pins
+were each run against the unfixed tree first and failed there (the seam's byte pin behind its state pin, checked by
+removing the byte fix alone).

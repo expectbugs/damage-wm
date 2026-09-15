@@ -277,7 +277,7 @@ class RemoteWin(
     }
 
     private fun failPending(why: String) {
-        for (id in pending.keys.toList()) {
+        for (id in ArrayList(pending.keys)) {       // toArray's snapshot: toList() can throw on a concurrent removal
             pending.remove(id)?.completeExceptionally(IllegalStateException(why))
         }
     }
