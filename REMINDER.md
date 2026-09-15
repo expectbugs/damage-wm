@@ -24,7 +24,8 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
   panel is off (copies counted, nothing transferred); the uptime tick runs 1.024 per ms. Rulings: F1.7 into Phase 2;
   a FLAGS_SET with no lease refused (status 3) from Phase 2's candidate; the soak = ordinary wear during Phase 2's
   build, and no Phase 2 flash before a worn day on this build is read.
-- **🔴 Phase 2: BUILT on both sides and reviewed, not flashed (`FIRMWARE.md` §4 as built; `HANDOFF.md` §60, §61):** the fork's
+- **🔴 Phase 2: BUILT on both sides and reviewed, not flashed (`FIRMWARE.md` §4 as built; `HANDOFF.md` §60, §61;
+  committed and pushed 2026-09-15 night on Adam's word — Damage `1850fb6`, the fork `759f001`):** the fork's
   candidate pin `55746389…` (after §61's review; `aacdc63a…` before) = Phase 1 + modes 17–24, op 5, status 3–5, fields
   23–26, the partial path and the three link edits; `tools/verify.py`, the host vectors, the self-test form and
   `test_damage_ext.py` (69) green; 13 v2 vectors; the simulator equals the C on all 20. Adam ruled §57's eleven decisions as recommended. Damage: the

@@ -4011,7 +4011,7 @@ the fixes. Method: six fresh reviewers in parallel (the fork's draw ops; its con
 simulator against the contract text; the encoders and atlas; the compositor; the transport), my own read of the same,
 every finding re-read at the code (instruction level for firmware facts) before a line changed, every fix pinned by a
 test watched to fail on the unfixed tree. Nothing flashed, nothing installed, the `damage` service untouched; both
-trees left uncommitted for Adam's review.
+trees committed and pushed on his word the same night (Damage `1850fb6`, the fork `759f001`).
 
 ### 61.1 Fixed in the fork (pin `55746389…`, was `aacdc63a…`)
 1. **Op 5 took 1..63 KiB, and modes 12/13/14 bound their records by the 64 KiB window of any cache**: a write and a

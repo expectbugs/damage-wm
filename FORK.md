@@ -465,4 +465,4 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   fixed and pinned (among them a heap overrun behind a sub-64 KiB `CACHE_SIZE`, hints after a skipped refresh, the partial
   call's width, the v2 atlas upload's alignment, kerning on the v1 path, the hold-back and a lost lease vs DRAW2, the
   carry decision's evidence, the self-test's live cache writes); `FIRMWARE.md` §4 amended; 2 vectors added. Fork pin
-  `55746389…`, no new site. Nothing flashed.
+  `55746389…`, no new site. Nothing flashed. Committed and pushed on Adam's word: Damage `1850fb6`, the fork `759f001`.
