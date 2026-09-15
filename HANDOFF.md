@@ -3832,3 +3832,93 @@ the self-test form, ext 44/44). Docs only; nothing flashed.
   transfer). §53.1: a FLAGS_SET with no lease is refused with status 3 (no lease) from Phase 2's candidate; the
   installed build takes it until then. The soak is ordinary wear during Phase 2's build; no Phase 2 flash before
   a worn day on this build is read. Records stay short (Adam, noon): facts once, in one place, no chat in the docs.
+
+## 57. Phase 2 design pass: the drawing contract v2 drafted (2026-09-15, afternoon)
+
+Context for the reader: a personal device, the published patch method, display-rendering work. Two read-only surveys
+(the fork's C; Damage's cache path) then `FIRMWARE.md` §4 written as the draft for Adam's refinery. No code, nothing
+flashed.
+
+**What the surveys settled:** a per-lens 13/14 encodes like mode 3's two-box form (one payload, each lens picks its
+x by its side id); 13/14/15 ignore the high bit today (`zg:361`); v1 x/y are u16 read unsigned (`tc:274`), so a draw at
+x − d < 0 is the compositor's `edge` miss; the cache's u16 offsets cap it at 64 KiB; a batch has no per-batch state
+(the rect list is on the worker's stack), so a clip needs a batch context; the image lane records no refusal reason
+(§1.2 unmet); the refresh hook has no rect, so a partial refresh needs the rows carried to it; `cfw_time` calibrates
+the DWT against one OS tick, so every µs figure reads ~2.4 % low. Phone side: a depth-plane cached rect ships as a
+base delta widened by 2|d|, flat draws and a `CopyPair` proven per lens (`Compositor.emitCachedAt`); the atlas bakes
+side bearings into advance-width glyph boxes; `TextureCache.layout` already takes a kern lambda no caller supplies
+(Android can measure pairs, AWT cannot); `planes` is no longer a miss reason; icons above 255 px and Reader's ebook
+images cannot be cached at all today.
+
+**Baseline the exit is priced against (the journal since 08-31, 68,947 submits):** WINDOW 396 B median / 3.5 KB p90
+per flush, miss reasons no-draws 6,996 · no-records 6,644 · proof 993 · planes 321 · growing 229 of 35,177; MAIN 97 B /
+660 B; 22,697 `copypair` ops in all; back-to-Main 3.3–5.7 KB first flush, a height switch 7.8–19 KB (a keyframe), a
+Reader page 1.2–4.3 KB (§41.4, §48.1). A Reader page as a v2 record ≈ 22 KB raw RLE (modeled from the 1× render).
+
+**Put to Adam (the refinery), one line each — `FIRMWARE.md` §4 carries the recommended shape:**
+1. New mode numbers 17–24 (v1 untouched) rather than high-bit forms of 13/14.
+2. Cache offsets as u16 in 4-byte units (reach 256 KiB) rather than u24/u32 (+1–2 B per draw).
+3. Images get u16 dims (v2 record); glyphs stay v1 records.
+4. Kerning = phone-computed adjust bytes; no kerning table on the glasses.
+5. Budget A: cache 160 KiB + save-under 48 KiB (178 KiB free; the self-test still fits) over B (192 + 48) or C (256 + 32).
+6. v2 ops gated by flag bit 2 DRAW2 (inert until armed, the hold-back rule applies).
+7. Refusal reasons in telemetry (fields 23–25) for every image-lane refusal, v1 included.
+8. F1.7 as a per-batch present hint (mode 24) the phone A/Bs per flush.
+9. Save-under restores only to its captured rect (no relocation).
+10. Contract version 2 (FLAGS_SET's meaning changes with status 3).
+11. `DESIGN.md` §0 X2 (dim behind a popover) re-put: the LUT op makes it ~20 B in the deck's own batch, no extra flush.
+Then the plan in real code: the fork's C, the host shim (a JBD4010 ops record), the vectors, the simulator, the encoders,
+the compositor, Reader's staging — and one flash.
+
+## 58. Upstream's link reconfiguration, read against our base (2026-09-15, afternoon)
+
+Context for the reader: a personal device, the published patch method, display-rendering work. Read-only: fetches
+of upstream FaceClaw and g2flash, the pinned checkouts unmoved. Adam's ask: FaceClaw 0.7.0 (2026-09-12) claims
+3–10× transfer speed and 30 fps full-screen animation.
+
+**What it is — g2flash `c63710c` (2026-09-10, the 2.2.9.22 base): three in-place edits, no new code.** (1) The
+host's startup "Set Local Feature" vendor command (opcode 0xfff2) gets byte 1 bit 0 set (`0x7c` → `0x7d`) = link-layer
+feature bit 8, LE 2M PHY, so the phone can request 2M. (2) The fast connection profile becomes min = max = 6
+(7.5 ms), latency 0 (stock 12/24 = 15–30 ms, latency 0). (3) `_connectParamReq_impl` has its mode argument forced to
+0xA3, so the 60 s idle timer's 0xA4 never requests the slow set. Babcock's comment: validated with sustained
+2,000-byte / window-3 transfers at **~41 KiB/s** and a day of battery (M, his phone); the changelog's "+5 % battery
+per day" is modeled from the chip's specs. The 30 fps claim is FaceClaw's Flappy game over that link; nothing moves
+on the glasses by itself. FaceClaw's side (`5a97b21`): `requestConnectionPriority(HIGH)` and `setPreferredPhy(2M)`,
+which our `BleTransport` already has (§47's priority re-ask, the `phy=2m` probe). Their README: the phone must
+request 2M and agree to the short interval.
+
+**Our 2.2.6.10 sites, read at instruction level (V):** (1) `FUN_004B4C8A` builds the same command: `movs r0,#0x7c;
+strb r0,[r2,#1]` at `0x004B4C92`, then `movw r0,#0xfff2; bl FUN_0052B84C` (body `ff 7c 01 0f b8 19`). (2) Two
+identical fast records at `0x00784EB0` and `0x00784EC0` (+4 min 12, +6 max 24, +8 latency 0, +10 timeout 0x258, +12
+retries 5); the 0xA3 branch of `FUN_004782DC` binds one or the other by the state byte `FUN_004B8128` reads. The slow
+record at `0x00784EA0` is 72/84 (90–105 ms), latency 4, bound by the 0xA4 branch through the pool word at
+`0x004786C8`; the bound pointer is RAM `0x2007435C`, and `FUN_00476CBC` submits its fields, not its mode argument — so
+on our base "force fast" is the pool word `0x004786C8` → `0x00784EB0` (four data bytes) or the slow record's fields set
+to the fast values. Our link's latency 1 is in no record: the phone supplies it (R0.4's open item closed).
+
+**Corrections:** M0.4 (`CLAIMS.md`): "no LE 2M PHY" was the host's disabled feature bit, not the controller. The
+08-31 lost-ACK fix (`784846b`) is a 2.2.9-only regression (2.2.6 acks before the completion path), not ours. Upstream
+also forwards the R1 ring battery (`1507192`; Adam's not-pursued ruling stands), moved to numeric versioning
+(`97301f8`; D8, no effect) and delivers non-wake gestures from sleep for its glanceboard (`be514de`), a Phase 7 input.
+
+**What it would do for Damage (modeled until measured on the Pixel 10a):** the interval and the PHY are exactly what
+the ~140 ms/KB phone path and M0.3's 60 ms LEFT cadence hang on; upstream's 41 KiB/s is 5× our 8.2. A 3.5 KB p90
+window flush → ~120 ms; a 22 KB Reader page stage → ~0.6 s instead of ~3 s; every phone-started motion in Phase 3
+starts sooner. Phase 2's ops are unchanged by it. To measure: battery (baseline 7.4–7.5 %/h at 15 ms/1) and the
+earbud's A2DP margin with the Music window playing (`CLAIMS.md`: the two links already strain it).
+
+**Risk, plainly:** edit (1) sits on the boot path — a constant in the startup feature command, the same class as the
+arena size a5d1c31 already changes at boot (`FORK.md` §3.1). A wrong byte there could leave the radio not coming
+up, the not-restorable-over-the-radio class; the mitigation is that the edit is byte-for-byte upstream's shape on an
+identical instruction pair, plus the ritual's staircase. (2) and (3) are data words the stock code reads every day.
+
+**Put to Adam:** build the three edits into the fork, with the phone requesting 2M at connect and journaling the
+grant, as **a link-only fix flash now** (small, independent of Phase 2, measured in a day: `journal_report.py`'s
+ms/KB, a capture for `perevent.py`, the battery notes) or bundled into Phase 2's candidate. Recommended: the
+link-only flash; a lease-gated variant (F1.6's original shape) only if battery says so.
+
+**Ruled (Adam, the same afternoon):** trusted from upstream's public, tested release; built into Phase 2's candidate,
+not a separate flash. `FORK.md` Phase 2, `FIRMWARE.md` §4 and `REMINDER.md` carry it. On his word the entry-point
+docs were trimmed of history the records already hold (REMINDER's state and next-session sections, FORK's Phase 1,
+FIRMWARE's status and cache-keep paragraphs, the fork memory) and everything committed for a fresh session to build
+Phase 2 from.

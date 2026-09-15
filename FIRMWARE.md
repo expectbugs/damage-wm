@@ -8,18 +8,14 @@ simulator (`core/.../sim/GlassFirmwareSim.kt`, Kotlin, written from this text an
 C — `CLAUDE.md`, clean room). A conformance-vector set proves both agree, on the host and on the
 glasses. Plain wording throughout.
 
-**Status 2026-09-14 (night):** v1 is the installed contract (g2flash `a5d1c31`) and is only pointed at. v2:
-§0 and §3's wire shapes are fixed for Phase 1 (draft) and implemented on both sides — the fork's
-`patches/damage_ext.c` (pin `c5e4f8b7…` after the second review, `HANDOFF.md` §53, not flashed) and Damage's `DamageMsg` + simulator — including the
-transfer stamp and presented notify (F1.3), cache-keep with its generation and CRC (F1.5) and the self-test
-(mode 16); the boot count is still withdrawn (§11). §9's vector format is built, the v1 set passes on both
-sides through the normal path and through the self-test path; §4–§8 are still the decided shape only, filled
-in phase by phase (`FORK.md` §5). **One fact binds every reply and notify: only the RIGHT lens can send**
-(`CLAIMS.md`, 2026-09-14 — the stock senders refuse on the left lens), so everything below that "replies" or
-"notifies" does so from RIGHT, and the left lens's state can only be inferred from the same writes.
-Adam's ruling on the atlas (§3, F1.5): the bounded skip, no flag; CACHE_KEEP stays unarmed for now.
-A section marked *draft* may change until its phase's test stop passes; after that it changes only
-with a contract-version bump.
+**Status 2026-09-15:** v1 is the installed base (g2flash `a5d1c31`), pointed at in §2. §0 and §3 (the Phase 1
+extension: DamageCaps, telemetry, flags, the presented notify, cache-keep, the self-test) are **installed on Adam's
+pair since 2026-09-15** (fork pin `c5e4f8b7…`, `HANDOFF.md` §55); the boot count stays withdrawn (§11). §9's vectors
+pass on the host C, the simulator and the glasses. **§4 is drafted for Phase 2** (`HANDOFF.md` §57, its decisions
+open); §5–§8 are the decided shape only. **Only the RIGHT lens can send** (`CLAIMS.md`): every reply and notify is
+RIGHT's; the left lens's state is inferred from the same writes. CACHE_KEEP stays unarmed (the atlas skip is the
+phone's bounded one, §3). A section marked *draft* may change until its phase's test stop passes; after that it
+changes only with a contract-version bump.
 
 ---
 
@@ -95,27 +91,14 @@ the CFW replaces.
   the display task skips (the panel off) is counted and its transfer is timed by the first refresh
   after the panel is back, which sends the preserved frame; a stock copy in between clears the
   mark, so a stock refresh is never stamped or reported as a Damage frame's (2026-09-14 review).
-- **Cache-keep** (flag bit 1 CACHE_KEEP, F1.5): the texture cache is released at four points in the
-  installed firmware — a lapse noticed, FB_RELEASE, a fresh acquire after a lapse, mode 11. Under
-  the flag, read at the moment the flags clear (the lapse or the release) and **latched** for the
-  fresh acquire that follows, the cache is kept through both; the latch is spent by that acquire,
-  so a session that does not re-arm the flag gets the installed behaviour at its next lapse. Mode 11
-  frees the cache regardless. Fields 17 (generation: mode-12 writes that changed the cache since
-  boot), 18 (size, when allocated) and 19 (CRC-32, zlib polynomial, over the whole cache; CACHE_INFO
-  only) let the phone tell whether what it uploaded is still there. ⚠ Only RIGHT can be asked: a
-  phone-side skip of the atlas upload rests on the left lens having taken the same FLAGS_SET and the
-  same lapse — an eaten write or a one-arm lapse of more than 90 s would leave LEFT without a cache
-  and every cached draw refused there in silence. **Adam's ruling (2026-09-14 evening, `HANDOFF.md`
-  §51.8): the phone skips the re-upload only after a rebuild that completes inside the lease's remaining
-  time on the arm that dropped** — the bounded skip, §42.4's plan, where the installed renewal rule
-  already keeps both caches and no flag is involved. **Built 2026-09-15 (`HANDOFF.md` §54, Damage only —
-  no wire shape changed):** the transport logs its lease writes per arm, strikes the ones of the last
-  10 s before a link end (never exchanged, or queued behind a flush), and decides at the rebuild's
-  acquire whether both arms were inside 90 s less a 10 s margin; a release on either arm, a first session
-  or another shell's cache write through the same transport reset instead. CACHE_KEEP itself stays
-  **unarmed** until LEFT's cache can be verified (an inter-lens report, Phase 4); the firmware side is
-  inert until armed. After the flash, `probe:cache=info` before and after a rebuild (generation and CRC
-  unchanged on RIGHT) is the on-glass check of the premise.
+- **Cache-keep** (flag bit 1 CACHE_KEEP, F1.5): the texture cache is released at four points — a lapse noticed,
+  FB_RELEASE, a fresh acquire after a lapse, mode 11. Under the flag, read at the moment the flags clear and
+  **latched** for the fresh acquire that follows, the cache is kept through both; the latch is spent by that
+  acquire. Mode 11 frees the cache regardless. Fields 17 (generation: mode-12 writes since boot), 18 (size, when
+  allocated) and 19 (CRC-32, zlib polynomial, over the whole cache; CACHE_INFO only) let the phone tell whether
+  what it uploaded is still there — on RIGHT only. **Adam's ruling (`HANDOFF.md` §51.8; built §54):** the phone's
+  atlas skip is the bounded one — after a rebuild that completed inside the lease's remaining time on both arms,
+  no flag; CACHE_KEEP stays **unarmed** until LEFT's cache can be verified (an inter-lens report, Phase 4).
 - **Flag op:** arm / disarm by bit; a reply echoes the flags in force.
 - **Wire shapes (draft, fixed 2026-09-13):**
   - *Request* (phone → each arm): sid 0x09 `G2SettingPackage{ 1: commandId 1, 2: magic 0, 112: body }`,
@@ -176,19 +159,72 @@ the CFW replaces.
   self-test form (a tick cannot be set on the glasses; a live cache write is refused).
 - **Status codes:** one byte; the table grows with each op that can refuse (above).
 
-## 4. v2 drawing ops (Phase 2) — *draft*
+## 4. v2 drawing ops (Phase 2) — *draft for Adam's refinery, 2026-09-15*
 
-| op | shape (draft) | notes |
+Design pass `HANDOFF.md` §57. Every op below rides the image lane (both lenses run it), needs the lease, needs
+flag bit 2 **DRAW2** armed, and inside a mode-8 batch mutates without presenting. The mode byte's high bit means
+"lenses differ" exactly as modes 3 and 9: the left lens takes the first rect or x, the right the second, one
+payload. v1 modes 3–15 stay untouched (D8: the pipeline still diffs against upstream). Numbers are little-endian;
+a rect is `l u16 · t u16 · w u16 · h u16` in pixels, unquantized, inside the panel; a per-lens pair has one size.
+Cache offsets are **u16 in 4-byte units** (`off4`, reach 256 KiB); the phone keeps records 4-byte aligned.
+
+| mode | payload after the mode byte | semantics |
 |---|---|---|
-| cached draw, per-lens | image offset u16 · xL s16 · xR s16 · y s16 · options u8 | the per-lens form of mode 13 |
-| cached string, per-lens | font offset u16 · xL s16 · xR s16 · y s16 · options u8 · len u8 · bytes | the per-lens form of mode 14; bytes 1..31 remain x adjusts (kerning) |
-| image v2 | `[w:u16][h:u16][4bpp RLE of w*h]` | replaces the u8-dimension image where referenced by v2 ops; v1 ops keep the u8 form |
-| clip | l u16 · t u16 · w u16 · h u16 | sets the clip rect for following ops in the batch; reset at batch end |
-| fill | l u16 · t u16 · w u16 · h u16 · level u8 (0..15) | unquantized; nibble-exact |
-| lut over rect | rect · 16-entry LUT | dim, brighten, invert in place |
-| save-under | capture rect → scratch slot u8 · restore slot u8 | for popovers; scratch is a small pool sized in Phase 2 |
-| font table v2 | up to 224 entries (codes 32..255), u16 offsets | codes above 127 index the Latin-1 range |
-| cache size | a settable size up to the measured budget (M0.1) | the generation id and the CRC-32 on request are built in Phase 1 (§3, F1.5); only the settable size waits |
+| **17** image draw (`0x91` per-lens) | `off4 u16 · x s16 (or xL s16 · xR s16) · y s16 · options u8` | draws a **v2 image record** at (x, y); anything outside the panel or the clip is dropped, negative x and y allowed — a progressive blit or a scroll inside a tall record is a clip plus an offset; options as v1 (top nibble, bit 4 transparent, bit 5 inverse) |
+| **18** string draw (`0x92`) | `font off4 u16 · x s16 (or xL · xR) · y s16 · options u8 · len u8 · bytes` | mode 14 with the **224-entry table** (codes 32..255, Latin-1, entry `code − 32`); glyphs are v1 records, advance = glyph width; bytes 1..31 = x adjust `b − 11` (the phone computes pair kerning and emits adjusts), 0 refused; the whole string validated before a pixel |
+| **19** cache write v2 | `{ off4 u16 · len u16 · data }…` | mode 12 with `off4` offsets over the session's cache size (op 5); the whole list validated first; bumps the generation |
+| **20** clip (`0x94`) | `rect` (or `rectL · rectR`) | only inside a batch: the ops after it in the same batch draw inside the clip only; the batch's end resets it (the clip is batch context on the worker's stack, so it cannot leak); outside a batch refused |
+| **21** fill (`0x95`) | `rect` (or pair) `· level u8` | nibble-exact fill 0..15, no fid, no zlib — the strip after a copy, a popover's hole, a background |
+| **22** LUT over rect (`0x96`) | `rect` (or pair) `· lut 8 B` (16 packed nibbles, entry i in nibble i) | every pixel p becomes lut[p]: dim, brighten, invert in place — the dim behind a deck that `POPOVER.md` verdict 3 priced at +0.5 s is ~20 B in the deck's own batch |
+| **23** save-under (`0x97`) | `sub u8 · slot u8 · rect` (or pair) | sub 0 **capture** copies the shadow's rect into the slot (each lens keeps its own scratch by construction); sub 1 **restore** writes it back at the captured rect; sub 2 **free**; the pool is lazily allocated from arena 13 and freed at every release point |
+| **24** present hint | `y0 u16 · y1 u16` | inside a batch: the batch's present transfers rows y0..y1 through the JBD4010's per-row partial entry (`+0x2C`) instead of the full async refresh (F1.7); on an A6N-G pair or bad rows the full refresh runs; the F1.3 stamp times whichever ran, so the phone A/Bs it per flush |
+
+**v2 image record:** `[w u16][h u16][RLE of w·h pixels]`, w 1..640, h 1..2048, the v1 token format, no row pad,
+validated at draw. A glyph stays a v1 record (`[w u8][h u8]…`). **Font table v2:** 224 × `off4 u16` = 448 B.
+
+**Control ops (sid 0x09, §3's body):** **5 CACHE_SIZE** (arg = KiB ≤ the budget) sets the session's cache size
+before its first write, status 4 once allocated, status 5 over budget; field 18 reports it. **FLAGS_SET with no
+lease → status 3** (Adam's ruling). Status codes: 0 ok · 1 malformed · 2 unsupported flag · 3 no lease · 4 cache
+allocated · 5 over budget. **Contract version 2** (FLAGS_SET's meaning changed); DamageCaps features bit 5 = v2 drawing.
+
+**Refusals become readable (§1.2 for the image lane):** the dispatcher records every image-lane refusal, v1 modes
+included, as telemetry fields **23** mode byte · **24** reason · **25** the copy sequence at the time. Reasons: 1 length ·
+2 out of bounds (rect, clip, x/y) · 3 no lease · 4 no keyframe · 5 bad record or offset · 6 bad code (string) · 7 scratch
+(slot, pool full, empty restore) · 8 unknown mode · 9 DRAW2 not armed · 10 not in a batch. A duplicate fid stays a
+silent skip (v1). The ack still precedes the decode, so the shell reads them at its next telemetry read and journals a
+`glass` refusal note. The DWT µs figures are calibrated against one OS tick and read ~2.4 % low (§3's tick note).
+
+**Budget (arena 13, measured 2026-09-15: 322 KiB free with the 64 KiB cache and the shadow up):** A cache 160 KiB +
+save-under 48 KiB → 178 KiB free in daily use, the self-test's 150 KiB scratch fits with both allocated; B 192 + 48 →
+146 free, the self-test fits only if `begin` frees the pool; C 256 + 32 → 98 free, the self-test cannot run with the
+cache up. Sizing input: a Reader page as a v2 record ≈ 22 KB raw RLE (modeled from the 1× render), two resident pages +
+nine fonts (~50 KB) + icons (16 KB) ≈ 110 KB; a 640×150 band under a deck is 48,000 B. Phases 3 and 7 re-budget
+from the same 322 KiB.
+
+**The phone side (Phase 2, Damage):** `CfwModes`/`TextureCache` v2 encoders and lint (rect, clip and x/y bounds,
+per-lens pairs one size and one y, 4-byte alignment, the 224 table, the cache and pool budgets); `GlassFirmwareSim` v2
+and the vectors below; `DamageMsg` fields 23–25, status 3–5, op 5; the compositor's cached rect becomes base delta
+(when needed) + per-lens draws — no widening, no `CopyPair`, no per-lens proof retry, so the `edge` and
+context-caused `proof` misses go; fills replace post-copy strips (no fid); kerning on (Android measures pairs; AWT has
+none, so the desktop proves with zero kerns); Reader stages the next and previous page as v2 records off the gesture
+path and turns a page with clip + draw; back-to-Main and the height switch ship as fill + draws instead of a mode-6
+keyframe; `LensOracleTest`/`Round6Test`/`Round7Test`/`Review20260903Test` extended to per-lens draws;
+`journal_report.py` prices first-flush bytes per gesture class against §57's baseline.
+
+**Vectors (v2 set, expectations written by the C):** `v2-perlens` (17/18 with two x's, a negative x) · `v2-image16`
+(300×300 and 640×600 records drawn clipped) · `v2-clip` (clip, draws, reset at batch end, refused outside a batch) ·
+`v2-fill` · `v2-lut` (dim, invert, brighten) · `v2-saveunder` (capture, draw over, restore, free, per-lens, refusals) ·
+`v2-font224` (Latin-1 codes, adjusts, a refused 0) · `v2-cachesize` (op 5 before and after allocation) · `v2-refusals`
+(each reason in fields 23–25) · `v2-flags` (DRAW2 unarmed refused; FLAGS_SET with no lease → status 3) · `v2-hint` (host:
+a JBD4010 ops record in the shim; glass: the stamp). The self-test form runs every drawing vector.
+
+**The link (in Phase 2's candidate — Adam, 2026-09-15, trusting upstream's public release; `HANDOFF.md` §58):**
+three in-place edits ported from g2flash `c63710c`: the startup "Set Local Feature" command's byte 1 `0x7c` → `0x7d`
+(link-layer feature bit 8, LE 2M PHY; our site `0x004B4C92`), both fast profile records to min = max = 6 (7.5 ms),
+latency 0 (`0x00784EB4`, `0x00784EC4`), and the 0xA4 slow request bound to the fast record (pool word `0x004786C8` →
+`0x00784EB0`). DamageCaps features bit 6 says so; the phone then requests 2M at connect and journals the grant and
+the parameters. Not a wire op. Measured by ms/KB, a capture (`research/perevent.py`), the battery and the earbud's
+A2DP margin; upstream measured ~41 KiB/s on his phone.
 
 ## 5. v2 motion programs (Phase 3) — *draft*
 
@@ -328,3 +364,7 @@ phone's keeper applies the hold-back rule before re-arming.
   No firmware change, no wire shape changed; CACHE_KEEP stays unarmed.
 - 2026-09-15 (noon) — Adam's ruling: a FLAGS_SET with no lease is refused (status 3) from Phase 2's candidate
   (`HANDOFF.md` §56); §3's uptime is a 1.024-per-ms tick (annotated). No wire shape changed yet.
+- 2026-09-15 (afternoon) — §4 drafted for the Phase 2 refinery (`HANDOFF.md` §57): modes 17–24, the v2 image record,
+  the 224 table, op 5 CACHE_SIZE, status 3–5, refusal fields 23–25, the budget options, the v2 vectors. Contract 2.
+- 2026-09-15 (afternoon, 2) — Adam's ruling: upstream's three link edits join Phase 2's candidate (§4, the link
+  paragraph; `HANDOFF.md` §58); the status head and §3's cache-keep paragraph trimmed to the contract.
