@@ -3521,6 +3521,15 @@ The shell no longer throws its atlas away at every session start when the glasse
   status for a link fault).
 - **APK 0.49** staged (`~/.damage/damage-wm.apk`, 23:21, 26.9 MB; 0.48 never installed); re-staged after the
   self-review's changes at 01:40 on the 15th (27.5 MB; the same number: nothing was installed in between).
+  **Installed by Adam at 03:45 on the 15th and the skip seen on glass the same night (grade M):** the first session
+  noted "reset — no atlas from a previous session"; the six sessions of the night had drawn only the silent clock
+  (LED digits, no text through the rasterizer), so no atlas existed until his ring tap at 04:05 packed 9 fonts and
+  16 icons (60,114 B, uploaded in ~12 s); his Bluetooth toggle at 04:06:06 ended the links without a release and
+  the rebuild at 04:06:24 noted **"kept across the rebuild (L gap 63.1 s, R gap 63.0 s): 9 font(s) and 16 icon(s)
+  live, 60114 B on the glasses, 0 B to go again"** — then 16 flushes in a row all carrying cached draws (63 draw
+  ops), none refused (RIGHT acks every flush, and a draw into a missing cache fails the batch), no chunk re-sent.
+  LEFT's cache is his eyes' check (LEFT runs blind); the 63 s gap is the 45 s renewal cadence plus the toggle's
+  ~18 s, inside the 80 s window with 17 s to spare — the margin is right for a toggle, tight for a slow reconnect.
 
 ### 54.2 R0.1 — the input path (queue item 2; `research/fork-reads-2026-09-13.md` "R0.1", `CLAIMS.md`)
 
