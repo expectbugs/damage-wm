@@ -6,8 +6,14 @@ progress log) → `FIRMWARE.md` (the contract) → **`HANDOFF.md` §49 (Phase 0 
 decided) → §47 → §46 → §44 → §43 → §42 → what they cite. For firmware facts: `CLAIMS.md` ("Firmware internals read
 for the fork") → `research/fork-reads-2026-09-13.md` → the image itself through `research/fwread.py`.
 
-## Where we are (2026-09-15, the queue run while Adam was at work)
+## Where we are (2026-09-15 noon, after Phase 1's flash)
 
+- **🔴 2026-09-15 noon (`HANDOFF.md` §56):** the Phase 1 build's first 7.3 h clean — no link end, no reset, heap
+  flat, flags in force; 387 presents: transfer 2.0 ms median / 12.2 max (M), so the link is the tick ceiling. In
+  the case the panel is off: copies counted, nothing transferred, not a defect. The uptime tick runs 1.024 per ms
+  (the lease's 90 s = 87.9 s wall). **Rulings:** F1.7 folded into Phase 2; a FLAGS_SET with no lease is refused
+  (status 3) from Phase 2's candidate; the soak is ordinary wear during Phase 2's build, no Phase 2 flash before
+  a worn day is read. **Next: Phase 2.**
 - **🔴 The §51.9 queue ran (`HANDOFF.md` §54): the bounded atlas skip is BUILT (APK 0.49 staged), R0.1 and
   R0.5 are read, M0.3's per-event read is done, the core suite ran ×20 (plus a self-review pass with three
   small changes and a final loop, §54.7); **committed and pushed on Adam's word (Damage `940272e` on
@@ -197,7 +203,7 @@ temple restarts that arm (a beep, the stock launcher, the phone's timeout, a reb
 studied at the public-release polish for ring-less users. M0.1 is measured (item 27 below); the `diag` probe blanks
 the display on this build and is retired.**
 
-**B. Adam's part — DONE 2026-09-15 (§55) bar the soak:** M0.1 read, 0.49 installed, both lenses flashed after clean
+**B. Adam's part — DONE 2026-09-15 (§55) bar the soak (the noon read: §56; F1.7 folded into Phase 2):** M0.1 read, 0.49 installed, both lenses flashed after clean
 dry runs, the capability read, the self-test, the telemetry, PROBE and PRESENTED armed. **Now:** wear them a day;
 `journal_report.py`'s transfer section and the `keeper` notes after any drop (the uptime says reset or stall) are
 the day's read. Still his: the §53.1 ruling; the two test-only waits (C above). The original list follows for

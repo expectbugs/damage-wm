@@ -71,7 +71,8 @@ the CFW replaces.
 ## 3. v2 telemetry, flags and self-test (Phase 1) — *draft*
 
 - **Telemetry request** (sid 0x09 control field, new op): reply carries heap free per arena
-  (13/20/27, KiB), uptime (ms tick), flags in force, the status register, the last frame's worker,
+  (13/20/27, KiB), uptime (the OS tick `FW_MS_TICK`: 1.024 per wall-clock ms, measured 2026-09-15 — the 90,000-tick
+  lease is 87.9 s), flags in force, the status register, the last frame's worker,
   copy and (F1.3) panel-transfer microseconds, the direct-present count, the cache's generation, size
   and (on CACHE_INFO, F1.5) CRC, the self-test's state, panel type, and a
   boot count once it has a source. Sources (read 2026-09-13/14, `CLAIMS.md`): panel type = the
@@ -126,7 +127,7 @@ the CFW replaces.
     marker or version gets no reply.
   - *Reply* (RIGHT only — the left lens runs the op and sends nothing): sid 0x09 `G2SettingPackage{
     1: commandId 3, 2: magic 0, 111: DamageTelemetry }`, fields in this order, a field omitted when
-    its value is not known: `1 request id · 2 uptime ms · 3 flags in force · 4 the status register ·
+    its value is not known: `1 request id · 2 uptime (OS ticks; 1.024 per ms, measured 2026-09-15) · 3 flags in force · 4 the status register ·
     5 last worker µs · 6 last copy µs · 7/8/9 free KiB in arenas 13/20/27 · 10 the active panel record
     address · 11 sticky diagnostics (bit 0 reorder, 1 skip, 2 dup, 3 snapshot overflow, 4 allocation) ·
     12 lease ms left · 13 boot count (not sent by the Phase 1 build, above) · 14 lens (1 right, 2 left) ·
@@ -149,7 +150,8 @@ the CFW replaces.
     the release (2026-09-14 second review: the C and the model both let a FLAGS_SET taken after a
     settled lapse survive the FB_RELEASE). A FLAGS_SET is taken whenever it arrives, with a lease
     held or not; one taken with no lease is in force until the next release point (both sides do
-    this; whether it should be refused instead is open — Adam's call).
+    this). **Ruled 2026-09-15 (Adam): refused with status 3 (no lease) from Phase 2's candidate; the
+    installed build takes it until then.**
   - *Status codes:* 0 ok · 1 malformed request · 2 unsupported flag.
 - **Self-test (image mode 16):** rides the image lane, so the unchanged receive path delivers it and
   both lenses run it. `[16][0]` **begin** — the lease must be held; a scratch shadow (the packed
@@ -324,3 +326,5 @@ phone's keeper applies the hold-back rule before re-arming.
 - 2026-09-15 — the bounded atlas skip built on the Damage side (`HANDOFF.md` §54; §3's F1.5 paragraph):
   a per-arm lease log in the transport, the decision at the rebuild's acquire, the shell's kept path.
   No firmware change, no wire shape changed; CACHE_KEEP stays unarmed.
+- 2026-09-15 (noon) — Adam's ruling: a FLAGS_SET with no lease is refused (status 3) from Phase 2's candidate
+  (`HANDOFF.md` §56); §3's uptime is a 1.024-per-ms tick (annotated). No wire shape changed yet.

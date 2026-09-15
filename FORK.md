@@ -159,7 +159,7 @@ this plan's work: Adam never sees one while wearing the glasses.
 
 **Exit:** the numbers in a table; the verb set; the contract draft; the decisions. No flash.
 
-### Phase 1 — The fork pipeline and the first flash (size M; 1 flash) — **the first flash DONE 2026-09-15 (`HANDOFF.md` §55): both lenses on pin `c5e4f8b7…`, the self-test green on glass, the panel JBD4010, the transfer 1.2–6.6 ms per present, PROBE + PRESENTED armed; the soak day and F1.7 remain**
+### Phase 1 — The fork pipeline and the first flash (size M; 1 flash) — **the first flash DONE 2026-09-15 (`HANDOFF.md` §55): both lenses on pin `c5e4f8b7…`, the self-test green on glass, the panel JBD4010, the transfer 1.2–6.6 ms per present, PROBE + PRESENTED armed; F1.7 folded into Phase 2 (Adam, 2026-09-15); the noon read `HANDOFF.md` §56**
 
 **Repo `~/damage-cfw`** (created 2026-09-12 from `reference/g2flash` at `a5d1c31`, branch `damage`,
 with our one-line flasher fix carried over): clang cross-compile on beardos (checked: works),
@@ -191,8 +191,8 @@ level: only the RIGHT lens can send (`CLAIMS.md`), so every reply and the self-t
 runs everything blind — the phone-side atlas skip (the point of F1.5) is **deferred** until LEFT's cache can
 be verified (`FIRMWARE.md` §3 names the hazard: an eaten write or a one-arm lapse would leave LEFT drawing from
 a missing cache in silence) — **Adam's ruling from work: the bounded skip (§42.4's plan, no flag), CACHE_KEEP
-unarmed for now** (`HANDOFF.md` §51.8). **Still open for the candidate:** F1.7 (JBD-only; needs the panel type, field 10,
-read after the flash — or M0.1's overlay does not tell it), F1.6 dropped unless slow-set episodes return
+unarmed for now** (`HANDOFF.md` §51.8). **Still open for the candidate:** nothing — F1.7 folded into Phase 2 (Adam, 2026-09-15, `HANDOFF.md` §56); F1.6
+dropped unless slow-set episodes return
 (`HANDOFF.md` §50.9), F1.8 pending the per-event M0.3 read (the first pass: ~2 packets per interval with the
 host feeding faster). The self-test's scratch (150 KB from arena 13, transient) and any cache growth wait on
 M0.1's free-heap readout.
@@ -207,7 +207,7 @@ M0.1's free-heap readout.
 | F1.4 | flag op: arm/disarm per feature; all cleared on lease lapse — **source done 2026-09-13** (field 112; flags clear at every texture-cache release point) |
 | F1.5 | cache-keep across a lease lapse with a generation id and CRC the phone can query; cache size configurable up to the R0.6 budget — **firmware side done 2026-09-14** (flag bit 1, the latch, fields 17–19, op 4); the size waits on M0.1. **Adam's ruling (`HANDOFF.md` §51.8): the phone's atlas skip is the bounded one** — after a rebuild inside the lease's remaining time on the dropped arm, no flag (§42.4's plan) — **built 2026-09-15 (`HANDOFF.md` §54, APK 0.49):** the transport keeps a per-arm lease log and decides at the rebuild's acquire; the shell keeps the atlas when both arms were inside the window (90 s less a 10 s margin; a write of the last 10 s before the link end is not counted) and the last cache writer was itself; an `atlas` note either way; CACHE_KEEP stays unarmed until LEFT can be verified (Phase 4's inter-lens report) |
 | F1.6 | fast-link hold: the glasses' idle-parameter request is skipped while the lease is held — site: a lease-gated entry wrapper on `FUN_00476CBC` that turns event 0xA4 into no request (R0.4); a latency-0 profile only if M0.3 says the phone would use it. **Design input 2026-09-14 (`CLAIMS.md`): Adam's earbud streams A2DP from the same phone radio; while the two 15 ms links run the phone's quality reports flag the stream, though Adam hears no cut-outs — the links spend the earbud's margin. A faster or held link spends more of it; the shell knows when its Music window plays, so the lever can be conditional. Dropped from the Phase 1 candidate (`HANDOFF.md` §50.9) unless the journal shows slow-set episodes again: the link held 15 ms / 1 all day without it** |
-| F1.7 | panel-transfer experiment (rewritten 2026-09-13 — the async refresh ignores the rect on both drivers, so a smaller rect on the queue changes nothing): F1.3's stamp gives the full-frame transfer time; on a JBD4010 pair, a blocking partial refresh (`+0x2C`) of a small rect is timed against it; on an A6N-G pair the partial path moves no pixels and the lever is out of reach without a driver change |
+| F1.7 | panel-transfer experiment (rewritten 2026-09-13 — the async refresh ignores the rect on both drivers, so a smaller rect on the queue changes nothing): F1.3's stamp gives the full-frame transfer time; on a JBD4010 pair, a blocking partial refresh (`+0x2C`) of a small rect is timed against it; on an A6N-G pair the partial path moves no pixels and the lever is out of reach without a driver change. **Folded into Phase 2 (Adam, 2026-09-15): the full transfer medians 2.0 ms, so the lever is bounded by that; timed on Phase 2's flash** |
 | F1.8 | multi-packet ATT writes (walk concatenated AA packets in one write) — only if M0.3 says the phone is one-write-per-event; MTU 517 on the phone side. **M0.3's per-event read (2026-09-15, `research/perevent.py`, grade M): the phone is NOT one-write-per-event — during a flush the controller gets two full 247-byte packets across per served connection event, with more queued than the link takes in 95 % of them, and LEFT is served every 60 ms (four 15 ms intervals) in two of three sessions, every ~25–30 ms in the third; the packets average 221 B. So a bigger ATT write buys nothing; the lever is more served events or more packets per served event — why every fourth event is U (the lens sharing its radio with the ring link, the phone interleaving its links, an LL cap: candidates in `research/fork-reads-2026-09-13.md` "M0.3"). Dropped in this form; the cadence question moves to F1.6's territory** |
 
 **Damage:** capability parsing (DamageCaps and the telemetry record: **done 2026-09-13**, `DamageMsg`, the
@@ -229,7 +229,8 @@ stays fast through a day if F1.6 shipped; no hold-back events.
 **Firmware:** per-lens cached draws (13/14 with two x's under the high bit); 16-bit image dimensions
 and a clip rect; 224-entry fonts with kerning bytes; fill / LUT-over-rect / invert; save-under
 scratch (capture, restore); cache growth to the budget; region refresh through the panel manager's
-partial-refresh entry if F1.7 showed the async path ignores the rect.
+partial-refresh entry (F1.7, folded in by Adam 2026-09-15; the async path ignores the rect, verified); **a FLAGS_SET
+with no lease refused with status 3 (Adam's §53.1 ruling, 2026-09-15).**
 
 **Damage:** encoders, simulator and lint for every new op; the compositor drops the base-delta +
 flat-draw + per-lens-copy shape (the `proof` refusals go away); kerning on; Reader pre-renders the
@@ -352,11 +353,11 @@ in `fws/`. The site list of every candidate (`~/damage-cfw/tools/verify.py` step
 | assumption | grade now | checked in |
 |---|---|---|
 | free heap is enough for a bigger cache, scratch and staged content | unknown | M0.1, R0.6 |
-| the panel can present at 30–60 Hz | unknown — every present is a 153,602-byte transfer whose duration nothing measures | F1.3 (M0.2's video bounds it from outside) |
+| the panel can present at 30–60 Hz | **measured 2026-09-15: transfer 2.0 ms median / 12.2 max, worker 3.2 / 17.7 max (`HANDOFF.md` §56) — the link is the ceiling** | F1.3 (done) |
 | the two lenses can start a program together with no visible mismatch | inferred (stock does it over the UART sync) | T3 |
 | local input can be handled on both lenses via stock's mirror | inferred | R0.1, Phase 4 |
 | the ack precedes render on 2.2.6.10 | verified (decompile) | — |
-| the refresh queue carries a rect | verified (decompile); honoured by the async refresh: **no** (verified, instruction level, 2026-09-13); a JBD4010 partial path exists, untimed | F1.3, F1.7 |
+| the refresh queue carries a rect | verified (decompile); honoured by the async refresh: **no** (verified, instruction level, 2026-09-13); a JBD4010 partial path exists, untimed | F1.3 (done); F1.7 in Phase 2 (Adam, 2026-09-15) |
 | the glasses' idle link request can be gated on the lease | inferred (policy object mapped) | R0.4, F1.6 |
 | one packet per ATT write is the phone-path limit | inferred | M0.3 |
 | depth changes per notch are comfortable all day | unknown | T3, T4 |
@@ -474,3 +475,7 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   flashed. Next: his part (§51.9 B, APK 0.49), the
   §53.1 ruling; for a session without him: the touch processor and ring service, the RTC getter, a capture
   with the ring asleep.
+- **2026-09-15 (noon)** — The soak read (`HANDOFF.md` §56): the Phase 1 build's first 7.3 h clean; 387 presents,
+  transfer 2.0 ms median / 12.2 max (M) — the link is the tick ceiling; in the case the panel is off (copies counted,
+  nothing transferred); the uptime tick runs 1.024 per ms. Adam's rulings: F1.7 folded into Phase 2; a FLAGS_SET with
+  no lease refused (status 3) from Phase 2's candidate; the soak is ordinary wear during Phase 2's build. Docs only.

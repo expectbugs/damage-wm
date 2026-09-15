@@ -3812,3 +3812,23 @@ in arena 13 with the atlas up, 150 KiB of which the self-test borrows. Still ope
 `research/verify_cfw.py` pins name the PREVIOUS image (now the rollback) — the installed image's provenance is
 the fork's `tools/verify.py` from here on (the gate line in `REMINDER.md` says so); the arm / hold-back keeper
 protocol has its first real uptimes to work with; the daily drops now come with a boot count of sorts (uptime).
+
+## 56. The noon soak read; F1.7 folded into Phase 2; the §53.1 ruling (2026-09-15, noon)
+
+Read-only: the journal, `/log`, one telemetry read at 12:03. The fork's gates green (`tools/verify.py`, vectors 7/7,
+the self-test form, ext 44/44). Docs only; nothing flashed.
+
+- **Soak (M):** one session since 04:45:55, no link end in 7.3 h, no reset, the lease renewed on both arms, flags
+  `0x8001` in force, heap 322 / 75 / 145 KiB unchanged since 04:49, no hold-back. 387 presents in 48 min of use:
+  transfer 2,042 µs median / 5,709 p90 / 12,199 max; worker 3,190 / 6,959 / 17,679; copy 555. The panel is not
+  Phase 3's tick ceiling; the link is.
+- **In the case the panel is off (M + V):** from 05:38:55 (charging) each silent-clock delta is copied and counted
+  (the telemetry's `presents` = `dmg_present_seq`, the copy sequence) but the display task skips the refresh
+  (`0x00473CCA`, §52): no `present` record, the telemetry's last transfer stays at seq 579's 2,013 µs. Not a
+  defect; the notify and the reply share one sender (`FUN_00475B14`).
+- **The uptime word runs 1.024 per wall-clock ms (M; a 1024 Hz tick, I):** two intervals agree (1.0238, 1.0240).
+  The 90,000-tick lease is 87.9 s wall; the 45 s renewal and the 80 s carry window stay inside. Nothing to change.
+- **Adam's rulings:** F1.7 folded into Phase 2 (the partial refresh can save at most the 2.0 ms median full
+  transfer). §53.1: a FLAGS_SET with no lease is refused with status 3 (no lease) from Phase 2's candidate; the
+  installed build takes it until then. The soak is ordinary wear during Phase 2's build; no Phase 2 flash before
+  a worn day on this build is read. Records stay short (Adam, noon): facts once, in one place, no chat in the docs.
