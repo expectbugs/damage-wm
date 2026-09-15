@@ -8,9 +8,9 @@ simulator (`core/.../sim/GlassFirmwareSim.kt`, Kotlin, written from this text an
 C — `CLAUDE.md`, clean room). A conformance-vector set proves both agree, on the host and on the
 glasses. Plain wording throughout.
 
-**Status 2026-09-14 (evening):** v1 is the installed contract (g2flash `a5d1c31`) and is only pointed at. v2:
+**Status 2026-09-14 (night):** v1 is the installed contract (g2flash `a5d1c31`) and is only pointed at. v2:
 §0 and §3's wire shapes are fixed for Phase 1 (draft) and implemented on both sides — the fork's
-`patches/damage_ext.c` (pin `5ff9159b…`, not flashed) and Damage's `DamageMsg` + simulator — including the
+`patches/damage_ext.c` (pin `c5e4f8b7…` after the second review, `HANDOFF.md` §53, not flashed) and Damage's `DamageMsg` + simulator — including the
 transfer stamp and presented notify (F1.3), cache-keep with its generation and CRC (F1.5) and the self-test
 (mode 16); the boot count is still withdrawn (§11). §9's vector format is built, the v1 set passes on both
 sides through the normal path and through the self-test path; §4–§8 are still the decided shape only, filled
@@ -90,7 +90,10 @@ the CFW replaces.
   path works" is answered: there is no such path. The stamp wraps the display task's refresh call
   (`0x00473CE4`), the one new patch site of the candidate; every stock refresh passes through it
   unchanged. The worker figure may lag one frame (the display task can run before the worker stores
-  its time); the telemetry record's field 5 is exact after the fact.
+  its time); the telemetry record's field 5 is exact after the fact. A direct copy whose refresh
+  the display task skips (the panel off) is counted and its transfer is timed by the first refresh
+  after the panel is back, which sends the preserved frame; a stock copy in between clears the
+  mark, so a stock refresh is never stamped or reported as a Damage frame's (2026-09-14 review).
 - **Cache-keep** (flag bit 1 CACHE_KEEP, F1.5): the texture cache is released at four points in the
   installed firmware — a lapse noticed, FB_RELEASE, a fresh acquire after a lapse, mode 11. Under
   the flag, read at the moment the flags clear (the lapse or the release) and **latched** for the
@@ -136,16 +139,25 @@ the CFW replaces.
     status 2 (unsupported); bit 15 PROBE has no behaviour and exists so arming, the echo and the
     clear-on-lapse can be proven on glass before any feature relies on them. Flags clear on lease
     expiry, FB_RELEASE, a fresh acquire and mode 11 — the texture cache's release points (where
-    CACHE_KEEP is read before the clear).
+    CACHE_KEEP is read before the clear) — every time, whether or not a lapse was settled before
+    the release (2026-09-14 second review: the C and the model both let a FLAGS_SET taken after a
+    settled lapse survive the FB_RELEASE). A FLAGS_SET is taken whenever it arrives, with a lease
+    held or not; one taken with no lease is in force until the next release point (both sides do
+    this; whether it should be refused instead is open — Adam's call).
   - *Status codes:* 0 ok · 1 malformed request · 2 unsupported flag.
 - **Self-test (image mode 16):** rides the image lane, so the unchanged receive path delivers it and
   both lenses run it. `[16][0]` **begin** — the lease must be held; a scratch shadow (the packed
   640×480 panel, 153,600 B from heap 13) is allocated and zeroed, the step count, the last result and
-  the self-test's own frame-order diagnostics reset. `[16][1][message]` **step** — the message runs
+  the self-test's own frame-order diagnostics reset; it runs under the same active mark a step does,
+  so a release point reached from another task meanwhile frees the scratch after it, and that begin
+  is refused (2026-09-14 second review). `[16][1][message]` **step** — the message runs
   through the same dispatcher as live traffic against the scratch shadow with nothing presented and
   the self-test's fid ring and sticky flags swapped in for the step; it may be any shadow message a
   batch could carry (3/6/8/9/13/14/15, with mode 8's own rules inside a batch; 13/14 read the live
-  texture cache, 15 the built-in font); a cache write or any non-drawing mode is refused. After the
+  texture cache, 15 the built-in font); a cache write or any non-drawing mode is refused, and so is
+  a mode-3/6 message too short for its own header, alone or inside a batch — the normal path's BMP
+  fallback is closed while a step runs, so nothing a step carries can reach the live frame or the
+  stock loader (2026-09-14 review). After the
   step the scratch's CRC-32 (zlib polynomial, over the packed rows), the count and whether the message
   was refused land in telemetry fields 20–22. A step needs the lease (the check settles a lapse, which
   frees the scratch) and a begin; one that cannot run is refused and not counted. `[16][2]` **end**
@@ -248,8 +260,10 @@ content, the stock override gesture, stock fallback on any failure. Written afte
 ## 10. Lifecycle
 
 Session start: capability read → flags armed one at a time (hold-back rule: the transport's
-`armFeatures` reads RIGHT's uptime first; a reset within `HOLD_BACK_MS` of the last arming disarms
-the wanted set, journals it and raises a `holdback` fault) → self-test when a new image is flashed →
+`armFeatures` reads RIGHT's uptime first and compares it with what the last reading plus the phone
+time since predicts — a shortfall past the slack is a reset; a reset within `HOLD_BACK_MS` of the
+last arming disarms the wanted set, journals it and raises a `holdback` fault; a bit the build
+refuses as unsupported is dropped from the wish with a fault and the rest are still armed) → self-test when a new image is flashed →
 normal traffic. Lease lapse: flags clear, programs stop, bindings clear, the cache is kept if
 `CACHE_KEEP` was armed (its generation and CRC say whether it is still good; the latch carries the
 decision to the fresh acquire). Reset: uptime restarts (a boot count once it has a source); the
@@ -276,3 +290,17 @@ phone's keeper applies the hold-back rule before re-arming.
   level: only RIGHT can answer or notify, so LEFT is blind everywhere a reply was hoped for; Adam chose
   the bounded skip for the atlas (no flag; CACHE_KEEP unarmed until LEFT can be verified). §9: the
   self-test form of the vectors and its three runners. §10: the keeper's arm / hold-back protocol as built.
+- 2026-09-14 (late evening) — the review of the evening's work (`HANDOFF.md` §52). §3: a self-test step
+  carrying a mode-3/6 message shorter than its header is refused and counted (the C fell through to the
+  BMP loader; fixed, fork pin `70e47938…`); the F1.3 mark is cleared by a stock copy, so a stock refresh is
+  never reported as a Damage frame's transfer. §10: the keeper's reset detection compares the uptime read
+  with the one the elapsed phone time predicts (the two readings alone missed a reset after a short
+  uptime — the post-flash case); a bit the build refuses as unsupported is dropped from the wish and the
+  bits above it are still armed. No wire shape changed.
+- 2026-09-14 (night) — the second review (`HANDOFF.md` §53). §3: the flags clear at every release point
+  whether or not a lapse was settled before it (the C's `damage_lease_ended` returned early once settled and
+  the model's `leaseEnded` did the same, so a FLAGS_SET taken after a settled lapse survived an FB_RELEASE;
+  the model also cleared the flags on a lease check that had no lease, which the C never did — fixed on
+  both sides, fork pin `c5e4f8b7…`); a FLAGS_SET with no lease held is taken and in force until the next
+  release point on both sides, refusing it instead left open for Adam; a begin runs under the self-test's
+  active mark. No wire shape changed.

@@ -218,11 +218,13 @@ abstract class CfwTransportBase(
                 Log.i(name, "$label $id unanswered after ${CAPABILITY_REASK_MS} ms — asking again")
             }
         }
-        return try { waiter.await() } catch (e: Exception) { null } finally { reask.cancel(); telemetryWaiters.remove(id) }
+        return try { waiter.await() } catch (e: Exception) { null } finally { reask.cancel(); telemetryWaiters.remove(id, waiter) }
     }
 
     /** A FLAGS_SET of [set] to both arms, answered by RIGHT; the answer's register says whether
-     *  the build took it. Null when the session ended first. */
+     *  the build took it. Null when the session ended first. Every FLAGS_SET reply carries
+     *  request id 0, so the waiter is removed only while it is still ours: a previous
+     *  session's wait, failed by the sweep and ending late, must not drop the new session's. */
     private suspend fun flagsSet(epoch: Long, set: Int): DamageMsg.Telemetry? {
         // the reply echoes request id 0 (FIRMWARE.md §3): await the next record on id 0
         val waiter = CompletableDeferred<DamageMsg.Telemetry>()
@@ -237,15 +239,29 @@ abstract class CfwTransportBase(
                 Log.i(name, "flags 0x${set.toString(16)} unanswered after ${CAPABILITY_REASK_MS} ms — asking again")
             }
         }
-        return try { waiter.await() } catch (e: Exception) { null } finally { reask.cancel(); telemetryWaiters.remove(0) }
+        return try { waiter.await() } catch (e: Exception) { null } finally { reask.cancel(); telemetryWaiters.remove(0, waiter) }
     }
 
     /** `FORK.md` §3.2 / `FIRMWARE.md` §1.6 — after a session start on a Damage build: read
      *  RIGHT's uptime; if the glasses reset since the last read and the reset followed the
      *  last arming within [HOLD_BACK_MS], arm nothing, drop the wish and say so (a fault the
      *  wearer sees, a `keeper` note); otherwise arm the wanted bits one at a time, lowest
-     *  first, each a FLAGS_SET of the set so far, and journal each answer. LEFT takes the same
-     *  writes blind: it cannot answer (`CLAIMS.md`, the senders' lens rule). */
+     *  first, each a FLAGS_SET of the set so far, and journal each answer. A bit this build
+     *  refuses as unsupported (status 2) is dropped from the wish with one fault and the bits
+     *  above it are still armed; any other refusal stops here and keeps the wish for the next
+     *  start. LEFT takes the same writes blind: it cannot answer (`CLAIMS.md`, the senders'
+     *  lens rule).
+     *
+     *  A reset is seen by comparing the uptime read now with what the last reading predicts:
+     *  that reading plus the phone time elapsed since it. Comparing the two readings alone
+     *  (2026-09-14, corrected the same day) misses a reset once the glasses have been up
+     *  longer than they were at the previous read — the case right after a flash, where every
+     *  uptime is short and the rule matters most. [RESET_SLACK_MS] covers the two clocks'
+     *  drift and the reply's latency; a reset hides inside it only if the glasses reset within
+     *  that long of booting. (The tick wraps at 2^32 ms, 49.7 days: a wrap reads as a reset —
+     *  a note, and a hold-back only if an arming preceded it within [HOLD_BACK_MS]. The phone
+     *  time is [nowMs], the wall clock: a forward jump of more than the slack between two
+     *  reads reads the same way.) */
     private suspend fun armFeatures(epoch: Long) {
         val wanted = wantedFlags
         if (wanted == 0) return
@@ -255,30 +271,43 @@ abstract class CfwTransportBase(
         val t = telemetryRead(epoch) ?: return
         val uptime = t.uptimeMs ?: return
         val now = nowMs()
-        if (prev != null && uptime < prev.first) {
-            val resetAt = now - uptime                         // the reset's time on the phone's clock
-            emitNote("keeper", "the glasses reset: uptime ${uptime / 1000} s, was ${prev.first / 1000} s")
-            if (armedAt != null && resetAt >= armedAt - CAPABILITY_REASK_MS && resetAt - armedAt < HOLD_BACK_MS) {
-                wantedFlags = 0
-                val text = "hold-back: the glasses reset ${(resetAt - armedAt) / 1000} s after flags 0x${wanted.toString(16)} were armed — not re-armed (probe flags=… to try again)"
-                emitNote("keeper", text)
-                emitFault("holdback", text)
-                return
+        if (prev != null) {
+            val predicted = prev.first + (now - prev.second)
+            if (uptime < prev.first || uptime + RESET_SLACK_MS < predicted) {
+                val resetAt = now - uptime                         // the reset's time on the phone's clock
+                emitNote("keeper", "the glasses reset: uptime ${uptime / 1000} s, was ${prev.first / 1000} s ${(now - prev.second) / 1000} s ago")
+                if (armedAt != null && resetAt >= armedAt - CAPABILITY_REASK_MS && resetAt - armedAt < HOLD_BACK_MS) {
+                    wantedFlags = 0
+                    val text = "hold-back: the glasses reset ${(resetAt - armedAt) / 1000} s after flags 0x${wanted.toString(16)} were armed — not re-armed (probe flags=… to try again)"
+                    emitNote("keeper", text)
+                    emitFault("holdback", text)
+                    return
+                }
             }
         }
         lastUptime = uptime to now
+        var want = wanted
         var set = 0
         for (bit in 0 until 16) {
             val b = 1 shl bit
-            if (wanted and b == 0) continue
-            if (epoch != sessionEpoch.get() || wantedFlags != wanted) return   // the session ended, or the wish changed
-            set = set or b
-            val r = flagsSet(epoch, set) ?: return
+            if (want and b == 0) continue
+            if (epoch != sessionEpoch.get() || wantedFlags != want) return   // the session ended, or the wish changed under us
+            val r = flagsSet(epoch, set or b) ?: return
             val status = r.lastStatus ?: -1L
-            if (status != 0L || (r.flags ?: 0L) != set.toLong()) {
-                emitFault("flags", "bit $bit (set 0x${set.toString(16)}) refused: status $status, flags in force 0x${(r.flags ?: 0L).toString(16)}")
+            val inForce = r.flags ?: 0L
+            if (status == DamageMsg.STATUS_UNSUPPORTED.toLong()) {
+                // not a fault of the glasses but a wish this build cannot grant: dropped, so the
+                // next start does not ask again and the bits above it are not held up by it
+                want = want and b.inv()
+                wantedFlags = wantedFlags and b.inv()
+                emitFault("flags", "bit $bit is not implemented by this build (status 2) — dropped from the wanted set 0x${wanted.toString(16)}; the rest are still armed")
+                continue
+            }
+            if (status != 0L || inForce != (set or b).toLong()) {
+                emitFault("flags", "bit $bit (set 0x${(set or b).toString(16)}) refused: status $status, flags in force 0x${inForce.toString(16)} — the wish is kept for the next start")
                 return
             }
+            set = set or b
             emitNote("keeper", "armed bit $bit — flags in force 0x${set.toString(16)} (RIGHT answered; LEFT took the same write)")
         }
     }
@@ -1912,6 +1941,11 @@ abstract class CfwTransportBase(
         private const val CAPABILITY_REASK_MS = 2_000L
         /** `FORK.md` §3.2: a reset this soon after an arming disarms the feature until asked again. A placeholder until measured (M0.5 was dropped); Adam's to set. */
         private const val HOLD_BACK_MS = 120_000L
+        /** How far short of the predicted uptime a reading must fall to count as a reset
+         *  (armFeatures): the two clocks' drift over a day and the reply's own latency are
+         *  well inside it; a reset can hide inside it only if the glasses reset within this
+         *  long of booting. */
+        private const val RESET_SLACK_MS = 10_000L
 
         /** Reporting threshold for the stall diagnostic — well past any
          *  measured ack (176 ms median, 7–13 KB/s); reports, never acts. */

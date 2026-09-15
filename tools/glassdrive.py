@@ -88,7 +88,8 @@ async def selftest(ws, host, port, token, path):
         if not got or int(got.get('stSteps', 0)) < steps_seen:
             fails += 1; print(f'  FAIL step {i}: the glasses report stSteps={got.get("stSteps") if got else None}, expected {steps_seen}'); continue
         crc_ok = got.get('stCrc') == want['R']
-        rc_ok = (got.get('stRefused') == ('1' if want['rc']['R'] and want['rc']['R'][-1] != 0 else '0'))
+        # the refusal field is the LAST step's: a step that carried no message says nothing new about it
+        rc_ok = (not msgs) or (got.get('stRefused') == ('1' if want['rc']['R'][-1] != 0 else '0'))
         print(f'  {"PASS" if crc_ok and rc_ok else "FAIL"} step {i}: scratch {got.get("stCrc")} (expected {want["R"]}), refused {got.get("stRefused")}')
         fails += not (crc_ok and rc_ok)
     await probe('selftest', 'end')

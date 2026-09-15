@@ -101,7 +101,7 @@ staging**; **each app's notification toggles live in its own Settings category, 
 gates an app's source on a hidden field).
 
 **After ANY code change run the whole battery and keep it green:**
-`./gradlew :core:test` (545) · `./gradlew :desktop:test` (15) · `desktop --selfcheck` (230 checks, the
+`./gradlew :core:test` (550) · `./gradlew :desktop:test` (15) · `desktop --selfcheck` (230 checks, the
 truth oracle on every settle) · `desktop --snapshot DIR` (look at the renders) · `desktop --epub-check ~/books` · `desktop --music-check` · `desktop --games-check` · `desktop --feed-check` (`live` fetches
 the real sites once, read-only) · `python3 tools/lint.py` · `./gradlew :phone:assembleDebug` **in its
 own gradle invocation** (run with `:core:test` it loaded the box enough for the oracle walk to miss a

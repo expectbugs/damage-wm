@@ -133,6 +133,10 @@ class GlassFirmwareSim() : LensPanels {
          *  refusal and scratch CRC, its own frame-order diagnostics. */
         var stShadow: ByteArray? = null
         var stActive = false
+        /** The scratch's own "a keyframe has landed": kept across steps as the scratch's
+         *  bytes are, so the unseeded-delta diagnostic speaks of the scratch, not the live
+         *  shadow (the C has no such flag; its bytes are the state). */
+        var stSeeded = false
         var stSeq = 0L
         var stRefused = false
         var stCrc = 0L
@@ -716,7 +720,11 @@ class GlassFirmwareSim() : LensPanels {
      */
     private fun fbLeaseActive(arm: Arm, now: Long): Boolean {
         val c = ctx(arm)
-        if (c.leaseDeadline == 0L || now >= c.leaseDeadline) {
+        // No lease held: there is no expiry to notice, and a check is none of the four
+        // release points (FIRMWARE.md §3) — whatever the flags hold stays until one comes
+        // (2026-09-14, second review: this check used to clear them, the C's does not)
+        if (c.leaseDeadline == 0L) return false
+        if (now >= c.leaseDeadline) {
             val had = c.textureCache != null
             val kept = leaseEnded(arm, c)
             if (had) diag.event("texture", "$arm texture cache ${if (kept) "kept under CACHE_KEEP" else "freed"}: the FB lease has lapsed")
@@ -737,6 +745,10 @@ class GlassFirmwareSim() : LensPanels {
             if (!c.cacheKeepLatched) c.textureCache = null
             c.damageFlags = 0
         }
+        // A lapse is noticed ONCE (the guard above; the deadline left standing re-enters
+        // here on every later check and must change nothing). An FB_RELEASE is its own
+        // release point and clears the flags regardless — its handler does that, so a
+        // FLAGS_SET taken after a settled lapse does not survive it (2026-09-14, second review).
         return c.cacheKeepLatched && c.textureCache != null
     }
 
@@ -958,7 +970,7 @@ class GlassFirmwareSim() : LensPanels {
             0 -> {
                 if (!fbLeaseActive(arm, now)) { diag.event("selftest", "$arm begin refused: no FB lease"); return false }
                 c.stShadow = ByteArray(c.stride * Geometry.PANEL_H)
-                c.stSeq = 0; c.stRefused = false; c.stCrc = 0; c.stDiag = DiagState()
+                c.stSeq = 0; c.stRefused = false; c.stCrc = 0; c.stDiag = DiagState(); c.stSeeded = false
                 diag.event("selftest", "$arm begin: scratch shadow allocated and zeroed")
                 return true
             }
@@ -971,12 +983,13 @@ class GlassFirmwareSim() : LensPanels {
                 var ok = false
                 if ((msg[0].toInt() and 0x7F) in CfwModes.SELF_TEST_MODES) {
                     val live = c.shadow; val liveSeeded = c.seeded
-                    c.shadow = scratch
+                    c.shadow = scratch; c.seeded = c.stSeeded
                     swapDiag(c)
                     c.stActive = true
                     try { ok = dispatchImage(arm, msg, now) } finally {
                         c.stActive = false
                         swapDiag(c)
+                        c.stSeeded = c.seeded
                         c.shadow = live; c.seeded = liveSeeded
                     }
                 } else diag.event("selftest", "$arm step refused: mode ${msg[0].toInt() and 0x7F} is not a drawing message")
@@ -1105,6 +1118,7 @@ class GlassFirmwareSim() : LensPanels {
                     releasesSeen++
                     ctx(arm).leaseDeadline = 0
                     val kept = leaseEnded(arm, ctx(arm))  // settings_ext.c releases the cache here, or keeps it (F1.5)
+                    ctx(arm).damageFlags = 0              // FIRMWARE.md §3: a release point clears the flags, a settled lapse before it or not
                     stockPattern(ctx(arm).panel)
                     diag.event("lease", "$arm FB lease released — stock repaints, " +
                         "texture cache ${if (kept) "kept under CACHE_KEEP" else "freed"}")

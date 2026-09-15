@@ -520,12 +520,20 @@ fork's C (`~/damage-cfw`).
   id, failed by the sweep; probes `cache=info`, `selftest=begin|end|step:HEX`; `wantedFlags` set by
   `flags=`; **`armFeatures`** after every start on a Damage build (read RIGHT's uptime → the hold-back rule
   → FLAGS_SET one bit at a time, each answer checked; `keeper` notes, `holdback`/`flags` faults);
-  `HOLD_BACK_MS` = 120 s placeholder. `RemoteTransport` carries `present` across the seam.
+  `HOLD_BACK_MS` = 120 s placeholder. A reset is a reading that falls short of what the last reading
+  plus the phone time since predicts (`RESET_SLACK_MS` = 10 s; the readings alone missed a reset after a
+  short uptime — `HANDOFF.md` §52); a bit the build refuses as unsupported is dropped from the wish with
+  one fault and the bits above it are still armed. The FLAGS_SET waiter (request id 0) is removed only while
+  it is still the current one, so a previous session's wait ending late cannot drop the new session's
+  (`HANDOFF.md` §53). `RemoteTransport` carries `present` across the seam.
 - **`Journal.present`** — `{"ev":"present","seq","workerUs","copyUs","transferUs"}`, one per transfer while
   armed; `journal_report.py` prints the distribution; `tools/glassdrive.py selftest:FILE` drives a vector
   through the glasses' self-test and compares RIGHT's report from `/log`.
-- Tests: `DamageMsgTest` (6), `ConformanceVectorTest` (2 — the normal path and the self-test form over the
-  drawing vectors), `DevProbeTest` (4). The fork's side: `host/test_damage_ext.py` (35), `host/run_self_test.py`.
+- Tests: `DamageMsgTest` (11 — the three of the §52 review: the reset seen past a grown uptime, the dropped
+  unsupported bit, the truncated self-test step refused and counted; the two of §53: a FLAGS_SET with no lease
+  in force until the next release point, an FB_RELEASE after a settled lapse still clearing the flags),
+  `ConformanceVectorTest` (2 — the normal path and the self-test form over the drawing vectors),
+  `DevProbeTest` (4). The fork's side: `host/test_damage_ext.py` (44), `host/run_self_test.py`.
 
 ## Review hardening (rounds 2–8, 2026-08-24)
 

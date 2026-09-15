@@ -63,6 +63,17 @@ PC-direct BlueZ only while the APK is unavailable, handing the radio back on its
 - **2026-09-12 — the firmware fork decided** (`FORK.md`, `HANDOFF.md` §48): a Damage build of the custom
   firmware (`~/damage-cfw`, GPL-3.0, its own repo) so the glasses can animate and answer the ring
   themselves; every existing window is rebuilt on it, fully animated, before any new window.
+- **2026-09-14 (night) — a second review of the same work** (`HANDOFF.md` §53): the flags survived an FB_RELEASE
+  that followed a lapse the glasses had already settled, in the fork's C and in Damage's model alike (the
+  contract clears them at every release point; fixed on both sides, fork pin `c5e4f8b7…`); the model also cleared
+  them on a lease check with no lease, which the C never did; a begin of the self-test now runs under its active
+  mark; a stale telemetry waiter can no longer drop a newer session's. Pinned on both sides; nothing flashed;
+  APK 0.48 staged.
+- **2026-09-14 (late evening) — the evening's work reviewed** (`HANDOFF.md` §52): four defects found and fixed —
+  in the fork a self-test step carrying a truncated drawing message reached the BMP loader and dropped the
+  live frame, and a stale transfer mark could stamp a stock refresh (pin `70e47938…`); in Damage the keeper's
+  reset detection missed a reset after a short uptime (the post-flash case) and a refused bit blocked the
+  bits above it. Each pinned by a test on the side it lives; nothing flashed; APK 0.47 staged.
 - **2026-09-14 (evening) — Phase 1's candidate built on both sides** (`HANDOFF.md` §51): F1.3, F1.5 and the
   self-test in the fork (pin `5ff9159b…`, one new site), the keeper's arm/hold-back protocol, the `present`
   journal record and the on-glass self-test runner in Damage (APK 0.46); the senders' lens rule read at

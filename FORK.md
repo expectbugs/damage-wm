@@ -181,8 +181,12 @@ size and CRC-on-request through op 4 CACHE_INFO), **the self-test** (image mode 
 scratch shadow with presents suppressed; the drawing vectors give the normal path's CRCs on the host C and in the
 simulator), and Damage's side: the keeper's arm / hold-back protocol on uptime (`armFeatures`), the `present`
 journal record and `journal_report.py`'s transfer section, `glassdrive.py selftest:FILE`, APK 0.46 built. Pin
-**`5ff9159b…`** (27 entries; `tools/verify.py` all pass; `host/test_damage_ext.py` 35, `run_self_test.py`,
-`run_vectors.py` 7/7). **The candidate is complete on the firmware side.** Read the same evening at instruction
+`5ff9159b…` that evening; `70e47938…` after the late-evening review (`HANDOFF.md` §52: a self-test step
+carrying a truncated mode-3/6 message fell through to the BMP loader, and a stale F1.3 mark could stamp a stock
+refresh — both fixed and pinned on the host); **`c5e4f8b7…` after the second review (`HANDOFF.md` §53: the flags
+now clear at every release point whether or not a lapse was settled before it, and a begin runs under the
+self-test's active mark; 27 entries, the same one new site; `tools/verify.py` all pass; `host/test_damage_ext.py`
+44, `run_self_test.py`, `run_vectors.py` 7/7).** **The candidate is complete on the firmware side.** Read the same evening at instruction
 level: only the RIGHT lens can send (`CLAIMS.md`), so every reply and the self-test's report are RIGHT's, LEFT
 runs everything blind — the phone-side atlas skip (the point of F1.5) is **deferred** until LEFT's cache can
 be verified (`FIRMWARE.md` §3 names the hazard: an eaten write or a one-arm lapse would leave LEFT drawing from
@@ -423,3 +427,24 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   word from work (Damage `ca8fe4f`, the fork `2aded36`). Next (`HANDOFF.md` §51.9, `REMINDER.md`): the queue
   before he is home — the bounded skip, R0.1, R0.5, the M0.3 read, the core suite ×20 — then M0.1 (one minute), the
   site review (`tools/verify.py` step 6: `0x00473CE4` in `FUN_00473C44`), his go, the ritual.
+- **2026-09-14 (late evening)** — The evening's work reviewed (`HANDOFF.md` §52), Adam's instruction from work: four
+  defects verified before a line changed, fixed, each pinned by a test watched to fail on the old code. The fork
+  (pin `70e47938…`, 27 entries, the same one new site): a self-test step carrying a mode-3/6 message shorter than
+  its header fell through to the BMP loader — it cleared the live direct frame and handed the stack-built state to
+  the stock loader (now refused and counted); a direct copy whose refresh the panel-off skipped left the F1.3 mark
+  set, so a later stock refresh was stamped and reported as a Damage transfer (the stock-copy path clears it);
+  the self-test's cross-task fields made volatile. Damage: the keeper's reset detection compared two uptime
+  readings and missed a reset once the uptime had grown past the previous reading — the post-flash case — and now
+  compares against the elapsed phone time; a bit the build refuses as unsupported no longer blocks the bits above
+  it and is dropped from the wish. Host harness: `panel`, `refresh`, a BMP-loader count. The full battery green
+  (core 548, the fork's checks 41/41); APK 0.47 staged, 0.46 never installed. Both trees left modified and
+  uncommitted for Adam. Nothing flashed. The §51.9 queue stands, the bounded atlas skip first.
+- **2026-09-14 (night)** — A second review of the same work (`HANDOFF.md` §53). One contract deviation on both
+  sides: the flags survived an FB_RELEASE that followed a lapse the glasses had already settled (the settled
+  marker now keeps only the latch; fixed in the C and in the model, pinned on both — three host checks, two
+  `DamageMsgTest` pins); the model also cleared the flags on a lease check with no lease, which the C never did.
+  Guards: a begin of the self-test runs under its active mark (a release from another task during it is honoured
+  after it), and a stale FLAGS_SET waiter can no longer drop a newer session's. Fork pin **`c5e4f8b7…`** (27
+  entries, the same one new site, 46,480-byte block); the battery green (core 550, the fork's checks 44/44); APK
+  0.48 staged, none of 0.46–0.48 installed. Open for Adam: whether a FLAGS_SET with no lease held should be
+  refused. Both trees still modified and uncommitted; nothing flashed. The §51.9 queue stands.

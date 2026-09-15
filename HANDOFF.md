@@ -3259,3 +3259,199 @@ RIGHT answers (a test that waits for LEFT's reply waits forever); the sim's `see
 and the C's `dmg_lease_settled` are per lens; `FeedWindowTest.deepLinksResolveEveryForm` is a known rate; the
 corpus decompile can hide a disabled check behind "unreachable block" warnings — `fwread.py sha` checks the
 bytes.
+
+## 52. Review of the evening's work: four defects found and fixed (2026-09-14, late evening)
+
+Adam's instruction (from work): review everything done since the last Bluetooth logs were uploaded (the
+captures banked in §50.8 at 17:55) — the fork's Phase 1 candidate (`2aded36`, §51.2) and Damage's side
+(`ca8fe4f`, §51.3) — find every defect, verify each before changing a line, fix it, verify the fix. Method:
+both sources read whole against `FIRMWARE.md`; the load-bearing sites re-read at instruction level
+(`fwread.py dis 0x473c44 0x473d90`, `dis 0x4ca564 0x4ca5d0`, `dis 0x475b14 0x475c40` — the six-argument
+refresh call, the senders' lens rule and the disabled check at `0x00475B6A` all read as §51.1 records); every
+candidate defect demonstrated on the host harness or the simulator first; every fix pinned by a test watched to
+fail on the unfixed tree. Nothing flashed, nothing installed, the `damage` service untouched; **both trees left
+modified and uncommitted for Adam's review.**
+
+### 52.1 Verified defects, fixed
+
+1. **A self-test step could reach the BMP loader with the scratch state (fork, `zlib_glue.c`).** A
+   `[16][1][message]` whose message is mode 3 or 6 with fewer than three bytes — alone, or as a batch's
+   sub-message — passed `damage_self_test`'s mode check and fell through `image_dispatch` to `load_bmp_fast`,
+   which (a) set the live `direct_active` to 0, so the next stock repaint would have overwritten the Damage
+   frame on the panel, and (b) called the stock loader `FUN_004DC5AE` with the stack-built container state,
+   which has no LVGL object behind it. Observed on the host before the fix: `direct_active` 1 → 0 and the
+   loader entered (the harness's new `bmp` count) for `[03]`, `[06]` and a batch carrying `[03]`; the
+   simulator refused the same inputs without side effects, so the two implementations disagreed. Reachable
+   from the phone (`CfwModes.selfTestStep` checks the mode byte only; `probe:selftest=step:03`). Fix:
+   `load_bmp_fast` refuses while `dmg_st_active` — the step is refused and counted, the scratch, the live
+   frame and the stock loader untouched. Pinned in `host/test_damage_ext.py` (two checks) and in the
+   simulator (`DamageMsgTest.aTruncatedStepIsRefusedAndCounted`).
+2. **A stale F1.3 mark stamped a stock refresh (fork, `zlib_glue.c`).** `display_copy_hook` marks a direct
+   copy; the display task skips the refresh call while the panel is off (`0x00473CCA`), so the mark survived
+   to the next type-3 refresh. When that refresh followed a stock copy (the lease lapsed, stock content in the
+   framebuffer) `damage_refresh_hook` stamped it as the Damage frame's transfer and — the lapse unnoticed by
+   anything that clears flags — sent a field-113 notify for it. Observed on the host (`panel 0`, a keyframe, a
+   lapse, `panel 1`, `refresh`: `transferUs` 1234 and a notify). Fix: the copy hook clears the mark on its
+   stock-copy path; the preserved-frame path keeps it, so the first refresh after the panel is back — which
+   does send the Damage frame — is stamped and reported once with the copy's sequence. Pinned by four host
+   checks.
+3. **The keeper's reset detection missed a reset once the new uptime exceeded the previous reading
+   (Damage, `CfwTransportBase.armFeatures`).** The test was `uptime < previous reading`; after a reset the
+   uptime climbs again, so a session rebuilt later than that reading's value read as "no reset". That is the
+   case right after a flash — every uptime short — which is the hold-back rule's whole purpose. Fix: the
+   reading is compared with what the previous reading plus the phone time since predicts; a shortfall past
+   `RESET_SLACK_MS` (10 s) is a reset (a reset hides inside the slack only if the glasses reset within 10 s of
+   booting). Pinned by `theKeeperSeesAResetWhenTheNewUptimeExceedsTheOldReading` (30 s up at the arming, a
+   reset 20 s later, a rebuild three minutes after: hold-back), which fails on the old code.
+4. **A refused bit blocked every bit above it and was asked for again on every start (Damage,
+   `armFeatures`).** Arming lowest bit first, a bit the build refuses as unsupported (status 2) ended the loop
+   with a fault and kept the wish: PROBE (bit 15) was never armed behind it, and the same fault fired on every
+   rebuild. Fix: a status-2 bit is dropped from the wish with one fault and the loop continues; any other
+   refusal (a lapse between the write and the reply reads as flags 0 with status 0) still stops and keeps the
+   wish for the next start. Pinned by `theKeeperDropsAnUnimplementedBitAndArmsTheRest`, which fails on the old
+   code.
+
+### 52.2 Hardened without an observed failure
+
+- `dmg_st_shadow`, `dmg_st_active` and `dmg_st_free_pending` are volatile (`cfw_context.h`): a step marks
+  itself active and then reads the scratch pointer; a release from the settings task or the input thread
+  checks the mark and then frees; the compiler may no longer reorder either pair. The window between a
+  release's check and a step's mark remains and is the installed firmware's own for its texture cache (§51.2).
+- The simulator's self-test keeps the scratch's own "seeded" state across steps (`stSeeded`), so the
+  unseeded-delta diagnostic speaks of the scratch rather than the live shadow; no CRC or return code changes
+  (the C has no such flag — its bytes are the state).
+- `tools/glassdrive.py selftest:` compares the refusal field only for steps that carried a message (the field
+  is the last step's).
+- The host harness gained `panel 0|1` (the display task's panel-on word), `refresh` (a stock type-3 refresh
+  with no Damage job pending), a BMP-loader call count on the `crc` line and `direct_active` on `dmg` — the
+  observability the two fork defects needed; `host/README.md` names them.
+
+### 52.3 Read and found sound
+
+The refresh-hook site and its six-argument forwarding (the two stack words re-staged by `FUN_004CA564`, the
+return ignored by the type-3 caller); the senders' lens rule and the RIGHT-only gates in the C; the reply
+buffers against the record's worst case (98 B of a 160 B body, 105 B of the 192 B buffer; the notify 37 B of
+64); `pb_append_bytes_field`'s unchanged-length return that `damage_send_package` relies on; the cache-keep
+latch through every release order (the host's nine F1.5 checks); the diag swap covering every field
+`cfw_diag` touches; the gate discipline (mode 16 is not a shadow message, `present_shadow` returns during a
+step, `direct_submitted` stays 0, the host's gate balance holds); the DWT calibration already primed by the
+copy hook before the refresh hook stamps; `DamageMsg`'s bytes against the contract; the `present` record
+across the seam; `journal_report.py`'s transfer section. **Noted, not changed:** `flagsSet` waits on request
+id 0, which a concurrent `probe:flags=` reply would also satisfy (a dev tool racing the keeper); CACHE_INFO's
+CRC on the settings task can read a cache mid-write on the EvenHub task (one wrong CRC → one needless
+re-upload); the tick's wrap at 49.7 days reads as a reset (a note, and a hold-back only within 120 s of an
+arming); a `probe:flags=` with a `wantedFlags` read-modify-write racing `armFeatures` can lose a wish (a dev
+tool).
+
+### 52.4 The battery
+
+`:core:test` **548** (545 + 3; the Feed miss of §49.6 did not occur this run) · `:desktop:test` **15** ·
+`--selfcheck` ×3 ALL CHECKS PASS (230 checks) · `--snapshot` 57 scenes (Main looked at) · `--epub-check`
+380/404 · `--music-check` · `--games-check` · `--feed-check` · `tools/lint.py` 0 · `:phone:stageApk` alone —
+**APK 0.47 staged** (`~/.damage/damage-wm.apk`, 20:57; versionName 0.47 in the manifest; 0.46 was never
+installed). The fork: `tools/verify.py` all pass — pin **`70e47938…`**, 27 entries, the same one new site
+(`0x00473CE4` in `FUN_00473C44`), a 46,392-byte block, 20 Thumb branches, 377 KB below the OTA flag ·
+`run_vectors.py` 7/7 · `run_self_test.py` 5 vectors × 2 lenses · `test_damage_ext.py` **41/41** (35 + 6).
+Negative checks: with `zlib_glue.c` at HEAD the two new self-test checks and the lapse check fail (the flag
+dropped to 0, three loader calls, the stale stamp and its notify); with `CfwTransportBase.kt` at HEAD the two
+new keeper tests fail (2 of 9).
+
+### 52.5 State and next
+
+Both trees modified and uncommitted — the diff is the deliverable (`git status` in each). Nothing flashed;
+the `damage` service on 0.44's core, not restarted; APK 0.47 staged over 0.46, not installed. The queue of
+§51.9 stands unchanged, the bounded atlas skip first; Adam's part is the same section's part B, now with the
+review's diff to read and commit first (the fork to `github/damage`, never `origin`).
+
+## 53. A second review of the same work: one contract deviation, two guards (2026-09-14, night)
+
+Adam's instruction for the session: orient, then review everything done since the last Bluetooth logs were
+uploaded (the captures of §50.8, 17:55) — §51's candidate on both sides and §52's review of it — find every
+defect, verify each before changing anything, fix it, verify the fix. Method as in §52: both sources read whole
+against `FIRMWARE.md`; the refresh site and the refresh dispatcher re-read at instruction level (`fwread.py dis
+0x473c44 0x473d90`, `dis 0x4ca564 0x4ca5d0` — the copy hook at `0x00473C8E`, the gate give, the panel-on check
+at `0x00473CCA`, the six-argument call at `0x00473CE4`; the dispatcher's two stack words re-staged and the
+record's `+0x28` called, as §51.1 and §52.3 record); every candidate demonstrated on the host harness or in the
+model before a line changed; every fix pinned by a test watched to fail on the old code. The battery green
+before the changes (core 548, desktop 15, lint 0, the fork's three suites and `verify.py`) and after (§53.4).
+Nothing flashed, nothing installed, the `damage` service untouched; **both trees left modified and uncommitted
+for Adam's review** — the §52 diff is still in them, so the two reviews' changes are one diff.
+
+### 53.1 Verified defect, fixed on both sides
+
+1. **The flags survived an FB_RELEASE that followed a lapse the glasses had already settled** (fork
+   `damage_lease_ended`; the model's `leaseEnded` the same way). §51.2's once-per-lease settled marker — there so
+   a release after a noticed lapse cannot re-read the cleared flags and drop the CACHE_KEEP latch — returned
+   before the flag clear as well. A FLAGS_SET the glasses took after the lapse (no lease held; the op takes it
+   whenever it arrives) therefore stayed in force through the FB_RELEASE, and the next telemetry reply reported
+   it. `FIRMWARE.md` §3 has the flags clear at every release point. Observed on the host before the fix (lease,
+   PROBE, `tick 200000`, TELEMETRY — flags 0 — then FLAGS_SET PROBE, FB_RELEASE: `dmg` flags 32768 and the next
+   record's field 3 = 0x8000) and in the model with hand-built settings writes. Fix: the marker keeps only the
+   latch; the C clears the flags on every `damage_lease_ended`, and the model's FB_RELEASE handler clears them
+   after its once-per-lapse settle (its lapsed deadline is left standing on purpose, so the shared helper must
+   stay once-only). Pinned by two host checks and
+   `DamageMsgTest.fbReleaseAfterASettledLapseStillClearsTheFlags`, watched to fail on the old model. Reach:
+   the keeper arms only inside a lease and the shell releases before it stops, so the sequence needs a
+   `probe:flags=` after a lapse the phone has not seen — rare, and undone by the next fresh acquire either
+   way. The deviation from the contract, not the reach, is why it was fixed.
+2. **The model cleared the flags on a lease check that had no lease; the C never did.** `fbLeaseActive`
+   treated "no deadline" like a lapse and ran the release helper, so a FLAGS_SET taken with no lease held read
+   back as 0 from the model and as 0x8000 from the C (the host's `dmg` and the reply's field 3). Fix: with no
+   lease there is no expiry to notice, and a check is none of the four release points, so it changes nothing.
+   Pinned by `DamageMsgTest.flagsSetWithoutALeaseIsInForceUntilTheNextReleasePoint` (fails on the old model)
+   and one host check. **Put to Adam, unchanged on both sides:** a FLAGS_SET with no lease held is taken and
+   stays in force until the next release point. Refusing it would be a new status code — a contract addition
+   he has not asked for.
+
+### 53.2 Hardened without an observed failure
+
+- **A begin (`[16][0]`) allocated and zeroed the scratch with no active mark** (fork `damage_self_test`): a
+  release point reached from another task in that time — an FB_RELEASE on the settings task, a lapse noticed
+  on the input thread — would have freed the scratch under the zeroing. A step already ran under the mark; the
+  begin now does too (`damage_self_test_settle` ends both and honours a deferred release), and a begin the
+  lease ended during is refused with the scratch freed. Not demonstrable on the single-threaded host; the
+  window that remains is the step's (§52.2). 88 bytes more in the block.
+- **A stale FLAGS_SET waiter could drop a newer session's** (Damage `flagsSet`): every FLAGS_SET reply carries
+  request id 0, and the wait's cleanup removed key 0 unconditionally — a previous session's wait, failed by
+  the sweep and resuming late, would remove the new session's waiter, whose re-ask loop then repeats the
+  FLAGS_SET every 2 s until that session ends. Removed only while it is still the same waiter now
+  (`remove(key, value)`); `telemetryRead` the same. Reasoned from the code, not observed.
+- The reset detection's wall-clock assumption is written down in `armFeatures`: a forward jump of the phone's
+  clock past the slack between two reads reads as a reset (a note; a hold-back only within 120 s of an arming).
+
+### 53.3 Read and found sound (beyond §52.3)
+
+The context struct is heap-allocated (`cfw_malloc(sizeof)`, 960 B on the host build); only its anchor word
+sits in the reserved 1 KiB tail, so its growth is safe. The both-arms control writes register no answer, so
+LEFT's silence raises no "unanswered" warning. The mode-8 sub-mode lists exclude 16 on both sides, so a batch
+cannot carry a self-test op. The diag swap covers the nine fields `cfw_diag` touches, and the model's `DiagState`
+the same nine. The reply and notify buffers against the record's worst case (§52.3). `parsePresented` runs
+before the §47 response matcher, which ignores commandId 3. The §52 pins hold on the changed tree. The host
+test's `dmg` keys match the shim's eleven fields. The docs' numbers against the code (`RESET_SLACK_MS` 10 s,
+the block sizes, the counts). **Noted, not changed:** a `probe:selftest=` sent to the installed upstream build
+reaches `load_bmp_fast` there, which drops the direct frame's stock-repaint guard until the next present (the
+probe's note says "refused", not that); and if RAM kept a context with `dmg_st_active` set across a reset,
+every present and BMP would be refused until the context is rebuilt — whether RAM survives a reset there is
+not known (the installed firmware's magic check is the same guard for its own pending-job fields).
+
+### 53.4 The battery
+
+Before any change: `:core:test` 548 · `:desktop:test` 15 · lint 0 · the fork's `verify.py`, `run_vectors.py`
+7/7, `run_self_test.py`, `test_damage_ext.py` 41/41. After: `:core:test` **550** (548 + 2; the Feed miss of
+§49.6 did not occur) · `:desktop:test` **15** · `--selfcheck` ×4 ALL CHECKS PASS · `--snapshot` 57 scenes (Main
+looked at) · `--epub-check` 380/404 · `--music-check` · `--games-check` · `--feed-check` · `tools/lint.py` 0 ·
+`:phone:stageApk` alone — **APK 0.48 staged** (`~/.damage/damage-wm.apk`, 22:31; 0.47 and 0.46 were never
+installed). The fork: `./build_cfw.sh --skip-venv --update-patches` regenerated the set; `tools/verify.py` all
+pass — pin **`c5e4f8b7…`**, 27 entries, the same one new site, a 46,480-byte block, 20 Thumb branches, 377 KB
+below the OTA flag · `run_vectors.py` 7/7 · `run_self_test.py` 5 vectors × 2 lenses · `test_damage_ext.py`
+**44/44** (41 + 3). Negative checks: the two new model pins failed on the old model (the scratch run before the
+fix: the "in force" and "FB_RELEASE clears" assertions); the host demonstration before the fix showed flags
+32768 after the release and the record carrying 0x8000.
+
+### 53.5 State and next
+
+Both trees modified and uncommitted — the §52 and §53 diffs together are the deliverable (`git status` in
+each). Nothing flashed; the `damage` service on 0.44's core, not restarted; APK 0.48 staged over 0.47, not
+installed. The §51.9 queue stands unchanged, the bounded atlas skip first; Adam's part is §51.9's part B with the
+two reviews' diffs to read and commit first (the fork to `github/damage`, never `origin`), plus one ruling:
+whether a FLAGS_SET with no lease held should be refused (§53.1 item 2).

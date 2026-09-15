@@ -21,8 +21,10 @@ import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.transport.Arm
 import wm.damage.core.transport.SimTransport
 import wm.damage.core.transport.TransportEvent
+import wm.damage.core.wire.AaFrame
 import wm.damage.core.wire.DamageMsg
 import wm.damage.core.wire.Pb
+import wm.damage.core.wire.SettingsMsg
 
 /** `FIRMWARE.md` §0/§3 (draft, Phase 1): the DamageCaps field, the control ops and the
  *  telemetry record — bytes from the contract text, then through the transport's probes
@@ -153,6 +155,146 @@ class DamageMsgTest {
         } finally {
             scope.cancel()
         }
+    }
+
+    /** The hold-back rule right after a flash, where every uptime is short: a reset whose new
+     *  uptime already exceeds the previous reading must still be seen — the prediction from the
+     *  phone's elapsed time says so; the two readings alone would not (2026-09-14 review). */
+    @Test
+    fun theKeeperSeesAResetWhenTheNewUptimeExceedsTheOldReading(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val sim = GlassFirmwareSim().also { it.damageContract = 1 }
+            var clock = 1_000_000L
+            sim.uptimeOffsetMs = clock - 30_000L               // the glasses booted 30 s ago (a fresh flash)
+            val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock })
+            val notes = ArrayList<Pair<String, String>>()
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                t.events.collect { if (it is TransportEvent.Note) synchronized(notes) { notes.add(it.kind to it.detail) } }
+            }
+            fun has(kind: String, text: String) = synchronized(notes) { notes.any { it.first == kind && text in it.second } }
+            val full = Zl.encodeCfw(Pack.rect(Gray8(640, 480), Rect(0, 0, 640, 480)))
+            t.start(full)
+            t.devProbe("flags", "probe")
+            until("armed by the probe") { Arm.entries.all { sim.damageFlags(it) == DamageMsg.FLAG_PROBE } }
+            until("the arming's reply recorded an uptime of 30 s") { has("glass", "uptimeMs=30000") }
+            // the glasses reset 20 s after the arming; the session is rebuilt three minutes later,
+            // so the new uptime (180 s) exceeds the last reading (30 s)
+            clock += 20_000L
+            sim.uptimeOffsetMs = clock
+            clock += 180_000L
+            assertTrue(t.restartSession("test: after a reset"))
+            t.start(full)
+            until("the reset is seen although the uptime grew") { has("keeper", "hold-back: the glasses reset 20 s after flags 0x8000 were armed") }
+            delay(300)
+            assertTrue(Arm.entries.all { sim.damageFlags(it) == 0 }, "nothing armed after the hold-back")
+            t.stop()
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /** A wanted bit this build does not implement is refused with status 2: the keeper drops it
+     *  from the wish, says so once, and still arms the bits above it (2026-09-14 review: the
+     *  first refused bit used to end the arming and the wish kept re-asking on every start). */
+    @Test
+    fun theKeeperDropsAnUnimplementedBitAndArmsTheRest(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val sim = GlassFirmwareSim().also { it.damageContract = 1 }
+            var clock = 1_000_000L
+            val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock })
+            val notes = ArrayList<Pair<String, String>>()
+            val faults = ArrayList<String>()
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                t.events.collect {
+                    if (it is TransportEvent.Note) synchronized(notes) { notes.add(it.kind to it.detail) }
+                    if (it is TransportEvent.Fault) synchronized(faults) { faults.add("${it.what}: ${it.detail}") }
+                }
+            }
+            fun has(kind: String, text: String) = synchronized(notes) { notes.any { it.first == kind && text in it.second } }
+            fun armedNotes() = synchronized(notes) { notes.count { it.first == "keeper" && "armed bit 15 — flags in force 0x8000" in it.second } }
+            fun dropFaults() = synchronized(faults) { faults.count { "bit 8 is not implemented" in it } }
+            val full = Zl.encodeCfw(Pack.rect(Gray8(640, 480), Rect(0, 0, 640, 480)))
+            t.start(full)
+            t.devProbe("flags", "0x8100")                      // PROBE plus bit 8, which no Phase 1 build implements
+            until("the whole set was refused by the build") { has("glass", "lastStatus=2") }
+            assertTrue(Arm.entries.all { sim.damageFlags(it) == 0 }, "a refused set changes nothing")
+            clock += 200_000L                                   // a lapse on the glasses' clock; no reset
+            assertTrue(t.restartSession("test: no reset"))
+            t.start(full)
+            until("bit 8 dropped with a fault") { dropFaults() == 1 }
+            until("bit 15 armed all the same") { armedNotes() == 1 }
+            until("in force on both arms") { Arm.entries.all { sim.damageFlags(it) == DamageMsg.FLAG_PROBE } }
+            clock += 200_000L
+            assertTrue(t.restartSession("test: no reset, again"))
+            t.start(full)
+            until("re-armed after the next rebuild") { armedNotes() == 2 }
+            delay(300)
+            assertEquals(1, dropFaults(), "the dropped bit is not asked for again")
+            t.stop()
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /** `FIRMWARE.md` §3: a step whose drawing message is too short for its own header is refused
+     *  and counted like any refused message — the scratch and the live shadow untouched — alone
+     *  or as a batch's sub-message. The fork's `host/test_damage_ext.py` pins the same of the C
+     *  (2026-09-14 review: there the normal path's BMP fallback used to run against the scratch). */
+    @Test
+    fun aTruncatedStepIsRefusedAndCounted() {
+        val sim = GlassFirmwareSim().also { it.damageContract = 1 }
+        val now = 1000L
+        val zero = java.util.zip.CRC32().also { it.update(ByteArray(320 * 480)) }.value
+        for (arm in Arm.entries) {
+            sim.conformanceLease(arm, true, now)
+            assertTrue(sim.conformanceMessage(arm, wm.damage.core.wire.CfwModes.selfTestBegin(), now), "begin on $arm")
+            for (msg in listOf(byteArrayOf(3), byteArrayOf(6), byteArrayOf(8, 1, 1, 0, 3))) {
+                assertTrue(!sim.conformanceMessage(arm, wm.damage.core.wire.CfwModes.selfTestStep(msg), now), "$arm refuses the step ${msg.hex()}")
+            }
+            assertEquals(3L, sim.selfTestSteps(arm), "$arm counted every refused step")
+            assertEquals(zero, sim.selfTestCrc(arm), "$arm scratch untouched")
+            assertEquals(zero, sim.shadowCrc32(arm), "$arm live shadow untouched")
+        }
+    }
+
+    /** `FIRMWARE.md` §3: the flags clear at every release point. A FLAGS_SET the glasses take
+     *  with no lease held is in force until the next one (the fork's C keeps it; the model
+     *  used to clear it on a lease check that had no lease — 2026-09-14, second review). */
+    @Test
+    fun flagsSetWithoutALeaseIsInForceUntilTheNextReleasePoint() {
+        val sim = GlassFirmwareSim().also { it.damageContract = 1 }
+        val arm = Arm.RIGHT
+        settingsWrite(sim, arm, DamageMsg.control(DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_PROBE), 5000)
+        assertEquals(DamageMsg.FLAG_PROBE, sim.damageFlags(arm), "armed with no lease: in force until a release point")
+        settingsWrite(sim, arm, SettingsMsg.control(SettingsMsg.OP_FB_ACQUIRE, 1), 6000)
+        assertEquals(0, sim.damageFlags(arm), "a fresh acquire clears the flags")
+    }
+
+    /** An FB_RELEASE after a lapse the glasses already settled still clears the flags: the
+     *  settled marker keeps the CACHE_KEEP latch, never the flags (both implementations
+     *  left a FLAGS_SET taken after the lapse in force — 2026-09-14, second review; the
+     *  fork's `host/test_damage_ext.py` pins the same of the C). */
+    @Test
+    fun fbReleaseAfterASettledLapseStillClearsTheFlags() {
+        val sim = GlassFirmwareSim().also { it.damageContract = 1 }
+        val arm = Arm.RIGHT
+        settingsWrite(sim, arm, SettingsMsg.control(SettingsMsg.OP_FB_ACQUIRE, 1), 1000)
+        settingsWrite(sim, arm, DamageMsg.control(DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_PROBE), 7000)
+        assertEquals(DamageMsg.FLAG_PROBE, sim.damageFlags(arm), "armed under the lease")
+        settingsWrite(sim, arm, DamageMsg.control(DamageMsg.OP_TELEMETRY, 1), 200_000)
+        assertEquals(0, sim.damageFlags(arm), "the lapse, noticed by the telemetry read, cleared the flags")
+        settingsWrite(sim, arm, DamageMsg.control(DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_PROBE), 200_100)
+        assertEquals(DamageMsg.FLAG_PROBE, sim.damageFlags(arm), "armed again after the settled lapse")
+        settingsWrite(sim, arm, SettingsMsg.control(SettingsMsg.OP_FB_RELEASE, 1), 200_200)
+        assertEquals(0, sim.damageFlags(arm), "FB_RELEASE clears the flags whatever came before it")
+    }
+
+    private var writeSeq = 0
+    /** One sid-0x09 write straight into the model, as the transport's control lane frames it. */
+    private fun settingsWrite(sim: GlassFirmwareSim, arm: Arm, payload: ByteArray, now: Long) {
+        for (p in AaFrame.frame(writeSeq++ and 0xFF, SettingsMsg.SID, 0x20, payload)) sim.write(arm, p, now)
     }
 
     @Test

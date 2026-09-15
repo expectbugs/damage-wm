@@ -6,16 +6,30 @@ progress log) → `FIRMWARE.md` (the contract) → **`HANDOFF.md` §49 (Phase 0 
 decided) → §47 → §46 → §44 → §43 → §42 → what they cite. For firmware facts: `CLAIMS.md` ("Firmware internals read
 for the fork") → `research/fork-reads-2026-09-13.md` → the image itself through `research/fwread.py`.
 
-## Where we are (2026-09-14, late evening)
+## Where we are (2026-09-14, night)
 
+- **🔴 A second review of the same work (`HANDOFF.md` §53): one contract deviation fixed on both sides, two
+  guards; both trees still MODIFIED and uncommitted for Adam (the §52 and §53 diffs together).** The flags
+  survived an FB_RELEASE that followed a lapse the glasses had already settled — in the fork's C and in the
+  model alike (fork pin **`c5e4f8b7…`** now); the model also cleared them on a lease check with no lease, which
+  the C never did. A self-test begin runs under its active mark; a stale FLAGS_SET waiter cannot drop a newer
+  session's. Pinned on both sides, watched to fail on the old code; the whole battery green; **APK 0.48
+  staged** (0.46 and 0.47 never installed). Nothing flashed. **One ruling for Adam:** a FLAGS_SET with no lease
+  held is taken and stays in force until the next release point on both sides — refuse it instead?
+- **The evening's work was reviewed late in the evening (`HANDOFF.md` §52): four defects verified and fixed,
+  both trees now MODIFIED and uncommitted for Adam.** In the fork a self-test step carrying a truncated mode-3/6
+  message reached the BMP loader and dropped the live frame, and a stale F1.3 mark could stamp a stock refresh
+  (pin **`70e47938…`** now); in Damage the keeper's reset detection missed a reset after a short uptime (the
+  post-flash case) and a refused bit blocked the bits above it. Each pinned by a test watched to fail on the old
+  code; the whole battery green; **APK 0.47 staged** (0.46 never installed). Nothing flashed.
 - **🔴 Phase 1's candidate is BUILT on both sides, not flashed (`HANDOFF.md` §51; committed and pushed on
-  Adam's word from work, §51.8).** The fork (pin **`5ff9159b…`**, 27 entries, one new site — `0x00473CE4` in `FUN_00473C44`,
+  Adam's word from work, §51.8).** The fork (pin `5ff9159b…` then, `70e47938…` after §52, **`c5e4f8b7…`** after §53; 27 entries, one new site — `0x00473CE4` in `FUN_00473C44`,
   the display task's refresh call, a pass-through for every stock refresh): F1.3 the transfer stamp and the
   presented notify (flag bit 0, field 113), F1.5 cache-keep (flag bit 1, a once-per-lease latch, generation /
   size / CRC through op 4), the self-test as image mode 16 (begin / step / end against a scratch shadow).
   Damage: `DamageMsg` + `CfwModes` + the simulator mirror it; the keeper's arm / hold-back protocol
   (`armFeatures`, `HOLD_BACK_MS` = 120 s placeholder); `present` journal records and the report's transfer
-  section; `glassdrive.py selftest:FILE`; APK **0.46** (see the builds line). Read at instruction level the
+  section; `glassdrive.py selftest:FILE`; APK 0.46, **0.47** after §52 (see the builds line). Read at instruction level the
   same evening: **only the RIGHT lens can send** (`CLAIMS.md`) — every reply and notify is RIGHT's, LEFT runs
   every op blind. **Adam's ruling on the atlas (§51.8): the bounded skip** — re-upload skipped only after a
   rebuild inside the lease's remaining time on the dropped arm, no flag (to build); CACHE_KEEP stays unarmed
@@ -67,16 +81,18 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
   is the `qbittorrent` service.
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games · Feed. **Builds:** APK
   **0.45 installed** (2026-09-14 13:25, its journal says so) = 0.44 + the §49 probes, the `battery` notes and the
-  DamageCaps/telemetry parser; **0.46 STAGED** (`~/.damage/damage-wm.apk`, 19:40, the setup page serves it; not installed) = 0.45 + Phase 1's keeper protocol, the `present` records,
-  the `cache`/`selftest` probes (`HANDOFF.md` §51.3) — harmless against the installed upstream build (the
-  probes say "without DamageCaps"). The service runs 0.44's core and was **not** restarted (Adam at work on it;
+  DamageCaps/telemetry parser; **0.48 STAGED** (`~/.damage/damage-wm.apk`, 22:31, the setup page serves it; not
+  installed; 0.46 and 0.47 were staged earlier and never installed) = 0.45 + Phase 1's keeper protocol, the
+  `present` records, the `cache`/`selftest` probes (`HANDOFF.md` §51.3) + the §52 fixes to the keeper (the reset
+  seen past a grown uptime; a refused bit dropped, the rest armed) + the §53 waiter fix — harmless against the
+  installed upstream build (the probes say "without DamageCaps"). The service runs 0.44's core and was **not** restarted (Adam at work on it;
   the seam's new `present` control is logged as unknown by an older PC, nothing more).
-- **Battery at HEAD (measured 2026-09-14 evening, `HANDOFF.md` §51.6):** core **545** (×2: the known Feed miss
-  once, then clean) · desktop **15** · `--selfcheck` 230 checks ×3, 0 fail (it is a rate) · snapshots 57 ·
+- **Battery on the twice-reviewed tree (measured 2026-09-14 night, `HANDOFF.md` §53.4):** core **550** (clean;
+  the Feed miss did not occur) · desktop **15** · `--selfcheck` ×4, ALL CHECKS PASS each (it is a rate) · snapshots 57 ·
   `--epub-check` 380/404 · `--music-check` · `--games-check` · `--feed-check` · lint 21 rules / 0 · `:phone:stageApk`
-  in its OWN gradle call. The fork: `tools/verify.py` all pass (pin `5ff9159b…`) · `host/run_vectors.py` 7/7 ·
-  `host/run_self_test.py` · `host/test_damage_ext.py` 35/35. ⚠ `HANDOFF.md` §49.6: `FeedWindowTest.deepLinks…`
-  misses in some full core runs (4 of 9 now; 0 of 3 on the unchanged tree): the window flips to comic #1, which the
+  in its OWN gradle call. The fork: `tools/verify.py` all pass (pin `c5e4f8b7…`) · `host/run_vectors.py` 7/7 ·
+  `host/run_self_test.py` · `host/test_damage_ext.py` 44/44. ⚠ `HANDOFF.md` §49.6: `FeedWindowTest.deepLinks…`
+  misses in some full core runs (4 of 10 now; 0 of 3 on the unchanged tree): the window flips to comic #1, which the
   scripted provider cannot serve; what presses `first` is unknown — owed ×20 and the trigger.
 
 ## Measured on glass (grade M)
@@ -96,11 +112,12 @@ The ack precedes the panel refresh (§48.1, verified): what the eye waits for is
 
 ## 🔴 The next session — the queue before Adam is home, then his part (`HANDOFF.md` §51.9)
 
-**State to start from:** both trees clean and pushed (Damage `ca8fe4f`, the fork `2aded36`); the fork's candidate is
-final at pin `5ff9159b…` and needs no firmware change for anything below; APK 0.46 is staged, not installed;
+**State to start from:** both trees MODIFIED and uncommitted after the two reviews (`HANDOFF.md` §52 and §53; the
+last commits are Damage `fa78824`, the fork `2aded36`) — Adam reads and commits the diff first; the fork's
+candidate is at pin `c5e4f8b7…` and needs no firmware change for anything below; APK 0.48 is staged, not installed;
 nothing flashed; the OpenRC `damage` service runs 0.44's core and must **not** be restarted (Adam is at work on
 it). Gradle invocations one at a time (the oracle walk misses settles under parallel load); the full battery after
-any code change (`CLAUDE.md`); a core change that should reach the phone means APK **0.47** (bump versionCode
+any code change (`CLAUDE.md`); a core change that should reach the phone means APK **0.49** (bump versionCode
 and versionName together, `:phone:stageApk` alone). Plain wording everywhere.
 
 **A. The queue (no glasses needed; Adam's order of preference, 2026-09-14 evening):**
@@ -145,7 +162,7 @@ and versionName together, `:phone:stageApk` alone). Plain wording everywhere.
 **B. Adam's part, when home:** `patches/damage_ext.c` read whole and the site list (`tools/verify.py` step 6:
 `0x00473CE4` in `FUN_00473C44`) reviewed against `FORK.md` §3.1; **M0.1**, one minute: `probe:diag=show`, read
 the overlay line (`f13/20/27` free KiB, `w`, `p`), `probe:diag=hide` — it sizes the self-test's scratch (150 KB of
-arena 13, transient) and any cache growth; **install 0.46 (or 0.47)** from the setup page; **the flash ritual**
+arena 13, transient) and any cache growth; **install 0.48** from the setup page; **the flash ritual**
 (`FORK.md` §7) with his in-the-moment go — dry-run staircase first, both lenses; then the capability read
 (`features 0x1f`), the on-glass self-test (`glassdrive.py … selftest:firmware/vectors/v1-keyframe.json`, then
 delta / copy / batch / refusals — RIGHT reports), `probe:telemetry=read` (uptime, the panel record → F1.7, the
