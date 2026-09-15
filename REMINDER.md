@@ -6,8 +6,20 @@ progress log) → `FIRMWARE.md` (the contract) → **`HANDOFF.md` §49 (Phase 0 
 decided) → §47 → §46 → §44 → §43 → §42 → what they cite. For firmware facts: `CLAIMS.md` ("Firmware internals read
 for the fork") → `research/fork-reads-2026-09-13.md` → the image itself through `research/fwread.py`.
 
-## Where we are (2026-09-14, evening)
+## Where we are (2026-09-14, late evening)
 
+- **🔴 Phase 1's candidate is BUILT on both sides, not flashed (`HANDOFF.md` §51; committed and pushed on
+  Adam's word from work, §51.8).** The fork (pin **`5ff9159b…`**, 27 entries, one new site — `0x00473CE4` in `FUN_00473C44`,
+  the display task's refresh call, a pass-through for every stock refresh): F1.3 the transfer stamp and the
+  presented notify (flag bit 0, field 113), F1.5 cache-keep (flag bit 1, a once-per-lease latch, generation /
+  size / CRC through op 4), the self-test as image mode 16 (begin / step / end against a scratch shadow).
+  Damage: `DamageMsg` + `CfwModes` + the simulator mirror it; the keeper's arm / hold-back protocol
+  (`armFeatures`, `HOLD_BACK_MS` = 120 s placeholder); `present` journal records and the report's transfer
+  section; `glassdrive.py selftest:FILE`; APK **0.46** (see the builds line). Read at instruction level the
+  same evening: **only the RIGHT lens can send** (`CLAIMS.md`) — every reply and notify is RIGHT's, LEFT runs
+  every op blind. **Adam's ruling on the atlas (§51.8): the bounded skip** — re-upload skipped only after a
+  rebuild inside the lease's remaining time on the dropped arm, no flag (to build); CACHE_KEEP stays unarmed
+  until LEFT can be verified. The design calls made without him are listed in §51.4. F1.7 waits on the panel type.
 - **🔴 The CFW fork and the Damage rebuild are the ONLY work (Adam, 2026-09-12; `HANDOFF.md` §48).** All other
   Damage work is suspended until `FORK.md` Phase 8 closes: no new windows, no Feed polish, no popover build outside
   the plan. `FORK.md` has the phases (0 measure/research/decide → 1 pipeline + first flash → 2 drawing v2 → 3 motion
@@ -53,14 +65,17 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
   is the `qbittorrent` service.
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games · Feed. **Builds:** APK
   **0.45 installed** (2026-09-14 13:25, its journal says so) = 0.44 + the §49 probes, the `battery` notes and the
-  DamageCaps/telemetry parser; nothing staged — the next build is 0.46 with Phase 1's keeper (`HANDOFF.md` §50.9).
-  The service runs 0.44's core (the PC needs no redeploy: the seam protocol is unchanged).
-- **Battery at HEAD (measured 2026-09-14, after the review's fixes):** core **540** · desktop **15** · `--selfcheck`
-  230 checks ×3, 0 fail (it is a rate) · snapshots 57 · `--epub-check` · `--music-check` · `--games-check` ·
-  `--feed-check` · lint 21 rules / 0 · `:phone:assembleDebug` in its OWN gradle call. The fork: `tools/verify.py`
-  all pass (pin `f9211ea2…`) · `host/run_vectors.py` 7/7 · `host/test_damage_ext.py` 11/11. ⚠ `HANDOFF.md` §49.6: `FeedWindowTest.deepLinks…`
-  misses in 3 of 7 full core runs (0 of 3 on the unchanged tree): the window flips to comic #1, which the scripted
-  provider cannot serve; what presses `first` is unknown — owed ×20 and the trigger.
+  DamageCaps/telemetry parser; **0.46 STAGED** (`~/.damage/damage-wm.apk`, 19:40, the setup page serves it; not installed) = 0.45 + Phase 1's keeper protocol, the `present` records,
+  the `cache`/`selftest` probes (`HANDOFF.md` §51.3) — harmless against the installed upstream build (the
+  probes say "without DamageCaps"). The service runs 0.44's core and was **not** restarted (Adam at work on it;
+  the seam's new `present` control is logged as unknown by an older PC, nothing more).
+- **Battery at HEAD (measured 2026-09-14 evening, `HANDOFF.md` §51.6):** core **545** (×2: the known Feed miss
+  once, then clean) · desktop **15** · `--selfcheck` 230 checks ×3, 0 fail (it is a rate) · snapshots 57 ·
+  `--epub-check` 380/404 · `--music-check` · `--games-check` · `--feed-check` · lint 21 rules / 0 · `:phone:stageApk`
+  in its OWN gradle call. The fork: `tools/verify.py` all pass (pin `5ff9159b…`) · `host/run_vectors.py` 7/7 ·
+  `host/run_self_test.py` · `host/test_damage_ext.py` 35/35. ⚠ `HANDOFF.md` §49.6: `FeedWindowTest.deepLinks…`
+  misses in some full core runs (4 of 9 now; 0 of 3 on the unchanged tree): the window flips to comic #1, which the
+  scripted provider cannot serve; what presses `first` is unknown — owed ×20 and the trigger.
 
 ## Measured on glass (grade M)
 
@@ -77,18 +92,23 @@ Time to first ack per gesture, the phone's journal (`tools/journal_report.py`):
 The ack precedes the panel refresh (§48.1, verified): what the eye waits for is longer than these. A flush under
 100 B acks in ~60 ms; each KB adds ~140 ms; the tail is pixel bytes. Phone CPU per flush: 17 ms median / 66 p90.
 
-## 🔴 The next session — `FORK.md` Phase 1 (Adam's ruling, 2026-09-14, `HANDOFF.md` §50.9)
+## 🔴 The next session — `FORK.md` Phase 1: Adam's review, M0.1, the flash (`HANDOFF.md` §51)
 
-0. **Before the flash, one minute of Adam's:** M0.1 — `probe:diag=show`, read the overlay line (`f13/20/27` free
-   KiB, `w`, `p`), `probe:diag=hide`. It sizes the cache, scratch and staged content and bounds the tick.
-1. **Build the rest of the Phase 1 candidate in the fork:** F1.3 (the transfer stamp at `0x00473CE4`, a new site —
-   review it against §3.1), F1.5 (cache-keep with generation and CRC), F1.7 (the JBD partial-refresh timing, if
-   telemetry field 10 says JBD), the self-test op (`FIRMWARE.md` §3/§9); F1.6 dropped unless the journal shows
-   slow-set episodes again. Every change: `host/run_vectors.py`, `host/test_damage_ext.py`, `tools/verify.py`.
-2. **Damage's side:** the keeper's arm/hold-back protocol on uptime (field 2; a boot count only once it has a
-   verified source), `glass` notes, `journal_report.py` columns, cache-keep in the atlas path; APK 0.46 with them.
-3. **The flash ritual** (`FORK.md` §7) with Adam's in-the-moment go; dry-run first; both lenses; then the
-   capability read, the self-test on glass, telemetry, features armed one at a time, a soak day.
+0. **Adam's review of the evening's build:** `HANDOFF.md` §51.4's design calls (he has read them; §51.8), the
+   new site in `tools/verify.py` step 6 against `FORK.md` §3.1, `patches/damage_ext.c` read whole (read the
+   patch source before flashing it). **Without him, before he is home:** the bounded atlas skip (his ruling —
+   skip the re-upload after a rebuild that completes inside the lease's remaining time on the arm that dropped;
+   an `atlas` note says which way it went), then the offline reads R0.1 / R0.5 and the per-event M0.3 read.
+1. **M0.1, one minute of Adam's, before the flash:** `probe:diag=show`, read the overlay line (`f13/20/27` free
+   KiB, `w`, `p`), `probe:diag=hide`. It sizes the cache, the self-test's scratch (150 KB of arena 13,
+   transient) and staged content, and bounds the tick.
+2. **Install 0.46** (the setup page) — its journal names the build; against the installed upstream firmware the
+   new probes answer "without DamageCaps".
+3. **The flash ritual** (`FORK.md` §7) with Adam's in-the-moment go; dry-run staircase first; both lenses; then
+   the capability read (`features 0x1f`), the self-test on glass (`glassdrive.py … selftest:firmware/vectors/v1-keyframe.json`,
+   then delta / copy / batch / refusals — RIGHT reports), `probe:telemetry=read` (uptime, the panel record →
+   F1.7's question, the heap figures), features armed one at a time (`probe:flags=0x8000`, then `0x0001`, then
+   `0x0003`), a soak day with PRESENTED on (`journal_report.py`'s transfer section is the tick's ceiling).
 4. **At Adam's pace, before Phase 3:** the `MOTION.md` refinery, D1–D8, the 240 fps video (M0.2). M0.6 day one on
    `high` is running; day two on `balanced` is optional. The arm drops are recorded and not the work (cause U;
    §42.2's ten with §49.1/§50.6/§50.8's constraints); F1.2's uptime will say reset or stall after the flash.
@@ -147,7 +167,8 @@ source; plain wording in every file, comment and commit (`HANDOFF.md` §48.5).
 | 26 | **The wake loop's cause** (§42.3) | the `keeper: start failed: …` notes name it |
 | 27 | **Free heap and worker/copy time on glass** | `FORK.md` M0.1 (`probe:diag=show`, APK 0.45) — sets the cache and scratch budgets |
 | 27b | **The panel transfer time per present** (a full 153,602-byte frame on both drivers; nothing times it today) | `FORK.md` F1.3 — sets the tick ceiling |
-| 27c | **Which panel Adam's pair has** (A6N-G or JBD4010 — decides whether a partial refresh exists) | `probe:telemetry=read` on a Damage build (field 10), or the boot log |
+| 27c | **Which panel Adam's pair has** (A6N-G or JBD4010 — decides whether a partial refresh exists, F1.7) | `probe:telemetry=read` on the Damage build (field 10, `panel=…(JBD4010)` in the `glass` note), or the boot log |
+| 27d | **The self-test on glass** — do the drawing vectors give the simulator's CRCs on the flashed image? | `glassdrive.py selftest:` after the flash; RIGHT reports, LEFT runs blind (the senders' lens rule) |
 | 28 | **True user-perceived latency** (ring press → visible change; the ack is only a lower bound) | `FORK.md` M0.2 |
 
 **Cheap probes nobody has run:** the CFW logger service (sid 0x0F — M0.5) and the file-export service (sid
@@ -211,10 +232,12 @@ curl -s "http://aphone:7403/journal?token=$TOKEN" | python3 tools/journal_report
 curl -s "http://aphone:7403/log?token=$TOKEN&tail=400"                                 # the phone's log (0.41+), no adb
 python3 tools/glassdrive.py aphone $TOKEN --pace 2.5 double wait:3 snap:/tmp/a.png …    # drive the glasses; snap before every tap
 python3 research/verify_cfw.py                        # before any flashing conversation: the INSTALLED image's provenance
-python3 tools/glassdrive.py aphone $TOKEN probe:diag=show   # §49 probes (APK 0.45+): diag=show|hide · logger=on|off · phy=2m|1m · telemetry=read · flags=clear|probe
+python3 tools/glassdrive.py aphone $TOKEN probe:diag=show   # probes (APK 0.45+): diag=show|hide · logger=on|off · phy=2m|1m · telemetry=read · flags=clear|probe|0xNNNN; 0.46+: cache=info · selftest=begin|end|step:HEX
 curl -s "http://aphone:7403/journal?token=$TOKEN" | python3 tools/journal_report.py - --since 2026-09-14 --glasslog
 (cd ~/damage-cfw && python3 tools/verify.py)           # the fork's image: pin, reproducibility, Thumb-bit audit, size guard, site list
-(cd ~/damage-cfw && python3 host/run_vectors.py && python3 host/test_damage_ext.py)   # the fork's C on the PC: vectors, the §3 contract
+(cd ~/damage-cfw && python3 host/run_vectors.py && python3 host/run_self_test.py && python3 host/test_damage_ext.py)   # the fork's C on the PC: vectors, the self-test form, the §3 contract
+python3 tools/glassdrive.py aphone $TOKEN probe:telemetry=read probe:cache=info   # a Damage build's record (RIGHT answers; the `glass` note / the /log line)
+python3 tools/glassdrive.py aphone $TOKEN selftest:firmware/vectors/v1-keyframe.json   # the on-glass self-test of one vector (after the flash)
 python3 firmware/make_vectors.py                      # rewrite the vector INPUTS; then the fork's run_vectors.py --write fills expectations
-python3 research/fwread.py dis 0x473c44 0x473d70      # the stock image at instruction level: dis · fn · word · refs · calls · strings · owner
+python3 research/fwread.py dis 0x473c44 0x473d70      # the stock image at instruction level: dis · fn · word · refs · calls · strings · owner · sha (our bytes vs the corpus header)
 ```

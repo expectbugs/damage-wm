@@ -39,7 +39,7 @@ import wm.damage.core.wire.EvenHubMsg
  *   server → client binary   [arm u8][y0 u16 LE][rows u16 LE][rows × stride bytes]
  *   server → client text     {"t":"status", ...}
  *   client → server text     {"t":"input","ev":"tap|double|up|down|hold|release"}
- *   client → server text     {"t":"probe","name":"diag|logger|phy|telemetry|flags","value":"…"}  — a Phase 0
+ *   client → server text     {"t":"probe","name":"diag|logger|phy|telemetry|cache|flags|selftest","value":"…"}  — a Phase 0
  *                            measurement probe for the host's transport (Transport.devProbe;
  *                            `HANDOFF.md` §49); the page never sends it, `tools/glassdrive.py` does
  *

@@ -104,6 +104,39 @@ class DevProbeTest {
         }
     }
 
+    /** The self-test and cache probes reach the model of a Damage build; an upstream build
+     *  is told what to expect. `FIRMWARE.md` §3: RIGHT reports the scratch CRC through telemetry. */
+    @Test
+    fun selfTestAndCacheProbesReachTheModel(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val sim = GlassFirmwareSim().also { it.damageContract = 1 }
+            val t = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+            val notes = ArrayList<Pair<String, String>>()
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                t.events.collect { if (it is TransportEvent.Note) synchronized(notes) { notes.add(it.kind to it.detail) } }
+            }
+            fun has(kind: String, text: String) = synchronized(notes) { notes.any { it.first == kind && text in it.second } }
+            val full = Zl.encodeCfw(Pack.rect(Gray8(640, 480), Rect(0, 0, 640, 480)))
+            t.start(full)
+            until("the Damage build is named") { has("glass", "DamageCaps contract 1") }
+            t.devProbe("selftest", "begin")
+            t.devProbe("selftest", "step:" + wm.damage.core.wire.CfwModes.keyframe(full).hex())
+            until("one step ran on both lenses") { Arm.entries.all { sim.selfTestSteps(it) == 1L && sim.selfTestCrc(it) != 0L } }
+            t.devProbe("telemetry", "read")
+            until("RIGHT reports the step and its scratch CRC") { has("glass", "R ") && has("glass", "stSteps=1 stRefused=0 stCrc=%08x".format(sim.selfTestCrc(Arm.RIGHT))) }
+            t.devProbe("selftest", "step:0c0000")     // refused by the builder: not a drawing message
+            t.devProbe("selftest", "end")
+            t.devProbe("cache", "info")
+            until("CACHE_INFO answered (no cache yet: no size, no CRC)") { has("glass", "cacheGen=0 stSteps=1") }
+            t.devProbe("selftest", "sideways")        // refused by value, journaled
+            until("the probe note") { has("probe", "selftest=sideways") }
+            t.stop()
+        } finally {
+            scope.cancel()
+        }
+    }
+
     private fun ByteArray.hex() = joinToString("") { "%02x".format(it) }
 
     private suspend fun until(what: String, cond: () -> Boolean) {

@@ -2858,8 +2858,8 @@ draws lift that, which would have misled the refinery.
 
 ### 50.3 Checked and left alone
 
-The C's reply from LEFT rides the same sender the image acks use (LEFT answers what is written to
-it); the simulator handles field 112 and returns without the stock write path, as it does for the
+The C's reply from LEFT rides the same sender the image acks use (~~LEFT answers what is written to
+it)~~ — **wrong, corrected in §51: that sender refuses on the left lens; nothing LEFT computes reaches the phone over its own link; the simulator handles field 112 and returns without the stock write path, as it does for the
 lease (Damage never sends both in one message); `nextMsgIdLocked` never yields 0, so a `magic 0`
 answer to a probe or lease write cannot match a pending settings write; the flag-clear points in the
 C are exactly the four texture-cache release points; the response buffer holds the three appended
@@ -3107,3 +3107,137 @@ that: a periodic per-arm pause on the glasses (a flash write, a calibration, a l
 that a strong link survives through retransmission and a marginal one does not, at the 5 s supervision
 timeout — a candidate, not a finding; M0.7 with the phone in another room is the test, and the BQR
 events would show the RSSI in the run-up.
+
+## 51. Phase 1's candidate built on both sides while Adam was at work (2026-09-14, evening)
+
+Adam's instruction for the session: continue the firmware work — "everything that you can do that does not
+require me" — with care. Nothing flashed; nothing installed; the service not restarted; **both trees left
+uncommitted for his review** (the diff is the deliverable; `git status` in each repo lists it). Plain wording
+kept throughout.
+
+### 51.1 Read at instruction level (rows in `CLAIMS.md`; the working detail in `research/fork-reads-2026-09-13.md`)
+
+- **Only the RIGHT lens can send.** The stock response sender `FUN_00475B14` — which the image ack
+  `FUN_004DA4A4`, the settings responder, a5d1c31's wake event and mic notify, and our telemetry reply all
+  use — calls `FUN_0046F258` at `0x00475BB6` and answers 8 without sending when it returns 1;
+  `FUN_0046F258` is `FUN_0045A568() == 2`, the left lens. The notify sender `FUN_00475C1A` has the same check.
+  So a settings READ written to LEFT is never answered, LEFT's telemetry reply never leaves the glasses,
+  and the image acks for images written to LEFT come from RIGHT (which the simulator has modeled since
+  `overview.md` §7). **§50.3's "LEFT answers what is written to it" was wrong** and is struck there. The
+  corpus decompile shows the call, but its "unreachable block" warnings come from a *different* check Even
+  disabled (`movs r0,#1; nop` at `0x00475B6A`); the function bytes in our image equal the corpus's (sha256
+  per function header, three functions checked — worth doing for any function a patch leans on).
+- `FUN_004CA564`'s ABI: r0–r3 plus two stack words, re-staged for the active panel record's `+0x28`; the
+  type-3 caller ignores its return; type 6 makes the same call and is left alone (Damage presents are type 3).
+- No stock crc32 reachable by literal (the tables at `0x006987AC`… are orphan data; `FUN_0048ED00` writes a
+  "TPF1" header) — the fork carries its own 16-entry table.
+
+### 51.2 Built in the fork (`~/damage-cfw`, branch `damage`, uncommitted; pin **`5ff9159b…`**)
+
+`patches/damage_ext.c` grew from the settings extension into the Phase 1 candidate:
+- **F1.3** `damage_refresh_hook` replaces `bl FUN_004CA564` at `0x00473CE4` — **the candidate's one new
+  patch site**, on the same from-boot path as the copy hook. It reads only a validated context
+  (`peekCustomCfwContext`), allocates nothing, and is the stock call with its six arguments unchanged unless
+  `display_copy_hook` marked a Damage frame just copied; then the DWT stamps the call (telemetry fields 15/16)
+  and, under flag bit 0 PRESENTED, field 113 goes to the phone from RIGHT.
+- **F1.5** the three lease release points in `settings_ext.c` route through `damage_lease_ended` /
+  `damage_lease_fresh_acquire`: CACHE_KEEP (flag bit 1) is read before the flags clear and latched once per
+  lease (`dmg_lease_settled` — a release after a lapse already noticed must not re-read the cleared flags and
+  drop the latch; the model test found that), the fresh acquire spends the latch; mode 11 frees regardless.
+  `texture_cache.c` counts the generation; op 4 CACHE_INFO adds the CRC-32 of the whole cache.
+- **The self-test** as image mode 16 (`zlib_glue.c` dispatches it; `present_shadow` returns while a step
+  runs): begin allocates a scratch shadow from heap 13 under the lease; a step runs any shadow message through
+  the unchanged dispatcher on a stack-built container state whose buffer A is the scratch, with the self-test's
+  own fid ring and sticky flags swapped in; the scratch CRC-32, count and refusal ride fields 20–22; end and
+  every release point free the scratch. Both lenses run it; RIGHT reports.
+- `cfw_context.h`: the fields at the tail, the magic bumped (`0xC0FFEE6A`). `patch_compress.py`: the site.
+- The host harness models the lens rule (`h_send` refuses on lens 2), the refresh call (a 1,234 µs stamp on
+  the cycle counter) and a `dmg` command that reads the context; `host/test_damage_ext.py` 35 checks;
+  **`host/run_self_test.py`** runs the drawing vectors through mode 16 and gets the normal path's CRCs and
+  return codes on both lenses with nothing presented; `run_vectors.py` 7/7 unchanged. `tools/verify.py` all
+  pass: block 46,348 B (a5d1c31's was 39,098 with our clang; the morning's 41,782), 20 Thumb branches, 377 KB
+  below the OTA flag, 27 entries, the site list one longer (`0x00473CE4 in FUN_00473C44`). A release of the
+  self-test's scratch that lands from another task during a step (a lapse noticed by the input thread, a
+  fresh acquire on the settings task) is deferred to the step's epilogue rather than freeing under it.
+  `DAMAGE.md`, `host/README.md` current.
+
+### 51.3 Built in Damage (uncommitted; APK 0.46)
+
+`DamageMsg` (op 4, flags 0/1, features 0x1f, fields 15–22, field 113), `CfwModes.selfTest*` (mode 16),
+`GlassFirmwareSim` (the presented notify from RIGHT, the generation, the latch and the settled marker at every
+release point, mode 16 with the shadow swap and the diag swap, op 4, `uptimeOffsetMs` for a modeled reset),
+`CfwTransportBase` (field 113 → `TransportEvent.Presented`; telemetry waiters by request id; probes
+`cache=info`, `selftest=begin|end|step:HEX`; `flags=` now also sets the WANTED set; **`armFeatures`** — after
+every session start on a Damage build: RIGHT's uptime first, the hold-back rule (`HOLD_BACK_MS` = 120 s, a
+placeholder for Adam), then the wanted bits one at a time with each answer checked and journaled),
+`RemoteTransport` (the `present` control across the seam; an older PC logs it as unknown, harmless — the
+service was **not** redeployed), `Shell` + `Journal` (`{"ev":"present",…}` records), `journal_report.py` (a
+transfer-time section), `tools/glassdrive.py selftest:FILE` (drives a vector through the glasses and compares
+RIGHT's fields 20–22 from `/log`), `ReplicaServer`'s probe list, `phone/build.gradle.kts` 0.46. Tests:
+`DamageMsgTest` (6: bytes, the presented parse, F1.3 + F1.5 through the transport, the keeper's re-arm and
+hold-back with a modeled reset), `ConformanceVectorTest` (2: the normal path and the self-test form),
+`DevProbeTest` (4).
+
+### 51.4 Design calls made without Adam — for his review
+
+1. **The self-test rides the image lane (mode 16), not chunked settings uploads.** The image lane already
+   reassembles 4 KB fragments and delivers to both lenses; a settings-chunk upload would need its own
+   buffer and ~300 writes per keyframe. The contract's §3 sketch is amended, not bumped (an added op).
+2. **The lease and cache vectors have no self-test form** (a tick cannot be set on the glasses; a live
+   cache write is refused). Modes 13/14 inside a step read the LIVE cache, so a vector using them would be
+   atlas-dependent — the drawing vectors never do.
+3. **A step that cannot run is refused and not counted** (no begin, the lease lapsed): the phone sees the
+   step count stall, which is the better signal.
+4. **CACHE_INFO is its own op** so the frequent TELEMETRY read never pays the 64 KiB CRC.
+5. **Replies and the notify are gated on RIGHT in the C** (the sender refuses on LEFT anyway; the gate saves a
+   pool block and a log line per call).
+6. **F1.5's phone-side skip of the atlas upload is deferred.** Only RIGHT's cache can be verified; an eaten
+   FLAGS_SET on LEFT or a one-arm lapse over 90 s would leave LEFT drawing from a missing cache with every
+   cached draw refused in silence — the lens-mismatch class. Options for later: arm cache-keep through the
+   image lane (symmetric by construction), a LEFT→RIGHT report over the inter-lens link (R0.1, Phase 4), or a
+   bounded skip (only after a rebuild that completes inside the lease's remaining time on the arm that
+   dropped, where the installed renewal rule already keeps the cache and the flag adds nothing). The
+   firmware side is inert until armed. **Adam's ruling the same evening (§51.8): the bounded skip.**
+7. **The presented notify's worker figure may lag a frame** (the display task can run before the worker
+   stores its time); the telemetry record's field 5 is exact after the fact.
+8. **`HOLD_BACK_MS` = 120 s** is a placeholder; M0.5 (which would have set N) was dropped.
+
+### 51.5 What a flash would put at risk, plainly
+
+The one new site runs from boot for every stock refresh; its pass-through path is one validated read and the
+stock call. The block is 4.6 KB larger than the morning's; the preamble length is bumped by the same tooling as
+before; the Thumb-bit audit passes. A send from the display manager task has precedents in a5d1c31 but is inferred, not
+proven (`CLAIMS.md`, grade I) — the first soak with PRESENTED armed tests it, and the flag is off until armed.
+The scratch shadow takes 150 KB of arena 13 only between begin and end; M0.1's readout says whether that is
+comfortable. Rollback stays a reflash of the installed image (`fws/2.2.6.10-cfw-d4054ab1/`).
+
+### 51.6 The battery
+
+Run on the finished tree, gradle steps one at a time (the oracle walk is load-sensitive): `:core:test` **545**
+(two full runs: run 1 with only the known Feed miss of §49.6, `deepLinksResolveEveryForm`; run 2 clean — the
+class is untouched) · `:desktop:test` **15** · `--selfcheck` ×3: **ALL CHECKS PASS** each (230 checks) ·
+`--snapshot` **57** scenes (Main and the Hold'em table looked at) · `--epub-check` 380/404 images · `--music-check`
+· `--games-check` · `--feed-check` (fixtures) all pass · `tools/lint.py` 0 findings · `:phone:stageApk` alone —
+**0.46 staged** at `~/.damage/damage-wm.apk` (26.9 MB, 19:40), served by the setup page; not installed. The fork:
+`tools/verify.py` all pass (pin `5ff9159b…`, 27 entries, the 46,348-byte block, 20 Thumb branches, 377 KB below
+the OTA flag; the site list one longer) · `host/run_vectors.py` 7/7 · `host/run_self_test.py` 5 vectors ×2 lenses
+· `host/test_damage_ext.py` 35/35.
+
+### 51.7 State and next
+
+Nothing flashed. The candidate is complete on the firmware side bar F1.7 (needs the panel type, read after the
+flash). Next: M0.1 (one minute, `probe:diag=show`), the site review (`tools/verify.py` step 6), Adam's go, the
+ritual (`FORK.md` §7 step 9 names the on-glass self-test command), then features armed one at a time and a
+soak day with PRESENTED on for the transfer numbers.
+
+### 51.8 Adam's answers from work: the bounded skip; commit and push
+
+Asked what was decided without him, Adam read the twenty calls and asked two things: the three ways forward
+for the atlas skip, and whether the CRCs cost anything in daily use (they do not: the 64 KiB cache CRC runs
+only on CACHE_INFO, the scratch CRC only in a self-test step, nothing on the frame path — modeled ~2–3 ms and
+~6–8 ms when asked, unmeasured). **His ruling: option 3, the bounded skip** — the phone skips the atlas
+re-upload only after a rebuild that completes inside the lease's remaining time on the arm that dropped
+(§42.4's plan; no flag; both caches kept by the installed renewal rule). CACHE_KEEP stays unarmed until
+LEFT's cache can be verified (an inter-lens report, Phase 4). Then: "update the documentation to reflect
+the current state, then commit and push the progress so far" — done in this section's commit, both repos
+(the fork to `github/damage`, never `origin`).

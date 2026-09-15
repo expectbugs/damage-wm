@@ -505,6 +505,28 @@ fork's C (`~/damage-cfw`).
 - **`research/fwread.py`** — the stock image at instruction level (disassembly, the corpus decompile, stored
   words, literal references, call sites, strings); `research/fork-reads-2026-09-13.md` the notes it produced.
 
+## The fork's Phase 1 pieces (2026-09-14 evening, `HANDOFF.md` §51, `FIRMWARE.md` §3)
+
+- **`DamageMsg`** — op 4 CACHE_INFO, flags bit 0 PRESENTED / bit 1 CACHE_KEEP / bit 15 PROBE
+  (`FLAGS_IMPLEMENTED`), features 0x1f, telemetry fields 15–22 named in `describe()`, field 113
+  `Presented` parsed; **`CfwModes.selfTestBegin/Step/End`** build image mode 16 (a step carries any shadow
+  message, `SELF_TEST_MODES`).
+- **`GlassFirmwareSim`** — `present()` counts direct presents and, under PRESENTED, notifies from RIGHT
+  only; `leaseEnded` / `leaseFreshAcquire` at every release point (tick expiry, a lapse noticed, FB_RELEASE,
+  the fresh acquire) with the CACHE_KEEP latch and the once-per-lease `lapseSettled` marker; mode 12 bumps
+  `cacheGen`; mode 16 swaps the lens's `shadow` for the scratch and its fid diagnostics for `stDiag` around
+  the dispatch; `damageControl` answers from RIGHT only; `uptimeOffsetMs` models a reset.
+- **`CfwTransportBase`** — `TransportEvent.Presented` from field 113; `telemetryWaiters` keyed by request
+  id, failed by the sweep; probes `cache=info`, `selftest=begin|end|step:HEX`; `wantedFlags` set by
+  `flags=`; **`armFeatures`** after every start on a Damage build (read RIGHT's uptime → the hold-back rule
+  → FLAGS_SET one bit at a time, each answer checked; `keeper` notes, `holdback`/`flags` faults);
+  `HOLD_BACK_MS` = 120 s placeholder. `RemoteTransport` carries `present` across the seam.
+- **`Journal.present`** — `{"ev":"present","seq","workerUs","copyUs","transferUs"}`, one per transfer while
+  armed; `journal_report.py` prints the distribution; `tools/glassdrive.py selftest:FILE` drives a vector
+  through the glasses' self-test and compares RIGHT's report from `/log`.
+- Tests: `DamageMsgTest` (6), `ConformanceVectorTest` (2 — the normal path and the self-test form over the
+  drawing vectors), `DevProbeTest` (4). The fork's side: `host/test_damage_ext.py` (35), `host/run_self_test.py`.
+
 ## Review hardening (rounds 2–8, 2026-08-24)
 
 Seven rounds of independent review after the first build (every candidate verified by trace, timing or pixel
@@ -625,9 +647,10 @@ These mechanisms are load-bearing and easy to break by accident:
 
 ## Verification
 
-Battery at HEAD (2026-09-13, `HANDOFF.md` §49.4): `:core:test` **540** · `:desktop:test` **15** · `--selfcheck`
-**230** checks · `--snapshot` **57** scenes · `--epub-check` (380/404 images) · `--music-check` · `--games-check`
-(400 tournaments) · `--feed-check` · `tools/lint.py` **0** · `:phone:assembleDebug` in its own gradle call.
+Battery at HEAD (2026-09-14 evening, `HANDOFF.md` §51.6): `:core:test` **545** · `:desktop:test` **15** · `--selfcheck`
+**230** checks ×3 · `--snapshot` **57** scenes · `--epub-check` (380/404 images) · `--music-check` · `--games-check`
+(400 tournaments) · `--feed-check` · `tools/lint.py` **0** · `:phone:stageApk` in its own gradle call. The fork:
+`tools/verify.py` · `host/run_vectors.py` · `host/run_self_test.py` · `host/test_damage_ext.py`.
 Every review's pins were run against the unfixed tree and watched to fail before they counted.
 
 - `./gradlew :core:test` — RLE parity against the Python reference, CRC vectors, the geometry/fid fixtures shared

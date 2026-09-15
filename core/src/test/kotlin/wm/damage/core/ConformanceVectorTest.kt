@@ -75,5 +75,51 @@ class ConformanceVectorTest {
         assertEquals(emptyList(), problems, "the simulator disagrees with the firmware C:\n" + problems.joinToString("\n"))
     }
 
+    /** `FIRMWARE.md` §3, the self-test: the drawing vectors through mode 16 give the normal
+     *  path's CRC and return code at every step, with the live shadow untouched — the fork's
+     *  `host/run_self_test.py` proves the same of the C, so all four paths agree. */
+    @Test
+    fun theSelfTestPathMatchesTheNormalPath() {
+        val files = Files.list(vectorDir()).use { s -> s.filter { it.toString().endsWith(".json") }.sorted().toList() }
+        val zeroCrc = "%08x".format(java.util.zip.CRC32().also { it.update(ByteArray(320 * 480)) }.value)
+        val problems = ArrayList<String>()
+        var ran = 0
+        for (f in files) {
+            val vec = Json.parseToJsonElement(Files.readString(f)).jsonObject
+            val name = vec["name"]!!.jsonPrimitive.content
+            if (name == "v1-lease" || name == "v1-cache") continue      // the lease and the live cache: no self-test form
+            val steps = vec["steps"]!!.jsonArray
+            for (arm in Arm.entries) {
+                val lens = if (arm == Arm.LEFT) "L" else "R"
+                val sim = GlassFirmwareSim()
+                var now = 1000L
+                sim.conformanceLease(arm, true, now)
+                assertTrue(sim.conformanceMessage(arm, wm.damage.core.wire.CfwModes.selfTestBegin(), now), "$name $lens: begin refused")
+                steps.forEachIndexed { i, stepEl ->
+                    val step = stepEl.jsonObject
+                    val rcs = ArrayList<Int>()
+                    for (opEl in step["ops"]!!.jsonArray) {
+                        val op = opEl.jsonObject
+                        when {
+                            "tick" in op -> now = op["tick"]!!.jsonPrimitive.long
+                            "msg" in op -> rcs += if (sim.conformanceMessage(arm, wm.damage.core.wire.CfwModes.selfTestStep(hex(op["msg"]!!.jsonPrimitive.content)), now)) 0 else -1
+                            else -> fail("$name step $i: no self-test form for $op")
+                        }
+                    }
+                    val expect = step["expect"]!!.jsonObject
+                    val got = "%08x".format(sim.selfTestCrc(arm))
+                    if (expect[lens]!!.jsonPrimitive.content != got) problems += "$name step $i lens $lens: scratch crc $got, the normal path gives ${expect[lens]!!.jsonPrimitive.content}"
+                    val wantRc = expect["rc"]!!.jsonObject[lens]!!.jsonArray.map { it.jsonPrimitive.int }
+                    if (wantRc != rcs) problems += "$name step $i lens $lens: return codes $rcs, the normal path gives $wantRc"
+                    val live = "%08x".format(sim.shadowCrc32(arm))
+                    if (live != zeroCrc) problems += "$name step $i lens $lens: the live shadow changed ($live)"
+                    ran++
+                }
+            }
+        }
+        assertTrue(ran > 0, "no drawing vectors ran")
+        assertEquals(emptyList(), problems, "the self-test path disagrees with the normal path:\n" + problems.joinToString("\n"))
+    }
+
     private fun hex(s: String) = ByteArray(s.length / 2) { i -> s.substring(2 * i, 2 * i + 2).toInt(16).toByte() }
 }

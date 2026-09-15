@@ -155,21 +155,131 @@ abstract class CfwTransportBase(
                 if (!started) { Log.w(this.name, "probe logger=$value: no session yet (the next start sends it)"); return }
                 controlQueue.trySend(loggerSwitch(sessionEpoch.get(), on))
             }
-            // FIRMWARE.md §3 (a Damage build only; an upstream build ignores field 112)
-            "telemetry", "flags" -> {
+            // FIRMWARE.md §3 (a Damage build only; an upstream build ignores field 112).
+            // A flag set asked for here is WANTED: the keeper re-arms it after every session
+            // start under the hold-back rule (armFeatures); `flags=clear` drops the wish.
+            "telemetry", "flags", "cache" -> {
                 val (op, arg) = when {
-                    name == "telemetry" && value == "read" -> DamageMsg.OP_TELEMETRY to (telemetryIds.incrementAndGet() and 0xFFFF)
+                    name == "telemetry" && value == "read" -> DamageMsg.OP_TELEMETRY to nextTelemetryId()
+                    name == "cache" && value == "info" -> DamageMsg.OP_CACHE_INFO to nextTelemetryId()
                     name == "flags" && value == "clear" -> DamageMsg.OP_FLAGS_CLEAR to 0
                     name == "flags" && value == "probe" -> DamageMsg.OP_FLAGS_SET to DamageMsg.FLAG_PROBE
                     name == "flags" && value.startsWith("0x") && value.drop(2).toIntOrNull(16) in 0..0xFFFF ->
                         DamageMsg.OP_FLAGS_SET to value.drop(2).toInt(16)
-                    else -> { Log.w(this.name, "probe $name=$value: expected telemetry=read or flags=clear|probe|0xNNNN"); return }
+                    else -> { Log.w(this.name, "probe $name=$value: expected telemetry=read, cache=info or flags=clear|probe|0xNNNN"); return }
                 }
-                if (!started) { Log.w(this.name, "probe $name=$value not sent: no session"); return }
+                if (op == DamageMsg.OP_FLAGS_SET) wantedFlags = arg
+                if (op == DamageMsg.OP_FLAGS_CLEAR) wantedFlags = 0
+                if (!started) { Log.w(this.name, "probe $name=$value not sent: no session" + (if (op == DamageMsg.OP_FLAGS_SET) " (the next start arms it)" else "")); return }
                 if (damageCaps == null) emitNote("probe", "$name=$value sent to a build without DamageCaps — expect no answer")
+                if (op == DamageMsg.OP_FLAGS_SET) lastArmedAtMs = nowMs()
                 controlQueue.trySend(CtlWork.BothArms(sessionEpoch.get(), SettingsMsg.SID, "damage op $op") { DamageMsg.control(op, arg) })
             }
-            else -> Log.w(this.name, "probe $name=$value: not a probe this transport runs (diag, logger, telemetry, flags)")
+            // FIRMWARE.md §3, the self-test (mode 16) on the image lane: begin, a step carrying
+            // one drawing message (hex), end. The glasses answer through telemetry fields
+            // 20–22 (`telemetry=read`), RIGHT only; tools/glassdrive.py's `selftest:` step
+            // drives a vector file through here and compares.
+            "selftest" -> {
+                val image = when {
+                    value == "begin" -> CfwModes.selfTestBegin()
+                    value == "end" -> CfwModes.selfTestEnd()
+                    value.startsWith("step:") -> try {
+                        CfwModes.selfTestStep(value.removePrefix("step:").let { h -> ByteArray(h.length / 2) { i -> h.substring(2 * i, 2 * i + 2).toInt(16).toByte() } })
+                    } catch (e: Exception) { Log.w(this.name, "probe selftest step: ${e.message}"); return }
+                    else -> { Log.w(this.name, "probe selftest=$value: expected begin | end | step:HEX"); return }
+                }
+                if (!started) { Log.w(this.name, "probe selftest=$value not sent: no session"); return }
+                if (damageCaps?.has(DamageMsg.FEATURE_SELF_TEST) != true) emitNote("probe", "selftest=${value.take(12)} sent to a build without the self-test feature — the image will be treated as a BMP and refused")
+                imageQueue.trySend(ImgWork.Raw(sessionEpoch.get(), image, null))
+            }
+            else -> Log.w(this.name, "probe $name=$value: not a probe this transport runs (diag, logger, telemetry, cache, flags, selftest)")
+        }
+    }
+
+    private fun nextTelemetryId(): Int {
+        var id: Int
+        do { id = telemetryIds.incrementAndGet() and 0xFFFF } while (id == 0)   // 0 is the FLAGS ops' echo
+        return id
+    }
+
+    /** One TELEMETRY (or CACHE_INFO) round trip to RIGHT in session [epoch]: the request is
+     *  repeated on the pacing tick until the answer or the session's end (the sweep fails the
+     *  waiter) — pacing, never a timeout. Null when the session ended first. */
+    private suspend fun telemetryRead(epoch: Long, op: Int = DamageMsg.OP_TELEMETRY, label: String = "telemetry"): DamageMsg.Telemetry? {
+        val id = nextTelemetryId()
+        val waiter = CompletableDeferred<DamageMsg.Telemetry>()
+        telemetryWaiters[id] = waiter
+        val reask = scope.launch {
+            while (true) {
+                if (epoch != sessionEpoch.get()) { waiter.completeExceptionally(LintError("session ended")); break }
+                controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage $label $id") { DamageMsg.control(op, id) })
+                delay(CAPABILITY_REASK_MS)
+                if (waiter.isCompleted) break
+                Log.i(name, "$label $id unanswered after ${CAPABILITY_REASK_MS} ms — asking again")
+            }
+        }
+        return try { waiter.await() } catch (e: Exception) { null } finally { reask.cancel(); telemetryWaiters.remove(id) }
+    }
+
+    /** A FLAGS_SET of [set] to both arms, answered by RIGHT; the answer's register says whether
+     *  the build took it. Null when the session ended first. */
+    private suspend fun flagsSet(epoch: Long, set: Int): DamageMsg.Telemetry? {
+        // the reply echoes request id 0 (FIRMWARE.md §3): await the next record on id 0
+        val waiter = CompletableDeferred<DamageMsg.Telemetry>()
+        telemetryWaiters[0] = waiter
+        lastArmedAtMs = nowMs()
+        val reask = scope.launch {
+            while (true) {
+                if (epoch != sessionEpoch.get()) { waiter.completeExceptionally(LintError("session ended")); break }
+                controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage flags 0x${set.toString(16)}") { DamageMsg.control(DamageMsg.OP_FLAGS_SET, set) })
+                delay(CAPABILITY_REASK_MS)
+                if (waiter.isCompleted) break
+                Log.i(name, "flags 0x${set.toString(16)} unanswered after ${CAPABILITY_REASK_MS} ms — asking again")
+            }
+        }
+        return try { waiter.await() } catch (e: Exception) { null } finally { reask.cancel(); telemetryWaiters.remove(0) }
+    }
+
+    /** `FORK.md` §3.2 / `FIRMWARE.md` §1.6 — after a session start on a Damage build: read
+     *  RIGHT's uptime; if the glasses reset since the last read and the reset followed the
+     *  last arming within [HOLD_BACK_MS], arm nothing, drop the wish and say so (a fault the
+     *  wearer sees, a `keeper` note); otherwise arm the wanted bits one at a time, lowest
+     *  first, each a FLAGS_SET of the set so far, and journal each answer. LEFT takes the same
+     *  writes blind: it cannot answer (`CLAIMS.md`, the senders' lens rule). */
+    private suspend fun armFeatures(epoch: Long) {
+        val wanted = wantedFlags
+        if (wanted == 0) return
+        // what was known BEFORE this read: the reply handler records the new uptime itself
+        val prev = lastUptime
+        val armedAt = lastArmedAtMs
+        val t = telemetryRead(epoch) ?: return
+        val uptime = t.uptimeMs ?: return
+        val now = nowMs()
+        if (prev != null && uptime < prev.first) {
+            val resetAt = now - uptime                         // the reset's time on the phone's clock
+            emitNote("keeper", "the glasses reset: uptime ${uptime / 1000} s, was ${prev.first / 1000} s")
+            if (armedAt != null && resetAt >= armedAt - CAPABILITY_REASK_MS && resetAt - armedAt < HOLD_BACK_MS) {
+                wantedFlags = 0
+                val text = "hold-back: the glasses reset ${(resetAt - armedAt) / 1000} s after flags 0x${wanted.toString(16)} were armed — not re-armed (probe flags=… to try again)"
+                emitNote("keeper", text)
+                emitFault("holdback", text)
+                return
+            }
+        }
+        lastUptime = uptime to now
+        var set = 0
+        for (bit in 0 until 16) {
+            val b = 1 shl bit
+            if (wanted and b == 0) continue
+            if (epoch != sessionEpoch.get() || wantedFlags != wanted) return   // the session ended, or the wish changed
+            set = set or b
+            val r = flagsSet(epoch, set) ?: return
+            val status = r.lastStatus ?: -1L
+            if (status != 0L || (r.flags ?: 0L) != set.toLong()) {
+                emitFault("flags", "bit $bit (set 0x${set.toString(16)}) refused: status $status, flags in force 0x${(r.flags ?: 0L).toString(16)}")
+                return
+            }
+            emitNote("keeper", "armed bit $bit — flags in force 0x${set.toString(16)} (RIGHT answered; LEFT took the same write)")
         }
     }
 
@@ -179,6 +289,17 @@ abstract class CfwTransportBase(
     /** FIRMWARE.md §0: the last DamageCaps a READ response carried (null = none). */
     @Volatile private var damageCaps: DamageMsg.Caps? = null
     private val telemetryIds = java.util.concurrent.atomic.AtomicInteger(0)
+    /** Telemetry answers awaited by request id (RIGHT answers; the sweep fails them). */
+    private val telemetryWaiters = java.util.concurrent.ConcurrentHashMap<Int, CompletableDeferred<DamageMsg.Telemetry>>()
+    /** `FORK.md` §3.2, the arm / hold-back protocol: the flag set the phone wants armed on a
+     *  Damage build, re-armed after every session start (a `flags=` probe sets it; Phase 6
+     *  gives it a Settings row); the glasses' uptime as last read, with the phone's clock
+     *  then; when the last arming was sent. A reset that follows an arming within
+     *  [HOLD_BACK_MS] disarms the set — the keeper never repeats a faulty feature on every
+     *  reconnect — and says so as a fault. */
+    @Volatile private var wantedFlags = 0
+    @Volatile private var lastUptime: Pair<Long, Long>? = null      // (uptimeMs, phone clock ms)
+    @Volatile private var lastArmedAtMs: Long? = null
 
     /** One sid-0x0F message from [arm] (LoggerMsg): a log line becomes a
      *  `glasslog` journal note, the switch's answer a log line. */
@@ -488,10 +609,19 @@ abstract class CfwTransportBase(
                 // Parsed before everything else — while it is on, every image
                 // is refused, and the shell must know before it sends one.
                 SettingsMsg.parseSilentModePush(frame.payload)?.let { on -> noteSilent(on, "pushed"); return }
+                // FIRMWARE.md §3: a Damage build's presented notify (field 113, F1.3) — one
+                // per panel transfer while the flag is armed: a journal record, never a note
+                DamageMsg.parsePresented(frame.payload)?.let { p ->
+                    if (!_events.tryEmit(TransportEvent.Presented(p.seq, p.workerUs, p.copyUs, p.transferUs)))
+                        Log.w(name, "presented event dropped (buffer full): seq ${p.seq}")
+                    return
+                }
                 // FIRMWARE.md §3: a Damage build's telemetry record (commandId 3, field 111)
                 DamageMsg.parseTelemetry(frame.payload)?.let { t ->
                     Log.i(name, "glass telemetry from $arm: ${t.describe()}")
                     emitNote("glass", "${arm.name.first()} ${t.describe()}")
+                    t.uptimeMs?.let { lastUptime = it to nowMs() }
+                    t.requestId?.let { id -> telemetryWaiters.remove(id.toInt())?.complete(t) }
                     return
                 }
                 // §47: an answer to one of OUR sid-0x09 requests (a READ's or
@@ -926,6 +1056,9 @@ abstract class CfwTransportBase(
             val caps = damageCaps
             emitNote("glass", if (caps == null) "no DamageCaps field: an upstream g2flash build"
                 else "DamageCaps contract ${caps.contract} features 0x${caps.features.toString(16)}")
+            // FORK.md §3.2: the wanted flags, re-armed one at a time under the hold-back rule;
+            // off the start's own path (the shell paints meanwhile), ended by the session's sweep
+            if (caps != null && wantedFlags != 0) scope.launch { armFeatures(epoch) }
         } catch (e: Exception) {
             startInProgress = false
             // Roll back COMPLETELY (round 3 D4): a failed start must not leave
@@ -1201,6 +1334,7 @@ abstract class CfwTransportBase(
             if (pendingSettings.remove(id, p)) Log.w(name, "settings write '${p.label}' msgId $id unanswered: $why")
         }
         settingsSeqByMsgId.clear()
+        for (id in telemetryWaiters.keys.toList()) telemetryWaiters.remove(id)?.completeExceptionally(LintError("$why (telemetry $id unanswered)"))
         updateState { it.copy(inFlight = WINDOW - window.availablePermits) }
         while (true) {
             val w = imageQueue.tryReceive().getOrNull() ?: break
@@ -1776,6 +1910,8 @@ abstract class CfwTransportBase(
          *  can eat a settings READ sent while it settles a previous session's
          *  context. Pacing, not a timeout — the gate never exits on time. */
         private const val CAPABILITY_REASK_MS = 2_000L
+        /** `FORK.md` §3.2: a reset this soon after an arming disarms the feature until asked again. A placeholder until measured (M0.5 was dropped); Adam's to set. */
+        private const val HOLD_BACK_MS = 120_000L
 
         /** Reporting threshold for the stall diagnostic — well past any
          *  measured ack (176 ms median, 7–13 KB/s); reports, never acts. */

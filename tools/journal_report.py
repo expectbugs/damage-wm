@@ -18,6 +18,8 @@ limits every section to records from then on; the glasses' battery changes
 (`battery` notes, APK 0.45+) print as a drain summary per discharging stretch;
 `probe` notes print in the notes list, and the glasses' own log lines (`glasslog`
 notes, from `probe:logger=on`) are counted per arm — `--glasslog` prints them all.
+A Damage build's `present` records (`FIRMWARE.md` §3, F1.3: the panel transfer timed on
+the glasses while the PRESENTED flag is armed) print as a distribution.
 
     python3 tools/journal_report.py journal.json --since 2026-09-14 --glasslog
 """
@@ -31,7 +33,7 @@ def med(v): return int(statistics.median(v)) if v else None
 
 def main(path, since_ms=0, glasslog=False):
     f = sys.stdin if path == '-' else open(path, encoding='utf-8')
-    sub, done, notes, bad = {}, [], [], 0
+    sub, done, notes, presents, bad = {}, [], [], [], 0
     early_params = []     # link-parameter notes before --since still set the column
     for line in f:
         try: r = json.loads(line)
@@ -46,6 +48,7 @@ def main(path, since_ms=0, glasslog=False):
             s = sub.get(r['id'], {})
             done.append((r['t'], r['bytes'], r['ackMs'], s.get('via', '?'), s.get('handleMs'), s.get('assembleMs'), s.get('label', '?'), s.get('t')))
         elif ev == 'note': notes.append(r)
+        elif ev == 'present': presents.append(r)
     if bad: print(f'({bad} unreadable line(s) skipped)')
     if not done: print('no completed flushes'); return
     print(f'{len(done)} acked flushes, {datetime.datetime.fromtimestamp(done[0][0]/1000):%Y-%m-%d %H:%M} → {datetime.datetime.fromtimestamp(done[-1][0]/1000):%Y-%m-%d %H:%M}\n')
@@ -147,6 +150,7 @@ def main(path, since_ms=0, glasslog=False):
         for lab, v in sorted(bursts.items(), key=lambda kv: -len(kv[1])):
             fb = [x[1] for x in v]; fa = [x[2] for x in v]; n = [x[3] for x in v]; tb = [x[4] for x in v]
             print(f'  {str(lab):22s} {len(v):6d}  {med(fb):6d} / {p90(fb):5d}  {med(fa):6d} / {p90(fa):5d}  {med(n):7d}  {med(tb):11d}')
+    present_report(presents)
     battery_report(notes)
     kinds = collections.Counter(n['kind'] for n in notes)
     print(f'\nnotes: {dict(kinds)}')
@@ -161,6 +165,24 @@ def main(path, since_ms=0, glasslog=False):
         if glasslog:
             for n in glass:
                 print(f'  {datetime.datetime.fromtimestamp(n["t"]/1000):%m-%d %H:%M:%S.%f}'[:-3] + f' {n["detail"]}')
+
+def present_report(presents):
+    """`FIRMWARE.md` §3 (F1.3, a Damage build with PRESENTED armed): each `present` record is one
+    panel transfer of a Damage frame, timed on the glasses — worker, copy and transfer µs. The
+    transfer is the part no ack ever showed; its distribution bounds the motion tick (`FORK.md` §5)."""
+    if not presents: return
+    def p90(v): v = sorted(v); return v[min(len(v) - 1, int(len(v) * 0.9))]
+    def col(k):
+        v = [int(r[k]) for r in presents if isinstance(r.get(k), int) and r[k] >= 0]
+        return f'{med(v):6d} / {p90(v):6d}' if v else '     -'
+    print(f'\npanel transfers timed on the glasses ({len(presents)} presents, median / p90 µs): '
+          f'worker {col("workerUs")} · copy {col("copyUs")} · transfer {col("transferUs")}')
+    byhour = collections.defaultdict(list)
+    for r in presents:
+        if isinstance(r.get('transferUs'), int): byhour[datetime.datetime.fromtimestamp(r['t']/1000).strftime('%m-%d %H')].append(int(r['transferUs']))
+    if len(byhour) > 1:
+        for h in sorted(byhour):
+            v = byhour[h]; print(f'  {h}  n={len(v):5d}  transfer {med(v):6d} / {p90(v):6d} µs')
 
 def battery_report(notes):
     """§49 (M0.6): the glasses' battery from `battery` notes ("glasses 61% charging").

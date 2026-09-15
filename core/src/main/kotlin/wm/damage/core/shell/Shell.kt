@@ -1906,6 +1906,8 @@ class Shell(
                 journal.note(ev.kind, ev.detail)   // a fact: the journal only
                 if (ev.kind == "link") noteLinkRegime()   // §47: the transport's own parameter facts
             }
+            is TransportEvent.Presented ->         // FIRMWARE.md §3 (F1.3): a panel transfer timed on the glasses
+                journal.present(ev.seq, ev.workerUs, ev.copyUs, ev.transferUs)
         }
     }
 

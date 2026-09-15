@@ -172,12 +172,26 @@ conservative ceiling today), preamble/TOC/checksum fixups, **a host build of the
 `tools/verify.py` (stock hash, pin, reproducibility, Thumb-bit audit, size guard, the changed-site list);
 `host/` (the unchanged sources for 32-bit x86 with the firmware's addresses mapped; `run_vectors.py`);
 `patches/damage_ext.c` — **F1.1 done** (field 110 DamageCaps), **F1.2 done except the transfer time and
-the boot count** (field 111 telemetry), **F1.4 done** (field 112 flag ops; only bit 15 PROBE implemented),
-no new patch site, `host/test_damage_ext.py` 11/11 (reviewed 2026-09-14: field 4 is the status register,
-`FIRMWARE.md` §11; pin `f9211ea2…`). **Still to build for the candidate:** F1.3 (the transfer stamp — a new
-site at `0x00473CE4`), F1.5, F1.7 (JBD-only), the self-test op, and Damage's keeper on uptime; F1.6 dropped unless
-slow-set episodes return (`HANDOFF.md` §50.9); F1.8 pending the per-event M0.3 read (the first pass: ~2 packets per
-interval with the host feeding faster).
+the boot count** (field 111 telemetry), **F1.4 done** (field 112 flag ops), no new patch site,
+`host/test_damage_ext.py` (reviewed 2026-09-14: field 4 is the status register, `FIRMWARE.md` §11).
+**Built 2026-09-14 evening (`HANDOFF.md` §51, not flashed):** **F1.3** (the transfer stamp — `damage_refresh_hook`
+at `0x00473CE4`, the candidate's one new site, a pass-through for every stock refresh; the presented notify
+under flag bit 0, RIGHT only), **F1.5** (cache-keep under flag bit 1 with a once-per-lease latch; generation,
+size and CRC-on-request through op 4 CACHE_INFO), **the self-test** (image mode 16 — begin / step / end against a
+scratch shadow with presents suppressed; the drawing vectors give the normal path's CRCs on the host C and in the
+simulator), and Damage's side: the keeper's arm / hold-back protocol on uptime (`armFeatures`), the `present`
+journal record and `journal_report.py`'s transfer section, `glassdrive.py selftest:FILE`, APK 0.46 built. Pin
+**`5ff9159b…`** (27 entries; `tools/verify.py` all pass; `host/test_damage_ext.py` 35, `run_self_test.py`,
+`run_vectors.py` 7/7). **The candidate is complete on the firmware side.** Read the same evening at instruction
+level: only the RIGHT lens can send (`CLAIMS.md`), so every reply and the self-test's report are RIGHT's, LEFT
+runs everything blind — the phone-side atlas skip (the point of F1.5) is **deferred** until LEFT's cache can
+be verified (`FIRMWARE.md` §3 names the hazard: an eaten write or a one-arm lapse would leave LEFT drawing from
+a missing cache in silence) — **Adam's ruling from work: the bounded skip (§42.4's plan, no flag), CACHE_KEEP
+unarmed for now** (`HANDOFF.md` §51.8). **Still open for the candidate:** F1.7 (JBD-only; needs the panel type, field 10,
+read after the flash — or M0.1's overlay does not tell it), F1.6 dropped unless slow-set episodes return
+(`HANDOFF.md` §50.9), F1.8 pending the per-event M0.3 read (the first pass: ~2 packets per interval with the
+host feeding faster). The self-test's scratch (150 KB from arena 13, transient) and any cache growth wait on
+M0.1's free-heap readout.
 
 **Firmware features (flags, default off):**
 
@@ -185,18 +199,20 @@ interval with the host feeding faster).
 |---|---|
 | F1.1 | capability: settings field 110 `DamageCaps {1 "DMG", 2 contract, 3 features}`, separate from field 100 (`SettingsMsg.REQUIRED_CAPS` unchanged) — **source done 2026-09-13** |
 | F1.2 | telemetry op: heap free (13/20/27), uptime, flags, the status register, the last frame's worker/copy microseconds, the active panel record (RAM `0x20074530` → which driver); the boot count once it has a source — stock keeps `kvbooCount` only in the KV store (read into a stack temporary at each start, `CLAIMS.md` 2026-09-14), so a cached read through the KV get `FUN_0054116E` is the candidate, after its use from the settings context is checked |
-| F1.3 | presented-notify: after the panel transfer, (sequence, copy µs, transfer µs) to the phone when enabled — the transfer stamp wraps the display task's refresh call (`bl FUN_004CA564` at `0x00473CE4`), the only place it can be timed; from RIGHT, and from LEFT if R0.2 shows its notify path works |
+| F1.3 | presented-notify: after the panel transfer, (sequence, worker µs, copy µs, transfer µs, lens) to the phone when enabled — the transfer stamp wraps the display task's refresh call (`bl FUN_004CA564` at `0x00473CE4`), the only place it can be timed. **Source done 2026-09-14** (`damage_refresh_hook`, field 113, flag bit 0; telemetry fields 15/16). From RIGHT only: LEFT has no sender that works (`CLAIMS.md`) |
 | F1.4 | flag op: arm/disarm per feature; all cleared on lease lapse — **source done 2026-09-13** (field 112; flags clear at every texture-cache release point) |
-| F1.5 | cache-keep across a lease lapse with a generation id and CRC the phone can query; cache size configurable up to the R0.6 budget |
+| F1.5 | cache-keep across a lease lapse with a generation id and CRC the phone can query; cache size configurable up to the R0.6 budget — **firmware side done 2026-09-14** (flag bit 1, the latch, fields 17–19, op 4); the size waits on M0.1. **Adam's ruling (`HANDOFF.md` §51.8): the phone's atlas skip is the bounded one** — after a rebuild inside the lease's remaining time on the dropped arm, no flag (§42.4's plan; to build); CACHE_KEEP stays unarmed until LEFT can be verified (Phase 4's inter-lens report) |
 | F1.6 | fast-link hold: the glasses' idle-parameter request is skipped while the lease is held — site: a lease-gated entry wrapper on `FUN_00476CBC` that turns event 0xA4 into no request (R0.4); a latency-0 profile only if M0.3 says the phone would use it. **Design input 2026-09-14 (`CLAIMS.md`): Adam's earbud streams A2DP from the same phone radio; while the two 15 ms links run the phone's quality reports flag the stream, though Adam hears no cut-outs — the links spend the earbud's margin. A faster or held link spends more of it; the shell knows when its Music window plays, so the lever can be conditional. Dropped from the Phase 1 candidate (`HANDOFF.md` §50.9) unless the journal shows slow-set episodes again: the link held 15 ms / 1 all day without it** |
 | F1.7 | panel-transfer experiment (rewritten 2026-09-13 — the async refresh ignores the rect on both drivers, so a smaller rect on the queue changes nothing): F1.3's stamp gives the full-frame transfer time; on a JBD4010 pair, a blocking partial refresh (`+0x2C`) of a small rect is timed against it; on an A6N-G pair the partial path moves no pixels and the lever is out of reach without a driver change |
 | F1.8 | multi-packet ATT writes (walk concatenated AA packets in one write) — only if M0.3 says the phone is one-write-per-event; MTU 517 on the phone side |
 
 **Damage:** capability parsing (DamageCaps and the telemetry record: **done 2026-09-13**, `DamageMsg`, the
-simulator's `damageContract`); the arm / hold-back protocol in the keeper; `glass` journal notes (started:
-the probe, glass and battery notes of APK 0.45); `journal_report.py` columns for the transfer time and
-local latency; cache-keep (skip the atlas upload when generation and CRC match); MTU and packing if F1.8
-ships.
+simulator's `damageContract`); the arm / hold-back protocol in the keeper (**done 2026-09-14**:
+`CfwTransportBase.armFeatures`, `HOLD_BACK_MS` = 120 s as a placeholder for Adam); `glass` journal notes
+(the probe, glass and battery notes of APK 0.45; the `present` record of 0.46); `journal_report.py`'s
+transfer section (**done**) and the local-latency metric (Phase 4); the atlas skip — **the bounded form,
+Adam's ruling** (skip after a rebuild inside the lease's remaining time on the dropped arm; no flag; to
+build, priced by the journal's `atlas` notes); MTU and packing if F1.8 ships.
 
 **Test stop T1:** host vectors and simulator green · the flash ritual (§7) · self-test on glass ·
 features armed one at a time · a soak day · journal and `/log` read · fix flash if needed.
@@ -318,8 +334,12 @@ inside a phase.
 fixups. 3. Thumb-bit audit. 4. Host vectors green. 5. Simulator vectors green. 6. **Adam's
 in-the-moment go.** 7. Dry-run staircase (`--stop-before heartbeat` → `file_check` → `flash`).
 8. Both lenses, one at a time, the same image (the cross-lens deferred path runs the same code on
-both). 9. Reconnect, capability check, self-test on glass, telemetry read. 10. Arm features one at a
-time. 11. Soak. 12. Journal and `/log` read. Rollback = reflash the last-known-good image, kept built
+both). 9. Reconnect, capability check (`DamageCaps … features 0x1f` in the journal), self-test on glass
+(`tools/glassdrive.py … selftest:firmware/vectors/v1-keyframe.json` and the other drawing vectors — RIGHT
+reports), telemetry read (`probe:telemetry=read`: uptime, the panel record, the heap figures). 10. Arm
+features one at a time (`probe:flags=0x8000` PROBE first, then `0x0001` PRESENTED, then `0x0003`; the
+keeper re-arms the wanted set after every rebuild under the hold-back rule). 11. Soak. 12. Journal and
+`/log` read (`journal_report.py`: the transfer section). Rollback = reflash the last-known-good image, kept built
 in `fws/`. The site list of every candidate (`~/damage-cfw/tools/verify.py` step 6) is reviewed against §3.1 (no new boot-path site) before step 6.
 
 ## 8. Assumptions this plan rests on, and where each is checked
@@ -394,3 +414,11 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   at work, battery ~7.5 %/h. **Adam's ruling (§50.9): the drops are not the work; Phase 1 proceeds in a
   fresh session** — M0.1 first, then F1.3, F1.5, F1.7, the self-test op and the keeper's arm/hold-back on
   uptime; F1.6 dropped unless slow-set episodes return. Nothing flashed.
+- **2026-09-14 (evening)** — Phase 1's candidate built on both sides while Adam was at work (`HANDOFF.md` §51):
+  F1.3, F1.5 and the self-test in the fork (pin `5ff9159b…`, one new site, all host checks green), the keeper's
+  arm / hold-back protocol, the `present` journal record, the report's transfer section, the on-glass self-test
+  runner and APK 0.46 in Damage. Read at instruction level: the stock senders refuse on the left lens — every
+  reply and notify is RIGHT's; Adam chose the bounded atlas skip (no flag) and left CACHE_KEEP unarmed until LEFT
+  can be verified (§51.8). F1.7 waits on the panel type. Nothing flashed; both trees committed and pushed on his
+  word from work. Next: the bounded skip (built without him), M0.1 (one minute), the site review (`tools/verify.py`
+  step 6: `0x00473CE4` in `FUN_00473C44`), his go, the ritual.

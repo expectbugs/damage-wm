@@ -8,11 +8,16 @@ simulator (`core/.../sim/GlassFirmwareSim.kt`, Kotlin, written from this text an
 C — `CLAUDE.md`, clean room). A conformance-vector set proves both agree, on the host and on the
 glasses. Plain wording throughout.
 
-**Status 2026-09-13:** v1 is the installed contract (g2flash `a5d1c31`) and is only pointed at. v2:
+**Status 2026-09-14 (evening):** v1 is the installed contract (g2flash `a5d1c31`) and is only pointed at. v2:
 §0 and §3's wire shapes are fixed for Phase 1 (draft) and implemented on both sides — the fork's
-`patches/damage_ext.c` and Damage's `DamageMsg` + simulator — without the transfer stamp, the boot count or
-the self-test op yet (reviewed 2026-09-14, §11); §9's vector format is built and the v1 set passes on both; §4–§8 are still the decided shape only,
-filled in phase by phase (`FORK.md` §5).
+`patches/damage_ext.c` (pin `5ff9159b…`, not flashed) and Damage's `DamageMsg` + simulator — including the
+transfer stamp and presented notify (F1.3), cache-keep with its generation and CRC (F1.5) and the self-test
+(mode 16); the boot count is still withdrawn (§11). §9's vector format is built, the v1 set passes on both
+sides through the normal path and through the self-test path; §4–§8 are still the decided shape only, filled
+in phase by phase (`FORK.md` §5). **One fact binds every reply and notify: only the RIGHT lens can send**
+(`CLAIMS.md`, 2026-09-14 — the stock senders refuse on the left lens), so everything below that "replies" or
+"notifies" does so from RIGHT, and the left lens's state can only be inferred from the same writes.
+Adam's ruling on the atlas (§3, F1.5): the bounded skip, no flag; CACHE_KEEP stays unarmed for now.
 A section marked *draft* may change until its phase's test stop passes; after that it changes only
 with a contract-version bump.
 
@@ -25,9 +30,10 @@ with a contract-version bump.
 - **v2 (draft, Phase 1; shape fixed 2026-09-13):** every sid-0x09 READ response carries field **110
   `DamageCaps`**, a nested message appended after upstream's fields 100 and 104:
   `{ 1: string "DMG", 2: uint32 contract, 3: uint32 features }` — e.g. `0a 03 44 4d 47 10 01 18 00`
-  (contract 1, no features; the Phase 1 build ends `18 03`: telemetry and flags).
+  (contract 1, no features; the Phase 1 candidate ends `18 1f`).
   Damage requires the contract version it was built for and reads `features` for what is present
-  (bit 0 telemetry, bit 1 flags; later bits are added with their features). A response without
+  (bit 0 telemetry, bit 1 flags, bit 2 the presented notify, bit 3 cache-keep, bit 4 the self-test;
+  later bits are added with their features). A response without
   field 110 is upstream g2flash. Nothing is ever gated on a token that could be dropped for space
   (the `img576` lesson): the field is a few bytes and has its own number.
 - Contract versions are integers. A bump means an existing op changed shape or meaning; adding an
@@ -66,7 +72,8 @@ the CFW replaces.
 
 - **Telemetry request** (sid 0x09 control field, new op): reply carries heap free per arena
   (13/20/27, KiB), uptime (ms tick), flags in force, the status register, the last frame's worker,
-  copy and (F1.3) panel-transfer microseconds, cache generation and CRC (F1.5), panel type, and a
+  copy and (F1.3) panel-transfer microseconds, the direct-present count, the cache's generation, size
+  and (on CACHE_INFO, F1.5) CRC, the self-test's state, panel type, and a
   boot count once it has a source. Sources (read 2026-09-13/14, `CLAIMS.md`): panel type = the
   active operations record at RAM `0x20074530` (`0x0070AFE4` A6N-G, `0x0070B024` JBD4010); the
   copy time is today's `last_present_us`; the transfer time is new — every present is a full
@@ -77,35 +84,76 @@ the CFW replaces.
   until a cached read through that API has a checked precedent from the settings context.
   The heap figures come from the overlay's own walk (bounded, every size word range-checked
   before it is read; an arena that does not validate is omitted).
-- **Presented notify** (when enabled): after the panel transfer, `(sequence, worker_us, copy_us,
-  transfer_us)` to the phone; from RIGHT; from LEFT too if its notify path is shown to work.
+- **Presented notify** (flag bit 0 PRESENTED, F1.3): after the panel transfer of a Damage frame,
+  `(sequence, worker_us, copy_us, transfer_us, lens)` to the phone as field 113; from RIGHT only —
+  the left lens cannot send (its stock senders refuse; `CLAIMS.md`), so "from LEFT if its notify
+  path works" is answered: there is no such path. The stamp wraps the display task's refresh call
+  (`0x00473CE4`), the one new patch site of the candidate; every stock refresh passes through it
+  unchanged. The worker figure may lag one frame (the display task can run before the worker stores
+  its time); the telemetry record's field 5 is exact after the fact.
+- **Cache-keep** (flag bit 1 CACHE_KEEP, F1.5): the texture cache is released at four points in the
+  installed firmware — a lapse noticed, FB_RELEASE, a fresh acquire after a lapse, mode 11. Under
+  the flag, read at the moment the flags clear (the lapse or the release) and **latched** for the
+  fresh acquire that follows, the cache is kept through both; the latch is spent by that acquire,
+  so a session that does not re-arm the flag gets the installed behaviour at its next lapse. Mode 11
+  frees the cache regardless. Fields 17 (generation: mode-12 writes that changed the cache since
+  boot), 18 (size, when allocated) and 19 (CRC-32, zlib polynomial, over the whole cache; CACHE_INFO
+  only) let the phone tell whether what it uploaded is still there. ⚠ Only RIGHT can be asked: a
+  phone-side skip of the atlas upload rests on the left lens having taken the same FLAGS_SET and the
+  same lapse — an eaten write or a one-arm lapse of more than 90 s would leave LEFT without a cache
+  and every cached draw refused there in silence. **Adam's ruling (2026-09-14 evening, `HANDOFF.md`
+  §51.8): the phone skips the re-upload only after a rebuild that completes inside the lease's remaining
+  time on the arm that dropped** — the bounded skip, §42.4's plan, where the installed renewal rule
+  already keeps both caches and no flag is involved. CACHE_KEEP itself stays **unarmed** until LEFT's
+  cache can be verified (an inter-lens report, Phase 4); the firmware side is inert until armed.
 - **Flag op:** arm / disarm by bit; a reply echoes the flags in force.
 - **Wire shapes (draft, fixed 2026-09-13):**
   - *Request* (phone → each arm): sid 0x09 `G2SettingPackage{ 1: commandId 1, 2: magic 0, 112: body }`,
     body = 6 bytes `['D','M', version 1, op, argLo, argHi]` (the shape of upstream's field-101 lease
     control). Ops: **1 TELEMETRY** (arg = a request id the reply echoes) · **2 FLAGS_SET** (arg = the
-    complete flag set wanted, low 16 bits; bit 15 = PROBE) · **3 FLAGS_CLEAR** (arg ignored). Every op
+    complete flag set wanted, low 16 bits; bit 0 PRESENTED, bit 1 CACHE_KEEP, bit 15 PROBE) · **3
+    FLAGS_CLEAR** (arg ignored) · **4 CACHE_INFO** (arg = a request id; the record adds field 19). Every op
     replies with the telemetry record; an unknown op replies with status 1. A body of the wrong length,
     marker or version gets no reply.
-  - *Reply* (each arm that can send; RIGHT for certain): sid 0x09 `G2SettingPackage{ 1: commandId 3,
-    2: magic 0, 111: DamageTelemetry }`, fields in this order, a field omitted when its value is not
-    known: `1 request id · 2 uptime ms · 3 flags in force · 4 the status register · 5 last worker µs ·
-    6 last copy µs · 7/8/9 free KiB in arenas 13/20/27 · 10 the active panel record address · 11 sticky
-    diagnostics (bit 0 reorder, 1 skip, 2 dup, 3 snapshot overflow, 4 allocation) · 12 lease ms left ·
-    13 boot count (not sent by the Phase 1 build, above) · 14 lens (1 right, 2 left)` — all uint32
-    varints. **The status register (field 4)** holds the status recorded by the last op that records
-    one: FLAGS_SET (0, or 2 for a bit this build lacks), FLAGS_CLEAR (0), a malformed or unknown
-    request (1 — recorded even when, for a bad body, nothing is answered). TELEMETRY records nothing,
-    so a refusal the phone did not see is still readable afterwards (§1.2); a lease lapse clears the
-    flags but not the register.
+  - *Reply* (RIGHT only — the left lens runs the op and sends nothing): sid 0x09 `G2SettingPackage{
+    1: commandId 3, 2: magic 0, 111: DamageTelemetry }`, fields in this order, a field omitted when
+    its value is not known: `1 request id · 2 uptime ms · 3 flags in force · 4 the status register ·
+    5 last worker µs · 6 last copy µs · 7/8/9 free KiB in arenas 13/20/27 · 10 the active panel record
+    address · 11 sticky diagnostics (bit 0 reorder, 1 skip, 2 dup, 3 snapshot overflow, 4 allocation) ·
+    12 lease ms left · 13 boot count (not sent by the Phase 1 build, above) · 14 lens (1 right, 2 left) ·
+    15 the last Damage frame's panel-transfer µs · 16 direct presents since boot · 17 cache generation ·
+    18 cache size in bytes (when allocated) · 19 cache CRC-32 (CACHE_INFO, when allocated) · 20
+    self-test steps since the last begin · 21 the last step refused (0/1) and 22 the scratch CRC-32
+    after it (both after a step)` — all uint32 varints. **The status register (field 4)** holds the
+    status recorded by the last op that records one: FLAGS_SET (0, or 2 for a bit this build lacks),
+    FLAGS_CLEAR (0), a malformed or unknown request (1 — recorded even when, for a bad body, nothing is
+    answered). TELEMETRY and CACHE_INFO record nothing, so a refusal the phone did not see is still
+    readable afterwards (§1.2); a lease lapse clears the flags but not the register.
+  - *Presented notify* (RIGHT only): sid 0x09 `G2SettingPackage{ 1: commandId 3, 2: magic 0, 113:
+    DamagePresented }` with `1 sequence · 2 worker µs · 3 copy µs · 4 transfer µs · 5 lens`, one per
+    panel transfer of a Damage frame while PRESENTED is armed.
   - *Flags:* a FLAGS_SET naming a bit this build does not implement changes nothing and sets last
     status 2 (unsupported); bit 15 PROBE has no behaviour and exists so arming, the echo and the
     clear-on-lapse can be proven on glass before any feature relies on them. Flags clear on lease
-    expiry, FB_RELEASE, a fresh acquire and mode 11 — the texture cache's release points.
+    expiry, FB_RELEASE, a fresh acquire and mode 11 — the texture cache's release points (where
+    CACHE_KEEP is read before the clear).
   - *Status codes:* 0 ok · 1 malformed request · 2 unsupported flag.
-- **Self-test op:** runs the conformance vectors held on the glasses' side (uploaded by the phone in
-  chunks, like cache writes) against scratch memory, never the visible shadow, and replies with one
-  CRC per vector step per lens. The phone compares against the simulator.
+- **Self-test (image mode 16):** rides the image lane, so the unchanged receive path delivers it and
+  both lenses run it. `[16][0]` **begin** — the lease must be held; a scratch shadow (the packed
+  640×480 panel, 153,600 B from heap 13) is allocated and zeroed, the step count, the last result and
+  the self-test's own frame-order diagnostics reset. `[16][1][message]` **step** — the message runs
+  through the same dispatcher as live traffic against the scratch shadow with nothing presented and
+  the self-test's fid ring and sticky flags swapped in for the step; it may be any shadow message a
+  batch could carry (3/6/8/9/13/14/15, with mode 8's own rules inside a batch; 13/14 read the live
+  texture cache, 15 the built-in font); a cache write or any non-drawing mode is refused. After the
+  step the scratch's CRC-32 (zlib polynomial, over the packed rows), the count and whether the message
+  was refused land in telemetry fields 20–22. A step needs the lease (the check settles a lapse, which
+  frees the scratch) and a begin; one that cannot run is refused and not counted. `[16][2]` **end**
+  frees the scratch; so does every lease release point. The phone drives a vector's messages as
+  steps and compares RIGHT's fields 20–22 with the vector's expectations (`tools/glassdrive.py
+  selftest:`); LEFT runs the same steps and, by the senders' lens rule, cannot report — its
+  verification waits for an inter-lens report (Phase 4, R0.1). The lease and cache vectors have no
+  self-test form (a tick cannot be set on the glasses; a live cache write is refused).
 - **Status codes:** one byte; the table grows with each op that can refuse (above).
 
 ## 4. v2 drawing ops (Phase 2) — *draft*
@@ -120,7 +168,7 @@ the CFW replaces.
 | lut over rect | rect · 16-entry LUT | dim, brighten, invert in place |
 | save-under | capture rect → scratch slot u8 · restore slot u8 | for popovers; scratch is a small pool sized in Phase 2 |
 | font table v2 | up to 224 entries (codes 32..255), u16 offsets | codes above 127 index the Latin-1 range |
-| cache size | a settable size up to the measured budget | generation id increments on every write; CRC-32 (zlib polynomial, over the whole cache) on request |
+| cache size | a settable size up to the measured budget (M0.1) | the generation id and the CRC-32 on request are built in Phase 1 (§3, F1.5); only the settable size waits |
 
 ## 5. v2 motion programs (Phase 3) — *draft*
 
@@ -183,9 +231,14 @@ content, the stock override gesture, stock fallback on any failure. Written afte
 - **Who runs them:** the fork's host build (`~/damage-cfw/host/run_vectors.py`: the unchanged patch
   sources compiled for 32-bit x86 with the firmware's addresses mapped; `--write` fills the
   expectations), the Kotlin simulator (`ConformanceVectorTest` in `core`), and — from Phase 1's
-  flash — the glasses through the self-test op. All three must agree before a flash is called good.
-  For v1 (the installed firmware) the C wrote the expectations; a disagreement is a finding about the
-  simulator or the docs, never a reason to edit an expectation by hand.
+  flash — the glasses through the self-test (mode 16). All three must agree before a flash is called
+  good. For v1 (the installed firmware) the C wrote the expectations; a disagreement is a finding about
+  the simulator or the docs, never a reason to edit an expectation by hand.
+- **The self-test form (2026-09-14):** a drawing vector (every v1 vector but `v1-lease` and `v1-cache`)
+  also runs as `[16][0]`, then each step's messages as `[16][1][message]`; the scratch CRC after each
+  step must equal the step's `L`/`R` expectation and the refusal its last `rc`. The host C runs it
+  (`host/run_self_test.py`), the simulator runs it (`ConformanceVectorTest`, the self-test form), and
+  the glasses run it through `tools/glassdrive.py selftest:FILE` — RIGHT reported, LEFT blind.
 - **v1 set (2026-09-13):** 7 vectors, 35 steps — keyframes, mono and stereo deltas at the panel's
   edges, overlapping and odd-coordinate copies, a batch, refusals (out of bounds, a repeated fid, a
   batch with a non-shadow sub-message that has already changed the shadow), the texture cache
@@ -194,10 +247,13 @@ content, the stock override gesture, stock fallback on any failure. Written afte
 
 ## 10. Lifecycle
 
-Session start: capability read → flags armed one at a time (hold-back rule) → self-test when a new
-image is flashed → normal traffic. Lease lapse: flags clear, programs stop, bindings clear, the
-cache is kept if `cache-keep` was armed (its generation and CRC say whether it is still good).
-Reset: boot count increments; the phone's keeper applies the hold-back rule before re-arming.
+Session start: capability read → flags armed one at a time (hold-back rule: the transport's
+`armFeatures` reads RIGHT's uptime first; a reset within `HOLD_BACK_MS` of the last arming disarms
+the wanted set, journals it and raises a `holdback` fault) → self-test when a new image is flashed →
+normal traffic. Lease lapse: flags clear, programs stop, bindings clear, the cache is kept if
+`CACHE_KEEP` was armed (its generation and CRC say whether it is still good; the latch carries the
+decision to the fresh acquire). Reset: uptime restarts (a boot count once it has a source); the
+phone's keeper applies the hold-back rule before re-arming.
 
 ## 11. Change log
 
@@ -212,3 +268,11 @@ Reset: boot count increments; the phone's keeper applies the hold-back rule befo
   count) withdrawn from the Phase 1 build: stock keeps the counter only in the KV store, and the RAM
   word openCFW names is referenced by nothing in the image. The record carries the last frame's
   timings, not the last N.
+- 2026-09-14 (evening) — Phase 1's candidate built on both sides (`HANDOFF.md` §51). §3: the transfer
+  stamp and the presented notify (field 113, flag bit 0), cache-keep (flag bit 1, the latch, fields
+  17–19, op 4 CACHE_INFO), the self-test as image mode 16 (begin / step / end, fields 20–22; replaces
+  the "uploaded in chunks like cache writes" sketch — the image lane already delivers to both lenses
+  and needs no upload buffer); §0 features `18 1f`. **The senders' lens rule** read at instruction
+  level: only RIGHT can answer or notify, so LEFT is blind everywhere a reply was hoped for; Adam chose
+  the bounded skip for the atlas (no flag; CACHE_KEEP unarmed until LEFT can be verified). §9: the
+  self-test form of the vectors and its three runners. §10: the keeper's arm / hold-back protocol as built.

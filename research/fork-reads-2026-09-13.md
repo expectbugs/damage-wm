@@ -151,3 +151,38 @@ working detail a next read starts from.
 (V): the primary heap arena's size at `0x004842E8` (inside `FUN_004842E6`, the arena init) and the display
 copy redirects at `0x00473C8E`/`0x00473D68`, which pass straight through for every stock refresh. `FORK.md`
 §3.1 reads "no NEW site on such a path" since 2026-09-13.
+
+## Read 2026-09-14 (evening): the senders, for the Phase 1 candidate
+
+- **Only RIGHT sends.** `FUN_00475B14` (`0x00475B14`–`0x00475C1A`): guard 1 `FUN_004487AC` (a blocked
+  state: OTA or shutdown flags; non-zero → return 0 after a log line 0x1ac); at `0x00475B6A` a check Even
+  disabled (`movs r0,#1; nop; cmp r0,#0; bne 0x00475BB6` — the fall-through block, log line 0x1b0 and
+  return 8, is what Ghidra reported as unreachable); at `0x00475BB6` `bl FUN_0046F258`, and when it returns
+  non-zero: log line 0x1b9 (level 4), `movs r0,#8`, return; the send `FUN_0047564E(0, 0, type, sid, buf,
+  len)` at `0x00475C02` (V). `FUN_0046F258` (`0x0046F258`–`0x0046F2C6`): two log branches, then
+  `bl FUN_0045A568; cmp r0,#2; bne → 0; else 1` — it is "this is the left lens" (V). `FUN_00475C1A` (the
+  notify sender) repeats the shape: the disabled check at `0x00475C70`, `bl FUN_0046F258` at `0x00475CBA`,
+  then `FUN_0046F1D0` (1 on RIGHT, or on LEFT when the byte at `*0x0046F41C + 0x1f` is 0), then
+  `FUN_0047564E(0, 1, …)`. `FUN_0047564E` (decompile): pool `FUN_00474CD2(len + 14)`, the body copied
+  behind a 3-byte header (`type, sid, …`), the block queued; on a queue past half full with param 1 == 1 a
+  fast-link request (`FUN_00478160`).
+- **Who uses which:** the image ack `FUN_004DA4A4` → `FUN_00475B14(1, 0xE0, buf, len)`; the settings
+  responder (the site at `0x0049BB68`) → `FUN_00475B14`; a5d1c31: the wake event, the mic status notify,
+  the Damage telemetry reply → `FUN_00475B14`; the wear event → `FUN_00475C1A`. So every one of these leaves
+  RIGHT only. a5d1c31's mic comment ("each temple answers for itself") does not hold on 2.2.6.10.
+- **The corpus and the image agree here:** the sha256 in each corpus function header equals the sha256 of
+  the bytes at that address in `fws/2.2.6.10/ota_s200_firmware_ota.bin` for `FUN_00475B14` (262 B),
+  `FUN_00475C1A` (324 B) and `FUN_0046F258` (110 B) — a check worth running for any function a patch leans
+  on (`python3 research/fwread.py sha 475b14 …` does it, added the same evening: five functions checked SAME).
+- **`FUN_004CA564`** (`0x004CA564`–`0x004CA5BC`): `push {r1,r2,r3,r4,r5,lr}`; `r5 = 0x20074530`; if the
+  record is 0: two log branches, return −1; else `ldr r4,[sp,#0x1c]` → `[sp,#4]`, `ldr r4,[sp,#0x18]` →
+  `[sp]` (the caller's two stack arguments re-staged for the callee), `ldr r4,[r5]; ldr r4,[r4,#0x28]; blx
+  r4` (V). The type-3 caller (`0x00473CD4`–`0x00473CE8`) loads the six words from its queue message and,
+  after the call, `b 0x00473E28` → `bl FUN_0046D826` (the end-of-message call) → back to the wait; the
+  return is unused (V). Type 6 (`0x00473D70`–`0x00473D80`) makes the same call; Damage presents are type 3
+  (`FUN_00474066` stores 3 at `[sp,#8]`), so the fork wraps the type-3 call only.
+- **A stock crc32:** none found by literal. The tables at `0x006987AC`… (four copies of the standard
+  table's second entry, 0x400 and 0x1000 apart — a slicing-by-4 layout or two libraries) and a CRC-32C
+  table at `0x006983AC` are data no corpus function owns; `FUN_0048ED00` writes a "TPF1" header with the
+  `0xEDB88320` literal as a field and `FUN_0048ECAE(buf, 0x1c)` as its checksum — not a general crc32.
+  R0.5 stays open on this; the fork carries its own 16-entry table (64 B of rodata).

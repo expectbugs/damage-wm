@@ -171,6 +171,28 @@ object CfwModes {
      *  The singleton context survives. Extra bytes are reserved and ignored. */
     fun cleanup(): ByteArray = byteArrayOf(11)
 
+    /** The Damage build's self-test (`FIRMWARE.md` §3, mode 16): [16][0] allocates a scratch
+     *  shadow (the lease must be held), [16][1][message] runs one drawing message against it
+     *  with nothing presented, [16][2] frees it. A step's message may be anything a shadow
+     *  op is (3/6/8/9/13/14/15); a cache write or a non-drawing mode is refused. Only the RIGHT
+     *  lens reports the scratch CRC (telemetry fields 20–22). Not a batch sub-mode. */
+    const val SELF_TEST_MODE = 16
+    fun selfTestBegin(): ByteArray = byteArrayOf(SELF_TEST_MODE.toByte(), 0)
+    fun selfTestEnd(): ByteArray = byteArrayOf(SELF_TEST_MODE.toByte(), 2)
+    fun selfTestStep(message: ByteArray): ByteArray {
+        if (message.isEmpty()) throw LintError("empty self-test step")
+        val m = message[0].toInt() and 0x7F
+        if (m !in SELF_TEST_MODES)
+            throw LintError("self-test step is mode $m; the firmware runs only ${SELF_TEST_MODES.joinToString("/")} against the scratch")
+        val out = ByteArray(2 + message.size)
+        out[0] = SELF_TEST_MODE.toByte()
+        out[1] = 1
+        message.copyInto(out, 2)
+        return out
+    }
+    /** What a self-test step may carry: the shadow messages (zlib_glue.c is_shadow_message, minus mode 11). */
+    val SELF_TEST_MODES = setOf(3, 6, 8, 9, 13, 14, 15)
+
     /** One run of bytes to write into the texture cache at [offset]. */
     data class CacheWrite(val offset: Int, val data: ByteArray) {
         override fun equals(other: Any?) = other is CacheWrite &&

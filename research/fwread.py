@@ -17,6 +17,7 @@ Addresses are RUN addresses (file offset + 0x437FE0), the space `patch_compress.
     python3 research/fwread.py calls 0x458e48            # BL call sites that target an address
     python3 research/fwread.py strings 'logger|ble_log'  # printable strings matching a regex, with addresses
     python3 research/fwread.py owner 0x45a1c8            # the corpus function whose range holds an address
+    python3 research/fwread.py sha 475b14 46f258         # do our image's bytes for FUN_<addr> hash as the corpus's header says? (SAME/DIFFERENT)
 
 Needs llvm-objdump / llvm-objcopy (LLVM 21+ found under /usr/lib/llvm) for `dis`.
 """
@@ -110,6 +111,27 @@ def strings(pattern):
     for m in re.finditer(rb"[\x20-\x7e]{5,}", d):
         if rx.search(m.group(0)): print("0x%08x  %s" % (m.start() + BASE, m.group(0).decode("latin1")[:160]))
 
+def sha(addrs):
+    """The corpus writes `/* FUN 0x... FUN_... bytes=N sha256=... */` over each decompile; check that
+    the N bytes at that address in OUR image hash the same — a decompile is only evidence about the
+    bytes it was made from (2026-09-14: three sender functions checked before a patch leaned on them)."""
+    import hashlib
+    d = image()
+    for a in addrs:
+        head = "/* FUN 0x%08x " % num(a)
+        found = None
+        for f in sorted((CORPUS / "bundles").glob("*.c")):
+            for line in f.open():
+                if line.startswith(head):
+                    m = re.search(r"bytes=(\d+) sha256=([0-9a-f]{64})", line)
+                    if m: found = (int(m.group(1)), m.group(2))
+                    break
+            if found: break
+        if not found: print(f"FUN_{num(a):08x}: not in the corpus function list"); continue
+        n, want = found
+        got = hashlib.sha256(d[num(a) - BASE:num(a) - BASE + n]).hexdigest()
+        print(f"FUN_{num(a):08x}: {n} bytes {'SAME' if got == want else 'DIFFERENT'} (image {got[:16]}…, corpus {want[:16]}…)")
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"): print(__doc__); return 0
     cmd, args = argv[0], argv[1:]
@@ -120,6 +142,7 @@ def main(argv):
     elif cmd == "calls": calls(num(args[0]))
     elif cmd == "strings": strings(args[0])
     elif cmd == "owner": print(owner(num(args[0])))
+    elif cmd == "sha": sha(args)
     else: print(__doc__); return 2
     return 0
 

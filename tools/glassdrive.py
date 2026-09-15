@@ -14,7 +14,12 @@ chord is `pace:0.3 hold release double pace:2.5`),
 probe for the host's transport, `HANDOFF.md` §49 — `probe:diag=show|hide` the
 firmware's diagnostic overlay, `probe:logger=on|off` the glasses' own log stream
 into the journal as `glasslog` notes, `probe:phy=2m|1m` the radio PHY ask; APK
-0.45+). Gestures are paced by --pace seconds
+0.45+; on a Damage build (`FIRMWARE.md` §3, APK 0.46+): `probe:telemetry=read`,
+`probe:cache=info`, `probe:flags=clear|probe|0xNNNN`, `probe:selftest=begin|end|step:HEX`),
+`selftest:PATH.json` (a conformance vector — `firmware/vectors/v1-*.json` — driven
+through the glasses' self-test step by step; after each step RIGHT's telemetry is read
+from the host's `/log` and its scratch CRC and refusal compared with the vector's
+expectations; the `token` is the same as the WebSocket's). Gestures are paced by --pace seconds
 so each flush is isolated in the journal (§31.1's method). Every gesture is
 echoed with a timestamp so the journal's flushes can be matched to it.
 
@@ -42,6 +47,52 @@ def png(path, panels):
     def chunk(t, d): return struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
     data = b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 2 * W, H, 8, 0, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(raw, 6)) + chunk(b'IEND', b'')
     open(path, 'wb').write(data)
+
+def log_tail(host, port, token, n=80):
+    """The host's recent log lines (`/log?token=&tail=N`, no adb)."""
+    import urllib.request
+    with urllib.request.urlopen(f'http://{host}:{port}/log?token={token}&tail={n}') as r:
+        return r.read().decode('utf-8', 'replace').splitlines()
+
+async def selftest(ws, host, port, token, path):
+    """Drive one vector file through the glasses' self-test (FIRMWARE.md §3, mode 16) and compare
+    RIGHT's reported scratch CRC and refusal per step with the vector's expectations. The lease
+    and cache vectors have no self-test form. Every wait here is pacing between reads; a step
+    whose telemetry never advances is reported, never retried forever."""
+    import re
+    vec = json.load(open(path))
+    if vec['name'] in ('v1-lease', 'v1-cache'):
+        print(f'{vec["name"]}: no self-test form (lease or cache vector)'); return
+    async def probe(name, value):
+        await ws.send(json.dumps({'t': 'probe', 'name': name, 'value': value}))
+    def right_telemetry():
+        for line in reversed(log_tail(host, port, token)):
+            m = re.search(r'glass telemetry from RIGHT: (.*)$', line)
+            if m: return dict(kv.split('=', 1) for kv in m.group(1).split() if '=' in kv)
+        return None
+    await probe('selftest', 'begin'); await asyncio.sleep(0.6)
+    fails = 0; steps_seen = 0
+    for i, st in enumerate(vec['steps']):
+        msgs = [op['msg'] for op in st['ops'] if 'msg' in op]
+        if any('tick' in op or 'lease' in op for op in st['ops'] if 'msg' not in op) and i > 0:
+            print(f'  step {i}: a tick/lease op has no self-test form — skipped')
+        for m in msgs:
+            await probe('selftest', 'step:' + m); await asyncio.sleep(0.4 + len(m) / 40000)
+        want = st['expect']
+        got = None
+        for attempt in range(6):                      # pacing: the step runs on the deferred handler after the ack
+            await probe('telemetry', 'read'); await asyncio.sleep(0.8)
+            got = right_telemetry()
+            if got and int(got.get('stSteps', 0)) >= steps_seen + len(msgs): break
+        steps_seen += len(msgs)
+        if not got or int(got.get('stSteps', 0)) < steps_seen:
+            fails += 1; print(f'  FAIL step {i}: the glasses report stSteps={got.get("stSteps") if got else None}, expected {steps_seen}'); continue
+        crc_ok = got.get('stCrc') == want['R']
+        rc_ok = (got.get('stRefused') == ('1' if want['rc']['R'] and want['rc']['R'][-1] != 0 else '0'))
+        print(f'  {"PASS" if crc_ok and rc_ok else "FAIL"} step {i}: scratch {got.get("stCrc")} (expected {want["R"]}), refused {got.get("stRefused")}')
+        fails += not (crc_ok and rc_ok)
+    await probe('selftest', 'end')
+    print(f'{vec["name"]}: {"all steps match on RIGHT" if not fails else f"{fails} step(s) differ"} (LEFT runs the same steps but cannot report — FIRMWARE.md §3)')
 
 async def main():
     import websockets
@@ -96,6 +147,8 @@ async def main():
                 await asyncio.sleep(0.5)
             elif s == 'status':
                 print(f'status: {status}')
+            elif s.startswith('selftest:'):
+                await selftest(ws, host, port, token, s[9:])
             else:
                 raise SystemExit(f'unknown step {s!r}')
         rt.cancel()

@@ -501,6 +501,11 @@ class RemoteTransportClient(
             "note" -> emit(TransportEvent.Note(c.detail.substringBefore(':'),
                 c.detail.substringAfter(':', "")), "Note")
             "silent" -> emit(TransportEvent.SilentMode(c.held), "SilentMode")
+            "present" -> {
+                val v = c.detail.split(':').map { it.toLongOrNull() }
+                if (v.size == 4 && v.all { it != null }) emit(TransportEvent.Presented(v[0]!!, v[1]!!, v[2]!!, v[3]!!), "Presented")
+                else Log.w("remote-transport", "malformed present control: ${c.detail}")
+            }
             "state" -> c.state?.let { st -> updateState { st.toState() } }
             else -> Log.w("remote-transport", "unknown control ${c.t}")
         }
@@ -975,6 +980,8 @@ class RemoteTransportServer(
         is TransportEvent.Note -> Ctl(t = "note", detail = "${ev.kind}:${ev.detail}")
         is TransportEvent.SilentMode -> Ctl(t = "silent", held = ev.on)
         is TransportEvent.Battery -> Ctl(t = "batt", gPct = ev.glassesPct, gChg = ev.glassesCharging, rPct = ev.ringPct)
+        // FIRMWARE.md §3 (F1.3): the four numbers, colon-separated, like a note's kind:detail
+        is TransportEvent.Presented -> Ctl(t = "present", detail = "${ev.seq}:${ev.workerUs}:${ev.copyUs}:${ev.transferUs}")
         is TransportEvent.FlushDone -> null   // delivered per-flush with id mapping
     }
 

@@ -32,9 +32,10 @@ WORK since 2026-09-12: the CFW fork and the Damage rebuild are the only work unt
   audit, the size guard and the list of changed sites (review it against `FORK.md` §3.1: no new site on a
   boot-time path).
 - **The conformance vectors** (`FIRMWARE.md` §9): after any change to the fork's patch sources run
-  `(cd ~/damage-cfw && python3 host/run_vectors.py && python3 host/test_damage_ext.py)`; after any change to
-  the simulator or the wire encoders, `ConformanceVectorTest` (in `:core:test`) must stay green. A
-  disagreement is a finding, never a reason to edit an expectation by hand.
+  `(cd ~/damage-cfw && python3 host/run_vectors.py && python3 host/run_self_test.py && python3 host/test_damage_ext.py)`;
+  after any change to the simulator or the wire encoders, `ConformanceVectorTest` (in `:core:test`, both the
+  normal path and the self-test form) must stay green. A disagreement is a finding, never a reason to edit an
+  expectation by hand.
 - **A firmware fact is decided at instruction level** (`python3 research/fwread.py dis|fn|word|refs|calls|strings`):
   the decompile corpus hides arguments and misses functions (`HANDOFF.md` §49.2).
 - `DESIGN.md` §10 (three roles, four deployments) binds the runtime: **the shell runs on Android and
@@ -100,7 +101,7 @@ staging**; **each app's notification toggles live in its own Settings category, 
 gates an app's source on a hidden field).
 
 **After ANY code change run the whole battery and keep it green:**
-`./gradlew :core:test` (540) · `./gradlew :desktop:test` (15) · `desktop --selfcheck` (230 checks, the
+`./gradlew :core:test` (545) · `./gradlew :desktop:test` (15) · `desktop --selfcheck` (230 checks, the
 truth oracle on every settle) · `desktop --snapshot DIR` (look at the renders) · `desktop --epub-check ~/books` · `desktop --music-check` · `desktop --games-check` · `desktop --feed-check` (`live` fetches
 the real sites once, read-only) · `python3 tools/lint.py` · `./gradlew :phone:assembleDebug` **in its
 own gradle invocation** (run with `:core:test` it loaded the box enough for the oracle walk to miss a

@@ -220,7 +220,7 @@ propagates cross-lens, so **either** arm may receive.
 **Grade: the split WORKS (M — daily since 2026-08-30); its optimality is still inferred** from
 Babcock's code, not from a capture of our own. **The two-arm capture is still owed**
 (`REMINDER.md` item 5; start BTSnoop before connecting). Unchanged: **subscribe to RIGHT for async
-events**; Left is silent.
+events**; Left is silent — by the firmware's own rule, read at instruction level 2026-09-14: the stock response and notify senders (`FUN_00475B14`, `FUN_00475C1A`) refuse on the left lens (`FUN_0046F258` = lens 2), so nothing LEFT computes reaches the phone over its own link and the acks for images written to LEFT come from RIGHT (`CLAIMS.md`).
 
 ---
 

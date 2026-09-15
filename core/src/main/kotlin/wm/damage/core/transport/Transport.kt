@@ -237,6 +237,11 @@ sealed class TransportEvent {
     /** The firmware's Silent Mode, as the glasses push it (§36): while [on]
      *  the firmware refuses every image, so the shell stops sending. */
     data class SilentMode(val on: Boolean) : TransportEvent()
+
+    /** A Damage build's presented notify (`FIRMWARE.md` §3, F1.3): the panel transfer
+     *  that followed a Damage frame's copy, in microseconds, with the glasses' own
+     *  present count. Journaled as a `present` record; never a status. */
+    data class Presented(val seq: Long, val workerUs: Long, val copyUs: Long, val transferUs: Long) : TransportEvent()
 }
 
 data class LinkState(

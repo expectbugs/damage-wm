@@ -69,9 +69,26 @@ class GlassFirmwareSim() : LensPanels {
     override fun removeListener(l: LensPanels.LensListener) { lensListeners.remove(l) }
 
     /** Per-lens firmware context: shadow + cfw_diag state (zlib_glue.c cfw_ctx). */
+    /** The mode-3 frame-order diagnostics as one block (cfw_context.h damage_diag_state):
+     *  the self-test swaps its own in for a step and restores the live one after. */
+    class DiagState {
+        var lastFid = 0
+        var highFid = 0
+        var fidResync = false
+        var diagSeen = false
+        var fDup = false
+        var fSkip = false
+        var fReorder = false
+        val recentFids = IntArray(Geometry.CFW_FID_RING) { 0xFFFF }
+        var recentPos = 0
+    }
+
     class LensCtx {
         val stride = (Geometry.PANEL_W + 1) / 2
-        val shadow = ByteArray(stride * Geometry.PANEL_H)
+        /** The live shadow — the container's display allocation A on glass. A `var`
+         *  only so a self-test step can point the dispatcher at the scratch shadow
+         *  (zlib_glue.c dispatches on a container state whose A is the scratch). */
+        var shadow = ByteArray(stride * Geometry.PANEL_H)
         var lastFid = 0
         var highFid = 0
         var fidResync = false
@@ -102,6 +119,24 @@ class GlassFirmwareSim() : LensPanels {
          *  (FLAGS_SET, FLAGS_CLEAR, a malformed or unknown request); TELEMETRY records
          *  nothing, and a lease lapse clears the flags, never this. */
         var damageStatus = 0
+        /** F1.3: direct presents counted (the copy hook's count on glass). The sim has no
+         *  timing, so its transfer stamp is always 0. */
+        var presentSeq = 0L
+        /** F1.5: mode-12 writes that changed the cache; the CACHE_KEEP latch read when the
+         *  flags clear, spent by the fresh acquire that follows. */
+        var cacheGen = 0L
+        var cacheKeepLatched = false
+        /** The current lapse or release has been settled once (the C's dmg_lease_settled):
+         *  tick(), fbLeaseActive() and a release may each notice the same lapse. */
+        var lapseSettled = false
+        /** The self-test (mode 16): the scratch shadow, the step count, the last step's
+         *  refusal and scratch CRC, its own frame-order diagnostics. */
+        var stShadow: ByteArray? = null
+        var stActive = false
+        var stSeq = 0L
+        var stRefused = false
+        var stCrc = 0L
+        var stDiag = DiagState()
     }
 
     val left = LensCtx()
@@ -137,8 +172,13 @@ class GlassFirmwareSim() : LensPanels {
 
     /** `FIRMWARE.md` §0: null models the installed upstream build (no field 110, field 112
      *  ignored); a contract number models a Damage build — DamageCaps on every READ and
-     *  the §3 control ops answered. */
+     *  the §3 control ops answered. Only RIGHT answers, as the stock senders' lens rule
+     *  has it (`CLAIMS.md`, 2026-09-14); LEFT runs every op and reports nothing. */
     @Volatile var damageContract: Int? = null
+
+    /** The glasses' uptime as telemetry reports it is the modeled clock less this
+     *  offset; a test models a reset by setting the offset to the clock (uptime 0). */
+    @Volatile var uptimeOffsetMs = 0L
 
     /** The firmware's Silent Mode (§36): while on, every image is refused
      *  with ImgResCmd status 5 (measured on the real pair 2026-09-05) and the
@@ -229,12 +269,13 @@ class GlassFirmwareSim() : LensPanels {
             if (c.leaseDeadline != 0L && now >= c.leaseDeadline) {
                 c.leaseDeadline = 0
                 // The texture cache is lease-scoped: the firmware frees it when the
-                // lease ends, so a resumed session must upload its atlas again.
-                c.textureCache = null
+                // lease ends, so a resumed session must upload its atlas again —
+                // unless CACHE_KEEP was armed (FIRMWARE.md §3, F1.5).
+                val kept = leaseEnded(arm, c)
                 // Stock repaint: the panel no longer shows our frame.
                 stockPattern(c.panel)
                 diag.event("lease", "$arm FB lease EXPIRED — stock repainted over us " +
-                    "(fail-open); texture cache freed")
+                    "(fail-open); texture cache ${if (kept) "KEPT under CACHE_KEEP" else "freed"}")
                 diag.panelChanged(arm)
             }
         }
@@ -569,9 +610,14 @@ class GlassFirmwareSim() : LensPanels {
                 // cfw_cleanup_session(): hands the screen back. direct_lease_deadline
                 // goes to 0 (so the repaint guard fails OPEN and stock takes over),
                 // the texture cache is freed, snapshots are dropped, the overlay hides.
+                // FIRMWARE.md §3: the cache goes regardless of CACHE_KEEP, the latch and
+                // the self-test scratch with it.
                 c.leaseDeadline = 0
                 c.textureCache = null
                 c.damageFlags = 0
+                c.cacheKeepLatched = false
+                c.lapseSettled = false
+                c.stShadow = null
                 stockPattern(c.panel)
                 diag.event("cleanup", "$arm mode-11 session cleanup: FB lease released, " +
                     "texture cache freed, stock repaints")
@@ -618,8 +664,10 @@ class GlassFirmwareSim() : LensPanels {
                     src.copyInto(cache, off, pos, pos + len)
                     pos += len
                 }
+                c.cacheGen++                                 // FIRMWARE.md §3 (F1.5)
                 true
             }
+            16 -> selfTest(arm, c, src, now)
             13, 14 -> {
                 if (!fbLeaseActive(arm, now)) {
                     diag.event("decode", "$arm mode-${modeByte and 0x7F} with NO framebuffer " +
@@ -669,14 +717,39 @@ class GlassFirmwareSim() : LensPanels {
     private fun fbLeaseActive(arm: Arm, now: Long): Boolean {
         val c = ctx(arm)
         if (c.leaseDeadline == 0L || now >= c.leaseDeadline) {
-            c.damageFlags = 0
-            if (c.textureCache != null) {
-                c.textureCache = null
-                diag.event("texture", "$arm texture cache freed: the FB lease has lapsed")
-            }
+            val had = c.textureCache != null
+            val kept = leaseEnded(arm, c)
+            if (had) diag.event("texture", "$arm texture cache ${if (kept) "kept under CACHE_KEEP" else "freed"}: the FB lease has lapsed")
             return false
         }
         return true
+    }
+
+    /** `FIRMWARE.md` §3 (F1.5), the fork's damage_lease_ended: a lapse noticed or an
+     *  FB_RELEASE. The CACHE_KEEP flag, read before the flags clear, is latched for the
+     *  fresh acquire that follows and decides the cache now; the self-test scratch never
+     *  outlives the lease. Returns whether the cache was kept. */
+    private fun leaseEnded(arm: Arm, c: LensCtx): Boolean {
+        c.stShadow = null
+        if (!c.lapseSettled) {
+            c.lapseSettled = true
+            c.cacheKeepLatched = c.damageFlags and DamageMsg.FLAG_CACHE_KEEP != 0
+            if (!c.cacheKeepLatched) c.textureCache = null
+            c.damageFlags = 0
+        }
+        return c.cacheKeepLatched && c.textureCache != null
+    }
+
+    /** damage_lease_fresh_acquire: an acquire with no live lease. A lapse nobody
+     *  settled is settled first; then the latch decides whether the cache carries over,
+     *  and the next lease starts unsettled. */
+    private fun leaseFreshAcquire(arm: Arm, c: LensCtx) {
+        if (!c.lapseSettled) leaseEnded(arm, c)
+        c.stShadow = null
+        if (!c.cacheKeepLatched) c.textureCache = null
+        c.cacheKeepLatched = false
+        c.lapseSettled = false
+        c.damageFlags = 0
     }
 
     /** The 21-byte mic-configuration read-back (`mic_control.c mic_append_status`).
@@ -850,6 +923,7 @@ class GlassFirmwareSim() : LensPanels {
 
     private fun present(arm: Arm, now: Long) {
         val c = ctx(arm)
+        if (c.stActive) return            // a self-test step: present_shadow publishes nothing
         if (c.leaseDeadline > now) {
             c.shadow.copyInto(c.panel)
         } else {
@@ -860,6 +934,71 @@ class GlassFirmwareSim() : LensPanels {
             diag.event("lease", "$arm present WITHOUT a live FB lease — stock will repaint over this")
         }
         diag.panelChanged(arm)
+        // F1.3: the copy hook counts the direct frame; the refresh that follows is timed
+        // (0 here: the model has no clock for it) and, under PRESENTED, reported — by
+        // RIGHT only, the sender's lens rule
+        c.presentSeq++
+        if (c.damageFlags and DamageMsg.FLAG_PRESENTED != 0 && arm == Arm.RIGHT) {
+            val body = Pb.cat(Pb.v(1, c.presentSeq), Pb.v(2, 0), Pb.v(3, 0), Pb.v(4, 0), Pb.v(5, fwSide(arm)))
+            diag.notify(arm, AaFrame.frame(nextSeq(), SettingsMsg.SID, SettingsMsg.FLAG_RESPONSE,
+                Pb.cat(Pb.v(1, 3), Pb.v(2, 0), Pb.l(DamageMsg.PRESENTED_FIELD, body)), AaFrame.TYPE_RESPONSE).single())
+        }
+    }
+
+    // ------------------------------------------------------------- the self-test (mode 16)
+    /** `FIRMWARE.md` §3: [16][0] begin (the lease held; a zeroed scratch shadow), [16][1][msg]
+     *  a step — the message through the same dispatcher against the scratch, presents
+     *  suppressed, the self-test's own frame-order diagnostics swapped in — then the scratch
+     *  CRC-32, the step count and the refusal recorded; [16][2] end. A step that cannot run
+     *  (no begin, the lease lapsed) is refused and not counted. Modes 13/14 read the live
+     *  cache; a cache write or a non-drawing mode is refused and counted. */
+    private fun selfTest(arm: Arm, c: LensCtx, src: ByteArray, now: Long): Boolean {
+        if (src.size < 2) return false
+        when (src[1].toInt() and 0xFF) {
+            0 -> {
+                if (!fbLeaseActive(arm, now)) { diag.event("selftest", "$arm begin refused: no FB lease"); return false }
+                c.stShadow = ByteArray(c.stride * Geometry.PANEL_H)
+                c.stSeq = 0; c.stRefused = false; c.stCrc = 0; c.stDiag = DiagState()
+                diag.event("selftest", "$arm begin: scratch shadow allocated and zeroed")
+                return true
+            }
+            2 -> { c.stShadow = null; diag.event("selftest", "$arm end: scratch freed"); return true }
+            1 -> {
+                if (src.size < 3) return false
+                if (!fbLeaseActive(arm, now)) { diag.event("selftest", "$arm step refused: the lease lapsed (scratch freed)"); return false }
+                val scratch = c.stShadow ?: run { diag.event("selftest", "$arm step refused: no begin"); return false }
+                val msg = src.copyOfRange(2, src.size)
+                var ok = false
+                if ((msg[0].toInt() and 0x7F) in CfwModes.SELF_TEST_MODES) {
+                    val live = c.shadow; val liveSeeded = c.seeded
+                    c.shadow = scratch
+                    swapDiag(c)
+                    c.stActive = true
+                    try { ok = dispatchImage(arm, msg, now) } finally {
+                        c.stActive = false
+                        swapDiag(c)
+                        c.shadow = live; c.seeded = liveSeeded
+                    }
+                } else diag.event("selftest", "$arm step refused: mode ${msg[0].toInt() and 0x7F} is not a drawing message")
+                c.stSeq++
+                c.stRefused = !ok
+                c.stCrc = java.util.zip.CRC32().also { it.update(scratch) }.value
+                return ok
+            }
+            else -> return false
+        }
+    }
+
+    private fun swapDiag(c: LensCtx) {
+        val s = c.stDiag
+        val t = DiagState()
+        t.lastFid = c.lastFid; t.highFid = c.highFid; t.fidResync = c.fidResync; t.diagSeen = c.diagSeen
+        t.fDup = c.fDup; t.fSkip = c.fSkip; t.fReorder = c.fReorder; t.recentPos = c.recentPos
+        c.recentFids.copyInto(t.recentFids)
+        c.lastFid = s.lastFid; c.highFid = s.highFid; c.fidResync = s.fidResync; c.diagSeen = s.diagSeen
+        c.fDup = s.fDup; c.fSkip = s.fSkip; c.fReorder = s.fReorder; c.recentPos = s.recentPos
+        s.recentFids.copyInto(c.recentFids)
+        c.stDiag = t
     }
 
     // ------------------------------------------------- direct seams for tests
@@ -952,12 +1091,12 @@ class GlassFirmwareSim() : LensPanels {
                     // "was there one?" question has to be asked BEFORE it runs
                     // or this narration can never fire (review 2026-09-02)
                     val hadCache = c.textureCache != null
-                    if (!fbLeaseActive(arm, now)) {
-                        c.damageFlags = 0
+                    if (c.leaseDeadline == 0L || now >= c.leaseDeadline) {
+                        leaseFreshAcquire(arm, c)
                         if (hadCache)
                             diag.event("texture", "$arm fresh FB lease after a lapse — " +
-                                "texture cache freed; the atlas must be uploaded again")
-                        c.textureCache = null
+                                (if (c.textureCache != null) "texture cache carried over under CACHE_KEEP (FIRMWARE.md §3)"
+                                else "texture cache freed; the atlas must be uploaded again"))
                     }
                     c.leaseDeadline = now + SettingsMsg.LEASE_EXPIRY_MS
                     diag.event("lease", "$arm FB lease acquired/renewed (90 s)")
@@ -965,11 +1104,10 @@ class GlassFirmwareSim() : LensPanels {
                 SettingsMsg.OP_FB_RELEASE -> {
                     releasesSeen++
                     ctx(arm).leaseDeadline = 0
-                    ctx(arm).textureCache = null          // settings_ext.c releases it here
-                    ctx(arm).damageFlags = 0              // FIRMWARE.md §3: with the cache
+                    val kept = leaseEnded(arm, ctx(arm))  // settings_ext.c releases the cache here, or keeps it (F1.5)
                     stockPattern(ctx(arm).panel)
                     diag.event("lease", "$arm FB lease released — stock repaints, " +
-                        "texture cache freed")
+                        "texture cache ${if (kept) "kept under CACHE_KEEP" else "freed"}")
                     diag.panelChanged(arm)
                 }
                 else -> diag.event("lease", "$arm control op ${control[3]} (unmodeled)")
@@ -994,7 +1132,7 @@ class GlassFirmwareSim() : LensPanels {
                 Pb.l(SettingsMsg.MIC_STATUS_FIELD, micStatusBody()),
                 damageContract?.let { v ->
                     Pb.l(DamageMsg.CAPS_FIELD, Pb.cat(Pb.s(1, "DMG"), Pb.v(2, v),
-                        Pb.v(3, DamageMsg.FEATURE_TELEMETRY or DamageMsg.FEATURE_FLAGS)))
+                        Pb.v(3, DamageMsg.PHASE1_FEATURES)))
                 } ?: ByteArray(0),
             )
             diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), SettingsMsg.SID,
@@ -1069,27 +1207,49 @@ class GlassFirmwareSim() : LensPanels {
         val op = body[3].toInt() and 0xFF
         val arg = (body[4].toInt() and 0xFF) or ((body[5].toInt() and 0xFF) shl 8)
         var requestId = 0
+        var withCacheCrc = false
         when (op) {
             DamageMsg.OP_TELEMETRY -> requestId = arg      // records no status: field 4 is the register
+            DamageMsg.OP_CACHE_INFO -> { requestId = arg; withCacheCrc = true }
             DamageMsg.OP_FLAGS_SET ->
-                if (arg and DamageMsg.FLAG_PROBE.inv() != 0) c.damageStatus = DamageMsg.STATUS_UNSUPPORTED
+                if (arg and DamageMsg.FLAGS_IMPLEMENTED.inv() != 0) c.damageStatus = DamageMsg.STATUS_UNSUPPORTED
                 else { c.damageFlags = arg; c.damageStatus = DamageMsg.STATUS_OK }
             DamageMsg.OP_FLAGS_CLEAR -> { c.damageFlags = 0; c.damageStatus = DamageMsg.STATUS_OK }
             else -> c.damageStatus = DamageMsg.STATUS_MALFORMED   // unknown op: recorded and answered
         }
         val leased = fbLeaseActive(arm, now)          // notices a lapse first: flags then read 0
         val diagBits = (if (c.fReorder) 1 else 0) or (if (c.fSkip) 2 else 0) or (if (c.fDup) 4 else 0)
+        val cache = c.textureCache
         val record = Pb.cat(
-            Pb.v(1, requestId), Pb.v(2, now), Pb.v(3, c.damageFlags), Pb.v(4, c.damageStatus),
+            Pb.v(1, requestId), Pb.v(2, now - uptimeOffsetMs), Pb.v(3, c.damageFlags), Pb.v(4, c.damageStatus),
             Pb.v(11, diagBits), Pb.v(12, if (leased) c.leaseDeadline - now else 0L), Pb.v(14, fwSide(arm)),
+            Pb.v(15, 0), Pb.v(16, c.presentSeq), Pb.v(17, c.cacheGen),
+            if (cache != null) Pb.v(18, cache.size) else ByteArray(0),
+            if (cache != null && withCacheCrc) Pb.v(19, java.util.zip.CRC32().also { it.update(cache) }.value) else ByteArray(0),
+            Pb.v(20, c.stSeq),
+            if (c.stSeq > 0) Pb.cat(Pb.v(21, if (c.stRefused) 1 else 0), Pb.v(22, c.stCrc)) else ByteArray(0),
         )
         diag.event("damage", "$arm op $op status ${c.damageStatus} flags 0x${c.damageFlags.toString(16)}")
+        // only RIGHT can send: FUN_00475b14 refuses on the left lens (CLAIMS.md, 2026-09-14)
+        if (arm != Arm.RIGHT) return
         diag.notify(arm, AaFrame.frame(nextSeq(), SettingsMsg.SID, SettingsMsg.FLAG_RESPONSE,
             Pb.cat(Pb.v(1, 3), Pb.v(2, 0), Pb.l(DamageMsg.TELEMETRY_FIELD, record)), AaFrame.TYPE_RESPONSE).single())
     }
 
     @Synchronized
     fun damageFlags(arm: Arm): Int = ctx(arm).damageFlags
+
+    /** F1.5 seams for tests: the cache's generation, whether it is allocated, the keep latch. */
+    @Synchronized
+    fun cacheGen(arm: Arm): Long = ctx(arm).cacheGen
+    @Synchronized
+    fun cacheAllocated(arm: Arm): Boolean = ctx(arm).textureCache != null
+
+    /** The self-test's last scratch CRC-32 and step count on [arm] (`FIRMWARE.md` §3). */
+    @Synchronized
+    fun selfTestCrc(arm: Arm): Long = ctx(arm).stCrc
+    @Synchronized
+    fun selfTestSteps(arm: Arm): Long = ctx(arm).stSeq
 
     // ------------------------------------------------------------------ logger (sid 0x0F)
     /** LoggerMsg: only BLE_LOGGER_SWITCH_SET is modeled — the RAM switch and

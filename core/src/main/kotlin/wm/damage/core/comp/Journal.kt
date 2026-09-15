@@ -86,6 +86,14 @@ class Journal(private val path: Path?) : AutoCloseable {
             (error?.let { ""","error":${json(it)}""" } ?: "") + "}")
     }
 
+    /** `FIRMWARE.md` §3 (F1.3): one panel transfer of a Damage frame, as the glasses report
+     *  it while the PRESENTED flag is armed — the number the eye waits for, which the ack
+     *  never carried (the ack precedes the transfer). One line per present; the feature is
+     *  armed for measurement sessions, not all day, so the journal stays small. */
+    fun present(seq: Long, workerUs: Long, copyUs: Long, transferUs: Long) {
+        write("""{"t":${System.currentTimeMillis()},"ev":"present","seq":$seq,"workerUs":$workerUs,"copyUs":$copyUs,"transferUs":$transferUs}""")
+    }
+
     fun note(kind: String, detail: String) {
         write("""{"t":${System.currentTimeMillis()},"ev":"note","kind":${json(kind)},"detail":${json(detail)}}""")
     }

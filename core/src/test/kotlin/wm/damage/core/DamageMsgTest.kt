@@ -34,6 +34,125 @@ class DamageMsgTest {
         // G2SettingPackage{1: 1, 2: 0, 112: ['D','M',1,op,argLo,argHi]}; field 112 wire 2 = 82 07
         assertEquals("08011000" + "8207" + "06" + "444d01012a00", DamageMsg.control(DamageMsg.OP_TELEMETRY, 42).hex())
         assertEquals("08011000" + "8207" + "06" + "444d01020080", DamageMsg.control(DamageMsg.OP_FLAGS_SET, DamageMsg.FLAG_PROBE).hex())
+        assertEquals("08011000" + "8207" + "06" + "444d01040700", DamageMsg.control(DamageMsg.OP_CACHE_INFO, 7).hex())
+        // the self-test rides the image lane as mode 16 (CfwModes)
+        assertEquals("1000", wm.damage.core.wire.CfwModes.selfTestBegin().hex())
+        assertEquals("1002", wm.damage.core.wire.CfwModes.selfTestEnd().hex())
+        assertEquals("1001" + "0900000000", wm.damage.core.wire.CfwModes.selfTestStep("0900000000".unhex()).hex())
+        assertTrue(runCatching { wm.damage.core.wire.CfwModes.selfTestStep("0c0000".unhex()) }.isFailure, "a cache write is not a self-test step")
+    }
+
+    @Test
+    fun presentedNotifyParses() {
+        // field 113 DamagePresented { 1 seq, 2 worker µs, 3 copy µs, 4 transfer µs, 5 lens }
+        val body = Pb.cat(Pb.v(1, 42), Pb.v(2, 900), Pb.v(3, 210), Pb.v(4, 3100), Pb.v(5, 1))
+        val p = assertNotNull(DamageMsg.parsePresented(Pb.cat(Pb.v(1, 3), Pb.v(2, 0), Pb.l(113, body))))
+        assertEquals(DamageMsg.Presented(42, 900, 210, 3100, 1), p)
+        assertNull(DamageMsg.parsePresented(Pb.cat(Pb.v(1, 3), Pb.v(2, 0))), "no field 113, no notify")
+        val t = assertNotNull(DamageMsg.parseTelemetry(Pb.cat(Pb.v(1, 3), Pb.v(2, 0),
+            Pb.l(111, Pb.cat(Pb.v(1, 1), Pb.v(15, 3100), Pb.v(16, 7), Pb.v(17, 2), Pb.v(18, 65536), Pb.v(19, 0x1234abcdL), Pb.v(20, 3), Pb.v(21, 0), Pb.v(22, 0x066e64a1L))))))
+        assertEquals("id=1 transferUs=3100 presents=7 cacheGen=2 cacheSize=65536 cacheCrc=1234abcd stSteps=3 stRefused=0 stCrc=066e64a1", t.describe())
+        assertEquals(3100L, t.transferUs); assertEquals(0x066e64a1L, t.selfTestCrc)
+    }
+
+    /** F1.3 and F1.5 through the transport against the model: the presented notify per
+     *  present while armed (RIGHT only), the cache's generation, and the cache kept across a
+     *  lapse and the fresh acquire after it under CACHE_KEEP. */
+    @Test
+    fun presentedNotifyAndCacheKeepThroughTheTransport(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val sim = GlassFirmwareSim().also { it.damageContract = 1 }
+            var clock = 1_000_000L
+            val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock })
+            val notes = ArrayList<Pair<String, String>>()
+            val presented = ArrayList<TransportEvent.Presented>()
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                t.events.collect {
+                    if (it is TransportEvent.Note) synchronized(notes) { notes.add(it.kind to it.detail) }
+                    if (it is TransportEvent.Presented) synchronized(presented) { presented.add(it) }
+                }
+            }
+            fun has(kind: String, text: String) = synchronized(notes) { notes.any { it.first == kind && text in it.second } }
+            val full = Zl.encodeCfw(Pack.rect(Gray8(640, 480), Rect(0, 0, 640, 480)))
+            t.start(full)
+            until("the Damage build is named") { has("glass", "DamageCaps contract 1 features 0x1f") }
+            assertTrue(synchronized(presented) { presented.isEmpty() }, "no notify while unarmed")
+            t.devProbe("flags", "0x0003")             // PRESENTED | CACHE_KEEP
+            until("both arms armed") { Arm.entries.all { sim.damageFlags(it) == 3 } }
+            t.submit(wm.damage.core.transport.FlushRequest(listOf(wm.damage.core.transport.DisplayOp.Keyframe(full)), 1L, "test"))
+            until("one presented notify, from RIGHT, with the glasses' count") {
+                synchronized(presented) { presented.size == 1 && presented[0].seq == 1L }   // the warmup burst is dropped by the firmware, never presented
+            }
+            // a cache write bumps the generation on both arms
+            val write = wm.damage.core.wire.CfwModes.cacheUpdate(listOf(wm.damage.core.wire.CfwModes.CacheWrite(0, ByteArray(300) { it.toByte() })))
+            t.submit(wm.damage.core.transport.FlushRequest(listOf(wm.damage.core.transport.DisplayOp.CacheWrite(write)), 1L, "atlas"))
+            until("the cache is written on both arms") { Arm.entries.all { sim.cacheGen(it) == 1L && sim.cacheAllocated(it) } }
+            t.devProbe("cache", "info")
+            until("CACHE_INFO reports the generation, size and CRC") { has("glass", "cacheGen=1 cacheSize=65536 cacheCrc=") }
+            // the lease lapses on the glasses' clock: the flags clear, the cache stays (F1.5)
+            clock += 200_000L
+            t.devProbe("telemetry", "read")
+            until("the lapse cleared the flags") { Arm.entries.all { sim.damageFlags(it) == 0 } }
+            assertTrue(Arm.entries.all { sim.cacheAllocated(it) }, "CACHE_KEEP: the cache survives the lapse on both arms")
+            // the fresh acquire that follows carries it over (the latch is spent)
+            for (arm in Arm.entries) sim.conformanceLease(arm, true, clock)
+            assertTrue(Arm.entries.all { sim.cacheAllocated(it) && sim.cacheGen(it) == 1L }, "the cache carried over the fresh acquire")
+            // not re-armed: the next lapse frees it (upstream's rule)
+            clock += 200_000L
+            t.devProbe("telemetry", "read")
+            until("the second lapse freed the cache") { Arm.entries.none { sim.cacheAllocated(it) } }
+            t.stop()
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /** `FORK.md` §3.2: the keeper re-arms the wanted flags after every session start — unless
+     *  the glasses reset within the hold-back window after the last arming, which disarms the
+     *  wish and says so. The model's uptime is its clock less an offset; a reset sets the offset. */
+    @Test
+    fun theKeeperReArmsAndHoldsBackAfterAReset(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val sim = GlassFirmwareSim().also { it.damageContract = 1 }
+            var clock = 1_000_000L
+            val t = SimTransport(sim, scope, SimTransport.Timing(instant = true), clock = { clock })
+            val notes = ArrayList<Pair<String, String>>()
+            val faults = ArrayList<String>()
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                t.events.collect {
+                    if (it is TransportEvent.Note) synchronized(notes) { notes.add(it.kind to it.detail) }
+                    if (it is TransportEvent.Fault) synchronized(faults) { faults.add("${it.what}: ${it.detail}") }
+                }
+            }
+            fun has(kind: String, text: String) = synchronized(notes) { notes.any { it.first == kind && text in it.second } }
+            val full = Zl.encodeCfw(Pack.rect(Gray8(640, 480), Rect(0, 0, 640, 480)))
+            t.start(full)
+            t.devProbe("flags", "probe")
+            until("armed by the probe") { Arm.entries.all { sim.damageFlags(it) == DamageMsg.FLAG_PROBE } }
+            // the glasses reset 10 s after the arming; the lease lapses; the session is rebuilt
+            clock += 10_000L
+            sim.uptimeOffsetMs = clock
+            clock += 200_000L
+            assertTrue(t.restartSession("test: after a reset"))
+            t.start(full)
+            until("the reset is seen and the wish held back") { has("keeper", "hold-back: the glasses reset 10 s after flags 0x8000 were armed") }
+            until("a fault the wearer sees") { synchronized(faults) { faults.any { it.startsWith("holdback:") } } }
+            delay(300)
+            assertTrue(Arm.entries.all { sim.damageFlags(it) == 0 }, "nothing armed after the hold-back")
+            // asked for again: armed now, and re-armed after a rebuild with no reset
+            t.devProbe("flags", "probe")
+            until("armed again by the probe") { Arm.entries.all { sim.damageFlags(it) == DamageMsg.FLAG_PROBE } }
+            clock += 200_000L                           // a lapse clears the flags on the glasses; no reset
+            assertTrue(t.restartSession("test: no reset"))
+            t.start(full)
+            until("the keeper re-armed the wish after the start") { has("keeper", "armed bit 15 — flags in force 0x8000") }
+            until("in force on both arms") { Arm.entries.all { sim.damageFlags(it) == DamageMsg.FLAG_PROBE } }
+            t.stop()
+        } finally {
+            scope.cancel()
+        }
     }
 
     @Test
@@ -74,11 +193,14 @@ class DamageMsgTest {
                     t.stop()
                     continue
                 }
-                until("the Damage build is named") { has("glass", "DamageCaps contract 1 features 0x3") }
+                until("the Damage build is named") { has("glass", "DamageCaps contract 1 features 0x1f") }
                 t.devProbe("flags", "probe")
                 until("both arms armed") { Arm.entries.all { sim.damageFlags(it) == DamageMsg.FLAG_PROBE } }
-                until("both arms answered with the flag in force") { has("glass", "R ") && has("glass", "L ") && has("glass", "flags=0x8000") }
-                t.devProbe("flags", "0x0001")
+                // only RIGHT can answer (the stock senders' lens rule, CLAIMS.md 2026-09-14); LEFT armed all the same
+                until("RIGHT answered with the flag in force") { has("glass", "R ") && has("glass", "flags=0x8000") }
+                delay(200)
+                assertTrue(synchronized(notes) { notes.none { it.first == "glass" && it.second.startsWith("L ") } }, "LEFT sends nothing")
+                t.devProbe("flags", "0x0100")            // bit 8: no Phase 1 build implements it
                 until("an unimplemented bit answers with the register at 2") { has("glass", "lastStatus=2") }
                 assertTrue(Arm.entries.all { sim.damageFlags(it) == DamageMsg.FLAG_PROBE }, "a refused set changes nothing")
                 // a lease lapse on the glasses' clock clears the flags (the texture cache's release points)
