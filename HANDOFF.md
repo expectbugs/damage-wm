@@ -3461,8 +3461,9 @@ whether a FLAGS_SET with no lease held should be refused (§53.1 item 2).
 
 Adam's instruction for the session: read the documentation, then run `REMINDER.md`'s queue (§51.9) as far as it
 goes without him. Nothing flashed, nothing installed, the `damage` service untouched; the Damage tree left
-modified and **uncommitted** for his review (the global rule: commit on his word); the fork untouched (pin
-`c5e4f8b7…` stands — none of this needed a firmware change). Plain wording throughout.
+modified and uncommitted for his review until he got home, then **committed and pushed on his word
+(`940272e`)**; the fork untouched (pin `c5e4f8b7…` stands — none of this needed a firmware change). Plain wording
+throughout.
 
 ### 54.1 The bounded atlas skip, built (queue item 1; Adam's ruling §51.8, §42.4's plan)
 
@@ -3640,8 +3641,9 @@ candidate — the sources Adam is about to read, the pin in three places, `verif
 ~2–3 ms figure the first `probe:cache=info` after the flash can be timed from the phone's side (the request
 to the reply, minus the link's floor). Not worth a third pin before his review.
 
-Damage modified and uncommitted (the diff is the deliverable; `git status` lists it); the fork untouched
-(`c5e4f8b7…`); APK 0.49 staged; nothing flashed; the service on 0.44's core. **Adam's part is unchanged
+Damage **committed and pushed on Adam's word when he got home: `940272e` on `origin/main`** (the tree had been
+left uncommitted for his review); the fork untouched (`c5e4f8b7…`, `2935a66` on `github/damage`); APK 0.49
+staged; nothing flashed; the service on 0.44's core. **Adam's part is unchanged
 (§51.9 part B):** the source and site review, M0.1, install **0.49**, the flash ritual with his go; plus
 the ruling of §53.1 (a FLAGS_SET with no lease held). **Next for a session without him:** the touch
 processor and the ring service (the ids behind 2/7/8 and the ring's raw codes), the RTC getter's stock

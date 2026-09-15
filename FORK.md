@@ -466,6 +466,7 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   host not the limit — F1.8 dropped in its ATT-write form; the cadence's cause U. The core suite ran 30 times
   (§54.5, §54.7: the Feed miss 5, a seam-test race 2, three untraced exceptions, 18 clean); a self-review pass
   made three small changes (a locale-safe gap, the lease log kept by count, a bound on re-sent chunks) and the
-  battery ran again green. Damage left modified and uncommitted for Adam; nothing flashed. Next: his part (§51.9 B, APK 0.49), the
+  battery ran again green. Damage committed and pushed on Adam's word (`940272e`); the fork untouched; nothing
+  flashed. Next: his part (§51.9 B, APK 0.49), the
   §53.1 ruling; for a session without him: the touch processor and ring service, the RTC getter, a capture
   with the ring asleep.

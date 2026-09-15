@@ -10,8 +10,8 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
 
 - **🔴 The §51.9 queue ran (`HANDOFF.md` §54): the bounded atlas skip is BUILT (APK 0.49 staged), R0.1 and
   R0.5 are read, M0.3's per-event read is done, the core suite ran ×20 (plus a self-review pass with three
-  small changes and a final loop, §54.7); the Damage tree is modified and UNCOMMITTED for Adam's review, the
-  fork untouched (pin `c5e4f8b7…`), nothing flashed.** The skip: the
+  small changes and a final loop, §54.7); **committed and pushed on Adam's word (Damage `940272e` on
+  `origin/main`)**, the fork untouched (pin `c5e4f8b7…`), nothing flashed.** The skip: the
   transport keeps a per-arm lease log (writes of the last 10 s before a link end struck; a release sticky)
   and decides at the rebuild's acquire whether both arms were inside 90 s less a 10 s margin; the shell keeps
   the atlas when it was, cached text is on, the session is not adopted and the last cache writer was itself
@@ -132,9 +132,9 @@ The ack precedes the panel refresh (§48.1, verified): what the eye waits for is
 
 ## 🔴 The next session — the queue before Adam is home, then his part (`HANDOFF.md` §51.9, run 2026-09-15: §54)
 
-**State to start from (2026-09-15, end of the queue run):** the Damage tree is MODIFIED and UNCOMMITTED
-(`HANDOFF.md` §54 — the skip, the reads, the tools, the docs; `git status` lists it) for Adam's review and his
-word to commit; the fork is unchanged at pin `c5e4f8b7…` (nothing below needed firmware); APK **0.49** is staged,
+**State to start from (2026-09-15, after the queue run):** Damage `940272e` committed and pushed on Adam's word
+(`HANDOFF.md` §54 — the skip, the reads, the tools, the docs); the fork is unchanged at pin `c5e4f8b7…` (nothing
+below needed firmware); APK **0.49** is staged,
 not installed; nothing flashed; the OpenRC `damage` service runs 0.44's core and must **not** be restarted
 while Adam is at work on it. Gradle invocations one at a time (the oracle walk misses settles under parallel
 load — §54.5 saw one); the full battery after any code change (`CLAUDE.md`); a core change that should reach
