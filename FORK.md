@@ -369,6 +369,10 @@ in `fws/`. The site list of every candidate (`~/damage-cfw/tools/verify.py` step
 New windows and games; the radio controller's firmware (2M acceptance, event length); the touch
 controller's firmware; the voice chip; the bootloader (no second image slot); writing the external
 flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase to 2.2.9.
+- **Temple touch bursts restarting an arm** (`HANDOFF.md` §54.8, 2026-09-15): a dozen taps on either temple in a
+  few seconds stops that arm (a beep, the stock launcher, the phone's timeout, a rebuild). Adam's ruling: noted, not
+  the work — the ring never does it; studied at the public-release polish for users without the ring. Phase 4's
+  design note (local input off the input send's queue) stands.
 
 ## 10. Repos, files, where things live
 

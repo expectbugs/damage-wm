@@ -3634,6 +3634,114 @@ parallel load); 18 runs clean.** The rest of the battery on the same reviewed tr
 `--selfcheck` ×2 ALL CHECKS PASS · `--snapshot` 57 · `--epub-check` 380/404 · `--music-check` · `--games-check` ·
 `--feed-check` · lint 0 · `:phone:stageApk` alone (0.49 re-staged, 01:40).
 
+### 54.8 M0.1 read on glass, and two rebuilds while Adam handled the glasses (2026-09-15, 03:08–03:10)
+
+**M0.1 (grade M, the installed a5d1c31 build, APK 0.45, `probe:diag=show` at 03:07:59 with the glasses in the
+charging case, read by Adam once worn):** the overlay line read `OK w1719us p1173us f13/20/27=306/75/145k` (the
+firmware font draws the `w` as a glyph Adam described as "an o with a comma inside"). So: worker 1,719 µs, the
+shadow → framebuffer copy 1,173 µs (not the tick ceiling — the panel transfer is outside it), free heap **306 KiB
+in arena 13, 75 KiB in arena 20, 145 KiB in arena 27**. Against the arena sizes (13: 820 KiB, 20: 450 KiB, 27: ~179
+KiB): arena 13 has ~514 KiB in use — the two 162 KiB container buffers, the 64 KiB texture cache and the 150 KiB
+shadow account for ~538 KiB, so **the containers live in arena 13** (I → the figures fit nothing else); arena 20 has
+~375 KiB in use; arena 27 ~35 KiB. The self-test's 150 KB scratch fits in arena 13's free space with ~156 KiB to
+spare; cache growth beyond 64 KiB has that same headroom, not both at once. `probe:diag=hide` sent 03:17:18.
+
+**What happened around it (the phone's log and journal; grade M for the sequence, U for the causes):**
+1. 03:08:49 the glasses pushed **Silent Mode ON** (the first such push since the journal began recording them on
+   the 14th — the case-out at 13:15 the day before produced none); the shell released the lease (the lenses went
+   blank; Adam saw the stock UI on the RIGHT lens only); 03:08:50 a SYSTEM_EXIT (the EvenHub page ended).
+   03:08:58 **Silent Mode OFF** pushed → the shell's wake = a deliberate session rebuild (attempt 117), driving at
+   03:09:08. The overlay came back on the LEFT lens only: RIGHT's diag state had been re-created (a reset, or the
+   page exit's cleanup, which hides the overlay — undecided), LEFT's had not. Adam heard the glasses beep once
+   just before the overlay reappeared.
+2. 03:09:30–03:09:39 about twenty temple events (taps and double-taps from the right temple, long-press releases
+   unattributed) — handling; the shell ignores non-ring gestures. 03:09:39 SYSTEM_EXIT again; **03:09:47 RIGHT's
+   link ended with a supervision timeout**; the rebuild (attempt 118) drove at 03:09:56, RIGHT sending six sid-0x01
+   status pushes outside the prelude as it reconnected (a state word 3 → 1), which the first rebuild did not show.
+3. Afterwards: the clock on both lenses, the overlay on LEFT only, then hidden.
+
+**Candidates that fit every observation (none tested; the ten-explanations rule):** (1) RIGHT reset once or
+twice — the overlay's heap walk or string draw faulting on RIGHT's heap after 50 s of drawing it on every present
+(the overlay had never run on this pair before); (2) a both-temple grip while taking the glasses out toggled the
+firmware's Silent Mode (its detection runs on RIGHT before the UI layer and the phone sees nothing of it), the
+second toggle nine seconds later; (3) the case-out transition itself (the charger state change, the wear sensor)
+— weakened by the 14th's silent case-out; (4) the double-taps on the right temple exiting the EvenHub page (the
+second SYSTEM_EXIT) and the exit path faulting RIGHT while the lease was held; (5) the input burst filling RIGHT's
+sync queue — the send that waits 2 s and then stops in an unbounded loop (read today) — and a watchdog reset eight
+seconds later; (6) an ordinary §42.2 link end coinciding with the handling; (7) the page exit's cleanup hiding
+RIGHT's overlay with no reset at all, the RIGHT drop separate; (8) the shell's own wake choreography ending the
+link with the release only reaching one arm, so only RIGHT repainted stock; (9) the beep as the stock touch
+feedback or the Silent-Mode chime, unrelated to the drops; (10) the bulk lane's timing — LEFT paints first after a
+rebuild, so "the clock on LEFT first" is normal. **The discriminating tests, each one command and one minute,
+each provoking at most the daily arm-drop class (recovers in ~10 s):** worn and still with the overlay off (the
+baseline); worn and still with the overlay on for three minutes (a RIGHT drop implicates the overlay); the right
+temple tapped for ten seconds with the overlay off (a drop implicates the input or page-exit path). Adam's call.
+
+**Adam's answers and a third event (03:17–03:19):** he toggled Silent Mode on and off himself with the both-temple
+press because the lenses were blank when he first put them on (so candidate 2 explains the round trip, and the
+blank came BEFORE it, ~40 s after the overlay probe); the glasses never beep normally; the beep came after his
+taps, and again right after `probe:diag=hide` (03:17:20) — a few seconds later the clock disappeared, he tapped
+the right temple (double-taps at 03:18:38 and 03:18:40), a beep, and the clock came back. The log: SYSTEM_EXIT at
+03:18:42, two sid-0x01 status pushes, **RIGHT's supervision timeout at 03:18:50**, the rebuild driving at 03:18:58.
+No link event between the hide probe and the taps: RIGHT's link was up while the display was blank. So two
+chains, both seen twice tonight: **(a) a right-temple double-tap → the EvenHub page exits (stock behaviour the CFW
+does not patch; it patches the long-press only) → RIGHT stops answering within ~3 s → its supervision timeout → a
+rebuild** (03:09:39→47, 03:18:42→50); **(b) a mode-7 diag probe (show or hide) → the display goes blank within
+seconds while the link stays up, with a beep at the hide** (03:07:59→~03:08:30 blank found; 03:17:20→~03:17:25),
+recovered only by a rebuild (his Silent toggle, or the drop). The CFW's only buzzer use is image mode 5 (a UI
+sound, `zlib_glue.c`), which Damage never sends; which stock chime fired and why is U. The diag probe is not to
+be used again on this build; the mode-7 path on a5d1c31 is a defect candidate the simulator does not model
+(it treats sub 1/2 as a flag) — one more `hide` while worn and watched would confirm (b); a controlled double-tap
+would confirm (a). Both provoke a blank or a drop; Adam's call. **Read in the source the same night:** a5d1c31's
+mode-7 handler only sets `diag_hide` and returns 0 to `image_worker`, which returns it to the stock deferred image
+path as "loaded"; a mode-7 message takes no display gate and sets no direct frame, so what the stock container does
+with a two-byte "image" it was told loaded — a repaint of an empty container over the Damage frame is the candidate
+for the blank — is the next read (`image_deferred`'s caller, the container refresh); the host harness runs the
+patch code only and cannot show it. Grade U.
+
+**A third RIGHT stop, provoked on purpose (03:30, grade M):** with the clock on both lenses Adam tapped the right
+temple. Single and double taps changed nothing and reached the phone as nothing; a burst of taps did: the log has
+three DOUBLE_TAPs and nine LONG_PRESS_RELEASEs in 3.0 s (03:30:22.6–25.6 — the CFW forwards every touch RELEASE as
+type 10, so a tap is two notifies from RIGHT), **no page exit this time, and RIGHT's supervision timeout at
+03:30:30.9 — RIGHT's last packet at ~03:30:25.9, the end of the burst.** The clock vanished and the RIGHT temple
+beeped at that moment; while blank, a double-tap brought the stock UI up on the RIGHT lens only (RIGHT was already
+back in its stock launcher, i.e. it had restarted), another double-tap dismissed it, and the rebuild (driving
+03:30:39.9) brought the clock back on both. **So: a burst of right-temple touches stops RIGHT within seconds, three
+of three times tonight (03:09, 03:18, 03:30), with a beep from RIGHT at the stop and RIGHT back in stock a few
+seconds later — a restart, by every sign short of an uptime read.** LEFT never stopped tonight. The page exit of
+the first two events was incidental. Candidate mechanism from today's R0.1 read (U): RIGHT's input manager sends
+every accepted event to the peers through `FUN_00465748`, whose queue post waits 2,000 ms and then stops the
+firmware in an unbounded loop when the queue is full — a burst at ~4 events a second, doubled by the CFW's release
+forwarding, with the consumer held up (the display gate, the UART), fills it; a watchdog then restarts the arm.
+Alternatives: the stock touch processor's error reset ("SLIDER_EVENT_ERROR: reset touch"); the BLE send queue
+`FUN_0047564E` past its limit; a stock double-tap path under the CFW's lease. **The one cheap discriminator:**
+`probe:logger=on` (the glasses' own log stream into the journal as `glasslog` notes) and one more burst — RIGHT's
+last lines before it stops would name the queue ("send msg to g_syncScheduleMgr_queue failed" is a string in the
+framework) or the assert; a LEFT-temple burst would say whether it is RIGHT's role or the local touch path. Costs
+one more restart of the daily class. Design input for `FORK.md` Phase 4 either way: a local input path must not
+ride that queue unbounded. Whether the ~50-minute alternating drops are the same restart-with-a-beep class is U
+(Adam has never heard a beep from them; at work the floor is loud, and in the case nobody listens).
+
+**The LEFT temple, same test (03:34, grade M):** a burst on the LEFT temple (one DOUBLE_TAP with source 3 =
+GLASSES_L and thirteen releases in 2.6 s) → a SYSTEM_EXIT two milliseconds after the last release (RIGHT ending the
+page as LEFT went) → sid-0x01 status pushes numbered 1001 and 1002 again (the same two the 03:09 rebuild showed, so
+that counter restarts) → **LEFT's supervision timeout at 03:34:58, thirteen seconds after the exit** → the rebuild
+driving at 03:35:06. Adam saw "slightly similar behaviour, on the left." So it is the arm whose temple is touched
+that stops — the local touch path, not RIGHT's role — and RIGHT reports the page exit when LEFT goes, which is the
+daily LEFT-drop signature (exit, then LEFT's timeout), only slower here. **Adam's ruling (03:40): note it and move
+on.** His reading is a recovery or override feature of the glasses; the ring is the use case and nothing in it
+touches the temples at that rate; the behaviour is studied in detail at the public-release polish, when people
+without the ring are in view. No probe, no test, no fork item for it now beyond the Phase 4 design note above.
+
+**The drop history, re-read tonight (grade M, the journal since 09-11):** every LEFT supervision-timeout drop but
+one (12 of 13) is preceded by a SYSTEM_EXIT event **1.3–1.5 s earlier**, and no RIGHT drop is (0 of 14 before
+tonight). Only RIGHT can send, so a page exit reported 1.3 s before LEFT's timeout means RIGHT's page manager
+ended the page when LEFT went quiet (LEFT's timeout counts 5 s from LEFT's last packet: LEFT stopped ~3.7 s before
+the exit); a RIGHT drop cannot announce itself. So the ~50-minute alternating drops read as **each arm stopping or
+resetting in turn**, the page exit being RIGHT's report of LEFT's departure — the reset-vs-stall question F1.2's
+uptime settles after the flash. Tonight's two RIGHT drops are the other order (exit first, then RIGHT gone) and
+a different mechanism. Adam's ruling that the drops are not the work stands; this is the record.
+
 ### 54.6 State and next
 
 **Queue item 6 (a DWT stamp around the CACHE_INFO CRC) was left alone on purpose:** it changes the fork's

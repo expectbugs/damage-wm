@@ -186,9 +186,12 @@ the Feed miss is a tap on the comic bar's "first" button in a transient one-item
 unidentified — the cheap experiment (a rig that waits for its start click, or a WARN line in `comicTap`) is a
 Feed test change, **Adam's call**; five one-off full-suite failures (three `NoSuchElementException`s in unrelated
 tests, a Music-mode miss, a seam miss) did not reproduce in 125 targeted class-runs — the final loop's kept XMLs
-(§54.7) are where a trace would be; the touch processor `[0x00502D56,0x00503298)` and the ring service for the
-event ids behind slides and swipes; the stock RTC getter's name; one fuel-gauge store at instruction level; the
-TinyFrame role byte; a capture with the ring asleep for the 60 ms cadence question.
+(§54.7) are where a trace would be; the ring service for the ring's event ids (the touch processor's temple ids can wait — see below); the stock RTC
+getter's name; one fuel-gauge store at instruction level; the TinyFrame role byte; a capture with the ring asleep
+for the 60 ms cadence question. **Noted and parked by Adam's ruling (2026-09-15, §54.8): a burst of taps on either
+temple restarts that arm (a beep, the stock launcher, the phone's timeout, a rebuild) — the ring never does it;
+studied at the public-release polish for ring-less users. M0.1 is measured (item 27 below); the `diag` probe blanks
+the display on this build and is retired.**
 
 **B. Adam's part, when home:** `patches/damage_ext.c` read whole and the site list (`tools/verify.py` step 6:
 `0x00473CE4` in `FUN_00473C44`) reviewed against `FORK.md` §3.1; **M0.1**, one minute: `probe:diag=show`, read
@@ -249,7 +252,7 @@ source; plain wording in every file, comment and commit (`HANDOFF.md` §48.5).
 | 24 | **Does the firmware enter Silent Mode by itself** (wear detection, idle)? | the journal will say |
 | 25 | **The arm rebuilds' cause** (§42.2) | `FORK.md` M0.5 (a boot banner settles reset-or-stall), M0.6, and **M0.7** (the glasses sat in the case through drops and quiet nights alike: the phone's state is the variable — §50.6) |
 | 26 | **The wake loop's cause** (§42.3) | the `keeper: start failed: …` notes name it |
-| 27 | **Free heap and worker/copy time on glass** | `FORK.md` M0.1 (`probe:diag=show`, APK 0.45) — sets the cache and scratch budgets |
+| 27 | ~~**Free heap and worker/copy time on glass**~~ **measured 2026-09-15 (§54.8):** free 306 / 75 / 145 KiB in arenas 13 / 20 / 27, worker 1,719 µs, copy 1,173 µs — the self-test's 150 KB scratch fits with ~156 KiB to spare | `FORK.md` M0.1 done; the same session showed a Silent-Mode round trip and a RIGHT link end while the glasses were handled (§54.8, causes U) |
 | 27b | **The panel transfer time per present** (a full 153,602-byte frame on both drivers; nothing times it today) | `FORK.md` F1.3 — sets the tick ceiling |
 | 27c | **Which panel Adam's pair has** (A6N-G or JBD4010 — decides whether a partial refresh exists, F1.7) | `probe:telemetry=read` on the Damage build (field 10, `panel=…(JBD4010)` in the `glass` note), or the boot log |
 | 27d | **The self-test on glass** — do the drawing vectors give the simulator's CRCs on the flashed image? | `glassdrive.py selftest:` after the flash; RIGHT reports, LEFT runs blind (the senders' lens rule) |
