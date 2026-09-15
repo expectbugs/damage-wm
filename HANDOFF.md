@@ -3766,3 +3766,49 @@ the ruling of §53.1 (a FLAGS_SET with no lease held). **Next for a session with
 processor and the ring service (the ids behind 2/7/8 and the ring's raw codes), the RTC getter's stock
 name, a fuel-gauge store at instruction level, the TinyFrame role byte; a capture with the ring asleep for
 the 60 ms question.
+
+## 55. Phase 1's first flash — DONE 2026-09-15, 04:26 (LEFT) and 04:35 (RIGHT)
+
+Context for the reader: a personal device, the published patch method, display-rendering work. Adam's go, given
+in the moment for each lens after its dry-run staircase; the rollback image kept.
+
+### 55.1 The ritual as run (`FORK.md` §7)
+
+1–5. Offline gates the same night: `research/verify_cfw.py` all pass (the then-installed image reproducible),
+the fork's `tools/verify.py` all pass (pin `c5e4f8b7cc5e5d8a…`, 27 entries, the one new site `0x00473CE4` in
+`FUN_00473C44`, a 46,480-byte block, 20 Thumb branches, 377 KB below the OTA flag), `host/run_vectors.py` 7/7,
+`host/run_self_test.py`, `host/test_damage_ext.py` 44/44; the image on disk hashed to the pin; the fork tree clean
+at `2935a66`; the flasher byte-identical to the pinned reference that flashed on 08-30, run from Damage's venv
+(bleak 3.0.2 — the fork clone has no venv of its own).
+6. The `damage` standby stopped (it claims advertising arms), the phone's Bluetooth off (Adam).
+7. The staircase per lens, nothing written: `--stop-before heartbeat` (discovery ok), `file_check` (authentication
+ok), `flash` (FILE_CHECK acked, begin ack 0 SUCCESS, stopped before the data blocks).
+8. The writes, Adam's go each time: **LEFT 04:25:57–04:29:16, 168 s; RIGHT 04:34:58–04:38:15, 169 s** — six
+components each (codec, ble_em9305, touch, box, bootloader, ota), 4,347,707 B, **zero block resends, every END
+verify status 8 (UPDATING), exit 0** — the same shape as 08-30. Archived with the logs, the patch manifest and
+the hash in `fws/2.2.6.10-cfw-c5e4f8b7/`; the previous image `fws/2.2.6.10-cfw-d4054ab1/` is the rollback.
+9. Phone Bluetooth on 04:45; the first session on the new build at 04:45:55: **`glass DamageCaps contract 1
+features 0x1f`**; the atlas reset with "L gap 1398.5 s, R gap 1398.5 s" (a reboot: right) and re-uploaded 48,874 B
+in ten seconds. **The on-glass self-test: all five drawing vectors match the simulator's CRCs on RIGHT — 21 steps,
+the refusals refused where expected (`v1-refusals` steps 1, 2 and 5)**; LEFT runs the same steps blind.
+**Telemetry (`probe:telemetry=read`, RIGHT):** uptime 686 s at 04:49 (the reboot at ~04:38), flags 0, status 0,
+**panel `0x70b024` = JBD4010** (F1.7's per-row partial refresh exists on this pair), free 322 / 75 / 145 KiB in
+arenas 13 / 20 / 27 with the atlas up (172 KiB in 13 while the self-test's 150 KiB scratch was allocated — the
+scratch accounted for exactly), copy 526–549 µs, **the panel transfer 1.2–6.6 ms per present** (the F1.3 stamp:
+1,739 / 3,684 / 4,677 µs in the records, then the `present` journal records 2,034 / 2,015 / 1,341 / 6,575 / 1,204
+µs for seq 194–198), cacheGen 19 (the 19 mode-12 messages of the upload), cacheSize 65,536, cacheCrc `d949b904`.
+10. The flags one at a time: `probe:flags=0x8000` → the reply `flags=0x8000`; `probe:flags=0x8001` → `flags=0x8001`
+and the `present` records began at once. `0x0002` (CACHE_KEEP) stays unarmed. The standby restarted 04:49.
+11–12. The soak is Adam's day; `journal_report.py`'s transfer section is the tick ceiling's first distribution.
+
+### 55.2 What is settled by it (rows in `CLAIMS.md`)
+
+The fork's toolchain and flasher reproduce the 08-30 result; the one new site runs from boot with no visible
+effect on the stock refresh (the display worked on both lenses through the session that followed — Adam's eyes
+for LEFT); the self-test path equals the normal path on the glasses, not only on the host and in the simulator;
+a present's panel transfer is a few milliseconds, so the tick ceiling of `FORK.md` Phase 3 is the link, not the
+panel (grade M, n=8 so far); the pair's panel is the JBD4010, so F1.7 is buildable; the heap budget: ~320 KiB free
+in arena 13 with the atlas up, 150 KiB of which the self-test borrows. Still open from this session: the
+`research/verify_cfw.py` pins name the PREVIOUS image (now the rollback) — the installed image's provenance is
+the fork's `tools/verify.py` from here on (the gate line in `REMINDER.md` says so); the arm / hold-back keeper
+protocol has its first real uptimes to work with; the daily drops now come with a boot count of sorts (uptime).

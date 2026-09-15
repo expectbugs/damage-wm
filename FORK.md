@@ -159,7 +159,7 @@ this plan's work: Adam never sees one while wearing the glasses.
 
 **Exit:** the numbers in a table; the verb set; the contract draft; the decisions. No flash.
 
-### Phase 1 — The fork pipeline and the first flash (size M; 1 flash)
+### Phase 1 — The fork pipeline and the first flash (size M; 1 flash) — **the first flash DONE 2026-09-15 (`HANDOFF.md` §55): both lenses on pin `c5e4f8b7…`, the self-test green on glass, the panel JBD4010, the transfer 1.2–6.6 ms per present, PROBE + PRESENTED armed; the soak day and F1.7 remain**
 
 **Repo `~/damage-cfw`** (created 2026-09-12 from `reference/g2flash` at `a5d1c31`, branch `damage`,
 with our one-line flasher fix carried over): clang cross-compile on beardos (checked: works),

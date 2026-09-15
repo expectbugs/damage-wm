@@ -88,8 +88,11 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
   `high` — 14 on 09-13, alternating arms, none from 22:35 to 08:04 with the session up. Whether `balanced` changes
   them is the second M0.6 day.
 - **`POPOVER.md` is a complete spec, not built** (`HANDOFF.md` §46) — built in `FORK.md` Phase 6a (D3).
-- **LIVE as the all-day daily driver.** CFW g2flash `a5d1c31` (reports `2.2.6.10`; detect by `EVENCFW/`, never
-  the version). The phone APK drives — radio and shell; the OpenRC `damage` service on beardos is the data host
+- **LIVE as the all-day daily driver — on the FORK's Phase 1 build since 2026-09-15 04:38 (`HANDOFF.md` §55):**
+  pin `c5e4f8b7…` (a5d1c31 + F1.1–F1.5 and the self-test; reports `2.2.6.10`; detect by `EVENCFW/` and the
+  DamageCaps field, never the version); features `0x1f`, flags `0x8001` armed (PROBE + PRESENTED), CACHE_KEEP off;
+  the rollback is `fws/2.2.6.10-cfw-d4054ab1/`. The installed image's provenance is the fork's `tools/verify.py`
+  now; `research/verify_cfw.py` pins the rollback image. The phone APK drives — radio and shell; the OpenRC `damage` service on beardos is the data host
   and standby (`HANDOFF.md` §19, `DAILY.md`). **G2CC's server is RETIRED (`HANDOFF.md` §44) — never start it by
   hand:** the setup page is Damage's (`desktop/SetupServer.kt`), the playlists refresh under Damage, qBittorrent
   is the `qbittorrent` service.
@@ -194,7 +197,13 @@ temple restarts that arm (a beep, the stock launcher, the phone's timeout, a reb
 studied at the public-release polish for ring-less users. M0.1 is measured (item 27 below); the `diag` probe blanks
 the display on this build and is retired.**
 
-**B. Adam's part, when home:** `patches/damage_ext.c` read whole and the site list (`tools/verify.py` step 6:
+**B. Adam's part — DONE 2026-09-15 (§55) bar the soak:** M0.1 read, 0.49 installed, both lenses flashed after clean
+dry runs, the capability read, the self-test, the telemetry, PROBE and PRESENTED armed. **Now:** wear them a day;
+`journal_report.py`'s transfer section and the `keeper` notes after any drop (the uptime says reset or stall) are
+the day's read. Still his: the §53.1 ruling; the two test-only waits (C above). The original list follows for
+the record.
+
+**B (as written before the flash). Adam's part, when home:** `patches/damage_ext.c` read whole and the site list (`tools/verify.py` step 6:
 `0x00473CE4` in `FUN_00473C44`) reviewed against `FORK.md` §3.1; **M0.1**, one minute: `probe:diag=show`, read
 the overlay line (`f13/20/27` free KiB, `w`, `p`), `probe:diag=hide` — it sizes the self-test's scratch (150 KB of
 arena 13, transient) and any cache growth; **install 0.49** from the setup page (0.48 was never installed); **the flash ritual**
@@ -254,9 +263,9 @@ source; plain wording in every file, comment and commit (`HANDOFF.md` §48.5).
 | 25 | **The arm rebuilds' cause** (§42.2) | `FORK.md` M0.5 (a boot banner settles reset-or-stall), M0.6, and **M0.7** (the glasses sat in the case through drops and quiet nights alike: the phone's state is the variable — §50.6) |
 | 26 | **The wake loop's cause** (§42.3) | the `keeper: start failed: …` notes name it |
 | 27 | ~~**Free heap and worker/copy time on glass**~~ **measured 2026-09-15 (§54.8):** free 306 / 75 / 145 KiB in arenas 13 / 20 / 27, worker 1,719 µs, copy 1,173 µs — the self-test's 150 KB scratch fits with ~156 KiB to spare | `FORK.md` M0.1 done; the same session showed a Silent-Mode round trip and a RIGHT link end while the glasses were handled (§54.8, causes U) |
-| 27b | **The panel transfer time per present** (a full 153,602-byte frame on both drivers; nothing times it today) | `FORK.md` F1.3 — sets the tick ceiling |
-| 27c | **Which panel Adam's pair has** (A6N-G or JBD4010 — decides whether a partial refresh exists, F1.7) | `probe:telemetry=read` on the Damage build (field 10, `panel=…(JBD4010)` in the `glass` note), or the boot log |
-| 27d | **The self-test on glass** — do the drawing vectors give the simulator's CRCs on the flashed image? | `glassdrive.py selftest:` after the flash; RIGHT reports, LEFT runs blind (the senders' lens rule) |
+| 27b | ~~The panel transfer time per present~~ **measured 2026-09-15 (§55): 1.2–6.6 ms per present, n=8** — the tick ceiling is the link, not the panel; the soak's `present` records give the distribution | `FORK.md` F1.3 |
+| 27c | ~~Which panel Adam's pair has~~ **JBD4010 (§55)** — F1.7's per-row partial refresh exists | `probe:telemetry=read` field 10 |
+| 27d | ~~The self-test on glass~~ **all five drawing vectors match the simulator on RIGHT, 21 steps (§55)** | `glassdrive.py selftest:` |
 | 28 | **True user-perceived latency** (ring press → visible change; the ack is only a lower bound) | `FORK.md` M0.2 |
 
 **Cheap probes nobody has run:** the CFW logger service (sid 0x0F — M0.5) and the file-export service (sid

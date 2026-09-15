@@ -317,6 +317,10 @@ phone's keeper applies the hold-back rule before re-arming.
   both sides, fork pin `c5e4f8b7…`); a FLAGS_SET with no lease held is taken and in force until the next
   release point on both sides, refusing it instead left open for Adam; a begin runs under the self-test's
   active mark. No wire shape changed.
+- 2026-09-15, 04:38 — **the Phase 1 candidate (pin `c5e4f8b7…`) is the installed firmware** (`HANDOFF.md` §55): §0's
+  DamageCaps answered on glass (`features 0x1f`), §3's telemetry, flags and self-test all exercised (21 vector
+  steps equal on the glasses), the panel JBD4010, a present's transfer 1.2–6.6 ms. §2's "installed contract" is
+  now v1 plus §3; CACHE_KEEP unarmed.
 - 2026-09-15 — the bounded atlas skip built on the Damage side (`HANDOFF.md` §54; §3's F1.5 paragraph):
   a per-arm lease log in the transport, the decision at the rebuild's acquire, the shell's kept path.
   No firmware change, no wire shape changed; CACHE_KEEP stays unarmed.
