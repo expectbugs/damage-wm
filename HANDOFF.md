@@ -3450,8 +3450,9 @@ fix: the "in force" and "FB_RELEASE clears" assertions); the host demonstration 
 
 ### 53.5 State and next
 
-Both trees modified and uncommitted — the §52 and §53 diffs together are the deliverable (`git status` in
-each). Nothing flashed; the `damage` service on 0.44's core, not restarted; APK 0.48 staged over 0.47, not
-installed. The §51.9 queue stands unchanged, the bounded atlas skip first; Adam's part is §51.9's part B with the
+Both trees modified and uncommitted at first — the §52 and §53 diffs together were the deliverable; **then
+committed and pushed on Adam's word the same night:** the fork `2935a66` (`github/damage`), Damage `ba70608`
+(`origin/main`), the docs brought current for a fresh session in the commit after it. Nothing flashed; the
+`damage` service on 0.44's core, not restarted; APK 0.48 staged over 0.47, not installed. The §51.9 queue stands unchanged, the bounded atlas skip first; Adam's part is §51.9's part B with the
 two reviews' diffs to read and commit first (the fork to `github/damage`, never `origin`), plus one ruling:
 whether a FLAGS_SET with no lease held should be refused (§53.1 item 2).

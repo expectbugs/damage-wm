@@ -9,15 +9,15 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
 ## Where we are (2026-09-14, night)
 
 - **🔴 A second review of the same work (`HANDOFF.md` §53): one contract deviation fixed on both sides, two
-  guards; both trees still MODIFIED and uncommitted for Adam (the §52 and §53 diffs together).** The flags
+  guards; both trees committed and pushed on Adam's word (Damage `ba70608`, the fork `2935a66`).** The flags
   survived an FB_RELEASE that followed a lapse the glasses had already settled — in the fork's C and in the
   model alike (fork pin **`c5e4f8b7…`** now); the model also cleared them on a lease check with no lease, which
   the C never did. A self-test begin runs under its active mark; a stale FLAGS_SET waiter cannot drop a newer
   session's. Pinned on both sides, watched to fail on the old code; the whole battery green; **APK 0.48
   staged** (0.46 and 0.47 never installed). Nothing flashed. **One ruling for Adam:** a FLAGS_SET with no lease
   held is taken and stays in force until the next release point on both sides — refuse it instead?
-- **The evening's work was reviewed late in the evening (`HANDOFF.md` §52): four defects verified and fixed,
-  both trees now MODIFIED and uncommitted for Adam.** In the fork a self-test step carrying a truncated mode-3/6
+- **The evening's work was reviewed late in the evening (`HANDOFF.md` §52): four defects verified and fixed
+  (committed with §53's work, above).** In the fork a self-test step carrying a truncated mode-3/6
   message reached the BMP loader and dropped the live frame, and a stale F1.3 mark could stamp a stock refresh
   (pin **`70e47938…`** now); in Damage the keeper's reset detection missed a reset after a short uptime (the
   post-flash case) and a refused bit blocked the bits above it. Each pinned by a test watched to fail on the old
@@ -112,9 +112,9 @@ The ack precedes the panel refresh (§48.1, verified): what the eye waits for is
 
 ## 🔴 The next session — the queue before Adam is home, then his part (`HANDOFF.md` §51.9)
 
-**State to start from:** both trees MODIFIED and uncommitted after the two reviews (`HANDOFF.md` §52 and §53; the
-last commits are Damage `fa78824`, the fork `2aded36`) — Adam reads and commits the diff first; the fork's
-candidate is at pin `c5e4f8b7…` and needs no firmware change for anything below; APK 0.48 is staged, not installed;
+**State to start from:** both trees clean and pushed after the two reviews (`HANDOFF.md` §52 and §53: Damage
+`ba70608` on `origin/main`, the fork `2935a66` on `github/damage`); the fork's candidate is at pin `c5e4f8b7…` and
+needs no firmware change for anything below; APK 0.48 is staged, not installed;
 nothing flashed; the OpenRC `damage` service runs 0.44's core and must **not** be restarted (Adam is at work on
 it). Gradle invocations one at a time (the oracle walk misses settles under parallel load); the full battery after
 any code change (`CLAUDE.md`); a core change that should reach the phone means APK **0.49** (bump versionCode

@@ -447,4 +447,5 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   after it), and a stale FLAGS_SET waiter can no longer drop a newer session's. Fork pin **`c5e4f8b7…`** (27
   entries, the same one new site, 46,480-byte block); the battery green (core 550, the fork's checks 44/44); APK
   0.48 staged, none of 0.46–0.48 installed. Open for Adam: whether a FLAGS_SET with no lease held should be
-  refused. Both trees still modified and uncommitted; nothing flashed. The §51.9 queue stands.
+  refused. Both trees committed and pushed on Adam's word (Damage `ba70608`, the fork `2935a66`); nothing flashed.
+  The §51.9 queue stands.
