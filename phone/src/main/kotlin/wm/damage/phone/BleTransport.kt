@@ -353,6 +353,17 @@ class BleTransport(
         publishLinkParams()
     }
 
+    /** `FIRMWARE.md` §4: a build carrying the link edits offers LE 2M — ask for it on both arms;
+     *  the PHY callback journals the answer as a `link` note ("PHY after the link request"). */
+    override fun onDamageBuild(caps: wm.damage.core.wire.DamageMsg.Caps) {
+        if (!caps.has(wm.damage.core.wire.DamageMsg.FEATURE_LINK)) return
+        for ((arm, m) in managers) {
+            if (!m.linkUp) continue
+            m.requestPhy(PhyRequest.PHY_LE_2M_MASK, "link")
+        }
+        emitNote("link", "the build offers LE 2M (DamageCaps bit 6): 2M requested on both arms")
+    }
+
     /** §49: the phone's radio adds the PHY probe; diag and logger are the base's. */
     override fun devProbe(name: String, value: String) {
         if (name != "phy") return super.devProbe(name, value)

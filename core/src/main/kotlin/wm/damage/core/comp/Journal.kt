@@ -71,6 +71,12 @@ class Journal(private val path: Path?) : AutoCloseable {
                 is DisplayOp.CacheWrite -> """{"op":"cachewrite","bytes":${op.payload.size}}"""
                 is DisplayOp.DrawText -> """{"op":"drawtext","x":${op.x},"y":${op.y},"chars":${op.text.size}}"""
                 is DisplayOp.DrawImage -> """{"op":"drawimage","x":${op.x},"y":${op.y}}"""
+                is DisplayOp.DrawText2 -> """{"op":"drawtext2","xl":${op.xL},"xr":${op.xR},"y":${op.y},"chars":${op.text.size}}"""
+                is DisplayOp.DrawImage2 -> """{"op":"drawimage2","xl":${op.xL},"xr":${op.xR},"y":${op.y},"w":${op.w},"h":${op.h}}"""
+                is DisplayOp.Fill -> """{"op":"fill","l":"${op.left}","r":"${op.right}","level":${op.level}}"""
+                is DisplayOp.Clip -> """{"op":"clip","l":"${op.left}","r":"${op.right}"}"""
+                is DisplayOp.PresentHint -> """{"op":"hint","y0":${op.y0},"y1":${op.y1}}"""
+                is DisplayOp.CacheWrite2 -> """{"op":"cachewrite2","bytes":${op.payload.size}}"""
             }
         }
         val tm = timing
@@ -90,8 +96,8 @@ class Journal(private val path: Path?) : AutoCloseable {
      *  it while the PRESENTED flag is armed — the number the eye waits for, which the ack
      *  never carried (the ack precedes the transfer). One line per present; the feature is
      *  armed for measurement sessions, not all day, so the journal stays small. */
-    fun present(seq: Long, workerUs: Long, copyUs: Long, transferUs: Long) {
-        write("""{"t":${System.currentTimeMillis()},"ev":"present","seq":$seq,"workerUs":$workerUs,"copyUs":$copyUs,"transferUs":$transferUs}""")
+    fun present(seq: Long, workerUs: Long, copyUs: Long, transferUs: Long, path: Long = 0) {
+        write("""{"t":${System.currentTimeMillis()},"ev":"present","seq":$seq,"workerUs":$workerUs,"copyUs":$copyUs,"transferUs":$transferUs,"path":$path}""")
     }
 
     fun note(kind: String, detail: String) {

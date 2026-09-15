@@ -49,13 +49,13 @@ WORK since 2026-09-12: the CFW fork and the Damage rebuild are the only work unt
 `HANDOFF.md` §48).** No new windows, no Feed polish, no popover build outside the plan, until `FORK.md`
 Phase 8 closes. The fork is its own GPL-3.0 repo (`~/damage-cfw`); Damage stays clean-room and holds
 only the contract (`FIRMWARE.md`). Never flash without Adam's in-the-moment go; dry-run first.
-**Phase 0 closed by Adam's ruling on 2026-09-14 bar M0.1** (`HANDOFF.md` §50.9; the reads in `CLAIMS.md` and
-`research/fork-reads-2026-09-13.md`): **Phase 1 — the fork pipeline and the first flash — is the work.** M0.1 (the
-overlay read, one minute on glass) before the flash, never before the build; `MOTION.md` and D1–D8 at Adam's pace
-before Phase 3; the arm drops are recorded and not the work.
+**Phase 1 flashed 2026-09-15 (`HANDOFF.md` §55); Phase 2 built on both sides the same day and NOT flashed (§60);
+Reader's page staging is the one Phase 2 item left.** `REMINDER.md` holds the state and the next steps; `MOTION.md`
+and D1–D8 at Adam's pace before Phase 3; the arm drops are recorded and not the work.
 
-**LIVE as the all-day daily driver.** CFW g2flash `a5d1c31` (reports `2.2.6.10`; detect by the
-`EVENCFW/` capability string, never the version; first light 2026-08-30). Topology (`HANDOFF.md`
+**LIVE as the all-day daily driver.** The fork's Phase 1 build (pin `c5e4f8b7…` = g2flash `a5d1c31` + `FIRMWARE.md`
+§3; reports `2.2.6.10`; detect by the `EVENCFW/` capability string and the DamageCaps field, never the version;
+first light 2026-08-30 on a5d1c31). Topology (`HANDOFF.md`
 §19): the **phone APK is the primary driver** (radio and shell); the OpenRC `damage` service on
 beardos is the **data provider** (content, tmux, last-write-wins state sync) and a **standby** that
 drives PC-direct BLE only while the APK is away. The PC never claims in daily use (`--transport

@@ -32,6 +32,12 @@ interface TextRasterizer {
 
     /** True when EVERY codepoint of [text] has a real glyph in [font]. */
     fun covers(text: String, font: FontSpec): Boolean
+
+    /** The pair kerning between [a] and [b] in [font], in px: what the width of "ab" is beyond
+     *  the two advances, clamped to the wire's adjust range (`CfwModes.xAdjust`, −10..+20).
+     *  Android measures it (Phase 2, kerning on); AWT applies none, so the desktop proves the
+     *  cached path with zero kerns. */
+    fun kern(a: Char, b: Char, font: FontSpec): Int = 0
 }
 
 data class FontMetrics(val ascent: Int, val descent: Int, val lineHeight: Int)

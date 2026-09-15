@@ -187,7 +187,7 @@ features armed one at a time · a soak day · journal and `/log` read · fix fla
 **Exit:** every telemetry field populated (the boot count withdrawn); the cache survives a rebuild without re-upload
 (seen on glass, §54.1); no hold-back events; the soak = ordinary wear during Phase 2's build (Adam, §56).
 
-### Phase 2 — Drawing contract v2, phone-driven (size L; 1 flash)
+### Phase 2 — Drawing contract v2, phone-driven (size L; 1 flash) — **BUILT on both sides 2026-09-15 (pin `aacdc63a…`, `HANDOFF.md` §60) bar Reader's page staging; not flashed**
 
 **Firmware (`FIRMWARE.md` §4, drafted 2026-09-15):** per-lens cached image and string draws (modes 17/18), the v2
 image record (u16 dims), the 224-entry table, cache write v2 (19), clip (20), fill (21), LUT over rect (22),
@@ -453,3 +453,11 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   edits (LE 2M feature bit, a 7.5 ms fast profile, the slow request forced to fast), ~41 KiB/s measured upstream; our
   three sites found at instruction level; M0.4 corrected. **Adam's ruling: inside Phase 2's candidate.** Phase 1's
   section and REMINDER trimmed to the plan and pointers (the records hold the history).
+- **2026-09-15 (evening)** — Adam's word on §57's eleven decisions: as recommended. Phase 2 built on the firmware side
+  (`HANDOFF.md` §60): modes 17–24, op 5, status 3–5, fields 23–26, the partial path, the three link edits — pin
+  `aacdc63a…`, no new site, every host gate green; 11 v2 vectors; the simulator matches the C on all 18 vectors, both
+  forms. Damage (the same evening): the v2 atlas, the compositor's per-lens draws, fills, the reseed, the hint,
+  kerning, the transport's start (cache size, DRAW2 before the paint, the 2M request), the report and the on-glass
+  runner — `Contract2Test` pins it, gated on DamageCaps bit 5 + DRAW2; Reader's page staging is the one Phase 2
+  item left. A live defect found from Adam's report at work and fixed for APK 0.50 (`HANDOFF.md` §59: a lens
+  reboot inside the atlas skip's window; a keeper race on the duplicate replies). Nothing flashed.

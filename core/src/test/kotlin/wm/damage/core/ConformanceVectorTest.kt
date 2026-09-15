@@ -21,7 +21,9 @@ import wm.damage.core.transport.Arm
  * simulator. The same files run through the firmware's C on the PC (the fork's
  * `host/run_vectors.py`), which wrote their expectations; v1 is the installed firmware,
  * so a mismatch here is a finding about the simulator or the docs — never "update the
- * expectation to match". Inputs come from `firmware/make_vectors.py`.
+ * expectation to match". Inputs come from `firmware/make_vectors.py`. The v2 set (§4,
+ * contract 2) adds the control ops `flags` and `cachesize` and compares the refusal
+ * record (fields 23–25) and the status register after every step.
  */
 class ConformanceVectorTest {
 
@@ -44,9 +46,10 @@ class ConformanceVectorTest {
             val vec = Json.parseToJsonElement(Files.readString(f)).jsonObject
             val name = vec["name"]!!.jsonPrimitive.content
             val steps = vec["steps"]!!.jsonArray
+            val contract = vec["contract"]?.jsonPrimitive?.int ?: 1
             for (arm in Arm.entries) {
                 val lens = if (arm == Arm.LEFT) "L" else "R"
-                val sim = GlassFirmwareSim()
+                val sim = GlassFirmwareSim().also { it.damageContract = contract }
                 var now = 0L
                 steps.forEachIndexed { i, stepEl ->
                     val step = stepEl.jsonObject
@@ -57,6 +60,8 @@ class ConformanceVectorTest {
                             "tick" in op -> now = op["tick"]!!.jsonPrimitive.long
                             "lease" in op -> sim.conformanceLease(arm, op["lease"]!!.jsonPrimitive.content == "acquire", now)
                             "msg" in op -> rcs += if (sim.conformanceMessage(arm, hex(op["msg"]!!.jsonPrimitive.content), now)) 0 else -1
+                            "flags" in op -> sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_FLAGS_SET, op["flags"]!!.jsonPrimitive.int, now)
+                            "cachesize" in op -> sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_CACHE_SIZE, op["cachesize"]!!.jsonPrimitive.int, now)
                             else -> fail("$name step $i: unknown op $op")
                         }
                     }
@@ -69,6 +74,10 @@ class ConformanceVectorTest {
                     if (want != got) problems += "$name step $i lens $lens: shadow crc $got, the C gives $want"
                     val wantRc = expect["rc"]!!.jsonObject[lens]!!.jsonArray.map { it.jsonPrimitive.int }
                     if (wantRc != rcs) problems += "$name step $i lens $lens: return codes $rcs, the C gives $wantRc"
+                    expect["ref"]?.jsonObject?.get(lens)?.jsonArray?.map { it.jsonPrimitive.int }?.let { wantRef ->
+                        val gotRef = sim.refusalRecord(arm)
+                        if (wantRef != gotRef) problems += "$name step $i lens $lens: refusal record $gotRef, the C gives $wantRef"
+                    }
                 }
             }
         }
@@ -76,8 +85,10 @@ class ConformanceVectorTest {
     }
 
     /** `FIRMWARE.md` §3, the self-test: the drawing vectors through mode 16 give the normal
-     *  path's CRC and return code at every step, with the live shadow untouched — the fork's
-     *  `host/run_self_test.py` proves the same of the C, so all four paths agree. */
+     *  path's CRC, return code and refusal record at every step, with the live shadow untouched —
+     *  the fork's `host/run_self_test.py` proves the same of the C, so all four paths agree. As
+     *  there, a cache write (mode 12 or 19) goes to the live cache the steps read, the control
+     *  ops run before the begin, and a vector that releases the lease has no self-test form. */
     @Test
     fun theSelfTestPathMatchesTheNormalPath() {
         val files = Files.list(vectorDir()).use { s -> s.filter { it.toString().endsWith(".json") }.sorted().toList() }
@@ -87,13 +98,20 @@ class ConformanceVectorTest {
         for (f in files) {
             val vec = Json.parseToJsonElement(Files.readString(f)).jsonObject
             val name = vec["name"]!!.jsonPrimitive.content
-            if (name == "v1-lease" || name == "v1-cache") continue      // the lease and the live cache: no self-test form
+            if (name == "v1-lease") continue      // the lapse inside it refuses the step itself: no self-test form
             val steps = vec["steps"]!!.jsonArray
+            val ops = steps.flatMap { it.jsonObject["ops"]!!.jsonArray.map { o -> o.jsonObject } }
+            if (ops.any { "lease" in it && it["lease"]!!.jsonPrimitive.content != "acquire" }) continue
+            val contract = vec["contract"]?.jsonPrimitive?.int ?: 1
             for (arm in Arm.entries) {
                 val lens = if (arm == Arm.LEFT) "L" else "R"
-                val sim = GlassFirmwareSim()
+                val sim = GlassFirmwareSim().also { it.damageContract = contract }
                 var now = 1000L
                 sim.conformanceLease(arm, true, now)
+                for (op in ops) when {
+                    "flags" in op -> sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_FLAGS_SET, op["flags"]!!.jsonPrimitive.int, now)
+                    "cachesize" in op -> sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_CACHE_SIZE, op["cachesize"]!!.jsonPrimitive.int, now)
+                }
                 assertTrue(sim.conformanceMessage(arm, wm.damage.core.wire.CfwModes.selfTestBegin(), now), "$name $lens: begin refused")
                 steps.forEachIndexed { i, stepEl ->
                     val step = stepEl.jsonObject
@@ -102,7 +120,15 @@ class ConformanceVectorTest {
                         val op = opEl.jsonObject
                         when {
                             "tick" in op -> now = op["tick"]!!.jsonPrimitive.long
-                            "msg" in op -> rcs += if (sim.conformanceMessage(arm, wm.damage.core.wire.CfwModes.selfTestStep(hex(op["msg"]!!.jsonPrimitive.content)), now)) 0 else -1
+                            "msg" in op -> {
+                                val m = hex(op["msg"]!!.jsonPrimitive.content)
+                                val live = (m[0].toInt() and 0x7F).let { it == 12 || it == 19 }
+                                // the step is built raw, not through CfwModes.selfTestStep: a refusal vector
+                                // carries messages the encoder's lint would refuse (an unknown mode)
+                                val step = byteArrayOf(wm.damage.core.wire.CfwModes.SELF_TEST_MODE.toByte(), 1) + m
+                                rcs += if (sim.conformanceMessage(arm, if (live) m else step, now)) 0 else -1
+                            }
+                            "lease" in op || "flags" in op || "cachesize" in op -> {}   // sent above
                             else -> fail("$name step $i: no self-test form for $op")
                         }
                     }
@@ -111,6 +137,11 @@ class ConformanceVectorTest {
                     if (expect[lens]!!.jsonPrimitive.content != got) problems += "$name step $i lens $lens: scratch crc $got, the normal path gives ${expect[lens]!!.jsonPrimitive.content}"
                     val wantRc = expect["rc"]!!.jsonObject[lens]!!.jsonArray.map { it.jsonPrimitive.int }
                     if (wantRc != rcs) problems += "$name step $i lens $lens: return codes $rcs, the normal path gives $wantRc"
+                    // the refusal's copy sequence is the live count (0 here, nothing presents): not compared
+                    expect["ref"]?.jsonObject?.get(lens)?.jsonArray?.map { it.jsonPrimitive.int }?.let { w ->
+                        val g = sim.refusalRecord(arm)
+                        if (listOf(w[0], w[1], w[3]) != listOf(g[0], g[1], g[3])) problems += "$name step $i lens $lens: refusal record $g, the normal path gives $w"
+                    }
                     val live = "%08x".format(sim.shadowCrc32(arm))
                     if (live != zeroCrc) problems += "$name step $i lens $lens: the live shadow changed ($live)"
                     ran++

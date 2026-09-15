@@ -95,7 +95,7 @@ class AtlasCarryTest {
     private class Rig(scope: CoroutineScope) {
         val tmp = Files.createTempDirectory("damage-atlas-carry")
         var clock = 1_000_000L
-        val sim = GlassFirmwareSim()
+        val sim = GlassFirmwareSim().also { it.damageContract = 1 }     // a Damage build: RIGHT's uptime answers the reset check
         val transport = ClockedTransport(sim, scope) { clock }
         val text = CachedText(FakeText())
         val journalPath = tmp.resolve("journal.jsonl")
@@ -202,6 +202,66 @@ class AtlasCarryTest {
             assertTrue(rig.cachedDrawsSubmitted() > drawsBefore, "the notches shipped cached draws: ${rig.lines().takeLast(6)}")
             assertEquals(0, rig.failedFlushes(), "no flush failed: ${rig.lines().filter { "\"ok\":false" in it }}")
             rig.assertGlassMatchesBelief("after notches on the kept cache")
+            rig.keeper.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /** 2026-09-15 12:54 on glass (`HANDOFF.md` §59): the right lens rebooted, the phone's skip
+     *  judged the lease timing alone (58.8 s gaps) and kept the atlas; the right lens, its
+     *  cache empty, refused every cached draw while the left drew them. The session start now
+     *  reads RIGHT's uptime before the carry decision: a reboot since the last acquire resets. */
+    @Test
+    fun theAtlasIsResetWhenTheRightLensRebootedInsideTheWindow(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope)
+        try {
+            rig.upWithTheAtlasLive()
+            val uploads = rig.atlasUploads()
+            rig.clock += 20_000L
+            rig.sim.rebootForTest(Arm.RIGHT, rig.clock)                   // its RAM is gone: no cache, no lease
+            val notesBefore = rig.atlasNotes().size
+            rig.rebuild(2, "RIGHT disconnected: supervision timeout")
+            val note = rig.atlasNotes().drop(notesBefore).firstOrNull { "reset — " in it }
+            assertTrue(note != null && "R reset" in note, "the reset note names the reboot: ${rig.atlasNotes().drop(notesBefore).take(4)}")
+            assertTrue(rig.lines().any { "\"kind\":\"keeper\"" in it && "the glasses reset" in it }, "the keeper noted the reset")
+            rig.until("the atlas is uploaded again and the face goes live") { rig.atlasUploads() > uploads && rig.shell.cachedFontsLive.isNotEmpty() }
+            rig.settle("after the re-upload")
+            assertTrue(Arm.entries.all { rig.sim.cacheAllocated(it) }, "both lenses hold the cache again")
+            repeat(3) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("notch $it") }
+            assertEquals(0, rig.failedFlushes(), "no flush failed")
+            rig.assertGlassMatchesBelief("after notches on the re-uploaded cache: the right lens draws too")
+            rig.keeper.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /** LEFT cannot report an uptime (the senders' lens rule): its link timing out is taken as a
+     *  possible reboot and resets the atlas; RIGHT's timing out without a reset keeps it. */
+    @Test
+    fun aLeftSupervisionTimeoutResetsTheAtlasARightOneWithoutARebootKeepsIt(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope)
+        try {
+            rig.upWithTheAtlasLive()
+            val uploads = rig.atlasUploads()
+            rig.clock += 20_000L
+            val kept0 = rig.atlasNotes().size
+            rig.rebuild(2, "RIGHT disconnected: supervision timeout")
+            assertTrue(rig.atlasNotes().drop(kept0).any { "kept across the rebuild" in it }, "RIGHT timed out, no reboot read: kept — ${rig.atlasNotes().drop(kept0).take(3)}")
+            assertEquals(uploads, rig.atlasUploads(), "nothing uploaded again")
+            rig.clock += 20_000L
+            val notesBefore = rig.atlasNotes().size
+            rig.rebuild(3, "LEFT disconnected: supervision timeout")
+            val note = rig.atlasNotes().drop(notesBefore).firstOrNull { "reset — " in it }
+            assertTrue(note != null && "L link timed out" in note, "LEFT timed out: reset — ${rig.atlasNotes().drop(notesBefore).take(4)}")
+            rig.until("the atlas is uploaded again") { rig.atlasUploads() > uploads && rig.shell.cachedFontsLive.isNotEmpty() }
+            rig.settle("after the re-upload")
+            rig.assertGlassMatchesBelief("after the LEFT timeout's re-upload")
             rig.keeper.stop()
         } finally {
             scope.cancel()

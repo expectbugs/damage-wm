@@ -19,7 +19,12 @@ limits every section to records from then on; the glasses' battery changes
 `probe` notes print in the notes list, and the glasses' own log lines (`glasslog`
 notes, from `probe:logger=on`) are counted per arm — `--glasslog` prints them all.
 A Damage build's `present` records (`FIRMWARE.md` §3, F1.3: the panel transfer timed on
-the glasses while the PRESENTED flag is armed) print as a distribution.
+the glasses while the PRESENTED flag is armed) print as a distribution — split by path once
+a contract-2 build reports one (`FIRMWARE.md` §4, mode 24: 0 the full refresh, 1 the hinted
+rows), which is F1.7's A/B. A contract-2 build's refusals (`glass` notes carrying `refMode=`)
+print as a list, newest last: the ack precedes the decode, so these are the only trace of a
+message the glasses threw away. The per-gesture section prints `HANDOFF.md` §57's baseline
+(the journal since 08-31) beside the first-flush bytes, the number Phase 2's exit is priced by.
 
     python3 tools/journal_report.py journal.json --since 2026-09-14 --glasslog
 """
@@ -28,6 +33,9 @@ import collections, datetime, json, re, statistics, sys
 BANDS = [(0, 500), (500, 1500), (1500, 3000), (3000, 6000), (6000, 10**9)]
 # §42: flushes further apart than this belong to different gestures
 BURST_GAP_MS = 1200
+# `HANDOFF.md` §57: first-flush bytes per gesture class before Phase 2 (median, p90), the
+# journal since 08-31 — the number Phase 2's exit is priced against
+BASELINE_FIRST_BYTES = {'WINDOW': (396, 3500), 'MAIN': (97, 660)}
 
 def med(v): return int(statistics.median(v)) if v else None
 
@@ -149,7 +157,18 @@ def main(path, since_ms=0, glasslog=False):
         print(f'  {"label":22s} {"bursts":>6s}  {"first bytes":>14s}  {"first ack ms":>14s}  {"flushes":>7s}  {"burst bytes":>11s}')
         for lab, v in sorted(bursts.items(), key=lambda kv: -len(kv[1])):
             fb = [x[1] for x in v]; fa = [x[2] for x in v]; n = [x[3] for x in v]; tb = [x[4] for x in v]
-            print(f'  {str(lab):22s} {len(v):6d}  {med(fb):6d} / {p90(fb):5d}  {med(fa):6d} / {p90(fa):5d}  {med(n):7d}  {med(tb):11d}')
+            base = BASELINE_FIRST_BYTES.get(str(lab))
+            print(f'  {str(lab):22s} {len(v):6d}  {med(fb):6d} / {p90(fb):5d}  {med(fa):6d} / {p90(fa):5d}  {med(n):7d}  {med(tb):11d}'
+                  + (f'   (§57 baseline {base[0]} / {base[1]} B)' if base else ''))
+    refusals = [n for n in notes if n['kind'] == 'glass' and 'refMode=' in n.get('detail', '')]
+    if refusals:
+        seen = []
+        for n in refusals:                                  # the record is sticky: print each distinct one once
+            key = re.search(r'refMode=\S+ refReason=\S+ refSeq=\S+', n['detail'])
+            if key and (not seen or seen[-1][1] != key.group(0)): seen.append((n['t'], key.group(0)))
+        print(f'\nimage-lane refusals the glasses recorded (contract 2, fields 23-25; distinct, in order):')
+        for t, k in seen:
+            print(f'  {datetime.datetime.fromtimestamp(t/1000):%m-%d %H:%M:%S} {k}')
     present_report(presents)
     battery_report(notes)
     kinds = collections.Counter(n['kind'] for n in notes)
@@ -185,6 +204,13 @@ def present_report(presents):
         return f'{med(v):6d} / {p90(v):6d}' if v else '     -'
     print(f'\npanel transfers timed on the glasses ({len(presents)} presents, median / p90 µs): '
           f'worker {col("workerUs")} · copy {col("copyUs")} · transfer {col("transferUs")}')
+    # F1.7's A/B (`FIRMWARE.md` §4, mode 24): the transfer by path, once a contract-2 build reports one
+    bypath = collections.defaultdict(list)
+    for r in presents:
+        if isinstance(r.get('transferUs'), int) and isinstance(r.get('path'), int): bypath[r['path']].append(int(r['transferUs']))
+    if bypath:
+        for pth in sorted(bypath):
+            v = bypath[pth]; print(f'  path {pth} ({"the full refresh" if pth == 0 else "the hinted rows"}): n={len(v):5d}  transfer {med(v):6d} / {p90(v):6d} µs')
     byhour = collections.defaultdict(list)
     for r in presents:
         if isinstance(r.get('transferUs'), int): byhour[datetime.datetime.fromtimestamp(r['t']/1000).strftime('%m-%d %H')].append(int(r['transferUs']))

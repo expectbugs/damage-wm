@@ -40,6 +40,7 @@ import wm.damage.core.text.TextRasterizer
 import wm.damage.core.transport.Arm
 import wm.damage.core.transport.FlushRequest
 import wm.damage.core.transport.Transport
+import wm.damage.core.transport.draw2
 import wm.damage.core.transport.TransportEvent
 import wm.damage.core.util.Log
 import wm.damage.core.wire.EvenHubMsg
@@ -1340,7 +1341,7 @@ class Shell(
         current?.let { w -> try { w.onExclusive(false) } catch (e: Exception) { Log.e("shell", "onExclusive(false) of ${w.id}", e) } }
         notifications.requeueCurrent()
         composeFullSurface()
-        comp.requestKeyframe()
+        comp.requestReseed()
         if (notifications.showNextIfIdle()) {
             updatePlanes()
             paintNotification()
@@ -1907,8 +1908,8 @@ class Shell(
                 journal.note(ev.kind, ev.detail)   // a fact: the journal only
                 if (ev.kind == "link") noteLinkRegime()   // §47: the transport's own parameter facts
             }
-            is TransportEvent.Presented ->         // FIRMWARE.md §3 (F1.3): a panel transfer timed on the glasses
-                journal.present(ev.seq, ev.workerUs, ev.copyUs, ev.transferUs)
+            is TransportEvent.Presented ->         // FIRMWARE.md §3 (F1.3): a panel transfer timed on the glasses; §4: its path
+                journal.present(ev.seq, ev.workerUs, ev.copyUs, ev.transferUs, ev.path)
         }
     }
 
@@ -2048,6 +2049,8 @@ class Shell(
             settings.cachedText != "on" -> "cached text is off"
             !st.leaseCarried -> "the acquire was not a renewal on both arms — " +
                 st.leaseCarry.ifEmpty { "the transport reports no carry-over" }
+            a.v2 != st.draw2 || a.capacity != st.cacheSize ->
+                "the session's contract differs (atlas ${if (a.v2) "v2" else "v1"} ${a.capacity / 1024} KiB, session ${if (st.draw2) "v2" else "v1"} ${st.cacheSize / 1024} KiB)"
             st.cacheWriter != atlasTag -> "the last cache write through the transport was not this shell's" +
                 (if (st.cacheWriter.isEmpty()) "" else " (${st.cacheWriter})")
             else -> null
@@ -2116,8 +2119,12 @@ class Shell(
             return
         }
         if (atlas == null) {
-            atlas = GlyphAtlas(ct.base)
+            // contract 2 (`FIRMWARE.md` §4): with DRAW2 in force the atlas is a v2 layout over the
+            // session's cache (mode 19, 224-entry tables, per-lens draws); otherwise the v1 one
+            val st = transport.state.value
+            atlas = GlyphAtlas(ct.base, v2 = st.draw2, capacity = st.cacheSize)
             ct.atlas = atlas
+            journal.note("atlas", "built for ${if (st.draw2) "contract 2 (per-lens draws, ${st.cacheSize / 1024} KiB)" else "the v1 cache (64 KiB, flat draws)"}")
         }
         atlasGrow()
     }
@@ -2313,8 +2320,9 @@ class Shell(
         if (atlasInFlight != null || atlasQueue.isEmpty()) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         val chunk = atlasQueue.removeFirst()
+        val write: DisplayOp = if (atlas?.v2 == true) DisplayOp.CacheWrite2(chunk) else DisplayOp.CacheWrite(chunk)
         val id = try {
-            transport.submit(FlushRequest(listOf(DisplayOp.CacheWrite(chunk)), comp.epoch, "ATLAS", writer = atlasTag))
+            transport.submit(FlushRequest(listOf(write), comp.epoch, "ATLAS", writer = atlasTag))
         } catch (e: Exception) {
             Log.e("shell", "atlas chunk submit failed", e)
             atlasFailed = true
@@ -2325,7 +2333,7 @@ class Shell(
         atlasBytesSent += chunk.size
         // §42: the chunk is a flush like any other in the journal — with its label
         // and transport — so the report prices the upload where it happened
-        journal.flushSubmitted(id, comp.epoch, listOf(DisplayOp.CacheWrite(chunk)), "ATLAS", st.transportName)
+        journal.flushSubmitted(id, comp.epoch, listOf(write), "ATLAS", st.transportName)
         journal.note("atlas", "chunk of ${chunk.size} B submitted as flush $id (${atlasQueue.size} to go)")
         return true
     }
@@ -2782,7 +2790,7 @@ class Shell(
         for (w in windows) w.onLayoutChanged()
         comp.composed.clear(0)
         composeFullSurface()
-        comp.requestKeyframe()   // a height change re-lays out the whole shell (§4.2)
+        comp.requestReseed()     // a height change re-lays out the whole shell (§4.2); v2: a fill + draws
         return true
     }
 
@@ -2946,7 +2954,7 @@ class Shell(
                 for (w in windows) w.onLayoutChanged()
                 comp.composed.clear(0)
                 composeFullSurface()
-                comp.requestKeyframe()
+                comp.requestReseed()
             }
             scheduleSave()
             return
@@ -3331,6 +3339,7 @@ class Shell(
     private var inputFlushPending = false
 
     private suspend fun pump() {
+        comp.v2 = transport.state.value.draw2   // contract 2 (`FIRMWARE.md` §4): fills, the reseed, the hint
         if (!running || !transport.state.value.started) return
         val st = transport.state.value
         // One slot is RESERVED for the response to input (2026-09-05,

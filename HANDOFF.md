@@ -3922,3 +3922,83 @@ not a separate flash. `FORK.md` Phase 2, `FIRMWARE.md` §4 and `REMINDER.md` car
 docs were trimmed of history the records already hold (REMINDER's state and next-session sections, FORK's Phase 1,
 FIRMWARE's status and cache-keep paragraphs, the fork memory) and everything committed for a fresh session to build
 Phase 2 from.
+
+## 59. The right lens blind after a reboot: the bounded atlas skip and a keeper race, fixed (2026-09-15, afternoon)
+
+Context for the reader: a personal device, display-rendering work. Read-only on the glasses: the phone's journal
+and log. Adam, wearing the Phase 1 build with APK 0.49 at work: the silent clock slightly dimmer on the left lens;
+a ring double tap out of silent mode brought Main up on the left lens only, the right kept the silent clock.
+
+- **Cause (M, the journal):** 12:54:14 `RIGHT disconnected: supervision timeout`; the rebuild's telemetry at
+  12:54:22 read RIGHT's uptime as 13 s (27,315 s before), `cacheGen=0`, no cache size — the right lens had
+  rebooted and its texture cache was gone — while the atlas skip (§54.1) judged the lease timing alone (gaps
+  58.8 s, inside the 80 s window) and kept the atlas: "0 B to go again". From then on every batch with a cached
+  draw (every MAIN flush carries mode-14 draws) was refused on the right lens, silently (the ack precedes the
+  decode), and drawn on the left; the SILENT clock, plain deltas, applied on both. Why the arm drops: still U (§42.2).
+- **Fix (APK 0.50):** a session start on a Damage build reads RIGHT's uptime before the lease (`CfwTransportBase`
+  step 1b, one telemetry round trip); `decideLeaseCarry` refuses the carry when RIGHT reset since the last acquire
+  on record ("R reset N s ago"), when LEFT's link ended by a supervision timeout (a reboot there cannot be read: the
+  senders' lens rule), or when RIGHT's did on a build without telemetry. The uptime rule (`noteUptime`) runs on
+  every telemetry record; the hold-back rule reads the same reset. `AtlasCarryTest` ×2 (the reboot; the LEFT
+  timeout), each watched to fail on the old transport — the reboot one reproduces the day's note word for word.
+- **Seen in the same log (M):** RIGHT answers every field-112 request twice, ~6 ms apart (one read: uptimes 13049
+  and 13055; I: the copy written to LEFT reaches RIGHT over the lenses' own link and runs there too). The second
+  copy of one FLAGS_SET's reply completed the next set's waiter with the previous flags — `fault flags: bit 15
+  refused: status 0, flags in force 0x1` at 12:54:22 while the next record showed 0x8001 in force. Fixed: the id-0
+  waiter takes only a record whose flags are the set being armed, or a refusal (`flagsReplyAnswers`);
+  `DamageMsgTest.armingBitByBitSurvivesTheDuplicateReplies` (the simulator's `duplicateControlReplies`, the copy
+  answered 1 ms later against a 30 ms modeled write), watched to fail on the old transport.
+- **The dimmer left clock:** not explained by the journal; the right lens's shadow diverged from the belief after
+  the refused batches, so a difference between the lenses follows from it. Re-read once 0.50 is on.
+- **Workaround given at once:** phone Bluetooth off for 90 s — the lease lapses on both lenses, the firmware frees
+  both caches, the rebuild's gap is past the window, the atlas is uploaded whole.
+- **Shipped:** APK 0.50 (staged 14:23, the fix alone on the Phase 1 tree) and 0.51 (staged 14:47, the fix plus
+  the contract-2 code of §60, dormant on the installed build); the battery green under both.
+
+## 60. Phase 2 built on both sides (2026-09-15, afternoon and evening)
+
+Context for the reader: a personal device, the published patch method, display-rendering work. Adam's word:
+the eleven §57 decisions as recommended.
+
+**The fork (`~/damage-cfw`, not flashed):** `patches/damage_draw.c` = modes 17–24 as `FIRMWARE.md` §4 states them;
+`damage_ext.c` = contract 2, op 5 CACHE_SIZE, FLAGS_SET and CACHE_SIZE refused with status 3 without the lease,
+fields 23–26, the notify's field 6, the partial path in `damage_refresh_hook` (the JBD4010 record's `+0x2C` with
+the hinted rows in place of y0/y1; the full refresh on any other record); `zlib_glue.c` and `texture_cache.c` record
+every refusal (`damage_refuse`, v1 modes included) and carry the batch context (clip, hint) on the worker's stack
+(`cfw_rectlist`); the three link edits in `patch_compress.py`. No new site: Phase 1's refresh hook is the door for
+the partial path. Pin **`aacdc63a…`** (after the self-review fix below; `8fbef73d…` was the first candidate), 31 entries, a
+57,604-byte block (Phase 1: 46,480), 23 Thumb branches, 366 KB below the OTA flag; `tools/verify.py` all pass;
+the site list = Phase 1's plus the four link words.
+**Read for it (V, rows in `CLAIMS.md`):** the JBD4010 partial entry `FUN_00592CB4` takes the dispatcher's six
+arguments (x offset, y offset, x0, y0, x1, y1), the ends inclusive and clamped to 639/479, one transfer per row
+then the latch and a 1 ms delay; the async `FUN_00592DEA` ends with the latch and `osDelay(2)` — neither registers
+a completion, so the hook may call either. The 0xA4 branch's pool word `0x004786C8` is the slow record's only
+reference; the fast records' pool words are `0x0047871C` and `0x00478760`.
+**Host:** the shim models the JBD4010 record (`+0x2C` counted, 100 µs per row + 300 µs) and an A6N-G one (`ops
+jbd|a6ng|none`); `dmg` carries the refusal record, the cache size, the path, the partial count and the slots'
+bytes; `test_damage_ext.py` 57 checks (was 44): op 5's statuses, the DRAW2 gate, the record cleared by mode 7
+sub 0, the partial against the full path per record, a slot freed at the lapse; `run_vectors.py` gained the
+`flags` and `cachesize` ops and the `ref` expectation (mode, reason, sequence, status); `run_self_test.py` sends a
+cache write live and the control ops before the begin, so every drawing vector has a self-test form (v1-cache too).
+**Vectors:** 11 v2 vectors, 102 steps (`make_vectors.py`); every step read against the contract before the
+expectations were taken from the C (two of my own budget comments were wrong; the C was right). The simulator
+(`GlassFirmwareSim` v2, from the contract text) matches the C on all 18 vectors, 137 steps, both lenses,
+both forms (`ConformanceVectorTest`); the v1 expectations' CRCs and return codes are unchanged.
+**Damage (evening; the shapes are `FIRMWARE.md` §4's phone-side paragraph):** the v2 atlas (`TextureCache`
+v2, `GlyphAtlas(v2, capacity)`: Latin-1 tables, icons as v2 records, mode-19 chunks), the recorder's Latin-1 runs
+and the platform's pair kerning as adjust bytes (`TextRasterizer.kern`: Android measures, AWT none), the
+transport's start taking the cache size and arming DRAW2 before the paint (`LinkState.draw2`, `cacheSize`) and
+asking a bit-6 build for LE 2M, the compositor's `emitCachedV2` (a stereo base delta plus per-lens draws), fills
+for black boxes, the fill-plus-draws reseed (the height switch, the exclusive exit, a font-scale relayout), the
+mode-24 hint under `hintMaxRows` (240; a list notch spans the band and ships full), the `present` path in the
+journal and the report, the on-glass runner for the v2 vectors. Pinned: `Contract2Test` ×4 (per-lens draws with
+no copy and belief = glass, every flush hinted against the model's partial panel, kerning and Latin-1 on the
+wire, the reseed, the run splitting), `TextureCacheTest` +3, `DamageMsgTest` +1. Gated on DamageCaps bit 5 with
+DRAW2 in force: the APK runs as before on the installed build. **Not built:** Reader's page staging as v2
+records with a clip + draw page turn (a Reader-level change, the largest single latency win); `lint.py` rules for
+the v2 budgets (the encoders' `LintError`s hold them); a Global row for the hint's A/B. **A self-review finding,
+fixed before the pin:** a self-test step swaps the self-test's save-under slots in for the live ones, and a release
+point from another task during the step would have freed the step's slots as the live ones — the live slots' free
+is deferred to the step's epilogue like the scratch's (`damage_live_slots_release`; the window §53.2 closed for the
+scratch). **Battery:** core 566 · desktop 15 · `--selfcheck` ×3 · the window checks · lint 0; APK 0.51 staged.
+**Nothing flashed; no Phase 2 flash before a worn day on the Phase 1 build is read (§56).**

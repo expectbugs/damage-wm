@@ -21,6 +21,7 @@ import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.transport.Arm
 import wm.damage.core.transport.SimTransport
 import wm.damage.core.transport.TransportEvent
+import wm.damage.core.transport.draw2
 import wm.damage.core.wire.AaFrame
 import wm.damage.core.wire.DamageMsg
 import wm.damage.core.wire.Pb
@@ -359,6 +360,71 @@ class DamageMsgTest {
             } finally {
                 scope.cancel()
             }
+        }
+    }
+
+    /** 2026-09-15 12:54 on glass (`HANDOFF.md` §59): RIGHT answers every control request twice,
+     *  and the second copy of one FLAGS_SET's reply completed the NEXT set's waiter with the
+     *  previous flags — a false "bit 15 refused" fault while the bit was in fact armed. The
+     *  waiter now takes only the record that answers the set being armed. */
+    @Test
+    fun armingBitByBitSurvivesTheDuplicateReplies(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            // the duplicate lands 1 ms after the first reply; the next request's own reply takes a
+            // modeled ~30 ms write to arrive — the glasses' order (a duplicate at ~6 ms, a round
+            // trip at ~50 ms), so the stale record reaches the next set's waiter first
+            val sim = GlassFirmwareSim().also { it.damageContract = 1; it.duplicateControlReplies = true; it.duplicateReplyDelayMs = 1 }
+            var clock = 1_000_000L
+            val t = SimTransport(sim, scope, SimTransport.Timing(instant = false, ackMs = 5, bytesPerSec = 1000.0), clock = { clock })
+            val notes = ArrayList<Pair<String, String>>()
+            val faults = ArrayList<String>()
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                t.events.collect {
+                    if (it is TransportEvent.Note) synchronized(notes) { notes.add(it.kind to it.detail) }
+                    if (it is TransportEvent.Fault) synchronized(faults) { faults.add("${it.what}: ${it.detail}") }
+                }
+            }
+            t.devProbe("flags", "0x8001")                                  // the wish; the start arms it bit by bit
+            t.start(Zl.encodeCfw(Pack.rect(Gray8(640, 480), Rect(0, 0, 640, 480))))
+            until("both bits armed on both arms") { Arm.entries.all { sim.damageFlags(it) == 0x8001 } }
+            until("the keeper noted both bits") { synchronized(notes) { notes.count { it.first == "keeper" && "armed bit" in it.second } == 2 } }
+            delay(300)
+            assertEquals(emptyList(), synchronized(faults) { faults.filter { it.startsWith("flags") } }, "no false refusal")
+            t.stop()
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /** `FIRMWARE.md` §4: a contract-2 start takes the cache size and arms DRAW2 BEFORE the shell
+     *  can paint (the v2 atlas and draws answer only under the flag), and reports both in the
+     *  link state; a mode-19 write then allocates the session's cache on both lenses. */
+    @Test
+    fun aContractTwoStartArmsDraw2AndTakesTheCacheSizeBeforeThePaint(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val sim = GlassFirmwareSim().also { it.damageContract = 2 }
+            val t = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+            val notes = ArrayList<Pair<String, String>>()
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                t.events.collect { if (it is TransportEvent.Note) synchronized(notes) { notes.add(it.kind to it.detail) } }
+            }
+            t.start(Zl.encodeCfw(Pack.rect(Gray8(640, 480), Rect(0, 0, 640, 480))))
+            val st = t.state.value
+            assertEquals(2, st.damageContract); assertEquals(DamageMsg.PHASE2_FEATURES, st.damageFeatures)
+            assertTrue(st.draw2, "DRAW2 in force at the end of start(): flags 0x${st.flagsInForce.toString(16)}")
+            assertEquals(160 * 1024, st.cacheSize)
+            assertTrue(Arm.entries.all { sim.damageFlags(it) and DamageMsg.FLAG_DRAW2 != 0 }, "both lenses armed")
+            assertTrue(synchronized(notes) { notes.any { it.first == "glass" && "cache size: asked 160 KiB, status 0, 160 KiB" in it.second } }, "the size was taken: $notes")
+            assertEquals(0, sim.cacheSize(Arm.RIGHT), "nothing allocated before the first write")
+            val rec = wm.damage.core.wire.TextureCache.Image2(8, 4, ByteArray(32) { 15 }).encode()
+            val msg = wm.damage.core.wire.CfwModes.cacheUpdate2(listOf(wm.damage.core.wire.CfwModes.CacheWrite2(1, rec)), 160 * 1024)
+            t.submit(wm.damage.core.transport.FlushRequest(listOf(wm.damage.core.transport.DisplayOp.CacheWrite2(msg)), 0, "ATLAS"))
+            until("the write allocated the session's cache on both lenses") { Arm.entries.all { sim.cacheSize(it) == 160 * 1024 } }
+            t.stop()
+        } finally {
+            scope.cancel()
         }
     }
 

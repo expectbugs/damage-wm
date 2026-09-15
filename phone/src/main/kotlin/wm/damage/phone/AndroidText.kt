@@ -106,6 +106,17 @@ class AndroidText(
         return FontMetrics(-fm.ascent, fm.descent, fm.descent - fm.ascent)
     }
 
+    /** Phase 2 (`FIRMWARE.md` §4, kerning on): the pair's width beyond the two advances, as the
+     *  platform shapes it, rounded and clamped to the wire's adjust range. Memoised per pair. */
+    private val kerns = java.util.concurrent.ConcurrentHashMap<wm.damage.core.text.GlyphKey, Int>()
+    override fun kern(a: Char, b: Char, font: FontSpec): Int =
+        kerns.getOrPut(glyphKey(font, "$a$b")) {
+            val p = paint(font)
+            val pair = p.measureText("$a$b")
+            val apart = p.measureText(a.toString()) + p.measureText(b.toString())
+            Math.round(pair - apart).coerceIn(-10, 20)
+        }
+
     override fun draw(surface: Gray8, x: Int, y: Int, text: String, font: FontSpec, level: Int) {
         if (text.isEmpty()) return
         val t0 = System.nanoTime()

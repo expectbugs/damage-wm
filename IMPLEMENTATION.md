@@ -474,7 +474,10 @@ out since): a write of the last `LINK_SETTLE_MS` (10 s) before a link end is str
 the packet, the last exchange can predate a supervision timeout by 5 s, and a lease write can queue behind
 a flush on the same arm), a release is never struck. At the session's first ACQUIRE the transport decides
 whether both arms were inside `LEASE_CARRY_WINDOW_MS` (90 s less a 10 s margin) and puts the answer and
-the per-arm gaps in `LinkState.leaseCarried` / `leaseCarry` (over the seam too). `Shell.atlasAtSessionStart`
+the per-arm gaps in `LinkState.leaseCarried` / `leaseCarry` (over the seam too). Since §59 (2026-09-15, the
+right lens rebooted inside the window and refused every cached draw): the start reads RIGHT's uptime before
+the lease (`noteUptime`), a reboot since that arm's last acquire refuses the carry ("R reset N s ago"), and so
+does a LEFT supervision timeout (a reboot there cannot be read) or a RIGHT one on a build without telemetry. `Shell.atlasAtSessionStart`
 keeps the atlas when the transport says so, cached text is on, the session is not adopted and the last
 cache write through the transport was this shell's (`FlushRequest.writer` = the shell's tag →
 `LinkState.cacheWriter`): the acked fonts are live from the first compose, the chunk in flight at the link

@@ -148,6 +148,12 @@ class CachedTextTest {
             is DisplayOp.DrawText -> 9 + it.text.size
             is DisplayOp.DrawImage -> 8
             is DisplayOp.CacheWrite -> it.payload.size
+            is DisplayOp.DrawText2 -> 11 + it.text.size
+            is DisplayOp.DrawImage2 -> 10
+            is DisplayOp.Fill -> 18
+            is DisplayOp.Clip -> 17
+            is DisplayOp.PresentHint -> 5
+            is DisplayOp.CacheWrite2 -> it.payload.size
             is DisplayOp.Copy -> 0
             is DisplayOp.CopyPair -> 0
         }

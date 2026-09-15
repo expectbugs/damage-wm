@@ -16,10 +16,12 @@ firmware's diagnostic overlay, `probe:logger=on|off` the glasses' own log stream
 into the journal as `glasslog` notes, `probe:phy=2m|1m` the radio PHY ask; APK
 0.45+; on a Damage build (`FIRMWARE.md` §3, APK 0.46+): `probe:telemetry=read`,
 `probe:cache=info`, `probe:flags=clear|probe|0xNNNN`, `probe:selftest=begin|end|step:HEX`),
-`selftest:PATH.json` (a conformance vector — `firmware/vectors/v1-*.json` — driven
-through the glasses' self-test step by step; after each step RIGHT's telemetry is read
-from the host's `/log` and its scratch CRC and refusal compared with the vector's
-expectations; the `token` is the same as the WebSocket's). Gestures are paced by --pace seconds
+`selftest:PATH.json` (a conformance vector — `firmware/vectors/v1-*.json`, `v2-*.json` —
+driven through the glasses' self-test step by step; after each step RIGHT's telemetry is
+read from the host's `/log` and its scratch CRC, refusal and — for a v2 vector — the
+refusal record's mode and reason compared with the vector's expectations; a v2 vector's
+`flags`/`cachesize` ops go first as probes and a cache write is sent live, as the fork's
+`host/run_self_test.py` does; the `token` is the same as the WebSocket's). Gestures are paced by --pace seconds
 so each flush is isolated in the journal (§31.1's method). Every gesture is
 echoed with a timestamp so the journal's flushes can be matched to it.
 
@@ -61,8 +63,9 @@ async def selftest(ws, host, port, token, path):
     whose telemetry never advances is reported, never retried forever."""
     import re
     vec = json.load(open(path))
-    if vec['name'] in ('v1-lease', 'v1-cache'):
-        print(f'{vec["name"]}: no self-test form (lease or cache vector)'); return
+    ops_all = [op for st in vec['steps'] for op in st['ops']]
+    if vec['name'] == 'v1-lease' or any(op.get('lease') == 'release' for op in ops_all):
+        print(f'{vec["name"]}: no self-test form (a lease release or lapse inside it)'); return
     async def probe(name, value):
         await ws.send(json.dumps({'t': 'probe', 'name': name, 'value': value}))
     def right_telemetry():
@@ -70,13 +73,21 @@ async def selftest(ws, host, port, token, path):
             m = re.search(r'glass telemetry from RIGHT: (.*)$', line)
             if m: return dict(kv.split('=', 1) for kv in m.group(1).split() if '=' in kv)
         return None
+    # a v2 vector's control ops run before the begin, so DRAW2 and the cache size are in force
+    # for every step (the same order as the fork's host/run_self_test.py)
+    for op in ops_all:
+        if 'flags' in op: await probe('flags', '0x%04x' % int(op['flags'])); await asyncio.sleep(0.5)
+        elif 'cachesize' in op: await probe('cachesize', str(int(op['cachesize']))); await asyncio.sleep(0.5)
     await probe('selftest', 'begin'); await asyncio.sleep(0.6)
     fails = 0; steps_seen = 0
     for i, st in enumerate(vec['steps']):
         msgs = [op['msg'] for op in st['ops'] if 'msg' in op]
-        if any('tick' in op or 'lease' in op for op in st['ops'] if 'msg' not in op) and i > 0:
-            print(f'  step {i}: a tick/lease op has no self-test form — skipped')
+        if any('tick' in op for op in st['ops'] if 'msg' not in op) and i > 0:
+            print(f'  step {i}: a tick op has no self-test form — skipped')
         for m in msgs:
+            if (int(m[:2], 16) & 0x7f) in (12, 19):   # a cache write goes to the live cache the steps read
+                await probe('selftest', 'live:' + m); await asyncio.sleep(0.6 + len(m) / 40000)
+                continue
             await probe('selftest', 'step:' + m); await asyncio.sleep(0.4 + len(m) / 40000)
         want = st['expect']
         got = None
@@ -90,8 +101,15 @@ async def selftest(ws, host, port, token, path):
         crc_ok = got.get('stCrc') == want['R']
         # the refusal field is the LAST step's: a step that carried no message says nothing new about it
         rc_ok = (not msgs) or (got.get('stRefused') == ('1' if want['rc']['R'][-1] != 0 else '0'))
-        print(f'  {"PASS" if crc_ok and rc_ok else "FAIL"} step {i}: scratch {got.get("stCrc")} (expected {want["R"]}), refused {got.get("stRefused")}')
-        fails += not (crc_ok and rc_ok)
+        # a v2 vector: the refusal record's mode and reason (its sequence is the live count; not compared)
+        ref = want.get('ref', {}).get('R')
+        ref_ok = True
+        if ref is not None and vec.get('contract', 1) >= 2:
+            got_ref = (int(got.get('refMode', 0)), int(got.get('refReason', 0)))
+            ref_ok = got_ref == (ref[0], ref[1])
+        print(f'  {"PASS" if crc_ok and rc_ok and ref_ok else "FAIL"} step {i}: scratch {got.get("stCrc")} (expected {want["R"]}), refused {got.get("stRefused")}'
+              + (f', refusal record {got.get("refMode")}/{got.get("refReason")} (expected {ref[0]}/{ref[1]})' if ref is not None and vec.get('contract', 1) >= 2 else ''))
+        fails += not (crc_ok and rc_ok and ref_ok)
     await probe('selftest', 'end')
     print(f'{vec["name"]}: {"all steps match on RIGHT" if not fails else f"{fails} step(s) differ"} (LEFT runs the same steps but cannot report — FIRMWARE.md §3)')
 

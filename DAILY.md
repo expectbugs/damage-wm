@@ -115,7 +115,10 @@ without writing a row.
   top-left of both lenses (`OK w…us p…us f13/20/27=…k`: flags, the last message's worker and copy time, free KiB
   per heap arena) — `diag=hide` removes it. `logger=on` streams the glasses' own log lines into the journal as
   `glasslog` notes (RAM-only on the glasses; re-sent after every session start; `logger=off` stops it) — read
-  with `journal_report.py - --since … --glasslog`. `phy=2m` asks the radio for 2M PHY (`link` notes carry the
+  with `journal_report.py - --since … --glasslog`. On a Damage build (`FIRMWARE.md` §3/§4): `telemetry=read`,
+  `cache=info`, `flags=clear|probe|0xNNNN`, `selftest=begin|end|step:HEX`, and since 0.51 `cachesize=KiB` (op 5) and
+  `selftest=live:HEX` (a vector's cache write to the live cache; `glassdrive.py selftest:FILE` drives a whole vector).
+  `phy=2m` asks the radio for 2M PHY (`link` notes carry the
   answer; `phy=1m` goes back — answered 2026-09-14: the glasses have no 2M PHY, the probe only shows the refusal). `telemetry=read` and `flags=probe|clear` answer only on a Damage firmware build
   (the installed one is upstream and ignores them; the `probe` note says so). The glasses' battery changes are
   `battery` notes (the report's battery section).

@@ -41,13 +41,20 @@ import wm.damage.core.wire.TextureCache
  * measured), menus, notifications, the switcher — and everything when the
  * Depth setting is 0. A per-lens variant is a firmware-side ask.
  *
- * What changes visibly: cached text advances by integer glyph widths with no
- * pair kerning (the same glyph bitmaps, a pixel apart here and there), and a
- * level's ramp is the LUT's integer one. Belief and glass agree on both by
- * construction; the design's eye may not — the Global `Cached text` row is
- * off until it has been seen on glass.
+ * What changes visibly: cached text advances by integer glyph widths (with
+ * the platform's pair kerning as adjust bytes since Phase 2 — the same glyph
+ * bitmaps a pixel apart here and there where the platform has no kerning),
+ * and a level's ramp is the LUT's integer one. Belief and glass agree on both
+ * by construction; the design's eye may not — the Global `Cached text` row
+ * is off until it has been seen on glass.
+ *
+ * Contract 2 (`FIRMWARE.md` §4, a [GlyphAtlas] built with [GlyphAtlas.v2]): the
+ * same glyph images behind 224-entry tables (Latin-1), icons as v2 records, the
+ * cache the session's size (op 5), and every draw placed PER LENS by mode 17/18 —
+ * `Compositor.emitCachedAt` ships a rect on a depth plane as one stereo base delta
+ * plus the draws at each lens's own x, no widening and no copy.
  */
-class GlyphAtlas(private val base: TextRasterizer) {
+class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val capacity: Int = CfwModes.TEXTURE_CACHE_SIZE) {
 
     /** One packed font: its table, its 96 images (tofu where the face has no
      *  glyph), the box height every glyph shares, the rendered glyphs and
@@ -59,7 +66,7 @@ class GlyphAtlas(private val base: TextRasterizer) {
     /** A face rendered but not yet placed — priced by [price], placed by [add]. */
     private class Rendered(val glyphs: Map<Char, TextureCache.Image>, val tofu: TextureCache.Image, val lineH: Int)
 
-    private var builder = TextureCache.Builder()
+    private var builder = TextureCache.Builder(v2, capacity)
     private val entries = HashMap<FontSpec, Entry>()
     private val refused = HashSet<FontSpec>()
     private val rendered = HashMap<FontSpec, Rendered>()
@@ -82,25 +89,29 @@ class GlyphAtlas(private val base: TextRasterizer) {
     fun addImage(key: Any, img: TextureCache.Image): Boolean {
         if (key in images) return true
         if (key in refusedImages) return false
-        val enc = img.encode()
-        if (imageBytes + enc.size > IMAGE_BUDGET || builder.free < enc.size) {
+        // a v2 cache holds icons as v2 records (u16 dims, mode 17); the blit reads the levels either way
+        val enc = if (v2) TextureCache.Image2(img.w, img.h, img.levels).encode() else img.encode()
+        if (imageBytes + enc.size > imageBudget || builder.free < enc.size + 3) {
             refusedImages += key
-            Log.w("atlas", "icon $key (${img.w}x${img.h}, ${enc.size} B) stays pixels — icons hold $imageBytes B of $IMAGE_BUDGET, ${builder.free} B free")
+            Log.w("atlas", "icon $key (${img.w}x${img.h}, ${enc.size} B) stays pixels — icons hold $imageBytes B of $imageBudget, ${builder.free} B free")
             return false
         }
-        val off = builder.add(img)
+        val off = builder.addEncoded(enc)
         images[key] = ImageEntry(off, img, enc.size)
         imageBytes += enc.size
         return true
     }
 
     /** Packed bytes queued for the glasses — the upload watermark. */
-    var sentBytes = TextureCache.GUARD
+    var sentBytes = builder.guard
         private set
     /** Packed bytes the glasses have ACKED (§41): a font whose table ends
      *  below this is on the glasses whatever the setting did since. */
-    var ackedBytes = TextureCache.GUARD
+    var ackedBytes = builder.guard
         private set
+    /** Icons take at most a quarter of the cache — a lens icon is ~0.4–1 KB
+     *  packed, a row icon ~150 B; fonts are where the bytes are. */
+    val imageBudget: Int get() = capacity / 4
     /** The end offset of every chunk [takeUpload] handed out, in order —
      *  [acked] moves the acked watermark to the next one. */
     private val chunkEnds = ArrayDeque<Int>()
@@ -120,7 +131,10 @@ class GlyphAtlas(private val base: TextRasterizer) {
         val m: FontMetrics = base.metrics(spec)
         val h = (m.ascent + m.descent).coerceIn(1, CfwModes.MAX_TEXTURE_DIM)
         val glyphs = HashMap<Char, TextureCache.Image>()
-        for (c in TextureCache.FIRST_CHAR..LAST_GLYPH) {
+        // a v2 table covers Latin-1: the face's accented letters and symbols (the status line's
+        // "·") get glyphs; a code the face lacks (the C1 controls, DEL) stays the tofu
+        for (c in TextureCache.FIRST_CHAR..(if (v2) TextureCache.LAST_CHAR2 else LAST_GLYPH)) {
+            if (c == 127) continue
             val ch = c.toChar()
             val s = ch.toString()
             if (!base.covers(s, spec)) continue
@@ -165,7 +179,8 @@ class GlyphAtlas(private val base: TextRasterizer) {
         return try {
             val before = builder.used
             val font = builder.addFont(r.glyphs, r.tofu)
-            val images = Array(CfwModes.FONT_TABLE_CHARS) { i -> r.glyphs[(i + TextureCache.FIRST_CHAR).toChar()] ?: r.tofu }
+            // one image per table entry: 96 on a v1 table, 224 (Latin-1) on a v2 one
+            val images = Array(font.glyphOffsets.size) { i -> r.glyphs[(i + TextureCache.FIRST_CHAR).toChar()] ?: r.tofu }
             entries[spec] = Entry(font, images, r.lineH, r.glyphs, r.tofu, builder.used - before)
             rendered.remove(spec)
             true
@@ -192,7 +207,7 @@ class GlyphAtlas(private val base: TextRasterizer) {
     fun repack(keepFonts: List<FontSpec>, keepImages: List<Any>): Int {
         val fonts = keepFonts.mapNotNull { s -> entries[s]?.let { s to it } }
         val icons = keepImages.mapNotNull { k -> images[k]?.let { k to it.image } }
-        builder = TextureCache.Builder()
+        builder = TextureCache.Builder(v2, capacity)
         entries.clear(); refused.clear()
         images.clear(); refusedImages.clear(); imageBytes = 0
         for ((s, e) in fonts) {
@@ -218,9 +233,8 @@ class GlyphAtlas(private val base: TextRasterizer) {
         val out = ArrayList<ByteArray>()
         var pos = sentBytes
         while (pos < all.size) {
-            val n = minOf(maxMessage - 5, all.size - pos)
-            out += CfwModes.cacheUpdate(listOf(CfwModes.CacheWrite(pos, all.copyOfRange(pos, pos + n))))
-            pos += n
+            out += builder.chunk(all, pos, maxMessage)       // mode 12, or mode 19 on a v2 cache
+            pos += builder.chunkLen(all.size, pos, maxMessage)
             chunkEnds.addLast(pos)
         }
         sentBytes = all.size
@@ -244,15 +258,15 @@ class GlyphAtlas(private val base: TextRasterizer) {
 
     /** The glasses freed the cache (the lease lapsed): everything goes again. */
     fun forgetUpload() {
-        sentBytes = TextureCache.GUARD
-        ackedBytes = TextureCache.GUARD
+        sentBytes = builder.guard
+        ackedBytes = builder.guard
         chunkEnds.clear()
     }
 
     companion object {
         /** DEL (127) is in the table but is no glyph: the table entry is tofu. */
         const val LAST_GLYPH = 126
-        /** §41: icons take at most a quarter of the cache — a lens icon is
+        /** §41: icons take at most a quarter of a 64 KiB cache — a lens icon is
          *  ~0.4–1 KB packed, a row icon ~150 B; fonts are where the bytes are. */
         const val IMAGE_BUDGET = 16 * 1024
     }
@@ -377,24 +391,38 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
 
     override fun measure(text: String, font: FontSpec): Int {
         val e = liveEntry(font) ?: return base.measure(text, font)
+        val kern = kernOf(font)
         var w = 0
         forEachRun(text) { run, cached ->
-            if (cached) for (ch in run) w += e.images[ch.code - TextureCache.FIRST_CHAR].w
-            else w += base.measure(run, font)
+            if (cached) {
+                var prev: Char? = null
+                for (ch in run) {
+                    prev?.let { w += kern(it, ch) }
+                    w += e.images[ch.code - TextureCache.FIRST_CHAR].w
+                    prev = ch
+                }
+            } else w += base.measure(run, font)
         }
         return w
     }
 
+    /** The pair kerning the base rasterizer measures for [font] — the adjust bytes a cached
+     *  draw carries, and what [blit] advances by, so belief and glass agree (Phase 2). */
+    fun kernOf(font: FontSpec): (Char, Char) -> Int = { a, b -> base.kern(a, b, font) }
+
+    /** The codes a cached run may hold: 32..126 on a v1 atlas, Latin-1 but DEL on a v2 one. */
+    private fun cacheableCode(c: Int): Boolean =
+        c in TextureCache.FIRST_CHAR..(if (atlas?.v2 == true) TextureCache.LAST_CHAR2 else GlyphAtlas.LAST_GLYPH) && c != 127
+
     /** §41: [text] as the cacheable RUNS the atlas draws and the characters
-     *  between them the host draws — a status line's "·", an arrow. Runs
-     *  are capped at the u8 length mode 14 carries. */
+     *  between them the host draws — a status line's "·" on a v1 atlas, an
+     *  arrow. Runs are capped at the u8 length the draw carries. */
     private inline fun forEachRun(text: String, f: (run: String, cached: Boolean) -> Unit) {
         var i = 0
         while (i < text.length) {
-            val c = text[i].code
-            if (c in TextureCache.FIRST_CHAR..GlyphAtlas.LAST_GLYPH) {
+            if (cacheableCode(text[i].code)) {
                 var j = i
-                while (j < text.length && j - i < 0xFF && text[j].code in TextureCache.FIRST_CHAR..GlyphAtlas.LAST_GLYPH) j++
+                while (j < text.length && j - i < 0xFF && cacheableCode(text[j].code)) j++
                 f(text.substring(i, j), true)
                 i = j
             } else {
@@ -406,6 +434,7 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
 
     override fun metrics(font: FontSpec): FontMetrics = base.metrics(font)
     override fun covers(text: String, font: FontSpec): Boolean = base.covers(text, font)
+    override fun kern(a: Char, b: Char, font: FontSpec): Int = base.kern(a, b, font)
 
     override fun draw(surface: Gray8, x: Int, y: Int, text: String, font: FontSpec, level: Int) {
         val onTarget = surface === target
@@ -428,9 +457,10 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
         // is the host's, and the base delta carries its pixels — before, one
         // such character sent the whole string to pixels
         var px = x
+        val kern = kernOf(font)
         forEachRun(text) { run, cached ->
             if (cached) {
-                val w = blit(surface, px, y, run, e, level)
+                val w = blit(surface, px, y, run, e, level, kern)
                 if (onTarget) record(px, y, w, e, run, font, level)
                 else if (onRelay) {
                     // the draw lands on the target translated. A box the strip
@@ -540,9 +570,10 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
             }
         }
 
-        /** Mode 14 draws 32..127 from a u8 string; DEL is tofu, so 32..126. */
-        fun cacheable(text: String): Boolean =
-            text.isNotEmpty() && text.length <= 0xFF && text.all { it.code in TextureCache.FIRST_CHAR..GlyphAtlas.LAST_GLYPH }
+        /** Mode 14 draws 32..127 from a u8 string; DEL is tofu, so 32..126 ([v2]: Latin-1 but DEL). */
+        fun cacheable(text: String, v2: Boolean = false): Boolean =
+            text.isNotEmpty() && text.length <= 0xFF &&
+                text.all { it.code in TextureCache.FIRST_CHAR..(if (v2) TextureCache.LAST_CHAR2 else GlyphAtlas.LAST_GLYPH) && it.code != 127 }
 
         /**
          * The firmware's draw (`cfw_texture_render` with TRANSPARENT): source
@@ -551,10 +582,14 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
          * back to k. Returns the pen advance. Shared by the recorder and the
          * compositor's re-render so the two can never disagree.
          */
-        fun blit(g: Gray8, x0: Int, y0: Int, text: String, e: GlyphAtlas.Entry, level: Int): Int {
+        fun blit(g: Gray8, x0: Int, y0: Int, text: String, e: GlyphAtlas.Entry, level: Int,
+                 kern: (Char, Char) -> Int = { _, _ -> 0 }): Int {
             val top = Pack.level(level)
             var px = x0
+            var prev: Char? = null
             for (ch in text) {
+                prev?.let { px += kern(it, ch) }        // the adjust byte the draw carries (Phase 2)
+                prev = ch
                 val img = e.images[ch.code - TextureCache.FIRST_CHAR]
                 val w = img.w
                 for (p in img.levels.indices) {

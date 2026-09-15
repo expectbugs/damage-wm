@@ -98,6 +98,31 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     var needsKeyframe = true
         private set
 
+    /** Contract 2 (`FIRMWARE.md` §4): the v2 ops answer on this session — the build has them and
+     *  DRAW2 is in force (the shell sets it from the transport's state). With it: a seam strip
+     *  or a black box is a mode-21 fill (no fid, no zlib), a whole-panel reseed is a fill plus
+     *  the diff's draws instead of a mode-6 keyframe, a flush whose changed rows are few carries
+     *  a mode-24 hint, and — on a v2 atlas — a rect of cached text on a depth plane ships as one
+     *  stereo base delta plus per-lens draws (`emitCachedV2`). */
+    @Volatile var v2 = false
+
+    /** A whole-panel reseed is owed (v2): the next flush opens with a fill of the panel. */
+    var needsReseed = false
+        private set
+
+    /** Reseed both lenses from black: on a v2 session a fill plus the diff's draws (the first
+     *  flush is the fill and the first rects, ~1 KB, and the rest follows), otherwise the mode-6
+     *  keyframe as before. Back-to-Main and the height switch use it (`FORK.md` Phase 2). */
+    fun requestReseed() {
+        if (!v2) { requestKeyframe(); return }
+        needsReseed = true
+        damageAll()
+    }
+
+    /** Rows a flush may hint (mode 24) — a taller change ships with the full refresh; the
+     *  journal's `present` records and `tools/journal_report.py` price the two paths (F1.7). */
+    var hintMaxRows = 240
+
     data class PlannedCopy(val src: Rect, val dst: Rect)
 
     /** Ordered plane regions, top-most last: a nominal pixel belongs to the
@@ -171,6 +196,8 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     }
 
     fun damageAll() = damage(Rect(0, 0, width, height))
+    /** True while a reseed is owed (v2) — read beside [hasPending] by the pump. */
+    val reseedPending: Boolean get() = needsReseed
 
     /**
      * Declare a translation (§5.2/§5.3): pixels now at [dst] came from [src]
@@ -267,8 +294,20 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         residual = null
 
         var bareKeyframe = false
+        if (needsReseed && !keyframe) {
+            // v2: both lenses to black in 18 bytes; every pixel is then a difference between
+            // the black shadow and the truth, and the diff below paints it — text as draws
+            needsReseed = false
+            shadowL.clear(0); shadowR.clear(0)
+            java.util.Arrays.fill(unknownL, false)
+            java.util.Arrays.fill(unknownR, false)
+            touched.add(Touched(true, full)); touched.add(Touched(false, full))
+            ops.add(DisplayOp.Fill(full, full, 0))
+            hints.add(full)
+        }
         if (keyframe) {
             needsKeyframe = false
+            needsReseed = false
             // §41: the mode-6 seeds BOTH lenses with the SCREEN-PLANE pixels
             // only — every depth plane's area goes up black, and the diff
             // below paints each plane once, per lens, from the truth. It used
@@ -378,6 +417,13 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             }
             return null
         }
+        // v2: a flush whose changed rows are few asks for the partial refresh (mode 24); the
+        // rows are the union of every rect it touched on either lens, so the panel shows all of it
+        if (v2 && !keyframe && ops.isNotEmpty() && ops.none { it is DisplayOp.Keyframe }) {
+            var y0 = Int.MAX_VALUE; var y1 = -1
+            for (t in touched) { if (t.rect.w <= 0 || t.rect.h <= 0) continue; y0 = minOf(y0, t.rect.y); y1 = maxOf(y1, t.rect.bottom - 1) }
+            if (y1 >= y0 && y1 - y0 + 1 <= hintMaxRows) ops.add(DisplayOp.PresentHint(y0, y1))
+        }
         val wide = keyframe || dirtyLeft || fids > rectBudget
         return Assembled(ops, epoch, touched, copies, hints, keyframe = keyframe, wide = wide)
     }
@@ -423,6 +469,9 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
                 pendingDamage.add(widen(op.srcL)); pendingDamage.add(widen(op.dstL))
                 pendingDamage.add(widen(op.srcR)); pendingDamage.add(widen(op.dstR))
             }
+            // contract 2: a fill's rects; the draws' boxes ride the flush's touched rects above
+            is DisplayOp.Fill -> { pendingDamage.add(widen(op.left)); pendingDamage.add(widen(op.right)) }
+            is DisplayOp.DrawText2, is DisplayOp.DrawImage2, is DisplayOp.Clip, is DisplayOp.PresentHint, is DisplayOp.CacheWrite2 -> {}
             is DisplayOp.Keyframe -> {}
             // §40: a cached draw's pixels lie inside the clear delta before it
             is DisplayOp.DrawText, is DisplayOp.DrawImage, is DisplayOp.CacheWrite -> {}
@@ -861,14 +910,26 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     private fun emit(p: Planned, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int = when (p) {
         is Planned.Delta -> emitDelta(p.rect, p.d, ops, touched, fidsLeft, bytesLeft)
         is Planned.Black -> {
-            val payload = black(p.l.w, p.l.h)
-            if (fidsLeft <= 0 || payload.size + SUB_HEADER > bytesLeft) 0 else {
-                shadowL.fillRect(p.l, 0)
-                shadowR.fillRect(p.r, 0)
-                markKnown(unknownL, p.l); markKnown(unknownR, p.r)
-                touched.add(Touched(true, p.l)); touched.add(Touched(false, p.r))
-                ops.add(DisplayOp.StereoPair(p.l, p.r, payload))
-                1
+            if (v2) {
+                // contract 2: a black box is a mode-21 fill per lens — no fid, no zlib, 18 bytes
+                if (18 + SUB_HEADER > bytesLeft) 0 else {
+                    shadowL.fillRect(p.l, 0)
+                    shadowR.fillRect(p.r, 0)
+                    markKnown(unknownL, p.l); markKnown(unknownR, p.r)
+                    touched.add(Touched(true, p.l)); touched.add(Touched(false, p.r))
+                    ops.add(DisplayOp.Fill(p.l, p.r, 0))
+                    0
+                }
+            } else {
+                val payload = black(p.l.w, p.l.h)
+                if (fidsLeft <= 0 || payload.size + SUB_HEADER > bytesLeft) 0 else {
+                    shadowL.fillRect(p.l, 0)
+                    shadowR.fillRect(p.r, 0)
+                    markKnown(unknownL, p.l); markKnown(unknownR, p.r)
+                    touched.add(Touched(true, p.l)); touched.add(Touched(false, p.r))
+                    ops.add(DisplayOp.StereoPair(p.l, p.r, payload))
+                    1
+                }
             }
         }
     }
@@ -884,6 +945,12 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         is DisplayOp.DrawText -> 9 + op.text.size
         is DisplayOp.DrawImage -> 8
         is DisplayOp.CacheWrite -> op.payload.size
+        is DisplayOp.DrawText2 -> 11 + op.text.size
+        is DisplayOp.DrawImage2 -> 10
+        is DisplayOp.Fill -> 18
+        is DisplayOp.Clip -> 17
+        is DisplayOp.PresentHint -> 5
+        is DisplayOp.CacheWrite2 -> op.payload.size
     }
 
     /** The recording rasterizer whose frame the next assemble may ship as
@@ -913,6 +980,8 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      */
     private fun emitCached(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int? {
         lastMiss = null
+        // contract 2: a v2 atlas draws per lens — no widening, no copy, no retry on the context
+        if (cachedText?.atlas?.v2 == true) return emitCachedV2(rect, d, ops, touched, fidsLeft, bytesLeft)
         emitCachedAt(rect, d, ops, touched, fidsLeft, bytesLeft)?.let { return it }
         // A depth-plane rect whose proof failed on its CONTEXT — the copy
         // leaves |d| columns on each far side that must already be right, so
@@ -1047,6 +1116,90 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             appliedCopies.addLast(AppliedCopy(epoch, false, srcR, dstR))
             while (appliedCopies.size > COPY_HISTORY) appliedCopies.removeFirst()
         }
+        cachedRectsThisAssemble++
+        return 1
+    }
+
+    /**
+     * Contract 2 (`FIRMWARE.md` §4): [rect] at disparity [d] as ONE stereo base delta (the
+     * composed pixels over the rect with every draw's box black, at each lens's own box) plus
+     * the recorded draws placed per lens by modes 17/18 — nothing widened, nothing copied, no
+     * context to prove: the proof is that each lens's truth over ITS box equals base + draws,
+     * which is the nominal composition shifted. The `edge` miss is only a box off the panel;
+     * the context-caused `proof` misses of the v1 shape (a rail beside the text) are gone.
+     */
+    private fun emitCachedV2(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int? {
+        val src = cachedText ?: return null
+        val atlas = src.atlas ?: return null
+        val all = src.frameDraws()
+        val allImages = src.frameImageDraws()
+        if (all.isEmpty() && allImages.isEmpty()) return miss("no-records")
+        var r = rect
+        var draws: List<TextDraw> = emptyList()
+        var images: List<ImageDraw> = emptyList()
+        for (pass in 0 until 4) {
+            draws = all.filter { it.rect.overlaps(r) }
+            images = allImages.filter { it.rect.overlaps(r) }
+            if (draws.isEmpty() && images.isEmpty()) return miss("no-draws")
+            var u = r
+            for (dr in draws) u = u.union(dr.rect)
+            for (im in images) u = u.union(im.rect)
+            u = u.alignOut()
+            if (u == r) break
+            r = u
+            if (pass == 3) return miss("growing")
+        }
+        if (draws.size + images.size > MAX_CACHED_DRAWS || r.w <= 0 || r.h <= 0) return miss("too-many-draws")
+        val l = r.translate(-d, 0)
+        val rr = r.translate(d, 0)
+        if (l.x < 0 || rr.x < 0 || l.right > width || rr.right > width) return miss("edge")
+        val textOps = ArrayList<DisplayOp.DrawText2>(draws.size)
+        for (dr in draws) {
+            if (dr.spec !in src.live) return miss("font-not-live")
+            val e = atlas.entry(dr.spec) ?: return miss("font-not-live")
+            val kern = src.kernOf(dr.spec)
+            val bytes = try { wm.damage.core.wire.TextureCache.layout(dr.text, e.font, kern) } catch (t: wm.damage.core.geom.LintError) { return miss("layout") }
+            if (dr.x - kotlin.math.abs(d) >= width || dr.y >= height || dr.y < 0) return miss("edge")
+            textOps.add(DisplayOp.DrawText2(e.font.tableField, dr.x - d, dr.x + d, dr.y,
+                wm.damage.core.wire.CfwModes.options(top = wm.damage.core.gfx.Pack.level(dr.level), transparent = true), bytes))
+        }
+        val imageOps = ArrayList<DisplayOp.DrawImage2>(images.size)
+        for (im in images) {
+            if (im.key !in src.liveImages) return miss("image-not-live")
+            val e = atlas.image(im.key) ?: return miss("image-not-live")
+            if (im.x - kotlin.math.abs(d) >= width || im.y >= height || im.y < 0) return miss("edge")
+            imageOps.add(DisplayOp.DrawImage2(e.offset / 4, im.x - d, im.x + d, im.y,
+                wm.damage.core.wire.CfwModes.options(top = wm.damage.core.gfx.Pack.level(im.level), transparent = true), e.image.w, e.image.h))
+        }
+        // the firmware's result on each lens: the base (the composed pixels with the draws'
+        // boxes black) with the draws on top, at that lens's box — the nominal composition
+        val base = Gray8(r.w, r.h)
+        for (y in 0 until r.h) System.arraycopy(composed.pix, (r.y + y) * width + r.x, base.pix, y * r.w, r.w)
+        for (dr in draws) { val b = dr.rect.intersect(r) ?: continue; base.fillRect(b.x - r.x, b.y - r.y, b.w, b.h, 0) }
+        for (im in images) { val b = im.rect.intersect(r) ?: continue; base.fillRect(b.x - r.x, b.y - r.y, b.w, b.h, 0) }
+        val flat = Gray8(r.w, r.h)
+        System.arraycopy(base.pix, 0, flat.pix, 0, base.pix.size)
+        for (dr in draws) {
+            val e = atlas.entry(dr.spec) ?: return miss("font-not-live")
+            CachedText.blit(flat, dr.x - r.x, dr.y - r.y, dr.text, e, dr.level, src.kernOf(dr.spec))
+        }
+        for (im in images) {
+            val e = atlas.image(im.key) ?: return miss("image-not-live")
+            CachedText.blitImage(flat, im.x - r.x, im.y - r.y, e.image, im.level)
+        }
+        if (!sameOver(truthL, flat, l) || !sameOver(truthR, flat, rr)) return miss("proof")
+        val t0 = System.nanoTime()
+        val clear = Zl.encodeCfw(Pack.rect(base, Rect(0, 0, r.w, r.h)))
+        lastCompressNs += System.nanoTime() - t0; lastCompressN++
+        val cost = clear.size + SUB_HEADER + textOps.sumOf { sizeOf(it) } + imageOps.sumOf { sizeOf(it) }
+        if (fidsLeft <= 0 || cost > bytesLeft) return miss("budget")
+        paintTruth(shadowL, truthL, l)
+        paintTruth(shadowR, truthR, rr)
+        markKnown(unknownL, l); markKnown(unknownR, rr)
+        touched.add(Touched(true, l)); touched.add(Touched(false, rr))
+        ops.add(DisplayOp.Delta(r, clear, d))
+        ops.addAll(textOps)
+        ops.addAll(imageOps)
         cachedRectsThisAssemble++
         return 1
     }

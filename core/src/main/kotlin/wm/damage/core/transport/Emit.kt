@@ -91,6 +91,16 @@ object Emit {
                 is DisplayOp.DrawImage -> subs += CfwModes.drawImage(op.cacheOffset, op.x, op.y, op.options)
                 is DisplayOp.CacheWrite -> throw LintError(
                     "a mode-12 cache write cannot ride a batch — the transport sends an all-CacheWrite flush as bare images")
+                // contract 2 (`FIRMWARE.md` §4): the per-lens form only when the lenses differ
+                is DisplayOp.DrawText2 -> subs += if (op.xL == op.xR) CfwModes.drawText2(op.font4, op.xL, op.y, op.options, op.text)
+                    else CfwModes.drawText2Pair(op.font4, op.xL, op.xR, op.y, op.options, op.text)
+                is DisplayOp.DrawImage2 -> subs += if (op.xL == op.xR) CfwModes.drawImage2(op.off4, op.xL, op.y, op.options, op.w, op.h)
+                    else CfwModes.drawImage2Pair(op.off4, op.xL, op.xR, op.y, op.options, op.w, op.h)
+                is DisplayOp.Fill -> subs += if (op.left == op.right) CfwModes.fill(op.left, op.level) else CfwModes.fillPair(op.left, op.right, op.level)
+                is DisplayOp.Clip -> subs += if (op.left == op.right) CfwModes.clip(op.left) else CfwModes.clipPair(op.left, op.right)
+                is DisplayOp.PresentHint -> subs += CfwModes.presentHint(op.y0, op.y1)
+                is DisplayOp.CacheWrite2 -> throw LintError(
+                    "a mode-19 cache write cannot ride a batch — the transport sends an all-CacheWrite2 flush as bare images")
             }
         }
 

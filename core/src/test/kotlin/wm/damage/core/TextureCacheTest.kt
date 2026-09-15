@@ -688,4 +688,72 @@ class AckStatusTest {
         assertTrue(acks.isNotEmpty(), "the model must carry a status field like the firmware")
         assertTrue(acks.all { it.errorCode == null }, "and a success must not read as a failure")
     }
+
+    // ---------------------------------------------------------------- contract 2 (`FIRMWARE.md` §4)
+    @Test
+    fun aV2BuilderAlignsEveryRecordAndWritesA224EntryTable() {
+        val b = TextureCache.Builder(v2 = true, capacity = 160 * 1024)
+        val a = b.add(TextureCache.Image(3, 2, byteArrayOf(1, 1, 1, 2, 2, 2)))      // 4 B record
+        val c = b.add(TextureCache.Image(5, 1, byteArrayOf(3, 3, 3, 3, 4)))          // 4 B record
+        assertEquals(0, a % 4, "a v2 record is 4-byte aligned"); assertEquals(0, c % 4)
+        assertTrue(a >= TextureCache.GUARD2 && c > a)
+        val big = b.add2(TextureCache.Image2(300, 3, ByteArray(900) { (it % 3).toByte() }))
+        assertEquals(0, big % 4)
+        val content0 = b.content()
+        assertEquals(0x2c, content0[big].toInt() and 0xFF); assertEquals(0x01, content0[big + 1].toInt() and 0xFF)   // w = 300 LE
+        assertEquals(3, content0[big + 2].toInt()); assertEquals(0, content0[big + 3].toInt())                         // h = 3
+        val glyphs = mapOf('A' to TextureCache.Image(6, 12, ByteArray(72) { 5 }), 'é' to TextureCache.Image(7, 12, ByteArray(84) { 6 }))
+        val tofu = TextureCache.Image(4, 12, ByteArray(48) { 15 })
+        val font = b.addFont(glyphs, tofu)
+        assertTrue(font.v2); assertEquals(255, font.lastChar); assertEquals(0, font.tableOffset % 4)
+        assertEquals(font.tableOffset / 4, font.tableField, "mode 18 carries the table in 4-byte units")
+        assertEquals(7, font.width('é')); assertEquals(4, font.width('¿'), "an unmapped Latin-1 code is the tofu")
+        val content = b.content()
+        for (code in 32..255) {
+            val i = code - 32
+            val field = (content[font.tableOffset + 2 * i].toInt() and 0xFF) or ((content[font.tableOffset + 2 * i + 1].toInt() and 0xFF) shl 8)
+            assertEquals(font.glyphOffsets[i] / 4, field, "entry $code is its record's offset in 4-byte units")
+            assertEquals(0, font.glyphOffsets[i] % 4)
+        }
+        assertEquals(6, content[font.glyphOffsets['A'.code - 32]].toInt(), "'A' points at its 6-wide glyph")
+        assertEquals(4, content[font.glyphOffsets[0]].toInt(), "a space with no glyph points at the tofu")
+        assertFailsWith<LintError> { TextureCache.Builder(v2 = false).add2(TextureCache.Image2(2, 2, ByteArray(4))) }
+        assertFailsWith<LintError> { TextureCache.Image2(641, 1, ByteArray(641)) }
+        assertFailsWith<LintError> { TextureCache.Builder(v2 = true, capacity = 200 * 1024) }
+    }
+
+    @Test
+    fun v2MessagesAreMode19ChunksWhoseOffsetsStayInFourByteUnits() {
+        val b = TextureCache.Builder(v2 = true, capacity = 96 * 1024)
+        val rnd = java.util.Random(7)
+        repeat(40) { val w = 10 + rnd.nextInt(30); b.add(TextureCache.Image(w, 12, ByteArray(w * 12).also { a -> for (i in a.indices) a[i] = rnd.nextInt(16).toByte() })) }
+        val content = b.content()
+        val msgs = b.messages(maxMessage = 700)
+        assertTrue(msgs.size > 3)
+        var pos = TextureCache.GUARD2
+        for ((i, m) in msgs.withIndex()) {
+            assertEquals(19, m[0].toInt(), "a v2 chunk is a mode-19 message")
+            val off4 = (m[1].toInt() and 0xFF) or ((m[2].toInt() and 0xFF) shl 8)
+            val len = (m[3].toInt() and 0xFF) or ((m[4].toInt() and 0xFF) shl 8)
+            assertEquals(pos, off4 * 4, "chunk $i starts where the last one ended, in 4-byte units")
+            if (i < msgs.size - 1) assertEquals(0, len % 4, "every chunk but the last is a multiple of 4 bytes")
+            assertContentEquals(content.copyOfRange(pos, pos + len), m.copyOfRange(5, 5 + len))
+            pos += len
+        }
+        assertEquals(content.size, pos, "the chunks cover the whole atlas past the guard")
+    }
+
+    @Test
+    fun layoutCarriesKerningAsAdjustBytesAndLatinOneCodes() {
+        val b = TextureCache.Builder(v2 = true)
+        val g = (32..255).filter { it != 127 }.associate { it.toChar() to TextureCache.Image(6, 8, ByteArray(48) { 3 }) }
+        val font = b.addFont(g, TextureCache.Image(3, 8, ByteArray(24) { 15 }))
+        val bytes = TextureCache.layout("Aé", font) { a, _ -> if (a == 'A') -2 else 0 }
+        assertContentEquals(byteArrayOf(65, 9, 0xE9.toByte()), bytes, "A, an adjust of -2 (byte 9), then é as its Latin-1 code")
+        assertEquals(6 + 6 - 2, font.measure("Aé") { a, _ -> if (a == 'A') -2 else 0 })
+        assertFailsWith<LintError> { TextureCache.layout("A→", font) }
+        val v1 = TextureCache.Builder().addFont(mapOf('A' to TextureCache.Image(6, 8, ByteArray(48) { 3 })), TextureCache.Image(3, 8, ByteArray(24) { 15 }))
+        assertFailsWith<LintError> { TextureCache.layout("é", v1) }
+        assertEquals(v1.tableOffset, v1.tableField, "mode 14 carries the table in bytes")
+    }
 }

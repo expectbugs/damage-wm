@@ -180,6 +180,30 @@ sealed class DisplayOp {
 
     /** A mode-13 draw of one cached image, flat, no fid (§40). */
     data class DrawImage(val cacheOffset: Int, val x: Int, val y: Int, val options: Int) : DisplayOp()
+
+    // ---- contract 2 (`FIRMWARE.md` §4): per-lens draws, fills, the batch context. No fid on any of them.
+    /** A mode-18 draw of cached glyphs through a 224-entry table at [font4] (4-byte units), the
+     *  left lens at [xL], the right at [xR] — the per-lens form when they differ. */
+    data class DrawText2(val font4: Int, val xL: Int, val xR: Int, val y: Int, val options: Int, val text: ByteArray) : DisplayOp()
+
+    /** A mode-17 draw of a v2 image record at [off4] (4-byte units), per lens; [w]/[h] are the
+     *  record's, for the encoder's bound. */
+    data class DrawImage2(val off4: Int, val xL: Int, val xR: Int, val y: Int, val options: Int, val w: Int, val h: Int) : DisplayOp()
+
+    /** A mode-21 fill of [left] on the left lens and [right] on the right (one size, one y) at
+     *  [level] 0..15 — a black strip after a copy, a seam, a whole-panel reseed. */
+    data class Fill(val left: Rect, val right: Rect, val level: Int) : DisplayOp()
+
+    /** A mode-20 clip for the v2 ops after it in the same batch, per lens. */
+    data class Clip(val left: Rect, val right: Rect) : DisplayOp()
+
+    /** A mode-24 present hint: the batch's present sends rows [y0]..[y1] (inclusive) through the
+     *  JBD4010's partial entry. The rows must cover every pixel the batch changed. */
+    data class PresentHint(val y0: Int, val y1: Int) : DisplayOp()
+
+    /** A mode-19 cache write (offsets in 4-byte units over the session's cache size) — one complete
+     *  message, sent as its own image like [CacheWrite]. */
+    data class CacheWrite2(val payload: ByteArray) : DisplayOp()
 }
 
 /** kind: DELTA rides the pipeline; KEYFRAME also rebaselines fid discipline. */
@@ -244,7 +268,9 @@ sealed class TransportEvent {
     /** A Damage build's presented notify (`FIRMWARE.md` §3, F1.3): the panel transfer
      *  that followed a Damage frame's copy, in microseconds, with the glasses' own
      *  present count. Journaled as a `present` record; never a status. */
-    data class Presented(val seq: Long, val workerUs: Long, val copyUs: Long, val transferUs: Long) : TransportEvent()
+    data class Presented(val seq: Long, val workerUs: Long, val copyUs: Long, val transferUs: Long,
+        /** Contract 2: 0 the full refresh, 1 the hinted rows (mode 24). */
+        val path: Long = 0) : TransportEvent()
 }
 
 data class LinkState(
@@ -280,6 +306,14 @@ data class LinkState(
     val capability: String? = null,
     val rssiDbm: Int? = null,
     val transportName: String = "none",
+    /** `FIRMWARE.md` §0: the Damage build's contract and features (0 on an upstream build), and the
+     *  flags the build reports in force (contract 2 arms DRAW2 inside the start). */
+    val damageContract: Int = 0,
+    val damageFeatures: Int = 0,
+    val flagsInForce: Int = 0,
+    /** `FIRMWARE.md` §4, op 5: the texture cache's size this session (64 KiB until a contract-2
+     *  build took a larger one). */
+    val cacheSize: Int = wm.damage.core.wire.CfwModes.TEXTURE_CACHE_SIZE,
     /** The bounded atlas skip (2026-09-15, `HANDOFF.md` §54; Adam's ruling §51.8): at
      *  this session's first lease ACQUIRE, whether the previous lease was still inside
      *  its window on BOTH arms — so the acquire was a renewal on the glasses and the
@@ -299,3 +333,8 @@ data class LinkState(
      *  the pair", "connecting RIGHT", "connect prelude", "" once driving. */
     val detail: String = "",
 )
+
+/** Contract 2: the v2 drawing ops answer — the build has them and DRAW2 is in force. */
+val LinkState.draw2: Boolean
+    get() = damageFeatures and wm.damage.core.wire.DamageMsg.FEATURE_DRAW2 != 0 &&
+        flagsInForce and wm.damage.core.wire.DamageMsg.FLAG_DRAW2 != 0

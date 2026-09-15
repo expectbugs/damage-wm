@@ -98,7 +98,7 @@ private data class Ctl(
 
 @Serializable
 private data class WireOp(
-    val k: String,                       // "kf" | "d" | "c" | "sp" | "cw" | "dt" | "di"
+    val k: String,                       // "kf" | "d" | "c" | "cp" | "sp" | "cw" | "dt" | "di" | "dt2" | "di2" | "fl" | "cl" | "ph" | "cw2"
     /** §40: a cache offset (the font table for "dt", the image for "di"). */
     val off: Int = 0,
     val box: List<Int> = emptyList(),
@@ -542,6 +542,16 @@ class RemoteTransportClient(
                 blobLen += op.text.size
             }
             is DisplayOp.DrawImage -> ops.add(WireOp("di", box = listOf(op.x, op.y, 0, 0), disp = op.options, off = op.cacheOffset))
+            // contract 2 (`FIRMWARE.md` §4): additive kinds an older peer logs and ignores
+            is DisplayOp.DrawText2 -> {
+                ops.add(WireOp("dt2", box = listOf(op.xL, op.xR, op.y, 0), disp = op.options, off = op.font4, len = op.text.size))
+                blobLen += op.text.size
+            }
+            is DisplayOp.DrawImage2 -> ops.add(WireOp("di2", box = listOf(op.xL, op.xR, op.y, 0), src = listOf(op.w, op.h, 0, 0), disp = op.options, off = op.off4))
+            is DisplayOp.Fill -> ops.add(WireOp("fl", src = op.left.wire(), dst = op.right.wire(), disp = op.level))
+            is DisplayOp.Clip -> ops.add(WireOp("cl", src = op.left.wire(), dst = op.right.wire()))
+            is DisplayOp.PresentHint -> ops.add(WireOp("ph", box = listOf(op.y0, op.y1, 0, 0)))
+            is DisplayOp.CacheWrite2 -> { ops.add(WireOp("cw2", len = op.payload.size)); blobLen += op.payload.size }
         }
         val blob = ByteArray(blobLen)
         var off = 0
@@ -884,6 +894,19 @@ class RemoteTransportServer(
                                 }
                                 "cw" -> {
                                     ops.add(DisplayOp.CacheWrite(blob!!.copyOfRange(off, off + w.len)))
+                                    off += w.len
+                                }
+                                "dt2" -> {
+                                    ops.add(DisplayOp.DrawText2(w.off, w.box[0], w.box[1], w.box[2], w.disp,
+                                        blob!!.copyOfRange(off, off + w.len)))
+                                    off += w.len
+                                }
+                                "di2" -> ops.add(DisplayOp.DrawImage2(w.off, w.box[0], w.box[1], w.box[2], w.disp, w.src[0], w.src[1]))
+                                "fl" -> ops.add(DisplayOp.Fill(w.src.rect(), w.dst.rect(), w.disp))
+                                "cl" -> ops.add(DisplayOp.Clip(w.src.rect(), w.dst.rect()))
+                                "ph" -> ops.add(DisplayOp.PresentHint(w.box[0], w.box[1]))
+                                "cw2" -> {
+                                    ops.add(DisplayOp.CacheWrite2(blob!!.copyOfRange(off, off + w.len)))
                                     off += w.len
                                 }
                                 "dt" -> {

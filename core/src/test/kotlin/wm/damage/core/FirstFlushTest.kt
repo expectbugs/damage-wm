@@ -70,6 +70,12 @@ class FirstFlushTest {
             is DisplayOp.DrawText -> 9 + it.text.size
             is DisplayOp.DrawImage -> 8
             is DisplayOp.CacheWrite -> it.payload.size
+            is DisplayOp.DrawText2 -> 11 + it.text.size
+            is DisplayOp.DrawImage2 -> 10
+            is DisplayOp.Fill -> 18
+            is DisplayOp.Clip -> 17
+            is DisplayOp.PresentHint -> 5
+            is DisplayOp.CacheWrite2 -> it.payload.size
         }
     }
 
@@ -83,6 +89,12 @@ class FirstFlushTest {
             is DisplayOp.DrawText -> "T(${it.x},${it.y})"
             is DisplayOp.DrawImage -> "I(${it.x},${it.y})"
             is DisplayOp.CacheWrite -> "CW(${it.payload.size}B)"
+            is DisplayOp.DrawText2 -> "T2(${it.xL}/${it.xR},${it.y})"
+            is DisplayOp.DrawImage2 -> "I2(${it.xL}/${it.xR},${it.y})"
+            is DisplayOp.Fill -> "F${it.left}/${it.right}=${it.level}"
+            is DisplayOp.Clip -> "CL${it.left}"
+            is DisplayOp.PresentHint -> "H${it.y0}-${it.y1}"
+            is DisplayOp.CacheWrite2 -> "CW2(${it.payload.size}B)"
         }
     }
 

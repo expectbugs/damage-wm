@@ -142,6 +142,12 @@ class PlaneCacheTest {
             is DisplayOp.DrawText -> "T(${it.x},${it.y})"
             is DisplayOp.DrawImage -> "I"
             is DisplayOp.CacheWrite -> "CW"
+            is DisplayOp.DrawText2 -> "T2(${it.xL}/${it.xR},${it.y})"
+            is DisplayOp.DrawImage2 -> "I2(${it.xL}/${it.xR},${it.y})"
+            is DisplayOp.Fill -> "F${it.left}/${it.right}=${it.level}"
+            is DisplayOp.Clip -> "CL"
+            is DisplayOp.PresentHint -> "H${it.y0}-${it.y1}"
+            is DisplayOp.CacheWrite2 -> "CW2"
         }
     }
 
