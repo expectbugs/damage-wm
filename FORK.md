@@ -202,7 +202,7 @@ features armed one at a time · a soak day · journal and `/log` read · fix fla
 **Exit:** every telemetry field populated (the boot count withdrawn); the cache survives a rebuild without re-upload
 (seen on glass, §54.1); no hold-back events; the soak = ordinary wear during Phase 2's build (Adam, §56).
 
-### Phase 2 — Drawing contract v2, phone-driven (size L; 1 flash) — **BUILT on both sides 2026-09-15 and reviewed four times (pin `48172b62…`, `HANDOFF.md` §60–§65) bar Reader's page staging; not flashed**
+### Phase 2 — Drawing contract v2, phone-driven (size L; 1 flash) — **FLASHED 2026-09-16 (pin `48172b62…`, `HANDOFF.md` §65; built §60, reviewed §61–§64) bar Reader's page staging; test stop T2 open**
 
 **Firmware (`FIRMWARE.md` §4, drafted 2026-09-15):** per-lens cached image and string draws (modes 17/18), the v2
 image record (u16 dims), the 224-entry table, cache write v2 (19), clip (20), fill (21), LUT over rect (22),
@@ -515,4 +515,8 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   set's one disagreement is the documented adler-only shape, proven to the byte); **the worn-day read** (10.2 h,
   7.8 %/h, heap flat, no hold-back — §56's precondition met — and the arm drops measured as REBOOTS, in the case,
   cause U); APK 0.55 staged; the candidate's offline gates re-run green, the image on disk hashed to the pin.
-  Nothing flashed.
+- **2026-09-16 (3) — Phase 2 FLASHED (`HANDOFF.md` §65):** APK 0.55 installed by Adam; his word for both lenses
+  given in advance as he left for work; phone Bluetooth off, the standby stopped; the staircase per lens, then
+  LEFT 13:19:22–13:22:34 (164 s) and RIGHT 13:24:13–13:27:28 (166 s), six components each, zero resends, every END
+  status 8, exit 0; archived in `fws/2.2.6.10-cfw-48172b62/`; the rollback is Phase 1's image. First light
+  pending the phone's Bluetooth; T2's checks are `REMINDER.md` item 8.

@@ -15,20 +15,21 @@ protocol), §64–§61 (the four reviews), §60 (Phase 2 built), §59 (the day's
   "Scope, build, review" and `FORK.md` §3.8**: a phase's design pass fills the failure envelope before any code;
   a build ends with a Not-built list and the two instruments' numbers; a fix sweeps its class; two general
   review passes, then class sweeps and instruments.
-- **LIVE: the fork's Phase 1 build on both lenses since 2026-09-15 04:38 (§55)** — pin `c5e4f8b7…` = a5d1c31 +
-  F1.1–F1.5 + the self-test (reports `2.2.6.10`; detect by `EVENCFW/` and DamageCaps, never the version);
-  features `0x1f`, flags `0x8001` (PROBE + PRESENTED), CACHE_KEEP off; rollback `fws/2.2.6.10-cfw-d4054ab1/`;
-  provenance `tools/verify.py` (`research/verify_cfw.py` pins the rollback). The soak (§56): 7.3 h clean; 387
-  presents, transfer 2.0 ms median / 12.2 max (M) — the link is the tick ceiling; in the case the panel is off;
-  the uptime tick is 1.024 per ms. The phone APK drives; the OpenRC `damage` service is the data host and standby
-  (§19, `DAILY.md`), still on 0.44's core.
-- **The APK. 0.49 installed** (2026-09-15 03:46; every `build` note through 09-16 12:17). **0.55 STAGED 2026-09-16
-  13:09** (`~/.damage/damage-wm.apk`, the setup page) — §61–§64's fixes, among them defects LIVE on the installed
-  build: kerned text missing its proof, and the atlas check that keeps cached text off when the glasses did not
-  take the upload. Adam installs (free, reversible to 0.49); **the Phase 2 flash needs it on the phone first.**
-- **🔴 Phase 2: BUILT on both sides, reviewed FOUR times, not flashed** (`HANDOFF.md` §60–§64; `FIRMWARE.md`
-  §4 as built; committed and pushed 2026-09-16 — Damage `7997a4d`, the fork `f20bac9`; §65's session is
-  uncommitted, for Adam's word). Fork pin **`48172b62…`** = Phase 1 + modes 17–24, op 5, status 3–5, fields
+- **LIVE: the fork's Phase 2 build on both lenses since 2026-09-16 13:27 (§65)** — pin `48172b62…` = Phase 1 +
+  modes 17–24, op 5, status 3–5, fields 23–26, the partial path, the three link edits (reports `2.2.6.10`; detect by
+  `EVENCFW/` and DamageCaps `contract 2 features 0x7f`, never the version); 32 sites; archived with its logs in
+  `fws/2.2.6.10-cfw-48172b62/`. **Rollback: Phase 1's `fws/2.2.6.10-cfw-c5e4f8b7/`** (a5d1c31's `…-d4054ab1/` and
+  stock behind it; `research/verify_cfw.py` pins the a5d1c31 one). **First light: PENDING at the time of writing —
+  the phone's Bluetooth was off through the flash; the first session shows as `build: apk 0.55` + the DamageCaps
+  line.** Phase 1's record (§55, §56, §65): 7.3 h then 10.2 h worn clean, transfer 2.0 ms median, the uptime tick
+  1.024 per ms, the arm drops = in-case reboots. The phone APK drives; the OpenRC `damage` service is the data host
+  and standby (§19, `DAILY.md`), still on 0.44's core.
+- **The APK. 0.49 installed** (2026-09-15 03:46; every `build` note through 09-16 12:17). **0.55 INSTALLED 2026-09-16 ~13:10
+  (Adam)**, not yet seen in a session — §61–§64's fixes, among them the kerned-text proof and the atlas read-back
+  that keeps cached text off when the glasses did not take the upload. Reversible to 0.49 via the setup page.
+- **🔴 Phase 2: FLASHED 2026-09-16 13:19/13:24 (§65) after four reviews** (`HANDOFF.md` §60–§64; `FIRMWARE.md`
+  §4 as built; Damage `67fdfa1`, the fork `f20bac9`) — **the on-glass checks and test stop T2 are the work now**
+  (item 8 below). Fork pin **`48172b62…`** = Phase 1 + modes 17–24, op 5, status 3–5, fields
   23–26, the partial path, the three link edits; **32 entries — §63 added ONE new site, `0x00473D80`** (the
   display task's other refresh call): read §63.2 item 4 against `FORK.md` §3.1 before the flash. `tools/verify.py`,
   26 vectors / 237 steps, 20 self-test, 76 host checks green; the simulator equals the C on every step, both
@@ -121,12 +122,10 @@ The ack precedes the panel refresh (§48.1, verified): what the eye waits for is
    flat, no hold-back; **and the arm drops are REBOOTS** (F1.2's uptime 12 s at the reconnect) — five on 09-16, all
    in the case, three of them 5–7 min after docking, uptime ≈100–105 min at each; cause U, not the work (§50.9);
    the post-flash soak's baseline. §56's precondition is met.
-7. **The ritual (`FORK.md` §7) with Adam's in-the-moment go.** The candidate's site list is 32 entries (§63.2
-   item 4, `0x00473D80`). The fork's gates: `tools/verify.py` (pin `48172b62…`), `run_vectors.py`,
-   `run_self_test.py`, `test_damage_ext.py`; after any patch-source change `./build_cfw.sh --skip-venv
-   --update-patches`, the hash into `build_cfw.sh` by hand, verify again. `research/verify_cfw.py`'s Thumb-bit
-   audit runs again since §64 (it printed PASS without running before).
-8. **On glass after the flash:** `DamageCaps contract 2 features 0x7f` in the journal; **the panel's retention
+7. **The ritual — DONE 2026-09-16 13:19–13:27 (§65):** both lenses after clean staircases, zero resends, archived in
+   `fws/2.2.6.10-cfw-48172b62/`. (For the next candidate: `tools/verify.py`'s site list against §3.1; after any
+   patch-source change `./build_cfw.sh --skip-venv --update-patches`, the hash into `build_cfw.sh` by hand.)
+8. **🔴 NOW — on glass after the flash (first light pending the phone's Bluetooth):** `DamageCaps contract 2 features 0x7f` in the journal; **the panel's retention
    across an off/on cycle** (§62.7: shell up, glasses into the case and out — is the first flush after the wake
    whole? if the panel loses its frame with no Damage copy in between, a hinted flush after it leaves the rows
    outside the hint stale); the v2 vectors through `selftest:` (a vector's live cache writes drop the shell's

@@ -4715,3 +4715,17 @@ flag, 32 sites listed (§63.2 item 4's `0x00473D80` beside `0x00473CE4`, both in
 `fws/2.2.6.10/`. Lenses (public addresses, from the Phase 1 logs): LEFT `D8:AE:E7:C1:FA:4D`, RIGHT
 `E4:87:77:65:CD:50`. Left for the flash day: APK 0.55 installed (Adam), the standby stopped and the phone's
 Bluetooth off, the dry-run staircase per lens, his go per write.
+
+**Phase 2 FLASHED — 2026-09-16 13:19 (LEFT) and 13:24 (RIGHT).** Adam installed APK 0.55 and, leaving for work,
+gave his word for both lenses in advance; the phone's Bluetooth was off from 13:07 (the journal's keeper retrying
+"bluetooth is off"), the `damage` standby stopped for the writes. The staircase per lens first, nothing written
+(discovery ok · authentication ok · FILE_CHECK acked, begin ack 0 SUCCESS, stopped before the data blocks), then
+the writes: **LEFT 13:19:22–13:22:34, 164 s; RIGHT 13:24:13–13:27:28, 166 s** — six components each, 4,356,003 B,
+zero block resends, every END verify status 8 (UPDATING), exit 0; the same shape as Phase 1 and 08-30. Archived
+with the staircase and flash logs, the patch manifest, the hashes and a README in **`fws/2.2.6.10-cfw-48172b62/`**;
+**the rollback is Phase 1's `fws/2.2.6.10-cfw-c5e4f8b7/`**, a5d1c31's `…-d4054ab1/` and stock behind it. The
+standby restarted 13:28; it declined to claim (the APK's service answers its probes; the arms were not advertising to
+the adapter). **First light waits on the phone's Bluetooth** — the first session shows as `build: apk 0.55` and the
+DamageCaps line, to be read through the phone's journal over the tailnet; then the v2 vectors through
+`glassdrive.py … selftest:`, `probe:telemetry=read` (fields 23–26, the cache size), the 2M link note, the partial
+refresh priced, the in-case reboots against the §65 baseline, the §62.7 panel-retention check.
