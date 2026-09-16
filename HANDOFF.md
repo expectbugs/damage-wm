@@ -4783,3 +4783,25 @@ detached from the session: core 591 · desktop 15 · `--selfcheck` ×3, 463 chec
 partial" still holds) · `--snapshot` 57 renders (a hint cap changes the refresh path, not a pixel) · epub 380/404
 images · music · games · feed · lint 0 · `:phone:assembleDebug` and `stageApk` in their own invocations — **0.56
 staged 14:12**, Adam's to install (the service restarts, ~30 s blank, a 13 s atlas re-upload).
+**The on-glass self-test of Phase 2 (ritual step 9), 15:09–15:45, through the phone over the tailnet, Adam using the
+glasses.** First run: 13 of 20 vectors matched every step; 7 exited 1. Read to the byte, three shapes, none of them the
+firmware's drawing: (1) **`v2-badrec` steps 2–4 — the vector's fault.** Its short record was DRAWN on the glass where the
+host and the simulator refuse it: a v2 record has no length field, the decoder reads tokens until the pixel count is
+met, and the bytes after the record are zero on the host (`"start": "zero"`) but the shell's atlas on the glass's live
+cache. The records are written padded to their 4-byte boundary with explicit zeros now (the C's expectations unchanged
+byte for byte, so the host was already reading zeros) — **on the glass, all steps match.** (2) **Two vectors "never
+began" — the harness.** `end` leaves the step count standing and `begin` zeroes it; the harness read once, 0.6 s after
+the begin, and under a working shell (59 flushes on the same lane in the window, 2–4 in the quiet re-runs that passed)
+saw the previous vector's count. It polls for the zero now, bounded like its step loop (widened to 12 reads). (3) **Four
+vectors "refused one" cache write — the harness.** It expected every live write it SENT to move the generation; three of
+the four carry a deliberately refused write (rc −1 in the C's expectation), which moves nothing. Each write's bump is
+now attributed to that write, polled, against the C's expectation. Re-run: `edges`, `reach`, `refusals` match every
+step. **`v2-order`'s one remaining disagreement, named exactly: its step 8 sends a one-byte mode-19 message (no
+entries), which the C and the simulator accept and count as a generation bump (`damage_op_cache_write` bumps after an
+empty loop); on the glass the generation never moves and no refusal is recorded** — the phone queued it raw on the image
+lane (`ImgWork.Raw`, no size check; the log shows it sent), the worker and the dispatcher take one byte, so it was
+dropped between the lane's framing and the firmware's handler (the stock reassembly's minimum is the candidate; cause
+U; grade M for the drop, seen twice). No real traffic sends an empty write. **Verdict: 20 vectors run on the glass,
+19 match the simulator step for step, the twentieth differs on one empty-message corner that is recorded, not
+hidden.** Every deliberately-refused self-test step also raised a `mirror/decode` fault on the phone (28 in the run) — the
+mirror refusing what the vector meant it to; loud in the journal, harmless.

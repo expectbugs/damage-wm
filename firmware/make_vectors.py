@@ -620,14 +620,21 @@ def vectors_v2(kf):
     # records whose RLE does not decode to their size: the draw is refused (5) and nothing of the
     # record reaches the shadow. The zero-length run is the one that must also TERMINATE — it
     # advances the stream without filling a pixel, so the validation ends when the bytes run out.
+    # Every record here is written PADDED to its 4-byte boundary with explicit zeros. A v2 record has no
+    # length field — the decoder reads tokens until the pixel count is met — so a record that is short
+    # reads on into the bytes after it. The host and the simulator start from a zeroed cache, but the
+    # glasses' live cache holds the shell's atlas at these offsets: on glass (2026-09-16, the first
+    # self-test of Phase 2, `HANDOFF.md` §65) `short` read the atlas's bytes and DREW where both models
+    # refused. The vector's claim must not depend on what a cache held before it.
+    pad4 = lambda b: b + bytes((-len(b)) % 4)
     bad = Cache2()
-    over = bad.add(u16(4) + u16(1) + bytes([0x35, 0x25]))                          # 3 + 2 pixels for a 4-pixel record
-    short = bad.add(u16(8) + u16(1) + bytes([0x35]))                               # 3 pixels for an 8-pixel record
-    zero = bad.add(u16(4) + u16(1) + bytes([0x05, 0x00, 0x00, 0x00]) + bytes([0x35]))   # a zero-length 16-bit run, then 3
+    over = bad.add(pad4(u16(4) + u16(1) + bytes([0x35, 0x25])))                    # 3 + 2 pixels for a 4-pixel record
+    short = bad.add(pad4(u16(8) + u16(1) + bytes([0x35])))                         # 3 pixels for an 8-pixel record
+    zero = bad.add(pad4(u16(4) + u16(1) + bytes([0x05, 0x00, 0x00, 0x00]) + bytes([0x35])))   # a zero-length 16-bit run, then 3
     # A valid glyph and a table in the SAME cache, so the last step measures what it claims: a draw
     # after three refused records still lands. (Until 2026-09-16 it drew through `table4`, which this
     # cache never wrote, and was refused with reason 5 under a comment saying the opposite — §64.5.)
-    glyph = bad.add(cache_image(4, 14, pattern(4, 14, 23)))
+    glyph = bad.add(pad4(cache_image(4, 14, pattern(4, 14, 23))))
     tbl = bad.reserve(224 * 2)
     bad.put(tbl, b"".join(u16(glyph) for _ in range(224)))
     v.append({"name": "v2-badrec", "steps": [

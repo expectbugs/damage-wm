@@ -114,25 +114,54 @@ async def selftest(ws, host, port, token, path):
     if any(is_live(m) for st in vec['steps'] for m in (op['msg'] for op in st['ops'] if 'msg' in op)):
         print(f'  {vec["name"]} writes the live texture cache: the shell drops its atlas for this session (cached text is pixels until the next session or a Cached text toggle)')
     await probe('selftest', 'begin'); await asyncio.sleep(0.6)
-    begun = await read_fresh()
+    # `end` leaves the step count standing and `begin` is what zeroes it, and the begin runs on the
+    # image lane behind whatever the shell has queued there: one read 0.6 s after it saw the previous
+    # vector's count under a working shell, and two vectors "never began" (2026-09-16, the first
+    # self-test on Phase 2, HANDOFF §65). Poll for the zero as the step loop polls for its count; bounded.
+    begun = None
+    for attempt in range(12):
+        begun = await read_fresh(tries=1)
+        if begun and int(begun.get('stSteps', -1)) == 0: break
     if not begun or int(begun.get('stSteps', -1)) != 0:
-        print(f'  FAIL — the begin was refused or never ran (stSteps={begun.get("stSteps") if begun else None}, expected 0): the lease, Silent Mode or the scratch — stopping')
+        why = (f'refused — record mode {begun.get("refMode")} reason {begun.get("refReason")}'
+               if begun and int(begun.get('refMode', 0)) == 16
+               else 'not processed within the wait (a busy lane), or the lease, Silent Mode or the scratch')
+        print(f'  FAIL — the begin did not run (stSteps={begun.get("stSteps") if begun else None}, expected 0): {why} — stopping')
         return 1
     fails = 0; steps_seen = 0; live_writes = 0
+    gen_expect = gen_before      # what the generation should read after every live write the C accepts
     for i, st in enumerate(vec['steps']):
         msgs = [op['msg'] for op in st['ops'] if 'msg' in op]
         steps = [m for m in msgs if not is_live(m)]          # what the self-test counts (fields 20-22)
         if any('tick' in op for op in st['ops'] if 'msg' not in op) and i > 0:
             print(f'  step {i}: a tick op has no self-test form — skipped')
-        for m in msgs:
+        for k, m in enumerate(msgs):
             if is_live(m):
                 await probe('selftest', 'live:' + m); await asyncio.sleep(0.6 + len(m) / 40000)
                 live_writes += 1
+                # the generation counts the writes the firmware TOOK (the ack precedes the decode), and it
+                # moves only for a write the C accepts: a vector's deliberately refused write (rc -1) moves
+                # nothing. Attribute each write's bump to that write, polled, so a shortfall names the
+                # message rather than a total (2026-09-16, the first self-test on Phase 2, HANDOFF §65:
+                # three vectors "refused one" on their expected refusals; v2-order's one-byte empty write
+                # moved nothing on the glass where the C bumps — that one is a finding, now named).
+                accepted = st['expect']['rc']['R'][k] == 0
+                if accepted: gen_expect += 1
+                got_gen = -1
+                for attempt in range(8):
+                    g = await read_fresh(tries=1)
+                    got_gen = int(g.get('cacheGen', -1)) if g else -1
+                    if got_gen >= gen_expect: break
+                if got_gen != gen_expect:
+                    fails += 1
+                    print(f'  FAIL live write {k} of step {i} ({len(m) // 2} B, the C {"accepts" if accepted else "refuses"} it): '
+                          f'the generation reads {got_gen}, expected {gen_expect}')
+                    gen_expect = got_gen            # judge the later writes on their own
                 continue
             await probe('selftest', 'step:' + m); await asyncio.sleep(0.4 + len(m) / 40000)
         want = st['expect']
         got = None
-        for attempt in range(6):                      # pacing: the step runs on the deferred handler after the ack
+        for attempt in range(12):                     # pacing: the step runs on the deferred handler after the ack, behind the shell's own lane traffic
             got = await read_fresh(tries=1)
             if got and int(got.get('stSteps', 0)) >= steps_seen + len(steps): break
         steps_seen += len(steps)
@@ -162,12 +191,7 @@ async def selftest(ws, host, port, token, path):
     # every live cache write the vector sent must have changed the cache: the generation counts the
     # writes the firmware TOOK, and the ack says nothing (it precedes the decode)
     if live_writes:
-        after = await read_fresh()
-        gen_after = int(after.get('cacheGen', 0)) if after else -1
-        if gen_after < gen_before + live_writes:
-            fails += 1
-            print(f'  FAIL: {live_writes} live cache write(s) sent, the generation moved {gen_before} -> {gen_after}: the glasses refused one'
-                  + (f' (record: mode {after.get("refMode")} reason {after.get("refReason")})' if after else ''))
+        print(f'  {live_writes} live cache write(s) sent; the generation {gen_before} -> {gen_expect} (each write judged above)')
     if vec_flags:
         # restore the session's WISH, not the set in force: DRAW2 belongs to the session (the
         # transport keeps it on the wire for this one), and asking for bit 2 by hand would lift a

@@ -19,16 +19,16 @@ protocol), §64–§61 (the four reviews), §60 (Phase 2 built), §59 (the day's
   modes 17–24, op 5, status 3–5, fields 23–26, the partial path, the three link edits (reports `2.2.6.10`; detect by
   `EVENCFW/` and DamageCaps `contract 2 features 0x7f`, never the version); 32 sites; archived with its logs in
   `fws/2.2.6.10-cfw-48172b62/`. **Rollback: Phase 1's `fws/2.2.6.10-cfw-c5e4f8b7/`** (a5d1c31's `…-d4054ab1/` and
-  stock behind it; `research/verify_cfw.py` pins the a5d1c31 one). **First light: PENDING at the time of writing —
-  the phone's Bluetooth was off through the flash; the first session shows as `build: apk 0.55` + the DamageCaps
-  line.** Phase 1's record (§55, §56, §65): 7.3 h then 10.2 h worn clean, transfer 2.0 ms median, the uptime tick
+  stock behind it; `research/verify_cfw.py` pins the a5d1c31 one). **First light 13:32, green (§65):** `contract 2 features 0x7f`, op 5 160 KiB, DRAW2, both arms on
+  LE 2M, the partial refresh running; Adam's verdict "large images significantly faster, no problems"; the on-glass
+  self-test 19 of 20 vectors matching every step, the twentieth's one corner named (item 3 below). Phase 1's record (§55, §56, §65): 7.3 h then 10.2 h worn clean, transfer 2.0 ms median, the uptime tick
   1.024 per ms, the arm drops = in-case reboots. The phone APK drives; the OpenRC `damage` service is the data host
   and standby (§19, `DAILY.md`), still on 0.44's core.
 - **The APK. 0.49 installed** (2026-09-15 03:46; every `build` note through 09-16 12:17). **0.55 INSTALLED 2026-09-16 ~13:10 (Adam)** and driving Phase 2 since 13:32 (§65). **0.56 STAGED 14:12** — `hintMaxRows`
   240 → 40 (the measured break-even, §65) and nothing else; Adam installs whenever (~30 s blank, a 13 s atlas re-upload).
 - **🔴 Phase 2: FLASHED 2026-09-16 13:19/13:24 (§65) after four reviews** (`HANDOFF.md` §60–§64; `FIRMWARE.md`
-  §4 as built; Damage `67fdfa1`, the fork `f20bac9`) — **the on-glass checks and test stop T2 are the work now**
-  (item 8 below). Fork pin **`48172b62…`** = Phase 1 + modes 17–24, op 5, status 3–5, fields
+  §4 as built; Damage `67fdfa1`, the fork `f20bac9`) — **first light green, the self-test done (§65); T2 open for the day's reads (item 2 below);
+  Reader's page staging is the next coding part (item 1)**. Fork pin **`48172b62…`** = Phase 1 + modes 17–24, op 5, status 3–5, fields
   23–26, the partial path, the three link edits; **32 entries — §63 added ONE new site, `0x00473D80`** (the
   display task's other refresh call): read §63.2 item 4 against `FORK.md` §3.1 before the flash. `tools/verify.py`,
   26 vectors / 237 steps, 20 self-test, 76 host checks green; the simulator equals the C on every step, both
@@ -92,54 +92,48 @@ the 75 / 523 below. Price a window against the wait; these are kept because the 
 The ack precedes the panel refresh (§48.1, verified): what the eye waits for is longer than these. A flush under
 100 B acks in ~60 ms; each KB adds ~140 ms; the tail is pixel bytes. Phone CPU per flush: 17 ms median / 66 p90.
 
-## 🔴 The next session
+## 🔴 The next session — the next big coding part is Reader's page staging, designed against §3.8 first
 
-1. **Adam: install APK 0.56 (staged 14:12; the hint cap at 40)** — and read its `atlas` notes after a rebuild (§59/§61: "R reset", "R holds no cache",
-   "L link ended as a reboot would", "the last start did not complete" reset the atlas; the `glass` "atlas
-   check:" note after every upload — on the contract-1 build it reports the 64 KiB cache and turns nothing off).
-2. **One focused read, not a fifth review (§65):** the two mechanisms the reviews invented and got wrong twice —
-   the atlas read-back gate (`Shell.kt` `atlasCheckOwed` and the epoch; `AtlasCarryTest`, `AtlasRepackTest`) and
-   the fork's busy state word (`damage_draw.c` `damage_slots_enter`/`leave`, `damage_self_test_release`,
-   `cfw_context.h` `DMG_BUSY_*`). ~200 lines; the highest prior in either repo.
-3. **Class sweeps across the whole codebase, one pass per class, grep-driven** (`CLAUDE.md` protocol 3 and 5): a
-   shared field read twice in one decision; a wait with no escape from a write that keeps failing; state with no
-   clear at a session, lease or epoch boundary; a guard keyed on an identity that does not survive the event it
-   guards; a fix applied to one sibling; a gate green over code it never runs. Half of §61–§64's yield was code
-   older than Phase 2 — this is where the rest of it is.
-4. **🔴 Run the full mutation sweep again (Adam's ask, 2026-09-16, deferred because it takes ~2 h):**
-   `(cd ~/damage-cfw && python3 tools/mutate.py)` in the background — stop the gradle daemon first
-   (`./gradlew --stop`; Claude Code's low-memory guard kills long background tasks when `free` is low) — then
-   compare against §64.1's 39 of 106 caught and record the delta in `HANDOFF.md`. The differential fuzz was
-   re-run with fresh seeds the same day (§65). **Then the vector pass from the sweep's list** (§64.5: 54
-   reachable guards no gate proves) — vectors, not prose; `mutate.py --file … --limit …` confirms each.
-5. **Reader's page staging** (Adam's call whether it precedes the flash): the next and previous page as v2 records
-   off the gesture path (mode 19; two pages ≈ 44 KB beside the fonts in the 160 KiB cache) and a page turn as
-   clip + draw (modes 20 + 17 at the content plane's disparity); the compositor needs a staged-draw primitive
-   that paints its shadows from the record so belief = glass. Its design pass fills `FORK.md` §3.8 first.
-   Optional: `lint.py` rules for the v2 budgets (the encoders' `LintError`s hold them); a Global row for the
-   hint's A/B (`Compositor.hintMaxRows`).
-6. **The worn day on the Phase 1 build — READ 2026-09-16 (§65):** 10.2 h worn, 7.8 %/h, the link on 15/1, heap
-   flat, no hold-back; **and the arm drops are REBOOTS** (F1.2's uptime 12 s at the reconnect) — five on 09-16, all
-   in the case, three of them 5–7 min after docking, uptime ≈100–105 min at each; cause U, not the work (§50.9);
-   the post-flash soak's baseline. §56's precondition is met.
-7. **The ritual — DONE 2026-09-16 13:19–13:27 (§65):** both lenses after clean staircases, zero resends, archived in
-   `fws/2.2.6.10-cfw-48172b62/`. (For the next candidate: `tools/verify.py`'s site list against §3.1; after any
-   patch-source change `./build_cfw.sh --skip-venv --update-patches`, the hash into `build_cfw.sh` by hand.)
-8. **🔴 NOW — on glass after the flash (first light pending the phone's Bluetooth):** `DamageCaps contract 2 features 0x7f` in the journal; **the panel's retention
-   across an off/on cycle** (§62.7: shell up, glasses into the case and out — is the first flush after the wake
-   whole? if the panel loses its frame with no Damage copy in between, a hinted flush after it leaves the rows
-   outside the hint stale); the v2 vectors through `selftest:` (a vector's live cache writes drop the shell's
-   atlas for that session, §61); `probe:telemetry=read` (fields 23–26, the cache size); the `link` notes on the
-   2M request (its "PHY after the link request" note must appear — unmeasured, §61.4) and the connection
-   parameters, ms/KB, a capture for `research/perevent.py`, battery %/h against 7.4, the earbud with Music
-   playing; the partial refresh priced by path in `journal_report.py`'s transfer section; **the in-case reboots** counted
-   against §65's baseline (the candidate changes the link profile and the panel-off path). T2's exit: `proof` and
-   `edge` misses at zero, first-flush bytes down per gesture class against §57's baseline, the page turn priced.
-9. **The instruments (§64.6), to reach for rather than rebuild** — neither is a gate; both answer what a green
-   gate set cannot: `firmware/fuzz_vectors.py` (random sequences as vectors; the C fills their expectations;
-   `DAMAGE_VECTOR_DIR=…` points `ConformanceVectorTest` at them, gradle's build cache OFF) and
-   `~/damage-cfw/tools/mutate.py` (which refusal guards a gate proves; hours — `--file`/`--limit`). Both print
-   their own instructions.
+Phase 2 is on the glasses and first light is green (§65). Test stop T2 stays open only for the reads Adam's day and
+tonight give. Nothing needs flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) binds the build.
+
+1. **Reader's page staging — the one Phase 2 item not built, and the largest single latency win.** The next and
+   previous page as v2 image records (mode 19) uploaded off the gesture path — the 160 KiB cache holds ≈55 KB beside the
+   ≈105 KB atlas; two pages ≈ 44 KB — and a page turn as clip + draw (modes 20 + 17 at the content plane's disparity);
+   the compositor needs a staged-draw primitive that paints its shadows from the record so belief = glass.
+   **The design pass answers `FORK.md` §3.8's six questions BEFORE any code** (the protocol's first use): what clears a
+   staged page at a session boundary, a lapse, a reset, a rebuild; what releases the wait on a page upload that never
+   acks; what identity a staged record keeps across a repack; which task or lens reaches it meanwhile; one read of a
+   shared field per decision; the sibling sites (both lenses; the v1 twin). The build ends with a Not-built list and
+   the two instruments' numbers, and the page turn's FIRST flush is the number T2 judges — price it with §65's curve
+   (0.5–1.5 KB 98 ms, 3–6 KB 276) and the partial refresh's ≈66 µs/row. Facts: `FIRMWARE.md` §4 (the phone-side
+   paragraph), `Compositor.emitCachedV2` / `hintMaxRows`, `TextureCache` v2, `Contract2Test`, `AtlasRepackTest`.
+   Optional beside it: `lint.py` rules for the v2 budgets; a Global row for the hint's A/B.
+2. **Adam's reads for T2 (his day, tonight):** 0.56 installed if not yet; the day's journal
+   (`journal_report.py --since 2026-09-16`) — the ack curve on 2M over a workday, the cacheMiss breakdown (`proof` and
+   `planes` at zero is the exit), battery %/h on 2M against 7.4–7.8, the in-case reboots against §65's baseline (five
+   in 11 h, three of them 5–7 min after docking); **the §62.7 retention check** (shell up, glasses into the case for a
+   minute and out — is the first frame after the wake whole?).
+3. **The one-byte finding (§65, `CLAIMS.md`):** a mode-19 message with no entries is accepted and bumps the generation
+   in the C and the simulator; on the glass it never moves it and nothing records a refusal — dropped between the
+   phone's image lane and the firmware's handler; cause U; no real traffic sends one. Settle it at instruction level
+   (the stock path ahead of `image_worker`) or state the minimum in `FIRMWARE.md` §4 and keep the vector for the host
+   forms only. A quiet-pass item, not a blocker.
+4. **One focused read, not a fifth review:** the two review-invented mechanisms — the atlas read-back epoch
+   (`Shell.kt` `atlasCheckOwed`, `AtlasCarryTest`, `AtlasRepackTest`) and the fork's busy state word (`damage_draw.c`
+   `damage_slots_enter`/`leave`, `cfw_context.h` `DMG_BUSY_*`) — ~200 lines, the highest prior in either repo.
+5. **Class sweeps across the whole codebase** (`CLAUDE.md` protocol 3 and 5), one grep-driven pass per class: a shared
+   field read twice in one decision; a wait with no escape from a write that keeps failing; state with no clear at a
+   session, lease or epoch boundary; a guard keyed on an identity that does not survive its event; a fix applied to
+   one sibling; a gate green over code it never runs.
+6. **🔴 The full mutation sweep** (Adam's ask, deferred: ~2 h) — `(cd ~/damage-cfw && python3 tools/mutate.py)` in the
+   background with the gradle daemon stopped first (`./gradlew --stop`; the low-memory guard kills long background
+   tasks) — against §64.1's 39 of 106, the delta into `HANDOFF.md`; then the vector pass from its list (§64.5).
+7. **The instruments (§64.6) and the on-glass self-test:** `firmware/fuzz_vectors.py` and `~/damage-cfw/tools/mutate.py`
+   print their own instructions; `glassdrive.py aphone TOKEN selftest:firmware/vectors/NAME.json` runs one vector on the
+   glass — since §65 it synchronises on the firmware's counters (the begin's zero, each live write's generation bump
+   against the C's expectation) rather than on sleeps; a vector's live writes drop the shell's atlas for the session
+   and nothing presents during a step, so run it in a quiet minute.
 
 **Follow-ups for a session without Adam (his call where marked):** the seam test race one-liner and the Feed tapper
 experiment (his call — Feed is suspended work); the ring service's and the touch processor's event ids; the stock RTC
