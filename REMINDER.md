@@ -17,7 +17,8 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
   `fws/2.2.6.10-cfw-d4054ab1/`; provenance = the fork's `tools/verify.py` (`research/verify_cfw.py` pins the
   rollback). The phone APK drives (radio and shell); the OpenRC `damage` service is the data host and standby
   (`HANDOFF.md` §19, `DAILY.md`), still on 0.44's core; G2CC's server is retired (§44). **APK 0.49 installed**
-  (2026-09-15 03:46: the Phase 1 keeper protocol, `present` records, the probes, the bounded atlas skip). **0.51 staged** (the §59 fix, the contract-2 code); **0.54 built, not staged** (§61's, §62's and §63's review
+  (2026-09-15 03:46: the Phase 1 keeper protocol, `present` records, the probes, the bounded atlas skip).
+  **0.51 staged** (the §59 fix, the contract-2 code); **0.54 built, not staged** (§61's, §62's and §63's review
   fixes — among them kerned text missing its proof on this build, the atlas check that keeps cached text off when
   the glasses did not take the upload, and §63's finding that that check was DEAD from the second atlas of a
   process onward) — Adam's to stage and install (`./gradlew :phone:stageApk`).
@@ -27,10 +28,12 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
   a FLAGS_SET with no lease refused (status 3) from Phase 2's candidate; the soak = ordinary wear during Phase 2's
   build, and no Phase 2 flash before a worn day on this build is read.
 - **🔴 Phase 2: BUILT on both sides and reviewed THREE TIMES, not flashed (`FIRMWARE.md` §4 as built; `HANDOFF.md`
-  §60, §61, §62, §63):** the fork's candidate pin **`b0e42923…`** (after §63's review; `f9ddf49f…` after §62's,
+  §60, §61, §62, §63; committed and pushed 2026-09-15 night on Adam's word — Damage `a4db479`, the fork
+  `e331c3f`):** the fork's candidate pin **`b0e42923…`** (after §63's review; `f9ddf49f…` after §62's,
   `55746389…` after §61's, `aacdc63a…` before that) = Phase 1 + modes 17–24, op 5, status 3–5, fields 23–26,
   the partial path and the three link edits. **§63 added ONE new patch site** — the display task's other refresh
-  call, `0x00473D80` (32 entries, was 31): read its §63.2 item 4 before the flash, `FORK.md` §3.1. `tools/verify.py`, `run_vectors.py` (24 vectors, 207 steps),
+  call, `0x00473D80` (32 entries, was 31): read its §63.2 item 4 before the flash, `FORK.md` §3.1.
+  `tools/verify.py`, `run_vectors.py` (24 vectors, 207 steps),
   `run_self_test.py` (20) and `test_damage_ext.py` (75) green; the simulator equals the C on every step, both lenses,
   both forms. Adam ruled §57's eleven decisions as recommended. Damage: the v2 atlas, per-lens draws, fills, the
   reseed, the hint, kerning, the 2M request, the report (`Contract2Test` pins it; gated on DamageCaps bit 5 + DRAW2,

@@ -4405,4 +4405,4 @@ invocation (**APK 0.54**, not staged). The fork: `build_cfw.sh --skip-venv --upd
 hash into `build_cfw.sh` by hand — **pin `b0e42923…`**, **32 entries** (31 + the one new site), a
 54,068-byte block, 20 Thumb branches, 370 KB below the OTA flag; `tools/verify.py` all pass ·
 `run_vectors.py` 24 vectors · `run_self_test.py` 20 · `test_damage_ext.py` 75. Nothing flashed, nothing
-staged. Both trees committed and pushed on Adam's word the same night: the fork `e331c3f`, Damage below.
+staged. **Both trees committed and pushed on Adam's word the same night: Damage `a4db479`, the fork `e331c3f`.**

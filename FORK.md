@@ -491,4 +491,4 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   type, so a type-6 event carrying a Damage frame transferred it with no stamp and dropped its hint. §3.1's rule
   holds — `FUN_00473C44` is the display task's event loop, not a boot-time path, and is already patched at three
   points. Pin **`b0e42923…`**, 32 entries, a 54,068-byte block, 20 Thumb branches, 370 KB below the OTA flag; every
-  host gate green. Nothing flashed.
+  host gate green. Nothing flashed. Committed and pushed on Adam's word: Damage `a4db479`, the fork `e331c3f`.
