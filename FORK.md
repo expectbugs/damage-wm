@@ -359,6 +359,20 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
 
 ## 11. Progress log
 
+- **2026-09-15 (night, 2)** — A second review of Phase 2 on both sides (`HANDOFF.md` §62), seven fresh
+  reviewers and my own read; nothing flashed. The largest finding is the partial refresh (mode 24): it only
+  ever ADDS its rows, so it is correct only while the panel already shows the whole previous frame — a batch
+  refused part-way, stock content in the framebuffer and a lease release point all broke that, and each left
+  rows of an old frame on the lens. One rule now in the C, the simulator and `FIRMWARE.md` §4, and **the
+  vectors compare what the lens shows** (`"panel": true`; the host harness models the panel). Also fixed: the
+  live save-under slots guarded across tasks, a dropped image recorded (reason 14), mode 19's bounds re-read
+  at the write, the overlay switch read once; on the Damage side the phone's own firmware model is told the
+  build's contract (without it a Phase 2 session would have raised a mirror fault per flush and DIVERGE
+  notices), an atlas upload is read back before anything draws from it, a repack's old chunks can no longer
+  move the new layout's acked watermark, a control write that misses an arm is a failure, and
+  `glassdrive.py selftest:` no longer prints false FAILs on a correct build. Fork pin **`f9ddf49f…`** (31
+  entries, a 53,724-byte block, the same sites); 24 vectors, 206 steps, the simulator equal to the C on every one; APK 0.53. Nothing flashed, nothing staged; both trees committed and pushed on his word.
+
 - **2026-09-12** — Plan written after a discussion session (`HANDOFF.md` §48). Decisions D1–D8
   proposed. `FIRMWARE.md` skeleton written. `~/damage-cfw` created from `a5d1c31` on branch `damage`
   with the flasher fix carried over — first commit `b3bdd5c` (the Damage repo's record: `d16e5c1`).

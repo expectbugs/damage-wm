@@ -67,6 +67,9 @@ class BlueZTransport(
                 ?.let { onNotifyPacket(it, e.value) }
             is BlueZLink.Event.Connected -> if (!e.connected) {
                 val arm = synchronized(deviceToArm) { deviceToArm[e.devicePath] } ?: return
+                // the record first, running or not: the other arm's end may already have stopped the
+                // session, and this arm's end is what the atlas carry decision reads (2026-09-15)
+                noteArmLinkEnd("$arm disconnected (BlueZ Connected=false)")
                 if (running) onLinkDown("$arm disconnected (BlueZ Connected=false)")
                 else droppedDuringConnect.add(e.devicePath)
             }

@@ -80,6 +80,18 @@ interface Transport {
         wm.damage.core.util.Log.w("transport", "probe $name=$value: this transport runs no probes")
     }
 
+    /**
+     * `FIRMWARE.md` §3/§4 (2026-09-15, the second review): read the texture cache back from the
+     * glasses — the size allocated, the write generation, the flags in force and the last
+     * image-lane refusal. The ack for an image precedes its decode, so a cache write refused
+     * (no memory for the allocation, DRAW2 not in force on the glasses, a record the firmware
+     * puts outside the cache) is otherwise silent, and the shell would draw text from bytes the
+     * glasses never took — the failure of 2026-09-15 12:54 with the atlas, on the right lens.
+     * RIGHT answers; LEFT cannot (`CLAIMS.md`). Null when this transport or this build has
+     * nothing to answer with, which is not a failure.
+     */
+    suspend fun cacheCheck(): wm.damage.core.wire.DamageMsg.Telemetry? = null
+
     /** Hold or drop the framebuffer lease on demand (2026-09-05, `HANDOFF.md`
      *  §36): the shell drops it while the glasses are in the firmware's Silent
      *  Mode — with the lease held nothing paints anyway, and without it the

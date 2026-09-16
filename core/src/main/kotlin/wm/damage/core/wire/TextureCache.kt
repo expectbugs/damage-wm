@@ -270,6 +270,9 @@ object TextureCache {
             val room = maxMessage - 5          // [mode] + [off16][len16]
             var n = minOf(room, total - pos)
             if (v2 && pos + n < total) n -= n % 4
+            // a caller that walked the upload with this would never reach the end: say so here
+            // rather than spin (2026-09-15, second review)
+            if (n <= 0) throw LintError("a $maxMessage B message carries no cache bytes${if (v2) " on a v2 cache (4-byte units)" else ""}")
             return n
         }
 

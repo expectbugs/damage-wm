@@ -187,8 +187,8 @@ Cache offsets are **u16 in 4-byte units** (`off4`, reach 256 KiB); the phone kee
 | **20** clip (`0x94`) | `rect` (or `rectL · rectR`) | only inside a batch: the v2 draws, fills and LUTs (17/18/21/22) after it in the same batch stay inside it — a later clip replaces it; the batch's end resets it (the clip is batch context on the worker's stack, so it cannot leak); outside a batch refused (10); the v1 ops and mode 23 ignore it |
 | **21** fill (`0x95`) | `rect` (or pair) `· level u8` | nibble-exact fill 0..15, no fid, no zlib — the strip after a copy, a popover's hole, a background |
 | **22** LUT over rect (`0x96`) | `rect` (or pair) `· lut 8 B` (16 nibbles, entry i in nibble i, the high nibble of a byte first — the packed rows' order) | every pixel p becomes lut[p]: dim, brighten, invert in place — the dim behind a deck that `POPOVER.md` verdict 3 priced at +0.5 s is ~20 B in the deck's own batch |
-| **23** save-under (`0x97` for a capture) | sub 0 `[0][slot][rect (or pair)]` · sub 1 `[1][slot]` · sub 2 `[2][slot]` | four slots, 48 KiB between them; sub 0 **capture** copies the shadow's rect into the slot as tight packed rows ((w+1)/2 bytes per row, from arena 13; a capture into a used slot replaces it, the old bytes not counted against the budget); sub 1 **restore** writes it back at the captured rect (an empty slot refused, 7); sub 2 **free** (an empty slot: nothing). The length is sub 0's (11, or 19 under the high bit) or 3 for any other sub (1); then the lease (3), DRAW2 (9), sub > 2 (12), slot ≥ 4 (7), an empty slot on restore (7), the rect or pair (2), the budget (7, a pair priced from its one size), the allocation (11). Every slot is freed at every release point and by mode 11; each lens keeps its own by construction; a self-test step uses the self-test's own slots |
-| **24** present hint | `y0 u16 · y1 u16` | inside a batch only (10); rows inclusive, 0 ≤ y0 ≤ y1 ≤ 479 (else 2); a later hint replaces it. The batch's present transfers rows y0..y1 through the JBD4010's per-row partial entry (`+0x2C`, called from the Phase 1 refresh hook as `(0, 0, 0, y0, 640, y1)` — a Damage job's own arguments whatever job carries the refresh, since a stock job queues 576×288 and the entry sizes each row from x1; `CLAIMS.md`) instead of the full refresh (F1.7); on any other panel record the full refresh runs, and so it does when the previous Damage frame was never transferred (its refresh skipped with the panel off: its hinted rows are not this frame's) or while the diagnostic overlay is shown. Field 26 (and the presented notify's field 6) says which ran (0 full, 1 rows) and the F1.3 stamp times it, so the phone A/Bs per flush. **The rows must cover every pixel the batch changed: the panel shows nothing else until the next full refresh** — the simulator's panel keeps only the hinted rows too, so a short hint fails the oracle before it reaches glass |
+| **23** save-under (`0x97` for a capture) | sub 0 `[0][slot][rect (or pair)]` · sub 1 `[1][slot]` · sub 2 `[2][slot]` | four slots, 48 KiB between them; sub 0 **capture** copies the shadow's rect into the slot as tight packed rows ((w+1)/2 bytes per row, from arena 13; a capture into a used slot replaces it, the old bytes not counted against the budget); sub 1 **restore** writes it back at the captured rect (an empty slot refused, 7); sub 2 **free** (an empty slot: nothing). The length is sub 0's (11, or 19 under the high bit) or 3 for any other sub (1); then the lease (3), DRAW2 (9), sub > 2 (12), slot ≥ 4 (7), an empty slot on restore (7), the rect or pair (2), the budget (7, a pair priced from its one size), the allocation (11). Every slot is freed at every release point and by mode 11; each lens keeps its own by construction; a self-test step uses the self-test's own slots **and its own 48 KiB pool** (the live slots are not priced against a step's, and a step never frees them) |
+| **24** present hint | `y0 u16 · y1 u16` | inside a batch only (10); rows inclusive, 0 ≤ y0 ≤ y1 ≤ 479 (else 2); a later hint replaces it. The batch's present transfers rows y0..y1 through the JBD4010's per-row partial entry (`+0x2C`, called from the Phase 1 refresh hook as `(0, 0, 0, y0, 640, y1)` — a Damage job's own arguments whatever job carries the refresh, since a stock job queues 576×288 and the entry sizes each row from x1; `CLAIMS.md`) instead of the full refresh (F1.7); on any other panel record the full refresh runs, and so it does **whenever the panel does not already show the whole previous frame** — the rule is that a partial refresh only ever adds its own rows. The panel counts as stale, and the next present goes whole, when: the previous Damage frame was never transferred (its refresh skipped with the panel off: its hinted rows are not this frame's); **a message that held the display gate ended without presenting** (a batch refused part-way has already changed the shadow, and a present the display queue would not take leaves the same gap); **stock content reached the framebuffer** (a stock copy, a framebuffer the copy could not use) **or a lease release point ran** (the stock compositor repaints after it); or the diagnostic overlay is drawn into the framebuffer — the frame that carries it goes whole, and so does the first one after it is hidden, whose rows still show it. Field 26 (and the presented notify's field 6) says which ran (0 full, 1 rows) and the F1.3 stamp times it, so the phone A/Bs per flush. **The rows must cover every pixel the batch changed: the panel shows nothing else until the next full refresh** — the simulator's panel keeps only the hinted rows too, so a short hint fails the oracle before it reaches glass |
 
 **v2 image record:** `[w u16][h u16][RLE of w·h pixels]`, w 1..640, h 1..2048, the v1 token format, no row pad,
 validated at draw. A glyph stays a v1 record (`[w u8][h u8]…`). **Font table v2:** 224 × `off4 u16` = 448 B.
@@ -212,13 +212,14 @@ offset or table outside the cache or malformed (a v1 write past the 64 KiB windo
 neither an adjust nor a glyph · 7 scratch (a slot out of range, empty on restore, over budget; the self-test's scratch
 missing) · 8 a mode with no handler, or one not allowed where it sits (a nested batch, a cache write in a batch, a
 non-drawing self-test step) · 9 DRAW2 not armed · 10 a clip or hint outside a batch · 11 an allocation failed · 12
-a value outside its range (a fill's level, a sub-op) · 13 a zlib or RLE stream that does not decode to its size. The
+a value outside its range (a fill's level, a sub-op) · 13 a zlib or RLE stream that does not decode to its size (an inflate whose state the heap would not give it reads the same way) · 14 the display was still busy with the previous frame when the gate came free: the message is dropped whole and nothing of it reaches the shadow. The
 v1 modes' order as built (upstream's checks, each now recording its reason): mode 12 checks each entry's shape (1) and
 the 64 KiB window (5) entry by entry, accepts a list with no data, then the lease (3) and the allocation (11); modes 13,
 14 and 15: no shadow (4) → the header's length (1) → the lease (3) → the string's own length (1; 14 and 15) → the table
-or font (5) → byte by byte, a code (6) or a glyph record (5); modes 3, 6 and 9 need no lease — 3: length (1) → the
-boxes (2) → a duplicate fid skipped unrecorded → no shadow (4) → the stream (13); 6: shorter than its header, recorded
-as length (1) on the way to the BMP path → no shadow (4) → the stream (13); 9: length (1) → sizes and bounds (2) → no
+or font (5) → byte by byte, a code (6) or a glyph record (5) — mode 15 reads every code of the string first and only then
+every glyph, so a glyph refusal there follows all of its code refusals; modes 3, 6 and 9 need no lease — 3: length (1; under 3 bytes it is the same check mode 6 fails, before anything else) → the
+boxes (2) → a duplicate fid skipped unrecorded → no shadow (4) → the stream (13); 6: under 3 bytes, recorded
+as length (1) on the way to the BMP path and before the fid ring is touched → no shadow (4) → the stream (13); 9: length (1) → sizes and bounds (2) → no
 shadow (4). Mode 16: alone (1) · a begin without the lease (3), whose scratch allocation fails (11) or that a release
 point ended (7) · an unknown sub (12) · a step shorter than 3 (1), without the lease (3), without a begin (7), carrying
 what a step may not (8), then its message's own reason. A batch is not all-or-nothing: it records its own structural
@@ -344,6 +345,14 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   `"scratch"` expectations.
 - **CRC:** CRC-32, zlib polynomial `0xEDB88320`, over the packed 4bpp shadow rows in order (320
   bytes per row, 480 rows), per lens; scratch and layers the same way over their own bytes.
+- **The panel (2026-09-15, the second Phase 2 review):** a vector may also carry `"panel": true`, and
+  then every step's expectation adds `"P"` — the same CRC over **what the lens shows**, which is not the
+  shadow: a full refresh transfers the whole frame to it, a partial refresh (mode 24) only its own rows,
+  and a stock repaint replaces it. Both implementations model it as 153,600 zero bytes at the start, a
+  full refresh copying the frame whole, a partial copying rows y0..y1 (inclusive), and a lease release
+  point putting stock content there. This is where a hint that misses a row the batch changed becomes
+  visible, so the C and the model are compared on it rather than on the shadow alone. A vector without
+  the key is compared on the shadow as before.
 - **Who runs them:** the fork's host build (`~/damage-cfw/host/run_vectors.py`: the unchanged patch
   sources compiled for 32-bit x86 with the firmware's addresses mapped; `--write` fills the
   expectations), the Kotlin simulator (`ConformanceVectorTest` in `core`), and — from Phase 1's
@@ -426,6 +435,15 @@ phone's keeper applies the hold-back rule before re-arming.
   23's three shapes and its pool; mode 24's inclusive rows, the partial entry's call and field 26; the clip's scope;
   the LUT's nibble order; op 5's lease rule and the v1 window; reasons 11–13 and the v1 modes' order; features `18 7f`.
   §0's status: contract 2 not flashed. §9: the `ref` expectation and the self-test form's rules for the v2 set.
+- 2026-09-15 (night, 2) — a second review of Phase 2 (`HANDOFF.md` §62), fork and simulator changed together:
+  §4's mode 24 now states the whole rule for a partial refresh — it only ever ADDS its rows, so the frame goes
+  whole whenever the panel does not already show the previous one (a message that held the display gate and
+  presented nothing, stock content in the framebuffer, a release point, the overlay and the first frame after it
+  is hidden); reason **14** added (the display was still busy: the message is dropped whole); reason 13 covers an
+  inflate the heap could not give its state; the v1 orders state mode 3/6's under-3-byte check and mode 15's
+  codes-then-glyphs order; mode 23's self-test slots have their own pool. §9: a vector may carry `"panel": true`
+  and compare the CRC of what the LENS SHOWS, which is where a short hint is visible; three vectors added
+  (`v2-panel`, `v2-reach`, `v2-order`), four corrected. Contract version unchanged (not flashed).
 - 2026-09-15 (night) — the review of Phase 2 (`HANDOFF.md` §61), fork and simulator changed together, the vectors
   regenerated from the C (every existing expectation unchanged) plus `v2-edges` and `v2-lifecycle`: op 5 takes 64..160 KiB
   (a smaller cache put the v1 modes' bounds past its end) and a request no longer shares the allocated size's field; a

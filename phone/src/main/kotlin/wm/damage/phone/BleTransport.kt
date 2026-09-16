@@ -169,6 +169,10 @@ class BleTransport(
                         return
                     }
                     linkUp = false
+                    // the record first, running or not: the other arm's end has already stopped the
+                    // session, and THIS arm's reason may be the one that names a lens reboot — the
+                    // atlas carry decision reads it (2026-09-15, second review)
+                    noteArmLinkEnd("$arm disconnected: ${reasonName(reason)}")
                     if (!running) return
                     // an unexpected end of the link: the base clears the session
                     // (pending acks, window permits, queues) and the keeper

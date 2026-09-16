@@ -4105,3 +4105,138 @@ games · feed checks · lint 0 · `:phone:assembleDebug` (0.52, not staged). The
 `55746389…`, the same sites), `run_vectors.py` 20 vectors, `run_self_test.py` 16, `test_damage_ext.py` 69. The new pins
 were each run against the unfixed tree first and failed there (the seam's byte pin behind its state pin, checked by
 removing the byte fix alone).
+
+## 62. A second review of Phase 2, both sides (2026-09-15, night)
+
+Context for the reader: a personal device, the published patch method, display-rendering work. Adam's
+instruction: review today's code again — carefully, verify every issue, fix each the best way for the
+window manager we are building, then check the fixes. Method: seven fresh reviewers in parallel over
+the same surface §61 reviewed (the fork's draw ops; its control plane, refresh path and link edits; the
+simulator against the contract text; the encoders and the atlas; the compositor; the transport, the
+carry decision and the seam; the tools and the runners), my own read beside them, every finding traced
+at the code before a line changed, and every fix pinned by a check watched to fail without it. Nothing
+flashed, nothing installed, the `damage` service untouched. Two reviewers reached the same two defects
+independently, which is how they were ranked first.
+
+### 62.1 The panel behind a partial refresh (the largest finding; fork + simulator + contract)
+A mode-24 hint transfers its rows and nothing else, so it is only correct while the panel already shows
+the whole previous frame. Three ways that stopped being true were not covered, each leaving rows of an
+old frame on the lens until some later full refresh:
+1. **a message that changed the shadow and presented nothing** — a batch refused part-way has already
+   applied the sub-messages before the refusal, and a present the display queue would not take leaves
+   the same gap (a lens that lost its cache refusing a cached draw mid-batch is the realistic trigger);
+2. **stock content in the framebuffer** — after the BMP fallback, a failed copy, or a lease release
+   point, the stock compositor's repaint is what the panel holds;
+3. the diagnostic overlay, whose switch was read three times inside one copy and could change between
+   the reads.
+Now one rule in the C, the simulator and `FIRMWARE.md` §4: the panel is marked stale at each of those
+points and a stale panel takes the full refresh. The overlay switch is read once per copy. Measured on
+the host: without the fix a hinted batch after a refused one sent 10 rows and left the earlier 10
+stale; with it the frame goes whole and the panel equals the framebuffer again.
+**The vectors now compare what the LENS SHOWS** (`FIRMWARE.md` §9: `"panel": true` adds `"P"` to every
+expectation; the host harness models the panel, the simulator has `panelCrc32`): `v2-panel`, 11 steps,
+the C and the simulator equal on every one — including a deliberately short hint, where the panel and
+the shadow differ and both implementations differ the same way.
+
+### 62.2 Fixed in the fork
+1. The panel-stale rule above (`zlib_glue.c`, `damage_ext.c`), and the overlay switch read once.
+2. **The live save-under slots were freed from three tasks with no guard** — a release point on the
+   settings task or the input thread could free a buffer mode 23 was reading on the image worker, or
+   free the same buffer twice. The worker now marks the live set busy around every access and a release
+   that lands meanwhile is deferred to its epilogue, the pattern the self-test's scratch already uses.
+3. **An image message dropped because the display gate came free with a frame still pending recorded
+   nothing** — reason 14 added (`FIRMWARE.md` §4): the message is dropped whole and the phone can see it.
+4. Mode 19 re-reads each entry's offset and length inside the write loop, so the bytes it indexes with
+   are the bytes it writes with (the message sits in the receiver's buffer).
+5. Mode 18's second pass records its refusal (the cache freed between its two passes).
+6. Telemetry takes fields 15 and 26 together, so one frame's microseconds cannot be paired with the
+   next frame's path.
+7. Stale comments corrected (op 5's floor, the CRC's extent, FLAGS_SET's order).
+8. The host harness models the panel and can run a job's copy apart from its refresh (`split`), which
+   is what proves a hint belongs to its own frame; `crc` reports the panel; a stock copy puts stock
+   content in the framebuffer. Host checks 69 → 75.
+
+### 62.3 Fixed on the Damage side
+1. **The phone's and the PC's own firmware model was never told the build's contract**, so on a Phase 2
+   build every v2 op was "a mode with no handler" there: a `mirror/decode` fault per flush, the mirror
+   out of step with belief, an urgent DIVERGE notice and a keyframe per episode — on a pair whose
+   lenses were drawing correctly. One line at the capability read; pinned by a test that fails without it.
+2. **A cache-size reply could answer a flag arming.** Op 5 answers on request id 0 like FLAGS_SET, and
+   any nonzero status counted as a refusal, so a carried cache's "already allocated" (status 4) could
+   drop DRAW2 for the session and cost a 60 KB re-upload. Only the statuses FLAGS_SET itself records (2
+   and 3) answer one now.
+3. **An atlas repack left the old layout's chunks queued**, and their acks moved the new layout's acked
+   watermark: fonts went live over bytes the glasses never got. Chunks carry their layout generation,
+   the queue is dropped at a repack, and an ack from a replaced layout moves nothing.
+4. **Nothing checked that an atlas upload landed.** The ack precedes the decode, so a refused cache
+   write is silent — the §59 failure. When an upload's last chunk is acked the shell reads the cache
+   back (one control round trip) and keeps cached text off for the session, loudly, unless the size, the
+   flags and the refusal record all say the bytes are there.
+5. A control write that did not reach an arm was only a note: RIGHT's answer then made a session look
+   armed while the left lens — which cannot report — had taken neither the cache size nor DRAW2. Both
+   are now a failure: the start fails (the keeper rebuilds) or the set is not taken as armed.
+6. The second arm's link end is recorded even after the first arm's end stopped the session, so the
+   carry decision sees a reboot-like end on the arm that had one.
+7. A link that ends between the warmup's ack and the end of the start no longer leaves the state saying
+   "driving" on a link that is gone.
+8. The 2M PHY request is made once the session is up rather than inside the start: it waits on the
+   radio's own queue, and a request that never completes would otherwise park the start part way.
+9. `CachedText` reads its atlas once per call (a swap between two reads could index a 96-entry table
+   with a Latin-1 code); `chunkLen` refuses a message too small to carry a chunk instead of returning 0.
+
+### 62.4 The tools and the vectors
+- `glassdrive.py selftest:` would have printed false FAILs on a correct Phase 2 build: a step whose mode
+  the phone's encoder refused was never sent (every later step's count was one short), an earlier
+  vector's sticky refusal record was read as this vector's, and a step with no count of its own passed
+  on the previous record. The probe now sends any step raw, the run starts from a cleared record
+  (`probe:diag=clear`), every read is matched to its own request id, the step count must match exactly,
+  and a live cache write is checked by the generation it moved. The flags are restored to the session's
+  wish, so a vector run cannot lift a hold-back the keeper decided on.
+- Vector steps that did not test what they claimed: a "past the 64 KiB window" write that was inside it
+  (§61.1's first fix had no pin — now it does, with a v1 draw of a record that crosses the line), a
+  CACHE_KEEP arming whose status was another op's, two steps that depended on cache bytes no vector
+  wrote, and one whose only effect was on the lens that cannot report.
+- Three vectors added: `v2-panel` (above), `v2-reach` (a font table and glyphs above the 64 KiB line in
+  a 160 KiB cache — what the phone's own atlas does — records at the cache's exact end, a clip with
+  negative per-lens x, a tall record scrolled under a clip) and `v2-order` (check orders one message at
+  a time, odd left edges through save-under and the LUT, the v1 draws ignoring a clip) and `v2-badrec`
+  (records whose RLE does not decode to their size, including a zero-length run — which must also
+  TERMINATE). 24 vectors, 206 steps; the simulator equals the C on every step, both lenses, both forms.
+- `journal_report.py`: the §57 baseline printed beside the first-flush column was a different statistic
+  (it read as a 660 → 485 B win that was two numbers disagreeing); the refusal list dropped a refusal
+  that came back after a different one; the sections that need no flush now print without one.
+
+### 62.5 One more, found by the new gate itself
+The contract-2 walk failed on its first full-suite run — and the failure was the HARNESS, not the
+shell: `OracleWalkTest`'s settle looped until the shell was quiescent and then asked again in the
+assert, so anything that arrived in that gap failed a settle that had already succeeded. Nothing had
+arrived in that gap before; the atlas check of §62.3 item 4 answers asynchronously, and does. The
+settle now decides on ONE evaluation (`HANDOFF.md` §27.6, the rule this file already carries), and
+both walks pass the full 240 steps at all four heights, 19.7 s each. Ten other test files still have
+the two-evaluation shape; none is reachable by an async completion today (their models are contract-less,
+so the check returns without a round trip), and they are left for a quiet pass.
+
+### 62.6 The battery
+Damage: core **588** (a clean run, alone, `:core:cleanTest :core:test --no-build-cache`; two earlier runs
+of the same tree hit the known Feed rate misses of §49.6, green alone) · desktop 15 ·
+`--selfcheck` ×3 all pass · `--snapshot` (57 renders, looked at) · epub · music · games · feed checks ·
+lint 0 · `:phone:assembleDebug` in its own invocation (**APK 0.53**, not staged). The fork: `build_cfw.sh
+--skip-venv --update-patches` then the new hash into `build_cfw.sh` by hand — **pin `f9ddf49f…`**, 31
+entries, a 53,724-byte block, 20 Thumb branches, 370 KB below the OTA flag, the same sites as before;
+`tools/verify.py` all pass · `run_vectors.py` **24 vectors** · `run_self_test.py` 20 · `test_damage_ext.py`
+**75**. Every new pin was watched to fail without its fix: the four host checks of the panel rule on the
+unfixed patches, the mirror test with its one line removed, and the rest by trace where a signature
+changed. Nothing flashed, nothing staged; **both trees committed and pushed on Adam's word the same
+night** (the shas are in `FORK.md` §11 and `REMINDER.md`).
+
+### 62.7 Looked at, not changed
+- **The panel's frame retention across an off/on cycle with no Damage copy in between** is unknown, and
+  a hinted frame after it would leave the rows outside the hint as they were. The stale rule cannot see
+  it (nothing runs to observe the panel going off). A check on glass settles it: put the glasses in the
+  case with the shell up, take them out, and look at whether the first flush after the wake is whole —
+  `REMINDER.md` carries it into the flash day.
+- The refusal record's read retries cannot succeed on one core if the settings task preempts the image
+  worker mid-write; the record is then left out of that one reply and the next carries it. No firmware
+  delay call has a checked precedent from that context, so it stands as it is.
+- A kern more negative than the next glyph's width, and the per-pair kern lookup's allocation, stand
+  as §61.4 left them.

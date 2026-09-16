@@ -110,9 +110,12 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     var needsReseed = false
         private set
 
-    /** Reseed both lenses from black: on a v2 session a fill plus the diff's draws (the first
-     *  flush is the fill and the first rects, ~1 KB, and the rest follows), otherwise the mode-6
-     *  keyframe as before. Back-to-Main and the height switch use it (`FORK.md` Phase 2). */
+    /** Reseed both lenses from black: on a v2 session a fill (18 B) plus the diff's draws, otherwise
+     *  the mode-6 keyframe as before. Back-to-Main and the height switch use it (`FORK.md` Phase 2).
+     *  Measured 2026-09-15 (the second review): on the content we have — a full list, a Reader-like
+     *  page, a dense pane — the fill and every draw fit ONE flush (736 B, 17 draws on the rows
+     *  window, against 741 B for the v1 keyframe there), so the follow-up path is the keyframe's own
+     *  and unchanged. */
     fun requestReseed() {
         if (!v2) { requestKeyframe(); return }
         needsReseed = true

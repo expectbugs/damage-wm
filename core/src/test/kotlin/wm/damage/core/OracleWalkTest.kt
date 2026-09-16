@@ -54,20 +54,25 @@ import wm.damage.core.windows.games.GamesWindow
  */
 class OracleWalkTest {
 
-    private class Rig(height: Int, seed: Long) {
+    /** [contract] 2 with [cached] on drives the contract-2 drawing path through the same walk:
+     *  per-lens draws, fills, the reseed and a mode-24 hint on every flush whose rows fit, with the
+     *  model keeping only the hinted rows on its panel — so a hint that misses a changed row fails
+     *  the oracle here (2026-09-15, the second review: the standing gates had never run contract 2). */
+    private class Rig(height: Int, seed: Long, contract: Int = 1, cached: Boolean = false) {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val tmp: java.nio.file.Path = Files.createTempDirectory("damage-walk")
         val store = Persistence(tmp.resolve("state.json"))
-        val sim = GlassFirmwareSim()
+        val sim = GlassFirmwareSim().also { if (contract > 1) it.damageContract = contract }
         val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
         val clock = Shell.LocalClock(12, 0, "12:00", "PM")
-        val shell = Shell(FakeText(), transport, store, null, scope) { clock }
+        val text = if (cached) wm.damage.core.comp.CachedText(FakeText()) else FakeText()
+        val shell = Shell(text, transport, store, null, scope) { clock }
         val rnd = java.util.Random(seed)
         val flushFails = ArrayList<String>()
         val faults = ArrayList<String>()
 
         init {
-            store.put("shell.settings", ShellSettings(heightMode = height).toJson())
+            store.put("shell.settings", ShellSettings(heightMode = height, cachedText = if (cached) "on" else "off").toJson())
             // Games is the one real window core can build with no host at all
             shell.register(GamesWindow(FakeText(), scope) { 1_757_000_000_000L })
             shell.register(SurfaceWindow())
@@ -91,10 +96,16 @@ class OracleWalkTest {
          *  pacing — real work that keeps a message on the loop the whole time.
          *  It is progress, not a hang; the bound is only here so a genuine
          *  hang fails loudly instead of parking the suite. */
+        /** One evaluation decides (`HANDOFF.md` §27.6): the loop used to exit on a quiescent shell and
+         *  then ask AGAIN in the assert, so work that arrived in that gap — since 2026-09-15 an atlas
+         *  check's answer — failed a settle that had succeeded. */
         suspend fun settle(what: String) {
             val t0 = System.currentTimeMillis()
-            while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 120_000) delay(5)
-            assertTrue(shell.isQuiescent(), "$what: the shell did not settle — " +
+            while (System.currentTimeMillis() - t0 < 120_000) {
+                if (shell.isQuiescent()) return
+                delay(5)
+            }
+            throw AssertionError("$what: the shell did not settle — " +
                 "${shell.quiescenceReport()}\n${busyThreads()}")
         }
 
@@ -323,14 +334,23 @@ class OracleWalkTest {
     }
 
     @Test
-    fun beliefEqualsGlassEqualsTruthAcrossARandomWalkAtEveryHeight(): Unit = runBlocking {
+    fun beliefEqualsGlassEqualsTruthAcrossARandomWalkAtEveryHeight(): Unit = runBlocking { walk(1, false) }
+
+    /** The same walk on a contract-2 build with cached text on: fills, per-lens draws, reseeds and a
+     *  present hint on nearly every flush. The model transfers only a hint's rows to its panel, so
+     *  belief = glass here is the proof that the rows cover every change (`FIRMWARE.md` §4). */
+    @Test
+    fun beliefEqualsGlassEqualsTruthOnContractTwoAtEveryHeight(): Unit = runBlocking { walk(2, true) }
+
+    private suspend fun walk(contract: Int, cached: Boolean) {
         for (h in ShellSettings.HEIGHTS) {
-            val rig = Rig(h, seed = 0xDA_4A_6EL + h)
+            val rig = Rig(h, seed = 0xDA_4A_6EL + h + contract, contract = contract, cached = cached)
             val seen = LinkedHashSet<String>()
+            val tag = if (contract >= 2) "c2 h=$h" else "h=$h"
             try {
                 rig.shell.start()
-                rig.settle("h=$h boot")
-                rig.assertOracle("h=$h boot")
+                rig.settle("$tag boot")
+                rig.assertOracle("$tag boot")
                 for (step in 1..STEPS) {
                     // every so often, HAND OFF to a named surface: a random
                     // walk of five rows reaches the far corners only by luck,
@@ -339,7 +359,7 @@ class OracleWalkTest {
                     if (step % HANDOFF_EVERY == 0) {
                         val (win, target) = HANDOFFS[(step / HANDOFF_EVERY - 1) % HANDOFFS.size]
                         rig.shell.services.runOnShell { rig.shell.services.openWindow(win, target) }
-                        val where = "h=$h step $step (open $win${target?.let { ":$it" } ?: ""})"
+                        val where = "$tag step $step (open $win${target?.let { ":$it" } ?: ""})"
                         rig.settle(where)
                         rig.assertOracle(where)
                         seen.add(rig.surface())
@@ -355,7 +375,7 @@ class OracleWalkTest {
                             "SMS · WALK", "t$step", "step $step of the walk", "12:00",
                             emergency = rig.rnd.nextInt(9) == 0))
                     }
-                    val where = "h=$h step $step (${EvenHubMsg.eventName(g)})"
+                    val where = "$tag step $step (${EvenHubMsg.eventName(g)})"
                     rig.settle(where)
                     rig.assertOracle(where)
                     seen.add(rig.surface())
@@ -366,22 +386,22 @@ class OracleWalkTest {
                 // modes auto-dismiss instead), so land there first, whatever
                 // the walk left on screen.
                 rig.shell.services.runOnShell { rig.shell.services.openWindow("walkdoc", null) }
-                rig.settle("h=$h back to a window")
+                rig.settle("$tag back to a window")
                 rig.shell.postNotice(Notifications.Notice(
                     "SMS · WALK", "focus", "the box takes focus and steps forward", "12:00"))
-                rig.settle("h=$h notice shown")
+                rig.settle("$tag notice shown")
                 val t0 = System.currentTimeMillis()
                 while (!rig.shell.notifications.focused && System.currentTimeMillis() - t0 < 8_000) delay(20)
-                assertTrue(rig.shell.notifications.focused, "h=$h: the box never took focus")
-                rig.settle("h=$h notice focused")
-                rig.assertOracle("h=$h notice focused")
+                assertTrue(rig.shell.notifications.focused, "$tag: the box never took focus")
+                rig.settle("$tag notice focused")
+                rig.assertOracle("$tag notice focused")
                 seen.add(rig.surface())
-                println("h=$h reached ${seen.size} surfaces: ${seen.sorted()}")
+                println("$tag reached ${seen.size} surfaces: ${seen.sorted()}")
                 // the walk is only worth its runtime if it actually gets
                 // somewhere: every shell surface must have been on screen
                 for (must in listOf("+menu", "+wheel", "+kbd", "+excl", "+notice!")) {
                     assertTrue(seen.any { it.contains(must) },
-                        "h=$h: the walk never reached '$must' — it proves less than it claims (saw $seen)")
+                        "$tag: the walk never reached '$must' — it proves less than it claims (saw $seen)")
                 }
             } finally {
                 rig.stop()

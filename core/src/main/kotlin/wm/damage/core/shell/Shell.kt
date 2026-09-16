@@ -1996,8 +1996,10 @@ class Shell(
     /** Mode-12 chunks waiting to go, oldest first; one flush in flight at a
      *  time, and only when nothing else is pending — an upload yields to
      *  content and to every gesture (`pumpAtlas`). */
-    private val atlasQueue = ArrayDeque<ByteArray>()
+    /** Chunks waiting to go, each with the atlas layout generation it was taken from ([GlyphAtlas.uploadGen]). */
+    private val atlasQueue = ArrayDeque<Pair<ByteArray, Int>>()
     private var atlasInFlight: Long? = null
+    private var atlasInFlightGen = 0
     /** The fonts the chunks in flight and queued complete: live on the last ack. */
     private var atlasPendingSpecs = LinkedHashSet<FontSpec>()
     private var atlasSeenVersion = -1
@@ -2141,6 +2143,65 @@ class Shell(
         atlasGrow()
     }
 
+    /** The upload's last chunk is acked: on a build with telemetry, read the cache back before the
+     *  fonts go live — the size the glasses allocated, the flags in force and the last image-lane
+     *  refusal — and keep cached text off for the session if the bytes are not there. The read is
+     *  one control round trip off the shell loop; the fonts go live on the loop either way, so a
+     *  build that cannot answer behaves exactly as before. RIGHT answers; the left lens cannot, so
+     *  this proves one lens (`CLAIMS.md`, the senders' lens rule). */
+    private fun atlasCheckThenLive() {
+        val a = atlas ?: return goLive()
+        val st = transport.state.value
+        if (st.damageContract <= 0 || atlasCheckGen == a.uploadGen) return goLive()
+        val gen = a.uploadGen
+        val wantSize = if (a.v2) a.capacity else null
+        val wantDraw2 = a.v2
+        scope.launch {
+            val t = try { transport.cacheCheck() } catch (e: Exception) { null }
+            post(Msg.Run {
+                val cur = atlas
+                if (cur == null || cur.uploadGen != gen || !running) return@Run    // the atlas moved on: the next upload checks
+                if (t == null) { goLive(); return@Run }
+                atlasCheckGen = gen
+                val size = t.cacheSize
+                // the two conditions that are THIS upload's, and not sticky: the cache's presence and
+                // size, and the flag every mode-19 write needs. The refusal record (fields 23-25) is
+                // sticky until the next refusal or a mode-7 sub-0 — a vector run's own refusal would
+                // read as this upload's — so it is journaled beside the record, never acted on
+                val why = when {
+                    size == null -> "the glasses hold no texture cache — every write was refused"
+                    wantSize != null && size.toInt() != wantSize ->
+                        "the glasses' cache is ${size / 1024} KiB, the atlas is laid out over ${wantSize / 1024} KiB"
+                    wantDraw2 && (t.flags ?: 0L) and wm.damage.core.wire.DamageMsg.FLAG_DRAW2.toLong() == 0L ->
+                        "the v2 ops are not armed on the glasses (flags 0x${(t.flags ?: 0L).toString(16)}), so every mode-19 write was refused"
+                    else -> null
+                }
+                journal.note("glass", "atlas check: ${t.describe()}" +
+                    (t.refusal?.takeIf { (it.mode and 0x7F) == 12 || (it.mode and 0x7F) == 19 }
+                        ?.let { " — the record still names a cache write: ${it.describe()} (sticky; not this upload's unless the size or the flags above say so)" } ?: ""))
+                if (why == null) { goLive(); return@Run }
+                atlasFailed = true
+                atlasDisable(why)
+                setStatus("atlas refused")
+                Log.e("shell", "atlas check failed: $why")
+            })
+        }
+    }
+
+    /** The atlas's acked fonts go live (the upload's own step, split out for [atlasCheckThenLive]). */
+    private fun goLive() {
+        val ct = cachedText ?: return
+        val a = atlas
+        val held = a?.specs()?.filter { a.isAcked(it) }?.toSet() ?: emptySet()
+        val heldImages = a?.imageKeys()?.filter { a.isImageAcked(it) }?.toSet() ?: emptySet()
+        atlasPendingSpecs.removeAll(held)
+        if (held != ct.live || heldImages != ct.liveImages) atlasLive(held, heldImages, "uploaded")
+    }
+
+    /** The layout generation whose upload has already been read back, so a grow that adds a font to
+     *  the same layout costs no further round trip. */
+    private var atlasCheckGen = -1
+
     private fun atlasDisable(why: String) {
         val ct = cachedText ?: return
         comp.cachedText = null
@@ -2232,7 +2293,7 @@ class Shell(
             (held != ct.live || heldImages != ct.liveImages)) atlasLive(held, heldImages, "held")
         val chunks = a.takeUpload()
         if (chunks.isEmpty()) return
-        atlasQueue.addAll(chunks)
+        for (c in chunks) atlasQueue.addLast(c to a.uploadGen)
         journal.note("atlas", "$added font(s) and $icons icon(s) packed, ${a.used} B in the atlas (${a.imageBytes} B icons), ${chunks.size} chunk(s) queued")
         post(Msg.Pump)
     }
@@ -2294,6 +2355,10 @@ class Shell(
         val droppedIcons = a.imageKeys().size - keepImages.size
         // off the glasses first: pixels everywhere until the new content is acked
         atlasLive(emptySet(), emptySet(), "repacking — ${evict.size} font(s) not drawn in $ATLAS_RECENT_FRAMES frames ($freed B) and $droppedIcons icon(s) evicted for $spec")
+        // chunks of the layout being replaced carry bytes for offsets that are about to move: they
+        // are dropped rather than sent, and the generation tag stops a late ack of one from moving
+        // the new layout's watermark (2026-09-15, the second review)
+        atlasQueue.clear()
         val used = a.repack(keep, keepImages)
         lastAtlasRepackMs = now
         journal.note("atlas", "repacked: ${keep.size} font(s) and ${keepImages.size} icon(s) kept, $used B in use, ${a.free} B free for $spec (needs $need B)")
@@ -2331,7 +2396,7 @@ class Shell(
         } else if (ct.seenVersion != atlasSeenVersion) atlasGrow()
         if (atlasInFlight != null || atlasQueue.isEmpty()) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
-        val chunk = atlasQueue.removeFirst()
+        val (chunk, gen) = atlasQueue.removeFirst()
         val write: DisplayOp = if (atlas?.v2 == true) DisplayOp.CacheWrite2(chunk) else DisplayOp.CacheWrite(chunk)
         val id = try {
             transport.submit(FlushRequest(listOf(write), comp.epoch, "ATLAS", writer = atlasTag))
@@ -2342,6 +2407,7 @@ class Shell(
             return false
         }
         atlasInFlight = id
+        atlasInFlightGen = gen
         atlasBytesSent += chunk.size
         // §42: the chunk is a flush like any other in the journal — with its label
         // and transport — so the report prices the upload where it happened
@@ -2379,16 +2445,15 @@ class Shell(
             return
         }
         atlasUndelivered = 0
-        atlas?.acked()
+        atlas?.acked(atlasInFlightGen)          // a chunk of a layout a repack replaced moves no watermark
         if (atlasQueue.isEmpty()) {
             // the last chunk of this batch: every font whose bytes are acked
             // is on the glasses (the acked watermark, §41 — never the queued
-            // one, which runs ahead of the radio)
-            val a = atlas
-            val held = a?.specs()?.filter { a.isAcked(it) }?.toSet() ?: emptySet()
-            val heldImages = a?.imageKeys()?.filter { a.isImageAcked(it) }?.toSet() ?: emptySet()
-            atlasPendingSpecs.removeAll(held)
-            if (held != ct.live || heldImages != ct.liveImages) atlasLive(held, heldImages, "uploaded")
+            // one, which runs ahead of the radio). The ack says the message
+            // ARRIVED, not that the firmware took it (the ack precedes the
+            // decode), so on a build that can answer, the cache is read back
+            // before anything is drawn from it (2026-09-15, second review).
+            atlasCheckThenLive()
         }
         post(Msg.Pump)
     }

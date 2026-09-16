@@ -157,6 +157,18 @@ class GlassFirmwareSim() : LensPanels {
         var stSlots = arrayOfNulls<SaveSlot>(CfwModes.SAVE_SLOTS)
         /** Field 26 / the presented notify's field 6: the last present's path (0 full, 1 rows). */
         var lastPath = 0
+        /** `FIRMWARE.md` §4, mode 24 (the second Phase 2 review): the panel no longer shows the whole
+         *  previous frame, so the next present goes whole — a partial refresh only ever adds its own
+         *  rows. Set by a message that could have changed the shadow and did not present, by a lease
+         *  release point (stock repaints after it) and by the frame that carries the overlay. At the
+         *  start both the panel and the shadow are zero, and the lease a session must acquire is a
+         *  fresh one, which sets it. */
+        var panelStale = false
+        /** The overlay was drawn into the framebuffer by the last present: the frame after it is full
+         *  too, since its rows still show the overlay. */
+        var overlayInFb = false
+        /** Set by [present] so a top-level message knows whether anything reached the panel. */
+        var presented = false
         val slotBytes: Int get() = slots.sumOf { it?.bytes ?: 0 }
     }
 
@@ -330,6 +342,7 @@ class GlassFirmwareSim() : LensPanels {
                 val kept = leaseEnded(arm, c)
                 // Stock repaint: the panel no longer shows our frame.
                 stockPattern(c.panel)
+                c.panelStale = true
                 diag.event("lease", "$arm FB lease EXPIRED — stock repainted over us " +
                     "(fail-open); texture cache ${if (kept) "KEPT under CACHE_KEEP" else "freed"}")
                 diag.panelChanged(arm)
@@ -478,7 +491,7 @@ class GlassFirmwareSim() : LensPanels {
                 return
             }
             // Cross-lens propagation: every completed image reaches BOTH lenses.
-            for (lensArm in Arm.entries) dispatchImage(lensArm, image, now)
+            for (lensArm in Arm.entries) dispatchTop(lensArm, image, now)
         }
     }
 
@@ -532,6 +545,17 @@ class GlassFirmwareSim() : LensPanels {
         return false
     }
 
+    /** One completed image message as the deferred worker takes it, at the top level. `FIRMWARE.md`
+     *  §4: a message that could have changed the shadow (the modes that hold the display gate) and
+     *  ended without presenting leaves those changes off the panel, so the next present goes whole. */
+    private fun dispatchTop(arm: Arm, src: ByteArray, now: Long): Boolean {
+        val c = ctx(arm)
+        c.presented = false
+        val ok = dispatchImage(arm, src, now)
+        if (src.isNotEmpty() && (src[0].toInt() and 0x7F) in GATED_MODES && !c.presented) c.panelStale = true
+        return ok
+    }
+
     /** zlib_glue.c image_dispatch, per lens. present=false only inside mode 8; [batch] is the
      *  batch context a mode-8 message makes for its sub-messages. */
     private fun dispatchImage(arm: Arm, src: ByteArray, now: Long, present: Boolean = true, batch: BatchCtx? = null): Boolean {
@@ -541,6 +565,12 @@ class GlassFirmwareSim() : LensPanels {
         val stereo = modeByte and CfwStereo != 0
         return when (modeByte and 0x7F) {
             6 -> {
+                if (src.size < 3) {
+                    // §4: a mode-3/6 message under 3 bytes is too short for its header — recorded as
+                    // length on the way to the BMP path, before the fid ring is touched
+                    diag.event("decode", "$arm mode-6 of ${src.size} B — too short for its header")
+                    return refuse(c, src, REF_LENGTH)
+                }
                 cfwDiag(c, hasFid = false, fid = 0)
                 val packed = try {
                     Zl.decodeCfw(src.copyOfRange(1, src.size), Geometry.PANEL_W * Geometry.PANEL_H)
@@ -554,6 +584,10 @@ class GlassFirmwareSim() : LensPanels {
                 true
             }
             3 -> {
+                if (src.size < 3) {
+                    diag.event("decode", "$arm mode-3 of ${src.size} B — too short for its header")
+                    return refuse(c, src, REF_LENGTH)
+                }
                 val boxOff = if (stereo) (if (fwSide(arm) == 2) 1 else 5) else 1
                 val fidOff = if (stereo) 9 else 5
                 val zOff = if (stereo) 11 else 7
@@ -695,6 +729,7 @@ class GlassFirmwareSim() : LensPanels {
                 freeScratch(c)
                 c.slots.fill(null)
                 stockPattern(c.panel)
+                c.panelStale = true
                 diag.event("cleanup", "$arm mode-11 session cleanup: FB lease released, " +
                     "texture cache freed, stock repaints")
                 diag.panelChanged(arm)
@@ -857,6 +892,7 @@ class GlassFirmwareSim() : LensPanels {
             else if (c.textureCache == null) c.cacheBytes = 0     // the size asked for goes, kept cache or not (§4)
             c.slots.fill(null)                           // save-under: freed at every release point
             c.damageFlags = 0
+            c.panelStale = true                          // stock repaints after a release point (§4)
         }
         // A lapse is noticed ONCE (the guard above; the deadline left standing re-enters
         // here on every later check and must change nothing). An FB_RELEASE is its own
@@ -877,6 +913,7 @@ class GlassFirmwareSim() : LensPanels {
         c.cacheKeepLatched = false
         c.lapseSettled = false
         c.damageFlags = 0
+        c.panelStale = true
     }
 
     /** The 21-byte mic-configuration read-back (`mic_control.c mic_append_status`).
@@ -1050,7 +1087,13 @@ class GlassFirmwareSim() : LensPanels {
         // y0..y1 to the panel (the framebuffer holds the whole shadow; the panel shows the rest
         // at its next full refresh) — so a hint that misses a changed row is visible HERE, in
         // the oracle, before it is on glass. Any other panel: the full refresh.
-        val rows = batch?.hint?.takeIf { panelRecord == PANEL_JBD4010 }
+        // §4: the hint is honoured only while the panel still shows the whole previous frame and no
+        // overlay sits in the framebuffer; otherwise this frame goes whole (the second review)
+        val hide = !c.overlayShown
+        val rows = batch?.hint?.takeIf { panelRecord == PANEL_JBD4010 && !c.panelStale && hide && !c.overlayInFb }
+        c.panelStale = false
+        c.overlayInFb = !hide
+        c.presented = true
         if (c.leaseDeadline <= now) {
             // No lease: our present lands, but stock will clobber it on its next
             // repaint. Model the present as landing, then rely on tick() for the
@@ -1153,7 +1196,7 @@ class GlassFirmwareSim() : LensPanels {
     /** Dispatch one reassembled image message as the deferred worker would. */
     @Synchronized
     fun dispatchForTest(arm: Arm, src: ByteArray, now: Long): Boolean =
-        dispatchImage(arm, src, now)
+        dispatchTop(arm, src, now)
 
     /** Paint the whole shadow one 4bpp [level] — a known background to draw onto. */
     @Synchronized
@@ -1259,6 +1302,7 @@ class GlassFirmwareSim() : LensPanels {
                     val kept = leaseEnded(arm, ctx(arm))  // settings_ext.c releases the cache here, or keeps it (F1.5)
                     ctx(arm).damageFlags = 0              // FIRMWARE.md §3: a release point clears the flags, a settled lapse before it or not
                     stockPattern(ctx(arm).panel)
+                    ctx(arm).panelStale = true
                     diag.event("lease", "$arm FB lease released — stock repaints, " +
                         "texture cache ${if (kept) "kept under CACHE_KEEP" else "freed"}")
                     diag.panelChanged(arm)
@@ -1459,7 +1503,7 @@ class GlassFirmwareSim() : LensPanels {
      *  runs the same vector files the fork's host harness runs through the C.
      *  True where the firmware returns 0. */
     @Synchronized
-    fun conformanceMessage(arm: Arm, message: ByteArray, now: Long): Boolean = dispatchImage(arm, message, now)
+    fun conformanceMessage(arm: Arm, message: ByteArray, now: Long): Boolean = dispatchTop(arm, message, now)
 
     /** The framebuffer lease op for [arm] through the modeled sid-0x09 control path. */
     @Synchronized
@@ -1473,6 +1517,11 @@ class GlassFirmwareSim() : LensPanels {
     /** CRC-32 (zlib polynomial) over [arm]'s packed 640x480 shadow, rows in order. */
     @Synchronized
     fun shadowCrc32(arm: Arm): Long = java.util.zip.CRC32().also { it.update(ctx(arm).shadow) }.value
+
+    /** CRC-32 over what [arm]'s lens SHOWS (`FIRMWARE.md` §9): a full refresh transfers the frame
+     *  whole, a mode-24 hint only its rows, a release point puts stock content there. */
+    @Synchronized
+    fun panelCrc32(arm: Arm): Long = java.util.zip.CRC32().also { it.update(ctx(arm).panel) }.value
 
     @Synchronized
     fun overlayShown(arm: Arm): Boolean = ctx(arm).overlayShown
@@ -1707,6 +1756,9 @@ class GlassFirmwareSim() : LensPanels {
         private const val CfwStereo = 0x80
         /** The two panel operations records of stock 2.2.6.10 (`CLAIMS.md`). */
         const val PANEL_JBD4010 = 0x0070B024L
+        /** The modes that take the display gate, so a top-level one of them could have changed the
+         *  shadow (`FIRMWARE.md` §4, mode 24's panel rule). */
+        private val GATED_MODES = setOf(3, 6, 8, 9, 11, 13, 14, 15, 17, 18, 21, 22, 23)
         const val PANEL_A6NG = 0x0070AFE4L
         // `FIRMWARE.md` §4: the reasons of an image-lane refusal (telemetry field 24)
         const val REF_LENGTH = 1

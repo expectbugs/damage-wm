@@ -134,10 +134,18 @@ abstract class CfwTransportBase(
         val started = _state.value.started
         when (name) {
             "diag" -> {
+                if (value == "clear") {
+                    // mode 7 sub 0: the sticky diagnostics, the fid ring and — on contract 2 — the
+                    // image-lane refusal record (fields 23-25). The transport resyncs its own fid
+                    // tracker with it, so this is the one path that may send it.
+                    if (!started) { Log.w(this.name, "probe diag=clear not sent: no session"); return }
+                    scope.launch { clearDiagFlags() }
+                    return
+                }
                 val sub = when (value) {
                     "show" -> 2
                     "hide" -> 1
-                    else -> { Log.w(this.name, "probe diag=$value: expected show | hide"); return }
+                    else -> { Log.w(this.name, "probe diag=$value: expected show | hide | clear"); return }
                 }
                 if (!started) { Log.w(this.name, "probe diag=$value not sent: no session"); return }
                 // CfwModes.diag: [7][sub] rides the image lane like every mode
@@ -198,8 +206,15 @@ abstract class CfwTransportBase(
                 val image = when {
                     value == "begin" -> CfwModes.selfTestBegin()
                     value == "end" -> CfwModes.selfTestEnd()
+                    // the step is built RAW, not through CfwModes.selfTestStep: a vector's refusal
+                    // steps carry messages the encoder's own lint refuses (an unknown mode, a short
+                    // header), and the firmware is what must refuse them — the runner counts every
+                    // step it sent, so one the phone dropped shifted the whole vector by one
+                    // (2026-09-15, second review)
                     value.startsWith("step:") -> try {
-                        CfwModes.selfTestStep(unhex(value.removePrefix("step:")))
+                        val m = unhex(value.removePrefix("step:"))
+                        if (m.isEmpty()) { Log.w(this.name, "probe selftest step: empty message"); return }
+                        byteArrayOf(CfwModes.SELF_TEST_MODE.toByte(), 1) + m
                     } catch (e: Exception) { Log.w(this.name, "probe selftest step: ${e.message}"); return }
                     // a vector's cache write goes to the live cache the steps read (the runners do the same)
                     value.startsWith("live:") -> try { unhex(value.removePrefix("live:")) } catch (e: Exception) { Log.w(this.name, "probe selftest live: ${e.message}"); return }
@@ -253,26 +268,36 @@ abstract class CfwTransportBase(
         // the reply echoes request id 0 (FIRMWARE.md §3): await the next record on id 0 that
         // answers THIS set (flagsReplyAnswers)
         val waiter = CompletableDeferred<DamageMsg.Telemetry>()
+        val notWritten = CompletableDeferred<String>()
         flagsSetPending = set
         telemetryWaiters[0] = waiter
         lastArmedAtMs = nowMs()
         val reask = scope.launch {
             while (true) {
                 if (epoch != sessionEpoch.get()) { waiter.completeExceptionally(LintError("session ended")); break }
-                controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage flags 0x${set.toString(16)}") { DamageMsg.control(DamageMsg.OP_FLAGS_SET, set) })
+                controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage flags 0x${set.toString(16)}", notWritten) { DamageMsg.control(DamageMsg.OP_FLAGS_SET, set) })
                 delay(CAPABILITY_REASK_MS)
                 if (waiter.isCompleted) break
                 Log.i(name, "flags 0x${set.toString(16)} unanswered after ${CAPABILITY_REASK_MS} ms — asking again")
             }
         }
-        return try { waiter.await() } catch (e: Exception) { null } finally { reask.cancel(); telemetryWaiters.remove(0, waiter) }
+        val reply = try { waiter.await() } catch (e: Exception) { null } finally { reask.cancel(); telemetryWaiters.remove(0, waiter) }
+        // only RIGHT answers, so RIGHT's reply says nothing about the other lens: a write that did
+        // not leave for one arm means that lens has not armed the set, and it cannot report it
+        // (2026-09-15, second review)
+        if (notWritten.isCompleted) {
+            val why = notWritten.getCompleted()
+            emitFault("flags", "flags 0x${set.toString(16)} did not reach an arm ($why) — the lenses would differ, so the set is not taken as armed")
+            return null
+        }
+        return reply
     }
 
-    /** The set a FLAGS_SET is arming; its reply is the id-0 record whose flags are that set, or
-     *  a refusal (a nonzero register). Anything else on id 0 is a stale duplicate. */
+    /** The set a FLAGS_SET is arming; its reply is the id-0 record whose flags are that set, or one
+     *  carrying a status a FLAGS_SET itself records. Anything else on id 0 is a stale duplicate. */
     @Volatile private var flagsSetPending: Int? = null
     private fun flagsReplyAnswers(t: DamageMsg.Telemetry): Boolean =
-        (t.lastStatus ?: 0L) != 0L || t.flags == flagsSetPending?.toLong()
+        flagsReplyAnswers(t.lastStatus ?: 0L, t.flags, flagsSetPending)
 
     /** The glasses' uptime as a telemetry record reports it, against what the last reading plus
      *  the phone time since predicts: a shortfall past [RESET_SLACK_MS] is a reset, noted once
@@ -368,9 +393,10 @@ abstract class CfwTransportBase(
         }
     }
 
-    /** A Damage build answered the capability read with [caps]: a transport with a radio asks
-     *  for what the build offers (the phone requests LE 2M on a build carrying the link edits,
-     *  `FIRMWARE.md` §4). Default: nothing to ask. */
+    /** A Damage build answered the capability read with [caps], and the session is now up: a
+     *  transport with a radio asks for what the build offers (the phone requests LE 2M on a build
+     *  carrying the link edits, `FIRMWARE.md` §4). Called off the start's own path, since such a
+     *  request waits on the radio's own queue. Default: nothing to ask. */
     protected open fun onDamageBuild(caps: DamageMsg.Caps) {}
 
     /** `FIRMWARE.md` §4, op 5: ask a contract-2 build for a [kib] KiB cache before the first
@@ -378,8 +404,12 @@ abstract class CfwTransportBase(
      *  once allocated (a kept lease's cache may already be up at the previous session's size).
      *  Returns the size in bytes this session's cache has or will have. */
     private suspend fun requestCacheSize(epoch: Long, kib: Int): Int {
-        controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage cache size $kib") { DamageMsg.control(DamageMsg.OP_CACHE_SIZE, kib) })
+        val notWritten = CompletableDeferred<String>()
+        controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage cache size $kib", notWritten) { DamageMsg.control(DamageMsg.OP_CACHE_SIZE, kib) })
         val t = telemetryRead(epoch, label = "cache size") ?: return CfwModes.TEXTURE_CACHE_SIZE
+        // both lenses lay their cache out at this size; an arm that did not take the request would
+        // allocate 64 KiB and refuse every record above it, silently (2026-09-15, second review)
+        if (notWritten.isCompleted) throw LintError("the cache size did not reach an arm (${notWritten.getCompleted()}) — the start fails and the keeper builds the session again")
         val allocated = t.cacheSize?.toInt()
         val size = when {
             allocated != null -> allocated
@@ -497,7 +527,12 @@ abstract class CfwTransportBase(
         /** §49 probes: one fire-and-forget message written to BOTH arms (each arm
          *  answers for itself) — the log stream's switch (sid 0x0F) and the Damage
          *  control ops (sid 0x09 field 112). [payload] gets the msgId. */
-        class BothArms(epoch: Long, val sid: Int, val label: String, val payload: (Int) -> ByteArray) : CtlWork(epoch)
+        /** [failed] is completed with the arm and the reason when a write does not leave, so a
+         *  caller that needs BOTH lenses to have taken it can say so (2026-09-15, second review:
+         *  a LEFT write that failed while the link stayed up was a note, and RIGHT's answer made
+         *  the session look armed — the left lens then refuses every v2 op and cannot report it). */
+        class BothArms(epoch: Long, val sid: Int, val label: String, val failed: CompletableDeferred<String>? = null,
+                       val payload: (Int) -> ByteArray) : CtlWork(epoch)
     }
 
     private val imageQueue = Channel<ImgWork>(Channel.UNLIMITED)
@@ -608,6 +643,12 @@ abstract class CfwTransportBase(
             if (reason.startsWith(arm.name) && REBOOT_LIKE_ENDS.any { it in reason }) l.timedOut = true
         }
     }
+
+    /** An arm's link ended, whether or not a session is still running: the record is marked so the
+     *  next carry decision sees it. The first arm's end stops the session, and the second arm's
+     *  report — which may be the one naming the lens that rebooted — used to be dropped as "not in
+     *  use" (2026-09-15, second review). Safe to call before [onLinkDown], which marks it too. */
+    protected fun noteArmLinkEnd(reason: String) = leaseLinkEnded(nowMs(), reason)
 
     /** The start that decided the carry completed: the shell acts on the decision now, so its
      *  evidence is spent. */
@@ -1248,7 +1289,13 @@ abstract class CfwTransportBase(
                 throw CapabilityRefused(msg)
             }
             updateState { it.copy(capability = cap, damageContract = damageCaps?.contract ?: 0, damageFeatures = damageCaps?.features ?: 0, flagsInForce = 0) }
-            damageCaps?.let { onDamageBuild(it) }
+            // The private mirror models the build this session talks to: without its contract it has
+            // no handler for mode 16 or for the v2 ops, so every self-test message and every flush
+            // carrying a fill, a per-lens draw or a hint would raise a `mirror/decode` fault and put
+            // the mirror out of step with belief — an urgent DIVERGE notice and a keyframe per
+            // episode, on a build whose lenses are drawing correctly (2026-09-15, second review).
+            // Set before the control ops below, so the mirror follows the flags and the cache size.
+            if (teeMirror) mirrorSim.damageContract = damageCaps?.contract
 
             // 1b. On a Damage build, the reset check (`FORK.md` §3.2): RIGHT's uptime, read here
             //     so that the carry decision at the lease below knows whether the right lens
@@ -1327,9 +1374,22 @@ abstract class CfwTransportBase(
             imageQueue.trySend(ImgWork.Raw(epoch, warmupFrame, warmupDone))
             warmupDone.await()
 
+            // the session must still be THIS one: a link that ended between the warmup's ack and
+            // here has already cleared `running` and swept, and writing started = true over it
+            // would leave the state saying "driving" on a link that is gone — the keeper polls a
+            // dead session and the rollback below never runs (2026-09-15, second review)
+            if (epoch != sessionEpoch.get() || !running) throw LintError("the session ended during the warmup — the start does not complete")
             updateState { it.copy(started = true, leaseHeld = true, detail = "") }
             startInProgress = false
             commitLeaseCarry()                // §54: the shell acts on this session's carry decision now
+            // What this build offers the radio (the phone asks for LE 2M on a bit-6 build): asked
+            // once the session is up, not inside the start. The request goes into the arm's own
+            // request queue and completes when the controllers answer, and a request that never
+            // completes would otherwise park the start itself part way (2026-09-15, second review;
+            // the completion is unmeasured — `REMINDER.md` watches for the `link` note on the first
+            // Phase 2 session). It still precedes the atlas upload, which is the session's big
+            // transfer.
+            damageCaps?.let { onDamageBuild(it) }
             // §49 probe: the CREATE above ended the firmware's log stream
             if (loggerWanted) controlQueue.trySend(loggerSwitch(epoch, true))
             // FIRMWARE.md §0: what the READ answered about a Damage build, once per session
@@ -1521,6 +1581,14 @@ abstract class CfwTransportBase(
         val id = flushIds.incrementAndGet()
         imageQueue.trySend(ImgWork.Flush(sessionEpoch.get(), id, flush))
         return id
+    }
+
+    /** `FIRMWARE.md` §3, op 4 CACHE_INFO: the record RIGHT answers with, for the shell's check of
+     *  an atlas upload. One control round trip; nothing is sent on a build that cannot answer. */
+    override suspend fun cacheCheck(): DamageMsg.Telemetry? {
+        if (!started) return null
+        if (damageCaps?.has(DamageMsg.FEATURE_TELEMETRY) != true) return null
+        return telemetryRead(sessionEpoch.get(), op = DamageMsg.OP_CACHE_INFO, label = "atlas check")
     }
 
     override suspend fun clearDiagFlags() {
@@ -2068,6 +2136,7 @@ abstract class CfwTransportBase(
                                 } catch (e: Exception) {
                                     Log.w(name, "${work.label} not written to $arm: ${e.message}")
                                     emitNote("probe", "${work.label} not written to $arm: ${e.message}")
+                                    work.failed?.complete("$arm: ${e.message}")
                                 }
                             }
                         }
@@ -2233,6 +2302,17 @@ abstract class CfwTransportBase(
          *  host that reports no reason at all (BlueZ's property change). "ended by phone" and the
          *  deliberate restarts are not among them. */
         val REBOOT_LIKE_ENDS = listOf("supervision timeout", "link loss", ": reason ", "BlueZ Connected=false")
+
+        /** Does an id-0 telemetry record answer the FLAGS_SET of [pending]? (`FIRMWARE.md` §3: the
+         *  reply echoes request id 0 and carries the flags in force; RIGHT answers every control
+         *  request twice, and op 5 CACHE_SIZE answers on id 0 as well.) Only the statuses a
+         *  FLAGS_SET records are a refusal of one — 2 unsupported and 3 no lease; op 5's 4 (the
+         *  cache is allocated) and 5 (outside the budget) used to read as "this arming was
+         *  refused", so a carried cache's status-4 duplicate could drop DRAW2 for the session and
+         *  cost a 60 KB re-upload (2026-09-15, second review). */
+        fun flagsReplyAnswers(status: Long, flags: Long?, pending: Int?): Boolean =
+            status == DamageMsg.STATUS_UNSUPPORTED.toLong() || status == DamageMsg.STATUS_NO_LEASE.toLong() ||
+                (status == DamageMsg.STATUS_OK.toLong() && pending != null && flags == pending.toLong())
 
         /** Reporting threshold for the stall diagnostic — well past any
          *  measured ack (176 ms median, 7–13 KB/s); reports, never acts. */

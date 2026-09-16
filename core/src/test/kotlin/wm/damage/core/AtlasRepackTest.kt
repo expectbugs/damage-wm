@@ -177,4 +177,27 @@ class AtlasRepackTest {
             scope.cancel()
         }
     }
+
+    /** 2026-09-15, the second review: a repack re-lays the packed bytes out, so chunks handed out
+     *  before it hold bytes for offsets that have moved. Their acks used to consume the NEW layout's
+     *  chunk ends in order, running the acked watermark ahead of what the glasses hold — and every
+     *  font whose table ended below it went live, drawing from bytes that were never sent. */
+    @Test
+    fun anAckFromTheLayoutARepackReplacedMovesNoWatermark() {
+        val spec = FontSpec(Face.SYSTEM, 20)
+        val a = wm.damage.core.comp.GlyphAtlas(FakeText())
+        assertTrue(a.add(spec), "the face packs")
+        val old = a.uploadGen
+        val queued = a.takeUpload(maxMessage = 200)
+        assertTrue(queued.size >= 2, "more than one chunk: ${queued.size}")
+        a.repack(listOf(spec), emptyList())
+        assertTrue(a.uploadGen != old, "the repack is a new layout")
+        val fresh = a.takeUpload(maxMessage = 200)
+        assertTrue(fresh.isNotEmpty(), "the new layout has chunks of its own")
+        val before = a.ackedBytes
+        repeat(queued.size) { a.acked(old) }                 // the old layout's acks arrive late
+        assertEquals(before, a.ackedBytes, "a late ack of a replaced layout's chunk moves nothing")
+        a.acked(a.uploadGen)
+        assertTrue(a.ackedBytes > before, "the new layout's own ack moves the watermark")
+    }
 }

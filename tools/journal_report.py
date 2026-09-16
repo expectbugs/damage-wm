@@ -33,11 +33,30 @@ import collections, datetime, json, re, statistics, sys
 BANDS = [(0, 500), (500, 1500), (1500, 3000), (3000, 6000), (6000, 10**9)]
 # §42: flushes further apart than this belong to different gestures
 BURST_GAP_MS = 1200
-# `HANDOFF.md` §57: first-flush bytes per gesture class before Phase 2 (median, p90), the
-# journal since 08-31 — the number Phase 2's exit is priced against
-BASELINE_FIRST_BYTES = {'WINDOW': (396, 3500), 'MAIN': (97, 660)}
+# `HANDOFF.md` §57, re-measured for THIS column (2026-09-15, the second review): the first flush
+# of a burst, median and p90 bytes, over the same journal (since 08-31). §57's own 396/3,500 and
+# 97/660 are a different statistic — every flush's op bytes, not the burst's first — so printing
+# them here read as a 660 → 485 B win that was only the two numbers disagreeing.
+BASELINE_FIRST_BYTES = {'WINDOW': (401, 3307), 'MAIN': (106, 485)}
 
 def med(v): return int(statistics.median(v)) if v else None
+
+def refusal_report(notes):
+    """The image-lane refusals the glasses recorded (contract 2, fields 23-25). The record is
+    sticky until the next refusal or a mode-7 sub-0, so a run of identical readings is one
+    refusal — but one that comes back AFTER a different reading is a new one, and printing only
+    consecutive duplicates once used to drop it (2026-09-15, the second review)."""
+    refusals = [n for n in notes if n.get('kind') == 'glass' and 'refMode=' in n.get('detail', '')]
+    if not refusals: return
+    seen, last = [], None
+    for n in refusals:
+        key = re.search(r'refMode=\S+ refReason=\S+ refSeq=\S+', n['detail'])
+        if not key: continue
+        if key.group(0) != last: seen.append((n['t'], key.group(0)))
+        last = key.group(0)
+    print('\nimage-lane refusals the glasses recorded (contract 2, fields 23-25; each reading, in order):')
+    for t, k in seen:
+        print(f'  {datetime.datetime.fromtimestamp(t/1000):%m-%d %H:%M:%S} {k}')
 
 def main(path, since_ms=0, glasslog=False):
     f = sys.stdin if path == '-' else open(path, encoding='utf-8')
@@ -58,7 +77,14 @@ def main(path, since_ms=0, glasslog=False):
         elif ev == 'note': notes.append(r)
         elif ev == 'present': presents.append(r)
     if bad: print(f'({bad} unreadable line(s) skipped)')
-    if not done: print('no completed flushes'); return
+    if not done:
+        # a window with no flush still has the glasses' own records to show (a self-test run, a
+        # quiet shell): the refusals, the transfers and the battery (2026-09-15, second review)
+        print('no completed flushes')
+        refusal_report(notes)
+        present_report(presents)
+        battery_report(notes)
+        return
     print(f'{len(done)} acked flushes, {datetime.datetime.fromtimestamp(done[0][0]/1000):%Y-%m-%d %H:%M} → {datetime.datetime.fromtimestamp(done[-1][0]/1000):%Y-%m-%d %H:%M}\n')
 
     # §47: the connection parameters in force, from the shell's `link` notes
@@ -106,7 +132,9 @@ def main(path, since_ms=0, glasslog=False):
     print('where the link time goes:')
     for lo, hi in BANDS:
         s = [a for _, b, a, *_ in done if lo <= b < hi]
-        if s: print(f'  {lo:>5d}-{hi if hi < 10**9 else "∞":>5}: {len(s):5d} flushes ({100*len(s)/len(done):4.1f} %), {100*sum(s)/tot:4.1f} % of ack time')
+        # every ack 0 ms (an instant transport in a harness) makes the share undefined, not zero
+        share = f'{100*sum(s)/tot:4.1f} % of ack time' if tot else 'no ack time recorded'
+        if s: print(f'  {lo:>5d}-{hi if hi < 10**9 else "∞":>5}: {len(s):5d} flushes ({100*len(s)/len(done):4.1f} %), {share}')
     hm = [x[4] for x in done if isinstance(x[4], int) and x[4] >= 0]; am = [x[5] for x in done if isinstance(x[5], int) and x[5] >= 0]
     if hm:
         print(f'\nshell CPU per flush (host, on the loop): handle median {med(hm)} ms / p90 {sorted(hm)[int(len(hm)*.9)]} ms · '
@@ -160,15 +188,7 @@ def main(path, since_ms=0, glasslog=False):
             base = BASELINE_FIRST_BYTES.get(str(lab))
             print(f'  {str(lab):22s} {len(v):6d}  {med(fb):6d} / {p90(fb):5d}  {med(fa):6d} / {p90(fa):5d}  {med(n):7d}  {med(tb):11d}'
                   + (f'   (§57 baseline {base[0]} / {base[1]} B)' if base else ''))
-    refusals = [n for n in notes if n['kind'] == 'glass' and 'refMode=' in n.get('detail', '')]
-    if refusals:
-        seen = []
-        for n in refusals:                                  # the record is sticky: print each distinct one once
-            key = re.search(r'refMode=\S+ refReason=\S+ refSeq=\S+', n['detail'])
-            if key and (not seen or seen[-1][1] != key.group(0)): seen.append((n['t'], key.group(0)))
-        print(f'\nimage-lane refusals the glasses recorded (contract 2, fields 23-25; distinct, in order):')
-        for t, k in seen:
-            print(f'  {datetime.datetime.fromtimestamp(t/1000):%m-%d %H:%M:%S} {k}')
+    refusal_report(notes)
     present_report(presents)
     battery_report(notes)
     kinds = collections.Counter(n['kind'] for n in notes)

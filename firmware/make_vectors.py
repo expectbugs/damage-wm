@@ -271,7 +271,9 @@ def vectors_v2(kf):
     table4 = c.reserve(224 * 2)
     goff = {ch: c.add(glyphs[ch]) for ch in range(32, 256)}
     c.put(table4, b"".join(u16(goff[ch]) for ch in range(32, 256)))
-    bad_table4 = c.reserve(224 * 2)                      # every entry points at offset 0 (zeros: w = 0)
+    bad_table4 = c.reserve(224 * 2)                      # every entry points at off4 0, written below as a zero record
+    c.put(bad_table4, bytes(224 * 2))                    # written, not assumed: on glass the cache holds what was there
+    c.put(0, bytes(8))                                   # off4 0 = a record of w 0: every bad entry is refused (5)
     writes = [msg(m) for m in c.messages()]
 
     v.append({"name": "v2-perlens", "steps": [
@@ -376,8 +378,9 @@ def vectors_v2(kf):
         step(*[msg(m) for m in far.messages()]),                                   # a write at 80,000: inside the 128 KiB
         step(msg(draw2(faroff, 10, 10, 0x0F))),
         step(cachesize(64)),                                                       # allocated already: status 4
-        step(msg(cache_write((65000, v1rec)))),                                    # a v1 write past the v1 window: refused (5)
+        step(msg(cache_write((65500, v1rec)))),                                    # a v1 write ending past the v1 window: refused (5)
         step(msg(cache_write((100, v1rec))), msg(draw_image(100, 60, 10, 0x0F))),  # the v1 window works as before
+        step(msg(cache_write2((65500 // 4, v1rec))), msg(draw_image(65500, 10, 200, 0x0F))),   # a record at byte 65,500, written by mode 19 inside the 128 KiB: the v1 draw is bounded by the first 64 KiB, so it is refused (5)
         step({"lease": "release"}, {"lease": "acquire"}, flags(DRAW2), *[msg(m) for m in far.messages()]),   # a fresh lease: 64 KiB again, refused (5)
     ]})
 
@@ -426,6 +429,7 @@ def vectors_v2(kf):
     w641 = edge.add(u16(641) + u16(1) + rle([5] * 641))                            # a record one column too wide
     h2049 = edge.add(u16(1) + u16(2049) + rle([5] * 2049))                         # and one row too tall
     unwritten = edge.reserve(8)                                                   # a record the refused write below never fills
+    edge.put(unwritten, bytes(8))                                                 # written as zeros: refused (5) whatever was there before
     inv = [15 - i for i in range(16)]
     v.append({"name": "v2-edges", "steps": [
         step(*arm, *[msg(m) for m in edge.messages()]),
@@ -444,7 +448,7 @@ def vectors_v2(kf):
         step(msg(fill(rect(0, 0, 640, 480), 2)), msg(batch(clip(rect(0, 0, 10, 10)), restore(0)))),   # a restore ignores the clip
         step(msg(batch(clip(rect(0, 0, 10, 10)), copy((0, 0, 100, 100), (200, 200, 100, 100))))),     # and so does a v1 copy
         step(msg(clip(rect(0, 0, 64, 64)) + b"\x00")),                          # a clip the wrong length at the top level: length (1) before batch (10)
-        step(msg(batch(bytes([0x98]) + u16(0) + u16(479), fill(rect(0, 0, 8, 8), 6)))),   # the high bit on a mode with no per-lens form: ignored
+        step(msg(batch(bytes([0x98]) + u16(0) + u16(479), fill(rect(8, 0, 8, 8), 6)))),   # the high bit on a mode with no per-lens form: ignored (inside both captured rects, so the restore below shows on both lenses)
         step(msg(bytes([0x97, 1, 0]))),                                           # a restore under the high bit: ignored, restores
         step(msg(bytes([0x93]) + u16(unwritten) + u16(5) + image2(2, 1, [3, 3])), msg(draw2(unwritten, 30, 30, 0x0F))),   # 0x93: a mode-19 write, drawn
     ]})
@@ -458,12 +462,102 @@ def vectors_v2(kf):
         step(*[msg(m) for m in far2.messages()]),                                 # a write past the cache, DRAW2 unarmed: 9 before record (5)
         step({"lease": "release"}, msg(cache_write2((4, bytes(4))))),              # no lease: 3
         step({"lease": "acquire"}, msg(bytes([19]))),                             # an empty list, DRAW2 unarmed: 9
-        step(flags(0x0002), cachesize(128), {"lease": "release"}, {"lease": "acquire"}, flags(DRAW2),
+        step(flags(0x0002)),                                                      # CACHE_KEEP armed: status 0
+        step(cachesize(128)),                                                     # 128 KiB asked: status 0
+        step({"lease": "release"}, {"lease": "acquire"}, flags(DRAW2),
              *[msg(m) for m in far2.messages()]),                                 # CACHE_KEEP latched, no cache up: the 128 KiB asked went with the release — 64 KiB, refused (5)
         step(msg(capture(0, rect(0, 0, 100, 100))), {"lease": "release"}, {"lease": "acquire"}, flags(DRAW2), msg(restore(0))),   # the release freed the slot: 7
         step(msg(capture(1, rect(0, 0, 100, 100))), msg(bytes([11])), {"lease": "acquire"}, flags(DRAW2), msg(restore(1))),     # so does mode 11
         step(msg(fill(rect(0, 0, 8, 8), 16)), msg(bytes([7, 0]))),                # a refusal, then mode 7 sub 0 clears the record
     ]})
+    # ---- the second Phase 2 review (2026-09-15) --------------------------------------------
+    # What the LENS shows, not just the shadow: a partial refresh (mode 24) adds its own rows and
+    # leaves the rest of the panel as it was, so a hint that misses a row the batch changed is a
+    # stale row on glass. `"panel": true` makes every step's expectation carry the panel's CRC too
+    # (`FIRMWARE.md` §9), so the C and the simulator are compared on it. No release and no overlay
+    # here: both would put content on the panel that neither side models byte for byte.
+    pc = Cache2()
+    pic = pc.add(image2(40, 30, pattern(40, 30, 61)))
+    pglyphs = {ch: cache_image(5 + (ch % 7), 14, pattern(5 + (ch % 7), 14, 300 + ch)) for ch in range(32, 256)}
+    ptable = pc.reserve(224 * 2)
+    pgoff = {ch: pc.add(pglyphs[ch]) for ch in range(32, 256)}
+    pc.put(ptable, b"".join(u16(pgoff[ch]) for ch in range(32, 256)))
+    bad_draw = draw2(0xFFFF, 0, 0, 0x0F)                                           # a record past any cache: refused (5)
+    v.append({"name": "v2-panel", "panel": True, "steps": [
+        step(*arm, *[msg(m) for m in pc.messages()]),                              # the keyframe's full refresh: panel = shadow
+        step(msg(batch(hint(100, 139), fill(rect(0, 100, 640, 40), 8)))),          # the hint covers the fill: panel = shadow
+        step(msg(batch(hint(100, 109), fill(rect(0, 100, 640, 10), 5), fill(rect(0, 300, 640, 10), 9)))),   # a SHORT hint: rows 300..309 change in the shadow and not on the panel
+        step(msg(batch(fill(rect(0, 420, 640, 20), 6)))),                          # no hint: the full refresh brings the panel back
+        step(msg(batch(fill(rect(0, 100, 640, 10), 2), bad_draw)),                 # refused part-way: changed, presented nothing
+             msg(batch(hint(200, 209), fill(rect(0, 200, 640, 10), 3)))),          # so this frame goes whole, not its rows
+        step(msg(batch(hint(479, 479), fill(rect(0, 479, 640, 1), 15)))),          # the last row, inclusive
+        step(msg(batch(hint(0, 0), fill(rect(0, 0, 640, 1), 1)))),                 # the first row
+        step(msg(batch(hint(0, 479), fill_pair(rect(0, 60, 320, 40), rect(320, 60, 320, 40), 11),
+                       draw2_pair(pic, 100, 116, 200, 0x1F),
+                       string2_pair(ptable, 40, 56, 260, 0x0F, b"Panel" + bytes([13]) + b"2"),
+                       delta_stereo(96, 104, 340, 120, 40, 1, pattern(120, 40, 62))))),   # a phone-shaped flush: fills, per-lens draws, a stereo delta, one hint
+        step(msg(batch(delta_stereo(96, 104, 340, 120, 40, 1, pattern(120, 40, 63)),      # fid 1 again: skipped, the batch goes on
+                       fill(rect(0, 460, 640, 10), 4), hint(340, 469)))),
+        step(msg(batch(hint(100, 109), capture(0, rect(0, 100, 640, 10)), fill(rect(0, 100, 640, 10), 13)))),   # a capture presents nothing of its own
+        step(msg(batch(hint(100, 109), restore(0)))),                              # the restore's rows are the hinted ones
+    ]})
+
+    # Records and font tables ABOVE the v1 window in a 160 KiB cache — what the phone's own atlas
+    # does with nine faces. A build that bounded v2 records by the first 64 KiB, as the v1 modes
+    # are, would refuse every one of these while the model drew them.
+    hi = Cache2(start=150000)
+    hipic = hi.add(image2(40, 30, pattern(40, 30, 71)))
+    higlyphs = {ch: cache_image(4 + (ch % 5), 12, pattern(4 + (ch % 5), 12, 400 + ch)) for ch in range(32, 256)}
+    hitable = hi.reserve(224 * 2)
+    higoff = {ch: hi.add(higlyphs[ch]) for ch in range(32, 256)}
+    hi.put(hitable, b"".join(u16(higoff[ch]) for ch in range(32, 256)))
+    assert len(hi.buf) < 160 * 1024, len(hi.buf)
+    edge_end = Cache2(start=163840 - 12)                                           # a record ending exactly at the cache's end
+    last = edge_end.add(image2(8, 8, [9] * 64))
+    v.append({"name": "v2-reach", "steps": [
+        step(*arm, cachesize(160), *[msg(m) for m in hi.messages()]),
+        step(msg(draw2(hipic, 10, 10, 0x0F))),                                     # a record above 64 KiB draws
+        step(msg(string2(hitable, 10, 60, 0x0F, bytes(range(32, 128))))),          # a table above 64 KiB, the ASCII half
+        step(msg(string2_pair(hitable, 10, 26, 90, 0x1F, bytes(range(160, 256))))), # and the Latin-1 half, per lens
+        step(*[msg(m) for m in edge_end.messages()], msg(draw2(last, 20, 300, 0x0F))),   # a record ending exactly at 160 KiB
+        step(msg(cache_write2((163840 // 4 - 1, bytes(8))))),                      # an entry running one byte past the end: refused (5)
+        step(msg(batch(clip_pair(rect(0, 100, 60, 40), rect(8, 100, 60, 40)),
+                       draw2_pair(hipic, -12, -4, 90, 0x1F),
+                       string2_pair(hitable, -3, 5, 110, 0x0F, b"Ag")))),          # a clip and negative per-lens x together
+        step(msg(batch(clip(rect(0, 40, 640, 400)), draw2(hipic, 0, -20, 0x0F)))), # a record scrolled up under a clip (Reader's page turn)
+    ]})
+
+    # Check orders and edges one message at a time: what the phone never sends, but a defect would.
+    v.append({"name": "v2-order", "steps": [
+        step(*arm, *writes),
+        step(msg(fill(rect(600, 0, 41, 10), 16))),                                 # a bad rect AND a bad level: bounds (2) first
+        step(msg(bytes([18]) + u16(0) + s16(0) + s16(0) + bytes([0x0F, 2]) + b"A")),   # mode 18 one byte short: length (1)
+        step(msg(bytes([23, 3, 7]))),                                              # sub 3 with slot 7: the sub (12) before the slot (7)
+        step(msg(capture(5, rect(0, 0, 0, 0)))),                                   # slot 5 with an empty rect: the slot (7) before the rect (2)
+        step(msg(capture(0, rect(1, 3, 333, 77))), msg(fill(rect(0, 0, 640, 480), 9)), msg(restore(0))),   # an odd left edge through the save-under path
+        step(msg(lut(rect(1, 1, 333, 77), inv))),                                  # an odd left edge through the LUT
+        step(msg(batch(clip(rect(0, 0, 10, 10)), draw_image(0, 100, 100, 0x0F), draw_string(0, 100, 130, 0x0F, b"v1")))),   # the v1 draws ignore the clip
+        step(msg(bytes([19]))),                                                    # an empty list with DRAW2 armed: accepted, writes nothing
+        step(msg(cache_write2((0xFFFF, b"")))),                                    # an empty entry past the cache: refused (5)
+        step(msg(bytes([3, 0, 0, 4, 4]))),                                         # a mode-3 message with no fid and no stream: length (1)
+        step(msg(bytes([6]))),                                                     # a mode-6 message with no stream: length (1), before the fid ring
+        step(msg(delta(8, 8, 16, 8, 9, pattern(16, 8, 81)))),                      # fid 9 after them: not a skip if the ring stayed clean
+    ]})
+    # records whose RLE does not decode to their size: the draw is refused (5) and nothing of the
+    # record reaches the shadow. The zero-length run is the one that must also TERMINATE — it
+    # advances the stream without filling a pixel, so the validation ends when the bytes run out.
+    bad = Cache2()
+    over = bad.add(u16(4) + u16(1) + bytes([0x35, 0x25]))                          # 3 + 2 pixels for a 4-pixel record
+    short = bad.add(u16(8) + u16(1) + bytes([0x35]))                               # 3 pixels for an 8-pixel record
+    zero = bad.add(u16(4) + u16(1) + bytes([0x05, 0x00, 0x00, 0x00]) + bytes([0x35]))   # a zero-length 16-bit run, then 3
+    v.append({"name": "v2-badrec", "steps": [
+        step(*arm, *[msg(m) for m in bad.messages()], msg(fill(rect(0, 0, 640, 480), 4))),
+        step(msg(draw2(over, 10, 10, 0x0F))),                                      # more pixels than the record holds: 5
+        step(msg(draw2(short, 10, 20, 0x0F))),                                     # fewer: the stream ends first: 5
+        step(msg(draw2(zero, 10, 30, 0x0F))),                                      # a run of zero length: 5, and it ends
+        step(msg(string2(table4, 10, 40, 0x0F, b"ok"))),                           # the cache still draws afterwards
+    ]})
+
     for vec in v:
         vec["contract"] = 2
         vec["start"] = "zero"

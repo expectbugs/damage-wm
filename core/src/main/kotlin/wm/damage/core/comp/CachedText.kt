@@ -243,9 +243,18 @@ class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val 
         return out
     }
 
-    /** One chunk acked, in the order [takeUpload] handed them out. A chunk
-     *  the lapse forgot answers after [forgetUpload]: nothing to move. */
-    fun acked() {
+    /** The layout these chunks belong to. A repack — or a lapse that forgets the upload — re-lays
+     *  the packed bytes out, so a chunk handed out before it carries bytes the glasses would now
+     *  be given at different offsets: its ack must not move this layout's watermark (2026-09-15,
+     *  the second review — 12 old chunks' acks used to consume 12 new chunk ends, and every font
+     *  below that mark went live while the glasses held the old bytes). */
+    var uploadGen = 0
+        private set
+
+    /** One chunk acked, in the order [takeUpload] handed them out; [gen] is the layout it was
+     *  taken from. A chunk of an older layout, or one the lapse forgot, moves nothing. */
+    fun acked(gen: Int = uploadGen) {
+        if (gen != uploadGen) return
         val end = chunkEnds.removeFirstOrNull() ?: return
         ackedBytes = maxOf(ackedBytes, end)
     }
@@ -263,6 +272,7 @@ class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val 
         sentBytes = builder.guard
         ackedBytes = builder.guard
         chunkEnds.clear()
+        uploadGen++                                    // chunks handed out before this belong to the old layout
     }
 
     companion object {
@@ -388,14 +398,18 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
 
     fun clearSeen() = synchronized(seen) { seen.clear(); seenImages.clear(); usage.clear(); lastUse.clear() }
 
-    private fun liveEntry(spec: FontSpec): GlyphAtlas.Entry? =
-        if (spec in live) atlas?.entry(spec) else null
+    /** The live entry for [spec] in [a] — the atlas the CALLER read, once: the field is
+     *  `@Volatile` and a swap between two reads (a v1 atlas for a v2 one at a session rebuild)
+     *  would index a 96-entry table with a Latin-1 code (2026-09-15, second review). */
+    private fun liveEntry(spec: FontSpec, a: GlyphAtlas? = atlas): GlyphAtlas.Entry? =
+        if (spec in live) a?.entry(spec) else null
 
     override fun measure(text: String, font: FontSpec): Int {
-        val e = liveEntry(font) ?: return base.measure(text, font)
+        val a = atlas                                  // one read: the field can be swapped under us
+        val e = liveEntry(font, a) ?: return base.measure(text, font)
         val kern = kernOf(font)
         var w = 0
-        forEachRun(text) { run, cached ->
+        forEachRun(text, a?.v2 == true) { run, cached ->
             if (cached) {
                 var prev: Char? = null
                 for (ch in run) {
@@ -415,20 +429,20 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
     /** The codes a cached run may hold: 32..126 on a v1 atlas, Latin-1 on a v2 one but DEL, the C1
      *  controls and the soft hyphen — codes the platform draws as nothing, which the table could only
      *  hold as the tofu box (2026-09-15 review); the host draws them as it always did. */
-    private fun cacheableCode(c: Int): Boolean =
-        if (atlas?.v2 == true) c in TextureCache.FIRST_CHAR..TextureCache.LAST_CHAR2 && c !in 127..159 && c != 0xAD
+    private fun cacheableCode(c: Int, v2: Boolean): Boolean =
+        if (v2) c in TextureCache.FIRST_CHAR..TextureCache.LAST_CHAR2 && c !in 127..159 && c != 0xAD
         else c in TextureCache.FIRST_CHAR..GlyphAtlas.LAST_GLYPH
 
     /** §41: [text] as the cacheable RUNS the atlas draws and the characters
      *  between them the host draws — a status line's "·" on a v1 atlas, an
      *  arrow. Runs are capped so the draw's u8 length holds the run with an
      *  adjust byte between every pair ([MAX_RUN] codes, 2 × [MAX_RUN] − 1 bytes). */
-    private inline fun forEachRun(text: String, f: (run: String, cached: Boolean) -> Unit) {
+    private inline fun forEachRun(text: String, v2: Boolean, f: (run: String, cached: Boolean) -> Unit) {
         var i = 0
         while (i < text.length) {
-            if (cacheableCode(text[i].code)) {
+            if (cacheableCode(text[i].code, v2)) {
                 var j = i
-                while (j < text.length && j - i < MAX_RUN && cacheableCode(text[j].code)) j++
+                while (j < text.length && j - i < MAX_RUN && cacheableCode(text[j].code, v2)) j++
                 f(text.substring(i, j), true)
                 i = j
             } else {
@@ -453,7 +467,8 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
             usage[font] = (usage[font] ?: 0L) + r.w.toLong() * r.h
             lastUse[font] = useClock
         }
-        val e = liveEntry(font)
+        val a = atlas                                  // one read, as in measure()
+        val e = liveEntry(font, a)
         if (e == null) {
             base.draw(surface, x, y, text, font, level)
             return
@@ -464,7 +479,7 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
         // such character sent the whole string to pixels
         var px = x
         val kern = kernOf(font)
-        forEachRun(text) { run, cached ->
+        forEachRun(text, a?.v2 == true) { run, cached ->
             if (cached) {
                 val w = blit(surface, px, y, run, e, level, kern)
                 if (onTarget) record(px, y, w, e, run, font, level)
@@ -582,7 +597,7 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
         /** Mode 14 draws 32..127 from a u8 string; DEL is tofu, so 32..126 ([v2]: Latin-1 but DEL, the
          *  C1 controls and the soft hyphen). */
         fun cacheable(text: String, v2: Boolean = false): Boolean =
-            text.isNotEmpty() && text.length <= 0xFF &&
+            text.isNotEmpty() && text.length <= MAX_RUN &&        // an adjust byte may ride between every pair
                 text.all { if (v2) it.code in TextureCache.FIRST_CHAR..TextureCache.LAST_CHAR2 && it.code !in 127..159 && it.code != 0xAD
                     else it.code in TextureCache.FIRST_CHAR..GlyphAtlas.LAST_GLYPH }
 

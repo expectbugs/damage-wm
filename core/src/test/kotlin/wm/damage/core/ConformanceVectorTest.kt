@@ -78,9 +78,18 @@ class ConformanceVectorTest {
                     // comparison silently skipped, not a pass (2026-09-15 review)
                     val wantRef = expect["ref"]?.jsonObject?.get(lens)?.jsonArray?.map { it.jsonPrimitive.int }
                     if (wantRef == null && contract >= 2) problems += "$name step $i lens $lens: no refusal record expectation on a contract-2 vector"
+                    if (vec["panel"] != null && expect["P"] == null) problems += "$name step $i lens $lens: the vector is marked panel but carries no panel expectation"
                     wantRef?.let {
                         val gotRef = sim.refusalRecord(arm)
                         if (it != gotRef) problems += "$name step $i lens $lens: refusal record $gotRef, the C gives $it"
+                    }
+                    // `FIRMWARE.md` §9: a vector marked "panel" is compared on what the LENS SHOWS as
+                    // well — a partial refresh (mode 24) transfers only its own rows, so a hint that
+                    // misses a changed row differs here while the shadow agrees (2026-09-15, the second
+                    // Phase 2 review)
+                    expect["P"]?.jsonObject?.get(lens)?.jsonPrimitive?.content?.let { wantPanel ->
+                        val gotPanel = "%08x".format(sim.panelCrc32(arm))
+                        if (wantPanel != gotPanel) problems += "$name step $i lens $lens: panel crc $gotPanel, the C gives $wantPanel"
                     }
                 }
             }

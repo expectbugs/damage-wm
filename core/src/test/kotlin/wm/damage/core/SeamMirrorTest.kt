@@ -69,15 +69,21 @@ class SeamMirrorTest {
             val rec = wm.damage.core.wire.TextureCache.Image2(4, 2, ByteArray(8) { 11 }).encode()
             assertTrue(ship(listOf(wm.damage.core.transport.DisplayOp.CacheWrite2(wm.damage.core.wire.CfwModes.cacheUpdate2(
                 listOf(wm.damage.core.wire.CfwModes.CacheWrite2(1024, rec)), 160 * 1024)))))
+            // the two lenses take DIFFERENT x's and rects, so a field swapped or dropped on the way
+            // across shows up as pixels on the wrong lens (2026-09-15, second review: every op here
+            // used to have xL == xR and left == right, which a swap would have passed)
             assertTrue(ship(listOf(
-                wm.damage.core.transport.DisplayOp.DrawImage2(1024, 100, 100, 50, 0x0F, 4, 2),
-                wm.damage.core.transport.DisplayOp.Fill(Rect(200, 60, 8, 4), Rect(200, 60, 8, 4), 7))))
+                wm.damage.core.transport.DisplayOp.DrawImage2(1024, 100, 116, 50, 0x0F, 4, 2),
+                wm.damage.core.transport.DisplayOp.Fill(Rect(200, 60, 8, 4), Rect(216, 60, 8, 4), 7))))
             // no font table at 0: refused on the glasses for its record (5) — a string that arrived as zeros is a code (6)
             assertTrue(ship(listOf(wm.damage.core.transport.DisplayOp.DrawText2(0, 0, 0, 400, 0x0F, byteArrayOf(0x41)))))
-            val p = sim.panel(Arm.LEFT)
-            fun px(x: Int, y: Int) = (p[y * 320 + (x shr 1)].toInt() and 0xFF).let { if (x and 1 == 0) it shr 4 else it and 0x0F }
-            assertEquals(11, px(100, 50), "the record the seam wrote draws")
-            assertEquals(7, px(200, 60), "the fill after it lands")
+            val pl = sim.panel(Arm.LEFT); val pr = sim.panel(Arm.RIGHT)
+            fun px(p: ByteArray, x: Int, y: Int) = (p[y * 320 + (x shr 1)].toInt() and 0xFF).let { if (x and 1 == 0) it shr 4 else it and 0x0F }
+            assertEquals(11, px(pl, 100, 50), "the record the seam wrote draws at the LEFT lens's x")
+            assertEquals(11, px(pr, 116, 50), "and at the right lens's own x")
+            assertEquals(0, px(pr, 100, 50), "the right lens does not draw it at the left's x")
+            assertEquals(7, px(pl, 200, 60), "the fill after it lands on the left")
+            assertEquals(7, px(pr, 216, 60), "and on the right at its own rect")
             assertEquals(listOf(18, 5), sim.refusalRecord(Arm.LEFT).take(2), "the string reached the glasses as its own bytes")
             client.stop()
         } finally {

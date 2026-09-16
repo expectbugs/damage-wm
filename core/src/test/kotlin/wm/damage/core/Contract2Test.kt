@@ -331,6 +331,128 @@ class Contract2Test {
         for (r in runs) wm.damage.core.wire.TextureCache.layout(r.text, atlas.entry(f)!!.font, ct.kernOf(f))   // fits its u8 length, or throws
     }
 
+    /** 2026-09-15, the second review: the walk above asserts that no black box ships as a stereo
+     *  delta on contract 2 — but it plans no black box at all, so that assertion could not fail.
+     *  Here the compositor is driven straight: a rect whose truth goes black is a mode-21 fill (no
+     *  fid, 18 B) on contract 2 and the stereo black delta it always was on contract 1. */
+    @Test
+    fun aRectThatGoesBlackIsAFillOnContractTwoAndADeltaOnContractOne() {
+        fun blackBoxOps(v2: Boolean): List<DisplayOp> {
+            val comp = wm.damage.core.comp.Compositor()
+            comp.v2 = v2
+            // a black box is a SEAM strip: the columns a depth plane's shift leaves uncovered on
+            // one lens. Seed at one depth, then move the plane deeper — the wider seam is what
+            // ships black (at d = 0 there is no seam, and a dark rect is an ordinary delta)
+            val content = Rect(64, 64, 512, 352)
+            comp.planes = listOf(wm.damage.core.comp.Compositor.PlaneRegion(content, 8))
+            comp.composed.fillRect(0, 0, 640, 480, 200)
+            comp.damageAll()
+            var guard = 0
+            while ((comp.hasPending || comp.needsKeyframe) && guard++ < 40) comp.assembleFlush(5) ?: break
+            comp.planes = listOf(wm.damage.core.comp.Compositor.PlaneRegion(content, 16))
+            comp.damage(content)
+            val ops = ArrayList<DisplayOp>()
+            guard = 0
+            while ((comp.hasPending || comp.needsKeyframe) && guard++ < 40) ops += (comp.assembleFlush(5) ?: break).ops
+            return ops
+        }
+        val v1 = blackBoxOps(false)
+        assertTrue(v1.any { it is DisplayOp.StereoPair }, "on contract 1 a black box is the stereo delta it always was: ${v1.map { it::class.simpleName }}")
+        val v2 = blackBoxOps(true)
+        assertTrue(v2.any { it is DisplayOp.Fill && it.level == 0 }, "on contract 2 it is a mode-21 fill: ${v2.map { it::class.simpleName }}")
+        assertTrue(v2.none { it is DisplayOp.StereoPair }, "and no stereo delta carries it: ${v2.map { it::class.simpleName }}")
+    }
+
+    /** §61's two reseed rules, which had no pin (2026-09-15, the second review): a reseed owed on a
+     *  session that no longer answers the v2 ops is a keyframe — a mode-21 fill there would be refused
+     *  and leave belief black over the old glass — and a reseed drops the copies declared before it,
+     *  since it paints the whole panel from black and they have nothing to move. */
+    @Test
+    fun aReseedBecomesAKeyframeWithoutDrawTwoAndDropsTheCopiesDeclaredBeforeIt() {
+        val gone = wm.damage.core.comp.Compositor()
+        gone.v2 = true
+        gone.composed.fillRect(0, 0, 640, 480, 200)
+        gone.damageAll()
+        var guard = 0
+        while ((gone.hasPending || gone.needsKeyframe) && guard++ < 40) gone.assembleFlush(5) ?: break
+        gone.requestReseed()
+        gone.v2 = false                                            // the lease took DRAW2 with it
+        val after = gone.assembleFlush(5)
+        assertTrue(after != null && after.keyframe && after.ops.any { it is DisplayOp.Keyframe },
+            "the reseed became a keyframe: ${after?.ops?.map { it::class.simpleName }}")
+        assertTrue(after!!.ops.none { it is DisplayOp.Fill }, "no fill the glasses would refuse")
+
+        val kept = wm.damage.core.comp.Compositor()
+        kept.v2 = true
+        kept.composed.fillRect(0, 0, 640, 480, 200)
+        kept.damageAll()
+        guard = 0
+        while ((kept.hasPending || kept.needsKeyframe) && guard++ < 40) kept.assembleFlush(5) ?: break
+        kept.declareShift(Rect(0, 100, 640, 200), Rect(0, 60, 640, 200))
+        kept.requestReseed()
+        val flush = kept.assembleFlush(5)
+        assertTrue(flush != null, "the reseed ships")
+        assertTrue(flush!!.ops.none { it is DisplayOp.Copy || it is DisplayOp.CopyPair },
+            "the declared copy is not replayed onto a panel that is going black: ${flush.ops.map { it::class.simpleName }}")
+        assertTrue(flush.ops.any { it is DisplayOp.Fill && it.level == 0 }, "the reseed opens with the whole-panel fill")
+    }
+
+    /** `FIRMWARE.md` §4, mode 24 (the second Phase 2 review): a partial refresh only ever ADDS its
+     *  rows, so the model sends a whole frame whenever the panel no longer shows the previous one —
+     *  while the overlay sits in the framebuffer, on the first frame after it is hidden (whose rows
+     *  still show it), after a message that changed the shadow and presented nothing, and after a
+     *  lease release point. The fork's host checks the same of the C. */
+    @Test
+    fun theModelSendsAWholeFrameWheneverThePanelIsNotTheWholePreviousOne() {
+        val arm = wm.damage.core.transport.Arm.RIGHT
+        fun armed(): GlassFirmwareSim {
+            val sim = GlassFirmwareSim().also { it.damageContract = 2 }
+            sim.conformanceLease(arm, true, 1000)
+            sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_FLAGS_SET, wm.damage.core.wire.DamageMsg.FLAG_DRAW2, 1000)
+            // the session's first frame is whole (the fresh acquire's own stock repaint): send it,
+            // so the panel holds the whole shadow before a hint is asked for
+            sim.dispatchForTest(arm, wm.damage.core.wire.CfwModes.batch(listOf(
+                wm.damage.core.wire.CfwModes.fill(Rect(0, 0, 640, 480), 0))), 1000)
+            return sim
+        }
+        fun hinted(y0: Int, y1: Int, level: Int) = wm.damage.core.wire.CfwModes.batch(listOf(
+            wm.damage.core.wire.CfwModes.presentHint(y0, y1),
+            wm.damage.core.wire.CfwModes.fill(Rect(0, y0, 640, y1 - y0 + 1), level)))
+
+        val sim = armed()
+        assertTrue(sim.dispatchForTest(arm, hinted(100, 109, 5), 1000))
+        assertEquals(1, sim.lastPath(arm), "a hinted frame takes the partial path")
+        sim.dispatchForTest(arm, byteArrayOf(7, 2), 1000)                       // the overlay is shown
+        assertTrue(sim.dispatchForTest(arm, hinted(100, 109, 6), 1000))
+        assertEquals(0, sim.lastPath(arm), "the frame that carries the overlay goes whole")
+        sim.dispatchForTest(arm, byteArrayOf(7, 1), 1000)                       // hidden again
+        assertTrue(sim.dispatchForTest(arm, hinted(100, 109, 7), 1000))
+        assertEquals(0, sim.lastPath(arm), "so does the first frame after it is hidden: its rows still show it")
+        assertTrue(sim.dispatchForTest(arm, hinted(100, 109, 8), 1000))
+        assertEquals(1, sim.lastPath(arm), "the one after that is partial again")
+
+        val s2 = armed()
+        assertTrue(s2.dispatchForTest(arm, hinted(100, 109, 5), 1000))
+        // a batch whose second sub-message is refused: the fill before it has already changed the shadow
+        val refusedBatch = wm.damage.core.wire.CfwModes.batch(listOf(
+            wm.damage.core.wire.CfwModes.fill(Rect(0, 200, 640, 10), 3),
+            wm.damage.core.wire.CfwModes.drawImage2(0xFFFF, 0, 0, 0x0F, 8, 8)))
+        assertTrue(!s2.dispatchForTest(arm, refusedBatch, 1000), "the batch is refused at its draw")
+        assertTrue(s2.dispatchForTest(arm, hinted(300, 309, 6), 1000))
+        assertEquals(0, s2.lastPath(arm), "the frame after it goes whole: the refused batch's rows are not on the panel")
+        assertEquals("%08x".format(s2.shadowCrc32(arm)), "%08x".format(s2.panelCrc32(arm)), "so the panel shows the whole shadow again")
+
+        val s3 = armed()
+        assertTrue(s3.dispatchForTest(arm, hinted(100, 109, 5), 1000))
+        s3.conformanceLease(arm, false, 1000)                                   // a release: stock repaints
+        s3.conformanceLease(arm, true, 1000)
+        s3.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_FLAGS_SET, wm.damage.core.wire.DamageMsg.FLAG_DRAW2, 1000)
+        assertTrue(s3.dispatchForTest(arm, hinted(100, 109, 6), 1000))
+        assertEquals(0, s3.lastPath(arm), "the first frame of the session after a release goes whole")
+        assertTrue(s3.dispatchForTest(arm, hinted(100, 109, 7), 1000))
+        assertEquals(1, s3.lastPath(arm), "and the one after it is partial again")
+    }
+
     /** The recorder on a v2 atlas: a string is its cacheable runs (Latin-1 but DEL) and the
      *  characters between them the host draws; every run is recorded with its kerned width. */
     @Test

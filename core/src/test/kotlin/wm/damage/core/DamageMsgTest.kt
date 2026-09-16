@@ -480,6 +480,26 @@ class DamageMsgTest {
         }
     }
 
+    /** 2026-09-15, the second review: every control op answers on request id 0 except TELEMETRY and
+     *  CACHE_INFO, and RIGHT answers each one twice. Only the statuses a FLAGS_SET itself records
+     *  answer a FLAGS_SET; op 5's "the cache is allocated" (4) and "outside the budget" (5) are
+     *  another op's word and used to read as a refusal of the arming — DRAW2 off for the session and
+     *  the atlas uploaded again. */
+    @Test
+    fun onlyAFlagsSetsOwnStatusesAnswerAFlagsSet() {
+        val answers = { status: Int, flags: Long?, pending: Int? ->
+            wm.damage.core.transport.CfwTransportBase.flagsReplyAnswers(status.toLong(), flags, pending)
+        }
+        assertTrue(answers(DamageMsg.STATUS_OK, 5L, 5), "the record whose flags are the set being armed")
+        assertTrue(!answers(DamageMsg.STATUS_OK, 1L, 5), "a stale copy carrying the previous set")
+        assertTrue(!answers(DamageMsg.STATUS_OK, null, 5), "a record with no flags field")
+        assertTrue(answers(DamageMsg.STATUS_UNSUPPORTED, 1L, 5), "a bit this build does not implement")
+        assertTrue(answers(DamageMsg.STATUS_NO_LEASE, 0L, 5), "no lease held")
+        assertTrue(!answers(DamageMsg.STATUS_ALLOCATED, 1L, 5), "op 5 on a cache that is already up")
+        assertTrue(!answers(DamageMsg.STATUS_BUDGET, 1L, 5), "op 5 outside the budget")
+        assertTrue(!answers(DamageMsg.STATUS_MALFORMED, 1L, 5), "a malformed or unknown request")
+    }
+
     private fun ByteArray.hex() = joinToString("") { "%02x".format(it) }
     private fun String.unhex() = ByteArray(length / 2) { i -> substring(2 * i, 2 * i + 2).toInt(16).toByte() }
 

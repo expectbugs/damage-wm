@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -515,6 +516,13 @@ class AtlasCarryTest {
         try {
             rig.upWithTheAtlasLive()
             assertTrue(rig.transport.state.value.draw2)
+            // a REAL lapse, not just the transport's word for one: the model's lease expires, which
+            // clears its flags and frees its cache, so the session that follows has to take the size
+            // and arm DRAW2 again for anything below to draw (2026-09-15, second review)
+            rig.clock += wm.damage.core.wire.SettingsMsg.LEASE_EXPIRY_MS + 5_000
+            rig.sim.tick(rig.clock)
+            assertTrue(Arm.entries.none { rig.sim.cacheAllocated(it) }, "the lapse freed the cache on both lenses")
+            assertTrue(Arm.entries.all { rig.sim.damageFlags(it) == 0 }, "and took the flags with it")
             rig.transport.loseLease()
             assertFalse(rig.transport.state.value.draw2, "the lease took DRAW2 with it")
             assertEquals(CfwModes.TEXTURE_CACHE_SIZE, rig.transport.state.value.cacheSize, "and the cache's size")
@@ -523,6 +531,9 @@ class AtlasCarryTest {
             assertTrue(rig.transport.state.value.draw2, "the rebuild's start armed DRAW2 again")
             rig.until("cached text is live again") { rig.shell.cachedFontsLive.isNotEmpty() }
             rig.settle("after the atlas")
+            assertTrue(Arm.entries.all { rig.sim.cacheAllocated(it) && rig.sim.cacheSize(it) == 160 * 1024 },
+                "the new session took the 160 KiB size and uploaded the atlas again")
+            assertTrue(Arm.entries.all { rig.sim.damageFlags(it) and wm.damage.core.wire.DamageMsg.FLAG_DRAW2 != 0 }, "DRAW2 armed on both lenses")
             repeat(2) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("notch $it") }
             assertEquals(0, rig.failedFlushes(), "no flush failed")
             rig.assertGlassMatchesBelief("v2 draws after the rebuild")
@@ -558,6 +569,115 @@ class AtlasCarryTest {
             repeat(2) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_TOP); rig.settle("notch back $it") }
             assertTrue(rig.shell.cachedTextActive, "the fresh atlas is not dropped again")
             rig.assertGlassMatchesBelief("the fresh atlas draws")
+            rig.keeper.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /** The everyday Phase 2 path: a rebuild inside the lease window keeps the v2 atlas — op 5 answers
+     *  "the cache is allocated" with the size it has, the atlas's capacity matches it, and nothing is
+     *  uploaded again (2026-09-15, the second review: nothing covered the carry on contract 2, where
+     *  a mismatch would cost ~60 KB of link at every rebuild). */
+    @Test
+    fun aVTwoAtlasIsKeptAcrossARebuildInsideTheWindow(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope, contract = 2)
+        try {
+            rig.upWithTheAtlasLive()
+            val live = rig.shell.cachedFontsLive
+            val uploads = rig.atlasUploads()
+            val gen = Arm.entries.associateWith { rig.sim.cacheGen(it) }
+            assertTrue(rig.transport.state.value.draw2 && rig.transport.state.value.cacheSize == 160 * 1024)
+            rig.clock += 20_000L
+            rig.rebuild(2, "test: supervision timeout")
+            assertTrue(rig.transport.state.value.leaseCarried, "the acquire was a renewal on both arms")
+            assertEquals(160 * 1024, rig.transport.state.value.cacheSize, "op 5 answered with the size the cache already has")
+            assertTrue(rig.transport.state.value.draw2, "DRAW2 armed again for the new session")
+            assertEquals(uploads, rig.atlasUploads(), "nothing was uploaded again")
+            assertEquals(live, rig.shell.cachedFontsLive, "the fonts are live from the first compose")
+            assertTrue(Arm.entries.all { rig.sim.cacheGen(it) == gen[it] }, "the model's cache was not written again")
+            repeat(3) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("notch $it") }
+            assertEquals(0, rig.failedFlushes(), "no flush failed")
+            rig.assertGlassMatchesBelief("v2 draws on the kept cache")
+            rig.keeper.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /** 2026-09-15, the second review: a transport with a radio keeps a PRIVATE firmware model (the
+     *  mirror) fed the bytes it writes, and every replica and the daily divergence check read it.
+     *  Nothing told that model which build it was talking to, so on a Phase 2 build it had no
+     *  handler for the v2 ops: every atlas chunk and every flush carrying a fill, a per-lens draw or
+     *  a hint raised a `mirror/decode` fault, and the mirror fell out of step with belief — an
+     *  urgent DIVERGE notice and a keyframe per episode, while the lenses themselves were right. */
+    @Test
+    fun theMirrorFollowsAContractTwoBuildWithNoFaultAndNoDivergence(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope, contract = 2)
+        val faults = java.util.Collections.synchronizedList(ArrayList<String>())
+        try {
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                rig.transport.events.collect { ev ->
+                    if (ev is wm.damage.core.transport.TransportEvent.Fault && ev.what.startsWith("mirror/")) faults.add("${ev.what}: ${ev.detail}")
+                }
+            }
+            rig.upWithTheAtlasLive()
+            assertTrue(rig.transport.state.value.draw2, "the session draws with the v2 ops")
+            repeat(4) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("notch $it") }
+            rig.shell.updateSettings { it.copy(heightMode = 352) }            // a reseed: a fill and draws
+            rig.settle("reseed")
+            assertEquals(emptyList<String>(), faults.toList(), "the mirror decoded every v2 op")
+            assertEquals(null, rig.shell.lastDivergence, "belief and the mirror agree")
+            // and the mirror holds what the glass model holds, byte for byte
+            for (arm in Arm.entries) {
+                val m = rig.transport.mirror.snapshot(arm)
+                val g = if (arm == Arm.LEFT) rig.sim.left.panel else rig.sim.right.panel
+                assertTrue(m.contentEquals(g), "$arm: the mirror's panel equals the glass model's")
+            }
+            rig.keeper.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /** 2026-09-15, the second review: an image's ack precedes its decode, so a cache write the
+     *  firmware refuses — no memory, or the v2 ops not armed on the glasses — is silent. The shell
+     *  reads the cache back when an upload's last chunk is acked and keeps cached text off for the
+     *  session if the bytes are not there, instead of drawing text the lens cannot draw (the
+     *  12:54 failure of §59, whose right lens refused every cached draw for hours). */
+    @Test
+    fun anAtlasTheGlassesRefusedIsNotDrawnFrom(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope, contract = 2)
+        try {
+            rig.keeper.start()
+            rig.until("the keeper drives") { rig.driving() }
+            rig.settle("start")
+            assertTrue(rig.transport.state.value.draw2, "the phone armed DRAW2")
+            rig.shell.services.runOnShell { rig.shell.services.openWindow("rows", null) }
+            rig.settle("open rows")
+            // the glasses drop the flags under the phone (a fresh acquire it could not see, a lens
+            // that rebooted): every mode-19 write is refused from here on, and each one is acked
+            for (arm in Arm.entries) rig.sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_FLAGS_CLEAR, 0, rig.clock)
+            rig.shell.updateSettings { it.copy(cachedText = "on") }
+            rig.until("the shell read the cache back and turned cached text off") {
+                rig.atlasNotes().any { "cached text off" in it }
+            }
+            rig.settle("after the check")
+            assertTrue(!rig.shell.cachedTextActive, "nothing is drawn from the refused atlas")
+            assertTrue(rig.shell.cachedFontsLive.isEmpty(), "no font went live: ${rig.shell.cachedFontsLive}")
+            // with nothing armed the first write never allocated the cache, so the record has no
+            // size at all — the check's first reason; a cache already up would give the flags one
+            assertTrue(rig.atlasNotes().any { "the glasses hold no texture cache" in it || "not armed on the glasses" in it },
+                "the reason is journaled: ${rig.atlasNotes().takeLast(4)}")
+            assertTrue(rig.lines().any { "\"kind\":\"glass\"" in it && "atlas check" in it }, "the record itself is journaled")
+            repeat(2) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("notch $it") }
+            rig.assertGlassMatchesBelief("pixels after the refused atlas")
             rig.keeper.stop()
         } finally {
             scope.cancel()
