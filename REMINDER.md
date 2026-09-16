@@ -22,10 +22,10 @@ protocol), §64–§61 (the four reviews), §60 (Phase 2 built), §59 (the day's
   presents, transfer 2.0 ms median / 12.2 max (M) — the link is the tick ceiling; in the case the panel is off;
   the uptime tick is 1.024 per ms. The phone APK drives; the OpenRC `damage` service is the data host and standby
   (§19, `DAILY.md`), still on 0.44's core.
-- **The APK. 0.49 installed** (2026-09-15 03:46). **0.51 staged** (the §59 fix + the dormant contract-2 code).
-  **0.55 built, not staged** — §61–§64's fixes, among them defects LIVE on the installed build: kerned text
-  missing its proof, and the atlas check that keeps cached text off when the glasses did not take the upload.
-  Adam stages and installs (`./gradlew :phone:stageApk`; free, reversible to 0.49).
+- **The APK. 0.49 installed** (2026-09-15 03:46; every `build` note through 09-16 12:17). **0.55 STAGED 2026-09-16
+  13:09** (`~/.damage/damage-wm.apk`, the setup page) — §61–§64's fixes, among them defects LIVE on the installed
+  build: kerned text missing its proof, and the atlas check that keeps cached text off when the glasses did not
+  take the upload. Adam installs (free, reversible to 0.49); **the Phase 2 flash needs it on the phone first.**
 - **🔴 Phase 2: BUILT on both sides, reviewed FOUR times, not flashed** (`HANDOFF.md` §60–§64; `FIRMWARE.md`
   §4 as built; committed and pushed 2026-09-16 — Damage `7997a4d`, the fork `f20bac9`; §65's session is
   uncommitted, for Adam's word). Fork pin **`48172b62…`** = Phase 1 + modes 17–24, op 5, status 3–5, fields
@@ -93,7 +93,7 @@ The ack precedes the panel refresh (§48.1, verified): what the eye waits for is
 
 ## 🔴 The next session
 
-1. **Adam: install APK 0.55** and read its `atlas` notes after a rebuild (§59/§61: "R reset", "R holds no cache",
+1. **Adam: install APK 0.55 (staged 13:09, the setup page) — before the flash** — and read its `atlas` notes after a rebuild (§59/§61: "R reset", "R holds no cache",
    "L link ended as a reboot would", "the last start did not complete" reset the atlas; the `glass` "atlas
    check:" note after every upload — on the contract-1 build it reports the 64 KiB cache and turns nothing off).
 2. **One focused read, not a fifth review (§65):** the two mechanisms the reviews invented and got wrong twice —
@@ -117,7 +117,10 @@ The ack precedes the panel refresh (§48.1, verified): what the eye waits for is
    that paints its shadows from the record so belief = glass. Its design pass fills `FORK.md` §3.8 first.
    Optional: `lint.py` rules for the v2 budgets (the encoders' `LintError`s hold them); a Global row for the
    hint's A/B (`Compositor.hintMaxRows`).
-6. **A worn day on the Phase 1 build read** (`journal_report.py --since`; no Phase 2 flash before it, §56).
+6. **The worn day on the Phase 1 build — READ 2026-09-16 (§65):** 10.2 h worn, 7.8 %/h, the link on 15/1, heap
+   flat, no hold-back; **and the arm drops are REBOOTS** (F1.2's uptime 12 s at the reconnect) — five on 09-16, all
+   in the case, three of them 5–7 min after docking, uptime ≈100–105 min at each; cause U, not the work (§50.9);
+   the post-flash soak's baseline. §56's precondition is met.
 7. **The ritual (`FORK.md` §7) with Adam's in-the-moment go.** The candidate's site list is 32 entries (§63.2
    item 4, `0x00473D80`). The fork's gates: `tools/verify.py` (pin `48172b62…`), `run_vectors.py`,
    `run_self_test.py`, `test_damage_ext.py`; after any patch-source change `./build_cfw.sh --skip-venv
@@ -130,7 +133,8 @@ The ack precedes the panel refresh (§48.1, verified): what the eye waits for is
    atlas for that session, §61); `probe:telemetry=read` (fields 23–26, the cache size); the `link` notes on the
    2M request (its "PHY after the link request" note must appear — unmeasured, §61.4) and the connection
    parameters, ms/KB, a capture for `research/perevent.py`, battery %/h against 7.4, the earbud with Music
-   playing; the partial refresh priced by path in `journal_report.py`'s transfer section. T2's exit: `proof` and
+   playing; the partial refresh priced by path in `journal_report.py`'s transfer section; **the in-case reboots** counted
+   against §65's baseline (the candidate changes the link profile and the panel-off path). T2's exit: `proof` and
    `edge` misses at zero, first-flush bytes down per gesture class against §57's baseline, the page turn priced.
 9. **The instruments (§64.6), to reach for rather than rebuild** — neither is a gate; both answer what a green
    gate set cannot: `firmware/fuzz_vectors.py` (random sequences as vectors; the C fills their expectations;
@@ -183,7 +187,7 @@ per-gesture section judges every window (§42).
 | 15 | **Is the sid-0x01 prelude required** by the CFW before CREATE? (graded U) | three eaten CREATEs per cold start ≈ 6 s (§34.3) |
 | 21 | **Temple long-press accident rate** (gloves) | §1.2's bare-long-press no-op guards it |
 | 24 | **Does the firmware enter Silent Mode by itself** (wear detection, idle)? | the journal will say |
-| 25 | **The arm rebuilds' cause** (§42.2) | `FORK.md` M0.5 (a boot banner settles reset-or-stall), M0.6, and **M0.7** (the glasses sat in the case through drops and quiet nights alike: the phone's state is the variable — §50.6) |
+| 25 | **The arm rebuilds' cause** (§42.2) — **they are REBOOTS** (F1.2's uptime, §65: five on 2026-09-16, all in the case, three of them 5–7 min after docking, uptime ≈100–105 min at each; LEFT's uncounted) | the cause: `FORK.md` M0.7's phone-state experiment, the case's charger, a stock in-case restart, a held lease with the panel off — all U; not the work (§50.9); the post-flash soak re-reads it |
 | 26 | **The wake loop's cause** (§42.3) | the `keeper: start failed: …` notes name it |
 | 28 | **True user-perceived latency** (ring press → visible change; the ack is only a lower bound) | `FORK.md` M0.2 |
 

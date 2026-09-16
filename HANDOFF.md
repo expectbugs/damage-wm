@@ -4685,3 +4685,33 @@ the step mistook bytes 5–6 (the fid) for the zlib header and called it a heade
 2-byte header with the simulator checking the adler itself would make the model write that last chunk as the
 firmware does and retire the false positive — a simulator change, so the 26 vectors, both fuzz sets and
 `--selfcheck` gate it.
+
+**The worn-day read on the Phase 1 build (§56's precondition for the flash), 2026-09-16 13:05, from the phone's
+journal (`journal_report.py --since 2026-09-15`, 5,063 acked flushes).** APK **0.49** still runs (every `build` note);
+0.55 staged this evening (`~/.damage/damage-wm.apk`), not installed. **Worn 09-15 13:16–23:29, 10.2 h, 99 → 19 %,
+7.8 %/h** (7.4 baseline); the link on 15/1 all day bar one slow-set episode at 18:00 recovered in 51 s; transfer
+2.0 ms median / 5.3 p90 (2,996 presents); heap flat — arena 27 145 → 144 KiB, arena 20 75 → 71, arena 13 172 KiB with
+the atlas and scratch resident at first light, 386 KiB with no atlas at the last read; no hold-back fault; flags
+`0x8001` in force; the atlas kept across 12 of 17 session starts. Two flushes not ok in 37 h: a `DeadObjectException`
+at 04:06 on the flash night (APK side) and the 08:00 RIGHT supervision timeout below. **First measurement of what
+the arm drops are (§42.2, §50.6; open since 2.2.2): REBOOTS.** F1.2's uptime read 12–14 s at the reconnect after
+each — 09-15 12:54 (§59, worn) and on 09-16 00:45, 06:20, 08:00, 09:43, 11:26, each after a supervision timeout on an
+arm, none of the five while worn: the three daytime ones came 5–7 min after the glasses went back into the case
+(wear windows 07:42–07:55, 09:27–09:36, 11:10–11:19 from the battery stretches), and the uptime at the reboot was
+≈100–105 min in each (the previous reading plus the phone time since). LEFT-only timeouts at 00:44, 05:28 and
+07:08 have no reset note because only RIGHT's uptime is read, so LEFT's reboots are not counted. Grade M for
+"reboot"; the cause stays U — candidates, unranked: the case's charger power-cycling after a charge handshake;
+a stock in-case restart; a stock watchdog; a lease held while the panel is off (the fork's path, but §42.2's drops
+predate the fork on a5d1c31); the radio controller resetting; a wear-sensor edge the phone answers with a
+disconnect the glasses reboot on. Not Phase 2's work (Adam, §50.9), but the post-flash soak reads the same
+pattern against this baseline, since the candidate changes the link profile and the panel-off path.
+**Flash prep, offline gates re-run tonight (`FORK.md` §7 steps 1–5):** `research/verify_cfw.py` all pass (the
+Thumb-bit audit running again since §64); the fork's `tools/verify.py` all pass — pin `48172b62…`, the image on disk
+hashed to it, the local clang reproducing the patch set, 21 interworking branches all Thumb, 369 KB below the OTA
+flag, 32 sites listed (§63.2 item 4's `0x00473D80` beside `0x00473CE4`, both in `FUN_00473C44` with the two
+`display_copy_hook` calls — the display task's event loop, not a boot path); host vectors 26/26, the self-test form
+20, `test_damage_ext.py` 76; `ConformanceVectorTest` green. Rollback images on disk: `fws/2.2.6.10-cfw-c5e4f8b7/`
+(the running Phase 1 build, with its logs and manifest), `fws/2.2.6.10-cfw-d4054ab1/` (a5d1c31, first light) and stock
+`fws/2.2.6.10/`. Lenses (public addresses, from the Phase 1 logs): LEFT `D8:AE:E7:C1:FA:4D`, RIGHT
+`E4:87:77:65:CD:50`. Left for the flash day: APK 0.55 installed (Adam), the standby stopped and the phone's
+Bluetooth off, the dry-run staircase per lens, his go per write.

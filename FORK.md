@@ -510,5 +510,9 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
 - **2026-09-16 (2)** — What the four reviews measured, read against the diffs (§65): half the yield older than
   Phase 2, a quarter a review fixing a review, the rest the failure envelope the plan never scoped. §3.8 and the
   §5 template added; `CLAUDE.md` gained the protocol; `REMINDER.md`, this log and the memory files stopped
-  restating §61–§64. `tools/geometry.py`'s runtime-rule copy retired; `v2-badrec` step 4 made live. Nothing
-  flashed; uncommitted for Adam's word.
+  restating §61–§64. `tools/geometry.py`'s runtime-rule copy retired; `v2-badrec` step 4 made live (Damage `b43a1bf`).
+  The evening, for the flash: the fuzz re-run with fresh seeds (60 clean vectors agree everywhere; the corrupted
+  set's one disagreement is the documented adler-only shape, proven to the byte); **the worn-day read** (10.2 h,
+  7.8 %/h, heap flat, no hold-back — §56's precondition met — and the arm drops measured as REBOOTS, in the case,
+  cause U); APK 0.55 staged; the candidate's offline gates re-run green, the image on disk hashed to the pin.
+  Nothing flashed.
