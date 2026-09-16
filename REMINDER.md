@@ -26,7 +26,7 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
   a FLAGS_SET with no lease refused (status 3) from Phase 2's candidate; the soak = ordinary wear during Phase 2's
   build, and no Phase 2 flash before a worn day on this build is read.
 - **🔴 Phase 2: BUILT on both sides and reviewed TWICE, not flashed (`FIRMWARE.md` §4 as built; `HANDOFF.md` §60, §61,
-  §62; committed and pushed 2026-09-15 night on Adam's word):** the fork's candidate pin **`f9ddf49f…`** (after §62's
+  §62; committed and pushed 2026-09-15 night on Adam's word — Damage `2329ec8`, the fork `26404f7`):** the fork's candidate pin **`f9ddf49f…`** (after §62's
   review; `55746389…` after §61's, `aacdc63a…` before that) = Phase 1 + modes 17–24, op 5, status 3–5, fields 23–26,
   the partial path and the three link edits; `tools/verify.py`, `run_vectors.py` (24 vectors, 206 steps),
   `run_self_test.py` (20) and `test_damage_ext.py` (75) green; the simulator equals the C on every step, both lenses,

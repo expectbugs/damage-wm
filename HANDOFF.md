@@ -4227,7 +4227,7 @@ entries, a 53,724-byte block, 20 Thumb branches, 370 KB below the OTA flag, the 
 **75**. Every new pin was watched to fail without its fix: the four host checks of the panel rule on the
 unfixed patches, the mirror test with its one line removed, and the rest by trace where a signature
 changed. Nothing flashed, nothing staged; **both trees committed and pushed on Adam's word the same
-night** (the shas are in `FORK.md` §11 and `REMINDER.md`).
+night: Damage `2329ec8`, the fork `26404f7`.**
 
 ### 62.7 Looked at, not changed
 - **The panel's frame retention across an off/on cycle with no Damage copy in between** is unknown, and

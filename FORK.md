@@ -371,7 +371,8 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   notices), an atlas upload is read back before anything draws from it, a repack's old chunks can no longer
   move the new layout's acked watermark, a control write that misses an arm is a failure, and
   `glassdrive.py selftest:` no longer prints false FAILs on a correct build. Fork pin **`f9ddf49f…`** (31
-  entries, a 53,724-byte block, the same sites); 24 vectors, 206 steps, the simulator equal to the C on every one; APK 0.53. Nothing flashed, nothing staged; both trees committed and pushed on his word.
+  entries, a 53,724-byte block, the same sites); 24 vectors, 206 steps, the simulator equal to the C on every one; APK 0.53. Nothing flashed, nothing staged; both trees committed and pushed on his word (Damage
+  `2329ec8`, the fork `26404f7`).
 
 - **2026-09-12** — Plan written after a discussion session (`HANDOFF.md` §48). Decisions D1–D8
   proposed. `FIRMWARE.md` skeleton written. `~/damage-cfw` created from `a5d1c31` on branch `damage`
