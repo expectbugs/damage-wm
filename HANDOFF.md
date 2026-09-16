@@ -4640,4 +4640,4 @@ entries, a **54,776-byte** block, 21 Thumb branches, 369 KB below the OTA flag; 
 pin was watched to fail without its fix: the two new vectors against the unfixed simulator, `v2-gates`
 against a mutation of mode 17's lease check, the two new host checks against the reverted C, the repack pin
 and the Silent-Mode pin against the reverted Kotlin, and `verify_cfw.py` against a broken audit. Nothing
-flashed, nothing staged. **Committed and pushed on Adam's word: the fork `f20bac9`, Damage below.**
+flashed, nothing staged. **Committed and pushed on Adam's word: Damage `7997a4d`, the fork `f20bac9`.**

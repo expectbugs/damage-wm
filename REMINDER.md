@@ -29,7 +29,7 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
   a FLAGS_SET with no lease refused (status 3) from Phase 2's candidate; the soak = ordinary wear during Phase 2's
   build, and no Phase 2 flash before a worn day on this build is read.
 - **🔴 Phase 2: BUILT on both sides and reviewed FOUR TIMES, not flashed (`FIRMWARE.md` §4 as built; `HANDOFF.md`
-  §60, §61, §62, §63, §64):** the fork's candidate pin **`48172b62…`** (after §64's review; `b0e42923…` after
+  §60–§64; committed and pushed 2026-09-16 on Adam's word — Damage `7997a4d`, the fork `f20bac9`):** the fork's candidate pin **`48172b62…`** (after §64's review; `b0e42923…` after
   §63's, `f9ddf49f…` after §62's, `55746389…` after §61's, `aacdc63a…` before that) = Phase 1 + modes 17–24, op 5, status 3–5, fields 23–26,
   the partial path and the three link edits. **§63 added ONE new patch site** — the display task's other refresh
   call, `0x00473D80` (32 entries, was 31): read its §63.2 item 4 before the flash, `FORK.md` §3.1.
