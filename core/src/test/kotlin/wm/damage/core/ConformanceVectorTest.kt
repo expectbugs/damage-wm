@@ -28,6 +28,16 @@ import wm.damage.core.transport.Arm
 class ConformanceVectorTest {
 
     private fun vectorDir(): Path {
+        // `DAMAGE_VECTOR_DIR` points this whole class at another set — the differential fuzz
+        // (`firmware/fuzz_vectors.py`, `HANDOFF.md` §64.1). It is the same comparison, panel CRCs
+        // and refusal records included, over sequences nobody wrote down. Loud, so a set left in
+        // the environment can never be mistaken for the repo's own.
+        System.getenv("DAMAGE_VECTOR_DIR")?.let { override ->
+            val d = Path.of(override).toAbsolutePath()
+            if (!Files.isDirectory(d)) fail("DAMAGE_VECTOR_DIR=$override is not a directory")
+            println("ConformanceVectorTest: DAMAGE_VECTOR_DIR=$d — the repo's own vectors are NOT being checked")
+            return d
+        }
         var d: Path? = Path.of(System.getProperty("user.dir")).toAbsolutePath()
         while (d != null) {
             val v = d.resolve("firmware/vectors")
@@ -62,6 +72,9 @@ class ConformanceVectorTest {
                             "msg" in op -> rcs += if (sim.conformanceMessage(arm, hex(op["msg"]!!.jsonPrimitive.content), now)) 0 else -1
                             "flags" in op -> sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_FLAGS_SET, op["flags"]!!.jsonPrimitive.int, now)
                             "cachesize" in op -> sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_CACHE_SIZE, op["cachesize"]!!.jsonPrimitive.int, now)
+                            // `FIRMWARE.md` §9: the stock compositor's own repaint, the event each
+                            // harness issues for itself after a release point
+                            "stock" in op -> sim.stockRepaint(arm)
                             else -> fail("$name step $i: unknown op $op")
                         }
                     }
@@ -122,16 +135,13 @@ class ConformanceVectorTest {
             val steps = vec["steps"]!!.jsonArray
             val ops = steps.flatMap { it.jsonObject["ops"]!!.jsonArray.map { o -> o.jsonObject } }
             if (ops.any { "lease" in it && it["lease"]!!.jsonPrimitive.content != "acquire" }) continue
+            if (ops.any { "stock" in it }) continue          // no self-test form: a step cannot repaint the panel
             val contract = vec["contract"]?.jsonPrimitive?.int ?: 1
             for (arm in Arm.entries) {
                 val lens = if (arm == Arm.LEFT) "L" else "R"
                 val sim = GlassFirmwareSim().also { it.damageContract = contract }
                 var now = 1000L
                 sim.conformanceLease(arm, true, now)
-                for (op in ops) when {
-                    "flags" in op -> sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_FLAGS_SET, op["flags"]!!.jsonPrimitive.int, now)
-                    "cachesize" in op -> sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_CACHE_SIZE, op["cachesize"]!!.jsonPrimitive.int, now)
-                }
                 assertTrue(sim.conformanceMessage(arm, wm.damage.core.wire.CfwModes.selfTestBegin(), now), "$name $lens: begin refused")
                 steps.forEachIndexed { i, stepEl ->
                     val step = stepEl.jsonObject
@@ -148,12 +158,26 @@ class ConformanceVectorTest {
                                 val step = byteArrayOf(wm.damage.core.wire.CfwModes.SELF_TEST_MODE.toByte(), 1) + m
                                 rcs += if (sim.conformanceMessage(arm, if (live) m else step, now)) 0 else -1
                             }
-                            "lease" in op || "flags" in op || "cachesize" in op -> {}   // sent above
+                            // the control ops go to the lens AT THEIR OWN POSITION, as they do on the
+                            // normal path (2026-09-16, the fourth review — found by the differential
+                            // fuzz): hoisting them all before the begin, as both runners did, is the
+                            // same sequence only while they all precede the first message, and a
+                            // mid-vector FLAGS_SET was then armed for steps the normal path ran without
+                            // it. Every vector in the repo that has one also releases the lease, so the
+                            // difference had never shown.
+                            "flags" in op -> sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_FLAGS_SET, op["flags"]!!.jsonPrimitive.int, now)
+                            "cachesize" in op -> sim.conformanceControl(arm, wm.damage.core.wire.DamageMsg.OP_CACHE_SIZE, op["cachesize"]!!.jsonPrimitive.int, now)
+                            "lease" in op -> {}        // an acquire: the runner holds the lease throughout
                             else -> fail("$name step $i: no self-test form for $op")
                         }
                     }
                     val expect = step["expect"]!!.jsonObject
-                    val got = "%08x".format(sim.selfTestCrc(arm))
+                    // Fields 21/22 are sent "both after a step" (`FIRMWARE.md` §3), so before the
+                    // first one the record carries no CRC and the scratch is simply the zeroed
+                    // shadow the begin allocated — which is what the normal path's all-zero shadow
+                    // hashes to. Every vector in the repo draws in its first step, so this only
+                    // shows on a sequence that does not (2026-09-16, the differential fuzz).
+                    val got = if (sim.selfTestSteps(arm) == 0L) zeroCrc else "%08x".format(sim.selfTestCrc(arm))
                     if (expect[lens]!!.jsonPrimitive.content != got) problems += "$name step $i lens $lens: scratch crc $got, the normal path gives ${expect[lens]!!.jsonPrimitive.content}"
                     val wantRc = expect["rc"]!!.jsonObject[lens]!!.jsonArray.map { it.jsonPrimitive.int }
                     if (wantRc != rcs) problems += "$name step $i lens $lens: return codes $rcs, the normal path gives $wantRc"

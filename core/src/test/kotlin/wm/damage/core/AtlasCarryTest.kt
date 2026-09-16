@@ -692,6 +692,34 @@ class AtlasCarryTest {
         }
     }
 
+    /**
+     * 2026-09-16 review. **A repack re-origins the byte axis.** It keeps the same `GlyphAtlas`
+     * object and puts every record at a new offset with `ackedBytes` back at the guard, so the
+     * read-back gate of §62.3 item 4 / §63.1 — keyed on identity plus an acked watermark — read
+     * the whole repacked layout as already proven. That is the §63.1 defect one call site along,
+     * and a repack is when a refused write costs most, because every offset has moved.
+     */
+    @Test
+    fun aRepackForgetsWhatTheLastReadBackCovered() {
+        val a = wm.damage.core.comp.GlyphAtlas(FakeText())
+        assertTrue(a.add(FontSpec(Face.SYSTEM, 20)))
+        a.takeUpload()
+        while (a.ackedBytes < a.sentBytes) a.acked()
+        val covered = a.ackedBytes
+        val genBefore = a.uploadGen
+        assertTrue(covered > TextureCache.GUARD, "the first layout was acked")
+        // the repack keeps the object and moves every record
+        a.repack(listOf(FontSpec(Face.SYSTEM, 20)), emptyList())
+        assertTrue(a.uploadGen != genBefore, "a repack is a new layout")
+        assertEquals(TextureCache.GUARD, a.ackedBytes, "and its upload starts again")
+        a.takeUpload()
+        while (a.ackedBytes < a.sentBytes) a.acked()
+        // the shape the gate used to trust: same object, and no more bytes acked than last time
+        assertTrue(a.ackedBytes <= covered,
+            "the repacked layout is no larger (${a.ackedBytes} <= $covered) — which is why identity " +
+            "plus a byte mark let it through unproven")
+    }
+
     /** The chunk in flight when the link ends is not a refusal: it goes again from the acked
      *  mark, and a kept atlas carries it into the next session. */
     @Test

@@ -84,9 +84,9 @@ class AtlasRepackTest {
         override fun restoreState(state: JsonObject) {}
     }
 
-    private class Rig(scope: CoroutineScope, val text: CachedText, val win: SwitchRows) {
+    private class Rig(scope: CoroutineScope, val text: CachedText, val win: SwitchRows, contract: Int = 0) {
         val tmp = Files.createTempDirectory("damage-repack")
-        val sim = GlassFirmwareSim()
+        val sim = GlassFirmwareSim().also { if (contract > 0) it.damageContract = contract }
         val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
         val journalPath = tmp.resolve("journal.jsonl")
         val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), journalPath, scope)
@@ -95,6 +95,10 @@ class AtlasRepackTest {
 
         fun atlasNotes(): List<String> = if (!Files.exists(journalPath)) emptyList()
             else Files.readAllLines(journalPath).filter { it.contains("\"kind\":\"atlas\"") }
+
+        /** Read-backs the glasses ANSWERED (`Shell.atlasCheckThenLive` journals one per answer). */
+        fun cacheChecks(): Int = if (!Files.exists(journalPath)) 0
+            else Files.readAllLines(journalPath).count { it.contains("\"kind\":\"glass\"") && it.contains("atlas check:") }
 
         suspend fun settle(what: String) {
             val t0 = System.currentTimeMillis()
@@ -131,6 +135,52 @@ class AtlasRepackTest {
                 }
                 assertEquals(0, diffs, "$what: ${if (left) "L" else "R"} belief != glass ($diffs px, first $first)")
             }
+        }
+    }
+
+    /**
+     * 2026-09-16 review. A repack keeps the same `GlyphAtlas` object, puts every record at a NEW
+     * offset and rewinds `ackedBytes` to the guard — so the read-back gate of §62.3 item 4 /
+     * §63.1, keyed on the atlas's identity plus the acked watermark its last answer covered,
+     * matched the repacked layout against a mark on a byte axis that no longer exists and let the
+     * whole thing go live unproven. That is the §63.1 defect one call site along, and a repack is
+     * where it costs most: every offset has moved, so a refused write draws the wrong glyphs.
+     *
+     * The gate is owed by an EPOCH now, and this is the observable: the repacked layout asks the
+     * glasses again. Without the fix the count does not move.
+     */
+    @Test
+    fun aRepackedLayoutIsReadBackAgain(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val text = CachedText(SizedText())
+            val big = listOf(24, 28, 32, 36).map { FontSpec(Face.SYSTEM, it) }
+            val small = FontSpec(Face.SYSTEM, 26)
+            val win = SwitchRows(text, big)
+            val rig = Rig(scope, text, win, contract = 2)
+            rig.shell.start(); rig.settle("start")
+            rig.shell.services.runOnShell { rig.shell.services.openWindow("rows", null) }
+            rig.settle("open rows")
+            rig.shell.updateSettings { it.copy(cachedText = "on") }
+            rig.until("the atlas uploads and the fonts go live") { rig.shell.cachedTextActive && rig.shell.cachedFontsLive.isNotEmpty() }
+            rig.settle("after the upload")
+            rig.until("the first layout is read back") { rig.cacheChecks() > 0 }
+            val checksBefore = rig.cacheChecks()
+            assertTrue(rig.atlasNotes().any { "cache is full" in it }, "the four faces must fill the cache")
+
+            win.fonts = listOf(small)
+            repeat(Shell.ATLAS_RECENT_FRAMES.toInt() + 6) {
+                rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+                rig.settle("notch $it")
+            }
+            rig.until("the new face is live after a repack") { small in rig.shell.cachedFontsLive }
+            rig.settle("after the repack's upload")
+            assertTrue(rig.atlasNotes().any { "repacked:" in it }, "a repack ran")
+            rig.until("the repacked layout is read back too") { rig.cacheChecks() > checksBefore }
+            rig.assertGlassMatchesBelief("after the repack")
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
         }
     }
 

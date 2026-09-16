@@ -48,22 +48,30 @@ def refusal_report(notes):
     consecutive duplicates once used to drop it (2026-09-15, the second review)."""
     refusals = [n for n in notes if n.get('kind') == 'glass' and 'refMode=' in n.get('detail', '')]
     if not refusals: return
-    seen, last = [], None
+    # the arm belongs in the key (2026-09-16 review): two arms each holding a DIFFERENT sticky
+    # record, polled alternately, broke each other's run and printed one refusal per poll
+    seen, last = [], {}
     for n in refusals:
         key = re.search(r'refMode=\S+ refReason=\S+ refSeq=\S+', n['detail'])
         if not key: continue
-        if key.group(0) != last: seen.append((n['t'], key.group(0)))
-        last = key.group(0)
+        arm = (re.search(r'\b([LR])\b', n['detail']) or re.search(r'(LEFT|RIGHT)', n['detail']))
+        arm = arm.group(0) if arm else '?'
+        if key.group(0) != last.get(arm): seen.append((n['t'], arm, key.group(0)))
+        last[arm] = key.group(0)
     print('\nimage-lane refusals the glasses recorded (contract 2, fields 23-25; each reading, in order):')
-    for t, k in seen:
-        print(f'  {datetime.datetime.fromtimestamp(t/1000):%m-%d %H:%M:%S} {k}')
+    for t, arm, k in seen:
+        print(f'  {datetime.datetime.fromtimestamp(t/1000):%m-%d %H:%M:%S} [{arm}] {k}')
 
 def main(path, since_ms=0, glasslog=False):
     f = sys.stdin if path == '-' else open(path, encoding='utf-8')
     sub, done, notes, presents, bad = {}, [], [], [], 0
+    failed = []          # completed flushes that did NOT succeed — refusals, link-loss completions
+    lines_read = 0
     joined = []                              # the submit record each completed flush was joined to
     early_params = []     # link-parameter notes before --since still set the column
     for line in f:
+        if not line.strip(): continue
+        lines_read += 1
         try: r = json.loads(line)
         except Exception: bad += 1; continue
         if r.get('t', 0) < since_ms:
@@ -72,6 +80,10 @@ def main(path, since_ms=0, glasslog=False):
             continue
         ev = r.get('ev')
         if ev == 'submit': sub[r['id']] = r
+        elif ev == 'done' and not r.get('ok'):
+            # §36/§42 work is priced on these; dropping them without a word made a day of
+            # refusals read as a quiet day (2026-09-16 review)
+            failed.append(r)
         elif ev == 'done' and r.get('ok') and 'bytes' in r:
             s = sub.get(r['id'], {})
             joined.append(s)                     # the submit THIS done was joined to, not the last per id
@@ -79,6 +91,14 @@ def main(path, since_ms=0, glasslog=False):
         elif ev == 'note': notes.append(r)
         elif ev == 'present': presents.append(r)
     if bad: print(f'({bad} unreadable line(s) skipped)')
+    if lines_read and bad == lines_read:
+        # a bad token or a service that is down reads as a clean report of a quiet day otherwise
+        print('every line was unreadable — this is not a journal (a bad token? the service down?)')
+        return 2
+    if failed:
+        print(f'\n{len(failed)} flush(es) completed NOT ok (refusals, link-loss completions) — the first few:')
+        for r in failed[:5]:
+            print(f'  {datetime.datetime.fromtimestamp(r["t"]/1000):%m-%d %H:%M:%S} id {r.get("id")}: {str(r.get("error"))[:100]}')
     # the file is in ACK-COMPLETION order and three flushes run in flight, so a later, bigger
     # flush can be acked first: sort by the moment each was SUBMITTED, which is what a burst's
     # "first flush" means (2026-09-15, the third review — the report took whichever acked first
@@ -114,7 +134,14 @@ def main(path, since_ms=0, glasslog=False):
 
     def table(groups, title, extra=None):
         print(title)
-        print(f'{"":18s} {"n":>6s} ' + ' '.join(f'{lo//1000 if lo>=1000 else lo}{"K" if lo>=1000 else "B"}-{(hi//1000 if hi<10**9 else "")}{"K" if 1000<=hi<10**9 else ""}'.rjust(11) for lo, hi in BANDS)
+        # the header names the band it heads (2026-09-16 review: integer division printed
+        # (0,500) as "0B-0", (500,1500) as "500B-1K" and (1500,3000) as "1K-3K", while the
+        # same bands are printed correctly eleven lines below)
+        def band_edge(v):
+            if v >= 10**9: return '+'
+            if v >= 1000: return f'{v/1000:g}K'
+            return f'{v}B'
+        print(f'{"":18s} {"n":>6s} ' + ' '.join(f'{band_edge(lo)}-{band_edge(hi)}'.rjust(11) for lo, hi in BANDS)
               + ('  params' if extra else ''))
         for k in sorted(groups):
             v = groups[k]
@@ -179,27 +206,43 @@ def main(path, since_ms=0, glasslog=False):
     # are not gestures.
     bursts = collections.defaultdict(list)
     prev_t = None; cur = None
+    unjoined = 0
     for t, b, a, via, hm, am, lab, ts in done:
-        t = ts if ts is not None else t          # the SUBMIT is the gesture's moment; the ack is what it waited for
         # not gestures — and they must not extend one either: leaving `prev_t` on an atlas chunk
         # glued the next real gesture onto the burst before it and lost that gesture's own first
         # flush, the number `WINDOWS.md` §6 judges a window by (2026-09-15, the third review)
         if lab in ('SILENT', 'ATLAS'): continue
-        if cur is None or prev_t is None or t - prev_t > BURST_GAP_MS:
+        if ts is None:
+            # no submit record for this flush — the usual cause is `?tail=N`, which cuts the file
+            # at a byte offset. Falling back to the ACK time put the flush in whatever burst was
+            # running then and made a whole gesture disappear (2026-09-16 review); it is counted
+            # and left out instead.
+            unjoined += 1
+            continue
+        if cur is None or prev_t is None or ts - prev_t > BURST_GAP_MS:
             if cur: bursts[cur[0]].append(cur)
-            cur = [lab, b, a, 0, 0]
+            cur = [lab, b, a, 0, 0, t - ts]
         cur[3] += 1; cur[4] += b
-        prev_t = t
+        prev_t = ts
     if cur: bursts[cur[0]].append(cur)
+    if unjoined:
+        print(f'\n({unjoined} completed flush(es) had no submit record — the file starts mid-stream; '
+              'they are left out of the gesture table. Fetch the whole journal for a full one.)')
     if bursts:
         def p90(v): v = sorted(v); return v[min(len(v) - 1, int(len(v) * 0.9))]
         print('\ntime to first visible change per gesture (bursts by first-flush label; median / p90):')
-        print(f'  {"label":22s} {"bursts":>6s}  {"first bytes":>14s}  {"first ack ms":>14s}  {"flushes":>7s}  {"burst bytes":>11s}')
+        print('  "wait" is submit -> done, what the gesture actually waited; "ack" is the link\'s own')
+        print('  share of it (the lane\'s clock starts when it dequeues, so a backed-up link hides there).')
+        print(f'  {"label":22s} {"bursts":>6s}  {"first bytes":>14s}  {"first wait ms":>14s}  {"first ack ms":>14s}  {"flushes":>7s}  {"burst bytes":>11s}')
         for lab, v in sorted(bursts.items(), key=lambda kv: -len(kv[1])):
             fb = [x[1] for x in v]; fa = [x[2] for x in v]; n = [x[3] for x in v]; tb = [x[4] for x in v]
-            base = BASELINE_FIRST_BYTES.get(str(lab))
-            print(f'  {str(lab):22s} {len(v):6d}  {med(fb):6d} / {p90(fb):5d}  {med(fa):6d} / {p90(fa):5d}  {med(n):7d}  {med(tb):11d}'
+            fw = [x[5] for x in v]
+            base = BASELINE_FIRST_BYTES.get(str(lab)) if since_ms == 0 else None
+            print(f'  {str(lab):22s} {len(v):6d}  {med(fb):6d} / {p90(fb):5d}  {med(fw):6d} / {p90(fw):5d}  {med(fa):6d} / {p90(fa):5d}  {med(n):7d}  {med(tb):11d}'
                   + (f'   (§57 baseline {base[0]} / {base[1]} B)' if base else ''))
+        if since_ms:
+            print('  (the §57 byte baseline is over the whole journal since 08-31; it is not printed '
+                  'beside a --since window, where it would compare two different sets)')
     refusal_report(notes)
     present_report(presents)
     battery_report(notes)
@@ -208,6 +251,16 @@ def main(path, since_ms=0, glasslog=False):
     for n in notes:
         if n['kind'] in ('link', 'panic', 'halt', 'build', 'watchdog', 'restart', 'keeper', 'probe') or (n['kind'] == 'fault' and 'stall' in n['detail']):
             print(f'  {datetime.datetime.fromtimestamp(n["t"]/1000):%m-%d %H:%M:%S} {n["kind"]}: {n["detail"][:110]}')
+    # the other faults were counted in the line above and shown nowhere — the lost-ack class (§34)
+    # was visible only as a digit (2026-09-16 review). One line per class, with the first of each.
+    others = collections.defaultdict(list)
+    for n in notes:
+        if n['kind'] == 'fault' and 'stall' not in n['detail']:
+            others[n['detail'].split(':')[0][:40]].append(n)
+    if others:
+        print('  other faults, by class:')
+        for k, v in sorted(others.items(), key=lambda kv: -len(kv[1])):
+            print(f'    {len(v):5d}x  {k}  (first {datetime.datetime.fromtimestamp(v[0]["t"]/1000):%m-%d %H:%M:%S}: {v[0]["detail"][:80]})')
     # HANDOFF.md §54: the atlas at each session start — kept across the rebuild (no upload)
     # or reset, with the transport's per-arm lease gaps; the saving is these lines
     starts = [n for n in notes if n['kind'] == 'atlas' and (n['detail'].startswith('kept across') or n['detail'].startswith('reset'))]
@@ -262,6 +315,8 @@ def battery_report(notes):
     if not pts: return
     pts.sort()
     print(f'\nglasses battery ({len(pts)} changes, {pts[0][1]}% → {pts[-1][1]}%): discharging stretches')
+    # a stretch also ends at a gap in the readings: broken only by a `charging` reading, two
+    # readings, three days of silence and two more printed as one 73 h stretch (2026-09-16 review)
     print(f'  {"from":14s} {"to":14s} {"hours":>6s} {"level":>11s} {"%/h":>6s}')
     stretch = []
     def flush(st):
@@ -270,15 +325,24 @@ def battery_report(notes):
         lost = st[0][1] - st[-1][1]
         rate = f'{lost / h:6.1f}' if h >= 0.5 and lost >= 2 else '     -'
         print(f'  {datetime.datetime.fromtimestamp(st[0][0]/1000):%m-%d %H:%M}    {datetime.datetime.fromtimestamp(st[-1][0]/1000):%m-%d %H:%M}    {h:6.1f} {st[0][1]:4d}→{st[-1][1]:3d} % {rate}')
+    GAP_MS = 2 * 3600 * 1000       # no reading for two hours: the glasses were away, not draining
     for t, lvl, chg in pts:
-        if chg:
+        if chg or (stretch and t - stretch[-1][0] > GAP_MS):
             flush(stretch); stretch = []
-        else:
+        if not chg:
             stretch.append((t, lvl))
     flush(stretch)
 
+USAGE = '''usage: journal_report.py [PATH|-] [--since YYYY-MM-DD[THH:MM]] [--glasslog]
+
+Reads the phone's journal (`curl .../journal?token=... | journal_report.py -`) and prints the
+per-gesture, per-band and per-glass numbers `WINDOWS.md` §6 and `REMINDER.md` price with.
+Exit status: 0 a report (an empty one included), 2 the input was not a journal.'''
+
 if __name__ == '__main__':
     args = sys.argv[1:]
+    if '--help' in args or '-h' in args:
+        print(USAGE); raise SystemExit(0)
     since = 0
     if '--since' in args:
         i = args.index('--since')
@@ -286,4 +350,9 @@ if __name__ == '__main__':
         del args[i:i + 2]
     show_glass = '--glasslog' in args
     if show_glass: args.remove('--glasslog')
-    main(args[0] if args else '-', since, show_glass)
+    # an unknown flag used to be taken as the path, and a second path silently dropped
+    # (2026-09-16 review): say so rather than report on the wrong input
+    bad_args = [a for a in args if a.startswith('-') and a != '-']
+    if bad_args or len(args) > 1:
+        print(USAGE); raise SystemExit(f'\nunrecognised argument(s): {bad_args or args[1:]}')
+    raise SystemExit(main(args[0] if args else '-', since, show_glass) or 0)

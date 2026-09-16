@@ -439,8 +439,26 @@ def selftest() -> int:
     print(f"  {'PASS' if not good else 'FAIL'}  {'valid geometry stays silent':30s} -> "
           f"{good or '(silent)'}")
     ok &= not good
-    print(f"\nselftest: {'all rules fire' if ok else 'A RULE DID NOT FIRE'}")
+    # "all rules fire" was computed over the `cases` list alone, so a rule with no case at all —
+    # or one whose case had quietly stopped naming it — could stop firing forever and this line
+    # still said every rule fired (2026-09-16 review). The claim is now checked against the rule
+    # ids the two files define, and the ones with no case are NAMED rather than counted as fired.
+    fired = {e for _, got, e in cases for g in got if e in g}
+    missing = sorted(RULE_IDS - fired)
+    if missing:
+        print(f"\n  {len(missing)} rule(s) have no selftest case: {', '.join(missing)}")
+    print(f"\nselftest: {'every rule with a case fires' if ok else 'A RULE DID NOT FIRE'}"
+          + (f" ({len(fired)} of {len(RULE_IDS)} rules covered)" if missing else " (every rule covered)"))
     return 0 if ok else 1
+
+
+#: every rule id `lint.py` and `tools/geometry.py` define — the selftest names the ones it does
+#: not exercise rather than reporting "all rules fire" over the cases it happens to have.
+RULE_IDS = {
+    "GEO000", "GEO001", "GEO002", "GEO003", "GEO004", "GEO005", "GEO006", "GEO007", "GEO008",
+    "BUD000", "BUD001", "BUD002", "BUD003", "BUD004", "BUD005", "BUD006", "BUD007",
+    "FID001", "FID002", "FID003", "FID004", "SYM001", "SYM002",
+}
 
 
 def main() -> int:

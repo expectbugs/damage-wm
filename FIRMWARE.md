@@ -8,10 +8,10 @@ simulator (`core/.../sim/GlassFirmwareSim.kt`, Kotlin, written from this text an
 C — `CLAUDE.md`, clean room). A conformance-vector set proves both agree, on the host and on the
 glasses. Plain wording throughout.
 
-**Status 2026-09-15 (evening):** v1 is the installed base (g2flash `a5d1c31`), pointed at in §2. §0 and §3 (the Phase 1
+**Status 2026-09-16:** v1 is the installed base (g2flash `a5d1c31`), pointed at in §2. §0 and §3 (the Phase 1
 extension: DamageCaps, telemetry, flags, the presented notify, cache-keep, the self-test) are **installed on Adam's
 pair since 2026-09-15** (fork pin `c5e4f8b7…`, `HANDOFF.md` §55); the boot count stays withdrawn (§11). **§4 is built
-on both sides (Adam's word on `HANDOFF.md` §57's decisions; fork pin `55746389…` after the review, `HANDOFF.md` §60–§61), not flashed:** the
+on both sides (Adam's word on `HANDOFF.md` §57's decisions; fork pin `48172b62…` after the fourth review, `HANDOFF.md` §60–§64), not flashed:** the
 host C, the simulator and the v2 vectors agree; the glasses' turn comes with the Phase 2 flash. §5–§8 are the decided
 shape only. **Only the RIGHT lens can send** (`CLAIMS.md`): every reply and notify is
 RIGHT's; the left lens's state is inferred from the same writes. CACHE_KEEP stays unarmed (the atlas skip is the
@@ -367,7 +367,17 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   there, and the stock compositor's own repaint is a later event each harness issues for itself (a stock
   copy plus a refresh in the C's; `stockRepaint` in the model). Read the other way round — the model
   repainting at the release itself — the two would have disagreed on the panel CRC the moment a released
-  vector carried the key (2026-09-15, the third review). This is where a hint that misses a row the batch
+  vector carried the key (2026-09-15, the third review). **`{"stock": true}` is that event**
+  (2026-09-16): the host harness answers it with a stock copy plus a refresh, the model with
+  `stockRepaint`. It is not unconditional on either side — while the lease is held and a Damage frame is
+  up, the copy hook preserves the direct frame and the panel does not change; only once the direct path is
+  not active does stock content reach the framebuffer, which is §4's stale condition. What the stock
+  compositor actually paints is its own widgets, which no offline model predicts, so the two harnesses
+  follow a **convention** for it as they do for the all-zero panel they start from: **every byte 0x5A**.
+  `v2-panel` compares it, and a vector carrying the op has no self-test form (a step cannot repaint the
+  panel). Until then `stockRepaint` had no caller anywhere, so §4's "stock content reached the
+  framebuffer" was the one stale condition the two implementations were never compared on.
+  This is where a hint that misses a row the batch
   changed becomes visible, so the C and the model are compared on it rather than on the shadow alone. A
   vector without the key is compared on the shadow as before. The diagnostic overlay is drawn by the
   firmware's own font, which no offline model predicts: a `"panel": true` vector never shows it.
@@ -462,6 +472,17 @@ phone's keeper applies the hold-back rule before re-arming.
   codes-then-glyphs order; mode 23's self-test slots have their own pool. §9: a vector may carry `"panel": true`
   and compare the CRC of what the LENS SHOWS, which is where a short hint is visible; three vectors added
   (`v2-panel`, `v2-reach`, `v2-order`), four corrected. Contract version unchanged (not flashed).
+- 2026-09-16 — a fourth review of Phase 2 (`HANDOFF.md` §64), fork and simulator changed together.
+  §4: a mode-3/6 stream refusal is **not a rollback** — v1 streams the decode into the shadow and a
+  refused message leaves the complete runs it had already written (found by a differential fuzz of
+  the C against the simulator; the model rolled back, the glasses cannot; `v1-stream` pins it, and
+  the model now does the same). §4's DWT note had the calibration's direction inverted: the figures
+  read 2.4 % HIGH, and the firmware scales for the 1.024-per-ms tick so they no longer do. §9: the
+  `{"stock": true}` op, the 0x5A convention for stock content, and the rule that the stock repaint
+  preserves a live direct frame — `stockRepaint` had no caller, so "stock content reached the
+  framebuffer" was the one stale condition the two implementations were never compared on. Two
+  vectors added (`v1-stream`, `v2-gates` — the lease and DRAW2 checks were dead for six of the
+  eight v2 modes) and `v2-panel` extended to 16 steps. Contract version unchanged (not flashed).
 - 2026-09-15 (night) — the review of Phase 2 (`HANDOFF.md` §61), fork and simulator changed together, the vectors
   regenerated from the C (every existing expectation unchanged) plus `v2-edges` and `v2-lifecycle`: op 5 takes 64..160 KiB
   (a smaller cache put the v1 modes' bounds past its end) and a request no longer shares the allocated size's field; a

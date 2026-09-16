@@ -61,6 +61,9 @@ object SelfCheck {
     private var oracleSim: GlassFirmwareSim? = null
     private var oracleShell: Shell? = null
     private var oracleRuns = 0
+    /** Partial (mode-24) panel transfers seen on the model: the one observable only a contract-2
+     *  session produces. Reset per pass. */
+    private var v2Ops = 0
 
     /** One settled, ATOMIC reading of the whole system (review §30). */
     private class Sample(
@@ -102,6 +105,9 @@ object SelfCheck {
             return
         }
         oracleRuns++
+        // the one observable only a contract-2 session produces (`OracleWalkTest` asks the same):
+        // the transport arming DRAW2 proves nothing about what the compositor emitted
+        if (sim.lastPath(Arm.RIGHT) == 1) v2Ops++
         for (arm in Arm.entries) {
             val left = arm == Arm.LEFT
             val panel = if (left) s.left else s.right
@@ -177,6 +183,11 @@ object SelfCheck {
         // review). The second pass is what makes `--selfcheck` mean something about a Phase 2 build.
         for ((contract, cached) in listOf(1 to false, 2 to true)) {
             tag = if (contract >= 2) "c2: " else ""
+            // per PASS (2026-09-16 review): `oracleRuns` accumulated across both, so the second
+            // pass's "the oracle ran on every settled surface" was already satisfied by the
+            // first pass's count — it would have passed with the c2 oracle never running at all
+            oracleRuns = 0
+            v2Ops = 0
             val tmp = Files.createTempDirectory("damage-selfcheck")
             try {
                 runBlocking { script(tmp, contract, cached) }
@@ -676,6 +687,19 @@ object SelfCheck {
         shell2.register(wm.damage.core.windows.torrents.TorrentsWindow(text, ScriptedTorrents(), scope2))
         val musicLib2 = ScriptedMusic()
         shell2.register(wm.damage.core.windows.music.MusicWindow(text, musicLib2, wm.damage.core.windows.music.SimMusicPlayer(musicLib2), scope2))
+        // the restarted session's flushes and faults count too (2026-09-16 review): the collector
+        // was registered once, on the FIRST transport, so five windows, the whole restore path and
+        // the pair the oracle is deliberately re-pointed at below contributed nothing to
+        // `flushFails` or `faults` — a `mirror/decode` fault per flush there was invisible
+        scope2.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            transport2.events.collect {
+                when (it) {
+                    is TransportEvent.FlushDone -> if (!it.ok) flushFails.incrementAndGet()
+                    is TransportEvent.Fault -> if (it.what !in setOf("lease")) faults.incrementAndGet()
+                    else -> {}
+                }
+            }
+        }
         shell2.start()
         if (cached) shell2.updateSettings { it.copy(cachedText = "on") }
         // the oracle follows the LIVE pair (review §30): left pointing at the
@@ -695,9 +719,23 @@ object SelfCheck {
 
         check("no failed flushes anywhere (were ${flushFails.get()})", flushFails.get() == 0)
         check("no transport faults (decode/fid/session, were ${faults.get()})", faults.get() == 0)
-        val flags = sim.flags(Arm.LEFT).filterValues { it }
-        check("no sticky diagnostic flags (were $flags)", flags.isEmpty())
+        // both sims, both arms (2026-09-16 review: one of two simulators and one of two arms were
+        // read, though the per-lens model is exactly where §61.1 item 3 lived)
+        val flags = buildMap {
+            for ((who, sm) in listOf("first" to sim, "restarted" to sim2))
+                for (arm in Arm.entries) {
+                    val f = sm.flags(arm).filterValues { it }
+                    if (f.isNotEmpty()) put("$who/$arm", f)
+                }
+        }
+        check("no sticky diagnostic flags on either lens of either session (were $flags)", flags.isEmpty())
         check("the per-lens truth oracle ran on every settled surface (was $oracleRuns)", oracleRuns >= 100)
+        if (contract >= 2) {
+            // the transport arming DRAW2 does not mean a single v2 op was EMITTED: a session that
+            // fell back to v1 shapes passed all 462 checks. `OracleWalkTest` requires a partial
+            // transfer for the same reason (2026-09-16 review).
+            check("the contract-2 session actually emitted v2 ops (partial transfers: $v2Ops)", v2Ops > 0)
+        }
         scope.cancel()
     }
 

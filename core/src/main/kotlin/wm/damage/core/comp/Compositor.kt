@@ -402,7 +402,12 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
                     // a contract-2 seam fill spends no fid, so the fid budget must not stop it:
                     // the blacks are planned LAST (later wins), and stopping them here would
                     // leave the seam strip showing the previous frame for another flush
-                    if (fids >= budget && !(v2 && p is Planned.Black)) { exhausted = true; break }
+                    // ...and skipping it must not skip the ones behind it: `planOps` orders the
+                    // deltas first, so breaking here dropped every free fill in the same list and
+                    // left the seam strip showing the previous frame for another flush — the
+                    // transient the third review's fix was aimed at (2026-09-16 review). The frame
+                    // is still marked dirty, so the skipped delta is repaired next flush.
+                    if (fids >= budget && !(v2 && p is Planned.Black)) { exhausted = true; continue }
                     val before = ops.size
                     fids += emit(p, ops, touched, budget - fids, batchMax - bytes)
                     for (i in before until ops.size) bytes += sizeOf(ops[i])
@@ -1124,6 +1129,12 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         lastCompressNs += System.nanoTime() - t0; lastCompressN++
         val cost = clear.size + SUB_HEADER + textOps.sumOf { sizeOf(it) } + imageOps.sumOf { sizeOf(it) } +
             (if (d != 0) 35 + SUB_HEADER else 0)
+        // the base rides a mode-8 batch, whose sub-message length is a u16: `emitDelta` checks this
+        // before it will SPLIT a payload, and the cached path pre-empts that split, so a base that
+        // compresses badly (a thumbnail wall, album art, an epub page image with a caption over it)
+        // would have been handed to `CfwModes.batch` to throw inside the assemble (2026-09-16
+        // review). A miss here is the ordinary fallback: pixels, through the splitting path.
+        if (clear.size + 7 > MAX_SUB) return miss("over-sub")
         if (fidsLeft <= 0 || cost > bytesLeft) return miss("budget")
         // the shadows take the truth over w on each lens — proven equal to
         // what the glasses will hold, the simulator having been built to
@@ -1178,20 +1189,37 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         if (draws.size + images.size > MAX_CACHED_DRAWS || r.w <= 0 || r.h <= 0) return miss("too-many-draws")
         val l = r.translate(-d, 0)
         val rr = r.translate(d, 0)
-        // BOTH axes, as the v1 path bounds its widened rect: a recorded draw's box is the pen's
-        // (`CachedText.record`: the run's width by the face's line height), never clipped to the
-        // panel, so a draw near the last row grows `r` past the bottom — and the base below reads
-        // `composed` by (r.y + y) (2026-09-15, the third review: it was an exception on the loop
-        // where the v1 path ships pixels)
+        // Both lenses' boxes on the panel. `r` itself is always on-panel (`Rect.alignOut` clamps),
+        // so the y half of this is belt and braces; what actually needs saying is the invariant
+        // BELOW — that `r` contains every draw's visible box (2026-09-16 review: the y bound added
+        // in the third review could not fire, and the hazard it named lives in the next check).
         if (l.x < 0 || rr.x < 0 || l.right > width || rr.right > width ||
             r.y < 0 || r.bottom > height) return miss("edge")
+        // A rect a paint returns is a promise (`CLAUDE.md`). Nothing clips modes 17/18 on the wire
+        // but the panel, and belief, the proof and the mode-24 hint are all taken over `l`/`rr`
+        // alone — so a draw whose visible box reaches outside `r` would put ink on the glass that
+        // no rect declared, no proof compared and no hint's rows covered. `alignOut` clips the
+        // union at the panel rather than growing past it, so the growth loop does not guarantee
+        // this; it is checked.
+        val panel = Rect(0, 0, width, height)
+        for (dr in draws) {
+            val vis = dr.rect.intersect(panel) ?: continue
+            if (vis.intersect(r) != vis) return miss("edge")
+        }
+        for (im in images) {
+            val vis = im.rect.intersect(panel) ?: continue
+            if (vis.intersect(r) != vis) return miss("edge")
+        }
         val textOps = ArrayList<DisplayOp.DrawText2>(draws.size)
         for (dr in draws) {
             if (dr.spec !in src.live) return miss("font-not-live")
             val e = atlas.entry(dr.spec) ?: return miss("font-not-live")
             val kern = src.kernOf(dr.spec)
             val bytes = try { wm.damage.core.wire.TextureCache.layout(dr.text, e.font, kern) } catch (t: wm.damage.core.geom.LintError) { return miss("layout") }
-            if (dr.x - kotlin.math.abs(d) >= width || dr.y >= height || dr.y < 0) return miss("edge")
+            // the FAR lens: the op carries xL = x - d and xR = x + d and `CfwModes.checkTextXY`
+            // refuses either at or past the panel's width, so the bound is on x + |d|, not x - |d|
+            // (2026-09-16 review: the near lens was bounded, and the far one threw inside `Emit`)
+            if (dr.x + kotlin.math.abs(d) >= width || dr.y >= height || dr.y < 0) return miss("edge")
             textOps.add(DisplayOp.DrawText2(e.font.tableField, dr.x - d, dr.x + d, dr.y,
                 wm.damage.core.wire.CfwModes.options(top = wm.damage.core.gfx.Pack.level(dr.level), transparent = true), bytes))
         }
@@ -1199,7 +1227,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         for (im in images) {
             if (im.key !in src.liveImages) return miss("image-not-live")
             val e = atlas.image(im.key) ?: return miss("image-not-live")
-            if (im.x - kotlin.math.abs(d) >= width || im.y >= height || im.y < 0) return miss("edge")
+            if (im.x + kotlin.math.abs(d) >= width || im.y >= height || im.y < 0) return miss("edge")
             imageOps.add(DisplayOp.DrawImage2(e.offset / 4, im.x - d, im.x + d, im.y,
                 wm.damage.core.wire.CfwModes.options(top = wm.damage.core.gfx.Pack.level(im.level), transparent = true), e.image.w, e.image.h))
         }
@@ -1224,6 +1252,8 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         val clear = Zl.encodeCfw(Pack.rect(base, Rect(0, 0, r.w, r.h)))
         lastCompressNs += System.nanoTime() - t0; lastCompressN++
         val cost = clear.size + SUB_HEADER + textOps.sumOf { sizeOf(it) } + imageOps.sumOf { sizeOf(it) }
+        // as the v1 path above: the stereo base is a mode-3 sub-message with a u16 length
+        if (clear.size + (if (d == 0) 7 else 11) > MAX_SUB) return miss("over-sub")
         if (fidsLeft <= 0 || cost > bytesLeft) return miss("budget")
         paintTruth(shadowL, truthL, l)
         paintTruth(shadowR, truthR, rr)

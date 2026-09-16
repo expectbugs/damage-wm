@@ -195,6 +195,18 @@ abstract class CfwTransportBase(
                     wireArg = arg or DamageMsg.FLAG_DRAW2
                     emitNote("probe", "$name=$value: DRAW2 stays armed for this session (the shell draws with it) — sent flags 0x${wireArg.toString(16)}")
                 }
+                // op 5 and FLAGS_SET both answer on request id 0, and a probe's reply is
+                // indistinguishable from the start's on the wire: a `cachesize=64` probe issued
+                // while `requestCacheSize` awaits 160 could answer it with status 0, which is
+                // §63.3 item 3's failure (a 160 KiB atlas over a 64 KiB cache) by another route.
+                // The probes are `glassdrive.py`'s and run against a live session (2026-09-16
+                // review), so one is refused while a start's id-0 waiter is registered.
+                if ((wireOp == DamageMsg.OP_FLAGS_SET || wireOp == DamageMsg.OP_FLAGS_CLEAR ||
+                     wireOp == DamageMsg.OP_CACHE_SIZE) && telemetryWaiters.containsKey(0)) {
+                    emitNote("probe", "$name=$value not sent: the session start is waiting on an id-0 reply " +
+                        "(op 5 and FLAGS_SET share it) and this one would answer it — try again once the start is done")
+                    return
+                }
                 controlQueue.trySend(CtlWork.BothArms(sessionEpoch.get(), SettingsMsg.SID, "damage op $wireOp") { DamageMsg.control(wireOp, wireArg) })
             }
             // FIRMWARE.md §3, the self-test (mode 16) on the image lane: begin, a step carrying
@@ -1000,6 +1012,16 @@ abstract class CfwTransportBase(
                 DamageMsg.parseTelemetry(frame.payload)?.let { t ->
                     Log.i(name, "glass telemetry from $arm: ${t.describe()}")
                     emitNote("glass", "${arm.name.first()} ${t.describe()}")
+                    // Only RIGHT can answer (`FIRMWARE.md` §3, `CLAIMS.md`: the left lens's stock
+                    // senders refuse), and the hold-back rule, the reset check and the carry
+                    // decision all read these as RIGHT's. A record arriving on LEFT is therefore
+                    // not a second opinion, it is a fact about the build we do not have — and
+                    // feeding it to `noteUptime` would make the uptime alternate between two
+                    // lenses' clocks, silently (2026-09-16 review).
+                    if (arm != Arm.RIGHT) {
+                        emitNote("glass", "a telemetry record arrived on LEFT, which cannot send — ignored")
+                        return
+                    }
                     t.uptimeMs?.let { noteUptime(it) }
                     t.requestId?.let { id ->
                         // a FLAGS_SET reply (id 0) is taken only when it answers the set being armed:
@@ -1270,6 +1292,14 @@ abstract class CfwTransportBase(
         val epoch = sessionEpoch.incrementAndGet()
         started = true
         leaseWanted = true                // a new session holds its lease until the shell says otherwise
+        // ...and it does not inherit the last one's Silent Mode (2026-09-16 review). `noteSilent`
+        // is the only writer and the READ path can only ever SET it: `parseSilentRestored`
+        // returns null when the device-info field is absent, and then nothing is called. A stale
+        // `true` carried into a new session made `Shell.startLocked` enter Silent Mode on an awake
+        // pair, with no recovery but a process restart or a real push. Cleared here, the READ or
+        // the push below re-establishes it, and if the glasses really are silent the refusal
+        // streak of §36 takes the shell back there — the path that is designed to.
+        synchronized(stateLock) { _state.value = _state.value.copy(glassesSilent = false) }
         // the gate may be aborted by a sweep from the moment the session
         // begins (a link death DURING connect, round 5 F2) — drain any stale
         // residue first, then arm the abort path for the whole start
@@ -1326,7 +1356,13 @@ abstract class CfwTransportBase(
                         delay(CAPABILITY_REASK_MS)
                         if (!awaitingPrelude) break
                         Log.i(name, "connect prelude unacked after ${CAPABILITY_REASK_MS} ms — sending again")
-                        controlQueue.trySend(CtlWork.Launch(epoch, CompletableDeferred()))
+                        // the SAME deferred the select waits on, not a throwaway: attempt 1's
+                        // write can succeed and be eaten, and every attempt after it fail on a
+                        // link that is still nominally up — the gate then had nothing left that
+                        // could end it and the start parked for good, which the watchdog cannot
+                        // see because it gates on a start that has completed (2026-09-16 review,
+                        // the class §63.3 item 4 closed for the two gates below this one)
+                        controlQueue.trySend(CtlWork.Launch(epoch, writeFailed))
                     }
                 }
                 try {
@@ -1366,7 +1402,7 @@ abstract class CfwTransportBase(
                         delay(CAPABILITY_REASK_MS)
                         if (!awaitingCapability) break
                         Log.i(name, "capability query unanswered after ${CAPABILITY_REASK_MS} ms — asking again")
-                        controlQueue.trySend(CtlWork.Settings(epoch, SettingsMsg.settingsQuery(0), CompletableDeferred()))
+                        controlQueue.trySend(CtlWork.Settings(epoch, SettingsMsg.settingsQuery(0), queryFailed))
                     }
                 }
                 try {
@@ -1483,7 +1519,33 @@ abstract class CfwTransportBase(
             updateState { it.copy(detail = "warmup frame") }
             val warmupDone = CompletableDeferred<Unit>()
             imageQueue.trySend(ImgWork.Raw(epoch, warmupFrame, warmupDone))
-            warmupDone.await()
+            // The CREATE's own shape, one gate up (2026-09-16 review): this was the last start
+            // gate that was written once and awaited. Its ack rides the image lane, and an image
+            // ack can be eaten at a session start (§12) or lost (§34) — and nothing else is on
+            // the link yet, because every maintenance loop gates on `started`, which this gate
+            // precedes. So no later ack could release it, no write could throw, and the start
+            // parked for good with the keeper blocked inside it, where the watchdog cannot see it.
+            // A repeated sacrificial frame is safe (it is a keyframe, and the firmware drops the
+            // first burst by design), and §34's rule — a lost ack is released by a later one —
+            // ends the wait loudly if the first is the one that went missing.
+            //
+            // The pacing is the STALL threshold, not the control gates' 2 s: a duplicate CREATE
+            // costs a second ack, but a duplicate IMAGE costs a window slot AND declares the
+            // first one lost, so re-sending a warmup that is merely SLOW would fail the start and
+            // cost a rebuild — a whole atlas on a link already struggling. The splash compresses
+            // to a couple of KB, which the measured table acks well inside a second even at p90,
+            // so at this interval "no ack" is the lost case the shell already reports as a stall.
+            val warmupReask = scope.launch {
+                while (true) {
+                    delay(if (instant) 200L else STALL_REPORT_MS)
+                    if (warmupDone.isCompleted) break
+                    Log.w(name, "warmup frame unacked after ${STALL_REPORT_MS} ms — sending again; " +
+                        "a later ack releases the earlier write (§34)")
+                    emitNote("control", "the warmup frame went unacked for ${STALL_REPORT_MS / 1000} s — sent again")
+                    imageQueue.trySend(ImgWork.Raw(epoch, warmupFrame, warmupDone))
+                }
+            }
+            try { warmupDone.await() } finally { warmupReask.cancel() }
 
             // the session must still be THIS one: a link that ended between the warmup's ack and
             // here has already cleared `running` and swept, and writing started = true over it
@@ -1799,6 +1861,10 @@ abstract class CfwTransportBase(
             if (pendingSettings.remove(id, p)) Log.w(name, "settings write '${p.label}' msgId $id unanswered: $why")
         }
         settingsSeqByMsgId.clear()
+        // msgIds are per session: a stale id left here named a NEW session's unknown ack as a
+        // "LATE ack, N ms after it was released" with an elapsed time from the session before it
+        // (2026-09-16 review — the field's own doc already said "cleared per session")
+        recentlyReleased.clear()
         for (id in ArrayList(telemetryWaiters.keys)) telemetryWaiters.remove(id)?.completeExceptionally(LintError("$why (telemetry $id unanswered)"))
         updateState { it.copy(inFlight = WINDOW - window.availablePermits) }
         while (true) {

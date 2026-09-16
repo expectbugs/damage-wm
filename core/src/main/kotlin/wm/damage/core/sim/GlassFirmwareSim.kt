@@ -6,7 +6,6 @@ import wm.damage.core.gfx.Zl
 import wm.damage.core.transport.Arm
 import wm.damage.core.transport.LensPanels
 import wm.damage.core.wire.AaFrame
-import wm.damage.core.wire.CfwModes
 import wm.damage.core.wire.DamageMsg
 import wm.damage.core.wire.EvenHubMsg
 import wm.damage.core.wire.LaunchMsg
@@ -31,6 +30,38 @@ import wm.damage.core.wire.SettingsMsg
  * models the PAIR (both arms — the firmware propagates image traffic cross-lens,
  * overview.md §2), with per-lens shadow and diagnostic context.
  */
+/**
+ * The budgets and tables this model enforces, spelled out here from `FIRMWARE.md` §3/§4 rather
+ * than imported from `CfwModes` (2026-09-16 review). The encoder and the model are meant to be
+ * two independent readings of one contract; where the model read the encoder's constant instead,
+ * "the two agree" reduced to "the number is the number", and a wrong one would have kept every
+ * Kotlin gate green — only the fork's C and the on-glass vector run could have caught it. The
+ * conformance vectors now do: the C writes their expectations, so a value that drifts from §4
+ * fails `ConformanceVectorTest`.
+ */
+private object Fw {
+    /** §4 mode 23: four slots, 48 KiB between them. */
+    const val SAVE_SLOTS = 4
+    const val SAVE_BUDGET = 48 * 1024
+    /** §4 mode 23 sub 0: tight packed rows, (w+1)/2 bytes per row. */
+    fun saveBytes(r: wm.damage.core.geom.Rect): Int = ((r.w + 1) / 2) * r.h
+    /** §2/§4: the v1 window modes 12/13/14 address is the first 64 KiB, whatever the cache is. */
+    const val V1_WINDOW = 64 * 1024
+    /** §4: the v1 table is 96 entries (codes 32..127), the v2 table 224 (codes 32..255), u16 each. */
+    const val FONT_TABLE_BYTES = 96 * 2
+    const val FONT2_TABLE_BYTES = 224 * 2
+    /** §4, the v2 image record: w 1..640, h 1..2048. */
+    const val MAX_IMAGE2_W = 640
+    const val MAX_IMAGE2_H = 2048
+    /** §4 mode 17/18 options, as v1: bit 4 transparent, bit 5 inverse. */
+    const val OPT_TRANSPARENT = 0x10
+    const val OPT_INVERSE = 0x20
+    /** §4: a batch carries the shadow modes and the v2 ops but never a cache write. */
+    val BATCH_SUBMODES = setOf(3, 6, 9, 13, 14, 15, 17, 18, 20, 21, 22, 23, 24)
+    /** §3: what a self-test step may carry — the batch's set plus a batch of its own. */
+    val SELF_TEST_MODES = BATCH_SUBMODES + 8
+}
+
 class GlassFirmwareSim() : LensPanels {
 
     interface SimDiag {
@@ -153,8 +184,8 @@ class GlassFirmwareSim() : LensPanels {
         var refReason = 0
         var refSeq = 0L
         /** Mode 23: the live session's save-under slots and the self-test's, swapped per step. */
-        var slots = arrayOfNulls<SaveSlot>(CfwModes.SAVE_SLOTS)
-        var stSlots = arrayOfNulls<SaveSlot>(CfwModes.SAVE_SLOTS)
+        var slots = arrayOfNulls<SaveSlot>(Fw.SAVE_SLOTS)
+        var stSlots = arrayOfNulls<SaveSlot>(Fw.SAVE_SLOTS)
         /** Field 26 / the presented notify's field 6: the last present's path (0 full, 1 rows). */
         var lastPath = 0
         /** `FIRMWARE.md` §4, mode 24 (the second Phase 2 review): the panel no longer shows the whole
@@ -174,7 +205,7 @@ class GlassFirmwareSim() : LensPanels {
 
     /** One captured rect (mode 23): the levels row-major, [bytes] what it takes in the pool. */
     class SaveSlot(val rect: wm.damage.core.geom.Rect, val levels: ByteArray) {
-        val bytes: Int get() = CfwModes.saveBytes(rect)
+        val bytes: Int get() = Fw.saveBytes(rect)
     }
 
     /** The batch context (`FIRMWARE.md` §4): the clip (mode 20) the v2 ops after it honour and
@@ -579,13 +610,14 @@ class GlassFirmwareSim() : LensPanels {
                     return refuse(c, src, REF_LENGTH)
                 }
                 cfwDiag(c, hasFid = false, fid = 0)
-                val packed = try {
-                    Zl.decodeCfw(src.copyOfRange(1, src.size), Geometry.PANEL_W * Geometry.PANEL_H)
-                } catch (e: Exception) {
-                    diag.event("decode", "$arm mode-6 decompress failed: ${e.message} — previous frame stays up")
+                // the firmware decodes STRAIGHT INTO the shadow, so a stream that fails part-way
+                // leaves the rows it had already written — not the previous frame (2026-09-16
+                // review: the model rolled back, the glasses cannot)
+                if (!Zl.inflateRleInto(src.copyOfRange(1, src.size), c.shadow, 0, c.stride, c.stride, Geometry.PANEL_H)) {
+                    diag.event("decode", "$arm mode-6 stream did not decode to the frame — " +
+                        "refused with the rows it had already written left in the shadow")
                     return refuse(c, src, REF_STREAM)
                 }
-                packed.copyInto(c.shadow)
                 c.seeded = true
                 if (present) present(arm, now, batch)
                 true
@@ -626,17 +658,16 @@ class GlassFirmwareSim() : LensPanels {
                     diag.event("fid", "$arm fid $fid duplicate in ring — delta SILENTLY SKIPPED")
                     return true
                 }
-                val packed = try {
-                    Zl.decodeCfw(src.copyOfRange(zOff, src.size), w * h)
-                } catch (e: Exception) {
-                    diag.event("decode", "$arm mode-3 decompress failed: ${e.message}")
-                    return refuse(c, src, REF_STREAM)
-                }
                 // Composite the tight box into the shadow. w is x4 so w/2 whole bytes,
                 // and l is x4 so l/2 is a whole byte offset (the quantization's purpose).
+                // As mode 6 above: the decode is streamed into the box, so a stream that fails
+                // part-way leaves the pixels it had already written (2026-09-16 review).
                 val rowBytes = w / 2
-                for (row in 0 until h) {
-                    System.arraycopy(packed, row * rowBytes, c.shadow, (t + row) * c.stride + l / 2, rowBytes)
+                if (!Zl.inflateRleInto(src.copyOfRange(zOff, src.size), c.shadow,
+                        t * c.stride + l / 2, c.stride, rowBytes, h)) {
+                    diag.event("decode", "$arm mode-3 stream did not decode to the box — " +
+                        "refused with the pixels it had already written left in the shadow")
+                    return refuse(c, src, REF_STREAM)
                 }
                 if (present) present(arm, now, batch)
                 true
@@ -680,7 +711,7 @@ class GlassFirmwareSim() : LensPanels {
                         diag.event("decode", "$arm mode-8 bad seglen"); return refuse(c, src, REF_LENGTH)
                     }
                     val subMode = src[pos].toInt() and 0x7F
-                    if (subMode !in CfwModes.BATCH_SUBMODES) {
+                    if (subMode !in Fw.BATCH_SUBMODES) {
                         diag.event("decode", "$arm mode-8 sub-mode $subMode rejected"); return refuse(c, src, REF_MODE)
                     }
                     if (subMode == 15) {
@@ -758,7 +789,7 @@ class GlassFirmwareSim() : LensPanels {
                         diag.event("decode", "$arm mode-12 entry of $len B runs past the message — whole update rejected")
                         return refuse(c, src, REF_LENGTH)
                     }
-                    if (off + len > CfwModes.TEXTURE_CACHE_SIZE) {
+                    if (off + len > Fw.V1_WINDOW) {
                         diag.event("decode", "$arm mode-12 entry [$off,${off + len}) leaves the v1 window " +
                             "— whole update rejected in silence")
                         return refuse(c, src, REF_RECORD)
@@ -846,7 +877,7 @@ class GlassFirmwareSim() : LensPanels {
         }
     }
 
-    private fun cacheSizeOf(c: LensCtx): Int = if (c.cacheBytes != 0) c.cacheBytes else CfwModes.TEXTURE_CACHE_SIZE
+    private fun cacheSizeOf(c: LensCtx): Int = if (c.cacheBytes != 0) c.cacheBytes else Fw.V1_WINDOW
 
     /** cfw_texture_cache_release: the cache goes, and with it the size asked for. */
     private fun releaseCache(c: LensCtx) {
@@ -941,7 +972,7 @@ class GlassFirmwareSim() : LensPanels {
         val cache = c.textureCache ?: run {
             diag.event("decode", "$arm $what: no texture cache has been written"); return null
         }
-        if (offset < 0 || offset > CfwModes.TEXTURE_CACHE_SIZE - 2) {
+        if (offset < 0 || offset > Fw.V1_WINDOW - 2) {
             diag.event("decode", "$arm $what: offset $offset out of the cache"); return null
         }
         val w = cache[offset].toInt() and 0xFF
@@ -951,7 +982,7 @@ class GlassFirmwareSim() : LensPanels {
                 "(${w}x$h) — rejected in silence")
             return null
         }
-        val avail = CfwModes.TEXTURE_CACHE_SIZE - offset - 2
+        val avail = Fw.V1_WINDOW - offset - 2
         // Catch only what the decoder raises for malformed CACHE CONTENT. A model
         // defect must not come back dressed as a firmware rejection.
         val levels = try {
@@ -998,7 +1029,7 @@ class GlassFirmwareSim() : LensPanels {
     private fun makeLut(options: Int): IntArray {
         val top = options and 0x0F
         return IntArray(16) { i ->
-            val source = if (options and CfwModes.OPT_INVERSE != 0) 15 - i else i
+            val source = if (options and Fw.OPT_INVERSE != 0) 15 - i else i
             (source * top) / 15
         }
     }
@@ -1007,7 +1038,7 @@ class GlassFirmwareSim() : LensPanels {
      *  source level, before the LUT, so colour 0 is skipped even for an inverse ramp. */
     private fun renderCached(c: LensCtx, img: CachedImage, x0: Int, y0: Int, options: Int) {
         val lut = makeLut(options)
-        val transparent = options and CfwModes.OPT_TRANSPARENT != 0
+        val transparent = options and Fw.OPT_TRANSPARENT != 0
         for (p in img.levels.indices) {
             val color = img.levels[p].toInt() and 0x0F
             if (transparent && color == 0) continue
@@ -1038,7 +1069,7 @@ class GlassFirmwareSim() : LensPanels {
                 "declared string length")
             return refuse(c, src, REF_LENGTH)
         }
-        if (fontOffset > CfwModes.TEXTURE_CACHE_SIZE - CfwModes.FONT_TABLE_BYTES) {
+        if (fontOffset > Fw.V1_WINDOW - Fw.FONT_TABLE_BYTES) {
             diag.event("decode", "$arm mode-14 font table at $fontOffset does not fit"); return refuse(c, src, REF_RECORD)
         }
         val cache = c.textureCache ?: run {
@@ -1147,7 +1178,7 @@ class GlassFirmwareSim() : LensPanels {
                 val scratch = c.stShadow ?: run { diag.event("selftest", "$arm step refused: no begin"); return refuse(c, src, REF_SCRATCH) }
                 val msg = src.copyOfRange(2, src.size)
                 var ok = false
-                if ((msg[0].toInt() and 0x7F) in CfwModes.SELF_TEST_MODES) {
+                if ((msg[0].toInt() and 0x7F) in Fw.SELF_TEST_MODES) {
                     val live = c.shadow; val liveSeeded = c.seeded
                     c.shadow = scratch; c.seeded = c.stSeeded
                     swapDiag(c)                          // the self-test's diagnostics; mode 23 picks its own slot set
@@ -1228,16 +1259,28 @@ class GlassFirmwareSim() : LensPanels {
      *  itself — the firmware paints nothing there — so a test that wants it asks for it
      *  ([stockRepaint], 2026-09-15, the third review). */
     private fun stockPattern(panel: ByteArray) {
-        panel.fill(0)
-        val stride = (Geometry.PANEL_W + 1) / 2
-        for (y in 100 until 110) for (xb in 40 until stride - 40) panel[y * stride + xb] = 0x55
+        // What the stock compositor actually paints is its own widgets, which no offline model
+        // predicts — so `FIRMWARE.md` §9 fixes a CONVENTION for the two harnesses, as it does for
+        // the all-zero panel they start from: every byte 0x5A, visibly not ours. Both sides paint
+        // the same thing, so a `"stock": true` step can compare the panel (2026-09-16 review; the
+        // event had no caller on this side at all, so §4's "stock content reached the
+        // framebuffer" was the one stale condition compared nowhere).
+        panel.fill(0x5A)
     }
 
-    /** The stock compositor's repaint, as an event of its own: the framebuffer and the panel take
-     *  stock content and the next Damage frame goes whole. Its counterpart in the fork's host
-     *  harness is a stock copy plus a refresh. */
+    /** The stock compositor's repaint, as an event of its own — the `{"stock": true}` vector op
+     *  (`FIRMWARE.md` §9), whose counterpart in the fork's host harness is a stock copy plus a
+     *  refresh.
+     *
+     *  It is NOT unconditional (2026-09-16 review, measured against the C): while the lease is
+     *  held and a Damage frame is up, the firmware's copy hook returns early to preserve the
+     *  direct frame and the refresh that follows transfers that same frame, so the panel does not
+     *  change and nothing goes stale. Stock content reaches the framebuffer only once the direct
+     *  path is not active — after a release point, a lapse, or a copy that failed — which is the
+     *  §4 stale condition this event exists to drive. */
     fun stockRepaint(arm: Arm) {
         val c = ctx(arm)
+        if (c.leaseDeadline != 0L && c.seeded) return       // the direct frame is preserved
         stockPattern(c.panel)
         c.panelStale = true
         diag.panelChanged(arm)
@@ -1445,7 +1488,11 @@ class GlassFirmwareSim() : LensPanels {
             // (`FIRMWARE.md` §3): the model carries milliseconds, so it converts on the way out
             Pb.v(1, requestId), Pb.v(2, msToTicks(now - uptimeOffsetMs)), Pb.v(3, c.damageFlags), Pb.v(4, c.damageStatus),
             Pb.v(11, diagBits), Pb.v(12, if (leased) msToTicks(c.leaseDeadline - now) else 0L), Pb.v(14, fwSide(arm)),
-            Pb.v(15, 0), Pb.v(16, c.presentSeq), Pb.v(17, c.cacheGen),
+            // field 15 is the last Damage frame's panel-transfer µs and the model has no clock
+            // (it says so at the top of this file). §3: "a field omitted when its value is not
+            // known" — sending 0 made a reader take an unknown as a fact, where fields 5 and 6,
+            // equally unknown, are correctly left out (2026-09-16 review).
+            Pb.v(16, c.presentSeq), Pb.v(17, c.cacheGen),
             if (cache != null) Pb.v(18, cache.size) else ByteArray(0),
             if (cache != null && withCacheCrc) Pb.v(19, java.util.zip.CRC32().also { it.update(cache) }.value) else ByteArray(0),
             Pb.v(20, c.stSeq),
@@ -1468,6 +1515,7 @@ class GlassFirmwareSim() : LensPanels {
     fun cacheGen(arm: Arm): Long = ctx(arm).cacheGen
     @Synchronized
     fun cacheAllocated(arm: Arm): Boolean = ctx(arm).textureCache != null
+
 
     /** The self-test's last scratch CRC-32 and step count on [arm] (`FIRMWARE.md` §3). */
     @Synchronized
@@ -1657,7 +1705,7 @@ class GlassFirmwareSim() : LensPanels {
                 val options = src[if (pair) 9 else 7].toInt() and 0xFF
                 val size = cacheSizeOf(c)
                 val cache = c.textureCache
-                if (cache == null || font > size || size - font < CfwModes.FONT2_TABLE_BYTES) return refuse(c, src, REF_RECORD)
+                if (cache == null || font > size || size - font < Fw.FONT2_TABLE_BYTES) return refuse(c, src, REF_RECORD)
                 val glyphs = ArrayList<Pair<Int, CachedImage?>>(strLen)
                 for (i in 0 until strLen) {
                     val ch = src[head + i].toInt() and 0xFF
@@ -1703,7 +1751,7 @@ class GlassFirmwareSim() : LensPanels {
                 if (src.size != (if (sub == 0) (if (pair) 19 else 11) else 3)) return refuse(c, src, REF_LENGTH)
                 if (!leaseAndFlag()) return false
                 if (sub > 2) return refuse(c, src, REF_VALUE)
-                if (slot >= CfwModes.SAVE_SLOTS) return refuse(c, src, REF_SCRATCH)
+                if (slot >= Fw.SAVE_SLOTS) return refuse(c, src, REF_SCRATCH)
                 // the set is PICKED by the step's own mark, never swapped in — the fork stopped
                 // swapping when a release from another task could free a swapped-out set as the
                 // live one (`HANDOFF.md` §61.1 item 7); the model follows it (the third review)
@@ -1720,7 +1768,7 @@ class GlassFirmwareSim() : LensPanels {
                     else -> {
                         val r = rectAt(3) ?: return refuse(c, src, REF_BOUNDS)
                         val held = slots.sumOf { it?.bytes ?: 0 } - (slots[slot]?.bytes ?: 0)   // the slot's own bytes are replaced
-                        if (held + CfwModes.saveBytes(r) > CfwModes.SAVE_BUDGET) return refuse(c, src, REF_SCRATCH)
+                        if (held + Fw.saveBytes(r) > Fw.SAVE_BUDGET) return refuse(c, src, REF_SCRATCH)
                         val levels = ByteArray(r.w * r.h)
                         for (y in 0 until r.h) for (x in 0 until r.w) levels[y * r.w + x] = getNibble(c.shadow, c.stride, r.x + x, r.y + y).toByte()
                         slots[slot] = SaveSlot(r, levels)
@@ -1739,7 +1787,7 @@ class GlassFirmwareSim() : LensPanels {
         val size = cacheSizeOf(c)
         if (off > size || size - off < 4) return null
         val w = rd16at(cache, off); val h = rd16at(cache, off + 2)
-        if (w == 0 || h == 0 || w > CfwModes.MAX_IMAGE2_W || h > CfwModes.MAX_IMAGE2_H) return null
+        if (w == 0 || h == 0 || w > Fw.MAX_IMAGE2_W || h > Fw.MAX_IMAGE2_H) return null
         val levels = try { decodeCachedRle(cache, off + 4, size - off - 4, w * h) } catch (e: IllegalStateException) { return null }
         return CachedImage(w, h, levels)
     }
@@ -1759,7 +1807,7 @@ class GlassFirmwareSim() : LensPanels {
      *  against [clip] (the panel cut by the batch's clip) instead of the panel alone. */
     private fun renderClipped(c: LensCtx, img: CachedImage, x0: Int, y0: Int, options: Int, clip: Rect) {
         val lut = makeLut(options)
-        val transparent = options and CfwModes.OPT_TRANSPARENT != 0
+        val transparent = options and Fw.OPT_TRANSPARENT != 0
         for (p in img.levels.indices) {
             val color = img.levels[p].toInt() and 0x0F
             if (transparent && color == 0) continue

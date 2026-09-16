@@ -219,6 +219,45 @@ class SilentGlassesTest {
         }
     }
 
+    /**
+     * 2026-09-16 review. `LinkState.glassesSilent` was the one session field with no clear at a
+     * session boundary, and the READ path can only ever SET it: `SettingsMsg.parseSilentRestored`
+     * returns null when the device-info field is absent, and `noteSilent` is then never called.
+     * So a `true` from a session that ended — the glasses go silent, the link drops, a new session
+     * starts — was carried into the new one, and `Shell.startLocked` entered Silent Mode on an
+     * awake pair: a blank lens with no recovery but a process restart or a real push.
+     *
+     * A new session starts awake and lets the READ or the push say otherwise; if the glasses
+     * really are silent, the refusal streak above takes the shell back there.
+     */
+    @Test
+    fun aNewSessionDoesNotInheritTheLastOnesSilentMode(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val rig = Rig(scope)
+            rig.shell.silentPacingMs = 200
+            rig.up("start")
+            // the glasses go silent and the link ends before anything says otherwise
+            rig.sim.setSilent(true, push = true)
+            rig.until("the shell sleeps") { rig.shell.glassesAsleep }
+            assertTrue(rig.transport.state.value.glassesSilent, "the state carries the push")
+            // ...and this build's READ does not carry the state either, which is the case that
+            // made the flag stick: nothing can clear it from the wire
+            rig.sim.reportSilentRestored = false
+            rig.sim.setSilent(false, push = false)          // awake again, silently
+            rig.transport.endLink("test: the link ends while the state says silent")
+            rig.until("a rebuilt session drives") { rig.keeper.attempts >= 2 && rig.driving() }
+            assertFalse(rig.transport.state.value.glassesSilent,
+                "a new session starts awake — the last one's Silent Mode is not inherited")
+            rig.until("and the shell is awake with it") { !rig.shell.glassesAsleep }
+            rig.settle("the rebuilt session")
+            rig.assertGlassMatchesBelief("after the rebuild")
+            rig.keeper.stop()
+        } finally {
+            scope.cancel()
+        }
+    }
+
     @Test
     fun theFirmwaresSystemEventsAreJournaledNotDroppedAsGestures(): Unit = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

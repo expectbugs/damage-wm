@@ -94,12 +94,15 @@ async def selftest(ws, host, port, token, path):
     # vector's (or the shell's own) refusal would be read as this step's, so the run starts from a
     # cleared record and says so if it is not clear (2026-09-15, the second review)
     await probe('diag', 'clear'); await asyncio.sleep(0.6)
+    # a run that could not START is a FAILURE, not a quiet zero (2026-09-16 review): the third
+    # review made a differing step exit non-zero, but a vector that never executed a single step
+    # still exited 0 — the shape `run_self_test.py` had fixed at §61.1 item 9
     before = await read_fresh() or {}
     if not before:
-        print(f'{vec["name"]}: RIGHT answered no telemetry — is this a Damage build with the self-test? (nothing run)'); return
+        print(f'{vec["name"]}: FAIL — RIGHT answered no telemetry; is this a Damage build with the self-test? (nothing run)'); return 1
     if int(before.get('refMode', 0)) != 0:
-        print(f'  the refusal record did not clear (mode {before.get("refMode")} reason {before.get("refReason")}): the comparisons below would read it as a step\'s — stopping')
-        return
+        print(f'  FAIL — the refusal record did not clear (mode {before.get("refMode")} reason {before.get("refReason")}): the comparisons below would read it as a step\'s — stopping')
+        return 1
     flags_before = int(before.get('flags', '0x0'), 16)
     gen_before = int(before.get('cacheGen', 0))
     vec_flags = [int(op['flags']) for op in ops_all if 'flags' in op]
@@ -113,8 +116,8 @@ async def selftest(ws, host, port, token, path):
     await probe('selftest', 'begin'); await asyncio.sleep(0.6)
     begun = await read_fresh()
     if not begun or int(begun.get('stSteps', -1)) != 0:
-        print(f'  the begin was refused or never ran (stSteps={begun.get("stSteps") if begun else None}, expected 0): the lease, Silent Mode or the scratch — stopping')
-        return
+        print(f'  FAIL — the begin was refused or never ran (stSteps={begun.get("stSteps") if begun else None}, expected 0): the lease, Silent Mode or the scratch — stopping')
+        return 1
     fails = 0; steps_seen = 0; live_writes = 0
     for i, st in enumerate(vec['steps']):
         msgs = [op['msg'] for op in st['ops'] if 'msg' in op]
@@ -172,6 +175,10 @@ async def selftest(ws, host, port, token, path):
         wish = flags_before & ~0x0004
         await probe('flags', '0x%04x' % wish); await asyncio.sleep(0.5)
         print(f'  flags restored to the session\'s wish 0x{wish:04x} (DRAW2 stays armed for this session if it was)')
+    # a vector whose steps all got skipped is not a pass either: say so and fail
+    if steps_seen == 0:
+        fails += 1
+        print(f'  FAIL — no step of {vec["name"]} ran on the glasses')
     print(f'{vec["name"]}: {"all steps match on RIGHT" if not fails else f"{fails} step(s) differ"} (LEFT runs the same steps but cannot report — FIRMWARE.md §3)')
     return fails
 
@@ -241,6 +248,14 @@ async def main():
         rt.cancel()
     # every other gate in this repo exits non-zero on a disagreement; the one that runs against
     # the actual glasses used to exit 0 however it went (2026-09-15, the third review)
+    if bad_status[0]:
+        # counted and printed since the third review, but it never reached the exit status: a run
+        # in which every status frame was unreadable still said 0 (2026-09-16 review)
+        print(f'{bad_status[0]} status frame(s) were unreadable — the printed state was stale')
+        fails[0] += bad_status[0]
+    if stop.is_set():
+        print('the link to the phone ended before the steps were done — the run is not a pass')
+        fails[0] += 1
     return 1 if fails[0] else 0
 
 raise SystemExit(asyncio.run(main()))

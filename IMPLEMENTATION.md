@@ -570,19 +570,30 @@ These mechanisms are load-bearing and easy to break by accident:
   only under a byte-exact proof in LENS space, on every plane, with a per-lens copy behind the flat draw. Do not
   put the proportional shares back, do not let telemetry ride a content-neutral repaint or a gesture's first
   flush, never emit a cached draw on a depth plane WITHOUT its `CopyPair`.
-- **The contract-2 mechanisms (§60–§63), and the two that were quietly dead.** The atlas read-back
-  (`Shell.atlasCheckThenLive`) is owed by BYTES and keyed on the atlas's IDENTITY: every `GlyphAtlas`
-  starts at upload generation 0, so a generation key read the second atlas of a process as already
-  checked — the session a lens reset builds, which is the one §59 lost. One check is in flight at a
-  time and a batch landing under it waits for its own. `CfwTransportBase.requestCacheSize` takes op 5's
+- **The contract-2 mechanisms (§60–§64), and the three that were quietly dead.** The atlas read-back
+  (`Shell.atlasCheckThenLive`) is owed by BYTES, keyed on the atlas's IDENTITY **and on an EPOCH**: every
+  `GlyphAtlas` starts at upload generation 0, so a generation key read the second atlas of a process as
+  already checked — the session a lens reset builds, which is the one §59 lost — and identity plus a byte
+  mark read a REPACKED layout as already checked too, because a repack keeps the object, moves every record
+  and rewinds the watermark (§64.2 item 2). `atlasCheckOwed()` bumps the epoch at a repack, a lapse, a reset
+  and a session carried across a rebuild, and an answer whose epoch is stale is dropped rather than applied.
+  One check is in flight at a time and a batch landing under it waits for its own. `CfwTransportBase.requestCacheSize` takes op 5's
   success from op 5's OWN id-0 reply, never from the status register (TELEMETRY records none, so it is
   sticky) and re-asks on the pacing tick. `CtlWork.BothArms.written` latches on SUCCESS — "some attempt
   reached both arms" — and the gate waits for it against the reply (`settleWrite`); reading the failure
   deferred instead latched on the first attempt that threw. Telemetry fields 2 and 12 are OS TICKS
   (1.024 per ms): `uptimeTicks` is the wire and `uptimeMs` converts. `--selfcheck` runs TWICE, the
   second pass on a contract-2 build with cached text ON — before that the standing oracle gate had never
-  executed a v2 op. Do not key a "have I checked this" on a per-object counter, do not infer an op's
-  success from a sticky register, and do not let the selfcheck run one contract again.
+  executed a v2 op; since §64 each pass counts its OWN oracle runs, both simulators and both arms are read
+  for sticky flags, the restarted session's transport events reach the same counters, and a contract-2 pass
+  must see a partial transfer (arming DRAW2 proves nothing about what was emitted). **Three start gates have
+  an escape from a write that keeps failing** (§64.2 items 4–5): the warmup re-sends on the stall threshold
+  with the same deferred, and the prelude and the capability query pass theirs to every attempt, not just the
+  first. `LinkState.glassesSilent` is cleared at session entry — the READ path can only ever set it, so a
+  `true` used to cross a session boundary and blank an awake pair. Do not key a "have I checked this" on a
+  per-object counter or on bytes alone, do not infer an op's success from a sticky register, do not let the
+  selfcheck run one contract again, and do not leave a start gate awaiting something only one attempt could
+  complete.
 - **The glasses can be asleep (§36, §38).** The firmware's Silent Mode refuses every image; the glasses push the
   state and the READ response restores it (`SettingsMsg.parseSilentModePush` / `parseSilentRestored` →
   `TransportEvent.SilentMode`). `Shell.enterSilentGlasses` stops SENDING (the pump returns before the flush),

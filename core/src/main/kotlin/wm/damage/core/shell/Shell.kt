@@ -1875,9 +1875,14 @@ class Shell(
                     // flags again and the shell adopts the glasses as they are (2026-09-15 review)
                     if (transport.state.value.damageContract > 0 && !restartRequested)
                         requestRebuild("the framebuffer lease lapsed on a Damage build — its flags went with it")
-                } else if (statusText == "LEASE LOST") {
-                    setStatus("ok")
-                    atlasLeaseBack()             // §40: the cache is allocatable again
+                } else {
+                    if (statusText == "LEASE LOST") setStatus("ok")
+                    // §40: the cache is allocatable again. Not gated on the status TEXT any more
+                    // (2026-09-16 review): any fault between the lapse and the re-acquire
+                    // overwrote it — and a fault is near certain there, since the atlas chunk in
+                    // flight at the lapse is refused — and the upload then never restarted, so
+                    // cached text stayed dark for the rest of the session.
+                    atlasLeaseBack()
                 }
                 chromeDirty = true
             }
@@ -2084,6 +2089,14 @@ class Shell(
         ct.endFrame()
         atlasQueue.clear()
         atlasInFlight = null
+        // a new session over a cache carried from the last one: the mark the previous session's
+        // answer left says nothing about this session, so the next upload — the rewound chunk, a
+        // font appended later — asks for its own round trip instead of matching that mark
+        // (2026-09-16 review). Asking HERE, with nothing to upload, was tried and taken back out:
+        // the carry decision already reads RIGHT's cache presence and generation at the acquire,
+        // and the read-back reads the same lens, so a check there could not be made to fail.
+        atlasCheckOwed()
+        atlasLapsedOwed = false
         atlasPendingSpecs.clear()
         atlasSeenVersion = -1
         atlasBytesSent = 0L
@@ -2115,12 +2128,8 @@ class Shell(
         atlas = null
         atlasQueue.clear()
         atlasInFlight = null
-        atlasCheckedAtlas = null                       // a fresh atlas owes its own read-back
-        atlasCheckedBytes = -1
-        atlasCheckWanted = false
-        // a check whose answer never came back to the loop (the shell stopped under it) would
-        // otherwise leave the flag set and every later upload waiting for it
-        atlasCheckInFlight = false
+        atlasCheckOwed()                               // a fresh atlas owes its own read-back
+        atlasLapsedOwed = false
         atlasPendingSpecs.clear()
         atlasSeenVersion = -1
         atlasBytesSent = 0L
@@ -2162,37 +2171,57 @@ class Shell(
      *  lens reset builds, which is exactly the session §59 lost. It is owed again whenever bytes
      *  are acked past the watermark the last answer covered, so a font appended mid-session is
      *  proven too. One check is in flight at a time; a batch that lands under it waits for its
-     *  own, since an answer taken before its bytes were acked says nothing about them. */
+     *  own, since an answer taken before its bytes were acked says nothing about them.
+     *
+     *  A byte count alone is not enough either (2026-09-16 review). [atlasCheckEpoch] is bumped by
+     *  every event after which an answer, or the mark an answer left, says nothing about what the
+     *  glasses hold: a repack (the SAME `GlyphAtlas`, every record at a new offset, `ackedBytes`
+     *  back at the guard — so the old mark covered a byte axis that no longer exists), a lapse, a
+     *  session carried across a rebuild, a fresh atlas. An answer whose epoch is stale is dropped
+     *  rather than applied, which is also what releases the in-flight flag those events used to
+     *  leave standing. */
     private fun atlasCheckThenLive() {
         val a = atlas ?: return goLive()
         val st = transport.state.value
         // an upstream build has nothing to answer with, and an upload with nothing acked yet has
         // nothing to prove (a repack drops the queue: the old layout's ack lands on the new one)
         if (st.damageContract <= 0 || a.ackedBytes <= a.uploadStart) return goLive()
-        if (a === atlasCheckedAtlas && a.ackedBytes <= atlasCheckedBytes) return goLive()
+        if (a === atlasCheckedAtlas && atlasCheckedEpoch == atlasCheckEpoch &&
+            a.ackedBytes <= atlasCheckedBytes) return goLive()
         if (atlasCheckInFlight) { atlasCheckWanted = true; return }
         atlasCheckInFlight = true
         atlasCheckWanted = false
         val target = a
+        val epoch = atlasCheckEpoch
         val covered = a.ackedBytes
         val wantSize = if (a.v2) a.capacity else null
         val wantDraw2 = a.v2
         scope.launch {
-            val t = try { transport.cacheCheck() } catch (e: Exception) { null }
+            var why0: String? = null
+            val t = try { transport.cacheCheck() } catch (e: Exception) { why0 = e.message ?: e.toString(); null }
             post(Msg.Run {
                 atlasCheckInFlight = false
                 val again = atlasCheckWanted
                 atlasCheckWanted = false
                 val cur = atlas
-                // identity, not the generation: two atlases of one process share generation 0
-                if (cur !== target || !running) return@Run          // the atlas moved on: the next upload checks
+                // identity, not the generation: two atlases of one process share generation 0.
+                // The epoch covers what identity cannot: a repack keeps the object and moves
+                // every record, and a lapse or a carried session changes what the glasses hold
+                // (2026-09-16 review — applying this answer then would vouch for the wrong bytes,
+                // or report a lapse the shell had already handled as a refusal)
+                if (cur !== target || epoch != atlasCheckEpoch || !running) return@Run
                 if (t == null) {
                     // three different facts used to arrive as one silent null. Say which: the
                     // fonts go live on bytes nothing vouched for either way, and the next batch
                     // asks again (2026-09-15, the third review)
                     journal.note("atlas", if (!transport.cacheCheckSupported)
                         "this transport cannot read the cache back — $covered B go live unproven"
-                    else "the cache read-back did not answer — $covered B go live unproven")
+                    // and WHY it did not answer, where there is a reason to give: a silent null
+                    // on the one path whose job is to make a silent refusal loud is what the third
+                    // review split into three messages; this is the third of them, and it was the
+                    // only one that still said nothing about its cause (2026-09-16 review)
+                    else "the cache read-back did not answer" + (why0?.let { " ($it)" } ?: "") +
+                        " — $covered B go live unproven")
                     goLive(); return@Run
                 }
                 val size = t.cacheSize
@@ -2213,6 +2242,7 @@ class Shell(
                         ?.let { " — the record still names a cache write: ${it.describe()} (sticky; not this upload's unless the size or the flags above say so)" } ?: ""))
                 if (why == null) {
                     atlasCheckedAtlas = cur
+                    atlasCheckedEpoch = epoch
                     atlasCheckedBytes = covered
                     // bytes acked while the answer was on its way are not covered by it
                     if (again || cur.ackedBytes > covered) atlasCheckThenLive() else goLive()
@@ -2239,14 +2269,31 @@ class Shell(
         if (held != ct.live || heldImages != ct.liveImages) atlasLive(held, heldImages, "uploaded")
     }
 
-    /** The atlas whose upload was last read back, and the acked watermark that answer covered: a
-     *  fresh atlas, or bytes acked past that mark, owe their own round trip. Identity, not a
-     *  generation number — every `GlyphAtlas` starts at generation 0. */
+    /** The atlas whose upload was last read back, the epoch that answer belonged to, and the
+     *  acked watermark it covered: a fresh atlas, a new epoch, or bytes acked past that mark all
+     *  owe their own round trip. Identity, not a generation number — every `GlyphAtlas` starts at
+     *  generation 0. */
     private var atlasCheckedAtlas: wm.damage.core.comp.GlyphAtlas? = null
+    private var atlasCheckedEpoch = -1
     private var atlasCheckedBytes = -1
+    /** Bumped by every event after which an answer in flight, or the mark one left, no longer says
+     *  anything about what the glasses hold: a repack, a lapse, a reset, a session carried across
+     *  a rebuild (2026-09-16 review). */
+    private var atlasCheckEpoch = 0
     /** A read-back is on its way; a batch that lands under it asks for its own when it returns. */
     private var atlasCheckInFlight = false
     private var atlasCheckWanted = false
+
+    /** Everything an answer could have vouched for is now in doubt: the gate is owed again, and an
+     *  answer already on its way is dropped when it lands (its epoch will not match). */
+    private fun atlasCheckOwed() {
+        atlasCheckEpoch++
+        atlasCheckedAtlas = null
+        atlasCheckedEpoch = -1
+        atlasCheckedBytes = -1
+        atlasCheckWanted = false
+        atlasCheckInFlight = false
+    }
 
     private fun atlasDisable(why: String) {
         val ct = cachedText ?: return
@@ -2270,19 +2317,29 @@ class Shell(
         ct.liveImages = emptySet()
         atlasQueue.clear()
         atlasInFlight = null            // its ack would read as this layout's upload finishing (2026-09-15, the third
-        atlasCheckWanted = false        // review): the check would then report the lapse as a refusal
-        atlasCheckedAtlas = null
-        atlasCheckedBytes = -1
+        atlasCheckOwed()                // review): the check would then report the lapse as a refusal — and one
+                                        // already in flight would do the same when it landed (2026-09-16)
         atlasPendingSpecs.clear()
+        // NOT `atlasSeenVersion = -1` here: that would have `pumpAtlas` call `atlasGrow` on the
+        // next frame and write mode-19 chunks into a lease that is gone — refused (3), and a
+        // refused chunk turns cached text off for the session. The restart belongs to
+        // `atlasLeaseBack`, which the lease-held event now reaches unconditionally.
+        atlasLapsedOwed = true
         a.forgetUpload()
         journal.note("atlas", "the lease lapsed — the cache is gone; ${a.used} B go up again once the lease is back")
     }
 
-    /** The lease is held again after a lapse: the atlas goes up again. */
+    /** The lease is held again after a lapse: the atlas goes up again. Guarded by the lapse
+     *  itself rather than by the status line, and a no-op when no lapse is owed. */
     private fun atlasLeaseBack() {
+        if (!atlasLapsedOwed) return
+        atlasLapsedOwed = false
         val a = atlas ?: return
         if (settings.cachedText == "on" && a.sentBytes <= a.uploadStart) atlasGrow()
     }
+
+    /** A lapse took the glasses' cache and nothing has put it back yet. */
+    private var atlasLapsedOwed = false
 
     /** Add every font seen since the last look — the ones drawn on plane 0
      *  first, since only those can ship as draws and the cache is 64 KiB —
@@ -2410,6 +2467,10 @@ class Shell(
         // the new layout's watermark (2026-09-15, the second review)
         atlasQueue.clear()
         val used = a.repack(keep, keepImages)
+        // the SAME GlyphAtlas, every record at a new offset and `ackedBytes` back at the guard:
+        // the mark the last answer left covered a byte axis that no longer exists, so keying the
+        // gate on identity + bytes alone skipped the whole repacked layout (2026-09-16 review)
+        atlasCheckOwed()
         lastAtlasRepackMs = now
         journal.note("atlas", "repacked: ${keep.size} font(s) and ${keepImages.size} icon(s) kept, $used B in use, ${a.free} B free for $spec (needs $need B)")
         return true
@@ -3471,9 +3532,13 @@ class Shell(
     private var inputFlushPending = false
 
     private suspend fun pump() {
-        comp.v2 = transport.state.value.draw2   // contract 2 (`FIRMWARE.md` §4): fills, the reseed, the hint
-        if (!running || !transport.state.value.started) return
+        // ONE read (2026-09-16 review — the §62.3 item 9 / §63.3 item 8 class, in the hottest
+        // path): a lapse landing between two of the three reads this used to take left
+        // `comp.v2` true while `st.draw2` was already false, and the frame was assembled with
+        // fills, per-lens draws and a hint for lenses that no longer had DRAW2 in force.
         val st = transport.state.value
+        comp.v2 = st.draw2               // contract 2 (`FIRMWARE.md` §4): fills, the reseed, the hint
+        if (!running || !st.started) return
         // a cache write that was not this shell's landed in the live cache mid-session (the self-test's
         // `live:` writes, 2026-09-15 review): the atlas's bytes on the glasses are no longer what it
         // packed, so nothing draws from them — pixels until the next session or a Cached text toggle

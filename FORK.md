@@ -492,3 +492,21 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   holds — `FUN_00473C44` is the display task's event loop, not a boot-time path, and is already patched at three
   points. Pin **`b0e42923…`**, 32 entries, a 54,068-byte block, 20 Thumb branches, 370 KB below the OTA flag; every
   host gate green. Nothing flashed. Committed and pushed on Adam's word: Damage `a4db479`, the fork `e331c3f`.
+- **2026-09-16 — a fourth review of Phase 2 (`HANDOFF.md` §64), with two tools the first three rounds did not
+  have.** A **differential fuzz** of the fork's C against the Kotlin simulator (46 random vectors × ~25 steps ×
+  2 lenses, plus 60 corrupted): the two agree everywhere on well-formed traffic and disagreed on exactly one
+  class — a mode-3/6 stream refusal, which v1 does NOT roll back (it decodes straight into the shadow) while the
+  model kept the previous frame. A **mutation sweep** of the fork's 106 refusal sites against all three host
+  gates: 39 caught, 55 reachable ones caught by nothing — largest, **the lease (3) and DRAW2 (9) checks of six of
+  the eight v2 modes**, now `v2-gates`. Fixed in the fork: modes 12 and 19's write loops indexed
+  `ctx->texture_cache` without testing it (the emitted Thumb reloads the pointer per byte, so a release point on
+  another task sends the stores to low memory); the deferred-free handshake dropped a release that landed between
+  the epilogue's last test of the pending flag and its clearing of the active mark (the two are ONE state word
+  now, moved with a compare-exchange); a batch's and a step's sub-mode were validated and then re-read by the
+  dispatcher (both lists applied again to the byte that dispatches); the failed-copy branch did not clear the
+  F1.3 mark; mode 14's second pass could index 254 bytes past a 64 KiB cache; the DWT µs read 2.4 % HIGH, not
+  low, and the calibration now scales for the 1.024-per-ms tick; telemetry fields 15/26 and 20/21/22 go up under
+  their own write count. **No new site.** The image is 5,008 B smaller than §63's: the context's one-time
+  creation is out of line, so a struct field no longer costs 5.7 KB of inlined zeroing. Pin **`48172b62…`**, 32
+  entries, a 54,776-byte block, 21 Thumb branches, 369 KB below the OTA flag; `tools/verify.py`, 26 vectors /
+  237 steps, 20 self-test, 76 host checks green. Nothing flashed.

@@ -265,4 +265,110 @@ object Zl {
         val rle = inflate(z, expectedNibbles * 2 + 64)
         return Rle.decode(rle, expectedNibbles)
     }
+
+    /**
+     * The firmware's own mode-3/6 decode: it inflates in small chunks and RLE-decodes
+     * straight into the destination rows, so **a stream that fails part-way leaves the
+     * pixels it had already written**. [decodeCfw] above decodes to a buffer first and
+     * is the encoder's inverse; this is what the glasses do, and the model needs it to
+     * hold the same shadow after a refusal (`g2flash/patches/zlib_glue.c :: inflate_rle`
+     * with `patches/rle.c` — behaviour read, implementation ours; 2026-09-16 review).
+     *
+     * [dst] holds [rows] rows of [rowBytes] bytes, [stride] bytes apart, the first at
+     * [off] — mode 6 writes the whole shadow (stride == rowBytes), mode 3 the box inside
+     * it. Runs cross rows freely: the nibble stream is the wire order, not per-row, and
+     * the high nibble of a byte is its left pixel.
+     *
+     * Returns true only when the stream ends cleanly on exactly `rowBytes * rows * 2`
+     * nibbles with no token half-parsed — every other outcome is the firmware's reason 13.
+     *
+     * One stated modelling limit: zlib can report a data error in the same call that
+     * produced output, and `java.util.zip` hands back either the bytes or the exception,
+     * never both, so those bytes are not written here where the firmware would write
+     * them. It needs bit corruption that survived the link's CRC to reach; a truncated
+     * stream, an RLE that runs short and one that runs long — the shapes a defect on our
+     * own side produces — are all exact.
+     */
+    fun inflateRleInto(z: ByteArray, dst: ByteArray, off: Int, stride: Int, rowBytes: Int, rows: Int): Boolean {
+        val rs = RleSink(dst, off, stride, rowBytes, rows)
+        val inf = Inflater()
+        var ended = false
+        try {
+            inf.setInput(z)
+            val chunk = ByteArray(256)                      // the firmware's RLE_CHUNK
+            while (true) {
+                val got = try { inf.inflate(chunk) } catch (e: java.util.zip.DataFormatException) { break }
+                if (got > 0) rs.feed(chunk, got)
+                if (rs.err) break
+                if (inf.finished()) { ended = true; break }
+                if (got == 0) break                         // truncated, or a preset dictionary: no progress
+            }
+        } finally {
+            inf.end()
+        }
+        return ended && rs.done
+    }
+}
+
+/**
+ * The byte-at-a-time side of [Zl.inflateRleInto]: the token stream of `Rle` decoded
+ * into a rectangular 4bpp destination as the bytes arrive. Separate from [Rle.decode]
+ * because it models a firmware that cannot roll back — what it has written stays
+ * written when the stream turns out to be malformed.
+ */
+private class RleSink(
+    private val dst: ByteArray, private val off: Int,
+    private val stride: Int, private val rowBytes: Int, rows: Int,
+) {
+    private var left = rowBytes.toLong() * rows * 2       // nibbles still expected
+    private var pos = 0L                                  // nibbles written
+    private val rowNibbles = rowBytes.toLong() * 2
+    private val lastNibble = rowNibbles * rows
+    private var st = 0                                    // 0 opcode · 1 cnt8 · 2 cntLo · 3 cntHi
+    private var cnt = 0
+    private var color = 0
+    var err = false; private set
+
+    /** A clean, exact decode: every expected nibble written, no token half-parsed. */
+    val done: Boolean get() = !err && left == 0L && st == 0
+
+    /** A run is written whole or not at all: one that would overrun the frame is the
+     *  malformed case and nothing of it lands (the firmware checks the count first). */
+    private fun emit(v: Int, n: Int) {
+        if (n > left) { err = true; return }
+        left -= n
+        var k = n
+        while (k > 0) {
+            if (pos >= lastNibble) { err = true; return }
+            val row = (pos / rowNibbles).toInt()
+            val inRow = (pos - row * rowNibbles).toInt()
+            val i = off + row * stride + (inRow shr 1)
+            dst[i] = if (inRow and 1 == 0) (((v shl 4) or (dst[i].toInt() and 0x0F)).toByte())
+                     else (((dst[i].toInt() and 0xF0) or v).toByte())
+            pos++; k--
+        }
+    }
+
+    fun feed(p: ByteArray, n: Int) {
+        var i = 0
+        while (i < n && !err) {
+            val b = p[i].toInt() and 0xFF
+            when (st) {
+                0 -> {
+                    color = b and 0x0F
+                    val c = b shr 4
+                    if (c != 0) emit(color, c) else st = 1      // the escape: the count follows
+                }
+                1 -> if (b != 0) { emit(color, b); st = 0 } else st = 2
+                2 -> { cnt = b; st = 3 }
+                else -> {
+                    cnt = cnt or (b shl 8)
+                    if (cnt == 0) err = true                    // a zero-length run cannot be encoded
+                    else emit(color, cnt)
+                    st = 0
+                }
+            }
+            i++
+        }
+    }
 }

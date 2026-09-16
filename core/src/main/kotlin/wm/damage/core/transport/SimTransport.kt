@@ -30,6 +30,11 @@ class SimTransport(
      *  (acks included). Null passes everything. */
     @Volatile var notifyFilter: ((Arm, ByteArray) -> Boolean)? = null
 
+    /** The physical link ends out from under the session, as BlueZ's `Connected=false` does: the
+     *  seam a test uses to make the keeper rebuild. `ClockedTransport` in the tests has had the
+     *  same one-liner; this puts it where every sim-backed rig can reach it. */
+    fun endLink(reason: String) = onLinkDown(reason)
+
     override fun nowMs(): Long = clock()
 
     init {

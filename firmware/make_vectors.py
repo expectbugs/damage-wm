@@ -184,6 +184,7 @@ class Cache2:
         if cur: out.append(cache_write2(*cur))
         return out
 
+def stock(): return {"stock": True}          # the stock compositor's own repaint (`FIRMWARE.md` §9)
 def step(*ops): return {"ops": list(ops), "expect": {}}
 def msg(b): return {"msg": b.hex()}
 
@@ -226,6 +227,27 @@ def vectors():
         # a batch whose second sub-message is not a shadow op: the first sub has already
         # changed the shadow when the batch is refused
         step(msg(batch(delta(80, 80, 40, 40, 3, box(40, 40, 13)), bytes([5, 2])))),
+    ]})
+    # A stream that does not decode to its size: the firmware inflates and RLE-decodes STRAIGHT
+    # INTO the shadow (or into the box), so a refusal leaves the pixels it had already written —
+    # it is not a rollback, whatever "the old frame is kept" suggests. Three shapes, each with a
+    # different cause: the zlib stream cut short, an RLE that ends before the box is full, and one
+    # that runs past it. The step after each shows the shadow carrying on from the partial state.
+    # (2026-09-16 review: a differential fuzz of the C against the simulator found the model
+    # rolling back where the glasses cannot.)
+    bx = pattern(80, 40, 21)
+    good = delta(100, 100, 80, 40, 1, bx)
+    short_rle = bytes([3, 100 // 4, 100 // 2, 80 // 4, 40 // 2]) + u16(2) + z(rle(nibbles_packed(bx, 80, 40))[:60])
+    long_rle = bytes([3, 100 // 4, 100 // 2, 80 // 4, 40 // 2]) + u16(3) + z(rle(nibbles_packed(bx + bx, 80, 80)))
+    kf_short = bytes([6]) + z(rle(nibbles_packed(pattern(W, H, 22), W, H))[:4000])
+    v.append({"name": "v1-stream", "steps": [
+        step({"tick": 1000}, msg(kf)),
+        step(msg(good[:len(good) - 12])),                                # the zlib stream cut short
+        step(msg(delta(300, 200, 40, 20, 4, box(40, 20, 23)))),          # the shadow carries on
+        step(msg(short_rle)),                                            # decodes short of the box
+        step(msg(long_rle)),                                             # runs past the box
+        step(msg(kf_short)),                                             # a keyframe cut short
+        step(msg(keyframe(pattern(W, H, 24)))),                          # and a whole one after it
     ]})
     glyphs = {ch: cache_image(6 + (ch % 5), 12, pattern(6 + (ch % 5), 12, 100 + ch)) for ch in range(32, 128)}
     table_off, pos = 1000, 1000 + 96 * 2
@@ -480,6 +502,29 @@ def vectors_v2(kf):
         step(msg(capture(1, rect(0, 0, 100, 100))), msg(bytes([11])), {"lease": "acquire"}, flags(DRAW2), msg(restore(1))),     # so does mode 11
         step(msg(fill(rect(0, 0, 8, 8), 16)), msg(bytes([7, 0]))),                # a refusal, then mode 7 sub 0 clears the record
     ]})
+    # ---- 2026-09-16 review: the two gates §4 opens with, on every op that has them -----------
+    # A mutation sweep over the fork's C found the lease check (3) and the DRAW2 check (9) DEAD
+    # for six of the eight v2 modes: only 19 and 21 were pinned, so a build that dropped either
+    # for mode 17 — the image draw, the most-used v2 op — would have shipped with every gate
+    # green. §4's first sentence is "needs the lease, needs flag bit 2 DRAW2 armed", and the
+    # ORDER is part of the contract (3 before 9, both after length), so each op is asked twice.
+    # Modes 20 and 24 are batch-only, so theirs are asked inside a batch; mode 24's length check
+    # comes before the batch check, which is why it is sent well-formed.
+    def no_lease_then_unarmed(m, label):
+        return [step({"lease": "release"}, msg(m)),        # no lease: 3, whatever the flags were
+                step({"lease": "acquire"}, msg(m))]        # lease back, DRAW2 not re-armed: 9
+    lease_steps = [step({"tick": 1000}, {"lease": "acquire"}, flags(DRAW2), msg(kf)),
+                   step(*[msg(m) for m in c.messages()])]
+    for m, label in ((draw2(icon, 10, 10, 0x0F), "17 image draw"),
+                     (string2(table4, 10, 40, 0x0F, b"ok"), "18 string draw"),
+                     (cache_write2((4, bytes(4))), "19 cache write"),
+                     (batch(clip(rect(0, 0, 100, 100)), fill(rect(0, 0, 8, 8), 5)), "20 clip in a batch"),
+                     (fill(rect(0, 0, 8, 8), 5), "21 fill"),
+                     (lut(rect(0, 0, 8, 8), list(range(16))), "22 LUT"),
+                     (capture(0, rect(0, 0, 8, 8)), "23 save-under capture"),
+                     (batch(hint(0, 9), fill(rect(0, 0, 8, 8), 5)), "24 present hint in a batch")):
+        lease_steps += no_lease_then_unarmed(m, label)
+    v.append({"name": "v2-gates", "steps": lease_steps})
     # ---- the second Phase 2 review (2026-09-15) --------------------------------------------
     # What the LENS shows, not just the shadow: a partial refresh (mode 24) adds its own rows and
     # leaves the rest of the panel as it was, so a hint that misses a row the batch changed is a
@@ -510,6 +555,19 @@ def vectors_v2(kf):
                        fill(rect(0, 460, 640, 10), 4), hint(340, 469)))),
         step(msg(batch(hint(100, 109), capture(0, rect(0, 100, 640, 10)), fill(rect(0, 100, 640, 10), 13)))),   # a capture presents nothing of its own
         step(msg(batch(hint(100, 109), restore(0)))),                              # the restore's rows are the hinted ones
+        # ...and the third stale condition, which nothing compared until now (2026-09-16 review):
+        # the stock compositor repaints, so the panel is no longer the previous Damage frame and
+        # the next hinted flush must go WHOLE. `stockRepaint` had no caller on the Kotlin side at
+        # all, so the C and the model had never been compared here.
+        # while the lease is held the copy hook preserves the direct frame, so this changes nothing
+        step(stock()),
+        step(msg(batch(hint(300, 319), fill(rect(0, 300, 640, 20), 9)))),          # still the rows path
+        # ...but once the lease is gone the stock compositor's content reaches the framebuffer and
+        # the panel is no longer the previous Damage frame: the next hinted flush must go WHOLE
+        step({"lease": "release"}, stock()),
+        step({"lease": "acquire"}, flags(DRAW2),
+             msg(batch(hint(340, 359), fill(rect(0, 340, 640, 20), 10)))),         # the hint is ignored: a full refresh
+        step(msg(batch(hint(380, 399), fill(rect(0, 380, 640, 20), 11)))),         # and the panel is whole again: the rows path
     ]})
 
     # Records and font tables ABOVE the v1 window in a 160 KiB cache — what the phone's own atlas

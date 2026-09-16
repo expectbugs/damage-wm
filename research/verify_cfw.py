@@ -133,8 +133,19 @@ def main():
             lines = [l for l in r.stdout.splitlines() if l.strip()]
             bad = [l for l in lines if "-> ARM" in l or "MISSING" in l.upper()]
             total = sum(1 for l in lines if l.rstrip().endswith("Thumb"))
-            if bad:
-                print(f"  FAIL  {tag}: {len(bad)} defect(s)"); [print("        ", l) for l in bad]
+            # The audit's own outcome is part of the answer (2026-09-16 review): it exits
+            # non-zero with NOTHING on stdout on any failure, which left `lines`, `bad` and
+            # `total` all empty — and this printed "PASS: 0 constant interworking branches, all
+            # Thumb" for an audit that never ran, on the check that guards the one defect class
+            # this firmware has already shipped once. The fork's `tools/verify.py` requires all
+            # three; this copy never got the guard.
+            if bad or r.returncode != 0 or total == 0:
+                why = (f"{len(bad)} defect(s)" if bad
+                       else f"the audit exited {r.returncode}" if r.returncode != 0
+                       else "the audit reported no branches at all")
+                print(f"  FAIL  {tag}: {why}")
+                for l in bad: print("        ", l)
+                if r.stderr.strip(): print("        ", r.stderr.strip().splitlines()[-1])
                 fails.append(f"{tag} thumb")
             else:
                 print(f"  PASS  {tag}: {total} constant interworking branches, all Thumb")

@@ -485,8 +485,15 @@ object CfwModes {
     /** The bytes a save-under capture of [r] takes in the pool: tight rows, two pixels per byte. */
     fun saveBytes(r: Rect): Int = ((r.w + 1) / 2) * r.h
 
-    /** Mode 23 sub 0: capture [r] into [slot]. The pool holds [SAVE_BUDGET] across the slots;
-     *  a capture that does not fit is refused (reason 7), so the caller prices it first. */
+    /** Mode 23 sub 0: capture [r] into [slot].
+     *
+     *  The check below is **one rect against the whole pool**, and the firmware prices a capture
+     *  against what is LEFT of it — `FIRMWARE.md` §4 says "four slots, [SAVE_BUDGET] **between
+     *  them**", and `GlassFirmwareSim` models that correctly. So two 24,000 B captures into
+     *  different slots both encode here and the second is refused on glass with reason 7
+     *  (2026-09-16 review). The encoder is stateless and cannot know the pool; the caller must
+     *  keep the ledger. `POPOVER.md`'s deck capture is the first customer and the place to put
+     *  it — until then this bound only catches a single rect that could never fit. */
     fun saveCapture(slot: Int, r: Rect): ByteArray {
         checkSlot(slot)
         checkRect2(r, "mode-23 capture")
