@@ -245,6 +245,9 @@ async def main():
                 fails[0] += await selftest(ws, host, port, token, s[9:]) or 0
             else:
                 raise SystemExit(f'unknown step {s!r}')
+        # read BEFORE cancelling the reader: its `finally` sets `stop` on cancellation too, so a run
+        # that completed every step read as "the link ended" and failed (2026-09-16, first light)
+        ended_early = stop.is_set()
         rt.cancel()
     # every other gate in this repo exits non-zero on a disagreement; the one that runs against
     # the actual glasses used to exit 0 however it went (2026-09-15, the third review)
@@ -253,7 +256,7 @@ async def main():
         # in which every status frame was unreadable still said 0 (2026-09-16 review)
         print(f'{bad_status[0]} status frame(s) were unreadable — the printed state was stale')
         fails[0] += bad_status[0]
-    if stop.is_set():
+    if ended_early:
         print('the link to the phone ended before the steps were done — the run is not a pass')
         fails[0] += 1
     return 1 if fails[0] else 0

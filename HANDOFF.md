@@ -4751,3 +4751,10 @@ link to the phone ended before the steps were done" for each although the phone'
 and answered — the replica closes after the answer and the harness now reads that as a failure (§64.4's rule);
 a harness item, noted. **The telemetry's `path=1` at 13:35:40: the JBD4010 partial refresh has run on glass** (F1.7);
 `present` records began with PRESENTED; the path split and its µs follow from thirty of them.
+**A harness defect from §64.4, fixed at first light:** `glassdrive.py`'s reader sets `stop` in its `finally`, which
+runs on the reader's own cancellation too, and the "link ended" check came after `rt.cancel()` — so every run that
+completed its steps printed "the link to the phone ended before the steps were done" and exited 1 (the probes of
+13:35 had all been received and answered, per the phone's log). `ended_early` is read before the cancel now; a
+probe run exits 0 over the tailnet (the phone on cellular, 60 ms). The self-test on glass (ritual step 9) waits for
+a quiet window from Adam: a vector's live cache writes drop the shell's atlas for the session (§61) and nothing
+presents while a step runs.
