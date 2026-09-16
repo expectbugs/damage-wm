@@ -3957,8 +3957,8 @@ a ring double tap out of silent mode brought Main up on the left lens only, the 
 
 ## 60. Phase 2 built on both sides (2026-09-15, afternoon and evening)
 
-Context for the reader: a personal device, the published patch method, display-rendering work. Adam's word:
-the eleven §57 decisions as recommended.
+Context for the reader (§60–§65): a personal device, the published patch method, display-rendering work. Adam's
+word: the eleven §57 decisions as recommended.
 
 **The fork (`~/damage-cfw`, not flashed):** `patches/damage_draw.c` = modes 17–24 as `FIRMWARE.md` §4 states them;
 `damage_ext.c` = contract 2, op 5 CACHE_SIZE, FLAGS_SET and CACHE_SIZE refused with status 3 without the lease,
@@ -4005,13 +4005,13 @@ scratch). **Battery:** core 566 · desktop 15 · `--selfcheck` ×3 · the window
 
 ## 61. The review of Phase 2 on both sides (2026-09-15, night)
 
-Context for the reader: a personal device, the published patch method, display-rendering work. Adam's instruction:
-review today's Phase 2 code (Damage `df65623`, the fork `0ace692`), verify every finding, fix it the best way, verify
-the fixes. Method: six fresh reviewers in parallel (the fork's draw ops; its control plane and link edits; the
-simulator against the contract text; the encoders and atlas; the compositor; the transport), my own read of the same,
-every finding re-read at the code (instruction level for firmware facts) before a line changed, every fix pinned by a
-test watched to fail on the unfixed tree. Nothing flashed, nothing installed, the `damage` service untouched; both
-trees committed and pushed on his word the same night (Damage `1850fb6`, the fork `759f001`).
+Adam's instruction: review today's Phase 2 code (Damage `df65623`, the fork `0ace692`), verify every finding, fix
+it the best way, verify the fixes. **Method (§62–§64 ran the same):** fresh reviewers in parallel, one surface each
+(the fork's draw ops; its control plane and link edits; the simulator against the contract text; the encoders and
+atlas; the compositor; the transport), my own read beside them, every finding re-read at the code (instruction level
+for firmware facts) before a line changed, every fix pinned by a test watched to fail on the unfixed tree. Nothing
+flashed, nothing installed, the `damage` service untouched; both trees committed and pushed on his word the same
+night (Damage `1850fb6`, the fork `759f001`).
 
 ### 61.1 Fixed in the fork (pin `55746389…`, was `aacdc63a…`)
 1. **Op 5 took 1..63 KiB, and modes 12/13/14 bound their records by the 64 KiB window of any cache**: a write and a
@@ -4108,15 +4108,9 @@ removing the byte fix alone).
 
 ## 62. A second review of Phase 2, both sides (2026-09-15, night)
 
-Context for the reader: a personal device, the published patch method, display-rendering work. Adam's
-instruction: review today's code again — carefully, verify every issue, fix each the best way for the
-window manager we are building, then check the fixes. Method: seven fresh reviewers in parallel over
-the same surface §61 reviewed (the fork's draw ops; its control plane, refresh path and link edits; the
-simulator against the contract text; the encoders and the atlas; the compositor; the transport, the
-carry decision and the seam; the tools and the runners), my own read beside them, every finding traced
-at the code before a line changed, and every fix pinned by a check watched to fail without it. Nothing
-flashed, nothing installed, the `damage` service untouched. Two reviewers reached the same two defects
-independently, which is how they were ranked first.
+Adam's instruction: review today's code again — verify every issue, fix each the best way, check the
+fixes. §61's method, seven reviewers (a seventh took the tools and the runners). Nothing flashed, nothing
+installed. Two reviewers reached the same two defects independently, which is how they were ranked first.
 
 ### 62.1 The panel behind a partial refresh (the largest finding; fork + simulator + contract)
 A mode-24 hint transfers its rows and nothing else, so it is only correct while the panel already shows
@@ -4243,15 +4237,9 @@ night: Damage `2329ec8`, the fork `26404f7`.**
 
 ## 63. A third review of Phase 2, both sides (2026-09-15, night)
 
-Context for the reader: a personal device, the published patch method, display-rendering work. Adam's
-instruction: review today's code again — check carefully for mistakes, verify each one, implement the best
-fix for the window manager we are building, then check the fixes. Method: seven fresh reviewers in parallel
-over the same surface §61 and §62 reviewed (the fork's draw ops; its control plane, refresh path and link
-edits; the simulator against the contract text; the encoders and the atlas; the compositor; the transport
-and the shell; the tools and the vectors), my own read beside them — including the three link edits
-re-verified at instruction level — every finding traced at the code before a line changed. **Three
-reviewers and I reached the fork's mode-12 defect independently, and two reached the dead atlas gate**,
-which is how those two rank first. Nothing flashed, nothing staged, the `damage` service untouched.
+Adam's instruction: review today's code again. §61's method, seven reviewers, the three link edits re-verified
+at instruction level. **Three reviewers and I reached the fork's mode-12 defect independently, and two the
+dead atlas gate** — ranked first for it. Nothing flashed, nothing staged.
 
 ### 63.1 The atlas read-back gate was dead from the second atlas onward (the largest Damage finding)
 §62.3 item 4 added a cache read-back before an atlas's fonts go live — the guard against the §59 failure,
@@ -4409,15 +4397,11 @@ staged. **Both trees committed and pushed on Adam's word the same night: Damage 
 
 ## 64. A fourth review of Phase 2, both sides (2026-09-16)
 
-Context for the reader: a personal device, the published patch method, display-rendering work. Adam's
-instruction: review today's Phase 2 code again — check carefully for mistakes, verify each one, implement
-the best fix for the window manager we are building, then check the fixes. Method: seven fresh reviewers in
-parallel over the surface §61–§63 reviewed, my own read beside them, and **two measuring tools neither of the
-first three rounds had** — a differential FUZZ of the fork's C against the Kotlin simulator (random message
-sequences through both, compared on the shadow, the panel, the return codes and the refusal record), and a
-MUTATION sweep of the fork's 106 refusal sites against all three host gates. Every finding traced at the code
-before a line changed; every fix pinned by a check watched to fail without it. Nothing flashed, nothing
-staged, the `damage` service untouched.
+Adam's instruction: review today's Phase 2 code again. §61's method, seven reviewers, and **two measuring
+tools neither of the first three rounds had** — a differential FUZZ of the fork's C against the Kotlin simulator
+(random message sequences through both, compared on the shadow, the panel, the return codes and the refusal
+record) and a MUTATION sweep of the fork's 106 refusal sites against all three host gates. Nothing flashed,
+nothing staged.
 
 ### 64.1 The two tools, and what they said
 - **The fuzz** (46 vectors × ~25 steps × 2 lenses, plus 60 with corrupted messages): the two implementations
@@ -4641,3 +4625,63 @@ pin was watched to fail without its fix: the two new vectors against the unfixed
 against a mutation of mode 17's lease check, the two new host checks against the reverted C, the repack pin
 and the Silent-Mode pin against the reverted Kotlin, and `verify_cfw.py` against a broken audit. Nothing
 flashed, nothing staged. **Committed and pushed on Adam's word: Damage `7997a4d`, the fork `f20bac9`.**
+
+## 65. What four reviews of one phase measured, and the protocol that came out of it (2026-09-16)
+
+Adam's question: four reviews in a row each found dozens of defects in a phase built under an instruction to
+be extra careful — is the method wrong, or are the reviews finding each other's fixes? Read against the diffs
+and `git blame` at each review's parent (Damage `df65623` → `7997a4d`, the fork `0ace692` → `f20bac9`); no
+suite run for the read itself.
+
+**Measured.** The build: 1,462 lines of production Kotlin and ~850 of patch C in one day, plus 4,360 of
+generated vectors and 554 of tests; §61 found 23 defects in ~2,300 lines — an ordinary density for new code (the four sections' numbered fix
+items sum to 73, plus 18 harness items).
+Where the lines each later review changed came from (Damage / fork): code older than Phase 2 **48–71 % /
+40–65 %**; the Phase 2 build 24–27 % / 15–40 %; an earlier review's own fix 6–24 % / 20–35 %. So one finding
+in four or five was a review fixing a review, and about half were older than Phase 2 — every reviewer was scoped
+to the diff and found the neighbourhood. The churn is two mechanisms, both invented by §62 and wrong twice
+each: the atlas read-back gate (§62.3 item 4 → §63.1 → §64.2 item 2) and the fork's save-under busy handshake
+(§62.2 item 2 → §63.2 item 2 → §64.3 item 2); the only two literal reverts in either repo sit on the second.
+Line survival at HEAD 91–98 % (Damage), 78–94 % (the fork); no whole change reverted. **§63 was the weak pass:**
+152 lines of tests and vectors against 419 of behaviour change, and 11 of §64's 12 earlier-review fixes were
+§63's. `Shell.kt`: the build added 17 lines, the four reviews 255; `CfwTransportBase.kt`: 143 against 409 — the
+build shipped the drawing path and the contract, and the reviews built the failure envelope (a lapse, a write
+that keeps failing, a repack, a second task, a session boundary), which `FORK.md` Phase 2 never asked for; the
+build named its three unbuilt plan items itself (§60).
+
+**Verdict.** Convergent, with a named churn spine. What kept the yield up was (a) work the plan had not scoped
+and (b) gates green over code they never ran (§63.4, §64.4) — not the builder's care. A fifth general pass has
+the worst expected value on the table; what is left is the instruments (§64.6), one focused read of the two
+churned mechanisms, and class sweeps over the neighbourhood (`REMINDER.md`, the next session).
+
+**Adopted** (`CLAUDE.md` "Scope, build, review"; `FORK.md` §3.8 and the §5 template; Phase 2's envelope filled
+in as the worked example): a phase's design pass fills the failure envelope; a build ends with a Not-built list
+and the two instruments' numbers; a fix sweeps its class; two general review passes, then class sweeps and
+instruments; a review's scope is the neighbourhood; a gate is measured on the thing it names and a pin watched
+to fail; records short.
+
+**Trimmed.** `CLAUDE.md`, `REMINDER.md`, `FORK.md` §11 and the memory files no longer restate §61–§64 (the same
+facts stood in five places); §60–§64's repeated framing paragraphs cut, every item kept. `tools/geometry.py`'s
+stereo, budget, frame-wall and fid rules retired (§64.5: no caller in the repo run, drifted from `Geometry.kt`,
+the runtime's copy is the gate) — `lint.py --selftest` reports 6 of 11 rules covered and names the rest;
+`README.md`'s claim of a 1:1 pairing corrected. `v2-badrec` step 4 now draws through a table its own cache
+writes, so it measures what its comment claims (it drew through `table4`, unwritten there, and was refused with
+reason 5, CRC unchanged). Gates run: lint 0 · the fork's `run_vectors.py`, `run_self_test.py`,
+`test_damage_ext.py` green · `ConformanceVectorTest` and `GeometryTest` green with the cache off · every other
+vector byte-identical after the refill. The rest of the battery not re-run (no Kotlin behaviour changed).
+Nothing flashed, nothing staged; both trees uncommitted for Adam's word.
+
+**The fuzz re-run (the same evening, Adam's ask; the mutation sweep deferred to `REMINDER.md` item 4 — ~2 h).**
+Fresh seeds, both sets larger than §64's: **clean, 60 vectors × 30 steps (seed 20260916): the C and the simulator
+agree on every step, both lenses, both forms.** Corrupted, 60 × 25 (seed 20260917, one message in eight): one
+vector disagrees, `fuzz-20260922` from step 8 — isolated to its mode-3 message alone (the mode-14 beside it changes
+nothing). Decoded: the box 320,288 292×36, fid 3, a `78 9c` header intact at byte 7, the deflate stream ending
+cleanly, the RLE decoding to exactly the box's 10,512 nibbles, and only the adler trailer wrong (`c7b73737` against
+`db1d3744`) — the one KNOWN false positive `fuzz_vectors.py` states: the C writes the whole box and refuses with
+reason 13; the simulator's `java.util.zip.Inflater` cannot return the last chunk together with the error, so its
+box is short by that chunk. Same return code and refusal record on both sides. **No new finding.** A first read of
+the step mistook bytes 5–6 (the fid) for the zlib header and called it a header failure; the layout
+`[3][box 4][fid 2][zlib]` is `zlib_glue.c`'s own comment. Proposed, not done: a raw `Inflater(nowrap)` past the
+2-byte header with the simulator checking the adler itself would make the model write that last chunk as the
+firmware does and retire the false positive — a simulator change, so the 26 vectors, both fuzz sets and
+`--selfcheck` gate it.

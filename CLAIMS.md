@@ -218,7 +218,7 @@ Everything here backs a decision in [`DESIGN.md`](DESIGN.md).
 | `f_skip` fires on any forward gap > 1; `f_reorder` on any backward step | **V** | same |
 | The fid wrap `0xFFFE → 1` computes `d = 3` in uint16 ⇒ trips **`f_skip`**, once per 65 k rects | **V** | same, arithmetic checked |
 | ~~**Mode 8 accepts only shadow ops 3/6/9**~~ → **3/6/9/13/14/15** as of CFW `a5d1c31` | **V** | `zlib_glue.c` mode-8 branch. The buzzer (5) still cannot ride in a batch; the cached draws now can |
-| Mode-8 size cap = `118 + 320×480` = **153,718 B** | **V** | `bmp_max` in source; matches `tools/geometry.py` |
+| Mode-8 size cap = `118 + 320×480` = **153,718 B** | **V** | `bmp_max` in source; matches `Geometry.MODE8_MAX` (`GeometryTest.mode8CapMatchesFirmware`) |
 | **No `inflateSetDictionary`** ⇒ every rect in a batch gets its own zlib stream, so splitting always loses cross-rect sharing | **V** | only `inflateInit2(strm, 15, …)` is imported |
 | **Stock 2.2.9 loses image ACKs when images are pipelined** (one unguarded deferred-ACK slot; window ≥ 2 drops one); **2.2.6.10 acks at completion and does not** | **V** (upstream, `g2flash` `784846b`, 2026-08-31) | the 2.2.9-based CFW carries a one-branch fix; our installed `a5d1c31` is 2.2.6-based — our measured lost acks (`HANDOFF.md` §33.4) are a different mechanism |
 | The 2.2.9 CFW's `EVENCFW/18` string is exactly 127 bytes and does NOT carry `als16`, which Faceclaw gates its light-sensor feature on | **V** (`settings_ext.c` at `b20bfb1`; `faceclaw` `firmware-compat.ts`) | the `img576` lesson on their side; ours gates on five tokens that are all still there |

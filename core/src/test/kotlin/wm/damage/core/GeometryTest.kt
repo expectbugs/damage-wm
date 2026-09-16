@@ -9,7 +9,7 @@ import wm.damage.core.geom.Geometry
 import wm.damage.core.geom.Layout
 import wm.damage.core.geom.Rect
 
-/** The same fixtures tools/lint.py --selftest fires — the two gates must agree. */
+/** The rules the compositor checks on every emit (`Geometry.kt`), each pinned to a fixture that must fire. */
 class GeometryTest {
     private fun fires(rule: String, findings: List<String>) =
         assertTrue(findings.any { rule in it }, "$rule should fire, got $findings")

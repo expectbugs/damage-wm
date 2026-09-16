@@ -99,7 +99,7 @@ app backlog + refinery verdicts; `REFINEMENT.md` and `TMUX.md` the design logs.
 | **[`FORK.md`](FORK.md)** | the current work: the firmware fork and the Damage rebuild — phases, decisions, the flash ritual, the progress log (§11) |
 | [`FIRMWARE.md`](FIRMWARE.md) | the firmware contract both the fork (C) and Damage's simulator (Kotlin) implement; the conformance vectors (§9) |
 | [`MOTION.md`](MOTION.md) | the motion explosion: every animation candidate per surface and window, for Adam's refinery |
-| [`HANDOFF.md`](HANDOFF.md) | the dated session records (§49 is the latest) |
+| [`HANDOFF.md`](HANDOFF.md) | the dated session records (§65 is the latest) |
 | [`WINDOWS.md`](WINDOWS.md) | how a G2CC app becomes a DamageWM window — the checklist window conversion resumes with after the fork |
 | [`EXPLOSION.md`](EXPLOSION.md) | the graded app backlog, the §16 contract record, the refinery verdicts |
 | [`TORRENTS.md`](TORRENTS.md) | Torrents: verdicts, the verified qBittorrent and TorrentLeech facts, design, plan |
@@ -127,9 +127,9 @@ Three facts about this display shape most of the design:
 ## Building and verifying
 
 ```
-./gradlew :core:test                                  # 540 tests, incl. the per-lens oracle and the conformance vectors
+./gradlew :core:test                                  # 591 tests, incl. the per-lens oracle and the conformance vectors
 ./gradlew :desktop:test                               # 15 tests: the BlueZ glue over a fake link, the config file, the xkcd PNG decoder
-./gradlew :desktop:run --args="--selfcheck"           # the 230-check whole-stack gate (run it more than once)
+./gradlew :desktop:run --args="--selfcheck"           # the 463-check whole-stack gate, run twice (both contracts); run it more than once
 ./gradlew :desktop:run --args="--snapshot DIR"        # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"          # parse every book; chapters + image decode
 ./gradlew :desktop:run --args="--music-check"         # the real music library, read-only (counts, catalog, lanes, cache keys, Qdrant, viz)
@@ -138,7 +138,7 @@ Three facts about this display shape most of the design:
 ./gradlew :desktop:run --args="--transport ble"       # PC-direct BLE (the at-the-desk fallback)
 ./gradlew :desktop:run                                # auto = the §19 standby (data host; claims nothing) + preview (4x)
 ./gradlew :phone:assembleDebug                        # the APK (deploy flow: :phone:stageApk → the setup page)
-tools/lint.py                # design gate: 21 rules (SYM/GEO/BUD/FID); --selftest fires 16 of them in 18 cases
+tools/lint.py                # design gate: SYM (every string literal), GEO (DESIGN.md's declared cells), BUD (ink from the renders); --selftest names what it covers
 python3 design/render_shots.py   # design renders at true 1x, priced through the firmware's RLE
 python3 research/verify_cfw.py   # rebuilds the CFW offline and checks every pinned hash
 python3 research/fwread.py dis 0x473c44 0x473d70   # the stock image at instruction level (dis/fn/word/refs/calls/strings)
@@ -149,9 +149,9 @@ python3 firmware/make_vectors.py                   # the conformance vectors' in
 
 The linter exists because **this hardware reports its failures as silence** — an unaligned box is
 refused without a word, a duplicate frame id is skipped, a stale delta composites onto the wrong
-base. `tools/geometry.py` holds the rules as a library; `core`'s `Geometry.kt` mirrors them 1:1
-(same rule IDs, pinned to the same fixtures by `GeometryTest`) and the compositor checks them on
-every emit, so the design gate and the runtime assertions cannot drift apart.
+base. The design gate checks what `DESIGN.md` declares and what the renders show; the runtime rules
+(stereo pairs, the rect budget, fid order, the frame walls) are `core`'s `geom` package (`Geometry.kt`, `FidTracker.kt`),
+checked by the compositor on every emit and pinned by `GeometryTest`.
 
 ## Not included
 

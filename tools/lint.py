@@ -3,11 +3,15 @@
 
 Every silent failure mode on this hardware becomes an error HERE, because the glasses
 will never tell you: they draw a tofu box, skip a delta, or reject a rect, and say
-nothing. This file is rule 1 of that gate; the geometry and budget rules land beside it
-as the compositor is built.
+nothing.
 
     SYM001  a drawn string contains a codepoint the target face cannot render
     SYM002  a KOTLIN string literal contains one (the shell's own drawing code)
+    GEO000-003, GEO007  the cells DESIGN.md §2.3 declares (tools/geometry.py)
+    BUD000, BUD005-007  ink budgets measured from design/shots
+
+The runtime rules (stereo pairs, the rect budget, fid order, the frame walls) are core's
+`geom` package (`Geometry.kt`, `FidTracker.kt`), checked on every emit and pinned by `GeometryTest` — not here.
 
 Usage:
     tools/lint.py [PATH ...]              lint files/dirs (default: the whole repo)
@@ -380,26 +384,8 @@ def selftest() -> int:
         ("GEO001 y", G.check_rect(G.Rect(100, 33, 100, 50)), "GEO001"),
         ("GEO002 bounds", G.check_rect(G.Rect(600, 400, 100, 100)), "GEO002"),
         ("GEO003 degenerate", G.check_rect(G.Rect(0, 0, 0, 10)), "GEO003"),
-        ("GEO004 stereo size", G.check_stereo_pair(G.Rect(0, 34, 608, 416),
-                                                   G.Rect(32, 34, 604, 416)), "GEO004"),
-        ("GEO005 vertical disparity", G.check_stereo_pair(G.Rect(0, 34, 600, 416),
-                                                          G.Rect(0, 36, 600, 416)), "GEO005"),
-        ("GEO008 bar gap", G.check_cells({"a": G.Rect(0, 0, 100, 32)},
-                                          span=G.Rect(0, 0, 640, 32)), "GEO008"),
-        ("BUD001 rect budget", G.check_batch([G.Rect(0, 34, 8, 8)] * 6, window=3), "BUD001"),
-        ("BUD002 batch size", G.check_batch([], payload=G.MODE8_MAX + 1), "BUD002"),
-        ("BUD003 layout wall", G.check_frame_size(1200, kind="layout"), "BUD003"),
-        ("BUD004 fragment", G.check_frame_size(4096, kind="image"), "BUD004"),
         ("BUD005 ink", G.check_ink(50, 100, 0.15, surface="x"), "BUD005"),
     ]
-    t = G.FidTracker()
-    cases.append(("FID004 delta before keyframe", t.delta(1), "FID004"))
-    t2 = G.FidTracker(); t2.keyframe(); t2.delta(1)
-    cases.append(("FID002 gap", t2.delta(5), "FID002"))
-    t3 = G.FidTracker(); t3.keyframe(); t3.delta(7)
-    cases.append(("FID001 reuse", t3.delta(7), "FID001"))
-    t4 = G.FidTracker(); t4.keyframe()
-    cases.append(("FID003 range", t4.delta(0xFFFF), "FID003"))
 
     # SYM002 needs a file and the real cmaps; the interesting half is the
     # SCANNER — a regex over Kotlin reports half this repo's prose as string
@@ -434,8 +420,7 @@ def selftest() -> int:
         hit = any(expect in g for g in got)
         print(f"  {'PASS' if hit else 'FAIL'}  {label:30s} -> {got[0][:74] if got else '(silent)'}")
         ok &= hit
-    good = G.check_rect(G.Rect(16, 34, 608, 416)) + G.check_batch(
-        [G.Rect(0, 0, 640, 32), G.Rect(0, 452, 640, 28)], window=3)
+    good = G.check_rect(G.Rect(16, 34, 608, 416))
     print(f"  {'PASS' if not good else 'FAIL'}  {'valid geometry stays silent':30s} -> "
           f"{good or '(silent)'}")
     ok &= not good
@@ -454,10 +439,11 @@ def selftest() -> int:
 
 #: every rule id `lint.py` and `tools/geometry.py` define — the selftest names the ones it does
 #: not exercise rather than reporting "all rules fire" over the cases it happens to have.
+#: (The stereo, budget, frame-wall and fid rules are `Geometry.kt`'s; retired here 2026-09-16.)
 RULE_IDS = {
-    "GEO000", "GEO001", "GEO002", "GEO003", "GEO004", "GEO005", "GEO006", "GEO007", "GEO008",
-    "BUD000", "BUD001", "BUD002", "BUD003", "BUD004", "BUD005", "BUD006", "BUD007",
-    "FID001", "FID002", "FID003", "FID004", "SYM001", "SYM002",
+    "GEO000", "GEO001", "GEO002", "GEO003", "GEO007",
+    "BUD000", "BUD005", "BUD006", "BUD007",
+    "SYM001", "SYM002",
 }
 
 

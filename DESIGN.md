@@ -10,8 +10,8 @@ shell design.**
 **Measured vs modeled.** Ink coverage, per-face compression, glyph coverage and full-screen
 keyframe cost are **measured** from real 1× renders (`design/render_shots.py` → `design/shots/`).
 The per-interaction *delta* costs in §8 are **modeled** from the 576×288 capture measurements —
-every table says which. `tools/lint.py` (the build gate, §9.2b) and `tools/geometry.py` (the rules
-it shares with the compositor) enforce the rest.
+every table says which. `tools/lint.py` (the build gate, §9.2b) enforces the rest statically; the
+runtime rules are `core`'s `geom` package, checked on every emit.
 
 📍 New here? Read `REMINDER.md` first. Deciding implementation? Read §10 (deployment topology)
 first — the only part of this document that constrains *how* the shell is written.
@@ -1939,13 +1939,15 @@ come back to the live tail and lose my place, i fuckin HATE that."*
   keyframe, box out of 640×480 bounds, and a surface over its ink budget. Adam: *"minimizing the
   chances of a bug making it to the glasses as much as possible."*
 
-  ✅ **`tools/lint.py` + `tools/geometry.py` exist and pass** (2026-08-18; 21 rules since SYM002
-  landed 2026-09-04, `--selftest` green, 0 findings at HEAD).
+  ✅ **`tools/lint.py` exists and passes** (2026-08-18; SYM002 since 2026-09-04; 0 findings at HEAD).
+  2026-09-16: its copy of the runtime rules in `tools/geometry.py` was retired — nothing in the repo run
+  called it and it had drifted from the Kotlin (`HANDOFF.md` §65).
 
   ⚠ **Most of these are RUNTIME properties** — a rect computed at frame time is invisible to a
-  source linter. So the rules live in **`tools/geometry.py` as a library the compositor calls on
-  every emit**, and the linter runs the same functions statically over the spec's declared geometry
-  and over rendered surfaces. One definition, two callers.
+  source linter. So the runtime rules (GEO004–006, GEO008, BUD001–004, FID001–004) live in **`core`'s `geom`
+  package** (`Geometry.kt`, `FidTracker.kt`), checked by the compositor on every emit and pinned by `GeometryTest`; the linter
+  checks what a build can see — the cell table §2.3 declares (GEO000–003, GEO007), the renders
+  (BUD005–007) and every string literal (SYM). One implementation per rule, the one that runs.
 
   | rule | catches |
   |---|---|
@@ -1971,9 +1973,10 @@ come back to the live tail and lose my place, i fuckin HATE that."*
   | **FID003** | fid outside `[1, 0xFFFE]` |
   | **FID004** | a mode-3 delta with no prior keyframe |
 
-  🔑 **`--selftest` proves 16 of the 21 rules fire** (18 cases; GEO006 · GEO007 · BUD006 · BUD007 ·
-  SYM001 are exercised by the repo run instead), against known-bad inputs, and that valid geometry
-  stays silent.
+  🔑 **`--selftest` proves the linter's own rules fire** against known-bad inputs and that valid
+  geometry stays silent; it names the rules it has no case for (GEO000 · GEO007 · BUD000 · BUD006 ·
+  BUD007 · SYM001 — run by the repo run instead, GEO000 and BUD000 as its failure paths) rather than
+  counting them as fired. `GeometryTest` proves the runtime rules.
 
   ✅ **It caught a real regression on its first full run:** row icons (§4.5b) pushed **Main's
   resting state from 4.1 % to 5.4 %, over its 5 % budget.** The fix was design, not a raised

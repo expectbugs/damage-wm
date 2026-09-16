@@ -76,6 +76,17 @@ Proposed 2026-09-12; treated as in force; Adam confirms or changes them at the c
 6. **Adam's order.** Research → contract → the motion explosion → refinery → plan → build. The
    explosion and refinery happen in Phase 0 so the verb set is derived from what survives.
 7. **Plain wording**, everywhere, every time.
+8. **The failure envelope is scope, not review work** (2026-09-16, `HANDOFF.md` §65). A phase's design pass
+   answers six questions for every new piece of state, wait and guard it adds, BEFORE a line is written:
+   (a) what clears the state at a session boundary, a lease lapse, a reset and a rebuild; (b) what releases the
+   wait if the write never succeeds — a re-ask on the pacing tick, one deferred that latches on success; (c) what
+   identity the guard is keyed on, and whether it survives the event it guards against (a repack re-origins
+   every offset; a new object starts its counters at 0); (d) which other task or lens reaches the same memory
+   meanwhile (the settings task, the input thread, the image worker; LEFT cannot report); (e) whether each
+   decision reads a shared field once; (f) which sibling sites share the class (the v1 twin of a v2 op, the
+   reader and the writer, both lenses, every second pass, every start gate). The build ships the answers and a
+   **Not built** list; a review then finds what the answers missed. Phase 2 was built without this section
+   and four reviews built it afterwards (§61–§64); its filled-in envelope below is the worked example.
 
 ## 4. Target architecture
 
@@ -115,6 +126,10 @@ programs before flushing their region); lint rules for programs and budgets;
 ## 5. Phases
 
 Size is relative (S/M/L/XL). "Flashes" counts candidate flashes; fix flashes are extra and cheap.
+Every phase's design pass fills §3.8's envelope before any code; its build ends with a **Not built** list and
+the two instruments' numbers — the differential fuzz (`firmware/fuzz_vectors.py`: the C and the simulator agree
+on N random vectors) and the mutation sweep (`~/damage-cfw/tools/mutate.py`: N of M refusal guards caught by a
+gate) — which is the record a review starts from (`CLAUDE.md` "Scope, build, review").
 
 ### Phase 0 — Measure, research, decide (size S; no firmware; a few sessions plus a week of use)
 
@@ -187,7 +202,7 @@ features armed one at a time · a soak day · journal and `/log` read · fix fla
 **Exit:** every telemetry field populated (the boot count withdrawn); the cache survives a rebuild without re-upload
 (seen on glass, §54.1); no hold-back events; the soak = ordinary wear during Phase 2's build (Adam, §56).
 
-### Phase 2 — Drawing contract v2, phone-driven (size L; 1 flash) — **BUILT on both sides 2026-09-15 (pin `55746389…` after the review, `HANDOFF.md` §60–§61) bar Reader's page staging; not flashed**
+### Phase 2 — Drawing contract v2, phone-driven (size L; 1 flash) — **BUILT on both sides 2026-09-15 and reviewed four times (pin `48172b62…`, `HANDOFF.md` §60–§65) bar Reader's page staging; not flashed**
 
 **Firmware (`FIRMWARE.md` §4, drafted 2026-09-15):** per-lens cached image and string draws (modes 17/18), the v2
 image record (u16 dims), the 224-entry table, cache write v2 (19), clip (20), fill (21), LUT over rect (22),
@@ -202,6 +217,17 @@ next and previous page as cached images and turns pages by clip + draw; back-to-
 as fill + draws; dim-in-place ready for popovers; the phone requests 2M PHY at connect on a build whose DamageCaps
 says so and journals the grant; ms/KB, a capture (`research/perevent.py`), the battery and the earbud's A2DP margin
 measure the link.
+
+**The envelope (§3.8), filled by the reviews rather than the design pass — the worked example:** (a) DRAW2 and
+the cache size drop with the lease (§61.2 item 6); `glassesSilent`, `recentlyReleased` and the atlas proof mark
+are per session or per epoch (§64.2 items 2, 7, 11). (b) The prelude, the capability query, FLAGS_SET, op 5 and
+the warmup each re-ask on the pacing tick with one deferred that latches on success (§63.3 item 4, §64.2 items
+4–5). (c) The atlas read-back is keyed on an epoch, not a per-atlas counter that every new atlas restarts at 0
+(§63.1, §64.2 item 2). (d) The save-under slots and the cache pointer move under one state word; every second
+pass re-derives its pointer and records its refusal (§62.2 item 2, §63.2 items 2–3, §64.3 items 1–3). (e) One
+read of the link state per decision — `pump()`, the compositor's `v2`, `CachedText`'s atlas (§62.3 item 9, §63.3
+item 8, §64.2 item 6). (f) Mode 12 with 19, modes 14/15 with 18, the writers with the readers, both lenses of a
+pair (§61.1 item 3, §63.2 items 1 and 3, §64.3 item 7). **Not built:** Reader's page staging.
 
 **Test stop T2:** vectors · self-test · `--selfcheck` ×3 · snapshots · oracle walk · a soak day with the link's
 ms/KB, a capture and the battery readout.
@@ -359,21 +385,6 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
 
 ## 11. Progress log
 
-- **2026-09-15 (night, 2)** — A second review of Phase 2 on both sides (`HANDOFF.md` §62), seven fresh
-  reviewers and my own read; nothing flashed. The largest finding is the partial refresh (mode 24): it only
-  ever ADDS its rows, so it is correct only while the panel already shows the whole previous frame — a batch
-  refused part-way, stock content in the framebuffer and a lease release point all broke that, and each left
-  rows of an old frame on the lens. One rule now in the C, the simulator and `FIRMWARE.md` §4, and **the
-  vectors compare what the lens shows** (`"panel": true`; the host harness models the panel). Also fixed: the
-  live save-under slots guarded across tasks, a dropped image recorded (reason 14), mode 19's bounds re-read
-  at the write, the overlay switch read once; on the Damage side the phone's own firmware model is told the
-  build's contract (without it a Phase 2 session would have raised a mirror fault per flush and DIVERGE
-  notices), an atlas upload is read back before anything draws from it, a repack's old chunks can no longer
-  move the new layout's acked watermark, a control write that misses an arm is a failure, and
-  `glassdrive.py selftest:` no longer prints false FAILs on a correct build. Fork pin **`f9ddf49f…`** (31
-  entries, a 53,724-byte block, the same sites); 24 vectors, 206 steps, the simulator equal to the C on every one; APK 0.53. Nothing flashed, nothing staged; both trees committed and pushed on his word (Damage
-  `2329ec8`, the fork `26404f7`).
-
 - **2026-09-12** — Plan written after a discussion session (`HANDOFF.md` §48). Decisions D1–D8
   proposed. `FIRMWARE.md` skeleton written. `~/damage-cfw` created from `a5d1c31` on branch `damage`
   with the flasher fix carried over — first commit `b3bdd5c` (the Damage repo's record: `d16e5c1`).
@@ -476,37 +487,28 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   runner — `Contract2Test` pins it, gated on DamageCaps bit 5 + DRAW2; Reader's page staging is the one Phase 2
   item left. A live defect found from Adam's report at work and fixed for APK 0.50 (`HANDOFF.md` §59: a lens
   reboot inside the atlas skip's window; a keeper race on the duplicate replies). Nothing flashed.
-- **2026-09-15 (night)** — The review of Phase 2 on both sides (`HANDOFF.md` §61): 10 fork defects and 12 Damage ones
-  fixed and pinned (among them a heap overrun behind a sub-64 KiB `CACHE_SIZE`, hints after a skipped refresh, the partial
-  call's width, the v2 atlas upload's alignment, kerning on the v1 path, the hold-back and a lost lease vs DRAW2, the
-  carry decision's evidence, the self-test's live cache writes); `FIRMWARE.md` §4 amended; 2 vectors added. Fork pin
-  `55746389…`, no new site. Nothing flashed. Committed and pushed on Adam's word: Damage `1850fb6`, the fork `759f001`.
-- **2026-09-15 (night, the third review — `HANDOFF.md` §63):** seven reviewers over the same surface again. The
-  fork: mode 12's write pass re-checks the bounds it re-reads (the v1 twin of §62.2 item 4; three reviewers found
-  it independently), mode 19's write loop bounds the source too, the deferred save-under free runs UNDER its busy
-  mark and every slot claims its pointer with an atomic exchange, modes 14/15/18's second pass re-derive the table
-  pointer and record their refusal, field 12 cannot wrap, the overlay switch is read once in truth.
-  **ONE NEW SITE — the display task's other refresh call, `0x00473D80` (its type-6 branch), hooked like
-  `0x00473CE4`:** both of that function's copy calls were already hooked and the copy hook does not know the event
-  type, so a type-6 event carrying a Damage frame transferred it with no stamp and dropped its hint. §3.1's rule
-  holds — `FUN_00473C44` is the display task's event loop, not a boot-time path, and is already patched at three
-  points. Pin **`b0e42923…`**, 32 entries, a 54,068-byte block, 20 Thumb branches, 370 KB below the OTA flag; every
-  host gate green. Nothing flashed. Committed and pushed on Adam's word: Damage `a4db479`, the fork `e331c3f`.
-- **2026-09-16 — a fourth review of Phase 2 (`HANDOFF.md` §64), with two tools the first three rounds did not
-  have.** A **differential fuzz** of the fork's C against the Kotlin simulator (46 random vectors × ~25 steps ×
-  2 lenses, plus 60 corrupted): the two agree everywhere on well-formed traffic and disagreed on exactly one
-  class — a mode-3/6 stream refusal, which v1 does NOT roll back (it decodes straight into the shadow) while the
-  model kept the previous frame. A **mutation sweep** of the fork's 106 refusal sites against all three host
-  gates: 39 caught, 55 reachable ones caught by nothing — largest, **the lease (3) and DRAW2 (9) checks of six of
-  the eight v2 modes**, now `v2-gates`. Fixed in the fork: modes 12 and 19's write loops indexed
-  `ctx->texture_cache` without testing it (the emitted Thumb reloads the pointer per byte, so a release point on
-  another task sends the stores to low memory); the deferred-free handshake dropped a release that landed between
-  the epilogue's last test of the pending flag and its clearing of the active mark (the two are ONE state word
-  now, moved with a compare-exchange); a batch's and a step's sub-mode were validated and then re-read by the
-  dispatcher (both lists applied again to the byte that dispatches); the failed-copy branch did not clear the
-  F1.3 mark; mode 14's second pass could index 254 bytes past a 64 KiB cache; the DWT µs read 2.4 % HIGH, not
-  low, and the calibration now scales for the 1.024-per-ms tick; telemetry fields 15/26 and 20/21/22 go up under
-  their own write count. **No new site.** The image is 5,008 B smaller than §63's: the context's one-time
-  creation is out of line, so a struct field no longer costs 5.7 KB of inlined zeroing. Pin **`48172b62…`**, 32
-  entries, a 54,776-byte block, 21 Thumb branches, 369 KB below the OTA flag; `tools/verify.py`, 26 vectors /
-  237 steps, 20 self-test, 76 host checks green. Nothing flashed.
+- **2026-09-15 (night)** — The first review of Phase 2 (`HANDOFF.md` §61): 10 fork and 13 Damage defects fixed
+  and pinned (a heap overrun behind a sub-64 KiB `CACHE_SIZE`, the partial call's width, the v2 atlas upload's
+  alignment, kerning on the v1 path, a lost lease vs DRAW2, the carry decision's evidence); `FIRMWARE.md` §4
+  amended; 2 vectors added. Fork pin `55746389…`, no new site. Damage `1850fb6`, the fork `759f001`.
+- **2026-09-15 (night, 2)** — The second review (§62): the partial refresh takes the full path unless the panel
+  already shows the whole previous frame (the C, the model, §4; the vectors compare what the LENS shows); the
+  phone's own firmware model told the build's contract; the atlas read back before its fonts go live; the live
+  save-under slots guarded across tasks. Fork pin `f9ddf49f…`. Damage `2329ec8`, the fork `26404f7`.
+- **2026-09-15 (night, 3)** — The third review (§63): the atlas read-back gate dead from the second atlas of a
+  process onward; mode 12's write pass re-checking the bounds it re-reads (three reviewers independently); the
+  deferred free under its busy mark; **ONE NEW SITE — `0x00473D80`, the display task's other refresh call**
+  (§3.1 holds: the event loop, not a boot path); op 5's success from its own reply; the tick unit;
+  `--selfcheck` running contract 2 at last. Fork pin `b0e42923…`, 32 entries. Damage `a4db479`, the fork `e331c3f`.
+- **2026-09-16** — The fourth review (§64), with two instruments the first three lacked: a differential fuzz
+  of the C against the simulator (agreement everywhere but a mode-3/6 stream refusal, which v1 does not roll
+  back) and a mutation sweep of the 106 refusal sites (39 caught, 55 reachable ones by nothing — the lease and
+  DRAW2 checks of six v2 modes among them, now `v2-gates`). The atlas gate dead again across a repack; three
+  start gates that could park for ever; `glassesSilent` crossing a session; two write loops indexing a freed
+  pointer; the busy handshake as one state word; the µs calibration inverted; six harness gates green over code
+  they never ran. Fork pin `48172b62…`, no new site, 5,008 B smaller. Damage `7997a4d`, the fork `f20bac9`.
+- **2026-09-16 (2)** — What the four reviews measured, read against the diffs (§65): half the yield older than
+  Phase 2, a quarter a review fixing a review, the rest the failure envelope the plan never scoped. §3.8 and the
+  §5 template added; `CLAUDE.md` gained the protocol; `REMINDER.md`, this log and the memory files stopped
+  restating §61–§64. `tools/geometry.py`'s runtime-rule copy retired; `v2-badrec` step 4 made live. Nothing
+  flashed; uncommitted for Adam's word.

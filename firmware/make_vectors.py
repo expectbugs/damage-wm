@@ -624,12 +624,18 @@ def vectors_v2(kf):
     over = bad.add(u16(4) + u16(1) + bytes([0x35, 0x25]))                          # 3 + 2 pixels for a 4-pixel record
     short = bad.add(u16(8) + u16(1) + bytes([0x35]))                               # 3 pixels for an 8-pixel record
     zero = bad.add(u16(4) + u16(1) + bytes([0x05, 0x00, 0x00, 0x00]) + bytes([0x35]))   # a zero-length 16-bit run, then 3
+    # A valid glyph and a table in the SAME cache, so the last step measures what it claims: a draw
+    # after three refused records still lands. (Until 2026-09-16 it drew through `table4`, which this
+    # cache never wrote, and was refused with reason 5 under a comment saying the opposite — §64.5.)
+    glyph = bad.add(cache_image(4, 14, pattern(4, 14, 23)))
+    tbl = bad.reserve(224 * 2)
+    bad.put(tbl, b"".join(u16(glyph) for _ in range(224)))
     v.append({"name": "v2-badrec", "steps": [
         step(*arm, *[msg(m) for m in bad.messages()], msg(fill(rect(0, 0, 640, 480), 4))),
         step(msg(draw2(over, 10, 10, 0x0F))),                                      # more pixels than the record holds: 5
         step(msg(draw2(short, 10, 20, 0x0F))),                                     # fewer: the stream ends first: 5
         step(msg(draw2(zero, 10, 30, 0x0F))),                                      # a run of zero length: 5, and it ends
-        step(msg(string2(table4, 10, 40, 0x0F, b"ok"))),                           # the cache still draws afterwards
+        step(msg(string2(tbl, 10, 40, 0x0F, b"ok"))),                              # a valid draw from the same cache still lands
     ]})
 
     for vec in v:

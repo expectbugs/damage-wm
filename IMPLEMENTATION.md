@@ -45,8 +45,8 @@ discipline) — so both live BLE paths run the protocol brain the sim exercises 
 ## Module map
 
 ```
-core/       wm.damage.core.geom       panel constants, Rect, the runtime lint gate (same rule IDs as
-                                      tools/geometry.py), Layout (safe-rect-relative, §2.2b), fid discipline
+core/       wm.damage.core.geom       panel constants, Rect, the runtime lint gate (the one implementation
+                                      since 2026-09-16, HANDOFF §65), Layout (safe-rect-relative, §2.2b), fid discipline
             wm.damage.core.gfx        Gray8 compose surface, firmware-exact nibble RLE (pinned to fbfeas.py),
                                       4bpp pack, level-6 deflate, drawn icons/shapes (§4.5b)
             wm.damage.core.wire       CRC-16, protobuf, AA envelope + reassembly, EvenHub carrier messages,

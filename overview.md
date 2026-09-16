@@ -32,9 +32,10 @@ This document is the complete carry-over from the research that produced the dec
 > shipped revisions): input grammar, 640×480 cell geometry on the mode-3 grid, depth order,
 > motion/persistence/failure policy, the shell surfaces, the locked typefaces, per-frame costs
 > **measured from real renders**. Successor to G2CC's `docs/DE_DESIGN.md`; **wins on shell
-> design**; this file wins on facts. Alongside it: **`tools/lint.py` + `tools/geometry.py`** (the
-> `DESIGN.md` §9.2b build gate — SYM/GEO/BUD/FID, 21 rules; `--selftest` fires 16 in 18 cases;
-> the repo run exits 0; run after any geometry or layout change) and **`design/render_shots.py`**
+> design**; this file wins on facts. Alongside it: **`tools/lint.py`** (the `DESIGN.md` §9.2b build
+> gate — SYM over every string literal, GEO over the declared cells, BUD over the renders; the runtime
+> rules are `core`'s `geom` package; `--selftest` names what it covers; the repo run exits 0; run after
+> any geometry or layout change) and **`design/render_shots.py`**
 > (every surface at **true 1× 640×480**, 4bpp, priced through the firmware's RLE, output in
 > `design/shots/`; regenerate after any design change).
 
@@ -467,7 +468,8 @@ field 101, bytes = ['F','C', version=1, op, nonceLo, nonceHi]
   op 5 FB_ACQUIRE        op 6 FB_RELEASE     op 7 WEAR_QUERY
 ```
 
-- **Lifetime 90 s; Faceclaw renews every 45 s** (`FACECLAW_WAKE_LEASE_RENEW_MS = 45_000`).
+- **Lifetime 90,000 firmware ticks = 87.9 s wall** (the tick runs 1.024 per ms — `HANDOFF.md` §56, measured
+  2026-09-15); **Faceclaw renews every 45 s** (`FACECLAW_WAKE_LEASE_RENEW_MS = 45_000`).
 - **Sent to BOTH arms** — `display_copy_hook` runs per-lens. Faceclaw enqueues right then left
   and waits for both.
 - The framebuffer lease (5/6) is **independent** of the wake lease (1/2). Damage needs 5/6.
