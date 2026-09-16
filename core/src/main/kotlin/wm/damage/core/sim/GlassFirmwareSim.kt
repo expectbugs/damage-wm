@@ -248,6 +248,9 @@ class GlassFirmwareSim() : LensPanels {
      *  offset; a test models a reset by setting the offset to the clock (uptime 0). */
     @Volatile var uptimeOffsetMs = 0L
 
+    /** Wall-clock milliseconds as the firmware's OS tick counts them (`FIRMWARE.md` §3). */
+    private fun msToTicks(ms: Long): Long = if (ms <= 0L) 0L else ms * 1024 / 1000
+
     /** The firmware's Silent Mode (§36): while on, every image is refused
      *  with ImgResCmd status 5 (measured on the real pair 2026-09-05) and the
      *  READ response restores the state in field 4.14. [setSilent] toggles it
@@ -340,8 +343,12 @@ class GlassFirmwareSim() : LensPanels {
                 // lease ends, so a resumed session must upload its atlas again —
                 // unless CACHE_KEEP was armed (FIRMWARE.md §3, F1.5).
                 val kept = leaseEnded(arm, c)
-                // Stock repaint: the panel no longer shows our frame.
-                stockPattern(c.panel)
+                // The panel is marked STALE, and its pixels are left alone: the firmware paints
+                // nothing at a release point — the stock compositor's own repaint is a later
+                // event, and the C does not model it either (2026-09-15, the third review: the
+                // model invented a transition the firmware does not make, and the two sides
+                // would have disagreed on the panel CRC the moment a released vector carried
+                // `"panel": true`). Stale is what matters: the next present goes whole.
                 c.panelStale = true
                 diag.event("lease", "$arm FB lease EXPIRED — stock repainted over us " +
                     "(fail-open); texture cache ${if (kept) "KEPT under CACHE_KEEP" else "freed"}")
@@ -728,8 +735,7 @@ class GlassFirmwareSim() : LensPanels {
                 c.lapseSettled = false
                 freeScratch(c)
                 c.slots.fill(null)
-                stockPattern(c.panel)
-                c.panelStale = true
+                c.panelStale = true          // the pixels are stock's next repaint, not ours to paint
                 diag.event("cleanup", "$arm mode-11 session cleanup: FB lease released, " +
                     "texture cache freed, stock repaints")
                 diag.panelChanged(arm)
@@ -1144,11 +1150,11 @@ class GlassFirmwareSim() : LensPanels {
                 if ((msg[0].toInt() and 0x7F) in CfwModes.SELF_TEST_MODES) {
                     val live = c.shadow; val liveSeeded = c.seeded
                     c.shadow = scratch; c.seeded = c.stSeeded
-                    swapDiag(c); swapSlots(c)            // the self-test's diagnostics and save-under slots, not the session's
+                    swapDiag(c)                          // the self-test's diagnostics; mode 23 picks its own slot set
                     c.stActive = true
                     try { ok = dispatchImage(arm, msg, now) } finally {
                         c.stActive = false
-                        swapSlots(c); swapDiag(c)
+                        swapDiag(c)
                         c.stSeeded = c.seeded
                         c.shadow = live; c.seeded = liveSeeded
                     }
@@ -1163,12 +1169,6 @@ class GlassFirmwareSim() : LensPanels {
             }
             else -> return refuse(c, src, REF_VALUE)
         }
-    }
-
-    private fun swapSlots(c: LensCtx) {
-        val t = c.slots
-        c.slots = c.stSlots
-        c.stSlots = t
     }
 
     private fun swapDiag(c: LensCtx) {
@@ -1223,11 +1223,24 @@ class GlassFirmwareSim() : LensPanels {
         buf[i] = (if (x and 1 == 0) (v shl 4) or (b and 0x0F) else (b and 0xF0) or v).toByte()
     }
 
+    /** A visibly-not-ours pattern standing in for the stock LVGL dashboard: what the wearer sees
+     *  once the stock compositor repaints after a release point. Not painted at the release
+     *  itself — the firmware paints nothing there — so a test that wants it asks for it
+     *  ([stockRepaint], 2026-09-15, the third review). */
     private fun stockPattern(panel: ByteArray) {
-        // A visibly-not-ours pattern standing in for the stock LVGL dashboard.
         panel.fill(0)
         val stride = (Geometry.PANEL_W + 1) / 2
         for (y in 100 until 110) for (xb in 40 until stride - 40) panel[y * stride + xb] = 0x55
+    }
+
+    /** The stock compositor's repaint, as an event of its own: the framebuffer and the panel take
+     *  stock content and the next Damage frame goes whole. Its counterpart in the fork's host
+     *  harness is a stock copy plus a refresh. */
+    fun stockRepaint(arm: Arm) {
+        val c = ctx(arm)
+        stockPattern(c.panel)
+        c.panelStale = true
+        diag.panelChanged(arm)
     }
 
     // ------------------------------------------------------------------ launch (sid 0x01)
@@ -1301,8 +1314,7 @@ class GlassFirmwareSim() : LensPanels {
                     ctx(arm).leaseDeadline = 0
                     val kept = leaseEnded(arm, ctx(arm))  // settings_ext.c releases the cache here, or keeps it (F1.5)
                     ctx(arm).damageFlags = 0              // FIRMWARE.md §3: a release point clears the flags, a settled lapse before it or not
-                    stockPattern(ctx(arm).panel)
-                    ctx(arm).panelStale = true
+                    ctx(arm).panelStale = true            // the pixels are stock's next repaint, not ours to paint
                     diag.event("lease", "$arm FB lease released — stock repaints, " +
                         "texture cache ${if (kept) "kept under CACHE_KEEP" else "freed"}")
                     diag.panelChanged(arm)
@@ -1429,8 +1441,10 @@ class GlassFirmwareSim() : LensPanels {
         val diagBits = (if (c.fReorder) 1 else 0) or (if (c.fSkip) 2 else 0) or (if (c.fDup) 4 else 0)
         val cache = c.textureCache
         val record = Pb.cat(
-            Pb.v(1, requestId), Pb.v(2, now - uptimeOffsetMs), Pb.v(3, c.damageFlags), Pb.v(4, c.damageStatus),
-            Pb.v(11, diagBits), Pb.v(12, if (leased) c.leaseDeadline - now else 0L), Pb.v(14, fwSide(arm)),
+            // fields 2 and 12 are OS TICKS, 1.024 per wall-clock ms, as the firmware sends them
+            // (`FIRMWARE.md` §3): the model carries milliseconds, so it converts on the way out
+            Pb.v(1, requestId), Pb.v(2, msToTicks(now - uptimeOffsetMs)), Pb.v(3, c.damageFlags), Pb.v(4, c.damageStatus),
+            Pb.v(11, diagBits), Pb.v(12, if (leased) msToTicks(c.leaseDeadline - now) else 0L), Pb.v(14, fwSide(arm)),
             Pb.v(15, 0), Pb.v(16, c.presentSeq), Pb.v(17, c.cacheGen),
             if (cache != null) Pb.v(18, cache.size) else ByteArray(0),
             if (cache != null && withCacheCrc) Pb.v(19, java.util.zip.CRC32().also { it.update(cache) }.value) else ByteArray(0),
@@ -1690,10 +1704,14 @@ class GlassFirmwareSim() : LensPanels {
                 if (!leaseAndFlag()) return false
                 if (sub > 2) return refuse(c, src, REF_VALUE)
                 if (slot >= CfwModes.SAVE_SLOTS) return refuse(c, src, REF_SCRATCH)
+                // the set is PICKED by the step's own mark, never swapped in — the fork stopped
+                // swapping when a release from another task could free a swapped-out set as the
+                // live one (`HANDOFF.md` §61.1 item 7); the model follows it (the third review)
+                val slots = if (c.stActive) c.stSlots else c.slots
                 when (sub) {
-                    2 -> { c.slots[slot] = null; return true }
+                    2 -> { slots[slot] = null; return true }
                     1 -> {
-                        val s = c.slots[slot] ?: return refuse(c, src, REF_SCRATCH)
+                        val s = slots[slot] ?: return refuse(c, src, REF_SCRATCH)
                         for (y in 0 until s.rect.h) for (x in 0 until s.rect.w)
                             setNibble(c.shadow, c.stride, s.rect.x + x, s.rect.y + y, s.levels[y * s.rect.w + x].toInt())
                         if (present) present(arm, now, batch)
@@ -1701,11 +1719,11 @@ class GlassFirmwareSim() : LensPanels {
                     }
                     else -> {
                         val r = rectAt(3) ?: return refuse(c, src, REF_BOUNDS)
-                        val held = c.slotBytes - (c.slots[slot]?.bytes ?: 0)     // the slot's own bytes are replaced
+                        val held = slots.sumOf { it?.bytes ?: 0 } - (slots[slot]?.bytes ?: 0)   // the slot's own bytes are replaced
                         if (held + CfwModes.saveBytes(r) > CfwModes.SAVE_BUDGET) return refuse(c, src, REF_SCRATCH)
                         val levels = ByteArray(r.w * r.h)
                         for (y in 0 until r.h) for (x in 0 until r.w) levels[y * r.w + x] = getNibble(c.shadow, c.stride, r.x + x, r.y + y).toByte()
-                        c.slots[slot] = SaveSlot(r, levels)
+                        slots[slot] = SaveSlot(r, levels)
                         return true
                     }
                 }

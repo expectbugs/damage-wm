@@ -255,7 +255,13 @@ class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val 
      *  taken from. A chunk of an older layout, or one the lapse forgot, moves nothing. */
     fun acked(gen: Int = uploadGen) {
         if (gen != uploadGen) return
-        val end = chunkEnds.removeFirstOrNull() ?: return
+        val end = chunkEnds.removeFirstOrNull()
+        if (end == null) {
+            // never a quiet no-op: an ack with no outstanding chunk end means the queue was
+            // cleared under an in-flight chunk, and the watermark would silently stand still
+            wm.damage.core.util.Log.w("atlas", "a chunk ack arrived with no outstanding chunk end (layout $gen) — the acked watermark stands at $ackedBytes B")
+            return
+        }
         ackedBytes = maxOf(ackedBytes, end)
     }
 
@@ -482,7 +488,8 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
         forEachRun(text, a?.v2 == true) { run, cached ->
             if (cached) {
                 val w = blit(surface, px, y, run, e, level, kern)
-                if (onTarget) record(px, y, w, e, run, font, level)
+                val (inkL, inkR) = inkSpan(run, e, kern)      // the rect is the INK's, not the pen's
+                if (onTarget) record(px, y, inkL, inkR, e, run, font, level)
                 else if (onRelay) {
                     // the draw lands on the target translated. A box the strip
                     // clips (a row half outside a 16 px strip) is recorded whole
@@ -491,8 +498,8 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
                     // copies, and the proof checks every pixel of the box before
                     // a draw ships. A box that leaves the band claims pixels the
                     // blit never paints — dropped.
-                    val box = Rect(px + relayDx, y + relayDy, w, e.lineH)
-                    if (relayKeep.contains(box)) record(box.x, box.y, w, e, run, font, level)
+                    val box = Rect(px + relayDx + inkL, y + relayDy, inkR - inkL, e.lineH)
+                    if (relayKeep.contains(box)) record(px + relayDx, y + relayDy, inkL, inkR, e, run, font, level)
                 }
                 px += w
             } else {
@@ -502,10 +509,12 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
         }
     }
 
-    private fun record(x: Int, y: Int, w: Int, e: GlyphAtlas.Entry, text: String, font: FontSpec, level: Int) =
+    /** [x] is the pen's start (what the draw carries); [inkL]..[inkR] is the ink's span around it
+     *  ([CachedText.inkSpan]), which is what the rect promises. */
+    private fun record(x: Int, y: Int, inkL: Int, inkR: Int, e: GlyphAtlas.Entry, text: String, font: FontSpec, level: Int) =
         synchronized(draws) {
             if (draws.size >= MAX_DRAWS) draws.removeAt(0)
-            draws.add(TextDraw(Rect(x, y, w, e.lineH), text, font, x, y, level))
+            draws.add(TextDraw(Rect(x + inkL, y, inkR - inkL, e.lineH), text, font, x, y, level))
         }
 
     private var relay: Gray8? = null
@@ -600,6 +609,32 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
             text.isNotEmpty() && text.length <= MAX_RUN &&        // an adjust byte may ride between every pair
                 text.all { if (v2) it.code in TextureCache.FIRST_CHAR..TextureCache.LAST_CHAR2 && it.code !in 127..159 && it.code != 0xAD
                     else it.code in TextureCache.FIRST_CHAR..GlyphAtlas.LAST_GLYPH }
+
+        /**
+         * The ink's own span relative to the pen's start, as `(left, rightExclusive)` — what
+         * [blit] actually paints, which the ADVANCE it returns is not. A kern moves the pen
+         * before the next glyph, so the pen is not monotonic and its final value is not the
+         * furthest edge: a kern more negative than the following glyph's width puts ink outside
+         * a rect sized from the advance, and ink outside a declared rect is never sent and no
+         * check can see it (`CLAUDE.md`, §27). A recorded rect is a promise, so the record takes
+         * this (2026-09-15, the third review; §61.4 had reasoned the case unreachable with the
+         * locked faces — it is, but the rect no longer depends on that).
+         */
+        fun inkSpan(text: String, e: GlyphAtlas.Entry, kern: (Char, Char) -> Int = { _, _ -> 0 }): Pair<Int, Int> {
+            var px = 0
+            var prev: Char? = null
+            var left = 0
+            var right = 0
+            for (ch in text) {
+                prev?.let { px += kern(it, ch) }
+                prev = ch
+                val w = e.images[ch.code - TextureCache.FIRST_CHAR].w
+                if (px < left) left = px
+                if (px + w > right) right = px + w
+                px += w
+            }
+            return left to right
+        }
 
         /**
          * The firmware's draw (`cfw_texture_render` with TRANSPARENT): source

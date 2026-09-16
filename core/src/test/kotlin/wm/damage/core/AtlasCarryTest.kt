@@ -383,15 +383,22 @@ class AtlasCarryTest {
 
             clock += 5_000L
             t.endLink("test: supervision timeout")            // T0+55 s: the T0+50 s acquire is struck (5 s old)
-            clock += 54_000L
-            t.start(full)                                     // T0+109 s: 79 s since T0+30 s — inside the 80 s window
-            assertEquals(true to "L gap 79.0 s, R gap 79.0 s", carry())
+            // the two probes STRADDLE the window rather than naming a number: it is the firmware's
+            // expiry less the margin, and the expiry is 90,000 TICKS — 87.9 s, not 90 (the third
+            // review corrected `LEASE_EXPIRY_MS`, and these two steps had 80 s written into them)
+            val window = CfwTransportBase.LEASE_CARRY_WINDOW_MS
+            fun gap(ms: Long) = "L gap %.1f s, R gap %.1f s".format(ms / 1000.0, ms / 1000.0)
+            val inside = window - 2_000L
+            clock += inside - 25_000L                         // the gap is measured from the T0+30 s acquire
+            t.start(full)
+            assertEquals(true to gap(inside), carry())
 
             clock += 6_000L
-            t.endLink("test: supervision timeout")            // T0+115 s: the T0+109 s acquire is struck
+            t.endLink("test: supervision timeout")            // the acquire just taken is struck
             clock += 1_000L
-            t.start(full)                                     // T0+116 s: 86 s since T0+30 s — outside
-            assertEquals(false to "L gap 86.0 s, R gap 86.0 s", carry())
+            val outside = inside + 7_000L
+            t.start(full)
+            assertEquals(false to gap(outside), carry())
 
             clock += 20_000L
             t.stop()                                          // the link is up: a release goes out

@@ -92,6 +92,12 @@ interface Transport {
      */
     suspend fun cacheCheck(): wm.damage.core.wire.DamageMsg.Telemetry? = null
 
+    /** Whether this transport can make that read at all. False here means "no radio of my own to
+     *  ask with" (the seam's client, a path transport) — which is a different fact from "this
+     *  build has nothing to answer" and from "the read failed", and the shell says which
+     *  (2026-09-15, the third review: all three arrived as one silent null). */
+    val cacheCheckSupported: Boolean get() = false
+
     /** Hold or drop the framebuffer lease on demand (2026-09-05, `HANDOFF.md`
      *  §36): the shell drops it while the glasses are in the firmware's Silent
      *  Mode — with the lease held nothing paints anyway, and without it the

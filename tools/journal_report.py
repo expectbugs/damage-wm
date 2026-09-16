@@ -61,6 +61,7 @@ def refusal_report(notes):
 def main(path, since_ms=0, glasslog=False):
     f = sys.stdin if path == '-' else open(path, encoding='utf-8')
     sub, done, notes, presents, bad = {}, [], [], [], 0
+    joined = []                              # the submit record each completed flush was joined to
     early_params = []     # link-parameter notes before --since still set the column
     for line in f:
         try: r = json.loads(line)
@@ -73,10 +74,16 @@ def main(path, since_ms=0, glasslog=False):
         if ev == 'submit': sub[r['id']] = r
         elif ev == 'done' and r.get('ok') and 'bytes' in r:
             s = sub.get(r['id'], {})
+            joined.append(s)                     # the submit THIS done was joined to, not the last per id
             done.append((r['t'], r['bytes'], r['ackMs'], s.get('via', '?'), s.get('handleMs'), s.get('assembleMs'), s.get('label', '?'), s.get('t')))
         elif ev == 'note': notes.append(r)
         elif ev == 'present': presents.append(r)
     if bad: print(f'({bad} unreadable line(s) skipped)')
+    # the file is in ACK-COMPLETION order and three flushes run in flight, so a later, bigger
+    # flush can be acked first: sort by the moment each was SUBMITTED, which is what a burst's
+    # "first flush" means (2026-09-15, the third review — the report took whichever acked first
+    # and priced the gesture by it)
+    done.sort(key=lambda x: x[7] if x[7] is not None else x[0])
     if not done:
         # a window with no flush still has the glasses' own records to show (a self-test run, a
         # quiet shell): the refusals, the transfers and the battery (2026-09-15, second review)
@@ -137,26 +144,28 @@ def main(path, since_ms=0, glasslog=False):
         if s: print(f'  {lo:>5d}-{hi if hi < 10**9 else "∞":>5}: {len(s):5d} flushes ({100*len(s)/len(done):4.1f} %), {share}')
     hm = [x[4] for x in done if isinstance(x[4], int) and x[4] >= 0]; am = [x[5] for x in done if isinstance(x[5], int) and x[5] >= 0]
     if hm:
+        assemble = (f'assemble median {med(am)} ms / p90 {sorted(am)[int(len(am)*.9)]} ms'
+                    if am else 'no assembleMs')   # a partly-filled Timing leaves `am` empty
         print(f'\nshell CPU per flush (host, on the loop): handle median {med(hm)} ms / p90 {sorted(hm)[int(len(hm)*.9)]} ms · '
-              f'assemble median {med(am)} ms / p90 {sorted(am)[int(len(am)*.9)]} ms  (n={len(hm)})')
+              f'{assemble}  (n={len(hm)})')
         # the §34 split, when the journal has it
         parts = collections.defaultdict(list)
-        for r in sub.values():
+        for r in joined:                          # the same rows `hm`/`am` came from, not one per id
             for k in ('handlerMs', 'mirrorMs', 'slidesMs', 'chromeMs', 'overlaysMs', 'textMs', 'truthMs', 'compressMs', 'compressN'):
                 v = r.get(k)
                 if isinstance(v, int) and v >= 0: parts[k].append(v)
         if parts:
-            print('  split (medians / p90): ' + ' · '.join(
+            print('  split (medians / p90, n=%d): ' % len(joined) + ' · '.join(
                 f'{k} {med(v)}/{sorted(v)[int(len(v)*.9)]}' for k, v in parts.items()))
             print('  (handle = handler + slides + overlays + chrome + mirror + ASSEMBLE; assemble = truth + compress + the diff and plan)')
     else:
         print('\nno handleMs/assembleMs in this journal (written before §32)')
     # §41: the cache's account — rects shipped as draws, and why the rest
     # were pixels (the compositor's own reasons, per flush)
-    cached = [r.get('cached') for r in sub.values() if isinstance(r.get('cached'), int) and r.get('cached') >= 0]
+    cached = [r.get('cached') for r in joined if isinstance(r.get('cached'), int) and r.get('cached') >= 0]
     if cached:
         miss = collections.Counter()
-        for r in sub.values():
+        for r in joined:
             for part in (r.get('cacheMiss') or '').split(','):
                 if '=' in part:
                     k, v = part.split('=', 1)
@@ -172,7 +181,10 @@ def main(path, since_ms=0, glasslog=False):
     prev_t = None; cur = None
     for t, b, a, via, hm, am, lab, ts in done:
         t = ts if ts is not None else t          # the SUBMIT is the gesture's moment; the ack is what it waited for
-        if lab in ('SILENT', 'ATLAS'): prev_t = t; continue
+        # not gestures — and they must not extend one either: leaving `prev_t` on an atlas chunk
+        # glued the next real gesture onto the burst before it and lost that gesture's own first
+        # flush, the number `WINDOWS.md` §6 judges a window by (2026-09-15, the third review)
+        if lab in ('SILENT', 'ATLAS'): continue
         if cur is None or prev_t is None or t - prev_t > BURST_GAP_MS:
             if cur: bursts[cur[0]].append(cur)
             cur = [lab, b, a, 0, 0]

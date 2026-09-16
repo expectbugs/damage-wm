@@ -142,14 +142,18 @@ async def selftest(ws, host, port, token, path):
         # no self-test message says nothing new about it
         last_step = max((k for k, m in enumerate(msgs) if not is_live(m)), default=None)
         rc_ok = last_step is None or (got.get('stRefused') == ('1' if want['rc']['R'][last_step] != 0 else '0'))
-        # a v2 vector: the refusal record's mode and reason (its sequence is the live count; not compared)
+        # the refusal record's mode and reason (its sequence is the live count; not compared).
+        # It is compared whenever the vector HAS one: a v1 vector's refusals are recorded
+        # by a Phase 2 build too (the dispatcher records every image-lane refusal, v1 modes
+        # included), and gating on the VECTOR's contract skipped exactly the vectors that run
+        # first (2026-09-15, the third review; run_self_test.py compares them all)
         ref = want.get('ref', {}).get('R')
         ref_ok = True
-        if ref is not None and vec.get('contract', 1) >= 2:
+        if ref is not None:
             got_ref = (int(got.get('refMode', 0)), int(got.get('refReason', 0)))     # absent fields = no refusal recorded
             ref_ok = got_ref == (ref[0], ref[1])
         print(f'  {"PASS" if crc_ok and rc_ok and ref_ok else "FAIL"} step {i}: scratch {got.get("stCrc")} (expected {want["R"]}), refused {got.get("stRefused")}'
-              + (f', refusal record {got.get("refMode", 0)}/{got.get("refReason", 0)} (expected {ref[0]}/{ref[1]})' if ref is not None and vec.get('contract', 1) >= 2 else ''))
+              + (f', refusal record {got.get("refMode", 0)}/{got.get("refReason", 0)} (expected {ref[0]}/{ref[1]})' if ref is not None else ''))
         fails += not (crc_ok and rc_ok and ref_ok)
     await probe('selftest', 'end')
     # every live cache write the vector sent must have changed the cache: the generation counts the
@@ -169,8 +173,11 @@ async def selftest(ws, host, port, token, path):
         await probe('flags', '0x%04x' % wish); await asyncio.sleep(0.5)
         print(f'  flags restored to the session\'s wish 0x{wish:04x} (DRAW2 stays armed for this session if it was)')
     print(f'{vec["name"]}: {"all steps match on RIGHT" if not fails else f"{fails} step(s) differ"} (LEFT runs the same steps but cannot report — FIRMWARE.md §3)')
+    return fails
 
 async def main():
+    fails = [0]          # the run's exit status: any selftest step that differed
+    bad_status = [0]     # status frames that would not parse
     import websockets
     args = [a for a in sys.argv[1:]]
     host, token = args[0], args[1]
@@ -196,7 +203,11 @@ async def main():
                         got[arm] += 1
                     else:
                         try: status.update(json.loads(m))
-                        except Exception: pass
+                        except Exception as e:
+                            # never silent: a later `status` step would print stale state as if it
+                            # were current (2026-09-15, the third review)
+                            bad_status[0] += 1
+                            print(f'[status frame unreadable ({e}); {bad_status[0]} so far — the printed status may be stale]')
             except Exception as e:
                 print(f'[reader ended: {e}]')
             finally:
@@ -224,9 +235,12 @@ async def main():
             elif s == 'status':
                 print(f'status: {status}')
             elif s.startswith('selftest:'):
-                await selftest(ws, host, port, token, s[9:])
+                fails[0] += await selftest(ws, host, port, token, s[9:]) or 0
             else:
                 raise SystemExit(f'unknown step {s!r}')
         rt.cancel()
+    # every other gate in this repo exits non-zero on a disagreement; the one that runs against
+    # the actual glasses used to exit 0 however it went (2026-09-15, the third review)
+    return 1 if fails[0] else 0
 
-asyncio.run(main())
+raise SystemExit(asyncio.run(main()))

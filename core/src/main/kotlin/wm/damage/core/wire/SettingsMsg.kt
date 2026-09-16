@@ -52,8 +52,12 @@ object SettingsMsg {
     const val OP_FB_RELEASE = 6
     const val OP_WEAR_QUERY = 7
 
-    /** Lease timing constants (settings_ext.c / FACECLAW_WAKE_LEASE_RENEW_MS). */
-    const val LEASE_EXPIRY_MS = 90_000L
+    /** Lease timing constants (settings_ext.c / FACECLAW_WAKE_LEASE_RENEW_MS). The firmware's
+     *  deadline is `FW_MS_TICK + 90000` **ticks**, and the tick runs 1.024 per wall-clock ms
+     *  (`FIRMWARE.md` §3, measured 2026-09-15), so the lease is 87.9 s of real time — not 90
+     *  (2026-09-15, the third review: read as 90 s it left the carry window 7.9 s of margin where
+     *  its constant says 10, and the simulator's lease outlived the glasses' by 2.1 s). */
+    const val LEASE_EXPIRY_MS = 87_891L
     const val LEASE_RENEW_MS = 45_000L
 
     /** The capability tokens Damage requires before painting anything

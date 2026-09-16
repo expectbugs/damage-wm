@@ -87,9 +87,15 @@ class ConformanceVectorTest {
                     // well — a partial refresh (mode 24) transfers only its own rows, so a hint that
                     // misses a changed row differs here while the shadow agrees (2026-09-15, the second
                     // Phase 2 review)
-                    expect["P"]?.jsonObject?.get(lens)?.jsonPrimitive?.content?.let { wantPanel ->
-                        val gotPanel = "%08x".format(sim.panelCrc32(arm))
-                        if (wantPanel != gotPanel) problems += "$name step $i lens $lens: panel crc $gotPanel, the C gives $wantPanel"
+                    if (vec["panel"] != null) {
+                        // this lens's key, not just the object: a missing one compared nothing and
+                        // said nothing, the shape `ref` was already guarded against (the third review)
+                        val wantPanel = expect["P"]?.jsonObject?.get(lens)?.jsonPrimitive?.content
+                        if (wantPanel == null) problems += "$name step $i lens $lens: no panel expectation for this lens"
+                        else {
+                            val gotPanel = "%08x".format(sim.panelCrc32(arm))
+                            if (wantPanel != gotPanel) problems += "$name step $i lens $lens: panel crc $gotPanel, the C gives $wantPanel"
+                        }
                     }
                 }
             }

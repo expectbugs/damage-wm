@@ -247,17 +247,46 @@ abstract class CfwTransportBase(
     private suspend fun telemetryRead(epoch: Long, op: Int = DamageMsg.OP_TELEMETRY, label: String = "telemetry"): DamageMsg.Telemetry? {
         val id = nextTelemetryId()
         val waiter = CompletableDeferred<DamageMsg.Telemetry>()
+        // the first attempt's write failing ends the wait, as it does for the prelude and the
+        // capability query (2026-09-15, the third review: without it a characteristic that throws
+        // on a link that is still up re-asked for ever, and the start — which the watchdog cannot
+        // see until it completes — never returned). Pacing, never a clock.
+        val firstFailed = CompletableDeferred<String>()
         telemetryWaiters[id] = waiter
         val reask = scope.launch {
+            var first = true
             while (true) {
                 if (epoch != sessionEpoch.get()) { waiter.completeExceptionally(LintError("session ended")); break }
-                controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage $label $id") { DamageMsg.control(op, id) })
+                controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage $label $id",
+                    failed = if (first) firstFailed else null) { DamageMsg.control(op, id) })
+                first = false
                 delay(CAPABILITY_REASK_MS)
                 if (waiter.isCompleted) break
                 Log.i(name, "$label $id unanswered after ${CAPABILITY_REASK_MS} ms — asking again")
             }
         }
-        return try { waiter.await() } catch (e: Exception) { null } finally { reask.cancel(); telemetryWaiters.remove(id, waiter) }
+        return try {
+            kotlinx.coroutines.selects.select<DamageMsg.Telemetry?> {
+                waiter.onAwait { it }
+                firstFailed.onAwait { reason -> Log.w(name, "$label $id not written: $reason"); null }
+            }
+        } catch (e: Exception) { null } finally { reask.cancel(); telemetryWaiters.remove(id, waiter) }
+    }
+
+
+    /** The lane completes exactly one of [writtenBoth] / [firstFailed] for an attempt, and a reply
+     *  can only follow an attempt's writes — so waiting here is what ORDERS the answer against the
+     *  write. Reading `writtenBoth.isCompleted` straight after the reply raced the lane and read
+     *  "no attempt reached both arms" while the lane was two statements from saying it did
+     *  (2026-09-15, the third review: it faulted every arming on the instant transports). */
+    private suspend fun settleWrite(writtenBoth: CompletableDeferred<Unit>, firstFailed: CompletableDeferred<String>) {
+        if (writtenBoth.isCompleted || firstFailed.isCompleted) return
+        try {
+            kotlinx.coroutines.selects.select<Unit> {
+                writtenBoth.onAwait { }
+                firstFailed.onAwait { }
+            }
+        } catch (e: Exception) { /* either way the two checks below decide */ }
     }
 
     /** A FLAGS_SET of [set] to both arms, answered by RIGHT; the answer's register says whether
@@ -268,29 +297,49 @@ abstract class CfwTransportBase(
         // the reply echoes request id 0 (FIRMWARE.md §3): await the next record on id 0 that
         // answers THIS set (flagsReplyAnswers)
         val waiter = CompletableDeferred<DamageMsg.Telemetry>()
-        val notWritten = CompletableDeferred<String>()
+        // `written` LATCHES ON SUCCESS: one attempt that reached every arm is what "both lenses
+        // took it" means. Reading `failed` instead latched on the first attempt that threw, so a
+        // transient failure condemned a set a later attempt armed and left the glasses with DRAW2
+        // on while the session drew v1 shapes (2026-09-15, the third review).
+        val writtenBoth = CompletableDeferred<Unit>()
+        val firstFailed = CompletableDeferred<String>()
         flagsSetPending = set
         telemetryWaiters[0] = waiter
         lastArmedAtMs = nowMs()
         val reask = scope.launch {
+            var first = true
             while (true) {
                 if (epoch != sessionEpoch.get()) { waiter.completeExceptionally(LintError("session ended")); break }
-                controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage flags 0x${set.toString(16)}", notWritten) { DamageMsg.control(DamageMsg.OP_FLAGS_SET, set) })
+                controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage flags 0x${set.toString(16)}",
+                    failed = if (first) firstFailed else null, written = writtenBoth) { DamageMsg.control(DamageMsg.OP_FLAGS_SET, set) })
+                first = false
                 delay(CAPABILITY_REASK_MS)
                 if (waiter.isCompleted) break
                 Log.i(name, "flags 0x${set.toString(16)} unanswered after ${CAPABILITY_REASK_MS} ms — asking again")
             }
         }
-        val reply = try { waiter.await() } catch (e: Exception) { null } finally { reask.cancel(); telemetryWaiters.remove(0, waiter) }
-        // only RIGHT answers, so RIGHT's reply says nothing about the other lens: a write that did
-        // not leave for one arm means that lens has not armed the set, and it cannot report it
+        // the record, or the first attempt's write failing to leave at all — the shape the prelude
+        // and the capability query use. `flagsSetPending` is deliberately NOT cleared afterwards: a
+        // late coroutine from a previous session clearing it would leave the new session's own reply
+        // unrecognised, and the predicate already requires the record's flags to BE the set armed
+        val reply = try {
+            kotlinx.coroutines.selects.select<DamageMsg.Telemetry?> {
+                waiter.onAwait { it }
+                firstFailed.onAwait { null }
+            }
+        } catch (e: Exception) { null } finally { reask.cancel(); telemetryWaiters.remove(0, waiter) }
+        // only RIGHT answers, so RIGHT's reply says nothing about the other lens: unless some
+        // attempt reached BOTH arms, the left lens has not armed the set and cannot report it
         // (2026-09-15, second review)
-        if (notWritten.isCompleted) {
-            val why = notWritten.getCompleted()
-            emitFault("flags", "flags 0x${set.toString(16)} did not reach an arm ($why) — the lenses would differ, so the set is not taken as armed")
-            return null
-        }
-        return reply
+        if (reply != null) settleWrite(writtenBoth, firstFailed)
+        if (reply != null && writtenBoth.isCompleted) return reply
+        // a session that ended is not a fault: the sweep fails the waiter AND the queued write's own
+        // deferred, so both look like a refusal from here
+        if (epoch != sessionEpoch.get() || !running) return null
+        if (reply == null && !firstFailed.isCompleted) return null          // the session ended: the sweep says so
+        val why = if (firstFailed.isCompleted) firstFailed.getCompleted() else "no attempt reached both arms"
+        emitFault("flags", "flags 0x${set.toString(16)} did not reach an arm ($why) — the lenses would differ, so the set is not taken as armed")
+        return null
     }
 
     /** The set a FLAGS_SET is arming; its reply is the id-0 record whose flags are that set, or one
@@ -400,26 +449,77 @@ abstract class CfwTransportBase(
     protected open fun onDamageBuild(caps: DamageMsg.Caps) {}
 
     /** `FIRMWARE.md` §4, op 5: ask a contract-2 build for a [kib] KiB cache before the first
-     *  write and read the size back — the register holds op 5's status, and field 18 the size
-     *  once allocated (a kept lease's cache may already be up at the previous session's size).
-     *  Returns the size in bytes this session's cache has or will have. */
+     *  write, and take the answer from **op 5's own reply** — its arg is a size, not a request id,
+     *  so like FLAGS_SET it answers on id 0 carrying the status it just recorded (0 taken, 3 no
+     *  lease, 4 already allocated, 5 outside 64..160 KiB) and field 18 once the cache is up.
+     *
+     *  It used to send op 5 once and then read a separate TELEMETRY, whose status register is
+     *  STICKY — TELEMETRY records none — so a 0 there was as likely to be a previous op's as op
+     *  5's, and an op 5 the settings task ate (the §12 class this file re-asks everything else
+     *  for) read as success: the session then laid a 160 KiB atlas over a 64 KiB cache and every
+     *  record above the line was refused in silence (2026-09-15, the third review). Re-asked on
+     *  the pacing tick like every other start message. Returns the size in bytes this session's
+     *  cache has or will have; throws when the request could not be placed on both arms. */
     private suspend fun requestCacheSize(epoch: Long, kib: Int): Int {
-        val notWritten = CompletableDeferred<String>()
-        controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage cache size $kib", notWritten) { DamageMsg.control(DamageMsg.OP_CACHE_SIZE, kib) })
-        val t = telemetryRead(epoch, label = "cache size") ?: return CfwModes.TEXTURE_CACHE_SIZE
+        val waiter = CompletableDeferred<DamageMsg.Telemetry>()
+        val writtenBoth = CompletableDeferred<Unit>()
+        val firstFailed = CompletableDeferred<String>()
+        cacheSizePending = kib
+        telemetryWaiters[0] = waiter
+        val reask = scope.launch {
+            var first = true
+            while (true) {
+                if (epoch != sessionEpoch.get()) { waiter.completeExceptionally(LintError("session ended")); break }
+                controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage cache size $kib",
+                    failed = if (first) firstFailed else null, written = writtenBoth) { DamageMsg.control(DamageMsg.OP_CACHE_SIZE, kib) })
+                first = false
+                delay(CAPABILITY_REASK_MS)
+                if (waiter.isCompleted) break
+                Log.i(name, "cache size $kib KiB unanswered after ${CAPABILITY_REASK_MS} ms — asking again")
+            }
+        }
+        val t = try {
+            kotlinx.coroutines.selects.select<DamageMsg.Telemetry?> {
+                waiter.onAwait { it }
+                firstFailed.onAwait { null }
+            }
+        } catch (e: Exception) { null } finally {
+            reask.cancel(); telemetryWaiters.remove(0, waiter)
+            if (cacheSizePending == kib) cacheSizePending = null      // only ever clear our own
+        }
+        if (t == null) throw LintError("the cache size was not answered (" +
+            (if (firstFailed.isCompleted) firstFailed.getCompleted() else "the session ended") +
+            ") — the start fails and the keeper builds the session again")
         // both lenses lay their cache out at this size; an arm that did not take the request would
         // allocate 64 KiB and refuse every record above it, silently (2026-09-15, second review)
-        if (notWritten.isCompleted) throw LintError("the cache size did not reach an arm (${notWritten.getCompleted()}) — the start fails and the keeper builds the session again")
+        settleWrite(writtenBoth, firstFailed)
+        if (!writtenBoth.isCompleted) throw LintError("the cache size did not reach both arms — the start fails and the keeper builds the session again")
         val allocated = t.cacheSize?.toInt()
+        val status = t.lastStatus
         val size = when {
-            allocated != null -> allocated
-            t.lastStatus == DamageMsg.STATUS_OK.toLong() -> kib * 1024
-            else -> CfwModes.TEXTURE_CACHE_SIZE
+            allocated != null -> allocated                                  // the cache is up: its own size is every bound
+            status == DamageMsg.STATUS_OK.toLong() -> kib * 1024            // op 5's OWN status, from op 5's own reply
+            else -> CfwModes.TEXTURE_CACHE_SIZE                             // refused: the first write allocates the v1 64 KiB
         }
-        emitNote("glass", "cache size: asked $kib KiB, status ${t.lastStatus}, ${size / 1024} KiB this session" +
+        // a field 18 off the wire is not this shell's arithmetic: an atlas laid out over a size the
+        // builder refuses would throw on the shell loop (2026-09-15, the third review)
+        if (size !in CfwModes.TEXTURE_CACHE_SIZE..CfwModes.CACHE2_MAX) {
+            emitNote("glass", "cache size: the glasses report $size B, outside 64..160 KiB — this session uses the v1 64 KiB")
+            return CfwModes.TEXTURE_CACHE_SIZE
+        }
+        emitNote("glass", "cache size: asked $kib KiB, status $status, ${size / 1024} KiB this session" +
             (if (allocated != null) " (allocated already)" else ""))
         return size
     }
+
+    /** The KiB an op 5 is asking for while its reply is awaited, or null. Op 5 and FLAGS_SET both
+     *  answer on request id 0 and never overlap (the start asks for the size, then arms), so this
+     *  says which of the two an id-0 record belongs to. */
+    @Volatile private var cacheSizePending: Int? = null
+    /** The statuses op 5 itself records (`FIRMWARE.md` §4). 4 and 5 are its alone; 0 and 3 it
+     *  shares with FLAGS_SET, which is not outstanding while this is. */
+    private fun cacheSizeReplyAnswers(t: DamageMsg.Telemetry): Boolean = (t.lastStatus ?: -1L).toInt() in
+        listOf(DamageMsg.STATUS_OK, DamageMsg.STATUS_NO_LEASE, DamageMsg.STATUS_ALLOCATED, DamageMsg.STATUS_BUDGET)
 
     private fun loggerSwitch(epoch: Long, on: Boolean) =
         CtlWork.BothArms(epoch, LoggerMsg.SID, "logger switch (${if (on) "on" else "off"})") { id -> LoggerMsg.switchSet(id, on) }
@@ -531,7 +631,12 @@ abstract class CfwTransportBase(
          *  caller that needs BOTH lenses to have taken it can say so (2026-09-15, second review:
          *  a LEFT write that failed while the link stayed up was a note, and RIGHT's answer made
          *  the session look armed — the left lens then refuses every v2 op and cannot report it). */
+        /** [written] completes once an attempt reached EVERY arm — the positive form of [failed],
+         *  which latches on the first arm that threw and so cannot be re-read across a re-ask
+         *  (2026-09-15, the third review: one transient failure condemned a set a later attempt
+         *  armed). A caller that needs both lenses waits for this, not for the absence of that. */
         class BothArms(epoch: Long, val sid: Int, val label: String, val failed: CompletableDeferred<String>? = null,
+                       val written: CompletableDeferred<Unit>? = null,
                        val payload: (Int) -> ByteArray) : CtlWork(epoch)
     }
 
@@ -902,7 +1007,11 @@ abstract class CfwTransportBase(
                         // §59), and the second copy of the previous reply used to complete the next
                         // set's waiter with the previous flags — a false "refused" fault
                         val w = telemetryWaiters[id.toInt()]
-                        if (w != null && (id != 0L || flagsReplyAnswers(t))) { telemetryWaiters.remove(id.toInt(), w); w.complete(t) }
+                        // id 0 is the echo of FLAGS_SET and of op 5; `cacheSizePending` says which
+                        // one is outstanding (they never overlap — the start asks for the size,
+                        // then arms), so each takes only a record that answers IT
+                        val answers = id != 0L || (if (cacheSizePending != null) cacheSizeReplyAnswers(t) else flagsReplyAnswers(t))
+                        if (w != null && answers) { telemetryWaiters.remove(id.toInt(), w); w.complete(t) }
                     }
                     return
                 }
@@ -1357,7 +1466,9 @@ abstract class CfwTransportBase(
             val caps2 = damageCaps
             if (caps2 != null && caps2.has(DamageMsg.FEATURE_DRAW2)) {
                 updateState { it.copy(detail = "cache size and flags") }
-                val size = requestCacheSize(epoch, DamageMsg.CACHE_BUDGET_KIB)
+                // a session that will not arm DRAW2 draws with v1 shapes over the first 64 KiB, so
+                // asking for 160 would spend 96 KiB of arena 13 against §4's budget for nothing
+                val size = requestCacheSize(epoch, if (draw2HeldBack) DamageMsg.CACHE_MIN_KIB else DamageMsg.CACHE_BUDGET_KIB)
                 updateState { it.copy(cacheSize = size) }
                 // DRAW2 belongs to the session, not to the wish carried to other builds; a hold-back that
                 // caught it keeps it off until asked for by hand
@@ -1585,6 +1696,8 @@ abstract class CfwTransportBase(
 
     /** `FIRMWARE.md` §3, op 4 CACHE_INFO: the record RIGHT answers with, for the shell's check of
      *  an atlas upload. One control round trip; nothing is sent on a build that cannot answer. */
+    override val cacheCheckSupported: Boolean get() = true
+
     override suspend fun cacheCheck(): DamageMsg.Telemetry? {
         if (!started) return null
         if (damageCaps?.has(DamageMsg.FEATURE_TELEMETRY) != true) return null
@@ -1719,7 +1832,10 @@ abstract class CfwTransportBase(
                 ?: Log.w(name, "settings write dropped: $why")
             is CtlWork.Launch -> w.failed?.complete(why)
                 ?: Log.w(name, "prelude write dropped: $why")
-            is CtlWork.BothArms -> Log.w(name, "${w.label} dropped: $why")
+            is CtlWork.BothArms -> {
+                Log.w(name, "${w.label} dropped: $why")
+                w.failed?.complete(why)          // the doc on BothArms.failed says so; a swept caller must not park
+            }
         }
     }
 
@@ -2128,17 +2244,20 @@ abstract class CfwTransportBase(
                             // the other from its copy
                             val id = nextMsgIdLocked()
                             val payload = work.payload(id)
+                            var everyArm = true
                             for (arm in Arm.entries) {
                                 try {
                                     for (p in AaFrame.frame(nextSeqLocked(), work.sid, 0x20, payload)) writePacket(arm, p)
                                 } catch (e: kotlinx.coroutines.CancellationException) {
                                     throw e                     // the lane is ending: not a write failure
                                 } catch (e: Exception) {
+                                    everyArm = false
                                     Log.w(name, "${work.label} not written to $arm: ${e.message}")
                                     emitNote("probe", "${work.label} not written to $arm: ${e.message}")
                                     work.failed?.complete("$arm: ${e.message}")
                                 }
                             }
+                            if (everyArm) work.written?.complete(Unit)
                         }
                         is CtlWork.Launch -> try {
                             wire.withLock {

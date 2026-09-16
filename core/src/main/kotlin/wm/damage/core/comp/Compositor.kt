@@ -199,7 +199,9 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     }
 
     fun damageAll() = damage(Rect(0, 0, width, height))
-    /** True while a reseed is owed (v2) — read beside [hasPending] by the pump. */
+    /** True while a reseed is owed (v2). [requestReseed] always damages the whole panel, so
+     *  [hasPending] is already true whenever this is — the pump's gate needs no second term
+     *  (2026-09-15, the third review: the KDoc claimed the pump read it and nothing did). */
     val reseedPending: Boolean get() = needsReseed
 
     /**
@@ -397,7 +399,10 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
                 if (planned.isEmpty()) break
                 var exhausted = false
                 for (p in planned) {
-                    if (fids >= budget) { exhausted = true; break }
+                    // a contract-2 seam fill spends no fid, so the fid budget must not stop it:
+                    // the blacks are planned LAST (later wins), and stopping them here would
+                    // leave the seam strip showing the previous frame for another flush
+                    if (fids >= budget && !(v2 && p is Planned.Black)) { exhausted = true; break }
                     val before = ops.size
                     fids += emit(p, ops, touched, budget - fids, batchMax - bytes)
                     for (i in before until ops.size) bytes += sizeOf(ops[i])
@@ -643,8 +648,13 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         val blacks = pairBlacks(dedupe(blacksL), dedupe(blacksR))
         // seam pairs are few (whole strips); the deltas get the rest of the
         // aim, but never less than two — one rect per plane-0 half beside a
-        // box is the minimum that does not force a merge ACROSS the box
-        val merged = partition(deltas.values.toList(), maxOf(2, aim - blacks.size))
+        // box is the minimum that does not force a merge ACROSS the box.
+        // On contract 2 a black box is a mode-21 fill: no fid, so it takes nothing from the aim
+        // (2026-09-15, the third review — charging it merged the content deltas of every
+        // seam-making gesture one rect harder and left a fid unspent: measured, five small spots
+        // plus a plane move went 60 B in five rects on a clean frame and 494 B in four with the
+        // seam, the three bottom spots banded into one 620-wide strip)
+        val merged = partition(deltas.values.toList(), maxOf(2, aim - (if (v2) 0 else blacks.size)))
         val out = ArrayList<Planned>(merged.size + blacks.size)
         out.addAll(merged.sortedWith(compareBy({ if (it.owner == OWNER_REMAINDER) 0 else 1 }, { -it.d })))
         out.addAll(blacks)
@@ -992,10 +1002,14 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         // contract 2: a v2 atlas draws per lens — no widening, no copy, no retry on the context. An
         // atlas of the other contract than the session's (between a lease lost and the rebuild) is
         // not drawn from at all: its offsets and modes are the wrong ones for what answers
-        val atlas = cachedText?.atlas ?: return null
+        val src0 = cachedText ?: return null
+        // ONE read of the volatile, passed down: deciding `v2` on one read and drawing from
+        // another would put 4-byte-unit offsets on the wire against a v1 layout whose offsets are
+        // bytes (2026-09-15, the third review; `CachedText` was given the same in the second)
+        val atlas = src0.atlas ?: return null
         if (atlas.v2 != v2) return miss("contract")
-        if (atlas.v2) return emitCachedV2(rect, d, ops, touched, fidsLeft, bytesLeft)
-        emitCachedAt(rect, d, ops, touched, fidsLeft, bytesLeft)?.let { return it }
+        if (atlas.v2) return emitCachedV2(rect, d, ops, touched, fidsLeft, bytesLeft, src0, atlas)
+        emitCachedAt(rect, d, ops, touched, fidsLeft, bytesLeft, src0, atlas)?.let { return it }
         // A depth-plane rect whose proof failed on its CONTEXT — the copy
         // leaves |d| columns on each far side that must already be right, so
         // the 2|d| columns beside the text have to be shift-invariant (black,
@@ -1008,7 +1022,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             val wide = Rect(region.rect.x, rect.y, region.rect.w, rect.h).alignOut()
             if (wide != rect && region.rect.contains(wide)) {
                 cacheMiss["proof"] = (cacheMiss["proof"] ?: 1) - 1
-                emitCachedAt(wide, d, ops, touched, fidsLeft, bytesLeft)?.let { cacheHitsWidened++; return it }
+                emitCachedAt(wide, d, ops, touched, fidsLeft, bytesLeft, src0, atlas)?.let { cacheHitsWidened++; return it }
             }
         }
         return null
@@ -1020,9 +1034,8 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     var cacheHitsWidened = 0
         private set
 
-    private fun emitCachedAt(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int? {
-        val src = cachedText ?: return null
-        val atlas = src.atlas ?: return null
+    private fun emitCachedAt(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int,
+                     src: CachedText, atlas: GlyphAtlas): Int? {
         val all = src.frameDraws()
         val allImages = src.frameImageDraws()
         if (all.isEmpty() && allImages.isEmpty()) return miss("no-records")
@@ -1142,9 +1155,8 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      * which is the nominal composition shifted. The `edge` miss is only a box off the panel;
      * the context-caused `proof` misses of the v1 shape (a rail beside the text) are gone.
      */
-    private fun emitCachedV2(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int? {
-        val src = cachedText ?: return null
-        val atlas = src.atlas ?: return null
+    private fun emitCachedV2(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int,
+                     src: CachedText, atlas: GlyphAtlas): Int? {
         val all = src.frameDraws()
         val allImages = src.frameImageDraws()
         if (all.isEmpty() && allImages.isEmpty()) return miss("no-records")
@@ -1166,7 +1178,13 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         if (draws.size + images.size > MAX_CACHED_DRAWS || r.w <= 0 || r.h <= 0) return miss("too-many-draws")
         val l = r.translate(-d, 0)
         val rr = r.translate(d, 0)
-        if (l.x < 0 || rr.x < 0 || l.right > width || rr.right > width) return miss("edge")
+        // BOTH axes, as the v1 path bounds its widened rect: a recorded draw's box is the pen's
+        // (`CachedText.record`: the run's width by the face's line height), never clipped to the
+        // panel, so a draw near the last row grows `r` past the bottom — and the base below reads
+        // `composed` by (r.y + y) (2026-09-15, the third review: it was an exception on the loop
+        // where the v1 path ships pixels)
+        if (l.x < 0 || rr.x < 0 || l.right > width || rr.right > width ||
+            r.y < 0 || r.bottom > height) return miss("edge")
         val textOps = ArrayList<DisplayOp.DrawText2>(draws.size)
         for (dr in draws) {
             if (dr.spec !in src.live) return miss("font-not-live")

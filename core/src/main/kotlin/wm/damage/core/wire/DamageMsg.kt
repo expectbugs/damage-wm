@@ -91,9 +91,20 @@ object DamageMsg {
 
     /** The reasons of an image-lane refusal (field 24), by number. */
     val REASONS = mapOf(1 to "length", 2 to "bounds", 3 to "no-lease", 4 to "no-shadow", 5 to "record", 6 to "code",
-        7 to "scratch", 8 to "mode", 9 to "draw2-unarmed", 10 to "no-batch", 11 to "no-memory", 12 to "value", 13 to "stream")
+        7 to "scratch", 8 to "mode", 9 to "draw2-unarmed", 10 to "no-batch", 11 to "no-memory", 12 to "value", 13 to "stream",
+        // `FIRMWARE.md` §4: the display gate came free with the previous frame still pending, so the
+        // message was dropped whole — the one reason that means belief and glass have parted
+        14 to "display-busy")
 
-    fun control(op: Int, arg: Int): ByteArray = Pb.cat(
+    fun control(op: Int, arg: Int): ByteArray {
+        // the body carries the arg in two bytes: anything wider would be TRUNCATED on the wire,
+        // which this project does not do quietly (2026-09-15, the third review)
+        if (op !in 0..0xFF) throw IllegalArgumentException("DamageControl op $op is not a byte")
+        if (arg !in 0..0xFFFF) throw IllegalArgumentException("DamageControl arg $arg does not fit the two-byte field")
+        return controlBody(op, arg)
+    }
+
+    private fun controlBody(op: Int, arg: Int): ByteArray = Pb.cat(
         Pb.v(1, 1),                 // commandId: a write
         Pb.v(2, 0),                 // MagicRandom 0 — fire-and-forget, as the lease
         Pb.l(CONTROL_FIELD, byteArrayOf('D'.code.toByte(), 'M'.code.toByte(), 1,
@@ -117,10 +128,19 @@ object DamageMsg {
     /** One telemetry record: field number → value, absent fields left out. */
     data class Telemetry(val fields: Map<Int, Long>) {
         val requestId get() = fields[1]
-        val uptimeMs get() = fields[2]
+        /** Field 2 as the firmware sends it: the OS tick, **1.024 per wall-clock ms** (`FIRMWARE.md`
+         *  §3, measured 2026-09-15). Everything that compares it with the phone's clock wants
+         *  [uptimeMs]. */
+        val uptimeTicks get() = fields[2]
+        /** Field 2 in wall-clock milliseconds — integer, the contract's rule 1 (2026-09-15, the
+         *  third review: read as milliseconds it runs 2.4 % fast, which ate the reset rule's
+         *  prediction backstop once two reads were more than ~7 minutes apart). */
+        val uptimeMs get() = fields[2]?.let { it * 1000 / 1024 }
         val flags get() = fields[3]
         val lastStatus get() = fields[4]
-        val leaseMsLeft get() = fields[12]
+        /** Field 12 as the firmware sends it: OS ticks left on the lease, 1.024 per ms
+         *  (`deadline - tick`, both ticks — `FIRMWARE.md` §3). */
+        val leaseTicksLeft get() = fields[12]
         val lens get() = fields[14]
         val transferUs get() = fields[15]
         val presents get() = fields[16]
@@ -146,9 +166,9 @@ object DamageMsg {
         }
     }
 
-    private val NAMES = mapOf(1 to "id", 2 to "uptimeMs", 3 to "flags", 4 to "lastStatus", 5 to "workerUs",
+    private val NAMES = mapOf(1 to "id", 2 to "uptimeTicks", 3 to "flags", 4 to "lastStatus", 5 to "workerUs",
         6 to "copyUs", 7 to "free13KiB", 8 to "free20KiB", 9 to "free27KiB", 10 to "panel", 11 to "diag",
-        12 to "leaseMs", 13 to "boots", 14 to "lens", 15 to "transferUs", 16 to "presents", 17 to "cacheGen",
+        12 to "leaseTicks", 13 to "boots", 14 to "lens", 15 to "transferUs", 16 to "presents", 17 to "cacheGen",
         18 to "cacheSize", 19 to "cacheCrc", 20 to "stSteps", 21 to "stRefused", 22 to "stCrc",
         23 to "refMode", 24 to "refReason", 25 to "refSeq", 26 to "path")
 

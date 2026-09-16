@@ -178,7 +178,7 @@ class DamageMsgTest {
             t.start(full)
             t.devProbe("flags", "probe")
             until("armed by the probe") { Arm.entries.all { sim.damageFlags(it) == DamageMsg.FLAG_PROBE } }
-            until("the arming's reply recorded an uptime of 30 s") { has("glass", "uptimeMs=30000") }
+            until("the arming's reply recorded an uptime of 30 s") { has("glass", "uptimeTicks=30720") }   // 30,000 ms in ticks
             // the glasses reset 20 s after the arming; the session is rebuilt three minutes later,
             // so the new uptime (180 s) exceeds the last reading (30 s)
             clock += 20_000L
@@ -308,8 +308,11 @@ class DamageMsgTest {
 
         val record = Pb.cat(Pb.v(1, 42), Pb.v(2, 5000), Pb.v(3, 0x8000), Pb.v(4, 0), Pb.v(10, 0x0070B024), Pb.v(12, 90000), Pb.v(14, 2))
         val t = assertNotNull(DamageMsg.parseTelemetry(Pb.cat(Pb.v(1, 3), Pb.v(2, 0), Pb.l(111, record))))
-        assertEquals(42L, t.requestId); assertEquals(0x8000L, t.flags); assertEquals(90000L, t.leaseMsLeft); assertEquals(2L, t.lens)
-        assertEquals("id=42 uptimeMs=5000 flags=0x8000 lastStatus=0 panel=0x70b024(JBD4010) leaseMs=90000 lens=2", t.describe())
+        assertEquals(42L, t.requestId); assertEquals(0x8000L, t.flags); assertEquals(90000L, t.leaseTicksLeft); assertEquals(2L, t.lens)
+        // fields 2 and 12 are OS ticks on the wire, so the record prints ticks and `uptimeMs`
+        // converts (`FIRMWARE.md` §3: 1.024 per ms — 5,000 ticks is 4,882 ms)
+        assertEquals(4882L, t.uptimeMs); assertEquals(5000L, t.uptimeTicks)
+        assertEquals("id=42 uptimeTicks=5000 flags=0x8000 lastStatus=0 panel=0x70b024(JBD4010) leaseTicks=90000 lens=2", t.describe())
     }
 
     @Test
@@ -332,7 +335,7 @@ class DamageMsgTest {
                     t.devProbe("telemetry", "read")
                     until("a probe into an upstream build says what to expect") { has("probe", "without DamageCaps") }
                     delay(200)
-                    assertTrue(!has("glass", "uptimeMs="), "an upstream build answers no telemetry")
+                    assertTrue(!has("glass", "uptimeTicks="), "an upstream build answers no telemetry")
                     t.stop()
                     continue
                 }

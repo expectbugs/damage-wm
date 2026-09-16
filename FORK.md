@@ -481,3 +481,14 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   call's width, the v2 atlas upload's alignment, kerning on the v1 path, the hold-back and a lost lease vs DRAW2, the
   carry decision's evidence, the self-test's live cache writes); `FIRMWARE.md` §4 amended; 2 vectors added. Fork pin
   `55746389…`, no new site. Nothing flashed. Committed and pushed on Adam's word: Damage `1850fb6`, the fork `759f001`.
+- **2026-09-15 (night, the third review — `HANDOFF.md` §63):** seven reviewers over the same surface again. The
+  fork: mode 12's write pass re-checks the bounds it re-reads (the v1 twin of §62.2 item 4; three reviewers found
+  it independently), mode 19's write loop bounds the source too, the deferred save-under free runs UNDER its busy
+  mark and every slot claims its pointer with an atomic exchange, modes 14/15/18's second pass re-derive the table
+  pointer and record their refusal, field 12 cannot wrap, the overlay switch is read once in truth.
+  **ONE NEW SITE — the display task's other refresh call, `0x00473D80` (its type-6 branch), hooked like
+  `0x00473CE4`:** both of that function's copy calls were already hooked and the copy hook does not know the event
+  type, so a type-6 event carrying a Damage frame transferred it with no stamp and dropped its hint. §3.1's rule
+  holds — `FUN_00473C44` is the display task's event loop, not a boot-time path, and is already patched at three
+  points. Pin **`b0e42923…`**, 32 entries, a 54,068-byte block, 20 Thumb branches, 370 KB below the OTA flag; every
+  host gate green. Nothing flashed.

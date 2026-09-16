@@ -363,11 +363,18 @@ class BleTransport(
         if (!caps.has(wm.damage.core.wire.DamageMsg.FEATURE_LINK)) return
         // a `phy=1m` probe is an A/B the rebuilds must not undo (2026-09-15 review)
         if (phyProbe == "1m") { emitNote("link", "the build offers LE 2M (DamageCaps bit 6), but phy=1m was probed — not requested"); return }
+        // name the arms that were actually asked: an arm whose link was not up at this moment is
+        // not asked, and saying "both arms" then is a record that is not true — on a surface whose
+        // whole theme is the two arms holding different state (2026-09-15, the third review)
+        val asked = ArrayList<String>()
+        val skipped = ArrayList<String>()
         for ((arm, m) in managers) {
-            if (!m.linkUp) continue
+            if (!m.linkUp) { skipped.add(arm.name); continue }
             m.requestPhy(PhyRequest.PHY_LE_2M_MASK, "link")
+            asked.add(arm.name)
         }
-        emitNote("link", "the build offers LE 2M (DamageCaps bit 6): 2M requested on both arms")
+        emitNote("link", "the build offers LE 2M (DamageCaps bit 6): 2M requested on ${if (asked.isEmpty()) "no arm" else asked.joinToString("+")}" +
+            (if (skipped.isEmpty()) "" else " (${skipped.joinToString("+")} had no link up)"))
     }
 
     /** The last `phy=` probe's choice, kept across rebuilds (null until one is probed). */

@@ -261,7 +261,11 @@ def vectors():
 def vectors_v2(kf):
     """The v2 set (`FIRMWARE.md` §4): every op, its per-lens form, a refusal per reason."""
     v = []
-    arm = [{"tick": 1000}, msg(kf), {"lease": "acquire"}, flags(DRAW2)]
+    # The lease and the flags come BEFORE the keyframe, as a session does it: a fresh acquire is a
+    # release point, so arming after the keyframe left the panel stale and the NEXT present went
+    # whole whatever hint it carried — which is why `v2-hint` took the partial path on none of its
+    # steps (2026-09-15, the third review).
+    arm = [{"tick": 1000}, {"lease": "acquire"}, flags(DRAW2), msg(kf)]
 
     # a cache: two images, a 224-entry font, a v1 record for the v1 window checks
     c = Cache2()
@@ -414,13 +418,19 @@ def vectors_v2(kf):
         step({"lease": "acquire"}, msg(fill(rect(0, 300, 100, 100), 15))),         # a fresh lease: still unarmed: 9
     ]})
 
-    v.append({"name": "v2-hint", "steps": [
+    # `"panel": true` (`FIRMWARE.md` §9): a hint changes what the LENS SHOWS and nothing else, so
+    # without the panel CRC every claim below was unobservable — narrowing the hint of step 1 left
+    # every expectation byte for byte identical (2026-09-15, the third review).
+    v.append({"name": "v2-hint", "panel": True, "steps": [
         step(*arm),
         step(msg(batch(hint(100, 139), fill(rect(0, 100, 640, 40), 8)))),          # the rows the fill touched
         step(msg(batch(fill(rect(0, 0, 640, 480), 2), hint(0, 479)))),             # a whole-panel hint (the order in the batch is free)
         step(msg(batch(hint(200, 100), fill(rect(0, 0, 8, 8), 1)))),               # y0 > y1: refused (2)
         step(msg(batch(hint(0, 480), fill(rect(0, 0, 8, 8), 1)))),                 # y1 past the panel: refused (2)
-        step(msg(batch(hint(10, 20), hint(30, 40), fill(rect(0, 0, 640, 480), 5)))),   # the later hint wins
+        # the two refusals above changed the shadow and presented nothing, so the panel is stale:
+        # one whole frame first, or "a later hint wins" would be proven against a full refresh
+        step(msg(batch(fill(rect(0, 0, 640, 480), 3)))),                           # no hint: the panel is whole again
+        step(msg(batch(hint(10, 20), hint(30, 40), fill(rect(0, 0, 640, 480), 5)))),   # the later hint wins: rows 30..40 only
     ]})
     # the Phase 2 review (2026-09-15): the check orders, the per-lens pair rule, and behaviours §4 states
     # that no vector pinned — `v2-edges` keeps a self-test form (no release, no control op mid-run)
@@ -511,6 +521,11 @@ def vectors_v2(kf):
     hitable = hi.reserve(224 * 2)
     higoff = {ch: hi.add(higlyphs[ch]) for ch in range(32, 256)}
     hi.put(hitable, b"".join(u16(higoff[ch]) for ch in range(32, 256)))
+    # A TALL record for the page-turn step: 300 x 900 in 8-row bands, so it is a handful of RLE
+    # runs and the scroll offset is visible in the bands the clip shows (2026-09-15, the third
+    # review: the step used the 40x30 icon at y = -20 under a clip starting at row 40, so the two
+    # never met and it drew nothing)
+    hitall = hi.add(image2(300, 900, [((y // 8) % 15) + 1 for y in range(900) for _ in range(300)]))
     assert len(hi.buf) < 160 * 1024, len(hi.buf)
     edge_end = Cache2(start=163840 - 12)                                           # a record ending exactly at the cache's end
     last = edge_end.add(image2(8, 8, [9] * 64))
@@ -524,7 +539,8 @@ def vectors_v2(kf):
         step(msg(batch(clip_pair(rect(0, 100, 60, 40), rect(8, 100, 60, 40)),
                        draw2_pair(hipic, -12, -4, 90, 0x1F),
                        string2_pair(hitable, -3, 5, 110, 0x0F, b"Ag")))),          # a clip and negative per-lens x together
-        step(msg(batch(clip(rect(0, 40, 640, 400)), draw2(hipic, 0, -20, 0x0F)))), # a record scrolled up under a clip (Reader's page turn)
+        step(msg(batch(clip(rect(0, 40, 640, 400)), draw2(hitall, 0, -60, 0x0F)))),   # a TALL record scrolled up under a clip (Reader's page turn):
+                                                                                      # rows 60..459 of it land in the clip, the 60 above it are dropped
     ]})
 
     # Check orders and edges one message at a time: what the phone never sends, but a defect would.

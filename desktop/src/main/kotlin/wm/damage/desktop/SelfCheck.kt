@@ -23,6 +23,7 @@ import wm.damage.core.replica.ReplicaServer
 import wm.damage.core.shell.Persistence
 import wm.damage.core.shell.Shell
 import wm.damage.core.sim.GlassFirmwareSim
+import wm.damage.core.transport.draw2
 import wm.damage.core.transport.SimTransport
 import wm.damage.core.transport.TransportEvent
 import wm.damage.core.wire.EvenHubMsg
@@ -157,22 +158,36 @@ object SelfCheck {
         return out
     }
 
-    private fun check(what: String, ok: Boolean) {
+    /** The pass a check belongs to, so a contract-2 failure names itself. */
+    private var tag = ""
+
+    private fun check(what0: String, ok: Boolean) {
+        val what = tag + what0
         val mark = if (ok) "PASS" else "FAIL"
         println("  $mark  $what")
         if (!ok) failures.add(what)
     }
 
     fun run(cfg: Config): Nothing {
-        val tmp = Files.createTempDirectory("damage-selfcheck")
-        try {
-            runBlocking { script(tmp) }
-        } catch (e: Throwable) {
-            e.printStackTrace()
-            failures.add("selfcheck crashed: $e")
-        } finally {
-            tmp.toFile().deleteRecursively()
+        // TWICE: once on an upstream-shaped build (contract 1, cached text off — what the script
+        // has always run), then once on a Phase 2 build with cached text on. The oracle on every
+        // settle is this project's standing gate, and until now it never executed a single
+        // contract-2 op: no `emitCachedV2`, no mode-21 fill, no reseed, no mode-24 hint — the
+        // whole v2 belief-vs-glass surface rested on two test classes (2026-09-15, the third
+        // review). The second pass is what makes `--selfcheck` mean something about a Phase 2 build.
+        for ((contract, cached) in listOf(1 to false, 2 to true)) {
+            tag = if (contract >= 2) "c2: " else ""
+            val tmp = Files.createTempDirectory("damage-selfcheck")
+            try {
+                runBlocking { script(tmp, contract, cached) }
+            } catch (e: Throwable) {
+                e.printStackTrace()
+                failures.add("${tag}selfcheck crashed: $e")
+            } finally {
+                tmp.toFile().deleteRecursively()
+            }
         }
+        tag = ""
         println()
         if (failures.isEmpty()) {
             println("selfcheck: ALL CHECKS PASS")
@@ -184,7 +199,7 @@ object SelfCheck {
         }
     }
 
-    private suspend fun script(tmp: Path) {
+    private suspend fun script(tmp: Path, contract: Int = 1, cached: Boolean = false) {
         // a small library: one txt book with known content
         val books = tmp.resolve("books")
         Files.createDirectories(books)
@@ -221,7 +236,7 @@ object SelfCheck {
         }
 
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val sim = GlassFirmwareSim()
+        val sim = GlassFirmwareSim().also { if (contract >= 2) it.damageContract = contract }
         val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
         val text = wm.damage.core.comp.CachedText(AwtText())
         val persistence = Persistence(tmp.resolve("state.json"))
@@ -285,8 +300,14 @@ object SelfCheck {
         oracleSim = sim
         oracleShell = shell
         shell.start()
-        settle(shell, "boot")
-        check("shell boots and reaches quiescence", shell.isQuiescent())
+        if (cached) shell.updateSettings { it.copy(cachedText = "on") }
+        check("shell boots and reaches quiescence", settle(shell, "boot"))
+        if (contract >= 2) {
+            check("the session armed the v2 drawing ops (DamageCaps bit 5 + DRAW2)",
+                transport.state.value.draw2)
+            check("the session took a contract-2 texture cache",
+                transport.state.value.cacheSize >= wm.damage.core.wire.DamageMsg.CACHE_MIN_KIB * 1024)
+        }
         check("connect prelude acked by the firmware model", sim.preludeAcks >= 1)
         check("capability gate passed (started)", transport.state.value.started)
         check("FB lease held after start", transport.state.value.leaseHeld)
@@ -645,7 +666,7 @@ object SelfCheck {
 
         val persistence2 = Persistence(tmp.resolve("state.json"))
         val scope2 = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val sim2 = GlassFirmwareSim()
+        val sim2 = GlassFirmwareSim().also { if (contract >= 2) it.damageContract = contract }
         val transport2 = SimTransport(sim2, scope2, SimTransport.Timing(instant = true))
         val shell2 = Shell(text, transport2, persistence2, null, scope2)
         val reader2 = ReaderWindow(text, LocalContent(books), scope2, AwtImages())
@@ -656,6 +677,7 @@ object SelfCheck {
         val musicLib2 = ScriptedMusic()
         shell2.register(wm.damage.core.windows.music.MusicWindow(text, musicLib2, wm.damage.core.windows.music.SimMusicPlayer(musicLib2), scope2))
         shell2.start()
+        if (cached) shell2.updateSettings { it.copy(cachedText = "on") }
         // the oracle follows the LIVE pair (review §30): left pointing at the
         // stopped shell and its sim, every settle after the restart was either
         // skipped or compared a stopped shell against its own frozen glass —
@@ -1179,19 +1201,26 @@ object SelfCheck {
     private fun inkStill(shell: Shell, expected: Double): Boolean =
         kotlin.math.abs(Pack.inkFraction(shell.comp.composed) - expected) < 0.005
 
-    /** Bounded quiescence wait — a hang is a loud failure here, not a silent one. */
-    private suspend fun settle(shell: Shell, label: String, maxMs: Long = 15_000) {
+    /** Bounded quiescence wait — a hang is a loud failure here, not a silent one. Returns the ONE
+     *  evaluation that decided it (`HANDOFF.md` §27.6, §62.5): asking again afterwards fails a
+     *  settle that had already succeeded, because anything arriving in the gap between the two
+     *  reads counts against it — and the atlas read-back answers asynchronously (2026-09-15, the
+     *  third review: the contract-2 pass of this selfcheck failed its boot check on exactly that,
+     *  and nothing was wrong with the shell). */
+    private suspend fun settle(shell: Shell, label: String, maxMs: Long = 15_000): Boolean {
         val t0 = System.currentTimeMillis()
-        while (!shell.isQuiescent()) {
+        while (true) {
+            if (shell.isQuiescent()) break
             if (System.currentTimeMillis() - t0 > maxMs) {
-                failures.add("settle('$label') did not reach quiescence in ${maxMs}ms")
-                return
+                failures.add("${tag}settle('$label') did not reach quiescence in ${maxMs}ms")
+                return false
             }
             delay(20)
         }
         // every settled surface the script visits is checked against the
         // independent per-lens truth, not only against the shell's belief
         runOracle(label)
+        return true
     }
 
     private suspend fun awaitTrue(what: String, maxMs: Long = 30_000, cond: () -> Boolean) {

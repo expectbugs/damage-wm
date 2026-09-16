@@ -2,38 +2,46 @@
 
 **The entry point for a fresh session**: what is true now, what comes next, where the records are. History lives
 in `HANDOFF.md`; this file only points at it. Read `CLAUDE.md` → this file → **`FORK.md`** (the plan; §11 is the
-progress log) → `FIRMWARE.md` (the contract) → **`HANDOFF.md` §62 (the second review of Phase 2), §61 (the first), §60 (Phase 2 built) and §59 (the day's live
-defect)** → §58 → §57 → §55 → §48 (the fork decided) → what they cite. For firmware facts: `CLAIMS.md` ("Firmware internals read
+progress log) → `FIRMWARE.md` (the contract) → **`HANDOFF.md` §63 (the third review of Phase 2), §62 (the second), §61 (the first), §60 (Phase 2 built) and §59 (the
+day's live defect)** → §58 → §57 → §55 → §48 (the fork decided) → what they cite. For firmware facts: `CLAIMS.md` ("Firmware internals read
 for the fork") → `research/fork-reads-2026-09-13.md` → the image itself through `research/fwread.py`.
 
 ## Where we are (2026-09-15, night)
 
 - **🔴 The CFW fork and the Damage rebuild are the ONLY work (Adam, 2026-09-12; `HANDOFF.md` §48)** until `FORK.md`
   Phase 8 closes: no new windows, no Feed polish, no popover build outside the plan. `FORK.md` = the plan (§11 the
-  log), `FIRMWARE.md` = the contract, `HANDOFF.md` §48–§62 = the records, `CLAIMS.md` = the firmware facts.
+  log), `FIRMWARE.md` = the contract, `HANDOFF.md` §48–§63 = the records, `CLAIMS.md` = the firmware facts.
 - **LIVE: the fork's Phase 1 build on both lenses since 2026-09-15 04:38 (`HANDOFF.md` §55)** — pin `c5e4f8b7…` =
   a5d1c31 + F1.1–F1.5 and the self-test (reports `2.2.6.10`; detect by `EVENCFW/` and the DamageCaps field, never
   the version); features `0x1f`, flags `0x8001` armed (PROBE + PRESENTED), CACHE_KEEP off; the rollback
   `fws/2.2.6.10-cfw-d4054ab1/`; provenance = the fork's `tools/verify.py` (`research/verify_cfw.py` pins the
   rollback). The phone APK drives (radio and shell); the OpenRC `damage` service is the data host and standby
   (`HANDOFF.md` §19, `DAILY.md`), still on 0.44's core; G2CC's server is retired (§44). **APK 0.49 installed**
-  (2026-09-15 03:46: the Phase 1 keeper protocol, `present` records, the probes, the bounded atlas skip). **0.51 staged** (the §59 fix, the contract-2 code); **0.53 built, not staged** (§61's and §62's review fixes — among
-  them kerned text missing its proof on this build, and the atlas check that keeps cached text off when the glasses
-  did not take the upload) — Adam's to stage and install (`./gradlew :phone:stageApk`).
+  (2026-09-15 03:46: the Phase 1 keeper protocol, `present` records, the probes, the bounded atlas skip). **0.51 staged** (the §59 fix, the contract-2 code); **0.54 built, not staged** (§61's, §62's and §63's review
+  fixes — among them kerned text missing its proof on this build, the atlas check that keeps cached text off when
+  the glasses did not take the upload, and §63's finding that that check was DEAD from the second atlas of a
+  process onward) — Adam's to stage and install (`./gradlew :phone:stageApk`).
 - **Phase 1 is done bar the soak (§55, §56):** the first 7.3 h clean (no link end, no reset, heap flat); 387
   presents: transfer 2.0 ms median / 12.2 max (M) — the link is the tick ceiling, not the panel; in the case the
   panel is off (copies counted, nothing transferred); the uptime tick runs 1.024 per ms. Rulings: F1.7 into Phase 2;
   a FLAGS_SET with no lease refused (status 3) from Phase 2's candidate; the soak = ordinary wear during Phase 2's
   build, and no Phase 2 flash before a worn day on this build is read.
-- **🔴 Phase 2: BUILT on both sides and reviewed TWICE, not flashed (`FIRMWARE.md` §4 as built; `HANDOFF.md` §60, §61,
-  §62; committed and pushed 2026-09-15 night on Adam's word — Damage `2329ec8`, the fork `26404f7`):** the fork's candidate pin **`f9ddf49f…`** (after §62's
-  review; `55746389…` after §61's, `aacdc63a…` before that) = Phase 1 + modes 17–24, op 5, status 3–5, fields 23–26,
-  the partial path and the three link edits; `tools/verify.py`, `run_vectors.py` (24 vectors, 206 steps),
+- **🔴 Phase 2: BUILT on both sides and reviewed THREE TIMES, not flashed (`FIRMWARE.md` §4 as built; `HANDOFF.md`
+  §60, §61, §62, §63):** the fork's candidate pin **`b0e42923…`** (after §63's review; `f9ddf49f…` after §62's,
+  `55746389…` after §61's, `aacdc63a…` before that) = Phase 1 + modes 17–24, op 5, status 3–5, fields 23–26,
+  the partial path and the three link edits. **§63 added ONE new patch site** — the display task's other refresh
+  call, `0x00473D80` (32 entries, was 31): read its §63.2 item 4 before the flash, `FORK.md` §3.1. `tools/verify.py`, `run_vectors.py` (24 vectors, 207 steps),
   `run_self_test.py` (20) and `test_damage_ext.py` (75) green; the simulator equals the C on every step, both lenses,
   both forms. Adam ruled §57's eleven decisions as recommended. Damage: the v2 atlas, per-lens draws, fills, the
   reseed, the hint, kerning, the 2M request, the report (`Contract2Test` pins it; gated on DamageCaps bit 5 + DRAW2,
   so the APK runs as before on the contract-1 build). **Not built:** Reader's page staging (item 1 below).
   §57 holds the journal baseline.
+- **What §63 changed that a fresh session must not undo:** the atlas read-back is owed by BYTES and keyed on the
+  atlas's identity (every `GlyphAtlas` starts at upload generation 0, so the old key read the second atlas of a
+  process as already checked — the session a lens reset builds); op 5's success comes from op 5's OWN reply, never
+  from the sticky status register; telemetry fields 2 and 12 are OS TICKS, 1.024 per ms, and `uptimeMs` converts;
+  `--selfcheck` runs TWICE, the second pass on a contract-2 build with cached text on; `arm` in `make_vectors.py`
+  acquires the lease and arms DRAW2 BEFORE the keyframe, without which no hinted vector took the partial path.
 - **What §62 changed that a fresh session must not undo:** a partial refresh (mode 24) is taken only while the panel
   already shows the whole previous frame — a message that held the display gate and presented nothing, stock content
   in the framebuffer, a lease release point and the overlay each mark it stale, in the C, the simulator and §4; the
@@ -46,8 +54,9 @@ for the fork") → `research/fork-reads-2026-09-13.md` → the image itself thro
   too; the FLAGS_SET waiter ignores RIGHT's duplicate replies. Workaround on 0.49: phone Bluetooth off for 90 s.
   **APK 0.51 staged 14:47** (the fix plus §60's contract-2 code, dormant on the installed build; 0.50 was the fix alone).
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games · Feed (`WINDOWS.md` and the
-  per-window records); `POPOVER.md` is a spec, built in Phase 6a. **The battery on the current tree (§62):**
-  core 588 · desktop 15 · `--selfcheck` ×3 · 57 renders · epub/music/games/feed · lint 0 · APK 0.53. Known rate
+  per-window records); `POPOVER.md` is a spec, built in Phase 6a. **The battery on the current tree (§63):**
+  core 588 · desktop 15 · `--selfcheck` ×3 (462 checks each, BOTH contracts) · 57 renders ·
+  epub/music/games/feed · lint 0 · APK 0.54. Known rate
   misses (§54.5, §54.7): `FeedWindowTest.deepLinks…` and `…browseThroughTheKeyboard…` (§49.6), a seam test race
   (`SeamSessionTest.kt:82`), `Review20260905Test.cashingOut…` once (§61, cause not found) — run the core
   suite alone; a repeated `:core:test` answers FROM-CACHE (`:core:cleanTest :core:test --no-build-cache` for a rate).
@@ -76,13 +85,16 @@ The ack precedes the panel refresh (§48.1, verified): what the eye waits for is
    clip + draw (modes 20 + 17 at the content plane's disparity); the compositor needs a staged-draw primitive that
    paints its shadows from the record so belief = glass. Optional: `lint.py` rules for the v2 budgets (the
    encoders' `LintError`s hold them today); a Global row for the hint's A/B (the ceiling is `Compositor.hintMaxRows`).
-2. **A worn day on the Phase 1 build read** (`journal_report.py --since`; no Phase 2 flash before it, §56), and 0.53
-   (§61's and §62's fixes; built, not staged) installed with its `atlas` notes read after a rebuild (§59/§61: "R reset",
+2. **A worn day on the Phase 1 build read** (`journal_report.py --since`; no Phase 2 flash before it, §56), and 0.54
+   (§61's, §62's and §63's fixes; built, not staged) installed with its `atlas` notes read after a rebuild (§59/§61: "R reset",
    "R holds no cache", "L link ended as a reboot would", "the last start did not complete" reset the atlas; §62 adds
    the `glass` "atlas check:" note after every upload — on the contract-1 build it reports the 64 KiB cache and turns
    nothing off).
-3. **The ritual (`FORK.md` §7) with Adam's in-the-moment go.** The fork's gates first: `tools/verify.py` (pin
-   `f9ddf49f…`), `run_vectors.py`, `run_self_test.py`, `test_damage_ext.py`; after any patch-source change
+3. **The ritual (`FORK.md` §7) with Adam's in-the-moment go. Read `HANDOFF.md` §63.2 item 4 first: the candidate
+   has a SECOND new patch site since Phase 1** — `0x00473D80`, the display task's other refresh call — so the site
+   list `tools/verify.py` prints is 32 entries, not 31, and §3.1 wants that read against it. The fork's gates:
+   `tools/verify.py` (pin
+   `b0e42923…`), `run_vectors.py`, `run_self_test.py`, `test_damage_ext.py`; after any patch-source change
    `./build_cfw.sh --skip-venv --update-patches`, the hash into `build_cfw.sh` by hand, verify again.
 4. **On glass after the flash:** `DamageCaps contract 2 features 0x7f` in the journal; **the panel's retention
    across an off/on cycle** (§62.5: put the glasses in the case with the shell up, take them out, and look at
@@ -95,6 +107,14 @@ The ack precedes the panel refresh (§48.1, verified): what the eye waits for is
    battery %/h against 7.4, the earbud with Music playing); the partial refresh priced by path in
    `journal_report.py`'s transfer section. T2's exit: `proof` and `edge` misses at zero, first-flush bytes down per
    gesture class against §57's baseline, the page turn priced.
+
+**The third review (2026-09-15 night, `HANDOFF.md` §63; fork pin `b0e42923…`, Damage APK 0.54):** the atlas
+read-back gate was dead from the second atlas onward — the session a lens reset builds, which is the §59 case;
+mode 12's write pass re-read the entry header it indexes with and re-checked neither bound (the v1 twin of §62.2
+item 4, found by three reviewers independently); the deferred save-under free ran with its busy mark already down;
+the display task's other refresh call is hooked (the one new site); op 5's success was read from a sticky register;
+`--selfcheck` never ran contract 2 at all, and `v2-hint` took the partial path on none of its steps. Full list in
+§63.
 
 **The second review (2026-09-15 night, `HANDOFF.md` §62; fork pin `f9ddf49f…`, Damage APK 0.53):**
 the partial refresh now takes the full path whenever the panel does not already show the whole previous frame (a
@@ -215,7 +235,9 @@ re-put to Adam in the Phase 0 refinery.
 ```
 sudo rc-service damage status                         # the data host / standby; deploy = ./gradlew :desktop:stageJar && sudo rc-service damage restart
 ./gradlew :core:test  ·  ./gradlew :desktop:test
-desktop/build/install/desktop/bin/desktop --selfcheck # after ./gradlew :desktop:installDist; run it more than once
+desktop/build/install/desktop/bin/desktop --selfcheck # after ./gradlew :desktop:installDist; run it more than once.
+                                                      # 462 checks: it runs the script TWICE since §63 — contract 1, then a
+                                                      # Phase 2 build with cached text ON (the v2 ops had no oracle before)
 python3 tools/lint.py                                 # 21 rules, exits 0
 TOKEN=$(python3 -c "import json;print(json.load(open('/home/user/.damage/config.json'))['token'])")
 curl -s "http://aphone:7403/journal?token=$TOKEN" | python3 tools/journal_report.py -   # the phone's journal, per-gesture numbers included
@@ -228,6 +250,8 @@ curl -s "http://aphone:7403/journal?token=$TOKEN" | python3 tools/journal_report
 (cd ~/damage-cfw && python3 host/run_vectors.py && python3 host/run_self_test.py && python3 host/test_damage_ext.py)   # the fork's C on the PC: vectors, the self-test form, the §3 contract
 python3 tools/glassdrive.py aphone $TOKEN probe:telemetry=read probe:cache=info   # a Damage build's record (RIGHT answers; the `glass` note / the /log line)
 python3 tools/glassdrive.py aphone $TOKEN selftest:firmware/vectors/v1-keyframe.json   # the on-glass self-test of one vector (after the flash; v2-*.json on the Phase 2 build, APK 0.51+)
+                                                      # since §63 it EXITS NON-ZERO on a step that differs, and compares the
+                                                      # refusal record on v1 vectors too — read the status, not only the lines
 python3 firmware/make_vectors.py                      # rewrite the vector INPUTS; then the fork's run_vectors.py --write fills expectations
 python3 research/fwread.py dis 0x473c44 0x473d70      # the stock image at instruction level: dis · fn · word · refs · calls · strings · owner · sha (our bytes vs the corpus header)
 python3 research/perevent.py                          # M0.3: packets per served connection event per arm, from the captures (§54.4)

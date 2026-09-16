@@ -86,8 +86,18 @@ the CFW replaces.
   `(sequence, worker_us, copy_us, transfer_us, lens)` to the phone as field 113; from RIGHT only —
   the left lens cannot send (its stock senders refuse; `CLAIMS.md`), so "from LEFT if its notify
   path works" is answered: there is no such path. The stamp wraps the display task's refresh call
-  (`0x00473CE4`), the one new patch site of the candidate; every stock refresh passes through it
-  unchanged. The worker figure may lag one frame (the display task can run before the worker stores
+  (`0x00473CE4`), the first new patch site of the candidate; every stock refresh passes through it
+  unchanged. **Since 2026-09-15 (the third review) the display task's OTHER refresh call is hooked
+  the same way — `0x00473D80`, its type-6 branch, the candidate's second and last new site.** Both
+  of that function's copy calls have always been hooked and `display_copy_hook` does not know the
+  event type, so a type-6 event that runs while a Damage job is pending takes that frame into the
+  framebuffer and latches its hint; with its refresh unhooked, those frames transferred with no
+  stamp — fields 15 and 26 kept the PREVIOUS frame's microseconds and path while field 16
+  advanced, and no presented notify went out for them — and their hint was dropped. Never a
+  display defect either way (every clear of the direct-present mark clears the hint with it), but
+  the record the phone prices with was mixing two frames. `FUN_00473C44` is the display task's
+  event loop, not a boot-time path.
+  The worker figure may lag one frame (the display task can run before the worker stores
   its time); the telemetry record's field 5 is exact after the fact. A direct copy whose refresh
   the display task skips (the panel off) is counted and its transfer is timed by the first refresh
   after the panel is back, which sends the preserved frame; a stock copy in between clears the
@@ -114,7 +124,7 @@ the CFW replaces.
     its value is not known: `1 request id · 2 uptime (OS ticks; 1.024 per ms, measured 2026-09-15) · 3 flags in force · 4 the status register ·
     5 last worker µs · 6 last copy µs · 7/8/9 free KiB in arenas 13/20/27 · 10 the active panel record
     address · 11 sticky diagnostics (bit 0 reorder, 1 skip, 2 dup, 3 snapshot overflow, 4 allocation) ·
-    12 lease ms left · 13 boot count (not sent by the Phase 1 build, above) · 14 lens (1 right, 2 left) ·
+    12 lease ticks left (the same tick as field 2, 1.024 per ms) · 13 boot count (not sent by the Phase 1 build, above) · 14 lens (1 right, 2 left) ·
     15 the last Damage frame's panel-transfer µs · 16 direct presents since boot · 17 cache generation ·
     18 cache size in bytes (when allocated) · 19 cache CRC-32 (CACHE_INFO, when allocated) · 20
     self-test steps since the last begin · 21 the last step refused (0/1) and 22 the scratch CRC-32
@@ -229,7 +239,10 @@ fid stays a silent skip (v1). Field **26** is the last Damage transfer's path (0
 the decode, so the shell reads them at its next telemetry read and journals a `glass` refusal note. The DWT µs figures
 are calibrated against one OS tick and read ~2.4 % low (§3's tick note).
 
-**Budget (arena 13, measured 2026-09-15: 322 KiB free with the 64 KiB cache and the shadow up):** A cache 160 KiB +
+**Budget (arena 13, measured 2026-09-15: 322 KiB free with the 64 KiB cache and the shadow up).** The
+self-test's OWN 48 KiB save-under pool is priced beside the live one (§4's mode-23 row says each set has
+its own), so a build running a step with both pools full wants 48 KiB more than the rows below — a
+refusal with reason 11, never a write past anything (2026-09-15, the third review). A cache 160 KiB +
 save-under 48 KiB → 178 KiB free in daily use, the self-test's 150 KiB scratch fits with both allocated; B 192 + 48 →
 146 free, the self-test fits only if `begin` frees the pool; C 256 + 32 → 98 free, the self-test cannot run with the
 cache up. Sizing input: a Reader page as a v2 record ≈ 22 KB raw RLE (modeled from the 1× render), two resident pages +
@@ -349,10 +362,15 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   then every step's expectation adds `"P"` — the same CRC over **what the lens shows**, which is not the
   shadow: a full refresh transfers the whole frame to it, a partial refresh (mode 24) only its own rows,
   and a stock repaint replaces it. Both implementations model it as 153,600 zero bytes at the start, a
-  full refresh copying the frame whole, a partial copying rows y0..y1 (inclusive), and a lease release
-  point putting stock content there. This is where a hint that misses a row the batch changed becomes
-  visible, so the C and the model are compared on it rather than on the shadow alone. A vector without
-  the key is compared on the shadow as before.
+  full refresh copying the frame whole, and a partial copying rows y0..y1 (inclusive). A lease release
+  point marks the panel STALE and leaves its pixels alone on both sides: the firmware paints nothing
+  there, and the stock compositor's own repaint is a later event each harness issues for itself (a stock
+  copy plus a refresh in the C's; `stockRepaint` in the model). Read the other way round — the model
+  repainting at the release itself — the two would have disagreed on the panel CRC the moment a released
+  vector carried the key (2026-09-15, the third review). This is where a hint that misses a row the batch
+  changed becomes visible, so the C and the model are compared on it rather than on the shadow alone. A
+  vector without the key is compared on the shadow as before. The diagnostic overlay is drawn by the
+  firmware's own font, which no offline model predicts: a `"panel": true` vector never shows it.
 - **Who runs them:** the fork's host build (`~/damage-cfw/host/run_vectors.py`: the unchanged patch
   sources compiled for 32-bit x86 with the firmware's addresses mapped; `--write` fills the
   expectations), the Kotlin simulator (`ConformanceVectorTest` in `core`), and — from Phase 1's

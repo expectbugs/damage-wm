@@ -189,6 +189,13 @@ class OracleWalkTest {
             assertTrue(flags.none { it.value }, "$what: sticky diagnostic flags ${flags.filterValues { it }}")
         }
 
+        /** Flushes the model transferred through the partial path (mode 24) — only the contract-2
+         *  ops produce one, so this is the walk's proof that it exercised them. */
+        var hintedTransfers = 0
+            private set
+
+        fun notePath() { if (sim.lastPath(Arm.RIGHT) == 1) hintedTransfers++ }
+
         /** What is on screen right now — the walk's own coverage report. */
         fun surface(): String = buildString {
             append(shell.currentWindowId() ?: "main")
@@ -378,6 +385,7 @@ class OracleWalkTest {
                     val where = "$tag step $step (${EvenHubMsg.eventName(g)})"
                     rig.settle(where)
                     rig.assertOracle(where)
+                    rig.notePath()
                     seen.add(rig.surface())
                 }
                 // …and the one plane map a settle always races past: the box
@@ -403,6 +411,13 @@ class OracleWalkTest {
                     assertTrue(seen.any { it.contains(must) },
                         "$tag: the walk never reached '$must' — it proves less than it claims (saw $seen)")
                 }
+                // …and on contract 2 it has to have DRAWN with the v2 ops. A session that loses
+                // DRAW2 falls back to v1 shapes SILENTLY (`FIRMWARE.md` §4), so without this the
+                // 240 steps could prove nothing about the hint or the per-lens draws and still
+                // pass (2026-09-15, the third review). A partial transfer is the observable that
+                // only mode 24 produces.
+                if (contract >= 2) assertTrue(rig.hintedTransfers > 0,
+                    "$tag: no flush took the partial path — the walk never exercised the v2 ops")
             } finally {
                 rig.stop()
             }

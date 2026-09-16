@@ -4201,7 +4201,7 @@ the shadow differ and both implementations differ the same way.
   negative per-lens x, a tall record scrolled under a clip) and `v2-order` (check orders one message at
   a time, odd left edges through save-under and the LUT, the v1 draws ignoring a clip) and `v2-badrec`
   (records whose RLE does not decode to their size, including a zero-length run — which must also
-  TERMINATE). 24 vectors, 206 steps; the simulator equals the C on every step, both lenses, both forms.
+  TERMINATE). 24 vectors, 207 steps; the simulator equals the C on every step, both lenses, both forms.
 - `journal_report.py`: the §57 baseline printed beside the first-flush column was a different statistic
   (it read as a 660 → 485 B win that was two numbers disagreeing); the refusal list dropped a refusal
   that came back after a different one; the sections that need no flush now print without one.
@@ -4240,3 +4240,169 @@ night: Damage `2329ec8`, the fork `26404f7`.**
   delay call has a checked precedent from that context, so it stands as it is.
 - A kern more negative than the next glyph's width, and the per-pair kern lookup's allocation, stand
   as §61.4 left them.
+
+## 63. A third review of Phase 2, both sides (2026-09-15, night)
+
+Context for the reader: a personal device, the published patch method, display-rendering work. Adam's
+instruction: review today's code again — check carefully for mistakes, verify each one, implement the best
+fix for the window manager we are building, then check the fixes. Method: seven fresh reviewers in parallel
+over the same surface §61 and §62 reviewed (the fork's draw ops; its control plane, refresh path and link
+edits; the simulator against the contract text; the encoders and the atlas; the compositor; the transport
+and the shell; the tools and the vectors), my own read beside them — including the three link edits
+re-verified at instruction level — every finding traced at the code before a line changed. **Three
+reviewers and I reached the fork's mode-12 defect independently, and two reached the dead atlas gate**,
+which is how those two rank first. Nothing flashed, nothing staged, the `damage` service untouched.
+
+### 63.1 The atlas read-back gate was dead from the second atlas onward (the largest Damage finding)
+§62.3 item 4 added a cache read-back before an atlas's fonts go live — the guard against the §59 failure,
+where the ack precedes the decode and a refused cache write is silent. It was keyed on `atlasCheckGen ==
+a.uploadGen`, a Shell field against a **per-atlas** counter that starts at 0 on every new `GlyphAtlas`. So
+the first atlas of a process was checked, `atlasCheckGen` became 0, and every atlas built afterwards —
+including the one a rebuild after a lens reset builds, which is exactly the session §59 lost — matched at 0
+and skipped the check with no journal line. `AtlasCarryTest` passed because it only ever exercises the
+first atlas of a process.
+The gate is now owed by BYTES and keyed on the atlas's identity: a fresh atlas, or bytes acked past the
+watermark the last answer covered, ask for their own round trip, so a font appended mid-session is proven
+too; one check is in flight at a time and a batch landing under it waits for its own, since an answer taken
+before its bytes were acked says nothing about them. `atlasReset` and `atlasLapsed` clear it. `atlasLapsed`
+also left a chunk in flight whose ack fired the check against a cache the lapse had already freed — a false
+"atlas refused" over a lapse the shell had handled correctly.
+
+### 63.2 Fixed in the fork (pin `b0e42923…`, was `f9ddf49f…`; 32 patches, one new site)
+1. **Mode 12's write pass re-read the entry header it indexes with and re-checked neither bound** — the v1
+   twin of the fix §62.2 item 4 gave mode 19 on the fork's own reasoning ("the message sits in the
+   receiver's buffer, which a later message can reach"). An entry validated at `off=0xFFF0,len=4` whose
+   header changed under the loop wrote up to 64 KiB past a 64 KiB heap-13 block. Both bounds re-checked
+   now, and mode 19's write loop gained the SOURCE bound it was missing (its write stayed inside the cache
+   but its read could run past the end of the message).
+2. **The deferred save-under free ran with the busy mark already down**, so the free §62.2 item 2 added was
+   itself outside the mechanism that protects it: a release point landing during it took the same pointer
+   and handed the same block back twice. The free now runs under the mark and re-checks; every slot and the
+   self-test scratch claim their pointer with an atomic exchange, so two release points on different tasks
+   cannot both take it (one LDREX/STREX pair — checked in the emitted Thumb).
+3. **Modes 14 and 15's second pass returned without recording a refusal** — the asymmetry with §62.2 item
+   5's mode-18 fix, on the same window (a release point on another task freeing the cache between the two
+   passes). Mode 14's second pass, and mode 18's, also indexed through a table pointer captured before the
+   first pass; both now re-derive it from the published pointer and refuse if it is gone.
+4. **THE ONE NEW SITE: the display task's other refresh call (`0x00473D80`, its type-6 branch) is hooked**
+   like `0x00473CE4`. Both of that function's copy calls have always been hooked and `display_copy_hook`
+   does not know the event type, so a type-6 event that runs while a Damage job is pending takes that frame
+   and latches its hint — and its refresh, unhooked, transferred with no stamp: fields 15 and 26 kept the
+   PREVIOUS frame's microseconds and path while field 16 advanced, and no presented notify went out. Never
+   a display defect (every clear of the direct-present mark clears the hint with it), but Phase 2's test
+   stop is an A/B of full against rows per flush, and the record it prices with was mixing two frames. The
+   host shim had modelled a hooked refresh for both all along, which is why no gate saw it.
+   `FUN_00473C44` is the display task's event loop, not a boot-time path, and it is already patched at
+   three points (`FORK.md` §3.1).
+5. Field 12 (lease left) could report ~4.29e9 if the deadline passed between the lease check and the tick
+   read; the telemetry body is 176 B against a 161 B worst case; the overlay switch is now read once in
+   truth (`cfw_draw_flags` read it a second time); stale comments corrected.
+
+### 63.3 Fixed on the Damage side
+1. The atlas gate above, and `cacheCheck()` returning null — three different facts (this build cannot
+   answer, this transport has no radio to ask with, the read failed) arriving as one silent null on the one
+   path whose job is to make a silent refusal loud. Each says which now.
+2. **`emitCachedV2` bounded x but not y**, where the v1 path bounds both: a recorded draw near the last row
+   grows the rect past the bottom and the next statement reads `composed` by `(r.y + y)` — an exception
+   inside the assemble where the v1 path ships pixels.
+3. **`requestCacheSize` read op 5's success out of a STICKY register and never re-asked it.** TELEMETRY
+   records no status, so the 0 it read was as likely a previous op's, and an op 5 the settings task ate
+   (the §12 class every other start message re-asks for) read as success: the session then laid a 160 KiB
+   atlas over a 64 KiB cache and every record above the line was refused in silence. It now awaits op 5's
+   OWN reply (id 0, like FLAGS_SET — `cacheSizePending` says which of the two an id-0 record answers),
+   re-asks on the pacing tick, validates the size off the wire, and asks for 64 KiB when DRAW2 is held back.
+4. **The two new start gates had no escape from a write that keeps failing** — the prelude and the
+   capability query both select on it; `telemetryRead` had no failure deferred at all and `flagsSet`
+   inspected its only after the waiter returned, so a characteristic that throws on a link still up
+   re-asked for ever and the start never completed (the watchdog cannot see a start that has not
+   finished). And `flagsSet`'s deferred LATCHED across re-asks, so one transient failure condemned a set a
+   later attempt armed: the glasses had DRAW2 on while the session drew v1 shapes, with a fault that was
+   not true. `CtlWork.BothArms` now carries a `written` deferred that latches on SUCCESS — "some attempt
+   reached both arms" is the condition, not "no attempt failed" — and `failCtlWork` completes `failed`.
+5. **Telemetry field 2 is an OS TICK, 1.024 per wall-clock ms** (`FIRMWARE.md` §3, measured earlier the
+   same day), and every reader took it for milliseconds; the simulator sent wall-clock ms, so the two
+   implementations of one contract disagreed on the unit of a field no vector compares. Read as ms it runs
+   2.4 % fast, which ate the reset rule's prediction backstop once two reads were more than ~7 minutes
+   apart. `uptimeTicks` is the wire, `uptimeMs` converts, the model sends ticks, and `LEASE_EXPIRY_MS` is
+   87,891 ms (90,000 ticks) — the carry window's margin is the 10 s its constant claims again.
+6. **`planOps` charged a contract-2 seam fill against the mode-3 delta aim**, though a mode-21 fill spends
+   no fid: measured, five small spots plus a plane move went 60 B in five rects with no seam and 494 B in
+   four with one, the three bottom spots banded into a 620-wide strip, one fid unspent. The emit loop's fid
+   guard stopped the free fills too (masked by the first, and it would have bitten the moment that was
+   fixed alone). Both, together.
+7. **A recorded text rect was the pen's advance, not the ink's span.** A kern moves the pen before the next
+   glyph, so the pen is not monotonic and its last value is not the furthest edge; ink outside a declared
+   rect is never sent and no check can see it. §61.4 reasoned the case unreachable with the locked faces —
+   it is, and the rect no longer depends on that.
+8. Smaller: the compositor read the volatile atlas again after deciding `v2` on it (the §62.3 item 9 class,
+   one layer up); `goLive()` put cached text back after the setting went off; a stale `setLeaseWanted(false)`
+   from a silent episode could release the NEXT session's lease — one spurious rebuild and a whole atlas
+   again; the 2M note said "both arms" when one had no link up; `DamageMsg.control` truncated an
+   out-of-range arg and `GlyphAtlas.acked` swallowed an ack with no outstanding chunk; `REASONS` had no
+   entry 14, the reason §62.2 item 3 had just added.
+
+### 63.4 The harness was hiding three of these
+- **`--selfcheck` never ran contract 2, and ran with cached text off**: the truth oracle on every settle,
+  which `CLAUDE.md` calls a standing gate, executed no `emitCachedV2`, no mode-21 fill, no reseed and no
+  mode-24 hint. The whole v2 belief-vs-glass surface rested on two test classes. It now runs **twice** —
+  contract 1 as before, then a Phase 2 build with cached text on — and its contract-2 pass failed on its
+  first run: **the harness, not the shell**, the §62.5 two-evaluation settle, this time in `SelfCheck`
+  (§62.5 predicted it: "ten other test files still have the two-evaluation shape"). `settle` returns the
+  one evaluation that decided it. 462 checks, three runs.
+- **`v2-hint` took the partial path on none of its steps.** The `arm` prelude put the keyframe BEFORE the
+  lease acquire, and a fresh acquire is a release point, so the panel was stale and the first hinted frame
+  went whole; the two refusals after it made the panel stale again, so "a later hint wins" was proven
+  against a full refresh too. The vector also carried no `"panel": true`, so narrowing its hint from 40
+  rows to 1 left every expectation byte for byte identical. `arm` now acquires and arms before the
+  keyframe, as a session does; `v2-hint` compares the panel and reaches its last claim from a clean frame.
+  Measured on the host: the partial entry is now called with rows 100..139 at step 1 and 30..40 at the
+  last step, and `v2-panel`'s eleven steps exercise the first row, the last row, a short hint, a whole
+  panel and a phone-shaped flush.
+- **`v2-reach`'s "a tall record scrolled under a clip"** drew nothing: a 40×30 icon at y = −20 under a clip
+  starting at row 40 have no rows in common, and the step's expectation equalled the one before it on both
+  lenses. It now scrolls a real 300×900 record.
+- The simulator repainted the panel with stock content at three of the four release points, where the C
+  repaints at none (the stock compositor's repaint is a later event each harness issues for itself). The
+  model marks the panel stale and leaves its pixels; `FIRMWARE.md` §9 says so, and `stockRepaint` is the
+  event. The simulator also still swapped the save-under slot sets for a self-test step — the shape the
+  fork deleted in §61.1 item 7 — and now picks the set by the step's own mark.
+- `ConformanceVectorTest` accepted a panel expectation missing a lens; `OracleWalkTest`'s contract-2 arm
+  asserted nothing that only contract 2 produces (a session that loses DRAW2 falls back to v1 shapes
+  silently), and now requires at least one partial transfer; `run_vectors.py` let one mismatch silence
+  every later PASS line.
+- **`journal_report.py` — the report every latency decision is priced from.** An `ATLAS` or `SILENT` flush
+  was excluded from a burst but still EXTENDED it, so the next real gesture was glued onto the burst before
+  it and its own first flush — the number `WINDOWS.md` §6 judges a window by — vanished: reproduced, a
+  999 B / 999 ms first flush disappearing behind an atlas stream 1 s earlier. `done` was in ACK-COMPLETION
+  order with three flushes in flight, so a bigger flush acked first became the gesture's "first flush",
+  both numbers wrong in the flattering direction. The §34 split was computed over a different, silently
+  truncated set from the line above it (`flushIds` restarts at 1 on every session, so keying submits by id
+  collides), and printed a guide inviting you to add it up and compare. An `IndexError` when `handleMs` is
+  present and `assembleMs` is not.
+- `glassdrive.py selftest:` — the one gate that runs against the actual glasses — **exited 0 however the
+  run went**; a malformed status frame was swallowed by a bare `except: pass` and a later `status` step
+  printed stale state as current; the refusal record was compared only on contract-2 vectors, skipping
+  exactly the v1 vectors that run first (a Phase 2 build records their refusals too).
+
+### 63.5 Looked at, not changed
+- **A top-level mode-23 capture or free marks the panel stale**, so the next hinted flush goes whole, though
+  nothing on the panel changed (measured on the host: 2 partials become 1). It is contract-conforming —
+  §4's rule is "a message that held the display gate ended without presenting" — and tightening it means a
+  "did anything change the shadow" bit in the C, the model, §4 and a vector. `POPOVER.md`'s deck capture is
+  the case that will want it; it belongs with the popover build (Phase 6a), not with a review.
+- v1 modes 3 and 9 still check only this lens's half of a per-lens pair — the class §61.1 item 3 closed for
+  modes 20–23. `FIRMWARE.md` §4 keeps v1 untouched on purpose (D8: the pipeline still diffs against
+  upstream); recorded so the choice is explicit rather than inherited.
+- Reasons 4, 11 and 14 cannot be produced by the simulator (its shadow is never null, its cache allocation
+  never fails, it has no display gate), so "the simulator matches the C on every step" does not cover them.
+- A `cacheCheck` over the seam would need a correlated request/response the seam's control channel does not
+  have; the PC-direct path is a dev override, so it journals loudly instead.
+
+### 63.6 The battery
+Damage: core **588** · desktop 15 · `--selfcheck` ×3, **462 checks each, both contracts** · `--snapshot`
+(57 renders, looked at) · epub · music · games · feed checks · lint 0 · `:phone:assembleDebug` in its own
+invocation (**APK 0.54**, not staged). The fork: `build_cfw.sh --skip-venv --update-patches` then the new
+hash into `build_cfw.sh` by hand — **pin `b0e42923…`**, **32 entries** (31 + the one new site), a
+54,068-byte block, 20 Thumb branches, 370 KB below the OTA flag; `tools/verify.py` all pass ·
+`run_vectors.py` 24 vectors · `run_self_test.py` 20 · `test_damage_ext.py` 75. Nothing flashed, nothing
+staged. Both trees committed and pushed on Adam's word the same night: the fork `e331c3f`, Damage below.
