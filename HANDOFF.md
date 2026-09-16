@@ -4729,3 +4729,25 @@ the adapter). **First light waits on the phone's Bluetooth** — the first sessi
 DamageCaps line, to be read through the phone's journal over the tailnet; then the v2 vectors through
 `glassdrive.py … selftest:`, `probe:telemetry=read` (fields 23–26, the cache size), the 2M link note, the partial
 refresh priced, the in-case reboots against the §65 baseline, the §62.7 panel-retention check.
+
+**First light on Phase 2 — 2026-09-16 13:32:09, the phone driving (APK 0.55), the glasses on Adam's face.**
+`build: apk 0.55` → `glass DamageCaps contract 2 features 0x7f`; op 5: `cache size: asked 160 KiB, status 0, 160 KiB
+this session` (arena 13 548 → 386 KiB, the allocation exactly; 226 KiB once the shadow is up — the model's numbers);
+`armed bit 2 — flags in force 0x4 (RIGHT answered; LEFT took the same write)`; **the link on LE 2M on both arms**
+(`the build offers LE 2M (DamageCaps bit 6): 2M requested` → `LEFT PHY after the link request: 2M/2M`, RIGHT the
+same — the §58 feature-bit edit measured on this pair, which advertised no 2M before), the interval still 15 ms /
+latency 1 (the 7.5 ms fast profile not in force at the start; the hour's `link` notes to say whether the glasses'
+own 60 s request brings it). The v2 atlas: 8 fonts and 10 icons, 104,625 B in 34 chunks of 3,069 B, **uploaded in
+13 s** (≈8 KB/s — the phone's one-packet-per-event cadence still bounds it, not the PHY), read back and live
+(`cacheGen` 37, `cacheSize` 163,840). **Measured on the first 830 flushes (M, small n):** ack < 500 B 59 ms median
+(n=772; 65–72 on 1M), **3–6 KB 279 ms (n=37; 508–667 on 1M)**; no failed flush; phone CPU per flush 11 ms median
+(23 on Phase 1). The refusal record every telemetry read now carries — `refMode=120 (0x78) refReason=8 refSeq=0`
+— is the sacrificial warmup (`Shell.startLocked` sends `splashFrame()` as the first image message; the CFW records
+a message with no handler before handing it to the stock loader): expected on every session, harmless to the atlas
+gate (not a mode-19 refusal). **The ritual's step 10 from beardos over the tailnet:** `probe:flags=0x8000` then
+`0x8001` — `wantedFlags` is per process and the 0.55 install started one, so nothing had asked — answered
+`flags=0x8005` (PROBE + DRAW2 + PRESENTED; the transport keeps DRAW2 in the wire arg). `glassdrive.py` printed "the
+link to the phone ended before the steps were done" for each although the phone's log shows every probe received
+and answered — the replica closes after the answer and the harness now reads that as a failure (§64.4's rule);
+a harness item, noted. **The telemetry's `path=1` at 13:35:40: the JBD4010 partial refresh has run on glass** (F1.7);
+`present` records began with PRESENTED; the path split and its µs follow from thirty of them.
