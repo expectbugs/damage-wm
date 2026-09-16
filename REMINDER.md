@@ -88,6 +88,7 @@ the 75 / 523 below. Price a window against the wait; these are kept because the 
 | Main notch, 0.40 → 0.44 bursts (n=7,346) | 106 B / 228 B | 68 / 96 ms | §49.1 |
 | **the bounded atlas skip on glass (2026-09-15 04:06, §54.1):** a Bluetooth-toggle rebuild kept 9 fonts and 16 icons (60 KB) — gaps 63.1 / 63.0 s inside the 80 s window; 16 cached-draw flushes after it, none refused, nothing re-sent | 0 B re-uploaded (was ~60 KB, ~7 s of link) | — | §54.1 |
 | **the link itself (M0.3 per-event, 2026-09-14 captures):** two full 247 B packets per served connection event on LEFT, served every 60 ms in two of three sessions (every ~25–30 ms in the third) | — | 8.2 KB/s while the phone has more queued | §54.4, `research/perevent.py` |
+| **Phase 2, first hour on LE 2M (2026-09-16 13:32–13:41, §65):** the partial refresh 2.8 ms median vs the full 4.4 (n=162/28); ≈1.6 ms + 66 µs per row (rough join, n=58) → break-even ≈40 rows, `hintMaxRows` 240 too high | 0.5–1.5 KB / 1.5–3 KB / 3–6 KB | 98 / 193 / 276 ms (n=65/9/76) | §65 |
 
 The ack precedes the panel refresh (§48.1, verified): what the eye waits for is longer than these. A flush under
 100 B acks in ~60 ms; each KB adds ~140 ms; the tail is pixel bytes. Phone CPU per flush: 17 ms median / 66 p90.
@@ -157,6 +158,9 @@ The daily path is the PHONE's. Isolated flushes, APK-driven (§33.1, §35.2):
 | 1.5–3 KB | 329–358 ms | 495–851 |
 | 3–6 KB | 543–667 ms | 708–838 |
 | 6 KB + | 1,036–1,140 ms | 1,295–1,543 |
+
+**On Phase 2 (LE 2M; the first hour, n=270; §65): < 500 B 71 · 0.5–1.5 KB 98 · 1.5–3 KB 193 · 3–6 KB 276 ms median** —
+the KB term about halved, the floor unchanged; the interval stays 15 ms / latency 1 (the phone's request wins).
 
 Why (grade I): one AA packet per usable connection event; 15 ms interval with slave latency 1 = every 30 ms;
 242 B / 30 ms ≈ 8 KB/s. PC-direct BlueZ sends ~6 packets per event (~50 KB/s). The firmware's receive path parses

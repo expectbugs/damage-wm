@@ -4758,3 +4758,18 @@ completed its steps printed "the link to the phone ended before the steps were d
 probe run exits 0 over the tailnet (the phone on cellular, 60 ms). The self-test on glass (ritual step 9) waits for
 a quiet window from Adam: a vector's live cache writes drop the shell's atlas for the session (§61) and nothing
 presents while a step runs.
+**T2's first read — the first 190 presents, 13:35–13:41, Adam using the glasses (M).** Path 1 (the JBD4010 partial)
+n=162: transfer 2,787 µs median / 8,917 p90 / 21,480 max; path 0 (full) n=28: 4,414 / 8,434 / 8,540. 85 % of presents
+took the partial path. Joining hinted row counts (`submit`'s `hint` y0..y1) to the transfers by order — a rough join,
+n=58 — **transfer ≈ 1.6 ms + 66 µs per row**, so the partial beats the full path below ≈40 rows and costs it 2–5× on a
+200-row band (the 21 ms max was a 209-row WINDOW hint; the §60 host model said 100 µs/row + 300 µs). `hintMaxRows`
+(240) is therefore too high by ~6×; the measured break-even is the number to set it to — Adam's call (a Damage
+constant, no firmware change). Worker medians: 6.6 ms on hinted (WINDOW-sized) frames, 3.1 on full (small MAIN
+deltas); copy 0.55–0.63 ms. **The ack curve on LE 2M (n=270 flushes, no failure):** < 500 B 71 ms · 0.5–1.5 KB 98 ·
+1.5–3 KB 193 · 3–6 KB 276 (1M, §33/§35: 72–77 · 203–275 · 329–358 · 543–667) — the KB term about halved, the floor
+unchanged. **The connection interval stays 15 ms / latency 1**: no `connection parameters` change after 13:32, so
+the fork's 7.5 ms fast-profile edit is not in force on this phone — the phone's own request wins (Android's high
+priority is 11.25–15 ms); upstream's ~41 KiB/s was measured on its own host. The link estimator flips fast/slow
+(33 → 101 → 81 ms/KB) between readings — noisy at this n. The refusal record unchanged (the splash). Still owed for
+T2: the self-test on glass, the cacheMiss breakdown at a day's n (`proof`/`planes` at zero is the exit), the
+page turn priced (Reader staging not built), the in-case reboots against the §65 baseline, the §62.7 retention check.
