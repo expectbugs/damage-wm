@@ -4773,3 +4773,13 @@ priority is 11.25–15 ms); upstream's ~41 KiB/s was measured on its own host. T
 (33 → 101 → 81 ms/KB) between readings — noisy at this n. The refusal record unchanged (the splash). Still owed for
 T2: the self-test on glass, the cacheMiss breakdown at a day's n (`proof`/`planes` at zero is the exit), the
 page turn priced (Reader staging not built), the in-case reboots against the §65 baseline, the §62.7 retention check.
+**Adam's on-glass verdict, 2026-09-16 ~14:10, after ~40 minutes of use at work:** "It all looks good to me. Large images
+and such seem significantly faster. I've noticed no problems." — the first verdict on Phase 2; the checklist he was
+given (lens disagreement, stale rows, glyphs, ghosting, a freeze, a blank lens, `LINK SLOW` / `atlas full`) turned
+up nothing. `hintMaxRows` 240 → 40 on his word (the measured break-even); APK 0.56 building.
+**`hintMaxRows` 240 → 40 (Adam's word, 14:0x; `Compositor.kt`) and APK 0.56.** The full battery after the change,
+detached from the session: core 591 · desktop 15 · `--selfcheck` ×3, 463 checks, the contract-2 pass emitting
+17 / 18 / 19 partial transfers at the new cap (the walk's hinted bands are under 40 rows, so the gate's "at least one
+partial" still holds) · `--snapshot` 57 renders (a hint cap changes the refresh path, not a pixel) · epub 380/404
+images · music · games · feed · lint 0 · `:phone:assembleDebug` and `stageApk` in their own invocations — **0.56
+staged 14:12**, Adam's to install (the service restarts, ~30 s blank, a 13 s atlas re-upload).

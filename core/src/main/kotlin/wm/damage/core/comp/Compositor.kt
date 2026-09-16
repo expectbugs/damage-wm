@@ -123,8 +123,11 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     }
 
     /** Rows a flush may hint (mode 24) — a taller change ships with the full refresh; the
-     *  journal's `present` records and `tools/journal_report.py` price the two paths (F1.7). */
-    var hintMaxRows = 240
+     *  journal's `present` records and `tools/journal_report.py` price the two paths (F1.7).
+     *  Measured on glass 2026-09-16, the first hour on Phase 2 (`HANDOFF.md` §65): the JBD4010
+     *  partial costs ≈1.6 ms + 66 µs per row against a 4.4 ms full transfer, so the partial pays
+     *  only below ≈40 rows — a 209-row hint cost 21 ms. Was 240 (Adam: 40, the break-even). */
+    var hintMaxRows = 40
 
     data class PlannedCopy(val src: Rect, val dst: Rect)
 

@@ -24,9 +24,8 @@ protocol), §64–§61 (the four reviews), §60 (Phase 2 built), §59 (the day's
   line.** Phase 1's record (§55, §56, §65): 7.3 h then 10.2 h worn clean, transfer 2.0 ms median, the uptime tick
   1.024 per ms, the arm drops = in-case reboots. The phone APK drives; the OpenRC `damage` service is the data host
   and standby (§19, `DAILY.md`), still on 0.44's core.
-- **The APK. 0.49 installed** (2026-09-15 03:46; every `build` note through 09-16 12:17). **0.55 INSTALLED 2026-09-16 ~13:10
-  (Adam)**, not yet seen in a session — §61–§64's fixes, among them the kerned-text proof and the atlas read-back
-  that keeps cached text off when the glasses did not take the upload. Reversible to 0.49 via the setup page.
+- **The APK. 0.49 installed** (2026-09-15 03:46; every `build` note through 09-16 12:17). **0.55 INSTALLED 2026-09-16 ~13:10 (Adam)** and driving Phase 2 since 13:32 (§65). **0.56 STAGED 14:12** — `hintMaxRows`
+  240 → 40 (the measured break-even, §65) and nothing else; Adam installs whenever (~30 s blank, a 13 s atlas re-upload).
 - **🔴 Phase 2: FLASHED 2026-09-16 13:19/13:24 (§65) after four reviews** (`HANDOFF.md` §60–§64; `FIRMWARE.md`
   §4 as built; Damage `67fdfa1`, the fork `f20bac9`) — **the on-glass checks and test stop T2 are the work now**
   (item 8 below). Fork pin **`48172b62…`** = Phase 1 + modes 17–24, op 5, status 3–5, fields
@@ -95,7 +94,7 @@ The ack precedes the panel refresh (§48.1, verified): what the eye waits for is
 
 ## 🔴 The next session
 
-1. **Adam: install APK 0.55 (staged 13:09, the setup page) — before the flash** — and read its `atlas` notes after a rebuild (§59/§61: "R reset", "R holds no cache",
+1. **Adam: install APK 0.56 (staged 14:12; the hint cap at 40)** — and read its `atlas` notes after a rebuild (§59/§61: "R reset", "R holds no cache",
    "L link ended as a reboot would", "the last start did not complete" reset the atlas; the `glass` "atlas
    check:" note after every upload — on the contract-1 build it reports the 64 KiB cache and turns nothing off).
 2. **One focused read, not a fifth review (§65):** the two mechanisms the reviews invented and got wrong twice —
