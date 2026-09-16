@@ -518,5 +518,11 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
 - **2026-09-16 (3) — Phase 2 FLASHED (`HANDOFF.md` §65):** APK 0.55 installed by Adam; his word for both lenses
   given in advance as he left for work; phone Bluetooth off, the standby stopped; the staircase per lens, then
   LEFT 13:19:22–13:22:34 (164 s) and RIGHT 13:24:13–13:27:28 (166 s), six components each, zero resends, every END
-  status 8, exit 0; archived in `fws/2.2.6.10-cfw-48172b62/`; the rollback is Phase 1's image. First light
-  pending the phone's Bluetooth; T2's checks are `REMINDER.md` item 8.
+  status 8, exit 0; archived in `fws/2.2.6.10-cfw-48172b62/`; the rollback is Phase 1's image. **First light 13:32,
+  green:** contract 2, the 160 KiB cache, DRAW2, both arms on LE 2M (3–6 KB flushes 276 ms, was 543–667; the 7.5 ms
+  profile not in force, the phone's request wins), the partial refresh running (≈1.6 ms + 66 µs/row vs 4.4 ms full —
+  `hintMaxRows` 240 → 40 on Adam's word, APK 0.56), Adam's verdict "large images significantly faster, no problems";
+  **the on-glass self-test 19 of 20 vectors matching every step** after one vector defect (unwritten padding) and two
+  harness defects (sleeps instead of the firmware's counters) were fixed; the twentieth's one corner — a one-byte empty
+  cache write dropped somewhere before the handler — recorded, cause U. T2 open for the day's reads; the next coding
+  part is Reader's page staging against §3.8 (`REMINDER.md` item 1).
