@@ -231,6 +231,12 @@ sealed interface WindowView {
          *  fast successive notches in one direction multiply the step. The
          *  ramp itself lives in the shell (Shell.docAccelFactor). */
         val accel: () -> Boolean = { false },
+        /** Page staging (`HANDOFF.md` §66, contract 2): the identity of the layout [paintLine]
+         *  paints from — the same object for as long as every line's pixels stay the same, a new
+         *  one after a relayout, a rescale or another document. With it the shell pre-renders the
+         *  next and previous notch's lines as cached images and turns a notch into one draw; null
+         *  (the default) stages nothing. */
+        val contentKey: () -> Any? = { null },
     ) : WindowView
 
     /** The window owns everything, including damage (Tmux's live grid is the

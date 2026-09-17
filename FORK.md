@@ -202,7 +202,7 @@ features armed one at a time · a soak day · journal and `/log` read · fix fla
 **Exit:** every telemetry field populated (the boot count withdrawn); the cache survives a rebuild without re-upload
 (seen on glass, §54.1); no hold-back events; the soak = ordinary wear during Phase 2's build (Adam, §56).
 
-### Phase 2 — Drawing contract v2, phone-driven (size L; 1 flash) — **FLASHED 2026-09-16 (pin `48172b62…`, `HANDOFF.md` §65; built §60, reviewed §61–§64) bar Reader's page staging; test stop T2 open**
+### Phase 2 — Drawing contract v2, phone-driven (size L; 1 flash) — **FLASHED 2026-09-16 (pin `48172b62…`, `HANDOFF.md` §65; built §60, reviewed §61–§64); Reader's page staging built the same evening (§66, APK 0.57, on-glass read owed); test stop T2 open**
 
 **Firmware (`FIRMWARE.md` §4, drafted 2026-09-15):** per-lens cached image and string draws (modes 17/18), the v2
 image record (u16 dims), the 224-entry table, cache write v2 (19), clip (20), fill (21), LUT over rect (22),
@@ -227,7 +227,8 @@ the warmup each re-ask on the pacing tick with one deferred that latches on succ
 pass re-derives its pointer and records its refusal (§62.2 item 2, §63.2 items 2–3, §64.3 items 1–3). (e) One
 read of the link state per decision — `pump()`, the compositor's `v2`, `CachedText`'s atlas (§62.3 item 9, §63.3
 item 8, §64.2 item 6). (f) Mode 12 with 19, modes 14/15 with 18, the writers with the readers, both lenses of a
-pair (§61.1 item 3, §63.2 items 1 and 3, §64.3 item 7). **Not built:** Reader's page staging.
+pair (§61.1 item 3, §63.2 items 1 and 3, §64.3 item 7). **Reader's page staging** was built after the flash, its
+envelope answered BEFORE the code (`HANDOFF.md` §66 — the first build under §3.8).
 
 **Test stop T2:** vectors · self-test · `--selfcheck` ×3 · snapshots · oracle walk · a soak day with the link's
 ms/KB, a capture and the battery readout.
@@ -526,3 +527,10 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   harness defects (sleeps instead of the firmware's counters) were fixed; the twentieth's one corner — a one-byte empty
   cache write dropped somewhere before the handler — recorded, cause U. T2 open for the day's reads; the next coding
   part is Reader's page staging against §3.8 (`REMINDER.md` item 1).
+- **2026-09-16 (4) — Reader's page staging built (`HANDOFF.md` §66), the first build under §3.8:** T2's day read
+  (Reader notches 691 B / 231 ms median, 7.2 KB / 775 ms p90; the atlas repacking 767 KB in 2.5 h on the v2 tables);
+  the design pass put seven decisions to Adam — all as recommended: strips, a 32 KiB reserve at the top of the cache,
+  a Global row, records dropped at a session start, the proof by a cache-write ledger on field 17, `DocView.contentKey`;
+  the envelope answered, then the build: `Staging.kt`, the shell's staging pump, `Compositor.emitStaged`, `StagingTest`
+  ×9, the oracle walk and the self-check through staged draws; APK 0.57 staged. No firmware change, nothing flashed;
+  the on-glass number is T2's next read.

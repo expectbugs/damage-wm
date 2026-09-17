@@ -218,7 +218,10 @@ class ReaderWindow(
             if (b == null) libView()
             else WindowView.DocView(docModel, { b.lines.size }, b.lineH,
                 { g, i, r -> paintBookLine(g, b, i, r) }, { level = Level_.ACTIONS },
-                { scrollLines }, { scrollAccel })
+                { scrollLines }, { scrollAccel },
+                // §66: a Loaded is one layout — every line's pixels are fixed for its life, and a
+                // relayout (width, scale, line box) or another book is a new object
+                contentKey = { b })
         }
         Level_.ACTIONS -> WindowView.ListView(actModel, { actions().size },
             ::paintActRow, ::paintActLens, ::commitAction)

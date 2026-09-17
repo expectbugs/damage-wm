@@ -659,7 +659,7 @@ object SelfCheck {
 
         // ---- §41: the texture cache on EVERY plane — its own function: the
         // script method had reached the JVM's 64 KB limit
-        cachedTextChecks(shell, reader, flushFails)
+        cachedTextChecks(shell, reader, flushFails, contract)
 
         // ---- persistence round trip: leave a BOOK open, restart, land back in it
         toWindow(shell, "reader")
@@ -1187,7 +1187,7 @@ object SelfCheck {
      * must equal glass must equal truth at every rung of the depth ladder.
      * The strongest offline check the mechanism has.
      */
-    private suspend fun cachedTextChecks(shell: Shell, reader: ReaderWindow, flushFails: java.util.concurrent.atomic.AtomicInteger) {
+    private suspend fun cachedTextChecks(shell: Shell, reader: ReaderWindow, flushFails: java.util.concurrent.atomic.AtomicInteger, contract: Int = 1) {
         val servedBefore = shell.cachedRectsShipped
         val faultsBefore = faults.get(); val failsBefore = flushFails.get()
         shell.updateSettings { it.copy(cachedText = "on") }
@@ -1206,11 +1206,22 @@ object SelfCheck {
         shell.postGesture(EvenHubMsg.EV_CLICK)
         awaitTrue("the book opens under the cache") { reader.levelDepth() >= 2 }
         settle(shell, "cache-book")
+        // §66: on a contract-2 session the book's next strip is staged in the cache's reserve and
+        // proven before the notches below; the gate is the observable itself — a notch that shipped
+        // a mode-17 draw from a staged record, counted where the flush is assembled
+        val stagedBefore = shell.stagedRectsShipped
+        if (contract >= 2) awaitTrue("a strip of the book is staged and proven (${shell.stagedProvenCount} drawable)") { shell.stagedProvenCount > 0 }
         for (d in listOf(8, 12, 16, 4, 0, 8)) {
             shell.updateSettings { it.copy(depth = d) }
             settle(shell, "cache-book-depth-$d")
-            repeat(2) { shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); settle(shell, "cache-book-notch-$d-$it") }
+            repeat(2) {
+                // the strip the notch exposes plus the one on screen: two drawable records at least
+                if (contract >= 2) awaitTrue("the next strip is staged before notch $it at depth $d (${shell.stagedProvenCount} drawable)") { shell.stagedProvenCount >= 2 }
+                shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); settle(shell, "cache-book-notch-$d-$it")
+            }
         }
+        if (contract >= 2) check("Reader notches on contract 2 shipped staged draws (mode 17 under a clip): ${shell.stagedRectsShipped - stagedBefore}",
+            shell.stagedRectsShipped > stagedBefore)
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)               // book → library
         shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)               // library → Main
         awaitTrue("back to Main under the cache") { shell.currentWindowId() == null }

@@ -67,7 +67,8 @@ a union rule for read marks; an endless archive Document; strips on demand from 
 
 ## 2. What a window declares (the contract, one screen)
 
-`DamageWindow` (`WindowContract.kt` is the authority): `view()` (List/Doc/Canvas per level) · `title()`
+`DamageWindow` (`WindowContract.kt` is the authority): `view()` (List/Doc/Canvas per level; a Doc's `contentKey` is the
+layout object whose lines never change pixels — with it the shell stages the next strips, `HANDOFF.md` §66) · `title()`
 (SHORT — §4.1) · `summary()` (cheap; `more`/`progress` flags) · `icon` (an `IconKind`; theme icon first, the
 drawn kind as fallback and release path) · `dirty` · `needs` (HOST/PHONE_APIS/BLE; a per-BACKEND `needs` is
 still unbuilt — Music declares per host) · `preferredHeight` (global-default pattern) · `appSettings()`

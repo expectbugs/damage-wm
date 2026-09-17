@@ -497,6 +497,29 @@ with a character outside 32..126 as its cacheable RUNS plus the host's character
 (`CachedText` is the `IconRecorder`; mode-13 draws). Fonts pack heaviest first (`usageOf`); the atlas keeps an
 ACKED watermark; the keyframe seeds the screen plane only (`Compositor.seedFrame`).
 
+## Page staging (2026-09-16, `HANDOFF.md` §66 — contract 2 only)
+
+The focused document's next and previous strips as v2 image records in the cache's reserve, a notch as one draw.
+- `shell/Staging.kt` — `StageKey` (the layout object + lines + line box + width), `StagedRecord` (RAW pixels for the
+  paint and the proof, the encoded record, WANTED → SENT → ACKED → PROVEN), `StageRing` (the reserve as a ring: a bump
+  pointer, eviction of what a placement overlaps unless it is pinned), `Staging` (the registry), `CacheLedger` (the
+  proof by counting telemetry field 17 against the acked non-empty writes; Base / Proven / Short / Shortfall / Foreign).
+- `Shell` "page staging": `pumpStage` runs on the idle pump after `pumpAtlas` — a reading when one is owed, else one
+  strip rendered through the recorder's relay with nothing recorded (`CachedText.via` with an empty keep), placed in
+  the ring and written in 3,064 B mode-19 messages (`STAGE` flushes, the atlas's writer tag); `stageDone` feeds the
+  ledger; `launchStageRead` (op 1) and `ledgerVerdict` prove or drop; `stagePlacements` before every assemble;
+  `paintDocSlice` blits a PROVEN record's lines. Both write lanes hold while a reading is on its way. Clears:
+  `stageSessionStart`, `atlasReset`/`atlasLapsed`/`atlasDisable`/`atlasLive`, Silent Mode, the row off, `stage.retain`
+  on a relayout. Bounded: `STAGE_FAILURES_MAX` = 3, then off for the session (a `stage` note).
+- `Compositor.emitStaged` — before the cached path in `emitDelta`, no fid: the planned rect's overlap with a placement
+  ships as a clip pair + one mode-17 pair + a clip reset when each lens's truth equals the record there (quantised);
+  the shadows take the truth; a partly covered rect leaves the rest to the next planner pass.
+- `LinkState.atlasCapacity` = the cache less `CfwModes.STAGE_RESERVE` on DRAW2; the read-back expects the glasses' cache
+  to be the atlas plus the reserve. `Transport.telemetry()` = op 1. `ShellSettings.pageStaging`, the Global row `Page
+  staging`, the journal's `staged` field and `stage` notes, `journal_report.py`'s page-staging line.
+- Gates: `StagingTest` (9), the contract-2 oracle walk (the document keyed), `--selfcheck`'s contract-2 pass (a Reader
+  notch that shipped a staged draw, counted where the flush is assembled).
+
 ## The fork's Phase 0 pieces (2026-09-13, `HANDOFF.md` §49, `FORK.md`)
 
 Damage stays clean-room: it holds the contract (`FIRMWARE.md`), data and its own implementation, never the

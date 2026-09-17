@@ -85,6 +85,11 @@ data class ShellSettings(
      *  once per lease and every plane-0 string ships as a mode-14 draw
      *  instead of its pixels. Additive. */
     val cachedText: String = "off",
+    /** Page staging (`HANDOFF.md` §66, 2026-09-16 — Adam: on by default): on a contract-2 session
+     *  with cached text on, the focused document's next and previous strips are uploaded to the
+     *  cache's reserve off the gesture path and a notch ships one mode-17 draw instead of its
+     *  strip. "off" for the A/B. Additive. */
+    val pageStaging: String = "on",
     /** The radio's connection priority (2026-09-12, `HANDOFF.md` §47): "high"
      *  (the default — Android's 11.25–15 ms interval, the regime every
      *  measured fast flush ran on) or "balanced" (30–50 ms — for the
@@ -178,6 +183,7 @@ data class ShellSettings(
         slideFrames = if (slideFrames in SLIDE_FRAMES) slideFrames else "auto",
         slideFill = if (slideFill in SLIDE_FILLS) slideFill else "auto",
         cachedText = if (cachedText in CACHED_TEXT) cachedText else "off",
+        pageStaging = if (pageStaging in PAGE_STAGING) pageStaging else "on",
         linkPriority = if (linkPriority in LINK_PRIORITIES) linkPriority else "high",
     )
 
@@ -212,6 +218,7 @@ data class ShellSettings(
         val SLIDE_FILLS = listOf("auto", "split", "whole")
         /** The texture-cache switch (§40). */
         val CACHED_TEXT = listOf("off", "on")
+        val PAGE_STAGING = listOf("off", "on")
         /** The radio's connection priority (§47, 2026-09-12): the Global row's order. */
         val LINK_PRIORITIES = listOf("high", "balanced")
         fun fromJson(o: JsonObject?): ShellSettings =

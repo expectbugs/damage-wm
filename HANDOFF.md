@@ -4805,3 +4805,76 @@ U; grade M for the drop, seen twice). No real traffic sends an empty write. **Ve
 19 match the simulator step for step, the twentieth differs on one empty-message corner that is recorded, not
 hidden.** Every deliberately-refused self-test step also raised a `mirror/decode` fault on the phone (28 in the run) — the
 mirror refusing what the vector meant it to; loud in the journal, harmless.
+
+## 66. Reader's page staging — the design pass, T2's day read, the build (2026-09-16, evening)
+
+Context for the reader: a personal device, the published patch method, display-rendering work. Adam's word on the
+design pass's seven decisions: all as recommended. No firmware change; `FIRMWARE.md` §4 is unchanged.
+
+**T2's day read (13:32–15:59, APK 0.55; M).** Reader notches (n=100, 14:01–14:04): first flush 691 B median /
+7.2 KB p90, wait 231 / 775 ms — the strip still goes as pixels when Reader's faces are out of the atlas. The atlas
+since 13:32: 262 chunks, 767 KB, 71 s of acks, 5 repacks, 14 deferred, 16 "stays pixels" (READER 17 among them) —
+the 160 KiB cache does not hold the day's faces on the v2 224-glyph tables (a face ≈ 2.3× its v1 size). cacheMiss:
+no-draws 639 · no-records 245 · growing 21 · proof 17 · planes 0. Presents: hinted 2.8 ms median / 13.0 p90 (n=957)
+against full 3.4 / 9.9 (n=573) — the 240-row cap in 0.55 (0.56 not installed by 15:59). Battery 100 → 80 % in 2.5 h
+worn, 8.1 %/h (n=1). No reboot since 13:32 (the five today all before the flash, in the case). The link estimator
+flipped SLOW at 14:02 (75 ms/KB, floor 101 — the wheel on 2 frames) while the link sat at 15/1 on 2M all day: a
+quiet-pass item. Arena 13 76 KiB free at 15:44, mid-self-test (its 150 KiB scratch). The 0.49 sessions that "kept" the
+atlas across the morning's reboots are §59's defect, fixed in 0.50.
+
+**The design (Adam's decisions).** (1) Strips, not pages: one notch's lines as one v2 image record, a notch = the
+band's copy + a clip pair + one mode-17 pair + a clip reset (a two-page record would decode 460k pixels per notch on
+the glass and re-stage 12–16 KB per page). (2) A 32 KiB reserve at the top of the cache (`CfwModes.STAGE_RESERVE`),
+taken from the atlas's share (128 KiB now); the repack churn to be read against today's 767 KB / 2.5 h. (3) Behind
+Global `Cached text`, with its own Global row `Page staging` (default on). (4) Records dropped at every session start,
+not carried. (5) The proof by a cache-write ledger on telemetry field 17; the atlas check reads the same ledger. (6)
+`DocView.contentKey` (Reader's `Loaded`). (7) 0.56 to install; the evening read after the self-test's scratch is
+freed. Modeled from the 1× renders: a five-line strip 4.5–7.5 KB, a 13-line page 7.2–16 KB; a staged notch's first
+flush ≈ 100–200 B (the under-500 B band, 61–71 ms median today) from 691 B / 231 ms; the record traffic 12–20 KB per
+page read, in 3 KB writes off the gesture path.
+
+**The envelope (`FORK.md` §3.8), answered before the code — the protocol's first use.** (a) Every record goes at a
+session start, a lapse, a reset, cached text off, a live-set change, Silent Mode, the row off, a relayout or another
+document; the reserve lies outside the atlas's capacity, so a repack never reaches it; a height switch keeps them
+(strips are keyed by line). (b) A write's wait is its FlushDone — ok, not ok, or the session's sweep; a failed write
+goes again and a reading that does not answer is asked again on the next idle pump, both bounded by
+`Shell.STAGE_FAILURES_MAX` = 3, then staging is off for the session with a note; an unproven record is never drawn.
+(c) A record is keyed on the layout object and its lines, on the glasses by the ledger's count and a per-clear epoch;
+placements are rebuilt before every assemble, never carried across frames. (d) All on the loop; both write lanes hold
+while a reading is on its way (the reading re-asks on the pacing tick; a session end fails it); LEFT cannot report —
+the atlas's accepted blindness. (e) One read of the link state per pump. (f) The v1 path stages nothing; the atlas
+check and the stage check read one ledger (a shortfall with atlas chunks in it switches cached text off — the §59
+failure caught by count); both lenses through the pair forms; every DocView gets it through the kit, Reader alone
+supplies a key. The ledger asks a reading one short again before calling it a shortfall (`CacheLedger.SHORT_READS_MAX`
+= 3): the ack precedes the decode, so the last write's bump can lag the settings task's answer.
+
+**Built (Damage only):** `shell/Staging.kt` (the key, the record, the ring, the registry, the ledger); `Shell`'s
+page-staging section — the idle-pump step after the atlas's, the strip painted through the recorder's relay with
+nothing recorded, the writes in 3,064 B messages, the proof reads, the verdicts, the clears, the placements,
+`paintDocSlice` blitting a proven record's lines; `Compositor.emitStaged` and `placements` (tried before the cached
+path, no fid); `Transport.telemetry()` (op 1); `LinkState.atlasCapacity` less the reserve, and the read-back expecting
+the glasses' cache to be the atlas plus the reserve; `ShellSettings.pageStaging` and the Global row; the journal's
+`staged` field and the `stage` note kind; `journal_report.py`'s page-staging line; `DocView.contentKey`; the oracle
+walk's document keyed, so the contract-2 walk notches through staged draws; the self-check's contract-2 pass gated on a
+Reader notch that shipped a staged draw; APK 0.57.
+
+**Gates (`StagingTest`, 9 — each watched against the row off, where the draws are not there):** a notch with a staged
+strip ships the copy, a clip pair, one mode-17 pair and the reset, no pixel delta and no text draw over the band, its
+first flush under 200 B, belief = glass, the strip behind too; the row off ships as before; every clear (cached text
+off, another layout, the row off, a session boundary) empties the registry and staging resumes; a write the glasses
+refused (its offset rewritten past the cache — acked, never decoded) is found by the count, never drawn, and three
+shortfalls switch staging off with the atlas untouched; a write the lane refuses goes again twice, then off; the
+atlas's writes stay below the reserve and the records land in it, 4-byte aligned; the ring, the ledger and the key
+as pure tests. **One self-review pass of the diff before the battery fixed three things:** the write-failure
+counter resets on a success and shortfalls count per session (two counters, both capped at 3); a strip taller than a
+record (2,048 rows) is never staged; and a planned rect a placement covers only in part now ships its covered part
+and the rest as pixels in the same pass (`Compositor.emitDelta`) — returned as done, the remainder was left for the
+planner to hand back inside the same bounding rect. The depth-0 pin (`StagingTest`, 10 now) is the observable at
+depth 0, not a reproduction of the self-check stall below. **Battery on the final code:** core 601 (three full runs: two clean, then the known Feed rate miss `deepLinksResolveEveryForm` in the chained run and in the rerun alone — measured 8 of 10 when run by itself on the tree BEFORE and AFTER this build, a window-level test that never reaches the shell: pre-existing, worse alone than in the suite's ~18 %) · desktop 15 · `--selfcheck` **16 of 16** on the final binary (a rate: one run on the pre-fix binary failed at `cache-book-depth-0` — the 15 s settle bound and one refused flush — while the core suite loaded the machine; that log was not kept, the cause is unread; the §54.5 settle-under-load class is the nearest) · `--snapshot` 57 · epub 380/404 · music · games · feed · lint 0 · APK **0.57 staged 17:55**.
+
+**Not built:** carrying records across a rebuild; multi-strip exposures under acceleration (what is staged draws,
+the rest is pixels); Feed's and Torrents' documents (no key until their verdict sessions); list staging (Phase 4); a
+pin for the lapse's clear (one call beside the atlas's; `AtlasCarryTest`'s clocked rig is the place); the atlas's
+glyph-subset packing (the churn above). **Instruments:** no patch source changed — the fuzz (60 × 30 clean, §65) and
+the mutation sweep (39 of 106, §64.1) stand; the vectors are untouched. **Nothing flashed. The on-glass number is T2's
+next read:** the WAIT column of Reader's notches on 0.57 against today's 231 / 775 ms, and the `stage` notes.

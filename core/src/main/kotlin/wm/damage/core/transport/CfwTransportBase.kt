@@ -1766,6 +1766,12 @@ abstract class CfwTransportBase(
         return telemetryRead(sessionEpoch.get(), op = DamageMsg.OP_CACHE_INFO, label = "atlas check")
     }
 
+    override suspend fun telemetry(label: String): DamageMsg.Telemetry? {
+        if (!started) return null
+        if (damageCaps?.has(DamageMsg.FEATURE_TELEMETRY) != true) return null
+        return telemetryRead(sessionEpoch.get(), op = DamageMsg.OP_TELEMETRY, label = label)
+    }
+
     override suspend fun clearDiagFlags() {
         imageQueue.trySend(ImgWork.ClearDiag(sessionEpoch.get()))
     }

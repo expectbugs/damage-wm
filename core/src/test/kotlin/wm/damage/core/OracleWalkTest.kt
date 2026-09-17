@@ -328,7 +328,10 @@ class OracleWalkTest {
         private val doc = wm.damage.core.shell.DocModel()
         override fun view() = wm.damage.core.shell.WindowView.DocView(doc, { 120 }, 24,
             { g, i, r -> g.fillRect(r.x + 4, r.y + 4, 40 + (i * 17) % 300, 14, ((i % 10) + 3) * 17) },
-            {}, stepLines = { 3 })
+            {}, stepLines = { 3 },
+            // §66: one layout for the window's life, so the contract-2 walk stages its strips and
+            // notches through them (belief = glass = truth holds through staged draws too)
+            contentKey = { this })
 
         override fun contentPlanes(content: Rect): List<Pair<Rect, Int>> {
             val h = Geometry.snapY(content.h / 3)

@@ -278,6 +278,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         compressCache.clear()          // `composed` may have changed since the last assemble
         lastTruthNs = 0L; lastCompressNs = 0L; lastCompressN = 0
         cachedRectsThisAssemble = 0
+        stagedRectsThisAssemble = 0
         cacheMiss.clear(); cacheHitsWidened = 0
         try {
             return assembleFlushInner(rectBudget)
@@ -1321,6 +1322,93 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     var cachedRectsThisAssemble = 0
         private set
 
+    // ------------------------------------------------------------------ page staging (§66)
+    /**
+     * A nominal rect the focused document currently shows from a v2 image record the glasses hold
+     * (`HANDOFF.md` §66): the record at cache offset [off4] (4-byte units), [w]×[h], whose top-left
+     * corner sits at nominal ([originX], [originY]) — possibly above the panel — and whose RAW pixels
+     * are [pixels]. [rect] is the part of it on screen. The shell rebuilds the list before every
+     * assemble from its staging registry and the document's current displacement; it is never
+     * carried across frames.
+     */
+    class StagedPlacement(val rect: Rect, val off4: Int, val w: Int, val h: Int, val originX: Int, val originY: Int, val pixels: Gray8)
+
+    /** The placements the next assemble may draw from (empty when nothing is staged). Read once per
+     *  assemble, as `cachedText` is. */
+    @Volatile var placements: List<StagedPlacement> = emptyList()
+
+    /** How many rects the last assemble shipped as staged draws (the journal's `staged`). */
+    var stagedRectsThisAssemble = 0
+        private set
+
+    /**
+     * §66: [rect] at disparity [d] from the staged records — for every placement it overlaps, the
+     * overlap ships as a clip pair plus one mode-17 pair (the record drawn at its origin per lens, the
+     * clip keeping it to the overlap) and a clip reset, provided each lens's TRUTH over its box equals
+     * the record's pixels there, quantised as the wire quantises them. The shadows take the truth
+     * over the boxes, so belief equals glass by the same rule as [emitCachedV2]. The overlap is cell
+     * aligned by construction (a document region and its line boxes sit on the grid); one that is not
+     * is left to the pixel path, so the diff can never chase a half cell. A rect only partly covered
+     * ships its covered part and [emitDelta] sends the rest as pixels in the same pass. No fid is
+     * spent: mode 17 burns none. Returns what shipped and its bytes, or null when nothing did.
+     */
+    private class Staged(val covered: List<Rect>, val bytes: Int)
+
+    private fun emitStaged(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, bytesLeft: Int): Staged? {
+        if (!v2) return null
+        val pls = placements                       // one read: the shell swaps the list on its loop
+        if (pls.isEmpty()) return null
+        val full = Rect(0, 0, width, height)
+        val covered = ArrayList<Rect>(2)
+        var bytes = 0
+        for (p in pls) {
+            val r = rect.intersect(p.rect) ?: continue
+            if (r.w <= 0 || r.h <= 0 || r.alignOut() != r) continue
+            val l = r.translate(-d, 0)
+            val rr = r.translate(d, 0)
+            if (l.x < 0 || rr.x < 0 || l.right > width || rr.right > width || r.y < 0 || r.bottom > height) continue
+            // the encoder refuses a draw wholly off the panel on either lens
+            val xL = p.originX - d; val xR = p.originX + d
+            if (xL + p.w <= 0 || xR >= width || p.originY + p.h <= 0 || p.originY >= height) continue
+            if (!stagedSame(truthL, p, l, d) || !stagedSame(truthR, p, rr, -d)) { miss("stage-proof"); continue }
+            val cost = 3 * SUB_HEADER + 17 + 10 + 17
+            if (bytes + cost > bytesLeft) break
+            ops.add(DisplayOp.Clip(l, rr))
+            ops.add(DisplayOp.DrawImage2(p.off4, xL, xR, p.originY,
+                wm.damage.core.wire.CfwModes.options(top = 15), p.w, p.h))
+            // the clip is batch context: a draw, fill or LUT planned after this one in the same
+            // batch must not inherit it (`FIRMWARE.md` §4, mode 20 — a later clip replaces it)
+            ops.add(DisplayOp.Clip(full, full))
+            paintTruth(shadowL, truthL, l)
+            paintTruth(shadowR, truthR, rr)
+            markKnown(unknownL, l); markKnown(unknownR, rr)
+            touched.add(Touched(true, l)); touched.add(Touched(false, rr))
+            bytes += cost
+            covered.add(r)
+            stagedRectsThisAssemble++
+        }
+        return if (covered.isNotEmpty()) Staged(covered, bytes) else null
+    }
+
+    /** True when [truth] over the lens box [box] — the nominal rect shifted by −[d] for the left
+     *  lens, +[d] for the right, so a lens pixel x is nominal x + [d] — equals the placement's record
+     *  there, both quantised to the wire's 16 levels. */
+    private fun stagedSame(truth: Gray8, p: StagedPlacement, box: Rect, d: Int): Boolean {
+        val rp = p.pixels
+        for (y in box.y until box.bottom) {
+            val ry = y - p.originY
+            if (ry < 0 || ry >= rp.h) return false
+            val ta = y * width
+            val ra = ry * rp.w
+            for (x in box.x until box.right) {
+                val rx = x + d - p.originX
+                if (rx < 0 || rx >= rp.w) return false
+                if (Pack.level(truth.pix[ta + x].toInt() and 0xFF) != Pack.level(rp.pix[ra + rx].toInt() and 0xFF)) return false
+            }
+        }
+        return true
+    }
+
     /** Why rects went to pixels in the last assemble, by reason (§41): the
      *  journal carries it, so "why isn't the cache serving this" is
      *  answered from the phone without a debugger. */
@@ -1329,6 +1417,40 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     fun cacheMissSummary(): String = cacheMiss.entries.sortedByDescending { it.value }.joinToString(",") { "${it.key}=${it.value}" }
 
     private fun emitDelta(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int {
+        // §66: a staged draw spends no fid, so it is tried before the fid gate; whatever it does not
+        // cover goes on as pixels in this same pass — a rect served in part and returned as done would
+        // leave the rest dirty for the planner to hand back inside the same bounding rect
+        val staged = emitStaged(rect, d, ops, touched, bytesLeft)
+        if (staged != null) {
+            var rest = listOf(rect)
+            for (c in staged.covered) rest = rest.flatMap { it.minus(c) }
+            var fids = 0
+            var left = bytesLeft - staged.bytes
+            for (piece in rest) {
+                if (piece.w <= 0 || piece.h <= 0) continue
+                val before = ops.size
+                fids += emitDeltaPlain(piece, d, ops, touched, fidsLeft - fids, left)
+                for (i in before until ops.size) left -= sizeOf(ops[i])
+            }
+            return fids
+        }
+        return emitDeltaPlain(rect, d, ops, touched, fidsLeft, bytesLeft)
+    }
+
+    /** [rect] minus [c], as up to four rects (top, bottom, left, right of the overlap); [rect] itself
+     *  when they do not overlap. Aligned inputs give aligned pieces. */
+    private fun Rect.minus(c: Rect): List<Rect> {
+        val o = this.intersect(c) ?: return listOf(this)
+        if (o.w <= 0 || o.h <= 0) return listOf(this)
+        val out = ArrayList<Rect>(4)
+        if (o.y > y) out.add(Rect(x, y, w, o.y - y))
+        if (o.bottom < bottom) out.add(Rect(x, o.bottom, w, bottom - o.bottom))
+        if (o.x > x) out.add(Rect(x, o.y, o.x - x, o.h))
+        if (o.right < right) out.add(Rect(o.right, o.y, right - o.right, o.h))
+        return out
+    }
+
+    private fun emitDeltaPlain(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int {
         if (fidsLeft <= 0) return 0
         emitCached(rect, d, ops, touched, fidsLeft, bytesLeft)?.let { return it }
         val payload = compress(rect)

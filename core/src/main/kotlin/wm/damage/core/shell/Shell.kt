@@ -41,6 +41,8 @@ import wm.damage.core.transport.Arm
 import wm.damage.core.transport.FlushRequest
 import wm.damage.core.transport.Transport
 import wm.damage.core.transport.atlasCapacity
+import wm.damage.core.wire.CfwModes
+import wm.damage.core.wire.TextureCache
 import wm.damage.core.transport.draw2
 import wm.damage.core.transport.TransportEvent
 import wm.damage.core.util.Log
@@ -477,6 +479,9 @@ class Shell(
     @Volatile var flushesSubmitted = 0L
     /** Rects shipped as cached draws so far (§41 — harnesses read it). */
     @Volatile var cachedRectsShipped = 0L
+        private set
+    /** Rects shipped as staged draws so far (§66 — the self-check's gate reads it). */
+    @Volatile var stagedRectsShipped = 0L
         private set
 
     /** The throughput readout as the bars show it (tests: §8.3's telemetry rule). */
@@ -1927,6 +1932,7 @@ class Shell(
 
     private fun completeFlush(ev: TransportEvent.FlushDone) {
         if (ev.id == atlasInFlight) { atlasDone(ev); return }
+        if (ev.id == stageInFlight) { stageDone(ev); return }
         val a = inflightFlushes.remove(ev.id)
         journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)
         if (!ev.ok) {
@@ -2056,6 +2062,7 @@ class Shell(
      * construction.
      */
     private fun atlasAtSessionStart(adopted: Boolean) {
+        stageSessionStart()             // §66: staged records never cross a session boundary
         val ct = cachedText
         val a = atlas
         val st = transport.state.value
@@ -2116,6 +2123,7 @@ class Shell(
     }
 
     private fun atlasReset() {
+        stageClear("the atlas was reset")
         val ct = cachedText ?: return
         ct.target = comp.composed
         ct.live = emptySet()
@@ -2194,8 +2202,12 @@ class Shell(
         val target = a
         val epoch = atlasCheckEpoch
         val covered = a.ackedBytes
-        val wantSize = if (a.v2) a.capacity else null
+        // §66: the atlas lays out over the cache less the staging reserve, so the size the glasses
+        // allocated must be the atlas's capacity plus that reserve
+        val wantSize = if (a.v2) a.capacity + CfwModes.STAGE_RESERVE else null
         val wantDraw2 = a.v2
+        val sendAcked = cacheLedger.acked            // §66: the counts this reading speaks for
+        val sendAtlasAcked = cacheLedger.atlasAcked
         scope.launch {
             var why0: String? = null
             val t = try { transport.cacheCheck() } catch (e: Exception) { why0 = e.message ?: e.toString(); null }
@@ -2224,6 +2236,10 @@ class Shell(
                         " — $covered B go live unproven")
                     goLive(); return@Run
                 }
+                // §66: the generation count is the proof the size and the flags are not — a chunk the
+                // glasses refused moved no generation. The ledger's verdict may switch the atlas off.
+                t.cacheGen?.let { g -> ledgerVerdict(cacheLedger.answer(g, sendAcked, sendAtlasAcked), "the atlas check") }
+                if (atlasFailed) return@Run
                 val size = t.cacheSize
                 // the two conditions that are THIS upload's, and not sticky: the cache's presence and
                 // size, and the flag every mode-19 write needs. The refusal record (fields 23-25) is
@@ -2296,6 +2312,7 @@ class Shell(
     }
 
     private fun atlasDisable(why: String) {
+        stageClear("cached text went off ($why)")
         val ct = cachedText ?: return
         comp.cachedText = null
         ct.live = emptySet()
@@ -2310,6 +2327,8 @@ class Shell(
      *  the lease to be held again (a mode-12 write needs it; one refused
      *  under a lapse would switch the feature off for the session). */
     private fun atlasLapsed() {
+        stageClear("the lease lapsed — the cache is gone")
+        cacheLedger.reset()             // the next reading re-bases the count
         val ct = cachedText ?: return
         val a = atlas ?: return
         comp.cachedText = null
@@ -2482,6 +2501,9 @@ class Shell(
      *  draw from here. */
     private fun atlasLive(specs: Set<FontSpec>, images: Set<Any>, how: String) {
         val ct = cachedText ?: return
+        // §66: a record's pixels were painted under the previous live set; a live repaint now draws
+        // them differently, so the records go (they are re-staged in a moment)
+        if (specs != ct.live || images != ct.liveImages) stageClear("the live font set changed")
         ct.live = specs
         ct.liveImages = images
         comp.cachedText = if (specs.isEmpty() && images.isEmpty()) null else ct
@@ -2507,6 +2529,10 @@ class Shell(
         } else if (ct.seenVersion != atlasSeenVersion) atlasGrow()
         if (atlasInFlight != null || atlasQueue.isEmpty()) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
+        // §66: a generation reading on its way speaks for the writes acked at its send and no
+        // other — nothing else is written until it lands (the reading re-asks on the pacing tick
+        // and a session end fails it, so this holds nothing for ever)
+        if (atlasCheckInFlight || stageReadInFlight) return false
         val (chunk, gen) = atlasQueue.removeFirst()
         val write: DisplayOp = if (atlas?.v2 == true) DisplayOp.CacheWrite2(chunk) else DisplayOp.CacheWrite(chunk)
         val id = try {
@@ -2532,6 +2558,7 @@ class Shell(
         journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)
         val ct = cachedText ?: return
         if (!ev.ok) {
+            cacheLedger.writeLost()        // §66: what landed is unknown; the next reading re-bases
             if (ev.error?.contains("ImgResCmd") != true && ++atlasUndelivered < ATLAS_UNDELIVERED_LIMIT) {
                 // §54: not the glasses' answer but the link's end or the session's
                 // sweep (the ack never came): the chunk may or may not have landed,
@@ -2556,6 +2583,7 @@ class Shell(
             return
         }
         atlasUndelivered = 0
+        cacheLedger.writeAcked(1, atlas = true)  // §66: one non-empty mode-12/19 message per atlas flush
         atlas?.acked(atlasInFlightGen)          // a chunk of a layout a repack replaced moves no watermark
         if (atlasQueue.isEmpty()) {
             // the last chunk of this batch: every font whose bytes are acked
@@ -2567,6 +2595,316 @@ class Shell(
             atlasCheckThenLive()
         }
         post(Msg.Pump)
+    }
+
+    // ------------------------------------------------------ page staging (§66)
+    /**
+     * Page staging (`HANDOFF.md` §66, Adam's decisions of 2026-09-16): on a contract-2 session with
+     * cached text on, the focused document's next and previous strips — one notch's lines each — are
+     * painted ahead through the recorder's own path, written as v2 image records into the cache's
+     * reserve (`CfwModes.STAGE_RESERVE`, above the atlas's layout) on the idle pump after the atlas's
+     * chunks, proven by the generation count ([CacheLedger]), and drawn by a notch as one mode-17
+     * pair under a clip (`Compositor.emitStaged`). The registry and the ring are `Staging.kt`.
+     *
+     * The envelope (`FORK.md` §3.8): (a) every record goes at a session start, a lapse, a reset, a
+     * disable, a live-set change, Silent Mode, the row going off, a relayout or another document
+     * (`stage.retain`); the ring lies outside the atlas's capacity, so a repack never reaches it.
+     * (b) A write's wait is its FlushDone — ok, not ok, or the session's sweep; a failed write goes
+     * again, bounded by [STAGE_FAILURES_MAX]; a reading that does not answer is asked again on the
+     * next idle pump, bounded the same way; an unproven record is never drawn. (c) A record is keyed
+     * on the layout's identity and its lines, on the glasses by the ledger's count and this session's
+     * [stageEpoch]; placements are rebuilt from the registry before every assemble. (d) Everything
+     * runs on the loop; the lanes are held while a reading is on its way; LEFT cannot report — the
+     * atlas's accepted blindness. (e) One read of the link state per pump. (f) The v1 path stages
+     * nothing; the atlas check and the stage check read one ledger; both lenses through the pair forms.
+     */
+    private val stage = Staging()
+    private val cacheLedger = CacheLedger()
+    private var stageInFlight: Long? = null
+    private var stageInFlightRec: StagedRecord? = null
+    private var stageInFlightWrites = 0
+    private var stageReadInFlight = false
+    /** Bumped by every clear: a reading on its way lands with a stale epoch and is dropped. */
+    private var stageEpoch = 0
+    private var stageFailed = false
+    /** Writes that could not be submitted or came back not ok, in a row (a success resets it). */
+    private var stageWriteFailures = 0
+    /** Readings that did not answer, in a row. */
+    private var stageReadFailures = 0
+    /** Shortfalls this session — a write the glasses acked and did not keep is never a run of luck. */
+    private var stageShortfalls = 0
+    /** Strips too large for the reserve this session — not re-rendered on every pump. */
+    private val stageRefused = HashSet<StageKey>()
+    private var stageFullSaid = false
+    /** Records the compositor may draw from right now (harnesses read it across threads). */
+    @Volatile var stagedProvenCount = 0
+        private set
+    /** Records the ring holds, whatever their state. */
+    @Volatile var stagedResidentCount = 0
+        private set
+    /** The line ranges the drawable records cover (harnesses wait on the one the next notch needs). */
+    @Volatile var stagedProvenLines: List<IntRange> = emptyList()
+        private set
+    /** Clears so far this process (harnesses count a boundary by it). */
+    @Volatile var stageClears = 0
+        private set
+
+    private fun stageRecount() {
+        stagedProvenCount = stage.count(StagedRecord.State.PROVEN)
+        stagedResidentCount = stage.records.size
+        stagedProvenLines = stage.records.values.filter { it.state == StagedRecord.State.PROVEN }
+            .map { it.firstLine until it.firstLine + it.lines }
+    }
+
+    private fun stageSessionStart() {
+        stageClear(null)
+        cacheLedger.reset()
+        stageFailed = false; stageWriteFailures = 0; stageReadFailures = 0; stageShortfalls = 0
+        stageRefused.clear(); stageFullSaid = false
+        stage.ring = null                  // sized from the session's cache at the first strip
+    }
+
+    /** Every record and placement goes: nothing draws from the reserve until a strip is staged and
+     *  proven again. [why] null = a session boundary (the start's own notes say so). */
+    private fun stageClear(why: String?) {
+        val had = stage.records.size
+        stage.clear()
+        stageInFlight = null; stageInFlightRec = null; stageInFlightWrites = 0
+        stageReadInFlight = false
+        stageEpoch++
+        stageClears++
+        comp.placements = emptyList()
+        stageRecount()
+        if (why != null && had > 0) journal.note("stage", "dropped $had record(s) — $why")
+    }
+
+    private fun stageOff(why: String) {
+        stageFailed = true
+        stageClear(why)
+        journal.note("stage", "off for the session — $why")
+    }
+
+    /** The rows a DocView's lines occupy — the region `startDocSlide` slides. */
+    private fun docRegion(v: WindowView.DocView): Rect {
+        val lines = kit.visibleLines(layout, v)
+        return Rect(layout.content.x, layout.content.y + Layout.CONTENT_PAD, layout.content.w - Layout.RAIL_W, lines * v.lineHeight)
+    }
+
+    /** The document staging serves: the focused window's DocView, in WINDOW mode, glasses awake. */
+    private fun stagedDoc(): WindowView.DocView? {
+        if (mode != Mode.WINDOW || glassesSilent) return null
+        return focusedView() as? WindowView.DocView
+    }
+
+    /** The idle pump's staging step, after the atlas's: one reading launched, or one strip rendered
+     *  and written. True when it did something. */
+    private suspend fun pumpStage(st: LinkState): Boolean {
+        if (settings.pageStaging != "on" || stageFailed || glassesSilent || !st.draw2 || !st.leaseHeld) return false
+        if (!transport.cacheCheckSupported) return false     // no proof possible, so nothing is ever drawn from a record
+        val ct = cachedText ?: return false
+        if (settings.cachedText != "on" || atlasFailed || atlas == null) return false
+        if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
+        if (stageInFlight != null || stageReadInFlight) return false
+        if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
+        val v = stagedDoc() ?: return false
+        val key = v.contentKey() ?: return false
+        val region = docRegion(v)
+        val lineH = v.lineHeight
+        if (lineH <= 0 || region.w <= 0 || region.w > CfwModes.MAX_IMAGE2_W) return false
+        val step = v.stepLines().coerceAtLeast(1)
+        if (step * lineH > CfwModes.MAX_IMAGE2_H) return false     // a record is at most 2048 rows tall
+        val gone = stage.retain(key, lineH, region.w)
+        if (gone.isNotEmpty()) { stageRecount(); journal.note("stage", "dropped ${gone.size} record(s) of another layout") }
+        val ring = stage.ring ?: StageRing(st.cacheSize - CfwModes.STAGE_RESERVE, st.cacheSize).also { stage.ring = it }
+        // a reading is owed before anything else goes out: the session's base, and one per batch of
+        // acked writes (`CacheLedger`) — an unproven record is never drawn
+        if (cacheLedger.baseGen == null || stage.count(StagedRecord.State.ACKED) > 0) { launchStageRead(); return true }
+        val visible = kit.visibleLines(layout, v)
+        val top = v.model.topLine
+        val count = v.lineCount()
+        // the strips the next notches expose: ahead first (reading forward), one behind, then further ahead
+        val wanted = listOf(top + visible, top + visible + step, top - step, top + visible + 2 * step)
+            .filter { it >= 0 && it < count }
+            .map { StageKey(key, it, step, lineH, region.w) }
+        val pinned: (StagedRecord) -> Boolean = { r -> r.key in wanted || (r.firstLine < top + visible && r.firstLine + r.lines > top) }
+        for (k in wanted) {
+            if (stage.records.containsKey(k) || k in stageRefused) continue
+            val rec = renderStrip(v, k, region, ct)
+            if (rec.size4 > ring.capacity) {
+                stageRefused += k
+                journal.note("stage", "$k is ${rec.encoded.size} B — larger than the ${ring.capacity / 1024} KiB reserve, stays pixels")
+                continue
+            }
+            val evicted = ring.place(rec, pinned)
+            if (evicted == null) {
+                if (!stageFullSaid) { stageFullSaid = true; journal.note("stage", "the reserve holds only pinned records (${ring.bytesHeld} B) — $k waits") }
+                continue
+            }
+            stageFullSaid = false
+            for (e in evicted) stage.records.remove(e.key)
+            stage.records[k] = rec
+            stageSubmit(rec, st)
+            stageRecount()
+            return true
+        }
+        return false
+    }
+
+    /** Paint the strip's lines the way a live repaint paints them — through the recorder's relay with
+     *  nothing recorded, so a font the glasses hold blits from the atlas here too — and encode the
+     *  record. On the loop: a strip is a few lines, one notch's own strip's worth. */
+    private fun renderStrip(v: WindowView.DocView, key: StageKey, region: Rect, ct: CachedText): StagedRecord {
+        val g = Gray8(region.w, key.lines * key.lineH)
+        val count = v.lineCount()
+        for (i in 0 until key.lines) {
+            val idx = key.firstLine + i
+            if (idx !in 0 until count) continue
+            val tmp = Gray8(region.w, key.lineH)
+            ct.via(tmp, 0, 0, NO_RECORDS) { v.paintLine(tmp, idx, Rect(0, 0, region.w, key.lineH)) }
+            g.blit(tmp, Rect(0, 0, region.w, key.lineH), 0, i * key.lineH)
+        }
+        val levels = ByteArray(g.pix.size) { Pack.level(g.pix[it].toInt() and 0xFF).toByte() }
+        val enc = TextureCache.Image2(g.w, g.h, levels).encode()
+        // padded to its 4-byte boundary with explicit zeros (§65: the live cache is not zeroed)
+        val padded = if (enc.size % 4 == 0) enc else enc.copyOf((enc.size + 3) / 4 * 4)
+        return StagedRecord(key, g, padded)
+    }
+
+    private suspend fun stageSubmit(rec: StagedRecord, st: LinkState) {
+        val ops = ArrayList<DisplayOp>()
+        var pos = 0
+        while (pos < rec.encoded.size) {
+            val len = minOf(STAGE_CHUNK, rec.encoded.size - pos)
+            val part = rec.encoded.copyOfRange(pos, pos + len)
+            ops.add(DisplayOp.CacheWrite2(CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2((rec.off + pos) / 4, part)), st.cacheSize)))
+            pos += len
+        }
+        val id = try {
+            transport.submit(FlushRequest(ops, comp.epoch, "STAGE", writer = atlasTag))
+        } catch (e: Exception) {
+            Log.e("shell", "staged record submit failed", e)
+            stage.remove(rec)
+            stageRecount()
+            if (++stageWriteFailures >= STAGE_FAILURES_MAX) stageOff("$stageWriteFailures writes in a row could not be submitted, the last: ${e.message}")
+            else journal.note("stage", "${rec.key} could not be submitted (${e.message}) — it goes again later")
+            return
+        }
+        rec.state = StagedRecord.State.SENT
+        stageInFlight = id; stageInFlightRec = rec; stageInFlightWrites = ops.size
+        journal.flushSubmitted(id, comp.epoch, ops, "STAGE", st.transportName)
+        journal.note("stage", "${rec.key} (${rec.encoded.size} B at ${rec.off}) submitted as flush $id in ${ops.size} write(s)")
+    }
+
+    private fun stageDone(ev: TransportEvent.FlushDone) {
+        val rec = stageInFlightRec
+        val writes = stageInFlightWrites
+        stageInFlight = null; stageInFlightRec = null; stageInFlightWrites = 0
+        journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)
+        if (!ev.ok) {
+            cacheLedger.writeLost()
+            if (rec != null) {
+                stage.remove(rec)
+                stageRecount()
+            }
+            if (++stageWriteFailures >= STAGE_FAILURES_MAX) stageOff("$stageWriteFailures writes in a row failed, the last: ${ev.error}")
+            else journal.note("stage", "${rec?.key ?: "a record"}'s write ${ev.id} failed (${ev.error}) — it goes again later")
+            post(Msg.Pump)
+            return
+        }
+        stageWriteFailures = 0
+        cacheLedger.writeAcked(writes, atlas = false)
+        if (rec != null && rec.state == StagedRecord.State.SENT && stage.records[rec.key] === rec) {
+            rec.state = StagedRecord.State.ACKED
+            rec.ackedAt = cacheLedger.acked
+        }
+        stageRecount()
+        post(Msg.Pump)                     // the reading follows on the idle pump
+    }
+
+    /** One reading of the cache generation (op 1) — off the loop, applied on it against the epoch. */
+    private fun launchStageRead() {
+        stageReadInFlight = true
+        val epoch = stageEpoch
+        val sendAcked = cacheLedger.acked
+        val sendAtlasAcked = cacheLedger.atlasAcked
+        scope.launch {
+            var why: String? = null
+            val t = try { transport.telemetry("stage check") } catch (e: Exception) { why = e.message ?: e.toString(); null }
+            post(Msg.Run {
+                stageReadInFlight = false
+                if (epoch != stageEpoch || !running) return@Run
+                val gen = t?.cacheGen
+                if (gen == null) {
+                    if (++stageReadFailures >= STAGE_FAILURES_MAX)
+                        stageOff("the cache generation read did not answer $stageReadFailures times" + (why?.let { " ($it)" } ?: ""))
+                    else journal.note("stage", "the cache generation read did not answer" + (why?.let { " ($it)" } ?: "") + " — asked again on the next idle pump")
+                    return@Run
+                }
+                stageReadFailures = 0
+                ledgerVerdict(cacheLedger.answer(gen, sendAcked, sendAtlasAcked), "the stage check")
+                post(Msg.Pump)
+            })
+        }
+    }
+
+    /** What a generation reading means for the staged records and for the atlas (`CacheLedger`). */
+    private fun ledgerVerdict(v: CacheLedger.Verdict, from: String) {
+        when (v) {
+            is CacheLedger.Verdict.Base -> {
+                // nothing before this reading can be proven by counting: an acked record goes again
+                val unproven = stage.records.values.filter { it.state == StagedRecord.State.ACKED }
+                for (r in unproven) stage.remove(r)
+                if (unproven.isNotEmpty()) journal.note("stage", "$from re-based the generation count at ${v.gen} — ${unproven.size} acked record(s) go again")
+            }
+            is CacheLedger.Verdict.Proven -> {
+                var n = 0
+                for (r in stage.records.values) if (r.state == StagedRecord.State.ACKED && r.ackedAt <= v.upTo) { r.state = StagedRecord.State.PROVEN; n++ }
+                if (n > 0) journal.note("stage", "$from proved $n record(s) — ${stage.count(StagedRecord.State.PROVEN)} drawable, ${stage.ring?.bytesHeld ?: 0} B in the reserve")
+            }
+            is CacheLedger.Verdict.Short ->
+                journal.note("stage", "$from read the generation ${v.missing} short (reading ${v.reads}) — the last decode may be pending; asked again")
+            is CacheLedger.Verdict.Shortfall -> {
+                val lost = stage.records.values.filter { it.state == StagedRecord.State.ACKED && it.ackedAt > v.fromAcked && it.ackedAt <= v.toAcked }
+                for (r in lost) stage.remove(r)
+                journal.note("stage", "$from: the generation says ${v.missing} of the cache writes since the last reading never landed — " +
+                    "${lost.size} record(s) dropped" + (if (v.atlasInvolved) "; atlas chunks were among the writes" else ""))
+                if (v.atlasInvolved && !atlasFailed) {
+                    atlasFailed = true
+                    atlasDisable("the cache generation says ${v.missing} of the cache writes since the last reading never landed (a refused or dropped chunk)")
+                    setStatus("atlas refused")
+                }
+                if (++stageShortfalls >= STAGE_FAILURES_MAX) stageOff("$stageShortfalls shortfalls this session")
+            }
+            is CacheLedger.Verdict.Foreign -> {
+                val unproven = stage.records.values.filter { it.state == StagedRecord.State.ACKED }
+                for (r in unproven) stage.remove(r)
+                journal.note("stage", "$from: ${v.extra} cache write(s) since the last reading were not this shell's — ${unproven.size} acked record(s) go again")
+            }
+        }
+        stageRecount()
+    }
+
+    /** The placements the next assemble may draw from: every PROVEN record of the focused document at
+     *  its nominal position under the document's current displacement (`Slide.offsetPx`), clipped to
+     *  the region. Rebuilt on every pump that assembles, never carried across frames. */
+    private fun stagePlacements(): List<Compositor.StagedPlacement> {
+        if (stage.records.isEmpty() || stageFailed || settings.pageStaging != "on") return emptyList()
+        val v = stagedDoc() ?: return emptyList()
+        val key = v.contentKey() ?: return emptyList()
+        val region = docRegion(v)
+        val lineH = v.lineHeight
+        val top = v.model.topLine
+        val offset = slides.firstOrNull { it.region == region }?.offsetPx ?: 0
+        val out = ArrayList<Compositor.StagedPlacement>()
+        for (r in stage.records.values) {
+            if (r.state != StagedRecord.State.PROVEN || r.off < 0) continue
+            if (r.key.content !== key || r.key.lineH != lineH || r.key.w != region.w) continue
+            val y0 = region.y + (r.firstLine - top) * lineH + offset
+            val vis = Rect(region.x, y0, r.w, r.h).intersect(region) ?: continue
+            if (vis.w <= 0 || vis.h <= 0) continue
+            out.add(Compositor.StagedPlacement(vis, r.off / 4, r.w, r.h, region.x, y0, r.pixels))
+        }
+        return out
     }
 
     // ------------------------------------------------------ silent glasses (§36, §37.0)
@@ -2601,6 +2939,7 @@ class Shell(
     private fun enterSilentGlasses(why: String) {
         if (glassesSilent) return
         glassesSilent = true
+        stageClear("the glasses are silent — the lease goes, and the wake rebuilds the session")
         silentChecks = 0
         val gen = ++silentGen
         keyframeFailStreak = 0; flushFailStreak = 0; haltedEpoch = null
@@ -3060,6 +3399,12 @@ class Shell(
             HostSetting("Cached text", { ShellSettings.CACHED_TEXT },
                 { settings.cachedText },
                 { v -> applySettings(settings.copy(cachedText = v)) }),
+            // §66 (2026-09-16, Adam): the focused document's next and previous strips
+            // staged in the cache's reserve — a notch is one draw. On by default; off
+            // for the A/B
+            HostSetting("Page staging", { ShellSettings.PAGE_STAGING },
+                { settings.pageStaging },
+                { v -> applySettings(settings.copy(pageStaging = v)) }),
             // §47 (2026-09-12): the radio's connection priority — high (the
             // 15 ms regime every fast flush was measured on) or balanced (the
             // on-glass experiment for the ~50-minute arm rebuilds). The phone
@@ -3119,8 +3464,10 @@ class Shell(
         val rebright = s.brightness != settings.brightness || s.brightnessAuto != settings.brightnessAuto
         val reclock = s.silentClock != settings.silentClock
         val recache = s.cachedText != settings.cachedText
+        val restage = s.pageStaging != settings.pageStaging
         val relink = s.linkPriority != settings.linkPriority
         settings = s
+        if (restage && s.pageStaging != "on") stageClear("the Page staging row is off")
         if (rebright) transport.setBrightness(s.brightnessAuto, s.brightness)
         if (relink) transport.setLinkPriority(s.linkPriority)
         if (recache) { if (s.cachedText == "on") atlasEnable() else atlasDisable("the setting is off") }
@@ -3505,14 +3852,23 @@ class Shell(
 
     private fun paintDocSlice(g: Gray8, v: WindowView.DocView, y0: Int, h: Int) {
         g.fillRect(0, 0, g.w, g.h, Level.BG)
+        val key = if (stage.records.isEmpty()) null else v.contentKey()
         var slot = Math.floorDiv(y0, v.lineHeight)
         while (slot * v.lineHeight < y0 + h) {
             val idx = v.model.topLine + slot
             if (idx in 0 until v.lineCount()) {
-                val tmp = Gray8(g.w, v.lineHeight)
-                val paint = { v.paintLine(tmp, idx, Rect(0, 0, g.w, v.lineHeight)) }
-                cachedText?.viaInto(g, tmp, 0, slot * v.lineHeight - y0, paint) ?: paint()
-                g.blit(tmp, Rect(0, 0, g.w, v.lineHeight), 0, slot * v.lineHeight - y0)
+                // §66: a line a PROVEN record holds is blitted from it — the pixels a paint would
+                // produce (the record was painted through the same path under the same live set),
+                // and the rect the compositor then ships as one draw
+                val rec = stage.recordFor(idx, key, v.lineHeight, g.w)?.takeIf { it.state == StagedRecord.State.PROVEN }
+                if (rec != null) {
+                    g.blit(rec.pixels, Rect(0, (idx - rec.firstLine) * v.lineHeight, g.w, v.lineHeight), 0, slot * v.lineHeight - y0)
+                } else {
+                    val tmp = Gray8(g.w, v.lineHeight)
+                    val paint = { v.paintLine(tmp, idx, Rect(0, 0, g.w, v.lineHeight)) }
+                    cachedText?.viaInto(g, tmp, 0, slot * v.lineHeight - y0, paint) ?: paint()
+                    g.blit(tmp, Rect(0, 0, g.w, v.lineHeight), 0, slot * v.lineHeight - y0)
+                }
             }
             slot++
         }
@@ -3673,6 +4029,7 @@ class Shell(
             setStatus("ok")
         }
         if (comp.hasPending || comp.needsKeyframe) {
+            comp.placements = stagePlacements()   // §66: what this frame may draw from the reserve
             val assembleT0 = System.nanoTime()
             val assembled = try {
                 comp.assembleFlush(Geometry.rectBudget(st.window))
@@ -3698,12 +4055,14 @@ class Shell(
                     inflightFlushes[id] = assembled
                     flushesSubmitted++
                     cachedRectsShipped += comp.cachedRectsThisAssemble
+                    stagedRectsShipped += comp.stagedRectsThisAssemble
                     if (pumpPriority) inputFlushPending = false
                     journal.flushSubmitted(id, assembled, label, st.transportName, Journal.Timing(
                         handleMs = handleMs, handlerMs = handlerNsThisMsg / 1_000_000, mirrorMs = mirrorNsThisMsg / 1_000_000,
                         assembleMs = assembleMs, truthMs = comp.lastTruthNs / 1_000_000,
                         compressMs = comp.lastCompressNs / 1_000_000, compressN = comp.lastCompressN,
                         cached = comp.cachedRectsThisAssemble, cacheMiss = comp.cacheMissSummary(),
+                        staged = comp.stagedRectsThisAssemble,
                         slidesMs = slidesNs / 1_000_000, chromeMs = chromeNs / 1_000_000, overlaysMs = overlaysNs / 1_000_000,
                         textMs = (wm.damage.core.text.TextProfile.drawNs.get() - textNsAtMsgStart) / 1_000_000))
                 } catch (e: IllegalStateException) {
@@ -3723,8 +4082,8 @@ class Shell(
             }
         } else if (!animated) {
             // 6. nothing pending: the lowest-priority work — the atlas's
-            //    next chunk (§40), then the preview settle
-            if (!pumpAtlas(st)) settlePreview()
+            //    next chunk (§40), then a staged strip (§66), then the preview settle
+            if (!pumpAtlas(st) && !pumpStage(st)) settlePreview()
         }
 
         // animations continue on the next completion or message; make sure one
@@ -4118,6 +4477,15 @@ class Shell(
          *  in, while the chrome's are drawn every frame and never qualify. */
         /** §54: undelivered atlas chunks in a row before cached text is switched off. */
         const val ATLAS_UNDELIVERED_LIMIT = 3
+        /** §66: a staged record's write goes out in messages of this many bytes (a multiple of 4,
+         *  under the atlas's 3,072 B messages). */
+        const val STAGE_CHUNK = 3064
+        /** §66: write failures in a row, readings that did not answer in a row, or shortfalls in the
+         *  session, before staging is off for the session. */
+        const val STAGE_FAILURES_MAX = 3
+        /** §66: a relay keep that records nothing — a strip is painted the way a live paint is,
+         *  but its draws are not this frame's. */
+        private val NO_RECORDS = Rect(0, 0, 0, 0)
         const val ATLAS_RECENT_FRAMES = 12L
         const val ATLAS_REPACK_PACE_MS = 45_000L
         /** Consecutive ImgResCmd refusals that put the glasses to sleep (§36). */

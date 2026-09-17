@@ -92,6 +92,11 @@ interface Transport {
      */
     suspend fun cacheCheck(): wm.damage.core.wire.DamageMsg.Telemetry? = null
 
+    /** The plain telemetry record (`FIRMWARE.md` §3, op 1 — no CRC): the cache generation the staging
+     *  ledger counts against (`HANDOFF.md` §66), the flags in force, the refusal record. Same rules as
+     *  [cacheCheck]: null when this transport or this build has nothing to answer with. */
+    suspend fun telemetry(label: String = "telemetry"): wm.damage.core.wire.DamageMsg.Telemetry? = null
+
     /** Whether this transport can make that read at all. False here means "no radio of my own to
      *  ask with" (the seam's client, a path transport) — which is a different fact from "this
      *  build has nothing to answer" and from "the read failed", and the shell says which
@@ -361,4 +366,4 @@ val LinkState.draw2: Boolean
  *  64 KiB otherwise — a size taken before an arming that did not happen (a hold-back, a refusal)
  *  is not a v1 atlas's (2026-09-15 review: the v1 builder refused it and cached text stayed off). */
 val LinkState.atlasCapacity: Int
-    get() = if (draw2) cacheSize else wm.damage.core.wire.CfwModes.TEXTURE_CACHE_SIZE
+    get() = if (draw2) cacheSize - wm.damage.core.wire.CfwModes.STAGE_RESERVE else wm.damage.core.wire.CfwModes.TEXTURE_CACHE_SIZE

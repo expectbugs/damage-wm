@@ -200,6 +200,14 @@ def main(path, since_ms=0, glasslog=False):
                     except ValueError: pass
         print(f'\ncached text: {sum(cached)} rect(s) shipped as draws over {len(cached)} flushes; '
               f'pixels by reason: {dict(miss.most_common())}')
+    # §66: page staging — rects shipped as one mode-17 draw from a staged record, and the
+    # staging traffic itself (the STAGE-labelled writes, off the gesture path)
+    staged = [r.get('staged') for r in joined if isinstance(r.get('staged'), int) and r.get('staged') >= 0]
+    if staged and sum(staged) > 0:
+        stage_flushes = [r for r in joined if r.get('label') == 'STAGE']
+        stage_bytes = sum(o.get('bytes', 0) for r in stage_flushes for o in r.get('ops', []))
+        print(f'page staging: {sum(staged)} rect(s) shipped as staged draws over {sum(1 for s in staged if s > 0)} flushes; '
+              f'{len(stage_flushes)} record write(s), {stage_bytes} B off the gesture path')
     # §42: time to first visible change per gesture. A burst = consecutive
     # flushes less than BURST_GAP_MS apart; its first flush's bytes and ack are
     # what the eye waits for. The silent clock's minute tick and atlas chunks
@@ -211,7 +219,7 @@ def main(path, since_ms=0, glasslog=False):
         # not gestures — and they must not extend one either: leaving `prev_t` on an atlas chunk
         # glued the next real gesture onto the burst before it and lost that gesture's own first
         # flush, the number `WINDOWS.md` §6 judges a window by (2026-09-15, the third review)
-        if lab in ('SILENT', 'ATLAS'): continue
+        if lab in ('SILENT', 'ATLAS', 'STAGE'): continue   # §66: staged-record writes are not gestures either
         if ts is None:
             # no submit record for this flush — the usual cause is `?tail=N`, which cuts the file
             # at a byte offset. Falling back to the ACK time put the flush in whatever burst was

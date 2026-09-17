@@ -2,8 +2,8 @@
 
 **The entry point for a fresh session**: what is true now, what comes next, where the records are. History lives
 in `HANDOFF.md`; this file only points at it. Read `CLAUDE.md` → this file → **`FORK.md`** (the plan; §11 the
-log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` **§65** (what four reviews of Phase 2 measured, and the
-protocol), §64–§61 (the four reviews), §60 (Phase 2 built), §59 (the day's live defect), §55 (Phase 1 flashed),
+log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` **§66** (Reader's page staging: the design pass, T2's day read,
+the build) → **§65** (what four reviews of Phase 2 measured, and the protocol), §64–§61 (the four reviews), §60 (Phase 2 built), §59 (the day's live defect), §55 (Phase 1 flashed),
 §48 (the fork decided). Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md` → the image through
 `research/fwread.py`.
 
@@ -11,7 +11,7 @@ protocol), §64–§61 (the four reviews), §60 (Phase 2 built), §59 (the day's
 
 - **🔴 The CFW fork and the Damage rebuild are the ONLY work (Adam, 2026-09-12; `HANDOFF.md` §48)** until
   `FORK.md` Phase 8 closes. `FORK.md` = the plan (§11 the log), `FIRMWARE.md` = the contract, `HANDOFF.md`
-  §48–§65 = the records, `CLAIMS.md` = the firmware facts. **The build and review protocol is `CLAUDE.md`
+  §48–§66 = the records, `CLAIMS.md` = the firmware facts. **The build and review protocol is `CLAUDE.md`
   "Scope, build, review" and `FORK.md` §3.8**: a phase's design pass fills the failure envelope before any code;
   a build ends with a Not-built list and the two instruments' numbers; a fix sweeps its class; two general
   review passes, then class sweeps and instruments.
@@ -24,18 +24,17 @@ protocol), §64–§61 (the four reviews), §60 (Phase 2 built), §59 (the day's
   self-test 19 of 20 vectors matching every step, the twentieth's one corner named (item 3 below). Phase 1's record (§55, §56, §65): 7.3 h then 10.2 h worn clean, transfer 2.0 ms median, the uptime tick
   1.024 per ms, the arm drops = in-case reboots. The phone APK drives; the OpenRC `damage` service is the data host
   and standby (§19, `DAILY.md`), still on 0.44's core.
-- **The APK. 0.49 installed** (2026-09-15 03:46; every `build` note through 09-16 12:17). **0.55 INSTALLED 2026-09-16 ~13:10 (Adam)** and driving Phase 2 since 13:32 (§65). **0.56 STAGED 14:12** — `hintMaxRows`
-  240 → 40 (the measured break-even, §65) and nothing else; Adam installs whenever (~30 s blank, a 13 s atlas re-upload).
+- **The APK. 0.49 installed** (2026-09-15 03:46; every `build` note through 09-16 12:17). **0.55 INSTALLED 2026-09-16 ~13:10 (Adam)** and driving Phase 2 since 13:32 (§65). **0.57 STAGED (evening, §66)** — `hintMaxRows` 240 → 40 (the measured
+  break-even, §65; 0.56's one change) plus Reader's page staging; Adam installs whenever (~30 s blank, a 13 s atlas re-upload).
 - **🔴 Phase 2: FLASHED 2026-09-16 13:19/13:24 (§65) after four reviews** (`HANDOFF.md` §60–§64; `FIRMWARE.md`
-  §4 as built; Damage `67fdfa1`, the fork `f20bac9`) — **first light green, the self-test done (§65); T2 open for the day's reads (item 2 below);
-  Reader's page staging is the next coding part (item 1)**. Fork pin **`48172b62…`** = Phase 1 + modes 17–24, op 5, status 3–5, fields
+  §4 as built; Damage `67fdfa1`, the fork `f20bac9`) — **first light green, the self-test done (§65); T2 open for the day's reads (items 1–2 below)**. Fork pin **`48172b62…`** = Phase 1 + modes 17–24, op 5, status 3–5, fields
   23–26, the partial path, the three link edits; **32 entries — §63 added ONE new site, `0x00473D80`** (the
   display task's other refresh call): read §63.2 item 4 against `FORK.md` §3.1 before the flash. `tools/verify.py`,
   26 vectors / 237 steps, 20 self-test, 76 host checks green; the simulator equals the C on every step, both
   lenses, both forms. Damage: the v2 atlas, per-lens draws, fills, the reseed, the hint, kerning, the 2M request,
   the report (`Contract2Test`; gated on DamageCaps bit 5 + DRAW2, so the APK runs as before on the contract-1
-  build). **Not built:** Reader's page staging. §57 holds the journal baseline. Adam ruled §57's eleven decisions
-  as recommended.
+  build). **Reader's page staging built 2026-09-16 evening (§66; APK 0.57)** — the first build under the §3.8 protocol,
+  its on-glass number owed. §57 holds the journal baseline. Adam ruled §57's eleven decisions as recommended.
 - **What the reviews changed that a fresh session must not undo** (the why is in the cited item):
   - a mode-24 partial refresh is taken only while the panel already shows the whole previous frame — a refused
     batch, stock content, a release point and the overlay each mark it stale, in the C, the model and §4; the
@@ -63,13 +62,14 @@ protocol), §64–§61 (the four reviews), §60 (Phase 2 built), §59 (the day's
   every cached draw (Main on the left lens only); the start reads RIGHT's uptime before the carry decision.
   Workaround on 0.49: phone Bluetooth off for 90 s.
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games · Feed (`WINDOWS.md` and the
-  per-window records); `POPOVER.md` is a spec, built in Phase 6a. **The battery on `7997a4d` (§64):** core 591 ·
-  desktop 15 · `--selfcheck` ×3 (463 checks each, both contracts) · 57 renders · epub/music/games/feed · lint 0 ·
-  APK 0.55. §65 changed one vector, the lint gate and a test comment, and ran lint, the fork's three host gates,
+  per-window records); `POPOVER.md` is a spec, built in Phase 6a. **The battery after §66 (2026-09-16 evening):** core 601 (the known Feed miss once per full run; 8 of 10 when run
+  alone on either tree — pre-existing) · desktop 15 · `--selfcheck` 16 of 16 on the final binary (one earlier run failed
+  under the core suite's load, log not kept, §66) · 57 renders · epub 380/404 · music/games/feed · lint 0 · APK 0.57. §65 changed one vector, the lint gate and a test comment, and ran lint, the fork's three host gates,
   `ConformanceVectorTest` and `GeometryTest`. Known rate misses (§54.5, §54.7): `FeedWindowTest.deepLinks…` and
   `…browseThroughTheKeyboard…` (§49.6), a seam test race (`SeamSessionTest.kt:82`),
   `Review20260905Test.cashingOut…` once (§61, cause not found) — run the core suite alone; a repeated
-  `:core:test` answers FROM-CACHE (`:core:cleanTest :core:test --no-build-cache` for a rate).
+  `:core:test` answers FROM-CACHE (`:core:cleanTest :core:test --no-build-cache` for a rate). The Feed miss run BY
+  ITSELF fails 8 of 10 on the tree before and after §66 (worse than in the suite): measure a rate like with like.
 
 ## Measured on glass (grade M)
 
@@ -92,23 +92,21 @@ the 75 / 523 below. Price a window against the wait; these are kept because the 
 The ack precedes the panel refresh (§48.1, verified): what the eye waits for is longer than these. A flush under
 100 B acks in ~60 ms; each KB adds ~140 ms; the tail is pixel bytes. Phone CPU per flush: 17 ms median / 66 p90.
 
-## 🔴 The next session — the next big coding part is Reader's page staging, designed against §3.8 first
+## 🔴 The next session — T2's reads: page staging on glass, the day's numbers, 0.57
 
-Phase 2 is on the glasses and first light is green (§65). Test stop T2 stays open only for the reads Adam's day and
-tonight give. Nothing needs flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) binds the build.
+Phase 2 is on the glasses and first light is green (§65). Reader's page staging is built (§66, APK 0.57 staged) and
+its number is the next read. Nothing needs flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8)
+binds every build.
 
-1. **Reader's page staging — the one Phase 2 item not built, and the largest single latency win.** The next and
-   previous page as v2 image records (mode 19) uploaded off the gesture path — the 160 KiB cache holds ≈55 KB beside the
-   ≈105 KB atlas; two pages ≈ 44 KB — and a page turn as clip + draw (modes 20 + 17 at the content plane's disparity);
-   the compositor needs a staged-draw primitive that paints its shadows from the record so belief = glass.
-   **The design pass answers `FORK.md` §3.8's six questions BEFORE any code** (the protocol's first use): what clears a
-   staged page at a session boundary, a lapse, a reset, a rebuild; what releases the wait on a page upload that never
-   acks; what identity a staged record keeps across a repack; which task or lens reaches it meanwhile; one read of a
-   shared field per decision; the sibling sites (both lenses; the v1 twin). The build ends with a Not-built list and
-   the two instruments' numbers, and the page turn's FIRST flush is the number T2 judges — price it with §65's curve
-   (0.5–1.5 KB 98 ms, 3–6 KB 276) and the partial refresh's ≈66 µs/row. Facts: `FIRMWARE.md` §4 (the phone-side
-   paragraph), `Compositor.emitCachedV2` / `hintMaxRows`, `TextureCache` v2, `Contract2Test`, `AtlasRepackTest`.
-   Optional beside it: `lint.py` rules for the v2 budgets; a Global row for the hint's A/B.
+1. **Page staging on glass (0.57; §66).** Install 0.57, open a book, read: the `stage` notes (staged · proven ·
+   dropped · off), the `page staging:` line and the Reader notches' WAIT column in `journal_report.py` against today's
+   231 / 775 ms (§66's baseline: first flush 691 B / 7.2 KB), the worker µs of a staged notch (`present` records),
+   the atlas's repack churn against 767 KB / 2.5 h now that the atlas has 128 KiB. Adam's eye: a notch that lands
+   whole (no strip filling in), no stale rows, no lens disagreement. A shortfall note ("never landed") or "off for the
+   session" is a finding to read at once — it names a cache write the glasses took the ack for and did not keep.
+   Then the two quiet-pass items §66 left: the atlas's glyph-subset packing (the churn) and the link estimator's
+   regime flips on a link that did not change. Optional beside it: `lint.py` rules for the v2 budgets; a Global row
+   for the hint's A/B.
 2. **Adam's reads for T2 (his day, tonight):** 0.56 installed if not yet; the day's journal
    (`journal_report.py --since 2026-09-16`) — the ack curve on 2M over a workday, the cacheMiss breakdown (`proof` and
    `planes` at zero is the exit), battery %/h on 2M against 7.4–7.8, the in-case reboots against §65's baseline (five
@@ -249,7 +247,7 @@ desktop/build/install/desktop/bin/desktop --selfcheck # after ./gradlew :desktop
                                                       # Phase 2 build with cached text ON (the v2 ops had no oracle before)
 python3 tools/lint.py                                 # SYM/GEO/BUD, exits 0; --selftest names what it covers
 TOKEN=$(python3 -c "import json;print(json.load(open('/home/user/.damage/config.json'))['token'])")
-curl -s "http://aphone:7403/journal?token=$TOKEN" | python3 tools/journal_report.py -   # the phone's journal, per-gesture numbers included
+curl -s "http://aphone:7403/journal?token=$TOKEN" | python3 tools/journal_report.py -   # the phone's journal, per-gesture numbers included; since §66 a `page staging:` line
 curl -s "http://aphone:7403/log?token=$TOKEN&tail=400"                                 # the phone's log (0.41+), no adb
 python3 tools/glassdrive.py aphone $TOKEN --pace 2.5 double wait:3 snap:/tmp/a.png …    # drive the glasses; snap before every tap
 python3 research/verify_cfw.py                        # before any flashing conversation: the INSTALLED image's provenance

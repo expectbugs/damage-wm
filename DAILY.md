@@ -99,7 +99,9 @@ without writing a row.
   keyframe). Not back within a minute (2026-09-09 15:06, §42.3 — cause not yet named): Target → SIM in the APK,
   then Target → glasses; temples dead: phone Bluetooth off, both-temple long-press ("Silent Mode Off"),
   Bluetooth on. Then read the journal's `silent`, `restart`, `keeper`, `event` notes and `/log`.
-- **Global rows** (`HANDOFF.md` §40–§41): `Slide frames` (default `auto`); `Cached text` (default `off` — on, it
+- **Global rows** (`HANDOFF.md` §40–§41, §66): `Page staging` (default `on` — with cached text on and a Damage build, the
+  focused document's next strips go to the cache's reserve and a notch is one draw; `stage` notes say what was staged,
+  proven or dropped; off for the A/B); `Slide frames` (default `auto`); `Cached text` (default `off` — on, it
   uploads fonts and icons in idle chunks (`atlas` notes) and ships text and icons on EVERY plane as cached
   draws; a refused cache write switches it off for the session; every flush line carries `cached`/`cacheMiss`);
   `Depth` moves everything, the selection bar one notch nearer, each app's `Depth` row (`global` by default)

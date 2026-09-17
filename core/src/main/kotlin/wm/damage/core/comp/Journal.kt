@@ -48,7 +48,9 @@ class Journal(private val path: Path?) : AutoCloseable {
         /** §41: rects this flush shipped as cached draws, and why the others
          *  did not ("reason=count,…" — empty when every rect was pixels for
          *  want of records, or the cache is off). */
-        val cached: Int = -1, val cacheMiss: String = "")
+        val cached: Int = -1, val cacheMiss: String = "",
+        /** §66: rects shipped as staged draws (mode 17 under a clip) — -1 when the assemble did not say. */
+        val staged: Int = -1)
 
     fun flushSubmitted(id: Long, a: Compositor.Assembled, label: String,
         via: String = "?", timing: Timing = Timing()) =
@@ -84,7 +86,7 @@ class Journal(private val path: Path?) : AutoCloseable {
             """"via":${json(via)},"handleMs":${tm.handleMs},"handlerMs":${tm.handlerMs},"mirrorMs":${tm.mirrorMs},""" +
             """"assembleMs":${tm.assembleMs},"truthMs":${tm.truthMs},"compressMs":${tm.compressMs},"compressN":${tm.compressN},""" +
             """"slidesMs":${tm.slidesMs},"chromeMs":${tm.chromeMs},"overlaysMs":${tm.overlaysMs},"textMs":${tm.textMs},""" +
-            """"cached":${tm.cached},"cacheMiss":${json(tm.cacheMiss)},"ops":[$ops]}""")
+            """"cached":${tm.cached},"cacheMiss":${json(tm.cacheMiss)},"staged":${tm.staged},"ops":[$ops]}""")
     }
 
     fun flushDone(id: Long, ok: Boolean, ackMs: Long, bytes: Int, error: String?) {

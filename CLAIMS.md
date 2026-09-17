@@ -182,6 +182,9 @@ arguments — instruction-level reads decide.
 | The JBD4010 partial refresh costs ≈1.6 ms + 66 µs per row on glass (rough join of hinted rows to `present` transfers, n=58; the §60 host model said 100 µs/row + 300 µs); a full-panel transfer 4.4 ms median (n=28) in the same session — the partial pays below ≈40 rows | **M** | `HANDOFF.md` §65 (T2's first read) |
 | The Phase 2 image executes the drawing contract as the simulator models it: 20 self-test vectors run on the glass, 19 match every step's scratch CRC and refusal record (v1 and v2 modes, refusals included) | **M** | `glassdrive.py … selftest:` through the phone, 2026-09-16 (`HANDOFF.md` §65) |
 | A one-byte image message (a mode-19 write with no entries) never reaches the CFW dispatcher on the glass — the generation does not move and nothing records a refusal — where the host C and the simulator accept it and bump; the phone sent it | **M** (the drop, seen twice) / **U** (where: the stock reassembly's minimum or the lane's framing) | `HANDOFF.md` §65, `v2-order` step 8 |
+| The 160 KiB cache does not hold a day's faces on the v2 tables: 2026-09-16 13:32–15:59 the atlas re-sent 767 KB in 262 chunks (5 repacks, 14 deferred, 16 "stays pixels", Reader's own 17 px faces among them); a 224-glyph v2 face is ≈ 2.3× its v1 size | **M** | the phone's journal (`HANDOFF.md` §66); the fix is a later item (pack only the glyphs seen) |
+| A Reader notch on Phase 2 (APK 0.55, cached text on, the strip as text draws or pixels): first flush 691 B median / 7.2 KB p90, wait 231 / 775 ms (n=100, 2026-09-16 14:01–14:04) — the baseline page staging is priced against | **M** | `HANDOFF.md` §66 |
+| A five-line Reader strip as a v2 image record is 4.5–7.5 KB, a 13-line page 7.2–16 KB (the RLE of the 1× renders, `snapshots/03-` and `04-reader-*.png`) | modeled | `HANDOFF.md` §66; §57's 22 KB page was a rougher model |
 
 ## Input
 

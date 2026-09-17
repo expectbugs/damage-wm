@@ -262,7 +262,11 @@ a short hint fails the oracle); kerning is the platform's pair measure as adjust
 the wish's: a hold-back that catches it keeps it off at later starts until a hand-set flag set asks for bit 2 (the
 session then draws with v1 shapes over a 64 KiB atlas), a lease that ends drops it from the link state at once and, on a
 Damage build, the shell rebuilds the session to arm it again, and an atlas of the other contract is never drawn from
-(2026-09-15 review, `HANDOFF.md` §61). Still to build: Reader's page staging as v2 records with a clip + draw page turn.
+(2026-09-15 review, `HANDOFF.md` §61). **Page staging (built 2026-09-16, `HANDOFF.md` §66; no wire change):** the top
+32 KiB of the session's cache is a reserve the atlas never lays out over; the focused document's next and previous
+strips go there as v2 image records (mode 19, 3,064 B messages, off the gesture path), are proven by field 17 — the
+phone counts its acked non-empty writes and a reading must show exactly that many bumps — and a notch then ships
+one mode-17 pair under a mode-20 clip (and a clip reset) instead of the strip's pixels.
 
 **Vectors (the v2 set, built; expectations from the C, the simulator equal on every step):** `v2-perlens` (17/18
 with two x's, negative x and y) · `v2-image16` (300×300 and 640×600 records across the 64 KiB line in a 160 KiB
@@ -483,6 +487,8 @@ phone's keeper applies the hold-back rule before re-arming.
   framebuffer" was the one stale condition the two implementations were never compared on. Two
   vectors added (`v1-stream`, `v2-gates` — the lease and DRAW2 checks were dead for six of the
   eight v2 modes) and `v2-panel` extended to 16 steps. Contract version unchanged (not flashed).
+- 2026-09-16 (evening) — page staging built on the phone side (`HANDOFF.md` §66): the cache's top 32 KiB as the
+  staged-record reserve, the proof by counting field 17. No wire shape changed; contract version unchanged.
 - 2026-09-15 (night) — the review of Phase 2 (`HANDOFF.md` §61), fork and simulator changed together, the vectors
   regenerated from the C (every existing expectation unchanged) plus `v2-edges` and `v2-lifecycle`: op 5 takes 64..160 KiB
   (a smaller cache put the v1 modes' bounds past its end) and a request no longer shares the allocated size's field; a
