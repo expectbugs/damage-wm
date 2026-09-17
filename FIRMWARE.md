@@ -263,7 +263,7 @@ the wish's: a hold-back that catches it keeps it off at later starts until a han
 session then draws with v1 shapes over a 64 KiB atlas), a lease that ends drops it from the link state at once and, on a
 Damage build, the shell rebuilds the session to arm it again, and an atlas of the other contract is never drawn from
 (2026-09-15 review, `HANDOFF.md` §61). **Page staging (built 2026-09-16, `HANDOFF.md` §66; no wire change):** the top
-32 KiB of the session's cache is a reserve the atlas never lays out over; the focused document's next and previous
+64 KiB of the session's cache (32 until §66.1's read on glass) is a reserve the atlas never lays out over; the focused document's next and previous
 strips go there as v2 image records (mode 19, 3,064 B messages, off the gesture path), are proven by field 17 — the
 phone counts its acked non-empty writes and a reading must show exactly that many bumps — and a notch then ships
 one mode-17 pair under a mode-20 clip (and a clip reset) instead of the strip's pixels.

@@ -185,6 +185,9 @@ arguments — instruction-level reads decide.
 | The 160 KiB cache does not hold a day's faces on the v2 tables: 2026-09-16 13:32–15:59 the atlas re-sent 767 KB in 262 chunks (5 repacks, 14 deferred, 16 "stays pixels", Reader's own 17 px faces among them); a 224-glyph v2 face is ≈ 2.3× its v1 size | **M** | the phone's journal (`HANDOFF.md` §66); the fix is a later item (pack only the glyphs seen) |
 | A Reader notch on Phase 2 (APK 0.55, cached text on, the strip as text draws or pixels): first flush 691 B median / 7.2 KB p90, wait 231 / 775 ms (n=100, 2026-09-16 14:01–14:04) — the baseline page staging is priced against | **M** | `HANDOFF.md` §66 |
 | A five-line Reader strip as a v2 image record is 4.5–7.5 KB, a 13-line page 7.2–16 KB (the RLE of the 1× renders, `snapshots/03-` and `04-reader-*.png`) | modeled | `HANDOFF.md` §66; §57's 22 KB page was a rougher model |
+| **A cache write's generation bump (field 17) lands up to ~1 s after the write's success ack on the phone's link** — the ack precedes the decode and the worker's queue sits behind the frames; a reading 40 ms later reads short and a later one shows the bump. One reading showed an extra bump (+1) that no write of the phone's accounts for | **M** (the lag, 2026-09-16 19:10) / **U** (the extra bump) | `HANDOFF.md` §66.1; the ledger's 2 s settle window is the consequence |
+| A staged Reader notch on glass: 12 B first flush, ack 79 ms median / 83 p90, wait 98 / 131 (n=4); the same book's notches as pixels 2.7 KB median / 12 KB max, ack 307 / 1,240 (n=16); as text draws 54 B, ack 84 / 137 (n=172) | **M** (2026-09-16 19:10–19:13, APK 0.57) | `HANDOFF.md` §66.1 |
+| A five-line strip of Adam's book as a v2 image record is 12–17 KB of text, 34 KB across an image — two to four times the 1× renders' model (§66) | **M** | `HANDOFF.md` §66.1; the reserve went to 64 KiB |
 
 ## Input
 

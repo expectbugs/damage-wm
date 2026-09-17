@@ -508,7 +508,10 @@ The focused document's next and previous strips as v2 image records in the cache
   strip rendered through the recorder's relay with nothing recorded (`CachedText.via` with an empty keep), placed in
   the ring and written in 3,064 B mode-19 messages (`STAGE` flushes, the atlas's writer tag); `stageDone` feeds the
   ledger; `launchStageRead` (op 1) and `ledgerVerdict` prove or drop; `stagePlacements` before every assemble;
-  `paintDocSlice` blits a PROVEN record's lines. Both write lanes hold while a reading is on its way. Clears:
+  `paintDocSlice` blits a PROVEN record's lines. Both write lanes hold while a reading is on its way; a short reading
+  inside `CacheLedger.SETTLE_MS` (2 s) of the last ack is pending, re-read paced 500 ms, and only two settled short
+  readings make a shortfall (§66.1: bumps land up to ~1 s after the ack); an extra bump re-bases, drops nothing; a
+  shortfall costs staging only, never the atlas (its own read-back judges it). Clears:
   `stageSessionStart`, `atlasReset`/`atlasLapsed`/`atlasDisable`/`atlasLive`, Silent Mode, the row off, `stage.retain`
   on a relayout. Bounded: `STAGE_FAILURES_MAX` = 3, then off for the session (a `stage` note).
 - `Compositor.emitStaged` — before the cached path in `emitDelta`, no fid: the planned rect's overlap with a placement

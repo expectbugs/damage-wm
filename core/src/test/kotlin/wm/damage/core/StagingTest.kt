@@ -115,9 +115,9 @@ class StagingTest {
             throw AssertionError("$what: did not settle — ${shell.quiescenceReport()}")
         }
 
-        suspend fun until(what: String, cond: () -> Boolean) {
+        suspend fun until(what: String, maxMs: Long = 10_000, cond: () -> Boolean) {
             val t0 = System.currentTimeMillis()
-            while (!cond() && System.currentTimeMillis() - t0 < 10_000) delay(5)
+            while (!cond() && System.currentTimeMillis() - t0 < maxMs) delay(5)
             assertTrue(cond(), "$what — proven=${shell.stagedProvenCount} resident=${shell.stagedResidentCount} " +
                 "lines=${shell.stagedProvenLines} live=${shell.cachedFontsLive.size} stage notes=${notes("stage").takeLast(4)} " +
                 "atlas notes=${notes("atlas").takeLast(3)}")
@@ -375,11 +375,13 @@ class StagingTest {
             rig.settle("open doc")
             rig.shell.updateSettings { it.copy(cachedText = "on") }
             rig.until("the fonts go live") { rig.shell.cachedTextActive && rig.shell.cachedFontsLive.isNotEmpty() }
-            rig.until("the shortfall is found and staging switches itself off") { rig.notes("stage").any { "off for the session" in it } }
+            // each shortfall waits out the settle window (2 s) and two paced settled readings, then the
+            // record is staged again; three of those switch staging off
+            rig.until("the shortfall is found and staging switches itself off", maxMs = 45_000) { rig.notes("stage").any { "off for the session" in it } }
             rig.settle("off")
             assertTrue(rig.notes("stage").any { "never landed" in it }, "the generation count named the missing writes: ${rig.notes("stage")}")
             assertEquals(0, rig.shell.stagedProvenCount, "nothing was ever proven")
-            assertTrue(rig.shell.cachedTextActive, "the atlas is untouched — its chunks were not among the writes")
+            assertTrue(rig.shell.cachedTextActive, "the atlas is untouched by a shortfall (§66.1: a shortfall costs staging, never the fonts)")
             repeat(3) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("notch $it") }
             assertEquals(0L, rig.shell.stagedRectsShipped, "no draw from a record the glasses never took")
             assertTrue(rig.all().flatMap { it.ops }.none { it is DisplayOp.DrawImage2 && it.w > 255 }, "no record draw on the wire")
@@ -420,7 +422,7 @@ class StagingTest {
         val rig = Rig(scope)
         try {
             rig.upWithTheDocStaged()
-            assertTrue(rig.notes("atlas").any { "built for contract 2 (per-lens draws, 128 KiB)" in it },
+            assertTrue(rig.notes("atlas").any { "built for contract 2 (per-lens draws, 96 KiB)" in it },
                 "the atlas is laid out over the cache minus the reserve: ${rig.notes("atlas").take(3)}")
             val atlasWrites = rig.all().filter { it.label == "ATLAS" }.flatMap(::writesOf)
             val stageWrites = rig.all().filter { it.label == "STAGE" }.flatMap(::writesOf)
@@ -468,31 +470,36 @@ class StagingTest {
     }
 
     @Test
-    fun theLedgerProvesByCountingAndCallsAShortfallOnlyAfterThreeShortReadings() {
+    fun theLedgerProvesByCountingWaitsOutTheSettleWindowAndKeepsRecordsOnAnExtraBump() {
         val l = CacheLedger()
-        assertTrue(l.answer(gen = 7, sendAcked = 0, sendAtlasAcked = 0) is CacheLedger.Verdict.Base)
+        assertTrue(l.answer(gen = 7, sendAcked = 0, sendAtlasAcked = 0, settled = true) is CacheLedger.Verdict.Base)
         l.writeAcked(2, atlas = true); l.writeAcked(3, atlas = false)
-        val proven = l.answer(gen = 12, sendAcked = 5, sendAtlasAcked = 2)
+        // a matching count proves whether or not the window has passed
+        val proven = l.answer(gen = 12, sendAcked = 5, sendAtlasAcked = 2, settled = false)
         assertTrue(proven is CacheLedger.Verdict.Proven && proven.upTo == 5L, "$proven")
-        // one write refused: the reading stays one short — twice a Short, the third time a shortfall
+        // one write's bump not there yet: pending inside the window, short after it, a shortfall on the
+        // second settled short reading
         l.writeAcked(2, atlas = false)
-        assertTrue(l.answer(13, 7, 2) is CacheLedger.Verdict.Short)
-        assertTrue(l.answer(13, 7, 2) is CacheLedger.Verdict.Short)
-        val sf = l.answer(13, 7, 2)
+        assertTrue(l.answer(13, 7, 2, settled = false) is CacheLedger.Verdict.Pending)
+        assertTrue(l.answer(13, 7, 2, settled = false) is CacheLedger.Verdict.Pending)
+        assertEquals(0, l.shortReads, "a pending reading counts for nothing")
+        assertTrue(l.answer(13, 7, 2, settled = true) is CacheLedger.Verdict.Short)
+        val sf = l.answer(13, 7, 2, settled = true)
         assertTrue(sf is CacheLedger.Verdict.Shortfall && sf.missing == 1L && !sf.atlasInvolved && sf.fromAcked == 5L && sf.toAcked == 7L, "$sf")
-        // re-based at 13: a decode that lands later reads as a foreign write
+        // re-based at 13: the bump that landed late reads as an extra one — re-based, nothing dropped
         l.writeAcked(1, atlas = true)
-        val fo = l.answer(16, 8, 3)
-        assertTrue(fo is CacheLedger.Verdict.Foreign && fo.extra == 2L, "$fo")
+        val fo = l.answer(16, 8, 3, settled = true)
+        assertTrue(fo is CacheLedger.Verdict.Foreign && fo.extra == 2L && fo.toAcked == 8L, "$fo")
+        assertEquals(16L, l.baseGen)
         // an atlas chunk in a shortfall's interval implicates the atlas
         l.writeAcked(1, atlas = true)
-        repeat(2) { assertTrue(l.answer(16, 9, 4) is CacheLedger.Verdict.Short) }
-        val sf2 = l.answer(16, 9, 4)
+        assertTrue(l.answer(16, 9, 4, settled = true) is CacheLedger.Verdict.Short)
+        val sf2 = l.answer(16, 9, 4, settled = true)
         assertTrue(sf2 is CacheLedger.Verdict.Shortfall && sf2.atlasInvolved, "$sf2")
         // a lost write: the next reading can only re-base
         l.writeAcked(1, atlas = false); l.writeLost()
-        assertTrue(l.answer(17, 10, 4) is CacheLedger.Verdict.Base)
-        assertTrue(l.answer(17, 10, 4) is CacheLedger.Verdict.Proven)
+        assertTrue(l.answer(17, 10, 4, settled = true) is CacheLedger.Verdict.Base)
+        assertTrue(l.answer(17, 10, 4, settled = true) is CacheLedger.Verdict.Proven)
         l.reset(); assertNull(l.baseGen); assertEquals(0L, l.acked)
     }
 

@@ -2208,6 +2208,7 @@ class Shell(
         val wantDraw2 = a.v2
         val sendAcked = cacheLedger.acked            // §66: the counts this reading speaks for
         val sendAtlasAcked = cacheLedger.atlasAcked
+        val settled = System.currentTimeMillis() - cacheWriteLastAckMs >= CacheLedger.SETTLE_MS
         scope.launch {
             var why0: String? = null
             val t = try { transport.cacheCheck() } catch (e: Exception) { why0 = e.message ?: e.toString(); null }
@@ -2238,7 +2239,7 @@ class Shell(
                 }
                 // §66: the generation count is the proof the size and the flags are not — a chunk the
                 // glasses refused moved no generation. The ledger's verdict may switch the atlas off.
-                t.cacheGen?.let { g -> ledgerVerdict(cacheLedger.answer(g, sendAcked, sendAtlasAcked), "the atlas check") }
+                t.cacheGen?.let { g -> ledgerVerdict(cacheLedger.answer(g, sendAcked, sendAtlasAcked, settled), "the atlas check") }
                 if (atlasFailed) return@Run
                 val size = t.cacheSize
                 // the two conditions that are THIS upload's, and not sticky: the cache's presence and
@@ -2584,6 +2585,7 @@ class Shell(
         }
         atlasUndelivered = 0
         cacheLedger.writeAcked(1, atlas = true)  // §66: one non-empty mode-12/19 message per atlas flush
+        cacheWriteLastAckMs = System.currentTimeMillis()
         atlas?.acked(atlasInFlightGen)          // a chunk of a layout a repack replaced moves no watermark
         if (atlasQueue.isEmpty()) {
             // the last chunk of this batch: every font whose bytes are acked
@@ -2635,6 +2637,13 @@ class Shell(
     private var stageShortfalls = 0
     /** Strips too large for the reserve this session — not re-rendered on every pump. */
     private val stageRefused = HashSet<StageKey>()
+    /** When the last cache write (atlas or stage) was acked: a generation reading sent within
+     *  `CacheLedger.SETTLE_MS` of it may be short for the decode still on its way (§66.1). */
+    private var cacheWriteLastAckMs = 0L
+    /** No reading before this after a pending or short one (`CacheLedger.REREAD_PACE_MS`). */
+    private var stageReadNotBeforeMs = 0L
+    /** Extra bumps seen this session (a count anomaly to read, never a reason to drop a record). */
+    private var stageForeignBumps = 0L
     private var stageFullSaid = false
     /** Records the compositor may draw from right now (harnesses read it across threads). */
     @Volatile var stagedProvenCount = 0
@@ -2661,6 +2670,7 @@ class Shell(
         cacheLedger.reset()
         stageFailed = false; stageWriteFailures = 0; stageReadFailures = 0; stageShortfalls = 0
         stageRefused.clear(); stageFullSaid = false
+        cacheWriteLastAckMs = 0L; stageReadNotBeforeMs = 0L; stageForeignBumps = 0L
         stage.ring = null                  // sized from the session's cache at the first strip
     }
 
@@ -2718,7 +2728,10 @@ class Shell(
         val ring = stage.ring ?: StageRing(st.cacheSize - CfwModes.STAGE_RESERVE, st.cacheSize).also { stage.ring = it }
         // a reading is owed before anything else goes out: the session's base, and one per batch of
         // acked writes (`CacheLedger`) — an unproven record is never drawn
-        if (cacheLedger.baseGen == null || stage.count(StagedRecord.State.ACKED) > 0) { launchStageRead(); return true }
+        if (cacheLedger.baseGen == null || stage.count(StagedRecord.State.ACKED) > 0) {
+            if (System.currentTimeMillis() < stageReadNotBeforeMs) return false   // paced after a pending or short reading
+            launchStageRead(); return true
+        }
         val visible = kit.visibleLines(layout, v)
         val top = v.model.topLine
         val count = v.lineCount()
@@ -2813,6 +2826,7 @@ class Shell(
         }
         stageWriteFailures = 0
         cacheLedger.writeAcked(writes, atlas = false)
+        cacheWriteLastAckMs = System.currentTimeMillis()
         if (rec != null && rec.state == StagedRecord.State.SENT && stage.records[rec.key] === rec) {
             rec.state = StagedRecord.State.ACKED
             rec.ackedAt = cacheLedger.acked
@@ -2827,6 +2841,7 @@ class Shell(
         val epoch = stageEpoch
         val sendAcked = cacheLedger.acked
         val sendAtlasAcked = cacheLedger.atlasAcked
+        val settled = System.currentTimeMillis() - cacheWriteLastAckMs >= CacheLedger.SETTLE_MS
         scope.launch {
             var why: String? = null
             val t = try { transport.telemetry("stage check") } catch (e: Exception) { why = e.message ?: e.toString(); null }
@@ -2841,7 +2856,7 @@ class Shell(
                     return@Run
                 }
                 stageReadFailures = 0
-                ledgerVerdict(cacheLedger.answer(gen, sendAcked, sendAtlasAcked), "the stage check")
+                ledgerVerdict(cacheLedger.answer(gen, sendAcked, sendAtlasAcked, settled), "the stage check")
                 post(Msg.Pump)
             })
         }
@@ -2861,24 +2876,34 @@ class Shell(
                 for (r in stage.records.values) if (r.state == StagedRecord.State.ACKED && r.ackedAt <= v.upTo) { r.state = StagedRecord.State.PROVEN; n++ }
                 if (n > 0) journal.note("stage", "$from proved $n record(s) — ${stage.count(StagedRecord.State.PROVEN)} drawable, ${stage.ring?.bytesHeld ?: 0} B in the reserve")
             }
-            is CacheLedger.Verdict.Short ->
-                journal.note("stage", "$from read the generation ${v.missing} short (reading ${v.reads}) — the last decode may be pending; asked again")
+            is CacheLedger.Verdict.Pending -> {
+                // the acked writes have not had their settle window: counts for nothing, asked again paced
+                stageReadNotBeforeMs = System.currentTimeMillis() + CacheLedger.REREAD_PACE_MS
+                journal.note("stage", "$from read the generation ${v.missing} short inside the settle window — pending, asked again in ${CacheLedger.REREAD_PACE_MS} ms")
+            }
+            is CacheLedger.Verdict.Short -> {
+                stageReadNotBeforeMs = System.currentTimeMillis() + CacheLedger.REREAD_PACE_MS
+                journal.note("stage", "$from read the generation ${v.missing} short after the settle window (settled reading ${v.reads}) — asked again")
+            }
             is CacheLedger.Verdict.Shortfall -> {
                 val lost = stage.records.values.filter { it.state == StagedRecord.State.ACKED && it.ackedAt > v.fromAcked && it.ackedAt <= v.toAcked }
                 for (r in lost) stage.remove(r)
+                // the atlas is NOT switched off on a shortfall (2026-09-16 21:xx, §66.1): the 0.57 ledger took
+                // cached text down for the evening on three lagged readings forty minutes apart, and a refused
+                // atlas chunk is what the read-back's refusal record (fields 23–25, refMode 19) already names —
+                // until the decode lag is understood a shortfall costs staging, never the fonts
                 journal.note("stage", "$from: the generation says ${v.missing} of the cache writes since the last reading never landed — " +
-                    "${lost.size} record(s) dropped" + (if (v.atlasInvolved) "; atlas chunks were among the writes" else ""))
-                if (v.atlasInvolved && !atlasFailed) {
-                    atlasFailed = true
-                    atlasDisable("the cache generation says ${v.missing} of the cache writes since the last reading never landed (a refused or dropped chunk)")
-                    setStatus("atlas refused")
-                }
+                    "${lost.size} record(s) dropped" + (if (v.atlasInvolved) "; atlas chunks were among the writes (the atlas stays: its own read-back judges it)" else ""))
                 if (++stageShortfalls >= STAGE_FAILURES_MAX) stageOff("$stageShortfalls shortfalls this session")
             }
             is CacheLedger.Verdict.Foreign -> {
-                val unproven = stage.records.values.filter { it.state == StagedRecord.State.ACKED }
-                for (r in unproven) stage.remove(r)
-                journal.note("stage", "$from: ${v.extra} cache write(s) since the last reading were not this shell's — ${unproven.size} acked record(s) go again")
+                // more bumps than this shell's acked writes: the count is re-based and the acked records
+                // stand — an extra bump does not make them bad, and another writer's bytes are the
+                // transport's writer tag to catch (§66.1: seen once on glass, cause unread)
+                stageForeignBumps += v.extra
+                var n = 0
+                for (r in stage.records.values) if (r.state == StagedRecord.State.ACKED && r.ackedAt <= v.toAcked) { r.state = StagedRecord.State.PROVEN; n++ }
+                journal.note("stage", "$from: ${v.extra} more generation bump(s) than this shell's writes since the last reading ($stageForeignBumps this session) — re-based; $n acked record(s) taken as landed")
             }
         }
         stageRecount()

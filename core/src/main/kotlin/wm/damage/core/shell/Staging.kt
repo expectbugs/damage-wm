@@ -151,9 +151,13 @@ class Staging {
  * means for the atlas and for the staged records.
  *
  * Both write lanes are held still while a reading is on its way (the shell's pumps), so the count
- * at the send is the count the answer speaks for. The decode of the last acked write may still be
- * pending on the glasses' worker when the settings task answers, so a reading one short is asked
- * again ([Verdict.Short]) before it is called a shortfall ([SHORT_READS_MAX]).
+ * at the send is the count the answer speaks for. **The bump lands well after the ack** — measured on
+ * glass 2026-09-16 (§66.1): up to about a second after, while a reading answers in 40 ms — so a short
+ * reading sent before the acked writes have had [SETTLE_MS] to land is [Verdict.Pending] and counts for
+ * nothing; only a short reading sent after that window counts ([Verdict.Short]), and [SHORT_READS_MAX]
+ * of those make a shortfall. More bumps than expected ([Verdict.Foreign]) re-base the count and
+ * invalidate nothing: the acked writes are not made bad by an extra bump (the same night's reads
+ * showed one, cause unread), and another writer's bytes are caught by the transport's writer tag.
  */
 class CacheLedger {
     /** Non-empty cache writes acked this session, in lane order — atlas chunks and staged records. */
@@ -187,7 +191,9 @@ class CacheLedger {
         class Base(val gen: Long) : Verdict()
         /** Every write acked up to [upTo] landed. */
         class Proven(val upTo: Long) : Verdict()
-        /** One reading short of the count — the last decode may still be pending; ask again. */
+        /** Short, but the acked writes have not had [SETTLE_MS] to land yet: counts for nothing; ask again. */
+        class Pending(val missing: Long) : Verdict()
+        /** Short after the settle window — asked again before it is called a shortfall. */
         class Short(val missing: Long, val reads: Int) : Verdict()
         /** Short [SHORT_READS_MAX] times: [missing] writes since the last base never landed. */
         class Shortfall(val missing: Long, val atlasInvolved: Boolean, val fromAcked: Long, val toAcked: Long) : Verdict()
@@ -195,8 +201,10 @@ class CacheLedger {
         class Foreign(val extra: Long, val fromAcked: Long, val toAcked: Long) : Verdict()
     }
 
-    /** A reading of field 17 taken with [sendAcked] / [sendAtlasAcked] the counts at its send. */
-    fun answer(gen: Long, sendAcked: Long, sendAtlasAcked: Long): Verdict {
+    /** A reading of field 17 taken with [sendAcked] / [sendAtlasAcked] the counts at its send; [settled]
+     *  = the send came at least [SETTLE_MS] after the last cache-write ack, so a short count is not a
+     *  decode still on its way. */
+    fun answer(gen: Long, sendAcked: Long, sendAtlasAcked: Long, settled: Boolean): Verdict {
         val base = baseGen
         if (base == null || unsure) {
             rebase(gen, sendAcked, sendAtlasAcked)
@@ -208,6 +216,7 @@ class CacheLedger {
                 rebase(gen, sendAcked, sendAtlasAcked)
                 Verdict.Proven(sendAcked)
             }
+            gen < expected && !settled -> Verdict.Pending(expected - gen)
             gen < expected -> {
                 shortReads++
                 if (shortReads < SHORT_READS_MAX) Verdict.Short(expected - gen, shortReads)
@@ -232,7 +241,13 @@ class CacheLedger {
     }
 
     companion object {
-        /** Readings short in a row before the count is a shortfall, not a pending decode. */
-        const val SHORT_READS_MAX = 3
+        /** Settled readings short in a row before the count is a shortfall. */
+        const val SHORT_READS_MAX = 2
+        /** How long the acked writes get to land before a short reading counts (measured 2026-09-16:
+         *  bumps up to ~1 s after the ack on the phone's link). A pace, not a bound: nothing is dropped
+         *  or given up inside it, the reading is only asked again. */
+        const val SETTLE_MS = 2_000L
+        /** No second reading sooner than this after a pending or short one. */
+        const val REREAD_PACE_MS = 500L
     }
 }

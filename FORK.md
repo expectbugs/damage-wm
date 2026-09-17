@@ -534,3 +534,12 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   the envelope answered, then the build: `Staging.kt`, the shell's staging pump, `Compositor.emitStaged`, `StagingTest`
   ×9, the oracle walk and the self-check through staged draws; APK 0.57 staged. No firmware change, nothing flashed;
   the on-glass number is T2's next read.
+- **2026-09-16 (5) — the first read of page staging on glass (`HANDOFF.md` §66.1):** a staged notch 12 B / 79 ms
+  ack against 2.7 KB / 307 ms for a strip that went as pixels (10×), about equal to a strip of text draws; the
+  ledger called false shortfalls (a write's bump lands up to ~1 s after its ack) and the strips are 12–34 KB, not the
+  modeled 4.5–7.5 — fixed the same evening on Adam's word (the settle window, the reserve 32 → 64 KiB, APK 0.58
+  staged, PRESENTED armed). Damage committed at `ccf102d` before the fixes; the fork untouched.
+- **2026-09-16 (6) — the 0.57 ledger took cached text down at 19:51 on three lagged readings (`HANDOFF.md` §66.1, the
+  evening entry): a shortfall now costs staging only, never the atlas; APK 0.59 staged, its battery green. Adam's ruling
+  on the status cell (§66.2): errors are notices, the cell holds self-clearing states only — the next coding step, his
+  go pending on the plan.**

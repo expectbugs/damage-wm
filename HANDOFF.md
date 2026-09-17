@@ -4878,3 +4878,64 @@ pin for the lapse's clear (one call beside the atlas's; `AtlasCarryTest`'s clock
 glyph-subset packing (the churn above). **Instruments:** no patch source changed — the fuzz (60 × 30 clean, §65) and
 the mutation sweep (39 of 106, §64.1) stand; the vectors are untouched. **Nothing flashed. The on-glass number is T2's
 next read:** the WAIT column of Reader's notches on 0.57 against today's 231 / 775 ms, and the `stage` notes.
+
+### 66.1 The first read on glass, and the two fixes it asked for (2026-09-16, 19:10–19:13, APK 0.57; then 0.58)
+
+**Measured (window notches with a copy since the book opened, n=192):** a staged notch — the copy, a clip pair, one
+mode-17 record, the reset — **12 B first flush, ack 79 / 83 ms, wait 98 / 131 ms (median / p90, n=4)**; a notch whose
+strip went as pixels 2.7 KB median / 12 KB max, ack 307 / 1,240, wait 308 / 1,459 (n=16); a notch whose strip went as
+text draws 54 B, ack 84 / 137, wait 100 / 159 (n=172). So staging wins 10× over pixels and about nothing over text
+draws: its case is exactly the notch the atlas cannot serve — and this session had them, because Reader's 17 px face
+was not live for the first minute (the 128 KiB atlas held 8 faces and 13 icons at start, appended Reader's face at
+19:11:02 and repacked for its bold at 19:12:25; 195 KB of atlas traffic in three minutes). No failed flush, no
+refusal on the glasses, belief = glass; the transfer timings are absent (PRESENTED was not armed in that process;
+armed 21:06 as `0x8005`, to be armed again after the next install).
+
+**Two defects, both mine, read from the write/ack/reading timeline:** (1) **the ledger was too impatient** — a
+write's generation bump landed up to about a second after its ack (the ack precedes the decode; the worker's queue
+is behind the frames), my three re-readings came 40 ms apart, called a shortfall after 90 ms, dropped a record
+that had landed, re-staged it (28 writes, 71 KB, for four staged notches) and after three of those switched staging
+off at 19:10:55; every "missing" bump showed in a later reading. One reading also showed an extra bump (+1 at
+19:10:45) that no write of ours accounts for — the transport re-sends no image message; cause unread (U).
+(2) **The strips are two to four times the model:** 12–17 KB for five lines of text, 34 KB for an image strip, against
+the 4.5–7.5 KB modeled from the 1× renders; the 32 KiB reserve held one strip and the image strip stayed pixels.
+
+**Fixed (Adam's word, "do your recommendations"):** a short reading sent inside `CacheLedger.SETTLE_MS` (2 s) of the
+last cache-write ack is `Pending` and counts for nothing; a shortfall needs two settled short readings, paced
+`REREAD_PACE_MS` (500 ms) apart — a pace, not a bound: nothing is dropped inside it; an extra bump re-bases the count
+and keeps the acked records (the transport's writer tag catches another writer). `STAGE_RESERVE` 32 → **64 KiB**
+(the atlas 96 KiB). PRESENTED armed on the 0.57 process. Pins updated (`StagingTest` 10: the ledger's pending window,
+the 96 KiB layout). **Battery on the fixes:** core 601 clean · desktop 15 · `--selfcheck` 3 of 3 · 57 renders · epub 380/404 ·
+music · games · feed · lint 0 · **APK 0.58 staged 21:20**; the tree uncommitted for Adam's word. Not built: the glyph-subset packing that the atlas churn now asks for twice
+over (Reader's faces evicted within three minutes; the reserve took 32 KiB more from it).
+
+**21:54, the same evening — the 0.57 ledger took cached text down.** Adam's status bar read `atlas refused`: at 19:51:02 the
+atlas check's reading after a repack's re-upload came back one short (the lag), the 0.57 counter already held two lagged
+readings from 19:12 and 19:18 (forty minutes apart, each a normal lag), and the third made a "shortfall" with atlas chunks
+in its interval — `atlasDisable`, cached text off for the session, every notch pixels from 19:51 on. Nothing was
+refused on the glasses. **Changed (APK 0.59): a shortfall costs staging only, never the atlas** — a refused atlas chunk
+is what the read-back's own refusal record names (fields 23–25, refMode 19), and until the decode lag is understood the
+count must not be able to take the fonts down. Remedy on a running 0.57: Global → `Cached text` off then on. Battery on 0.59: core 601 clean · desktop 15 · `--selfcheck` 3 of 3 · 57 renders · epub
+380/404 · music · games · feed · lint 0 · **APK 0.59 staged 22:06**; the tree uncommitted for Adam's word.
+
+### 66.2 Adam's ruling on the status cell (2026-09-16, night): errors are notices, never a status-bar line — the next step
+
+**The finding (read from the code after Adam saw `atlas refused` sitting in the cell all evening):** the 132 px status
+cell paints one string — the status word, a dot, the input echo — and fits it with a prefix and a triangle mark
+(`Chrome.drawCellFit`), so a long error eats the cell and the echo after it is never drawn again: a truncation, and
+a line with no dismiss. Nineteen `Shell.setStatus` sites: six are states with an exit that resets to `ok` (lease lost,
+link slow, diverge, atlas full, halted, silent); the rest are events with no exit — `ERROR <exception>`, `SUBMIT …`,
+`ASSEMBLE …`, `flush failed`, `PANIC …`, `atlas refused`, `atlas off`, a transport fault as `<what>!` — and stay for the
+session. Seven sites already raise an internal notice beside the word; the atlas, flush, window-paint, submit,
+assemble and transport-fault sites do not.
+
+**Adam's ruling:** "Errors should come up as a notification, not a truncated status bar line that hides inputs and
+can't be cleared/dismissed." **The plan (his go pending; the next coding step):** (1) the status cell carries only a
+fixed vocabulary of STATES that fit beside the echo and clear when the condition ends — `ok`, `silent`, `rebuilding`,
+`link slow`, `no lease`, `halted` — nothing dynamic, so the fit path never runs and the echo never disappears; (2) every
+EVENT becomes an internal notice (`notifyInternal`) on a thread named for its class (`atlas`, `flush`, `window`,
+`transport`), the serious ones urgent (the phone hears them, `DESIGN.md` §9.3), a streak updating one box; (3) the
+DIVERGE flood guard stays as the coalescing thread, not a sticky count; (4) one pin per class (a fault of each kind →
+a notice with the full text, the cell keeps the echo, a tap clears it); `Review47Test` (LINK SLOW), `DivergenceTest`
+(DIVERGE x4), `desktop/Main.kt`'s status line, `DESIGN.md` §4.4 and `DAILY.md`'s two status words move with it. A
+class sweep across all nineteen sites, then the battery and APK 0.60.

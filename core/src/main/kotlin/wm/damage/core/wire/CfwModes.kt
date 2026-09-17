@@ -318,9 +318,10 @@ object CfwModes {
     const val CACHE2_MAX = 160 * 1024
     /** Page staging (`HANDOFF.md` §66, Adam 2026-09-16): the top of a contract-2 cache is a reserve for the
      *  focused document's staged strips (v2 image records written by mode 19, drawn by mode 17); the atlas
-     *  lays out over the rest (`LinkState.atlasCapacity`). 32 KiB holds four to seven five-line strips
-     *  (4.5–7.5 KB each, modeled from the 1× renders). */
-    const val STAGE_RESERVE = 32 * 1024
+     *  lays out over the rest (`LinkState.atlasCapacity`). 64 KiB since the first read on glass (§66.1): a
+     *  five-line strip of Adam's book measured 12–17 KB (an image strip 34 KB), two to four times the 1×
+     *  renders' model, and 32 KiB held one. */
+    const val STAGE_RESERVE = 64 * 1024
     /** The largest offset a u16 in 4-byte units reaches. */
     const val OFF4_REACH = 0xFFFF * 4
 
