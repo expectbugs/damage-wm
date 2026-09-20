@@ -142,6 +142,13 @@ Nothing needs flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.
    glass — since §65 it synchronises on the firmware's counters (the begin's zero, each live write's generation bump
    against the C's expectation) rather than on sleeps; a vector's live writes drop the shell's atlas for the session
    and nothing presents during a step, so run it in a quiet minute.
+9. **The cache's size (§67; the demand is measured, §66.1):** the glyph-subset packing FIRST (item 2's quiet-pass
+   item; phone-only) and a day's read of the atlas churn; then op 5's cap → 256 KiB and a largest-block telemetry
+   figure ride in Phase 3's candidate (`FORK.md` Phase 3) — a flash of their own only if 0.59's read shows staging
+   starved. Before that budget: fields 7–9 journaled before the carrier CREATE, after it and after the first frame
+   (where the carrier's two buffers live is U again, `CLAIMS.md`). **With it in that candidate (§68): a deflated cache
+   write** (cache writes were 61 % of the image lane's bytes, deflate takes 43 % off); the kept compression context only
+   after `research/flushdecomp.py` has read a capture of Phase 2 traffic.
 
 **Follow-ups for a session without Adam (his call where marked):** the seam test race one-liner and the Feed tapper
 experiment (his call — Feed is suspended work); the ring service's and the touch processor's event ids; the stock RTC
@@ -206,6 +213,12 @@ idle slow request forced to fast — ~41 KiB/s measured there (5× our 8.2); our
 level; **Adam's ruling: built into Phase 2's candidate** (he trusts the public release). The 08-31 lost-ACK fix is 2.2.9-only.
 `reference/g2flash` is fetched, not moved — a pull breaks `research/verify_cfw.py`'s 2.2.6.10 pins. **D1: the fork
 stays on 2.2.6.10** (the decompile corpus is 2.2.6.10); 2.2.9's gains can be ported later.
+
+**Checked again 2026-09-19 (`HANDOFF.md` §67):** `f017fab` grows upstream's cache to 256 KiB in the stock malloc's
+arena with u32 offsets and **new mode numbers 18/19/20 that collide with ours** — nothing to port (`off4` reaches
+256 KiB; that arena has 71–75 KiB free here). Its private message SID (`HANDOFF.md` §68, priced with
+`research/flushdecomp.py`): no gain on the ack floor, parked until Phase 4; its kept compression context and a
+deflated cache write are the parts worth having, neither needs the SID.
 
 ## Suspended work (resumes after `FORK.md` Phase 8)
 
@@ -276,5 +289,6 @@ DAMAGE_VECTOR_DIR=/tmp/fz ./gradlew :core:cleanTest :core:test --tests '*Conform
 (cd ~/damage-cfw && python3 tools/mutate.py --list)   # §64: the refusal guards, and which gates prove them (hours)
 python3 research/fwread.py dis 0x473c44 0x473d70      # the stock image at instruction level: dis · fn · word · refs · calls · strings · owner · sha (our bytes vs the corpus header)
 python3 research/perevent.py                          # M0.3: packets per served connection event per arm, from the captures (§54.4)
+python3 research/flushdecomp.py                       # §68: queue -> ack per flush at HCI level; bytes as sent vs deflated vs one kept context
 ./gradlew :core:cleanTest :core:test --no-build-cache # a REAL re-run of the core suite (a plain re-run is answered FROM-CACHE)
 ```

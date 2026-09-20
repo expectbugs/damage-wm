@@ -239,7 +239,12 @@ class; the page turn priced.
 
 **Firmware:** the tick; programs (upload / play / stop / retarget / completion); the verbs from the
 refined list; the start synchronized across lenses via the deferred path; a running-program region
-guard.
+guard. **Carried in this candidate (`HANDOFF.md` §67):** op 5's cap 160 → 256 KiB (`off4` already reaches it) and
+a largest-allocatable-block figure per arena in telemetry, with arena 13 re-budgeted for the cache and the
+programs together; **a deflated form of the cache write** (`HANDOFF.md` §68: cache writes were 61 % of the image
+lane's bytes and go uncompressed; a compression context kept across flushes waits on a re-measure, upstream's
+private SID on Phase 4) — after the glyph-subset packing has been read for a day and the three-point heap read
+(fields 7–9 before CREATE, after it, after the first frame) is in.
 
 **Damage:** the `Motion` DSL (integer easing tables, tracks, end state); `desktop --motion-check`
 (renders a program tick by tick to a strip for eyeballing before it goes to glass); the scheduler
@@ -346,7 +351,7 @@ in `fws/`. The site list of every candidate (`~/damage-cfw/tools/verify.py` step
 
 | assumption | grade now | checked in |
 |---|---|---|
-| free heap is enough for a bigger cache, scratch and staged content | unknown | M0.1, R0.6 |
+| free heap is enough for a bigger cache, scratch and staged content | **measured for today's set: arena 13 226 KiB free at cache 160 + the shadow; a 256 KiB cache leaves ≈ 130, ≈ 82 with save-under full (modeled); arena 20 has 71–75 (`HANDOFF.md` §67)**; Phase 3's programs and scratch unknown | Phase 3's budget |
 | the panel can present at 30–60 Hz | **measured 2026-09-15: transfer 2.0 ms median / 12.2 max, worker 3.2 / 17.7 max (`HANDOFF.md` §56) — the link is the ceiling** | F1.3 (done) |
 | the two lenses can start a program together with no visible mismatch | inferred (stock does it over the UART sync) | T3 |
 | local input can be handled on both lenses via stock's mirror | inferred | R0.1, Phase 4 |
@@ -543,3 +548,11 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   evening entry): a shortfall now costs staging only, never the atlas; APK 0.59 staged, its battery green. Adam's ruling
   on the status cell (§66.2): errors are notices, the cell holds self-clearing states only — the next coding step, his
   go pending on the plan.**
+- **2026-09-19 — upstream's 256 KiB cache read against our base (`HANDOFF.md` §67):** nothing to port on the wire; its
+  arena (our 20) has 71–75 KiB free here; the demand is measured. Into the plan: the glyph-subset packing first, then
+  op 5's cap → 256 KiB and a largest-block telemetry figure inside Phase 3's candidate. §54.8's "containers in arena
+  13" withdrawn (`CLAIMS.md`). Docs only.
+- **2026-09-19 (2) — upstream's private message transport priced on our captures (`HANDOFF.md` §68,
+  `research/flushdecomp.py`):** no gain on the ack floor (≲ 20 ms of it is the glasses'); a kept compression context
+  takes gesture flushes to 57 % and needs no SID; cache writes are 61 % of the lane's bytes, uncompressed. Adam's word:
+  a deflated cache write into Phase 3's candidate, the kept context re-measured first, the SID parked until Phase 4.

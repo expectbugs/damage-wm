@@ -4939,3 +4939,73 @@ DIVERGE flood guard stays as the coalescing thread, not a sticky count; (4) one 
 a notice with the full text, the cell keeps the echo, a tap clears it); `Review47Test` (LINK SLOW), `DivergenceTest`
 (DIVERGE x4), `desktop/Main.kt`'s status line, `DESIGN.md` §4.4 and `DAILY.md`'s two status words move with it. A
 class sweep across all nineteen sites, then the battery and APK 0.60.
+
+## 67. Upstream's 256 KiB texture cache, read against our base (2026-09-19)
+
+Context for the reader: a personal device, the published patch method, display-rendering work. Read-only: upstream
+g2flash and FaceClaw fetched (`306e42e`; 0.7.1, `8ceecb6`), the pinned checkouts unmoved. Adam's ask: is the larger
+cache useful to us. No code, nothing flashed.
+
+**What it is — g2flash `f017fab` (2026-09-17, the 2.2.9.22 base, caps `Faceclaw/13`):** the cache 64 → 256 KiB, moved
+from heap 13 to the stock malloc's arena (our arena 20, 460,800 B; upstream's overlay labels 13 "LVGL", 20 "EvenHub");
+offsets and font-table entries u32; modes 12/13/14 retired for 18 write / 19 image / 20 string, with 16 = the light
+sensor and 17 = the ring battery — **the numbers collide with our modes 16–24** (D8 makes it moot; upstream's
+`zlib_glue.c` header is the mode contract for the pinned a5d1c31 only). Still 96-entry tables, u8 dims, flat draws.
+
+**Against ours:** nothing to port on the wire — `off4` already reaches 256 KiB and op 5's 64..160 is the heap budget
+(§57 item 5). The arena move does not fit: arena 20 has 75 → 71 KiB free with a session up (M; how upstream finds
+256 KiB there on 2.2.9 is U). Arena 13 has 226 KiB free in daily use at 160 + the shadow (M, §65) → at 256 ≈ 130 free,
+≈ 82 with the save-under pool full (modeled); the self-test's 150 KiB scratch then needs a session that asks op 5 for
+≤ 160 (it drops the atlas anyway). The demand is measured (§66, §66.1): a 104.6 KB start atlas against a 96 KiB share,
+767 KB re-uploaded in 2.5 h at 160, strips of 12–34 KB; Phase 4's staging is where the size becomes the budget.
+
+**A claim withdrawn:** §54.8's "the carrier's two 165,888 B buffers live in arena 13" (I) does not survive §65's first
+light — arena 13 read 548 KiB free after the carrier CREATE (op 5 needs the lease, which follows CREATE): 272 KiB in
+use, under the pair's 324. Location U (both in arena 20 · one in each · never allocated on the CFW path · smaller than
+assumed · outside the three arenas · freed at the lease); fields 7–9 read before CREATE, after it and after the first
+frame separate them. `CLAIMS.md` regraded.
+
+**Into the plan (Adam's word):** (1) the glyph-subset packing first — phone-only, already queued, the same churn, no
+flash; (2) op 5's cap → 256 KiB plus a largest-allocatable-block figure per arena in telemetry (upstream `64bc243`'s
+TLSF measure: fields 7–9 report total free, and the cache must be contiguous), folded into Phase 3's candidate with
+arena 13 re-budgeted there — a flash of its own only if 0.59's read shows staging starved; (3) the three-point heap
+read before that budget is committed. Unread upstream since §58: a dedicated message SID in place of the image lane, a
+compression context kept across messages, range ACKs.
+
+## 68. Upstream's private message transport, priced on our own captures (2026-09-19)
+
+Context for the reader: a personal device, the published patch method, display-rendering work. Read-only: upstream's
+source (g2flash `0815f49` → `dc453a2`) and our three 2026-09-14 captures through `research/flushdecomp.py` (1,536
+single-fragment image messages; a5d1c31-era v1 shapes; the phone's journal was unreachable, so nothing here is
+Phase 2 traffic). Adam's word on the recommendations at the end. No code beyond the script, nothing flashed.
+
+**What it is:** SID `0xF0`, hooked at the ATT write callback ahead of the stock packet reassembly (one site, plus three
+on the inter-lens delivery); a byte stream of `[flags][len16][crc16][body]` records up to 65,535 B, free of packet
+boundaries; the receiving lens forwards each packet to the other over the bridge, both run the handler inline, and
+each sends an ACK or NACK **after** the decode and draw (the other lens's returns over the bridge; an ACK repeats the
+three before it); one zlib context kept across messages (`Z_SYNC_FLUSH` per record, a NACK or a reconnect resets it).
+FaceClaw keeps a blank text container for input and **allocates no EvenHub image container** — where its 256 KiB of
+"EvenHub heap" comes from, and the best lead on §67's open question (our carrier's two buffers in arena 20: I).
+
+**The floor — no gain (M, the bound):** a one-packet flush goes queue → ack in 40–42 ms median / 58–68 p90 at HCI
+level (n=715); the journal's 71–77 ms for the same band puts ~30 ms in the phone's stack; the waits for LEFT's and
+RIGHT's connection events at 15 ms / latency 1 are ~22 ms (modeled); ≲ 20 ms is left for everything on the glasses.
+Upstream's ack includes the decode and the other lens's return, so it arrives later than ours. Time to the panel
+(inline against our deferred path) is U: `present` records against the acks in the journal price it.
+
+**A kept compression context — a real gain, and it does not need the SID (M on 09-14 bytes):** mode-8 flushes to 57 %
+of sent (a 4 KiB window 72 %, 1 KiB 88 %; per-message deflate with a fresh context only 89 %): median 108 → 38 B, p75
+533 → 182, p90 1,194 → 680; one-packet flushes 700 → 928 of 1,228. On Phase 2's curve (modeled): nothing at the
+median, 20–30 ms at p75–p90, ~80 ms on a 3.5 KB flush. Cost: ~40 KiB of arena 13 per lens for the 32 KiB window, and
+state that crosses messages — a §3.8 envelope of its own.
+
+**Cache writes go uncompressed — the larger finding (M):** mode 12 was 61 % of all image-lane bytes (820 KB of
+1.35 MB); plain per-message deflate takes it to 57 %, a kept context adds nothing. On contract 2 that is mode 19: the
+atlas churn and the 12–34 KB staging strips (§66.1's strips at 2–4× the model are raw RLE against a model that
+assumed deflate: I). One deflated form of the cache write in the fork plus the encoder; no transport change.
+
+**Ruled (Adam, as recommended):** (1) a deflated cache write joins Phase 3's candidate beside §67's cap; (2) the kept
+context is re-measured on Phase 2 traffic (the script, a fresh capture) before any design pass; (3) the SID transport
+is parked until Phase 4 — its hooks sit on every received packet, the flasher's included, its sites are 2.2.9.22's,
+and it means a rebuilt `CfwTransportBase`, simulator and vectors; what it would buy is acks after processing from
+BOTH lenses (LEFT no longer blind, no settle window) and ~324 KiB of heap (I), which is Phase 4's inter-lens report.
