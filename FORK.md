@@ -556,3 +556,8 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   `research/flushdecomp.py`):** no gain on the ack floor (≲ 20 ms of it is the glasses'); a kept compression context
   takes gesture flushes to 57 % and needs no SID; cache writes are 61 % of the lane's bytes, uncompressed. Adam's word:
   a deflated cache write into Phase 3's candidate, the kept context re-measured first, the SID parked until Phase 4.
+- **2026-09-20 → 21 — the status cell built (`HANDOFF.md` §69), the second build under §3.8:** a derived state word and
+  one door for every event (`Shell.raiseFault`, one notice per class per episode); the cell's width measured, the
+  words shortened on Adam's word from the real rasterizer's numbers; the battery found that a notice's own paint must
+  never answer a refusal, and a pre-existing gap — a session whose glasses lost DRAW2 kept emitting v2 ops — now
+  dropped to v1 shapes. APK 0.60 staged. No firmware change, nothing flashed.

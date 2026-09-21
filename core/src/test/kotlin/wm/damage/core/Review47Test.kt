@@ -176,13 +176,13 @@ class Review47Test {
             r.transport.setParams(105.0, 4)
             r.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)     // a flush re-evaluates the regime
             r.settle("notch under slow parameters")
-            r.until("the status cell says LINK SLOW (is '${r.shell.statusLine}')") { r.shell.statusLine == "LINK SLOW" }
+            r.until("the status cell says link slow (is '${r.shell.statusLine}')") { r.shell.statusLine == "link slow" }
             assertTrue(r.notes("link").any { "SLOW regime" in it }, "the regime flipped without waiting for the EMA: ${r.notes("link")}")
             assertTrue(r.notes("link").any { "105.00ms/4" in it }, "the parameters were journaled: ${r.notes("link")}")
             // one more notch: no second notice, the episode is one
             r.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
             r.settle("second notch")
-            assertEquals("LINK SLOW", r.shell.statusLine)
+            assertEquals("link slow", r.shell.statusLine)
 
             r.transport.setParams(15.0, 1)
             r.shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)

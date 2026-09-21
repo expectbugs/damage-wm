@@ -2,12 +2,12 @@
 
 **The entry point for a fresh session**: what is true now, what comes next, where the records are. History lives
 in `HANDOFF.md`; this file only points at it. Read `CLAUDE.md` → this file → **`FORK.md`** (the plan; §11 the
-log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` **§66** (Reader's page staging: the design pass, T2's day read,
-the build) → **§65** (what four reviews of Phase 2 measured, and the protocol), §64–§61 (the four reviews), §60 (Phase 2 built), §59 (the day's live defect), §55 (Phase 1 flashed),
+log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` **§69** (the status cell as states, every event a notice) → §67–§68 (upstream's cache and
+transport read against ours) → **§66** (Reader's page staging: the design pass, T2's day read, the build) → **§65** (what four reviews of Phase 2 measured, and the protocol), §64–§61 (the four reviews), §60 (Phase 2 built), §59 (the day's live defect), §55 (Phase 1 flashed),
 §48 (the fork decided). Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md` → the image through
 `research/fwread.py`.
 
-## Where we are (2026-09-16)
+## Where we are (2026-09-21)
 
 - **🔴 The CFW fork and the Damage rebuild are the ONLY work (Adam, 2026-09-12; `HANDOFF.md` §48)** until
   `FORK.md` Phase 8 closes. `FORK.md` = the plan (§11 the log), `FIRMWARE.md` = the contract, `HANDOFF.md`
@@ -24,7 +24,7 @@ the build) → **§65** (what four reviews of Phase 2 measured, and the protocol
   self-test 19 of 20 vectors matching every step, the twentieth's one corner named (item 3 below). Phase 1's record (§55, §56, §65): 7.3 h then 10.2 h worn clean, transfer 2.0 ms median, the uptime tick
   1.024 per ms, the arm drops = in-case reboots. The phone APK drives; the OpenRC `damage` service is the data host
   and standby (§19, `DAILY.md`), still on 0.44's core.
-- **The APK. 0.49 installed** (2026-09-15 03:46; every `build` note through 09-16 12:17). **0.55 INSTALLED 2026-09-16 ~13:10 (Adam)** and driving Phase 2 since 13:32 (§65). **0.57 INSTALLED 19:09 (Adam)**, its first read `HANDOFF.md` §66.1. **0.59 STAGED (§66.1)** — the ledger's settle
+- **The APK. 0.49 installed** (2026-09-15 03:46; every `build` note through 09-16 12:17). **0.55 INSTALLED 2026-09-16 ~13:10 (Adam)** and driving Phase 2 since 13:32 (§65). **0.57 INSTALLED 19:09 (Adam)**, its first read `HANDOFF.md` §66.1. **0.60 STAGED (§69: the status cell as states, every event a notice; it supersedes 0.59, never installed)** with 0.59's staging fixes (§66.1) — the ledger's settle
   window, the 64 KiB reserve, and a shortfall that can never switch the atlas off (0.57's ledger took cached text down at
   19:51 on three lagged readings); Adam installs whenever (~30 s blank, a 13 s atlas re-upload), then PRESENTED wants arming again.
 - **🔴 Phase 2: FLASHED 2026-09-16 13:19/13:24 (§65) after four reviews** (`HANDOFF.md` §60–§64; `FIRMWARE.md`
@@ -63,9 +63,9 @@ the build) → **§65** (what four reviews of Phase 2 measured, and the protocol
   every cached draw (Main on the left lens only); the start reads RIGHT's uptime before the carry decision.
   Workaround on 0.49: phone Bluetooth off for 90 s.
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games · Feed (`WINDOWS.md` and the
-  per-window records); `POPOVER.md` is a spec, built in Phase 6a. **The battery after §66 (2026-09-16 evening):** core 601 (the known Feed miss once per full run; 8 of 10 when run
-  alone on either tree — pre-existing) · desktop 15 · `--selfcheck` 16 of 16 on the final binary (one earlier run failed
-  under the core suite's load, log not kept, §66) · 57 renders · epub 380/404 · music/games/feed · lint 0 · APK 0.57. §65 changed one vector, the lint gate and a test comment, and ran lint, the fork's three host gates,
+  per-window records); `POPOVER.md` is a spec, built in Phase 6a. **The battery after §69 (2026-09-21):** core 609 (two full uncached runs clean on the final code; the known Feed
+  rate miss did not show) · desktop 16 · `--selfcheck` 3 of 3 on the final binary · 57 renders · epub 380/404 ·
+  music/games/feed · lint 0 · APK 0.60 staged. §65 changed one vector, the lint gate and a test comment, and ran lint, the fork's three host gates,
   `ConformanceVectorTest` and `GeometryTest`. Known rate misses (§54.5, §54.7): `FeedWindowTest.deepLinks…` and
   `…browseThroughTheKeyboard…` (§49.6), a seam test race (`SeamSessionTest.kt:82`),
   `Review20260905Test.cashingOut…` once (§61, cause not found) — run the core suite alone; a repeated
@@ -93,22 +93,21 @@ the 75 / 523 below. Price a window against the wait; these are kept because the 
 The ack precedes the panel refresh (§48.1, verified): what the eye waits for is longer than these. A flush under
 100 B acks in ~60 ms; each KB adds ~140 ms; the tail is pixel bytes. Phone CPU per flush: 17 ms median / 66 p90.
 
-## 🔴 The next session — the status cell as notices (item 1), then 0.59's read (item 2)
+## 🔴 The next session — 0.60's read on glass (items 1–2), then the glyph-subset packing (item 9)
 
 Phase 2 is on the glasses and first light is green (§65). Reader's page staging is built and read once on glass
-(§66, §66.1; APK 0.59 staged with its two fixes). Adam's ruling on the status cell (§66.2) is the next coding step.
+(§66, §66.1). **The status cell is built (§69; APK 0.60 staged — it carries 0.59's two staging fixes too).**
 Nothing needs flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) binds every build.
 
-1. **🔴 The status cell — errors as notices (Adam's ruling, `HANDOFF.md` §66.2; his go pending on the plan there).** The
-   cell truncates a long error with a prefix mark, hides the input echo behind it and never clears (`atlas refused` sat
-   there all evening): the cell keeps a fixed vocabulary of states that clear themselves (`ok · silent · rebuilding ·
-   link slow · no lease · halted`), every event becomes an internal notice on a class thread (urgent ones reach the
-   phone), a pin per class, a sweep of all nineteen `setStatus` sites, `DESIGN.md` §4.4 and `DAILY.md` updated; then
-   the battery and APK 0.60. Under the protocol: the envelope first (what clears a notice thread at a session boundary;
-   a fault that repeats every pump must update one box, never queue).
-2. **Page staging on glass, second read (0.59; §66.1) — Adam's read.** The first read (0.57): a staged notch 12 B / 79 ms ack
+1. **The status cell as states, every event a notice — BUILT (`HANDOFF.md` §69), Adam's eye owed on 0.60:** the
+   cell says one derived word (`no link · silent · rebuild · no lease · halted · fault · link slow · ok`) with the
+   echo at its right (`tap · dbl · up · down · hold · rel`); an error is a notice with its whole text, one per class
+   per episode. Ruled 2026-09-21: a full atlas is a journal note; a lost DRAW2 drops the session to v1 shapes. The
+   journal's three weeks say no fault class is chatty in daily use (§69). To read on glass: the cell's legibility at
+   140 px, and the first real notice.
+2. **Page staging on glass, second read (0.60, which carries 0.59's fixes; §66.1) — Adam's read.** The first read (0.57): a staged notch 12 B / 79 ms ack
    against 2.7 KB / 307 ms for pixels — and the ledger crying wolf (bumps land up to ~1 s after the ack), strips of
-   12–34 KB against a 32 KiB reserve. Install 0.59, arm PRESENTED (`probe:flags=0x8005`), open the book, read: the
+   12–34 KB against a 32 KiB reserve. Install 0.60, arm PRESENTED (`probe:flags=0x8005`), open the book, read: the
    `stage` notes (proven · pending · shortfall · off — a shortfall now means it), the `page staging:` line, the
    notches' WAIT column by shape, the worker µs of a staged notch (`present` records, the record's decode cost), the
    atlas churn now at 96 KiB — the glyph-subset packing is next if Reader's faces keep leaving the atlas. Adam's eye: a notch that lands
@@ -117,7 +116,7 @@ Nothing needs flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.
    Then the two quiet-pass items §66 left: the atlas's glyph-subset packing (the churn) and the link estimator's
    regime flips on a link that did not change. Optional beside it: `lint.py` rules for the v2 budgets; a Global row
    for the hint's A/B.
-3. **Adam's reads for T2 (his day, tonight):** 0.59 installed (item 2 first); the day's journal
+3. **Adam's reads for T2:** 0.60 installed (item 2 first); the day's journal
    (`journal_report.py --since 2026-09-16`) — the ack curve on 2M over a workday, the cacheMiss breakdown (`proof` and
    `planes` at zero is the exit), battery %/h on 2M against 7.4–7.8, the in-case reboots against §65's baseline (five
    in 11 h, three of them 5–7 min after docking); **the §62.7 retention check** (shell up, glasses into the case for a
@@ -144,7 +143,7 @@ Nothing needs flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.
    and nothing presents during a step, so run it in a quiet minute.
 9. **The cache's size (§67; the demand is measured, §66.1):** the glyph-subset packing FIRST (item 2's quiet-pass
    item; phone-only) and a day's read of the atlas churn; then op 5's cap → 256 KiB and a largest-block telemetry
-   figure ride in Phase 3's candidate (`FORK.md` Phase 3) — a flash of their own only if 0.59's read shows staging
+   figure ride in Phase 3's candidate (`FORK.md` Phase 3) — a flash of their own only if 0.60's read shows staging
    starved. Before that budget: fields 7–9 journaled before the carrier CREATE, after it and after the first frame
    (where the carrier's two buffers live is U again, `CLAIMS.md`). **With it in that candidate (§68): a deflated cache
    write** (cache writes were 61 % of the image lane's bytes, deflate takes 43 % off); the kept compression context only
@@ -261,6 +260,9 @@ re-put to Adam in the Phase 0 refinery.
   g2flash (fetch only, never pushed to), `reference` = the pinned local clone.
 
 ## How to resume
+
+**`aphone` no longer resolves on beardos (2026-09-21: Adam moved DNS from Tailscale to the VPN): use the phone's
+Tailscale address — `tailscale status | grep aphone` (100.113.243.91 today) — wherever a line below says `aphone`.**
 
 ```
 sudo rc-service damage status                         # the data host / standby; deploy = ./gradlew :desktop:stageJar && sudo rc-service damage restart

@@ -337,7 +337,10 @@ class Review29Test {
             shell.postGesture(EvenHubMsg.EV_CLICK)
             await("the loop still serves input after the Error") { shell.currentWindowId() == "rows" }
             settle(shell, "after the error")
-            assertTrue(shell.statusLine.startsWith("ERROR"), "the status says it (was '${shell.statusLine}')")
+            // since §69 an error is a notice with its whole text, and the cell says `fault`
+            assertEquals("fault", shell.statusLine, "the cell says a fault episode is open")
+            assertTrue(shell.notifications.current?.body?.contains("a class the rewritten jar no longer holds") == true,
+                "the notice says it (was ${shell.notifications.current})")
             shell.stop()
         } finally {
             scope.cancel()

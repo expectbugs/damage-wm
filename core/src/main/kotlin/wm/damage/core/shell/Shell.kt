@@ -146,6 +146,19 @@ class Shell(
         return clockWValue
     }
 
+    /** The status cell's width for the CURRENT chrome face, cached the way the
+     *  clock cell's is: the widest state word beside the widest input echo
+     *  (`Chrome.statusCellWidth`, `HANDOFF.md` §69). */
+    private var statusWKey: Triple<String, Double, String>? = null
+    private var statusWValue = Layout.STATUS_W
+    private fun statusCellW(): Int {
+        val key = Triple(settings.fontFace, settings.fontScale, settings.fontStyle)
+        if (statusWKey == key) return statusWValue
+        statusWValue = chrome.statusCellWidth()
+        statusWKey = key
+        return statusWValue
+    }
+
     /** Silent-mode paint plumbing (§1.5 sizes, 2026-09-01): the "small" size
      *  is the title bar clock's own text at its own cell, drawn by chrome. */
     private fun silentSmallPainter(c: LocalClock): (wm.damage.core.gfx.Gray8, wm.damage.core.geom.Rect) -> Unit =
@@ -170,7 +183,8 @@ class Shell(
     /** Test/introspection: is the floating context menu open, and whose? */
     val menuIsOpen: Boolean get() = menu.open
     /** Test/introspection: the status cell's text ("ok", "ERROR …", "DIVERGE …"). */
-    val statusLine: String get() = statusText
+    /** The status cell's word as last derived (`Status.kt`) — tests and status lines. */
+    val statusLine: String get() = statusWord
     val switcherIsOpen: Boolean get() = switcher.open
     /** How many rows the wheel is showing — a harness reads it so a pin that
      *  needs a real spin cannot silently run against a one-entry drum. */
@@ -221,7 +235,18 @@ class Shell(
 
     private var inputEcho = ""
     private var opText = "idle"
-    private var statusText = "ok"
+    /** The status cell's STATE (`Status.kt`, `HANDOFF.md` §69): derived on every pump from
+     *  conditions that each have their own lifecycle ([refreshStatusWord]) — there is no status
+     *  string to set, so nothing to clear and no exit that can clear another state's word. */
+    @Volatile private var statusWord = ShellState.OK.word
+    /** One notice per fault class per episode ([raiseFault]); cleared at every session start.
+     *  [faultQuietMs] is the quiet period that closes an episode — a pacing knob, like [silentPacingMs]. */
+    @Volatile var faultQuietMs = FaultEpisodes.QUIET_MS
+    private val faults = FaultEpisodes { faultQuietMs }
+    private var faultCloseGen = 0
+    /** The atlas check found DRAW2 not in force on the glasses while the link state says it is:
+     *  the compositor emits v1 shapes until the next session start (§69). Loop-only. */
+    private var v2RefusedThisSession = false
     /** Stamps the minute/idle maintenance loops to ONE shell session. The
      *  keeper stops and restarts this shell all day (WiFi edges, handovers);
      *  a loop that only checked `running` would come back from its sleep to
@@ -439,10 +464,58 @@ class Shell(
     @Volatile private var loopHandling: String? = null
     @Volatile private var loopSince = 0L
 
-    private fun setStatus(s: String) {
-        if (statusText != s) {
-            statusText = s
-            chromeDirty = true
+    /** The word the status cell shows, from the pump's ONE link-state snapshot; a change marks
+     *  the chrome dirty and rides the next flush or the idle tick like any other cell (§8.3). */
+    private fun refreshStatusWord(st: LinkState) {
+        val w = ShellState.of(
+            connected = st.connected, silent = glassesSilent, rebuilding = restartRequested,
+            leaseHeld = st.leaseHeld, halted = haltedEpoch != null,
+            faultOpen = faults.anyOpen(System.currentTimeMillis()) || lastDivergence != null,
+            linkSlow = linkParamsSlowShown).word
+        if (w != statusWord) { statusWord = w; chromeDirty = true }
+    }
+
+    /**
+     * An EVENT — a fault of class [cls] — becomes a notice, never a status-bar line (Adam,
+     * 2026-09-16; `HANDOFF.md` §66.2, §69). LOOP-ONLY. One notice per class per episode
+     * ([FaultEpisodes]): a repeat updates the one box's count at ×2, ×4, ×8 … — unless Adam
+     * dismissed it ([dismissNotice] mutes the episode), and then it stays dismissed until the
+     * class has been quiet for a minute; the phone hears an [urgent] class once per episode. A
+     * fault notice ignores Global `Notify · Damage` (that row gates courtesy notices). It is POSTED,
+     * never painted from here: this runs inside the loop's own catch blocks, and whatever the
+     * box's paint does it does as an ordinary message, under the same catch — so it cannot
+     * throw out of one either. The journal and the log are the caller's, as before.
+     */
+    private fun raiseFault(cls: String, body: String, urgent: Boolean = false, source: String = cls) {
+        try {
+            val v = faults.raise(cls, urgent, System.currentTimeMillis())
+            if (v.ring) onUrgent?.invoke(source, body)
+            val src = "DAMAGE · $source"
+            val text = when (v.action) {
+                FaultEpisodes.Action.POST -> body
+                FaultEpisodes.Action.UPDATE -> "$body (×${v.count})"
+                FaultEpisodes.Action.NONE -> null
+            }
+            if (text != null) post(Msg.Notice(Notifications.Notice(src, cls, text, wallClock().hhmm, fault = true)))
+            if (v.action == FaultEpisodes.Action.POST) scheduleFaultClose()
+        } catch (t: Throwable) {
+            Log.e("shell", "raising the '$cls' fault notice failed — the log and the journal hold the fault itself", t)
+        }
+    }
+
+    /** Whether a fault of the link's own traffic is news: with the link down, the session not
+     *  started or a rebuild asked for, the cell's word already says so, and the fault belongs to
+     *  a session that is ending — as a notice it would only wait in the queue as a stale box. */
+    private fun linkUpAndSteady(): Boolean =
+        transport.state.value.let { it.connected && it.started } && !restartRequested
+
+    /** The `fault` word clears itself: look again once the oldest open episode may have closed. */
+    private fun scheduleFaultClose() {
+        val at = faults.nextCloseAt() ?: return
+        val gen = ++faultCloseGen
+        scope.launch {
+            delay(maxOf(50L, at - System.currentTimeMillis() + 50L))
+            if (running) post(Msg.Run { if (gen == faultCloseGen && faults.anyOpen(System.currentTimeMillis())) scheduleFaultClose() })
         }
     }
 
@@ -486,6 +559,11 @@ class Shell(
 
     /** The throughput readout as the bars show it (tests: §8.3's telemetry rule). */
     val chromeThru: String? get() = chrome.paintedState?.thru
+    /** The status cell as last painted: the state word, the input echo, and how often its
+     *  paint fell back to the fit path (zero in a correct build, `HANDOFF.md` §69). */
+    val chromeStatus: String? get() = chrome.paintedState?.status
+    val chromeEcho: String? get() = chrome.paintedState?.inputEcho
+    val chromeStatusFitRuns: Int get() = chrome.statusFitRuns
 
     /** start/stop are serialized (round 3, phone D1): a stop arriving while
      *  start is still choreographing the display would otherwise save state
@@ -661,6 +739,9 @@ class Shell(
         restartRequested = false
         refusalStreak = 0
         silentNoticeShown = false
+        rebuildRefusalShown = false
+        faults.clear(); faultCloseGen++       // a new session's faults are news again (§69)
+        v2RefusedThisSession = false          // the start arms DRAW2 afresh, and the atlas check reads it again
         if (transport.state.value.glassesSilent)
             enterSilentGlasses("the glasses say Silent Mode is on (the READ at session start)")
 
@@ -846,11 +927,11 @@ class Shell(
                     Msg.Pump -> {}
                 }
             } catch (e: Exception) {
-                // LOUD AND PROUD: a shell-loop error reaches the status bar, the
-                // journal, and the log — and the loop keeps serving input.
+                // LOUD AND PROUD: a shell-loop error reaches a notice (and the
+                // phone), the journal, and the log — and the loop keeps serving input.
                 Log.e("shell", "loop error handling $m", e)
                 journal.note("error", e.toString())
-                setStatus("ERROR ${e.message ?: e::class.simpleName}")
+                raiseFault("loop", "error handling ${m::class.simpleName}: ${e.message ?: e::class.simpleName}", urgent = true, source = "shell")
             } catch (e: Error) {
                 // An ERROR too (review §29, the live walk): a NoClassDefFoundError
                 // out of a handler ended this loop, and the shell sat frozen on
@@ -861,7 +942,7 @@ class Shell(
                 // for the person to decide, with the display alive to tell them.
                 Log.e("shell", "loop ERROR handling $m — the loop keeps serving; restart when convenient", e)
                 journal.note("error", e.toString())
-                setStatus("ERROR ${e.message ?: e::class.simpleName}")
+                raiseFault("loop", "ERROR handling ${m::class.simpleName}: ${e.message ?: e::class.simpleName} — restart when convenient", urgent = true, source = "shell")
             }
             handlerNsThisMsg = System.nanoTime() - handlerT0
             try {
@@ -869,11 +950,11 @@ class Shell(
             } catch (e: Exception) {
                 Log.e("shell", "pump error", e)
                 journal.note("pump-error", e.toString())
-                setStatus("ERROR ${e.message ?: e::class.simpleName}")
+                raiseFault("pump", "pump error: ${e.message ?: e::class.simpleName}", urgent = true, source = "shell")
             } catch (e: Error) {
                 Log.e("shell", "pump ERROR — the loop keeps serving; restart when convenient", e)
                 journal.note("pump-error", e.toString())
-                setStatus("ERROR ${e.message ?: e::class.simpleName}")
+                raiseFault("pump", "pump ERROR: ${e.message ?: e::class.simpleName} — restart when convenient", urgent = true, source = "shell")
             }
             queued.decrementAndGet()
             loopHandling = null
@@ -954,17 +1035,18 @@ class Shell(
             return
         }
         val newEcho = when (type) {
-            EvenHubMsg.EV_CLICK -> "tap"
-            EvenHubMsg.EV_DOUBLE_CLICK -> "double"
-            EvenHubMsg.EV_SCROLL_TOP -> "up"
-            EvenHubMsg.EV_SCROLL_BOTTOM -> "down"
-            EvenHubMsg.EV_RING_LONG_PRESS -> "hold"
+            // a FIXED vocabulary (`InputEcho`): the status cell is measured for it
+            EvenHubMsg.EV_CLICK -> InputEcho.TAP
+            EvenHubMsg.EV_DOUBLE_CLICK -> InputEcho.DOUBLE
+            EvenHubMsg.EV_SCROLL_TOP -> InputEcho.UP
+            EvenHubMsg.EV_SCROLL_BOTTOM -> InputEcho.DOWN
+            EvenHubMsg.EV_RING_LONG_PRESS -> InputEcho.HOLD
             // a bare release means "a touch ended" and follows almost every
             // swipe (HANDOFF.md §11): echoing it would permanently overwrite
             // the last real gesture, so it echoes only when a chord is armed
             EvenHubMsg.EV_RING_LONG_PRESS_RELEASE ->
-                if (chordArmedAtMs != 0L) "release" else inputEcho
-            else -> "ev$type"
+                if (chordArmedAtMs != 0L) InputEcho.RELEASE else inputEcho
+            else -> InputEcho.unknown(type)
         }
         if (newEcho != inputEcho) {
             inputEcho = newEcho          // input echo rides the next flush (§9.2)
@@ -1278,7 +1360,7 @@ class Shell(
             w.paintExclusive(comp.composed, layout.safe, full = true)
         } catch (e: Exception) {
             Log.e("shell", "paintExclusive of ${w.id} failed", e)
-            setStatus("ERROR ${e.message ?: e::class.simpleName}")
+            raiseFault("window", "${w.id}: the exclusive paint failed: ${e.message ?: e::class.simpleName}", urgent = true)
         }
         comp.planes = emptyList()
         comp.damageAll()
@@ -1302,7 +1384,7 @@ class Shell(
             w.paintExclusive(comp.composed, layout.safe, full = false)
         } catch (e: Exception) {
             Log.e("shell", "paintExclusive of ${w.id} failed", e)
-            setStatus("ERROR ${e.message ?: e::class.simpleName}")
+            raiseFault("window", "${w.id}: the exclusive paint failed: ${e.message ?: e::class.simpleName}", urgent = true)
             emptyList()
         }
         if (rects.isEmpty()) return
@@ -1729,7 +1811,7 @@ class Shell(
     /** §4.5: the source filter is load-bearing, not hygiene — every allowed
      *  notification interrupts, so the filter is what buys the box its focus. */
     private fun noticeAllowed(n: Notifications.Notice): Boolean {
-        if (n.emergency) return true
+        if (n.emergency || n.fault) return true
         val kind = n.source.substringBefore('·').trim().uppercase()
         return when (kind) {
             "SMS", "MMS" -> settings.notifySms
@@ -1745,7 +1827,8 @@ class Shell(
 
     private fun dismissNotice(markRead: Boolean, clearing: Boolean = true) {
         settleSlidesForOverlay()      // the furl restores from a snapshot:
-        notifications.dismiss(markRead, clearing)          // settle the base
+        val n = notifications.dismiss(markRead, clearing)  // settle the base
+        if (n?.fault == true) faults.mute(n.thread)        // a dismissed fault stays dismissed for its episode (§69)
         scheduleSave()
         // the furl animation runs via pump, restoring from the under snapshot
     }
@@ -1870,8 +1953,7 @@ class Shell(
                 } else if (!ev.held) {
                     // fail-open fired: stock repainted; a keyframe is required on
                     // reacquire (§5.16) and the failure is surfaced loudly
-                    setStatus("LEASE LOST")
-                    services.notifyInternal("lease", "framebuffer lease lost — ${ev.detail}", urgent = true)
+                    raiseFault("lease", "framebuffer lease lost — ${ev.detail}", urgent = true)
                     comp.requestKeyframe()
                     atlasLapsed()                // §40: the cache went with the lease
                     // a Damage build cleared the session's flags and the cache's size with the lease
@@ -1881,7 +1963,6 @@ class Shell(
                     if (transport.state.value.damageContract > 0 && !restartRequested)
                         requestRebuild("the framebuffer lease lapsed on a Damage build — its flags went with it")
                 } else {
-                    if (statusText == "LEASE LOST") setStatus("ok")
                     // §40: the cache is allocatable again. Not gated on the status TEXT any more
                     // (2026-09-16 review): any fault between the lapse and the re-acquire
                     // overwrote it — and a fault is near certain there, since the atlas chunk in
@@ -1892,7 +1973,7 @@ class Shell(
                 chromeDirty = true
             }
             is TransportEvent.Link -> {
-                setStatus(if (ev.connected) "ok" else "LINK DOWN")
+                // the cell's `no link` is derived from the link state itself ([refreshStatusWord])
                 // §41: the arm and the reason reach the journal — thirteen
                 // alternating-arm session rebuilds in one day (2026-09-06)
                 // had left no trace but a "characteristic gone" fault
@@ -1903,9 +1984,8 @@ class Shell(
                 val setFlags = ev.flags.filterValues { it }.keys
                 if (setFlags.isNotEmpty()) {
                     // any sticky flag is a HARD error: panic keyframe (§9.2b)
-                    setStatus("PANIC ${setFlags.joinToString("/")}")
                     journal.note("panic", setFlags.joinToString())
-                    services.notifyInternal("diag", "divergence flags: $setFlags — keyframing", urgent = true)
+                    raiseFault("diag", "divergence flags: $setFlags — keyframing", urgent = true)
                     comp.requestKeyframe()
                     scope.launch { transport.clearDiagFlags() }
                 }
@@ -1917,8 +1997,14 @@ class Shell(
                     // not a fault to shout about (§36)
                     journal.note("silent", "refused while asleep: ${ev.detail}")
                 } else {
-                    setStatus("${ev.what}!")
                     journal.note("fault", "${ev.what}: ${ev.detail}")
+                    // with the link down or the session rebuilding the cell already says so, and a
+                    // fault of the ending session would only wait in the queue as a stale box; an
+                    // `imgres` is a refused image — never answered with a box's images (§36), its
+                    // streak puts the glasses to sleep and THAT is said once
+                    if (ev.what != "imgres" && linkUpAndSteady())
+                        raiseFault("transport/${ev.what}", "${ev.what}: ${ev.detail}",
+                            urgent = ev.what in URGENT_TRANSPORT_FAULTS, source = "transport")
                 }
             }
             is TransportEvent.Note -> {
@@ -1958,8 +2044,11 @@ class Shell(
                 enterSilentGlasses("the glasses refused $refusalStreak frames in a row")
                 return
             }
-            setStatus("flush failed")
             Log.e("shell", "flush ${ev.id} FAILED: ${ev.error}")
+            // a flush the session's own end swept is the link's story, told by the cell's word; and
+            // a REFUSAL never raises a box — its paint would answer a refused image with more
+            // images (§36): the streak above is that path, and the journal holds each one
+            if (!refused && linkUpAndSteady()) raiseFault("flush", "a flush failed: ${ev.error}")
             if (a != null) comp.rollback(a)
             // a KEYFRAME that fails three times in a row cannot be helped by
             // another keyframe (the frame itself is undisplayable — past the
@@ -1970,20 +2059,16 @@ class Shell(
                 haltedEpoch = comp.epoch
                 keyframeFailStreak = 0
                 flushFailStreak = 0
-                setStatus("HALT undisplayable")
                 journal.note("halt", "keyframe failed repeatedly (${ev.error}) — waiting for content to change")
-                services.notifyInternal("compositor",
-                    "this frame cannot be displayed (${ev.error}) — the display resumes when the content changes",
-                    urgent = true)
+                raiseFault("halt", "this frame cannot be displayed (${ev.error}) — the display resumes when the content changes",
+                    urgent = true, source = "compositor")
                 return
             }
             if (++flushFailStreak >= 3) {
                 // three consecutive failures: stop re-partitioning the same
                 // damage and reset with a keyframe, loudly
-                setStatus("PANIC resync")
                 journal.note("panic", "flush failure streak — keyframing")
-                services.notifyInternal("compositor",
-                    "repeated flush failures (${ev.error}) — keyframe resync", urgent = true)
+                raiseFault("resync", "repeated flush failures (${ev.error}) — keyframe resync", urgent = true, source = "compositor")
                 comp.requestKeyframe()
                 flushFailStreak = 0
             }
@@ -2110,7 +2195,7 @@ class Shell(
         atlasFailed = false            // a link end, not a refusal, took the last chunk's ack
         atlasUndelivered = 0
         atlasRetryAtFrame = -1L
-        if (atlasFullShown) { atlasFullShown = false; if (statusText == "atlas full") setStatus("ok") }
+        atlasFullShown = false
         a.rewindToAcked()              // what was in flight at the link end goes again
         val held = a.specs().filter { a.isAcked(it) }.toSet()
         val heldImages = a.imageKeys().filter { a.isImageAcked(it) }.toSet()
@@ -2145,7 +2230,7 @@ class Shell(
         atlasUndelivered = 0
         lastAtlasRepackMs = 0L
         atlasRetryAtFrame = -1L
-        if (atlasFullShown) { atlasFullShown = false; if (statusText == "atlas full") setStatus("ok") }
+        atlasFullShown = false
     }
 
     private fun atlasEnable() {
@@ -2267,7 +2352,18 @@ class Shell(
                 }
                 atlasFailed = true
                 atlasDisable(why)
-                setStatus("atlas refused")
+                if (wantDraw2 && (t.flags ?: 0L) and wm.damage.core.wire.DamageMsg.FLAG_DRAW2.toLong() == 0L) {
+                    // the glasses say DRAW2 is not in force while the link state says it is (a fresh
+                    // acquire the phone could not see, a lens that restarted): EVERY v2 op is being
+                    // refused there, not only the cache writes — a fill, a per-lens draw, a hint. The
+                    // ack precedes the decode, so nothing else will say so. v1 shapes for the rest of
+                    // this session, and a keyframe for whatever a refused fill already left behind
+                    // (`HANDOFF.md` §69: found when a fault notice's own hole was such a fill).
+                    v2RefusedThisSession = true
+                    journal.note("glass", "DRAW2 is not armed on the glasses — v1 shapes until the next session; keyframing")
+                    comp.requestKeyframe()
+                }
+                raiseFault("atlas", "cached text is off for this session — the atlas check failed: $why")
                 Log.e("shell", "atlas check failed: $why")
             })
         }
@@ -2393,8 +2489,13 @@ class Shell(
             journal.note("atlas", "font $spec stays pixels — the cache is full (${a.used} B)")
             stillFull = true
         }
-        if (stillFull && !atlasFullShown) { atlasFullShown = true; setStatus("atlas full") }
-        else if (!stillFull && atlasFullShown) { atlasFullShown = false; if (statusText == "atlas full") setStatus("ok") }
+        // a full atlas is a latency condition, not a fault, and on today's cache it is an everyday
+        // one (`HANDOFF.md` §66: the day's faces do not fit): the journal says it once per episode,
+        // and neither the cell nor a box does (§69) — a box here interrupted several times a day
+        if (stillFull && !atlasFullShown) {
+            atlasFullShown = true
+            journal.note("atlas", "full — the faces that did not fit stay pixels until it repacks")
+        } else if (!stillFull && atlasFullShown) atlasFullShown = false
         // §41: icons — drawn at least twice, heaviest first, into what the
         // fonts leave (a quarter of the cache at most, `GlyphAtlas.IMAGE_BUDGET`)
         var icons = 0
@@ -2576,10 +2677,10 @@ class Shell(
             atlasFailed = true
             if (ev.error?.contains("ImgResCmd") == true) {
                 atlasDisable("the glasses refused a cache write: ${ev.error}")
-                setStatus("atlas refused")
+                raiseFault("atlas", "cached text is off for this session — the glasses refused a cache write: ${ev.error}")
             } else {
                 atlasDisable("$atlasUndelivered chunks in a row were not delivered, the last: ${ev.error}")
-                setStatus("atlas off")
+                raiseFault("atlas", "cached text is off for this session — $atlasUndelivered atlas chunks in a row were not delivered, the last: ${ev.error}")
             }
             return
         }
@@ -2946,6 +3047,8 @@ class Shell(
     private var glassesSilent = false
     private var silentGen = 0
     private var silentNoticeShown = false
+    /** A refused session rebuild was said (§69); per session, like [silentNoticeShown]. */
+    private var rebuildRefusalShown = false
     /** Checks made during this sleep (§42) — journaled by count, not one each. */
     private var silentChecks = 0
     /** The rebuild has been asked for: this session is over the moment the
@@ -2968,7 +3071,6 @@ class Shell(
         silentChecks = 0
         val gen = ++silentGen
         keyframeFailStreak = 0; flushFailStreak = 0; haltedEpoch = null
-        setStatus("glasses silent")
         chromeDirty = true
         journal.note("silent", "glasses asleep — $why; no frames until they wake")
         Log.w("shell", "the glasses are silent ($why): frames stop, the lease is released; a check every ${silentPacingMs / 1000} s")
@@ -3035,14 +3137,18 @@ class Shell(
      *  (Target → SIM → glasses). */
     private fun requestRebuild(why: String) {
         restartRequested = true
-        setStatus("rebuilding session")
         chromeDirty = true
         scope.launch {
             val ok = try { transport.restartSession(why) } catch (e: Exception) { Log.e("shell", "session restart", e); false }
             if (!ok) post(Msg.Run {
                 restartRequested = false
                 journal.note("silent", "session rebuild refused by the transport ($why) — still asleep; asking again on the next check")
-                setStatus("REBUILD NEEDED")
+                // asked again every pacing tick, and the pacing IS the episodes' quiet period: said
+                // once per sleep (the journal takes each refusal), or a dismissed box came back every minute
+                if (!rebuildRefusalShown) {
+                    rebuildRefusalShown = true
+                    raiseFault("rebuild", "the transport refused a session rebuild ($why) — asking again on every check", source = "transport")
+                }
             })
         }
     }
@@ -3110,12 +3216,10 @@ class Shell(
         val ps = paramsSlow(st)
         if (ps && !linkParamsSlowShown) {
             linkParamsSlowShown = true
-            setStatus("LINK SLOW")
             services.notifyInternal("link", "the glasses slowed the link to %.0f ms / latency %d — asking for the %s parameters again"
                 .format(st.linkIntervalMs, st.linkLatency, settings.linkPriority))
         } else if (!ps && linkParamsSlowShown) {
             linkParamsSlowShown = false
-            if (statusText == "LINK SLOW") setStatus("ok")
             services.notifyInternal("link", "link parameters back to %.0f ms / latency %d".format(st.linkIntervalMs, st.linkLatency))
         }
     }
@@ -3217,7 +3321,6 @@ class Shell(
         if (report == null) {
             if (lastDivergence != null) {
                 journal.note("divergence", "agreement restored")
-                if (statusText.startsWith("DIVERGE")) setStatus("ok")
             }
             lastDivergence = null
             if (++agreeingChecks >= DIVERGE_QUIET_CHECKS) divergenceRun = 0
@@ -3231,15 +3334,18 @@ class Shell(
         divergenceRun++
         journal.note("divergence", "episode $divergenceRun: $report")
         if (divergenceRun > DIVERGE_EPISODES_MAX) {
-            // recurring: the report stays on the status bar; no more keyframes
-            // or notices until agreement has held for a while
-            setStatus("DIVERGE x$divergenceRun")
+            // recurring: no more keyframes or notices until agreement has held for a
+            // while — the journal counts the episodes, and the cell says `fault` for
+            // as long as the two disagree ([refreshStatusWord] reads lastDivergence)
             return
         }
-        setStatus("DIVERGE")
-        services.notifyInternal("mirror", "belief and mirror disagree — $report — keyframing" +
-            (if (divergenceRun == DIVERGE_EPISODES_MAX) " (last notice: further episodes stay on the status bar)" else ""),
-            urgent = true)
+        // the flood guard above IS this class's episode rule (Adam's ruling 3, §66.2): its
+        // notices coalesce on one thread and skip [FaultEpisodes]' quiet minute
+        onUrgent?.invoke("mirror", "belief and mirror disagree — $report")
+        post(Msg.Notice(Notifications.Notice("DAMAGE · mirror", "mirror",
+            "belief and mirror disagree — $report — keyframing" +
+                (if (divergenceRun == DIVERGE_EPISODES_MAX) " (last notice: further episodes go to the journal until agreement holds)" else ""),
+            wallClock().hhmm, fault = true)))
         comp.requestKeyframe()
     }
 
@@ -3285,7 +3391,7 @@ class Shell(
     // retired and every reduced band sits at the top of the panel.
     private fun layoutFor(s: ShellSettings): Layout {
         val (rowH, lensH) = listRhythm(chromeText)          // Main is what boots
-        val base = Layout(rowH = rowH, lensH = lensH, clockW = clockCellW())
+        val base = Layout(rowH = rowH, lensH = lensH, clockW = clockCellW(), statusW = statusCellW())
         return if (s.heightMode >= Geometry.PANEL_H) base
         else base.withHeightMode(s.heightMode, wm.damage.core.geom.VPos.TOP)
     }
@@ -3301,7 +3407,7 @@ class Shell(
         val (rowH, lensH) = listRhythm(focused?.let { w ->
             wm.damage.core.text.StyledText(text) { appTransform(w.id).apply(it) }
         } ?: chromeText)
-        val base = Layout(rowH = rowH, lensH = lensH, clockW = clockCellW())
+        val base = Layout(rowH = rowH, lensH = lensH, clockW = clockCellW(), statusW = statusCellW())
         return if (h >= Geometry.PANEL_H) base
         else base.withHeightMode(h, wm.damage.core.geom.VPos.TOP)
     }
@@ -3918,7 +4024,7 @@ class Shell(
         // `comp.v2` true while `st.draw2` was already false, and the frame was assembled with
         // fills, per-lens draws and a hint for lenses that no longer had DRAW2 in force.
         val st = transport.state.value
-        comp.v2 = st.draw2               // contract 2 (`FIRMWARE.md` §4): fills, the reseed, the hint
+        comp.v2 = st.draw2 && !v2RefusedThisSession   // contract 2 (`FIRMWARE.md` §4): fills, the reseed, the hint
         if (!running || !st.started) return
         // a cache write that was not this shell's landed in the live cache mid-session (the self-test's
         // `live:` writes, 2026-09-15 review): the atlas's bytes on the glasses are no longer what it
@@ -4024,6 +4130,7 @@ class Shell(
         //    on a content-neutral repaint (§8.3, `HANDOFF.md` §40)
         // §41: never on a gesture's FIRST flush — a later frame of the same
         // gesture, or the idle tick, carries the readout instead
+        refreshStatusWord(st)
         val firstOfGesture = pumpPriority && inputFlushPending
         val allowTelemetry = !firstOfGesture && (pumpPriority || animated || chromeIdleFlush)
         if ((chromeDirty || allowTelemetry) && !quiet && (comp.hasPending || animated || chromeIdleFlush)) {
@@ -4051,7 +4158,6 @@ class Shell(
         if (haltedEpoch != null) {
             if (haltedEpoch == comp.epoch) return       // undisplayable frame, unchanged
             haltedEpoch = null
-            setStatus("ok")
         }
         if (comp.hasPending || comp.needsKeyframe) {
             comp.placements = stagePlacements()   // §66: what this frame may draw from the reserve
@@ -4061,7 +4167,7 @@ class Shell(
             } catch (e: Exception) {
                 Log.e("shell", "flush assembly failed", e)
                 journal.note("assemble-error", e.toString())
-                setStatus("ASSEMBLE ${e.message}")
+                raiseFault("assemble", "a flush could not be assembled: ${e.message ?: e::class.simpleName} — keyframing", urgent = true, source = "compositor")
                 // a throw mid-assembly can leave shadows seeded with nothing
                 // on the wire (R3s#7): a keyframe re-grounds belief — cheap
                 // insurance on a path that should never run
@@ -4101,7 +4207,7 @@ class Shell(
                 } catch (e: Exception) {
                     Log.e("shell", "submit failed", e)
                     journal.note("submit-error", e.toString())
-                    setStatus("SUBMIT ${e.message}")
+                    raiseFault("submit", "a flush could not be submitted: ${e.message ?: e::class.simpleName}", urgent = true, source = "transport")
                     comp.rollback(assembled)
                 }
             }
@@ -4161,7 +4267,7 @@ class Shell(
                 Mode.SILENT, Mode.EXCLUSIVE -> 1
             },
             op = opText,
-            status = statusText,
+            status = statusWord,
             inputEcho = inputEcho,
             thru = "${(st.bytesPerSecEma / 1000).toInt()}K/s · ${st.ackMsEma.toInt()}ms",
             compass = null,
@@ -4205,7 +4311,7 @@ class Shell(
         if (haltedEpoch != null) append("halted ")
         if (glassesSilent) append("glasses-silent ")
         lastDivergence?.let { append("diverge[$it] ") }
-        append("reports=$divergencesReported status='$statusText'")
+        append("reports=$divergencesReported status='$statusWord'")
     }
 
     /** True when nothing is pending anywhere — test/selfcheck introspection. */
@@ -4534,6 +4640,10 @@ class Shell(
         /** Chrome never shrinks below the design size to fit a bar — the bar
          *  is already sized for it at 100 %; the cap only limits growth. */
         const val CHROME_SCALE_FLOOR = 1.0
+        /** The transport faults the phone hears (Adam's ruling 5, `HANDOFF.md` §69): a feature
+         *  held back after a reset, a build without the required capabilities, a stalled window.
+         *  Every other transport fault is a notice on the glasses only. */
+        val URGENT_TRANSPORT_FAULTS = setOf("holdback", "capability", "stall")
         /** The list rhythm's inputs (review §29): the row face every list
          *  draws its main text in (Clear Sans 18 through the window's own
          *  transform — a Fira or Mono list inks a little less at the same

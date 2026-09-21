@@ -278,9 +278,9 @@ def chrome(d, title, win, win_ic, *, pos_frac=0.4, depth=2, dirty=(), op="idle",
     d.rectangle([BAR_X, DIV2_Y, BAR_R - 1, DIV2_Y + DIV - 1], fill=L(1))
     for i in range(depth):
         d.rectangle([BAR_X + 16 + i * 26, DIV2_Y, BAR_X + 16 + i * 26 + 18, DIV2_Y + DIV - 1], fill=HEAD)
-    # --- status bar (op 128 · stat 132 · thru 128 · tape 100 · link 120 on the 608 bar) ---
-    text(d, (BAR_X + 8, ST_Y + 7), op, BODY, f_chrome)          # op   x16  w128
-    text(d, (152, ST_Y + 7), status, DIM, f_chrome)             # stat x144 w132
+    # --- status bar (op 120 · stat 140 · thru 128 · tape 100 · link 120 on the 608 bar; DESIGN.md §4.4) ---
+    text(d, (BAR_X + 8, ST_Y + 7), op, BODY, f_chrome)          # op   x16  w120
+    text(d, (144, ST_Y + 7), status, DIM, f_chrome)             # stat x136 w140: the state word at its left pad
     text(d, (284, ST_Y + 9), thru, DIM, f_tel)                  # thru x276 w128
     compass_tape(d, 404, ST_Y, 100, comp)                       # tape x404 w100
     poor = link <= -75

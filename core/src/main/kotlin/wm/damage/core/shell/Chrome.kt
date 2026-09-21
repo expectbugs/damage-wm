@@ -188,6 +188,10 @@ class Chrome(
          *  time and its AM/PM marker (§2.3). */
         const val CLOCK_PAD = 4
         const val CLOCK_GAP = 4
+        /** The status cell's side pad and the least room between the state word and the echo
+         *  (a right-aligned draw snaps up to 3 px left onto the damage grid). */
+        const val STATUS_PAD = 8
+        const val STATUS_GAP = 12
     }
 
     /** Fit a dynamic string into [maxW] px starting at ([x],[y]); a cut gets
@@ -334,10 +338,46 @@ class Chrome(
         drawCellFit(g, l.opCell, s.op, Level.BODY, fChrome)
     }
 
+    /** The state word at the cell's left, the input echo at its right — two
+     *  draws at fixed places, so the echo never moves when the state changes
+     *  and neither can cover the other (Adam, 2026-09-16: a long status hid
+     *  the echo). Both come from fixed vocabularies and [statusCellWidth]
+     *  sized the cell for the widest of each, so this never fits or cuts; a
+     *  word from outside the vocabulary is a defect, said loudly, and drawn
+     *  through the fit path rather than outside the cell's rect. */
     private fun paintStatus(g: Gray8, l: Layout, s: State) {
-        g.fillRect(l.statusCell, Level.BG)
-        val txt = if (s.inputEcho.isEmpty()) s.status else "${s.status} · ${s.inputEcho}"
-        drawCellFit(g, l.statusCell, txt, Level.DIM, fChrome)
+        val cell = l.statusCell
+        g.fillRect(cell, Level.BG)
+        val y = fitY(cell, fChrome, 6)
+        val echoW = if (s.inputEcho.isEmpty()) 0 else text.measure(s.inputEcho, fChrome)
+        val room = cell.w - 2 * STATUS_PAD - (if (echoW == 0) 0 else echoW + STATUS_GAP)
+        if (text.measure(s.status, fChrome) > room) {
+            statusFitRuns++
+            wm.damage.core.util.Log.e("chrome", "status '${s.status}' + echo '${s.inputEcho}' exceed the ${cell.w} px cell — " +
+                "a word outside the measured vocabulary")
+            val txt = if (s.inputEcho.isEmpty()) s.status else "${s.status} · ${s.inputEcho}"
+            drawCellFit(g, cell, txt, Level.DIM, fChrome)
+            return
+        }
+        draw(g, cell.x + STATUS_PAD, y, s.status, Level.DIM, fChrome)
+        if (echoW > 0) drawRight(g, cell.right - STATUS_PAD, y, s.inputEcho, Level.DIM, fChrome)
+    }
+
+    /** How often [paintStatus] had to fall back to the fit path — zero in a
+     *  correct build; the pins read it. */
+    var statusFitRuns = 0
+        private set
+
+    /** The width [Layout] must give the status cell for this face: the pad,
+     *  the widest state word, the gap, the widest input echo and the pad, on
+     *  the damage grid and never below the design's [Layout.STATUS_W] — the
+     *  clock cell's rule (review §30) applied to the one other chrome cell
+     *  whose text grows with the face. */
+    fun statusCellWidth(): Int {
+        val state = ShellState.WORDS.maxOf { text.measure(it, fChrome) }
+        val echo = (InputEcho.WORDS + InputEcho.UNKNOWN_FORMS).maxOf { text.measure(it, fChrome) }
+        val need = STATUS_PAD + state + STATUS_GAP + echo + STATUS_PAD
+        return maxOf(Layout.STATUS_W, (need + Geometry.X_STEP - 1) / Geometry.X_STEP * Geometry.X_STEP)
     }
 
     /** Status strings carry exception text of arbitrary length; drawing raw

@@ -146,11 +146,17 @@ without writing a row.
   phone (Tmux, Files, Torrents, Reader content, Music, Feed) rides this service — :7401, plus :7404 for Music.
 - "Scans forever" while the phone says Connected → the stale-ACL recovery is still **toggle phone Bluetooth**
   (the scan fails loudly and rides the ON edge back in).
-- **`LINK SLOW` in the status cell** (§47): the glasses moved the link to their idle parameters (105 ms /
+- **The status cell says a STATE, never an error** (`DESIGN.md` §4.4, `HANDOFF.md` §69): `no link · silent ·
+  rebuild · no lease · halted · fault · link slow · ok`, the first that holds, and it clears itself. Every error
+  is a NOTICE with its whole text (tap or double-tap dismisses it; it then stays gone until that class of fault
+  has been quiet for a minute); `fault` in the cell = a fault episode is open — read the notice, or the journal's
+  `fault` / `error` notes if it could not be shown.
+- **`link slow` in the status cell** (§47): the glasses moved the link to their idle parameters (105 ms /
   latency 4); the APK is re-asking for the fast set every 5 s per arm — the `link` notes count the re-asks.
   If it never clears, the firmware keeps winning: that is the ask to Babcock (gate the idle request on the
-  lease). Global `Link` = `balanced` is the experiment for the ~50-minute rebuilds. **`atlas full`**: a face
-  stayed pixels even after evicting what the window is not drawing — the cache is genuinely full.
+  lease). Global `Link` = `balanced` is the experiment for the ~50-minute rebuilds. **An `atlas` journal note `full`**: a face
+  stayed pixels even after evicting what the window is not drawing — the cache is genuinely full (a latency
+  condition: no box, no word in the cell).
 - **The phone ↔ PC path** should be DIRECT (`tailscale ping aphone` → "via <ip:port>", ~30 ms). "via DERP"
   means the bypass is not in force (`sudo /etc/local.d/tailscale-bypass.start`, then `sudo rc-service
   tailscale restart`) or the phone's network blocks it; either way the windows still work, slower.

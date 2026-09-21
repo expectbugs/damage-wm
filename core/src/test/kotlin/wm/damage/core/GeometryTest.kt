@@ -150,8 +150,11 @@ class GeometryTest {
         assertEquals(Rect(16, 210, 608, 64), l.lens)          // §4.2: y 210, h 64
         assertEquals(Rect(200, 154, 240, 176), l.switcherPanel) // §4.3
         assertEquals(Rect(196, 190, 248, 104), l.notificationMax) // §4.5
-        // §4.5b rebalanced status cells on the 608 px bar
-        assertEquals(128, l.opCell.w)
+        // §4.5b rebalanced status cells on the 608 px bar; since 2026-09-20 (`DESIGN.md` §4.4,
+        // `HANDOFF.md` §69) the status cell is measured — 140 in Clear Sans 16 — and the op cell gives the 8
+        assertEquals(120, l.opCell.w)
+        assertEquals(Rect(136, 452, 140, 28), l.statusCell)
+        assertEquals(Rect(276, 452, 128, 28), l.thruCell)
         assertEquals(Rect(404, 452, 100, 28), l.tapeCell)
     }
 }

@@ -85,7 +85,7 @@ class DivergenceTest {
                     assertEquals(null, shell.lastDivergence, "episode $episode: a keyframe restored agreement")
                 } else {
                     assertTrue(shell.lastDivergence != null, "episode $episode: no keyframe any more — the report stays")
-                    assertTrue(shell.quiescenceReport().contains("DIVERGE x4"), "the status is sticky: ${shell.quiescenceReport()}")
+                    assertTrue(shell.quiescenceReport().contains("status='fault'"), "the cell says fault while the two disagree: ${shell.quiescenceReport()}")
                 }
             }
             shell.stop()

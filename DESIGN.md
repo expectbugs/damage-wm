@@ -267,7 +267,7 @@ the content has. The 16 px strips beside the bars are shift gutters, level 0, li
       │░│                                                           │░│
 450   │░├──────────┬─────────┬──────────┬─────────┬─────────────────┤░│   2   divider
 452   │░│  Cur Op  │  status │ ↑ B/s·ack│ tape ✱  │   link signal   │░│  28   status bar
-      │░│   128    │   132   │   128    │   100   │       120       │░│
+      │░│   120    │   140   │   128    │   100   │       120       │░│
 480   └─┴──────────┴─────────┴──────────┴─────────┴─────────────────┴─┘
          ░ = the 16 px stereo-shift gutters, level 0, both sides (§3.3)
 ```
@@ -313,8 +313,8 @@ and the status bar — clock, battery, telemetry — and keeps **every dashboard
 | divider | | 16 | 608 | 32 | 2 |
 | content | (nominal, ±d for depth) | 16 | 608 | 34 | 416 |
 | divider | | 16 | 608 | 450 | 2 |
-| status bar | Current operation | 16 | 128 | 452 | 28 |
-| | Status | 144 | 132 | 452 | 28 |
+| status bar | Current operation | 16 | 120 | 452 | 28 |
+| | Status (MEASURED: 140 is Clear Sans 16; a wider face grows it, the op cell gives the difference — §4.4) | 136 | 140 | 452 | 28 |
 | | Throughput ↑ · ack ms | 276 | 128 | 452 | 28 |
 | | **Compass tape** | 404 | 100 | 452 | 28 |
 | | Link signal | 504 | 120 | 452 | 28 |
@@ -903,10 +903,31 @@ returns after. The wheel owns the screen.
 | cell | shows |
 |---|---|
 | Current operation | the verb — rendering, fetching, flushing |
-| Status | result / state — ok, warn, error — plus the **input echo** (§9.2) |
+| Status | a **STATE** word at the left, the **input echo** (§9.2) at the right — see below |
 | Throughput ↑ · ack ms | uplink B/s and image ack latency. ⚠ downlink is *not* shown: the glasses send only acks and events, so it would read ~0 forever |
 | **Compass ✱** | 8 sectors (N NE E SE S SW W NW) — **hysteresis required**, see §7.2. ⚠ No heading source is wired yet; the tape shows its rest mark |
 | Link signal | 🔴 **TWO links, one 120 px cell.** See below |
+
+#### The status cell holds states; every event is a notice (Adam, 2026-09-16 — `HANDOFF.md` §66.2, §69)
+
+"Errors should come up as a notification, not a truncated status bar line that hides inputs and can't be
+cleared." The cell shows ONE word from a fixed list, **derived** on every chrome sync from conditions that each
+have their own lifecycle, the first that holds: `no link` · `silent` · `rebuild` · `no lease` · `halted` ·
+`fault` · `link slow` · `ok`. Nothing sets it and nothing clears it, so one state's exit cannot clear another's
+word. `fault` means a fault episode is open — it covers the case where the notice itself cannot be shown — and
+clears after a quiet minute. The echo's words are fixed too (`tap · dbl · up · down · hold · rel`, `evNN` for an
+event with no word), so the cell is **measured** for the widest state beside the widest echo in the chrome face
+(`Chrome.statusCellWidth`, the clock cell's rule): nothing in it is ever fitted or cut, and the echo keeps its
+place at the right edge whatever the state says. The words are short on purpose: `rebuilding · double · release`
+measured 164 px in Clear Sans 16 and left JetBrains Mono at 120 % no room on the bar.
+
+An **event** — an exception, a failed flush, a transport fault, a refused atlas — is an internal notice on a
+thread named for its class, with its whole text (§4.5 scrolls it): one notice per class per episode, a repeat
+updating the one box's count at ×2, ×4, ×8 …, the phone hearing an urgent class once (§9.3), a dismissed box
+staying dismissed until the class has been quiet for a minute. Fault notices ignore Global `Notify · Damage`
+(that row gates courtesy notices). Two things never raise a box: a fault of a session that is ending (the word
+says `no link` or `rebuild`), and a **refused image** — its box would be more images into a page that refuses
+them (§36); the refusal streak's sleep is said once instead.
 
 #### 🔴 There are two links and they fail completely differently
 
@@ -1238,7 +1259,8 @@ hairlines, few levels, solid fills. Measured cost of icons on all eleven Main ro
 - **A compass TAPE** replaces the `NE` label: three sectors with the current one under a fixed
   centre mark. Wide-and-short is the cheap shape (§4.5), and a tape is unambiguous about which way
   it scrolls. Paid for by rebalancing the status bar to `op 160 · status 132 · thru 128 · tape 100
-  · link 120` — `op 128` since the bars were inset to 608 px (§2.3).
+  · link 120` — `op 128` since the bars were inset to 608 px (§2.3), and `op 120 · status 140` since the
+  status cell is measured (§4.4, 2026-09-20).
 - **Coarse block progress bars** wherever there is a genuine quantity — build progress in the lens,
   reading position on a row. **Discrete blocks, never a smooth bar**: solid blocks are long RLE
   runs (the switcher's quantised-fade rule).

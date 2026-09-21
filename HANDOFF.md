@@ -5009,3 +5009,76 @@ context is re-measured on Phase 2 traffic (the script, a fresh capture) before a
 is parked until Phase 4 — its hooks sit on every received packet, the flasher's included, its sites are 2.2.9.22's,
 and it means a rebuilt `CfwTransportBase`, simulator and vectors; what it would buy is acks after processing from
 BOTH lenses (LEFT no longer blind, no settle window) and ~324 KiB of heap (I), which is Phase 4's inter-lens report.
+
+## 69. The status cell as states, every event a notice — built (2026-09-20 → 21)
+
+Context for the reader: a personal device, the published patch method, display-rendering work. §66.2's ruling built
+under `FORK.md` §3.8: the envelope and seven decisions put to Adam first (all as recommended), one more after the real
+rasterizer's numbers (the words). Damage only; no firmware change, nothing flashed.
+
+**The design.** The cell's word is DERIVED on every pump from the pump's one link-state snapshot (`shell/Status.kt`,
+`ShellState.of`), the first that holds: `no link · silent · rebuild · no lease · halted · fault · link slow · ok`.
+There is no status string: the nineteen `setStatus` sites and the seven `if (statusText == "X") setStatus("ok")` exits
+are gone (that class had already cost §64 its `atlasLeaseBack` fix). Every event goes through one loop-only door,
+`Shell.raiseFault(class, text, urgent)`, over `FaultEpisodes`: one notice per class per episode, a repeat updating the
+one box's count at ×2, ×4, ×8 …, the phone rung once per episode, a dismissal muting the episode, an episode closing
+after a quiet minute (`faultQuietMs`, a pacing knob), all of it cleared at every session start. The notice is POSTED,
+never painted from a catch block; a fault notice ignores `Notify · Damage`; `fault` in the cell covers a notice that
+cannot be shown. Urgent: loop, pump and window-paint exceptions, assemble, submit, the transport's `holdback`,
+`capability` and `stall`, and what already was (lease, the diag flags, halt, resync, mirror).
+
+**The envelope's answers that changed code:** (a) nothing to clear for the word; episodes cleared at the start block
+beside `silentNoticeShown`; (c) episodes keyed on the class, never the text; (d) the table is loop-only and
+`raiseFault` cannot throw out of the loop's catch blocks; (e) the word reads the pump's `st`, not a second snapshot;
+(f) the divergence guard stays its own episode rule on the `mirror` thread (ruling 3), `DivergenceTest`'s sticky
+`DIVERGE x4` is now the cell's `fault` while the two disagree.
+
+**Three things the battery found, all in the design's blind spot — what a notice's own paint does:**
+1. **A refused image never raises a box.** The first full core run put seven failed flushes where §36 allows three:
+   each refusal's notice painted, and the paint was refused. A refusal (`ImgResCmd`, the `imgres` fault) is journal
+   only; the streak's sleep is said once. So is a fault of a session that is ending (link down, not started, a
+   rebuild asked for): the word says it, and the box would only wait in the queue as a stale one after every
+   in-case reboot. A refused session rebuild, re-asked on a pacing equal to the episodes' quiet minute, is said once
+   per session (the self-review's find: a dismissed box came back every minute).
+2. **A pre-existing defect, found because a notice's hole is a mode-21 fill:** when the atlas check finds DRAW2 not
+   armed on the glasses, only cached text went off — the compositor kept emitting v2 fills, per-lens draws and hints,
+   every one refused after its ack (24 px of belief ≠ glass in `AtlasCarryTest.anAtlasTheGlassesRefused…`, reachable
+   before today by any notice or menu in that state). Now `v2RefusedThisSession`: v1 shapes until the next session
+   start, a journal note and one keyframe. Not built: rebuilding the session to re-arm instead — that changes what
+   the reviewed atlas check promises ("off for the session") and is Adam's call.
+3. **A full atlas is a journal note, not a box — a deviation from ruling 7, for Adam to confirm or reverse:** on
+   today's cache it is an everyday condition (§66), the self-check reaches it in its cache pass, and a box for a
+   latency condition would interrupt several times a day.
+
+**The cell's width is MEASURED (`Chrome.statusCellWidth` → `Layout.statusW`, the clock cell's rule), and the words are
+short because of it (M, the AWT rasterizer):** `rebuilding · double · release` made the cell 164 px in Clear Sans 16
+(op cell 128 → 96, cutting `searching` and `reading pdf`) and left JetBrains Mono at 120 % no room on the bar. Adam's
+choice: `rebuild · dbl · rel` → 140 px (op 120; every op word that fits today still fits), 184 px at the worst (Mono
+20 px, op 76). The state draws at the left pad, the echo right-aligned, so the echo never moves; `DESIGN.md` §2.3's
+table and §4.4, `GeometryTest`'s design-table pin and `design/render_shots.py` moved with it. Noted, not touched: the
+op cell already cuts `pick a chapter`, `loading more` and longer at 128.
+
+**Pins (each watched to fail under its own mutation of the new code):** `StatusCellTest` ×8 — the word's ranking and
+independent exits; 1,000 repeats = 1 post, 9 updates, 1 ring; an urgent repeat of a quietly opened episode rings once;
+a loop error = a notice with its whole text, the echo still painted, the fit path never run; 300 loop errors = one
+box ending `(×256)`, nothing queued, one ring; a dismissed fault stays gone and returns after the quiet period; a
+fault shows with `Notify · Damage` off and a courtesy notice does not; a same-instance restart clears the episodes.
+Desktop `StatusCellFitTest`: the four locked faces × every chrome size the bar admits × every state × every echo —
+ink inside the cell, the words clear of each other, the op cell above its floor.
+
+**Battery on the final code (2026-09-21):** core 609 clean (two full uncached runs; the first, before items 1–2,
+is where they were found) · desktop 16 · `--selfcheck` 3 of 3 on the final binary (3 of 3 on the one before it; 3 of 3
+FAILED on the first, at the full-atlas box — item 3) · 57 renders, looked at · epub 380/404 · music · games · feed ·
+lint 0 · the design renders regenerated · **APK 0.60 staged 06:05** (0.59 was never installed; 0.60 carries its fixes).
+
+**Ruled (Adam, 2026-09-21, as recommended):** a full atlas stays a journal note (item 3); a lost DRAW2 drops the
+session to v1 shapes as built (item 2) — no session rebuild.
+
+**What 0.60 would have boxed, read from the phone's journal (M; 08-31 → 09-21, 2,622 `fault` notes, episodes counted
+at the 60 s quiet rule):** `imgres` 2,310 faults — journal-only now, the right call; `control` 126 in 122 episodes, 121
+of them `write characteristic gone` at an arm's link end and all but 4 before 09-09 (the link-down rule covers what
+is left); `ack` 53 in 11 episodes on 5 days, none since Phase 2; `mirror/decode`, `flags`, `mirror/fid` only on days
+of vector and probe work; `stall` 2. No class is chatty in daily use on the current build: none goes journal-only.
+
+**Not built:** a notice history; per-class mute rows; state icons; the popover presentation (Phase 6a). **Instruments:** no patch source and no
+wire encoder changed — the fuzz (60 × 30, §65) and the mutation sweep (39 of 106, §64.1) stand.

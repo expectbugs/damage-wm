@@ -32,6 +32,9 @@ class Notifications(private val text: TextRasterizer) {
          *  in [appId]'s window. Null = the window opens at wherever it was. */
         val target: String? = null,
         var read: Boolean = false,
+        /** A FAULT's notice (`Shell.raiseFault`, `HANDOFF.md` §69): shown whatever Global
+         *  `Notify · Damage` says — that row gates courtesy notices, never a fault. */
+        val fault: Boolean = false,
     )
 
     private val queue = ArrayDeque<Notice>()

@@ -28,6 +28,11 @@ data class Layout(
      *  the ladder the time ran INTO the marker. Multiple of 4 (the damage
      *  grid), never below the design width. */
     val clockW: Int = CLOCK_W,
+    /** The status cell, MEASURED from the chrome face by the shell
+     *  (`Chrome.statusCellWidth`, `HANDOFF.md` §69): the widest state word
+     *  beside the widest input echo. The design's 140 px (Clear Sans 16) is the floor; the op
+     *  cell absorbs the difference, as it does a narrower safe rect. */
+    val statusW: Int = STATUS_W,
 ) {
 
     companion object {
@@ -45,6 +50,8 @@ data class Layout(
         const val CLOCK_W = 80
         /** §2.3's battery cell: two gauges at the 58 px pitch plus tail pad. */
         const val BATT_W = 120
+        /** §4.4's status cell — the FLOOR of [statusW]. */
+        const val STATUS_W = 140
     }
 
     init {
@@ -54,6 +61,9 @@ data class Layout(
         require(lensH >= LENS_H && lensH % 2 == 0) { "lens band $lensH: at least $LENS_H and even" }
         require(clockW >= CLOCK_W && clockW % Geometry.X_STEP == 0) {
             "clock cell $clockW: at least $CLOCK_W and a multiple of ${Geometry.X_STEP}"
+        }
+        require(statusW >= STATUS_W && statusW % Geometry.X_STEP == 0) {
+            "status cell $statusW: at least $STATUS_W and a multiple of ${Geometry.X_STEP}"
         }
         require(safe.h >= TOP_H + DIV_H + lensH + 2 * CONTENT_PAD + DIV_H + STATUS_H) {
             "safe rect ${safe.h}px too short for the shell chrome"
@@ -131,12 +141,12 @@ data class Layout(
 
         // Status bar cells (§4.5b): fixed pitches at full width; at a narrower safe
         // width the op cell absorbs the difference (it is the marquee-friendly one).
-        val fixed = 132 + 128 + 100 + 120
+        val fixed = statusW + 128 + 100 + 120
         val opW = Geometry.snapX(statusBar.w - fixed)
         if (opW < 40) throw LintError("safe rect too narrow for the status bar cells")
         var x = statusBar.x
         opCell = Rect(x, statusBar.y, opW, STATUS_H); x += opW
-        statusCell = Rect(x, statusBar.y, 132, STATUS_H); x += 132
+        statusCell = Rect(x, statusBar.y, statusW, STATUS_H); x += statusW
         thruCell = Rect(x, statusBar.y, 128, STATUS_H); x += 128
         tapeCell = Rect(x, statusBar.y, 100, STATUS_H); x += 100
         linkCell = Rect(x, statusBar.y, 120, STATUS_H)
@@ -165,7 +175,7 @@ data class Layout(
             VPos.LOWER -> Geometry.snapY(free * 3 / 4)
             VPos.BOTTOM -> free
         }
-        return Layout(Rect(safe.x, y, safe.w, h), rowH, lensH, clockW)
+        return Layout(Rect(safe.x, y, safe.w, h), rowH, lensH, clockW, statusW)
     }
 }
 

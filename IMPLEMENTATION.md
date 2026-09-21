@@ -114,8 +114,8 @@ mouse, on a pixel-exact replica.* `HANDOFF.md` §8 is the record; what it added:
   800 ms settle, acked on its msgId, before the capability gate; the 7-packet sid-0x80 sequence is never sent.
   The model treats the prelude as required (graded U).
 - **The divergence check** (`Shell.checkMirrorAgreement`): at rest the compositor's belief per lens must equal
-  the mirror through the emitter's quantiser; a disagreement is reported once per episode (status `DIVERGE`,
-  journal, urgent notice) and answered with one keyframe.
+  the mirror through the emitter's quantiser; a disagreement is reported once per episode (the cell's `fault`,
+  journal, an urgent notice on the `mirror` thread) and answered with one keyframe.
 - **The session keeper** (`shell/ShellKeeper.kt`): a link end restarts the session after a 2 s pause, forever,
   no timeouts; a capability refusal is terminal (`onTerminal`). Since §16 **`pause` YIELDS**
   (`shell.stop(stopTransport=false)`): the glasses session, lease renewal included, keeps running with no
@@ -456,8 +456,8 @@ drawn in the last 12 frames (`Shell.ATLAS_RECENT_FRAMES`) when together they fre
 rebuilds the packed bytes from the survivors (heaviest first) and the recently drawn icons and resets the upload
 watermarks, so the glasses are rewritten from the guard up with every font off the live set until the last chunk
 is acked — the lapse path's discipline. Paced 45 s (`ATLAS_REPACK_PACE_MS`), never with a chunk in flight; a
-refused face books a retry a window of frames ahead; a stale face never re-enters over a recent one. `atlas
-full` in the status cell only when a face is still pixels after all that. `AtlasRepackTest` pins it with belief
+refused face books a retry a window of frames ahead; a stale face never re-enters over a recent one. An
+`atlas` journal note says `full` only when a face is still pixels after all that (no box, no cell word: §69). `AtlasRepackTest` pins it with belief
 = glass throughout.
 
 **Adopted (`HANDOFF.md` §40.6).** `core/comp/CachedText.kt`: `GlyphAtlas` renders a font's glyphs 32..126
@@ -660,7 +660,15 @@ These mechanisms are load-bearing and easy to break by accident:
   separately (JetBrains Mono 16 inks 25 against a 24 px line at 115 %). `FlowRender.lineH`, `TermRender`'s
   cell, the keyboard's centring and the Hold'em history all take the max.
 - **The shell loop survives an `Error`, loudly** (`Shell.loop`, §29): the handler and the pump catch `Error`, log
-  it, note the journal, set the status cell to ERROR. Do not narrow it back to `Exception`.
+  it, note the journal, raise an urgent `shell` notice (`Shell.raiseFault`). Do not narrow it back to `Exception`.
+- **The status cell is derived, every event is a notice** (`shell/Status.kt`, `HANDOFF.md` §69): `ShellState.of`
+  ranks conditions read from the pump's one link-state snapshot — there is no status string to set or clear;
+  `Shell.raiseFault` is the only door for a fault (one notice per class per `FaultEpisodes` episode, ×2/×4/×8
+  count updates, one ring of the phone, muted by a dismissal, cleared at every session start), it POSTS the notice
+  and never paints from inside a catch block, and it never runs for a refused image or for a session that is
+  ending. The cell's width is measured (`Chrome.statusCellWidth` → `Layout.statusW`); `StatusCellTest` and the
+  desktop's `StatusCellFitTest` (the real faces) pin it. When the atlas check finds DRAW2 not armed on the
+  glasses the compositor drops to v1 shapes for the session (`v2RefusedThisSession`) and keyframes.
 - **An event notice a tap should answer carries `appId` and a `target`** and coalesces per ITEM
   (`TmuxWindow.alert` → `open("session:<host>:<name>")`, §29).
 - **The context menu's box follows the row face** (`MenuSurface.boxW`, §29): the design's 248 at 100 %, grown by
