@@ -2,12 +2,12 @@
 
 **The entry point for a fresh session**: what is true now, what comes next, where the records are. History lives
 in `HANDOFF.md`; this file only points at it. Read `CLAUDE.md` → this file → **`FORK.md`** (the plan; §11 the
-log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` **§69** (the status cell as states, every event a notice) → §67–§68 (upstream's cache and
+log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` **§70** (the glasses ran flat: the case's battery; two rulings for the next APK) → **§69** (the status cell as states, every event a notice) → §67–§68 (upstream's cache and
 transport read against ours) → **§66** (Reader's page staging: the design pass, T2's day read, the build) → **§65** (what four reviews of Phase 2 measured, and the protocol), §64–§61 (the four reviews), §60 (Phase 2 built), §59 (the day's live defect), §55 (Phase 1 flashed),
 §48 (the fork decided). Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md` → the image through
 `research/fwread.py`.
 
-## Where we are (2026-09-21)
+## Where we are (2026-09-21, night)
 
 - **🔴 The CFW fork and the Damage rebuild are the ONLY work (Adam, 2026-09-12; `HANDOFF.md` §48)** until
   `FORK.md` Phase 8 closes. `FORK.md` = the plan (§11 the log), `FIRMWARE.md` = the contract, `HANDOFF.md`
@@ -93,11 +93,13 @@ the 75 / 523 below. Price a window against the wait; these are kept because the 
 The ack precedes the panel refresh (§48.1, verified): what the eye waits for is longer than these. A flush under
 100 B acks in ~60 ms; each KB adds ~140 ms; the tail is pixel bytes. Phone CPU per flush: 17 ms median / 66 p90.
 
-## 🔴 The next session — 0.60's read on glass (items 1–2), then the glyph-subset packing (item 9)
+## 🔴 The next session — 0.60's read on glass (items 1–2); the next APK = item 10 (Adam's two rulings) + the glyph-subset packing (item 9)
 
 Phase 2 is on the glasses and first light is green (§65). Reader's page staging is built and read once on glass
-(§66, §66.1). **The status cell is built (§69; APK 0.60 staged — it carries 0.59's two staging fixes too).**
-Nothing needs flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) binds every build.
+(§66, §66.1). **The status cell is built (§69; APK 0.60 staged — it carries 0.59's two staging fixes too; the phone
+was still on 0.57 the night of 09-21).** The glasses ran flat in an unplugged case on 09-21 (§70): Adam ruled a
+low-battery phone notification and a rest mode in the case, both designed and not built (item 10). Nothing needs
+flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) binds every build.
 
 1. **The status cell as states, every event a notice — BUILT (`HANDOFF.md` §69), Adam's eye owed on 0.60:** the
    cell says one derived word (`no link · silent · rebuild · no lease · halted · fault · link slow · ok`) with the
@@ -148,6 +150,15 @@ Nothing needs flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.
    (where the carrier's two buffers live is U again, `CLAIMS.md`). **With it in that candidate (§68): a deflated cache
    write** (cache writes were 61 % of the image lane's bytes, deflate takes 43 % off); the kept compression context only
    after `research/flushdecomp.py` has read a capture of Phase 2 traffic.
+10. **A low-battery notification (Adam's ruling 2026-09-21, `HANDOFF.md` §70; designed in `DESIGN.md` §9.3, NOT built —
+   with the next APK):** the glasses below 20 % → a phone notification plus a notice on the glasses, not gated by
+   `Notify · Damage`, once per discharge (re-armed by `charging` or ≥ 25 %). Under the protocol: what re-arms it at a
+   session boundary, and a reading that flickers around 20 %. **And a rest mode in the case (his ruling, the same
+   evening; `DESIGN.md` §9.3):** on the CFW's not-worn event the shell stops painting and releases the lease — the
+   Silent-Mode path (§36/§38) under a new trigger — and a session rebuild on worn; `charging` is not the trigger (a
+   dead case says nothing). The transport consumes neither the `wearnotify` event nor `WEAR_QUERY` today. Under the
+   protocol: the wear event's shape read from the C (`settings_ext.c :: faceclaw_send_wear_event`) and pinned in the
+   simulator before the shell keys on it; what a worn event during a rebuild does; a pair that flickers at the lid.
 
 **Follow-ups for a session without Adam (his call where marked):** the seam test race one-liner and the Feed tapper
 experiment (his call — Feed is suspended work); the ring service's and the touch processor's event ids; the stock RTC
@@ -197,7 +208,7 @@ per-gesture section judges every window (§42).
 | 15 | **Is the sid-0x01 prelude required** by the CFW before CREATE? (graded U) | three eaten CREATEs per cold start ≈ 6 s (§34.3) |
 | 21 | **Temple long-press accident rate** (gloves) | §1.2's bare-long-press no-op guards it |
 | 24 | **Does the firmware enter Silent Mode by itself** (wear detection, idle)? | the journal will say |
-| 25 | **The arm rebuilds' cause** (§42.2) — **they are REBOOTS** (F1.2's uptime, §65: five on 2026-09-16, all in the case, three of them 5–7 min after docking, uptime ≈100–105 min at each; LEFT's uncounted) | the cause: `FORK.md` M0.7's phone-state experiment, the case's charger, a stock in-case restart, a held lease with the panel off — all U; not the work (§50.9); the post-flash soak re-reads it |
+| 25 | **The arm rebuilds' cause** (§42.2) — **they are REBOOTS** (F1.2's uptime, §65: five on 2026-09-16, all in the case, three of them 5–7 min after docking, uptime ≈100–105 min at each; LEFT's uncounted) | **the case's top-up cycle (I, strong: §70 — every ~100 min the battery dipped to 98–99 %, a `charging` reading followed, the glasses rebooted; the cycle stopped the hour the case's own battery ran out, and so did the reboots)**; a stock in-case restart on charge start is the mechanism (U) |
 | 26 | **The wake loop's cause** (§42.3) | the `keeper: start failed: …` notes name it |
 | 28 | **True user-perceived latency** (ring press → visible change; the ack is only a lower bound) | `FORK.md` M0.2 |
 

@@ -5082,3 +5082,27 @@ of vector and probe work; `stall` 2. No class is chatty in daily use on the curr
 
 **Not built:** a notice history; per-class mute rows; state icons; the popover presentation (Phase 6a). **Instruments:** no patch source and no
 wire encoder changed — the fuzz (60 × 30, §65) and the mutation sweep (39 of 106, §64.1) stand.
+
+## 70. The glasses ran flat in the case; a low-battery notification planned (2026-09-21)
+
+Context for the reader: a personal device, display-rendering work. Read-only: the phone's journal and log. Nothing
+built, nothing flashed; the phone was on APK 0.57 throughout (0.60 staged, not installed).
+
+**What happened (M, the journal).** In the case since 09-16, topped up every ~100 min (98–99 % → `charging` → 100 %)
+until the last `charging` note at 09-20 20:24; three more in-case reboots (20:25, 22:08, 00:22); then from 09-21
+01:00 the battery only fell — 99 → 1 % by 13:31, 7.8 %/h, the worn-day rate — with every minute tick transferred to a
+lit panel (60 of 60 presents an hour) and the session up 13 h without a drop, against a reboot every ~100 min before.
+Off at 13:38 (LEFT first; RIGHT still advertising 10 s later). Adam had put them on ~13:00, at about 7 %.
+
+**Why the charging stopped (Adam, that evening): the case's own battery ran out** — he does not keep the case plugged
+in, and a session that never sleeps had it feeding a lit panel for four and a half days. So the in-case reboots
+every ~100 min (§65's baseline, cause U then) were the case's top-up cycle, and they stopped when it had nothing
+left to give. Back on the charger at 23:32 the glasses climbed 1 % per ~34 s with the session up.
+
+**Two gaps in Damage it showed:** nothing told him on the way from 15 % to 1 % (and `Notify · Damage` is off on his
+phone, so even the link-down notice was filtered); and the shell keeps painting a lit panel with nobody wearing the
+glasses, which made a stopped charge a full-rate drain — and, before that, emptied the case. **Adam's ruling: a phone notification when the glasses fall
+below 20 % — designed in `DESIGN.md` §9.3, not built, one of the next steps with the next APK** (`REMINDER.md` item
+10). The second gap is ruled too (Adam, the same evening): **a rest mode in the case** — the shell stops painting
+and releases the lease on the CFW's not-worn event, the Silent-Mode mechanism under a new trigger, and wakes on
+worn; designed in `DESIGN.md` §9.3 beside the notification, not built, the same APK (`REMINDER.md` item 10).

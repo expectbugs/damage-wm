@@ -561,3 +561,7 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   words shortened on Adam's word from the real rasterizer's numbers; the battery found that a notice's own paint must
   never answer a refusal, and a pre-existing gap — a session whose glasses lost DRAW2 kept emitting v2 ops — now
   dropped to v1 shapes. APK 0.60 staged. No firmware change, nothing flashed.
+- **2026-09-21 (night) — the glasses ran flat in the case (`HANDOFF.md` §70):** the case's own battery had run out; the
+  in-case reboots every ~100 min were its top-up cycle (I). Adam's two rulings, designed in `DESIGN.md` §9.3 and not
+  built, for the next APK: a phone notification below 20 %, and a rest mode on the CFW's not-worn event (the
+  Silent-Mode path under a new trigger). Docs only.

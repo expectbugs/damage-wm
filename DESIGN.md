@@ -2048,6 +2048,25 @@ when the display itself is what is broken.
 Severity worth escalating to the phone: framebuffer lease lost · decompress failure ·
 `ImgResCmd.ErrorCode` · link down · fid collision detected · sustained ack-timeout streak.
 
+**Low glasses battery (Adam, 2026-09-21 — designed, NOT built; `HANDOFF.md` §70; ships with the next APK):** when the
+glasses' battery falls **below 20 %** the phone gets a notification through this same path, and the glasses a notice.
+It is not gated by Global `Notify · Damage` (that row is off on his phone, and the point is to be told). Once per
+discharge: said at the crossing, armed again by a `charging` reading or a reading of 25 % or more — never once per
+percent on the way down. The source is the battery reading the shell already journals; no new traffic.
+
+**A rest mode in the charging case (Adam, 2026-09-21 — designed, NOT built; `HANDOFF.md` §70; the same APK):** "no
+reason to drain battery at full throttle while in an enclosed case." Today the shell paints every minute tick to
+the panel whether or not anyone wears the glasses; a powered case turns the panel off (`CLAIMS.md`: copied, counted,
+never transferred) but the link, the lease renewals, the polls and the frames go on, and a case that has run out
+turns the panel back on — §70's 4.5 days, then 13 h. The shape: when the glasses report **not worn** (the CFW's
+`wearnotify` event on sid 0x10 and the `WEAR_QUERY` answer — the stock wear detect, 1 off / 2 on; both exist,
+neither is consumed yet) the shell **rests**: it stops painting, releases the lease on purpose and lets the page
+traffic sleep exactly as the Silent-Mode path does (§36, §38 — the same mechanism, a different trigger), and the
+wake is the **worn** event, a session rebuild as the wake from Silent Mode is. `charging` alone is not the trigger:
+a dead case charges nothing and tells nothing. Open for the design pass: whether the transport should also drop the
+link's fast parameters while resting (the 60 s idle request the fork bound to the fast set), and the battery cost of
+the rest itself against a powered-off pair — measured on the next in-case night, not modeled.
+
 ### 9.4 Session hygiene
 
 Bump `MapSessionId` by ≥2 on any reset (the stuck-session trap, seen on our own wire). Cycle msgId
