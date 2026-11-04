@@ -8,6 +8,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -664,8 +665,19 @@ class RemoteTransportServer(
                     break
                 }
                 accepted.add(client)
-                Thread({ try { serve(client) } finally { accepted.remove(client) } },
-                    "transport-driver-${client.inetAddress}").apply { isDaemon = true }.start()
+                Thread({
+                    // §71 (2026-11-04): what serve's own catch cannot reach (its set-up
+                    // before the session's try, and its teardown) ends THIS connection,
+                    // logged at serve's own levels. Escaping the thread would end the
+                    // phone's process, and the glasses' session with it.
+                    try { serve(client) } catch (e: Exception) {
+                        Log.w("transport-server", "driver connection ${client.inetAddress} ended outside its session: ${e.message}")
+                        try { client.close() } catch (c: Exception) { /* closing */ }
+                    } catch (e: Throwable) {
+                        Log.e("transport-server", "driver connection ${client.inetAddress} failed outside its session", e)
+                        try { client.close() } catch (c: Exception) { /* closing */ }
+                    } finally { accepted.remove(client) }
+                }, "transport-driver-${client.inetAddress}").apply { isDaemon = true }.start()
             }
         }, "transport-server").apply { isDaemon = true }.start()
     }
@@ -737,6 +749,14 @@ class RemoteTransportServer(
             }
         }
         val mirrorListener = LensPanels.LensListener { arm -> markPanel(arm) }
+        // §71 (2026-11-04): anything that escapes one of this session's coroutines (the
+        // forwarding job's collectors and ticker, the start, cleardiag, restart) ends THIS
+        // session, logged. The host's scope has no handler of its own, and on the phone an
+        // uncaught throwable ends the process. Cancellation never reaches a handler.
+        val sessionGuard = CoroutineExceptionHandler { _, e ->
+            Log.e("transport-server", "session coroutine failed — closing session", e)
+            try { sock.close() } catch (c: Exception) { /* closing */ }
+        }
         // liveness (see SEAM_PING_MS): when this driver last sent ANY frame,
         // and whether it has ever sent a `ping` (only then is quiet enforced)
         val lastRecv = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
@@ -776,7 +796,7 @@ class RemoteTransportServer(
             // order; events (with the id-mapped done router), state and panel
             // updates all post into it. A send failure ends the session rather
             // than throwing into the shared scope.
-            fwd = scope.launch {
+            fwd = scope.launch(sessionGuard) {
                 launch {
                     try {
                         for (o in outbox) when (o) {
@@ -790,7 +810,14 @@ class RemoteTransportServer(
                         // defect — either way the session ends here, never in
                         // the host's scope (round 2, b2-4)
                         Log.e("transport-server", "sender ended — closing session: ${e.message}")
-                        sock.close()
+                        try { sock.close() } catch (c: Exception) { /* closing */ }
+                    } catch (e: Throwable) {
+                        // §71 (2026-11-04): an Error ends the session the same way. Left to
+                        // the scope, it reaches the thread's handler, and on the phone that
+                        // ends the APK's process, the glasses' own session with it. (The
+                        // close is guarded in both branches: its IOException would escape too.)
+                        Log.e("transport-server", "sender ended — closing session", e)
+                        try { sock.close() } catch (c: Exception) { /* closing */ }
                     }
                 }
                 launch {
@@ -862,7 +889,7 @@ class RemoteTransportServer(
                                 post(Ctl(t = "startfail", detail = "a start is already in progress"))
                             else -> {
                                 val warmup = blob ?: ByteArray(0)
-                                startJob = scope.launch {
+                                startJob = scope.launch(sessionGuard) {
                                     try {
                                         inner.start(warmup)
                                         // fresh snapshot before the startok —
@@ -958,14 +985,14 @@ class RemoteTransportServer(
                             }
                         }
                     }
-                    "cleardiag" -> scope.launch {
+                    "cleardiag" -> scope.launch(sessionGuard) {
                         try { inner.clearDiagFlags() } catch (e: Exception) {
                             Log.w("transport-server", "cleardiag: ${e.message}")
                         }
                     }
                     "brightness" -> inner.setBrightness(c.auto, c.level)
                     "linkpriority" -> inner.setLinkPriority(c.detail)
-                    "restart" -> scope.launch {
+                    "restart" -> scope.launch(sessionGuard) {
                         try { inner.restartSession("remote driver: ${c.detail}") } catch (e: Exception) {
                             Log.w("transport-server", "restart: ${e.message}")
                         }
@@ -987,25 +1014,36 @@ class RemoteTransportServer(
             Log.i("transport-server", "remote shell ${sock.inetAddress} disconnected")
         } catch (e: Exception) {
             Log.w("transport-server", "driver session error: ${e.message}")
+        } catch (e: Throwable) {
+            // §71 (2026-11-04): an Error ends this driver's session through the
+            // teardown below, never the phone's process (an Error that escapes a
+            // thread ends it on Android, and the glasses' session with it)
+            Log.e("transport-server", "driver session failed", e)
         } finally {
-            inner.mirror.removeListener(mirrorListener)
-            fwd?.cancel()
-            outbox.close()
-            try { sock.close() } catch (e: Exception) { /* closed */ }
-            // a FRESH session still mid-start is cancelled and awaited: its
-            // rollback disconnects. A LIVE session is deliberately left
-            // running — the session outlives the driver (2026-08-31), so the
-            // local shell resumes by ADOPTING it: one keyframe, no blink,
-            // the lease never lapses. (The old inner.stop() here was blink #1
-            // of Adam's two per WiFi edge.)
-            try { runBlocking { startJob?.cancelAndJoin() } } catch (e: Exception) { Log.w("transport-server", "start cancel: ${e.message}") }
-            // only a connection that actually HELD the driver slot may signal
-            // the local shell to take back over — a rejected connection must
-            // not trigger a dual-driver overlap (review round 1)
-            if (holdsSlot) onRemoteDriver(false)
-            // release the slot LAST (round 3 D6): a reconnect during teardown is
-            // answered "busy", never granted a transport still being stopped
-            synchronized(this) { if (driver === sock) driver = null }
+            try {
+                inner.mirror.removeListener(mirrorListener)
+                fwd?.cancel()
+                outbox.close()
+                try { sock.close() } catch (e: Exception) { /* closed */ }
+                // a FRESH session still mid-start is cancelled and awaited: its
+                // rollback disconnects. A LIVE session is deliberately left
+                // running — the session outlives the driver (2026-08-31), so the
+                // local shell resumes by ADOPTING it: one keyframe, no blink,
+                // the lease never lapses. (The old inner.stop() here was blink #1
+                // of Adam's two per WiFi edge.)
+                try { runBlocking { startJob?.cancelAndJoin() } } catch (e: Exception) { Log.w("transport-server", "start cancel: ${e.message}") }
+                // only a connection that actually HELD the driver slot may signal
+                // the local shell to take back over — a rejected connection must
+                // not trigger a dual-driver overlap (review round 1)
+                if (holdsSlot) onRemoteDriver(false)
+            } finally {
+                // release the slot LAST (round 3 D6): a reconnect during teardown is
+                // answered "busy", never granted a transport still being stopped.
+                // §71: released even when a teardown step above throws (the throwable
+                // then reaches the thread's catch); otherwise every later driver would
+                // be answered "busy" for the life of the process.
+                synchronized(this) { if (driver === sock) driver = null }
+            }
         }
     }
 

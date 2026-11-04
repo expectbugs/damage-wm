@@ -565,3 +565,8 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   in-case reboots every ~100 min were its top-up cycle (I). Adam's two rulings, designed in `DESIGN.md` §9.3 and not
   built, for the next APK: a phone notification below 20 %, and a rest mode on the CFW's not-worn event (the
   Silent-Mode path under a new trigger). Docs only.
+- **2026-11-04 — the phone's `/journal` ended the APK's process; the route streams (`HANDOFF.md` §71):** a whole-file
+  read of the never-rotated journal raised an OutOfMemoryError past an `Exception` catch, twice. APK 0.61 = 0.60 + the
+  streamed route + guards on the phone's two servers' connection threads, session coroutines and teardown. Eleven pins,
+  each watched to fail on the unfixed tree; two general reviews. The phone was still on 0.57 (0.60 never installed).
+  No firmware change, nothing flashed.

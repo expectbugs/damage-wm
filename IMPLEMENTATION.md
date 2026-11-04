@@ -172,8 +172,10 @@ Desktop (the sim standing in for glass; also serves `~/books` to the phone):
 Preview: mouse wheel scroll · left click tap · right click double-tap · press-and-hold long-press · keys
 ↑/↓ Enter Backspace Space R T(type) · Tab lens · B both · -/= window scale (integer, default 4×). The browser
 replica link is printed at start (`http://<host>:7403/?token=…`); the same server answers
-`GET /journal?token=…[&tail=N]` (that host's flush journal — `tools/journal_report.py -` reads it from
-stdin) and `GET /log?token=…[&tail=N]` (the process's last 4,000 log lines, `Log.recent`).
+`GET /journal?token=…[&tail=N]` (that host's flush journal, streamed from disk in 64 KiB chunks; `tail` = the
+whole lines that start inside the last N bytes — `tools/journal_report.py -` reads it from stdin; before APK 0.61
+the route read the whole file into memory and ended the phone's process, `HANDOFF.md` §71) and
+`GET /log?token=…[&tail=N]` (the process's last 4,000 log lines, `Log.recent`).
 
 Config in `~/.damage/config.json` — books dir, ports, token (generated on first run; must match
 `damage-secrets.properties` before building the APK), the phone host, the cached pair addresses, the tmux

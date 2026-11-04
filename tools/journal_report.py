@@ -3,6 +3,8 @@
 
     python3 tools/journal_report.py ~/.damage/journal.jsonl
     curl -s 'http://aphone:7403/journal?token=T' | python3 tools/journal_report.py -
+    (an APK before 0.61 reads the whole file into memory and its process ends: add
+    `&tail=N`, a few MB, until 0.61 is installed -- HANDOFF.md §71)
 
 Prints: flushes by hour with the median ack per size band (the two radio
 regimes show up here), the same by transport (`via`, present since §32), the
@@ -343,7 +345,8 @@ def battery_report(notes):
 
 USAGE = '''usage: journal_report.py [PATH|-] [--since YYYY-MM-DD[THH:MM]] [--glasslog]
 
-Reads the phone's journal (`curl .../journal?token=... | journal_report.py -`) and prints the
+Reads the phone's journal (`curl .../journal?token=... | journal_report.py -`; before APK 0.61
+add `&tail=N`, HANDOFF.md §71) and prints the
 per-gesture, per-band and per-glass numbers `WINDOWS.md` §6 and `REMINDER.md` price with.
 Exit status: 0 a report (an empty one included), 2 the input was not a journal.'''
 

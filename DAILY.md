@@ -87,7 +87,8 @@ without writing a row.
 - Logs: `~/.damage/damage.log` (the service; the standby narration), `~/.damage/journal.jsonl` (the PC's flush
   journal, only while a PC stack drives), phone `adb logcat -s damage` + the on-phone status line.
 - **The phone's journal, no adb** (`HANDOFF.md` §32): `curl -s 'http://aphone:7403/journal?token=…' | python3
-  tools/journal_report.py -` (`&tail=2000000` for the last ~2 MB) — the ack curve by hour (with the connection
+  tools/journal_report.py -` (`&tail=2000000` for the lines in the last ~2 MB). **An APK before 0.61 reads the whole
+  file into memory and its process ends (`HANDOFF.md` §71): on one, always pass `&tail=`.** It shows the ack curve by hour (with the connection
   parameters in force per hour since §47: `105/4` is the slow set, `15/1` the fast) and radio path, CPU
   per flush, the cache's account, **time to first visible change per gesture** (the number a window is judged
   by), the `link`/`keeper` notes. The daily driver's real curve; the PC journal's is the standby's.

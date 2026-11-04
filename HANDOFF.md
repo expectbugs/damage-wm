@@ -5106,3 +5106,78 @@ below 20 % — designed in `DESIGN.md` §9.3, not built, one of the next steps w
 10). The second gap is ruled too (Adam, the same evening): **a rest mode in the case** — the shell stops painting
 and releases the lease on the CFW's not-worn event, the Silent-Mode mechanism under a new trigger, and wakes on
 worn; designed in `DESIGN.md` §9.3 beside the notification, not built, the same APK (`REMINDER.md` item 10).
+
+## 71. The phone's `/journal` ended the APK's process; the route streams now (2026-11-04)
+
+Context for the reader: a personal device; Damage's own replica HTTP server on the phone and the PC. Damage only; no
+firmware change, nothing flashed.
+
+**What happened (M).** Two `GET /journal` fetches with no `tail`, the read `REMINDER.md`'s resume list gave, each
+ended the phone's APK process (0.57). Its log restarted at 10:25:07 and 10:25:29, each a new session and an atlas
+upload. curl got an empty reply both times; `/log` and a `tail=1000000` read answered normally. `ReplicaServer` read the
+whole file with `Files.readAllBytes`. The journal is opened APPEND and never rotated (it has grown since August; a quiet
+morning wrote ~1 MB in 3.4 h). `serve` caught `Exception` only, and on Android an Error that escapes any thread ends the
+process. The empty reply puts the failure before the header, in the read; the full read worked on 09-21 (§69). Which
+path ended the process (the heap limit, heap already taken, the system's low-memory kill) is U. Streaming removes the
+allocation every one of them needs.
+
+**The fix (APK 0.61 = 0.60 + this; `ReplicaServer.streamJournal`).** The route streams the bytes from the request's
+start to the size it read at that moment, in 64 KiB chunks. Lines appended meanwhile wait for the next fetch. A file
+that shrinks under the read ends the response short, and the reason is logged. `tail` = the whole lines that START
+inside the last N bytes; before, a cut that fell exactly on a line start dropped that line. A tail past
+`Int.MAX_VALUE` works (the old read's `toInt()` went negative). **The class, swept (`CLAUDE.md` protocol 3):**
+- **(a) a whole-file read of a file that grows without bound.** Every `readAllBytes` / `readString` / `readBytes` /
+  `readLines` site in `core`, `desktop` and `phone` was read. The journal is the only one. The rest are capped (the
+  Files viewer's cap; the seam and window channels validate their 1–4 MiB frame lengths before allocating) or bounded
+  by their content (a book, an icon, a catalog, the staged APK).
+- **(b) a phone server's connection work that lets a throwable escape.** On Android one that escapes a thread or a
+  scope with no handler ends the process. Each site below now logs it and ends only that connection, through the
+  teardown the Exception path already used:
+  - The replica: its request thread and its per-page sender (`Throwable`).
+  - The seam: its reader thread (`Throwable`) and its sender coroutine (`Throwable`; both of that coroutine's
+    `sock.close()` calls are guarded, because an IOException there escaped too).
+  - **Found by the second review:** the seam's thread wrapper now catches what `serve`'s own `try` cannot reach (the
+    set-up before it opens streams and allocates; the teardown after it), at `serve`'s levels: an Exception is a
+    warning, an Error an error.
+  - **Also from that review:** a per-session `CoroutineExceptionHandler` on the forwarding job (its event and state
+    collectors and the liveness ticker) and on the start, cleardiag and restart jobs. It logs and closes that session.
+  - **The teardown releases the driver slot in a `finally`, still last.** A throwing step (`onRemoteDriver(false)`)
+    used to leave every later driver answered "busy" for the life of the process.
+- **Checked, unchanged:**
+  - both servers' accept loops (an accept and a thread start)
+  - the replica's status thread (field reads)
+  - the seam CLIENT's coroutines (it runs on the PC as the dev driver)
+  - the desktop's servers (on a JVM an escaped Error ends only its thread, and stderr carries it to `damage.log`)
+  - every `Log.e` running the phone's sinks on the caller's thread (the error notice path; `notifyInternal` is
+    guarded); a sink that throws is a property of every `Log.e`, not of this change
+
+**Pins, each watched to fail on the unfixed tree (11 of 11, each for the reason it names):**
+- `JournalStreamTest` ×3: a sparse file past `Int.MAX_VALUE` and twice the heap streams whole and by tail (unfixed:
+  no response); the cut on a small file (unfixed: the line at `tail=10` dropped).
+- `ServerErrorGuardTest` ×8: an Error at the replica's request and sender, and at the seam's reader, sender, set-up,
+  event collector and start, is logged and never reaches the uncaught-exception handler (unfixed: no log line, or the
+  page or session never closes); a throwing teardown still frees the driver slot (unfixed: the next driver is refused).
+
+Plus one coverage test that crosses the 64 KiB chunks byte for byte, a cut chunks before its first newline included.
+**Two general reviews:** mine found the unguarded closes; an independent one confirmed the stream and the cut and found
+the set-up, coroutine and teardown gaps above, all closed. The unfixed run first exposed a defect in one of these tests
+(a session left up by the old code pings every few seconds, so a per-read bound never fired). The session wait is now
+bounded as a whole.
+
+**Battery (2026-11-04, final code):**
+- core 621 of 621, uncached, alone
+- desktop 16
+- `--selfcheck` 3 of 3
+- 57 renders, twice, looked at; the two runs differ only in the clock and the simulated rate cell
+- epub: 73 books OK, 2,580 of 2,604 images (the shelf has grown; 24 failing, as before)
+- music, games and feed checks: all pass
+- lint 0
+- **APK 0.61 staged 11:40**, its dex carrying the new code; the setup page serves it (HEAD, loopback)
+
+**Not built:**
+- rotating or archiving the journal (it is the measurement record; Adam's call)
+- a crash record the next process reads (the phone's log lives in memory, so a process that ends leaves nothing
+  behind; today's two endings were seen only from outside)
+- a guard on the phone's other threads and coroutines (the window channels, sync, music) The PC service still runs the 09-12 jar, so its own `/journal` (79 MB, on a desktop heap) keeps the old read
+until a PC deploy. **Instruments:** no patch source and no wire encoder changed, so the fuzz (60 × 30, §65) and the
+mutation sweep (39 of 106, §64.1) stand.

@@ -9,6 +9,11 @@ import java.io.OutputStream
 import java.net.ServerSocket
 import java.net.Socket
 import java.net.URLDecoder
+import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 import java.util.Base64
 import java.util.concurrent.ConcurrentHashMap
@@ -68,8 +73,9 @@ class ReplicaServer(
      *  `GET /log?token=T[&tail=N]` serves the process's recent log lines (§42).
      *  (2026-09-05, `HANDOFF.md` §32) — the phone has no adb on Adam's
      *  setup, and its journal is the only measurement of the daily radio
-     *  path. `tail` = at most that many bytes from the end, whole lines. */
-    private val journalPath: () -> java.nio.file.Path? = { null },
+     *  path. `tail` = the whole lines that start inside the last that many
+     *  bytes. Streamed from disk, never held (2026-11-04, `HANDOFF.md` §71). */
+    private val journalPath: () -> Path? = { null },
 ) : AutoCloseable {
 
     data class Status(
@@ -134,10 +140,10 @@ class ReplicaServer(
                 "/", "/index.html" -> reply(out, 200, "text/html; charset=utf-8", page())
                 "/journal" -> {
                     val p = journalPath()
-                    if (p == null || !java.nio.file.Files.isRegularFile(p)) {
+                    if (p == null || !Files.isRegularFile(p)) {
                         reply(out, 404, "text/plain", "no journal on this host"); return
                     }
-                    replyBytes(out, 200, "application/x-ndjson", journalBytes(p, query["tail"]?.toLongOrNull()))
+                    streamJournal(out, p, query["tail"]?.toLongOrNull())
                 }
                 "/log" -> {
                     // §42: this host's recent log lines (`Log.recent`), the
@@ -163,6 +169,12 @@ class ReplicaServer(
             // client closed
         } catch (e: Exception) {
             Log.w("replica", "session ${sock.inetAddress} ended: ${e.message}")
+        } catch (e: Throwable) {
+            // §71 (2026-11-04): an Error here, an OutOfMemoryError above all, must not
+            // leave the thread. On Android an Error that escapes ANY thread ends the
+            // process, and the glasses' session with it: a whole-journal read did that
+            // twice. Logged loudly; what the request allocated is released with it.
+            Log.e("replica", "request from ${sock.inetAddress} failed", e)
         } finally {
             try { sock.close() } catch (e: Exception) { /* closed */ }
         }
@@ -211,27 +223,64 @@ class ReplicaServer(
     private fun reply(out: OutputStream, code: Int, type: String, body: String) =
         replyBytes(out, code, type, body.toByteArray(Charsets.UTF_8))
 
-    private fun replyBytes(out: OutputStream, code: Int, type: String, b: ByteArray) {
+    private fun head(out: OutputStream, code: Int, type: String, length: Long) {
         val reason = when (code) { 200 -> "OK"; 400 -> "Bad Request"; 403 -> "Forbidden"; 404 -> "Not Found"; else -> "Error" }
-        out.write(("HTTP/1.1 $code $reason\r\nContent-Type: $type\r\nContent-Length: ${b.size}\r\nConnection: close\r\n\r\n")
+        out.write(("HTTP/1.1 $code $reason\r\nContent-Type: $type\r\nContent-Length: $length\r\nConnection: close\r\n\r\n")
             .toByteArray(Charsets.ISO_8859_1))
+    }
+
+    private fun replyBytes(out: OutputStream, code: Int, type: String, b: ByteArray) {
+        head(out, code, type, b.size.toLong())
         out.write(b)
         out.flush()
     }
 
-    /** The whole journal, or its last [tail] bytes cut forward to the first
-     *  whole line (a partial first line would break every reader). */
-    private fun journalBytes(p: java.nio.file.Path, tail: Long?): ByteArray {
-        val size = java.nio.file.Files.size(p)
-        if (tail == null || tail <= 0 || tail >= size) return java.nio.file.Files.readAllBytes(p)
-        java.nio.channels.FileChannel.open(p, java.nio.file.StandardOpenOption.READ).use { ch ->
-            val buf = java.nio.ByteBuffer.allocate(tail.toInt())
-            ch.position(size - tail)
-            while (buf.hasRemaining() && ch.read(buf) >= 0) { /* fill */ }
-            val all = buf.array().copyOf(buf.position())
-            val nl = all.indexOf('\n'.code.toByte())
-            return if (nl < 0) ByteArray(0) else all.copyOfRange(nl + 1, all.size)
+    /** The journal STREAMED from disk (2026-11-04, `HANDOFF.md` §71): the whole
+     *  file, or the whole lines that start inside its last [tail] bytes (a
+     *  partial first line would break every reader). Only one chunk is ever in
+     *  memory. The phone's journal is append-only and has grown since August.
+     *  Reading all of it into one array raised an OutOfMemoryError, which
+     *  ended the APK's process twice in one morning. The length is fixed when
+     *  the request starts; lines the shell appends meanwhile wait for the next
+     *  fetch. A file that shrinks under the read cannot deliver the promised
+     *  length, so the response ends short and the reason is logged. */
+    private fun streamJournal(out: OutputStream, p: Path, tail: Long?) {
+        FileChannel.open(p, StandardOpenOption.READ).use { ch ->
+            val size = ch.size()
+            val buf = ByteBuffer.allocate(JOURNAL_CHUNK)
+            val start = if (tail == null || tail <= 0 || tail >= size) 0L else firstLineAt(ch, size - tail, size, buf)
+            head(out, 200, "application/x-ndjson", size - start)
+            var pos = start
+            while (pos < size) {
+                val n = readAt(ch, buf, pos, size)
+                out.write(buf.array(), 0, n)
+                pos += n
+            }
+            out.flush()
         }
+    }
+
+    /** Where the first line that starts at or after [from] begins: [from]
+     *  itself when the byte before it ends a line, else just past the next
+     *  newline; [size] when no line starts there (an empty body). [from] is
+     *  at least 1: the tail is shorter than the file. */
+    private fun firstLineAt(ch: FileChannel, from: Long, size: Long, buf: ByteBuffer): Long {
+        var pos = from - 1
+        while (pos < size) {
+            val n = readAt(ch, buf, pos, size)
+            for (i in 0 until n) if (buf.get(i) == NL) return pos + i + 1
+            pos += n
+        }
+        return size
+    }
+
+    /** One chunk of [ch] at [pos] into [buf], never past [size]; the count read. */
+    private fun readAt(ch: FileChannel, buf: ByteBuffer, pos: Long, size: Long): Int {
+        buf.clear()
+        if (size - pos < buf.capacity()) buf.limit((size - pos).toInt())
+        val n = ch.read(buf, pos)
+        if (n <= 0) throw IOException("the journal ended at $pos of the $size B this response promised (shortened under the read?)")
+        return n
     }
 
     private fun page(): String {
@@ -272,6 +321,12 @@ class ReplicaServer(
                 }
             } catch (e: Exception) {
                 if (open) Log.w("replica", "send to ${sock.inetAddress} failed: ${e.message}")
+                open = false
+                try { sock.close() } catch (c: Exception) { /* closing */ }
+            } catch (e: Throwable) {
+                // §71: an Error building or sending a frame drops this page, never
+                // the process (on Android an Error that escapes a thread ends it)
+                Log.e("replica", "send to ${sock.inetAddress} failed", e)
                 open = false
                 try { sock.close() } catch (c: Exception) { /* closing */ }
             }
@@ -444,6 +499,9 @@ class ReplicaServer(
         const val OP_PING = 9
         const val OP_PONG = 10
         private const val MAX_CLIENT_FRAME = 64 * 1024L
+        /** One read of a streamed journal (§71): the only journal bytes in memory at once. */
+        private const val JOURNAL_CHUNK = 64 * 1024
+        private const val NL = '\n'.code.toByte()
         private const val WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
         private val STATUS = Any()
         private val END = Any()

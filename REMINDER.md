@@ -2,12 +2,17 @@
 
 **The entry point for a fresh session**: what is true now, what comes next, where the records are. History lives
 in `HANDOFF.md`; this file only points at it. Read `CLAUDE.md` → this file → **`FORK.md`** (the plan; §11 the
-log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` **§70** (the glasses ran flat: the case's battery; two rulings for the next APK) → **§69** (the status cell as states, every event a notice) → §67–§68 (upstream's cache and
+log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` **§71** (the phone's `/journal` ended the APK; it streams in 0.61) → **§70** (the glasses ran flat: the case's battery; two rulings for the next APK) → **§69** (the status cell as states, every event a notice) → §67–§68 (upstream's cache and
 transport read against ours) → **§66** (Reader's page staging: the design pass, T2's day read, the build) → **§65** (what four reviews of Phase 2 measured, and the protocol), §64–§61 (the four reviews), §60 (Phase 2 built), §59 (the day's live defect), §55 (Phase 1 flashed),
 §48 (the fork decided). Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md` → the image through
 `research/fwread.py`.
 
-## Where we are (2026-09-21, night)
+## Where we are (2026-11-04)
+
+- **2026-11-04, read from the outside (M):** the glasses up 16.1 days on Phase 2 (`48172b62`), both arms on LE 2M,
+  228k presents; **the phone still on APK 0.57** (0.60 staged 09-21, never installed); the PC service up since 10-20
+  (the `phoneHost` pin held). Between 09-21 and 11-04 nothing changed in either repo. **0.61 STAGED (§71)** = 0.60 +
+  the journal route streamed: on 0.57–0.60 a `/journal` fetch without `&tail=` ends the APK's process.
 
 - **🔴 The CFW fork and the Damage rebuild are the ONLY work (Adam, 2026-09-12; `HANDOFF.md` §48)** until
   `FORK.md` Phase 8 closes. `FORK.md` = the plan (§11 the log), `FIRMWARE.md` = the contract, `HANDOFF.md`
@@ -27,6 +32,7 @@ transport read against ours) → **§66** (Reader's page staging: the design pas
 - **The APK. 0.49 installed** (2026-09-15 03:46; every `build` note through 09-16 12:17). **0.55 INSTALLED 2026-09-16 ~13:10 (Adam)** and driving Phase 2 since 13:32 (§65). **0.57 INSTALLED 19:09 (Adam)**, its first read `HANDOFF.md` §66.1. **0.60 STAGED (§69: the status cell as states, every event a notice; it supersedes 0.59, never installed)** with 0.59's staging fixes (§66.1) — the ledger's settle
   window, the 64 KiB reserve, and a shortfall that can never switch the atlas off (0.57's ledger took cached text down at
   19:51 on three lagged readings); Adam installs whenever (~30 s blank, a 13 s atlas re-upload), then PRESENTED wants arming again.
+  **0.60 was never installed; 0.61 STAGED 2026-11-04 supersedes it** (0.60 + §71's streamed journal route).
 - **🔴 Phase 2: FLASHED 2026-09-16 13:19/13:24 (§65) after four reviews** (`HANDOFF.md` §60–§64; `FIRMWARE.md`
   §4 as built; Damage `67fdfa1`, the fork `f20bac9`) — **first light green, the self-test done (§65); T2 open for the day's reads (items 1–2 below)**. Fork pin **`48172b62…`** = Phase 1 + modes 17–24, op 5, status 3–5, fields
   23–26, the partial path, the three link edits; **32 entries — §63 added ONE new site, `0x00473D80`** (the
@@ -63,9 +69,9 @@ transport read against ours) → **§66** (Reader's page staging: the design pas
   every cached draw (Main on the left lens only); the start reads RIGHT's uptime before the carry decision.
   Workaround on 0.49: phone Bluetooth off for 90 s.
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games · Feed (`WINDOWS.md` and the
-  per-window records); `POPOVER.md` is a spec, built in Phase 6a. **The battery after §69 (2026-09-21):** core 609 (two full uncached runs clean on the final code; the known Feed
-  rate miss did not show) · desktop 16 · `--selfcheck` 3 of 3 on the final binary · 57 renders · epub 380/404 ·
-  music/games/feed · lint 0 · APK 0.60 staged. §65 changed one vector, the lint gate and a test comment, and ran lint, the fork's three host gates,
+  per-window records); `POPOVER.md` is a spec, built in Phase 6a. **The battery after §71 (2026-11-04):** core 621
+  (uncached, alone) · desktop 16 · `--selfcheck` 3 of 3 · 57 renders ×2 · epub 73 books OK, images 2,580/2,604 (the shelf
+  grew; the old figure was 380/404) · music/games/feed · lint 0 · APK 0.61 staged. §65 changed one vector, the lint gate and a test comment, and ran lint, the fork's three host gates,
   `ConformanceVectorTest` and `GeometryTest`. Known rate misses (§54.5, §54.7): `FeedWindowTest.deepLinks…` and
   `…browseThroughTheKeyboard…` (§49.6), a seam test race (`SeamSessionTest.kt:82`),
   `Review20260905Test.cashingOut…` once (§61, cause not found) — run the core suite alone; a repeated
@@ -93,23 +99,24 @@ the 75 / 523 below. Price a window against the wait; these are kept because the 
 The ack precedes the panel refresh (§48.1, verified): what the eye waits for is longer than these. A flush under
 100 B acks in ~60 ms; each KB adds ~140 ms; the tail is pixel bytes. Phone CPU per flush: 17 ms median / 66 p90.
 
-## 🔴 The next session — 0.60's read on glass (items 1–2); the next APK = item 10 (Adam's two rulings) + the glyph-subset packing (item 9)
+## 🔴 The next session — 0.61's read on glass (items 1–2); the next APK = item 10 (Adam's two rulings) + the glyph-subset packing (item 9)
 
 Phase 2 is on the glasses and first light is green (§65). Reader's page staging is built and read once on glass
-(§66, §66.1). **The status cell is built (§69; APK 0.60 staged — it carries 0.59's two staging fixes too; the phone
-was still on 0.57 the night of 09-21).** The glasses ran flat in an unplugged case on 09-21 (§70): Adam ruled a
+(§66, §66.1). **The status cell is built (§69); APK 0.61 is staged (§71: 0.60, which carries 0.59's two staging fixes,
+plus the streamed journal route). The phone was still on 0.57 on 2026-11-04.** The glasses ran flat in an unplugged case on 09-21 (§70): Adam ruled a
 low-battery phone notification and a rest mode in the case, both designed and not built (item 10). Nothing needs
 flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) binds every build.
 
-1. **The status cell as states, every event a notice — BUILT (`HANDOFF.md` §69), Adam's eye owed on 0.60:** the
+1. **The status cell as states, every event a notice — BUILT (`HANDOFF.md` §69), Adam's eye owed on 0.61:** the
    cell says one derived word (`no link · silent · rebuild · no lease · halted · fault · link slow · ok`) with the
    echo at its right (`tap · dbl · up · down · hold · rel`); an error is a notice with its whole text, one per class
    per episode. Ruled 2026-09-21: a full atlas is a journal note; a lost DRAW2 drops the session to v1 shapes. The
    journal's three weeks say no fault class is chatty in daily use (§69). To read on glass: the cell's legibility at
    140 px, and the first real notice.
-2. **Page staging on glass, second read (0.60, which carries 0.59's fixes; §66.1) — Adam's read.** The first read (0.57): a staged notch 12 B / 79 ms ack
+2. **Page staging on glass, second read (0.61, which carries 0.59's fixes; §66.1) — Adam's read.** The first read (0.57): a staged notch 12 B / 79 ms ack
    against 2.7 KB / 307 ms for pixels — and the ledger crying wolf (bumps land up to ~1 s after the ack), strips of
-   12–34 KB against a 32 KiB reserve. Install 0.60, arm PRESENTED (`probe:flags=0x8005`), open the book, read: the
+   12–34 KB against a 32 KiB reserve (still crying on 0.57 on 2026-11-04: "the generation 2 short … never landed — 1
+   record(s) dropped"). Install 0.61, arm PRESENTED (`probe:flags=0x8005`), open the book, read: the
    `stage` notes (proven · pending · shortfall · off — a shortfall now means it), the `page staging:` line, the
    notches' WAIT column by shape, the worker µs of a staged notch (`present` records, the record's decode cost), the
    atlas churn now at 96 KiB — the glyph-subset packing is next if Reader's faces keep leaving the atlas. Adam's eye: a notch that lands
@@ -118,7 +125,7 @@ flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) bin
    Then the two quiet-pass items §66 left: the atlas's glyph-subset packing (the churn) and the link estimator's
    regime flips on a link that did not change. Optional beside it: `lint.py` rules for the v2 budgets; a Global row
    for the hint's A/B.
-3. **Adam's reads for T2:** 0.60 installed (item 2 first); the day's journal
+3. **Adam's reads for T2:** 0.61 installed (item 2 first); the day's journal
    (`journal_report.py --since 2026-09-16`) — the ack curve on 2M over a workday, the cacheMiss breakdown (`proof` and
    `planes` at zero is the exit), battery %/h on 2M against 7.4–7.8, the in-case reboots against §65's baseline (five
    in 11 h, three of them 5–7 min after docking); **the §62.7 retention check** (shell up, glasses into the case for a
@@ -284,11 +291,12 @@ desktop/build/install/desktop/bin/desktop --selfcheck # after ./gradlew :desktop
 python3 tools/lint.py                                 # SYM/GEO/BUD, exits 0; --selftest names what it covers
 TOKEN=$(python3 -c "import json;print(json.load(open('/home/user/.damage/config.json'))['token'])")
 curl -s "http://aphone:7403/journal?token=$TOKEN" | python3 tools/journal_report.py -   # the phone's journal, per-gesture numbers included; since §66 a `page staging:` line
+                                                      # ⚠ an APK BEFORE 0.61 ends its process on this (§71): add &tail=2000000
 curl -s "http://aphone:7403/log?token=$TOKEN&tail=400"                                 # the phone's log (0.41+), no adb
 python3 tools/glassdrive.py aphone $TOKEN --pace 2.5 double wait:3 snap:/tmp/a.png …    # drive the glasses; snap before every tap
 python3 research/verify_cfw.py                        # before any flashing conversation: the INSTALLED image's provenance
 python3 tools/glassdrive.py aphone $TOKEN probe:diag=show   # probes (APK 0.45+): diag=show|hide · logger=on|off · phy=2m|1m · telemetry=read · flags=clear|probe|0xNNNN; 0.46+: cache=info · selftest=begin|end|step:HEX; 0.51+: cachesize=KiB · selftest=live:HEX (a vector's cache write)
-curl -s "http://aphone:7403/journal?token=$TOKEN" | python3 tools/journal_report.py - --since 2026-09-14 --glasslog
+curl -s "http://aphone:7403/journal?token=$TOKEN" | python3 tools/journal_report.py - --since 2026-09-14 --glasslog   # ⚠ 0.61+ only (§71)
 (cd ~/damage-cfw && python3 tools/verify.py)           # the fork's image: pin, reproducibility, Thumb-bit audit, size guard, site list
 (cd ~/damage-cfw && python3 host/run_vectors.py && python3 host/run_self_test.py && python3 host/test_damage_ext.py)   # the fork's C on the PC: vectors, the self-test form, the §3 contract
 python3 tools/glassdrive.py aphone $TOKEN probe:telemetry=read probe:cache=info   # a Damage build's record (RIGHT answers; the `glass` note / the /log line)
