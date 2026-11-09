@@ -275,8 +275,8 @@ re-put to Adam in the Phase 0 refinery.
   `--enable-native-access=ALL-UNNAMED` (`HANDOFF.md` §44.1).
 - **`/etc/init.d/damage`** (2026-11-09, `HANDOFF.md` §72): `-XX:+ExitOnOutOfMemoryError -Xmx2g` in `command_args`
   (supervise-daemon respawns after 5 s, without limit) and `retry="SIGTERM/30/SIGKILL/5"` (the default stop sent
-  only SIGTERM; a JVM stuck in its handler stayed up holding every port). The original is kept beside it as
-  `damage.pre-72`.
+  only SIGTERM; a JVM stuck in its handler stayed up holding every port). The original is kept as
+  `~/.damage/backup/init.d-damage.pre-72` (not in `/etc/init.d`, where OpenRC would read it as a service).
 - **`/etc/local.d/tailscale-bypass.start`** (2026-09-12, `HANDOFF.md` §47): Tailscale's marked traffic
   (fwmark 0x80000) routes via the LAN gateway (table 100, rule pref 5200) instead of ProtonVPN's redirected
   default; runs at boot and by hand. qBittorrent and every unmarked socket keep the tunnel. After a change to

@@ -5297,3 +5297,25 @@ connect. The restore stays where it was and supersedes itself (item 3); the boun
 - `FlushDone` accumulating on the phone shell while the PC drives through the dev seam for hours (bounded per
   flush, pre-existing)
 - the 72/5 cause
+
+**Deployed and verified (2026-11-09 00:43, M):**
+- APK 0.62 staged, byte-equal to the build, its dex carrying the new code.
+- The PC jar built from `0dd6ba6` (its stamp says so) and the service restarted. One JVM runs with
+  `-XX:+ExitOnOutOfMemoryError -Xmx2g` under a supervise-daemon started with `--retry SIGTERM/30/SIGKILL/5`, and it
+  owns all four ports.
+- The standby is up and the phone's six channels attached; no claim. The phone is still on 0.57.
+- A check of mine printed "old JVM still alive": its `pgrep -f 'java.*damage.jar'` matched its own shell's command
+  line. A harness error; `ps` showed one JVM.
+
+**The 72/5 cause (M on the PC's first key-level handshake, 00:43).** The handshake called 77 keys "newer on the
+peer". 72 have identical stamps to the second on both sides, and 5 differ by exactly one second, a sub-second
+difference across a second boundary. None genuinely differs. The comparison normalizes each side's stamps by a
+skew estimated per handshake (`clock − now`, the one-way delay included) and has no tolerance, so equal stamps
+come out "newer" on whichever side the estimate's error favours: 11-04 read 0/77, 11-07 read 72/5.
+
+The cost: every handshake re-sends those records. They carry the same values, so nothing has rolled back (I,
+strong). But two real edits within the error of each other would be decided by noise.
+
+**Proposed, not built (Adam's call):** treat stamps within the handshake's measured round trip as equal, or keep
+each record's origin stamp verbatim and compare those.
+
