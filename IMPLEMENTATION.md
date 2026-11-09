@@ -207,7 +207,7 @@ fat jar to the STABLE `~/.damage/damage.jar`; the OpenRC service `/etc/init.d/da
 |---|---|
 | **app + home PC** (the default — §10.1 row 1 as INTENDED, §19) | APK (Target = glasses) DRIVES; the `damage` service is the data host: live library, tmux, state sync. The PC never claims |
 | app alone | the APK with no PC reachable: its own shell, cached library + cached books, staleness said; sync catches up on reconnect |
-| PC-direct BLE (the rare case) | auto's standby starts a BLE stack after 6 probes (30 s) of APK absence AND both arms advertising to the PC's adapter (§47 — a phone that is only unreachable over the network still holds them), and hands back on its return; or `--transport ble` manually |
+| PC-direct BLE (the rare case) | auto's standby starts a BLE stack after 6 probes (30 s) of the APK UNREACHABLE AND both arms SEEN advertising to the PC's adapter (§47 — a phone that is only unreachable over the network still holds them; §72 — a reachable APK on Target≠glasses is a choice, and an adapter that cannot scan never claims), gives the claim back after 6 failed starts in a row (the next claim's debounce doubles, up to 5 min), and hands back on the APK's return; or `--transport ble` manually |
 | PC drives through the phone | `--transport remote` ONLY — the explicit dev override (the old daily mode, kept for development) |
 | laptop-direct with the simulator | `:desktop:run --args="--transport sim"` — the development environment |
 | browser replica | `http://<desktop-or-phone>:7403/?token=…` from any machine on the tailnet — the PHONE's is the live view in the default configuration |
@@ -225,10 +225,13 @@ fat jar to the STABLE `~/.damage/damage.jar`; the OpenRC service `/etc/init.d/da
 - **The seam status probe** (`SeamProbe` / `Ctl t="status"`): a non-claiming "does the APK want the radio?"; an
   old APK answers `busy`, read as YES.
 - **Desktop `auto` = STANDBY**: one process-wide store feeding the sync channel and any stack; probe every 5 s;
-  a claim needs six missed probes AND both arms advertising to the adapter (`StandbyScan`, §47), every claim and
-  refusal a `keeper` journal note;
-  APK absent/idle ×2 → a plain `ble` stack; APK back → stop it (the lease fails open and the phone
-  re-choreographs). A BlueZ-less machine stands by as data host only, loudly. `SyncTest` ×6 pins it.
+  a claim needs six probes of an UNREACHABLE APK AND both arms seen advertising to the adapter (`StandbyPolicy`,
+  `StandbyScan`: §47, §72), every claim, refusal and give-back a `keeper` journal note. A reachable APK on
+  Target≠glasses never causes a claim, and neither does an adapter that cannot scan (it says why once per cause and
+  looks again every probe). A claim whose keeper fails 6 starts in a row is given back (`ShellKeeper.failedStarts`),
+  with a doubling debounce for the next one. APK back → stop it (the lease fails open and the phone
+  re-choreographs). A BlueZ-less machine stands by as data host only, loudly. Every server retries a busy port
+  every 5 s (`bindOrRetry`). `SyncTest` ×6 and `StandbyPolicyTest` ×6 pin it.
 
 ## Confirmed on hardware — first light, 2026-08-30
 

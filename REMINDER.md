@@ -18,12 +18,12 @@ transport read against ours) → **§66** (Reader's page staging: the design pas
 
 - **2026-11-04, read from the outside (M):** the glasses up 16.1 days on Phase 2 (`48172b62`), both arms on LE 2M,
   228k presents; **the phone still on APK 0.57** (0.60 staged 09-21, never installed); the PC service up since 10-20
-  (the `phoneHost` pin held). Between 09-21 and 11-04 nothing changed in either repo. **0.61 STAGED (§71)** = 0.60 +
-  the journal route streamed: on 0.57–0.60 a `/journal` fetch without `&tail=` ends the APK's process.
+  (the `phoneHost` pin held). Between 09-21 and 11-04 nothing changed in either repo. 0.61 (§71, superseded by 0.62)
+  = 0.60 + the journal route streamed: on 0.57–0.60 a `/journal` fetch without `&tail=` ends the APK's process.
 
 - **🔴 The CFW fork and the Damage rebuild are the ONLY work (Adam, 2026-09-12; `HANDOFF.md` §48)** until
   `FORK.md` Phase 8 closes. `FORK.md` = the plan (§11 the log), `FIRMWARE.md` = the contract, `HANDOFF.md`
-  §48–§66 = the records, `CLAIMS.md` = the firmware facts. **The build and review protocol is `CLAUDE.md`
+  §48–§72 = the records, `CLAIMS.md` = the firmware facts. **The build and review protocol is `CLAUDE.md`
   "Scope, build, review" and `FORK.md` §3.8**: a phase's design pass fills the failure envelope before any code;
   a build ends with a Not-built list and the two instruments' numbers; a fix sweeps its class; two general
   review passes, then class sweeps and instruments.
@@ -35,11 +35,12 @@ transport read against ours) → **§66** (Reader's page staging: the design pas
   LE 2M, the partial refresh running; Adam's verdict "large images significantly faster, no problems"; the on-glass
   self-test 19 of 20 vectors matching every step, the twentieth's one corner named (item 3 below). Phase 1's record (§55, §56, §65): 7.3 h then 10.2 h worn clean, transfer 2.0 ms median, the uptime tick
   1.024 per ms, the arm drops = in-case reboots. The phone APK drives; the OpenRC `damage` service is the data host
-  and standby (§19, `DAILY.md`), still on 0.44's core.
+  and standby (§19, `DAILY.md`), deployed 2026-11-09 00:43 from `0dd6ba6` (§72; before that it ran 0.44's core).
 - **The APK. 0.49 installed** (2026-09-15 03:46; every `build` note through 09-16 12:17). **0.55 INSTALLED 2026-09-16 ~13:10 (Adam)** and driving Phase 2 since 13:32 (§65). **0.57 INSTALLED 19:09 (Adam)**, its first read `HANDOFF.md` §66.1. **0.60 STAGED (§69: the status cell as states, every event a notice; it supersedes 0.59, never installed)** with 0.59's staging fixes (§66.1) — the ledger's settle
   window, the 64 KiB reserve, and a shortfall that can never switch the atlas off (0.57's ledger took cached text down at
   19:51 on three lagged readings); Adam installs whenever (~30 s blank, a 13 s atlas re-upload), then PRESENTED wants arming again.
-  **0.60 was never installed; 0.61 STAGED 2026-11-04 supersedes it** (0.60 + §71's streamed journal route).
+  **0.60 was never installed; 0.61 (§71) superseded it; 0.62 STAGED 2026-11-09 supersedes both** (§72; it carries
+  0.61's streamed journal route and 0.59's staging fixes). The phone was on 0.57 through 2026-11-09.
 - **🔴 Phase 2: FLASHED 2026-09-16 13:19/13:24 (§65) after four reviews** (`HANDOFF.md` §60–§64; `FIRMWARE.md`
   §4 as built; Damage `67fdfa1`, the fork `f20bac9`) — **first light green, the self-test done (§65); T2 open for the day's reads (items 1–2 below)**. Fork pin **`48172b62…`** = Phase 1 + modes 17–24, op 5, status 3–5, fields
   23–26, the partial path, the three link edits; **32 entries — §63 added ONE new site, `0x00473D80`** (the
@@ -76,9 +77,9 @@ transport read against ours) → **§66** (Reader's page staging: the design pas
   every cached draw (Main on the left lens only); the start reads RIGHT's uptime before the carry decision.
   Workaround on 0.49: phone Bluetooth off for 90 s.
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games · Feed (`WINDOWS.md` and the
-  per-window records); `POPOVER.md` is a spec, built in Phase 6a. **The battery after §71 (2026-11-04):** core 621
-  (uncached, alone) · desktop 16 · `--selfcheck` 3 of 3 · 57 renders ×2 · epub 73 books OK, images 2,580/2,604 (the shelf
-  grew; the old figure was 380/404) · music/games/feed · lint 0 · APK 0.61 staged. §65 changed one vector, the lint gate and a test comment, and ran lint, the fork's three host gates,
+  per-window records); `POPOVER.md` is a spec, built in Phase 6a. **The battery after §72 (2026-11-09):** core 630
+  ×2 (uncached, alone) · desktop 22 · `--selfcheck` 3 of 3 (477 checks) · 57 renders ×2 · epub 73 books OK, images
+  2,580/2,604 (the shelf grew; the old figure was 380/404) · music/games/feed · lint 0 · APK 0.62 staged, the PC deployed. §65 changed one vector, the lint gate and a test comment, and ran lint, the fork's three host gates,
   `ConformanceVectorTest` and `GeometryTest`. Known rate misses (§54.5, §54.7): `FeedWindowTest.deepLinks…` and
   `…browseThroughTheKeyboard…` (§49.6), a seam test race (`SeamSessionTest.kt:82`),
   `Review20260905Test.cashingOut…` once (§61, cause not found) — run the core suite alone; a repeated
@@ -174,6 +175,11 @@ flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) bin
    dead case says nothing). The transport consumes neither the `wearnotify` event nor `WEAR_QUERY` today. Under the
    protocol: the wear event's shape read from the C (`settings_ext.c :: faceclaw_send_wear_event`) and pinned in the
    simulator before the shell keys on it; what a worn event during a rebuild does; a pair that flickers at the lid.
+11. **Two calls owed by Adam from §71–§72 (proposed, not built):** (a) the sync handshake's skew tolerance. It
+   judges equal stamps "newer" by a per-handshake skew estimate with no tolerance, so it re-sends ~77 records a
+   handshake (M, §72; the same values, nothing lost). Proposed: equal within the handshake's measured round trip.
+   (b) A crash record that the next process reads: the phone's log lives in memory, so an ended process leaves
+   nothing behind (§71). With 0.62 installed, also read the phone side's key-level handshake line (`/log`, `sync:`).
 
 **Follow-ups for a session without Adam (his call where marked):** the seam test race one-liner and the Feed tapper
 experiment (his call — Feed is suspended work); the ring service's and the touch processor's event ids; the stock RTC
@@ -296,6 +302,7 @@ Tailscale address — `tailscale status | grep aphone` (100.113.243.91 today) �
 
 ```
 sudo rc-service damage status                         # the data host / standby; deploy = ./gradlew :desktop:stageJar && sudo rc-service damage restart
+ps -C java -o pid,lstart,rss,args | grep damage.jar     # the service's JVM and its flags (§72) — never `pgrep -f 'java.*damage.jar'`: it matches your own shell
 ./gradlew :core:test  ·  ./gradlew :desktop:test
 desktop/build/install/desktop/bin/desktop --selfcheck # after ./gradlew :desktop:installDist; run it more than once.
                                                       # 463 checks: it runs the script TWICE since §63 — contract 1, then a
