@@ -8,15 +8,18 @@ SHELL drives, always; the PC is the DATA PROVIDER.** This file is the ops crib.
 | piece | job | kept alive by |
 |---|---|---|
 | **phone APK** (Target = glasses) | THE driver — owns the BLE radio and runs the shell; serves the seam :7402 (status probe + explicit dev claims) and the replica :7403 | foreground service + wakelock + Doze exemption + `BootReceiver` (reboot/update) |
-| **beardos `damage` service** | data host + standby: books, tmux, state sync, the window channel :7401 (Files · Torrents · Music · Feed, theme icons), the media endpoint :7404, the PC replica :7403, the setup page :7300 (`/setup` + `/damage-apk`, G2CC's URL and token kept); probes the phone every 5 s and drives PC-direct BLE ONLY while the APK is away for 30 s AND both arms advertise to its adapter (`HANDOFF.md` §47) | OpenRC `/etc/init.d/damage` (supervise-daemon, `default` runlevel, `--no-preview`, `auto` = standby; after `postgresql-17` / `qdrant` / `qbittorrent`, `~/.local/bin` on PATH for the Ask lane's `claude`, `--enable-native-access` for the Postgres socket driver — 2026-09-10) |
+| **beardos `damage` service** | data host + standby: books, tmux, state sync, the window channel :7401 (Files · Torrents · Music · Feed, theme icons), the media endpoint :7404, the PC replica :7403, the setup page :7300 (`/setup` + `/damage-apk`, G2CC's URL and token kept); probes the phone every 5 s and drives PC-direct BLE ONLY while the APK is unreachable for 30 s AND both arms advertise to its adapter (`HANDOFF.md` §47, §72); a busy port is retried every 5 s; the JVM exits on its first OutOfMemoryError and supervise-daemon restarts it (`-Xmx2g`), and a stop that hangs is ended with SIGKILL after 30 s (`retry`, §72) | OpenRC `/etc/init.d/damage` (supervise-daemon, `default` runlevel, `--no-preview`, `auto` = standby; after `postgresql-17` / `qdrant` / `qbittorrent`, `~/.local/bin` on PATH for the Ask lane's `claude`, `--enable-native-access` for the Postgres socket driver — 2026-09-10) |
 | **beardos `qbittorrent` service** | the Torrents backend: `qbittorrent-nox` on Adam's own profile (`~/.config/qBittorrent`), Web API `127.0.0.1:8090` | OpenRC `qbittorrent` (Gentoo's script + `/etc/conf.d/qbittorrent`, `default` runlevel, 2026-09-10) |
 
 **Who drives when** (automatic, event-driven, pacing not timeouts): APK up → the phone shell drives — home,
 work, LTE; PC reachability decides how CAPABLE it is (live library, tmux, sync), never who drives, and
 gestures and frames never leave the phone. PC unreachable → nothing changes on glass; content degrades to
-the caches, staleness is said (`PC gone/Nm`), sync resumes on reconnect (last-write-wins both ways). APK down
-or Target = sim for ~2 probes (~10 s) → the PC starts its own BLE stack; when the APK returns the PC stops it
-(the handback: one repaint). Reboot either machine → both restart themselves. **State sync:** reading
+the caches, staleness is said (`PC gone/Nm`), sync resumes on reconnect (last-write-wins both ways). APK
+unreachable for 6 probes (~30 s) AND both arms seen advertising to beardos's adapter → the PC starts its own BLE
+stack; when the APK returns the PC stops it (the handback: one repaint). **Since §72 (2026-11-08): Target = Sim
+is a choice and never a claim, an adapter that cannot scan (beardos's hci0 is rfkill-blocked) never claims, and
+a claim that fails 6 starts in a row is given back.** The phone's shelf answers from its cache at once while
+the PC is out of reach. Reboot either machine → both restart themselves. **State sync:** reading
 positions, settings and every window blob flow between phone and PC whenever both are up — most recent wins,
 per key.
 

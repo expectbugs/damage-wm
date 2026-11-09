@@ -337,11 +337,44 @@ private fun epubCheck(cfg: Config) {
  *  one BlueZ check that is allowed before first light (HANDOFF.md §8.1 #2). */
 /** The setup page next to the content host — loud, never fatal, on a bind
  *  failure (another instance, or G2CC's retired server started by hand). */
-private fun startSetup(cfg: Config): SetupServer? = try {
-    cfg.setupServer().also { it.start() }
+private fun startSetup(cfg: Config, scope: CoroutineScope): SetupServer? = try {
+    cfg.setupServer().also { s -> bindOrRetry(scope, "setup page", cfg.setupPort) { s.start() } }
 } catch (e: Exception) {
-    Log.e("damage", "setup page failed to bind :${cfg.setupPort} (another instance? G2CC's server still up?)", e)
+    Log.e("damage", "setup page failed to start on :${cfg.setupPort} (G2CC's server still up?)", e)
     null
+}
+
+/** §72 (2026-11-08): start a server, or, when its port is taken (another instance still holding
+ *  it, as the 10-20 JVM stuck in its own SIGTERM handler did on 2026-11-07), say so once and
+ *  retry on pacing until it binds. The alternative was to run "started" while serving nothing.
+ *  Pacing, not a timeout: the wait ends when the port is free, and the init script's KILL step
+ *  frees it. A failure that is not a busy port propagates to the caller's handler, as before.
+ *  Returns true when bound now; [onBound] runs when a later retry binds. */
+internal fun bindOrRetry(scope: CoroutineScope, what: String, port: Int, onBound: () -> Unit = {},
+                         retryMs: Long = BIND_RETRY_MS, start: () -> Unit): Boolean {
+    try {
+        start()
+        return true
+    } catch (e: java.net.BindException) {
+        Log.e("damage", "$what could not bind :$port (${e.message}) — another instance? retrying every ${retryMs / 1000.0} s until the port is free")
+    }
+    scope.launch(Dispatchers.IO) {
+        while (isActive) {
+            delay(retryMs)             // pacing between attempts
+            try {
+                start()
+                Log.i("damage", "$what bound :$port")
+                onBound()
+                return@launch
+            } catch (e: java.net.BindException) {
+                // still taken: said once above
+            } catch (e: Exception) {
+                Log.e("damage", "$what: retrying the bind failed for another reason — no further retries", e)
+                return@launch
+            }
+        }
+    }
+    return false
 }
 
 /** The music library + its media endpoint, or null (loudly) when Postgres
@@ -350,7 +383,7 @@ private fun startSetup(cfg: Config): SetupServer? = try {
 private fun startMusic(cfg: Config, scope: CoroutineScope): wm.damage.core.windows.music.LocalMusicLibrary? = try {
     val lib = cfg.musicLibrary(scope)
     lib.db.migrate()
-    cfg.mediaServer(lib).start()
+    cfg.mediaServer(lib).also { m -> bindOrRetry(scope, "media endpoint", cfg.mediaPort) { m.start() } }
     scope.launch(Dispatchers.IO) {
         // the rule-managed playlists first (MUSIC.md §9.8 — G2CC's boot refresh,
         // ours since 2026-09-10), then the catalog picks up what moved
@@ -400,8 +433,8 @@ private suspend fun hostOnly(cfg: Config) {
             "feed" to wm.damage.core.windows.feed.FeedService(feed)) +
             (music?.let { mapOf("music" to wm.damage.core.windows.music.MusicService(it)) } ?: emptyMap()),
         icons = themeIcons)
-    host.start()
-    startSetup(cfg)
+    bindOrRetry(scope, "content host", cfg.contentPort) { host.start() }   // §72, as in the standby host
+    startSetup(cfg, scope)
     Log.i("damage", "content host only — serving ${cfg.booksDir} + tmux + sync + files + torrents + music + feed + icons on :${cfg.contentPort}; Ctrl-C to stop")
     kotlinx.coroutines.awaitCancellation()
 }
@@ -601,14 +634,16 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
             "feed" to wm.damage.core.windows.feed.FeedService(feedEngine)) +
             (musicLibrary?.let { mapOf("music" to wm.damage.core.windows.music.MusicService(it)) } ?: emptyMap()),
         icons = themeIcons)
-    var hostBound = true
+    // §72: a busy port is retried on pacing until it frees (the stuck 10-20 JVM held all four
+    // on 2026-11-07, and the instance started beside it served nothing while "started")
+    val hostBound = java.util.concurrent.atomic.AtomicBoolean(false)
     try {
-        host.start()
+        if (bindOrRetry(this, "content host", cfg.contentPort, onBound = { hostBound.set(true) }) { host.start() })
+            hostBound.set(true)
     } catch (e: Exception) {
-        hostBound = false
-        Log.e("damage", "content host failed to bind :${cfg.contentPort} (another instance?)", e)
+        Log.e("damage", "content host failed to start on :${cfg.contentPort}", e)
     }
-    startSetup(cfg)
+    startSetup(cfg, this)
 
     lateinit var build: (String) -> DesktopStack
     // ONE mutation path for the running stack, shared by manual switches and
@@ -678,9 +713,11 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         var absentStreak = 0
         var bleBroken = false
         var notAdvertisingSaid = false
+        var choseNotToSaid = false
+        var giveBacks = 0          // §72: give-backs in a row, for the claim's backoff
         while (isActive) {
             if (standbyOn.get()) {
-                if (!hostBound) {
+                if (!hostBound.get()) {
                     // another instance holds the content port (R3#8): it is
                     // probably ALSO running this standby policy — two claims
                     // would be two centrals on one adapter. Data-host-only.
@@ -696,9 +733,8 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
                 }
                 val r = wm.damage.core.transport.SeamProbe.probe(
                     remoteHost ?: cfg.phoneHost, cfg.transportPort, cfg.token)
-                val phoneOwns = r is wm.damage.core.transport.SeamProbe.Result.Reachable &&
-                    r.wantsRadio != false        // null = an APK too old to ask: conservative
-                if (phoneOwns) {
+                val phone = StandbyPolicy.phoneOf(r)
+                if (phone == StandbyPolicy.Phone.DRIVES) {
                     if (absentStreak > 0) {
                         // §47: the return is a fact for the journal too — the
                         // relay dropped the phone for this long
@@ -708,49 +744,81 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
                     }
                     absentStreak = 0
                     notAdvertisingSaid = false
+                    choseNotToSaid = false
+                    giveBacks = 0
                     standbyScan.stop()
                     val d = (r as wm.damage.core.transport.SeamProbe.Result.Reachable).detail
                     standbyNote.set("standby: phone drives" + (d.takeIf { it.isNotEmpty() }?.let { " · $it" } ?: ""))
                     if (stack() != null && standbyOn.get())
                         swapStack(null, "handback — the APK wants the radio")
+                } else if (phone == StandbyPolicy.Phone.CHOSE_NOT_TO) {
+                    // §72, Adam's ruling D1 (2026-11-07): a REACHABLE APK on Target≠glasses chose
+                    // to leave the glasses alone (Sim: reading on the phone without them,
+                    // 2026-11-06). A choice is not an absence: never a claim.
+                    absentStreak = 0
+                    notAdvertisingSaid = false
+                    standbyScan.stop()
+                    standbyNote.set(if (stack() != null) "standby: the APK chose Target≠glasses — the PC keeps the claim it already holds"
+                        else "standby: the APK chose Target≠glasses — the glasses are left alone")
+                    if (!choseNotToSaid) {
+                        choseNotToSaid = true
+                        Log.i("damage", "standby: the APK is reachable and says Target≠glasses — a choice, not an absence: not claiming (§72)")
+                        standbyJournal.note("keeper", "standby: the APK says Target≠glasses — not claiming (§72)")
+                    }
                 } else if (!bleBroken) {
+                    choseNotToSaid = false
                     absentStreak++
-                    val why = if (r is wm.damage.core.transport.SeamProbe.Result.Reachable)
-                        "the APK says Target≠glasses" else "the APK is unreachable"
+                    val why = "the APK is unreachable"
+                    // §72: the debounce doubles per give-back in a row (StandbyPolicy.claimDebounce)
+                    val debounce = StandbyPolicy.claimDebounce(giveBacks, STANDBY_DEBOUNCE, STANDBY_DEBOUNCE_CAP)
                     if (stack() == null) {
-                        if (absentStreak < STANDBY_DEBOUNCE) {
-                            standbyNote.set("standby: $why ($absentStreak/$STANDBY_DEBOUNCE)")
+                        if (absentStreak < debounce) {
+                            standbyNote.set("standby: $why ($absentStreak/$debounce)")
                         } else {
                             // §47 (2026-09-12): a phone that is only unreachable over
                             // the network is still driving the glasses — nine such
                             // claims in two days, every one handed straight back. The
                             // arms advertise only once the phone has let go of them.
-                            when (standbyScan.armsAdvertising()) {
-                                null -> {
-                                    // BlueZ cannot tell: the debounce alone decides, as before
-                                    standbyNote.set("standby → PC-direct BLE ($why; the adapter cannot scan)")
-                                    Log.i("damage", "standby: $why for $absentStreak probes, the adapter cannot scan — starting the PC BLE stack")
-                                    standbyJournal.note("keeper", "standby claim: $why for $absentStreak probes (no scan)")
-                                    swapStack("ble", "standby: $why")
-                                }
-                                false -> {
-                                    standbyNote.set("standby: $why ($absentStreak probes) — the arms are not advertising here; not claiming")
-                                    if (!notAdvertisingSaid) {
-                                        notAdvertisingSaid = true
-                                        Log.i("damage", "standby: $why for $absentStreak probes, but the arms are not advertising to this adapter — the phone still holds them; not claiming")
-                                        standbyJournal.note("keeper", "standby: $why for $absentStreak probes — arms not advertising, not claiming")
-                                    }
-                                }
-                                true -> {
-                                    standbyNote.set("standby → PC-direct BLE ($why, both arms advertise)")
-                                    Log.i("damage", "standby: $why for $absentStreak probes and both arms advertise — starting the PC BLE stack")
-                                    standbyJournal.note("keeper", "standby claim: $why for $absentStreak probes, both arms advertising")
-                                    standbyScan.stop()
-                                    swapStack("ble", "standby: $why")
+                            // §72: and only an adapter that can SEE them may claim — a
+                            // scan that cannot run (null) never claims (StandbyPolicy).
+                            val seen = standbyScan.armsAdvertising()
+                            if (StandbyPolicy.shouldClaim(phone, absentStreak, debounce, seen)) {
+                                standbyNote.set("standby → PC-direct BLE ($why, both arms advertise)")
+                                Log.i("damage", "standby: $why for $absentStreak probes and both arms advertise — starting the PC BLE stack")
+                                standbyJournal.note("keeper", "standby claim: $why for $absentStreak probes, both arms advertising")
+                                standbyScan.stop()
+                                swapStack("ble", "standby: $why")
+                            } else if (seen == null) {
+                                // StandbyScan said why, once per cause
+                                standbyNote.set("standby: $why ($absentStreak probes) — this adapter cannot scan; not claiming")
+                            } else {
+                                standbyNote.set("standby: $why ($absentStreak probes) — the arms are not advertising here; not claiming")
+                                if (!notAdvertisingSaid) {
+                                    notAdvertisingSaid = true
+                                    Log.i("damage", "standby: $why for $absentStreak probes, but the arms are not advertising to this adapter — the phone still holds them; not claiming")
+                                    standbyJournal.note("keeper", "standby: $why for $absentStreak probes — arms not advertising, not claiming")
                                 }
                             }
                         }
                     }
+                }
+                // §72 fix 2: a standby claim whose starts keep failing goes back to standby
+                // (which claims again only on sight) instead of retrying for the life of the
+                // process — 2026-11-06's 876 attempts on a powered-off adapter
+                val held = stack()
+                if (held != null && held.keeper.state == wm.damage.core.shell.ShellKeeper.State.RUNNING) giveBacks = 0
+                if (held != null && !switching.get() &&
+                    StandbyPolicy.shouldGiveBack(held.keeper.failedStarts, STANDBY_GIVEBACK_FAILS)) {
+                    val n = held.keeper.failedStarts
+                    val last = held.keeper.lastReason
+                    giveBacks++
+                    absentStreak = 0       // the next claim's debounce counts from here
+                    val next = StandbyPolicy.claimDebounce(giveBacks, STANDBY_DEBOUNCE, STANDBY_DEBOUNCE_CAP)
+                    Log.w("damage", "standby: the claim failed $n starts in a row (last: $last) — giving it back; the next claim " +
+                        "needs both arms seen again after $next absent probes (give-back $giveBacks in a row)")
+                    standbyJournal.note("keeper", "standby give-back $giveBacks: $n failed starts in a row (last: $last); next claim after $next probes")
+                    standbyNote.set("standby: the claim could not drive ($last) — standing by")
+                    swapStack(null, "standby give-back: $n failed starts in a row")
                 }
             }
             delay(STANDBY_PROBE_MS)      // pacing between probes, not a timeout
@@ -808,9 +876,9 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
             ?: Log.w("damage", "probe $n=$v: no shell stack on this host (the phone drives)") },
         journalPath = { Path.of(cfg.dataDir).resolve("journal.jsonl") })
     try {
-        replica.start()
+        bindOrRetry(this, "browser replica", cfg.replicaPort) { replica.start() }   // §72
     } catch (e: Exception) {
-        Log.e("damage", "browser replica failed to bind :${cfg.replicaPort}", e)
+        Log.e("damage", "browser replica failed to start on :${cfg.replicaPort}", e)
     }
 
     Log.i("damage", if (mode == "auto")
@@ -829,53 +897,10 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
  *  phone for 10 s at a time; the arms' advertising is the real gate. */
 private const val STANDBY_PROBE_MS = 5_000L
 private const val STANDBY_DEBOUNCE = 6
+/** §72: failed starts in a row after which a standby claim goes back to standby. */
+private const val STANDBY_GIVEBACK_FAILS = 6
+/** §72: the longest a claim's debounce grows after give-backs in a row: 60 probes ≈ 5 min. */
+private const val STANDBY_DEBOUNCE_CAP = 60
+/** §72: pacing between attempts to bind a busy port. */
+private const val BIND_RETRY_MS = 5_000L
 
-/**
- * §47: whether BOTH arms are advertising to this adapter — the one signal
- * that the phone has let go of them (a connected peripheral does not
- * advertise; a phone that is merely unreachable over the network keeps its
- * links). Discovery runs only while the phone is absent and stops the
- * moment it is back or the PC claims (the transport runs its own scan).
- * Null when BlueZ cannot scan on this machine — said once, and the caller
- * falls back to the debounce alone.
- */
-private class StandbyScan(private val cfg: Config) {
-    private var link: BlueZDbus? = null
-    private var scanning = false
-    private var broken = false
-
-    fun armsAdvertising(): Boolean? {
-        if (broken) return null
-        try {
-            val l = link ?: BlueZDbus().also { link = it }
-            if (!scanning) {
-                l.startDiscovery()
-                scanning = true
-                Log.i("damage", "standby: scanning for the arms (BlueZ discovery on) — a claim needs both to advertise")
-                return false            // give the scan a probe interval before judging
-            }
-            if (!l.discovering()) {
-                scanning = false        // ended on its own (adapter off, bluetoothd restarted): restart next probe
-                Log.w("damage", "standby: the discovery ended on its own — restarting it on the next probe")
-                return false
-            }
-            val peers = l.peers()
-            fun seen(p: BlueZLink.Peer) = p.rssi != null && !p.connected
-            fun isLeft(p: BlueZLink.Peer) = seen(p) && (p.address.equals(cfg.leftAddress, true) && cfg.leftAddress.isNotEmpty() ||
-                p.name.startsWith(BlueZTransport.NAME_PREFIX) && BlueZTransport.LEFT_INFIX in p.name)
-            fun isRight(p: BlueZLink.Peer) = seen(p) && (p.address.equals(cfg.rightAddress, true) && cfg.rightAddress.isNotEmpty() ||
-                p.name.startsWith(BlueZTransport.NAME_PREFIX) && BlueZTransport.RIGHT_INFIX in p.name)
-            return peers.any(::isLeft) && peers.any(::isRight)
-        } catch (e: Exception) {
-            broken = true
-            Log.e("damage", "standby: BlueZ cannot scan for the arms (${e.message}) — the debounce alone decides claims", e)
-            return null
-        }
-    }
-
-    fun stop() {
-        if (!scanning) return
-        scanning = false
-        try { link?.stopDiscovery() } catch (e: Exception) { Log.w("damage", "standby: stopDiscovery: ${e.message}") }
-    }
-}

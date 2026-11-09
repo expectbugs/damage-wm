@@ -248,9 +248,13 @@ class FilesWindow(
         // first opened — a count of a list nobody had asked for (review §28
         // #5). A QUIET listing at registration: no op-cell narration, no
         // notice, no navSeq bump (a restore's own open must not be cancelled
-        // by it), and its result yields to anything newer.
-        refreshLocations(quiet = true)
+        // by it), and its result yields to anything newer. §72: the keeper registers again on
+        // EVERY start attempt — one quiet listing at a time, its result held (latest) while down
+        if (quietListing?.isActive != true) refreshLocations(quiet = true)
     }
+
+    /** §72: the quiet registration listing in flight, if any. */
+    @Volatile private var quietListing: kotlinx.coroutines.Job? = null
 
     /** §16.1 deep link: `path:<absolute>` opens the browser at that folder,
      *  or at the file's folder with the cursor on the file (Torrents' "Open
@@ -363,7 +367,7 @@ class FilesWindow(
             listState = "listing"
             services?.setOperation("listing locations")
         }
-        bg.launch(Dispatchers.IO) {
+        val job = bg.launch(Dispatchers.IO) {
             // §47: the provider's own copy first, so the list is up at once
             // over a slow channel; the live answer replaces it below
             val cached = if (quiet) null else try { provider.cachedLocations() } catch (e: Exception) {
@@ -381,18 +385,22 @@ class FilesWindow(
                 Log.e("files", "locations failed", e)
                 emptyList<FLocation>() to (e.message ?: "locations failed")
             }
-            services?.runOnShell {
-                if (seq != navSeq) return@runOnShell
+            val apply: () -> Unit = apply@{
+                if (seq != navSeq) return@apply
                 if (err == null) adoptLocations(locs)
                 if (!quiet) {
                     listState = err ?: ""
                     if (err != null) setNotice(err)
                     services?.setOperation("idle")
                 }
-                if (err == null && cached != null && cached == locs) return@runOnShell   // nothing changed: no second paint
+                if (err == null && cached != null && cached == locs) return@apply   // nothing changed: no second paint
                 services?.requestRender(this@FilesWindow)
             }
+            // §72: the quiet listing supersedes its predecessors (keyed: the latest is held while
+            // no session is live); a listing the user asked for stays a plain completion
+            if (quiet) services?.runOnShell("files.locations.quiet", apply) else services?.runOnShell(apply)
         }
+        if (quiet) quietListing = job
     }
 
     /** The locations as shown; the Reader hand-off prefix comes from the

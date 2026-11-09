@@ -228,6 +228,8 @@ class FeedWindow(
     }
 
     private fun onShell(action: () -> Unit) { services?.runOnShell(action) ?: action() }
+    /** §72: a push whose newest instance supersedes the older ones — held, the latest per key, while no session is live. */
+    private fun onShell(key: String, action: () -> Unit) { services?.runOnShell("feed.$key", action) ?: action() }
 
     private fun dn(s: String, f: FontSpec = fRow): String = Draw.dynamic(tx, s, f)
 
@@ -287,7 +289,7 @@ class FeedWindow(
         }
 
         override fun state(line: String) {
-            onShell {
+            onShell("state") {
                 if (stateLine != line) {
                     stateLine = line
                     services?.requestRender(this@FeedWindow)
@@ -301,7 +303,7 @@ class FeedWindow(
     private fun peek(sourceId: String) {
         val statuses = try { provider.sources() } catch (e: Exception) { Log.w("feed", "sources: ${e.message}"); return }
         val page = try { provider.items(sourceId, 0, PEEK) } catch (e: Exception) { null }
-        onShell {
+        onShell("peek.$sourceId") {
             sources = statuses
             if (page != null) {
                 recount(sourceId, page.items)

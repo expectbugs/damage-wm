@@ -5181,3 +5181,119 @@ bounded as a whole.
 - a guard on the phone's other threads and coroutines (the window channels, sync, music) The PC service still runs the 09-12 jar, so its own `/journal` (79 MB, on a desktop heap) keeps the old read
 until a PC deploy. **Instruments:** no patch source and no wire encoder changed, so the fuzz (60 × 30, §65) and the
 mutation sweep (39 of 106, §64.1) stand.
+
+## 72. The PC ran out of memory while Adam read in Sim mode; what a shell holds while down (2026-11-06 → 09)
+
+Context for the reader: a personal device; Damage's PC service and the phone's shell. Damage only, no firmware
+change, nothing flashed. Adam's rulings D1–D6 (2026-11-07, all as recommended), built 11-08 → 09.
+
+**What happened (M, the PC's log and journal and the phone's log; the cause chain I, strong).** At 11-06 18:35
+Adam set the APK's Target to Sim to read on the phone without the glasses. The standby took "the APK says
+Target≠glasses" as its cue and claimed. beardos's hci0 is rfkill-blocked, and the scan's first failure had
+switched the arms-advertising check off for the life of the process (`StandbyScan.broken`), so the claim
+went by the debounce alone. The keeper then retried a start that could not succeed, every 2–4 s.
+- **The OOM:** each attempt ran every window's restore. The PC's own Reader laid out *DCC #08* and handed it to
+  the shell's queue, which only a running loop drains. The heap was gone at attempt ~845 (19:03; the OOM stack is
+  in `ReaderWindow.layoutBook`).
+- **The JVM sat dead for six hours:** it never exits on an OOM, so nothing restarted it. At 00:33 the phone's
+  six channels reconnected into it and its listener died.
+- **The "freeze" at 01:02:26:** the phone fell off the tailnet. The browser mirror lost it; Reader never stopped.
+- **The blank shelf:** the Target → Glasses switch at 01:03:20 blanked the shelf for 130 s, Android's own connect
+  give-up, before the cached book reopened.
+- **The restart on 11-07:** the 10-20 JVM ran out of memory inside its own SIGTERM handler. The init script's
+  default stop (SIGTERM/5) left it orphaned on all four ports, and the next instance ran "started" while serving
+  nothing. A `kill -9` and a clean restart recovered it (§72 is that night's record too).
+- **The leak, measured** (a throwaway test, deleted): 5.4 MB and 2 queued messages per failed start, never
+  released (40 → 226 MB, `queued=80`).
+
+**Built (the design pass answered the §3.8 envelope per item; the reviews below closed what it missed):**
+1. **The standby claims only on sight** (`StandbyPolicy`, new file). A claim needs the phone UNREACHABLE for the
+   debounce AND both arms seen advertising. Ruling D1: a reachable phone on Target≠glasses never causes a claim.
+   `StandbyScan` reads the adapter's `Powered` property each probe, answers null when it cannot scan (null never
+   claims), says each cause once, and makes a fresh link after a BlueZ error. Nothing about it is sticky.
+2. **A claim that cannot drive goes back.** After 6 failed starts in a row (`ShellKeeper.failedStarts`, new;
+   cleared by a start that succeeds) the standby hands the claim back. The next claim's debounce doubles per
+   give-back in a row, up to 60 probes (`claimDebounce`), and the count resets when the phone is back or a claim
+   drives. A manual `--transport ble` keeps the keeper's endless retry.
+3. **What a shell holds while down** (core, so both hosts):
+   - A new keyed `ShellServices.runOnShell(key, …)` holds only the LATEST action per key while no session is live.
+     `releaseHeldPushes()` posts the held actions under the lock, just before the loop launches. `holdPushes()`
+     runs at all five places a session ends.
+   - Superseding pushes are keyed: Torrents snapshot and state, Tmux status, frame and state, Music catalog, yt job,
+     state, viz, player state and the 1 Hz playback tick (on the phone those ticks piled up while the glasses were
+     away), Feed peek per source and state, the Reader's restore and library scan, and Files' quiet registration
+     listing. Discrete events stay plain.
+   - A transport event with no session running is decided by kind (`keepWhileDown`): FlushDone and Text stay
+     queued; Battery is held, the latest only; Note, Presented, Link and Fault are journaled at once; Input,
+     Lease, SilentMode, DiagFlags and LinkState are dropped and counted. Delivered late, a stale
+     `Lease(held=false)` raised "lease lost" and requested a rebuild in the next session; that is gone too.
+   - A start that fails before its loop launches runs its queued transport events through the same decision.
+   - The Reader's book restore is one job in flight: a newer restore cancels it between steps, and a stale
+     result is dropped by generation. "Scan in flight" is the scan's own job.
+4. **The JVM cannot sit dead** (the init script, a system file): `-XX:+ExitOnOutOfMemoryError -Xmx2g`
+   (supervise-daemon already respawns without limit after 5 s), and `retry="SIGTERM/30/SIGKILL/5"`.
+5. **No headless second instance.** `bindOrRetry` retries a busy port every 5 s, said once, for the content host,
+   the setup page, the replica and the media endpoint, in both the standby and the host-only modes. The seam's
+   socket is phone-only and outside this class.
+6. **The shelf answers from its cache first** (`RemoteContent.library`). A background refresh, one at a time,
+   replaces the cache and calls `onLibraryChanged`; the phone wires that to `ReaderWindow.libraryChanged`. An
+   explicit open that misses the cache asks the host (`library(fresh = true)`). A side effect, not yet measured:
+   the restore no longer waits on the PC's listing before reopening the book at a session start.
+7. **The sync handshake names the keys it moves**, with both stamps, whenever it moves any (both ends). The
+   11-07 "72 newer there, 5 wanted" stays U until the next one is read.
+
+**Built differently from the scope (flagged to Adam).** D2 said "restore after the start". Moving the restore
+behind the BLE connect would have added the whole book layout to every phone reconnect, which today overlaps the
+connect. The restore stays where it was and supersedes itself (item 3); the bound is the same.
+
+**Two general reviews.**
+- Mine found a session end without `holdPushes()`, and a release made before the start could still fail.
+- An independent one found:
+  - Dropping every transport event while down also dropped `FlushDone`, so in-flight, atlas and staging
+    bookkeeping would never empty. This was the serious one.
+  - A held push could be overtaken by a newer one.
+  - A completion lost at a session's end would wedge the Reader's scan flag.
+  - Cache-first broke Files → Open in Reader for a newly added book, and left the shelf one refresh behind.
+  - Smaller: no backoff on repeated give-backs; Files' registration listing posted per attempt; a false "none"
+    in the sync line; a stale standby note.
+
+  All of it is fixed and pinned.
+
+**Pins (each watched to fail):**
+- `QueueWhileDownTest` ×4, run on the unfixed core:
+  - 40 queued after 20 failed starts
+  - base + 200 ring events kept
+  - a shelf that waited on a silent PC
+  - the in-flight pin under its mutation: `inflight=1` forever
+- `QueueWhileDownApiTest` ×5, each under a mutation of the fixed code:
+  - the keyed hold (1,003 queued)
+  - the keeper count (never cleared)
+  - the library-changed push
+  - the scan as a job (one scan, not two)
+  - the sync line's format
+- `StandbyPolicyTest` ×6, under mutations:
+  - the old claim rule (claims on null)
+  - no give-back
+  - a sticky scan
+  - no bind retry
+  - no backoff
+
+**Battery (11-09, final code):**
+- core 630 of 630, twice, uncached and alone (the first run caught a pin counting a FlushDone that a busy stop
+  leaves behind; its count is now against a baseline)
+- desktop 22
+- `--selfcheck` 3 of 3 (477 checks)
+- 57 renders, twice: identical outside the clock, rate, age, free-space and Music Mode cells
+- epub 73 books OK, 2,580 / 2,604 images
+- music, games and feed checks pass
+- lint 0
+- **Instruments:** no patch source or wire encoder changed; the fuzz and the mutation sweep stand.
+
+**Not built:**
+- a crash record the next process reads (§71)
+- journal rotation (Adam's call)
+- a guard on the phone's other threads
+- the seam client's coroutines (PC dev driver)
+- `FlushDone` accumulating on the phone shell while the PC drives through the dev seam for hours (bounded per
+  flush, pre-existing)
+- the 72/5 cause

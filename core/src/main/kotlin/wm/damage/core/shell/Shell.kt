@@ -437,6 +437,21 @@ class Shell(
 
         override fun runOnShell(action: () -> Unit) = post(Msg.Run(action = action))
 
+        // §72: while no session is live, the latest action per key is HELD (an older one
+        // replaced, moved to the end so the flush keeps the order of the last updates) and
+        // posted by releaseHeldPushes(); a live session posts it at once
+        override fun runOnShell(key: String, action: () -> Unit) {
+            synchronized(heldLock) {
+                if (!windowsLive) {
+                    holdLatestLocked(key, action)
+                    return
+                }
+                // posted under the lock: a push can never overtake the held ones that
+                // releaseHeldPushes is posting (the second review's ordering finding)
+                post(Msg.Run(action = action))
+            }
+        }
+
         override fun docContentWidth(): Int = layout.contentInner.w - 32
         // the same height ContentKit.visibleLines divides by lineHeight
         override fun docContentHeight(): Int = layout.content.h - 2 * wm.damage.core.geom.Layout.CONTENT_PAD
@@ -449,11 +464,105 @@ class Shell(
      * failure in the counter whose whole job is to be trusted (review §31).
      */
     private fun post(m: Msg) {
+        // §72 (2026-11-08): a transport event with no session running is about a session that
+        // is gone or never came up, and the keeper retrying a start that keeps failing made them
+        // by the thousand. Each kind is decided by [keepWhileDown].
+        if (m is Msg.Trans && !running && !keepWhileDown(m)) return
         queued.incrementAndGet()
         if (msgs.trySend(m).isFailure) {
             queued.decrementAndGet()
             Log.e("shell", "the loop refused $m — the shell is no longer serving messages")
         }
+    }
+
+    // ---------------------------------------------------------------- §72: the queue while down
+    /** True from just before a session's loop launches until that session ends. While it is
+     *  false, keyed window pushes ([ShellServices.runOnShell] with a key) are held, the latest
+     *  per key. Written under [heldLock] with [held]; read by the services' keyed post.
+     *  [holdPushes] clears it, [releaseHeldPushes] sets it. */
+    @Volatile private var windowsLive = false
+    private val heldLock = Any()
+    private val held = LinkedHashMap<String, () -> Unit>()
+    /** Pushes a newer push of the same key replaced while down (under [heldLock]). */
+    private var supersededWhileDown = 0
+    private val transEventsDroppedWhileDown = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** The session is up: keyed pushes run as they come, and what was held while it was down is
+     *  posted now — one action per key, in the order of their last update. Called on the start
+     *  path just before the loop launches, so the loop runs them after the restore and the first
+     *  compose, as it ran every queued push before §72. */
+    private fun releaseHeldPushes() {
+        val n: Int
+        val superseded: Int
+        synchronized(heldLock) {
+            windowsLive = true
+            n = held.size
+            // posted UNDER the lock (non-blocking: the channel is unlimited), so a keyed push
+            // arriving now lands behind every held one, never ahead of an older value
+            for (a in held.values) post(Msg.Run(action = a))
+            held.clear()
+            superseded = supersededWhileDown
+            supersededWhileDown = 0
+        }
+        val trans = transEventsDroppedWhileDown.getAndSet(0)
+        if (superseded > 0 || trans > 0 || n > 0)
+            journal.note("queue", "while down: $n held push(es) run now, $superseded superseded by a newer one, " +
+                "$trans stale transport event(s) dropped")
+    }
+
+    /** Under [heldLock]: keep [action] as the latest for [key], moved to the end. */
+    private fun holdLatestLocked(key: String, action: () -> Unit) {
+        if (held.remove(key) != null) supersededWhileDown++
+        held[key] = action
+    }
+
+    /** §72: a transport event that arrives with no session running, by kind. True = queue it for
+     *  the next session, as before. Everything else is handled here and NOT queued:
+     *  - FlushDone stays queued: it completes the in-flight, atlas and page-staging bookkeeping,
+     *    which would otherwise never empty (the second review's finding).
+     *  - Text stays queued: a typed line must never vanish (handleTypedText).
+     *  - Battery is held, the latest only: the next session's chrome wants the newest level.
+     *  - Note, Presented, Link and Fault are facts for the journal. They are journaled now, so
+     *    they also carry the time they happened.
+     *  - Input, Lease, SilentMode, DiagFlags and LinkState describe a session that is gone. The
+     *    next start re-reads the transport's state. Delivered late, a stale `Lease(held=false)`
+     *    raised "lease lost" and requested a rebuild in the new session, and a stale
+     *    `SilentMode(false)` woke it. Dropped, counted, said at the next start. */
+    private fun keepWhileDown(m: Msg.Trans): Boolean {
+        when (val ev = m.ev) {
+            is TransportEvent.FlushDone, is TransportEvent.Text -> return true
+            is TransportEvent.Battery -> synchronized(heldLock) {
+                if (windowsLive) return true       // a session went live meanwhile: queue it as usual
+                holdLatestLocked("shell.battery") { handleTransport(ev) }
+            }
+            is TransportEvent.Note -> journal.note(ev.kind, ev.detail)
+            is TransportEvent.Presented -> journal.present(ev.seq, ev.workerUs, ev.copyUs, ev.transferUs, ev.path)
+            is TransportEvent.Link -> journal.note("link", if (ev.connected) "up: ${ev.detail}" else "DOWN: ${ev.detail}")
+            is TransportEvent.Fault -> journal.note("fault", "${ev.what}: ${ev.detail} (no session running)")
+            else -> transEventsDroppedWhileDown.incrementAndGet()
+        }
+        return false
+    }
+
+    /** The session is over (or never started): keyed pushes are held from now on. */
+    private fun holdPushes() {
+        synchronized(heldLock) { windowsLive = false }
+    }
+
+    /** §72: a start that failed before this session's loop launched. Its transport events go
+     *  through [keepWhileDown], the same decision as one arriving with no session; every other
+     *  message stays queued, in its order, for the next session as before (a completion, a
+     *  notice). The loop is not running, so nothing else drains the channel meanwhile. A post
+     *  from another thread during the drain can land ahead of the re-posted ones (accepted:
+     *  each window's completions carry their own sequence guards). */
+    private fun dropTransportEventsOfFailedStart() {
+        val keep = ArrayList<Msg>()
+        while (true) {
+            val m = msgs.tryReceive().getOrNull() ?: break
+            queued.decrementAndGet()
+            if (m !is Msg.Trans || keepWhileDown(m)) keep.add(m)
+        }
+        for (m in keep) post(m)      // running is false: a kept Trans passes keepWhileDown again
     }
 
     /** Loop liveness, for [quiescenceReport]: a stall that says WHICH — the
@@ -717,9 +826,14 @@ class Shell(
             // refuse-to-start (capability gate, link failure): leave the shell
             // stopped, not half-running with no loop (review round 2 #B1)
             running = false
+            holdPushes()
+            // §72: this attempt's transport events would wait for the next session; a
+            // keeper retrying a start that keeps failing must not pile them up
+            dropTransportEventsOfFailedStart()
             journal.close()
             throw e
         }
+        var loopStartedThisSession = false
         // the firmware restores ITS OWN brightness across reboots: push the
         // configured value once per session so the setting always wins
         // (faceclaw pushes force=true on a fresh connection for the same
@@ -782,8 +896,13 @@ class Shell(
                 updatePlanes()   // the restored box enters the plane map now (round 3 S3)
             }
 
+            // §72: the session is up and its loop about to run — window pushes run as they
+            // come, and the ones held while it was down (the latest per key) run now. Not any
+            // earlier: a start that fails before this line keeps them held, bounded by key.
+            releaseHeldPushes()
             scope.launch { loop() }
             loopLaunched = true
+            loopStartedThisSession = true
             // §19.4 post-start reconciliation (2026-09-01): the FIRST loop
             // message — any syncable record that advanced past the load
             // baseline (a peer's push racing this start) is live-applied now,
@@ -820,6 +939,8 @@ class Shell(
             // session was ADOPTED, in which case it belongs to the transport's
             // owner and another driver may still claim it
             running = false
+            holdPushes()
+            if (!loopStartedThisSession) dropTransportEventsOfFailedStart()   // §72, as above
             if (!adopted) {
                 try { transport.stop() } catch (s: Exception) {
                     Log.e("shell", "transport stop after a failed start", s)
@@ -847,6 +968,7 @@ class Shell(
         if (!running) return
         if (!loopLaunched) {
             running = false
+            holdPushes()
             if (stateLoaded) saveAll(sync = true)   // never write defaults over a state never read
             if (stopTransport) transport.stop()
             journal.close()              // reopens by itself on the next write
@@ -866,6 +988,7 @@ class Shell(
                 job.onJoin {
                     Log.e("shell", "shell scope ended before the orderly shutdown ran — final save skipped")
                     running = false
+                    holdPushes()          // §72: every place the session ends holds pushes
                 }
             }
         }
@@ -916,6 +1039,7 @@ class Shell(
                     is Msg.Run -> m.action()
                     is Msg.Shutdown -> {
                         running = false
+                        holdPushes()              // §72: keyed pushes are held from here on
                         dropKeyboard()    // the draft goes back to its requester BEFORE the save (review 2026-09-01 K5)
                         // the focused window's session-bound state ends with the
                         // session (a focused poll pace, a pane subscription) —

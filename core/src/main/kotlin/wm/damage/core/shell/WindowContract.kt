@@ -341,6 +341,16 @@ interface ShellServices {
      *  coroutine was review round 1's biggest reader race. */
     fun runOnShell(action: () -> Unit)
 
+    /** [runOnShell] for a push whose newest instance SUPERSEDES the older ones (a provider's
+     *  snapshot, a state line, a playback tick, a restore's result) — 2026-11-08,
+     *  `HANDOFF.md` §72. While no session is live the shell keeps only the latest action per
+     *  [key] and runs the held ones when the next session is up. So a listener that keeps
+     *  pushing through hours without glasses holds one closure per key, not one per push.
+     *  A live session runs it at once, like [runOnShell]. Discrete events (an announcement, an
+     *  alert) are NOT superseded by their successors and keep using [runOnShell]. Keys carry
+     *  the window's id as a prefix ("tmux.frame"). */
+    fun runOnShell(key: String, action: () -> Unit) = runOnShell(action)
+
     /** The current document content width in px (safe-rect relative, §2.2b) —
      *  windows must wrap against THIS, never a hardcoded 640-derived number. */
     fun docContentWidth(): Int

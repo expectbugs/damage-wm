@@ -133,7 +133,7 @@ class TmuxWindow(
 
     private val listener = object : TmuxProvider.Listener {
         override fun status(sessions: List<TmuxSessionInfo>, cfg: TmuxConfig) {
-            onShell {
+            onShell("status") {
                 this@TmuxWindow.sessions = sessions
                 this@TmuxWindow.cfg = cfg
                 dirty = alertsOn && sessions.any { it.waiting && mutedKey(it) !in muted }
@@ -142,7 +142,7 @@ class TmuxWindow(
         }
 
         override fun frame(target: TmuxTarget, frame: PaneFrame) {
-            onShell {
+            onShell("frame") {
                 if (target != this@TmuxWindow.target) return@onShell
                 this@TmuxWindow.frame = frame
                 if (level == Level_.LIVE) services?.requestRender(this@TmuxWindow)
@@ -165,7 +165,7 @@ class TmuxWindow(
         }
 
         override fun state(state: String) {
-            onShell {
+            onShell("state") {
                 if (provState != state) {
                     provState = state
                     // every level shows it now (the title carries it off the
@@ -180,6 +180,11 @@ class TmuxWindow(
      *  view reads — the Reader threading rule (review round 1's reader race). */
     private fun onShell(action: () -> Unit) {
         services?.runOnShell(action) ?: action()
+    }
+
+    /** §72: a push whose newest instance supersedes the older ones — held, the latest per key, while no session is live. */
+    private fun onShell(key: String, action: () -> Unit) {
+        services?.runOnShell("tmux.$key", action) ?: action()
     }
 
     private fun hostSuffix(host: String): String =

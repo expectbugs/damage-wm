@@ -589,6 +589,15 @@ Seven rounds of independent review after the first build (every candidate verifi
 simulation before a fix) found ~70 real defects; the reviews since (`HANDOFF.md` §25–§42) added to the list.
 These mechanisms are load-bearing and easy to break by accident:
 
+- **What a shell holds while down (§72, 2026-11-09).** A window push whose newest instance supersedes the older
+  ones goes through the KEYED `runOnShell(key, …)`: while no session is live only the latest per key is held,
+  posted under `heldLock` just before the loop launches. A transport event with no session running is decided by
+  kind in `Shell.keepWhileDown`: `FlushDone` must stay queued (the in-flight, atlas and staging bookkeeping) and
+  `Text` too. `holdPushes()` belongs at EVERY `running = false`. The Reader's restore and scan are one job each. Do
+  not drop `FlushDone`, do not post a held push outside the lock, do not add a plain `runOnShell` to a listener that
+  keeps pushing. The PC standby claims only when `StandbyPolicy.shouldClaim` says so: the phone unreachable AND both
+  arms seen.
+
 - **The latency build (§40)** — chrome's telemetry cells repaint only when `allowTelemetry` (`Chrome.sync`); a
   notch's first flush is the translation — the lens repaint is posted one message on
   (`Shell.paintOptimisticLens`) and a strip past `Slide.SPLIT_FILL_PX` goes out blank and is filled on the next

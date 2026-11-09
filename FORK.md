@@ -570,3 +570,8 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   streamed route + guards on the phone's two servers' connection threads, session coroutines and teardown. Eleven pins,
   each watched to fail on the unfixed tree; two general reviews. The phone was still on 0.57 (0.60 never installed).
   No firmware change, nothing flashed.
+- **2026-11-07 → 09 — the PC ran out of memory while Adam read in Sim mode (`HANDOFF.md` §72):** the standby
+  claimed on a powered-off adapter and retried until one laid-out book per attempt filled the heap. Built on his
+  rulings D1–D6: claims only on sight, give-back with backoff, a shell that holds nothing unbounded while down,
+  busy ports retried, the JVM exits on OOM, the shelf answers from its cache. Two reviews, every pin watched to
+  fail, the battery green; APK 0.62 staged, the PC deployed. No firmware change, nothing flashed.

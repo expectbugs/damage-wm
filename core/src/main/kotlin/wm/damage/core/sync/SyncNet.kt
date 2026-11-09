@@ -85,6 +85,25 @@ object SyncNet {
     private fun syncableStamps(store: Persistence): Map<String, Long> =
         store.stamps().filterKeys { Persistence.syncable(it) }
 
+    private val STAMP_FMT = java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm:ss")
+        .withZone(java.time.ZoneId.systemDefault())
+
+    /** §72 (2026-11-08): the keys a handshake moves, each with both sides' stamps on THIS
+     *  side's clock. The 2026-11-07 reconnect said "72 newer there, 5 wanted" after 11-04's
+     *  "0 newer there, 77 wanted", and nothing said which keys or why: the next one names
+     *  them. Every key is listed (never cut); "none" is a side with no stamp for it. */
+    internal fun describeKeys(keys: List<String>, first: Map<String, Long>, firstName: String,
+                              second: Map<String, Long>, secondName: String): String {
+        fun at(t: Long?) = if (t == null || t <= 0L) "none" else STAMP_FMT.format(java.time.Instant.ofEpochMilli(t))
+        if (keys.isEmpty()) return "none"
+        // an empty [secondName]: that side's stamps are not known here (the client's "wanted"
+        // list carries keys only), so no column is printed rather than a false "none"
+        return keys.joinToString(", ") { k ->
+            if (secondName.isEmpty()) "$k ($firstName ${at(first[k])})"
+            else "$k ($firstName ${at(first[k])} · $secondName ${at(second[k])})"
+        }
+    }
+
     /** The records of [store] strictly newer than [theirs] (already normalized
      *  to local time), plus the keys THEY hold strictly newer than us. */
     private fun diff(store: Persistence, theirs: Map<String, Long>): Pair<List<SRec>, List<String>> {
@@ -112,6 +131,12 @@ object SyncNet {
             skew = w.clock - System.currentTimeMillis()
             val theirs = w.stamps.mapValues { normalize(it.value) }
             val (records, want) = diff(peer.store, theirs)
+            if (records.isNotEmpty() || want.isNotEmpty()) {
+                val mine = syncableStamps(peer.store)
+                Log.i("sync-host", "handshake with ${sock.inetAddress}: newer here: " +
+                    describeKeys(records.map { it.k }, mine, "here", theirs, "peer") +
+                    "; newer on the peer: " + describeKeys(want, theirs, "peer", mine, "here"))
+            }
             out.sendWire(SWire(t = "syncok", records = records, want = want,
                 clock = System.currentTimeMillis()))
         }
@@ -274,6 +299,14 @@ class RemoteSync(
                                         saidNoSync = false
                                         out = o
                                         Log.i("sync", "sync channel to $host up (${w.records.size} newer there, ${w.want.size} wanted)")
+                                    }
+                                    if (w.records.isNotEmpty() || w.want.isNotEmpty()) {
+                                        // §72: which keys, with both stamps on this clock, BEFORE the apply
+                                        val mine = peer.store.stamps()
+                                        val theirs = w.records.associate { it.k to (it.t - skew) }
+                                        Log.i("sync", "handshake with $host: newer there: " +
+                                            SyncNet.describeKeys(w.records.map { it.k }, theirs, "there", mine, "here") +
+                                            "; newer here: " + SyncNet.describeKeys(w.want, mine, "here", emptyMap<String, Long>(), ""))
                                     }
                                     for (r in w.records) peer.applier(r.k, r.v, r.t - skew)
                                     if (w.want.isNotEmpty()) {

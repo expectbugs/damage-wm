@@ -200,6 +200,8 @@ class MusicWindow(
 
     // ================================================================ small helpers
     private fun onShell(action: () -> Unit) { services?.runOnShell(action) ?: action() }
+    /** §72: a push whose newest instance supersedes the older ones — held, the latest per key, while no session is live. */
+    private fun onShell(key: String, action: () -> Unit) { services?.runOnShell("music.$key", action) ?: action() }
     private fun dn(s: String, f: FontSpec = fRow): String = Draw.dynamic(tx, s, f)
     private fun setNotice(s: String) {
         notice = s
@@ -214,15 +216,15 @@ class MusicWindow(
 
     // ================================================================ provider + player glue
     private val libListener = object : MusicLibrary.Listener {
-        override fun catalogChanged(c: Catalog) { onShell { catalogVersion = c.version; invalidateRows(); render() } }
-        override fun ytJob(j: YtJob) { onShell { handleYtJob(j) } }
-        override fun state(line: String) { onShell { if (stateLine != line) { stateLine = line; render() } } }
-        override fun vizReady(trackId: Int) { onShell { vizCache.remove(trackId); if (exclusive) { mmVizDue = true; render() } } }
+        override fun catalogChanged(c: Catalog) { onShell("catalog") { catalogVersion = c.version; invalidateRows(); render() } }
+        override fun ytJob(j: YtJob) { onShell("yt.${j.job}") { handleYtJob(j) } }
+        override fun state(line: String) { onShell("libstate") { if (stateLine != line) { stateLine = line; render() } } }
+        override fun vizReady(trackId: Int) { onShell("viz.$trackId") { vizCache.remove(trackId); if (exclusive) { mmVizDue = true; render() } } }
     }
 
     private val playerListener = object : MusicPlayer.Listener {
-        override fun state(s: PlayerState) { onShell { applyState(s) } }
-        override fun tick(posMs: Long) { onShell { onTick(posMs) } }
+        override fun state(s: PlayerState) { onShell("player") { applyState(s) } }
+        override fun tick(posMs: Long) { onShell("tick") { onTick(posMs) } }
         override fun event(e: PlayerEvent) { onShell { handleEvent(e) } }
     }
 

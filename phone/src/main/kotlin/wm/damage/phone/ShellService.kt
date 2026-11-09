@@ -224,12 +224,18 @@ class ShellService : Service() {
         sh.buildTag = "apk ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
         shell = sh
 
+        // §72: the shelf answers from its cache at once; a background refresh that finds a
+        // changed listing asks the Reader to scan again (late-bound: the Reader takes `rc`)
+        var onLibraryChanged: () -> Unit = {}
         val rc = RemoteContent(
             prefs.host, prefs.contentPort, prefs.token, dataDir.resolve("bookcache"),
             onState = { st -> sh.hostState = st },
             onNotice = { detail -> sh.services.notifyInternal("content", detail) },
+            onLibraryChanged = { onLibraryChanged() },
         )
-        sh.register(ReaderWindow(text, rc, scope, AndroidImages()))
+        val reader = ReaderWindow(text, rc, scope, AndroidImages())
+        onLibraryChanged = { reader.libraryChanged() }
+        sh.register(reader)
         // State sync (HANDOFF.md §19.2): the PC pushes/receives stamped state
         // records over the content port, most-recent wins. Records reach the
         // live shell (freshen → LWW → live-apply) or, when it is not running,

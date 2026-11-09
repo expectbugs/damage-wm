@@ -163,6 +163,11 @@ class TorrentsWindow(
         services?.runOnShell(action) ?: action()
     }
 
+    /** §72: a push whose newest instance supersedes the older ones — held, the latest per key, while no session is live. */
+    private fun onShell(key: String, action: () -> Unit) {
+        services?.runOnShell("torrents.$key", action) ?: action()
+    }
+
     private fun dn(s: String, f: FontSpec = fRow): String = Draw.dynamic(tx, s, f)
 
     /** Menu-bound strings go RAW: MenuSurface sanitizes every title, label
@@ -173,7 +178,7 @@ class TorrentsWindow(
     // ================================================================ provider glue
     private val listener = object : TorrentsProvider.Listener {
         override fun snapshot(s: Snapshot) {
-            onShell {
+            onShell("snapshot") {
                 applySnapshot(s)
                 if (level == Level_.TRANSFERS || level == Level_.DETAILS) services?.requestRender(this@TorrentsWindow)
             }
@@ -184,7 +189,7 @@ class TorrentsWindow(
         }
 
         override fun state(line: String) {
-            onShell {
+            onShell("state") {
                 if (stateLine != line) {
                     stateLine = line
                     services?.requestRender(this@TorrentsWindow)

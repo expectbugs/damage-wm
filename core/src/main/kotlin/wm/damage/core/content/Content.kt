@@ -44,6 +44,10 @@ interface ContentProvider {
     /** List the library. Throws on hard failure (callers surface it). */
     fun library(): List<BookMeta>
 
+    /** [library], but [fresh] asks the source itself and waits for it (§72): for an explicit
+     *  open of a book the cached listing may not have yet. A local library is always fresh. */
+    fun library(fresh: Boolean): List<BookMeta> = library()
+
     /** Return a LOCAL path for the book, fetching/caching if remote. */
     fun openBook(id: String): Path
 
@@ -353,6 +357,9 @@ class RemoteContent(
     /** Called with the human detail behind a state change — the notification
      *  box has room for it, the link cell does not (round 4 #1). */
     private val onNotice: (String) -> Unit = {},
+    /** §72: a background refresh found a listing different from the cached one it had served,
+     *  so the shelf should be asked again. Called on the refresh's own thread. */
+    private val onLibraryChanged: () -> Unit = {},
 ) : ContentProvider {
     @Volatile private var offlineSince: Long = 0
     /** Set when the host is REACHABLE but said no (bad token, wrong proto,
@@ -428,7 +435,38 @@ class RemoteContent(
         return "PC ${if (mins < 1) "gone" else "${mins}m"}"
     }
 
-    override fun library(): List<BookMeta> = try {
+    /** One background refresh of the listing at a time (§72). */
+    private val refreshing = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** CACHE FIRST (§72, 2026-11-08). With a cached listing, answer from it at once and ask
+     *  the PC in the background: the fresh listing replaces the cache, and the next call
+     *  returns it. A PC that is off, out of reach or out of memory no longer leaves the shelf
+     *  blank for the OS's whole connect give-up (2026-11-07: 01:03:20 → 01:05:30, 130 s), nor
+     *  the book a session restores, whose restore reads the listing first. The host cell says
+     *  "PC gone" while the cache answers. Only a device with no cache waits for the host. */
+    override fun library(): List<BookMeta> {
+        val cached = cachedLibrary()
+        if (cached.isEmpty()) return fetchLibrary()
+        if (refreshing.compareAndSet(false, true)) {
+            Thread({
+                try {
+                    // a fresh listing that differs from what was served is pushed to the shelf, so
+                    // a book added on the PC appears without a second visit (the second review)
+                    if (fetchLibrary() != cached) onLibraryChanged()
+                } catch (e: Exception) {
+                    Log.w("content", "background library refresh: ${e.message} — the cached listing stays")
+                } finally {
+                    refreshing.set(false)
+                }
+            }, "content-library-refresh").apply { isDaemon = true }.start()
+        }
+        return cached
+    }
+
+    override fun library(fresh: Boolean): List<BookMeta> = if (fresh) fetchLibrary() else library()
+
+    /** The listing from the host, written to the cache; the cache when the host fails. */
+    private fun fetchLibrary(): List<BookMeta> = try {
         val lib = withHost { inp, out ->
             out.sendJson("""{"t":"library"}""")
             val line = inp.readJson()

@@ -1,7 +1,10 @@
 package wm.damage.core.windows.reader
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -143,6 +146,10 @@ class ReaderWindow(
     private val offsets = HashMap<String, Int>()
     private var bookmarkOffset = -1
     private var openingId: String? = null
+    /** §72 (2026-11-08): the one book restore in flight, and its generation. A newer restore
+     *  cancels the older, and a result whose generation is not the latest is dropped. */
+    @Volatile private var restoreJob: Job? = null
+    private val restoreGen = java.util.concurrent.atomic.AtomicInteger(0)
     private var services: ShellServices? = null
     private var wrappedWidth = 0
 
@@ -383,8 +390,10 @@ class ReaderWindow(
         // the Main lens read "library loading" from boot until the window
         // was first opened — a claim about a scan nobody had started (review
         // §28 #5). Scan now; the activation re-scan below is skipped while
-        // this one is still in flight.
-        refreshLibrary()
+        // this one is still in flight. §72: and so is this one — the keeper
+        // registers again on EVERY start attempt, and the PC's standby used
+        // to walk the whole shelf once per failed start
+        if (!scanRunning()) refreshLibrary()
     }
 
     override fun onActivate(ctx: ShellServices, from: ActivationSource) {
@@ -397,7 +406,7 @@ class ReaderWindow(
         // always re-scan on activation (round 3 R2): the scan is what keeps
         // the host-link banner truthful, and the shelf stays up while it runs
         // — unless one is in flight already (the registration scan)
-        if (!scanInFlight) refreshLibrary()
+        if (!scanRunning()) refreshLibrary()
     }
 
     /**
@@ -478,13 +487,22 @@ class ReaderWindow(
 
     // ------------------------------------------------------------------ library
     /** A shelf scan is running; set and cleared on the shell loop. */
-    private var scanInFlight = false
+    /** §72: the library scan in flight, if any. "In flight" is the scan's own job, not a flag
+     *  its completion clears: a completion lost at a session's end (drained behind a Shutdown)
+     *  must not stop every later scan (the second review's finding). */
+    @Volatile private var scanJob: kotlinx.coroutines.Job? = null
+    private fun scanRunning(): Boolean = scanJob?.isActive == true
+
+    /** §72: the content source found a changed listing (a book added on the PC): scan again,
+     *  unless a scan is already on its way. Any thread. */
+    fun libraryChanged() {
+        if (!scanRunning()) refreshLibrary()
+    }
 
     private fun refreshLibrary() {
         libraryState = "loading"
-        scanInFlight = true
         val keep = library          // a failed re-scan keeps the shelf we have
-        bg.launch(Dispatchers.IO) {
+        scanJob = bg.launch(Dispatchers.IO) {
             var lib: List<BookMeta> = keep
             var state: String
             try {
@@ -494,8 +512,9 @@ class ReaderWindow(
                 Log.e("reader", "library scan failed", e)
                 state = "library error: ${e.message}"
             }
-            services?.runOnShell {
-                scanInFlight = false
+            // keyed (§72): a listing supersedes the older ones — while no session is
+            // live only the latest is held, and it clears the in-flight mark when it runs
+            services?.runOnShell("reader.library") {
                 library = lib
                 libraryState = state
                 services?.requestRender(this@ReaderWindow)
@@ -554,7 +573,7 @@ class ReaderWindow(
             // top-level folder reports the other branch's message
             val climbing = folder.isNotEmpty()
             if (climbing) { folder = folder.substringBeforeLast('/', ""); libModel.cursor = 0 }
-            else if (!scanInFlight) refreshLibrary()
+            else if (!scanRunning()) refreshLibrary()
             // short enough for the status bar's op cell to say it WHOLE: the
             // cell is 128 px and "reading the shelf again" arrived as
             // "reading the ▸" (review §30, seen live)
@@ -927,7 +946,10 @@ class ReaderWindow(
         services?.setOperation("finding book")
         bg.launch(Dispatchers.IO) {
             val meta = try {
+                // §72: a cached listing may predate a book just added on the PC: an explicit open
+                // that misses asks the source itself before saying "not in the library"
                 content.library().firstOrNull { it.id == id }
+                    ?: content.library(fresh = true).firstOrNull { it.id == id }
             } catch (e: Exception) {
                 Log.e("reader", "deep-link library scan failed", e)
                 null
@@ -1005,14 +1027,25 @@ class ReaderWindow(
         // at the exact LEVEL we were in (ACTIONS included — losing the level is
         // the Tmux failure class §9.1 #1 names).
         if (!id.isNullOrEmpty() && (lvl == "BOOK" || lvl == "ACTIONS")) {
-            bg.launch(Dispatchers.IO) {
+            // §72 (2026-11-08): ONE book restore in flight. A newer restore (the next session's,
+            // a keeper retry's, a live sync apply's) cancels this one between its steps, and a
+            // result that finished anyway is dropped by generation. Every failed start of the
+            // PC's standby used to leave one more whole laid-out book queued behind a loop that
+            // never ran (5.4 MB a time in the measurement; the PC's heap was gone in 845).
+            val gen = restoreGen.incrementAndGet()
+            restoreJob?.cancel()
+            restoreJob = bg.launch(Dispatchers.IO) {
                 try {
                     val lib = content.library()
+                    ensureActive()
                     val meta = lib.firstOrNull { it.id == id } ?: run {
                         Log.w("reader", "restore: book $id is no longer in the library — starting at the shelf")
                         return@launch
                     }
-                    val loaded = layoutBook(meta, Epub.load(content.openBook(id)))
+                    val parsed = Epub.load(content.openBook(id))
+                    ensureActive()
+                    val loaded = layoutBook(meta, parsed)
+                    ensureActive()
                     // apply-only-if-idle (#B8): a slow restore must never yank
                     // the user out of something they started doing meanwhile
                     fun apply() {
@@ -1041,14 +1074,18 @@ class ReaderWindow(
                         }
                         ensureCurrentLayout()
                     }
-                    services?.runOnShell {
+                    // keyed (§72): while no session is live only the latest restore's result is held
+                    services?.runOnShell("reader.restore") {
+                        if (gen != restoreGen.get()) return@runOnShell   // a newer restore owns the book
                         apply()
                         services?.requestRender(this@ReaderWindow)
                     } ?: run {
                         // services not attached yet (restore precedes activation):
                         // apply directly — the shell loop has not started reading
-                        apply()
+                        if (gen == restoreGen.get()) apply()
                     }
+                } catch (e: CancellationException) {
+                    throw e     // superseded by a newer restore: not a failure
                 } catch (e: Exception) {
                     Log.e("reader", "restore of book $id failed — starting at the library", e)
                 }

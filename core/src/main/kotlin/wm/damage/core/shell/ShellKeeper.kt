@@ -54,6 +54,11 @@ class ShellKeeper(
         private set
     @Volatile var lastReason: String = ""
         private set
+    /** Starts that failed IN A ROW (§72, 2026-11-08); 0 after any start that succeeded. A
+     *  host that claimed the glasses only as a standby reads it to give a claim back that
+     *  cannot drive, rather than retrying it for the life of the process. */
+    @Volatile var failedStarts: Int = 0
+        private set
 
     private val lock = Mutex()
     @Volatile private var loop: Job? = null
@@ -184,14 +189,17 @@ class ShellKeeper(
                 } catch (e: CapabilityRefused) {
                     // the firmware answered and is not the CFW: no retry can change that
                     capabilityRefused = true
+                    failedStarts++
                     status("start refused: ${e.message}")
                     false
                 } catch (e: Exception) {
+                    failedStarts++
                     status("start failed: ${e.message}")
                     false
                 }
             }
             if (ok) {
+                failedStarts = 0
                 state = State.RUNNING
                 status("driving via ${transport.state.value.transportName}")
                 // stay here until the link ends: the transport's `started`

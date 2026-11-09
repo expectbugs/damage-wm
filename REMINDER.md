@@ -2,12 +2,19 @@
 
 **The entry point for a fresh session**: what is true now, what comes next, where the records are. History lives
 in `HANDOFF.md`; this file only points at it. Read `CLAUDE.md` → this file → **`FORK.md`** (the plan; §11 the
-log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` **§71** (the phone's `/journal` ended the APK; it streams in 0.61) → **§70** (the glasses ran flat: the case's battery; two rulings for the next APK) → **§69** (the status cell as states, every event a notice) → §67–§68 (upstream's cache and
+log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` **§72** (the PC's OOM while Adam read in Sim; what a shell holds while down; the standby claims only on sight) → **§71** (the phone's `/journal` ended the APK; it streams in 0.61) → **§70** (the glasses ran flat: the case's battery; two rulings for the next APK) → **§69** (the status cell as states, every event a notice) → §67–§68 (upstream's cache and
 transport read against ours) → **§66** (Reader's page staging: the design pass, T2's day read, the build) → **§65** (what four reviews of Phase 2 measured, and the protocol), §64–§61 (the four reviews), §60 (Phase 2 built), §59 (the day's live defect), §55 (Phase 1 flashed),
 §48 (the fork decided). Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md` → the image through
 `research/fwread.py`.
 
-## Where we are (2026-11-04)
+## Where we are (2026-11-09)
+
+- **2026-11-09 (§72):** **APK 0.62 STAGED** = 0.61 + a shell that holds nothing unbounded while down (keyed pushes,
+  transport events by kind, the Reader's restore one at a time) + the cache-first shelf. **The PC service is
+  deployed from this tree** (its first deploy since 09-12): the standby claims only on sight, gives a failing claim
+  back, retries busy ports. The init script now has `-XX:+ExitOnOutOfMemoryError -Xmx2g` and
+  `retry=SIGTERM/30/SIGKILL/5`. Adam's rulings D1–D6 (11-07) as recommended; D2's mechanism was built differently,
+  for the reconnect's sake (§72).
 
 - **2026-11-04, read from the outside (M):** the glasses up 16.1 days on Phase 2 (`48172b62`), both arms on LE 2M,
   228k presents; **the phone still on APK 0.57** (0.60 staged 09-21, never installed); the PC service up since 10-20
@@ -99,24 +106,25 @@ the 75 / 523 below. Price a window against the wait; these are kept because the 
 The ack precedes the panel refresh (§48.1, verified): what the eye waits for is longer than these. A flush under
 100 B acks in ~60 ms; each KB adds ~140 ms; the tail is pixel bytes. Phone CPU per flush: 17 ms median / 66 p90.
 
-## 🔴 The next session — 0.61's read on glass (items 1–2); the next APK = item 10 (Adam's two rulings) + the glyph-subset packing (item 9)
+## 🔴 The next session — install 0.62 and read it on glass (items 1–2); the next APK = item 10 (Adam's two rulings) + the glyph-subset packing (item 9)
 
 Phase 2 is on the glasses and first light is green (§65). Reader's page staging is built and read once on glass
-(§66, §66.1). **The status cell is built (§69); APK 0.61 is staged (§71: 0.60, which carries 0.59's two staging fixes,
-plus the streamed journal route). The phone was still on 0.57 on 2026-11-04.** The glasses ran flat in an unplugged case on 09-21 (§70): Adam ruled a
+(§66, §66.1). **The status cell is built (§69); APK 0.62 is staged (§72; it carries 0.61's streamed journal route
+and 0.59's two staging fixes). The phone was still on 0.57 on 2026-11-07.** After installing: the session start's
+`queue` journal note says what was held or dropped while down; the shelf should come up at once with the PC away. The glasses ran flat in an unplugged case on 09-21 (§70): Adam ruled a
 low-battery phone notification and a rest mode in the case, both designed and not built (item 10). Nothing needs
 flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) binds every build.
 
-1. **The status cell as states, every event a notice — BUILT (`HANDOFF.md` §69), Adam's eye owed on 0.61:** the
+1. **The status cell as states, every event a notice — BUILT (`HANDOFF.md` §69), Adam's eye owed on 0.62:** the
    cell says one derived word (`no link · silent · rebuild · no lease · halted · fault · link slow · ok`) with the
    echo at its right (`tap · dbl · up · down · hold · rel`); an error is a notice with its whole text, one per class
    per episode. Ruled 2026-09-21: a full atlas is a journal note; a lost DRAW2 drops the session to v1 shapes. The
    journal's three weeks say no fault class is chatty in daily use (§69). To read on glass: the cell's legibility at
    140 px, and the first real notice.
-2. **Page staging on glass, second read (0.61, which carries 0.59's fixes; §66.1) — Adam's read.** The first read (0.57): a staged notch 12 B / 79 ms ack
+2. **Page staging on glass, second read (0.62, which carries 0.59's fixes; §66.1) — Adam's read.** The first read (0.57): a staged notch 12 B / 79 ms ack
    against 2.7 KB / 307 ms for pixels — and the ledger crying wolf (bumps land up to ~1 s after the ack), strips of
    12–34 KB against a 32 KiB reserve (still crying on 0.57 on 2026-11-04: "the generation 2 short … never landed — 1
-   record(s) dropped"). Install 0.61, arm PRESENTED (`probe:flags=0x8005`), open the book, read: the
+   record(s) dropped"). Install 0.62, arm PRESENTED (`probe:flags=0x8005`), open the book, read: the
    `stage` notes (proven · pending · shortfall · off — a shortfall now means it), the `page staging:` line, the
    notches' WAIT column by shape, the worker µs of a staged notch (`present` records, the record's decode cost), the
    atlas churn now at 96 KiB — the glyph-subset packing is next if Reader's faces keep leaving the atlas. Adam's eye: a notch that lands
@@ -125,7 +133,7 @@ flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) bin
    Then the two quiet-pass items §66 left: the atlas's glyph-subset packing (the churn) and the link estimator's
    regime flips on a link that did not change. Optional beside it: `lint.py` rules for the v2 budgets; a Global row
    for the hint's A/B.
-3. **Adam's reads for T2:** 0.61 installed (item 2 first); the day's journal
+3. **Adam's reads for T2:** 0.62 installed (item 2 first); the day's journal
    (`journal_report.py --since 2026-09-16`) — the ack curve on 2M over a workday, the cacheMiss breakdown (`proof` and
    `planes` at zero is the exit), battery %/h on 2M against 7.4–7.8, the in-case reboots against §65's baseline (five
    in 11 h, three of them 5–7 min after docking); **the §62.7 retention check** (shell up, glasses into the case for a
@@ -265,6 +273,10 @@ re-put to Adam in the Phase 0 refinery.
   `127.0.0.1:8090`, `LocalHostAuth=false`; OpenRC `qbittorrent` — `DAILY.md`. OpenRC `damage`
   (`/etc/init.d/damage`): after `postgresql-17` / `qdrant` / `qbittorrent`, `~/.local/bin` on PATH,
   `--enable-native-access=ALL-UNNAMED` (`HANDOFF.md` §44.1).
+- **`/etc/init.d/damage`** (2026-11-09, `HANDOFF.md` §72): `-XX:+ExitOnOutOfMemoryError -Xmx2g` in `command_args`
+  (supervise-daemon respawns after 5 s, without limit) and `retry="SIGTERM/30/SIGKILL/5"` (the default stop sent
+  only SIGTERM; a JVM stuck in its handler stayed up holding every port). The original is kept beside it as
+  `damage.pre-72`.
 - **`/etc/local.d/tailscale-bypass.start`** (2026-09-12, `HANDOFF.md` §47): Tailscale's marked traffic
   (fwmark 0x80000) routes via the LAN gateway (table 100, rule pref 5200) instead of ProtonVPN's redirected
   default; runs at boot and by hand. qBittorrent and every unmarked socket keep the tunnel. After a change to
