@@ -252,7 +252,7 @@ from the same 322 KiB.
 **The phone side (built 2026-09-15 evening, `HANDOFF.md` §60; gated on DamageCaps bit 5 with DRAW2 in force):**
 the transport's start takes the cache size (op 5, 160 KiB) and arms DRAW2 before the shell paints; the atlas is a
 v2 layout over that size (records 4-byte aligned, 224-entry tables with Latin-1 glyphs, icons as v2 records,
-mode-19 chunks); **since `HANDOFF.md` §73 (2026-11-09; APK 0.63, staged 2026-11-10 — the table patch itself read on glass that day: `v2-tablepatch`, 11 of 11 on RIGHT) a table names real glyphs only for the characters its face
+mode-19 chunks); **since `HANDOFF.md` §73 (2026-11-09; APK 0.63, installed 2026-11-10 — the table patch itself read on glass that day: `v2-tablepatch`, 11 of 11 on RIGHT) a table names real glyphs only for the characters its face
 has drawn, plus the digits, the space and — for running text — the capitals (`CachedText.codesFor`)** — every other entry names one shared tofu record, and the phone never sends a string holding an
 unpacked code — **and a face gains glyphs in place**: one mode-19 message (more when the new records exceed a chunk; the table's units ride in the last) appends the new records at the end of the
 packed bytes and rewrites the 4-byte units of the table that hold their entries (on contract 1, mode 12 rewrites
@@ -507,7 +507,7 @@ phone's keeper applies the hold-back rule before re-arming.
   the panel-off path never transferred or while the overlay shows; §4 states each op's order, the v1 modes' order as
   built, the ignored high bit, and that a batch is not all-or-nothing. Contract version unchanged (not flashed).
 - 2026-11-09 — the phone code packs a face with the characters it has drawn and patches its table in place
-  (`HANDOFF.md` §73; APK 0.63, staged 2026-11-10; `v2-tablepatch` ran on glass that day, 11 of 11 on RIGHT). No wire shape changed and nothing was flashed; contract version unchanged. §4 states what
+  (`HANDOFF.md` §73; APK 0.63, installed 2026-11-10; `v2-tablepatch` ran on glass that day, 11 of 11 on RIGHT). No wire shape changed and nothing was flashed; contract version unchanged. §4 states what
   the handlers already did: a cache write is a plain copy that may overwrite, a list is refused whole, and a list
   with no data is accepted without a generation bump (§65 had read the last as a message lost on the glass; it
   was the self-test driver's expectation). Two vectors added (`v1-tablepatch`, `v2-tablepatch`; 28 in all), the

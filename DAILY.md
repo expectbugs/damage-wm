@@ -92,7 +92,7 @@ without writing a row.
 - Logs: `~/.damage/damage.log` (the service; the standby narration), `~/.damage/journal.jsonl` (the PC's flush
   journal, only while a PC stack drives), phone `adb logcat | grep ' damage/'` (the tags are `damage/<tag>`) + the on-phone status line.
 - **The phone's journal, no adb** (`HANDOFF.md` §32): `curl -s 'http://aphone:7403/journal?token=…&tail=2000000' | python3
-  tools/journal_report.py -` (the lines in the last ~2 MB). **An APK before 0.61 — the phone ran 0.57 on 2026-11-10 —
+  tools/journal_report.py -` (the lines in the last ~2 MB). **An APK before 0.61 — the phone ran 0.57 until 2026-11-10 17:16, 0.63 since —
   reads the whole file into memory without `&tail=` and its process ends (`HANDOFF.md` §71): drop `&tail=` only on 0.61+.** It shows the ack curve by hour (with the connection
   parameters in force per hour since §47: `105/4` is the slow set, `15/1` the fast) and radio path, CPU
   per flush, the cache's account, **time to first visible change per gesture** (the number a window is judged

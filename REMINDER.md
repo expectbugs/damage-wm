@@ -2,30 +2,40 @@
 
 **The entry point for a fresh session**: what is true now, what comes next, where the records are. History lives
 in `HANDOFF.md`; this file only points at it. Read `CLAUDE.md` → this file → **`FORK.md`** (the plan; §11 the
-log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` **§74** (upstream and official firmware read 2026-11-10, nothing built: facts for rest mode, the case, the ring and the link; small candidates for Phase 3's flash; D1 stands) → **§73** (the atlas packs what a face draws and grows in place; the link estimator on isolated flushes; APK 0.63, committed `6bba881` and STAGED 2026-11-10; Adam's calls in its "For Adam" block; its addendum = the 11-09 slow stretches and the two silent modes) → **§72** (the PC's OOM while Adam read in Sim; what a shell holds while down; the standby claims only on sight) → **§71** (the phone's `/journal` ended the APK; it streams in 0.61) → **§70** (the glasses ran flat: the case's battery; two rulings for the next APK) → **§69** (the status cell as states, every event a notice) → §67–§68 (upstream's cache and
+log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` **§74** (upstream and official firmware read 2026-11-10, nothing built: facts for rest mode, the case, the ring and the link; small candidates for Phase 3's flash; D1 stands) → **§73** (the atlas packs what a face draws and grows in place; the link estimator on isolated flushes; APK 0.63, committed `6bba881`, INSTALLED 2026-11-10 17:16; Adam's calls in its "For Adam" block; its addendum = the 11-09 slow stretches and the two silent modes) → **§72** (the PC's OOM while Adam read in Sim; what a shell holds while down; the standby claims only on sight) → **§71** (the phone's `/journal` ended the APK; it streams in 0.61) → **§70** (the glasses ran flat: the case's battery; two rulings for the next APK) → **§69** (the status cell as states, every event a notice) → §67–§68 (upstream's cache and
 transport read against ours) → **§66** (Reader's page staging: the design pass, T2's day read, the build) → **§65** (what four reviews of Phase 2 measured, and the protocol), §64–§61 (the four reviews), §60 (Phase 2 built), §59 (the day's live defect), §55 (Phase 1 flashed),
 §48 (the fork decided). Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md` → the image through
 `research/fwread.py`.
 
 ## Where we are (2026-11-10)
 
-- **2026-11-10, 15:10 — where a fresh session starts (M unless said; `HANDOFF.md` §73's last blocks, §74):**
-  - **Committed on `main`, not pushed:** `6bba881` is the §73 build; the commit after it holds the records and
-    the upstream survey. The PC service still runs `0dd6ba6`, up since 11-09 00:43 (a deploy from this tree
-    waits for Adam's word).
-  - **APK 0.63 is STAGED** (15:06, Adam's word; 0.62 is kept as `~/.damage/backup/damage-wm-0.62.apk`) and the
-    setup page serves it (`http://beardos:7300/setup`). **Whether he has installed it is the journal's newest
-    `build` note** — it read `apk 0.57 (57)` at 14:19:48.
+- **2026-11-10, 17:40 — where a fresh session starts (M unless said; `HANDOFF.md` §73's last blocks, §74):**
+  - **Committed and pushed** (`origin/main`): `6bba881` is the §73 build and the only commit with code;
+    `de67f99` and the commits after it are documents. **The phone's APK 0.63 is the 2026-11-09 21:15 build of
+    the tree committed as `6bba881`; the PC's jar is stamped `de67f99` — the same code. A documents-only commit
+    after the stamp owes no deploy.**
+  - **APK 0.63 is INSTALLED** (Adam; the process started 17:16:22, the session's `build` note is 17:16:41).
+    **Its first 22 minutes on glass (read to 17:38):** 1,070 flushes, none refused; 23 cache writes, 25,771 B,
+    every one counted by the glasses (cacheGen 3601 → 3624); 24 glyph gains in 16 promotions; no repack, no
+    "stays pixels", no shortfall, no fault. The first eight fonts were live 1.4 s after the build note from
+    10.7 KB (the start before it had re-sent the carrier CREATE five times, 10 s: unmeasured row 15). 0.57 at
+    that day's 14:19 wake: 127 KB by +16 s, 190 KB by +31 s — a different window mix (its three faces left as
+    pixels were MONO, which this session has not asked for). **A first look, n=1: the read proper, and the four
+    things it leaves to watch, are item 0.** 0.62 is kept as `~/.damage/backup/damage-wm-0.62.apk`; the setup
+    page (`http://beardos:7300/setup`) serves 0.63.
+  - **The PC service runs this code:** deployed 17:18:52 (jar stamp `de67f99`), all four ports, the phone's
+    channels attached, no claim, a clean log.
   - **The in-place table patch is read on glass:** `v2-tablepatch` 11 of 11 steps on RIGHT at 15:05, the
     generation 3597 → 3601 — the one firmware behaviour 0.63 leans on that had never run there. The run dropped
-    the 0.57 session's atlas: cached text is pixels until the next session start (the install is one).
+    the 0.57 session's atlas for the two hours until the install.
   - **The glasses:** in the firmware's Silent Mode 11-09 22:32:30 → 11-10 14:19:38 with no flush in between;
     the wake is §38's rebuild, 9.7 s from the OFF push to the first frame. **A journal tail with no flushes
     means the shell is asleep in Silent Mode, not a fault.** Adam puts them in Silent Mode for every drive (the
     both-temple press, worn; the case never leaves home); his next press is about 22:30 tonight (item 13).
   - **Evidence kept (git-ignored, local):** `captures/2026-11-09-journal/` (journal tails, the whole log of
     11-09), `captures/2026-11-09-session/` (battery summaries, mutation logs, simulator walks),
-    `captures/2026-11-10-upstream-survey/`, `captures/2026-11-10-selftest/`.
+    `captures/2026-11-10-upstream-survey/`, `captures/2026-11-10-selftest/`, `captures/2026-11-10-apk063/` (0.63's
+    first tails, the report on them and the last checkers' findings).
 
 - **2026-11-09 → 10 (§73) — the latency items §66 left are BUILT, phone-side only, nothing flashed:** a face goes
   into the atlas with the characters it has drawn (≈3 KB against 16 KB whole, M on AWT) and gains the rest in
@@ -36,7 +46,7 @@ transport read against ours) → **§66** (Reader's page staging: the design pas
 
 - **2026-11-09 (§72):** **APK 0.62 staged that day (0.63 replaced it on the setup page 11-10; it carries all of this)** = 0.61 + a shell that holds nothing unbounded while down (keyed pushes,
   transport events by kind, the Reader's restore one at a time) + the cache-first shelf. **The PC service is
-  deployed from `0dd6ba6`** (its first deploy since 09-12): the standby claims only on sight, gives a failing claim
+  deployed from `0dd6ba6`** (its first deploy since 09-12; `de67f99` replaced it 11-10): the standby claims only on sight, gives a failing claim
   back, retries busy ports. The init script now has `-XX:+ExitOnOutOfMemoryError -Xmx2g` and
   `retry=SIGTERM/30/SIGKILL/5`. Adam's rulings D1–D6 (11-07) as recommended; D2's mechanism was built differently,
   for the reconnect's sake (§72).
@@ -60,12 +70,12 @@ transport read against ours) → **§66** (Reader's page staging: the design pas
   LE 2M, the partial refresh running; Adam's verdict "large images significantly faster, no problems"; the on-glass
   self-test 19 of 20 vectors matching every step as its driver judged it then — the twentieth's difference was the driver's own expectation (item 4, closed in §73; a re-run would show 20 of 20). Phase 1's record (§55, §56, §65): 7.3 h then 10.2 h worn clean, transfer 2.0 ms median, the uptime tick
   1.024 per ms, the arm drops = in-case reboots. The phone APK drives; the OpenRC `damage` service is the data host
-  and standby (§19, `DAILY.md`), deployed 2026-11-09 00:43 from `0dd6ba6` (§72; before that it ran 0.44's core).
+  and standby (§19, `DAILY.md`), deployed 2026-11-10 17:18 from `de67f99` (§73's last block; `0dd6ba6` from 11-09 00:43 before that, §72).
 - **The APK. 0.49 installed** (2026-09-15 03:46; every `build` note through 09-16 12:17). **0.55 INSTALLED 2026-09-16 ~13:10 (Adam)** and driving Phase 2 since 13:32 (§65). **0.57 INSTALLED 19:09 (Adam)**, its first read `HANDOFF.md` §66.1. **0.60 STAGED (§69: the status cell as states, every event a notice; it supersedes 0.59, never installed)** with 0.59's staging fixes (§66.1) — the ledger's settle
   window, the 64 KiB reserve, and a shortfall that can never switch the atlas off (0.57's ledger took cached text down at
   19:51 on three lagged readings); Adam installs whenever (~30 s blank, a 13 s atlas re-upload), then PRESENTED wants arming again.
-  **0.60 was never installed; 0.61 (§71) superseded it; 0.62 (staged 2026-11-09) superseded both and was never installed either; 0.63, staged 2026-11-10, carries all three** (§72; it carries
-  0.61's streamed journal route and 0.59's staging fixes). The phone was on 0.57 through 2026-11-09.
+  **0.60 was never installed; 0.61 (§71) superseded it; 0.62 (staged 2026-11-09) superseded both and was never installed either; **0.63 INSTALLED 2026-11-10 17:16 (Adam)** carries all three** (§72; it carries
+  0.61's streamed journal route and 0.59's staging fixes). The phone was on 0.57 until then.
 - **🔴 Phase 2: FLASHED 2026-09-16 13:19/13:24 (§65) after four reviews** (`HANDOFF.md` §60–§64; `FIRMWARE.md`
   §4 as built; Damage `67fdfa1`, the fork `f20bac9`) — **first light green, the self-test done (§65); T2 open for the day's reads (item 3 below)**. Fork pin **`48172b62…`** = Phase 1 + modes 17–24, op 5, status 3–5, fields
   23–26, the partial path, the three link edits; **32 entries — §63 added ONE new site, `0x00473D80`** (the
@@ -118,7 +128,7 @@ transport read against ours) → **§66** (Reader's page staging: the design pas
 - **App layer:** Main · Settings · Reader · Tmux · Files · Torrents · Music · Games · Feed (`WINDOWS.md` and the
   per-window records); `POPOVER.md` is a spec, not built (planned for Phase 6a). **The battery after §73 (2026-11-09 evening and again 2026-11-10 noon, on what is now commit `6bba881`):** core 699
   ×2 (uncached, alone) · desktop 22 · `--selfcheck` 3 of 3 (484 checks) · 57 renders ×2 · epub 73 books OK, images
-  2,580/2,604 · music/games/feed · lint 0 · the fork's 28 vectors / 259 steps, the self-test form on 22 · `:phone:assembleDebug` 0.63 (staged 2026-11-10; the PC still runs `0dd6ba6`). §65 changed one vector, the lint gate and a test comment, and ran lint, the fork's three host gates,
+  2,580/2,604 · music/games/feed · lint 0 · the fork's 28 vectors / 259 steps, the self-test form on 22 · `:phone:assembleDebug` 0.63 (installed 2026-11-10; the PC runs `de67f99`). §65 changed one vector, the lint gate and a test comment, and ran lint, the fork's three host gates,
   `ConformanceVectorTest` and `GeometryTest`. Known rate misses (§54.5, §54.7): `FeedWindowTest.deepLinks…` and
   `…browseThroughTheKeyboard…` (§49.6), a seam test race (`SeamSessionTest.kt:82`),
   `Review20260905Test.cashingOut…` once (§61, cause not found) — run the core suite alone; a repeated
@@ -146,14 +156,16 @@ gesture actually took, and on the reference journal a WINDOW notch is 230 ms med
 The ack precedes the panel refresh (§48.1, verified): what the eye waits for is longer than these. A flush under
 100 B acks in ~60 ms; each KB adds ~140 ms; the tail is pixel bytes. Phone CPU per flush: 17 ms median / 66 p90.
 
-## 🔴 The next session — read 0.63 on glass once Adam has installed it (items 0–2); tonight's press and the Wi-Fi test (item 13); his rulings on §73's calls (item 12); item 10 (his two rulings) is the next build
+## 🔴 The next session — read 0.63 on glass (items 0–2); tonight's press and the Wi-Fi test (item 13); his rulings on §73's calls (item 12); item 10 (his two rulings) is the next build
 
-0. **APK 0.63 (`HANDOFF.md` §73) is STAGED (2026-11-10 15:06, Adam's word); he installs it, then it is read on
-   glass.** It is 0.62 plus the glyph-subset packing, the link estimator and the cache-metric layout. **First
-   look:** the journal's newest `build` note (`apk 0.63 (63)` = installed; from 0.61 on the whole-journal fetch is
-   safe again; PRESENTED wants arming after any install). **If it misbehaves:** Global `Cached text` off; or
-   `cp ~/.damage/backup/damage-wm-0.62.apk ~/.damage/damage-wm.apk` and he reinstalls. **Never run
-   `:phone:stageApk` unless a new build is meant to be staged.** **What to read on 0.63:** the
+0. **APK 0.63 (`HANDOFF.md` §73) is INSTALLED (Adam, 2026-11-10 17:16:41); now it is read on glass, a day's
+   worth.** It is 0.62 plus the glyph-subset packing, the link estimator and the cache-metric layout. **First:**
+   the whole-journal fetch is safe again (0.61+), and PRESENTED wants arming after any install (his word: it
+   is a probe). The first minutes are in the state bullet above. **If it misbehaves:** Global `Cached text` off is the
+   switch. Going back to 0.62's code is NOT a reinstall — the phone refuses a lower versionCode (62 under 63,
+   `phone/build.gradle.kts`): it needs an uninstall first (which clears the app's data, the journal with it:
+   fetch it first), a rebuild of the older tree under a higher versionCode, or an adb downgrade — Adam's call.
+   **Never run `:phone:stageApk` unless a new build is meant to be staged.** **What to read on 0.63:** the
    `atlas` notes ("N face(s) gained glyphs", no "repacking" where 0.57 had two a day), `journal_report.py`'s
    atlas account (messages, bytes, repacks, `unpacked`), the regime notes (one "measured —" line a session, flips
    only when the link changes — and how long a SLOW regime outlasts a recovered link through a quiet stretch:
@@ -161,10 +173,33 @@ The ack precedes the panel refresh (§48.1, verified): what the eye waits for is
    session start (no line cut with the mark), and **the wake after a drive** — on 0.57 each wake re-sent the
    atlas, 190 KB over 31 s with faces left as pixels (§73 addendum): the same minute on 0.63 is the comparison.
    The in-place table patch on the glass itself is read (`v2-tablepatch`, 11 of 11 on RIGHT, 2026-11-10).
+   **Four things the first 22 minutes leave to watch** (`HANDOFF.md` §73's last block;
+   `captures/2026-11-10-apk063/final-check-findings.md`):
+   (i) *a box that goes out as pixels.* Music's forward-plane box (248×246) shipped whole, 2.5–2.8 KB, on each of
+   the three paints that held host-drawn characters — once for two characters, twice as a gesture's first
+   flush (12 proof misses in the 22 minutes). Cause not established. The read that splits it: the same box opened
+   with `unpacked` 0 — a few hundred bytes of draws means the host characters cost it (0.63's packing), about
+   2.5 KB with `proof` means the box's own;
+   (ii) *the read-back runs ahead of the count.* Entries went live on a read-back that showed the generation
+   one or two short 13 times in the 22 minutes (4 of the first 7 read-backs; the note says "pending, asked
+   again in 500 ms"); every write was counted later (all 23).
+   That is the measured side of item 12's question (prove a patch by the count before it draws). Outside the
+   Reader the "asked again" re-read does not run, so there a write that never landed would leave only an
+   unresolved `pending` note;
+   (iii) *the phone's CPU.* On the Music time tick `handlerMs` reads 25 / 31 ms (median / p90) on 0.63 against
+   14 / 19 on 0.57 the same afternoon — not like for like (0.57's atlas had been dropped by the self-test; a
+   freshly installed APK is one of ten candidates). The like-for-like is 0.63 itself with Global `Cached text`
+   off, then on, Music playing — his switch. `textMs` times the host's draws only, not the layout walk. **The
+   number to watch over a day: the first flush's `handleMs` + wait for input-started bursts, per window,
+   against the ~250 ms bar** (210 ms median, n=5, in the first minutes);
+   (iv) *the link per KB at work.* 60–72 ms/KB that afternoon on both builds (0.57's regime flipped seven
+   times in two hours; 0.63 went SLOW at 17:25:11 on 72 ms/KB, n=9) against 32–38 at home and the day before,
+   the floor unchanged at 55–58 ms. Whether that is the place or the day is unread; it bears on item 12's edges
+   (65 / 35) and on item 13's link question.
 
 Phase 2 is on the glasses and first light is green (§65). Reader's page staging is built and read once on glass
-(§66, §66.1). **The status cell is built (§69); APK 0.63 is staged (it carries 0.62's §72 work, 0.61's streamed journal route
-and 0.59's staging fixes). The phone was still on 0.57 on 2026-11-10.** After installing: the session start's
+(§66, §66.1). **The status cell is built (§69); APK 0.63 (it carries 0.62's §72 work, 0.61's streamed journal route
+and 0.59's staging fixes) is INSTALLED since 2026-11-10 17:16 (0.57 until then).** After installing: the session start's
 `queue` journal note says what was held or dropped while down; the shelf should come up at once with the PC away. The glasses ran flat in an unplugged case on 09-21 (§70): Adam ruled a
 low-battery phone notification and a rest mode in the case, both designed and not built (item 10). Nothing needs
 flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) binds every build.
@@ -178,7 +213,7 @@ flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) bin
 2. **Page staging on glass, second read (0.63, which carries 0.59's fixes; §66.1) — Adam's read.** The first read (0.57): a staged notch 12 B / 79 ms ack
    against 2.7 KB / 307 ms for pixels — and the ledger crying wolf (bumps land up to ~1 s after the ack), strips of
    12–34 KB against a 32 KiB reserve (still crying on 0.57 on 2026-11-04: "the generation 2 short … never landed — 1
-   record(s) dropped"). With 0.63 installed, arm PRESENTED (`probe:flags=0x8005`), open the book, read: the
+   record(s) dropped"). With 0.63 installed, arm PRESENTED (`probe:flags=0x8005` — a probe: Adam's word first; flags in force read 0x4), open the book, read: the
    `stage` notes (proven · pending · shortfall · off — a shortfall now means it), the `page staging:` line, the
    notches' WAIT column by shape, the worker µs of a staged notch (`present` records, the record's decode cost), the
    atlas churn now at 96 KiB (on 0.63 a face is packed with what it draws: §73). Adam's eye: a notch that lands
@@ -211,8 +246,8 @@ flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) bin
    against the C's expectation) rather than on sleeps; a vector's live writes drop the shell's atlas for the session
    and nothing presents during a step, so run it in a quiet minute.
 9. **The cache's size (§67; the demand is measured, §66.1):** the glyph-subset packing is BUILT (§73: a face ≈3 KB
-   against 16, M on AWT; not yet on glass) — a day's read of the atlas churn on 0.63 comes first; then op 5's cap → 256 KiB and a largest-block telemetry
-   figure ride in Phase 3's candidate (`FORK.md` Phase 3) — a flash of their own only if the read on 0.62 / 0.63 shows staging
+   against 16, M on AWT; on glass since 2026-11-10 17:16, first look only: nine faces in 25 KB after 22 minutes) — a day's read of the atlas churn on 0.63 comes first; then op 5's cap → 256 KiB and a largest-block telemetry
+   figure ride in Phase 3's candidate (`FORK.md` Phase 3) — a flash of their own only if the read on 0.63 shows staging
    starved. Before that budget: fields 7–9 journaled before the carrier CREATE, after it and after the first frame
    (where the carrier's two buffers live is U again, `CLAIMS.md`). **With it in that candidate (§68): a deflated cache
    write** (cache writes were 61 % of the image lane's bytes, deflate takes 43 % off); the kept compression context only
@@ -238,7 +273,7 @@ flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) bin
    also read the phone side's key-level handshake line (`/log`, `sync:`).
 
 12. **Adam's calls from §73 (made unattended by the lead — `HANDOFF.md` §73's "For Adam" block has the eight
-   with their reasoning, its "Not built" list the rest; 0.63 is staged and each call is reversible):** exactly what is packed (what a
+   with their reasoning, its "Not built" list the rest; 0.63 is installed, and each call can still be changed in a later build):** exactly what is packed (what a
    face drew, the digits, the space, the capitals for running text) and whether to add a row that packs whole
    faces; in-place table patches promoted on the ack and a read-back — whether a patch must be PROVEN by the
    generation count before it draws (today a dropped patch would draw a tofu box); a full cache evicting for a
@@ -248,9 +283,10 @@ flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) bin
    ~2.5 s); the dev key `simContract`. From "Not built": the estimator's edges (65 / 35 ms/KB) now that it reads
    medians; persisting the learned character sets across APK restarts; and the four statements that describe
    the code before §73 — `DESIGN.md` §6.3 (the old estimator), its Cached text row, the `CLAUDE.md` line "upload
-   the atlas once per lease" and its twin in `overview.md` §4 — left as they are for his ruling with 0.63 (§6.3
-   and "once per lease" are what 0.57 and 0.62 do, repacks apart; the Cached text row has been behind since
-   Phase 2: kerning, the 160 KiB cache, per-lens draws).
+   the atlas once per lease" and its twin in `overview.md` §4 — left as they are for his ruling on these calls,
+   not for the install: **the installed 0.63 no longer matches them** (it wrote the cache 23 times in one
+   lease in its first 22 minutes; the "must not undo" list above describes what runs). The Cached text row
+   has been behind since Phase 2 (kerning, the 160 KiB cache, per-lens draws).
 
 13. **2026-11-09/10: the slow stretches, the two silent modes, and a Silent Mode the phone was never told of
    (`HANDOFF.md` §73 addendum, `CLAIMS.md`; the tails and logs in `captures/2026-11-09-journal/`).**
@@ -332,7 +368,7 @@ per-gesture section judges every window (§42).
 | 8 | **Chrome legibility** at the real faces on glass | renders cannot answer it |
 | 9 | **WEA/CMAS visibility to a normal Android app** (Pixel 10a) | `DESIGN.md` §4.5's emergency promise rides on it |
 | 10 | **Connected RSSI** on glass | the status bar's link cell |
-| 15 | **Is the sid-0x01 prelude required** by the CFW before CREATE? (graded U) — **the eaten CREATEs have another cause (§74): the parser drops a CREATE while app 0xE0 is still registered**; what clears it is unread | three eaten CREATEs per cold start ≈ 6 s (§34.3) |
+| 15 | **Is the sid-0x01 prelude required** by the CFW before CREATE? (graded U) — **the eaten CREATEs have another cause (§74): the parser drops a CREATE while app 0xE0 is still registered**; what clears it is unread (0.63's first start, 11-10 17:16: five re-sends, 10 s, acked 1.5 s after a SYSTEM_EXIT event — n=1) | three eaten CREATEs per cold start ≈ 6 s (§34.3) |
 | 21 | **Temple long-press accident rate** (gloves) | §1.2's bare-long-press no-op guards it |
 | 24 | **Does the firmware enter Silent Mode by itself** (wear detection, idle)? | the journal will say |
 | 25 | **The arm rebuilds' cause** (§42.2) — **they are REBOOTS** (F1.2's uptime, §65: five on 2026-09-16, all in the case, three of them 5–7 min after docking, uptime ≈100–105 min at each; LEFT's uncounted) | **the case's top-up cycle (I, strong: §70 — every ~100 min the battery dipped to 98–99 %, a `charging` reading followed, the glasses rebooted; the cycle stopped the hour the case's own battery ran out, and so did the reboots)**; a stock in-case restart on charge start is the mechanism (U) |
@@ -435,7 +471,7 @@ desktop/build/install/desktop/bin/desktop --selfcheck # after ./gradlew :desktop
 python3 tools/lint.py                                 # SYM/GEO/BUD, exits 0; --selftest names what it covers
 TOKEN=$(python3 -c "import json;print(json.load(open('/home/user/.damage/config.json'))['token'])")
 curl -s "http://aphone:7403/journal?token=$TOKEN&tail=2000000" | python3 tools/journal_report.py -   # the phone's journal (its last 2 MB: 6 h of a busy day, a day of a quiet one), per-gesture numbers included; since §66 a `page staging:` line
-                                                      # ⚠ KEEP &tail= while the phone is on 0.57: an APK before 0.61 ends its process on a whole-journal fetch (§71)
+                                                      # the phone runs 0.63 since 2026-11-10, which streams the journal; keep &tail= anyway (the file is large), and ALWAYS on a build before 0.61 — it ends its process on a whole-journal fetch (§71)
 curl -s "http://aphone:7403/log?token=$TOKEN&tail=400"                                 # the phone's log (0.41+), no adb
 python3 tools/glassdrive.py aphone $TOKEN --pace 2.5 double wait:3 snap:/tmp/a.png …    # drive the glasses; snap before every tap
 python3 research/verify_cfw.py                        # before any flashing conversation: the a5d1c31 image's provenance (the rollback behind Phase 1's); the INSTALLED image is the fork's — tools/verify.py below

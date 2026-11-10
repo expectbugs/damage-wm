@@ -5635,7 +5635,7 @@ kerning at all.
   lease": a face now gains glyphs through the lease; `overview.md` §4 has the same sentence) describe the code
   before this section. §6.3 and "once per lease" are also what the installed 0.57 and the staged 0.62 do
   (repacks apart); the Cached text row has been behind since Phase 2 (kerning, 160 KiB, per-lens draws). They
-  change with Adam's word on 0.63.
+  change with Adam's ruling on these calls — 0.63 is installed since 2026-11-10 17:16 and no longer matches them.
 - Anything that needs a flash; `REMINDER.md` item 10.
 
 **The instruments.** The fork's patch sources and the simulator did not change, so the differential fuzz (§65's
@@ -5647,14 +5647,15 @@ steps; the C wrote their expectations, the self-test form runs 22) and by `Confo
 1. *Staging 0.63.* Built 2026-11-09 and kept beside the staged build; **staged 2026-11-10 15:06 on Adam's word**
    (the afternoon block near the end of this section), the 0.62 it replaced kept as
    `~/.damage/backup/damage-wm-0.62.apk`. Never `:phone:stageApk` unless a new build is meant to be staged: it
-   stages whatever the tree builds. Committed as `6bba881` the same afternoon; the PC service was not touched.
+   stages whatever the tree builds. Committed as `6bba881` the same afternoon; the PC service was redeployed from `de67f99` at 17:18 on his word.
 2. *Exactly what is packed.* What a face drew, plus the ten digits, the space, and the capitals for running
    text (13 lower-case and 8 capitals drawn). The alternatives priced: ASCII whole 7.8 KB a face, classes 6.5,
    as drawn 3.0. There is no row to pack whole faces; one would be a `Cached text` third value.
 3. *In-place table patches, promoted on the ack and (on the glasses' build) a read-back.* Proving each patch by
    the generation count is the stricter rule and is not built (above). Until it is, a patch the glasses dropped
    would show as a hollow box in place of one character; the journal's only trace would be the stage ledger's
-   shortfall note at its next settled reading ("atlas chunks were among the writes"), which re-sends nothing.
+   shortfall note at its next settled reading ("atlas chunks were among the writes"), which re-sends nothing —
+   and that reading happens only with a document staged in the Reader (elsewhere: an unresolved `pending` note).
 4. *A full cache evicts for a face in use that needs glyphs*, as it does for a new face, and the faces nobody
    is drawing wait out the 45 s pace and the last 4 KiB.
 5. *The cache's metric for layout whenever Cached text is on* — and the host drawing by it while a face is not
@@ -5850,7 +5851,8 @@ checkers then read the corrections themselves (33 findings: the Silent Mode entr
 touch-end, 0.57's regime notes were five, a gate's wording in `CLAUDE.md` restored, the recipe's ports and
 shelf, older `REMINDER.md` lines); what was corrected after THAT pass is unread by anyone but the lead.
 
-**2026-11-10, afternoon — Adam's second answer, the commit, the table patch read on glass, 0.63 staged.**
+**2026-11-10, afternoon — Adam's second answer, the commit, the table patch read on glass, 0.63 staged, installed
+and first read, the push, the PC deploy.**
 - **His word:** "I wear my glasses during the drive, the case never leaves home"; he will "press both temples
   before I drive away, around 10:30pm tonight". So on 11-09 the glasses came off the charger when he left home
   (about 13:30) and were on his face, silent by his account, until he woke them at work. **That makes the
@@ -5863,8 +5865,8 @@ shelf, older `REMINDER.md` lines); what was corrected after THAT pass is unread 
   went unheard was the first press after the glasses came out of the case. `REMINDER.md` item 13 carries the
   reads: tonight's press, the next first-press-after-the-case, the stock branches of §74 A2, and a second cue
   for the shell so a missed push cannot leave it painting.
-- **Committed on `main` (his word; not pushed):** `6bba881`, the §73 build; the records and the survey in the
-  commit after it.
+- **Committed on `main` (his word; pushed at 17:18, below):** `6bba881`, the §73 build and the only commit with
+  code; the records and the survey in `de67f99` and the documents' commits after it.
 - **The in-place table patch on the glass (M, RIGHT; LEFT runs the same steps and cannot report):**
   `glassdrive.py … selftest:firmware/vectors/v2-tablepatch.json` at 15:05:26–15:05:55 on APK 0.57, started after
   twenty seconds without input: all 11 steps match (scratch CRC, the refusal flag, the refusal record 19/5 on the
@@ -5873,7 +5875,43 @@ shelf, older `REMINDER.md` lines); what was corrected after THAT pass is unread 
   `captures/2026-11-10-selftest/v2-tablepatch-on-glass.txt`. The run dropped that session's atlas, as it says.
 - **APK 0.63 staged at 15:06 (his word):** `~/.damage/damage-wm.apk` is 0.63 (versionCode 63, 27,218,512 B, the
   same bytes as `damage-wm-0.63.apk`); the setup page answers with it; 0.62 is
-  `~/.damage/backup/damage-wm-0.62.apk`. Not done here: the install (his), a PC deploy (his word), a push.
+  `~/.damage/backup/damage-wm-0.62.apk`.
+- **0.63 installed (Adam; the process up at 17:16:22, the session's `build` note 17:16:41.7) — its first 22
+  minutes on glass (M, n=1 session, Main and Music only; `captures/2026-11-10-apk063/`).**
+  - *The start.* A fresh process with no lease on record (the glasses' own lease and cache allocation carried
+    over, status 4), so the whole atlas went up: eight fonts and one icon, 10,748 B resident, live at
+    17:16:43.1 — 1.4 s after the build note; 16,127 B sent by +3.4 s with nine fonts and two icons live. The
+    start before the note had re-sent the carrier CREATE five times, 10 s (§74 A5's class; the five `control`
+    lines at 17:20:59 are those ids coming round, not a fault of the build). The closest pair with 0.57 is the
+    line both journals carry, "8 font(s) and 1 icon(s) packed": 102,612 B at +7.0 s on 0.57's 14:19 wake,
+    10,748 B at +0.33 s here — different windows on screen (0.57's three faces left as pixels were MONO, which
+    this session never asked for).
+  - *Twenty-two minutes (to 17:38:33).* 1,070 flushes, none refused; 23 cache writes, 25,771 B, 2.6 s of acks;
+    24 glyph gains in 16 promotions, each "gaining" note followed by its "gained" (153–642 ms in the first
+    five), no face's codes sent twice; 24,944 B resident of the 96 KiB share; no repack, no "stays pixels", no
+    shortfall, no fault; the glasses' count agrees with every write (cacheGen 3601 → 3624); the refusal record
+    stays 120/8 from the session's first second, as on 0.57's starts. The host drew 361 characters for want of
+    a glyph, on 25 of 1,047 display flushes (the count is draws per paint, not distinct characters).
+  - *The estimator.* "unmeasured" at the start, "measured — transfer 38 ms/KB (n=8), floor 43 ms (n=3): fast"
+    4.9 s in, and one flip: SLOW at 17:25:11 on 72 ms/KB (n=9), floor 55. 0.57 had flipped seven times in the
+    two hours before the install on about 60 ms/KB with the same floor: the link per KB at work that afternoon
+    read about twice what it read at home and the day before. Why is unread.
+  - *Left to watch (`REMINDER.md` item 0 has the reads).* (i) Music's forward-plane box (248×246) went out
+    whole as 2.5–2.8 KB of pixels on each of the three paints that held host-drawn characters, twice as a
+    gesture's first flush; 12 proof misses in all; cause not established (ten candidates in
+    `final-check-findings.md`). (ii) Entries went live on a read-back one or two short of the generation count
+    13 times (4 of the first 7 read-backs); all were counted later. This is the accepted exposure of "For Adam"
+    item 3, measured for the first time; and outside the Reader the note's "asked again in 500 ms" does not
+    run, so there the ledger cannot name a write that never landed. (iii) `handlerMs` on the Music time tick:
+    25 / 31 ms against 0.57's 14 / 19 the same afternoon, not like for like (0.57's atlas had been dropped by
+    the self-test; a freshly installed APK is one of ten candidates). `textMs` times the host's draws only —
+    "For Adam" item 5's "`textMs` says how much" covers half of that cost; the layout walk is not journaled.
+  One evening of use and a wake after a drive come before any conclusion.
+- **Pushed and deployed (his word, 17:18):** `origin/main` at `de67f99` at 17:18:28 (the documents' commits
+  after it change no code); `./gradlew :desktop:stageJar` then
+  `sudo rc-service damage restart` — the jar's stamp `de67f99 2026-11-10T17:18:39`, the JVM up at 17:18:52 with
+  §72's flags, ports 7300 / 7401 / 7403 / 7404 its own, the phone's files, feed, torrents, music and tmux
+  channels attached within seconds, standby up and not claiming, nothing in the log but start-up lines.
 
 ## 74. Upstream and official firmware since 2026-09-19, read against our open items (2026-11-10)
 
