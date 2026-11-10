@@ -27,8 +27,9 @@ rebuild are the only work until its Phase 8 closes) → `FIRMWARE.md` (wins on t
   emit and pinned by `GeometryTest`.
 - `python3 design/render_shots.py` after any design change; read the numbers. Everything renders at
   **true 1× 640×480**: a 2× view flatters delicate type and misled us for several passes.
-- `python3 research/verify_cfw.py` before any flashing conversation (offline; the INSTALLED image is
-  reproducible from held sources and carries no Thumb-bit defect). **For a fork candidate:**
+- `python3 research/verify_cfw.py` before any flashing conversation (offline; the upstream a5d1c31 image — the
+  rollback behind Phase 1's — is reproducible from held sources and carries no Thumb-bit defect; the installed
+  image is the fork's `48172b62…`, which the command below checks at the fork's HEAD). **For a fork candidate:**
   `(cd ~/damage-cfw && python3 tools/verify.py)` — the pin, reproducibility with our clang, the Thumb-bit
   audit, the size guard and the list of changed sites, reviewed against `FORK.md` §3.1 (no new site on a
   boot-time path).
@@ -189,7 +190,8 @@ Every high-frame-rate claim we investigated traced to the EvenHub simulator (≈
 hardware holds 4; no BLE bottleneck). Never cite a performance number without knowing whether it came
 from hardware; preserve `overview.md` §5's measured-vs-modeled labels. `overview.md` §5.2's
 `ms ≈ 60 + bytes/50` is PC-direct and four hours of one session (`HANDOFF.md` §31.6); the daily path is
-the phone's (~70 ms + ~120 ms/KB). **Price with `REMINDER.md`'s table.**
+the phone's (~70 ms + ~120 ms/KB on 1M; the per-KB term about halved on the Phase 2 build's LE 2M). **Price
+with `REMINDER.md`'s table.**
 
 ## The Three Absolute Rules
 
@@ -262,7 +264,8 @@ errors" is how a bogus "10 fps" got into the world).
 
 ## Latency standards (`HANDOFF.md` §37; `WINDOWS.md` §6)
 
-The daily path is the phone's radio: ~70 ms per flush plus ~120 ms per KB.
+The daily path is the phone's radio: ~70 ms per flush plus ~120 ms per KB on 1M — the per-KB term about halved on
+the Phase 2 build's LE 2M (`REMINDER.md`, measured).
 - **A gesture is priced by its FIRST flush**: its bytes plus one floor. Make it small (a mode-9 translation
   ~40 B, or a strip); the heavy fill follows. Measure with `tools/journal_report.py` — **price against its
   WAIT column, not the ack** (§64.4); a list notch at 0.8 s is a defect.
@@ -284,9 +287,11 @@ The daily path is the phone's radio: ~70 ms per flush plus ~120 ms per KB.
   Bluetooth.
 - **Subscribe to RIGHT for async events** (Left is silent; only RIGHT can send). **Bulk pixels → LEFT,
   control + events → RIGHT** (Faceclaw's split; runs daily; graded strong, not proven optimal).
-- **BLE:** MTU 247, **1M PHY** (the glasses advertise no 2M; the fork's link edits ask anyway), ~232 B per
+- **BLE:** MTU 247, **LE 2M on both arms on the fork's Phase 2 build** (the phone asks at every session start;
+  1M on stock and a5d1c31), ~232 B per
   AA fragment; 7–13 KB/s measured end-to-end PC-direct (~10× under spec, cause unknown — `overview.md`
-  §5.1); the phone path is ~8 KB/s (one packet per 30 ms event, `HANDOFF.md` §54.4).
+  §5.1); the phone path was ~8 KB/s on 1M (two 247 B packets per served connection event, LEFT served every
+  60 ms in the busy sessions — `HANDOFF.md` §54.4).
 - Phone: Pixel 10a. PC: beardos (Gentoo, OpenRC, Portage). PC-direct BLE is hardware-proven (BlueZ 5.86 via
   `bluez-dbus` + `dbus-java`, both MIT — `desktop/BlueZLink.kt`). Flashing goes through
   `reference/g2flash/g2flash.py` PC-direct.

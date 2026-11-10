@@ -11,8 +11,8 @@ glasses. Plain wording throughout.
 **Status 2026-09-16:** v1 is the installed base (g2flash `a5d1c31`), pointed at in §2. §0 and §3 (the Phase 1
 extension: DamageCaps, telemetry, flags, the presented notify, cache-keep, the self-test) are **installed on Adam's
 pair since 2026-09-15** (fork pin `c5e4f8b7…`, `HANDOFF.md` §55); the boot count stays withdrawn (§11). **§4 is built
-on both sides (Adam's word on `HANDOFF.md` §57's decisions; fork pin `48172b62…` after the fourth review, `HANDOFF.md` §60–§64), not flashed:** the
-host C, the simulator and the v2 vectors agree; the glasses' turn comes with the Phase 2 flash. §5–§8 are the decided
+on both sides (Adam's word on `HANDOFF.md` §57's decisions; fork pin `48172b62…` after the fourth review, `HANDOFF.md` §60–§64) and installed on Adam's pair since 2026-09-16 (`HANDOFF.md` §65):** the
+host C, the simulator and the v2 vectors agree, and the on-glass self-test ran the same day (`CLAIMS.md`). §5–§8 are the decided
 shape only. **Only the RIGHT lens can send** (`CLAIMS.md`): every reply and notify is
 RIGHT's; the left lens's state is inferred from the same writes. CACHE_KEEP stays unarmed (the atlas skip is the
 phone's bounded one, §3). A section marked *draft* may change until its phase's test stop passes; after that it
@@ -193,7 +193,7 @@ Cache offsets are **u16 in 4-byte units** (`off4`, reach 256 KiB); the phone kee
 |---|---|---|
 | **17** image draw (`0x91` per-lens) | `off4 u16 · x s16 (or xL s16 · xR s16) · y s16 · options u8` | draws a **v2 image record** at (x, y); anything outside the panel or the clip is dropped, negative x and y allowed — a progressive blit or a scroll inside a tall record is a clip plus an offset; options as v1 (top nibble, bit 4 transparent, bit 5 inverse) |
 | **18** string draw (`0x92`) | `font off4 u16 · x s16 (or xL · xR) · y s16 · options u8 · len u8 · bytes` | mode 14 with the **224-entry table** (codes 32..255, Latin-1, entry `code − 32`); glyphs are v1 records, advance = glyph width; bytes 1..31 = x adjust `b − 11` (the phone computes pair kerning and emits adjusts), 0 refused; the whole string validated before a pixel |
-| **19** cache write v2 | `{ off4 u16 · len u16 · data }…` | mode 12 with `off4` offsets over the session's cache size (op 5); the whole list validated first, in this order: every entry's shape inside the message (1), the lease (3), DRAW2 (9), every entry inside the cache (5); a list with no data is then accepted and writes nothing; the first write allocates the cache (11); bumps the generation |
+| **19** cache write v2 | `{ off4 u16 · len u16 · data }…` | mode 12 with `off4` offsets over the session's cache size (op 5); the whole list validated first, in this order: every entry's shape inside the message (1), the lease (3), DRAW2 (9), every entry inside the cache (5); a list with no data is then accepted, writes nothing and does NOT bump the generation (the handler returns before the bump — mode 12 the same; read 2026-11-09, `HANDOFF.md` §73); a list with data allocates the cache on its first write (11), is written in order as plain copies — a later entry, or a later message, may overwrite bytes written earlier, which is how a font table is patched in place — and bumps the generation once per message |
 | **20** clip (`0x94`) | `rect` (or `rectL · rectR`) | only inside a batch: the v2 draws, fills and LUTs (17/18/21/22) after it in the same batch stay inside it — a later clip replaces it; the batch's end resets it (the clip is batch context on the worker's stack, so it cannot leak); outside a batch refused (10); the v1 ops and mode 23 ignore it |
 | **21** fill (`0x95`) | `rect` (or pair) `· level u8` | nibble-exact fill 0..15, no fid, no zlib — the strip after a copy, a popover's hole, a background |
 | **22** LUT over rect (`0x96`) | `rect` (or pair) `· lut 8 B` (16 nibbles, entry i in nibble i, the high nibble of a byte first — the packed rows' order) | every pixel p becomes lut[p]: dim, brighten, invert in place — the dim behind a deck that `POPOVER.md` verdict 3 priced at +0.5 s is ~20 B in the deck's own batch |
@@ -252,7 +252,11 @@ from the same 322 KiB.
 **The phone side (built 2026-09-15 evening, `HANDOFF.md` §60; gated on DamageCaps bit 5 with DRAW2 in force):**
 the transport's start takes the cache size (op 5, 160 KiB) and arms DRAW2 before the shell paints; the atlas is a
 v2 layout over that size (records 4-byte aligned, 224-entry tables with Latin-1 glyphs, icons as v2 records,
-mode-19 chunks); the compositor ships a rect of cached text on a depth plane as one stereo base delta at each
+mode-19 chunks); **since `HANDOFF.md` §73 (2026-11-09; APK 0.63, staged 2026-11-10 — the table patch itself read on glass that day: `v2-tablepatch`, 11 of 11 on RIGHT) a table names real glyphs only for the characters its face
+has drawn, plus the digits, the space and — for running text — the capitals (`CachedText.codesFor`)** — every other entry names one shared tofu record, and the phone never sends a string holding an
+unpacked code — **and a face gains glyphs in place**: one mode-19 message (more when the new records exceed a chunk; the table's units ride in the last) appends the new records at the end of the
+packed bytes and rewrites the 4-byte units of the table that hold their entries (on contract 1, mode 12 rewrites
+the 2-byte entries themselves, at byte offsets); the compositor ships a rect of cached text on a depth plane as one stereo base delta at each
 lens's box plus the draws placed per lens by modes 17/18 — no widening, no `CopyPair`, no context retry, so the
 `edge` and context-caused `proof` misses go; a black box is a mode-21 fill (no fid); a reseed (the height switch,
 the exclusive exit, a font-scale relayout) is a whole-panel fill plus the diff's draws, never a keyframe; a flush
@@ -284,7 +288,10 @@ refused write leaving its good entry unwritten, per-lens pairs refused whole on 
 edge, a refused capture keeping its slot, a restore and a v1 copy ignoring the clip, length before batch, the high bit
 ignored on 24/23/19) · `v2-lifecycle` (`[16]` alone, op 5 below 64 KiB, DRAW2 before bounds and records, mode 19's lease
 and empty list, the size asked for gone under a latched CACHE_KEEP, the slots freed by a release and by mode 11, mode 7
-sub 0 clearing the record).
+sub 0 clearing the record) · `v2-tablepatch` (`HANDOFF.md` §73, 11 steps: a 224-entry table whose unpacked entries
+all name one tofu record; one message that appends a record and rewrites the unit holding its entry and its
+neighbour's; a patch with nothing appended, naming a record already there; the table's last entry, code 255; per-lens
+draws; a two-entry message whose last entry leaves the cache refused whole, the table entry before it not applied).
 A step's expectation now carries `ref` = [mode, reason, sequence, status] beside the CRCs and return codes. The
 self-test form runs every drawing vector (v1-cache too): a cache write is sent live, the control ops before the begin,
 a vector that releases the lease has none, and the refusal's sequence (the live count) is not compared.
@@ -401,7 +408,10 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   edges, overlapping and odd-coordinate copies, a batch, refusals (out of bounds, a repeated fid, a
   batch with a non-shadow sub-message that has already changed the shadow), the texture cache
   (options, clipping, an x-adjust byte, a refused string), the lease (renewal keeps the cache, a
-  lapse refuses and frees it). **The simulator matches the C on every step, both lenses.**
+  lapse refuses and frees it). **The simulator matches the C on every step, both lenses.** Since then
+  `v1-stream` (§64) and `v1-tablepatch` (`HANDOFF.md` §73, 11 steps: the v1 twin of `v2-tablepatch` — a 96-entry
+  table at an ODD byte offset, a record and its 2-byte entry in one mode-12 message, a patch-only entry, code 126,
+  a two-entry message refused whole).
 
 ## 10. Lifecycle
 
@@ -496,3 +506,9 @@ phone's keeper applies the hold-back rule before re-arming.
   are recorded; mode 24's partial call is a Damage job's own (0, 0, 0, y0, 640, y1), and the refresh is full after a frame
   the panel-off path never transferred or while the overlay shows; §4 states each op's order, the v1 modes' order as
   built, the ignored high bit, and that a batch is not all-or-nothing. Contract version unchanged (not flashed).
+- 2026-11-09 — the phone code packs a face with the characters it has drawn and patches its table in place
+  (`HANDOFF.md` §73; APK 0.63, staged 2026-11-10; `v2-tablepatch` ran on glass that day, 11 of 11 on RIGHT). No wire shape changed and nothing was flashed; contract version unchanged. §4 states what
+  the handlers already did: a cache write is a plain copy that may overwrite, a list is refused whole, and a list
+  with no data is accepted without a generation bump (§65 had read the last as a message lost on the glass; it
+  was the self-test driver's expectation). Two vectors added (`v1-tablepatch`, `v2-tablepatch`; 28 in all), the
+  other 26 byte-identical from the C.

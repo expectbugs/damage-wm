@@ -5319,3 +5319,669 @@ strong). But two real edits within the error of each other would be decided by n
 **Proposed, not built (Adam's call):** treat stamps within the handshake's measured round trip as equal, or keep
 each record's origin stamp verbatim and compare those.
 
+
+## 73. The atlas packs what a face draws and grows in place; the link estimator reads isolated flushes (2026-11-09)
+
+Context for the reader: a personal device; Damage's phone and PC code (Kotlin), its tools and records. Damage
+only: no firmware change, nothing flashed, the fork untouched (its host build wrote two new vectors' expectations
+into this repo). Built in one unattended session at Adam's word ("complete the latency optimization"); **every
+design call below is the lead's, not Adam's — the list for his review is the "For Adam" block, before the
+addendum.** Nothing here has run on the glasses.
+
+**Scope.** The two phone-only items §66 left (`REMINDER.md` items 2 and 9): the atlas's glyph-subset packing and
+the link estimator's regime flips. Item 10 (the low-battery notice, the rest mode) is not in this work.
+
+**Read first: the phone's journal (M; APK 0.57, a 2 MB tail, 2026-11-09 08:47–15:14; LE 2M on both arms from
+12:06:36; the tail holds no `connection parameters` note, so 15 ms / latency 1 is the last value on record, taken
+as unchanged — I).**
+- A face on the v2 tables is 13–17.6 KB (SYSTEM 15 bold 13,319 B; SYSTEM 18 bold 15,900 B). Nine fonts and two
+  icons were 123,836 B of 0.57's 128 KiB share.
+- Two repacks. 12:06:36, 0.57 s after "kept across the rebuild … 0 B to go again": every face off for 4.9 s,
+  77.6 KB re-sent. 14:17:09: 13.5 s, 102.8 KB. 0.57's ledger then switched cached text off at 14:17:50 (the fix
+  for that is 0.59's, in 0.62+).
+- The atlas's traffic: 224,272 B in 76 messages, 19.4 s of acks; about 68 % of it rewrote bytes the glasses
+  already held. 24 flushes waited behind a cache write (median 258 ms).
+- The estimator's notes: fast 34 ms/KB at 12:06:37, SLOW 66 ms/KB (floor 112) at 14:18:00, fast 32 at 14:20:26.
+  **Both flips followed a real change in delivery**, 13:33–14:20: the floor ×2.1 and the per-KB term ×2.2 with
+  no parameter change journaled (the window is Adam's drive to work; the mechanism is U — the addendum
+  below; the 12:06:37 note is itself a flip out of a SLOW that 0.57 had held all morning). The estimator's own defects are separate, below.
+- 2,949 of the 2,952 acked WINDOW flushes between 08:47 and 14:16:49 were chrome only (under 400 B, nearly all
+  the 5 s status tick), so the report's WINDOW row
+  (3,234 bursts) read 58 B / 64 ms and said nothing about a gesture.
+
+**Sizes (M on desktop AWT, a scripted 35-face walk; the phone's faces are ≈0.88× these).** A face packed whole
+(Latin-1) 16.3 KB; ASCII only 7.8; closed over character classes 6.5; exactly what it drew 3.0. The 96 KiB share
+holds 7 / 13 / 17 / 31 such faces (14 with the one Latin-1 code added to ASCII). Boot plus Main's eight faces: 116 KB whole, 29.5 KB as drawn. The one
+Latin-1 code the walk drew was U+00B7.
+
+**Built.**
+1. **A face is packed with what it has drawn** (`CachedText.codesFor`): its characters, all ten digits once it
+   has drawn one, the space, and every capital once it has drawn 13 distinct lower-case letters and 8 distinct
+   capitals (running text: before this rule a book's first 25 notches gained thirteen capitals in ten cache
+   writes — sim). Every
+   other table entry names one shared tofu record. The per-face sets (`chars`) live for the process, bounded to
+   the 256 faces last drawn.
+2. **A code the entry does not pack is the host's pixels on that flush.** The recorder splits a string on
+   `Entry.packs` (the entry in force, not the contract's range); the run after a host-drawn character keeps its
+   first 4 columns un-blacked (`TextDraw.keep`: the host glyph's overhang); both emit paths refuse a run the
+   entry does not pack (`glyph-not-packed`). `Entry`'s constructor checks flags, images and glyph map against
+   each other.
+3. **A resident face gains glyphs in place** (`GlyphAtlas.extend`, `TextureCache.Builder.extendFont`): the new
+   records go at the end of the packed bytes and the face's table entries are rewritten where they are —
+   normally ONE cache-write message (v2: whole 4-byte units; v1: single 2-byte entries). One extension per face
+   at a time; the codes that turn up meanwhile go in the next. Priced before anything is written; a face whose
+   new glyph is byte-identical to the record its entry already names is live with nothing sent. Promotion
+   (`promote`) is on the loop, after the ack and — on a build that can answer, which the glasses' is — a
+   read-back; on the upstream contract after the ack alone, as a font's first upload is there. Nothing is
+   repainted for it.
+   A fresh table per extension was priced and dropped: 448 B stranded each time, ~89 KB over the walk's ~200
+   events.
+4. **The read-back gate counts messages as well as bytes** (`GlyphAtlas.ackedMsgs`, per atlas, never reset): a
+   patch-only extension moves no byte mark. `atlasGrow`'s held path goes through the gate too (it could put acked
+   fonts live with a read-back still on its way).
+5. **The lifecycle.** A lapse folds every pending extension into its face in place; a repack folds BEFORE it
+   rebuilds; a rewind (a link end, an undelivered message, the row off) resets them to "not sent" and starts a
+   new upload generation, so a late ack of a message cut before it completes nothing; `atlasDisable` rewinds
+   (it left stale chunk ends). While the lease is gone `pumpAtlas` neither grows nor sends.
+6. **A full cache.** A face in use whose new glyphs do not fit evicts the faces nobody has drawn for 12 frames,
+   exactly as a new face does (same pace, same "only if it frees enough"). A face still refused is tried again
+   a window of frames on while it is drawn, and when it is drawn again after being away. A face nobody is
+   drawing is not packed inside the 45 s after a repack, nor into the last 4 KiB (`ATLAS_GROW_HEADROOM`) — it
+   took straight back the room its own eviction made (sim). "Not now" notes are said once per face and reason.
+7. **A kept atlas keeps its use stamps** (`clearSeen(keepUse = true)`): a session start zeroed them while the
+   frame clock kept counting, so every kept face read as stale until it was drawn again. The 12:06:36 repack
+   came 0.57 s after such a start (n=1); whether the cleared stamps caused it is not established — its four
+   evicted faces had gone hours of chrome-only frames undrawn and would have read as stale either way.
+8. **The layout metric follows the row, not the live state** (`CachedText.cacheMetric`). With Cached text on,
+   every measure is the cache's — each character's own advance plus the pair kerns — live or not. Before, a
+   string measured wider the moment its face went live (each advance rounds up on its own: +15..25 px on a
+   65-character Reader line, M on AWT), no wrap was re-derived, and `Draw.fit` cut the line with the
+   continuation mark: content lost. Seen on the simulator on the old build and the new; not checked on glass
+   (the phone's paint is sub-pixel too). **And what is drawn follows the same walk** (`CachedText.layout`, the
+   one function `measure` and `draw` share): a face that is not live is drawn unit by unit at the cache's pen
+   positions, a host-drawn character inside a live face keeps the pair kerns either side of it, and a unit the
+   host must have whole (a surrogate pair, a letter with its combining mark) goes to it whole. So a string is as
+   wide as it measures in every state and nothing moves when a face goes live. The metric's contract (which
+   pairs kern) is the shell's to set (`metricV2`, with the atlas's contract). The row's change, a change of that
+   contract, and a start whose layout settings differ from the last session's each re-derive every layout.
+9. **The link estimator** (`transport/LinkEstimator.kt`): medians over the last nine ISOLATED flushes per term —
+   the floor from display flushes under 400 B, the transfer term from flushes of 1 KB and more priced against
+   the measured floor (those timed before the floor has three readings are held and priced then). Isolated =
+   every window slot free AND no ack clock open when the lane took the flush. A cache write is never a floor
+   reading. Both terms start over with each session and read their defaults (60 ms, 20 ms/KB) until three
+   readings; the counts ride `LinkState` and the seam. The shell's line (50 ms/KB), hysteresis and dwell are
+   unchanged. The four defects in the EMAs this replaces — three read from the journal: a 33 B flush queued
+   behind a 3 KB chunk moved the floor 117 → 179 ms; one 116 ms/KB reading flipped the regime; an ack under the
+   floor was fed as zero — and one inferred (the tail's first regime note is "fast" at 12:06:37 with no SLOW
+   note before it): a SLOW state that had stood since before 08:47 on a reading older than the tail.
+10. **Staging's re-read has a pump of its own** (`pumpAfter`): a pending reading is asked again 500 ms on, a
+    settled short one a settle window (2 s) on — not at the 5 s idle tick. A write the glasses really did not
+    keep is now called after ~4 s. **And a strip waits for its glyphs** (below, "Found by that walk").
+11. **The packer's key** is the record's bytes, not a hex string of them (the two repacks cost the phone's loop
+    505 and 762 ms, M).
+12. **The journal and the report.** A submit line carries `unpacked` (characters the host drew for want of a
+    glyph) and `in` (a ring event started the flush). Atlas notes name the faces packed, gained, evicted, with
+    the loop's ms. The link note says how many readings each term stands on. `journal_report.py`: the atlas's
+    account, and a burst no input started listed apart.
+13. **Gates.** Two vectors, `v2-tablepatch` and `v1-tablepatch` (28 in all; the other 26 came back
+    byte-identical from the C). The self-check's contract-1 pass gains glyphs in place at boot under the oracle
+    (it gained none before); the contract-2 pass gates on ten promotions. `Config.simContract` (dev): the
+    firmware model a `--transport sim` session runs against.
+
+**What it rests on in the firmware (host C + simulator + the two vectors; not the glass).** A string draw reads
+only the table entries of its own codes; many entries may name one record; a cache write is a plain copy and
+may overwrite bytes written earlier; a list is validated whole, written in order and refused whole (both
+contracts). `v2-edges` overwrote cache bytes on glass on 09-16; a table patch as such has not run there.
+
+**The exposure this accepts (U on glass).** The ack precedes the decode, and the read-back proves the cache's
+presence, size and flags — not that one message was applied. A patch the glasses took the ack for and did not
+apply would draw the tofu box where the new character is, with no refusal recorded. A font's first upload has
+had the same exposure since §63. The mechanism that would close it is the staged records' count rule applied
+to an extension; not built (below).
+
+**A finding beside the work: §65's "one-byte" difference was the self-test driver's.** Both cache-write
+handlers return before the generation bump when a list carries no data (`damage_draw.c`, `texture_cache.c`,
+read 11-09; the simulator the same). `glassdrive.py selftest:` expected a bump for every accepted write.
+`v2-order` step 8 is the only such write in the vectors: the glass did what the C does. The driver is corrected;
+`CLAIMS.md` and `REMINDER.md` item 4 with it. A re-run of that vector on glass would show 20 of 20.
+
+**The envelope (`FORK.md` §3 item 8), as built.**
+- *Cleared when.* `atlasReset` drops the atlas with its pending extensions. A kept atlas, an undelivered
+  message and the row off all go through `rewindToAcked`: every pending extension back to "not sent", a new
+  upload generation. A lapse and a repack fold. `ackedMsgs` is per atlas object and never reset; the gate's
+  marks (`atlasCheckedBytes`, `atlasCheckedMsgs`) reset with the epoch. `chars` outlives sessions on purpose (a
+  face's characters are content); `extRefused` clears at `unrefuseAll` and a repack, `extBroken` at a repack; the
+  two said-sets clear at a repack and a reset. The estimator's rings and the shell's regime state reset at a
+  session start. `cacheMetric` is set from the row at a session start and at the row's change.
+- *Released when the write never succeeds.* An extension rides the atlas queue: a failed flush rewinds and goes
+  again, bounded by `ATLAS_UNDELIVERED_LIMIT`, then cached text is off for the session — the rule the first
+  upload already had. A refused extension is retried a window of frames on while its face is drawn. A paced
+  re-read (`pumpAfter`) gives nothing up when its delay ends and posts only to a running shell.
+- *Identity.* A draw record holds text and spec; the entry is read at the assemble; an entry only ever grows
+  within one layout; across a repack the face leaves the live set first; an ack is matched to its upload
+  generation; an estimator reading to its session epoch.
+- *Other tasks.* `measure` runs off the loop: `atlas` is volatile, `entries` a concurrent map of immutable
+  entries, the advance and kern caches idempotent. `chars` is written and read under the `seen` lock. The
+  estimator is synchronized; the open-clock count is atomic. LEFT cannot report: a patch LEFT did not apply is
+  as unprovable as an atlas chunk has always been.
+- *One read.* `draw` and `measure` read `atlas` and the entry once per call; `noteLinkRegime` reads the link
+  state once.
+- *Siblings checked.* v1 and v2 (table size, unit, mode; a vector each); `emitCachedAt` and `emitCachedV2`;
+  `measure` and `draw`; the three paths that derive the live set (`goLive`, the held path, `atlasKeep`); every
+  `atlasQueue.clear()`; a new face and an extension at a full cache; the pending and the short verdict.
+
+**Measured on the simulator (desktop AWT, a modeled link of 176 ms + 11 KB/s; NOT the glass).** One scripted walk
+— Settings, Cached text on, Main, the Reader, 25 notches — on the deployed jar (`0dd6ba6`) and on the finished
+tree (fresh instances, their Tmux provider pointed at an empty socket directory):
+
+| | old build, contract 1 | this tree, contract 1 | this tree, contract 2 |
+|---|---:|---:|---:|
+| atlas messages / bytes | 39 / 108,732 B | 25 / 31,595 B | 25 / 35,185 B |
+| repacks (every face off) | 2 | 0 | 0 |
+| fonts live at the end | 0 (a repack under way; 7 before it) | 11 | 11 |
+| flush bytes of content after the cache came on | 291,644 B | 226,134 B | 114,321 B |
+| face extensions / promotions | — | 19 / 15 | 18 / 14 |
+| characters the host drew for want of a glyph | — | 122 | 88 |
+| staged notches whose proof refused the record | — | — | 0 (7 before a strip waited for its glyphs) |
+| regime notes on the unchanged link | 6 flips, 29–111 ms/KB, a floor notice | one: 88 ms/KB, floor 198 ms | one: 88 ms/KB, floor 201 ms |
+
+The model's own figures are 91 ms/KB and ~199 ms for a small flush: the estimator reads the link it is given.
+A gesture's first flush on this tree (the report's split rows): 487 B / 228 ms median on contract 1, 442 B /
+226 ms on contract 2 (82 gestures each; the old build's journal has no flag to split by).
+- *One visit to Files, old build and this tree (contract 1):* atlas 61,307 B with a repack against 3,416 B;
+  content flushes 39,986 B against 25,598 B. **The cost that is new:** a rect holding first-seen characters
+  often goes out as pixels once — 16 `proof` misses against 6 on that visit — until the face has gained them.
+  Why such a rect still fails its proof on AWT was not run down (the kept columns make the kerned test rig's
+  rects pass).
+- *Nothing moves when a face goes live:* Font size 100 % → 115 % on the contract-2 instance, the screen 1.8 s
+  after (the new faces' upload in flight, none live yet, the host drawing by the cache's layout) against 10 s
+  later (cached draws): every row's ink extents within 1 px, no pixel in the rows more than one 4-bit level (17
+  of 255) apart.
+- *Cached text off and on mid-session, the book reopened each time* (contract 2, the mid-build tree): the book
+  re-wrapped both ways with no cut line, and the row coming back on re-sent nothing (43,947 B before and after).
+- *Head of line:* on the contract-2 walk 85 flushes were submitted behind a cache write (median 996 ms on the
+  modeled link) — page staging's ~14 KB strips. On the phone's day it was 24. See Not built.
+- *A trap in the rig itself:* a `--transport sim` instance reads the machine's REAL tmux sessions. One of them
+  raised a "wants input" notice on the simulator mid-walk and the walk's taps went to the notice; nothing was
+  sent to a session (the journal shows Settings and the Reader only), and the runs above start the instance
+  with `TMUX` unset and `TMUX_TMPDIR` at an empty directory. **The recipe for a simulator beside the live service**
+  (the service stays up; `CLAUDE.md`'s other way is to stop it): a COPY of `desktop/build/install/desktop`, run
+  with `-Duser.home=SCRATCH`, where `SCRATCH/.damage/config.json` moves the four ports the desktop binds
+  (`setupPort`, `contentPort`, `replicaPort`, `mediaPort` — the defaults are the service's own and a busy port is
+  retried without end; `transportPort` is the phone's seam port, which a sim stack never dials) and `dataDir`,
+  `musicCache`, `feedDataDir` into the scratch home, sets `booksDir` to the real shelf (its default follows the
+  scratch home: an empty shelf), a `token` for `glassdrive.py 127.0.0.1 TOKEN --port <replicaPort>`, points
+  `qbtUrl` and `musicQdrant` at `http://127.0.0.1:1`, `musicDb` at a name that does not exist, `musicSocketDir`
+  and `musicLibraryDirs` at empty directories, sets `feedSources` to `[]`, and for the glasses' build
+  `"simContract": 2`. The config the walks used, with its paths and tokens replaced, is
+  `captures/2026-11-09-session/sim-walks/config.example.json`, beside the walks' scripts and journals. A stray double-tap also put one instance through
+  its silent screen and back with the cache on: it came back drawing from the cache.
+
+**Found by that walk and fixed: a staged strip written before its face gained what it shows.** A strip's render
+is where a book's new characters are first seen. It was written at once with the host's pixels for them; the
+face then gained the glyphs, and the record no longer matched the page: the notch fell back to text draws, the
+stale record stayed resident, and its ~14 KB of cache writes were spent for nothing — three strips per promotion
+of the book's face, seven refused notches in 25. `pumpStage` now holds a strip whose render moved the atlas's
+cues until the atlas has had its turn, and renders it again (one extra render when the atlas cannot give the
+glyph; never a wait): 0 refused on the same walk. Not built beside it: a record already written with host-drawn
+characters is not dropped when a later retry gains them (the proof still refuses it at the notch).
+
+**Battery (2026-11-09 21:00–21:15, the finished tree, uncommitted; run again 2026-11-10 11:59–12:15 after the
+last mutation run had restored the sources — the same counts, and `:phone:assembleDebug` left the APK untouched:
+the saved 0.63 is this tree).**
+- core 699 of 699, twice, uncached and alone (630 before this work); desktop 22
+- `--selfcheck` 3 of 3, 484 checks each (477 before: the contract-1 pass now gains glyphs in place at boot)
+- 57 renders, twice: identical to each other outside the rate cell and what Music's playback position moves
+  (the menu's meter, Music Mode's bars, its scope and time line), and to the deployed build's renders outside
+  those, the clock and two theme icons in Files' locations that resolve asynchronously (the snapshot runs with
+  Cached text off: this work must not move a pixel there)
+- epub 73 books OK, 2,580 / 2,604 images; music, games and feed checks pass; lint 0
+- the fork's host gates: 28 vectors match, the self-test form agrees on 22, `test_damage_ext.py` passes
+- `:phone:assembleDebug` in its own invocation: versionCode 63 / `0.63` (read back from the APK)
+
+**Two general reviews, each finding adversarially verified by a second reader; then no more reading.**
+- *The first* (mid-build; 39 findings, 37 confirmed). The ones that changed behaviour: a refused extension of a
+  face in use was never tried again; a stale face packed straight back into the room its own eviction made; the
+  "not now" notes written every thirteen frames (117 "deferred" and 33 "stays pixels" lines in one self-check
+  pass, beside 215 "cannot gain" lines already paced); the upload cut throwing part-way with chunk ends
+  recorded; the staged-strip relay counted as host-drawn pixels; a gesture's flush journaled as "no input" when
+  it waited for a slot; the Short verdict's new pace and pump having no pin (the pace itself — a settle window,
+  not 500 ms — came from the design review before the build); and seven places where a pin did not read what it
+  named. From one of the two findings NOT confirmed (unreachable with today's rasterizers, guarded anyway): the
+  eviction "for 0 bytes" when a face's glyphs cannot be rendered.
+- *The final one* (the whole tree; 28 findings, 27 confirmed, most of them low). Fixed:
+  - **the one regression of this work:** with the row on, a face that was not live was measured by the cache's
+    metric and still drawn whole by the host — a caret, a terminal's styled run, an underline placed at
+    `measure` sat a few pixels off until the face went live, and for good on a face refused by a full cache
+    (item 8's second half is the fix);
+  - older code this work leaned on: a live face handed the host one UTF-16 unit at a time (a surrogate pair as
+    two halves, a mark with no letter under it);
+  - the metric's contract followed the atlas object (contract-1 sessions on the phone only: an accent's kern
+    counted before the atlas existed and not after);
+  - an adopted start (a pause and resume) reset the regime to "fast" over a link its transport had measured
+    slow; the regime's session reset, the floor watch's guard and the "measured" line had no gate at all;
+  - `in` was left set across a session start (and, by reading, after a gesture that painted nothing); the
+    report glued a gesture onto a burst an earlier gesture's idle tick had extended, and in a journal that
+    holds rows from before and after 0.63 it listed the old rows' idle ticks under the plain label beside the
+    split ones (a journal wholly from before 0.63 cannot be split and still reads 58 B / 64 ms);
+  - the once-per-reason notes had missed the icon line and the "full" episode line; a repack's evicted icons
+    were packed straight back by the same grow (the fonts' rule, now the icons' too);
+  - a typography or Cached text change applied to the store while no session ran reached no window at the next
+    start; a Reader open in flight when the metric changed landed wrapped by the old one; Music's plain-lyrics
+    wrap outlived a layout change;
+  - `glyph-not-packed` was pinned on the contract-1 emit path only, and no gate compared `measure` with a
+    kerned draw (AWT's kerns are 0, so no render can show a kern defect; `Contract2Test.KernText` already kerned
+    the wire's adjust bytes, `KernedText` now carries the layout walk's pins).
+  **What no second reader has seen:** everything changed after that review — the shared layout walk above
+  all, and the staging hold. It rests on its pins, their mutations, the battery and the simulator walks, and
+  then on the glass.
+  One finding refuted, with a residual recorded: frames that repaint only chrome advance the frame clock, so a
+  page left on screen for a minute reads as "nobody is drawing" its faces. An eviction's own repaint stamps them
+  again and the grow re-packs them with the rest; the cost is a second small upload on the new-face path.
+
+**Pins, each watched to fail.** 89 mutations of the new and changed code, one at a time, each run through the
+whole test class of the pin it aims at (the runner and the list: `research/mutate_core.py`,
+`research/mutations-73.json`; `--check` says whether each edit still applies, with no build): 87
+caught, and the two that are not are the first two guards named below. A pin whose comment names a mutation
+failed under that mutation; `LinkEstimatorTest.anInstantLinkStaysFast` is a sanity pin with no mutation of its
+own. Several pins first passed under their own mutation and were rebuilt, or their claim cut back, until they
+did not (what the harness taught, below). `GlyphSubsetTest` ×30 (the atlas and the recorder from the bytes: what is
+packed, the in-place gain replayed into a blank cache on both contracts, one extension per face, the folds, the
+rewind, the emit guards on both paths, the closure rules, the layout walk on a kerning rasterizer and on
+fractional advances, whole units to the host, the metric's contract). `GlyphSubsetShellTest` ×17 on a transport
+whose clock, acks, read-backs and link state the test owns (a first-seen character is the host's pixels and then
+a cached draw, the content equal pixel for pixel to a shell that never used the cache; the read-back gate; an
+undelivered message; a link end; a lapse; the row off and on; the journal's two fields; the metric at a row
+change, at a start, on a contract-1 session; the regime across a session, an adopted start and a default).
+`AtlasRepackTest` +5 (a face in use evicts; a face refused while away; a face and an icon a repack evicted come
+back when drawn again; a face that cannot be rendered evicts nothing). `LinkEstimatorTest` ×9 (three of them beside the
+EMA arithmetic it replaced), `LinkEstimatorWiringTest` ×4. `StagingTest` +4 (the two paces on a PACED link, a
+stopped shell, a strip after its glyphs). `Review47Test` reads the note that names the parameters.
+**Guards with no pin, said plainly:** the term that books no retry for a face whose glyphs cannot be rendered
+(without it: a grow every 13 frames, cost only); the input flag's clear when a pump has room and nothing to send (every ring event leaves a
+flush of its own — the echo — whose submit consumes the flag first: no rig reached the state); the icon and
+"full" note pacing and the once-per-frame look (journal volume and CPU only); the Reader's layout epoch and
+Music's lyric wrap key (their rigs are a window's own); the report and the self-test driver (checked by hand
+on synthetic and saved journals).
+
+**What the harness taught (the rules are in `REMINDER.md`).** An instant link pumps the shell every 50 ms and
+hid a missing pump; the pin moved to a paced link. A pin that WAITS lets an unrelated cue do the mutated code's
+job: the chrome clock's new digit cued the grow one run in three — decide by frames. A rasterizer whose host
+glyphs equal its cached ones cannot show a stale staged record; its journal order can. The desktop has no
+kerning at all.
+
+**Not built.**
+- **Proof that one patch was applied.** The staged records' rule applied to an extension: its face goes live
+  only when the generation count shows its message landed, with a settle window and a shortfall that re-sends
+  the patch. It needs the ledger to count per message, an answer for LEFT (which cannot report), and a bound on
+  re-sends. The exposure it closes is stated above.
+- **The learned character sets do not survive the process.** After an APK restart every face is packed with its
+  first screen and gains the rest again (one small write per new character or group).
+- **A repack that keeps fonts live; a pipelined upload; the wait behind a cache write** (85 flushes behind one
+  on the contract-2 simulator walk, 24 on the phone's day): page staging's strips are the large writes.
+- **A staged record that already holds host-drawn characters is not dropped when its face gains them later**
+  (after a refusal and a retry); the notch's proof refuses it and the strip goes out as text draws.
+- **The base reading of the ledger taken inside a settle window** (it later reads as one "foreign" bump);
+  `stageClear` leaving an in-flight stage write uncounted. Both older, both recorded by the design review
+  before the build.
+- **The frame clock**: it stops while nothing is live and advances on chrome-only frames (above).
+- **A pause taken with a flush in flight** left the resumed shell holding one flush it never completed — seen
+  once in a test rig while writing a pin (older code, the dev handover path); not investigated.
+- **Estimator**: the edges (65 / 35 ms/KB) and whether the floor enters the decision are unchanged; RSSI is not
+  journaled; the slow stretches of 2026-11-09 (the drive, and three more that evening) have no mechanism yet
+  (the addendum).
+- `Shell.atlasPendingSpecs` is written and never read (older). `DESIGN.md` §6.3 (the estimator as an EMA), its
+  Cached text row ("integer advances, no pair kerning") and one `CLAUDE.md` line ("upload the atlas once per
+  lease": a face now gains glyphs through the lease; `overview.md` §4 has the same sentence) describe the code
+  before this section. §6.3 and "once per lease" are also what the installed 0.57 and the staged 0.62 do
+  (repacks apart); the Cached text row has been behind since Phase 2 (kerning, 160 KiB, per-lens draws). They
+  change with Adam's word on 0.63.
+- Anything that needs a flash; `REMINDER.md` item 10.
+
+**The instruments.** The fork's patch sources and the simulator did not change, so the differential fuzz (§65's
+60 × 30) and the fork's mutation sweep (§64's 39 of 106), which compare those two, stand. `wire/TextureCache.kt`
+— the phone's atlas builder — did change; what it now emits is covered by the two new vectors (28 in all, 259
+steps; the C wrote their expectations, the self-test form runs 22) and by `ConformanceVectorTest`.
+
+**For Adam — the calls made without him, each reversible.**
+1. *Staging 0.63.* Built 2026-11-09 and kept beside the staged build; **staged 2026-11-10 15:06 on Adam's word**
+   (the afternoon block near the end of this section), the 0.62 it replaced kept as
+   `~/.damage/backup/damage-wm-0.62.apk`. Never `:phone:stageApk` unless a new build is meant to be staged: it
+   stages whatever the tree builds. Committed as `6bba881` the same afternoon; the PC service was not touched.
+2. *Exactly what is packed.* What a face drew, plus the ten digits, the space, and the capitals for running
+   text (13 lower-case and 8 capitals drawn). The alternatives priced: ASCII whole 7.8 KB a face, classes 6.5,
+   as drawn 3.0. There is no row to pack whole faces; one would be a `Cached text` third value.
+3. *In-place table patches, promoted on the ack and (on the glasses' build) a read-back.* Proving each patch by
+   the generation count is the stricter rule and is not built (above). Until it is, a patch the glasses dropped
+   would show as a hollow box in place of one character; the journal's only trace would be the stage ledger's
+   shortfall note at its next settled reading ("atlas chunks were among the writes"), which re-sends nothing.
+4. *A full cache evicts for a face in use that needs glyphs*, as it does for a new face, and the faces nobody
+   is drawing wait out the 45 s pace and the last 4 KiB.
+5. *The cache's metric for layout whenever Cached text is on* — and the host drawing by it while a face is not
+   live. Visible: text wraps a little earlier than with the row off, and looks the same before and after its
+   face is uploaded. Per-character host draws cost the phone's CPU on a face that is not live; `textMs` in the
+   journal says how much.
+6. *The estimator:* nine readings per term, three before a term counts, cache writes never a floor reading.
+   The line and its edges are as they were.
+7. *A short reading is asked again after a whole settle window*, so a write that truly did not land is called
+   at ~4 s instead of ~2.5 s.
+8. *`Config.simContract`*, a dev key: `"simContract": 2` in a scratch `config.json` makes `--transport sim`
+   model the build on the glasses.
+
+**Addendum, 2026-11-09 evening → 11-10 — the slow period, the two silent modes, and what each costs.**
+(Two earlier versions of this addendum were wrong and are withdrawn: the first said the shell "never knew" the
+glasses were in Silent Mode and that §36's path had not engaged on the Phase 2 build; the second treated the slow
+link as one episode belonging to the drive. Both read one tail; the later tails corrected them. The three tails
+and two logs are kept in `captures/2026-11-09-journal/` (git-ignored, local).)
+
+Adam's word after reading the report: "From 13:30 today to 14:20 today, I put the G2 in silent mode, because I
+was driving to work." Later that evening: "Right now I'm at home, on wifi, wearing the G2s, and they are on silent
+mode currently". Two more tails and the phone's log were read (11-10 00:02 and 11:54; read-only, `&tail=`).
+
+**Two things are called silent mode.** The firmware's (the both-temple long-press: the glasses push the state,
+the shell sleeps and releases the lease) and the shell's own (`DESIGN.md`'s SILENT: the double-tap at Main, a
+clock-only screen with the lease held, journal label `SILENT`). For the drive he meant the firmware's (his
+word, 11-10 — the last block of this addendum).
+
+**1. The firmware's Silent Mode on the Phase 2 build with APK 0.57 does what §36/§38 describe at its entry (M,
+n=1).** The phone's log: the glasses' push parsed at 22:32:30.27, 2.2 s after the last touch event (two scrolls
+and a touch-end at 22:32:28.07 — event 10, `LONG_PRESS_RELEASE`, fires on every touch-end; no event-9 long-press
+is in the log, and none would be: the both-temple press is detected on RIGHT before the UI layer, §54.8, so
+that it was the press is inferred from the push); the shell asleep and the lease released on both arms by
+22:32:30.30; `SYSTEM_EXIT` at 22:32:31.15. The journal: the `silent` note at 22:32:30, a pacing
+note every 60 checks through check 780 (11-10 11:32:29), and **no flush after 22:32:00 — none in thirteen
+hours**; none of the tail's 3,997 flushes was refused. **Not read:** the wake (§38's session rebuild) on this
+build — the glasses were still silent at the last read — and whether this build refuses an image while silent
+(the shell stopped sending, so none was offered; §36's status 5 is a5d1c31's).
+
+**2. What each state costs the battery (M, the journal's 1 % steps).** The firmware's Silent Mode: 39 → 35 % in
+90 minutes, 2.7 %/h (four steps; worn, by his word). The lease held: 99 % at 14:27:18 → 39 % at 22:31:54,
+7.4 %/h — and for about four fifths of those eight hours (≈390 of 485 min, 30 entries) the shell sat in its OWN
+silent mode, one clock flush a minute. Inside the eight `SILENT` runs of twenty minutes or more the level fell
+6.2–8.9 %/h, 7.2 pooled over 175 min. **The shell's own silent mode drains like the panel in use; the
+firmware's costs about a third.** On charge from 00:16:30: 36 → 100 % in 41 minutes.
+
+**3. The afternoon (M, the same journal).**
+- From the tail's start (08:47:40) to 14:16:49 nothing was done on the glasses: of the 2,952 acked WINDOW
+  flushes 2,949 are under 400 B, chrome only (2,913 of them the ≤119 B status tick, one per 5.0 s); the rest of
+  that span's traffic is the 12:06 reconnect after RIGHT's supervision timeout (one flush lost, 26 atlas and 2
+  stage writes). No battery note: the level read 100 % until 99 % at 14:27:18 (a note is written when the
+  percent changes; the charging flag alone writes none).
+- 13:30–14:20: 698 flushes, none refused, no `silent` note; the shell in a window (label WINDOW) until Main at
+  14:18:39, then its own silent mode 14:18:41–14:20:13.
+- The first flush shaped like a gesture (a mode-9 copy, then the Reader's staging) is 14:16:49.5.
+- The 14:17:09 repack — every face off for 13.5 s against 4.9 s at 12:06 — and 0.57's ledger switching cached
+  text off at 14:17:50 both ran while the link was slow.
+
+**What that supports, and what it does not.** The glasses were idle at 100 % from before 08:47 until about
+14:16; a level that fell 7.4 %/h once it moved does not hold 100 % for five hours off charge, so they were on
+charge through the morning (I). Whether they were still on charge through the drive is weaker (I: the gauge's
+behaviour at the top is not known, and §70's in-case dips to 98–99 % did not appear that morning). The journal
+marks nothing at 13:30: no firmware Silent Mode, and the shell's own only in the window's last 92 seconds — its
+exit at 14:20:13 is the minute he gives as the end. **This is not reconciled with Adam's word** (his answers,
+and what they leave open, are the last block of this addendum). Readings that
+fit, none ruled out: the glasses rode in the case and "silent" was his word for that; he means the shell's own
+silent mode, which he uses most of the day, and the start time is approximate; a both-temple press at 13:30
+that the firmware did not take (the phone's log for that hour was not fetched and has rolled off); a Silent Mode
+entered in a state where this build sends no push and accepts frames (item 1 leaves the second half unread);
+the phone's own silent or driving mode.
+
+**4. The slow link (M): not one episode, and not only the drive.** Over isolated flushes under 400 B the rolling
+median (nine, centred) is above 95 ms from 13:33:32 (one sample apart, at 11:24:58) and last at 14:19:00, with
+three returns to the fast floor inside (13:40:52–13:43:00, 13:52:22–13:53:12, 14:06:03–14:06:53); over all
+flushes under 400 B the medians are 55 ms 13:06–13:30 (n=184), 127 ms 13:36–14:16 (n=480), 57 ms 14:21–15:00
+(n=397). **The same signature recurs three times that evening**, five to seven minutes each: 15:57:00–16:03:35,
+18:33:00–18:38:00, 18:52:00–18:57:00 (small flushes 132–147 ms; 5.9–7 KB flushes 556–640 ms against a 250 ms
+median for that size). Where Adam and the phone were then is not in the files. The floor is ×2.1 inside the afternoon window against the rest of the first tail (125
+against 59 ms; ×2.2–2.3 against the adjacent stretches); the per-KB term is ×2.2 where it can be read at all —
+the 71 flushes of 1 KB or more, all between 14:16:49 and 14:18:39 (nothing over 119 B was sent before that).
+0.57's regime notes in the tails are five: fast 12:06:37, SLOW 14:18:00, fast 14:20:26, SLOW 18:54:53, fast
+19:45:44. Its transfer term moves only on flushes of 1 KB or more, so its regime outlasts the link's (I, from
+the code and the notes): the last flip came 48 minutes after the link had recovered, with eight such flushes
+sent in between (the shell was in its own silent mode); and the 12:06:37 note is itself a flip — a note is
+written only on a change and the process was the same one (the keeper's attempt 10) — so 0.57 had held SLOW from
+before 08:47 through 3 h 19 min of a fast, idle link (61 ms floor) until the reconnect's first large flush.
+
+**The mechanism: U.** What the journal bounds: (a) nothing it reads from the glasses changed at 13:33 — every
+tick acked and presented as before, the level still 100 % (no telemetry was read between 12:06:41 and
+14:16:50); (b) where both terms can be read they moved by about one factor, which is what a halved cadence —
+every other connection event — looks like, and not what a fixed added delay looks like; (c) no `connection
+parameters` note in any tail, so the platform reported no changed parameter value (the shell journals one
+when it does, in 0.57 too); (d) it switches on and off within a minute and recurs in the evening with the glasses in
+use, so it is not the drive alone. Explanations that fit, none ruled out: the phone's radio sharing airtime
+with a classic audio link (the car's on the drive; a headset, a speaker or a call later — `captures/README.md`
+records one such device sharing the radio on 09-14); its Wi-Fi scanning away from a known network; a
+projection link to the car; the cellular radio's activity (band coexistence with 2.4 GHz); the phone in active
+use (the scans the system runs with the screen on); the RF path (RSSI is not journaled); the controller
+skipping alternate events for a reason the parameter callback does not report; the ring reconnecting on the
+same radio (§54.4's 30 against 60 ms cadence is this factor of two); Android's power state for the app (the ack
+clock is the app's — (b) argues against it); something on the glasses' side that the journal does not read.
+
+**What separates them, cheapest first:** Adam's answers — where the glasses were on the drive and what he did
+at 13:30; what the phone was doing on the drive and at 15:57, 18:33 and 18:52 (audio over Bluetooth, a call, the
+screen in use); then a BTSnoop capture spanning one slow stretch (`REMINDER.md`'s unmeasured item 5: the radio's
+own view of who had the airtime); then the wake from the Silent Mode that began 22:32, which is also §38's
+rebuild read on this build. No probe was sent: a probe is a write to the glasses and was not asked for; a
+`telemetry=read` pair (the request note and the `glass` reply, both on the phone's clock) would time the control
+lane on RIGHT, not the image lane that slowed.
+
+**What stands for the build:** the estimator reported a link that really was half as fast, and 0.57's held SLOW
+long after the link recovered (48 minutes that evening, over three hours that morning) — 0.63's regime starts
+over at a session start (`linkRegimeSessionStart`: fast unless the start is adopted with a measured slow term),
+but what it does through a quiet stretch inside a session is a read owed (its transfer term also moves only on
+flushes of 1 KB or more); `REMINDER.md` item 10's rest mode rests on a path measured
+working at its entry here (the wake owed); the morning's 2,949 ticks into idle glasses are the traffic that
+rest mode exists to stop; and the shell's own silent mode costing what the lit panel costs is a fact for Adam's
+design, not a defect of this work.
+
+**Adam's answers (2026-11-10, 13:15) and two more reads against them** — the phone's whole in-memory log
+(4,000 lines, 11-09 10:44 → 11-10 13:15) and a 6 MB tail of its journal (11-08 21:51 → 11-10 12:32), both kept
+with the others. His word: the both-temple long-press is what he used, for the firmware's Silent Mode; and in
+all four slow stretches he was out of Wi-Fi — the drive, his break (about 15:55, ten to fifteen minutes) and his
+lunch (18:30), both times outside where the Wi-Fi is weak or absent.
+- **The link.** Across the 39 hours of the long tail there are exactly those four stretches; every other hour
+  reads 56–64 ms, the sixteen hours at home overnight included (M). They coincide four for four with the phone
+  out of Wi-Fi (his word for where, the journal for when) and with nothing else on record, so **the leading
+  candidate is now the phone's own radio when Wi-Fi is on and not associated, or weak — its scans share the
+  2.4 GHz radio with the link (I)**; the car's audio link falls back (two of the four were on foot). Not
+  separated from it: the cellular radio carrying the phone's data once Wi-Fi is gone, and the RF path outdoors.
+  The three returns to the fast floor inside the drive are unexplained. **The test, inside his routine:** on one
+  outing switch the phone's Wi-Fi off before stepping out and on again after, leave the next as it is, and read
+  both from the tail (the shell's own silent mode gives a reading a minute — how the break and lunch were read).
+- **The press at 13:30 left no trace on the phone (M).** The log holds one Silent Mode push in 26 hours, the
+  22:32:30 one. It holds no input event of any kind from 10:44 until 14:16:44.7 (the both-temple press itself
+  is never forwarded, so that alone excludes nothing); the day's only temple events are a tap at 14:16:45.1, a
+  tap at 14:18:12.5 and a double-tap at 20:50:31.6. The shell painted the 5 s tick without a pause from 11-08
+  21:51 to 11-09 14:16:44 — 8,281 flushes in 16.4 h, 741 KB, one lost at the 12:06 reconnect, none refused —
+  and wrote no battery note in all that time: the level did not move for sixteen and a half hours, then read
+  99 % ten and a half minutes after the first touch. So the glasses were on charge, and painted into, from the
+  night before until he left home (the reading "until about 14:16" that stood here was wrong: see his second
+  answer below), and one of two things is true of 13:30. Either the press did not put the firmware into Silent Mode (made on glasses in or
+  just out of the case, or not registered); or it did, and this build neither pushed the state nor refused a
+  frame for 46 minutes, with the 60 s READs saying nothing either. The second would be a defect of consequence
+  — a shell that paints into dark glasses with nothing to stop it — and it is not excluded: whether the Phase 2
+  build refuses an image while silent has never been read (item 1). **What decides it:** his answer to one
+  question — on that drive, were the glasses on his face and dark, or in the case — and, either way, the time of
+  his next both-temple press made with the shell awake, read from the tail: a push within about two seconds and
+  no flush after it, as at 22:32, or frames going on.
+- **A by-product (M).** The night he cased them without the press, the shell sent 8,281 flushes into the case;
+  the night he pressed first (22:32), none in fourteen hours. Until `REMINDER.md` item 10's rest mode exists,
+  the press before the case is its manual form.
+- **The wake, read 2026-11-10 14:19 (M; `journal-tail-1110-1457-wake.jsonl`).** The OFF push at 14:19:38.52
+  after 947 checks; the shell ended the link for the keeper's rebuild, both arms back by 14:19:46.9, driving at
+  14:19:48.2 — 9.7 s from the push to the first frame, no CREATE re-sent, 2M granted on both arms, 15 ms /
+  latency 1, nothing refused. §38's rebuild holds on the Phase 2 build. **What the wake cost on 0.57:** the
+  release had freed the cache, so the atlas went again — 127,424 B by 14:20:04.7 with three MONO faces left
+  as pixels ("the cache is full"), then a repack at 14:20:16: 190,045 B in 65 messages over 31 s. With his
+  habit (Silent Mode for each drive) that is paid at every arrival; it is the traffic 0.63's packing is for.
+
+**2026-11-10 — the records checked for a takeover (Adam: "make sure all documentation is up to date and
+accurate and everything is ready for a new session to take over").** No Kotlin source changed; the tree was
+still uncommitted (it was committed that afternoon: the block after this one). Eight read-only checkers took one scope each (this file's §73, its numbers, this addendum,
+`REMINDER.md`, `CLAIMS.md` / `FIRMWARE.md` / `FORK.md`, `IMPLEMENTATION.md` / `DAILY.md` / `WINDOWS.md`, the
+documents the session had not touched, the memory files) against the tree, the fork's C, the scratch evidence
+and the three tails: 94 findings, each checked by the lead before an edit. What they changed:
+- **This addendum, twice wrong before** (above): the evening's slow stretches, the shell's own silent mode and
+  its drain, the per-KB term readable for two minutes only, the probe sentence.
+- **§73's own numbers:** 85 flushes behind a cache write on the contract-2 walk (107 was a mid-build run); the
+  size change read 1.8 s after, one 4-bit level; the renders' differences named; the unpinned guard's wording.
+- **Statements that would send a session the wrong way:** every printed `/journal` command now carries `&tail=`
+  (`REMINDER.md`, `DAILY.md`, `journal_report.py`'s own help and its printed advice — text only); the probe
+  example is `telemetry=read`, with §54.8's ruling on `diag` beside it; `research/verify_cfw.py` checks the
+  a5d1c31 image, not the installed one; `:phone:stageApk` is named as never a battery step; the recipe for a
+  simulator beside the live service is written down (above).
+- **Facts stale since Phase 2 in files this section had not touched** — LE 2M and the halved per-KB term
+  (`CLAUDE.md`, `overview.md`, `CAPABILITIES.md`, `WINDOWS.md`, `DAILY.md`), `FIRMWARE.md`'s "not flashed", the
+  test and check counts (`README.md`, `IMPLEMENTATION.md`), `link slow` and "the next APK" in `DESIGN.md`. The
+  edits to `CLAUDE.md` and `DESIGN.md` are measured facts only; no rule or design changed. Left as they are,
+  for Adam's word on 0.63: the four statements `REMINDER.md` item 12 names.
+- **Kept out of the session's scratchpad** (a directory under `/tmp/claude-1000/`, lost with /tmp):
+  `research/mutate_core.py` + `research/mutations-73.json` (in the tree, committed with `6bba881`; all 89
+  edits still apply to it); the phone's tails in `captures/2026-11-09-journal/`; and in
+  `captures/2026-11-09-session/` the two battery summaries, the mutation runs' logs, the simulator walks'
+  journals with their scripts and config, `glyph-subset-sizes.txt`, and the review and checker outputs
+  (`captures/` is git-ignored: local only); a copy of the staged 0.62 at `~/.damage/backup/damage-wm-0.62.apk`.
+The battery was run again on the tree (11:59–12:15): the counts of the Battery block above, and the phone build
+left the 21:15 APK untouched (inputs unchanged), so the saved 0.63 is this tree's build. After it only help
+text, comments and one printed sentence changed in `tools/journal_report.py` and `tools/glassdrive.py` (both
+compile, the report on the saved tail is otherwise identical, lint 0); no Kotlin source was touched — which is
+why one comment in `CachedText.kt` still says "a face packed this way is 3 KB". A second pass of three
+checkers then read the corrections themselves (33 findings: the Silent Mode entry's "long-press" was a
+touch-end, 0.57's regime notes were five, a gate's wording in `CLAUDE.md` restored, the recipe's ports and
+shelf, older `REMINDER.md` lines); what was corrected after THAT pass is unread by anyone but the lead.
+
+**2026-11-10, afternoon — Adam's second answer, the commit, the table patch read on glass, 0.63 staged.**
+- **His word:** "I wear my glasses during the drive, the case never leaves home"; he will "press both temples
+  before I drive away, around 10:30pm tonight". So on 11-09 the glasses came off the charger when he left home
+  (about 13:30) and were on his face, silent by his account, until he woke them at work. **That makes the
+  second reading above the leading one (I, from his word and the journal): this build was in the firmware's
+  Silent Mode for 46 minutes without telling the phone — no push, nothing from the 60 s READs — and acked and
+  counted 527 frames in it.** A Silent Mode can go unreported here, and frames are not refused in it. The level
+  reading 100 % until 14:27 is then the gauge's top band (§74 A3: 100 from raw 97 up), not the charger; the
+  third reading of that afternoon to be withdrawn ("on charge until about 14:16"). What differs from the two
+  presses the phone did hear of (11-09 22:32 leaving work; 11-10 14:19 arriving) is not known; the one that
+  went unheard was the first press after the glasses came out of the case. `REMINDER.md` item 13 carries the
+  reads: tonight's press, the next first-press-after-the-case, the stock branches of §74 A2, and a second cue
+  for the shell so a missed push cannot leave it painting.
+- **Committed on `main` (his word; not pushed):** `6bba881`, the §73 build; the records and the survey in the
+  commit after it.
+- **The in-place table patch on the glass (M, RIGHT; LEFT runs the same steps and cannot report):**
+  `glassdrive.py … selftest:firmware/vectors/v2-tablepatch.json` at 15:05:26–15:05:55 on APK 0.57, started after
+  twenty seconds without input: all 11 steps match (scratch CRC, the refusal flag, the refusal record 19/5 on the
+  last, refused-whole step), five live cache writes, the generation 3597 → 3601 — four accepted with data, the
+  refused one moving nothing. `CLAIMS.md`'s row is regraded; the output is
+  `captures/2026-11-10-selftest/v2-tablepatch-on-glass.txt`. The run dropped that session's atlas, as it says.
+- **APK 0.63 staged at 15:06 (his word):** `~/.damage/damage-wm.apk` is 0.63 (versionCode 63, 27,218,512 B, the
+  same bytes as `damage-wm-0.63.apk`); the setup page answers with it; 0.62 is
+  `~/.damage/backup/damage-wm-0.62.apk`. Not done here: the install (his), a PC deploy (his word), a push.
+
+## 74. Upstream and official firmware since 2026-09-19, read against our open items (2026-11-10)
+
+Context for the reader: a personal device, the published patch method, display-rendering work. Read-only: Adam's
+ask was to look at upstream of the custom firmware and at the official firmware "and see if any of the updates since
+the last time we checked might be useful to us", without touching ours. Upstream history was fetched into the pinned
+reference clones (nothing checked out or moved; the fork untouched; no build, no flash, no device contact). Eight
+readers took one area each; the lead re-read on our own 2.2.6.10 image every site marked *verified* below. The
+readers' full output (108 items, each with its source and how it is known) is
+`captures/2026-11-10-upstream-survey/survey-108-items.md` (git-ignored). Nothing here is built or decided.
+
+**What moved.** g2flash `306e42e` → `845f665` (20 commits, to 10-31): rebased from stock 2.2.9.22 onto 2.3.0.24;
+the texture cache became a resource cache with ids, eviction and on-glasses compaction; display lists, depth, an
+on-glasses animation timer; brightness control; ring reports forwarded before the stock filter; an idempotent page
+enter; "fixes from glassly fork". faceclaw `8ceecb6` → `8b70585` (351 commits, 0.7.2 → 0.9.0). SybilSight-webflasher
+(15 commits) archived official 2.2.10.10, 2.3.0.24, 2.3.2.14 and carries its own firmware line. openCFW (71 commits):
+a second, seeded export of the SAME 2.2.6.10 image (8,853 functions, 3,329 named) and reconstructions of the case,
+the gauge and Silent Mode. Official: 2.2.7.14 … 2.3.2.14 in the archives; 2.4.0.24 (late October) exists and is in
+none of them.
+
+**A. Facts that answer open questions — no flash.**
+1. *The stock gates (verified: the call at `0x00473C96` → `0x0046B238`, and the drop branch after it).* The display
+   task asks `SVC_Settings_UledCtrlCheck` before every panel refresh and drops the refresh when it says no: an update
+   running, "glasses in box", or wear detection on and not worn (the three conditions are openCFW's reconstruction;
+   "in box" = 5 V from the case, removal seen 3 s late). The check sits AFTER our copy hook (`0x00473C8E`, where field
+   16 `presents` counts) and BEFORE our refresh hook (`0x00473CE4`, where field 15 `transferUs` is stamped). **So a
+   frame counter that advances under a frozen transfer stamp is the glasses saying "nobody can see this" — and our
+   own journal has the pattern (M; that the gate is its cause: I):** 2026-11-09 12:06:36–41, in the case, presents 313,205 → 313,211 with `transferUs` 2,770
+   throughout; 14:16:50 onward the stamp moves with every frame. A rest-mode cue that needs no new firmware.
+   The twin gate `SVC_Settings_InputEventCheck` refuses input in the box, not worn, or silent.
+2. *Silent Mode, read end to end on our base (openCFW's reconstruction; the handler's branches verified by its
+   reader at instruction level).* Both bars within 2,000 ms, both still held 1,000 ms later; a press while the
+   reminder page shows is ignored; the push goes out at the request and again when the page exits; the status byte
+   (settings +0x15, what the READ reports) is written only at the exit. A press yields no push when the page is
+   showing, the two bars are not both held, the lens-to-lens send fails, or terminal mode / onboarding is on. The
+   image path has no silent test of its own: refusal follows from the page being gone. That is a list of candidates
+   for §73's press that left no trace, not an answer. Even's schema also has a phone-side setter
+   (`deviceReceiveSilentMode`, strings "Handle silent mode from APP" on our base): rest mode could put the glasses
+   into the firmware's own Silent Mode (the 2.7 %/h state) from the phone — untried, and a first write is Adam's call.
+3. *The case and the gauge.* The case's firmware (1.2.57, the same bytes in every official bundle from 2.2.4.34 to
+   2.3.2.14, ours included) carries "Disable charging since bat(%d) >= 98", "Standby, reason: gls bat full", "No
+   reply from GLS_L for %ds, reset GLS_L" (strings read from the image we hold; the policy around them is openCFW's
+   reconstruction: 5 V cut when both are full, re-checks on timers, a lens that stops answering the case's status
+   query is reset at multiples of 180 s). The glasses' gauge is the nPM1300 with Nordic's library and reports 100
+   for raw 97 and up (their reading). Together: why the level sat at 100 % for 16.5 h under a painted panel, why
+   98–99 % is followed by `charging`, and two named mechanisms for the in-case restarts. The ~100 min period itself
+   is still unexplained. The case also reports itself THROUGH the glasses (sid 0x81 pushes while docked: in-case,
+   lid, the case's own level per 1 %, case on USB — faceclaw's measurement on 2.3.0.24; the strings are on our base;
+   unverified here): a second rest trigger and the warning §70 lacked.
+4. *The ring (verified: `0x004726CA` `subs r2,r2,r0; cmp r2,#0x64; bhs`).* The glasses' receiver drops every ring
+   report, releases excepted, that follows the last accepted one by fewer than 100 ring ticks. The event-rate
+   ceiling and the fast-spin loss are there, ahead of the radio (the tick's unit is unread). Stock 2.3.0 exempts a
+   new touch-down report (type 10) that our base does not know: **do not move the R1 past 2.2.x while the glasses
+   are on 2.2.6.10** (inferred from the receiver: the click after a touch-down would be dropped).
+5. *The unanswered CREATEs (verified: `0x004DAC7E`–`0x004DAD0C`).* On our base a carrier CREATE returns with no
+   reply and no start request while app 0xE0 is still registered — the cause of "carrier CREATE unacked — sending
+   again" at every reconnect (four in six seconds on 11-09 12:06), and not the sid-0x01 prelude. What clears the
+   registration a few seconds later is unread.
+6. *For the out-of-Wi-Fi slow link: nothing upstream or official explains it.* The only contention upstream names is
+   another audio stream. Two instruments it suggests, phone-only: read the PHY back after asking (one request can
+   silently not land; upstream re-asks until both directions read 2M), and journal the last write completion beside
+   the ack (it separates a phone that was slow to take the packets from an answer that came late).
+
+**B. Candidates for the fork's next flash (Phase 3's), each small.**
+7. *The fast interval is never asked for (verified: `0x00476F4E` `ldrh r0,[r4,#0x18]; cmp r0,#0x19`, reached from
+   the 0xA3 branch at `0x004774AE`).* Stock counts any link under 31.25 ms as already fast, so Phase 2's 7.5 ms
+   record is never requested and the link stays where the phone put it (15 ms / latency 1). Upstream replaced the
+   test on 10-31 (`845f665`, `ble_link.c`: fast enough only at ≤ 11.25 ms and latency 0). On ours: one call
+   retargeted, about twenty bytes of C. What it buys is modeled (upstream's claim that Android grants 11.25 ms);
+   battery and the earbud's margin are unmeasured. **With it, a correction our build needs anyway** (the survey's instruction-level read,
+   not re-read by the lead): our edit (3) submits the fast values under the slow mode byte, and the stock update
+   handler asks again whenever the granted class differs from that byte — nothing shows it running today (no parameter change in any journal), and it would
+   start on any phone that grants the request.
+8. *Compaction on the glasses (`608ed1a`).* Stable ids, an evict of two bytes per id, a memmove on the glasses,
+   nothing re-sent — against our measured repacks (77–103 KB, every face off 5–13 s). A smaller form keeps our
+   layout: face-relative table entries and one "move" op. How much is left to save is known only after 0.63's
+   glyph-subset packing has been read on glass.
+9. *Three corrections found in other forks:* the context survives a restart and a re-flash (SybilSight measured it
+   on 2.2.10; upstream says the same) and ours accepts it on the magic alone — a free check first: a context-held
+   value across a `keeper: the glasses reset` note; the display gate's ownership is inferred from `direct_pending`,
+   wrong in both directions (check the journal for refusal reason 14 first); one inflate stream kept for the
+   session instead of a 34–40 KB allocation per decode. And one instrument: the restart reason, latched at boot,
+   as a telemetry field.
+
+**C. Design input for Phases 3–5, to read before their design pass.** Upstream now has what those phases plan: a
+motion as a retained list with time-driven coordinates replayed by a 45 ms timer on the glasses, started by one
+message; a screen buffer and a composition buffer, so an overlay never changes the pixels under it; strips drawn on
+the glasses into cache surfaces. Where it does not fit ours: its expressions are f32 (our contract is integer-only
+and vector-exact), the second buffer is 150 KiB per lens from an arena we have budgeted, and retained lists hold
+cache references that our repacks move. No frame-rate figure is published.
+
+**D. For the flashing conversation.** (i) Every flash of ours re-sends the bootloader, radio, touch, codec and case
+images, all identical to what is installed; SybilSight sends the main application only, on its reading that the
+bootloader component is copied straight into place with no staged check (its claim, its base; unread on ours — an
+instruction-level read of our update service comes before any change to the flasher). (ii) The reversibility
+picture sharpens: a lens whose application runs but whose radio does not was restored through the case's contacts
+(their measurement, a full 2.2.6.10 image); an application that does not start still has no route but SWD.
+Neither relaxes a rule in `CLAUDE.md`.
+
+**E. Official firmware, and D1.** No official release touches an open item: the radio controller, codec and case
+images are the same bytes from 2.2.6.10 through 2.3.2.14; no stock version enables LE 2M; the Silent Mode strings
+are unchanged in all of them. The one official fix we lack is a frozen-link detector (2.2.10.10: "phone link
+frozen … force close"), which matches the "scanning forever while Connected" note; a phone-side form needs no
+flash. **D1 stands, on firmer ground:** the room below the update flag is 433 KB on 2.2.6.10 and 34 KB on 2.3.2.14
+— an appended block the size of ours does not fit there — and every address-level aid added since August is for
+2.2.6.10. Upstream itself keeps 2.3.0.24 as its base.
+
+**Not done.** Nothing was ported, written to the fork, or tried on a device. The readers' claims that the lead did
+not re-read are marked as theirs above; `CLAIMS.md` carries only the five sites re-read here. Two rows of ours that
+openCFW's reading disputes (the gauge named as the BQ27427's object; `FORK.md` R0.5's pointer to that overlay) are
+left for our own instruction-level read.

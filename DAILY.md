@@ -1,7 +1,9 @@
 # The daily driver — G2 all day from the phone, fed by beardos
 
 The default configuration (`DESIGN.md` §10.1 row 1 as read by `HANDOFF.md` §19, 2026-08-31): **the PHONE
-SHELL drives, always; the PC is the DATA PROVIDER.** This file is the ops crib.
+SHELL drives, always; the PC is the DATA PROVIDER.** This file is the ops crib. **`aphone` has not resolved on
+beardos since 2026-09-21 (DNS moved from Tailscale to the VPN): wherever a line below says `aphone`, use the
+phone's Tailscale address (`tailscale status | grep aphone`).**
 
 ## The moving parts
 
@@ -16,7 +18,7 @@ work, LTE; PC reachability decides how CAPABLE it is (live library, tmux, sync),
 gestures and frames never leave the phone. PC unreachable → nothing changes on glass; content degrades to
 the caches, staleness is said (`PC gone/Nm`), sync resumes on reconnect (last-write-wins both ways). APK
 unreachable for 6 probes (~30 s) AND both arms seen advertising to beardos's adapter → the PC starts its own BLE
-stack; when the APK returns the PC stops it (the handback: one repaint). **Since §72 (2026-11-08): Target = Sim
+stack; when the APK returns the PC stops it (the handback: one repaint). **Since §72 (deployed 2026-11-09): Target = Sim
 is a choice and never a claim, an adapter that cannot scan (beardos's hci0 is rfkill-blocked) never claims, and
 a claim that fails 6 starts in a row is given back.** The phone's shelf answers from its cache at once while
 the PC is out of reach. Reboot either machine → both restart themselves. **State sync:** reading
@@ -88,15 +90,15 @@ without writing a row.
   and rewrite the adaptive playlists. ⚠ :7401 is a framed channel, not HTTP — an HTTP probe ends a session
   loudly (`frame length … out of range`); probe :7403 for liveness.
 - Logs: `~/.damage/damage.log` (the service; the standby narration), `~/.damage/journal.jsonl` (the PC's flush
-  journal, only while a PC stack drives), phone `adb logcat -s damage` + the on-phone status line.
-- **The phone's journal, no adb** (`HANDOFF.md` §32): `curl -s 'http://aphone:7403/journal?token=…' | python3
-  tools/journal_report.py -` (`&tail=2000000` for the lines in the last ~2 MB). **An APK before 0.61 reads the whole
-  file into memory and its process ends (`HANDOFF.md` §71): on one, always pass `&tail=`.** It shows the ack curve by hour (with the connection
+  journal, only while a PC stack drives), phone `adb logcat | grep ' damage/'` (the tags are `damage/<tag>`) + the on-phone status line.
+- **The phone's journal, no adb** (`HANDOFF.md` §32): `curl -s 'http://aphone:7403/journal?token=…&tail=2000000' | python3
+  tools/journal_report.py -` (the lines in the last ~2 MB). **An APK before 0.61 — the phone ran 0.57 on 2026-11-10 —
+  reads the whole file into memory without `&tail=` and its process ends (`HANDOFF.md` §71): drop `&tail=` only on 0.61+.** It shows the ack curve by hour (with the connection
   parameters in force per hour since §47: `105/4` is the slow set, `15/1` the fast) and radio path, CPU
   per flush, the cache's account, **time to first visible change per gesture** (the number a window is judged
   by), the `link`/`keeper` notes. The daily driver's real curve; the PC journal's is the standby's.
 - **The phone's log, no adb** (APK 0.41+, §42): `curl -s 'http://aphone:7403/log?token=…&tail=400'` (the last
-  4,000 lines). The keeper's transitions (`start failed: …`, `link ended: …`) are also `keeper` journal notes.
+  400 of the 4,000 lines kept; without `&tail=`, all of them). The keeper's transitions (`start failed: …`, `link ended: …`) are also `keeper` journal notes.
 - **The glasses show NOTHING and the temples do nothing** (`HANDOFF.md` §36): the firmware's Silent Mode is
   probably on; the shell handles it (a phone notice, frames stop, the lease is dropped, the page traffic stops)
   and the both-temple long-press wakes everything as a session REBUILD (§38: ~20 s of blank, then the
@@ -107,7 +109,11 @@ without writing a row.
   focused document's next strips go to the cache's reserve and a notch is one draw; `stage` notes say what was staged,
   proven or dropped; off for the A/B); `Slide frames` (default `auto`); `Cached text` (default `off` — on, it
   uploads fonts and icons in idle chunks (`atlas` notes) and ships text and icons on EVERY plane as cached
-  draws; a refused cache write switches it off for the session; every flush line carries `cached`/`cacheMiss`);
+  draws; a refused cache write switches it off for the session; every flush line carries `cached`/`cacheMiss`;
+  since 0.63 (`HANDOFF.md` §73) a face is uploaded with the characters it has drawn and gains the rest as they
+  appear — a first-seen character is pixels for one flush, the `atlas` notes say "N face(s) gained glyphs", the
+  flush line's `unpacked` counts what the host drew meanwhile — and the row also sets the layout metric, so
+  switching it re-wraps every page);
   `Depth` moves everything, the selection bar one notch nearer, each app's `Depth` row (`global` by default)
   only that app's content (§41.2); `Slide fill` `auto` (default) blanks-then-fills a big strip only while the
   cache is off, `whole` never, `split` always (§41.9). The watchdog rebuilds a session quiet for ~22 s
@@ -117,7 +123,7 @@ without writing a row.
   both lenses at 1× — snap before every tap (§29.2: one step per snap near an irreversible row; never scroll
   in Music's root).
 - **Phase 0 probes** (APK 0.45+, `HANDOFF.md` §49; dev only — the shell never sends them): `python3
-  tools/glassdrive.py aphone TOKEN probe:NAME=VALUE`. `diag=show` puts the firmware's diagnostic line at the
+  tools/glassdrive.py aphone TOKEN probe:NAME=VALUE`. `diag=show` (blanked the display on a5d1c31 until a rebuild, `HANDOFF.md` §54.8, and has not been run on the fork's build — not without Adam) puts the firmware's diagnostic line at the
   top-left of both lenses (`OK w…us p…us f13/20/27=…k`: flags, the last message's worker and copy time, free KiB
   per heap arena) — `diag=hide` removes it. `logger=on` streams the glasses' own log lines into the journal as
   `glasslog` notes (RAM-only on the glasses; re-sent after every session start; `logger=off` stops it) — read
@@ -125,8 +131,8 @@ without writing a row.
   `cache=info`, `flags=clear|probe|0xNNNN`, `selftest=begin|end|step:HEX`, and since 0.51 `cachesize=KiB` (op 5) and
   `selftest=live:HEX` (a vector's cache write to the live cache; `glassdrive.py selftest:FILE` drives a whole vector).
   `phy=2m` asks the radio for 2M PHY (`link` notes carry the
-  answer; `phy=1m` goes back — answered 2026-09-14: the glasses have no 2M PHY, the probe only shows the refusal). `telemetry=read` and `flags=probe|clear` answer only on a Damage firmware build
-  (the installed one is upstream and ignores them; the `probe` note says so). The glasses' battery changes are
+  answer; `phy=1m` goes back — on the upstream build, 2026-09-14, the glasses refused 2M; the fork's Phase 2 build offers it and the APK asks at every session start, `PHY after the link request: 2M/2M`). `telemetry=read` and `flags=probe|clear` answer only on a Damage firmware build
+  (the installed one since 2026-09-16; an upstream build ignores them and the `probe` note says so). The glasses' battery changes are
   `battery` notes (the report's battery section).
 - **A BTSnoop capture** (the recipe verified from the stack's source, `captures/README.md`): Bluetooth off → Developer
   options → HCI snoop log = Enabled → ten seconds → Bluetooth on → the session → a full bug report with Bluetooth on;
@@ -174,10 +180,10 @@ without writing a row.
 
 ## What was verified vs what awaits glass
 
-The §13.2 hardware pass ran 2026-08-31 (phone first light + the three configurations); the §19 re-shape is
+The §13 hardware pass ran 2026-08-31 (phone first light + the three configurations); the §19 re-shape is
 test-pinned (`SyncTest` ×6) and seen live (`sync-host: peer attached to the sync channel`; a phone-side
 `window.tmux` record applied store-direct while the PC shell was in standby). **Still awaiting a deliberate
-glass test:** a real standby engagement (stop the APK at the desk → the PC BLE-drives within ~10 s → restart
+glass test:** a real standby engagement (stop the APK at the desk → the PC BLE-drives after ~30 s, six probes, once both arms advertise to its adapter — hci0 must be unblocked first → restart
 the APK → handback) and the sync feel across a driver swap (a book position following the swap). **Games
 (`HOLDEM.md`) needs nothing from ops** — no host, no provider, no channel; its state is the shell's own store
 (`window.games`, `window.games.world`, `window.games.bankroll`, `window.games.table`,

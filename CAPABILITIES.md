@@ -30,7 +30,7 @@ off-panel scratch is already ruled out.
 | **Unbounded scroll** | mode 8 { mode 9 shift + mode 3 fill } | ✅ V |
 | **Per-lens stereo shift** | high bit of mode byte · same pixels, different box per eye | ✅ V |
 | Anti-aliased text at 16 levels | host-side rasterisation; cheaper than we modelled | ✅ M |
-| **Texture cache — 64 KiB, lease-scoped** | ✅ LANDED (CFW `a5d1c31`, modes 11–15); wire + byte-exact model built; **adopted 2026-09-06 for plane-0 text behind the Global `Cached text` row** (`HANDOFF.md` §40.6; off until the on-glass checks, `REMINDER.md` items 19–20). Cached draws are flat — depth planes stay pixels | ✅ V |
+| **Texture cache — 64 KiB, lease-scoped** | ✅ LANDED (CFW `a5d1c31`, modes 11–15); wire + byte-exact model built; **adopted 2026-09-06 for plane-0 text behind the Global `Cached text` row** (`HANDOFF.md` §40.6; default off, in daily use on glass since — every plane and icons since §41, 64..160 KiB and per-lens draws on the fork's Phase 2 build, `CLAUDE.md` "Compositor discipline"). | ✅ M |
 | Diagnostic overlay (`f_reorder`/`f_skip`/`f_dup`/`f_snap_of`) | mode 7 sub 2 | ✅ V |
 | Off-panel scratch / save-under | ❌ **does not exist** — the full 640×480 is visible | ❌ |
 
@@ -88,7 +88,7 @@ over you.
 - ❌ **Per-pixel depth** — stereo granularity is the rect; each element is a flat card.
 - ❌ **True per-eye content** — one payload, two positions. Different content = binocular rivalry.
 - ❌ **Colour** — 16 levels of green, and that is the whole gamut.
-- ❌ **2M PHY** — rejected by the glasses. 1M only; the stock path reached ~10% of it, the CFW path ~40–60%.
+- 🟡 **2M PHY** — off on stock and a5d1c31 (a host-configured feature bit); negotiated on both arms on the fork's Phase 2 build (`CLAIMS.md`, M). On 1M: the stock path reached ~10% of it, the CFW path ~40–60%.
 - ❌ **Firmware read-back** — *probably*; but see the file-export row above.
 
 ---
@@ -98,12 +98,13 @@ over you.
 **Highest ceiling, already ours:** mode-8 batched damage with real fonts. Everything G2CC avoided
 because images cost seconds — thumbnails, embedded images, game frames, an ebook reader with real
 typography — is now bounded by the measured curve, once per frame: the PHONE path's, ~70 ms +
-~120 ms/KB (`REMINDER.md`; the `/50` slope was PC-direct only).
+~120 ms/KB on 1M and about half that per KB on the Phase 2 build's LE 2M (`REMINDER.md`; the `/50` slope was
+PC-direct only).
 
-**Highest ceiling — adopted for plane-0 text 2026-09-06 (`HANDOFF.md` §40.6); the rest waits on
-a per-lens firmware variant:** the **texture cache** — in the firmware since `a5d1c31`, wire +
-byte-exact model built (`IMPLEMENTATION.md`), compositor adoption gated on the on-glass checks
-(`REMINDER.md` items 19–20) and then wanted "as much as we can" (Adam, 2026-09-05). It is what
+**Highest ceiling — adopted for plane-0 text 2026-09-06 (`HANDOFF.md` §40.6), for every plane since §41, and
+per lens on the fork's Phase 2 build:** the **texture cache** — in the firmware since `a5d1c31`, wire +
+byte-exact model built (`IMPLEMENTATION.md`), adopted for every plane and icons since (`HANDOFF.md` §41;
+in daily use on glass) and wanted "as much as we can" (Adam, 2026-09-05). It is what
 makes anti-aliased text cheap at scale — the difference between "AA text is affordable" and "AA
 text is free." Design so it can be adopted without rework.
 

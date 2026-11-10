@@ -158,7 +158,7 @@ Desktop (the sim standing in for glass; also serves `~/books` to the phone):
 ./gradlew :desktop:run --args="--transport ble"   # PC-direct BLE only (manual)
 ./gradlew :desktop:run --args="--remote HOST"     # claim the phone's transport and drive through it — the EXPLICIT dev override
 ./gradlew :desktop:run --args="--ble-info"    # adapter enumeration only (no discovery)
-./gradlew :desktop:run --args="--selfcheck"   # the 230-check scripted gate (every window's walk, the truth oracle on every settle)
+./gradlew :desktop:run --args="--selfcheck"   # the 484-check scripted gate: two passes (contract 1 with a gain-in-place step at boot, then contract 2 with cached text on), every window's walk, the truth oracle on every settle
 ./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface (57 scenes)
 ./gradlew :desktop:run --args="--epub-check"  # parse every book in ~/books
 ./gradlew :desktop:run --args="--music-check" # the real g2cc library, read-only bar the additive schema migration: counts, catalog, lanes, cache keys, Qdrant, one viz blob, the adaptive-playlist derivation
@@ -166,7 +166,7 @@ Desktop (the sim standing in for glass; also serves `~/books` to the phone):
 ./gradlew :desktop:run --args="--card-render" # the card sheets into design/shots/cards/ at true 1x
 ./gradlew :desktop:run --args="--feed-check [DIR] [live]"  # the feed engine over the captured fixtures; `live` = one paced fetch per source, read-only, temp dir
 ./gradlew :desktop:run --args="--host-only"   # content host alone (books + tmux + sync + setup page, no stack ever)
-./gradlew :desktop:test                       # 15 tests: the BlueZ glue over the fake link, the config file's safety, SetupServer, the xkcd PNG through the decoder
+./gradlew :desktop:test                       # 22 tests: the BlueZ glue over the fake link, the config file's safety, SetupServer, the standby policy, the status cell's fit, the xkcd PNG through the decoder
 ```
 
 Preview: mouse wheel scroll · left click tap · right click double-tap · press-and-hold long-press · keys
@@ -239,7 +239,7 @@ fat jar to the STABLE `~/.damage/damage.jar`; the OpenRC service `/etc/init.d/da
 then LEFT, MTU 247, notifications, write pacing, **no bonding needed**; the whole choreography (prelude,
 capability gate, carrier CREATE, both leases, the warmup drop) painted; ring input arrived over `e0-01`; the
 keeper recovered two unplanned link ends. **Ack latency ~50 ms** against the modeled 176 — an idle-shell
-floor, not the curve (§11.1). Three defects fixed within minutes; the one to remember: the ack **status
+floor, not the curve (§11). Three defects fixed within minutes; the one to remember: the ack **status
 enum** read as an error code because **the simulator modeled success as an absent field** — a model that
 errs toward permissive is worse than no model.
 
@@ -253,7 +253,7 @@ had not worked since first light because our source filter discarded the unattri
 ## The APK-mission prep (2026-08-31, HANDOFF.md §13 — before any phone-radio test)
 
 Mined from G2CC's Android app and the seam's failure model; on the radio daily since the phone's first light
-the same day (§13.2):
+the same day (§13):
 
 - **The seam heartbeat** (`RemoteTransport.kt`, both ends): a bare `ping` every 5 s; a side that has SEEN its
   peer speak the protocol treats 20 s of total silence as the link ending — loudly — so a silent path death
@@ -388,7 +388,7 @@ deviations). To work on it:
   the shell cancels it under the wheel / silent / relayout / an emergency (draft kept) and commits a
   replica-typed line through it. Requesters: Torrents Search, Tmux "Type…", Files Rename / New folder.
 - **Harnesses**: `ScriptedTorrents` (ink budgets: transfers 9.0 %, details 6.4 %; snapshot scenes 15–22);
-  `TorrentsTest` ×7, `KeyboardTest` ×22.
+  `TorrentsTest` ×9, `KeyboardTest` ×22.
 
 ## Tmux (2026-08-31, TMUX.md — all refinery verdicts locked, built in one pass)
 
@@ -416,9 +416,9 @@ targeting, no `-C` attach). `wm.damage.core.windows.tmux`; `TMUX.md` is the reco
 - **Shell additions**: `CanvasView.onScroll/onTap`, `DamageWindow.onTypedText` + LOUD refusal when nothing
   accepts, `Transport.injectText` → `TransportEvent.Text` across every transport and the seam (`"typed"`); entry
   points: the desktop preview (key T), the browser replica's text bar, the phone strip's `type` button.
-- **Harnesses**: `ScriptedTmux` (the tmux selfcheck checks, snapshot scenes 09b–09e); `TmuxTest.kt` (27, six classes).
+- **Harnesses**: `ScriptedTmux` (the tmux selfcheck checks, snapshot scenes 09b–09e); `TmuxTest.kt` (29, six classes).
 
-On-glass verdicts still owed (`REMINDER.md` → Other open work): the flow view's default size/wrap feel,
+On-glass verdicts still owed (`REMINDER.md` → Suspended work): the flow view's default size/wrap feel,
 quick-key order, alert-pattern tuning against real Claude sessions, ssh-host latency feel.
 
 ## User typography + per-app depth (2026-08-31 evening, Adam's ask — a §Type reversal)
@@ -448,10 +448,10 @@ The firmware's **64 KiB lease-scoped texture cache** and three draw modes; wire 
   deduplicating offset allocator, 96-entry font tables, chunked mode-12 messages. Two invariants: **offsets 0–1
   stay zero** (an unfilled table entry points at a guaranteed-rejected image) and **every table entry is
   filled** (the firmware validates a whole string before drawing any of it).
-- `gfx/Codec.kt` — `Rle.encodeLevels`/`decodeLevels` over a bare pixel run (`RleParityTest` still holds).
+- `gfx/Codec.kt` — `Rle.encodeLevels`/`decodeLevels` over a bare pixel run (`CodecTest.rleMatchesPythonReference` still holds).
 - `sim/GlassFirmwareSim.kt` — modes 11/12/13/14 modeled byte-exactly (the lease gate, whole-list validation, the
   LUT with its integer truncation, transparency tested pre-LUT, per-glyph advance by image width). Mode 15 is
-  **refused loudly**. The cache is dropped on lease expiry and on mode 11. `TextureCacheTest` + `AckStatusTest`: 44.
+  **refused loudly**. The cache is dropped on lease expiry and on mode 11. `TextureCacheTest` + `AckStatusTest`: 51.
 - Two corrections from reading the source: the sim no longer attaches an `EventSource` to long-press events
   (`EvenHubMsg.reportsSource`); the capability gate runs against the real `EVENCFW/16` string (`REQUIRED_CAPS`
   stays at five, version checks through `SettingsMsg.contractVersion`).
@@ -466,6 +466,7 @@ refused face books a retry a window of frames ahead; a stale face never re-enter
 = glass throughout.
 
 **Adopted (`HANDOFF.md` §40.6).** `core/comp/CachedText.kt`: `GlyphAtlas` renders a font's glyphs 32..126
+(since §73 only the ones the face has drawn — below)
 through the host's rasterizer and packs them with `TextureCache.Builder`; `CachedText` wraps every host's
 rasterizer, blits strings from those same images (the firmware's TRANSPARENT LUT draw) and records them per
 frame; the compositor ships a rect as one clear plus mode-14 draws only when black plus the records equals the
@@ -492,15 +493,60 @@ lists them under "atlas at session start". A chunk whose ack a link end took is 
 (`atlasDone`): it goes again from the acked mark, at most `ATLAS_UNDELIVERED_LIMIT` (3) times in a row before
 cached text is switched off with its own note. `AtlasCarryTest` pins all of it against the model.
 
-**Every plane, and icons (§41).** Cached draws are flat in the firmware, so a rect on a depth plane ships as a
-BASE delta over the rect widened by the disparity (every draw's box black), the draws at nominal x, and one
+**Every plane, and icons (§41).** On contract 1 (on contract 2 `Compositor.emitCachedV2` places each draw per
+lens with modes 17/18 — no widening, no `CopyPair`) cached draws are flat in the firmware, so a rect on a depth
+plane ships as a BASE delta over the rect widened by the disparity (every draw's box black), the draws at nominal x, and one
 per-lens mode-9 copy (`DisplayOp.CopyPair` → `CfwModes.copyStereo`) that slides each lens's copy to its own x;
 `Compositor.emitCached` builds the firmware's result per lens and compares it with that lens's truth before
 anything ships — else pixels, the reason counted into `cacheMiss`. `CachedText` records draws into a slide's
 temp through a relay (`via`/`viaInto`), moves records with a translation (`moveRecords`), and draws a string
-with a character outside 32..126 as its cacheable RUNS plus the host's character. Icons cross `IconPaint.blit`
+with a character its face's entry does not pack (§73: `GlyphAtlas.Entry.packs`, positions from
+`CachedText.layout`) as its cached RUNS plus the host's character. Icons cross `IconPaint.blit`
 (`CachedText` is the `IconRecorder`; mode-13 draws). Fonts pack heaviest first (`usageOf`); the atlas keeps an
 ACKED watermark; the keyframe seeds the screen plane only (`Compositor.seedFrame`).
+
+**Packed with what a face draws; grows in place (`HANDOFF.md` §73, 2026-11-09).** A face goes into the atlas
+with the characters it has drawn — `CachedText.codesFor`: its own, all ten digits once it drew one, the space,
+every capital once it reads as running text — and every other table entry names one shared tofu record; a face
+packed with exactly what it drew is ≈3 KB where its whole Latin-1 table is 16 (M, AWT; the digits, space and
+capitals the rule adds were not priced on that walk — `CLAIMS.md`). What follows from that:
+- **A code the entry does not pack is the host's.** The recorder splits a string on `GlyphAtlas.Entry.packs`
+  (never on the contract's range), the run after a host-drawn character keeps its first columns un-blacked
+  (`TextDraw.keep`), and both emit paths refuse a run the entry in force does not pack (`glyph-not-packed`).
+  Nothing downstream can tell a packed code from the tofu: these three and `Entry`'s constructor are the guards.
+- **`GlyphAtlas.extend`** gives a resident face more glyphs: records appended at the end of the packed bytes,
+  the face's table entries rewritten in place (`TextureCache.Builder.extendFont`), normally one cache-write
+  message; ONE extension per face at a time; the entry the recorder reads changes at **`promote`** (on the
+  loop, after the ack and, where the build can answer, a read-back) — and at once in `extend` when the new
+  glyphs are byte-identical to records its table already names (nothing is sent). A lapse folds pending extensions in place, a repack folds them before it
+  rebuilds, a rewind resets them and starts a new upload generation.
+- **The read-back gate is keyed on bytes AND on `GlyphAtlas.ackedMsgs`** (a patch-only extension moves no byte
+  mark); every path that puts NEWLY acked fonts live (the last chunk's ack, `atlasGrow`'s held path) goes
+  through `atlasCheckThenLive`; `atlasKeep` lights what a carried session already held with no read-back, by
+  design (§54).
+- **A full cache:** a face in use whose new glyphs do not fit evicts the stale faces as a new face does
+  (`atlasEvictFor`, same pace); `pumpAtlas` looks once per frame for a face in use that the atlas does not
+  serve — absent, or with a refused extension — and books its retry (nothing else cues a face that draws no new
+  character); a face nobody is drawing is not packed inside the pace window after a repack nor into the last
+  `ATLAS_GROW_HEADROOM`. While the lease is gone `pumpAtlas` neither grows nor sends.
+- **`CachedText.cacheMetric`**: with the Cached text row on, `measure` is the cache's per-glyph metric whether
+  or not the face is live, set before the first layout of a session and re-derived (every window's
+  `onFontScaleChanged`, the chrome's cells) when the row changes. A measure that followed the live state cut
+  lines wrapped before their face was uploaded.
+- **`CachedText.layout` is the ONE walk `measure` and `draw` share**: each code a run may hold at its own
+  advance with the pair kern before it, everything else as a whole unit the host measures (a surrogate pair, a
+  letter with its marks). `draw` places cached runs AND host-drawn units at its positions — a face that is not
+  live is drawn unit by unit while the metric is on — so a string is as wide as it measures in every state and
+  nothing moves when a face goes live. A run before or after a host-drawn unit keeps its edge columns as
+  composed in the base (`TextDraw.keep` / `keepEnd`). The contract the walk lays out for is
+  `CachedText.metricV2`, set in `Shell.atlasEnable` with the atlas's and re-derived there when it changes.
+- **A strip waits for its glyphs** (`pumpStage`): a strip whose render moved the atlas's cues is rendered again
+  after the atlas has had its turn, never written with the host's pixels for characters about to be promoted.
+Do not split on the contract's range again, do not promote off the loop, do not key the gate on bytes alone,
+do not let `measure` depend on what is live, and do not give `measure` and `draw` separate walks.
+`GlyphSubsetTest` (its `KernedText` carries the layout walk's pins; before §73 no gate compared `measure`
+with a kerned draw, though `Contract2Test.KernText` already kerned the wire's adjust bytes),
+`GlyphSubsetShellTest`, `AtlasRepackTest`, `StagingTest`.
 
 ## Page staging (2026-09-16, `HANDOFF.md` §66 — contract 2 only)
 
@@ -525,7 +571,8 @@ The focused document's next and previous strips as v2 image records in the cache
 - `LinkState.atlasCapacity` = the cache less `CfwModes.STAGE_RESERVE` on DRAW2; the read-back expects the glasses' cache
   to be the atlas plus the reserve. `Transport.telemetry()` = op 1. `ShellSettings.pageStaging`, the Global row `Page
   staging`, the journal's `staged` field and `stage` notes, `journal_report.py`'s page-staging line.
-- Gates: `StagingTest` (9), the contract-2 oracle walk (the document keyed), `--selfcheck`'s contract-2 pass (a Reader
+- Gates: `StagingTest` (14: §66's ten and §73's four — the two re-read paces on a paced link, a stopped shell, a
+  strip after its glyphs), the contract-2 oracle walk (the document keyed), `--selfcheck`'s contract-2 pass (a Reader
   notch that shipped a staged draw, counted where the flush is assembled).
 
 ## The fork's Phase 0 pieces (2026-09-13, `HANDOFF.md` §49, `FORK.md`)
@@ -546,13 +593,13 @@ fork's C (`~/damage-cfw`).
   `/journal` (`journal_report.py --since`, the battery section).
 - **Conformance vectors** — `firmware/make_vectors.py` writes the inputs (the documented v1 message formats);
   the fork's `host/run_vectors.py --write` fills the expectations from its C; `ConformanceVectorTest` runs
-  every file through `GlassFirmwareSim` per lens (shadow CRC-32 and every return code). 7 vectors, 35 steps,
-  matching on both lenses.
+  every file through `GlassFirmwareSim` per lens (shadow CRC-32 and every return code). 7 vectors, 35 steps
+  then (28 vectors, 259 steps since §73), matching on both lenses.
 - **`DamageMsg` + the simulator's `damageContract`** — the Phase 1 settings extension from the contract text:
   DamageCaps parsed at the capability gate, telemetry parsed on any sid-0x09 frame before the §47 answer
   matching, flags modeled with the texture cache's release points, field 4 a status register (the last
   recording op's status; TELEMETRY records nothing — `HANDOFF.md` §50). `DamageMsgTest` covers the bytes, a
-  Damage build and the installed upstream build (which answers nothing).
+  Damage build and an upstream build (which answers nothing; the installed build at the time).
 - **`research/fwread.py`** — the stock image at instruction level (disassembly, the corpus decompile, stored
   words, literal references, call sites, strings); `research/fork-reads-2026-09-13.md` the notes it produced.
 
@@ -580,11 +627,11 @@ fork's C (`~/damage-cfw`).
 - **`Journal.present`** — `{"ev":"present","seq","workerUs","copyUs","transferUs"}`, one per transfer while
   armed; `journal_report.py` prints the distribution; `tools/glassdrive.py selftest:FILE` drives a vector
   through the glasses' self-test and compares RIGHT's report from `/log`.
-- Tests: `DamageMsgTest` (11 — the three of the §52 review: the reset seen past a grown uptime, the dropped
+- Tests: `DamageMsgTest` (11 then, 16 now — the three of the §52 review: the reset seen past a grown uptime, the dropped
   unsupported bit, the truncated self-test step refused and counted; the two of §53: a FLAGS_SET with no lease
   in force until the next release point, an FB_RELEASE after a settled lapse still clearing the flags),
   `ConformanceVectorTest` (2 — the normal path and the self-test form over the drawing vectors),
-  `DevProbeTest` (4). The fork's side: `host/test_damage_ext.py` (44), `host/run_self_test.py`.
+  `DevProbeTest` (4). The fork's side: `host/test_damage_ext.py` (44 then; 76 checks now), `host/run_self_test.py`.
 
 ## Review hardening (rounds 2–8, 2026-08-24)
 
@@ -611,7 +658,8 @@ These mechanisms are load-bearing and easy to break by accident:
   put the proportional shares back, do not let telemetry ride a content-neutral repaint or a gesture's first
   flush, never emit a cached draw on a depth plane WITHOUT its `CopyPair`.
 - **The contract-2 mechanisms (§60–§64), and the three that were quietly dead.** The atlas read-back
-  (`Shell.atlasCheckThenLive`) is owed by BYTES, keyed on the atlas's IDENTITY **and on an EPOCH**: every
+  (`Shell.atlasCheckThenLive`) is owed by BYTES and, since §73, by acked MESSAGES (`GlyphAtlas.ackedMsgs`: a
+  patch-only extension moves no byte mark), keyed on the atlas's IDENTITY **and on an EPOCH**: every
   `GlyphAtlas` starts at upload generation 0, so a generation key read the second atlas of a process as
   already checked — the session a lens reset builds, which is the one §59 lost — and identity plus a byte
   mark read a REPACKED layout as already checked too, because a repack keeps the object, moves every record
@@ -646,13 +694,19 @@ These mechanisms are load-bearing and easy to break by accident:
   asks for the rebuild when the glasses say they are awake, once per pacing. System events 4/5/7 are journaled
   as `event` notes; the simulator's `carrierLost` models the page ending. Do not put the old "panic → keyframe"
   reaction back in front of a refusal (a 20 KB keyframe every 3.5 s for fifteen minutes, 2026-09-05).
-  `SilentGlassesTest` ×4, `ShellKeeperTest.aRestartRequestRebuildsTheSessionOnce`.
+  `SilentGlassesTest` ×6, `ShellKeeperTest.aRestartRequestRebuildsTheSessionOnce`.
 - **The latency pass (§32)** — pixel-identical: the journal's submit line carries `via` / `handleMs` /
   `assembleMs`; `Compositor.compress` is memoised for ONE assemble; both rasterizers cache measures and coverage
   masks (`core/text/GlyphCaches.kt`); `Wrap.wrap` decides from an additive estimate outside a ±24 px band and
   measures exactly inside it (`WrapEstimateTest`); `Shell.pump` reserves one window slot for the pump after a
   ring event (`pumpPriority`); `LinkState.transferMsPerKbEma` (flushes ≥ 1 KB, against `floorMsEma` from
-  flushes < 400 B) is the regime discriminator — the wheel spins in 2 frames above 50 ms/KB;
+  flushes < 400 B) is the regime discriminator — the wheel spins in 2 frames above 50 ms/KB. **Since §73 the
+  two fields hold medians, not EMAs** (the names stay: the seam carries them): `transport/LinkEstimator.kt`
+  keeps the last nine ISOLATED flushes per term (every window slot free and no ack clock open when the lane
+  took the flush — `CfwTransportBase.laneFlush`'s `alone`), prices a big flush against the measured floor,
+  never takes a cache write as a floor reading, and starts over with each session; a term reads its default
+  until three readings (`LinkState.floorSamples` / `transferSamples`, `floorMeasured` / `transferMeasured`),
+  and the regime note says how many it stands on (`LinkEstimatorTest`, `LinkEstimatorWiringTest`);
   `Persistence.saveAsync` writes on one daemon thread in submission order. Do not put the write back on the
   loop, do not let the memo outlive an assemble, keep the estimate band.
 - **The `queued` counter is honest** (`Shell.post` / `loop()`'s `finally` / `quiescenceReport`, §31.8):
@@ -747,9 +801,11 @@ These mechanisms are load-bearing and easy to break by accident:
 
 ## Verification
 
-Battery at HEAD (2026-09-14 evening, `HANDOFF.md` §51.6): `:core:test` **545** · `:desktop:test` **15** · `--selfcheck`
+Battery as of 2026-09-14 evening (`HANDOFF.md` §51.6; **the current counts are `REMINDER.md`'s** — core 699 ·
+desktop 22 · `--selfcheck` 484 after §73): `:core:test` **545** · `:desktop:test` **15** · `--selfcheck`
 **230** checks ×3 · `--snapshot` **57** scenes · `--epub-check` (380/404 images) · `--music-check` · `--games-check`
-(400 tournaments) · `--feed-check` · `tools/lint.py` **0** · `:phone:stageApk` in its own gradle call. The fork:
+(400 tournaments) · `--feed-check` · `tools/lint.py` **0** · the phone build in its own gradle call (`:phone:assembleDebug` — `:phone:stageApk`
+STAGES the APK for install and is never a battery step). The fork:
 `tools/verify.py` · `host/run_vectors.py` · `host/run_self_test.py` · `host/test_damage_ext.py`.
 Every review's pins were run against the unfixed tree and watched to fail before they counted.
 

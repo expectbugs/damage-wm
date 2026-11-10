@@ -131,7 +131,7 @@ Measured from Adam's own BTSnoop captures of his own glasses. Canonical source:
 | Display | 4 bpp, **16 levels of green** micro-LED. ⚠ **576×288 is the STOCK logical area, not the panel.** The physical panel is **640×480** and the CFW uses all of it — see the correction below |
 | Lenses | **Right lens is where you SUBSCRIBE** (L is silent on async events). ⚠ But "drive Right" is wrong for image data under CFW — see the correction below |
 | MTU | phone requests 247 / glasses answer 517 → **effective 247** (244 B ATT payload) |
-| PHY | **1M only** — glasses reject 2M. No BLE 5.0 2M PHY |
+| PHY | 1M on stock and a5d1c31 (the LE 2M feature bit is a host-configured flag, left clear there); **LE 2M on both arms on the fork's Phase 2 build** (`CLAIMS.md`, M) |
 | Connection interval | 15 → 30 → 90 ms; latency 0→4; supervision 5000–6000 ms |
 | AA packet payload | ~**232 B** per fragment; median inter-fragment gap **~14 ms** |
 | **Effective throughput** | ⚠ **7–13 KB/s measured end-to-end** (corrected 2026-08-17). The old **~16.6 KB/s** was 232 B ÷ 14 ms median gap — the *fast mode* of a trimodal distribution. See §5.1 |
@@ -1309,8 +1309,9 @@ The spec has a hybrid power policy and no measured budget.
    ✅ **It LANDED in the installed a5d1c31 (2026-08-30)**: modes 12/13/14 (+11 teardown, 15
    refused), lease-scoped 64 KiB, documented in §4. **Adopted 2026-09-06 behind the Global `Cached
    text` row (`HANDOFF.md` §40.6)** — plane-0 text as mode-14 draws under a byte-exact proof; off
-   until the on-glass checks (REMINDER items 19–20) have run. ⚠ Modes 13/14 draw one x into both
-   lenses (they ignore the lens bit, `zlib_glue.c`), so depth planes stay pixels.
+   until the on-glass checks have run (they have: in daily use since, `CLAIMS.md`). ⚠ Modes 13/14 draw one x into both
+   lenses (they ignore the lens bit, `zlib_glue.c`); depth planes are served all the same — a widened base
+   delta plus a per-lens copy on contract 1 (`HANDOFF.md` §41), per-lens draws (modes 17/18) on contract 2.
 
    🔴 **The author's own reason for building it:**
 

@@ -87,7 +87,7 @@ PC-direct BlueZ only while the APK is unavailable, handing the radio back on its
   Damage's simulator matches it on the conformance vectors; `MOTION.md` lists the animation candidates.
 
 [`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run; `HANDOFF.md` the dated records (§10–§26
-install / first light / refinement / the app wave; §27–§47 reviews and latency; §48–§49 the fork);
+install / first light / refinement / the app wave; §27–§47 reviews and latency; §48–§73 the fork and the rebuild);
 `DAILY.md` the ops crib; [`WINDOWS.md`](WINDOWS.md) the conversion checklist; `EXPLOSION.md` the graded
 app backlog + refinery verdicts; `REFINEMENT.md` and `TMUX.md` the design logs.
 
@@ -99,7 +99,7 @@ app backlog + refinery verdicts; `REFINEMENT.md` and `TMUX.md` the design logs.
 | **[`FORK.md`](FORK.md)** | the current work: the firmware fork and the Damage rebuild — phases, decisions, the flash ritual, the progress log (§11) |
 | [`FIRMWARE.md`](FIRMWARE.md) | the firmware contract both the fork (C) and Damage's simulator (Kotlin) implement; the conformance vectors (§9) |
 | [`MOTION.md`](MOTION.md) | the motion explosion: every animation candidate per surface and window, for Adam's refinery |
-| [`HANDOFF.md`](HANDOFF.md) | the dated session records (§65 is the latest) |
+| [`HANDOFF.md`](HANDOFF.md) | the dated session records (§73 is the latest; `REMINDER.md` is the entry point) |
 | [`WINDOWS.md`](WINDOWS.md) | how a G2CC app becomes a DamageWM window — the checklist window conversion resumes with after the fork |
 | [`EXPLOSION.md`](EXPLOSION.md) | the graded app backlog, the §16 contract record, the refinery verdicts |
 | [`TORRENTS.md`](TORRENTS.md) | Torrents: verdicts, the verified qBittorrent and TorrentLeech facts, design, plan |
@@ -127,9 +127,9 @@ Three facts about this display shape most of the design:
 ## Building and verifying
 
 ```
-./gradlew :core:test                                  # 591 tests, incl. the per-lens oracle and the conformance vectors
-./gradlew :desktop:test                               # 15 tests: the BlueZ glue over a fake link, the config file, the xkcd PNG decoder
-./gradlew :desktop:run --args="--selfcheck"           # the 463-check whole-stack gate, run twice (both contracts); run it more than once
+./gradlew :core:test                                  # 699 tests, incl. the per-lens oracle and the conformance vectors
+./gradlew :desktop:test                               # 22 tests: the BlueZ glue over a fake link, the standby policy, the setup server, the config file, the xkcd PNG decoder, the status cell's fit
+./gradlew :desktop:run --args="--selfcheck"           # the 484-check whole-stack gate, run twice (both contracts); run it more than once
 ./gradlew :desktop:run --args="--snapshot DIR"        # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"          # parse every book; chapters + image decode
 ./gradlew :desktop:run --args="--music-check"         # the real music library, read-only (counts, catalog, lanes, cache keys, Qdrant, viz)

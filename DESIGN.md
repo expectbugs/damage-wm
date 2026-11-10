@@ -718,7 +718,7 @@ overrides the global for that app only. Reader's Size row is the first instance 
 | **Slide frames** | 🆕 **built (2026-09-06, `HANDOFF.md` §40; Adam's ruling of 2026-09-05):** `off · 2 · 4 · auto · 8 · 12` frames per notch for list and document slides — **`auto` (the default) is the ease-out halving rule** (list 3, doc 5); N resamples the ease-out to at most N steps on the 2 px grid; `off` is one copy and one strip. He tests the feel at every value on the phone path himself. The wheel keeps its own 4 / 2-on-a-slow-link rule (§6.3) |
 | **Slide fill** | 🆕 **built (2026-09-06, `HANDOFF.md` §41.9; Adam: "Auto"): `auto · split · whole`.** A strip past 12,000 px either goes out BLANK with the translation and is filled next flush (`split` — the glass moves ~70 ms after the notch, a black band shows until the fill lands: ~610 ms measured when the fill is pixels) or lands whole in the same flush (`whole` — no band, the first change waits for the strip's bytes). `auto` splits only while the texture cache is off: with the cache live the strip is ~200 B of draws and the split buys nothing |
 | **Cached text** | 🆕 **built (2026-09-06, §40; every plane and icons since §41): `off · on`, OFF until seen on glass.** On: the session's fonts and icons are rendered by the host, packed into the firmware's 64 KiB texture cache (mode 12, in idle chunks after the keyframe) and every string and icon the proof can reproduce ships as cached draws instead of pixels — on a depth plane behind one per-lens mode-9 copy, since the firmware's draws are flat. Off → on resumes at once. Integer advances, no pair kerning; the journal's `cached`/`cacheMiss` is the account |
-| **Link** | 🆕 **built (2026-09-12, `HANDOFF.md` §47): `high · balanced`, high the default.** The radio's connection priority: the phone asks for it at connect and asks AGAIN, paced (5 s per arm), whenever the glasses move the link to slower parameters — measured 2026-09-12: they moved both arms to 105 ms / latency 4 at 12:00:02 and every flush waited ~470 ms more for three hours. Slow parameters flip the slide regime at once, put `LINK SLOW` in the status cell and raise one notice; `balanced` (30–50 ms) is the on-glass experiment for whether the ~50-minute arm rebuilds follow the fast set |
+| **Link** | 🆕 **built (2026-09-12, `HANDOFF.md` §47): `high · balanced`, high the default.** The radio's connection priority: the phone asks for it at connect and asks AGAIN, paced (5 s per arm), whenever the glasses move the link to slower parameters — measured 2026-09-12: they moved both arms to 105 ms / latency 4 at 12:00:02 and every flush waited ~470 ms more for three hours. Slow parameters flip the slide regime at once, put `link slow` in the status cell and raise one notice; `balanced` (30–50 ms) is the on-glass experiment for whether the ~50-minute arm rebuilds follow the fast set |
 | **Notification sources** | only `Notify · Damage` here — **each app's toggles live in that app's own category** (Adam, 2026-09-01; §4.5) |
 | **Keyboard** | qwerty / abc — the §4.8 keyboard's layout |
 | **Battery alert** | off / on / escalating — the ≤ 20 % pulse (§4.1) |
@@ -2048,13 +2048,13 @@ when the display itself is what is broken.
 Severity worth escalating to the phone: framebuffer lease lost · decompress failure ·
 `ImgResCmd.ErrorCode` · link down · fid collision detected · sustained ack-timeout streak.
 
-**Low glasses battery (Adam, 2026-09-21 — designed, NOT built; `HANDOFF.md` §70; ships with the next APK):** when the
+**Low glasses battery (Adam, 2026-09-21 — designed, NOT built; `HANDOFF.md` §70; not in APK 0.61–0.63 — `REMINDER.md` item 10 is the build that carries it):** when the
 glasses' battery falls **below 20 %** the phone gets a notification through this same path, and the glasses a notice.
 It is not gated by Global `Notify · Damage` (that row is off on his phone, and the point is to be told). Once per
 discharge: said at the crossing, armed again by a `charging` reading or a reading of 25 % or more — never once per
 percent on the way down. The source is the battery reading the shell already journals; no new traffic.
 
-**A rest mode in the charging case (Adam, 2026-09-21 — designed, NOT built; `HANDOFF.md` §70; the same APK):** "no
+**A rest mode in the charging case (Adam, 2026-09-21 — designed, NOT built; `HANDOFF.md` §70; the same build as the notice above):** "no
 reason to drain battery at full throttle while in an enclosed case." Today the shell paints every minute tick to
 the panel whether or not anyone wears the glasses; a powered case turns the panel off (`CLAIMS.md`: copied, counted,
 never transferred) but the link, the lease renewals, the polls and the frames go on, and a case that has run out

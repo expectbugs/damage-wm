@@ -242,8 +242,9 @@ backlog: the curated font-library expansion (§16.6; B612 never a default).
 
 ## 6. Latency standards — the bar for every window written after 2026-09-05 (`HANDOFF.md` §37)
 
-The link is the phone's: ~70 ms per flush + ~120 ms per KB, one AA packet per usable connection event
-(`REMINDER.md`, measured). A window is judged on **time to first visible change per gesture**, not on bytes
+The link is the phone's: ~70 ms per flush + ~120 ms per KB on the 1M link, about half that per KB on the
+installed Phase 2 build's LE 2M (`REMINDER.md`, measured; on 1M two packets per served connection event, LEFT
+served every 60 ms in the busy sessions — `HANDOFF.md` §54.4). A window is judged on **time to first visible change per gesture**, not on bytes
 per screen.
 
 1. **The first flush a gesture produces is small.** A notch is a translation (the kit's slides declare mode-9
@@ -251,7 +252,10 @@ per screen.
    LATER flush; if a change cannot be translation + strip, say why in the record.
 2. **Text and icons through the texture cache** (`HANDOFF.md` §40.6 → §41.4, behind the Global `Cached text`
    row): draw text through the rasterizer the host handed you (the recorder), icons through `IconPaint`; a
-   string or icon on ANY plane then ships as draws with nothing for the window to do. Text on a box does not
+   string or icon on ANY plane then ships as draws with nothing for the window to do. Since `HANDOFF.md` §73 a character a face has
+   not drawn before goes out as the host's pixels once (the journal's `unpacked`), and the `Cached text` row is
+   also the layout metric: `onFontScaleChanged` arrives when it changes although the scale did not — drop every
+   wrap you keep there (the Reader's layout epoch, Music's wrap key). Text on a box does not
    cache — the journal's `cacheMiss` says which. A row painted into a temp of your own is not recorded.
 3. **Update what changed.** Repaint the rows or cells that changed; the compositor's diff sends only the
    difference, but the phone's CPU is paid for every row you repaint. Memoise per line / per row (`FlowRender`).
@@ -263,7 +267,9 @@ per screen.
    `tools/journal_report.py` — its **"time to first visible change per gesture"** section is the judgment (§42)
    — and put the rows in the window's record. **The bar, measured on glass on 0.40 (2026-09-07 → 09,
    `HANDOFF.md` §42.0):** a window list notch 540 B / 108 ms median (p90 2.1 KB / 229 ms), a Main notch 716 B /
-   117 ms (p90 247 ms). A notch whose first flush is over ~1 KB or whose first visible change is over ~250 ms
+   117 ms (p90 247 ms) — first-ACK figures; since §64.4 a window is judged by the report's `first wait ms` column
+   (`REMINDER.md`, Measured on glass), which on the reference journal read 230 ms median / 1,004 p90 against the
+   ack's 75 / 523. A notch whose first flush is over ~1 KB or whose first visible change is over ~250 ms
    at the median has a defect to find, not a link to blame.
 8. **The shell owes you the rest** — the cache on every plane, the depth ladder, translation detection,
    first-flush ordering and `Slide fill`, telemetry off the first flush, the page traffic sleeping with the

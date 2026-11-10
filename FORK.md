@@ -575,3 +575,12 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   rulings D1–D6: claims only on sight, give-back with backoff, a shell that holds nothing unbounded while down,
   busy ports retried, the JVM exits on OOM, the shelf answers from its cache. Two reviews, every pin watched to
   fail, the battery green; APK 0.62 staged, the PC deployed. No firmware change, nothing flashed.
+- **2026-11-09, afternoon and evening — the two phone-only latency items §66 left, built unattended (`HANDOFF.md` §73):** a
+  face goes into the atlas with the characters it has drawn and gains the rest in place (a table patch: one
+  cache write, legal on the flashed contract — two vectors, `v1-tablepatch` and `v2-tablepatch`, 28 in all); the
+  link estimator reads medians over isolated flushes; text is laid out and drawn by the cache's metric while
+  Cached text is on. Two reviews, the battery green, APK 0.63 built; committed `6bba881` and staged 2026-11-10 on Adam's word, after
+  `v2-tablepatch` matched 11 of 11 on glass; every design call is the lead's and is listed in §73 for Adam. The fork did not change. **A correction to the
+  2026-09-16 entry above:** the "one-byte empty cache write dropped before the handler" was the self-test
+  driver's expectation — both handlers return before the generation bump when a list carries no data, and the
+  glass did what the C does (§73; `CLAIMS.md`).
