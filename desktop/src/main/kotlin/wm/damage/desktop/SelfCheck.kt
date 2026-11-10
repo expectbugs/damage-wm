@@ -324,6 +324,7 @@ object SelfCheck {
         check("FB lease held after start", transport.state.value.leaseHeld)
         check("keyframe delivered (left shadow seeded)", sim.left.seeded)
         check("panel is not blank after boot", sim.left.panel.any { it.toInt() != 0 })
+        if (!cached) gainOnTheUpstreamContract(shell)
 
         // ---- browser replica: the page is served, the token gate holds
         val rp = java.net.ServerSocket(0).use { it.localPort }
@@ -1228,10 +1229,57 @@ object SelfCheck {
         settle(shell, "cache-main-again")
         val served = shell.cachedRectsShipped - servedBefore
         check("the cache served rects on real surfaces under the oracle (served $served)", served > 20)
+        // `HANDOFF.md` §73: a face is packed with what it has drawn and gains the rest in place.
+        // Counted, because nothing above would notice the path going unexercised: with no face
+        // ever shown a new character, every extension, promotion and table patch would go unrun
+        // while the oracle stayed green on the pixels the host drew instead. The gate is the
+        // contract-2 pass, whose cache is on from the session's first frame (85 promotions in the
+        // run that set this floor); the contract-1 pass turns the cache on here, after every
+        // face has drawn its characters, and gains few or none on this walk — its own gate is
+        // `gainOnTheUpstreamContract`, at boot; the count printed here is this shell's total.
+        val gained = shell.atlasExtensionsLive
+        if (contract >= 2) check("faces gained glyphs in place under the oracle, with the real faces (promoted $gained by this shell)", gained >= 10)
+        else println("  note  contract 1: $gained face extension(s) promoted by this shell")
         check("no faults or failed flushes under the cache", faults.get() == faultsBefore && flushFails.get() == failsBefore)
         shell.updateSettings { it.copy(cachedText = "off") }
         awaitTrue("the cache goes dark on request") { !shell.cachedTextActive }
         settle(shell, "cache-off")
+    }
+
+    /**
+     * `HANDOFF.md` §73, the upstream contract's half: a face gains glyphs IN PLACE through mode 12
+     * (records appended, 2-byte table entries rewritten at byte offsets) under the oracle, with the
+     * real faces. The contract-1 pass turns the cache on only at its end, after every face has
+     * drawn all it will, so nothing there ever gained a glyph (0 promotions, printed and not
+     * gated, until this step) and the v1 patch path ran under two unit pins and one vector only.
+     * Here the cache goes on at boot with Main's characters alone, and Settings is opened: its
+     * rows show the faces Main packed many characters they have not drawn. Leaves the shell as it
+     * found it — cache off, Main, the cursor on the first row, Settings' own cursor where it was.
+     */
+    private suspend fun gainOnTheUpstreamContract(shell: Shell) {
+        val gained0 = shell.atlasExtensionsLive
+        shell.updateSettings { it.copy(cachedText = "on") }
+        awaitTrue("contract 1: the atlas uploads and the cache goes live on Main") { shell.cachedTextActive && shell.cachedFontsLive.isNotEmpty() }
+        settle(shell, "c1-cache-live")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)                 // one up from the top: the Settings row
+        settle(shell, "c1-settings-row")
+        shell.postGesture(EvenHubMsg.EV_CLICK)
+        awaitTrue("contract 1: Settings opens under the cache") { shell.currentWindowId() == "settings" }
+        awaitTrue("contract 1: a live face gained glyphs in place (promoted ${shell.atlasExtensionsLive - gained0})") { shell.atlasExtensionsLive > gained0 }
+        settle(shell, "c1-gained")
+        // rows repainted now are drawn through the patched tables: a notch down and back
+        val served0 = shell.cachedRectsShipped
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); settle(shell, "c1-settings-notch")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_TOP); settle(shell, "c1-settings-back")
+        check("contract 1: rows went out as cached draws after the gain (${shell.cachedRectsShipped - served0})", shell.cachedRectsShipped > served0)
+        shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+        awaitTrue("contract 1: back on Main") { shell.currentWindowId() == null }
+        settle(shell, "c1-main-again")
+        shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)              // the cursor back on the first row
+        settle(shell, "c1-cursor-home")
+        shell.updateSettings { it.copy(cachedText = "off") }
+        awaitTrue("contract 1: the cache goes dark again") { !shell.cachedTextActive }
+        settle(shell, "c1-cache-off")
     }
 
     private suspend fun toWindow(shell: Shell, id: String) {

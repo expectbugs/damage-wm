@@ -522,7 +522,9 @@ class MusicWindow(
         return true
     }
 
-    override fun onLayoutChanged() { for (f in stack) f.lines = null; lyricsLineShown = -2 }
+    // the plain-lyrics wrap is keyed on the lyrics and the width only: a typography change, or the
+    // layout metric's (`HANDOFF.md` §73), left it standing and Music Mode cut its lines
+    override fun onLayoutChanged() { for (f in stack) f.lines = null; lyricsLineShown = -2; plainWrapKey = null }
     override fun onFontScaleChanged(scale: Double) { onLayoutChanged() }
 
     /** A replica-typed line = an Ask, staged behind a confirm (typed text

@@ -658,6 +658,18 @@ abstract class CfwTransportBase(
 
     /** In-flight un-acked image messages; slots free on ack. */
     private val window = Semaphore(WINDOW)
+    /** `HANDOFF.md` §73: the link's floor and transfer term, from this session's isolated flushes. */
+    private val estimator = LinkEstimator()
+    /** Flushes whose ack clock is still running — written on the lane, closed by each completion
+     *  as soon as its ack time is taken. With the window's permits this is what "isolated" reads:
+     *  a permit is back the moment a fragment's ack arrives, but the completion chain (and, on the
+     *  simulator, the modeled ack delay) can still be timing an earlier flush. */
+    private val openAckClocks = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** What a flush's ack may tell the estimator: whether nothing else was un-acked when the lane
+     *  took it, whether it may be a floor observation (a cache write may not), and the session it
+     *  belongs to (a completion that outlives its session times a link that is gone). */
+    private class AckSample(val isolated: Boolean, val floor: Boolean, val epoch: Long)
 
     /** Held per MESSAGE write; also guards msgId/aaSeq/session allocation. */
     private val wire = Mutex()
@@ -1300,6 +1312,12 @@ abstract class CfwTransportBase(
         // the push below re-establishes it, and if the glasses really are silent the refusal
         // streak of §36 takes the shell back there — the path that is designed to.
         synchronized(stateLock) { _state.value = _state.value.copy(glassesSilent = false) }
+        // §73: the estimator starts over with the session, and the state says so in the same
+        // step — the readings it held timed a link that is gone, and a regime read from them
+        // stood for hours (2026-11-09: SLOW from before 08:47 to 12:06 on one stale number)
+        estimator.reset()
+        updateState { it.copy(floorMsEma = estimator.floorMs, transferMsPerKbEma = estimator.transferMsPerKb,
+            floorSamples = 0, transferSamples = 0) }
         // the gate may be aborted by a sweep from the moment the session
         // begins (a link death DURING connect, round 5 F2) — drain any stale
         // residue first, then arm the abort path for the whole start
@@ -1984,6 +2002,9 @@ abstract class CfwTransportBase(
 
     private suspend fun laneFlush(work: ImgWork.Flush) {
         val t0 = nowMs()
+        // §73: read HERE, where the ack clock starts and before anything of this flush is written
+        // (a wide flush's drain below waits out exactly the flushes this would have seen)
+        val alone = window.availablePermits == WINDOW && openAckClocks.get() == 0
         if (work.request.ops.isNotEmpty() && work.request.ops.all { it is DisplayOp.CacheWrite || it is DisplayOp.CacheWrite2 }) {
             // §40: the texture atlas — each mode-12 (or, on contract 2, mode-19) message is
             // its own image (no fid, no batch); the flush completes on the LAST one's ack,
@@ -2000,7 +2021,7 @@ abstract class CfwTransportBase(
                     val w = work.request.writer
                     updateState { it.copy(cacheWriter = w) }
                 }
-                completeAsync(final, work.id, bytes, t0, done = null)
+                completeAsync(final, work.id, bytes, t0, done = null, sample = AckSample(alone, floor = false, epoch = work.epoch))
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -2049,7 +2070,7 @@ abstract class CfwTransportBase(
             flushWritten = true
             // the flush is on the wire: its completion is its own, whatever
             // happens to the wrap clear below (round 7 D4)
-            completeAsync(final, work.id, encoded.image.size, t0, done = null)
+            completeAsync(final, work.id, encoded.image.size, t0, done = null, sample = AckSample(alone, floor = true, epoch = work.epoch))
             if (fids.wrapPending) {
                 // the flush ended EXACTLY on 0xFFFE: the mode-7 sub-0 clear
                 // resets the FIRMWARE's fid ring, flags and lastFid; the host
@@ -2094,6 +2115,8 @@ abstract class CfwTransportBase(
     private fun completeAsync(
         final: PendingAck?, flushId: Long, bytes: Int, t0: Long,
         done: CompletableDeferred<Unit>?,
+        /** Null = never an estimator observation (a raw image: its clock starts after its write). */
+        sample: AckSample? = null,
     ) {
         val prev = lastCompletion
         if (final == null) {
@@ -2104,26 +2127,37 @@ abstract class CfwTransportBase(
             }
             return
         }
+        // the ack clock is open from here (on the lane) until this completion has taken its time:
+        // closed BEFORE the FlushDone leaves, so the flush the shell submits on it reads the lane as
+        // clear, and in the `finally` so a failed or cancelled completion cannot leave it open —
+        // an open clock that never closed would make every later flush "not isolated" for good
+        openAckClocks.incrementAndGet()
         lastCompletion = scope.launch {
+            var open = true
+            fun close() { if (open) { open = false; openAckClocks.decrementAndGet() } }
             try {
                 prev?.join()          // inside the try: a cancelled join still
                 val ack = final.done.await()   // fails `done` below, never parks it
                 onImageDelivered()
                 val ackMs = nowMs() - t0
+                close()
                 if (ack.errorCode != null) {
                     sessionPenalty = true
                     done?.completeExceptionally(LintError("ImgResCmd ${ack.statusText} (${ack.errorCode})"))
                     if (flushId >= 0) _events.emit(TransportEvent.FlushDone(flushId, false, ackMs,
                         bytes, "ImgResCmd ${ack.statusText} (${ack.errorCode}) — damage recomputes with a fresh fid"))
                 } else {
-                    updateEma(ackMs, bytes)
+                    updateEma(ackMs, bytes, sample)
                     done?.complete(Unit)
                     if (flushId >= 0) _events.emit(TransportEvent.FlushDone(flushId, true, ackMs, bytes))
                 }
             } catch (e: Exception) {
+                close()
                 done?.completeExceptionally(e)
                 if (flushId >= 0) _events.emit(TransportEvent.FlushDone(flushId, false,
                     nowMs() - t0, bytes, e.message ?: e.toString()))
+            } finally {
+                close()
             }
         }
     }
@@ -2427,23 +2461,25 @@ abstract class CfwTransportBase(
         return Pb.cat(parts)
     }
 
-    private fun updateEma(ackMs: Long, bytes: Int) {
+    /** One acked image message. The two all-size EMAs (the chrome's throughput readout) take
+     *  every one; the floor and the transfer term are [LinkEstimator]'s, fed only by [sample]
+     *  (`HANDOFF.md` §73: the floor from small flushes, the transfer term from big ones — the
+     *  all-sizes EMAs cannot tell a slow radio from a fast one, two thirds of all flushes sit on
+     *  the same floor on either path, §31.6/§32 — and only from a flush that was alone on the lane
+     *  in the session that is still running). */
+    private fun updateEma(ackMs: Long, bytes: Int, sample: AckSample? = null) {
+        if (sample != null && sample.epoch == sessionEpoch.get())
+            estimator.sample(bytes, ackMs, sample.isolated, sample.floor)
         updateState { s ->
             val a = 0.3
-            // the floor from small flushes, the transfer term from big ones:
-            // the all-sizes EMAs below cannot tell a slow radio from a fast
-            // one, because two thirds of all flushes are under 500 B and sit
-            // on the same ~60 ms floor on either path (§31.6, §32)
-            val floor = if (bytes < 400) s.floorMsEma * (1 - a) + ackMs * a else s.floorMsEma
-            val transfer = if (bytes >= 1000)
-                s.transferMsPerKbEma * (1 - a) + (maxOf(0.0, ackMs - floor) / (bytes / 1000.0)) * a
-            else s.transferMsPerKbEma
             s.copy(
                 ackMsEma = s.ackMsEma * (1 - a) + ackMs * a,
                 bytesPerSecEma = if (ackMs > 0)
                     s.bytesPerSecEma * (1 - a) + (bytes * 1000.0 / ackMs) * a else s.bytesPerSecEma,
-                floorMsEma = floor,
-                transferMsPerKbEma = transfer,
+                floorMsEma = estimator.floorMs,
+                transferMsPerKbEma = estimator.transferMsPerKb,
+                floorSamples = estimator.floorSamples,
+                transferSamples = estimator.transferSamples,
             )
         }
     }

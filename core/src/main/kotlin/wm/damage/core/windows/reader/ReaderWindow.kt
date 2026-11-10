@@ -191,6 +191,8 @@ class ReaderWindow(
         /** Decoded, scaled, 16-level-quantized ebook images (2026-08-31),
          *  each padded to whole line boxes so image LINES blit exact strips. */
         val imgs: List<Gray8> = emptyList(),
+        /** [ReaderWindow.layoutEpoch] when the wrap started. */
+        val epoch: Int = 0,
     ) {
         data class Line(
             val text: String, val offset: Int, val heading: Boolean,
@@ -433,9 +435,16 @@ class ReaderWindow(
     }
 
     private var fontScale = 1.0
+    /** Bumped every time the shell says the typography — or the layout metric (`HANDOFF.md` §73) —
+     *  changed. A wrap captures it when it STARTS (`layoutBook` runs off the loop) and
+     *  [ensureCurrentLayout] compares: width and scale alone do not move when the Cached text
+     *  row or a face does, and a book whose open or restore was in flight then landed wrapped by
+     *  the old measure, with nothing to re-derive it (`relayoutOpenBook` had no book yet). */
+    @Volatile private var layoutEpoch = 0
 
     override fun onFontScaleChanged(scale: Double) {
         fontScale = scale
+        layoutEpoch++
         relayoutOpenBook()
     }
 
@@ -451,7 +460,7 @@ class ReaderWindow(
      *  than draw lines that overrun their rects (round 4 #10). */
     private fun ensureCurrentLayout() {
         val b = book ?: return
-        if (b.width != (services?.docContentWidth() ?: b.width) || b.scale != fontScale) relayoutOpenBook()
+        if (b.width != (services?.docContentWidth() ?: b.width) || b.scale != fontScale || b.epoch != layoutEpoch) relayoutOpenBook()
     }
 
     private var layoutGen = 0
@@ -671,6 +680,7 @@ class ReaderWindow(
     private fun layoutBook(meta: BookMeta, b: Epub.Book): Loaded {
         val width = (services?.docContentWidth() ?: 560).coerceAtLeast(120)
         val scale = fontScale
+        val epoch = layoutEpoch          // before the first measure: a change during the wrap makes this layout stale
         // The line box follows the face at THIS scale (§28 #2). The descender
         // guard stays as a check on the arithmetic: a box that cannot hold
         // its own ink would be clipped by the scroll path's per-line buffers,
@@ -718,7 +728,7 @@ class ReaderWindow(
         // page numbers count against the LIVE content height (§2.2b: nothing
         // hardcodes a 480-derived number) — 384 is only the no-services default
         val perPage = maxOf(1, (services?.docContentHeight() ?: 384) / lineH)
-        return Loaded(meta, b, lines, perPage, width, scale, lineH, imgs)
+        return Loaded(meta, b, lines, perPage, width, scale, lineH, imgs, epoch)
     }
 
     private var warnedNoDecoder = false

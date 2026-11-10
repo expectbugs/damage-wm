@@ -2,9 +2,10 @@
 """Read a flush journal the way `HANDOFF.md` §31/§32 did, in one command.
 
     python3 tools/journal_report.py ~/.damage/journal.jsonl
-    curl -s 'http://aphone:7403/journal?token=T' | python3 tools/journal_report.py -
-    (an APK before 0.61 reads the whole file into memory and its process ends: add
-    `&tail=N`, a few MB, until 0.61 is installed -- HANDOFF.md §71)
+    curl -s 'http://PHONE:7403/journal?token=T&tail=2000000' | python3 tools/journal_report.py -
+    (KEEP `&tail=N` until APK 0.61 is installed: an older APK reads the whole file into
+    memory without it and its process ends -- HANDOFF.md §71; PHONE is the phone's
+    Tailscale address)
 
 Prints: flushes by hour with the median ack per size band (the two radio
 regimes show up here), the same by transport (`via`, present since §32), the
@@ -26,11 +27,20 @@ a contract-2 build reports one (`FIRMWARE.md` §4, mode 24: 0 the full refresh, 
 rows), which is F1.7's A/B. A contract-2 build's refusals (`glass` notes carrying `refMode=`)
 print as a list, newest last: the ack precedes the decode, so these are the only trace of a
 message the glasses threw away. The per-gesture section prints `HANDOFF.md` §57's baseline
-(the journal since 08-31) beside the first-flush bytes, the number Phase 2's exit is priced by.
+(the journal since 08-31) beside the first-flush bytes, the number Phase 2's exit is priced by —
+for a journal with no `in` flag and no --since only (a 0.63+ journal lists the no-input bursts
+apart, so its rows are not the baseline's and the baseline is not printed).
+
+§73: the atlas's own account, for any journal with `atlas` notes — cache-write messages and bytes,
+repacks, how long every face was off around each repack, the flushes that waited behind a cache
+write; and from APK 0.63 on the faces that gained glyphs in place and the characters the host
+drew for want of a glyph (`unpacked`). Where the
+submit records carry `in` (did the pump follow a ring event), a burst no input started is listed
+apart as "LABEL (no input)" — the idle chrome tick is not a gesture.
 
     python3 tools/journal_report.py journal.json --since 2026-09-14 --glasslog
 """
-import collections, datetime, json, re, statistics, sys
+import bisect, collections, datetime, json, re, statistics, sys
 
 BANDS = [(0, 500), (500, 1500), (1500, 3000), (3000, 6000), (6000, 10**9)]
 # §42: flushes further apart than this belong to different gestures
@@ -67,6 +77,7 @@ def refusal_report(notes):
 def main(path, since_ms=0, glasslog=False):
     f = sys.stdin if path == '-' else open(path, encoding='utf-8')
     sub, done, notes, presents, bad = {}, [], [], [], 0
+    done_in = []                             # the submit's `in` flag for each `done` row, kept beside it
     failed = []          # completed flushes that did NOT succeed — refusals, link-loss completions
     lines_read = 0
     joined = []                              # the submit record each completed flush was joined to
@@ -87,8 +98,10 @@ def main(path, since_ms=0, glasslog=False):
             # refusals read as a quiet day (2026-09-16 review)
             failed.append(r)
         elif ev == 'done' and r.get('ok') and 'bytes' in r:
-            s = sub.get(r['id'], {})
+            s = dict(sub.get(r['id'], {}))       # a copy: the completion's own facts ride it below
+            s['id'] = r['id']; s['doneT'] = r['t']; s['ackMs'] = r['ackMs']
             joined.append(s)                     # the submit THIS done was joined to, not the last per id
+            done_in.append(s.get('in') if isinstance(s.get('in'), int) and s.get('in') >= 0 else None)
             done.append((r['t'], r['bytes'], r['ackMs'], s.get('via', '?'), s.get('handleMs'), s.get('assembleMs'), s.get('label', '?'), s.get('t')))
         elif ev == 'note': notes.append(r)
         elif ev == 'present': presents.append(r)
@@ -105,7 +118,9 @@ def main(path, since_ms=0, glasslog=False):
     # flush can be acked first: sort by the moment each was SUBMITTED, which is what a burst's
     # "first flush" means (2026-09-15, the third review — the report took whichever acked first
     # and priced the gesture by it)
-    done.sort(key=lambda x: x[7] if x[7] is not None else x[0])
+    order = sorted(range(len(done)), key=lambda i: done[i][7] if done[i][7] is not None else done[i][0])
+    done = [done[i] for i in order]
+    done_in = [done_in[i] for i in order]
     if not done:
         # a window with no flush still has the glasses' own records to show (a self-test run, a
         # quiet shell): the refusals, the transfers and the battery (2026-09-15, second review)
@@ -210,6 +225,7 @@ def main(path, since_ms=0, glasslog=False):
         stage_bytes = sum(o.get('bytes', 0) for r in stage_flushes for o in r.get('ops', []))
         print(f'page staging: {sum(staged)} rect(s) shipped as staged draws over {sum(1 for s in staged if s > 0)} flushes; '
               f'{len(stage_flushes)} record write(s), {stage_bytes} B off the gesture path')
+    atlas_report(joined, notes)
     # §42: time to first visible change per gesture. A burst = consecutive
     # flushes less than BURST_GAP_MS apart; its first flush's bytes and ack are
     # what the eye waits for. The silent clock's minute tick and atlas chunks
@@ -217,7 +233,14 @@ def main(path, since_ms=0, glasslog=False):
     bursts = collections.defaultdict(list)
     prev_t = None; cur = None
     unjoined = 0
-    for t, b, a, via, hm, am, lab, ts in done:
+    # §73: whether a flush's pump followed a ring event (`in`, written since APK 0.63). Where the
+    # journal says, a burst that no input started — the 5 s idle chrome tick, a provider's push —
+    # is listed apart: on 2026-11-09 they were 91 % of the "WINDOW" row and made it read 58 B / 64 ms.
+    # The flag rides each ROW (the submit this completion was joined to): flush ids start over
+    # with every process, so a table keyed by id read one session's flag for another's flush.
+    prev_in = None                           # the `in` flag of the flush before this one
+    split_by_in = any(i is not None for i in done_in)
+    for (t, b, a, via, hm, am, lab, ts), started in zip(done, done_in):
         # not gestures — and they must not extend one either: leaving `prev_t` on an atlas chunk
         # glued the next real gesture onto the burst before it and lost that gesture's own first
         # flush, the number `WINDOWS.md` §6 judges a window by (2026-09-15, the third review)
@@ -229,30 +252,42 @@ def main(path, since_ms=0, glasslog=False):
             # and left out instead.
             unjoined += 1
             continue
-        if cur is None or prev_t is None or ts - prev_t > BURST_GAP_MS:
+        # a ring event's flush that follows a flush no input started — an idle tick, an animation
+        # frame, a push — is a gesture of its own, whoever opened the burst: glued on, its first
+        # flush (the number the gesture is priced by) was counted as the burst's second or third
+        if cur is None or prev_t is None or ts - prev_t > BURST_GAP_MS or (started == 1 and prev_in == 0):
             if cur: bursts[cur[0]].append(cur)
-            cur = [lab, b, a, 0, 0, t - ts]
+            # a journal that holds rows from before the flag existed (an APK before 0.63) and after:
+            # the old rows cannot be split, and under the plain label they would put the idle
+            # ticks back into the gesture row — listed apart, named for what they are
+            name = lab if started == 1 else f'{lab} (no input)' if started == 0 else f'{lab} (flag not journaled)' if split_by_in else lab
+            cur = [name, b, a, 0, 0, t - ts]
         cur[3] += 1; cur[4] += b
         prev_t = ts
+        prev_in = started
     if cur: bursts[cur[0]].append(cur)
     if unjoined:
         print(f'\n({unjoined} completed flush(es) had no submit record — the file starts mid-stream; '
-              'they are left out of the gesture table. Fetch the whole journal for a full one.)')
+              'they are left out of the gesture table. A larger &tail= gives a fuller one; fetch the '
+              'whole journal only from APK 0.61 on -- HANDOFF.md §71.)')
     if bursts:
         def p90(v): v = sorted(v); return v[min(len(v) - 1, int(len(v) * 0.9))]
         print('\ntime to first visible change per gesture (bursts by first-flush label; median / p90):')
         print('  "wait" is submit -> done, what the gesture actually waited; "ack" is the link\'s own')
         print('  share of it (the lane\'s clock starts when it dequeues, so a backed-up link hides there).')
-        print(f'  {"label":22s} {"bursts":>6s}  {"first bytes":>14s}  {"first wait ms":>14s}  {"first ack ms":>14s}  {"flushes":>7s}  {"burst bytes":>11s}')
+        print(f'  {"label":28s} {"bursts":>6s}  {"first bytes":>14s}  {"first wait ms":>14s}  {"first ack ms":>14s}  {"flushes":>7s}  {"burst bytes":>11s}')
         for lab, v in sorted(bursts.items(), key=lambda kv: -len(kv[1])):
             fb = [x[1] for x in v]; fa = [x[2] for x in v]; n = [x[3] for x in v]; tb = [x[4] for x in v]
             fw = [x[5] for x in v]
-            base = BASELINE_FIRST_BYTES.get(str(lab)) if since_ms == 0 else None
-            print(f'  {str(lab):22s} {len(v):6d}  {med(fb):6d} / {p90(fb):5d}  {med(fw):6d} / {p90(fw):5d}  {med(fa):6d} / {p90(fa):5d}  {med(n):7d}  {med(tb):11d}'
+            base = BASELINE_FIRST_BYTES.get(str(lab)) if since_ms == 0 and not split_by_in else None
+            print(f'  {str(lab):28s} {len(v):6d}  {med(fb):6d} / {p90(fb):5d}  {med(fw):6d} / {p90(fw):5d}  {med(fa):6d} / {p90(fa):5d}  {med(n):7d}  {med(tb):11d}'
                   + (f'   (§57 baseline {base[0]} / {base[1]} B)' if base else ''))
         if since_ms:
             print('  (the §57 byte baseline is over the whole journal since 08-31; it is not printed '
                   'beside a --since window, where it would compare two different sets)')
+        elif split_by_in:
+            print('  (the §57 byte baseline counted every burst under its label, the idle ticks with the '
+                  'gestures; these rows list the bursts no input started apart, so it is not printed beside them)')
     refusal_report(notes)
     present_report(presents)
     battery_report(notes)
@@ -287,6 +322,69 @@ def main(path, since_ms=0, glasslog=False):
         if glasslog:
             for n in glass:
                 print(f'  {datetime.datetime.fromtimestamp(n["t"]/1000):%m-%d %H:%M:%S.%f}'[:-3] + f' {n["detail"]}')
+
+def atlas_report(joined, notes):
+    """§73: the texture atlas's own traffic and what it cost the text — chunks and bytes, repacks,
+    faces that gained glyphs, how long every face was off around each repack, the characters the
+    host drew for want of a glyph, and the flushes that waited behind a cache write."""
+    atlas = [r for r in joined if r.get('label') == 'ATLAS']
+    an = [n for n in notes if n['kind'] == 'atlas']
+    if not atlas and not an: return
+    def ts(n): return f'{datetime.datetime.fromtimestamp(n["t"]/1000):%m-%d %H:%M:%S}'
+    nbytes = sum(o.get('bytes', 0) for r in atlas for o in r.get('ops', []))
+    ack = sum(r.get('ackMs') or 0 for r in atlas)
+    repacks = [n for n in an if n['detail'].startswith('repacking')]
+    gained = [n for n in an if 'gained glyphs' in n['detail']]
+    faces = 0
+    for n in gained:
+        m = re.match(r'(\d+) face\(s\) gained glyphs', n['detail'])
+        faces += int(m.group(1)) if m else 1
+    refused = [n for n in an if 'cannot gain' in n['detail']]
+    full = [n for n in an if n['detail'].startswith('full')]
+    print(f'\natlas traffic: {len(atlas)} message(s), {nbytes} B, {ack / 1000:.1f} s of acks; '
+          f'{len(repacks)} repack(s), {faces} face extension(s) in {len(gained)} promotion(s), '
+          f'{len(refused)} refused, {len(full)} "full" episode(s)')
+    # every face off: from a repack to the next "uploaded". A repack whose upload never finished in
+    # this session (the session ended, the lease lapsed, cached text went off, another writer took
+    # the cache) is not a span: its "uploaded" would be a later session's, hours on.
+    spans = []
+    start = None
+    ENDS = ('reset', 'kept across', 'cached text off', 'the lease lapsed', 'the texture cache was written by')
+    for n in an:
+        d = n['detail']
+        if d.startswith('repacking') and start is None: start = n
+        elif d.startswith('uploaded') and start is not None:
+            spans.append((start, n)); start = None
+        elif d.startswith(ENDS): start = None
+    for a, b in spans:
+        inside = [r for r in joined if r.get('t') is not None and a['t'] <= r['t'] <= b['t'] and r.get('label') not in ('ATLAS', 'STAGE')]
+        pix = sum(o.get('bytes', 0) for r in inside for o in r.get('ops', []))
+        print(f'  {ts(a)} every face off for {(b["t"] - a["t"]) / 1000:.1f} s (a repack): '
+              f'{len(inside)} other flush(es), {pix} B, went out meanwhile')
+    unpacked = [r.get('unpacked') for r in joined if isinstance(r.get('unpacked'), int) and r.get('unpacked') >= 0]
+    if unpacked:
+        hit = [u for u in unpacked if u > 0]
+        # a cacheable code a live face's table does not hold: not packed yet, waiting on a promotion,
+        # or one the face has no glyph for at all (that last kind never reaches 0)
+        print(f'  characters the host drew for want of a glyph: {sum(unpacked)} over {len(hit)} of {len(unpacked)} flushes')
+    # head-of-line: a flush submitted while a cache write was on the lane waits out its remainder
+    writes = sorted((r['t'], r['doneT']) for r in joined if r.get('label') in ('ATLAS', 'STAGE') and r.get('t') is not None)
+    if writes:
+        # one binary search per flush: the latest write submitted at or before it, and the furthest
+        # any write up to that one ran (a running maximum, so overlapping writes are still right)
+        starts = [w0 for w0, _ in writes]
+        reach = []
+        for _, w1 in writes: reach.append(max(w1, reach[-1]) if reach else w1)
+        behind = []
+        for r in joined:
+            if r.get('label') in ('ATLAS', 'STAGE', 'SILENT') or r.get('t') is None: continue
+            i = bisect.bisect_right(starts, r['t']) - 1
+            if i >= 0 and reach[i] > r['t']: behind.append(r['doneT'] - r['t'])
+        if behind:
+            behind.sort()
+            print(f'  flushes submitted behind a cache write: {len(behind)} — wait median {behind[len(behind)//2]} ms, '
+                  f'p90 {behind[min(len(behind)-1, int(len(behind)*.9))]} ms')
+    for n in refused[:5]: print(f'  {ts(n)} {n["detail"][:160]}')
 
 def present_report(presents):
     """`FIRMWARE.md` §3 (F1.3, a Damage build with PRESENTED armed): each `present` record is one
@@ -345,8 +443,8 @@ def battery_report(notes):
 
 USAGE = '''usage: journal_report.py [PATH|-] [--since YYYY-MM-DD[THH:MM]] [--glasslog]
 
-Reads the phone's journal (`curl .../journal?token=... | journal_report.py -`; before APK 0.61
-add `&tail=N`, HANDOFF.md §71) and prints the
+Reads the phone's journal (`curl '.../journal?token=...&tail=2000000' | journal_report.py -`; drop
+`&tail=` only from APK 0.61 on, HANDOFF.md §71) and prints the
 per-gesture, per-band and per-glass numbers `WINDOWS.md` §6 and `REMINDER.md` price with.
 Exit status: 0 a report (an empty one included), 2 the input was not a journal.'''
 

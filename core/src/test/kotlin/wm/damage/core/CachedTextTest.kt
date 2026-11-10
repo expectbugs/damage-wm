@@ -272,7 +272,7 @@ class CachedTextTest {
         val base = GlyphyText()
         val atlas = GlyphAtlas(base)
         val spec = FontSpec(Face.SYSTEM, 18)
-        assertTrue(atlas.add(spec))
+        assertTrue(atlas.add(spec, wm.damage.core.comp.GlyphAtlas.allCodes(false)))
         val e = atlas.entry(spec)!!
         assertEquals(base.measure("A", spec), e.images['A'.code - 32].w, "a glyph box is its advance wide")
         assertEquals(base.metrics(spec).let { it.ascent + it.descent }, e.lineH, "and the face's ink tall")

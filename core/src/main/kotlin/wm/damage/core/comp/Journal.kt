@@ -50,7 +50,14 @@ class Journal(private val path: Path?) : AutoCloseable {
          *  want of records, or the cache is off). */
         val cached: Int = -1, val cacheMiss: String = "",
         /** §66: rects shipped as staged draws (mode 17 under a clip) — -1 when the assemble did not say. */
-        val staged: Int = -1)
+        val staged: Int = -1,
+        /** §73: characters the host drew since the last flush that a cached run could have held
+         *  had the face been packed with them — what a first-seen character costs, counted. */
+        val unpacked: Long = -1,
+        /** §73: 1 when the pump that assembled this flush followed a ring event or a typed line —
+         *  a gesture's own flush — 0 for an idle tick, a push or an animation frame; -1 unsaid.
+         *  The report's per-gesture table was 91 % idle chrome ticks without it (2026-11-09). */
+        val input: Int = -1)
 
     fun flushSubmitted(id: Long, a: Compositor.Assembled, label: String,
         via: String = "?", timing: Timing = Timing()) =
@@ -86,7 +93,7 @@ class Journal(private val path: Path?) : AutoCloseable {
             """"via":${json(via)},"handleMs":${tm.handleMs},"handlerMs":${tm.handlerMs},"mirrorMs":${tm.mirrorMs},""" +
             """"assembleMs":${tm.assembleMs},"truthMs":${tm.truthMs},"compressMs":${tm.compressMs},"compressN":${tm.compressN},""" +
             """"slidesMs":${tm.slidesMs},"chromeMs":${tm.chromeMs},"overlaysMs":${tm.overlaysMs},"textMs":${tm.textMs},""" +
-            """"cached":${tm.cached},"cacheMiss":${json(tm.cacheMiss)},"staged":${tm.staged},"ops":[$ops]}""")
+            """"cached":${tm.cached},"cacheMiss":${json(tm.cacheMiss)},"staged":${tm.staged},"unpacked":${tm.unpacked},"in":${tm.input},"ops":[$ops]}""")
     }
 
     fun flushDone(id: Long, ok: Boolean, ackMs: Long, bytes: Int, error: String?) {

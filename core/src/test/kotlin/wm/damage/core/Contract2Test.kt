@@ -317,7 +317,7 @@ class Contract2Test {
         val atlas = wm.damage.core.comp.GlyphAtlas(base, v2 = true, capacity = 160 * 1024)
         ct.atlas = atlas
         val f = FontSpec(Face.SYSTEM, 18)
-        assertTrue(atlas.add(f), "the face packs")
+        assertTrue(atlas.add(f, wm.damage.core.comp.GlyphAtlas.allCodes(true)), "the face packs")
         ct.live = setOf(f)
         val g = Gray8(640, 480)
         ct.target = g
@@ -462,7 +462,7 @@ class Contract2Test {
         val atlas = wm.damage.core.comp.GlyphAtlas(base, v2 = true, capacity = 160 * 1024)
         ct.atlas = atlas
         val f = FontSpec(Face.SYSTEM, 18)
-        assertTrue(atlas.add(f), "the face packs")
+        assertTrue(atlas.add(f, wm.damage.core.comp.GlyphAtlas.allCodes(true)), "the face packs")
         ct.live = setOf(f)
         val g = Gray8(640, 480)
         ct.target = g

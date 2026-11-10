@@ -702,7 +702,7 @@ class AtlasCarryTest {
     @Test
     fun aRepackForgetsWhatTheLastReadBackCovered() {
         val a = wm.damage.core.comp.GlyphAtlas(FakeText())
-        assertTrue(a.add(FontSpec(Face.SYSTEM, 20)))
+        assertTrue(a.add(FontSpec(Face.SYSTEM, 20), wm.damage.core.comp.GlyphAtlas.allCodes(false)))
         a.takeUpload()
         while (a.ackedBytes < a.sentBytes) a.acked()
         val covered = a.ackedBytes
@@ -725,7 +725,7 @@ class AtlasCarryTest {
     @Test
     fun anUndeliveredChunkGoesAgainFromTheAckedMark() {
         val a = wm.damage.core.comp.GlyphAtlas(FakeText())
-        assertTrue(a.add(FontSpec(Face.SYSTEM, 20)))
+        assertTrue(a.add(FontSpec(Face.SYSTEM, 20), wm.damage.core.comp.GlyphAtlas.allCodes(false)))
         val chunks = a.takeUpload(maxMessage = 200)
         assertTrue(chunks.size >= 2, "more than one chunk for the test: ${chunks.size}")
         a.acked()                                             // the first landed

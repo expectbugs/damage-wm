@@ -1,0 +1,1461 @@
+[
+ {
+  "id": "M1-no-promotion",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "val promoted = a?.promote() ?: emptyList()",
+    "val promoted = emptyList<GlyphAtlas.Ext>()"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "aFirstSeenCharacterIsTheHostsPixelsThenACachedDraw",
+   "aPatchOnlyExtensionIsReadBackBeforeItIsLive",
+   "anUndeliveredMessageIsSentAgainAndNothingIsLiveUnread",
+   "anExtensionOwedAtALinkEndGoesAgainUnderTheKeptAtlas"
+  ]
+ },
+ {
+  "id": "M2-split-on-contract",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "            if (code >= 0 && e.packs(text[s])) {",
+    "            if (code >= 0) {"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*",
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "aFirstSeenCharacterIsTheHostsPixelsThenACachedDraw",
+   "theRecorderSplitsOnTheEntryAndNotesWhatTheFaceDrew"
+  ]
+ },
+ {
+  "id": "M3-spans-not-sent",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "                    writes += a to builder.read(a until a + n)\n                    size += builder.writeOverhead + n\n                    a += n",
+    "                    a += n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*",
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "aFaceGainsGlyphsInPlaceAndTheyAreLiveOnlyAfterTheirMessageIsAcked",
+   "aFirstSeenCharacterIsTheHostsPixelsThenACachedDraw"
+  ]
+ },
+ {
+  "id": "M4-gate-bytes-only",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "a.ackedBytes <= atlasCheckedBytes && a.ackedMsgs <= atlasCheckedMsgs) return goLive()",
+    "a.ackedBytes <= atlasCheckedBytes) return goLive()"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "aPatchOnlyExtensionIsReadBackBeforeItIsLive"
+  ]
+ },
+ {
+  "id": "M5-held-path-direct",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "(held != ct.live || heldImages != ct.liveImages)) atlasCheckThenLive()",
+    "(held != ct.live || heldImages != ct.liveImages)) atlasLive(held, heldImages, \"held\")"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "noFontGoesLiveWhileItsReadBackIsOnItsWay"
+  ]
+ },
+ {
+  "id": "M6-rewind-keeps-handedOut",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "        for (x in pending.values) { x.handedOut = false; x.ackedAt = -1 }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*",
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "aRewindSendsTheExtensionAgainAndAnOldAckCompletesNothing",
+   "anExtensionOwedAtALinkEndGoesAgainUnderTheKeptAtlas",
+   "anUndeliveredMessageIsSentAgainAndNothingIsLiveUnread"
+  ]
+ },
+ {
+  "id": "M7-no-lapse-gate",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (atlasLapsedOwed || !st.leaseHeld) return false\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "aLapseHoldsEveryCacheWriteAndFoldsTheExtension"
+  ]
+ },
+ {
+  "id": "M8-no-fold-at-lapse",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "    fun forgetUpload() {\n        foldPending()\n",
+    "    fun forgetUpload() {\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*",
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "aLapseFoldsTheExtensionAndTheFaceIsAckedOnlyWithItsLastRecord",
+   "aLapseHoldsEveryCacheWriteAndFoldsTheExtension"
+  ]
+ },
+ {
+  "id": "M9-disable-no-rewind",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        atlas?.rewindToAcked()\n        atlasSeenVersion = -1\n        atlasWantVersion = -1\n        atlasPendingSpecs.clear()\n        journal.note(\"atlas\", \"cached text off",
+    "        atlasSeenVersion = -1\n        atlasWantVersion = -1\n        atlasPendingSpecs.clear()\n        journal.note(\"atlas\", \"cached text off"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "theSettingOffAndOnWithMessagesQueuedSendsThemAgain"
+  ]
+ },
+ {
+  "id": "M10-repack-folds-late",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "    fun repack(keepFonts: List<FontSpec>, keepImages: List<Any>): Int {\n        foldPending()\n",
+    "    fun repack(keepFonts: List<FontSpec>, keepImages: List<Any>): Int {\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aRepackFoldsAnExtensionBeforeItRebuilds"
+  ]
+ },
+ {
+  "id": "M11-needEnd-is-table-end",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "            BooleanArray(n) { i -> (i + TextureCache.FIRST_CHAR).toChar() in glyphs }, builder.used)",
+    "            BooleanArray(n) { i -> (i + TextureCache.FIRST_CHAR).toChar() in glyphs }, font.tableOffset + n * 2)"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aLapseFoldsTheExtensionAndTheFaceIsAckedOnlyWithItsLastRecord",
+   "aGlyphTheCacheAlreadyHoldsIsAPatchOnlyExtension"
+  ]
+ },
+ {
+  "id": "M13-rewind-same-generation",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "        uploadGen++                                    // an ack of a message cut before this completes nothing\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aRewindSendsTheExtensionAgainAndAnOldAckCompletesNothing"
+  ]
+ },
+ {
+  "id": "M15-no-kept-columns",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "                        if (afterHost) HOST_OVERHANG_PX else 0, HOST_OVERHANG_PX)",
+    "                        0, HOST_OVERHANG_PX)"
+   ],
+   [
+    "        if (runStart >= 0) cachedRun(surface, x + runX, y, text.substring(runStart), e, font, level, kern, onTarget, onRelay,\n            if (afterHost) HOST_OVERHANG_PX else 0, 0)",
+    "        if (runStart >= 0) cachedRun(surface, x + runX, y, text.substring(runStart), e, font, level, kern, onTarget, onRelay,\n            0, 0)"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*",
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "aHostDrawnCharactersOverhangDoesNotCostTheRowItsDraws",
+   "theRecorderSplitsOnTheEntryAndNotesWhatTheFaceDrew"
+  ]
+ },
+ {
+  "id": "M16-no-emit-guard",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "            if (!e.packs(dr.text)) return miss(\"glyph-not-packed\")\n            // the recorder kerns",
+    "            // the recorder kerns"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aRunTheEntryDoesNotPackIsANamedMissAtTheAssemble"
+  ]
+ },
+ {
+  "id": "M18-keep-clears-stamps",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "ct.clearSeen(keepUse = true)",
+    "ct.clearSeen()"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "aKeptAtlasKeepsWhatItsFacesWereLastDrawnAt"
+  ]
+ },
+ {
+  "id": "M19-no-reread-pump",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                pumpAfter(CacheLedger.REREAD_PACE_MS)\n",
+    "                \n"
+   ]
+  ],
+  "tests": [
+   "*StagingTest*"
+  ],
+  "expect": [
+   "aPendingReadingIsAskedAgainOnItsOwnPumpNotTheIdleTick"
+  ]
+ },
+ {
+  "id": "M21-always-isolated",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "val alone = window.availablePermits == WINDOW && openAckClocks.get() == 0",
+    "val alone = true"
+   ]
+  ],
+  "tests": [
+   "*LinkEstimatorWiringTest*"
+  ],
+  "expect": [
+   "onlyAFlushAloneOnTheLaneIsAnObservationAndASessionStartsOver"
+  ]
+ },
+ {
+  "id": "M22-no-estimator-reset",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        estimator.reset()\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*LinkEstimatorWiringTest*"
+  ],
+  "expect": [
+   "onlyAFlushAloneOnTheLaneIsAnObservationAndASessionStartsOver"
+  ]
+ },
+ {
+  "id": "M23-ack-clock-leaks",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            } catch (e: Exception) {\n                close()\n                done?.completeExceptionally(e)",
+    "            } catch (e: Exception) {\n                done?.completeExceptionally(e)"
+   ],
+   [
+    "            } finally {\n                close()\n            }\n        }\n    }",
+    "            }\n        }\n    }"
+   ]
+  ],
+  "tests": [
+   "*LinkEstimatorWiringTest*"
+  ],
+  "expect": [
+   "onlyAFlushAloneOnTheLaneIsAnObservationAndASessionStartsOver"
+  ]
+ },
+ {
+  "id": "M24-no-digit-closure",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "        if (set.nextSetBit('0'.code).let { it in '0'.code..'9'.code }) set.set('0'.code, '9'.code + 1)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aFaceIsPackedWithWhatItDrewPlusTheDigitsAndTheSpace"
+  ]
+ },
+ {
+  "id": "M29-count-per-generation",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "        uploadGen++                                    // an ack of a message cut before this completes nothing\n",
+    "        uploadGen++\n        ackedMsgs = 0\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aRewindSendsTheExtensionAgainAndAnOldAckCompletesNothing"
+  ]
+ },
+ {
+  "id": "M30-two-pending",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "        if (spec in pending) return Extended.Busy\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aSecondExtensionWaitsForTheFirstsPromotion"
+  ]
+ },
+ {
+  "id": "M31-absent-forgotten",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "                if (adv < 1 || adv > CfwModes.MAX_TEXTURE_DIM) f.absent.set(c)",
+    "                if (adv < 1 || adv > CfwModes.MAX_TEXTURE_DIM) { }"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aCodeTheFaceCannotDrawIsAskedOnce"
+  ]
+ },
+ {
+  "id": "M32-extension-unpriced",
+  "file": "wire/TextureCache.kt",
+  "edits": [
+   [
+    "            if (size + need > capacity)\n                throw LintError(\"no room for $need B of glyphs: $size B of $capacity used — nothing written\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "anExtensionThatDoesNotFitWritesNothing"
+  ]
+ },
+ {
+  "id": "M40-alone-window-only",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "val alone = window.availablePermits == WINDOW && openAckClocks.get() == 0",
+    "val alone = window.availablePermits == WINDOW"
+   ]
+  ],
+  "tests": [
+   "*LinkEstimatorWiringTest*"
+  ],
+  "expect": [
+   "aFlushTakenWhileAnAckClockIsStillOpenIsNotAlone"
+  ]
+ },
+ {
+  "id": "M41-cachewrite-is-floor",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "sample = AckSample(alone, floor = false, epoch = work.epoch)",
+    "sample = AckSample(alone, floor = true, epoch = work.epoch)"
+   ]
+  ],
+  "tests": [
+   "*LinkEstimatorWiringTest*"
+  ],
+  "expect": [
+   "aLoneSmallCacheWriteIsNoFloorObservation"
+  ]
+ },
+ {
+  "id": "M42-short-paced-at-reread",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "stageReadNotBeforeMs = System.currentTimeMillis() + CacheLedger.SETTLE_MS",
+    "stageReadNotBeforeMs = System.currentTimeMillis() + CacheLedger.REREAD_PACE_MS"
+   ]
+  ],
+  "tests": [
+   "*StagingTest*"
+  ],
+  "expect": [
+   "aShortReadingIsAskedAgainASettleWindowLaterOnItsOwnPump"
+  ]
+ },
+ {
+  "id": "M43-short-no-pump",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                pumpAfter(CacheLedger.SETTLE_MS)\n",
+    "                \n"
+   ]
+  ],
+  "tests": [
+   "*StagingTest*"
+  ],
+  "expect": [
+   "aShortReadingIsAskedAgainASettleWindowLaterOnItsOwnPump"
+  ]
+ },
+ {
+  "id": "M33-extension-never-evicts",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "atlasEvictFor(spec, a, ct, need = x.need)) {",
+    "false) {"
+   ]
+  ],
+  "tests": [
+   "*AtlasRepackTest*"
+  ],
+  "expect": [
+   "aFaceInUseThatNeedsGlyphsEvictsTheStaleFacesLikeANewFaceDoes"
+  ]
+ },
+ {
+  "id": "M45-no-retry-when-drawn-again",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (a != null && (ct.specsInUse(ATLAS_RECENT_FRAMES).any { !a.has(it) || a.isExtRefused(it) } ||",
+    "if (a != null && (false ||"
+   ],
+   [
+    "ct.imagesInUse(ATLAS_RECENT_FRAMES).any { !a.hasImage(it) && !a.isImageRefused(it) })) atlasRetryAtFrame = ct.useClock",
+    "false)) atlasRetryAtFrame = ct.useClock"
+   ]
+  ],
+  "tests": [
+   "*AtlasRepackTest*"
+  ],
+  "expect": [
+   "aFaceRefusedWhileAwayIsRetriedWhenItIsDrawnAgain",
+   "aFaceARepackEvictedGoesBackInWhenItIsDrawnAgain"
+  ]
+ },
+ {
+  "id": "M46-stale-face-packed-inside-pace",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (!recent && (repacked || (lastAtlasRepackMs != 0L && growNow - lastAtlasRepackMs < ATLAS_REPACK_PACE_MS) ||",
+    "if (!recent && (repacked || false ||"
+   ],
+   [
+    "a.price(spec, codes) > a.free - ATLAS_GROW_HEADROOM)) continue",
+    "false)) continue"
+   ]
+  ],
+  "tests": [
+   "*AtlasRepackTest*"
+  ],
+  "expect": [
+   "aFaceInUseThatNeedsGlyphsEvictsTheStaleFacesLikeANewFaceDoes"
+  ]
+ },
+ {
+  "id": "M47-no-rearm-at-promotion",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "atlasWantVersion = -1          // the characters that waited behind these get their turn on the next idle pump",
+    "// (mutated)"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "aCharacterThatWaitedBehindAnExtensionFollowsItsPromotion"
+  ]
+ },
+ {
+  "id": "M48-staged-strip-counted",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "if (code >= 0 && (onTarget || (onRelay && relayKeep.w > 0))) unpacked++",
+    "if (code >= 0 && (onTarget || onRelay)) unpacked++"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aHostDrawnCharacterIsCountedOnTheTargetAndASlideStripNotOnAStagedStrip"
+  ]
+ },
+ {
+  "id": "M49-pump-to-stopped-shell",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (running) post(Msg.Pump)\n        }\n    }",
+    "            post(Msg.Pump)\n        }\n    }"
+   ]
+  ],
+  "tests": [
+   "*StagingTest*"
+  ],
+  "expect": [
+   "aPacedReReadPostsNothingToAStoppedShell"
+  ]
+ },
+ {
+  "id": "M50-metric-follows-live-state",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "        if (!cacheMetric && liveEntry(font) == null) return base.measure(text, font)",
+    "        if (liveEntry(font) == null) return base.measure(text, font)"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*",
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "withTheCacheMetricAWrapMadeBeforeAFaceIsLiveStillFitsAfter"
+  ]
+ },
+ {
+  "id": "M51-no-capitals-closure",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "set.get('A'.code, 'Z'.code + 1).cardinality() >= CLOSE_UPPER_AT_UPPER) set.set('A'.code, 'Z'.code + 1)",
+    "set.get('A'.code, 'Z'.code + 1).cardinality() >= CLOSE_UPPER_AT_UPPER) {}"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "runningTextIsPackedWithEveryCapitalAndALabelFaceIsNot"
+  ]
+ },
+ {
+  "id": "M52-capitals-for-any-face",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "if (set.get('a'.code, 'z'.code + 1).cardinality() >= CLOSE_UPPER_AT_LOWER &&",
+    "if (true &&"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "runningTextIsPackedWithEveryCapitalAndALabelFaceIsNot"
+  ]
+ },
+ {
+  "id": "M53-no-upload-size-guard",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "if (maxMessage < builder.messageOverhead + builder.writeOverhead + 4)\n            throw LintError(\"cache chunk size $maxMessage leaves no room for data\")",
+    "// (mutated)"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aMessageSizeThatHoldsNoUnitIsRefusedBeforeAnythingIsCut"
+  ]
+ },
+ {
+  "id": "M54-chars-unbounded",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "= size > MAX_CHAR_SPECS\n",
+    "= false\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "theDrawnCharactersOfAtMost256FacesAreKeptByLastUse"
+  ]
+ },
+ {
+  "id": "M55-chars-by-insertion",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "LinkedHashMap<FontSpec, java.util.BitSet>(64, 0.75f, true)",
+    "LinkedHashMap<FontSpec, java.util.BitSet>(64, 0.75f, false)"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "theDrawnCharactersOfAtMost256FacesAreKeptByLastUse"
+  ]
+ },
+ {
+  "id": "M56-entry-unchecked",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "if (packed[i] != real || real != (ch in glyphs))",
+    "if (false)"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "anEntryWhoseFlagsImagesOrBoundsDisagreeIsRefused"
+  ]
+ },
+ {
+  "id": "M57-session-start-leaves-metric",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        cachedText?.cacheMetric = settings.cachedText == \"on\"\n        clockWKey = null; statusWKey = null\n        settingsLocallyEdited = false",
+    "        settingsLocallyEdited = false"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "theCachedTextRowSetsTheLayoutMetricBeforeAnythingIsLaidOut"
+  ]
+ },
+ {
+  "id": "M58-row-change-leaves-metric",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            cachedText?.cacheMetric = s.cachedText == \"on\"\n            clockWKey = null; statusWKey = null\n            if (s.cachedText == \"on\") atlasEnable(rederive = false)",
+    "            if (s.cachedText == \"on\") atlasEnable(rederive = false)"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "theCachedTextRowSetsTheLayoutMetricBeforeAnythingIsLaidOut"
+  ]
+ },
+ {
+  "id": "M59-row-change-no-relayout",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (restyle || (recache && cachedText != null)) {",
+    "if (restyle) {"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "theCachedTextRowSetsTheLayoutMetricBeforeAnythingIsLaidOut"
+  ]
+ },
+ {
+  "id": "M60-in-from-priority-alone",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "input = (if (pumpPriority || inputAwaitsSlot) 1 else 0).also { inputAwaitsSlot = false },",
+    "input = (if (pumpPriority) 1 else 0).also { inputAwaitsSlot = false },"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "theSubmitLineSaysWhatTheHostDrewAndWhetherARingEventStartedTheFlush"
+  ]
+ },
+ {
+  "id": "M61-in-always-one",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "input = (if (pumpPriority || inputAwaitsSlot) 1 else 0).also { inputAwaitsSlot = false },",
+    "input = 1.also { inputAwaitsSlot = false },"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "theSubmitLineSaysWhatTheHostDrewAndWhetherARingEventStartedTheFlush"
+  ]
+ },
+ {
+  "id": "M62-unpacked-not-journaled",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "unpacked = (cachedText?.unpackedDrawn ?: 0L).let { now -> (now - unpackedAtLastFlush).also { unpackedAtLastFlush = now } },",
+    "unpacked = 0L,"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "theSubmitLineSaysWhatTheHostDrewAndWhetherARingEventStartedTheFlush"
+  ]
+ },
+ {
+  "id": "M63-need-zero-evicts",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (x is GlyphAtlas.Extended.Refused && x.first && x.need > 0 && !repacked && inUse &&",
+    "if (x is GlyphAtlas.Extended.Refused && x.first && !repacked && inUse &&"
+   ]
+  ],
+  "tests": [
+   "*AtlasRepackTest*"
+  ],
+  "expect": [
+   "aFaceWhoseNewGlyphsCannotBeRenderedEvictsNothing"
+  ]
+ },
+ {
+  "id": "M64-first-regime-not-unmeasured",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (samples < 0) \"\" else if (measured) \" (n=$samples)\" else \" (unmeasured, n=$samples)\"",
+    "if (samples < 0) \"\" else \" (n=$samples)\""
+   ]
+  ],
+  "tests": [
+   "*Review47Test*"
+  ],
+  "expect": [
+   "slowParametersFlipTheRegimeAtOnceShowInTheStatusCellAndRaiseOneNotice"
+  ]
+ },
+ {
+  "id": "M65-params-line-dropped",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (st.linkParams.isNotEmpty()) journal.note(\"link\", \"connection parameters: ${st.linkParams}\")",
+    "if (false) journal.note(\"link\", \"connection parameters: ${st.linkParams}\")"
+   ]
+  ],
+  "tests": [
+   "*Review47Test*"
+  ],
+  "expect": [
+   "slowParametersFlipTheRegimeAtOnceShowInTheStatusCellAndRaiseOneNotice"
+  ]
+ },
+ {
+  "id": "M66-seam-drops-counts",
+  "file": "transport/RemoteTransport.kt",
+  "edits": [
+   [
+    "    floorSamples = floorSamples, transferSamples = transferSamples,\n    capability = capability",
+    "    capability = capability"
+   ]
+  ],
+  "tests": [
+   "*LinkEstimatorWiringTest*"
+  ],
+  "expect": [
+   "theObservationCountsCrossTheSeamAndAnOlderPeerReadsAsNotReported"
+  ]
+ },
+ {
+  "id": "M67-retry-for-refused-extensions-only",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (a != null && (ct.specsInUse(ATLAS_RECENT_FRAMES).any { !a.has(it) || a.isExtRefused(it) } ||",
+    "if (a != null && (ct.specsInUse(ATLAS_RECENT_FRAMES).any { a.isExtRefused(it) } ||"
+   ]
+  ],
+  "tests": [
+   "*AtlasRepackTest*"
+  ],
+  "expect": [
+   "aFaceARepackEvictedGoesBackInWhenItIsDrawnAgain"
+  ]
+ },
+ {
+  "id": "M68-retry-for-absent-faces-only",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (a != null && (ct.specsInUse(ATLAS_RECENT_FRAMES).any { !a.has(it) || a.isExtRefused(it) } ||",
+    "if (a != null && (ct.specsInUse(ATLAS_RECENT_FRAMES).any { !a.has(it) } ||"
+   ]
+  ],
+  "tests": [
+   "*AtlasRepackTest*"
+  ],
+  "expect": [
+   "aFaceRefusedWhileAwayIsRetriedWhenItIsDrawnAgain"
+  ]
+ },
+ {
+  "id": "M69-broken-face-rebooked",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (x is GlyphAtlas.Extended.Refused && x.need != 0 && inUse && atlasRetryAtFrame < 0)",
+    "if (x is GlyphAtlas.Extended.Refused && inUse && atlasRetryAtFrame < 0)"
+   ]
+  ],
+  "tests": [
+   "*AtlasRepackTest*"
+  ],
+  "expect": [
+   "(none known: a retry every 13 frames for a face that cannot gain — cost only)"
+  ]
+ },
+ {
+  "id": "M70-not-live-drawn-whole",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "            if (!cacheMetric) { base.draw(surface, x, y, text, font, level); return }",
+    "            if (true) { base.draw(surface, x, y, text, font, level); return }"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "whatIsDrawnIsLaidOutAsItIsMeasuredInEveryStateOfTheFace",
+   "aFaceThatIsNotLiveIsDrawnAsWideAsItMeasures"
+  ]
+ },
+ {
+  "id": "M71-no-kern-in-the-walk",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "            if (GlyphAtlas.cacheableCode(c, v2)) {\n                if (prev >= 0) {",
+    "            if (GlyphAtlas.cacheableCode(c, v2)) {\n                if (prev >= 0 && false) {"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "whatIsDrawnIsLaidOutAsItIsMeasuredInEveryStateOfTheFace"
+  ]
+ },
+ {
+  "id": "M72-host-unit-is-one-utf16-unit",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "                val end = unitEnd(text, i)\n                unit(i, end, w, -1)",
+    "                val end = i + 1\n                unit(i, end, w, -1)"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aSurrogatePairAndALetterWithItsMarkGoToTheHostWhole"
+  ]
+ },
+ {
+  "id": "M73-letter-before-a-mark-stays-cached",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "                (i + 1 >= n || text[i + 1].code < 0x0300 || !joinsPrevious(text.codePointAt(i + 1)))",
+    "                true"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aSurrogatePairAndALetterWithItsMarkGoToTheHostWhole"
+  ]
+ },
+ {
+  "id": "M74-metric-contract-from-the-atlas",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "        return layout(text, font, metricV2) { _, _, _, _ -> }",
+    "        return layout(text, font, atlas?.v2 ?: true) { _, _, _, _ -> }"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "theMetricsContractDoesNotFollowTheAtlasObject"
+  ]
+ },
+ {
+  "id": "M75-no-emit-guard-v2",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "            if (!e.packs(dr.text)) return miss(\"glyph-not-packed\")\n            val kern = src.kernOf(dr.spec)",
+    "            val kern = src.kernOf(dr.spec)"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aRunTheEntryDoesNotPackIsANamedMissOnContractTwo"
+  ]
+ },
+ {
+  "id": "M76-trailing-columns-blacked",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        if (dr.keepEnd > 0) {\n            if (dr.keepEnd >= box.w) return",
+    "        if (false) {\n            if (dr.keepEnd >= box.w) return"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aRunBeforeAHostDrawnCharacterKeepsItsLastColumnsAndStillShipsAsADraw"
+  ]
+ },
+ {
+  "id": "M76b-keepEnd-never-recorded",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "                        if (afterHost) HOST_OVERHANG_PX else 0, HOST_OVERHANG_PX)",
+    "                        if (afterHost) HOST_OVERHANG_PX else 0, 0)"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aRunBeforeAHostDrawnCharacterKeepsItsLastColumnsAndStillShipsAsADraw",
+   "whatIsDrawnIsLaidOutAsItIsMeasuredInEveryStateOfTheFace"
+  ]
+ },
+ {
+  "id": "M77-flag-kept-past-an-empty-pump",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            inputAwaitsSlot = false\n            // 6. nothing pending: the lowest-priority work",
+    "            // 6. nothing pending: the lowest-priority work"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "(no pin: every ring event leaves a flush of its own, whose submit consumes the flag)"
+  ]
+ },
+ {
+  "id": "M78-flag-kept-across-a-session",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            inputAwaitsSlot = false; inputFlushPending = false     // a gesture of the last session flags nothing here\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "theInputFlagIsNotCarriedIntoTheNextSession"
+  ]
+ },
+ {
+  "id": "M79-no-regime-reset-at-a-session",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            linkRegimeSessionStart(adopted)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "theRegimeStartsOverWithASessionAndStandsOnAnAdoptedOne"
+  ]
+ },
+ {
+  "id": "M80-adopted-start-reset-like-any",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        linkSlowState = adopted && st.transferMeasured && st.transferMsPerKbEma > SLOW_LINK_MS_PER_KB",
+    "        linkSlowState = false"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "theRegimeStartsOverWithASessionAndStandsOnAnAdoptedOne"
+  ]
+ },
+ {
+  "id": "M81-floor-watch-takes-a-default",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (!st.floorMeasured) return\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "theRegimeStartsOverWithASessionAndStandsOnAnAdoptedOne"
+  ]
+ },
+ {
+  "id": "M82-no-measured-line",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (!linkMeasuredSaid && st.transferSamples >= wm.damage.core.transport.LinkEstimator.MIN_SAMPLES) {",
+    "        if (false) {"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "theRegimeStartsOverWithASessionAndStandsOnAnAdoptedOne"
+  ]
+ },
+ {
+  "id": "M83-no-rederive-at-a-start",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (styleKeyAtLastStart != null && styleKeyAtLastStart != styleKey) {",
+    "        if (false) {"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "aLayoutSettingChangedWhileDownIsReDerivedAtTheNextStart"
+  ]
+ },
+ {
+  "id": "M84-strip-written-before-the-gain",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (ct.wantVersion != want0 || ct.seenVersion != seen0) {",
+    "            if (false) {"
+   ]
+  ],
+  "tests": [
+   "*StagingTest*"
+  ],
+  "expect": [
+   "aStripThatShowsAFaceNewCharactersIsWrittenAfterTheFaceGainsThem"
+  ]
+ },
+ {
+  "id": "M85-evicted-icons-packed-back",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                (repacked || paced || img.encode().size > a.free - ATLAS_GROW_HEADROOM)) continue",
+    "                false) continue"
+   ]
+  ],
+  "tests": [
+   "*AtlasRepackTest*"
+  ],
+  "expect": [
+   "aFullCacheEvictsTheStaleFacesAndRepacksForTheNewWindowsFace"
+  ]
+ },
+ {
+  "id": "M86-no-look-for-icons",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "ct.imagesInUse(ATLAS_RECENT_FRAMES).any { !a.hasImage(it) && !a.isImageRefused(it) })) atlasRetryAtFrame = ct.useClock",
+    "false)) atlasRetryAtFrame = ct.useClock"
+   ]
+  ],
+  "tests": [
+   "*AtlasRepackTest*"
+  ],
+  "expect": [
+   "anIconARepackEvictedGoesBackInWhenItIsDrawnAgain"
+  ]
+ },
+ {
+  "id": "M87-metric-contract-not-set",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                ct.metricV2 = st.draw2\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "onAContractOneSessionTheMetricFollowsTheAtlasAndTheLayoutsAreReDerived"
+  ]
+ },
+ {
+  "id": "M88-no-rederive-at-the-contract",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (rederive && ct.cacheMetric) {",
+    "                if (false) {"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "onAContractOneSessionTheMetricFollowsTheAtlasAndTheLayoutsAreReDerived"
+  ]
+ },
+ {
+  "id": "L1-not-isolated-counted",
+  "file": "transport/LinkEstimator.kt",
+  "edits": [
+   [
+    "if (!isolated || bytes <= 0 || ackMs < 0) return false",
+    "if (bytes <= 0 || ackMs < 0) return false"
+   ]
+  ],
+  "tests": [
+   "*LinkEstimatorTest*"
+  ],
+  "expect": [
+   "aSmallFlushQueuedBehindABigOneDoesNotMoveTheFloor"
+  ]
+ },
+ {
+  "id": "L2-last-reading-not-median",
+  "file": "transport/LinkEstimator.kt",
+  "edits": [
+   [
+    "return if (n % 2 == 1) s[n / 2] else (s[n / 2 - 1] + s[n / 2]) / 2.0",
+    "return q.last()"
+   ]
+  ],
+  "tests": [
+   "*LinkEstimatorTest*"
+  ],
+  "expect": [
+   "oneSlowSampleAmongNineDoesNotMoveTheEstimate"
+  ]
+ },
+ {
+  "id": "L3-ack-under-floor-fed",
+  "file": "transport/LinkEstimator.kt",
+  "edits": [
+   [
+    "            if (ackMs <= f) return false\n",
+    "            \n"
+   ]
+  ],
+  "tests": [
+   "*LinkEstimatorTest*"
+  ],
+  "expect": [
+   "anAckNotAboveTheFloorIsSkippedNotFedAsZero"
+  ]
+ },
+ {
+  "id": "L4-held-priced-against-default",
+  "file": "transport/LinkEstimator.kt",
+  "edits": [
+   [
+    "for ((b, a) in unpriced) if (a > f) push(transfers, (a - f) / (b / 1000.0))",
+    "for ((b, a) in unpriced) if (a > f) push(transfers, (a - DEFAULT_FLOOR_MS) / (b / 1000.0))"
+   ]
+  ],
+  "tests": [
+   "*LinkEstimatorTest*"
+  ],
+  "expect": [
+   "bigFlushesTimedBeforeTheFloorIsMeasuredArePricedWhenItIs"
+  ]
+ },
+ {
+  "id": "L5-cache-write-is-a-floor",
+  "file": "transport/LinkEstimator.kt",
+  "edits": [
+   [
+    "            if (!floor) return false\n",
+    "            \n"
+   ]
+  ],
+  "tests": [
+   "*LinkEstimatorTest*"
+  ],
+  "expect": [
+   "aCacheWriteIsNoFloorObservation"
+  ]
+ },
+ {
+  "id": "L6-reset-keeps-the-floor",
+  "file": "transport/LinkEstimator.kt",
+  "edits": [
+   [
+    "        floors.clear()\n        transfers.clear()",
+    "        transfers.clear()"
+   ]
+  ],
+  "tests": [
+   "*LinkEstimatorTest*"
+  ],
+  "expect": [
+   "aSessionStartClearsBothTerms"
+  ]
+ },
+ {
+  "id": "L7-one-reading-is-enough",
+  "file": "transport/LinkEstimator.kt",
+  "edits": [
+   [
+    "const val MIN_SAMPLES = 3",
+    "const val MIN_SAMPLES = 1"
+   ]
+  ],
+  "tests": [
+   "*LinkEstimatorTest*"
+  ],
+  "expect": [
+   "aTermReadsItsDefaultUntilItHasThreeObservations"
+  ]
+ },
+ {
+  "id": "L8-ring-never-drops",
+  "file": "transport/LinkEstimator.kt",
+  "edits": [
+   [
+    "        if (q.size >= ring) q.removeFirst()\n        q.addLast(v)",
+    "        q.addLast(v)"
+   ]
+  ],
+  "tests": [
+   "*LinkEstimatorTest*"
+  ],
+  "expect": [
+   "theBandsAndTheRing"
+  ]
+ },
+ {
+  "id": "L9-floor-band-edge",
+  "file": "transport/LinkEstimator.kt",
+  "edits": [
+   [
+    "const val FLOOR_BELOW_BYTES = 400",
+    "const val FLOOR_BELOW_BYTES = 401"
+   ]
+  ],
+  "tests": [
+   "*LinkEstimatorTest*"
+  ],
+  "expect": [
+   "theBandsAndTheRing"
+  ]
+ },
+ {
+  "id": "G1-add-packs-the-whole-face",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "            val f = render(spec, codes)\n            val glyphs = glyphsFor(f, codes)",
+    "            val f = render(spec, allCodes(v2))\n            val glyphs = glyphsFor(f, allCodes(v2))"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aFaceIsPackedWithTheCodesAskedForAndEveryOtherEntryIsTheTofu"
+  ]
+ },
+ {
+  "id": "G2-soft-hyphen-cacheable",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "c !in 127..159 && c != 0xAD",
+    "c !in 127..159"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aCodeNoRunMayHoldIsNeverPacked"
+  ]
+ },
+ {
+  "id": "G3-tofu-identical-queued",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "        if (spans.isEmpty()) {\n            // every new glyph is byte-identical",
+    "        if (false) {\n            // every new glyph is byte-identical"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aGlyphIdenticalToTheTofuIsLiveWithNothingToSend"
+  ]
+ },
+ {
+  "id": "G4-price-ignores-the-set",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "entries[spec]?.bytes ?: render(spec, codes).let { builder.priceFont(glyphsFor(it, codes), it.tofu) }",
+    "entries[spec]?.bytes ?: render(spec, codes).let { builder.priceFont(emptyMap(), it.tofu) }"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "aFacePricedSmallAndPackedLargerHoldsEveryGlyph"
+  ]
+ },
+ {
+  "id": "G5-submit-line-without-in",
+  "file": "comp/Journal.kt",
+  "edits": [
+   [
+    "\"unpacked\":${tm.unpacked},\"in\":${tm.input},",
+    "\"unpacked\":${tm.unpacked},"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest*"
+  ],
+  "expect": [
+   "theSubmitLineCarriesTheUnpackedCountAndTheInputFlagAsValidJson"
+  ]
+ },
+ {
+  "id": "M5b-held-path-ungated-with-messages-queued",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (atlasQueue.isEmpty() && atlasInFlight == null &&\n            (held != ct.live || heldImages != ct.liveImages)) atlasCheckThenLive()",
+    "        if (atlasInFlight == null &&\n            (held != ct.live || heldImages != ct.liveImages)) atlasLive(held, heldImages, \"held\")"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "aRewindThatEmptiesTheQueueLightsNothingWithoutARead"
+  ]
+ }
+]

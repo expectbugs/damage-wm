@@ -178,7 +178,9 @@ class Review47Test {
             r.settle("notch under slow parameters")
             r.until("the status cell says link slow (is '${r.shell.statusLine}')") { r.shell.statusLine == "link slow" }
             assertTrue(r.notes("link").any { "SLOW regime" in it }, "the regime flipped without waiting for the EMA: ${r.notes("link")}")
-            assertTrue(r.notes("link").any { "105.00ms/4" in it }, "the parameters were journaled: ${r.notes("link")}")
+            // §73: the regime line names the parameters too — the parameters' OWN line is the one pinned here
+            assertTrue(r.notes("link").any { "connection parameters" in it && "105.00ms/4" in it }, "the parameters were journaled: ${r.notes("link")}")
+            assertTrue(r.notes("link").any { "SLOW regime" in it && "105.00ms/4" in it }, "and the regime line says what decided it: ${r.notes("link")}")
             // one more notch: no second notice, the episode is one
             r.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
             r.settle("second notch")
@@ -188,7 +190,12 @@ class Review47Test {
             r.shell.postGesture(EvenHubMsg.EV_SCROLL_TOP)
             r.settle("notch under fast parameters")
             r.until("the status cell cleared (is '${r.shell.statusLine}')") { r.shell.statusLine == "ok" }
-            assertTrue(r.notes("link").any { "fast regime" in it }, "the regime came back: ${r.notes("link")}")
+            // §73: in ORDER — every session's first evaluation journals "fast regime", so "any" passed
+            // on that note alone, whether or not the regime ever came back
+            val regimes = r.notes("link").filter { "regime (" in it }.map { if ("SLOW regime" in it) "SLOW" else "fast" }
+            assertEquals(listOf("fast", "SLOW", "fast"), regimes, "the regime came back, after it had gone: ${r.notes("link")}")
+            // and a session's first line does not pass a default off as a reading
+            assertTrue("unmeasured" in r.notes("link").first { "regime (" in it }, "the first regime line of a session stands on defaults and says so: ${r.notes("link")}")
             r.shell.stop()
         } finally {
             r.close(); scope.cancel()

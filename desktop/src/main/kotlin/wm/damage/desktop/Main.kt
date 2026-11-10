@@ -163,6 +163,12 @@ data class Config(
      *  `setupToken` means the replica token. */
     val setupPort: Int = 7300,
     val setupToken: String = "",
+    /** Dev only (`HANDOFF.md` §73): the firmware model `--transport sim` runs against. 0 = the
+     *  upstream build (contract 1, the 64 KiB cache, flat draws) — what a sim session has always
+     *  been; 2 = a Damage contract-2 build (per-lens draws, 160 KiB, page staging), the build on
+     *  the glasses, so a `glassdrive` walk of the simulator exercises the paths the phone runs.
+     *  Nothing but the sim stack reads it; the service's standby and the BLE stack never do. */
+    val simContract: Int = 0,
 ) {
     /** The PC-side feed engine (FEED.md §3.6): the configured sources on
      *  their pacer, articles extracted ahead, strips through AWT. */
@@ -483,7 +489,7 @@ class DesktopStack(
         RemoteTransportClient(remoteHost ?: cfg.phoneHost, cfg.transportPort, cfg.token, scope)
 
     val transport: Transport = when (mode) {
-        "sim" -> SimTransport(GlassFirmwareSim(), scope)
+        "sim" -> SimTransport(GlassFirmwareSim().also { if (cfg.simContract >= 2) it.damageContract = cfg.simContract }, scope)
         "ble" -> ble()
         "remote" -> remote()
         // "auto" builds NO stack: it is the standby policy in runShell (§19.2)

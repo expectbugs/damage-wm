@@ -62,8 +62,27 @@ class StagingTest {
         val flushes = ArrayList<FlushRequest>()
         @Volatile var breakStageWrites = false
         @Volatile var refuseStageSubmits = false
+        /** This many stage-check readings taken after the first STAGE write read the generation one
+         *  short — the decode still on its way, as the glass shows it (§66.1: the bump lands up to a
+         *  second after the ack; the model bumps at once). */
+        @Volatile var shortStageChecks = 0
+        /** With [lagEveryStageWrite], every STAGE write sets [lagging]: stage-check readings read one
+         *  short until the test clears it — a decode that lags its ack for as long as the test says. */
+        @Volatile var lagEveryStageWrite = false
+        @Volatile var lagging = false
+        @Volatile private var stageWritten = false
+        override suspend fun telemetry(label: String): wm.damage.core.wire.DamageMsg.Telemetry? {
+            val t = inner.telemetry(label) ?: return null
+            val gen = t.cacheGen
+            if (label != "stage check" || !stageWritten || gen == null) return t
+            if (lagging) return wm.damage.core.wire.DamageMsg.Telemetry(t.fields + (17 to gen - 1))
+            if (shortStageChecks <= 0) return t
+            shortStageChecks--
+            return wm.damage.core.wire.DamageMsg.Telemetry(t.fields + (17 to gen - 1))
+        }
         override suspend fun submit(flush: FlushRequest): Long {
             var f = flush
+            if (flush.label == "STAGE") { stageWritten = true; if (lagEveryStageWrite) lagging = true }
             if (flush.label == "STAGE" && refuseStageSubmits) throw IllegalStateException("test: the lane refuses the write")
             if (flush.label == "STAGE" && breakStageWrites) f = flush.copy(ops = flush.ops.map { op ->
                 if (op is DisplayOp.CacheWrite2) {
@@ -82,20 +101,22 @@ class StagingTest {
     private class Doc(private val tx: TextRasterizer) : DamageWindow("doc", "Doc", IconKind.READER) {
         val model = DocModel()
         @Volatile var layoutKey: Any = Any()
+        /** Text appended to chosen lines (characters no other line holds). */
+        @Volatile var extra: Map<Int, String> = emptyMap()
         private val f = FontSpec(Face.SYSTEM, 18)
         override fun view() = WindowView.DocView(model, { 200 }, 24,
-            { g, i, r -> tx.draw(g, r.x + 4, r.y + 4, "line $i " + LINE.substring(i % 7), f, ((i % 10) + 3) * 17) },
+            { g, i, r -> tx.draw(g, r.x + 4, r.y + 4, "line $i " + LINE.substring(i % 7) + (extra[i] ?: ""), f, ((i % 10) + 3) * 17) },
             {}, stepLines = { 3 }, contentKey = { layoutKey })
         override fun summary() = Summary("doc")
         override fun saveState(): JsonObject = buildJsonObject {}
         override fun restoreState(state: JsonObject) {}
     }
 
-    private class Rig(scope: CoroutineScope) {
+    private class Rig(scope: CoroutineScope, timing: SimTransport.Timing = SimTransport.Timing(instant = true)) {
         val tmp = Files.createTempDirectory("damage-staging")
         val sim = GlassFirmwareSim().also { it.damageContract = 2 }
         val text = CachedText(GlyphyText())
-        val spy = SpyTransport(SimTransport(sim, scope, SimTransport.Timing(instant = true)))
+        val spy = SpyTransport(SimTransport(sim, scope, timing))
         val shell = Shell(text, spy, Persistence(tmp.resolve("state.json")), tmp.resolve("journal.jsonl"), scope)
         val doc = Doc(text)
 
@@ -358,6 +379,177 @@ class StagingTest {
             assertTrue(rig.all().drop(n0).flatMap { it.ops }.any { it is DisplayOp.DrawImage2 }, "the new session's notch drew a staged strip")
             rig.assertGlassMatchesBelief("after the new session's notch")
             rig.shell.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /**
+     * `HANDOFF.md` §73: a reading that comes back short inside the settle window is asked again on
+     * its own pump, half a second on. The verdict used to set the pace and schedule nothing, so on a
+     * quiet link the re-read waited for the 5 s idle tick and the strip sat acked and not drawable
+     * that long — and on glass the FIRST reading after a write is normally short. The pin is the gap
+     * between a `pending` note and the stage note after it, twice in a row: the second re-read is a
+     * whole idle period after the first on a tree without the pump.
+     *
+     * On a PACED link, because that is where the defect lives: an `instant` transport runs its
+     * keepalive and battery poll every 50–60 ms, each answer is a shell message, every message is
+     * followed by a pump — and the re-read then happens on time by accident (this pin stayed green
+     * with the pump removed until the rig's link was given real pacing).
+     */
+    @Test
+    fun aPendingReadingIsAskedAgainOnItsOwnPumpNotTheIdleTick(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope, SimTransport.Timing(ackMs = 5, bytesPerSec = 5_000_000.0, instant = false))
+        try {
+            rig.spy.shortStageChecks = 2
+            rig.upWithTheDocStaged()
+            fun t(line: String) = Regex("\"t\":(\\d+)").find(line)!!.groupValues[1].toLong()
+            val stage = rig.notes("stage")
+            val pending = stage.withIndex().filter { "pending" in it.value }
+            assertEquals(2, pending.size, "two readings came back short inside the settle window: $stage")
+            for ((i, line) in pending) {
+                val next = stage.getOrNull(i + 1) ?: throw AssertionError("nothing followed the pending reading: $stage")
+                val gap = t(next) - t(line)
+                assertTrue(gap < 2_000, "the re-read came ${gap} ms after the pending reading — its own pump is half a second: $stage")
+            }
+            assertTrue(stage.any { "proved" in it }, "and the record was proven: $stage")
+            assertTrue(rig.notes("stage").none { "shortfall" in it || "never landed" in it }, "a pending reading counts for nothing")
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /**
+     * `HANDOFF.md` §73: a reading still short AFTER the settle window is asked again one settle
+     * window later, on a pump of its own. Two guards, each with its own observable:
+     *  - the wait is the settle window, not the 500 ms re-read pace — the second settled short
+     *    reading is the one that makes a shortfall, so at 500 ms a decode 2.5 s behind its ack is
+     *    called lost and its record dropped. The test pumps the shell 0.7–1.7 s after the short
+     *    reading while the decode still lags: nothing may be read then;
+     *  - the re-read comes when the window ends, not with the 5 s idle tick. Measured on two
+     *    records in a row: without the pump one re-read can land on time by the tick's phase.
+     * The decode lags from each STAGE write until 1.8 s after the shell's settled short reading
+     * of it, then the count is right. On a paced link (see the pin above).
+     */
+    @Test
+    fun aShortReadingIsAskedAgainASettleWindowLaterOnItsOwnPump(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope, SimTransport.Timing(ackMs = 5, bytesPerSec = 5_000_000.0, instant = false))
+        try {
+            rig.spy.lagEveryStageWrite = true
+            rig.shell.start(); rig.settle("start")
+            rig.shell.services.runOnShell { rig.shell.services.openWindow("doc", null) }
+            rig.settle("open doc")
+            rig.shell.updateSettings { it.copy(cachedText = "on") }
+            fun t(line: String) = Regex("\"t\":(\\d+)").find(line)!!.groupValues[1].toLong()
+            fun shorts() = rig.notes("stage").filter { "short after the settle window" in it }
+            var handled = 0
+            var pokes = 0
+            val t0 = System.currentTimeMillis()
+            while (handled < 2 && System.currentTimeMillis() - t0 < 40_000) {
+                val s = shorts()
+                if (s.size > handled) {
+                    val at = t(s[handled])
+                    // pump the shell inside the paced window, the decode still lagging
+                    while (System.currentTimeMillis() < at + 1_700) {
+                        if (System.currentTimeMillis() >= at + 700) { rig.shell.services.runOnShell { }; pokes++ }
+                        delay(100)
+                    }
+                    while (System.currentTimeMillis() < at + 1_800) delay(5)
+                    rig.spy.lagging = false                  // the decode landed: the count is right from here
+                    handled++
+                    rig.until("the record is proven after its settled short reading", maxMs = 15_000) {
+                        rig.notes("stage").count { "proved" in it } >= handled
+                    }
+                } else delay(5)
+            }
+            val stage = rig.notes("stage")
+            assertEquals(2, handled, "two records each had a settled short reading: $stage")
+            assertTrue(pokes >= 10, "the shell was pumped inside both windows ($pokes)")
+            val idx = stage.withIndex().filter { "short after the settle window" in it.value }
+            assertEquals(2, idx.size, "one settled short reading per record, never a second: $stage")
+            for ((i, line) in idx) {
+                val next = stage.getOrNull(i + 1) ?: throw AssertionError("nothing followed the short reading: $stage")
+                val gap = t(next) - t(line)
+                assertTrue("proved" in next, "the reading after a settled short one proves the record: $next")
+                assertTrue(gap >= CacheLedger.SETTLE_MS, "nothing is read inside the settle window after a short reading (${gap} ms): $stage")
+                assertTrue(gap < CacheLedger.SETTLE_MS + 600, "the re-read came ${gap} ms after the short reading — its own pump is the settle window: $stage")
+            }
+            assertTrue(stage.none { "shortfall" in it || "never landed" in it || "dropped" in it }, "a decode 3.9 s behind its ack loses nothing: $stage")
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /**
+     * `HANDOFF.md` §73: a strip whose render shows a face characters it has not drawn is not written
+     * with the host's pixels for them. The render is the atlas's cue: the face gains the glyphs
+     * first, and the strip is rendered again and written with them packed. Written at once, the
+     * record stops matching the page the moment the glyphs are promoted — a staged notch lost, the
+     * stale record resident in its place, and its cache writes spent for nothing (three strips of
+     * ~14 KB per promotion of the book's face on the simulator walk of 2026-11-09). The observable
+     * is the order in the journal: the face's gain, then the strip's ONE write. (This rasterizer's
+     * host glyphs equal its cached ones, so the proof at the notch cannot tell here; AWT's do not.)
+     * Mutation watched: the deferral removed (the strip is submitted before the gain).
+     */
+    @Test
+    fun aStripThatShowsAFaceNewCharactersIsWrittenAfterTheFaceGainsThem(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope)
+        try {
+            rig.doc.extra = mapOf(23 to " QXZ")          // first shown by the strip of lines 22..24, two strips ahead of the page
+            rig.upWithTheDocStaged()
+            rig.until("the strip with the new characters is staged and proven") { rig.shell.stagedProvenLines.any { it.first == 22 } }
+            rig.settle("staged")
+            val lines = Files.readAllLines(rig.tmp.resolve("journal.jsonl"))
+            val gained = lines.indexOfFirst { "gained glyphs" in it && "QXZ" in it }
+            val writes = lines.withIndex().filter { "\"kind\":\"stage\"" in it.value && "lines 22..24" in it.value && "submitted" in it.value }.map { it.index }
+            assertTrue(gained >= 0, "the face gained the strip's characters: ${rig.notes("atlas").takeLast(5)}")
+            assertEquals(1, writes.size, "the strip was written once: ${rig.notes("stage")}")
+            assertTrue(writes[0] > gained, "and only after the face had gained what it shows (the gain is journal line $gained, the write ${writes[0]})")
+            // the two notches up to it ship staged records, the second the strip in question
+            repeat(2) { notch ->
+                rig.until("strip for notch $notch staged") { rig.shell.stagedProvenLines.any { it.first == rig.nextExposed() } }
+                rig.settle("before notch $notch")
+                val n0 = rig.all().size
+                rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("notch $notch")
+                val flushes = rig.all().drop(n0).filter { it.label != "STAGE" }
+                assertTrue(flushes.flatMap { it.ops }.any { it is DisplayOp.DrawImage2 }, "notch $notch shipped a staged draw: ${flushes.map(::shape)}")
+                rig.assertGlassMatchesBelief("after notch $notch")
+            }
+            assertTrue(Files.readAllLines(rig.tmp.resolve("journal.jsonl")).none { "stage-proof" in it }, "no staged record failed its proof")
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /** The paced re-read's pump is posted only to a running shell: a stopped shell's queue has no
+     *  reader, a message posted to it is counted and never handled, and the shell then reads as
+     *  busy to every wait that asks (`isQuiescent`) until some later session drains it.
+     *  Mutation watched: the pump posted whatever the shell's state. */
+    @Test
+    fun aPacedReReadPostsNothingToAStoppedShell(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope, SimTransport.Timing(ackMs = 5, bytesPerSec = 5_000_000.0, instant = false))
+        try {
+            rig.spy.lagEveryStageWrite = true
+            rig.shell.start(); rig.settle("start")
+            rig.shell.services.runOnShell { rig.shell.services.openWindow("doc", null) }
+            rig.settle("open doc")
+            rig.shell.updateSettings { it.copy(cachedText = "on") }
+            rig.until("a reading came back short inside the settle window: a re-read is paced") { rig.notes("stage").any { "pending" in it } }
+            rig.shell.stop()
+            assertTrue("queued=" !in rig.shell.quiescenceReport(), "the shell stopped with nothing queued: ${rig.shell.quiescenceReport()}")
+            delay(CacheLedger.REREAD_PACE_MS + 400)          // the pace ends here, with the shell stopped
+            assertTrue("queued=" !in rig.shell.quiescenceReport(), "nothing was posted to the stopped shell: ${rig.shell.quiescenceReport()}")
         } finally {
             scope.cancel()
             rig.tmp.toFile().deleteRecursively()

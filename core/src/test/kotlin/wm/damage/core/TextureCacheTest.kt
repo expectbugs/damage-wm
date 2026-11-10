@@ -789,7 +789,7 @@ class AckStatusTest {
         // ending inside the last 256 B of the 448 B table put the font live with its Latin-1 half unwritten
         val atlas = wm.damage.core.comp.GlyphAtlas(FakeText(), v2 = true, capacity = 160 * 1024)
         val spec = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 18)
-        assertTrue(atlas.add(spec))
+        assertTrue(atlas.add(spec, wm.damage.core.comp.GlyphAtlas.allCodes(true)))
         val table = atlas.entry(spec)!!.font.tableOffset
         assertEquals(atlas.used, table + CfwModes.FONT2_TABLE_BYTES, "the table is the last thing packed")
         val firstChunk = table + 200 - TextureCache.GUARD2                                  // a chunk ending 200 B into the table

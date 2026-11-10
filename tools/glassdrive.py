@@ -19,8 +19,8 @@ into the journal as `glasslog` notes, `probe:phy=2m|1m` the radio PHY ask; APK
 `probe:diag=clear` — mode 7 sub 0: the sticky diagnostics, the fid ring and the refusal record),
 `selftest:PATH.json` (a conformance vector — `firmware/vectors/v1-*.json`, `v2-*.json` —
 driven through the glasses' self-test step by step; after each step RIGHT's telemetry is
-read from the host's `/log` and its scratch CRC, refusal and — for a v2 vector — the
-refusal record's mode and reason compared with the vector's expectations; a v2 vector's
+read from the host's `/log` and its scratch CRC, refusal and the refusal record's mode
+and reason (whenever the vector carries one, v1 vectors too) compared with the vector's expectations; a v2 vector's
 `flags`/`cachesize` ops go first as probes and a cache write is sent live, as the fork's
 `host/run_self_test.py` does; the `token` is the same as the WebSocket's). Gestures are paced by --pace seconds
 so each flush is isolated in the journal (§31.1's method). Every gesture is
@@ -59,8 +59,9 @@ def log_tail(host, port, token, n=80):
 
 async def selftest(ws, host, port, token, path):
     """Drive one vector file through the glasses' self-test (FIRMWARE.md §3, mode 16) and compare
-    RIGHT's reported scratch CRC and refusal per step with the vector's expectations. The lease
-    and cache vectors have no self-test form. Every wait here is pacing between reads; a step
+    RIGHT's reported scratch CRC and refusal per step with the vector's expectations. A vector with
+    a lease release or lapse inside it has no self-test form; a cache write is sent to the live
+    cache. Every wait here is pacing between reads; a step
     whose telemetry never advances is reported, never retried forever."""
     import re
     vec = json.load(open(path))
@@ -88,6 +89,16 @@ async def selftest(ws, host, port, token, path):
                 return got
         return None
     def is_live(m): return (int(m[:2], 16) & 0x7f) in (12, 19)   # a cache write goes to the live cache the steps read
+    def has_data(m):
+        """True when a cache-write message carries at least one non-empty entry. The generation
+        counts those only: both handlers return 0 for a list with no data BEFORE the bump
+        (`damage_draw.c` mode 19, `texture_cache.c` mode 12 — read 2026-11-09, `HANDOFF.md` §73)."""
+        b = bytes.fromhex(m); pos = 1
+        while pos + 4 <= len(b):
+            n = b[pos + 2] | (b[pos + 3] << 8)
+            if n: return True
+            pos += 4 + n
+        return False
     # the flags in force now: a vector's flag set is added to them and they are put back afterwards, so
     # the session's own wish (PRESENTED, PROBE) survives the run (2026-09-15 review)
     # the record fields 23-25 are STICKY until the next refusal or a mode-7 sub-0: an earlier
@@ -143,10 +154,12 @@ async def selftest(ws, host, port, token, path):
                 # moves only for a write the C accepts: a vector's deliberately refused write (rc -1) moves
                 # nothing. Attribute each write's bump to that write, polled, so a shortfall names the
                 # message rather than a total (2026-09-16, the first self-test on Phase 2, HANDOFF §65:
-                # three vectors "refused one" on their expected refusals; v2-order's one-byte empty write
-                # moved nothing on the glass where the C bumps — that one is a finding, now named).
+                # three vectors "refused one" on their expected refusals). An accepted write with NO
+                # data moves nothing either — the C returns before the bump — so v2-order's one-byte
+                # write, which §65 recorded as a difference on the glass, was this expectation's error
+                # (HANDOFF §73): the glass did what the C does.
                 accepted = st['expect']['rc']['R'][k] == 0
-                if accepted: gen_expect += 1
+                if accepted and has_data(m): gen_expect += 1
                 got_gen = -1
                 for attempt in range(8):
                     g = await read_fresh(tries=1)
@@ -188,8 +201,9 @@ async def selftest(ws, host, port, token, path):
               + (f', refusal record {got.get("refMode", 0)}/{got.get("refReason", 0)} (expected {ref[0]}/{ref[1]})' if ref is not None else ''))
         fails += not (crc_ok and rc_ok and ref_ok)
     await probe('selftest', 'end')
-    # every live cache write the vector sent must have changed the cache: the generation counts the
-    # writes the firmware TOOK, and the ack says nothing (it precedes the decode)
+    # each live write was judged above against its own expectation: a refused write and an accepted
+    # write with no data move nothing (HANDOFF.md §73); the generation counts the writes the firmware
+    # TOOK with data, and the ack says nothing (it precedes the decode)
     if live_writes:
         print(f'  {live_writes} live cache write(s) sent; the generation {gen_before} -> {gen_expect} (each write judged above)')
     if vec_flags:

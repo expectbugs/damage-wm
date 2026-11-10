@@ -1079,6 +1079,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         for (dr in draws) {
             if (dr.spec !in src.live) return miss("font-not-live")
             val e = atlas.entry(dr.spec) ?: return miss("font-not-live")
+            if (!e.packs(dr.text)) return miss("glyph-not-packed")
             // the recorder kerns on every atlas (`CachedText.kernOf`): mode 14 carries the same adjust bytes
             val bytes = try { wm.damage.core.wire.TextureCache.layout(dr.text, e.font, src.kernOf(dr.spec)) } catch (t: wm.damage.core.geom.LintError) { return miss("layout") }
             if (dr.x < 0 || dr.y < 0 || dr.x >= width || dr.y >= height) return miss("edge")
@@ -1099,10 +1100,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         // nominal on top of it...
         val base = Gray8(w.w, w.h)
         for (y in 0 until w.h) System.arraycopy(composed.pix, (w.y + y) * width + w.x, base.pix, y * w.w, w.w)
-        for (dr in draws) {
-            val b = dr.rect.intersect(w) ?: continue
-            base.fillRect(b.x - w.x, b.y - w.y, b.w, b.h, 0)
-        }
+        for (dr in draws) blackBox(base, dr, w)
         for (im in images) {
             val b = im.rect.intersect(w) ?: continue
             base.fillRect(b.x - w.x, b.y - w.y, b.w, b.h, 0)
@@ -1218,6 +1216,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         for (dr in draws) {
             if (dr.spec !in src.live) return miss("font-not-live")
             val e = atlas.entry(dr.spec) ?: return miss("font-not-live")
+            if (!e.packs(dr.text)) return miss("glyph-not-packed")
             val kern = src.kernOf(dr.spec)
             val bytes = try { wm.damage.core.wire.TextureCache.layout(dr.text, e.font, kern) } catch (t: wm.damage.core.geom.LintError) { return miss("layout") }
             // the FAR lens: the op carries xL = x - d and xR = x + d and `CfwModes.checkTextXY`
@@ -1239,7 +1238,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         // boxes black) with the draws on top, at that lens's box — the nominal composition
         val base = Gray8(r.w, r.h)
         for (y in 0 until r.h) System.arraycopy(composed.pix, (r.y + y) * width + r.x, base.pix, y * r.w, r.w)
-        for (dr in draws) { val b = dr.rect.intersect(r) ?: continue; base.fillRect(b.x - r.x, b.y - r.y, b.w, b.h, 0) }
+        for (dr in draws) blackBox(base, dr, r)
         for (im in images) { val b = im.rect.intersect(r) ?: continue; base.fillRect(b.x - r.x, b.y - r.y, b.w, b.h, 0) }
         val flat = Gray8(r.w, r.h)
         System.arraycopy(base.pix, 0, flat.pix, 0, base.pix.size)
@@ -1268,6 +1267,35 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         ops.addAll(imageOps)
         cachedRectsThisAssemble++
         return 1
+    }
+
+    /**
+     * Black [dr]'s box in a cached rect's BASE ([over] is the base's rect in panel coordinates):
+     * the base is the composed pixels with every draw's box black, so only what is not text
+     * rides the delta. A run that follows a host-drawn character keeps its first
+     * [TextDraw.keep] columns from the pen as composed (`HANDOFF.md` §73): that character's ink
+     * may reach into them, and blacked it was lost — the proof then failed and the whole rect
+     * went out as pixels (measured on AWT: `f` in every face, 49 of 69 characters of the italic).
+     * The kept columns hold the composed pixels, the run's own included, and the draw then
+     * writes its non-zero pixels over them with the same values, so base + draws is still
+     * exactly the truth wherever the columns are kept; the proof stays the only judge. A run
+     * with ink LEFT of its pen (a kern past the first glyph) keeps nothing.
+     */
+    private fun blackBox(base: Gray8, dr: TextDraw, over: Rect) {
+        var box = dr.rect
+        if (dr.keep > 0 && box.x >= dr.x) {
+            val cut = dr.x + dr.keep - box.x
+            if (cut >= box.w) return
+            if (cut > 0) box = Rect(box.x + cut, box.y, box.w - cut, box.h)
+        }
+        // the same at the run's END when a host-drawn character follows it ([TextDraw.keepEnd]): a
+        // glyph whose mask starts left of its pen, or one a pair kern tucked in, has ink there
+        if (dr.keepEnd > 0) {
+            if (dr.keepEnd >= box.w) return
+            box = Rect(box.x, box.y, box.w - dr.keepEnd, box.h)
+        }
+        val b = box.intersect(over) ?: return
+        base.fillRect(b.x - over.x, b.y - over.y, b.w, b.h, 0)
     }
 
     /** The mode-9 copy that puts a flat draw of [r] at [r].x + [s] on one

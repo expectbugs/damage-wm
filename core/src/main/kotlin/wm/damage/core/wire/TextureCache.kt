@@ -144,11 +144,25 @@ object TextureCache {
 
         /** The guard's size: the first record starts here. */
         val guard: Int get() = if (v2) GUARD2 else GUARD
-        private val bytes = java.io.ByteArrayOutputStream().apply { write(ByteArray(if (v2) GUARD2 else GUARD)) }
-        private val seen = HashMap<String, Int>()
+        /** The packed image, [size] bytes of it in use (the guard's zeros first). An array rather
+         *  than a stream since `HANDOFF.md` §73: a table entry is rewritten in place when a face
+         *  gains a glyph ([extendFont]). */
+        private var buf = ByteArray(4096)
+        private var size = if (v2) GUARD2 else GUARD
+        /** Record bytes -> offset, by CONTENT (`ByteBuffer`'s equals and hash walk the bytes).
+         *  Until §73 the key was every byte formatted through `String.format`, twice per glyph —
+         *  a repack of 64–87 KB held the phone's loop 505 and 762 ms (journal, 2026-11-09).
+         *  A key wraps a private copy: nothing the map holds can change under it. */
+        private val seen = HashMap<java.nio.ByteBuffer, Int>()
 
-        val used: Int get() = bytes.size()
-        val free: Int get() = capacity - bytes.size()
+        val used: Int get() = size
+        val free: Int get() = capacity - size
+
+        private fun write(b: ByteArray) {
+            if (size + b.size > buf.size) buf = buf.copyOf(maxOf(buf.size * 2, size + b.size))
+            b.copyInto(buf, size)
+            size += b.size
+        }
 
         /** Add a v1 record (a glyph, a v1 icon), returning its cache offset in BYTES.
          *  Identical bytes reuse an offset. */
@@ -166,21 +180,22 @@ object TextureCache {
          *  resumes from that end, and a mode-19 offset in 4-byte units cannot name an odd one
          *  (2026-09-15 review: an icon left the end at 1–3 mod 4 and the next upload landed early). */
         fun addEncoded(enc: ByteArray): Int {
-            val key = enc.toHexKey()
-            seen[key]?.let { return it }
-            if (v2) pad()
-            val off = bytes.size()
+            seen[java.nio.ByteBuffer.wrap(enc)]?.let { return it }
+            // sized BEFORE the alignment pad is written: a record that does not fit leaves nothing behind
+            val off = if (v2) (size + 3) / 4 * 4 else size
             if (off + enc.size > capacity)
                 throw LintError("texture atlas overflows the $capacity B " +
-                    "cache: $off B used, ${enc.size} B more needed")
-            bytes.write(enc)
+                    "cache: $size B used, ${enc.size} B more needed")
             if (v2) pad()
-            seen[key] = off
+            write(enc)
+            if (v2) pad()
+            seen[java.nio.ByteBuffer.wrap(enc.copyOf())] = off
             return off
         }
 
         private fun pad() {
-            while (bytes.size() % 4 != 0) bytes.write(0)
+            val n = (4 - size % 4) % 4
+            if (n > 0) write(ByteArray(n))
         }
 
         /** The bytes [addFont] would write for this font as the cache stands:
@@ -189,17 +204,35 @@ object TextureCache {
          *  pad counted at its worst). */
         fun priceFont(glyphs: Map<Char, Image>, tofu: Image): Int = priceEncoded(glyphs, tofu).first
 
+        /** The bytes these records would take as the cache stands, with no table: what a face
+         *  that is already resident needs to gain them (`HANDOFF.md` §73) — records already in
+         *  the cache cost nothing, identical ones count once, a v2 record's pad at its worst. */
+        fun priceRecords(records: Collection<Image>): Int {
+            val fresh = HashSet<java.nio.ByteBuffer>()
+            var need = 0
+            for (g in records) {
+                val k = java.nio.ByteBuffer.wrap(g.encode())
+                if (k !in seen && fresh.add(k)) need += k.remaining() + (if (v2) 3 else 0)
+            }
+            return need
+        }
+
         private val tableChars: Int get() = if (v2) CfwModes.FONT2_TABLE_CHARS else CfwModes.FONT_TABLE_CHARS
         private val tableBytes: Int get() = tableChars * 2
 
         private fun priceEncoded(glyphs: Map<Char, Image>, tofu: Image): Pair<Int, Map<Char, ByteArray>> {
             val tofuEnc = tofu.encode()
             val encs = HashMap<Char, ByteArray>(glyphs.size)
-            val fresh = HashSet<String>()
+            val fresh = HashSet<java.nio.ByteBuffer>()
             var need = tableBytes + (if (v2) 3 else 0)
-            fun price(enc: ByteArray) { val k = enc.toHexKey(); if (k !in seen && fresh.add(k)) need += enc.size + (if (v2) 3 else 0) }
+            fun price(enc: ByteArray) { val k = java.nio.ByteBuffer.wrap(enc); if (k !in seen && fresh.add(k)) need += enc.size + (if (v2) 3 else 0) }
             price(tofuEnc)
-            for ((c, g) in glyphs) { val e = g.encode(); encs[c] = e; price(e) }
+            // only what the table can hold is priced: a set learned on a v2 atlas may name codes a
+            // v1 table has no entry for, and pricing them refused a face with room to spare
+            for ((c, g) in glyphs) {
+                if (c.code !in FIRST_CHAR until FIRST_CHAR + tableChars) continue
+                val e = g.encode(); encs[c] = e; price(e)
+            }
             return need to encs
         }
 
@@ -216,8 +249,8 @@ object TextureCache {
             // writes below will: identical bytes cost once.
             val tofuEnc = tofu.encode()
             val (need, encs) = priceEncoded(glyphs, tofu)
-            if (bytes.size() + need > capacity)
-                throw LintError("no room for a $need B font: ${bytes.size()} B of " +
+            if (size + need > capacity)
+                throw LintError("no room for a $need B font: $size B of " +
                     "$capacity used — nothing written")
             val n = tableChars
             val offsets = IntArray(n)
@@ -230,20 +263,93 @@ object TextureCache {
                 widths[i] = (g ?: tofu).w
             }
             val table = ByteArray(tableBytes)
-            for (i in offsets.indices) {
-                val field = if (v2) offsets[i] / 4 else offsets[i]
-                table[i * 2] = (field and 0xFF).toByte()
-                table[i * 2 + 1] = ((field shr 8) and 0xFF).toByte()
-            }
+            for (i in offsets.indices) putEntry(table, i * 2, offsets[i])
             if (v2) pad()
-            val off = bytes.size()
+            val off = size
             check(off + table.size <= capacity) { "a font sized to fit then did not: $off + ${table.size}" }
-            bytes.write(table)
+            write(table)
             return Font(off, offsets, widths, v2)
         }
 
+        /** One table entry: the record's offset in the table's own units (bytes on a v1 cache,
+         *  4-byte units on a v2 one), little-endian. */
+        private fun putEntry(dst: ByteArray, at: Int, recordOffset: Int) {
+            val field = if (v2) recordOffset / 4 else recordOffset
+            dst[at] = (field and 0xFF).toByte()
+            dst[at + 1] = ((field shr 8) and 0xFF).toByte()
+        }
+
+        /**
+         * `HANDOFF.md` §73: give [font]'s table real entries for [glyphs] — a face that drew a
+         * character it was not packed with. The new records go at the END of the packed bytes
+         * (identical bytes reuse an offset, as ever) and the table's entries for those codes are
+         * rewritten IN PLACE; nothing else moves, so every offset a live draw can name stays what
+         * it was. A cache write is a plain copy at an offset on both contracts (`FIRMWARE.md` §4:
+         * mode 19; mode 12 in `texture_cache.c`), and a draw reads only the entries of its own
+         * string's codes, so a table whose other entries change under it draws the same.
+         *
+         * Priced first, like [addFont]: an extension that does not fit writes nothing. Returns
+         * the font as it now stands and the byte spans of the table that changed — each a whole
+         * 4-byte unit on a v2 cache (a mode-19 offset is in 4-byte units and an entry is two
+         * bytes, so the unit's other entry rides along with the value this image holds for it),
+         * a single 2-byte entry on a v1 one — for the atlas's upload to send ([message]). A code whose record is
+         * already what its entry names (a glyph byte-identical to the tofu) changes no span.
+         */
+        fun extendFont(font: Font, glyphs: Map<Char, Image>): Pair<Font, List<IntRange>> {
+            if (font.v2 != v2) throw LintError("a ${if (font.v2) "v2" else "v1"} font cannot be extended in a ${if (v2) "v2" else "v1"} cache")
+            if (font.tableOffset < guard || font.tableOffset + tableBytes > size)
+                throw LintError("font table at ${font.tableOffset} is not in this cache ($size B used)")
+            val inRange = glyphs.filterKeys { it.code in FIRST_CHAR until FIRST_CHAR + tableChars }
+            val need = priceRecords(inRange.values)
+            if (size + need > capacity)
+                throw LintError("no room for $need B of glyphs: $size B of $capacity used — nothing written")
+            val offsets = font.glyphOffsets.copyOf()
+            val widths = font.glyphWidths.copyOf()
+            val changed = java.util.TreeSet<Int>()          // table-relative byte offsets of changed spans
+            for ((ch, g) in inRange.toSortedMap()) {
+                val i = ch.code - FIRST_CHAR
+                val off = addEncoded(g.encode())
+                widths[i] = g.w
+                if (off == offsets[i]) continue
+                offsets[i] = off
+                putEntry(buf, font.tableOffset + i * 2, off)
+                changed += if (v2) (i * 2) / 4 * 4 else i * 2
+            }
+            val unit = if (v2) 4 else 2
+            // adjacent units ride one span; a span never leaves the table (448 and 192 are multiples of the unit)
+            val spans = ArrayList<IntRange>()
+            for (rel in changed) {
+                val abs = font.tableOffset + rel
+                val last = spans.lastOrNull()
+                if (last != null && last.last + 1 == abs) spans[spans.size - 1] = last.first..(abs + unit - 1)
+                else spans += abs..(abs + unit - 1)
+            }
+            return Font(font.tableOffset, offsets, widths, v2) to spans
+        }
+
         /** The packed cache contents, guard included. */
-        fun content(): ByteArray = bytes.toByteArray()
+        fun content(): ByteArray = buf.copyOf(size)
+
+        /** The packed bytes of [span] as the image holds them now. */
+        fun read(span: IntRange): ByteArray {
+            if (span.first < 0 || span.last >= size) throw LintError("span $span is outside the $size B packed")
+            return buf.copyOfRange(span.first, span.last + 1)
+        }
+
+        /** One cache-write message carrying [writes] (offset in bytes -> data): mode 19 on a v2
+         *  cache (every offset a multiple of 4), mode 12 on a v1 one. Never empty — the encoders
+         *  refuse an empty list, and the firmware bumps no generation for one. */
+        fun message(writes: List<Pair<Int, ByteArray>>): ByteArray =
+            if (v2) CfwModes.cacheUpdate2(writes.map { (off, data) ->
+                if (off % 4 != 0) throw LintError("a mode-19 write cannot start at byte $off: its offset is in 4-byte units")
+                CfwModes.CacheWrite2(off / 4, data)
+            }, capacity)
+            else CfwModes.cacheUpdate(writes.map { (off, data) -> CfwModes.CacheWrite(off, data) })
+
+        /** A cache-write message's own bytes around its data: the mode byte, and per write the
+         *  offset and length fields (u16 each on both contracts). */
+        val messageOverhead: Int get() = 1
+        val writeOverhead: Int get() = 4
 
         /**
          * The messages that write everything added so far, each no larger than
@@ -285,12 +391,6 @@ object TextureCache {
             val data = all.copyOfRange(pos, pos + n)
             return if (v2) CfwModes.cacheUpdate2(listOf(CfwModes.CacheWrite2(pos / 4, data)), capacity)
             else CfwModes.cacheUpdate(listOf(CfwModes.CacheWrite(pos, data)))
-        }
-
-        private fun ByteArray.toHexKey(): String {
-            val sb = StringBuilder(size * 2)
-            for (b in this) sb.append("%02x".format(b.toInt() and 0xFF))
-            return sb.toString()
         }
     }
 

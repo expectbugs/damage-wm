@@ -126,6 +126,9 @@ data class WireState(
     // across the seam lays out and draws for what the glasses answer; an older peer reads "upstream, v1"
     val damageContract: Int = 0, val damageFeatures: Int = 0, val flagsInForce: Int = 0,
     val cacheSize: Int = wm.damage.core.wire.CfwModes.TEXTURE_CACHE_SIZE,
+    // 2026-11-09 (`HANDOFF.md` §73): how many observations the floor and the transfer term stand on;
+    // an older peer reads -1, "not reported", and its two numbers are taken as measured
+    val floorSamples: Int = -1, val transferSamples: Int = -1,
 )
 
 // named on both sides: the two classes order their fields differently, and a
@@ -136,7 +139,8 @@ private fun LinkState.toWire() = WireState(connected = connected, started = star
     floorMsEma = floorMsEma, transferMsPerKbEma = transferMsPerKbEma, linkParams = linkParams,
     glassesSilent = glassesSilent,
     leaseCarried = leaseCarried, leaseCarry = leaseCarry, cacheWriter = cacheWriter,
-    damageContract = damageContract, damageFeatures = damageFeatures, flagsInForce = flagsInForce, cacheSize = cacheSize)
+    damageContract = damageContract, damageFeatures = damageFeatures, flagsInForce = flagsInForce, cacheSize = cacheSize,
+    floorSamples = floorSamples, transferSamples = transferSamples)
 
 private fun WireState.toState() = LinkState(connected = connected, started = started, leaseHeld = leaseHeld,
     inFlight = inFlight, window = window, ackMsEma = ackMsEma, bytesPerSecEma = bytesPerSecEma,
@@ -144,6 +148,7 @@ private fun WireState.toState() = LinkState(connected = connected, started = sta
     glassesSilent = glassesSilent,
     leaseCarried = leaseCarried, leaseCarry = leaseCarry, cacheWriter = cacheWriter,
     damageContract = damageContract, damageFeatures = damageFeatures, flagsInForce = flagsInForce, cacheSize = cacheSize,
+    floorSamples = floorSamples, transferSamples = transferSamples,
     capability = capability, rssiDbm = rssiDbm, transportName = "remote:$transportName", detail = detail)
 
 private fun DataOutputStream.send(c: Ctl, blob: ByteArray? = null) {

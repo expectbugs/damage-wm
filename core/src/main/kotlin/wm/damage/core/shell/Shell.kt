@@ -41,6 +41,8 @@ import wm.damage.core.transport.Arm
 import wm.damage.core.transport.FlushRequest
 import wm.damage.core.transport.Transport
 import wm.damage.core.transport.atlasCapacity
+import wm.damage.core.transport.floorMeasured
+import wm.damage.core.transport.transferMeasured
 import wm.damage.core.wire.CfwModes
 import wm.damage.core.wire.TextureCache
 import wm.damage.core.transport.draw2
@@ -651,6 +653,9 @@ class Shell(
     /** The idle tick, on demand — tests of what may flush alone (§8.3). */
     fun postIdleTick() = post(Msg.IdleTick)
 
+    /** The minute tick, on demand — tests of what runs on the wall-clock minute (the floor watch). */
+    fun postMinuteTick() = post(Msg.MinuteTick)
+
     /** Change the settings from outside the loop (hosts, tests): applied ON
      *  the loop like a Settings row would, persisted and synced. */
     fun updateSettings(f: (ShellSettings) -> ShellSettings) = post(Msg.Run { applySettings(f(settings)) })
@@ -733,12 +738,30 @@ class Shell(
         val stampsAtLoad = persistence.stamps()
         stateLoaded = true
         settings = ShellSettings.fromJson(persistence.get("shell.settings"))
+        // §73: BEFORE any window restores or wraps — with cached text on, every layout of the
+        // session measures by the cache's metric, whether or not its face is uploaded yet
+        cachedText?.cacheMetric = settings.cachedText == "on"
+        clockWKey = null; statusWKey = null
         settingsLocallyEdited = false   // live settings now MIRROR the store
         if (persistence.get("shell.settings") == null) {
             persistence.putBaseline("shell.settings", settings.toJson())  // R2#16
         }
         layout = layoutFor(settings)
         refreshStyles()   // every window draws through its per-app transform (Style.kt)
+        // §73: the same windows live across sessions and keep what they laid out. A typography or
+        // Cached text change that reached the store while no session ran (a synced record applied
+        // store-direct) is read just above — and nothing told the windows: a book held from the
+        // last session stayed wrapped by the old metric, its long lines cut. Keyed on what a layout
+        // depends on: an unconditional call would re-wrap the open book at every link edge.
+        val styleKey = styleKeyOf(settings)
+        if (styleKeyAtLastStart != null && styleKeyAtLastStart != styleKey) {
+            for (w in windows) {
+                try { w.onFontScaleChanged(effScale(w.id)); w.onLayoutChanged() } catch (e: Exception) {
+                    Log.e("shell", "re-layout of ${w.id} at the session start failed", e)
+                }
+            }
+        }
+        styleKeyAtLastStart = styleKey
         for (w in windows) {
             // sub-records FIRST (§16.4a): per-item state (reading positions,
             // saves) is in place before the main restore launches any async
@@ -887,6 +910,8 @@ class Shell(
             // below, chunk by chunk, only while nothing else is pending, so
             // the first paint and every gesture come first.
             journal.note("build", buildTag.ifEmpty { "unstamped host" } + " · session start via ${transport.state.value.transportName}")
+            linkRegimeSessionStart(adopted)
+            inputAwaitsSlot = false; inputFlushPending = false     // a gesture of the last session flags nothing here
             atlasAtSessionStart(adopted)
             composeFullSurface()
             comp.requestKeyframe()
@@ -2223,6 +2248,16 @@ class Shell(
     /** The fonts the chunks in flight and queued complete: live on the last ack. */
     private var atlasPendingSpecs = LinkedHashSet<FontSpec>()
     private var atlasSeenVersion = -1
+    /** §73: the recorder's `wantVersion` at the last grow — a face drew a character it had not
+     *  drawn before, and a resident face may be able to gain its glyph. Set back to -1 wherever
+     *  [atlasSeenVersion] is, and at a promotion (the characters that queued behind it). */
+    private var atlasWantVersion = -1
+    /** §73: the faces whose refused extension the journal has already said (one line per face per
+     *  atlas; a face that gains its glyphs, or a new atlas, clears it). Journal pacing only. */
+    private val atlasExtRefusedSaid = HashSet<FontSpec>()
+    /** §73: the "stays pixels" and "not now" lines already written for this atlas, by face and
+     *  reason — one each until a repack or a new atlas. Journal pacing only: nothing reads it to decide. */
+    private val atlasSaid = HashSet<String>()
     private var atlasBytesSent = 0L
     private var atlasFailed = false
     /** §54: chunks that failed without a refusal in a row (a link end, a sweep) — reset
@@ -2301,7 +2336,10 @@ class Shell(
     private fun atlasKeep(ct: CachedText, a: GlyphAtlas, st: LinkState) {
         ct.target = comp.composed
         wm.damage.core.gfx.IconPaint.recorder = ct
-        ct.clearSeen()
+        // §73: the frame stamps and the icons stay — cleared, every resident face and icon read
+        // as stale at once (the frame clock runs on across sessions) and the first face that
+        // needed room after a kept rebuild evicted what was in use
+        ct.clearSeen(keepUse = true)
         ct.endFrame()
         atlasQueue.clear()
         atlasInFlight = null
@@ -2315,12 +2353,13 @@ class Shell(
         atlasLapsedOwed = false
         atlasPendingSpecs.clear()
         atlasSeenVersion = -1
+        atlasWantVersion = -1
         atlasBytesSent = 0L
         atlasFailed = false            // a link end, not a refusal, took the last chunk's ack
         atlasUndelivered = 0
         atlasRetryAtFrame = -1L
         atlasFullShown = false
-        a.rewindToAcked()              // what was in flight at the link end goes again
+        a.rewindToAcked()              // what was in flight at the link end goes again — an extension's table patch too (§73)
         val held = a.specs().filter { a.isAcked(it) }.toSet()
         val heldImages = a.imageKeys().filter { a.isImageAcked(it) }.toSet()
         for (spec in a.specs()) if (spec !in held) atlasPendingSpecs.add(spec)
@@ -2349,6 +2388,8 @@ class Shell(
         atlasLapsedOwed = false
         atlasPendingSpecs.clear()
         atlasSeenVersion = -1
+        atlasWantVersion = -1
+        atlasExtRefusedSaid.clear(); atlasSaid.clear()
         atlasBytesSent = 0L
         atlasFailed = false
         atlasUndelivered = 0
@@ -2357,7 +2398,8 @@ class Shell(
         atlasFullShown = false
     }
 
-    private fun atlasEnable() {
+    /** [rederive]: false when the caller re-derives every layout itself right after (the row's change). */
+    private fun atlasEnable(rederive: Boolean = true) {
         val ct = cachedText
         if (ct == null) {
             journal.note("atlas", "cached text asked for, but this host's rasterizer is not a CachedText — pixels")
@@ -2370,6 +2412,17 @@ class Shell(
             atlasForeignWriter = st.cacheWriter  // a fresh atlas writes over whatever is there
             atlas = GlyphAtlas(ct.base, v2 = st.draw2, capacity = st.atlasCapacity)
             ct.atlas = atlas
+            // §73: the layout metric lays out for the atlas's contract (which codes a run may
+            // hold, so which pairs kern). It moves only when a session's contract differs from
+            // the last atlas's — never on the daily path — and every layout made under the other
+            // rule is re-derived: accented text re-measured in place was cut by its own fit.
+            if (ct.metricV2 != st.draw2) {
+                ct.metricV2 = st.draw2
+                if (rederive && ct.cacheMetric) {
+                    clockWKey = null; statusWKey = null
+                    relayoutEverything()
+                }
+            }
             journal.note("atlas", "built for ${if (st.draw2) "contract 2 (per-lens draws, ${st.atlasCapacity / 1024} KiB)" else "the v1 cache (64 KiB, flat draws)"}")
         }
         atlasGrow()
@@ -2403,14 +2456,18 @@ class Shell(
         // an upstream build has nothing to answer with, and an upload with nothing acked yet has
         // nothing to prove (a repack drops the queue: the old layout's ack lands on the new one)
         if (st.damageContract <= 0 || a.ackedBytes <= a.uploadStart) return goLive()
+        // §73: owed by MESSAGES as well as by bytes — a message that only rewrites table entries
+        // (a face gained a glyph the cache already held) acks without moving the byte mark, and
+        // its entries must not go live on a read-back taken before it
         if (a === atlasCheckedAtlas && atlasCheckedEpoch == atlasCheckEpoch &&
-            a.ackedBytes <= atlasCheckedBytes) return goLive()
+            a.ackedBytes <= atlasCheckedBytes && a.ackedMsgs <= atlasCheckedMsgs) return goLive()
         if (atlasCheckInFlight) { atlasCheckWanted = true; return }
         atlasCheckInFlight = true
         atlasCheckWanted = false
         val target = a
         val epoch = atlasCheckEpoch
         val covered = a.ackedBytes
+        val coveredMsgs = a.ackedMsgs
         // §66: the atlas lays out over the cache less the staging reserve, so the size the glasses
         // allocated must be the atlas's capacity plus that reserve
         val wantSize = if (a.v2) a.capacity + CfwModes.STAGE_RESERVE else null
@@ -2470,8 +2527,9 @@ class Shell(
                     atlasCheckedAtlas = cur
                     atlasCheckedEpoch = epoch
                     atlasCheckedBytes = covered
-                    // bytes acked while the answer was on its way are not covered by it
-                    if (again || cur.ackedBytes > covered) atlasCheckThenLive() else goLive()
+                    atlasCheckedMsgs = coveredMsgs
+                    // bytes or messages acked while the answer was on its way are not covered by it
+                    if (again || cur.ackedBytes > covered || cur.ackedMsgs > coveredMsgs) atlasCheckThenLive() else goLive()
                     return@Run
                 }
                 atlasFailed = true
@@ -2500,11 +2558,40 @@ class Shell(
         if (settings.cachedText != "on") return
         val ct = cachedText ?: return
         val a = atlas
+        // §73: the faces whose new glyphs the glasses now hold take their new entries FIRST, so a
+        // repaint below draws with them. "Hold" is as proven as a font's first upload and no more:
+        // the message was acked and the read-back found the cache present, the right size and
+        // DRAW2 armed. Neither says the glasses APPLIED that message (the ack precedes the decode);
+        // one they dropped leaves the table naming the tofu, drawn with no refusal — an accepted
+        // exposure, graded in `CLAIMS.md`, with the closing mechanism (the staged records' count
+        // rule for an extension) under "Not built" in `HANDOFF.md` §73.
+        // Nothing is repainted or dropped for a promotion alone:
+        // the host-drawn character went out as pixels, so belief already equals glass; a record
+        // or a staged strip made before it is proven against the truth when it is used; the next
+        // paint of that text blits the cached glyph and the diff carries any difference.
+        val promoted = a?.promote() ?: emptyList()
+        if (promoted.isNotEmpty()) {
+            atlasExtensionsLive += promoted.size
+            atlasWantVersion = -1          // the characters that waited behind these get their turn on the next idle pump
+            journal.note("atlas", "${promoted.size} face(s) gained glyphs — " + promoted.joinToString(", ") {
+                "${specName(it.spec)} +\"${it.codes}\" (${it.bytes} B, ${it.entry.packedCount} packed)" })
+            post(Msg.Pump)
+        }
         val held = a?.specs()?.filter { a.isAcked(it) }?.toSet() ?: emptySet()
         val heldImages = a?.imageKeys()?.filter { a.isImageAcked(it) }?.toSet() ?: emptySet()
         atlasPendingSpecs.removeAll(held)
         if (held != ct.live || heldImages != ct.liveImages) atlasLive(held, heldImages, "uploaded")
     }
+
+    /** Extensions promoted so far by this shell — never reset at a session start (harnesses and the self-check count them). */
+    @Volatile var atlasExtensionsLive = 0
+        private set
+    /** Extensions queued so far by this shell. */
+    @Volatile var atlasExtensionsQueued = 0
+        private set
+
+    private fun specName(s: FontSpec): String =
+        "${s.face} ${s.sizePx}" + (if (s.bold) " bold" else "") + (if (s.italic) " italic" else "") + (if (s.raw) " raw" else "")
 
     /** The atlas whose upload was last read back, the epoch that answer belonged to, and the
      *  acked watermark it covered: a fresh atlas, a new epoch, or bytes acked past that mark all
@@ -2513,6 +2600,7 @@ class Shell(
     private var atlasCheckedAtlas: wm.damage.core.comp.GlyphAtlas? = null
     private var atlasCheckedEpoch = -1
     private var atlasCheckedBytes = -1
+    private var atlasCheckedMsgs = -1
     /** Bumped by every event after which an answer in flight, or the mark one left, no longer says
      *  anything about what the glasses hold: a repack, a lapse, a reset, a session carried across
      *  a rebuild (2026-09-16 review). */
@@ -2528,6 +2616,7 @@ class Shell(
         atlasCheckedAtlas = null
         atlasCheckedEpoch = -1
         atlasCheckedBytes = -1
+        atlasCheckedMsgs = -1
         atlasCheckWanted = false
         atlasCheckInFlight = false
     }
@@ -2539,6 +2628,14 @@ class Shell(
         ct.live = emptySet()
         ct.liveImages = emptySet()
         atlasQueue.clear()
+        // §73: the queued messages are dropped, so the atlas's own hand-out record goes back to
+        // the acked mark with them — it kept their chunk ends and the sent mark, and a re-enable
+        // then never sent those bytes while the acks of later messages moved the acked mark over
+        // them. A chunk still in flight belongs to the old generation: its ack moves nothing and
+        // its bytes go again.
+        atlas?.rewindToAcked()
+        atlasSeenVersion = -1
+        atlasWantVersion = -1
         atlasPendingSpecs.clear()
         journal.note("atlas", "cached text off — $why")
     }
@@ -2581,6 +2678,10 @@ class Shell(
     /** A lapse took the glasses' cache and nothing has put it back yet. */
     private var atlasLapsedOwed = false
 
+    /** The frame at which `pumpAtlas` last looked for a face in use that the atlas does not serve
+     *  (a frame number only: nothing to clear at any boundary, the next frame looks again). */
+    private var atlasInUseLookedAt = -1L
+
     /** Add every font seen since the last look — the ones drawn on plane 0
      *  first, since only those can ship as draws and the cache is 64 KiB —
      *  and queue the bytes they need. */
@@ -2588,8 +2689,12 @@ class Shell(
         val ct = cachedText ?: return
         val a = atlas ?: return
         if (atlasFailed || settings.cachedText != "on") return
+        val growT0 = System.nanoTime()
+        val growNow = System.currentTimeMillis()
         atlasSeenVersion = ct.seenVersion
+        atlasWantVersion = ct.wantVersion
         var added = 0
+        val addedNames = ArrayList<String>()
         // the heaviest faces first (§41): every plane is served now, so the
         // cue is the pixels a face draws, not whether it sat on plane 0 — a
         // 64 KiB cache holds about a dozen faces, and the rows', the lens's
@@ -2600,22 +2705,90 @@ class Shell(
         val clock = ct.useClock
         for (spec in wanted) {
             if (a.has(spec) || a.isRefused(spec)) continue
+            // §73: a face is packed with the characters it has drawn, never its whole table
+            val codes = ct.codesFor(spec)
             // §47: a face nobody has drawn for a window of frames takes no
             // room from one that is being drawn — it is packed only into
             // room that is free anyway, never after the repack that just
             // made room for the current window's faces
             val recent = clock - ct.lastUseOf(spec) <= ATLAS_RECENT_FRAMES
-            if (!recent && (repacked || a.price(spec) > a.free)) continue
-            if (a.add(spec)) { added++; continue }
+            // §73: "room that is free anyway" has a second claimant now — the faces in use grow
+            // into it — so a face nobody is drawing is not packed inside a repack's pace window
+            // (it would take straight back the room its own eviction made, and the next new
+            // characters would repack again: measured on the simulator before this line), and
+            // never into the last [ATLAS_GROW_HEADROOM] of the cache
+            if (!recent && (repacked || (lastAtlasRepackMs != 0L && growNow - lastAtlasRepackMs < ATLAS_REPACK_PACE_MS) ||
+                    a.price(spec, codes) > a.free - ATLAS_GROW_HEADROOM)) continue
+            val named = { addedNames += "${specName(spec)} ${a.entry(spec)?.packedCount ?: 0} codes ${a.bytesOf(spec)} B" }
+            if (a.add(spec, codes)) { added++; named(); continue }
             // full — evict the faces the current window is not drawing and
             // try once more, or say why not (deferred, nothing stale)
-            if (recent && atlasEvictFor(spec, a, ct) && a.add(spec)) { added++; repacked = true; continue }
-            journal.note("atlas", "font $spec stays pixels — the cache is full (${a.used} B)")
+            if (recent && atlasEvictFor(spec, a, ct) && a.add(spec, codes)) { added++; named(); repacked = true; continue }
+            if (atlasSaid.add("$spec|full")) journal.note("atlas", "font $spec stays pixels — the cache is full (${a.used} B)")
             stillFull = true
+        }
+        // §73: a resident face gains the glyphs it has drawn since it was packed — appended and
+        // patched into its table in place, one extension per face at a time (the rest wait for
+        // its promotion, which re-arms this cue). When the cache has no room, a face the window
+        // is drawing gets what a NEW face gets (§47): the faces nobody has drawn for a window of
+        // frames are evicted and the cache repacked, under the same pace and the same "only if
+        // it frees enough" rule — a face left with half its glyphs ships every line as fragments
+        // around the host's pixels, which is worse than either all draws or all pixels (the
+        // self-check on a full cache: 43 refused extensions, `too-many-draws` and `proof` misses
+        // where there had been none). A face nobody is drawing waits, and says so once.
+        var extended = 0
+        val extendedNames = ArrayList<String>()
+        for (spec in a.specs()) {
+            if (a.pendingExt(spec) != null) continue
+            val want = a.missing(spec, ct.codesFor(spec))
+            if (want.isEmpty) continue
+            var x = a.extend(spec, want)
+            val inUse = clock - ct.lastUseOf(spec) <= ATLAS_RECENT_FRAMES
+            // need > 0: a face whose glyphs could not be RENDERED answers Refused with need 0, and
+            // an eviction "for 0 bytes" would repack for nothing
+            if (x is GlyphAtlas.Extended.Refused && x.first && x.need > 0 && !repacked && inUse &&
+                atlasEvictFor(spec, a, ct, need = x.need)) {
+                repacked = true
+                // the repack folded every extension that was on its way: the characters that
+                // waited behind one have no promotion coming to re-arm the cue, so it is re-armed here
+                atlasWantVersion = -1
+                x = a.extend(spec, a.missing(spec, ct.codesFor(spec)))
+            }
+            // a face IN USE that is still refused gets another try a window of frames on, whatever
+            // made this one fail (a repack already ran in this grow, the eviction was deferred or
+            // freed too little, the face was away when it was first refused): the only booking used
+            // to be inside the eviction attempt, and a refusal that never reached one was never
+            // looked at again — the face shipped every line as fragments for the life of the atlas.
+            // A face nobody is drawing books nothing (`pumpAtlas` books for it when it is drawn again).
+            if (x is GlyphAtlas.Extended.Refused && x.need != 0 && inUse && atlasRetryAtFrame < 0)
+                atlasRetryAtFrame = clock + ATLAS_RECENT_FRAMES + 1
+            when (x) {
+                is GlyphAtlas.Extended.Queued -> {
+                    extended++; atlasExtensionsQueued++
+                    atlasExtRefusedSaid.remove(spec)
+                    extendedNames += "${specName(spec)} +\"${x.ext.codes}\" ${x.ext.bytes} B"
+                }
+                is GlyphAtlas.Extended.Live -> {
+                    atlasExtRefusedSaid.remove(spec)
+                    journal.note("atlas", "${specName(spec)} gained \"${x.codes}\" with nothing to send — the cache already held those records where its table names them")
+                }
+                // said once per face until it gains them or the atlas is rebuilt: the retry a window
+                // of frames on forgets the refusal and asks again, and a full cache then wrote this
+                // line for every waiting face every thirteen frames (215 in one self-check pass)
+                is GlyphAtlas.Extended.Refused -> if (x.first && atlasExtRefusedSaid.add(spec))
+                    journal.note("atlas", if (x.need > 0)
+                        "${specName(spec)} cannot gain \"${x.codes}\" — ${x.need} B needed, ${x.free} B free; they stay the host's pixels until the cache has room"
+                    else "${specName(spec)} cannot gain \"${x.codes}\" — its glyphs could not be rendered (the log says why); they stay the host's pixels")
+                GlyphAtlas.Extended.Busy, GlyphAtlas.Extended.None -> {}
+            }
         }
         // a full atlas is a latency condition, not a fault, and on today's cache it is an everyday
         // one (`HANDOFF.md` §66: the day's faces do not fit): the journal says it once per episode,
         // and neither the cell nor a box does (§69) — a box here interrupted several times a day
+        // The episode lasts while ANY seen face stands refused, not only one refused in this grow:
+        // a grow cued by a first-seen character skips a refused face at the top of the loop, read
+        // "not full" and closed the episode, and the next retry opened it again with a new line.
+        if (!stillFull) stillFull = wanted.any { a.isRefused(it) }
         if (stillFull && !atlasFullShown) {
             atlasFullShown = true
             journal.note("atlas", "full — the faces that did not fit stay pixels until it repacks")
@@ -2623,12 +2796,20 @@ class Shell(
         // §41: icons — drawn at least twice, heaviest first, into what the
         // fonts leave (a quarter of the cache at most, `GlyphAtlas.IMAGE_BUDGET`)
         var icons = 0
+        val paced = lastAtlasRepackMs != 0L && growNow - lastAtlasRepackMs < ATLAS_REPACK_PACE_MS
         for (key in ct.seenImageKeys().filter { ct.imageUses(it) >= CachedText.PACK_AFTER_USES }
             .sortedByDescending { ct.imageUsage(it) }) {
             if (a.hasImage(key) || a.isImageRefused(key)) continue
             val img = ct.imageOf(key) ?: continue
+            // §73, the fonts' rule for their sibling: an icon nobody is drawing is not packed
+            // straight back by the grow whose repack evicted it, nor inside the pace window, nor
+            // into the headroom (`pumpAtlas` books the grow when it is drawn again)
+            if (clock - ct.imageLastUse(key) > ATLAS_RECENT_FRAMES &&
+                (repacked || paced || img.encode().size > a.free - ATLAS_GROW_HEADROOM)) continue
             if (a.addImage(key, img)) icons++
-            else journal.note("atlas", "icon ${img.w}x${img.h} stays pixels — icons hold ${a.imageBytes} B, ${a.used} B used")
+            // once per icon until the atlas is repacked or rebuilt, like the fonts' lines: the
+            // retry forgets icon refusals too, and this line was then written every thirteen frames
+            else if (atlasSaid.add("icon|$key")) journal.note("atlas", "icon ${img.w}x${img.h} stays pixels — icons hold ${a.imageBytes} B, ${a.used} B used")
         }
         // §41: fonts the glasses already HOLD go live at once. The off→on
         // flip used to find nothing to upload and return before re-attaching
@@ -2638,15 +2819,22 @@ class Shell(
         val heldImages = a.imageKeys().filter { a.isImageAcked(it) }.toSet()
         atlasPendingSpecs.clear()
         for (spec in a.specs()) if (spec !in held) atlasPendingSpecs.add(spec)
+        val chunks = a.takeUpload()
+        for (c in chunks) atlasQueue.addLast(c to a.uploadGen)
         // held fonts go live here only when no upload is running: mid-upload
         // the last chunk's ack does it once (0.38 on glass: each grow during
-        // the first upload re-lit a few fonts and repainted the surface)
+        // the first upload re-lit a few fonts and repainted the surface).
+        // §73: and only THROUGH the read-back's gate — this used to light them directly, which
+        // put acked bytes live while their read-back was still on its way, or after an
+        // undelivered chunk's rewind had emptied the queue, with no read-back at all. The gate
+        // goes live at once when the last answer already covers every acked byte and message.
         if (atlasQueue.isEmpty() && atlasInFlight == null &&
-            (held != ct.live || heldImages != ct.liveImages)) atlasLive(held, heldImages, "held")
-        val chunks = a.takeUpload()
+            (held != ct.live || heldImages != ct.liveImages)) atlasCheckThenLive()
         if (chunks.isEmpty()) return
-        for (c in chunks) atlasQueue.addLast(c to a.uploadGen)
-        journal.note("atlas", "$added font(s) and $icons icon(s) packed, ${a.used} B in the atlas (${a.imageBytes} B icons), ${chunks.size} chunk(s) queued")
+        journal.note("atlas", "$added font(s) and $icons icon(s) packed, ${a.used} B in the atlas (${a.imageBytes} B icons), ${chunks.size} chunk(s) queued" +
+            (if (extended > 0) "; $extended face(s) gaining glyphs" else "") +
+            " — ${(System.nanoTime() - growT0) / 1_000_000} ms" +
+            (if (addedNames.isEmpty() && extendedNames.isEmpty()) "" else " [" + (addedNames + extendedNames).joinToString(", ") + "]"))
         post(Msg.Pump)
     }
 
@@ -2666,31 +2854,39 @@ class Shell(
      * one repack per [ATLAS_REPACK_PACE_MS] (a repack is up to 64 KiB of
      * link), never while a chunk is in flight (its ack would move the
      * watermark of a cache that no longer exists — deferred to the next
-     * grow instead). A face drawn within the window is never a victim: the
-     * chrome's and the current window's faces are drawn every frame.
+     * grow instead). A face drawn within the last [ATLAS_RECENT_FRAMES] flushes is never a
+     * victim. That is not "every face on screen": a frame that repaints only chrome cells
+     * advances the clock too, so after about a minute idle the page's own faces read as stale.
+     * The eviction's own whole repaint stamps everything on screen, and the grow that follows
+     * packs those faces again with the rest (same upload, same go-live) — a second batch only
+     * on the new-face path, once per full-cache repack.
      */
-    private fun atlasEvictFor(spec: FontSpec, a: GlyphAtlas, ct: CachedText): Boolean {
+    private fun atlasEvictFor(spec: FontSpec, a: GlyphAtlas, ct: CachedText, need: Int? = null): Boolean {
         val now = System.currentTimeMillis()
         val clock = ct.useClock
         // every "not now" answer books a retry a window of frames ahead
         // (pumpAtlas honours it): by then a chunk has landed, the pacing is
         // up, or the faces around the refused one have gone stale
         atlasRetryAtFrame = clock + ATLAS_RECENT_FRAMES + 1
+        // each "not now" is said once per face and reason until the atlas is repacked or rebuilt
+        // (§73): the retry runs every thirteen frames while a face waits, and the phone's journal
+        // is never rotated
         if (atlasInFlight != null) {
-            journal.note("atlas", "repack for $spec deferred — a chunk is in flight")
+            if (atlasSaid.add("$spec|in-flight")) journal.note("atlas", "repack for $spec deferred — a chunk is in flight")
             return false
         }
         if (lastAtlasRepackMs != 0L && now - lastAtlasRepackMs < ATLAS_REPACK_PACE_MS) {
-            journal.note("atlas", "repack for $spec deferred — one ran ${(now - lastAtlasRepackMs) / 1000} s ago")
+            if (atlasSaid.add("$spec|paced")) journal.note("atlas", "repack for $spec deferred — one ran ${(now - lastAtlasRepackMs) / 1000} s ago")
             return false
         }
         val residents = a.specs()
         val stale = residents.filter { clock - ct.lastUseOf(it) > ATLAS_RECENT_FRAMES }.sortedBy { ct.lastUseOf(it) }
         if (stale.isEmpty()) {
-            journal.note("atlas", "nothing to evict for $spec — every resident face was drawn in the last $ATLAS_RECENT_FRAMES frames")
+            if (atlasSaid.add("$spec|none-stale")) journal.note("atlas", "nothing to evict for $spec — every resident face was drawn in the last $ATLAS_RECENT_FRAMES frames")
             return false
         }
-        val need = a.price(spec)
+        // [need]: what a resident face's new glyphs take (§73); else the whole face's price
+        @Suppress("NAME_SHADOWING") val need = need ?: a.price(spec, ct.codesFor(spec))
         // EVERY stale face goes, not just enough for this one: a repack costs
         // the same rewrite however many leave, the window in use is about to
         // ask for its other faces too, and the pacing would hold those for
@@ -2698,10 +2894,11 @@ class Shell(
         val evict = stale
         val freed = evict.sumOf { a.bytesOf(it) }
         if (freed < need) {
-            journal.note("atlas", "evicting ${evict.size} stale font(s) would free $freed B; $spec needs $need B — stays pixels")
+            if (atlasSaid.add("$spec|too-little")) journal.note("atlas", "evicting ${evict.size} stale font(s) would free $freed B; $spec needs $need B — stays pixels")
             return false
         }
         atlasRetryAtFrame = -1L
+        atlasSaid.clear(); atlasExtRefusedSaid.clear()      // a repacked atlas: every refusal is a new one
         val keep = residents.filter { it !in evict }.sortedByDescending { ct.usageOf(it) }
         val keepImages = a.imageKeys().filter { clock - ct.imageLastUse(it) <= ATLAS_RECENT_FRAMES }.sortedByDescending { ct.imageUsage(it) }
         val droppedIcons = a.imageKeys().size - keepImages.size
@@ -2711,13 +2908,16 @@ class Shell(
         // are dropped rather than sent, and the generation tag stops a late ack of one from moving
         // the new layout's watermark (2026-09-15, the second review)
         atlasQueue.clear()
+        val evictedNames = evict.joinToString(", ") { "${specName(it)} ${a.bytesOf(it)} B" }
+        val repackT0 = System.nanoTime()
         val used = a.repack(keep, keepImages)
         // the SAME GlyphAtlas, every record at a new offset and `ackedBytes` back at the guard:
         // the mark the last answer left covered a byte axis that no longer exists, so keying the
         // gate on identity + bytes alone skipped the whole repacked layout (2026-09-16 review)
         atlasCheckOwed()
         lastAtlasRepackMs = now
-        journal.note("atlas", "repacked: ${keep.size} font(s) and ${keepImages.size} icon(s) kept, $used B in use, ${a.free} B free for $spec (needs $need B)")
+        journal.note("atlas", "repacked: ${keep.size} font(s) and ${keepImages.size} icon(s) kept, $used B in use, ${a.free} B free for $spec (needs $need B)" +
+            " — ${(System.nanoTime() - repackT0) / 1_000_000} ms; evicted [$evictedNames]")
         return true
     }
 
@@ -2745,6 +2945,27 @@ class Shell(
     private suspend fun pumpAtlas(st: LinkState): Boolean {
         val ct = cachedText ?: return false
         if (settings.cachedText != "on" || atlasFailed || glassesSilent) return false
+        // §73: nothing grows and nothing is sent while the lease is gone. The lapse path leaves
+        // `atlasSeenVersion` alone on purpose (a grow there hands out the whole forgotten layout
+        // and its first chunk is refused, which switches cached text off for the session) — and
+        // that held only while nothing else called the grow; a first-seen character is a cue too
+        // now, and a lapse's own notice draws some. [atlasLeaseBack] is the one restart.
+        if (atlasLapsedOwed || !st.leaseHeld) return false
+        // §73: a face (or an icon) in use that no cue will ever speak for. A face whose extension was refused
+        // while nobody drew it books nothing; a face a repack evicted, or one passed over as stale
+        // (the pace window, the headroom), is simply not in the atlas — and coming back to either
+        // draws no NEW character and no new font, so nothing cues a grow: the window's text stayed
+        // pixels until some other face happened to. The retry is booked here, for this pump, when
+        // such a face is being drawn; the grow below then packs it, makes room, or books the next
+        // try a window of frames on (`atlasEvictFor`, the extension pass). Looked at once per frame.
+        // A refused ICON is not looked for: nothing books its next try, so the look would fire on
+        // every frame it is drawn — it goes again with any retry (`unrefuseAll`), as it always has.
+        if (atlasRetryAtFrame < 0 && ct.useClock != atlasInUseLookedAt) {
+            atlasInUseLookedAt = ct.useClock
+            val a = atlas
+            if (a != null && (ct.specsInUse(ATLAS_RECENT_FRAMES).any { !a.has(it) || a.isExtRefused(it) } ||
+                    ct.imagesInUse(ATLAS_RECENT_FRAMES).any { !a.hasImage(it) && !a.isImageRefused(it) })) atlasRetryAtFrame = ct.useClock
+        }
         if (atlasRetryAtFrame >= 0 && ct.useClock >= atlasRetryAtFrame) {
             // §47: a refused face gets its retry — the refusals are
             // forgotten so `add` prices it again against a cache whose
@@ -2752,7 +2973,7 @@ class Shell(
             atlasRetryAtFrame = -1L
             atlas?.unrefuseAll()
             atlasGrow()
-        } else if (ct.seenVersion != atlasSeenVersion) atlasGrow()
+        } else if (ct.seenVersion != atlasSeenVersion || ct.wantVersion != atlasWantVersion) atlasGrow()
         if (atlasInFlight != null || atlasQueue.isEmpty()) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         // §66: a generation reading on its way speaks for the writes acked at its send and no
@@ -2795,6 +3016,7 @@ class Shell(
                 atlas?.rewindToAcked()
                 atlasQueue.clear()
                 atlasSeenVersion = -1
+                atlasWantVersion = -1
                 journal.note("atlas", "chunk ${ev.id} not delivered (${ev.error}) — it goes again from ${atlas?.ackedBytes ?: 0} B")
                 return
             }
@@ -2967,7 +3189,21 @@ class Shell(
         val pinned: (StagedRecord) -> Boolean = { r -> r.key in wanted || (r.firstLine < top + visible && r.firstLine + r.lines > top) }
         for (k in wanted) {
             if (stage.records.containsKey(k) || k in stageRefused) continue
+            val want0 = ct.wantVersion; val seen0 = ct.seenVersion
             val rec = renderStrip(v, k, region, ct)
+            if (ct.wantVersion != want0 || ct.seenVersion != seen0) {
+                // §73: this render showed a face characters it had not drawn (or a face, an icon,
+                // new to the session). The render is the atlas's cue, and the atlas goes first —
+                // `pumpAtlas` on the next pump, staging held while its bytes are on their way — then
+                // the strip is rendered again with the glyphs packed. Written now, with the host's
+                // pixels for them, the record stops matching the page the moment they are promoted:
+                // the notch falls back, the stale record stays resident, its cache writes were for
+                // nothing (three ~14 KB strips per promotion of the book's face on the simulator).
+                // Bounded by what is new: a character the atlas cannot give is not new on the
+                // second render, so the strip is written then — one extra render, never a wait.
+                post(Msg.Pump)
+                return true
+            }
             if (rec.size4 > ring.capacity) {
                 stageRefused += k
                 journal.note("stage", "$k is ${rec.encoded.size} B — larger than the ${ring.capacity / 1024} KiB reserve, stays pixels")
@@ -3105,10 +3341,15 @@ class Shell(
                 // the acked writes have not had their settle window: counts for nothing, asked again paced
                 stageReadNotBeforeMs = System.currentTimeMillis() + CacheLedger.REREAD_PACE_MS
                 journal.note("stage", "$from read the generation ${v.missing} short inside the settle window — pending, asked again in ${CacheLedger.REREAD_PACE_MS} ms")
+                pumpAfter(CacheLedger.REREAD_PACE_MS)
             }
             is CacheLedger.Verdict.Short -> {
-                stageReadNotBeforeMs = System.currentTimeMillis() + CacheLedger.REREAD_PACE_MS
-                journal.note("stage", "$from read the generation ${v.missing} short after the settle window (settled reading ${v.reads}) — asked again")
+                // §73: paced at the settle window, not the re-read pace — the second settled reading
+                // is the one that makes a shortfall, and until the pump below existed it came with
+                // the 5 s idle tick; at 500 ms a decode 2.5 s behind its ack would have been called lost
+                stageReadNotBeforeMs = System.currentTimeMillis() + CacheLedger.SETTLE_MS
+                journal.note("stage", "$from read the generation ${v.missing} short after the settle window (settled reading ${v.reads}) — asked again in ${CacheLedger.SETTLE_MS} ms")
+                pumpAfter(CacheLedger.SETTLE_MS)
             }
             is CacheLedger.Verdict.Shortfall -> {
                 val lost = stage.records.values.filter { it.state == StagedRecord.State.ACKED && it.ackedAt > v.fromAcked && it.ackedAt <= v.toAcked }
@@ -3132,6 +3373,24 @@ class Shell(
             }
         }
         stageRecount()
+    }
+
+    /**
+     * §73: one pump when a paced re-read comes due. The verdicts above only set
+     * [stageReadNotBeforeMs]; nothing ran when it passed, so on a quiet link the re-read waited
+     * for the 5 s idle tick and a strip sat acked and not drawable that long — on glass the
+     * first reading after a write is normally short (the bump lands up to a second after the
+     * ack). A pace, not a bound: nothing is given up when the delay ends, and a pump that
+     * arrives in any other state (silent, a session later) finds nothing to do; a stopped shell is
+     * sent none.
+     */
+    private fun pumpAfter(ms: Long) {
+        scope.launch {
+            delay(ms + 20)
+            // only to a running shell: a counted message must be delivered, and a stopped shell's
+            // queue has no reader (staged records never cross a session, so there is no re-read to make)
+            if (running) post(Msg.Pump)
+        }
     }
 
     /** The placements the next assemble may draw from: every PROVEN record of the focused document at
@@ -3282,7 +3541,8 @@ class Shell(
      * (2026-09-05, `HANDOFF.md` §32): ~20 ms/KB on PC-direct BlueZ against
      * ~125 ms/KB through the phone (the production journal, §31.6). The wheel
      * spins in fewer frames on a slow link; nothing else changes, and nothing
-     * changes at all until a flush of 1 KB or more has actually been timed.
+     * changes at all until three isolated flushes of 1 KB or more have been timed
+     * against a measured floor (`LinkEstimator`, §73), or the connection parameters say so.
      */
     /** §41: the regime decision has HYSTERESIS and a dwell — the EMA swung
      *  36–68 ms/KB second to second on 2026-09-06 and the wheel changed its
@@ -3290,8 +3550,9 @@ class Shell(
      *  below 0.7×, and never twice within [REGIME_DWELL_FLUSHES] flushes. */
     private var linkSlowState = false
     private var linkSlowFlipAt = 0L
-    private fun linkSlow(): Boolean {
-        val st = transport.state.value
+    /** [st] is the caller's ONE read of the link state (`HANDOFF.md` §73): the note that follows a
+     *  decision prints the numbers the decision used. */
+    private fun linkSlow(st: LinkState = transport.state.value): Boolean {
         // §47 (2026-09-12): the connection parameters decide AT ONCE, no dwell —
         // 105 ms / latency 4 is ~525 ms before a packet can even leave, and the
         // EMA took ten flushes to say so on glass
@@ -3310,7 +3571,24 @@ class Shell(
     private fun paramsSlow(st: LinkState): Boolean =
         st.linkIntervalMs > 0 && st.linkIntervalMs * (st.linkLatency + 1) >= SLOW_PARAMS_MS
 
-    private fun spinFrames(): Int = if (linkSlow()) 2 else 4
+    private fun spinFrames(slow: Boolean = linkSlow()): Int = if (slow) 2 else 4
+
+    /** §73: a session start measures its own link. The transport's estimator starts over there;
+     *  the regime decided on the last session's readings goes with them, and the dwell counts
+     *  from here (the flush counter itself is the process's — harnesses read it). An ADOPTED
+     *  start (a pause and resume, a takeover) is the exception: the transport did not start,
+     *  its readings stand, and the regime starts from them — reset to "fast" behind the dwell,
+     *  a link measured slow read fast for ten flushes beside its own numbers. */
+    private fun linkRegimeSessionStart(adopted: Boolean) {
+        val st = transport.state.value
+        linkSlowState = adopted && st.transferMeasured && st.transferMsPerKbEma > SLOW_LINK_MS_PER_KB
+        linkSlowFlipAt = flushesSubmitted
+        lastLinkSlow = null
+        lastLinkParams = ""
+        slowFloorMinutes = 0
+        linkMeasuredSaid = false
+    }
+    private var linkMeasuredSaid = false
 
     private var lastLinkSlow: Boolean? = null
     private var lastLinkParams = ""
@@ -3327,11 +3605,23 @@ class Shell(
      *  are a state the wearer should see, not a journal line to find later. */
     private fun noteLinkRegime() {
         val st = transport.state.value
-        val slow = linkSlow()
+        val slow = linkSlow(st)
         if (slow != lastLinkSlow) {
             lastLinkSlow = slow
-            journal.note("link", "transfer %.0f ms/KB, floor %.0f ms — %s regime (wheel spins in %d frames)"
-                .format(st.transferMsPerKbEma, st.floorMsEma, if (slow) "SLOW" else "fast", spinFrames()))
+            // §73: a term that is still its default says so — "fast" on a link nothing has timed
+            // yet is not a measurement, and a journal that cannot tell the two apart misled a read
+            fun n(samples: Int, measured: Boolean) = if (samples < 0) "" else if (measured) " (n=$samples)" else " (unmeasured, n=$samples)"
+            journal.note("link", "transfer %.0f ms/KB%s, floor %.0f ms%s — %s regime (wheel spins in %d frames)%s"
+                .format(st.transferMsPerKbEma, n(st.transferSamples, st.transferMeasured), st.floorMsEma, n(st.floorSamples, st.floorMeasured),
+                    if (slow) "SLOW" else "fast", spinFrames(slow),
+                    if (st.linkParams.isEmpty()) "" else " · ${st.linkParams}"))
+        }
+        // §73: a session whose link is fast flips nothing, so its only regime line was the first
+        // one, "unmeasured" — said once when the transfer term first stands on real readings
+        if (!linkMeasuredSaid && st.transferSamples >= wm.damage.core.transport.LinkEstimator.MIN_SAMPLES) {
+            linkMeasuredSaid = true
+            journal.note("link", "measured — transfer %.0f ms/KB (n=%d), floor %.0f ms (n=%d): %s"
+                .format(st.transferMsPerKbEma, st.transferSamples, st.floorMsEma, st.floorSamples, if (slow) "SLOW" else "fast"))
         }
         if (st.linkParams != lastLinkParams) {
             lastLinkParams = st.linkParams
@@ -3349,13 +3639,17 @@ class Shell(
     }
 
     /** §47: the ack floor watched on the minute — two ticks above
-     *  [FLOOR_ALERT_MS] raise one notice, the fall below it another. The EMA
-     *  moves only with flushes, so an idle link keeps its last reading and
-     *  the notice waits for the next gesture to clear. A pacing decision on a
+     *  [FLOOR_ALERT_MS] raise one notice, the fall below it another. The floor
+     *  is the median of the last (up to nine) isolated small flushes, so it moves
+     *  only with those: an idle link keeps its reading, and the notice clears
+     *  once the median reads under the line — about five of nine. A pacing decision on a
      *  measurement, never a timeout: nothing is cancelled. */
     private fun watchFloor() {
         val st = transport.state.value
         if (!st.started) { slowFloorMinutes = 0; return }
+        // §73: the floor starts over with each session and reads its 60 ms default until three
+        // small flushes have been timed — a default is neither "slow" nor "back"
+        if (!st.floorMeasured) return
         if (st.floorMsEma > FLOOR_ALERT_MS) {
             slowFloorMinutes++
             if (slowFloorMinutes >= FLOOR_ALERT_MINUTES && !floorAlerted) {
@@ -3413,6 +3707,11 @@ class Shell(
     private var handlerNsThisMsg = 0L
     private var mirrorNsThisMsg = 0L
     private var textNsAtMsgStart = 0L
+    /** §73: the recorder's count of host-drawn, not-yet-packed characters at the last submitted flush. */
+    private var unpackedAtLastFlush = 0L
+    /** §73: a ring event's pump found the window full; the next flush submitted is that gesture's
+     *  (the journal's `in`). Set only there — a gesture that painted nothing leaves no mark. */
+    private var inputAwaitsSlot = false
     private var slidesNs = 0L
     private var chromeNs = 0L
     private var overlaysNs = 0L
@@ -3599,6 +3898,32 @@ class Shell(
         for (w in windows) w.styleTransform = { spec -> appTransform(w.id).apply(spec) }
     }
 
+    /** Everything a window's layout depends on that a setting can change (the fields `restyle`
+     *  compares in [applySettings], and the Cached text row: it picks the layout metric). */
+    private fun styleKeyOf(s: ShellSettings): String =
+        "${s.cachedText == "on"}|${s.fontScale}|${s.fontFace}|${s.fontStyle}|" +
+            s.appStyles.entries.sortedBy { it.key }.joinToString(";") { "${it.key}:${it.value.face}:${it.value.scale}:${it.value.style}" }
+    /** [styleKeyOf] at this shell's last session start; null before the first. */
+    private var styleKeyAtLastStart: String? = null
+
+    /** Re-derive every layout and repaint whole: a typography change, or the layout metric's
+     *  (the Cached text row, the contract the metric follows). Styles first (review §29): the
+     *  list rhythm is measured through them, so a face or scale change re-derives the row pitch
+     *  and the lens band in `syncLayout` — which re-lays out and repaints whole by itself when
+     *  the height or the rhythm moved, and is a no-op otherwise, in which case the restyle
+     *  repaints whole here. A synced record can change typography AND height in one apply
+     *  (R3s#6): the layout is re-derived BEFORE the full repaint. */
+    private fun relayoutEverything() {
+        refreshStyles()
+        for (w in windows) w.onFontScaleChanged(effScale(w.id))
+        if (!syncLayout()) {
+            for (w in windows) w.onLayoutChanged()
+            comp.composed.clear(0)
+            composeFullSurface()
+            comp.requestReseed()
+        }
+    }
+
     private fun effScale(id: String): Double =
         settings.appStyle(id).scale.takeIf { it != 0.0 } ?: settings.fontScale
 
@@ -3725,7 +4050,13 @@ class Shell(
         if (restage && s.pageStaging != "on") stageClear("the Page staging row is off")
         if (rebright) transport.setBrightness(s.brightnessAuto, s.brightness)
         if (relink) transport.setLinkPriority(s.linkPriority)
-        if (recache) { if (s.cachedText == "on") atlasEnable() else atlasDisable("the setting is off") }
+        if (recache) {
+            // §73: the row decides the layout metric as well as the upload — set first, so the
+            // re-derive below (every wrap, the chrome's measured cells) measures by the new one
+            cachedText?.cacheMetric = s.cachedText == "on"
+            clockWKey = null; statusWKey = null
+            if (s.cachedText == "on") atlasEnable(rederive = false) else atlasDisable("the setting is off")
+        }
         // liveApplySync passes persist=false: the store already holds the
         // EXACT synced record; putting our clamped re-encoding would re-stamp
         // it and, across versions with different ladders, ping-pong restyles
@@ -3734,23 +4065,11 @@ class Shell(
         // re-encode the record.
         settingsLocallyEdited = persist
         if (persist) persistence.put("shell.settings", s.toJson())
-        if (restyle) {
-            // a synced record can change typography AND height in one apply
-            // (R3s#6): re-derive the layout BEFORE the full repaint, or the
-            // restyle renders at the stale height until the next invalidate.
-            // Styles first (review §29): the list rhythm is measured through
-            // them, so a face or scale change re-derives the row pitch and
-            // the lens band in syncLayout — which re-lays out and repaints
-            // whole by itself when the height or the rhythm moved, and is a
-            // no-op otherwise, in which case the restyle repaints whole here
-            refreshStyles()
-            for (w in windows) w.onFontScaleChanged(effScale(w.id))
-            if (!syncLayout()) {
-                for (w in windows) w.onLayoutChanged()
-                comp.composed.clear(0)
-                composeFullSurface()
-                comp.requestReseed()
-            }
+        // the Cached text row moves every string's measure (§73), so it re-derives what a
+        // typography change does: every wrap, the row pitch, the chrome's cells, a whole repaint
+        if (restyle || (recache && cachedText != null)) {
+            relayoutEverything()
+            styleKeyAtLastStart = styleKeyOf(s)        // the windows are current with THIS key
             scheduleSave()
             return
         }
@@ -4112,9 +4431,14 @@ class Shell(
         while (slot * v.lineHeight < y0 + h) {
             val idx = v.model.topLine + slot
             if (idx in 0 until v.lineCount()) {
-                // §66: a line a PROVEN record holds is blitted from it — the pixels a paint would
-                // produce (the record was painted through the same path under the same live set),
-                // and the rect the compositor then ships as one draw
+                // §66: a line a PROVEN record holds is blitted from it — the pixels a paint produced
+                // through the same path under the same live set — and the rect the compositor then
+                // ships as one draw. §73: "the same" is of the SET of faces; a face may have gained a
+                // glyph since the strip was staged, and the record then holds that character as the
+                // host drew it where a fresh paint would blit it (a level's rounding apart at its
+                // edges). The record is what goes on the glass and belief is taken from it, so the
+                // two agree; a later full repaint of the line draws the cached glyph and the diff
+                // carries the few cells that differ, once.
                 val rec = stage.recordFor(idx, key, v.lineHeight, g.w)?.takeIf { it.state == StagedRecord.State.PROVEN }
                 if (rec != null) {
                     g.blit(rec.pixels, Rect(0, (idx - rec.firstLine) * v.lineHeight, g.w, v.lineHeight), 0, slot * v.lineHeight - y0)
@@ -4168,7 +4492,10 @@ class Shell(
         // stays in flight — and a window of 1 keeps its one slot.
         val cap = if (pumpPriority) st.window else maxOf(1, st.window - 1)
         val room = st.inFlight < cap
-        if (!room) return         // FlushDone re-pumps; §5.13 coalescing happens here
+        if (!room) {              // FlushDone re-pumps; §5.13 coalescing happens here
+            if (pumpPriority) inputAwaitsSlot = true      // §73: the flush that follows is still this gesture's
+            return
+        }
 
         var animated = false
         slidesNs = 0L; chromeNs = 0L; overlaysNs = 0L
@@ -4276,6 +4603,7 @@ class Shell(
         //    current (slides settle, the notice unfurls, chrome syncs) and
         //    NOTHING is sent; the wake keyframe carries all of it.
         if (glassesSilent) {
+            inputAwaitsSlot = false
             if (animated || slides.any { it.active } || switcher.spinning || notifications.animating) post(Msg.Pump)
             return
         }
@@ -4318,6 +4646,8 @@ class Shell(
                         compressMs = comp.lastCompressNs / 1_000_000, compressN = comp.lastCompressN,
                         cached = comp.cachedRectsThisAssemble, cacheMiss = comp.cacheMissSummary(),
                         staged = comp.stagedRectsThisAssemble,
+                        unpacked = (cachedText?.unpackedDrawn ?: 0L).let { now -> (now - unpackedAtLastFlush).also { unpackedAtLastFlush = now } },
+                        input = (if (pumpPriority || inputAwaitsSlot) 1 else 0).also { inputAwaitsSlot = false },
                         slidesMs = slidesNs / 1_000_000, chromeMs = chromeNs / 1_000_000, overlaysMs = overlaysNs / 1_000_000,
                         textMs = (wm.damage.core.text.TextProfile.drawNs.get() - textNsAtMsgStart) / 1_000_000))
                 } catch (e: IllegalStateException) {
@@ -4335,10 +4665,14 @@ class Shell(
                     comp.rollback(assembled)
                 }
             }
-        } else if (!animated) {
+        } else {
+            // room, and nothing to send: a gesture that met a full window painted nothing after
+            // all (or its paint went out with an earlier flush) — the flag is not left standing
+            // for whatever flushes next (an idle tick, a push), which no ring event started
+            inputAwaitsSlot = false
             // 6. nothing pending: the lowest-priority work — the atlas's
             //    next chunk (§40), then a staged strip (§66), then the preview settle
-            if (!pumpAtlas(st) && !pumpStage(st)) settlePreview()
+            if (!animated && !pumpAtlas(st) && !pumpStage(st)) settlePreview()
         }
 
         // animations continue on the next completion or message; make sure one
@@ -4743,6 +5077,10 @@ class Shell(
         private val NO_RECORDS = Rect(0, 0, 0, 0)
         const val ATLAS_RECENT_FRAMES = 12L
         const val ATLAS_REPACK_PACE_MS = 45_000L
+        /** §73: the last of the cache a face nobody is drawing may not be packed into — the
+         *  faces in use gain glyphs there (a body face gains ~0.1 KB per new character, a
+         *  first screen of a new window a few KB). */
+        const val ATLAS_GROW_HEADROOM = 4 * 1024
         /** Consecutive ImgResCmd refusals that put the glasses to sleep (§36). */
         const val REFUSALS_TO_SLEEP = 3
         /** The asleep shell's check pacing (§37.0): the glasses' own state is

@@ -304,15 +304,23 @@ data class LinkState(
     val window: Int = 3,
     val ackMsEma: Double = 176.0,     // measured stock median until real data arrives
     val bytesPerSecEma: Double = 11_000.0,
-    /** The ack floor: an EMA over SMALL flushes only (< 400 B), where transfer
-     *  time is nil. 60 ms measured on both radio paths (`HANDOFF.md` §31.6). */
+    /** The ack floor: the median ack of this session's last ISOLATED small flushes (< 400 B),
+     *  where transfer time is nil ([LinkEstimator], `HANDOFF.md` §73 — an EMA over every small
+     *  flush until then, hence the name the seam still carries). 60 ms measured on both radio
+     *  paths (`HANDOFF.md` §31.6), and the default until three have been timed. */
     val floorMsEma: Double = 60.0,
-    /** The transfer term: an EMA of (ack − floor) per KB over flushes of
-     *  1 KB and more — the number that told the two radio paths apart when
+    /** The transfer term: the median of (ack − floor) per KB over this session's last isolated
+     *  flushes of 1 KB and more — the number that told the two radio paths apart when
      *  the floor could not (2026-09-05, `HANDOFF.md` §32): ~20 ms/KB on
-     *  PC-direct BlueZ, ~125 ms/KB through the phone. The default is the fast
+     *  PC-direct BlueZ, ~125 ms/KB through the phone on 1M, ~30 on 2M. The default is the fast
      *  regime, so nothing adapts until a real flush has been measured. */
     val transferMsPerKbEma: Double = 20.0,
+    /** How many observations each term stands on this session, at most [LinkEstimator.RING];
+     *  under [LinkEstimator.MIN_SAMPLES] the term is its default, not a reading. -1 = the
+     *  transport does not say (a peer across the seam on an older build). Never an input to the
+     *  regime: only what a note or a notice may call measured. */
+    val floorSamples: Int = -1,
+    val transferSamples: Int = -1,
     /** The link's connection parameters as the platform reported them
      *  ("L 15.00ms/0/5000ms R …"), empty until it does. The phone's BLE stack
      *  grants or refuses the priority request without an API to ask; the
@@ -356,6 +364,11 @@ data class LinkState(
      *  the pair", "connecting RIGHT", "connect prelude", "" once driving. */
     val detail: String = "",
 )
+
+/** The floor is a reading, not its default (an older peer that reports no count is taken at its word). */
+val LinkState.floorMeasured: Boolean get() = floorSamples < 0 || floorSamples >= LinkEstimator.MIN_SAMPLES
+/** The transfer term is a reading, not its default. */
+val LinkState.transferMeasured: Boolean get() = transferSamples < 0 || transferSamples >= LinkEstimator.MIN_SAMPLES
 
 /** Contract 2: the v2 drawing ops answer — the build has them and DRAW2 is in force. */
 val LinkState.draw2: Boolean

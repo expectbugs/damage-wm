@@ -267,6 +267,34 @@ def vectors():
         step(msg(draw_string(table_off, 20, 300, 0x1F, b"Damage 0.45" + bytes([13]) + b"!"))),   # x adjust +2
         step(msg(draw_string(table_off, 20, 320, 0x0F, b"bad\x80"))),  # a byte above 127: nothing drawn
     ]})
+    # `HANDOFF.md` §73, the v1 twin of `v2-tablepatch`: a face packed with only the glyphs it draws,
+    # gaining more IN PLACE on the upstream contract — a mode-12 offset is a byte offset, so one
+    # 2-byte table entry is rewritten on its own, wherever the table starts (here an ODD offset).
+    # Every entry the face does not pack names one shared tofu record.
+    ptofu = cache_image(7, 12, [15 if (x in (0, 6) or y in (0, 11)) else 0 for y in range(12) for x in range(7)])
+    pg = {ch: cache_image(5 + (ch % 7), 12, pattern(5 + (ch % 7), 12, 400 + ch)) for ch in b"ABCD~"}
+    ptable = 1001                                                       # odd: an entry is two unaligned bytes
+    ppos = ptable + 96 * 2
+    poff = {}
+    for ch in b"AB":
+        poff[ch] = ppos; ppos += len(pg[ch])
+    def pentry(ch, off): return (ptable + (ch - 32) * 2, u16(off))
+    c_off = ppos; tilde_off = c_off + len(pg[ord("C")])
+    v.append({"name": "v1-tablepatch", "steps": [
+        step({"tick": 1000}, msg(kf), {"lease": "acquire"}),
+        step(msg(cache_write((0, ptofu), (ptable, b"".join(u16(poff.get(ch, 0)) for ch in range(32, 128))),
+                             *[(poff[ch], pg[ch]) for ch in b"AB"]))),
+        step(msg(draw_string(ptable, 20, 20, 0x0F, b"AB"))),             # the two packed glyphs
+        step(msg(draw_string(ptable, 20, 40, 0x0F, b"ABC"))),            # C is not packed: its entry names the tofu, and the tofu is drawn
+        step(msg(cache_write((c_off, pg[ord("C")]), pentry(ord("C"), c_off)))),   # ONE message: C's record appended and its 2-byte entry rewritten
+        step(msg(draw_string(ptable, 20, 60, 0x0F, b"ABC"))),            # C from its own record; A and B exactly as before
+        step(msg(cache_write(pentry(ord("D"), poff[ord("A")])))),        # nothing appended: D's entry names A's record, already in the cache
+        step(msg(draw_string(ptable, 20, 80, 0x1F, b"DAD"))),
+        step(msg(cache_write((tilde_off, pg[ord("~")]), pentry(ord("~"), tilde_off)))),   # the last code a run may hold (126), its record in the same message
+        step(msg(draw_string(ptable, 20, 100, 0x0F, b"A~B"))),
+        step(msg(cache_write(pentry(ord("A"), 0), (65530, bytes(8)))),   # a message whose last entry leaves the 64 KiB cache is refused WHOLE (5): its table patch is not applied...
+             msg(draw_string(ptable, 20, 120, 0x0F, b"AB"))),            # ...so A still draws its glyph
+    ]})
     v.append({"name": "v1-lease", "steps": [
         step({"tick": 1000}, msg(kf), {"lease": "acquire"}),
         step(msg(cache_write((0, icon)))),
@@ -391,6 +419,41 @@ def vectors_v2(kf):
         step(msg(string2(bad_table4, 10, 130, 0x0F, b"A"))),                       # an entry at a zero record: refused (5)
         step(msg(string2(0xFFF0, 10, 160, 0x0F, b"A"))),                           # a table past the cache: refused (5)
         step(msg(string2(table4, 10, 190, 0x0F, b""))),                            # an empty string: nothing drawn, accepted
+    ]})
+
+    # `HANDOFF.md` §73: a face packed with only the glyphs it draws, gaining more IN PLACE — a new
+    # record appended at the cache's end and the table's entry rewritten where it is, in ONE message
+    # (the phone's atlas does exactly this since §73; before it, every production cache write was a
+    # single entry at a fresh offset). Every entry the face does not pack names one shared tofu record.
+    s = Cache2()
+    tofu = s.add(cache_image(7, 14, [15 if (x in (0, 6) or y in (0, 13)) else 0 for y in range(14) for x in range(7)]))
+    sg = {ch: cache_image(5 + (ch % 7), 14, pattern(5 + (ch % 7), 14, 300 + ch)) for ch in b"ABCD\xff"}
+    stable4 = s.reserve(224 * 2)
+    soff = {ch: s.add(sg[ch]) for ch in b"AB"}
+    s.put(stable4, b"".join(u16(soff.get(ch, tofu)) for ch in range(32, 256)))
+    swrites = [msg(m) for m in s.messages()]
+    def entry_unit(ch, value4, other4):
+        """The 4-byte unit of the table that holds `ch`'s entry — an offset is in 4-byte units and an
+        entry is two bytes, so the unit's OTHER entry rides along (`other4`: what it already holds)."""
+        i = ch - 32
+        lo, hi = (value4, other4) if i % 2 == 0 else (other4, value4)
+        return (stable4 + i // 2, u16(lo) + u16(hi))
+    def padded(rec): return rec + bytes(-len(rec) % 4)
+    c_off4 = (len(s.buf) + 3) // 4
+    ff_off4 = c_off4 + len(padded(sg[ord("C")])) // 4
+    v.append({"name": "v2-tablepatch", "steps": [
+        step(*arm, *swrites, msg(fill(rect(0, 0, 640, 480), 2))),
+        step(msg(string2(stable4, 10, 10, 0x0F, b"AB"))),                          # the two packed glyphs
+        step(msg(string2(stable4, 10, 40, 0x0F, b"ABC"))),                         # C is not packed: its entry names the tofu, and the tofu is drawn (accepted — the phone never sends an unpacked code)
+        step(msg(cache_write2((c_off4, padded(sg[ord("C")])), entry_unit(ord("C"), c_off4, soff[ord("B")])))),   # ONE message: C's record appended, and the unit holding B's and C's entries rewritten (C is the odd one)
+        step(msg(string2(stable4, 10, 70, 0x0F, b"ABC"))),                         # C from its own record; A and B exactly as before
+        step(msg(string2_pair(stable4, 20, 36, 100, 0x1F, b"CAB"))),               # and per lens
+        step(msg(cache_write2(entry_unit(ord("D"), soff[ord("A")], tofu)))),       # nothing appended: D's entry (the even one; E's stays the tofu) names A's record, already in the cache
+        step(msg(string2(stable4, 10, 130, 0x0F, b"DAD"))),
+        step(msg(cache_write2((ff_off4, padded(sg[0xff])), entry_unit(0xff, ff_off4, tofu)))),   # the table's LAST entry (code 255), its record in the same message
+        step(msg(string2(stable4, 10, 160, 0x0F, b"A\xffB"))),
+        step(msg(cache_write2(entry_unit(ord("A"), tofu, tofu), (0xFFFF, bytes(8)))),             # a message whose last entry leaves the cache is refused WHOLE (5): its table patch is not applied...
+             msg(string2(stable4, 10, 190, 0x0F, b"AB"))),                         # ...so A still draws its glyph
     ]})
 
     far = Cache2(start=80000)
