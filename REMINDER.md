@@ -2,12 +2,35 @@
 
 **The entry point for a fresh session**: what is true now, what comes next, where the records are. History lives
 in `HANDOFF.md`; this file only points at it. Read `CLAUDE.md` → this file → **`FORK.md`** (the plan; §11 the
-log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` **§74** (upstream and official firmware read 2026-11-10, nothing built: facts for rest mode, the case, the ring and the link; small candidates for Phase 3's flash; D1 stands) → **§73** (the atlas packs what a face draws and grows in place; the link estimator on isolated flushes; APK 0.63, committed `6bba881`, INSTALLED 2026-11-10 17:16; Adam's calls in its "For Adam" block; its addendum = the 11-09 slow stretches and the two silent modes) → **§72** (the PC's OOM while Adam read in Sim; what a shell holds while down; the standby claims only on sight) → **§71** (the phone's `/journal` ended the APK; it streams in 0.61) → **§70** (the glasses ran flat: the case's battery; two rulings for the next APK) → **§69** (the status cell as states, every event a notice) → §67–§68 (upstream's cache and
+log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` **§75** (2026-11-10 evening, documents only: Adam's rulings on §71–§73's calls; the menu's first paint traced to two causes; item 10's design pass; the fork's mutation sweep) → **§74** (upstream and official firmware read 2026-11-10, nothing built: facts for rest mode, the case, the ring and the link; small candidates for Phase 3's flash; D1 stands) → **§73** (the atlas packs what a face draws and grows in place; the link estimator on isolated flushes; APK 0.63, committed `6bba881`, INSTALLED 2026-11-10 17:16; Adam's calls in its "For Adam" block; its addendum = the 11-09 slow stretches and the two silent modes) → **§72** (the PC's OOM while Adam read in Sim; what a shell holds while down; the standby claims only on sight) → **§71** (the phone's `/journal` ended the APK; it streams in 0.61) → **§70** (the glasses ran flat: the case's battery; two rulings for the next APK) → **§69** (the status cell as states, every event a notice) → §67–§68 (upstream's cache and
 transport read against ours) → **§66** (Reader's page staging: the design pass, T2's day read, the build) → **§65** (what four reviews of Phase 2 measured, and the protocol), §64–§61 (the four reviews), §60 (Phase 2 built), §59 (the day's live defect), §55 (Phase 1 flashed),
 §48 (the fork decided). Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md` → the image through
 `research/fwread.py`.
 
 ## Where we are (2026-11-10)
+
+- **2026-11-10, evening (`HANDOFF.md` §75; documents only — no code changed, nothing built, staged, deployed or
+  flashed, no probe sent; the tree's code is `6bba881`'s):**
+  - **Adam ruled items 11 and 12 as recommended** (§75.1): no proof gate on a table patch — the re-read
+    everywhere, a shortfall notice and one re-send instead; the sync's 2 s tolerance; the journal rotated, never
+    deleted; a record of an uncaught error (2 s and the rotation's 64 MB are the lead's figures). All of it is the
+    next APK's. The four statements that described the code before §73
+    are rewritten.
+  - **He closed the slow link outside as minor** ("no more tests"): still slow outside with the phone's Wi-Fi
+    off (n=64). At the lunch table, the phone in front of him, the floor read 39 ms against his station's 60 and
+    the per-KB term 46 against 56 (I: n=10 and 21, and place, pocket and music are not separated). Cause not
+    established, not being looked for.
+  - **The box that goes out as pixels is the shell's context menu** (§75.3): every first paint, 52 of 52 in 80
+    minutes at ~2.6 KB, from two causes older than §73 — the title's box covers its own rule, and the content's
+    records stay under the box. Reproduced on the simulator; two fixes proposed, NOT built (his word).
+  - **Item 10 has its design pass** (§75.4): the low-battery notice as ruled, on its own phone channel; rest
+    mode in two builds — the first reads (stock sends the wear event only while a settings byte is set — V; that
+    the byte is its wear-detection switch — I; whether it is on, what the sensor reads in the case and what a rest
+    saves are all unread), the second rests by itself.
+  - **The fork's mutation sweep ran** (§75.5): 96 guards, 43 caught, 52 by nothing, 1 leaves the harness not
+    returning; 11.5 minutes.
+  - Evidence (git-ignored): `captures/2026-11-10-menu-proof/`, `captures/2026-11-10-wifi-lunch/`,
+    `captures/2026-11-10-mutate/`.
 
 - **2026-11-10, 17:40 — where a fresh session starts (M unless said; `HANDOFF.md` §73's last blocks, §74):**
   - **Committed and pushed** (`origin/main`): `6bba881` is the §73 build and the only commit with code;
@@ -58,7 +81,7 @@ transport read against ours) → **§66** (Reader's page staging: the design pas
 
 - **🔴 The CFW fork and the Damage rebuild are the ONLY work (Adam, 2026-09-12; `HANDOFF.md` §48)** until
   `FORK.md` Phase 8 closes. `FORK.md` = the plan (§11 the log), `FIRMWARE.md` = the contract, `HANDOFF.md`
-  §48–§73 = the records, `CLAIMS.md` = the firmware facts. **The build and review protocol is `CLAUDE.md`
+  §48–§75 = the records, `CLAIMS.md` = the firmware facts. **The build and review protocol is `CLAUDE.md`
   "Scope, build, review" and `FORK.md` §3.8**: a phase's design pass fills the failure envelope before any code;
   a build ends with a Not-built list and the two instruments' numbers; a fix sweeps its class; two general
   review passes, then class sweeps and instruments.
@@ -156,7 +179,7 @@ gesture actually took, and on the reference journal a WINDOW notch is 230 ms med
 The ack precedes the panel refresh (§48.1, verified): what the eye waits for is longer than these. A flush under
 100 B acks in ~60 ms; each KB adds ~140 ms; the tail is pixel bytes. Phone CPU per flush: 17 ms median / 66 p90.
 
-## 🔴 The next session — read 0.63 on glass (items 0–2); tonight's press and the Wi-Fi test (item 13); his rulings on §73's calls (item 12); item 10 (his two rulings) is the next build
+## 🔴 The next session — the next APK (0.64) as `HANDOFF.md` §75.6 scopes it, on his word (the ruled builds, the notice, rest mode's build 1; the two menu fixes if he says so); read 0.63 on glass meanwhile (items 0–2); his ~22:30 press read from the tail (item 13)
 
 0. **APK 0.63 (`HANDOFF.md` §73) is INSTALLED (Adam, 2026-11-10 17:16:41); now it is read on glass, a day's
    worth.** It is 0.62 plus the glyph-subset packing, the link estimator and the cache-metric layout. **First:**
@@ -179,11 +202,16 @@ The ack precedes the panel refresh (§48.1, verified): what the eye waits for is
    the three paints that held host-drawn characters — once for two characters, twice as a gesture's first
    flush (12 proof misses in the 22 minutes). Cause not established. The read that splits it: the same box opened
    with `unpacked` 0 — a few hundred bytes of draws means the host characters cost it (0.63's packing), about
-   2.5 KB with `proof` means the box's own;
+   2.5 KB with `proof` means the box's own. **TRACED (`HANDOFF.md` §75.3): the box's own — it is the shell's
+   context menu, in any window; 37 of 52 paints had `unpacked` 0; two causes older than §73, reproduced on the
+   simulator; two fixes proposed, not built;**
    (ii) *the read-back runs ahead of the count.* Entries went live on a read-back that showed the generation
    one or two short 13 times in the 22 minutes (4 of the first 7 read-backs; the note says "pending, asked
    again in 500 ms"); every write was counted later (all 23).
-   That is the measured side of item 12's question (prove a patch by the count before it draws). Outside the
+   That is the measured side of item 12's question (prove a patch by the count before it draws) — **ruled
+   2026-11-10: no gate; the re-read everywhere, a notice and one re-send, with the next APK (§75.1); by 18:37 it
+   was 30 short readings in 35 read-backs over 42 writes; the 42nd was not counted until the next write's
+   read-back, eleven minutes later.** Outside the
    Reader the "asked again" re-read does not run, so there a write that never landed would leave only an
    unresolved `pending` note;
    (iii) *the phone's CPU.* On the Music time tick `handlerMs` reads 25 / 31 ms (median / p90) on 0.63 against
@@ -194,8 +222,10 @@ The ack precedes the panel refresh (§48.1, verified): what the eye waits for is
    against the ~250 ms bar** (210 ms median, n=5, in the first minutes);
    (iv) *the link per KB at work.* 60–72 ms/KB that afternoon on both builds (0.57's regime flipped seven
    times in two hours; 0.63 went SLOW at 17:25:11 on 72 ms/KB, n=9) against 32–38 at home and the day before,
-   the floor unchanged at 55–58 ms. Whether that is the place or the day is unread; it bears on item 12's edges
-   (65 / 35) and on item 13's link question.
+   the floor unchanged at 55–58 ms. **Read 2026-11-10 (§75.1): at his station, the phone in his pocket, 60 ms and
+   56 ms/KB over 18:10–18:30; at the lunch table, the phone in front of him, 39 ms and 46 ms/KB (n=10 for the
+   per-KB term) — the floor differs clearly, the per-KB term inside the spread (I: place, pocket and music are
+   not separated).** The edges (65 / 35) are held for a few days of regime notes (his ruling).
 
 Phase 2 is on the glasses and first light is green (§65). Reader's page staging is built and read once on glass
 (§66, §66.1). **The status cell is built (§69); APK 0.63 (it carries 0.62's §72 work, 0.61's streamed journal route
@@ -237,9 +267,12 @@ flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) bin
    field read twice in one decision; a wait with no escape from a write that keeps failing; state with no clear at a
    session, lease or epoch boundary; a guard keyed on an identity that does not survive its event; a fix applied to
    one sibling; a gate green over code it never runs.
-7. **🔴 The full mutation sweep** (Adam's ask, deferred: ~2 h) — `(cd ~/damage-cfw && python3 tools/mutate.py)` in the
-   background with the gradle daemon stopped first (`./gradlew --stop`; the low-memory guard kills long background
-   tasks) — against §64.1's 39 of 106, the delta into `HANDOFF.md`; then the vector pass from its list (§64.5).
+7. **The full mutation sweep — RUN 2026-11-10 (`HANDOFF.md` §75.5): 96 single-line guards, 43 caught, 52 caught by
+   nothing (9 of a kind the host cannot reach), 1 leaves the harness not returning; 11.5 minutes, not ~2 h** —
+   `(cd ~/damage-cfw && python3 tools/mutate.py)`, which uses no gradle. Every DRAW2 check and 10 of 13 lease checks
+   are caught now (§64.1 had 39 of 106 on a different base). **Left: a vector pass, smaller than the count
+   suggests** — at least 13 of the uncaught are a loop's second read of a bound its first pass checks, which a
+   fixed vector cannot reach; the clear cases are the v1 cache ops' lease checks; the rest wants a read per site.
 8. **The instruments (§64.6) and the on-glass self-test:** `firmware/fuzz_vectors.py` and `~/damage-cfw/tools/mutate.py`
    print their own instructions; `glassdrive.py aphone TOKEN selftest:firmware/vectors/NAME.json` runs one vector on the
    glass — since §65 it synchronises on the firmware's counters (the begin's zero, each live write's generation bump
@@ -252,7 +285,15 @@ flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) bin
    (where the carrier's two buffers live is U again, `CLAIMS.md`). **With it in that candidate (§68): a deflated cache
    write** (cache writes were 61 % of the image lane's bytes, deflate takes 43 % off); the kept compression context only
    after `research/flushdecomp.py` has read a capture of Phase 2 traffic.
-10. **A low-battery notification (Adam's ruling 2026-09-21, `HANDOFF.md` §70; designed in `DESIGN.md` §9.3, NOT built —
+10. **The design pass is DONE (2026-11-10, `HANDOFF.md` §75.4 — the facts, the lead's calls, the envelope; build
+   from it, not from the text below, which is the brief it answered): the notice as ruled, on its own phone channel
+   and behind neither `Phone notifications` nor `Battery alert`; rest mode in TWO builds — build 1 only reads (the
+   wear event, the switch if the 60 s READ carries it, the case's pushes, the gate pattern, a `rest` probe for a
+   timed hour), build 2 rests by itself on the trigger those reads allow. Stock sends the wear event only while a
+   settings byte is set (V) that reads as its wear-detection switch (I; `CLAIMS.md`); whether it is on his pair is
+   unread. The transport's watchdog has to stand down with a rest, or it rebuilds the session ~22 s in. `DESIGN.md`
+   §0's "wear / unwear not wanted" now carries the rest-mode exception of his 09-21 ruling — his to confirm.**
+   **A low-battery notification (Adam's ruling 2026-09-21, `HANDOFF.md` §70; designed in `DESIGN.md` §9.3, NOT built —
    with the next APK):** the glasses below 20 % → a phone notification plus a notice on the glasses, not gated by
    `Notify · Damage`, once per discharge (re-armed by `charging` or ≥ 25 %). Under the protocol: what re-arms it at a
    session boundary, and a reading that flickers around 20 %. **And a rest mode in the case (his ruling, the same
@@ -264,29 +305,25 @@ flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) bin
    **Read §74 first:** four cues that need no flash (the frozen `transferUs` under advancing `presents`, the case's
    sid 0x81 pushes, the wear event, a phone-side Silent Mode write) and upstream's three traps (a session's first
    wear report is not a transition; wear state does not cross a session; `charging` reads 0 when docked and full).
-11. **Calls owed by Adam from §71–§72 (proposed, not built):** (a) the sync handshake's skew tolerance. It
-   judges equal stamps "newer" by a per-handshake skew estimate with no tolerance, so it re-sends ~77 records a
-   handshake (M, §72; the same values, nothing lost). Proposed: equal within the handshake's measured round trip.
-   (b) Rotating or archiving the phone's journal (§71, §72: it is the measurement record, never rotated, and the
-   reason a whole fetch is large). Not built and with no call attached: a crash record that the next process
-   reads — the phone's log lives in memory, so an ended process leaves nothing behind (§71). With 0.63 installed,
-   also read the phone side's key-level handshake line (`/log`, `sync:`).
+11. **§71–§72's calls — RULED 2026-11-10, as recommended (`HANDOFF.md` §75.1), all for the next APK, none built:**
+   (a) the sync handshake treats stamps within 2 s of each other as equal, on both sides (the 2 s is the lead's
+   figure; it judged equal stamps
+   "newer" by a per-handshake skew estimate with no tolerance and re-sent ~77 records a handshake — M, §72; the
+   phone's log shows the stored stamps drifting a second at a time, §75.1); (b) the phone's journal rotates at
+   process start once past 64 MB (the lead's figure), nothing is deleted, archives are served by name and beardos
+   pulls copies; (c) a record of an uncaught error: its trace written to a file at the fault, journaled by the next
+   start (the phone's log
+   lives in memory, so an ended process leaves nothing behind today, §71).
 
-12. **Adam's calls from §73 (made unattended by the lead — `HANDOFF.md` §73's "For Adam" block has the eight
-   with their reasoning, its "Not built" list the rest; 0.63 is installed, and each call can still be changed in a later build):** exactly what is packed (what a
-   face drew, the digits, the space, the capitals for running text) and whether to add a row that packs whole
-   faces; in-place table patches promoted on the ack and a read-back — whether a patch must be PROVEN by the
-   generation count before it draws (today a dropped patch would draw a tofu box); a full cache evicting for a
-   face in use that needs glyphs (the 45 s pace, the last 4 KiB); the cache-metric layout (text wraps a little
-   earlier with Cached text on); the estimator's ring (nine readings, three before a term counts, no cache
-   write as a floor reading); a short ledger reading asked again after a whole settle window (~4 s, was
-   ~2.5 s); the dev key `simContract`. From "Not built": the estimator's edges (65 / 35 ms/KB) now that it reads
-   medians; persisting the learned character sets across APK restarts; and the four statements that describe
-   the code before §73 — `DESIGN.md` §6.3 (the old estimator), its Cached text row, the `CLAUDE.md` line "upload
-   the atlas once per lease" and its twin in `overview.md` §4 — left as they are for his ruling on these calls,
-   not for the install: **the installed 0.63 no longer matches them** (it wrote the cache 23 times in one
-   lease in its first 22 minutes; the "must not undo" list above describes what runs). The Cached text row
-   has been behind since Phase 2 (kerning, the 160 KiB cache, per-lens draws).
+12. **§73's calls — RULED 2026-11-10, as recommended (`HANDOFF.md` §75.1; the eight with their reasoning are §73's
+   "For Adam" block, its "Not built" list the rest).** Everything stands as built: what a face is packed with (no
+   row that packs whole faces), the eviction for a face in use, the cache-metric layout (his eye on a Reader page
+   still owed), the estimator's ring, the settle-window re-ask, `simContract`. **A table patch is not held back
+   until the generation count proves it:** the re-read runs everywhere, and a write the glasses did not count is a
+   notice plus one re-send — with the next APK; the gate waits for a real shortfall in the journal. The estimator's
+   edges (65 / 35 ms/KB) are held for a few days of regime notes; the learned character sets are not persisted.
+   The four statements that described the code before §73 are REWRITTEN to what runs (`DESIGN.md` §6.3 and its
+   Cached text row, `CLAUDE.md`'s texture-cache bullet, `overview.md` §4).
 
 13. **2026-11-09/10: the slow stretches, the two silent modes, and a Silent Mode the phone was never told of
    (`HANDOFF.md` §73 addendum, `CLAIMS.md`; the tails and logs in `captures/2026-11-09-journal/`).**
@@ -316,8 +353,9 @@ flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) bin
    stream would name the branch — a probe, his word first;
    (c) **a second cue for the shell,** so a missed push cannot leave it painting — design work for item 10
    (§74 A1's frozen `transferUs`, the READ's field, a refusal); which of them moves in Silent Mode is unread;
-   (d) **the Wi-Fi test:** one outing with the phone's Wi-Fi switched off, the next as usual, both read from
-   the tail; a BTSnoop capture across a slow stretch (the unmeasured table's row 5) only if that leaves it open;
+   (d) **the Wi-Fi test — DONE and CLOSED 2026-11-10 (`HANDOFF.md` §75.1): still slow outside with Wi-Fi off
+   (n=64), which weakens (i) above; Adam: "no more tests, this is minor" — do not re-open it.** The brief: one
+   outing with the phone's Wi-Fi switched off, the next as usual, both read from the tail; a BTSnoop capture across a slow stretch (the unmeasured table's row 5) only if that leaves it open;
    (e) for his design, not a defect: the shell's own silent mode saves no battery against the lit panel; the
    press before the case is rest mode's manual form (8,281 flushes into the case the night without it, none
    the night with it).
@@ -487,7 +525,7 @@ python3 firmware/make_vectors.py                      # rewrite the vector INPUT
 python3 firmware/fuzz_vectors.py /tmp/fz 40 25        # §64: random sequences as vectors — the C writes their
 (cd ~/damage-cfw && python3 host/run_vectors.py --dir /tmp/fz --write)   #   expectations, then the simulator answers:
 DAMAGE_VECTOR_DIR=/tmp/fz ./gradlew :core:cleanTest :core:test --tests '*ConformanceVectorTest*' --no-build-cache
-(cd ~/damage-cfw && python3 tools/mutate.py --list)   # §64: the refusal guards, and which gates prove them (hours)
+(cd ~/damage-cfw && python3 tools/mutate.py --list)   # §64: the refusal guards, and which gates prove them (the whole sweep: about 12 minutes, §75.5)
 python3 research/fwread.py dis 0x473c44 0x473d70      # the stock image at instruction level: dis · fn · word · refs · calls · strings · owner · sha (our bytes vs the corpus header)
 python3 research/perevent.py                          # M0.3: packets per served connection event per arm, from the captures (§54.4)
 python3 research/flushdecomp.py                       # §68: queue -> ack per flush at HCI level; bytes as sent vs deflated vs one kept context

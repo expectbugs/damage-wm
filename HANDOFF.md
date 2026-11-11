@@ -6023,3 +6023,290 @@ flash. **D1 stands, on firmer ground:** the room below the update flag is 433 KB
 not re-read are marked as theirs above; `CLAIMS.md` carries only the five sites re-read here. Two rows of ours that
 openCFW's reading disputes (the gauge named as the BQ27427's object; `FORK.md` R0.5's pointer to that overlay) are
 left for our own instruction-level read.
+
+## 75. Rulings on §71–§73's calls; the menu's first paint; item 10's design pass; the fork's mutation sweep (2026-11-10 evening)
+
+Context for the reader: a personal device, the published patch method, display-rendering work. Reads and
+documents only. Adam's word that evening: yes to the lead's recommendations on `REMINDER.md` items 11 and 12;
+chase the box that goes out as pixels; do item 10's design pass and make its calls; run the fork's mutation sweep;
+all of it unattended, then a review. No code changed: nothing built, staged, deployed or flashed, no probe sent.
+One throwaway test was written, run twice and removed (a copy is kept, 75.3). The phone's journal and log were read
+over HTTP (`&tail=`), read-only.
+
+### 75.1 Rulings (Adam, 2026-11-10: "Yes to your recommendations")
+
+§73's calls (`REMINDER.md` item 12), as recommended:
+- **A table patch is not held back until the generation count proves it.** To be built instead, with the next APK:
+  the
+  settled re-read runs everywhere (today only with a document staged), and a write the glasses took the ack for
+  and did not count is a notice plus ONE re-send of that write. The gate itself waits for a real shortfall in the
+  journal. Why: most read-backs read short at first (30 of 35 in 0.63's first 80 minutes, over 42 writes, none a
+  shortfall), LEFT cannot report, and the mechanism is of the kind the reviews got wrong twice.
+- What a face is packed with, the eviction for a face in use, the cache-metric layout, the estimator's ring (nine
+  readings, three before a term counts), the settle-window re-ask and `simContract` stand as built. No row that
+  packs whole faces. His eye on a Reader page (the earlier wrap) is still owed.
+- The estimator's edges (65 / 35 ms/KB) are held for a few days of regime notes; the learned character sets are
+  not persisted.
+- The four statements that described the code before §73 are rewritten to what runs (this pass: `DESIGN.md` §6.3
+  and its Cached text row, `CLAUDE.md`'s texture-cache bullet, `overview.md` §4).
+
+§71–§72's calls (item 11), as recommended, all for the next APK:
+- **Sync:** stamps within 2 s of each other are equal, on both sides (the figure is the lead's). Read since: the
+  receiver stores each stamp shifted by its skew estimate (`SyncNet.kt`, `applier(k, v, t - skew)`), so the two
+  copies of one record drift apart and each handshake calls some of them newer; `window.games.char.c24`'s stamp
+  moved 17:00:57 → 17:01:00 between 17:16 and 18:24 in the phone's log (M;
+  `captures/2026-11-10-wifi-lunch/log-1852.txt`). Left open by a tolerance: two edits of
+  one key on both devices inside 2 s stay as they are until that key's next edit.
+- **The journal:** rotated at process start once it passes 64 MB (the lead's figure) into a dated file; nothing
+  deleted; archives served by name; beardos pulls copies.
+- **A record of an uncaught error:** its trace written to a file at the fault, journaled by the next start.
+
+**The slow link outside is closed as minor (Adam, the same evening: "no more tests, this is minor";
+`REMINDER.md` item 13 (d)).** What the day read (M; isolated flushes under 400 B, and flushes of 1 KB and more
+priced over that floor; `captures/2026-11-10-wifi-lunch/`):
+
+| where (his word) | small-flush ack | per KB, over that row's own floor |
+|---|---|---|
+| his station, the phone in his pocket (18:10–18:30) | 60 ms median, middle half 48–72 (n=721) | 56 ms median (n=21) |
+| the lunch table, the phone on the table (18:41–18:50) | 39 ms median (n=21) | 46 ms median, 24–61 (n=10) |
+| outside with Wi-Fi on, and the minutes after he came in at 18:36 (18:33–18:40) | 134 ms median (n=12); the once-a-minute clock flushes 124–221 (n=7) | 88 ms (n=3) |
+| outside, the phone's Wi-Fi off (18:51–18:59) | 87 ms median, middle half 58–126 (n=64); the clock flushes 94–230 (n=6) | 118 ms median (n=4) |
+| back at the station, Wi-Fi on again (19:00–19:05) | 46–79 ms (n=6) | — |
+
+Wi-Fi off did not make it fast outside (one outing), which weakens §73's leading candidate. The cause is not
+established and is not being looked for. His word: the phone's Bluetooth also carries his earbuds and a watch, and
+music plays only through the earbuds, from the Music window. **Item 0 (iv)'s "link per KB at work" is his
+station's:** 56 ms/KB there over twenty minutes (the estimator's 72 at 17:25 was nine readings). At the lunch
+table, the phone in front of him, the floor read 39 ms against the station's 60 — a clear difference — and the
+per-KB term 46 against 56, which is inside the spread (n=10 and 21). Place, pocket and music are not separated
+(I). (The first draft of this table priced every row over the station's 58 ms floor and read the table's term as
+30 ms/KB; the review caught it.)
+
+### 75.2 APK 0.63's first 80 minutes (M: the phone's journal, 17:16–18:37, one session)
+
+- 3,369 flushes, none refused (the standard report's 3,386 from 17:16 takes in 17 of APK 0.57's last session). The
+  atlas: 42 writes, 35,094 B, no repack, no "full" episode, 42 face extensions
+  in 32 promotions, 10 fonts and 9 icons live. 41 of the 42 writes were counted at the last reading (3601 → 3642);
+  the 42nd's read-back was taken in the second of its write and outside the Reader nothing asks again: it was
+  counted eleven minutes later, at the next write's read-back (3643 at 18:44:34). Item 0 (ii)'s gap, seen once —
+  for those eleven minutes a write that had not landed would have read the same.
+- Input-started WINDOW bursts (n=125): first wait 105 ms median / 283 p90, first bytes 325 / 2,718.
+- `handlerMs` 13 / 25 over every flush (not item 0 (iii)'s Music-tick comparison, which is still owed).
+- The regime went SLOW at 17:25:11 (72 ms/KB, n=9) and did not flip again by 18:52.
+- Battery 79 → 67 % in 1.3 h, 9.0 %/h against 7.4 lit (n=1, the install's traffic in it): watched, not a finding.
+- `cacheMiss`: no-draws 239, **proof 90**, no-records 8. 59 of the 90 are in the 52 flushes that paint one rect
+  whole (75.3).
+
+### 75.3 The context menu's first paint goes out as pixels: two causes, both older than §73
+
+**Measured on glass.** The 248×246 box at (196,54) of item 0 (i) is the shell's context menu (`MenuSurface`),
+not Music's own. In the 80 minutes it was painted whole 52 times, 2,465–2,650 B each (median 2,589), every time
+`proof`, never as draws — 37 of them with `unpacked` 0, so the host-drawn characters of §73 are not it. Repaints
+inside the open menu (the cursor moving, a value changing) went out as draws 50 times.
+
+**Reproduced on the simulator** (a contract-2 session, cached text on, the kerning test rasterizer; the test, its
+two outputs and the journal tail are in `captures/2026-11-10-menu-proof/`):
+
+| how the menu opens | the box |
+|---|---|
+| a tap (the window's handler opens it; rows of text lie under the box) | pixels, `proof` |
+| a bare run on the loop (the menu's paint alone) | pixels, `proof` |
+| the same with an empty title | one 54 B base and 9 draws |
+| a tap, an empty title, no text under the box | one base and the 9 draws TWICE |
+| a tap, an empty title, rows of text under the box | pixels, `proof` |
+
+- **Cause A — the title's box covers its own rule.** A record's rect is the run's ink span by the face's whole
+  line height (`CachedText.record`); the cached path's base blacks each draw's whole box (`Compositor.blackBox`);
+  `MenuSurface.paint` draws its 2 px rule directly under the title's baseline, inside that box. The base loses the
+  rule, the draw puts back only glyphs, and base + draws is not the truth.
+- **Cause B — records left under the box.** `Shell.tapFocused` runs the window's handler, which opens and paints
+  the menu, and then `composeContent()`, which repaints the content and the menu again. The frame's records then
+  hold the content's strings under the box; only a slide drops records (`CachedText.dropRecords`). The cached path
+  draws them into the result it expects. A rect beside the box whose string reaches under it fails the same way
+  (the second `proof` of those flushes), and the menu's own strings are recorded twice.
+
+Each alone is enough. Both are older than §73: the lines date from 2026-08-24 to 09-05, and the record's rect and
+the base's blacking are as they were before `6bba881`. That is read from the code (I); no journal of 0.57 holds a
+menu opened with cached text on.
+
+**Proposed, not built** (a code change waits for Adam's word):
+1. The base blacks the pixels a draw WRITES (its glyphs' non-zero levels), not its box. The class: `emitCachedAt`
+   and `emitCachedV2`, the staged path, and `keep` / `keepEnd`, which it may make unnecessary. The proof stays the
+   only judge.
+2. An overlay drops the records its box covers before it paints: the menu, the keyboard, the notification box, the
+   switcher and the wheel (the class: every painter that fills over content painted in the same frame). This also
+   ends the doubled records.
+
+The pin is the throwaway test made a gate: a menu opened by a tap ships as one base and its draws once, with no
+`proof` miss. It fails on today's tree. Modeled from the simulator's shape (one base, one draw per string): about
+0.3–0.6 KB where the glass sends 2.6, some 120 ms less per open at the station's link; unmeasured until built.
+
+**The rest of the 90, not traced.** The journal counts reasons per flush, so which rect of a flush failed is
+read from its shape (I). 59 of the `proof` counts are in the 52 flushes that paint the box whole (the box, and
+seven times a rect beside it). The other 31, over 27 flushes: 19 flushes of small rects (10–116 B) in the band
+beside the open menu at y=168 — (76,168 120×10), (444,168 120×10) and two 8×10 cells — which reads as Cause B's
+second form; 5 flushes (9 counts) of rects of 14–73 B inside the open menu at y=206–218, each right after a
+cache write; one repaint of the box's inside at 2.6 KB (17:16:45, after its face gained glyphs); and
+(16,146 604×64) twice at 2.2 KB. T2's exit (`proof` at zero, `REMINDER.md` item 3) is not met on 0.63.
+
+### 75.4 Item 10's design pass: the low-battery notice and rest mode
+
+**Read for it (graded in `CLAIMS.md`).**
+- The wear event the fork sends (V: the fork's own C, `~/damage-cfw/patches/settings_ext.c`): a notify on sid 0x10
+  of ten bytes — field 1 = 3 (EVENT), field 2 = 0, field 5 { field 1 = 1 (`GLS_WEAR_STATUS`), field 2 = 1 worn /
+  0 not worn } — sent from the stock wear handler's two transitions (the calls at `0x0049EC3C` and `0x0049EC9A`).
+  Op 7 on field 101 sends the same event when the cached state is 1 or 2, and nothing otherwise.
+- **Stock sends it only while byte +0x14 of its settings record is 1 (V, instruction level, 2.2.6.10) — the
+  wear-detection switch (I: its use here, openCFW's reading of the panel gate, the schema's field):** both calls sit
+  behind `bl 0x0049EAD8; cmp r0,#1; bne`, and `FUN_0049EAD8` returns byte +0x14 of the live settings record
+  (`0x20072DA8`, from `FUN_0046B44C`). The cached state is the word at `0x20074EDC`. Whether that state is kept up
+  with the switch off: U.
+- The settings READ the transport already makes every 60 s carries that switch: device-info field 10,
+  `wearDetectionSwitchRestored` (Even's schema; U on our wire — never parsed; a zero is left out, so a switch that
+  is off and a field the firmware never sends read the same). It carries no wear STATE.
+- The transport drops every frame on a service it has no handler for, sid 0x10 and 0x81 among them, without a log
+  line: no log of ours says whether either arrives.
+- The phone's urgent path sits behind Global `Phone notifications`, off by default (`ShellService.kt`'s
+  `onUrgent`; `MUSIC.md` verdict 21). Global `Battery alert` (the ≤ 20 % pulse of `DESIGN.md` §4.1) has a row and
+  no reader in the code.
+- `DESIGN.md` §0 lists wear / unwear differentiation as not wanted, `wearnotify` "banked, unused" (§7.3 the
+  same). Adam's ruling of 2026-09-21 (§70, §9.3) uses the not-worn event for rest mode; this pass reads that as an
+  exception for resting only, and both lines now say so. Nothing else here tells worn from not worn.
+- §74 for the rest: the stock panel gate, the case's sid 0x81 pushes (upstream's measurement on 2.3.0.24),
+  upstream's three traps.
+- **Unread on his pair, and what a trigger would rest on:** whether the switch is on; what the sensor reads in the
+  closed case (§70's case with no charge kept transferring, so the switch was off or the state read worn: I); and
+  what a rest saves — 7.4 %/h lit, 7.2 in the shell's own silent mode, 2.7 in the firmware's (§73); a released
+  lease has never been timed by itself.
+
+**The calls (the lead's; "For Adam" at the end).**
+
+*The low-battery notice.*
+1. Said when a glasses reading is below 20 % and not `charging`, with the latch open. The latch closes there and
+   opens on a `charging` reading or one of 25 % or more. It lives in memory, is never cleared at a session
+   boundary and is not persisted (an APK restarted below 20 % says it once more).
+2. A phone notification on a channel of its own, and a notice on the glasses when the shell can paint (not
+   asleep, the link steady). Asleep, the phone alone is told and the journal says so.
+3. Gated by neither `Notify · Damage` (his ruling), nor `Phone notifications` (off by default: honoured, the
+   ruling could not be met), nor `Battery alert` (which stays the pulse's row). Its off switch is Android's own,
+   per channel.
+
+*Rest mode.*
+4. **Two builds: the first reads, the second rests by itself.** The trigger and the saving both rest on unread
+   facts, and `FORK.md` §3 item 5 puts the measurement first.
+5. **Build 1 (the next APK, with the notice).** The transport parses and journals the wear event (`wear` notes, a
+   session's first report marked), device-info field 10, and every sid 0x81 frame (`case` notes; what does not
+   parse, in hex), and names once per session any service it has no handler for. One op 7 query after each start's
+   lease; no reply is a legal answer, so it is never waited on. One telemetry read on the 60 s poll while painting,
+   so `presents` against `transferUs` is on record (§74 A1; it also answers item 13 (c)'s unread question at his
+   next press, with nothing asked of him). A dev probe `rest=on|off` that does exactly what a rest will (item 6),
+   for one timed hour. `journal_report.py` prints %/h by state: lit, the shell's SILENT, rest, the firmware's
+   Silent Mode. Nothing in build 1 rests by itself.
+6. **What a rest is:** the Silent-Mode path under a second reason. Frames stop, the lease is released, the page
+   traffic sleeps, the 60 s READ and the paced check go on. The wake is a session rebuild, as the Silent-Mode
+   wake is: a release takes the build's flags and cache with it and only a start arms them again (the lapse path
+   in `Shell.kt` rebuilds for the same reason); a wake that re-arms without ending the link is not built, and
+   whether the page outlasts a rest with no keepalive is unread. **The transport has to sleep with it:** its
+   watchdog (`CfwTransportBase.watchdogTick`) stands down only while the transport's own `glassesSilent` is set,
+   which a rest never sets — with the keepalive stopped it would probe the page after about 12 s of quiet and
+   rebuild the session about 10 s later. The watchdog takes "the page traffic sleeps" (`pageTrafficWanted()`) as
+   its condition, and so does any other reader of that flag in the transport. The shell's `glassesSilent` becomes a sleep reason
+   (`SILENT`, the firmware's; `REST`, the shell's): every site that reads it keeps "asleep", and three differ by
+   reason — the paced check, who wakes, the notice's words.
+7. **Build 2's trigger, by what build 1 reads:**
+
+   | build 1 reads | the trigger |
+   |---|---|
+   | the switch on (field 10 reads 1, or wear events arrive); "not worn" both in the case and on a table | not worn for 120 s with no worn report → rest; a worn report, an input event or the paced query's "worn" → wake |
+   | the switch off — or field 10 never sent and no wear event after a deliberate take-off | turning it on is a settings write that hands the panel and the input to the stock sensor: Adam's call, after an evening with it on. Until then: the case's push and the gate pattern (a powered case only) |
+   | "worn" in the closed case | wear cannot cover the case. The case's push if our base sends it, the gate pattern in a powered case; a case with no charge left is covered by the notice and his both-temple press alone |
+
+8. The 120 s is a grace for a pair taken off for a moment or moved at the lid: a rest costs a rebuild and the
+   atlas again on the way back (9.7 s for the Silent Mode wake, M, n=1). A Global `Rest` row (`off · on`) ships
+   with build 2.
+9. If the probe's hour reads near the lit rate, the levers in order: `Link` to balanced while resting
+   (phone-side), then the phone-side Silent Mode write (`deviceReceiveSilentMode`; a first write is a probe, his
+   word).
+10. Item 13 (c): the shell acts on nothing new in build 1. If the telemetry read shows frames counted under a held
+    transfer stamp in the firmware's Silent Mode, build 2 treats some minutes of that as asleep.
+
+**The envelope (`FORK.md` §3 item 8).**
+- *Cleared when.* The battery latch: by `charging` or 25 % only. The sleep reason: at a session start, as
+  `glassesSilent` is today. The transport's wear state and switch: at `start()`, beside `glassesSilent` (upstream's
+  trap: wear state does not cross a session). The grace's timer: by a worn report, a session end, the row off. A
+  rest cannot lapse a lease (it released it); a rebuild is its wake.
+- *Released when the write never succeeds.* The release write and the rebuild: as the Silent-Mode path has them
+  (the rebuild is asked again on each paced check). The op 7 query: never waited on, and asked again on each
+  paced check while resting, so a lost "worn" event costs at most one pacing (60 s). The notice's phone half needs
+  no link.
+- *Identity.* A rest episode is `silentGen`'s, as a silent one is. A wear event belongs to its session: delivered
+  after it, it is dropped (`keepWhileDown`'s class, with SilentMode — a late "not worn" must not rest the next
+  session). A session's first report is state, not a transition: it can start the grace, it cannot wake. The
+  battery latch belongs to a discharge, not to a session. The level is RIGHT's reading; LEFT's is unread (§70:
+  LEFT went first).
+- *Other tasks.* Wear, case and battery events are emitted on the transport's notify thread and handled on the
+  loop; the grace is a paced post with a generation, as `RestTick` is. LEFT cannot report; the wear notify is
+  RIGHT's.
+- *One read.* Each handler reads its event once; the grace's end re-reads the shell's wear state once, on the loop.
+- *Siblings.* SILENT and REST (every `glassesSilent` site in `Shell.kt`); the transport's readers of its own
+  `glassesSilent` (`watchdogTick`; `pageTrafficWanted`, the keepalive and the carrier refresh behind it);
+  `handleTransport`, `keepWhileDown` and
+  the seam's relay (`RemoteTransport`: a `wear` kind beside `silent` and `batt`); both transports' `start()`; the
+  simulator (the wear notify, op 7, the switch byte, a sid 0x81 push), a pin for each before the shell keys on it;
+  the phone's shell and the PC standby's (which claims only on sight and has no phone path: a PC-driven session
+  says the notice on the glasses only).
+
+**Not decided here.** The notice's and the row's drawn words (`DESIGN.md`'s, with the build). Whether a session
+that starts on a pair already not worn should skip its atlas upload (it rests 120 s later either way). What the
+status cell says while resting (`silent` today; a word of its own is a `Status.kt` change).
+
+### 75.5 The fork's mutation sweep (`REMINDER.md` item 7; `~/damage-cfw` at `f20bac9`, pin `48172b62…`)
+
+`python3 tools/mutate.py`, every site, detached: 19:58:56 → 20:10:26, 11.5 minutes, five of them one mutant's
+300 s budget (the "couple of hours" was modeled). The log is `captures/2026-11-10-mutate/mutate-sweep.txt`.
+- **96 single-line guards: 43 caught (42 by the vectors, 1 by `test_damage_ext.py`), 52 caught by nothing, 1
+  leaves the harness not returning** — `damage_draw.c:329`, the image draw's record check: without it
+  `run_vectors.py` did not return inside the budget. The tool reports that apart; it is a result, not a pass.
+- Against §64.1 (39 caught of 106; 55 reachable ones caught by nothing): the bases differ — 106 counted the
+  multi-line guards by hand, the tool matches 96 — and the 09-16 run's per-site list was not kept, so the delta
+  is in totals only. By reason: every DRAW2 check is caught (8 of 8) and 10 of 13 lease checks (§64's `v2-gates`).
+  The three lease checks with no pin are v1's: the cache write (`texture_cache.c:244`), the string draw (`:317`)
+  and mode 15's (`:479`, never sent).
+- The 52: 26 length, 10 record, 6 "no shadow" and 3 "no memory" (nine of the kind the host cannot reach), 3
+  lease, 2 code, 1 value, 1 mode. **The other 43 are not 43 gaps** (the review's read of the sources; the lead
+  re-read the v2 write loop's): at least 13 are a loop's SECOND read of a bound its first pass already checked —
+  `damage_draw.c:386, 392, 441, 450, 451, 456`; `texture_cache.c:265, 269, 270, 276, 360, 365`; `zlib_glue.c:401`
+  — there for a message that changes between the passes, which a fixed vector cannot do; their first-pass twins
+  are caught (`damage_draw.c:427`, `texture_cache.c:238`). Several first-pass checks (`damage_draw.c:412, 415`;
+  `texture_cache.c:233, 237, 345`) read as uncaught only because a twin refuses the same input: one mutation at a
+  time cannot separate such a pair.
+- **For a vector pass:** the clear cases are the v1 lease checks above. The rest wants a read per site — first
+  pass or second, twinned or not — before a vector is written for it.
+
+The patch sources did not change, so §65's fuzz stands. No vector was added.
+
+### 75.6 Not built, and the calls made without him
+
+**Not built — the next APK as these rulings and this pass scope it:** the re-read everywhere with a shortfall
+notice and one re-send (75.1); the sync tolerance; the journal's rotation; the uncaught-error record; the two menu fixes
+(75.3, on his word); the low-battery notice and rest mode's build 1 (75.4). After its reads: rest mode's build 2.
+Beside them: a vector pass, after 75.5's per-site read.
+
+**For Adam — each reversible:**
+1. The low-battery notice ignores `Phone notifications` and `Battery alert` as well as `Notify · Damage` (his
+   ruling named only the last), goes out on a phone channel of its own, and keeps its latch in memory.
+2. Rest mode in two builds, the first of which only reads and has a manual probe; the 120 s grace; a Global
+   `Rest` row with the second.
+3. `DESIGN.md` §0 and §7.3 said wear / unwear is not wanted and `wearnotify` unused; his ruling of 2026-09-21
+   uses it for rest. Both lines now carry that as an exception for resting only — his to confirm.
+4. The two figures inside the rulings he said yes to (2 s, 64 MB) are the lead's.
+5. The wording of the four rewritten statements, `CLAUDE.md`'s line among them.
+6. A throwaway test in `core/src/test` for a few minutes (written, run twice, removed; the tree's code is as
+   `6bba881` left it).
+
+**The review of this section (one independent reader, 18 findings, each re-checked before it was applied):** the
+lunch table's per-KB figure (priced over the wrong floor: 46, not 30); the two cache-write bounds named as
+unproven (they are second reads; the first-pass checks are caught); the transport's watchdog missing from rest
+mode's siblings; `DESIGN.md` §0's row; the grade of "the switch"; the flush count, the window labels and the split
+of the 90. What it could not check: Adam's words (they are in the chat), and the sweep's clock times (the log
+carries none).

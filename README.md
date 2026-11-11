@@ -87,7 +87,7 @@ PC-direct BlueZ only while the APK is unavailable, handing the radio back on its
   Damage's simulator matches it on the conformance vectors; `MOTION.md` lists the animation candidates.
 
 [`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run; `HANDOFF.md` the dated records (§10–§26
-install / first light / refinement / the app wave; §27–§47 reviews and latency; §48–§73 the fork and the rebuild);
+install / first light / refinement / the app wave; §27–§47 reviews and latency; §48–§75 the fork and the rebuild);
 `DAILY.md` the ops crib; [`WINDOWS.md`](WINDOWS.md) the conversion checklist; `EXPLOSION.md` the graded
 app backlog + refinery verdicts; `REFINEMENT.md` and `TMUX.md` the design logs.
 

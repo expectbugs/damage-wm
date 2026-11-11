@@ -354,7 +354,8 @@ bit 4 (`0x10`) makes source colour 0 transparent, tested on the **original** lev
 bit 5 (`0x20`) reverses the ramp (`source = 15 - i`).
 
 **Lifetime:** freed on lease expiry, on FB_RELEASE, on a *fresh* acquire after a lapse, and on
-mode 11 — **kept across a renewal**, so an atlas is uploaded once per lease. Modes 12/13/14/15 all
+mode 11 — **kept across a renewal**, so what an atlas has written stays for the lease (since `HANDOFF.md`
+§73 the shell writes it in parts: a face with the characters it has drawn, the rest patched in place later). Modes 12/13/14/15 all
 require an active FB lease.
 
 **Why it matters:** text and chrome become per-frame *references* instead of pixels — a line of

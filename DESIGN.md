@@ -30,7 +30,7 @@ Recorded so they are not re-proposed. These are *decisions*, not oversights.
 | ❌ **The piezo buzzer, entirely** | Adam, 2026-08-17: *"no tone/buzzer. i do not want my glasses to emit sound."* Mode 5 is never sent. Out-of-band alerting goes to the phone (§9.3) |
 | ⚠ ~~❌ **Scroll acceleration / velocity**~~ **RE-OPENED 2026-08-30 · ✅ SHIPPED 2026-08-31** | Original reasoning: scroll and tap are hard to distinguish on the ring's small sensor, especially gloved, so every notch was one step. **Adam reversed this after using Reader on glass** — one line per notch in a book is far too little; he asked for acceleration "like firmware scroll" with a lines-per-notch setting as the fallback. Two facts had also changed: ack latency measured ~50 ms rather than 176 ms, and first light showed tap and scroll arriving as distinct event types. **Shipped 2026-08-31: a per-notch step setting (1–8 lines) plus a direction-gated ramp — notches ≤250 ms apart multiply the step up to 6×. Same-day verdict on glass: the ramp is too uneven — "lets just default the scrolling to 5 lines per notch - configurable." DEFAULT = 5 lines/notch, acceleration OFF; both in Settings → Reader. Lists stay one item per notch: acceleration over selections would overshoot them.** |
 | ⚠ ~~❌ **User-settable chrome/app typography**~~ **REVERSED 2026-08-31 · ✅ SHIPPED** | §Type locked "the system face is not negotiable per window" and one fixed chrome face. **Adam reversed it**: Settings → Global sets font/size/style for chrome + Main; every app category sets font/size/style for that app's content, each option previewed in its own face. The §Type MEASUREMENTS still price the choices; only the lock moved from "decided once" to "his to change at runtime". `core/text/Style.kt`; defaults render byte-identically |
-| ❌ **Wear / unwear differentiation** | not wanted for now. `wearnotify` stays banked, unused |
+| ❌ **Wear / unwear differentiation** | not wanted for now. `wearnotify` stays banked, unused — **except to rest:** Adam's ruling of 2026-09-21 (§9.3, `HANDOFF.md` §70) rests the shell on the not-worn event; designed (`HANDOFF.md` §75.4), not built, and nothing else tells worn from not worn |
 | ❌ **Head tracking on by default** | available, **defaults OFF** — his head moves constantly at work (§7.1) |
 | ❌ **Long-press as a live gesture by default** | reversed 2026-08-30: the most common accidental press by far, gloves worst — **defaults OFF (a no-op)**; the §1.3 chord opens the switcher; a Settings row restores the direct open |
 | ❌ **Dithering** | halves compression; the 4-bit downsample looks better without it |
@@ -717,7 +717,7 @@ overrides the global for that app only. Reader's Size row is the first instance 
 | **Long-press** | **off** (default — §1.2 revised 2026-08-30: a bare long-press is a no-op; the §1.3 chord opens the switcher) / switcher |
 | **Slide frames** | 🆕 **built (2026-09-06, `HANDOFF.md` §40; Adam's ruling of 2026-09-05):** `off · 2 · 4 · auto · 8 · 12` frames per notch for list and document slides — **`auto` (the default) is the ease-out halving rule** (list 3, doc 5); N resamples the ease-out to at most N steps on the 2 px grid; `off` is one copy and one strip. He tests the feel at every value on the phone path himself. The wheel keeps its own 4 / 2-on-a-slow-link rule (§6.3) |
 | **Slide fill** | 🆕 **built (2026-09-06, `HANDOFF.md` §41.9; Adam: "Auto"): `auto · split · whole`.** A strip past 12,000 px either goes out BLANK with the translation and is filled next flush (`split` — the glass moves ~70 ms after the notch, a black band shows until the fill lands: ~610 ms measured when the fill is pixels) or lands whole in the same flush (`whole` — no band, the first change waits for the strip's bytes). `auto` splits only while the texture cache is off: with the cache live the strip is ~200 B of draws and the split buys nothing |
-| **Cached text** | 🆕 **built (2026-09-06, §40; every plane and icons since §41): `off · on`, OFF until seen on glass.** On: the session's fonts and icons are rendered by the host, packed into the firmware's 64 KiB texture cache (mode 12, in idle chunks after the keyframe) and every string and icon the proof can reproduce ships as cached draws instead of pixels — on a depth plane behind one per-lens mode-9 copy, since the firmware's draws are flat. Off → on resumes at once. Integer advances, no pair kerning; the journal's `cached`/`cacheMiss` is the account |
+| **Cached text** | 🆕 **built (2026-09-06, §40; every plane and icons since §41): `off · on`, OFF until seen on glass.** On: the session's fonts and icons are rendered by the host, packed into the firmware's 64 KiB texture cache (mode 12, in idle chunks after the keyframe) and every string and icon the proof can reproduce ships as cached draws instead of pixels — on a depth plane behind one per-lens mode-9 copy, since the firmware's draws are flat. Off → on resumes at once. **On the Phase 2 build, as APK 0.63 runs it (`HANDOFF.md` §60, §66, §73; ruled 2026-11-10, §75):** the cache is the session's 160 KiB (a 96 KiB atlas and a 64 KiB staging reserve); a string is drawn per lens (mode 18, an icon by mode 17; no copy) and carries its pair kerns as adjust bytes; a face is packed with the characters it has drawn and gains the rest in place, in small writes through the lease; and with the row on, text is laid out by the cache's metric whether or not its face is live, so it wraps a little earlier than with the row off and does not move when a face goes live. The journal's `cached`/`cacheMiss`/`unpacked` is the account |
 | **Link** | 🆕 **built (2026-09-12, `HANDOFF.md` §47): `high · balanced`, high the default.** The radio's connection priority: the phone asks for it at connect and asks AGAIN, paced (5 s per arm), whenever the glasses move the link to slower parameters — measured 2026-09-12: they moved both arms to 105 ms / latency 4 at 12:00:02 and every flush waited ~470 ms more for three hours. Slow parameters flip the slide regime at once, put `link slow` in the status cell and raise one notice; `balanced` (30–50 ms) is the on-glass experiment for whether the ~50-minute arm rebuilds follow the fast set |
 | **Notification sources** | only `Notify · Damage` here — **each app's toggles live in that app's own category** (Adam, 2026-09-01; §4.5) |
 | **Keyboard** | qwerty / abc — the §4.8 keyboard's layout |
@@ -1715,11 +1715,14 @@ the end state.
 - 🆕 **A live window may keep the link busy while it is the active window (Adam, 2026-09-05).**
   Tmux frames, Music's card and visualizer, Torrents' polls: he is watching them. The rule is about
   cost per update (§8.6), not cadence — and a parked window holds no loop (§4.6).
-- 🆕 **Motion follows the measured link (2026-09-05, §32).** The transport keeps a transfer-term
-  EMA (ms per KB over flushes of 1 KB and more, against a floor EMA from small ones); above
-  50 ms/KB — the phone path measured ~125, PC-direct ~20 — the wheel spins in **2** frames per
-  notch instead of 4. Each spin frame is a ~0.9 KB repaint of the drum, so four of them are ~0.8 s
-  of link time through the phone. The slides keep their frames: their strips are small and the
+- 🆕 **Motion follows the measured link (2026-09-05, §32; the estimator as `HANDOFF.md` §73 built it,
+  ruled 2026-11-10, §75).** The transport keeps the link's two numbers as MEDIANS over a session's
+  own isolated flushes (`transport/LinkEstimator.kt`): the ack floor from display flushes under
+  400 B, the transfer term (ms per KB) from flushes of 1 KB and more priced against that floor —
+  nine readings each, none counted before three, both starting over with the session. Above
+  50 ms/KB (entered past 65, left under 35; the phone path measured ~125 on 1M and about 32–72 on
+  the Phase 2 build's 2M, PC-direct ~20) the wheel spins in **2** frames per notch instead of 4. Each spin frame is a ~0.9 KB repaint of the drum, so four of them are ~0.8 s
+  of link time through the phone (the 1M figure). The slides keep their frames: their strips are small and the
   first frame is as fast as a snap. Nothing adapts until a real flush has been timed; the harnesses
   (instant timing) always see 4. On-glass verdict owed.
 - 🟡 **Progressive band painting** (spreading one big repaint across flushes) is experimental, to
@@ -1752,7 +1755,7 @@ each boundary so it cannot flicker between N and NE.
 
 ### 7.3 Wear detection — excluded for now
 
-`wearnotify` is in the CFW capability string and stays unused (§0).
+`wearnotify` is in the CFW capability string and stays unused (§0) but for §9.3's rest mode (ruled 2026-09-21, not built).
 
 ---
 
@@ -2053,6 +2056,10 @@ glasses' battery falls **below 20 %** the phone gets a notification through this
 It is not gated by Global `Notify · Damage` (that row is off on his phone, and the point is to be told). Once per
 discharge: said at the crossing, armed again by a `charging` reading or a reading of 25 % or more — never once per
 percent on the way down. The source is the battery reading the shell already journals; no new traffic.
+**The design pass (2026-11-10, `HANDOFF.md` §75.4; the lead's calls, for Adam's review):** the phone half is a
+notification on a channel of its own rather than this path's — whose gate is `Phone notifications`, off by default:
+honoured, this ruling could not be met — and is gated by neither that row nor `Battery alert` (§4.1's pulse keeps it); the glasses' half is said only when the shell
+can paint; the once-per-discharge latch lives in memory and does not clear at a session boundary.
 
 **A rest mode in the charging case (Adam, 2026-09-21 — designed, NOT built; `HANDOFF.md` §70; the same build as the notice above):** "no
 reason to drain battery at full throttle while in an enclosed case." Today the shell paints every minute tick to
@@ -2063,9 +2070,16 @@ turns the panel back on — §70's 4.5 days, then 13 h. The shape: when the glas
 neither is consumed yet) the shell **rests**: it stops painting, releases the lease on purpose and lets the page
 traffic sleep exactly as the Silent-Mode path does (§36, §38 — the same mechanism, a different trigger), and the
 wake is the **worn** event, a session rebuild as the wake from Silent Mode is. `charging` alone is not the trigger:
-a dead case charges nothing and tells nothing. Open for the design pass: whether the transport should also drop the
-link's fast parameters while resting (the 60 s idle request the fork bound to the fast set), and the battery cost of
-the rest itself against a powered-off pair — measured on the next in-case night, not modeled.
+a dead case charges nothing and tells nothing. **The design pass (2026-11-10, `HANDOFF.md` §75.4; the lead's
+calls, for Adam's review):** stock sends the wear event only while a byte of its settings record is set (read at
+instruction level; that the byte is its wear-detection switch is inferred — `CLAIMS.md`); whether that switch is on on his pair, what the sensor reads inside the closed
+case, and what a rest saves over a lit panel are all unread. So it is built in two: **the first build reads** —
+the wear event, the switch (the 60 s READ's device-info has a field for it, unread on our wire), the case's own pushes and the panel gate's pattern
+go to the journal, and a dev probe rests the pair by hand for a timed hour — and **the second rests by itself**, on
+the trigger those reads allow (§75.4's table), after 120 s of "not worn" with no worn report, with a Global `Rest`
+row (`off · on`). A rest is the Silent-Mode path under a second reason, the transport's watchdog standing down with it; its wake is a session rebuild. If the timed
+hour reads near the lit rate, the next levers are `Link` to balanced while resting, then the phone-side Silent
+Mode write (a probe: his word first).
 
 ### 9.4 Session hygiene
 

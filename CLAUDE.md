@@ -232,8 +232,10 @@ errors" is how a bogus "10 fps" got into the world).
   Mode 12 writes, 13 draws a cached image, 14 draws a string through a 96-entry glyph table, 11 tears down; a
   v1 record is `[w:u8][h:u8][4bpp RLE of w*h]`, no row pad nibble (`overview.md` §4); contract 2's modes
   17–24 and its u16 records are `FIRMWARE.md` §4. Freed on expiry, FB_RELEASE, a fresh acquire and mode 11;
-  kept across a renewal — upload the atlas once per lease and READ IT BACK before drawing from it (the ack
-  precedes the decode). ❌ **Never emit mode 15** (the firmware's own font; no offline model predicts its
+  kept across a renewal — the atlas is written through the lease as faces gain what they draw (`HANDOFF.md` §73:
+  a face goes up with its drawn characters and is patched in place); READ IT BACK before drawing from a new
+  upload (the ack precedes the decode; the read-back shows the cache present with its size and flags, not that
+  one write was applied — §75.1). ❌ **Never emit mode 15** (the firmware's own font; no offline model predicts its
   pixels).
 - **One mode-8 flush per frame**, capped at the fid budget: **5 mode-3 rects** at the 3-deep pipeline
   (`Geometry.rectBudget`; the duplicate-fid ring is 16 deep, a collision silently skipped). `fid` in
