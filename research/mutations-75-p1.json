@@ -1,0 +1,1287 @@
+[
+ {
+  "id": "P1a-01-hole-store-removed-in-blit",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "                    g.pix[i] = ((s * top) / 15 * 17).toByte()\n                    if (hole != null) hole.pix[i] = 0\n",
+    "                    g.pix[i] = ((s * top) / 15 * 17).toByte()\n"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "theBlitBlacksTheBaseExactlyWhereItWrites",
+   "aRuleInsideATextDrawsBoxRidesTheBaseOnContractTwo",
+   "aRuleInsideATextDrawsBoxRidesTheBaseOnContractOne"
+  ]
+ },
+ {
+  "id": "P1a-02-hole-store-removed-in-blitImage",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "                g.pix[i] = ((s * top) / 15 * 17).toByte()\n                if (hole != null) hole.pix[i] = 0\n            }\n        }",
+    "                g.pix[i] = ((s * top) / 15 * 17).toByte()\n            }\n        }"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "theBlitBlacksTheBaseExactlyWhereItWrites",
+   "anIconOverARuleShipsAsAnImageDrawBothContracts"
+  ]
+ },
+ {
+  "id": "P1a-03-hole-wrong-pixel-in-blit",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "                    if (hole != null) hole.pix[i] = 0\n                }\n                px += w",
+    "                    if (hole != null) hole.pix[minOf(i + 1, hole.pix.size - 1)] = 0\n                }\n                px += w"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "theBlitBlacksTheBaseExactlyWhereItWrites",
+   "aRuleInsideATextDrawsBoxRidesTheBaseOnContractTwo"
+  ],
+  "note": "the proof is built by the same walk and cannot see this; the base read from the wire and the glass do"
+ },
+ {
+  "id": "P1a-04-no-hole-v1-text",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "CachedText.blit(flat, dr.x - w.x, dr.y - w.y, dr.text, e, dr.level, src.kernOf(dr.spec), hole = base)",
+    "CachedText.blit(flat, dr.x - w.x, dr.y - w.y, dr.text, e, dr.level, src.kernOf(dr.spec))"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aRuleInsideATextDrawsBoxRidesTheBaseOnContractOne"
+  ]
+ },
+ {
+  "id": "P1a-05-no-hole-v1-image",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "CachedText.blitImage(flat, im.x - w.x, im.y - w.y, e.image, im.level, hole = base)",
+    "CachedText.blitImage(flat, im.x - w.x, im.y - w.y, e.image, im.level)"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "anIconOverARuleShipsAsAnImageDrawBothContracts"
+  ]
+ },
+ {
+  "id": "P1a-06-no-hole-v2-text",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "CachedText.blit(flat, dr.x - r.x, dr.y - r.y, dr.text, e, dr.level, src.kernOf(dr.spec), hole = base)",
+    "CachedText.blit(flat, dr.x - r.x, dr.y - r.y, dr.text, e, dr.level, src.kernOf(dr.spec))"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*",
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "aRuleInsideATextDrawsBoxRidesTheBaseOnContractTwo",
+   "aMenuOpenedOffAGestureShipsAsDraws",
+   "aMenuOpenedByATapShipsAsOneBaseAndItsDrawsOnce"
+  ]
+ },
+ {
+  "id": "P1a-07-no-hole-v2-image",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "CachedText.blitImage(flat, im.x - r.x, im.y - r.y, e.image, im.level, hole = base)",
+    "CachedText.blitImage(flat, im.x - r.x, im.y - r.y, e.image, im.level)"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "anIconOverARuleShipsAsAnImageDrawBothContracts"
+  ]
+ },
+ {
+  "id": "P1a-08-sameOver-always-true",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "            for (x in 0 until w.w) if (truth.pix[a + x] != exp.pix[b + x]) return false\n        }\n        return true\n    }\n\n    private fun paintTruth",
+    "            for (x in 0 until w.w) if (truth.pix[a + x] != exp.pix[b + x]) return true\n        }\n        return true\n    }\n\n    private fun paintTruth"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aBarPaintedOverTextIsStillRefused"
+  ]
+ },
+ {
+  "id": "P1a-10-dearer-full-comparison-removed-v2",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        if (priced && deltaBytes(clear.size, d) + drawBytes > pixelBytes(rect, d)) return miss(\"dearer\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "textOnALitFieldShipsAsDrawsOnlyWhenThatIsCheaper",
+   "aLitRowDrawnOneCharacterAtATimeIsNeverLargerThanItsPixels",
+   "aSmallChangeOnALitFieldIsPricedAgainstItsPixels",
+   "aDarkIconOnALitFieldIsPricedLikeText"
+  ]
+ },
+ {
+  "id": "P1a-11-dearer-full-comparison-removed-v1",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        if (priced && deltaBytes(clear.size, 0) + drawBytes > pixelBytes(planned, d)) return miss(\"dearer\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*",
+   "*CachedTextTest*"
+  ],
+  "expect": [
+   "textOnALitFieldShipsAsDrawsOnlyWhenThatIsCheaper",
+   "aLitRowDrawnOneCharacterAtATimeIsNeverLargerThanItsPixels",
+   "aSmallChangeOnALitFieldIsPricedAgainstItsPixels",
+   "aDarkIconOnALitFieldIsPricedLikeText",
+   "onContractOneTheFullWidthRetryIsPricedAgainstThePlannedRect",
+   "textOverANonBlackBackgroundStaysPixelsAndStaysExact"
+  ]
+ },
+ {
+  "id": "P1a-12-dearer-early-comparison-removed-v2",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        if (priced && drawBytes > pixelBytes(rect, d)) return miss(\"dearer\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "drawsThatAloneCostMoreThanThePixelsAreRefusedBeforeTheBaseIsCompressed"
+  ]
+ },
+ {
+  "id": "P1a-13-dearer-early-comparison-removed-v1",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        if (priced && drawBytes > pixelBytes(planned, d)) return miss(\"dearer\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "drawsThatAloneCostMoreThanThePixelsAreRefusedBeforeTheBaseIsCompressed"
+  ]
+ },
+ {
+  "id": "P1a-14-priced-against-the-grown-rect-v2",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        if (priced && drawBytes > pixelBytes(rect, d)) return miss(\"dearer\")",
+    "        if (priced && drawBytes > pixelBytes(r, d)) return miss(\"dearer\")"
+   ],
+   [
+    "+ drawBytes > pixelBytes(rect, d)) return miss(\"dearer\")",
+    "+ drawBytes > pixelBytes(r, d)) return miss(\"dearer\")"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aSmallChangeOnALitFieldIsPricedAgainstItsPixels"
+  ]
+ },
+ {
+  "id": "P1a-15-priced-against-the-grown-rect-v1",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        if (priced && drawBytes > pixelBytes(planned, d)) return miss(\"dearer\")",
+    "        if (priced && drawBytes > pixelBytes(r, d)) return miss(\"dearer\")"
+   ],
+   [
+    "+ drawBytes > pixelBytes(planned, d)) return miss(\"dearer\")",
+    "+ drawBytes > pixelBytes(r, d)) return miss(\"dearer\")"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*",
+   "*CachedTextTest*"
+  ],
+  "expect": [
+   "aSmallChangeOnALitFieldIsPricedAgainstItsPixels",
+   "onContractOneTheFullWidthRetryIsPricedAgainstThePlannedRect"
+  ],
+  "note": "CachedTextTest.textOverANonBlackBackgroundStaysPixelsAndStaysExact runs with it and does not catch it (watched 2026-11-10)"
+ },
+ {
+  "id": "P1a-16-retry-priced-against-the-widened-rect",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "emitCachedAt(wide, d, ops, touched, fidsLeft, bytesLeft, src0, atlas, planned = rect)",
+    "emitCachedAt(wide, d, ops, touched, fidsLeft, bytesLeft, src0, atlas)"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*",
+   "*CachedTextTest*"
+  ],
+  "expect": [
+   "onContractOneTheFullWidthRetryIsPricedAgainstThePlannedRect"
+  ],
+  "note": "review finding 6.7: the retry passing `wide` as planned"
+ },
+ {
+  "id": "P1a-17-inked-ignores-icons",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        for (im in images) if (lit(im.rect.intersect(over))) return true\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aDarkIconOnALitFieldIsPricedLikeText"
+  ],
+  "note": "review finding 6.7"
+ },
+ {
+  "id": "P1a-18-everything-priced-v2",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        val priced = inked(base, r, draws, images)",
+    "        val priced = true"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aRunBesideAHostDrawnCharacterIsNotPriced"
+  ]
+ },
+ {
+  "id": "P1a-19-everything-priced-v1",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        val priced = inked(base, w, draws, images)",
+    "        val priced = true"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aRunBesideAHostDrawnCharacterIsNotPriced"
+  ]
+ },
+ {
+  "id": "P1a-20-oldBox-ignores-keepEnd",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        if (dr.keepEnd > 0) {\n            if (dr.keepEnd >= box.w) return null",
+    "        if (false) {\n            if (dr.keepEnd >= box.w) return null"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aRunBesideAHostDrawnCharacterIsNotPriced"
+  ],
+  "note": "the successor of mutations-73 M76, whose own pin no longer watches it"
+ },
+ {
+  "id": "P1a-21-oldBox-ignores-keep",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        if (dr.keep > 0 && box.x >= dr.x) {",
+    "        if (false) {"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aRunBesideAHostDrawnCharacterIsNotPriced"
+  ]
+ },
+ {
+  "id": "P1a-22-price-by-the-budget-allowance",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        val drawBytes = textOps.sumOf { wireSize(it) } + imageOps.sumOf { wireSize(it) }\n",
+    "        val drawBytes = textOps.sumOf { sizeOf(it) } + imageOps.sumOf { sizeOf(it) }\n"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "anIconOverARuleShipsAsAnImageDrawBothContracts"
+  ],
+  "note": "F10, contract 2: a small icon over a rule is 36 B as base + draw and 38 B as pixels inside the batch; priced by sizeOf (15 B over a draw) it reads 49 B and would stay pixels"
+ },
+ {
+  "id": "P1a-23-price-by-the-budget-allowance-v1",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        val drawBytes = textOps.sumOf { wireSize(it) } + imageOps.sumOf { wireSize(it) } + (if (d != 0) COPY_PAIR_BYTES else 0)\n",
+    "        val drawBytes = textOps.sumOf { sizeOf(it) } + imageOps.sumOf { sizeOf(it) } + (if (d != 0) COPY_PAIR_BYTES else 0)\n"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "anIconOverARuleShipsAsAnImageDrawBothContracts"
+  ],
+  "note": "F10, contract 1: the twin of P1a-22"
+ },
+ {
+  "id": "P1a-30-settled-always-false",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "    private fun settled(rect: Rect, d: Int): Boolean =\n        lensSettled(",
+    "    private fun settled(rect: Rect, d: Int): Boolean = false &&\n        lensSettled("
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "twoChangedCellsOfOneStringShipItOnce"
+  ]
+ },
+ {
+  "id": "P1a-31-settled-always-true",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "    private fun settled(rect: Rect, d: Int): Boolean =\n        lensSettled(",
+    "    private fun settled(rect: Rect, d: Int): Boolean = true ||\n        lensSettled("
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aRuleInsideATextDrawsBoxRidesTheBaseOnContractTwo",
+   "twoChangedCellsOfOneStringShipItOnce",
+   "aBarPaintedOverTextIsStillRefused"
+  ]
+ },
+ {
+  "id": "P1a-32-settled-does-not-read-the-unknown-cells",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        for (cy in cy0 until cy1) for (cx in cx0 until cx1) if (unknown[cy * cellsW + cx]) return false\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*",
+   "*Round6Test*",
+   "*Round7Test*",
+   "*LensOracleTest*"
+  ],
+  "expect": [
+   "aRectALostFlushLeftUnknownIsSentAgainThoughItsShadowLooksRight"
+  ]
+ },
+ {
+  "id": "P1a-33-settled-reads-one-lens",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        lensSettled(shadowL, truthL, unknownL, rect.translate(-d, 0).clip()) &&\n            lensSettled(shadowR, truthR, unknownR, rect.translate(d, 0).clip())",
+    "        lensSettled(shadowL, truthL, unknownL, rect.translate(-d, 0).clip())"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*",
+   "*LensOracleTest*",
+   "*Round6Test*",
+   "*PlaneCacheTest*",
+   "*Contract2Test*"
+  ],
+  "expect": [
+   "aRectWhoseFarLensBoxReachesANearerPlaneIsNamedTwoPlanes",
+   "aStringUnderATwoPlaneBoxCountsOneMissNotThree",
+   "beliefMatchesGlassAndTruthAcrossTransitions"
+  ],
+  "note": "the right lens dropped from the test: the nearer plane's columns a stereo delta wrote over are never repaired"
+ },
+ {
+  "id": "P1a-34-settled-after-the-fid-check",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "                    if (p is Planned.Delta && settled(p.rect, p.d)) continue\n                    // a contract-2 seam fill spends no fid, so the fid budget must not stop it:",
+    "                    // a contract-2 seam fill spends no fid, so the fid budget must not stop it:"
+   ],
+   [
+    "                    if (fids >= budget && !(v2 && p is Planned.Black)) { exhausted = true; continue }\n",
+    "                    if (fids >= budget && !(v2 && p is Planned.Black)) { exhausted = true; continue }\n                    if (p is Planned.Delta && settled(p.rect, p.d)) continue\n"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "a settled rect met with the fid budget spent would mark the pass exhausted; needs 16 fids in one pass"
+ },
+ {
+  "id": "P1a-40-proofMiss-always-proof",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    ") \"proof\" else \"two-planes\"",
+    ") \"proof\" else \"proof\""
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aRectWhoseFarLensBoxReachesANearerPlaneIsNamedTwoPlanes",
+   "aStringUnderATwoPlaneBoxCountsOneMissNotThree"
+  ]
+ },
+ {
+  "id": "P1a-41-proofMiss-always-two-planes",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    ") \"proof\" else \"two-planes\"",
+    ") \"two-planes\" else \"two-planes\""
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aBarPaintedOverTextIsStillRefused",
+   "onContractOneTheFullWidthRetryIsPricedAgainstThePlannedRect"
+  ]
+ },
+ {
+  "id": "P1a-42-a-failed-box-is-not-remembered",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        failedProofs[r to d] = word\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aStringUnderATwoPlaneBoxCountsOneMissNotThree"
+  ]
+ },
+ {
+  "id": "P1a-43-the-failed-boxes-are-never-cleared",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        failedProofs.clear()           // ...and with it every proof's verdict\n",
+    ""
+   ],
+   [
+    "            failedProofs.clear()\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aBarPaintedOverTextIsStillRefused"
+  ]
+ },
+ {
+  "id": "P1a-44-retry-uncounts-the-wrong-word",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "if (lastMissCounted) cacheMiss[first] = (cacheMiss[first] ?: 1) - 1",
+    "if (lastMissCounted) cacheMiss[\"proof\"] = (cacheMiss[\"proof\"] ?: 1) - 1"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aStringUnderATwoPlaneBoxCountsOneMissNotThree"
+  ],
+  "note": "review finding 6.7"
+ },
+ {
+  "id": "P1a-45-retry-uncounts-a-miss-that-was-not-counted",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "if (lastMissCounted) cacheMiss[first] = (cacheMiss[first] ?: 1) - 1",
+    "cacheMiss[first] = (cacheMiss[first] ?: 1) - 1"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aStringUnderATwoPlaneBoxCountsOneMissNotThree"
+  ]
+ },
+ {
+  "id": "P1a-46-retry-only-after-the-word-proof",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "if (d != 0 && (first == \"proof\" || first == \"two-planes\")) {",
+    "if (d != 0 && first == \"proof\") {"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*",
+   "*PlaneCacheTest*",
+   "*CachedTextTest*"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "equivalent as far as reading goes: after a two-planes first attempt the widened rect holds the same foreign pixels and cannot prove, and the count comes out the same"
+ },
+ {
+  "id": "P1b-01-no-retire-in-paintMenu",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        retire(menu.rect(layout))          // the rows under the box, and the menu's own earlier paint of this frame\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "aTapOpenedMenuWithNoTitleOverRowsOfTextShipsAsDraws",
+   "aMenuOpenedByATapShipsAsOneBaseAndItsDrawsOnce",
+   "aMenuOpenedByATapShipsAsOneBaseAndItsDrawsOnceOnContractOne"
+  ]
+ },
+ {
+  "id": "P1b-02-no-retire-in-paintKeyboard",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        retire(keyboard.rect(layout))\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "aKeyboardOpenedByATapShipsItsLabelsAsDrawsOnce"
+  ]
+ },
+ {
+  "id": "P1b-03-no-retire-in-paintSwitcherFrame",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        retire(layout.switcherPanel)       // the previewed window's rows under the panel, the last spin frame's names\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "aPreviewBehindTheWheelLeavesNoProofMiss"
+  ]
+ },
+ {
+  "id": "P1b-04-no-retire-in-paintNotification",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        retire(notifications.boxRect(layout, silent))      // the box at its current unfurl step: what `paint` fills\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "aReplacedNoticeRepaintsItsBoxAsDraws"
+  ]
+ },
+ {
+  "id": "P1b-05-no-retire-in-paintContentOf",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        retire(layout.content)\n        if (w == null) {",
+    "        if (w == null) {"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "aWindowOpenedFromMainDrawsEachStringOnce"
+  ],
+  "note": "the pin's canvas third is also held by paintCanvasOf's own retire; its list and document thirds only by this one"
+ },
+ {
+  "id": "P1b-06-no-retire-before-the-canvas-paint",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        retire(r)              // `applyCanvasFill` above may have painted this canvas a moment ago\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "twoCanvasNotchesUnderSplitFillDrawEachStringOnce"
+  ]
+ },
+ {
+  "id": "P1b-07-no-retire-of-the-blanked-strip",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            retire(exposed)    // the canvas has just drawn the strip's strings; they are not on the blank that ships\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "aCanvasNotchUnderSplitFillLeavesNoFailedProof"
+  ]
+ },
+ {
+  "id": "P1b-08-no-retire-in-applyCanvasFill",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        retire(layout.content)     // the paint that left the strip owed may be in this frame still\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "aCanvasNotchAndItsOwedFillInOneFrameDrawEachStringOnce"
+  ]
+ },
+ {
+  "id": "P1b-09-no-retire-in-paintOptimisticLens",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            retire(layout.lens)    // with the window full, the lens repaints of several notches share a frame\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "notchesInOneFrameLeaveOneLens"
+  ]
+ },
+ {
+  "id": "P1b-10-no-retire-in-paintExclusiveFull",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        retire(Rect(0, 0, comp.width, comp.height))\n        comp.composed.fillRect(Rect(0, 0, comp.width, comp.height), Level.BG)\n        try {",
+    "        comp.composed.fillRect(Rect(0, 0, comp.width, comp.height), Level.BG)\n        try {"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "anExclusiveEntryFromAMenuCommitDrawsEachStringOnce"
+  ]
+ },
+ {
+  "id": "P1b-11-no-retire-at-the-menu-restore",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            // the content's pixels are back; the menu's strings of this frame are not on them\n            if (r != null) { retire(r); comp.damage(r) } else composeContent()",
+    "            if (r != null) { comp.damage(r) } else composeContent()"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "aMenuScrolledAndCancelledInOneFrameLeavesNoFailedProof"
+  ]
+ },
+ {
+  "id": "P1b-12-no-retire-at-the-keyboard-restore",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            val r = keyboard.restoreUnderFinished(comp.composed)\n            if (r != null) { retire(r); comp.damage(r) } else composeContent()",
+    "            val r = keyboard.restoreUnderFinished(comp.composed)\n            if (r != null) { comp.damage(r) } else composeContent()"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "aKeyboardMovedAndCancelledInOneFrameLeavesNoFailedProof"
+  ]
+ },
+ {
+  "id": "P1b-13-no-retire-in-composeFullSurface",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        retire(Rect(0, 0, comp.width, comp.height))      // the bars' cells and the content: all of it is painted again\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "the content is retired again by paintContentOf a line later; what this one adds is the bars' cells and whatever an earlier layout left outside the new content rect, and no scene of the rig puts a record there in the frame of a full compose"
+ },
+ {
+  "id": "P1b-14-no-retire-at-enterSilent",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        retire(Rect(0, 0, comp.width, comp.height))\n        SilentMode.paintAll(comp.composed, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c))\n        comp.planes = emptyList()\n        comp.damageAll()\n        if (notifications.showNextIfIdle()) {",
+    "        SilentMode.paintAll(comp.composed, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c))\n        comp.planes = emptyList()\n        comp.damageAll()\n        if (notifications.showNextIfIdle()) {"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "silentEnteredInTheFrameThatPaintedMainLeavesNoFailedProof"
+  ]
+ },
+ {
+  "id": "P1b-15-no-retire-at-the-silent-tick",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        retire(Rect(0, 0, comp.width, comp.height))\n        SilentMode.paintAll(comp.composed, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c))\n        comp.damageAll()\n        if (notifications.active) {",
+    "        SilentMode.paintAll(comp.composed, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c))\n        comp.damageAll()\n        if (notifications.active) {"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "the 5 s auto-dismiss of a silent box: a timer the rig does not own"
+ },
+ {
+  "id": "P1b-16-no-retire-in-composeFullSurface-silent",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "\n            retire(Rect(0, 0, comp.width, comp.height))\n            SilentMode.paintAll(",
+    "\n            SilentMode.paintAll("
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "a silent-clock size change applied while silent"
+ },
+ {
+  "id": "P1b-17-no-retire-at-the-quiet-furl-end",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                        retire(Rect(0, 0, comp.width, comp.height))\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "the end of a silent box's furl"
+ },
+ {
+  "id": "P1b-18-no-retire-at-openMenu-furl-restore",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            // a box on screen goes back to the queue unread and returns after\n            if (notifications.active) {\n                if (notifications.furlingOut) {\n                    notifications.restoreUnderFinished(comp.composed)?.let { retire(it); comp.damage(it) }",
+    "            // a box on screen goes back to the queue unread and returns after\n            if (notifications.active) {\n                if (notifications.furlingOut) {\n                    notifications.restoreUnderFinished(comp.composed)?.let { comp.damage(it) }"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "a menu opened while a notice is mid-furl, in the frame that painted the notice"
+ },
+ {
+  "id": "P1b-19-no-retire-at-openKeyboard-furl-restore",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            settleSlidesForOverlay()\n            if (notifications.active) {\n                if (notifications.furlingOut) {\n                    notifications.restoreUnderFinished(comp.composed)?.let { retire(it); comp.damage(it) }",
+    "            settleSlidesForOverlay()\n            if (notifications.active) {\n                if (notifications.furlingOut) {\n                    notifications.restoreUnderFinished(comp.composed)?.let { comp.damage(it) }"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "the keyboard's twin of P1b-18"
+ },
+ {
+  "id": "P1b-20-no-retire-at-openSwitcher-furl-restore",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (notifications.furlingOut) {\n                notifications.restoreUnderFinished(comp.composed)?.let { retire(it); comp.damage(it) }",
+    "            if (notifications.furlingOut) {\n                notifications.restoreUnderFinished(comp.composed)?.let { comp.damage(it) }"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "the wheel's twin of P1b-18"
+ },
+ {
+  "id": "P1b-21-no-retire-in-liftNotificationBox",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        retire(lifted)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "aNoticeRepaintedAndDisplacedByAMenuInOneFrameLeavesNoFailedProof"
+  ],
+  "note": "a lift followed by a requeue: nothing paints the box's rect again"
+ },
+ {
+  "id": "P1b-22-no-retire-of-a-furl-strip",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                } else retire(strip)       // the box's lines of this frame that stood in the strip",
+    "                }"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "observable only when a whole line of the box lies inside the vacated strip: with the rig's faces every line there also overlaps the smaller box, whose own retire takes it"
+ },
+ {
+  "id": "P1b-23-no-retire-at-the-furl-end",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                    if (restored != null) { retire(restored); comp.damage(restored) } else composeContent()",
+    "                    if (restored != null) { comp.damage(restored) } else composeContent()"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "a notice painted in the frame its furl ends"
+ },
+ {
+  "id": "P1b-24-no-retire-in-paintMenu-nor-paintContentOf",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        retire(menu.rect(layout))          // the rows under the box, and the menu's own earlier paint of this frame\n",
+    ""
+   ],
+   [
+    "        retire(layout.content)\n        if (w == null) {",
+    "        if (w == null) {"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "aTapOpenedMenuOverShortRowsDrawsEachStringOnce"
+  ],
+  "note": "this pin holds neither retire alone (the first paint's records lie inside both rects): it fails only with both removed"
+ },
+ {
+  "id": "P1b-25-retire-drops-nothing",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "    private fun retire(r: Rect?) { if (r != null) cachedText?.dropRecords(r) }",
+    "    private fun retire(r: Rect?) { }"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "aTapOpenedMenuWithNoTitleOverRowsOfTextShipsAsDraws",
+   "aTapOpenedMenuOverShortRowsDrawsEachStringOnce",
+   "aKeyboardOpenedByATapShipsItsLabelsAsDrawsOnce",
+   "aReplacedNoticeRepaintsItsBoxAsDraws",
+   "aPreviewBehindTheWheelLeavesNoProofMiss",
+   "aWindowOpenedFromMainDrawsEachStringOnce",
+   "notchesInOneFrameLeaveOneLens",
+   "anExclusiveEntryFromAMenuCommitDrawsEachStringOnce",
+   "aMenuScrolledAndCancelledInOneFrameLeavesNoFailedProof",
+   "aKeyboardMovedAndCancelledInOneFrameLeavesNoFailedProof",
+   "silentEnteredInTheFrameThatPaintedMainLeavesNoFailedProof",
+   "aCanvasNotchUnderSplitFillLeavesNoFailedProof",
+   "twoCanvasNotchesUnderSplitFillDrawEachStringOnce",
+   "aCanvasNotchAndItsOwedFillInOneFrameDrawEachStringOnce"
+  ]
+ },
+ {
+  "id": "P1b-27-main-lens-detail-at-its-old-width-beside-a-progress",
+  "file": "shell/MainSurface.kt",
+  "edits": [
+   [
+    "            val edge = if (s.progress != null) r.right - 212 else r.right\n",
+    "            val edge = if (s.progress != null) r.right - 180 else r.right\n"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "mainsLensWithALongDetailShipsAsDrawsAndKeepsItsMarkInSight"
+  ],
+  "note": "0.63's width: the detail runs 12 px into the first block and its mark lies under it"
+ },
+ {
+  "id": "P1b-28-main-lens-detail-at-its-old-width-with-no-progress",
+  "file": "shell/MainSurface.kt",
+  "edits": [
+   [
+    "            val edge = if (s.progress != null) r.right - 212 else r.right\n",
+    "            val edge = if (s.progress != null) r.right - 212 else r.right + 20\n"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "mainsLensWithALongDetailShipsAsDrawsAndKeepsItsMarkInSight"
+  ],
+  "note": "0.63's width: the detail runs to the band's edge and its mark is drawn in the rail's columns, cleared by the next full repaint"
+ },
+ {
+  "id": "P1v-01-no-size-check-in-blit",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "            if (hole != null && (hole.w != g.w || hole.h != g.h))\n                throw LintError(\"blit: the base is ${hole.w}x${hole.h} and the surface ${g.w}x${g.h}\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "theBlitBlacksTheBaseExactlyWhereItWrites"
+  ],
+  "note": "verify pass: the refusal of a base of another size, which no P1a entry names"
+ },
+ {
+  "id": "P1v-02-no-size-check-in-blitImage",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "            if (hole != null && (hole.w != g.w || hole.h != g.h))\n                throw LintError(\"blitImage: the base is ${hole.w}x${hole.h} and the surface ${g.w}x${g.h}\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "theBlitBlacksTheBaseExactlyWhereItWrites"
+  ],
+  "note": "verify pass: the image walk's twin of P1v-01"
+ },
+ {
+  "id": "P1v-03-a-known-box-is-tried-again-v1",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "            if (pass == 3) return miss(\"growing\")   // still growing: leave it to pixels\n        }\n        if (knownToFail(r, d)) return null\n",
+    "            if (pass == 3) return miss(\"growing\")   // still growing: leave it to pixels\n        }\n"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aStringUnderATwoPlaneBoxCountsOneMissNotThree"
+  ],
+  "note": "verify pass: P1a-42 removes the store for both contracts at once; this is contract 1's read alone"
+ },
+ {
+  "id": "P1v-04-a-known-box-is-tried-again-v2",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "            if (pass == 3) return miss(\"growing\")\n        }\n        if (knownToFail(r, d)) return null\n",
+    "            if (pass == 3) return miss(\"growing\")\n        }\n"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aStringUnderATwoPlaneBoxCountsOneMissNotThree"
+  ],
+  "note": "verify pass: contract 2's read alone"
+ },
+ {
+  "id": "P1v-05-the-proof-refuses-everything",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "            for (x in 0 until w.w) if (truth.pix[a + x] != exp.pix[b + x]) return false\n        }\n        return true\n    }\n\n    private fun paintTruth",
+    "            for (x in 0 until w.w) if (truth.pix[a + x] != exp.pix[b + x]) return false\n        }\n        return false\n    }\n\n    private fun paintTruth"
+   ]
+  ],
+  "tests": [
+   "*CachedTextTest*"
+  ],
+  "expect": [
+   "textOverANonBlackBackgroundStaysPixelsAndStaysExact"
+  ],
+  "note": "verify pass: the word assertion added to this pin in P1a — with the proof refusing the lens (0.63's verdict) its first assertion still holds and the word reads proof, not dearer"
+ },
+ {
+  "id": "P1v-06-a-lens-band-rect-is-refused-as-two-planes-v2",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        if (!sameOver(truthL, flat, l) || !sameOver(truthR, flat, rr)) return proofMiss(r, d)",
+    "        if (d == 4 || !sameOver(truthL, flat, l) || !sameOver(truthR, flat, rr)) return miss(\"two-planes\")"
+   ]
+  ],
+  "tests": [
+   "*Contract2Test*",
+   "*GlyphSubsetShellTest*"
+  ],
+  "expect": [
+   "rowsOnADepthPlaneShipAsPerLensDrawsWithNoCopyAndBeliefEqualsGlass",
+   "aHostDrawnCharactersOverhangDoesNotCostTheRowItsDraws"
+  ],
+  "note": "verify pass: the two journal gates widened to refuse two-planes — a failed proof under the new word, in scenes where the rows still ship as draws"
+ },
+ {
+  "id": "P1v-07-a-per-lens-draw-priced-as-the-single-form",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        is DisplayOp.DrawText2 -> (if (op.xL == op.xR) 9 else 11) + op.text.size",
+    "        is DisplayOp.DrawText2 -> 9 + op.text.size"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*",
+   "*CachedTextTest*",
+   "*PlaneCacheTest*"
+  ],
+  "expect": [
+   "<no pin: named in the verify report>"
+  ],
+  "note": "verify pass: 2 B per draw on a depth plane; no scene sits on that margin"
+ },
+ {
+  "id": "P1v-08-the-copy-left-out-of-the-v1-price",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "+ imageOps.sumOf { wireSize(it) } + (if (d != 0) COPY_PAIR_BYTES else 0)\n",
+    "+ imageOps.sumOf { wireSize(it) }\n"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*",
+   "*CachedTextTest*",
+   "*PlaneCacheTest*"
+  ],
+  "expect": [
+   "<no pin: named in the verify report>"
+  ],
+  "note": "verify pass: 35 B on a contract-1 depth-plane rect"
+ },
+ {
+  "id": "P1v-09-the-v2-base-priced-as-a-flat-delta",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        if (priced && deltaBytes(clear.size, d) + drawBytes > pixelBytes(rect, d)) return miss(\"dearer\")",
+    "        if (priced && deltaBytes(clear.size, 0) + drawBytes > pixelBytes(rect, d)) return miss(\"dearer\")"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*",
+   "*CachedTextTest*",
+   "*PlaneCacheTest*"
+  ],
+  "expect": [
+   "<no pin: named in the verify report>"
+  ],
+  "note": "verify pass: 4 B on a contract-2 depth-plane rect"
+ },
+ {
+  "id": "P1v-10-the-failed-boxes-not-cleared-at-the-start",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        failedProofs.clear()           // ...and with it every proof's verdict\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "<no pin: named in the verify report>"
+  ],
+  "note": "verify pass: one of a pair — the clear in the finally still runs; P1a-43 removes both"
+ },
+ {
+  "id": "P1v-11-the-failed-boxes-not-cleared-at-the-end",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "            failedProofs.clear()\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "<no pin: named in the verify report>"
+  ],
+  "note": "verify pass: the other of the pair"
+ },
+ {
+  "id": "P1v-12-an-empty-lens-box-is-never-settled",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        if (b.w <= 0 || b.h <= 0) return true\n        // the cells with dirtyCells' rounding",
+    "        if (b.w <= 0 || b.h <= 0) return false\n        // the cells with dirtyCells' rounding"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*",
+   "*LensOracleTest*",
+   "*Round6Test*",
+   "*PlaneCacheTest*"
+  ],
+  "expect": [
+   "<no pin: named in the verify report>"
+  ],
+  "note": "verify pass: a planned rect with one lens box wholly off the panel"
+ }
+]

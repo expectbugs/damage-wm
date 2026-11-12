@@ -24,6 +24,7 @@ import wm.damage.core.geom.LintError
 import wm.damage.core.sim.GlassFirmwareSim
 import wm.damage.core.util.Log
 import wm.damage.core.wire.AaFrame
+import wm.damage.core.wire.CaseMsg
 import wm.damage.core.wire.CfwModes
 import wm.damage.core.wire.DamageMsg
 import wm.damage.core.wire.EvenHubMsg
@@ -32,6 +33,7 @@ import wm.damage.core.wire.LoggerMsg
 import wm.damage.core.wire.Pb
 import wm.damage.core.wire.RingMsg
 import wm.damage.core.wire.SettingsMsg
+import wm.damage.core.wire.WearMsg
 
 /**
  * The CFW transport choreography, sans-IO: capability gate, carrier CREATE,
@@ -167,6 +169,10 @@ abstract class CfwTransportBase(
             // A flag set asked for here is WANTED: the keeper re-arms it after every session
             // start under the hold-back rule (armFeatures); `flags=clear` drops the wish.
             "telemetry", "flags", "cache", "cachesize" -> {
+                // `cache=miscount` is the SHELL's probe (0.64: the cache-write ledger lives there). The
+                // `probe` note above carries it to the shell, which adds one atlas ack the glasses never
+                // saw to its ledger; nothing is sent from here and nothing new goes on the wire.
+                if (name == "cache" && value == "miscount") return
                 val (op, arg) = when {
                     name == "telemetry" && value == "read" -> DamageMsg.OP_TELEMETRY to nextTelemetryId()
                     name == "cache" && value == "info" -> DamageMsg.OP_CACHE_INFO to nextTelemetryId()
@@ -175,7 +181,7 @@ abstract class CfwTransportBase(
                     name == "flags" && value == "probe" -> DamageMsg.OP_FLAGS_SET to DamageMsg.FLAG_PROBE
                     name == "flags" && value.startsWith("0x") && value.drop(2).toIntOrNull(16) in 0..0xFFFF ->
                         DamageMsg.OP_FLAGS_SET to value.drop(2).toInt(16)
-                    else -> { Log.w(this.name, "probe $name=$value: expected telemetry=read, cache=info, cachesize=${DamageMsg.CACHE_MIN_KIB}..${DamageMsg.CACHE_BUDGET_KIB} or flags=clear|probe|0xNNNN"); return }
+                    else -> { Log.w(this.name, "probe $name=$value: expected telemetry=read, cache=info|miscount, cachesize=${DamageMsg.CACHE_MIN_KIB}..${DamageMsg.CACHE_BUDGET_KIB} or flags=clear|probe|0xNNNN"); return }
                 }
                 if (op == DamageMsg.OP_FLAGS_SET) wantedFlags = arg
                 if (op == DamageMsg.OP_FLAGS_CLEAR) wantedFlags = 0
@@ -243,9 +249,47 @@ abstract class CfwTransportBase(
                 }
                 imageQueue.trySend(ImgWork.Raw(sessionEpoch.get(), image, null))
             }
-            else -> Log.w(this.name, "probe $name=$value: not a probe this transport runs (diag, logger, telemetry, cache, flags, selftest)")
+            // 0.64 (`HANDOFF.md` §75.4): one WEAR_QUERY by hand. The note says what happened to the
+            // query, never "sent" for one that did not leave (the `probe` note above is only the ask).
+            "wear" -> {
+                if (value != "query") { Log.w(this.name, "probe wear=$value: expected wear=query"); return }
+                if (queryWear()) emitNote("wear", "query sent (probe) — op 7, both arms; no reply is a legal answer")
+                else {
+                    Log.w(this.name, "probe wear=query not sent: no session")
+                    emitNote("wear", "query not sent (probe): no session")
+                }
+            }
+            else -> Log.w(this.name, "probe $name=$value: not a probe this transport runs (diag, logger, telemetry, cache, flags, selftest, wear)")
         }
     }
+
+    /** 0.64: ask the glasses for their wear state — `SettingsMsg.wearQuery`, op 7 of the fork's field-101
+     *  control (`~/damage-cfw patches/settings_ext.c`), written to BOTH arms as the upstream app does
+     *  (faceclaw `FaceclawBleCommunicator.java :: enableWearDetectionAndRequestState`, read for the fact —
+     *  there after turning the stock detector on, which Damage does not do) through the lane the field-112 probes use: flag
+     *  0x20, MagicRandom 0, nothing awaited. Only RIGHT can answer, and only when its cached state is
+     *  1 or 2 — no reply is a legal answer. A write that does not leave an arm is the lane's own `probe`
+     *  note. False when no session is started: nothing went out. */
+    override fun queryWear(): Boolean {
+        if (!_state.value.started) return false
+        val nonce = (nowMs() and 0xFFFF).toInt()        // carries no meaning: the firmware reads it and op 7 ignores it
+        return controlQueue.trySend(CtlWork.BothArms(sessionEpoch.get(), SettingsMsg.SID, "wear query") {
+            SettingsMsg.wearQuery(nonce) }).isSuccess
+    }
+
+    /** One device-info READ now instead of at the poll's next minute — for a subclass whose probe just
+     *  changed what the READ will say (the simulator's knobs). False when no session is started. */
+    protected fun readDeviceInfoNow(): Boolean {
+        if (!_state.value.started) return false
+        // G2CC docs/G2_BLE_PROTOCOL.md §10: the bare `08 02 10 <msgId>` form, as the poll sends it
+        return controlQueue.trySend(CtlWork.Settings(sessionEpoch.get(), SettingsMsg.deviceInfoQuery(0))).isSuccess
+    }
+
+    /** The poll's telemetry read (0.64, `HANDOFF.md` §75.4 call 5): null = on wherever the poll runs at
+     *  its real pace, off on an instant test transport — there the poll runs every 60 ms and its
+     *  records would answer other tests' waits for a telemetry reply by another route. A test sets it. */
+    @Volatile var pollTelemetry: Boolean? = null
+    private fun pollTelemetryOn(): Boolean = pollTelemetry ?: !instant
 
     private fun nextTelemetryId(): Int {
         var id: Int
@@ -255,8 +299,16 @@ abstract class CfwTransportBase(
 
     /** One TELEMETRY (or CACHE_INFO) round trip to RIGHT in session [epoch]: the request is
      *  repeated on the pacing tick until the answer or the session's end (the sweep fails the
-     *  waiter) — pacing, never a timeout. Null when the session ended first. */
-    private suspend fun telemetryRead(epoch: Long, op: Int = DamageMsg.OP_TELEMETRY, label: String = "telemetry"): DamageMsg.Telemetry? {
+     *  waiter) — pacing, never a timeout. Null when the session ended first.
+     *
+     *  [askBound] above 0 (R3, review 2 2A-2 — the cache count's two labels, through [telemetry]): the
+     *  reading ends at that many asks unanswered, and the first write failing ends it too; both THROW
+     *  [ReadingEnded] with the cause, for the caller to say. A bound by ASKS, not by time: the shell held
+     *  both cache-write lanes under a count reading the glasses never answered, for the whole session.
+     *  An answer that arrives after the end is dropped by its id: the waiter goes with the reading
+     *  (`finally`) and the next reading asks under an id of its own. 0: unbounded, as before. */
+    private suspend fun telemetryRead(epoch: Long, op: Int = DamageMsg.OP_TELEMETRY, label: String = "telemetry",
+        askBound: Int = 0): DamageMsg.Telemetry? {
         val id = nextTelemetryId()
         val waiter = CompletableDeferred<DamageMsg.Telemetry>()
         // the first attempt's write failing ends the wait, as it does for the prelude and the
@@ -264,25 +316,48 @@ abstract class CfwTransportBase(
         // on a link that is still up re-asked for ever, and the start — which the watchdog cannot
         // see until it completes — never returned). Pacing, never a clock.
         val firstFailed = CompletableDeferred<String>()
+        // completed by the re-ask loop with the count of asks when [askBound] of them went unanswered
+        val unanswered = CompletableDeferred<Int>()
         telemetryWaiters[id] = waiter
         val reask = scope.launch {
             var first = true
+            var asks = 0
             while (true) {
                 if (epoch != sessionEpoch.get()) { waiter.completeExceptionally(LintError("session ended")); break }
                 controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage $label $id",
                     failed = if (first) firstFailed else null) { DamageMsg.control(op, id) })
                 first = false
+                asks++
                 delay(CAPABILITY_REASK_MS)
                 if (waiter.isCompleted) break
+                if (askBound > 0 && asks >= askBound) {
+                    // R3: the reading ends here — said once, with the label and the asks; no further ask
+                    emitNote("glass", "$label $id not answered after $asks asks ${CAPABILITY_REASK_MS} ms apart — " +
+                        "the reading ends here; an answer that arrives later is dropped by its id")
+                    unanswered.complete(asks)
+                    break
+                }
                 Log.i(name, "$label $id unanswered after ${CAPABILITY_REASK_MS} ms — asking again")
+                // 0.64: once, before the third re-ask, in the journal — the shell holds every cache write
+                // under a count reading, and the log is in memory only. Pacing: nothing is given up here.
+                if (asks == 3) emitNote("glass", "$label $id unanswered after ${asks * CAPABILITY_REASK_MS} ms ($asks asks) — " +
+                    "still asking every ${CAPABILITY_REASK_MS} ms; whatever waits on this read waits with it")
             }
         }
-        return try {
+        var ended: ReadingEnded? = null
+        val t = try {
             kotlinx.coroutines.selects.select<DamageMsg.Telemetry?> {
                 waiter.onAwait { it }
-                firstFailed.onAwait { reason -> Log.w(name, "$label $id not written: $reason"); null }
+                firstFailed.onAwait { reason ->
+                    Log.w(name, "$label $id not written: $reason")
+                    if (askBound > 0) ended = ReadingEnded(0, "$label $id not written: $reason")
+                    null
+                }
+                unanswered.onAwait { asks -> ended = ReadingEnded(asks, "$label $id not answered after $asks asks"); null }
             }
         } catch (e: Exception) { null } finally { reask.cancel(); telemetryWaiters.remove(id, waiter) }
+        ended?.let { throw it }
+        return t
     }
 
 
@@ -366,7 +441,13 @@ abstract class CfwTransportBase(
      *  two readings alone (2026-09-14, corrected the same day) misses a reset once the glasses
      *  have been up longer than they were at the previous read — the case right after a flash.
      *  (The tick wraps at 2^32, 49.7 days: a wrap reads as a reset; the phone time is the wall
-     *  clock: a forward jump past the slack between two reads reads the same way.) */
+     *  clock: a forward jump past the slack between two reads reads the same way.)
+     *  Since 0.64 it runs for every RIGHT record, the poll's once a minute too, and more readings cannot
+     *  make a false reset (R2, RG-8): a reading falls short of the prediction only by the two clocks'
+     *  drift and by how much later its reply arrived than the last one's, and a reply cannot arrive later
+     *  than the link's supervision timeout (5,000 ms in every parameter set the phone has reported,
+     *  `HANDOFF.md` §47 — a longer silence ends the link) — inside the 10 s of [RESET_SLACK_MS]. The tick's
+     *  rate is not the reason: `Telemetry.uptimeMs` already converts ticks to milliseconds. */
     private fun noteUptime(uptime: Long) {
         val now = nowMs()
         val prev = lastUptime
@@ -947,6 +1028,18 @@ abstract class CfwTransportBase(
     protected fun onNotifyPacket(arm: Arm, packet: ByteArray) {
         lastInboundAtMs = nowMs()
         val frame = synchronized(reassemblers) { reassemblers.getValue(arm).offer(packet) } ?: return
+        // 0.64 R2 (the review's RG-2): one net around the router. A handler that throws used to leave
+        // through the notify callback — on the phone into the BLE library, which writes it to logcat
+        // alone; on the PC into `BlueZLink`'s Failure event. `Exception`, never `Throwable`: an `Error`
+        // still surfaces where it is thrown. The reassembler has already reset its buffer for this frame.
+        try {
+            routeFrame(arm, frame)
+        } catch (e: Exception) {
+            noteRouteFailed(arm, frame, e)
+        }
+    }
+
+    private fun routeFrame(arm: Arm, frame: AaFrame.Frame) {
         when (frame.sid) {
             EvenHubMsg.SID -> when (frame.flag) {
                 EvenHubMsg.FLAG_ACK -> {
@@ -987,6 +1080,8 @@ abstract class CfwTransportBase(
                 EvenHubMsg.FLAG_EVENT -> routeEvent(frame.payload)
                 EvenHubMsg.FLAG_ABORT ->
                     emitFault("abort", "e0-02 reassembly abort from glasses")
+                // 0.64: an EvenHub frame under a flag this router has no branch for was dropped with no line
+                else -> noteUnhandled(UNHANDLED_FLAG_KEY or frame.flag, arm, frame)
             }
             LaunchMsg.SID -> {
                 val hex = frame.payload.joinToString("") { "%02x".format(it) }
@@ -1022,8 +1117,19 @@ abstract class CfwTransportBase(
                 }
                 // FIRMWARE.md §3: a Damage build's telemetry record (commandId 3, field 111)
                 DamageMsg.parseTelemetry(frame.payload)?.let { t ->
-                    Log.i(name, "glass telemetry from $arm: ${t.describe()}")
-                    emitNote("glass", "${arm.name.first()} ${t.describe()}")
+                    // R2 (RG-5): RIGHT answers every control request twice (`HANDOFF.md` §59) — the second
+                    // copy of an id is neither logged nor journaled; the first such copy of a session is one
+                    // note. Only the lines: what follows (the uptime, the waiters) runs for both copies as before.
+                    val second = if (arm == Arm.RIGHT) secondCopyOf(t.requestId) else null
+                    if (second == null) {
+                        Log.i(name, "glass telemetry from $arm: ${t.describe()}")
+                        emitNote("glass", "${arm.name.first()} ${t.describe()}")
+                    } else if (second.second) {
+                        val text = "R a second copy of reply id ${t.requestId}, ${second.first} ms after the first — RIGHT answers " +
+                            "each request twice (HANDOFF §59); this session's second copies are not journaled from here"
+                        Log.i(name, "glass $text")
+                        emitNote("glass", text)
+                    }
                     // Only RIGHT can answer (`FIRMWARE.md` §3, `CLAIMS.md`: the left lens's stock
                     // senders refuse), and the hold-back rule, the reset check and the carry
                     // decision all read these as RIGHT's. A record arriving on LEFT is therefore
@@ -1057,12 +1163,25 @@ abstract class CfwTransportBase(
                 if (frame.flag == SettingsMsg.FLAG_RESPONSE &&
                     Pb.varintField(frame.payload, 1)?.toInt() in setOf(1, 2))
                     Pb.varintField(frame.payload, 2)?.let { onSettingsResponse(it.toInt()) }
+                // What this line does: a READ sets the state on a field-14 value above 0 and clears
+                // it ONLY on an explicit 0; a block without the field calls nothing. Whether this
+                // firmware sends the zero at all is unread (`SettingsMsg.parseSilentRestored`) —
+                // `noteDeviceInfo` below journals the field's presence so the journal can say.
                 SettingsMsg.parseSilentRestored(frame.payload)?.let { on -> noteSilent(on, "read") }
                 // Battery rides EVERY device-info response (payload f4.12/13 —
                 // G2CC §10, capture-confirmed), the capability-gate answer and
                 // the periodic poll alike: parse it before any gate check.
-                SettingsMsg.parseBattery(frame.payload)?.let { (pct, chg) ->
-                    emitBattery(glassesPct = pct, glassesCharging = chg)
+                // R2 (RG-4): a value outside 0–100 is no level — no reading, said once per session
+                SettingsMsg.parseBatteryRaw(frame.payload)?.let { (raw, chg) ->
+                    if (raw in 0L..100L) emitBattery(glassesPct = raw.toInt(), glassesCharging = chg)
+                    else noteNotALevel(0, "glasses: device-info field 12 = $raw", arm, frame)
+                }
+                // 0.64: the same block's field 10 (the stock wear-detection switch, g2-kit
+                // gen/g2_setting_pb.ts) and which fields it carried at all — read, journaled, acted on by nothing.
+                // R2 (RG-1): with the frame it came in — a READ's answer and an unasked frame are said apart.
+                // The block parsed, so the body is protobuf and the command's read cannot throw.
+                SettingsMsg.parseDeviceInfo(frame.payload)?.let {
+                    noteDeviceInfo(it, frame.flag, Pb.varintField(frame.payload, 1), inGate = awaitingCapability)
                 }
                 if (!awaitingCapability) {
                     Log.d(name, "settings frame outside the capability gate ignored")
@@ -1089,12 +1208,227 @@ abstract class CfwTransportBase(
                 // The ring data relay. Whether the glasses push RingRawData
                 // unprompted is an open probe (CAPABILITIES.md §3) — read what
                 // arrives, log what does not parse, request nothing.
-                val pct = RingMsg.parseBattery(frame.payload)
-                if (pct != null) emitBattery(ringPct = pct)
-                else Log.i(name, "sid-0x91 ring relay without rawData battery: " +
+                val raw = RingMsg.parseBatteryRaw(frame.payload)
+                if (raw == null) Log.i(name, "sid-0x91 ring relay without rawData battery: " +
                     frame.payload.take(24).joinToString("") { "%02x".format(it) })
+                else if (raw in 0L..100L) emitBattery(ringPct = raw.toInt())
+                else noteNotALevel(1, "ring: relay field 1 = $raw", arm, frame)    // R2 (RG-4), as the glasses' level
+            }
+            // 0.64 (`HANDOFF.md` §75.4): the three reads of rest mode's build 1. Journaled; nothing acts on them.
+            WearMsg.SID -> onWearFrame(arm, frame)
+            CaseMsg.SID -> onCaseFrame(arm, frame)
+            // ...and a service this router has no branch for was dropped with no line: named once per session
+            else -> noteUnhandled(frame.sid, arm, frame)
+        }
+    }
+
+    // ------------------------------------------------------------------ 0.64: wear, case, unknown services
+    /** A frame's bytes for a `Log` line or a per-frame note: whole up to [UNHANDLED_HEX_MAX] (every wear and
+     *  case frame is a few bytes), and past that the first [UNHANDLED_HEX_MAX] with the cut and the size
+     *  said — a cut is never passed off as the frame. */
+    private fun hex(b: ByteArray): String =
+        if (b.size <= UNHANDLED_HEX_MAX) b.joinToString("") { "%02x".format(it) }
+        else b.asList().subList(0, UNHANDLED_HEX_MAX).joinToString("") { "%02x".format(it) } + "… (the first $UNHANDLED_HEX_MAX of ${b.size} B)"
+
+    /** R2 (item 7, the lead's ruling): every byte, for the journal note of a said-once frame — bounded by
+     *  construction (one per key per session), and exactly the frames nobody can describe in advance. The
+     *  `Log` line beside it keeps [hex]: the ring is 4,000 lines held in memory. */
+    private fun hexWhole(b: ByteArray): String = b.joinToString("") { "%02x".format(it) }
+
+    /** A per-frame note's bytes (a wear report, a parsed case frame): bounded as [hex], except that the
+     *  session's FIRST frame of that [kind] past the bound is written whole, through the said-once set. */
+    private fun hexPerFrame(kind: Int, b: ByteArray): String =
+        if (b.size > UNHANDLED_HEX_MAX && unhandledSaid.add(UNHANDLED_LONG_KEY or kind))
+            hexWhole(b) + " (all ${b.size} B: the session's first frame past $UNHANDLED_HEX_MAX B is written whole)"
+        else hex(b)
+
+    /** What was said once this session, by key: a service with no handler ([noteUnhandled]: the service id,
+     *  or [UNHANDLED_FLAG_KEY] with the flag for an EvenHub frame), a service-0x10 command that is not a wear
+     *  event ([UNHANDLED_WEAR_KEY] with the command id), a service-0x81 frame that is not protobuf
+     *  ([UNHANDLED_CASE_KEY]), a frame whose handler threw ([UNHANDLED_THREW_KEY] with the service id), a battery value that is no level
+     *  ([UNHANDLED_LEVEL_KEY] with the source), a per-frame note's first frame past the bound
+     *  ([UNHANDLED_LONG_KEY] with the kind). Ints, so a frame that was already named costs one set lookup and no
+     *  formatting. Cleared at [start]: a new session makes each news once more. Both arms' notify threads
+     *  may add at once; `add` decides. */
+    private val unhandledSaid: MutableSet<Int> = ConcurrentHashMap.newKeySet()
+
+    /** A frame on a service (or under an EvenHub flag) with no handler: one `sid` note per [key] per session,
+     *  with the arm, the flag, the size and every byte (R2, item 7); the `Log` line beside it prints the first
+     *  [UNHANDLED_HEX_MAX] bytes with the size. */
+    private fun noteUnhandled(key: Int, arm: Arm, frame: AaFrame.Frame) {
+        if (!unhandledSaid.add(key)) return
+        val what = if (key and UNHANDLED_FLAG_KEY != 0) "0xe0/flag 0x%02x".format(frame.flag) else "0x%02x".format(frame.sid)
+        val head = "$what from ${arm.name.first()}, flag 0x%02x, ${frame.payload.size} B: ".format(frame.flag)
+        val tail = " — no handler; said once per session"
+        Log.w(name, "sid " + head + hex(frame.payload) + tail)
+        emitNote("sid", head + hexWhole(frame.payload) + tail)
+    }
+
+    /** R2 (RG-5): the last [TELEMETRY_IDS_KEPT] non-zero request ids of RIGHT's telemetry records this session,
+     *  each with the time its first copy was routed; [telemetrySecondCopySaid] once the session's first second
+     *  copy is said. Both guarded by the deque's monitor (the two arms' notify threads, the model's delayed
+     *  copy). Cleared at [start]. Eight, not one: the next request goes out as soon as the first copy answers,
+     *  and the first one's second copy can come after it (A, B, A′, B′ — the copies are up to ~144 ms apart
+     *  on glass). */
+    private val telemetryIdsSeen = ArrayDeque<Pair<Long, Long>>()
+    private var telemetrySecondCopySaid = false
+
+    /** Null when [id]'s record is to be logged and journaled (id 0 — the FLAGS ops' shared echo — absent, or
+     *  not among the last eight: it is then recorded); otherwise the gap in ms since its first copy and
+     *  whether this is the session's first second copy. A second copy takes its id out, so a third is news. */
+    private fun secondCopyOf(id: Long?): Pair<Long, Boolean>? {
+        if (id == null || id == 0L) return null
+        val now = nowMs()
+        synchronized(telemetryIdsSeen) {
+            val i = telemetryIdsSeen.indexOfFirst { it.first == id }
+            if (i < 0) {
+                if (telemetryIdsSeen.size >= TELEMETRY_IDS_KEPT) telemetryIdsSeen.removeFirst()
+                telemetryIdsSeen.addLast(id to now)
+                return null
+            }
+            val first = telemetryIdsSeen.removeAt(i).second
+            val sayIt = !telemetrySecondCopySaid
+            telemetrySecondCopySaid = true
+            return (now - first) to sayIt
+        }
+    }
+
+    /** 0.64 R2 (RG-4): a battery value outside 0–100 took no reading; said once per session per [source]
+     *  (0 the glasses' device-info block, 1 the ring's relay) with the value as the glasses wrote it. */
+    private fun noteNotALevel(source: Int, what: String, arm: Arm, frame: AaFrame.Frame) {
+        if (!unhandledSaid.add(UNHANDLED_LEVEL_KEY or source)) return
+        val text = "$what — not a level, not taken (${arm.name.first()} %02x-%02x; said once per session)".format(frame.sid, frame.flag)
+        Log.w(name, "battery: $text")
+        emitNote("battery", text)
+    }
+
+    /** A handler threw on [frame] (0.64 R2, RG-2): the frame is dropped. The first time per service per
+     *  session it is an ERROR line (on the phone that is also a notification) and one `sid` note naming
+     *  the exception and its top frame; after that one WARN line per frame — every one is in the log, and
+     *  a frame the glasses repeat is not a notification a minute. What a handler half way through leaves
+     *  is the handler's: the reassembler has reset, nothing here completes or releases a waiter. */
+    private fun noteRouteFailed(arm: Arm, frame: AaFrame.Frame, e: Exception) {
+        val what = "0x%02x from ${arm.name.first()}, flag 0x%02x, ${frame.payload.size} B".format(frame.sid, frame.flag)
+        val why = "${e::class.simpleName}: ${e.message}" + (e.stackTrace.firstOrNull()?.let { " (at $it)" } ?: "")
+        if (!unhandledSaid.add(UNHANDLED_THREW_KEY or (frame.sid and 0xFF))) {
+            Log.w(name, "sid $what: the handler threw $why — dropped (said this session)")
+            return
+        }
+        val tail = " — the handler threw $why; dropped, said once per service per session"
+        Log.e(name, "sid $what: ${hex(frame.payload)}$tail")
+        emitNote("sid", "$what: ${hexWhole(frame.payload)}$tail")
+    }
+
+    /** Service 0x10 ([WearMsg]): a wear event becomes state ([LinkState.worn]), a [TransportEvent.Wear] and
+     *  one `wear` note carrying the arm, the flag and the bytes — which arm and flag the fork's sender uses
+     *  on our wire is unread, so the note is the reading. Recognised by service and shape, never by the
+     *  flag. Any other frame on the service (the schema also has CONFIG and HEARTBEAT) is named once per
+     *  command id per session. */
+    private fun onWearFrame(arm: Arm, frame: AaFrame.Frame) {
+        val a = arm.name.first()
+        val worn = WearMsg.parse(frame.payload)
+        if (worn == null) {
+            val cmd = WearMsg.commandId(frame.payload)
+            if (!unhandledSaid.add(UNHANDLED_WEAR_KEY or ((cmd ?: 0xFF) and 0xFF))) return
+            val head = "$a service 0x10 frame that is not a wear event (command ${cmd ?: "-"}, flag 0x%02x, ${frame.payload.size} B): ".format(frame.flag)
+            val tail = " — said once per command per session"
+            Log.i(name, "wear: " + head + hex(frame.payload) + tail)
+            emitNote("wear", head + hexWhole(frame.payload) + tail)
+            return
+        }
+        var first = false
+        var changed = false
+        synchronized(stateLock) {                        // one read decides both
+            val was = _state.value.worn
+            first = was == null
+            changed = was != worn
+            if (changed) _state.value = _state.value.copy(worn = worn)
+        }
+        val state = if (worn) "worn" else "not worn"
+        val head = "$a " + (when { first -> "first report: $state"; changed -> "now $state"; else -> "$state again" }) +
+            " (flag 0x%02x, ".format(frame.flag)
+        Log.i(name, "wear: " + head + hex(frame.payload) + ")")
+        emitNote("wear", head + hexPerFrame(LONG_WEAR_REPORT, frame.payload) + ")")
+        if (!_events.tryEmit(TransportEvent.Wear(worn, first))) Log.e(name, "Wear event DROPPED (buffer full)")
+    }
+
+    /** Service 0x81 ([CaseMsg]): one `case` note per frame — whether the glasses push these unasked on our
+     *  base, and how often, is what the journal is being asked. `-` stands for a field the frame did not
+     *  carry. A frame that is not protobuf is named once per session. */
+    private fun onCaseFrame(arm: Arm, frame: AaFrame.Frame) {
+        val a = arm.name.first()
+        val info = CaseMsg.parse(frame.payload)
+        if (info == null) {
+            if (!unhandledSaid.add(UNHANDLED_CASE_KEY)) return
+            val head = "$a flag 0x%02x, ${frame.payload.size} B did not parse: ".format(frame.flag)
+            val tail = " — said once per session"
+            Log.w(name, "case: " + head + hex(frame.payload) + tail)
+            emitNote("case", head + hexWhole(frame.payload) + tail)
+            return
+        }
+        fun v(x: Int?) = x?.toString() ?: "-"
+        val head = "$a flag 0x%02x: ".format(frame.flag) +
+            (if (info.hasInfo) "level ${v(info.soc)}%, charging ${v(info.charge)}, lid ${v(info.lid)}, in case ${v(info.inCase)}, error ${v(info.error)} "
+             else "no case info ") + "(cmd ${v(info.cmd)}, "
+        Log.i(name, "case: " + head + hex(frame.payload) + ")")
+        emitNote("case", head + hexPerFrame(LONG_CASE_FRAME, frame.payload) + ")")
+    }
+
+    /** What a device-info block said, as the journal has it: field 10's value, whether field 14 was there
+     *  and which fields were present (the shape). */
+    private data class DeviceInfoSaid(val wearSwitch: Long?, val silentPresent: Boolean, val fields: List<Int>)
+    /** The shape a READ's answer last said this session; null = nothing said yet. */
+    @Volatile private var deviceInfoSaid: DeviceInfoSaid? = null
+    /** R2 (RG-1): the (flag, command, shape) of each other block-bearing frame said this session, at most
+     *  [DEVICE_INFO_SHAPES_MAX]; [deviceInfoShapesCapped] once the one line for the rest is written. Both
+     *  guarded by the set's monitor — the two arms' notify threads and the model's lane can route at once.
+     *  Cleared at [start]. */
+    private val deviceInfoShapesSaid = HashSet<Triple<Int, Long?, DeviceInfoSaid>>()
+    private var deviceInfoShapesCapped = false
+
+    /** A device-info block (root field 4 of a sid-0x09 frame), said with the frame it came in.
+     *  - A READ's answer (flag 0x00, command 2 — the poll's, and the start's when the capability READ carries
+     *    the block): [LinkState.wearSwitch] follows its field 10, and its note is said when its shape differs
+     *    from the last one said — so a change of field 10's reading or of field 14's PRESENCE inside one
+     *    session is said again (a sleep and a wake show whether a READ carries the Silent Mode zero), never
+     *    every minute. Bounded by our own READ cadence and by real changes.
+     *  - Any other frame (an unasked `09-01` — measured on glass, a level change 33 s apart under a 60 s poll —
+     *    or another command's answer): said once per (flag, command, shape) per session, at most
+     *    [DEVICE_INFO_SHAPES_MAX], then one line; it moves no state, so a frame from another encoder cannot
+     *    stand in for the READ's reading, and the two sources never take turns at one note.
+     *  Nothing keys on the notes. */
+    private fun noteDeviceInfo(info: SettingsMsg.DeviceInfo, flag: Int, cmd: Long?, inGate: Boolean) {
+        val read = flag == SettingsMsg.FLAG_RESPONSE && cmd == 2L
+        val sw = info.wearSwitch?.let { it > 0L }
+        val key = DeviceInfoSaid(info.wearSwitch, info.silentRestored != null, info.fields)
+        val frameName = "09-%02x cmd ${cmd ?: "-"}".format(flag)
+        val from = if (read) frameName + (if (inGate) ", the start's READ" else "")
+            else "$frameName, not a READ's answer — said once per shape per session"
+        if (read) {
+            updateState { it.copy(wearSwitch = sw) }
+            if (deviceInfoSaid == key) return      // a doubled note on a race between two frames is harmless
+            deviceInfoSaid = key
+        } else {
+            val capLine = synchronized(deviceInfoShapesSaid) {
+                if (Triple(flag, cmd, key) in deviceInfoShapesSaid) return
+                if (deviceInfoShapesSaid.size < DEVICE_INFO_SHAPES_MAX) { deviceInfoShapesSaid.add(Triple(flag, cmd, key)); false }
+                else if (deviceInfoShapesCapped) return
+                else { deviceInfoShapesCapped = true; true }
+            }
+            if (capLine) {
+                val text = "device-info blocks in more than $DEVICE_INFO_SHAPES_MAX shapes from frames that are not a READ's " +
+                    "answer this session (the last: $frameName) — the rest are not listed"
+                Log.i(name, "wear: $text")
+                emitNote("wear", text)
+                return
             }
         }
+        val f14 = info.silentRestored?.let { "field 14 present = $it" } ?: "field 14 absent"
+        val present = "fields present ${info.fields.joinToString(",")}"
+        val text = if (info.wearSwitch != null) "switch ${if (sw == true) "on" else "off"} ($from; device-info field 10 = ${info.wearSwitch}; $f14; $present)"
+            else "device-info field 10 absent — the switch is off or the field is not sent ($from; $f14; $present)"
+        Log.i(name, "wear: $text")
+        emitNote("wear", text)
     }
 
     /** §47: the firmware answered msgId [id] on sid 0x09. Completes the
@@ -1126,14 +1460,20 @@ abstract class CfwTransportBase(
     }
 
     private var lastLoggedGlassesPct = -1
+    private var lastLoggedCharging: Boolean? = null
     private var lastLoggedRingPct = -1
 
     private fun emitBattery(glassesPct: Int? = null, glassesCharging: Boolean? = null, ringPct: Int? = null) {
         // log CHANGES (the 60 s poll would otherwise repeat one line forever):
         // the first-light lesson — a telemetry path you cannot observe in the
-        // log is undiagnosable when the cell stays blank
-        if (glassesPct != null && glassesPct != lastLoggedGlassesPct) {
+        // log is undiagnosable when the cell stays blank.
+        // 0.64: a change of the CHARGING flag at an unchanged level is a change too — the event went
+        // out for every reading and the journal kept level changes only, so the moment the pair went on
+        // or came off the charger left no note, and the low-battery latch opens on exactly that reading
+        val charging = glassesCharging == true
+        if (glassesPct != null && (glassesPct != lastLoggedGlassesPct || charging != lastLoggedCharging)) {
             lastLoggedGlassesPct = glassesPct
+            lastLoggedCharging = charging
             Log.i(name, "battery: glasses $glassesPct%${if (glassesCharging == true) " (charging)" else ""}")
             // §49 (FORK.md M0.6): the journal keeps every change, so a day's
             // drain can be read from /journal — /log's tail holds under a day
@@ -1216,14 +1556,24 @@ abstract class CfwTransportBase(
     }
 
     /** Whether the renewal loop keeps the lease (§36): dropped on demand while
-     *  the glasses are silent, taken back on wake. */
+     *  the shell is asleep — the firmware's Silent Mode, or a rest (0.64). It returns to true in
+     *  [start] and nowhere else in the running system ([setLeaseWanted]`(true)` has no caller outside
+     *  a test): every wake is a session rebuild. A driver that ADOPTS this session calls no `start()`,
+     *  so it can find the lease released — `Shell.startLocked` rebuilds a session its own shell adopts
+     *  so (the P4 review's finding 4; a driver claiming through the seam is not covered). Written by
+     *  the shell's release coroutine and by `start()`, read by the maintenance loops and the control lane. */
     @Volatile private var leaseWanted = true
 
     /** Whether the EvenHub page is ours to keep alive (§42): not while the
      *  shell has dropped the lease on purpose, and not while the glasses say
      *  they are silent — the page has ended either way, and every message
-     *  into it goes unanswered. */
-    private fun pageTrafficWanted(): Boolean = leaseWanted && !_state.value.glassesSilent
+     *  into it goes unanswered. [st] is the caller's ONE snapshot of the link
+     *  state, when it has already read one for `started` (0.64: two reads of
+     *  the flow in one decision could straddle a change). Its readers: the
+     *  keepalive, the 30 s carrier refresh, the poll's telemetry read and
+     *  (0.64) the watchdog — the renewal loop reads `leaseWanted` alone, and
+     *  the 60 s device-info READ runs through every sleep on purpose. */
+    private fun pageTrafficWanted(st: LinkState = _state.value): Boolean = leaseWanted && !st.glassesSilent
 
     override suspend fun setLeaseWanted(wanted: Boolean) {
         if (leaseWanted == wanted) return
@@ -1232,9 +1582,9 @@ abstract class CfwTransportBase(
         val written = CompletableDeferred<Unit>()
         controlQueue.trySend(CtlWork.Lease(sessionEpoch.get(),
             if (wanted) SettingsMsg.OP_FB_ACQUIRE else SettingsMsg.OP_FB_RELEASE, written))
-        awaitReleaseWrite(written, if (wanted) "on wake" else "while the glasses are silent")
-        if (wanted) setLease(true, "FB lease taken back — the glasses are awake")
-        else setLease(false, "FB lease released on purpose — the glasses are silent, stock owns the display")
+        awaitReleaseWrite(written, if (wanted) "on wake" else "while the shell is asleep")
+        if (wanted) setLease(true, "FB lease taken back — the shell is awake")
+        else setLease(false, "FB lease released on purpose — the shell is asleep, stock owns the display")
     }
 
     /**
@@ -1305,13 +1655,23 @@ abstract class CfwTransportBase(
         started = true
         leaseWanted = true                // a new session holds its lease until the shell says otherwise
         // ...and it does not inherit the last one's Silent Mode (2026-09-16 review). `noteSilent`
-        // is the only writer and the READ path can only ever SET it: `parseSilentRestored`
-        // returns null when the device-info field is absent, and then nothing is called. A stale
-        // `true` carried into a new session made `Shell.startLocked` enter Silent Mode on an awake
-        // pair, with no recovery but a process restart or a real push. Cleared here, the READ or
-        // the push below re-establishes it, and if the glasses really are silent the refusal
-        // streak of §36 takes the shell back there — the path that is designed to.
-        synchronized(stateLock) { _state.value = _state.value.copy(glassesSilent = false) }
+        // is the only writer. What the READ path does: it sets the state on a field-14 value above
+        // 0 and clears it only on an explicit 0 — `parseSilentRestored` returns null when the
+        // device-info field is absent, and then nothing is called. Whether this firmware sends the
+        // zero at all is unread (stock 2.2.2's block carried no field 14 while awake), so a READ
+        // cannot be counted on to clear it, and a stale `true` carried into a new session made
+        // `Shell.startLocked` enter Silent Mode on an awake pair, with no recovery but a process
+        // restart or a real push. Cleared here, the READ or the push below re-establishes it, and
+        // if the glasses really are silent the refusal streak of §36 takes the shell back there —
+        // the path that is designed to.
+        // 0.64: the wear report and the wear-detection switch are the session's too (a report of
+        // the last link must not read as this one's state; "first" is "nothing reported yet"), and
+        // so is what the notes below have already said once.
+        synchronized(stateLock) { _state.value = _state.value.copy(glassesSilent = false, worn = null, wearSwitch = null) }
+        deviceInfoSaid = null
+        synchronized(deviceInfoShapesSaid) { deviceInfoShapesSaid.clear(); deviceInfoShapesCapped = false }
+        synchronized(telemetryIdsSeen) { telemetryIdsSeen.clear(); telemetrySecondCopySaid = false }
+        unhandledSaid.clear()
         // §73: the estimator starts over with the session, and the state says so in the same
         // step — the readings it held timed a link that is gone, and a regime read from them
         // stood for hours (2026-11-09: SLOW from before 08:47 to 12:06 on one stale number)
@@ -1581,6 +1941,16 @@ abstract class CfwTransportBase(
             // Phase 2 session). It still precedes the atlas upload, which is the session's big
             // transfer.
             damageCaps?.let { onDamageBuild(it) }
+            // 0.64 (`HANDOFF.md` §75.4): one WEAR_QUERY per session start, after the lease, never waited
+            // on — the answer (or its absence all session) is what the journal is being asked. Not
+            // gated on the `wearnotify` token: a token can be dropped from the string for space while
+            // the feature stays, and a build without op 7 ignores the field.
+            // R3 (review 2, 2B-1): not while the glasses say Silent Mode is on — the start's own READ says so
+            // before this line, and the shell goes to sleep on it; the session the wake rebuilds asks (§36/§42:
+            // nothing of ours goes to glasses in Silent Mode beyond the wake path). One read of the state.
+            if (_state.value.glassesSilent) emitNote("wear", "query not sent: the glasses say Silent Mode is on — the session the wake rebuilds asks")
+            else if (queryWear()) emitNote("wear", "query sent after the lease (op 7, both arms) — no reply is a legal answer")
+            else emitNote("wear", "query not sent after the lease — the session ended first")
             // §49 probe: the CREATE above ended the firmware's log stream
             if (loggerWanted) controlQueue.trySend(loggerSwitch(epoch, true))
             // FIRMWARE.md §0: what the READ answered about a Damage build, once per session
@@ -1651,8 +2021,11 @@ abstract class CfwTransportBase(
                 // firmware's EvenHub page is gone, and a keepalive into it is never
                 // acked — the phone journal counted 8,641 of them in one day, one
                 // every 4 s for ten hours. The 60 s device-info READ below stays: it
-                // is the wake poll.
-                if (_state.value.started && pageTrafficWanted() && (nowMs() - lastImageAtMs > 4_000 || instant)) {
+                // can put the shell to sleep (field 14 above 0) and it wakes it only on
+                // an explicit 0 — whether the glasses send that zero is unread, so the
+                // push OFF is the wake the code counts on (`SettingsMsg.parseSilentRestored`).
+                val st = _state.value                  // one snapshot for `started` and the page-traffic test
+                if (st.started && pageTrafficWanted(st) && (nowMs() - lastImageAtMs > 4_000 || instant)) {
                     controlQueue.trySend(CtlWork.Hub(sessionEpoch.get(), EvenHubMsg.keepalive(0), null))
                 }
                 // Stall REPORT (round 4 D5) — a diagnostic, not a timeout:
@@ -1671,7 +2044,8 @@ abstract class CfwTransportBase(
         scope.launch {
             while (isActive) {
                 delay(if (instant) 50 else 30_000)
-                if (_state.value.started && pageTrafficWanted()) controlQueue.trySend(CtlWork.Hub(sessionEpoch.get(), EvenHubMsg.carrierTextUpgrade(0), null))
+                val st = _state.value
+                if (st.started && pageTrafficWanted(st)) controlQueue.trySend(CtlWork.Hub(sessionEpoch.get(), EvenHubMsg.carrierTextUpgrade(0), null))
             }
         }
         scope.launch {
@@ -1683,9 +2057,24 @@ abstract class CfwTransportBase(
             var first = true
             while (isActive) {
                 delay(if (instant) 60 else if (first) 5_000 else 60_000)
-                if (_state.value.started) {
+                val st = _state.value                  // one snapshot for the READ and the telemetry read
+                if (st.started) {
                     first = false
                     controlQueue.trySend(CtlWork.Settings(sessionEpoch.get(), SettingsMsg.deviceInfoQuery(0)))
+                    // 0.64 (`HANDOFF.md` §75.4 call 5; §74 A1): one telemetry read a poll while the page
+                    // traffic is wanted, so the journal can set `presents` against `transferUs` (frames
+                    // counted against frames sent to the panel) once a minute. FIRMWARE.md §3, op 1 on
+                    // field 112: it records no status. Fire-and-forget like the probe's read: a fresh
+                    // non-zero request id, so it can complete neither an id-0 waiter (FLAGS_SET, op 5)
+                    // nor another read's; NO waiter is registered, so nothing can park on it — the
+                    // router journals each reply as a `glass` note whoever asked, and a lost reply costs
+                    // one reading. Not while the shell sleeps (the page traffic's rule, §42), and only
+                    // on a build that answers.
+                    if (pollTelemetryOn() && pageTrafficWanted(st) && damageCaps?.has(DamageMsg.FEATURE_TELEMETRY) == true) {
+                        val id = nextTelemetryId()
+                        controlQueue.trySend(CtlWork.BothArms(sessionEpoch.get(), SettingsMsg.SID, "damage poll telemetry $id") {
+                            DamageMsg.control(DamageMsg.OP_TELEMETRY, id) })
+                    }
                 }
             }
         }
@@ -1729,14 +2118,25 @@ abstract class CfwTransportBase(
      * is not answered either, [WATCHDOG_PROBE_TICKS] later. Ticks, not
      * elapsed time, so the instant test transport runs the same rule.
      *
-     * Never while the glasses say they are silent (`glassesSilent`): the
-     * sleeping shell has its own wake, and a rebuild under Silent Mode makes
-     * a page the firmware ends again. Never before a session is up. Each new
-     * session starts its own count, so a pair that stays quiet is asked once
-     * per session — the keeper's pacing, not a loop of its own.
+     * Never while the page traffic sleeps ([pageTrafficWanted], 0.64): the
+     * shell asleep — the firmware's Silent Mode, a refusal-streak sleep or a
+     * rest — has its own wake; the keepalive that made quiet meaningful has
+     * stopped on purpose; a rebuild under Silent Mode makes a page the
+     * firmware ends again; and the probe itself is a carrier refresh into a
+     * page that may have ended (§42). Until 0.64 this read the glasses' own
+     * flag alone, so a sleep the transport's flag did not show (a refusal
+     * streak; a rest) was probed about 13 s in — and rebuilt about 23 s in
+     * when the probe went unanswered, before the shell's own 60 s check; with
+     * the page alive the probe was acked and the watchdog acted as a 13 s
+     * carrier refresh. Now the shell's paced check or an input event is the
+     * one way back from every sleep, and a link that goes stale during one is
+     * found at that wake. Never before a session is up. Each new session
+     * starts its own count, so a pair that stays quiet is asked once per
+     * session — the keeper's pacing, not a loop of its own.
      */
     private suspend fun watchdogTick() {
-        if (!running || !_state.value.started || _state.value.glassesSilent) {
+        val st = _state.value                  // one snapshot for `started` and the page-traffic test
+        if (!running || !st.started || !pageTrafficWanted(st)) {
             quietTicks = 0; watchdogProbed = false
             return
         }
@@ -1778,6 +2178,9 @@ abstract class CfwTransportBase(
      *  an atlas upload. One control round trip; nothing is sent on a build that cannot answer. */
     override val cacheCheckSupported: Boolean get() = true
 
+    /** R2 (RH-7): this host holds the lease: `setLeaseWanted(false)` writes the release (op 5's FB_RELEASE). */
+    override val leaseOnDemand: Boolean get() = true
+
     override suspend fun cacheCheck(): DamageMsg.Telemetry? {
         if (!started) return null
         if (damageCaps?.has(DamageMsg.FEATURE_TELEMETRY) != true) return null
@@ -1787,7 +2190,11 @@ abstract class CfwTransportBase(
     override suspend fun telemetry(label: String): DamageMsg.Telemetry? {
         if (!started) return null
         if (damageCaps?.has(DamageMsg.FEATURE_TELEMETRY) != true) return null
-        return telemetryRead(sessionEpoch.get(), op = DamageMsg.OP_TELEMETRY, label = label)
+        // R3 (review 2, 2A-2): this is the shell's cache count (`cache count`, `stage check`) and its only
+        // reader — bounded at three asks. The start's reset check, the arming's reads and the atlas
+        // read-back stay unbounded: the reset check reads a null as the session's end, and the read-back's
+        // bound was ruled not built in R3.
+        return telemetryRead(sessionEpoch.get(), op = DamageMsg.OP_TELEMETRY, label = label, askBound = COUNT_ASK_BOUND)
     }
 
     override suspend fun clearDiagFlags() {
@@ -2379,10 +2786,16 @@ abstract class CfwTransportBase(
                             throw e
                         }
                         is CtlWork.Lease -> {
-                            if (work.op == SettingsMsg.OP_FB_ACQUIRE && !running) {
+                            if (work.op == SettingsMsg.OP_FB_ACQUIRE && (!running || !leaseWanted)) {
                                 // a renewal that slipped past stop()'s running=false
                                 // must not re-lease glasses just released (round 3
-                                // D10); the epoch guard above catches the rest
+                                // D10); the epoch guard above catches the rest.
+                                // 0.64 (the P4 review's finding 12): nor one that slipped past
+                                // the release of a sleep — the renewal loop tests `leaseWanted`
+                                // and THEN enqueues, `setLeaseWanted(false)` sets it and then
+                                // enqueues, so the queue could hold RELEASE then ACQUIRE: a
+                                // fresh acquire into a rest, and a lapse 88 s later. Decided
+                                // here, where the write would happen, from the flag as it stands.
                                 work.written?.complete(Unit)
                             } else {
                                 // Fire-and-forget by design (settings_ext.c:
@@ -2500,6 +2913,9 @@ abstract class CfwTransportBase(
          *  can eat a settings READ sent while it settles a previous session's
          *  context. Pacing, not a timeout — the gate never exits on time. */
         private const val CAPABILITY_REASK_MS = 2_000L
+        /** R3 (review 2, 2A-2): asks of one cache-count reading before it ends unanswered — the first and
+         *  two re-asks, where the 0.64 journal line was written. A count, not a clock. */
+        private const val COUNT_ASK_BOUND = 3
         /** `FORK.md` §3.2: a reset this soon after an arming disarms the feature until asked again. A placeholder until measured (M0.5 was dropped); Adam's to set. */
         private const val HOLD_BACK_MS = 120_000L
         /** How far short of the predicted uptime a reading must fall to count as a reset
@@ -2507,6 +2923,31 @@ abstract class CfwTransportBase(
          *  well inside it; a reset can hide inside it only if the glasses reset within this
          *  long of booting. */
         private const val RESET_SLACK_MS = 10_000L
+
+        /** 0.64: how much of a frame a bounded note or `Log` line prints — enough for any short status
+         *  message whole; the byte count is printed, so a longer frame is not passed off as complete. Since R2
+         *  (item 7) the said-once notes are written whole in the journal and only their `Log` lines and the
+         *  per-frame notes keep this bound. */
+        const val UNHANDLED_HEX_MAX = 96
+        /** Keys of the said-once set (`unhandledSaid`): a bare service id is 0..0xFF; these bits mark the
+         *  three other classes — an EvenHub frame under an unknown flag (with the flag), a service-0x10
+         *  command that is not a wear event (with the command id), a service-0x81 frame that is not protobuf,
+         *  and (0.64 R2) a frame whose handler threw (with the service id), a battery value that is no level
+         *  (with the source), a per-frame note's first frame past the bound (with the kind). */
+        private const val UNHANDLED_FLAG_KEY = 0x100
+        private const val UNHANDLED_WEAR_KEY = 0x200
+        private const val UNHANDLED_CASE_KEY = 0x400
+        private const val UNHANDLED_THREW_KEY = 0x800
+        private const val UNHANDLED_LEVEL_KEY = 0x1000
+        /** R2 (item 7): a per-frame note's first frame past [UNHANDLED_HEX_MAX] this session, by kind. */
+        private const val UNHANDLED_LONG_KEY = 0x2000
+        private const val LONG_WEAR_REPORT = 1
+        private const val LONG_CASE_FRAME = 2
+        /** R2 (RG-1): how many shapes of block-bearing frames that are not a READ's answer are said per
+         *  session before one line says the rest are not listed. */
+        const val DEVICE_INFO_SHAPES_MAX = 16
+        /** R2 (RG-5): how many of the session's last telemetry request ids the second-copy rule remembers. */
+        const val TELEMETRY_IDS_KEPT = 8
 
         /** §54, the bounded atlas skip. A lease write that left within this long of
          *  the link's end is not taken as arrived: the platform's write callback means

@@ -158,6 +158,10 @@ class Staging {
  * of those make a shortfall. More bumps than expected ([Verdict.Foreign]) re-base the count and
  * invalidate nothing: the acked writes are not made bad by an extra bump (the same night's reads
  * showed one, cause unread), and another writer's bytes are caught by the transport's writer tag.
+ *
+ * Since 0.64 the count has ONE reader, wherever the shell is (`Shell.pumpLedger`, op 1 on RIGHT):
+ * the base is read before a session's first cache write, and a reading is owed whenever writes are
+ * acked past the last agreed one ([unjudged]). An interval is the batches since the last agreed reading.
  */
 class CacheLedger {
     /** Non-empty cache writes acked this session, in lane order — atlas chunks and staged records. */
@@ -178,7 +182,14 @@ class CacheLedger {
         if (atlas) atlasAcked += writes
     }
 
-    fun writeLost() { unsure = true }
+    /** Cache-write messages acked past the last agreed reading: what a reading is still owed for. */
+    val unjudged: Long get() = acked - baseAcked
+
+    fun writeLost() { rebaseNext() }
+
+    /** The writes acked since the base can no longer be judged by counting (a write whose ack never
+     *  came, a layout replaced under them): the next reading re-bases and proves nothing. */
+    fun rebaseNext() { unsure = true }
 
     fun reset() {
         acked = 0L; atlasAcked = 0L
@@ -187,16 +198,20 @@ class CacheLedger {
     }
 
     sealed class Verdict {
-        /** The first reading of the session, or one after a lost write: a base, nothing proven. */
-        class Base(val gen: Long) : Verdict()
+        /** The first reading of the session ([first]), or one after a lost write or a replaced
+         *  layout: a base, nothing proven. */
+        class Base(val gen: Long, val first: Boolean) : Verdict()
         /** Every write acked up to [upTo] landed. */
         class Proven(val upTo: Long) : Verdict()
         /** Short, but the acked writes have not had [SETTLE_MS] to land yet: counts for nothing; ask again. */
         class Pending(val missing: Long) : Verdict()
         /** Short after the settle window — asked again before it is called a shortfall. */
         class Short(val missing: Long, val reads: Int) : Verdict()
-        /** Short [SHORT_READS_MAX] times: [missing] writes since the last base never landed. */
-        class Shortfall(val missing: Long, val atlasInvolved: Boolean, val fromAcked: Long, val toAcked: Long) : Verdict()
+        /** Short [SHORT_READS_MAX] times: [missing] of the writes acked in ([fromAcked], [toAcked]] were
+         *  never counted; [atlasWrites] of that interval's messages were the atlas's (the rest staged strips). */
+        class Shortfall(val missing: Long, val atlasWrites: Long, val fromAcked: Long, val toAcked: Long) : Verdict() {
+            val atlasInvolved: Boolean get() = atlasWrites > 0
+        }
         /** More bumps than this shell's writes: something else wrote the cache. */
         class Foreign(val extra: Long, val fromAcked: Long, val toAcked: Long) : Verdict()
     }
@@ -208,7 +223,7 @@ class CacheLedger {
         val base = baseGen
         if (base == null || unsure) {
             rebase(gen, sendAcked, sendAtlasAcked)
-            return Verdict.Base(gen)
+            return Verdict.Base(gen, first = base == null)
         }
         val expected = base + (sendAcked - baseAcked)
         return when {
@@ -222,9 +237,9 @@ class CacheLedger {
                 if (shortReads < SHORT_READS_MAX) Verdict.Short(expected - gen, shortReads)
                 else {
                     val from = baseAcked
-                    val atlasInvolved = sendAtlasAcked > baseAtlasAcked
+                    val atlasWrites = sendAtlasAcked - baseAtlasAcked     // taken before the re-base
                     rebase(gen, sendAcked, sendAtlasAcked)
-                    Verdict.Shortfall(expected - gen, atlasInvolved, from, sendAcked)
+                    Verdict.Shortfall(expected - gen, atlasWrites, from, sendAcked)
                 }
             }
             else -> {
@@ -249,5 +264,9 @@ class CacheLedger {
         const val SETTLE_MS = 2_000L
         /** No second reading sooner than this after a pending or short one. */
         const val REREAD_PACE_MS = 500L
+        /** No reading sooner than this after one that was NOT ANSWERED (0.64 R1: the transport's null —
+         *  its first write failed or its session is ending). A pace, not a bound: the reading is asked
+         *  again when it ends; the bound is the shell's count of unanswered readings in a row. */
+        const val UNANSWERED_PACE_MS = 2_000L
     }
 }

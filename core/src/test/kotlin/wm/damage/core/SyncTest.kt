@@ -82,11 +82,16 @@ class SyncTest {
             assertEquals(tNew, p.stamp("window.w"))
             assertEquals(2, fired, "an applied record must not echo")
 
-            // older is refused; equal value adopts the higher stamp silently
+            // older is refused; an equal value inside the tolerance is the same record and its
+            // stamp stays (0.64 P3, HANDOFF §75.1: adopting it was the walk); past the tolerance
+            // the higher stamp is adopted silently
             assertFalse(p.tryApplyRemote("window.w", blob(9), tNew - 1))
             assertEquals(blob(3), p.get("window.w"))
             assertFalse(p.tryApplyRemote("window.w", blob(3), tNew + 7))
-            assertEquals(tNew + 7, p.stamp("window.w"))
+            assertEquals(tNew, p.stamp("window.w"))
+            val past = tNew + Persistence.STAMP_TOLERANCE_MS + 1
+            assertFalse(p.tryApplyRemote("window.w", blob(3), past))
+            assertEquals(past, p.stamp("window.w"))
 
             // a peer's future clock is clamped, not trusted
             assertTrue(p.tryApplyRemote("window.w", blob(4), System.currentTimeMillis() + 3_600_000))

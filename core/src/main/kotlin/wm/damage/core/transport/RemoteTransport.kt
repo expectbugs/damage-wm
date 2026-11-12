@@ -129,6 +129,9 @@ data class WireState(
     // 2026-11-09 (`HANDOFF.md` §73): how many observations the floor and the transfer term stand on;
     // an older peer reads -1, "not reported", and its two numbers are taken as measured
     val floorSamples: Int = -1, val transferSamples: Int = -1,
+    // 2026-11-11 (0.64, `HANDOFF.md` §75.4): the far end's wear report and wear-detection switch; an older
+    // peer reads null — "no report this session" / "field 10 not in the block"
+    val worn: Boolean? = null, val wearSwitch: Boolean? = null,
 )
 
 // named on both sides: the two classes order their fields differently, and a
@@ -140,7 +143,8 @@ private fun LinkState.toWire() = WireState(connected = connected, started = star
     glassesSilent = glassesSilent,
     leaseCarried = leaseCarried, leaseCarry = leaseCarry, cacheWriter = cacheWriter,
     damageContract = damageContract, damageFeatures = damageFeatures, flagsInForce = flagsInForce, cacheSize = cacheSize,
-    floorSamples = floorSamples, transferSamples = transferSamples)
+    floorSamples = floorSamples, transferSamples = transferSamples,
+    worn = worn, wearSwitch = wearSwitch)
 
 private fun WireState.toState() = LinkState(connected = connected, started = started, leaseHeld = leaseHeld,
     inFlight = inFlight, window = window, ackMsEma = ackMsEma, bytesPerSecEma = bytesPerSecEma,
@@ -148,6 +152,7 @@ private fun WireState.toState() = LinkState(connected = connected, started = sta
     glassesSilent = glassesSilent,
     leaseCarried = leaseCarried, leaseCarry = leaseCarry, cacheWriter = cacheWriter,
     damageContract = damageContract, damageFeatures = damageFeatures, flagsInForce = flagsInForce, cacheSize = cacheSize,
+    worn = worn, wearSwitch = wearSwitch,
     floorSamples = floorSamples, transferSamples = transferSamples,
     capability = capability, rssiDbm = rssiDbm, transportName = "remote:$transportName", detail = detail)
 
@@ -240,6 +245,12 @@ class RemoteTransportClient(
     // only learns the state
     override suspend fun setLeaseWanted(wanted: Boolean) {
         Log.i("remote-transport", "setLeaseWanted($wanted) is not forwarded over the seam — the owner's shell holds the lease")
+    }
+    /** Not forwarded (0.64): the owner's transport asks at its own session start, and its answers reach this
+     *  driver as [TransportEvent.Wear] and [LinkState.worn]. False = nothing went out from here. */
+    override fun queryWear(): Boolean {
+        Log.i("remote-transport", "queryWear() is not forwarded over the seam — the owner's transport asks at its own session start")
+        return false
     }
     /** Forwarded (t="restart", 2026-09-05 §37.0): the owner's transport ends
      *  its session and its keeper-side link end reaches this driver as the
@@ -442,7 +453,11 @@ class RemoteTransportClient(
         else Log.e("remote-transport", reason)
         stallWatch?.cancel()
         pinger?.cancel()
-        updateState { it.copy(connected = false, started = false, leaseHeld = false) }
+        // 0.64 (the P4 review's finding 8): what the far end said about ITS session goes with the session —
+        // the firmware's Silent Mode, the wear report, the wear-detection switch. The next start's first
+        // frame is the owner's fresh state (the server sends it strictly before its `started`), so a
+        // value kept here could only be the last link's, read as this one's.
+        updateState { it.copy(connected = false, started = false, leaseHeld = false, glassesSilent = false, worn = null, wearSwitch = null) }
         failOutstanding("seam link ended: $reason")
         // a caller parked in start() must get the answer, not a silent hang
         started.trySend(reason)
@@ -519,6 +534,8 @@ class RemoteTransportClient(
             "note" -> emit(TransportEvent.Note(c.detail.substringBefore(':'),
                 c.detail.substringAfter(':', "")), "Note")
             "silent" -> emit(TransportEvent.SilentMode(c.held), "SilentMode")
+            // 0.64: the far end's wear report — `held` carries worn, `ok` carries first (see the server's toCtl)
+            "wear" -> emit(TransportEvent.Wear(c.held, c.ok), "Wear")
             "present" -> {
                 val v = c.detail.split(':').map { it.toLongOrNull() }
                 // contract 2 adds the path as a fifth number; an older peer sends four (path 0, the full refresh)
@@ -619,7 +636,7 @@ class RemoteTransportClient(
         // guarded (review §29): a close that throws must not skip the state
         // update and the outstanding-flush sweep below
         try { sock?.close() } catch (e: Exception) { Log.w("remote-transport", "socket close at stop: ${e.message}") }
-        updateState { it.copy(connected = false, started = false) }
+        updateState { it.copy(connected = false, started = false, glassesSilent = false, worn = null, wearSwitch = null) }   // as down() does
         failOutstanding("remote transport stopped")
     }
 
@@ -1061,6 +1078,9 @@ class RemoteTransportServer(
         is TransportEvent.Fault -> Ctl(t = "fault", detail = "${ev.what}:${ev.detail}")
         is TransportEvent.Note -> Ctl(t = "note", detail = "${ev.kind}:${ev.detail}")
         is TransportEvent.SilentMode -> Ctl(t = "silent", held = ev.on)
+        // 0.64: two Boolean fields the control frame already has — no new JSON key; an older driver logs
+        // an unknown control and goes on
+        is TransportEvent.Wear -> Ctl(t = "wear", held = ev.worn, ok = ev.first)
         is TransportEvent.Battery -> Ctl(t = "batt", gPct = ev.glassesPct, gChg = ev.glassesCharging, rPct = ev.ringPct)
         // FIRMWARE.md §3 (F1.3): the four numbers, colon-separated, like a note's kind:detail
         is TransportEvent.Presented -> Ctl(t = "present", detail = "${ev.seq}:${ev.workerUs}:${ev.copyUs}:${ev.transferUs}:${ev.path}")

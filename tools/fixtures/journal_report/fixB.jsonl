@@ -1,0 +1,11 @@
+{"t": 1762900000000, "ev": "submit", "id": 1, "epoch": 1, "label": "ATLAS", "via": "ble", "cached": 0, "cacheMiss": "", "ops": [{"op": "cachewrite2", "bytes": 900}]}
+{"t": 1762900000060, "ev": "done", "id": 1, "ok": true, "ackMs": 60, "bytes": 900}
+{"t": 1762900000200, "ev": "note", "kind": "atlas", "detail": "count ok — 1 atlas message(s) counted by RIGHT, generation 7"}
+{"t": 1762900001000, "ev": "submit", "id": 2, "epoch": 1, "label": "STAGE", "via": "ble", "cached": 0, "cacheMiss": "", "ops": [{"op": "cachewrite2", "bytes": 900}]}
+{"t": 1762900001060, "ev": "done", "id": 2, "ok": true, "ackMs": 60, "bytes": 900}
+{"t": 1762900001100, "ev": "note", "kind": "stage", "detail": "the stage check read the generation 1 short inside the settle window — pending, asked again in 500 ms"}
+{"t": 1762900001620, "ev": "note", "kind": "stage", "detail": "the stage check read the generation 1 short inside the settle window — pending, asked again in 500 ms"}
+{"t": 1762900002140, "ev": "note", "kind": "stage", "detail": "the stage check read the generation 1 short inside the settle window — pending, asked again in 500 ms"}
+{"t": 1762900002660, "ev": "note", "kind": "stage", "detail": "the stage check read the generation 1 short inside the settle window — pending, asked again in 500 ms"}
+{"t": 1762900003200, "ev": "note", "kind": "stage", "detail": "the stage check read the generation 1 short after the settle window (settled reading 1) — asked again in 2000 ms"}
+{"t": 1762900005250, "ev": "note", "kind": "stage", "detail": "the stage check: the generation says 1 of the cache writes since the last reading never landed — 1 record(s) dropped"}

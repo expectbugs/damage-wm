@@ -443,8 +443,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "stageReadNotBeforeMs = System.currentTimeMillis() + CacheLedger.SETTLE_MS",
-    "stageReadNotBeforeMs = System.currentTimeMillis() + CacheLedger.REREAD_PACE_MS"
+    "ledgerReadNotBeforeMs = System.currentTimeMillis() + CacheLedger.SETTLE_MS",
+    "ledgerReadNotBeforeMs = System.currentTimeMillis() + CacheLedger.REREAD_PACE_MS"
    ]
   ],
   "tests": [

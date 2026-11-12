@@ -65,6 +65,16 @@ the texture cache, the options byte, the lease (sid 0x09 field 101), the capabil
 queued; the panel-refresh queue carries a rect; the stock display-position offsets live in the copy
 the CFW replaces.
 
+**Op 7 and the wear event** (v1, the fork's settings extension; `CLAIMS.md`, `HANDOFF.md` §75.4): field 101
+op 7 (WEAR_QUERY) sends the wear event when the stock cached wear state — the word at `0x20074EDC`, read through
+the getter at `0x0049EB8E` (three instructions, no side effect) — is 1 or 2, and nothing otherwise
+(`settings_ext.c` 267–271); no reply is a legal answer. The event is a notify on sid 0x10, ten bytes
+`08 03 10 00 2a 04 08 01 10 <1 worn / 0 not worn>` (EVENT, magic 0, field 5 { event 1 `GLS_WEAR_STATUS`, param }),
+from RIGHT only (the senders' lens rule), sent by the stock wear handler's two transitions — which stock reaches
+only while byte +0x14 of its live settings record is 1 (V; that the byte is its wear-detection switch: I). Damage
+from APK 0.64 (built, not yet installed) sends one op 7 to both arms after each session start's lease, never waits
+on it, and journals every sid-0x10 frame as a `wear` note; what op 7 answers with the switch off is unread.
+
 ## 3. v2 telemetry, flags and self-test (Phase 1) — *draft*
 
 - **Telemetry request** (sid 0x09 control field, new op): reply carries heap free per arena
@@ -512,3 +522,5 @@ phone's keeper applies the hold-back rule before re-arming.
   with no data is accepted without a generation bump (§65 had read the last as a message lost on the glass; it
   was the self-test driver's expectation). Two vectors added (`v1-tablepatch`, `v2-tablepatch`; 28 in all), the
   other 26 byte-identical from the C.
+- 2026-11-11 — §2 gains op 7 and the wear event, which had no line here (APK 0.64 sends one op 7 per session
+  start, `HANDOFF.md` §76). No wire shape changed and nothing was flashed; contract version unchanged.

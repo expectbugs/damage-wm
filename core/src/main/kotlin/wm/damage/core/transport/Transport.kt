@@ -72,9 +72,21 @@ interface Transport {
      *   phy    = 2m | 1m       ask the radio for a PHY (the phone's transport only)
      *   telemetry = read       a Damage build's telemetry record (`FIRMWARE.md` §3)
      *   flags  = clear | probe | 0xNNNN   a Damage build's flag set (§3)
+     *   cache  = info | miscount   the cache read-back (op 4); `miscount` is the shell's (0.64): one atlas
+     *                          ack the glasses never saw is added to its cache-write ledger, so the count
+     *                          reads one short and the notice / one re-send / keyframe path runs on glass.
+     *                          Nothing new on the wire; sent only on Adam's word
+     *   wear   = query         one WEAR_QUERY (op 7, [queryWear]) — the answer, if any, is a `wear` note (0.64)
+     *   sim    = battery=N | charging=on|off | worn=yes|no | wearswitch=on|off | case=docked|out
+     *                          the SIMULATOR's knobs ([SimTransport] only, 0.64): they move the firmware
+     *                          model, never a radio, so the low-battery notice and the wear / case notes
+     *                          can be driven on the SIM target. Any other transport says it runs no such probe
      *
      * Every probe is logged and journaled as a `probe` note; one this transport
      * cannot run says so. Default: none.
+     *
+     * One probe is not the transport's at all: `rest = on | off` (0.64, build 1 of rest mode) is the
+     * SHELL's — `Shell.devProbe`, which both hosts' probe routes offer every probe to first.
      */
     fun devProbe(name: String, value: String) {
         wm.damage.core.util.Log.w("transport", "probe $name=$value: this transport runs no probes")
@@ -94,7 +106,10 @@ interface Transport {
 
     /** The plain telemetry record (`FIRMWARE.md` §3, op 1 — no CRC): the cache generation the staging
      *  ledger counts against (`HANDOFF.md` §66), the flags in force, the refusal record. Same rules as
-     *  [cacheCheck]: null when this transport or this build has nothing to answer with. */
+     *  [cacheCheck]: null when this transport or this build has nothing to answer with, or its session
+     *  ended first. Throws [ReadingEnded] when the transport ended the reading without an answer (R3:
+     *  its first write failed, or the glasses did not answer three asks) — the reading's cause, for the
+     *  caller to say. */
     suspend fun telemetry(label: String = "telemetry"): wm.damage.core.wire.DamageMsg.Telemetry? = null
 
     /** Whether this transport can make that read at all. False here means "no radio of my own to
@@ -104,11 +119,26 @@ interface Transport {
     val cacheCheckSupported: Boolean get() = false
 
     /** Hold or drop the framebuffer lease on demand (2026-09-05, `HANDOFF.md`
-     *  §36): the shell drops it while the glasses are in the firmware's Silent
-     *  Mode — with the lease held nothing paints anyway, and without it the
-     *  stock firmware owns the display and the both-temple gesture again — and
-     *  takes it back on wake, keyframing after. Default: nothing to hold. */
+     *  §36): the shell drops it while it is asleep — the glasses in the firmware's
+     *  Silent Mode (with the lease held nothing paints anyway, and without it the
+     *  stock firmware owns the display and the both-temple gesture again), or a
+     *  rest of the shell's own (0.64). The shell never takes it back with this:
+     *  every wake is a session rebuild (§37.0), and a session's `start()` wants
+     *  its lease again — `true` is passed by tests only. Default: nothing to hold. */
     suspend fun setLeaseWanted(wanted: Boolean) {}
+
+    /** Whether [setLeaseWanted] reaches a lease this host holds (R2, RH-7). False here, as
+     *  [setLeaseWanted]'s own default holds nothing: the seam's client only logs it while the owner keeps
+     *  the lease, the renewals and the lit frame. The shell takes a rest only where this is true — a rest
+     *  that says "the lease is released" must be one. */
+    val leaseOnDemand: Boolean get() = false
+
+    /** Ask the glasses for their wear state (0.64; `SettingsMsg.wearQuery`, op 7 of the fork's field-101
+     *  control). Fire-and-forget: the answer, when the glasses have one, arrives as [TransportEvent.Wear];
+     *  no reply is a legal answer and nothing waits for one. True = the query was handed to the wire's
+     *  queue for this session; false = nothing went out (no session, or a transport with no radio of its
+     *  own to ask with) — a caller's note says which, never "sent" on a false. Default: nothing to ask. */
+    fun queryWear(): Boolean = false
 
     /**
      * End the running session ON PURPOSE and report the link as down, so the
@@ -163,6 +193,11 @@ interface Transport {
  *  a refusal no retry can change. The session keeper goes terminal on it and
  *  the arbitration disables the path; every other start failure is retried. */
 class CapabilityRefused(message: String) : wm.damage.core.geom.LintError(message)
+
+/** R3 (review 2, 2A-2): a reading [Transport.telemetry] ended without an answer, and why. [asks] 0: its
+ *  first write failed, so the glasses were never asked ([message] says why); above 0: asked that many
+ *  times and not answered. A liveness decision by count, as "undelivered three times" is — no clock. */
+class ReadingEnded(val asks: Int, message: String) : Exception(message)
 
 /** One display operation inside a flush. Order matters: mode-8 sub-messages
  *  apply to the shadow in order, later ops win. */
@@ -288,6 +323,12 @@ sealed class TransportEvent {
      *  the firmware refuses every image, so the shell stops sending. */
     data class SilentMode(val on: Boolean) : TransportEvent()
 
+    /** The glasses' wear report (service 0x10, [wm.damage.core.wire.WearMsg]; 0.64). [first]: this
+     *  session's first report — a statement of state, never a transition (a report that only answers a
+     *  query says where the glasses are, not that anything changed). The shell acts on nothing in this
+     *  build (`DESIGN.md` §0); the transport's `wear` note is the record. */
+    data class Wear(val worn: Boolean, val first: Boolean) : TransportEvent()
+
     /** A Damage build's presented notify (`FIRMWARE.md` §3, F1.3): the panel transfer
      *  that followed a Damage frame's copy, in microseconds, with the glasses' own
      *  present count. Journaled as a `present` record; never a status. */
@@ -334,6 +375,16 @@ data class LinkState(
     val linkLatency: Int = 0,
     /** The firmware's Silent Mode as last pushed or read (§36). */
     val glassesSilent: Boolean = false,
+    /** The glasses' last wear report THIS session (service 0x10); null = no report this session. Cleared
+     *  at every session start with [glassesSilent] (`CfwTransportBase.start`): a report describes the
+     *  session it came in on. The CFW transport keeps it past a session's end until the next start;
+     *  `RemoteTransport` and `PathTransport` clear it at their stop as well (R3, review 2 B: this comment
+     *  said every session end). Nothing reads it in 0.64 but notes and tests. */
+    val worn: Boolean? = null,
+    /** The stock wear-detection switch as the last device-info block read it (field 10): true when the
+     *  field was present and above 0; null when the block did not carry it — off, or not sent (proto3
+     *  leaves a zero out, and whether this firmware sends the field at all is unread). Cleared with [worn]. */
+    val wearSwitch: Boolean? = null,
     val capability: String? = null,
     val rssiDbm: Int? = null,
     val transportName: String = "none",

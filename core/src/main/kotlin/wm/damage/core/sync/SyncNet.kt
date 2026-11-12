@@ -20,15 +20,25 @@ import wm.damage.core.util.Log
  * The state-sync channel over the CONTENT port (HANDOFF.md §19.2): a
  * connection that sends `{"t":"sync",…}` after the hello becomes the
  * persistent sync channel. Both sides hold a stamped [Persistence] store;
- * the handshake exchanges stamp maps and each side's clock, strictly-newer
- * records flow each way (last-write-wins per key), and afterwards every
- * LOCAL change pushes live. The client re-handshakes every 5 minutes on a
- * live connection, so convergence never depends on no push ever being lost.
+ * the handshake exchanges stamp maps and each side's clock, and a record
+ * flows only when its stamp is newer than the peer's by more than
+ * [Persistence.STAMP_TOLERANCE_MS] (HANDOFF §75.1: two copies whose stamps
+ * sit inside the tolerance are the same record, and the handshake leaves
+ * them). Afterwards every LOCAL change pushes live, and a pushed record
+ * with a different value is decided on arrival by strict stamp order
+ * ([Persistence.tryApplyRemote] holds the table). The client re-handshakes
+ * every 5 minutes on a live connection: that carries a lost push again when
+ * the two copies' stamps are more than the tolerance apart. Inside it the
+ * handshake cannot see the difference (it carries stamps, not values) and
+ * the two copies stay as they are until that key's next edit.
  *
  * Framing matches Content.kt (4-byte length + JSON). Synced keys are
- * [Persistence.syncable] only. Skew: each handshake carries the sender's
- * clock; the receiver shifts incoming stamps by the measured offset before
- * comparing — NTP does the real work, this is insurance.
+ * [Persistence.syncable] only. Skew: each handshake frame carries the
+ * sender's clock, stamped where the frame is written; the receiver takes its
+ * own time when the frame's length prefix arrives and shifts incoming stamps
+ * by the difference before comparing. The estimate errs by the one-way
+ * delay, which is what the tolerance is sized against. A stamp of 0 (a
+ * baseline, an absent key) is never shifted.
  */
 private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
@@ -44,28 +54,68 @@ private data class SWire(
     val want: List<String> = emptyList(),
 )
 
-private fun DataOutputStream.sendWire(w: SWire) {
-    val b = json.encodeToString(SWire.serializer(), w).toByteArray(Charsets.UTF_8)
-    synchronized(this) {
+/** The frames that carry the sender's clock (the handshake and its answer). */
+private fun carriesClock(w: SWire) = w.t == "sync" || w.t == "syncok"
+
+/**
+ * Writes one frame. A handshake frame gets its `clock` HERE, under the write
+ * lock, as the last thing before its bytes leave (0.64 P3, review finding 9).
+ * Stamped where it was built, a re-handshake that waited in the outbox behind
+ * a 191 KB push carried a clock older by that wait, and the peer's skew
+ * estimate was off by as much. Whatever `clock` the caller set is replaced.
+ */
+private fun DataOutputStream.sendWire(w: SWire, now: () -> Long) {
+    fun frame(x: SWire) {
+        val b = json.encodeToString(SWire.serializer(), x).toByteArray(Charsets.UTF_8)
         writeInt(b.size)
         write(b)
         flush()
     }
+    if (carriesClock(w)) {
+        synchronized(this) { frame(w.copy(clock = now())) }
+    } else {
+        // a push is encoded before the lock is taken, as before: only its bytes wait
+        val b = json.encodeToString(SWire.serializer(), w).toByteArray(Charsets.UTF_8)
+        synchronized(this) {
+            writeInt(b.size)
+            write(b)
+            flush()
+        }
+    }
 }
 
-private fun DataInputStream.readWire(maxLen: Int = 16 shl 20): SWire {
+/** A frame and THIS side's time when its length prefix arrived. */
+private class Got(val w: SWire, val at: Long)
+
+/**
+ * Reads one frame. The receive time is taken right after the length prefix
+ * (finding 9): taken after the body was read and decoded, a 216 KB `syncok`
+ * put its own transfer time into the skew estimate.
+ */
+private fun DataInputStream.readWire(now: () -> Long, maxLen: Int = 16 shl 20): Got {
     val n = readInt()
+    val at = now()
     require(n in 1..maxLen) { "sync frame length $n out of range" }
     val b = ByteArray(n)
     readFully(b)
-    return json.decodeFromString(SWire.serializer(), b.toString(Charsets.UTF_8))
+    return Got(json.decodeFromString(SWire.serializer(), b.toString(Charsets.UTF_8)), at)
 }
+
+/** A peer's stamp on this side's clock. A stamp of 0 is "never edited" (a baseline, an
+ *  absent key) and stays 0: shifted, it read as a real stamp of ±skew and a baseline could
+ *  be asked for or sent on the strength of the clocks' difference alone (review NIT 13). */
+private fun shifted(t: Long, skew: Long): Long = if (t <= 0L) 0L else t - skew
 
 /**
  * One side's sync surface: the store, plus the applier that routes an incoming
- * record — through the live shell when one runs (`Shell.postSync`: freshen,
- * LWW, live-apply) and straight into the store otherwise. The stamp handed to
- * the applier is already skew-normalized to THIS side's clock.
+ * record — through the live shell when one runs (`Shell.postSync`: a record
+ * the store already holds ends there; otherwise freshen, apply, live-apply)
+ * and straight into the store otherwise. The stamp handed to the applier is
+ * already skew-normalized to THIS side's clock. Every incoming record reaches
+ * the applier: whether the store already holds it is decided where it is
+ * applied (the shell loop, or [Persistence.tryApplyRemote] itself), never on
+ * the reader's thread — records for one key are queued in order, and the
+ * reader would compare against a store the queued ones have not reached yet.
  */
 class SyncPeer(
     val store: Persistence,
@@ -76,14 +126,15 @@ class SyncPeer(
 
 object SyncNet {
 
+    /** The end of both "outbox full" lines: what becomes of a dropped push (0.64 P3). */
+    internal val DROPPED_PUSH_NOTE = "the re-handshake carries it again unless the two copies' stamps sit inside " +
+        "${Persistence.STAMP_TOLERANCE_MS} ms; then it stays until that key's next edit"
+
     /** Sender-thread stop sentinel — LinkedBlockingQueue refuses nulls. */
     private val END = SWire(t = "__end")
 
     /** R3#5: the server outbox's bound (the client's cap is its own const). */
     private const val SERVE_OUTBOX_CAP = 256
-
-    private fun syncableStamps(store: Persistence): Map<String, Long> =
-        store.stamps().filterKeys { Persistence.syncable(it) }
 
     private val STAMP_FMT = java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm:ss")
         .withZone(java.time.ZoneId.systemDefault())
@@ -104,18 +155,24 @@ object SyncNet {
         }
     }
 
-    /** The records of [store] strictly newer than [theirs] (already normalized
-     *  to local time), plus the keys THEY hold strictly newer than us. */
-    private fun diff(store: Persistence, theirs: Map<String, Long>): Pair<List<SRec>, List<String>> {
-        val mine = syncableStamps(store)
+    /** What one handshake moves, and the stamps it was decided on. */
+    private class Diff(val records: List<SRec>, val want: List<String>, val mine: Map<String, Long>)
+
+    /** The records of [store] newer than [theirs] (already on this side's clock) by more
+     *  than the tolerance, plus the keys THEY hold newer than ours by more than it
+     *  ([Persistence.newer]; HANDOFF §75.1). Two copies inside the tolerance are in neither
+     *  list. Decided on ONE locked read of the store: the value and the stamp that go out
+     *  are the ones that were compared. */
+    private fun diff(store: Persistence, theirs: Map<String, Long>): Diff {
+        val mine = store.snapshot { Persistence.syncable(it) }
         val newerHere = ArrayList<SRec>()
-        for ((k, t) in mine) {
-            if (t > (theirs[k] ?: 0L)) store.record(k)?.let { (v, stamp) -> newerHere.add(SRec(k, v, stamp)) }
+        for ((k, r) in mine) {
+            if (Persistence.newer(r.second, theirs[k] ?: 0L)) newerHere.add(SRec(k, r.first, r.second))
         }
         val newerThere = theirs.entries
-            .filter { Persistence.syncable(it.key) && it.value > (mine[it.key] ?: 0L) }
+            .filter { Persistence.syncable(it.key) && Persistence.newer(it.value, mine[it.key]?.second ?: 0L) }
             .map { it.key }
-        return newerHere to newerThere
+        return Diff(newerHere, newerThere, mine.mapValues { it.value.second })
     }
 
     /**
@@ -123,33 +180,40 @@ object SyncNet {
      * first post-hello line was [helloLine] (the client's `sync` handshake).
      * Blocks until the client leaves; the caller owns the socket.
      */
-    fun serve(sock: Socket, inp: DataInputStream, out: DataOutputStream, peer: SyncPeer, helloLine: String) {
+    fun serve(sock: Socket, inp: DataInputStream, out: DataOutputStream, peer: SyncPeer, helloLine: String,
+              now: () -> Long = System::currentTimeMillis) {
+        // the content host read the hello line whole before handing the connection over (a
+        // `sync` frame is the stamp map, a few KB), so this is the earliest this side's time
+        // can be taken for it; every later frame's is taken at its length prefix (readWire)
+        val helloAt = now()
         var skew = 0L      // clientClock - ourNow at the last handshake
-        fun normalize(t: Long) = t - skew
+        fun normalize(t: Long) = shifted(t, skew)
 
-        fun handshake(w: SWire) {
-            skew = w.clock - System.currentTimeMillis()
+        fun handshake(w: SWire, at: Long) {
+            skew = w.clock - at
             val theirs = w.stamps.mapValues { normalize(it.value) }
-            val (records, want) = diff(peer.store, theirs)
-            if (records.isNotEmpty() || want.isNotEmpty()) {
-                val mine = syncableStamps(peer.store)
+            val d = diff(peer.store, theirs)
+            if (d.records.isNotEmpty() || d.want.isNotEmpty()) {
                 Log.i("sync-host", "handshake with ${sock.inetAddress}: newer here: " +
-                    describeKeys(records.map { it.k }, mine, "here", theirs, "peer") +
-                    "; newer on the peer: " + describeKeys(want, theirs, "peer", mine, "here"))
+                    describeKeys(d.records.map { it.k }, d.mine, "here", theirs, "peer") +
+                    "; newer on the peer: " + describeKeys(d.want, theirs, "peer", d.mine, "here"))
             }
-            out.sendWire(SWire(t = "syncok", records = records, want = want,
-                clock = System.currentTimeMillis()))
+            // `clock` is stamped by sendWire, under the write lock: this frame can wait there
+            // behind a push the sender thread is writing
+            out.sendWire(SWire(t = "syncok", records = d.records, want = d.want), now)
         }
 
         // bounded like the client's (R3#5 — R2#20e applied to one side only):
         // a half-open peer parks the sender in the TCP buffer while local puts
-        // keep producing; overflow drops the OLDEST loudly, and the client's
-        // periodic re-handshake heals any dropped push
+        // keep producing; overflow drops the OLDEST loudly. The client's periodic
+        // re-handshake carries a dropped push again only when the two copies'
+        // stamps are more than the tolerance apart (0.64 P3): inside it the
+        // difference stays until that key's next edit, and the line says so
         val outbox = LinkedBlockingQueue<SWire>(SERVE_OUTBOX_CAP)
         fun enqueue(w: SWire) {
             while (!outbox.offer(w)) {
                 outbox.poll()
-                Log.w("sync-host", "outbox full — dropped the oldest push (the re-handshake heals it)")
+                Log.w("sync-host", "outbox full — dropped the oldest push ($DROPPED_PUSH_NOTE)")
             }
         }
         val listener: (String) -> Unit = { key ->
@@ -162,7 +226,7 @@ object SyncNet {
                 while (true) {
                     val w = outbox.take()
                     if (w === END) break
-                    out.sendWire(w)
+                    out.sendWire(w, now)
                 }
             } catch (e: Exception) {
                 try { sock.close() } catch (c: Exception) { /* closing */ }
@@ -170,13 +234,15 @@ object SyncNet {
         }, "sync-sender-${sock.inetAddress}").apply { isDaemon = true }
         sender.start()
         peer.store.addListener(listener)
+        peer.store.syncConnectionStarted()
         Log.i("sync-host", "peer ${sock.inetAddress} attached to the sync channel")
         try {
-            handshake(json.decodeFromString(SWire.serializer(), helloLine))
+            handshake(json.decodeFromString(SWire.serializer(), helloLine), helloAt)
             while (true) {
-                val w = inp.readWire()
+                val got = inp.readWire(now)
+                val w = got.w
                 when (w.t) {
-                    "sync" -> handshake(w)          // the client's periodic re-handshake
+                    "sync" -> handshake(w, got.at)  // the client's periodic re-handshake
                     "syncrec" -> for (r in w.records) {
                         if (!Persistence.syncable(r.k)) { Log.w("sync-host", "unsyncable key '${r.k}' ignored"); continue }
                         peer.applier(r.k, r.v, normalize(r.t))
@@ -212,6 +278,8 @@ class RemoteSync(
     private val peer: SyncPeer,
     private val retryPacingMs: Long = 15_000,
     private val rehandshakeMs: Long = 300_000,
+    /** This side's clock: the stamp of a handshake frame and the receive time of a frame. */
+    private val now: () -> Long = System::currentTimeMillis,
 ) : AutoCloseable {
 
     @Serializable
@@ -226,16 +294,20 @@ class RemoteSync(
      *  blocking socket write on the store listener's thread, which is the
      *  SHELL LOOP for every save-path put (review 2026-09-01: a silently stopped
      *  path plus a full TCP send buffer parked the loop mid-saveAll). The
-     *  outbox is cleared on reconnect; the re-handshake carries anything lost. */
+     *  outbox is cleared on reconnect; the handshake that follows carries what
+     *  was lost wherever the two copies' stamps are more than the tolerance
+     *  apart, and leaves a difference inside it until that key's next edit. */
     private val outbox = LinkedBlockingQueue<SWire>(OUTBOX_CAP)
     /** Bounded (R2#20e): a half-open link otherwise grows the queue for the
      *  hours TCP keepalive takes to notice. Overflow drops the OLDEST push
-     *  loudly — the 5-minute re-handshake is the designed healing path for
-     *  any lost push, so a drop here converges the same way. */
+     *  loudly. The 5-minute re-handshake carries a dropped push again when the
+     *  two copies' stamps are more than the tolerance apart; inside it (a
+     *  second edit of one key within 2 s whose push was the one dropped) the
+     *  copies stay different until that key's next edit, and the line says so. */
     private fun enqueue(w: SWire) {
         while (!outbox.offer(w)) {
             outbox.poll()
-            Log.w("sync", "outbox full — dropped the oldest push (the re-handshake heals it)")
+            Log.w("sync", "outbox full — dropped the oldest push (${SyncNet.DROPPED_PUSH_NOTE})")
         }
     }
     private val listener: (String) -> Unit = { key ->
@@ -251,9 +323,17 @@ class RemoteSync(
         peer.store.addListener(listener)
     }
 
+    /** The handshake frame. Its `clock` is stamped by sendWire when the frame is written,
+     *  not here: the ticker's copy waits in the outbox behind whatever pushes are queued. */
     private fun handshakeWire() = SWire(t = "sync",
-        stamps = peer.store.stamps().filterKeys { Persistence.syncable(it) },
-        clock = System.currentTimeMillis())
+        stamps = peer.store.stamps().filterKeys { Persistence.syncable(it) })
+
+    /** Queue a handshake behind the pushes already waiting: the ticker's step, and the
+     *  door a test uses to place one without waiting five minutes. */
+    internal fun rehandshake() = enqueue(handshakeWire())
+
+    /** A peer's stamp on this side's clock (a 0 stays 0). */
+    private fun local(t: Long) = shifted(t, skew)
 
     private suspend fun connectLoop() {
         while (scope.isActive && running) {
@@ -267,33 +347,36 @@ class RemoteSync(
                     val o = DataOutputStream(sock.getOutputStream().buffered())
                     val hello = json.encodeToString(Hello.serializer(), Hello(token = token)).toByteArray(Charsets.UTF_8)
                     synchronized(o) { o.writeInt(hello.size); o.write(hello); o.flush() }
-                    o.sendWire(handshakeWire())
+                    peer.store.syncConnectionStarted()
+                    o.sendWire(handshakeWire(), now)
                     // the sender: drains queued pushes off the listener's thread
                     outbox.clear()
                     val sender = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         try {
                             while (isActive) {
                                 val w = kotlinx.coroutines.runInterruptible { outbox.take() }
-                                o.sendWire(w)
+                                o.sendWire(w, now)
                             }
                         } catch (e: Exception) {
                             try { sock.close() } catch (c: Exception) { /* closing */ }
                         }
                     }
-                    // the periodic re-handshake: the convergence net for any
-                    // push lost around a shell stop or a dropped write
+                    // the periodic re-handshake: it carries again a push lost around
+                    // a shell stop or a dropped write, when the two copies' stamps are
+                    // more than the tolerance apart (inside it they stay as they are)
                     val ticker = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                         while (isActive) {
                             delay(rehandshakeMs)
-                            enqueue(handshakeWire())
+                            rehandshake()
                         }
                     }
                     try {
                         while (true) {
-                            val w = inp.readWire()
+                            val got = inp.readWire(now)
+                            val w = got.w
                             when (w.t) {
                                 "syncok" -> {
-                                    skew = w.clock - System.currentTimeMillis()
+                                    skew = w.clock - got.at
                                     if (!attached) {
                                         attached = true
                                         saidNoSync = false
@@ -303,20 +386,20 @@ class RemoteSync(
                                     if (w.records.isNotEmpty() || w.want.isNotEmpty()) {
                                         // §72: which keys, with both stamps on this clock, BEFORE the apply
                                         val mine = peer.store.stamps()
-                                        val theirs = w.records.associate { it.k to (it.t - skew) }
+                                        val theirs = w.records.associate { it.k to local(it.t) }
                                         Log.i("sync", "handshake with $host: newer there: " +
                                             SyncNet.describeKeys(w.records.map { it.k }, theirs, "there", mine, "here") +
                                             "; newer here: " + SyncNet.describeKeys(w.want, mine, "here", emptyMap<String, Long>(), ""))
                                     }
-                                    for (r in w.records) peer.applier(r.k, r.v, r.t - skew)
+                                    for (r in w.records) peer.applier(r.k, r.v, local(r.t))
                                     if (w.want.isNotEmpty()) {
                                         val recs = w.want.mapNotNull { k ->
                                             peer.store.record(k)?.let { (v, t) -> SRec(k, v, t) }
                                         }
-                                        if (recs.isNotEmpty()) o.sendWire(SWire(t = "syncrec", records = recs))
+                                        if (recs.isNotEmpty()) o.sendWire(SWire(t = "syncrec", records = recs), now)
                                     }
                                 }
-                                "syncrec" -> for (r in w.records) peer.applier(r.k, r.v, r.t - skew)
+                                "syncrec" -> for (r in w.records) peer.applier(r.k, r.v, local(r.t))
                                 // a host running WITHOUT a sync peer answers the request
                                 // in-band: treat it like an old host — retry at pacing
                                 "err" -> throw java.io.IOException("host refused the sync channel")
@@ -330,7 +413,7 @@ class RemoteSync(
                         // and each stale sender STEALS one queued record for
                         // its closed socket before ending — a flapping-WiFi day
                         // leaked dozens of threads and dropped records until
-                        // the 5-minute re-handshake healed them
+                        // the 5-minute re-handshake carried them again
                         sender.cancel()
                     }
                 }

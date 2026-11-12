@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -71,9 +72,45 @@ class StagingTest {
         @Volatile var lagEveryStageWrite = false
         @Volatile var lagging = false
         @Volatile private var stageWritten = false
+        // ---- 0.64: the count's reader outside the Reader, the lanes under a reading, a lost STAGE write
+        /** This many `cache count` readings taken after the first ATLAS write read one short (never the base). */
+        @Volatile var shortCountReads = 0
+        @Volatile private var atlasWritten = false
+        /** 0.64 R1: this many `cache count` readings from now on are NOT answered — null at once, as the
+         *  transport answers when its first write fails or its session is ending — and when each was asked. */
+        val nullCountReads = java.util.concurrent.atomic.AtomicInteger(0)
+        val countAskedAtMs = java.util.concurrent.CopyOnWriteArrayList<Long>()
+        /** While set, every ATLAS submit re-arms [shortCountReads] to 1: the first `cache count` reading after
+         *  each atlas message reads one short — the glass's lag (the bump lands up to a second after the
+         *  ack, a reading is back in about 40 ms), which the model does not have. */
+        @Volatile var shortCountAfterEveryAtlas = false
+        /** While set and not complete, a `stage check` reading waits before it is asked. */
+        @Volatile var holdStageChecks: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+        val stageChecksAsked = java.util.concurrent.atomic.AtomicInteger(0)
+        /** 1-based ordinals of STAGE flushes whose completion the shell sees as not ok (the ack never came). */
+        @Volatile var failStageDone: Set<Int> = emptySet()
+        private val failIds = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
+        private var stageN = 0
+        /** "count" when a reading is answered, "stage" when a STAGE flush is submitted — in order. */
+        private val traceLog = java.util.concurrent.CopyOnWriteArrayList<String>()
+        fun trace(): List<String> = traceLog.toList()
+        override val events: kotlinx.coroutines.flow.Flow<wm.damage.core.transport.TransportEvent> = inner.events.map { ev ->
+            if (ev is wm.damage.core.transport.TransportEvent.FlushDone && ev.id in failIds) ev.copy(ok = false, error = "test: the ack never came") else ev
+        }
         override suspend fun telemetry(label: String): wm.damage.core.wire.DamageMsg.Telemetry? {
-            val t = inner.telemetry(label) ?: return null
+            if (label == "stage check") { stageChecksAsked.incrementAndGet(); holdStageChecks?.await() }
+            if (label == "cache count") {
+                countAskedAtMs.add(System.currentTimeMillis())
+                if (nullCountReads.getAndUpdate { maxOf(0, it - 1) } > 0) return null
+            }
+            val t = inner.telemetry(label)
+            traceLog += "count"
+            if (t == null) return null
             val gen = t.cacheGen
+            if (label == "cache count" && atlasWritten && gen != null && shortCountReads > 0) {
+                shortCountReads--
+                return wm.damage.core.wire.DamageMsg.Telemetry(t.fields + (17 to gen - 1))
+            }
             if (label != "stage check" || !stageWritten || gen == null) return t
             if (lagging) return wm.damage.core.wire.DamageMsg.Telemetry(t.fields + (17 to gen - 1))
             if (shortStageChecks <= 0) return t
@@ -92,7 +129,13 @@ class StagingTest {
                 } else op
             })
             synchronized(flushes) { flushes.add(f) }
-            return inner.submit(f)
+            if (flush.label == "ATLAS") { atlasWritten = true; if (shortCountAfterEveryAtlas) shortCountReads = 1 }
+            if (flush.label != "STAGE") return inner.submit(f)
+            traceLog += "stage"
+            val fail = synchronized(this) { ++stageN in failStageDone }
+            val id = inner.submit(f)
+            if (fail) failIds.add(id)
+            return id
         }
         fun all() = synchronized(flushes) { flushes.toList() }
     }
@@ -136,13 +179,11 @@ class StagingTest {
             throw AssertionError("$what: did not settle — ${shell.quiescenceReport()}")
         }
 
-        suspend fun until(what: String, maxMs: Long = 10_000, cond: () -> Boolean) {
-            val t0 = System.currentTimeMillis()
-            while (!cond() && System.currentTimeMillis() - t0 < maxMs) delay(5)
-            assertTrue(cond(), "$what — proven=${shell.stagedProvenCount} resident=${shell.stagedResidentCount} " +
+        /** Decided on the answer that ended the wait ([waitUntil]; 0.64 R1, review 1a RD-7). */
+        suspend fun until(what: String, maxMs: Long = 10_000, cond: () -> Boolean) = waitUntil(maxMs, 5, {
+            "$what — proven=${shell.stagedProvenCount} resident=${shell.stagedResidentCount} " +
                 "lines=${shell.stagedProvenLines} live=${shell.cachedFontsLive.size} stage notes=${notes("stage").takeLast(4)} " +
-                "atlas notes=${notes("atlas").takeLast(3)}")
-        }
+                "atlas notes=${notes("atlas").takeLast(3)}" }, cond)
 
         /** Up on the document with the v2 atlas live and the first strips staged. */
         suspend fun upWithTheDocStaged() {
@@ -154,6 +195,28 @@ class StagingTest {
             until("the atlas uploads and the fonts go live") { shell.cachedTextActive && shell.cachedFontsLive.isNotEmpty() }
             until("the next strip is staged and proven") { shell.stagedProvenLines.any { it.first == nextExposed() } }
             settle("staged")
+        }
+
+        /** Everything posted to the shell before this call has been handled, and its pump has run. */
+        suspend fun barrier() {
+            val d = kotlinx.coroutines.CompletableDeferred<Unit>()
+            shell.services.runOnShell { d.complete(Unit) }
+            d.await()
+        }
+        fun cacheNotices(): List<wm.damage.core.shell.Notifications.Notice> =
+            (listOfNotNull(shell.notifications.current) + shell.notifications.queued()).filter { it.source == "DAMAGE · cache" }
+        /** Dismiss whatever box is up (a tap on a focused box), and the ones queued behind it. */
+        suspend fun dismissNotices() {
+            val t0 = System.currentTimeMillis()
+            // decided on the read that ended the loop (RD-7's class): a box raised after it is not this wait's
+            var up = shell.notifications.current
+            while (up != null && System.currentTimeMillis() - t0 < 20_000) {
+                if (shell.notifications.focused && !shell.notifications.animating) shell.postGesture(EvenHubMsg.EV_CLICK)
+                delay(60)
+                up = shell.notifications.current
+            }
+            assertNull(up, "the boxes were dismissed")
+            settle("after the dismissal")
         }
 
         /** The first line the next down-notch exposes: the visible lines end at top + 16 (384 / 24). */
@@ -352,7 +415,12 @@ class StagingTest {
             // (1) cached text off: the reserve is the atlas path's
             rig.shell.updateSettings { it.copy(cachedText = "off") }
             rig.until("cached text off drops the records") { rig.shell.stagedResidentCount == 0 }
-            assertTrue(rig.notes("stage").any { "cached text went off" in it }, rig.notes("stage").toString())
+            // waited for, not read once: `stageClear` publishes the count before it writes its note, so a
+            // single read of the journal right after the count reads 0 can come a few hundred
+            // microseconds early (one miss in sixty runs on the 0.64 P2 tree, cause not proven — this
+            // is the candidate that fits the rate). If the registry was empty BEFORE the row went off
+            // (the other candidate) the note never comes and this still fails, saying so.
+            rig.until("the clear says why: cached text went off") { rig.notes("stage").any { "cached text went off" in it } }
             rig.shell.updateSettings { it.copy(cachedText = "on") }
             rig.until("staged again after cached text came back") { rig.shell.stagedProvenCount > 0 }
             // (2) another layout: the old records can never be shown again
@@ -574,10 +642,67 @@ class StagingTest {
             assertTrue(rig.notes("stage").any { "never landed" in it }, "the generation count named the missing writes: ${rig.notes("stage")}")
             assertEquals(0, rig.shell.stagedProvenCount, "nothing was ever proven")
             assertTrue(rig.shell.cachedTextActive, "the atlas is untouched by a shortfall (§66.1: a shortfall costs staging, never the fonts)")
+            // 0.64: a staged strip's shortfall is said as a notice too (the same class as the atlas's). The
+            // box takes focus after its grace, so it is dismissed before the notches below
+            val box = rig.cacheNotices().firstOrNull() ?: throw AssertionError("the shortfall raised no notice: ${rig.shell.notifications.current}")
+            assertEquals("cache/short", box.thread)
+            assertTrue(box.body.startsWith("the glasses acknowledged ") && "staged strip(s) staged again" in box.body, box.body)
+            // 0.64 R1 (review 1a, RC-3): the verdict that switches staging off says so in a box of its own
+            // class. Three shortfalls a few seconds apart are ONE episode of `cache/short` — posted, updated
+            // at the second, and the third (not a power of two) shown nowhere: the body that says
+            // "staging is off" was only ever in the journal.
+            val off = rig.cacheNotices().filter { it.thread == "cache/staging" }
+            assertEquals(1, off.size, "the verdict that switched staging off is a notice of its own: ${rig.cacheNotices()}")
+            assertTrue(off[0].body.startsWith("the glasses acknowledged ") && off[0].body.endsWith("staging is off for this session"), off[0].body)
+            assertTrue(rig.cacheNotices().none { it.thread == "cache/short" && "staging is off" in it.body }, "one box per verdict: ${rig.cacheNotices()}")
+            // (an atlas message read in a short interval — the first notice's own glyphs — goes once more with
+            // it: the count cannot say which of an interval's messages was the short one)
+            rig.dismissNotices()
             repeat(3) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("notch $it") }
             assertEquals(0L, rig.shell.stagedRectsShipped, "no draw from a record the glasses never took")
             assertTrue(rig.all().flatMap { it.ops }.none { it is DisplayOp.DrawImage2 && it.w > 255 }, "no record draw on the wire")
             rig.assertGlassMatchesBelief("after the notches (pixels and text draws)")
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /**
+     * RC-3, part two (review 1a). The same three strip shortfalls with the glass's lag on every atlas
+     * message: the first reading after each one is one short (pending, asked again half a second on).
+     * A strip shortfall whose interval holds atlas messages sends those once more — and until this
+     * round the strip was staged again INSIDE the re-send's pending pace (the staging lane had no hold
+     * on an open count). The strip's own lost write was then read in one interval with re-sends that
+     * had been counted, and the verdict said `cache/lost`: "short again after a re-send … nothing more
+     * is sent" about writes that landed (watched on the tree before: the second shortfall read
+     * "1 short after a re-send (2 re-sent, 2 other write(s) read with it)").
+     * Now no strip is taken while a shortfall's re-send is owed or unjudged: the re-send is judged by
+     * itself first. Staging still reaches "off for the session" — the hold releases each time.
+     * (Still there, and not this pin's: the session's FIRST strip goes out inside the first upload's
+     * own pending pace, so the first shortfall's interval holds that upload and sends it once more.)
+     * Mutation watched: the hold removed from `pumpStage`.
+     */
+    @Test
+    fun noStripIsStagedWhileAReSendIsUnjudgedSoNoCountedWriteIsCalledLost(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope)
+        try {
+            rig.spy.breakStageWrites = true
+            rig.spy.shortCountAfterEveryAtlas = true
+            rig.shell.start(); rig.settle("start")
+            rig.shell.services.runOnShell { rig.shell.services.openWindow("doc", null) }
+            rig.settle("open doc")
+            rig.shell.updateSettings { it.copy(cachedText = "on") }
+            rig.until("the fonts go live") { rig.shell.cachedTextActive && rig.shell.cachedFontsLive.isNotEmpty() }
+            rig.until("three strip shortfalls: staging switches itself off", maxMs = 60_000) { rig.notes("stage").any { "off for the session" in it } }
+            rig.barrier(); rig.barrier()
+            assertTrue(rig.cacheNotices().none { it.thread == "cache/lost" }, "no write that was counted is called lost: ${rig.cacheNotices().filter { it.thread == "cache/lost" }}")
+            assertTrue(rig.notes("atlas").none { "count short again" in it }, "no re-send is called short again: ${rig.notes("atlas").filter { "count short again" in it }}")
+            // the scene's shape: a re-send was made, and judged by itself between two strips (without one this pin measures nothing)
+            assertTrue(rig.notes("atlas").any { "\"detail\":\"re-send counted" in it }, "a re-send was counted between the strips: ${rig.notes("atlas").takeLast(6)}")
+            assertEquals(1, rig.cacheNotices().count { it.thread == "cache/staging" }, "staging went off, said once: ${rig.cacheNotices()}")
             rig.shell.stop()
         } finally {
             scope.cancel()
@@ -622,6 +747,196 @@ class StagingTest {
             assertTrue(atlasWrites.all { (off, len) -> off + len <= RESERVE_START }, "every atlas write stays below ${RESERVE_START}: ${atlasWrites.filter { it.first + it.second > RESERVE_START }}")
             assertTrue(stageWrites.all { (off, len) -> off >= RESERVE_START && off + len <= 160 * 1024 && off % 4 == 0 }, "every record write lands in the reserve, 4-byte aligned: ${stageWrites.filter { it.first < RESERVE_START }}")
             assertTrue(stageWrites.all { (_, len) -> len <= Shell.STAGE_CHUNK }, "record writes are chunked")
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    // ---- 0.64: the count is read wherever the shell is (`Shell.pumpLedger`)
+
+    /**
+     * S2. At Main, with no window open, a reading that comes back short inside the settle window is
+     * asked again on its own pump, half a second on — until 0.64 no reading was asked at Main at
+     * all (the reader needed a focused document). On a paced link, where a missing pump shows (see
+     * `aPendingReadingIsAskedAgainOnItsOwnPumpNotTheIdleTick`). The notes are the count's own
+     * (kind `atlas`): no strip is involved.
+     * Mutation watched: the pump removed from the pending verdict (the re-read waits for the idle tick).
+     */
+    @Test
+    fun aPendingReadingAtMainIsAskedAgainOnItsOwnPump(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope, SimTransport.Timing(ackMs = 5, bytesPerSec = 5_000_000.0, instant = false))
+        try {
+            rig.spy.shortCountReads = 2
+            rig.shell.start(); rig.settle("start")
+            rig.shell.updateSettings { it.copy(cachedText = "on") }
+            rig.until("the first upload is judged by the count, at Main") { rig.notes("atlas").any { "\"detail\":\"count ok" in it } }
+            fun t(line: String) = Regex("\"t\":(\\d+)").find(line)!!.groupValues[1].toLong()
+            val counts = rig.notes("atlas").filter { "\"detail\":\"count " in it }
+            val pending = counts.withIndex().filter { "count pending — the cache count" in it.value }
+            assertEquals(2, pending.size, "two readings came back short inside the settle window: $counts")
+            for ((i, line) in pending) {
+                val next = counts.getOrNull(i + 1) ?: throw AssertionError("nothing followed the pending reading: $counts")
+                val gap = t(next) - t(line)
+                // 1.5 s, not the older pin's 2 s: without the pump the re-read here came 2,044 ms on (watched)
+                assertTrue(gap < 1_500, "the re-read came $gap ms after the pending reading — its own pump is half a second: $counts")
+            }
+            assertTrue(rig.notes("stage").none { "pending" in it }, "no strip is involved: these are not staging's notes: ${rig.notes("stage")}")
+            assertTrue(counts.none { "count short" in it }, "a pending reading counts for nothing: $counts")
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /**
+     * RC-2 (review 1a). A reading of the count that is NOT ANSWERED — the transport's null: its first
+     * write failed, or its session is ending — is asked again one pace later (2 s) on a pump of its
+     * own. Until this round the null set no pace, and the loop pumps after every message: the same
+     * question was asked again within milliseconds, and three unanswered readings — the bound that
+     * switches the count and Page staging off for the session — were one event, not three.
+     * The observable is the gap between the unanswered ask and the next one: no sooner than the pace
+     * (a lower bound: a slow machine can only widen it), and well before anything else pumps the
+     * shell (so the pump at the pace's end exists). On a paced link, where a missing pump shows, and in a SECOND
+     * session — started with the row already on, so no settings save lands near the pace's end to
+     * pump the shell by accident (the save tick is 2 s after a row change: the pending pin above read
+     * exactly that under its own mutation).
+     * Mutations watched: the pace's test removed from `tryLedgerRead` (the gap is milliseconds); the
+     * pump removed from the unanswered branch (the re-ask came 3,168 ms on, with the session's next message).
+     */
+    @Test
+    fun anUnansweredReadingIsAskedAgainAPaceLaterOnItsOwnPump(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope, SimTransport.Timing(ackMs = 5, bytesPerSec = 5_000_000.0, instant = false))
+        try {
+            fun oks() = rig.notes("atlas").count { "\"detail\":\"count ok" in it }
+            rig.shell.start(); rig.settle("start")
+            rig.shell.updateSettings { it.copy(cachedText = "on") }
+            rig.until("the first upload is judged by the count, at Main") { oks() > 0 }
+            rig.settle("judged")
+            rig.shell.stop()
+            val ok0 = oks()
+            val asked0 = rig.spy.countAskedAtMs.size
+            val unread0 = rig.notes("atlas").count { "count unread" in it }
+            rig.spy.nullCountReads.set(1)                    // the next session's base: its first ask is not answered
+            rig.shell.start()
+            rig.until("the second session's upload is judged after all", maxMs = 20_000) { oks() > ok0 }
+            val asks = rig.spy.countAskedAtMs.drop(asked0)
+            assertTrue(asks.size >= 2, "the unanswered reading was asked again: $asks")
+            val gap = asks[1] - asks[0]
+            assertTrue(gap >= 1_900, "an unanswered reading is not asked again inside its pace: the next ask came $gap ms later — ${rig.notes("atlas").takeLast(4)}")
+            // 2,800, not the idle tick's 5,000: watched with the pump removed, the re-ask came 3,168 ms on —
+            // the next thing that pumps a quiet shell in this scene, about 3 s after the session's start;
+            // with the pump it is the pace plus 20 ms
+            assertTrue(gap < 2_800, "and it is asked again when the pace ends, on its own pump, not by whatever pumps the shell next: $gap ms")
+            val unread = rig.notes("atlas").filter { "count unread" in it }.drop(unread0)
+            assertEquals(1, unread.size, "one unanswered reading, said once: $unread")
+            assertTrue("asked again in 2000 ms" in unread[0], unread[0])
+            assertTrue(rig.notes("atlas").none { "count off" in it } && rig.notes("stage").none { "off for the session" in it },
+                "one unanswered reading switches nothing off: ${rig.notes("atlas").takeLast(3)}")
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /**
+     * S3. The count's reading is the cache's, not staging's: a clear of the registry (here the Page
+     * staging row going off and on) no longer drops a reading on its way, and so no longer releases
+     * the write lanes under it. Until 0.64 `stageClear` cleared the flag, and the row coming back
+     * wrote a strip while the reading that spoke for the writes before it was still out.
+     * Mutation watched: `stageClear` clearing the reading's flag again (a STAGE write leaves under it).
+     */
+    @Test
+    fun aStageClearDoesNotReleaseTheLanesUnderAReading(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope)
+        try {
+            val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+            rig.spy.holdStageChecks = gate
+            rig.shell.start(); rig.settle("start")
+            rig.shell.services.runOnShell { rig.shell.services.openWindow("doc", null) }
+            rig.settle("open doc")
+            rig.shell.updateSettings { it.copy(cachedText = "on") }
+            rig.until("a strip is acked and its reading is out, held") { rig.spy.stageChecksAsked.get() >= 1 }
+            rig.settle("the reading held")
+            fun cacheWrites() = rig.all().count { it.label == "STAGE" || it.label == "ATLAS" }
+            val n = cacheWrites()
+            val clears = rig.shell.stageClears
+            rig.shell.updateSettings { it.copy(pageStaging = "off") }
+            rig.until("the row off clears the registry") { rig.shell.stageClears > clears && rig.shell.stagedResidentCount == 0 }
+            rig.shell.updateSettings { it.copy(pageStaging = "on") }
+            rig.barrier(); delay(300); rig.barrier()
+            assertEquals(n, cacheWrites(), "no cache write while the reading is on its way: ${rig.notes("stage").takeLast(3)}")
+            gate.complete(Unit); rig.spy.holdStageChecks = null
+            rig.until("staging resumes after the reading and a strip is proven") { rig.shell.stagedProvenCount > 0 }
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /**
+     * S4. After a STAGE write whose ack never came (what landed is unknown) the count's base is read
+     * BEFORE the next strip is written: `pumpStage`'s backstop, the twin of `pumpAtlas`'s. Without
+     * it the strip went out against a count that could only re-base, and was then dropped at that
+     * re-base and written a third time.
+     * Mutation watched: the base backstop removed from `pumpStage` (no reading between the lost write and the next).
+     */
+    @Test
+    fun aLostStageWriteIsReBasedBeforeTheNextStrip(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope)
+        try {
+            rig.spy.failStageDone = setOf(1)
+            rig.upWithTheDocStaged()
+            assertTrue(rig.notes("stage").any { "failed" in it && "goes again later" in it }, "the first strip's write was lost: ${rig.notes("stage").take(4)}")
+            val t = rig.spy.trace()
+            val lost = t.indexOf("stage")
+            val next = t.withIndex().first { it.index > lost && it.value == "stage" }.index
+            assertTrue(t.subList(lost + 1, next).contains("count"), "a reading of the count stands between the lost write and the next strip: ${t.take(next + 2)}")
+            assertTrue(rig.notes("stage").none { "re-based the generation count" in it }, "so no acked strip had to go again at a late re-base: ${rig.notes("stage")}")
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /**
+     * F1 of the 0.64 design review: staging's three shortfalls count only an interval that held a
+     * staged strip's write. With the count read everywhere an atlas-only shortfall is the usual
+     * kind — at Main, in a list — and three of them in a session must not switch Page staging off
+     * (`aWriteTheGlassesRefusedIsNeverDrawnAndStagingGivesUpBounded` still reaches "off" at three
+     * strips). Three atlas-only shortfalls at Main here, each from the `cache=miscount` probe on the
+     * simulator; then the document opens and a strip is staged and proven.
+     * Mutation watched: the lane test removed from the count (staging is off before the document opens).
+     */
+    @Test
+    fun threeAtlasOnlyShortfallsDoNotSwitchPageStagingOff(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope)
+        try {
+            rig.shell.start(); rig.settle("start")
+            rig.shell.updateSettings { it.copy(cachedText = "on") }
+            rig.until("the fonts go live") { rig.shell.cachedTextActive && rig.shell.cachedFontsLive.isNotEmpty() }
+            rig.until("the first upload is judged") { rig.notes("atlas").any { "\"detail\":\"count ok" in it } }
+            repeat(3) { i ->
+                rig.until("nothing unread before shortfall ${i + 1}") { rig.shell.cacheCountUnjudged == 0L }
+                rig.spy.devProbe("cache", "miscount")
+                rig.until("atlas-only shortfall ${i + 1}", maxMs = 20_000) { rig.notes("atlas").count { "count short — RIGHT's generation is" in it } == i + 1 }
+                rig.until("its re-send is counted", maxMs = 20_000) { rig.notes("atlas").count { "\"detail\":\"re-send counted" in it } == i + 1 }
+            }
+            assertTrue(rig.notes("stage").none { "off for the session" in it }, "three atlas-only shortfalls leave staging on: ${rig.notes("stage")}")
+            rig.dismissNotices()
+            rig.shell.services.runOnShell { rig.shell.services.openWindow("doc", null) }
+            rig.until("the document's next strip is staged and proven", maxMs = 20_000) { rig.shell.stagedProvenLines.any { it.first == rig.nextExposed() } }
+            assertTrue(rig.notes("stage").none { "off for the session" in it })
             rig.shell.stop()
         } finally {
             scope.cancel()
@@ -677,7 +992,8 @@ class StagingTest {
         assertEquals(0, l.shortReads, "a pending reading counts for nothing")
         assertTrue(l.answer(13, 7, 2, settled = true) is CacheLedger.Verdict.Short)
         val sf = l.answer(13, 7, 2, settled = true)
-        assertTrue(sf is CacheLedger.Verdict.Shortfall && sf.missing == 1L && !sf.atlasInvolved && sf.fromAcked == 5L && sf.toAcked == 7L, "$sf")
+        assertTrue(sf is CacheLedger.Verdict.Shortfall && sf.missing == 1L && !sf.atlasInvolved && sf.atlasWrites == 0L && sf.fromAcked == 5L && sf.toAcked == 7L, "$sf")
+        assertEquals(0L, l.unjudged, "a shortfall re-bases: nothing is left to judge")
         // re-based at 13: the bump that landed late reads as an extra one — re-based, nothing dropped
         l.writeAcked(1, atlas = true)
         val fo = l.answer(16, 8, 3, settled = true)
@@ -687,12 +1003,22 @@ class StagingTest {
         l.writeAcked(1, atlas = true)
         assertTrue(l.answer(16, 9, 4, settled = true) is CacheLedger.Verdict.Short)
         val sf2 = l.answer(16, 9, 4, settled = true)
-        assertTrue(sf2 is CacheLedger.Verdict.Shortfall && sf2.atlasInvolved, "$sf2")
+        assertTrue(sf2 is CacheLedger.Verdict.Shortfall && sf2.atlasInvolved && sf2.atlasWrites == 1L, "$sf2")
         // a lost write: the next reading can only re-base
         l.writeAcked(1, atlas = false); l.writeLost()
-        assertTrue(l.answer(17, 10, 4, settled = true) is CacheLedger.Verdict.Base)
+        assertEquals(1L, l.unjudged, "a write acked past the last agreed reading is owed one")
+        val lostBase = l.answer(17, 10, 4, settled = true)
+        assertTrue(lostBase is CacheLedger.Verdict.Base && !lostBase.first, "a base after a lost write is not the session's first")
+        assertEquals(0L, l.unjudged)
         assertTrue(l.answer(17, 10, 4, settled = true) is CacheLedger.Verdict.Proven)
+        // 0.64: a layout replaced under unjudged writes — the next reading can only re-base, whatever it reads
+        l.writeAcked(2, atlas = true); l.rebaseNext()
+        assertTrue(l.unsure)
+        assertTrue(l.answer(18, 12, 6, settled = true) is CacheLedger.Verdict.Base, "one short of two, and no shortfall: it re-bases")
+        assertTrue(l.answer(18, 12, 6, settled = true) is CacheLedger.Verdict.Proven)
         l.reset(); assertNull(l.baseGen); assertEquals(0L, l.acked)
+        val firstBase = l.answer(3, 0, 0, settled = false)
+        assertTrue(firstBase is CacheLedger.Verdict.Base && firstBase.first)
     }
 
     @Test

@@ -153,20 +153,21 @@ mouse, on a pixel-exact replica.* `HANDOFF.md` §8 is the record; what it added:
 Desktop (the sim standing in for glass; also serves `~/books` to the phone):
 
 ```
-./gradlew :desktop:run                        # AUTO = STANDBY (§19): data host (content+tmux+sync) + replica; probes the phone, BLE-drives ONLY while the APK is away
-./gradlew :desktop:run --args="--transport sim"   # the simulator in-process (development)
-./gradlew :desktop:run --args="--transport ble"   # PC-direct BLE only (manual)
-./gradlew :desktop:run --args="--remote HOST"     # claim the phone's transport and drive through it — the EXPLICIT dev override
+./gradlew :desktop:run                        # AUTO = STANDBY (§19): data host (content+tmux+sync) + replica; probes the phone, BLE-drives ONLY while the APK is away — stop the service first (exit 4 otherwise)
+./gradlew :desktop:run --args="--help"   # the usage text; an argument the program does not know is refused (exit 2) and nothing starts; one entry point per line
+./gradlew :desktop:run --args="--transport sim"   # the simulator in-process (development) — stop the service first (exit 4 otherwise)
+./gradlew :desktop:run --args="--transport ble"   # PC-direct BLE only (manual) — stop the service first (exit 4 otherwise)
+./gradlew :desktop:run --args="--remote HOST"     # claim the phone's transport and drive through it — the EXPLICIT dev override; stop the service first (exit 4 otherwise)
 ./gradlew :desktop:run --args="--ble-info"    # adapter enumeration only (no discovery)
-./gradlew :desktop:run --args="--selfcheck"   # the 484-check scripted gate: two passes (contract 1 with a gain-in-place step at boot, then contract 2 with cached text on), every window's walk, the truth oracle on every settle
+./gradlew :desktop:run --args="--selfcheck"   # the 485-check scripted gate: two passes (contract 1 with a gain-in-place step at boot, then contract 2 with cached text on), every window's walk, the truth oracle on every settle
 ./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface (57 scenes)
-./gradlew :desktop:run --args="--epub-check"  # parse every book in ~/books
+./gradlew :desktop:run --args="--epub-check [DIR]"  # parse every book in ~/books (DIR is carried and not used until GG-8's fix, APK 0.65)
 ./gradlew :desktop:run --args="--music-check" # the real g2cc library, read-only bar the additive schema migration: counts, catalog, lanes, cache keys, Qdrant, one viz blob, the adaptive-playlist derivation
 ./gradlew :desktop:run --args="--games-check" # the Hold'em ecology over hundreds of simulated tournaments (pure in-memory; add `deep` for a longer run)
 ./gradlew :desktop:run --args="--card-render" # the card sheets into design/shots/cards/ at true 1x
 ./gradlew :desktop:run --args="--feed-check [DIR] [live]"  # the feed engine over the captured fixtures; `live` = one paced fetch per source, read-only, temp dir
-./gradlew :desktop:run --args="--host-only"   # content host alone (books + tmux + sync + setup page, no stack ever)
-./gradlew :desktop:test                       # 22 tests: the BlueZ glue over the fake link, the config file's safety, SetupServer, the standby policy, the status cell's fit, the xkcd PNG through the decoder
+./gradlew :desktop:run --args="--host-only"   # content host alone (books + tmux + sync + setup page, no stack ever) — stop the service first (exit 4 otherwise)
+./gradlew :desktop:test                       # 32 tests: the BlueZ glue over the fake link, the config file's safety, SetupServer, the standby policy, the status cell's fit, the xkcd PNG through the decoder
 ```
 
 Preview: mouse wheel scroll · left click tap · right click double-tap · press-and-hold long-press · keys
@@ -174,8 +175,20 @@ Preview: mouse wheel scroll · left click tap · right click double-tap · press
 replica link is printed at start (`http://<host>:7403/?token=…`); the same server answers
 `GET /journal?token=…[&tail=N]` (that host's flush journal, streamed from disk in 64 KiB chunks; `tail` = the
 whole lines that start inside the last N bytes — `tools/journal_report.py -` reads it from stdin; before APK 0.61
-the route read the whole file into memory and ended the phone's process, `HANDOFF.md` §71) and
-`GET /log?token=…[&tail=N]` (the process's last 4,000 log lines, `Log.recent`).
+the route read the whole file into memory and ended the phone's process, `HANDOFF.md` §71), since 0.64 `GET /journals`
+(the archives) and `&name=journal-YYYYMMDD-HHMMSS.jsonl` on `/journal` (one archive; `tools/journal_pull.py` copies
+them), and `GET /log?token=…[&tail=N]` (the process's last 4,000 log lines, `Log.recent`).
+
+**The journal and the record of an uncaught error (APK 0.64, `HANDOFF.md` §76.1).** At a process start a journal past
+64 MiB is renamed to `journal-YYYYMMDD-HHMMSS.jsonl` and the fresh file starts with a `journal` note naming it; nothing
+is deleted. `UncaughtRecord` writes a fault's trace to `uncaught-pending.txt` at the fault; the next start journals an
+`uncaught` note and moves the file to `uncaught-<time>.txt` — eight whole records per process, then one counter line
+rewritten in place; 256 KiB, a record cut there still names its root cause; the same fault again (the first 32
+frames compared) is appended and said short. The start order: on the PC `InstanceLock.claimOrExit` (exit 4 while
+another process holds the data directory) ahead of the record's install, the journal's rotation, the `process` note
+(with the archives' count and total) and the pickup; on the phone `DamageApp.onCreate` installs the record and
+`ShellService.onCreate` runs its start steps ahead of `startStack`, caught as one (a fault there is one ERROR line and
+the stack starts). The phone half has not run on the device.
 
 Config in `~/.damage/config.json` — books dir, ports, token (generated on first run; must match
 `damage-secrets.properties` before building the APK), the phone host, the cached pair addresses, the tmux
@@ -215,13 +228,17 @@ fat jar to the STABLE `~/.damage/damage.jar`; the OpenRC service `/etc/init.d/da
 ## Phone-primary + sync (2026-08-31 night, `HANDOFF.md` §19 — the corrected §8.1 reading)
 
 - **`Persistence` is the sync substrate**: schema v2 with a per-key stamp, re-stamped only on real value change;
-  `tryApplyRemote` is strict last-write-wins; legacy stores migrate in place with mtime stamps.
+  `tryApplyRemote` applies a different value by strict stamp order; an equal value within 2 s
+  (`STAMP_TOLERANCE_MS`) is the same record: no stamp moves, nothing is saved; legacy stores migrate in place with
+  mtime stamps.
 - **`core/sync/SyncNet.kt`** rides the content port (`{"t":"sync"}` upgrade): the handshake exchanges stamp maps
-  + clocks (skew-normalized), newer records flow both ways, then live pushes; the client (`RemoteSync`, in the
+  + clocks (skew-normalized), records newer by more than 2 s flow both ways (two copies inside it are left; a
+  different value inside it stays until that key's next edit), then live pushes; a handshake frame's clock is
+  stamped at its write, the receive time taken at its length prefix; the client (`RemoteSync`, in the
   phone's `startStack`) reconnects keeper-style and re-handshakes every 5 min. `shell.settings` + `window.<id>`
   sync; `shell.state` (per-device UI) never does.
-- **`Shell.postSync`** applies a record on the loop: freshen the key from the LIVE window first, then LWW, then
-  live-apply. The driving shell's state is newest by construction, so sync flows driver → idle.
+- **`Shell.postSync`** applies a record on the loop: a record the store already holds ends at the first statement;
+  otherwise freshen the key from the LIVE window first, then apply, then live-apply. The driving shell's state is newest by construction, so sync flows driver → idle.
 - **The seam status probe** (`SeamProbe` / `Ctl t="status"`): a non-claiming "does the APK want the radio?"; an
   old APK answers `busy`, read as YES.
 - **Desktop `auto` = STANDBY**: one process-wide store feeding the sync channel and any stack; probe every 5 s;
@@ -495,11 +512,15 @@ cached text is switched off with its own note. `AtlasCarryTest` pins all of it a
 
 **Every plane, and icons (§41).** On contract 1 (on contract 2 `Compositor.emitCachedV2` places each draw per
 lens with modes 17/18 — no widening, no `CopyPair`) cached draws are flat in the firmware, so a rect on a depth
-plane ships as a BASE delta over the rect widened by the disparity (every draw's box black), the draws at nominal x, and one
+plane ships as a BASE delta over the rect widened by the disparity (the composed pixels with every pixel a draw writes
+black — until 0.63 every draw's whole box), the draws at nominal x, and one
 per-lens mode-9 copy (`DisplayOp.CopyPair` → `CfwModes.copyStereo`) that slides each lens's copy to its own x;
 `Compositor.emitCached` builds the firmware's result per lens and compares it with that lens's truth before
-anything ships — else pixels, the reason counted into `cacheMiss`. `CachedText` records draws into a slide's
-temp through a relay (`via`/`viaInto`), moves records with a translation (`moveRecords`), and draws a string
+anything ships — else pixels, the reason counted into `cacheMiss`; since 0.64 an inked rect is also priced against
+its pixels (`dearer`). `CachedText` records draws into a slide's
+temp through a relay (`via`/`viaInto`), moves records with a translation (`moveRecords`) — and a shell painter that
+fills a region and paints it again drops the frame's records under it first (`Shell.retire`, 0.64: the menu,
+keyboard, wheel, notice box, content, lens, exclusive and silent paints, every under-snapshot restore) — and draws a string
 with a character its face's entry does not pack (§73: `GlyphAtlas.Entry.packs`, positions from
 `CachedText.layout`) as its cached RUNS plus the host's character. Icons cross `IconPaint.blit`
 (`CachedText` is the `IconRecorder`; mode-13 draws). Fonts pack heaviest first (`usageOf`); the atlas keeps an
@@ -511,8 +532,9 @@ every capital once it reads as running text — and every other table entry name
 packed with exactly what it drew is ≈3 KB where its whole Latin-1 table is 16 (M, AWT; the digits, space and
 capitals the rule adds were not priced on that walk — `CLAIMS.md`). What follows from that:
 - **A code the entry does not pack is the host's.** The recorder splits a string on `GlyphAtlas.Entry.packs`
-  (never on the contract's range), the run after a host-drawn character keeps its first columns un-blacked
-  (`TextDraw.keep`), and both emit paths refuse a run the entry in force does not pack (`glyph-not-packed`).
+  (never on the contract's range), the run after a host-drawn character records its first columns
+  (`TextDraw.keep`: since 0.64 the base is black only where a draw writes, and the columns are read by the price,
+  `Compositor.oldBox`, not by the base), and both emit paths refuse a run the entry in force does not pack (`glyph-not-packed`).
   Nothing downstream can tell a packed code from the tofu: these three and `Entry`'s constructor are the guards.
 - **`GlyphAtlas.extend`** gives a resident face more glyphs: records appended at the end of the packed bytes,
   the face's table entries rewritten in place (`TextureCache.Builder.extendFont`), normally one cache-write
@@ -558,7 +580,8 @@ The focused document's next and previous strips as v2 image records in the cache
 - `Shell` "page staging": `pumpStage` runs on the idle pump after `pumpAtlas` — a reading when one is owed, else one
   strip rendered through the recorder's relay with nothing recorded (`CachedText.via` with an empty keep), placed in
   the ring and written in 3,064 B mode-19 messages (`STAGE` flushes, the atlas's writer tag); `stageDone` feeds the
-  ledger; `launchStageRead` (op 1) and `ledgerVerdict` prove or drop; `stagePlacements` before every assemble;
+  ledger; `launchLedgerRead` (op 1; since 0.64 `pumpLedger` is the count's one reader, for atlas writes and strips
+  alike) and `ledgerVerdict` prove or drop; `stagePlacements` before every assemble;
   `paintDocSlice` blits a PROVEN record's lines. Both write lanes hold while a reading is on its way; a short reading
   inside `CacheLedger.SETTLE_MS` (2 s) of the last ack is pending, re-read paced 500 ms, and only two settled short
   readings make a shortfall (§66.1: bumps land up to ~1 s after the ack); an extra bump re-bases, drops nothing; a
@@ -639,6 +662,20 @@ Seven rounds of independent review after the first build (every candidate verifi
 simulation before a fix) found ~70 real defects; the reviews since (`HANDOFF.md` §25–§42) added to the list.
 These mechanisms are load-bearing and easy to break by accident:
 
+- **APK 0.64's (`HANDOFF.md` §76; built, not yet installed).** The compositor: the base's rule is made by the
+  reference walk (`hole`); `settled` in the plan loop; one proof per grown box per assemble (`failedProofs`); a
+  batch's sub-messages are budgeted, 254 given out and one kept for the hint (`Compositor.subsLeft`; `batch-count`).
+  The shell: `Shell.retire` before any painter fills a region of `composed` it paints again (a new painter that
+  fills over content painted in the same frame calls it); nothing splits a canvas's fill while a menu, the
+  keyboard, the wheel or a furling notice floats (`Shell.surfaceFloats`). The cache count: one reader
+  (`pumpLedger`); the base before the first cache write; the reading's epoch checked before its flag (the
+  read-back's too); nothing asked of the cache asleep; no strip staged while a re-send is unjudged; an unanswered
+  reading paced 2 s; four notice classes, `cache/short`, `cache/lost`, `cache/staging`, `cache/off` (source
+  `DAMAGE · cache`). The transport and the sleep: the router names what it has no handler for once per session;
+  the low-battery latch is judged at a reading's arrival and never replayed; a held level is dropped behind a live
+  one; the seam client and the path transport forget a session's Silent Mode and wear state at its end; a probe
+  runs only in the session it was taken in; the lane drops an ACQUIRE once the lease is not wanted; a shell that
+  adopts its session back without a lease rebuilds it; the loop's drain answers a queued `Run`.
 - **What a shell holds while down (§72, 2026-11-09).** A window push whose newest instance supersedes the older
   ones goes through the KEYED `runOnShell(key, …)`: while no session is live only the latest per key is held,
   posted under `heldLock` just before the loop launches. A transport event with no session running is decided by
@@ -653,7 +690,8 @@ These mechanisms are load-bearing and easy to break by accident:
   (`Shell.paintOptimisticLens`) and a strip past `Slide.SPLIT_FILL_PX` goes out blank and is filled on the next
   pump (`Slide.fillDeferred`, `Shell.applyCanvasFill`); `Compositor.partition` merges the globally cheapest
   within-owner pair first (proportional shares starved a plane); `CfwTransportBase.watchdogTick` rebuilds a
-  quiet session and the connect prelude re-asks every 2 s; `Compositor.emitCached` ships text as mode-14 draws
+  quiet session — never while the page traffic sleeps (`pageTrafficWanted`: Silent Mode, a refusal-streak sleep, a
+  rest; 0.64) — and the connect prelude re-asks every 2 s; `Compositor.emitCached` ships text as mode-14 draws
   only under a byte-exact proof in LENS space, on every plane, with a per-lens copy behind the flat draw. Do not
   put the proportional shares back, do not let telemetry ride a content-neutral repaint or a gesture's first
   flush, never emit a cached draw on a depth plane WITHOUT its `CopyPair`.
@@ -684,7 +722,8 @@ These mechanisms are load-bearing and easy to break by accident:
   complete.
 - **The glasses can be asleep (§36, §38).** The firmware's Silent Mode refuses every image; the glasses push the
   state and the READ response restores it (`SettingsMsg.parseSilentModePush` / `parseSilentRestored` →
-  `TransportEvent.SilentMode`). `Shell.enterSilentGlasses` stops SENDING (the pump returns before the flush),
+  `TransportEvent.SilentMode`). `Shell.enterSleep(SleepReason, why)` (0.64; `enterSilentGlasses` before) stops
+  SENDING (the pump returns before the flush),
   releases the lease on purpose (`Transport.setLeaseWanted(false)`), notifies once. **The wake is a session
   REBUILD**: `Shell.wakeGlasses` → `Transport.restartSession` → `onLinkDown`; the keeper restarts the shell from
   the prelude up and `Shell.start` adopts the glasses' state from that session's READ (`LinkState.glassesSilent`)
@@ -694,7 +733,12 @@ These mechanisms are load-bearing and easy to break by accident:
   asks for the rebuild when the glasses say they are awake, once per pacing. System events 4/5/7 are journaled
   as `event` notes; the simulator's `carrierLost` models the page ending. Do not put the old "panic → keyframe"
   reaction back in front of a refusal (a 20 KB keyframe every 3.5 s for fifteen minutes, 2026-09-05).
-  `SilentGlassesTest` ×6, `ShellKeeperTest.aRestartRequestRebuildsTheSessionOnce`.
+  `SilentGlassesTest` ×6, `ShellKeeperTest.aRestartRequestRebuildsTheSessionOnce`. **Since 0.64 the sleep has a
+  reason** (`SILENT` / `REST`): a rest is the same path, entered by `probe:rest=on`, ended by `rest=off` or any input
+  event (consumed); a cache write in flight and a read-back on its way are dropped at the entry with no keyframe;
+  `decode` / `mirror/decode` are expected while asleep. Notes: `rest` and `power`; a rebuild refused while the shell
+  is awake is a `keeper` note ("session rebuild refused by the transport (…) — not asleep, so no check asks again:
+  the session goes on as it is"), asleep a `rest` or `silent` note by the reason. `RestModeTest`.
 - **The latency pass (§32)** — pixel-identical: the journal's submit line carries `via` / `handleMs` /
   `assembleMs`; `Compositor.compress` is memoised for ONE assemble; both rasterizers cache measures and coverage
   masks (`core/text/GlyphCaches.kt`); `Wrap.wrap` decides from an additive estimate outside a ±24 px band and
@@ -723,7 +767,8 @@ These mechanisms are load-bearing and easy to break by accident:
 - **A harness compares the shell to the glass through `Shell.sampleIdle`** (§30): a read from another thread
   crosses a window the shell can repaint inside (the standing oracle failed 2/20 on an unchanged tree, 20/20
   after). `SelfCheck.runOracle`, `OracleWalkTest.assertOracle` and `--snapshot`'s `save()` go through it; a
-  `Msg.Run` reaching a stopped loop runs its `dropped` arm.
+  `Msg.Run` reaching a stopped loop runs its `dropped` arm. `Shell.cacheWorkInFlight` (0.64) is loop-only, read
+  inside `sampleIdle`.
 - **A line box is the LARGER of the face's line height and its measured ink** (§30): AWT ceils ascent and descent
   separately (JetBrains Mono 16 inks 25 against a 24 px line at 115 %). `FlowRender.lineH`, `TermRender`'s
   cell, the keyboard's centring and the Hold'em history all take the max.
@@ -780,7 +825,8 @@ These mechanisms are load-bearing and easy to break by accident:
   fid wrap; a failed encode hands its fids back; completions leave in submission order; msgId cycles 1..249.
   The window-full-no-ack stall is REPORTED as a fault, never acted on.
 - **Shell.** start/stop serialize on a mutex (a stop during start waits and never saves defaults over unread
-  state). A notification box is LIFTED before any slide steps beneath it and repainted after. Every dynamic
+  state); since 0.64 a stop joins the loop, so the drain has run when `stop()` returns, and the drain decides each
+  transport event by `keepWhileDown` and puts the kept ones (a flush's answer, a typed line) back once. A notification box is LIFTED before any slide steps beneath it and repainted after. Every dynamic
   chrome string is sanitised to the locked glyph set and fitted with the continuation mark.
 - **Content.** Host reachability is decided in one place (`RemoteContent.withHost`); local disk failures never
   read as "PC gone"; the cache keeps the listing's real extension.
@@ -791,7 +837,9 @@ These mechanisms are load-bearing and easy to break by accident:
   reports an EMPTY blob (the §16.4a tombstone — the shell refuses one loudly, once per key per session).
 - **The page traffic sleeps with the shell** (`CfwTransportBase.pageTrafficWanted`, §42): the 4 s keepalive and
   the 30 s carrier refresh go out only while the shell wants the lease and the glasses do not say they are
-  silent (one night of Silent Mode was 8,641 unacked keepalives). The 60 s device-info READ is the wake poll.
+  silent (one night of Silent Mode was 8,641 unacked keepalives). The 60 s device-info READ stays: it can put the
+  shell to sleep, and wakes it only on an explicit field-14 zero — whether the glasses send one is unread, so the push
+  OFF is the wake the code counts on (0.64).
 - **A stop after a link loss sends no lease release** (`stop()` reads `connected` before the sweep, §42): the
   write into the dropped arm was a fault at every rebuild, and the release that reached the survivor freed that
   lens's texture cache (a renewal keeps it — `settings_ext.c`). A deliberate stop releases both arms, best
@@ -801,8 +849,8 @@ These mechanisms are load-bearing and easy to break by accident:
 
 ## Verification
 
-Battery as of 2026-09-14 evening (`HANDOFF.md` §51.6; **the current counts are `REMINDER.md`'s** — core 699 ·
-desktop 22 · `--selfcheck` 484 after §73): `:core:test` **545** · `:desktop:test` **15** · `--selfcheck`
+Battery as of 2026-09-14 evening (`HANDOFF.md` §51.6; **the current counts are `REMINDER.md`'s** — core 932 ·
+desktop 32 · `--selfcheck` 485 at 0.64's R3, the final battery, simulator): `:core:test` **545** · `:desktop:test` **15** · `--selfcheck`
 **230** checks ×3 · `--snapshot` **57** scenes · `--epub-check` (380/404 images) · `--music-check` · `--games-check`
 (400 tournaments) · `--feed-check` · `tools/lint.py` **0** · the phone build in its own gradle call (`:phone:assembleDebug` — `:phone:stageApk`
 STAGES the APK for install and is never a battery step). The fork:

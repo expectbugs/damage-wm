@@ -6,12 +6,14 @@ import wm.damage.core.gfx.Zl
 import wm.damage.core.transport.Arm
 import wm.damage.core.transport.LensPanels
 import wm.damage.core.wire.AaFrame
+import wm.damage.core.wire.CaseMsg
 import wm.damage.core.wire.DamageMsg
 import wm.damage.core.wire.EvenHubMsg
 import wm.damage.core.wire.LaunchMsg
 import wm.damage.core.wire.LoggerMsg
 import wm.damage.core.wire.Pb
 import wm.damage.core.wire.SettingsMsg
+import wm.damage.core.wire.WearMsg
 
 /**
  * A byte-exact model of the CFW glasses — DESIGN.md §9.2's offline simulator.
@@ -231,7 +233,7 @@ class GlassFirmwareSim() : LensPanels {
      *  shadow, the lease, the texture cache, the flags — and RIGHT's uptime restarts. */
     @Synchronized
     fun rebootForTest(arm: Arm, now: Long) {
-        if (arm == Arm.LEFT) left = LensCtx() else { right = LensCtx(); uptimeOffsetMs = now }
+        if (arm == Arm.LEFT) left = LensCtx() else { right = LensCtx(); uptimeOffsetMs = now; wearCached = 0 }
         diag.event("reboot", "$arm rebooted: RAM cleared")
     }
 
@@ -267,7 +269,86 @@ class GlassFirmwareSim() : LensPanels {
      *  went 8 -> 16. Damage's REQUIRED_CAPS are all still present. */
     /** Modeled glasses battery (f4.12 of the settings READ response) and the
      *  last brightness write accepted (null level = auto). */
-    var batteryPct = 87
+    @Volatile var batteryPct = 87
+    /** Modeled `chargingStatus` (f4.13 of the READ response; 0.64). Off by default, so the default READ is
+     *  byte-identical to what this model sent before the field was a knob. */
+    @Volatile var charging = false
+
+    // --- 0.64: the wear state, the wear-detection switch, the case (`HANDOFF.md` §75.4) ----------------
+    /** The firmware's cached wear word: 0 until the first report, 1 not worn, 2 worn — RIGHT's RAM, so a
+     *  reboot of RIGHT clears it and a link end does not. Modeled from the instruction-level read of
+     *  stock 2.2.6.10 (`research/fwread.py dis 0x49eb40 0x49ee90`, 2026-11-10; `CLAIMS.md`): the wear
+     *  message handler stores a CHANGED state into the word with no test of the switch, then runs the
+     *  notify step, where the switch gates the send. */
+    @Volatile var wearCached = 0
+        private set
+    /** The stock wear-detection switch (a stored setting; the READ restores it as device-info field 10).
+     *  Off by default — nothing in Damage turns it on. */
+    @Volatile var wearDetectionSwitch = false
+        private set
+    /** Op 7 requests received (both arms count), device-info READ requests (command 2, either form) and
+     *  telemetry reads (field-112 op 1) on RIGHT, for the 0.64 pins. */
+    @Volatile var wearQueriesSeen = 0
+        private set
+    @Volatile var deviceInfoReadsSeen = 0
+        private set
+    @Volatile var telemetryReadsSeen = 0
+        private set
+    /** Every field-112 body written to either arm, counted BEFORE the build test: on an upstream build
+     *  ([damageContract] null) such a body falls through to the settings WRITE answer, so this is the one
+     *  counter that can say "the host sent none" there (the P4 review's finding 1d). */
+    @Volatile var damageControlWritesSeen = 0
+        private set
+    /** Whether the READ in its f4-sub-request form ([SettingsMsg.settingsQuery] — the capability gate's)
+     *  carries the device-info block. True is this model's long-standing answer; the glasses leave the
+     *  block out of that form (`SettingsMsg.deviceInfoQuery`'s note, on glass 2026-08-31) — a test sets
+     *  false to model them, so only the poll's bare READ reports battery, field 10 and field 14. */
+    @Volatile var capabilityReadCarriesDeviceInfo = true
+
+    /** The wear sensor reports [worn] (a scripted change): a changed state is stored whatever the switch
+     *  says, then the notify step runs. A repeat of the cached state does nothing. */
+    @Synchronized
+    fun sensorReportsWear(worn: Boolean) {
+        val state = if (worn) 2 else 1
+        if (state == wearCached) return
+        wearCached = state
+        diag.event("wear", "sensor: ${if (worn) "worn" else "not worn"} (cached $state, switch ${if (wearDetectionSwitch) "on" else "off"})")
+        wearNotifyStep(state)
+    }
+
+    /** The stock switch changes (a settings write Damage never sends — a test or the `sim=` probe): a
+     *  changed byte runs the notify step with the cached state, as the setter at 0x0049EB6E does. */
+    @Synchronized
+    fun setWearDetectionSwitch(on: Boolean) {
+        if (on == wearDetectionSwitch) return
+        wearDetectionSwitch = on
+        diag.event("wear", "wear-detection switch ${if (on) "on" else "off"} (cached $wearCached)")
+        wearNotifyStep(wearCached)
+    }
+
+    /** The stock notify step: sends the wear event only while the switch is on and the state is 1 or 2. */
+    private fun wearNotifyStep(state: Int) {
+        if (wearDetectionSwitch && state in 1..2) sendWearEvent(state == 2)
+    }
+
+    /** The event itself — RIGHT only (the generic notify sender's lens rule), service 0x10, under flag 0x00
+     *  as the stock sender does (faceclaw's note; the fork's sender's flag on our wire is unread, and the
+     *  transport does not key on it). Bytes: `WearMsg.event` = `settings_ext.c :: faceclaw_send_wear_event`. */
+    private fun sendWearEvent(worn: Boolean) {
+        diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), WearMsg.SID, 0x00, WearMsg.event(worn), AaFrame.TYPE_RESPONSE).single())
+    }
+
+    private var caseMagic = 0
+    /** The case reports itself through the right lens: one CASE_INFO frame on service 0x81 under flag 0x01
+     *  (upstream's observation on 2.3.0.24 — faceclaw `8b70585`, fetched, not checked out:
+     *  `native/kotlin/shared/src/commonMain/kotlin/com/faceclaw/app/g2protocol/BleProtocol.kt` lines 1636–1642,
+     *  `CaseInfoSnapshot`'s KDoc; on our base unread). A null field is left out of the frame. */
+    @Synchronized
+    fun pushCase(soc: Int? = null, charge: Int? = null, lid: Int? = null, inCase: Int? = null) {
+        caseMagic = (caseMagic + 1) and 0xFF
+        diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), CaseMsg.SID, 0x01,
+            CaseMsg.push(caseMagic, soc, charge, lid, inCase), AaFrame.TYPE_RESPONSE).single())
+    }
 
     /** `FIRMWARE.md` §0: null models the installed upstream build (no field 110, field 112
      *  ignored); a contract number models a Damage build — DamageCaps on every READ and
@@ -295,6 +376,10 @@ class GlassFirmwareSim() : LensPanels {
     /** FB_RELEASE control ops received (both arms count), for the §42 pin: a
      *  stop after a link loss sends none. */
     @Volatile var releasesSeen = 0
+        private set
+    /** FB_ACQUIRE control ops received (both arms count; a renewal is one too), for the 0.64 pin: none
+     *  is written once the shell has released the lease for a sleep, whatever was queued before. */
+    @Volatile var acquiresSeen = 0
         private set
 
     /** Whether READ responses carry `silentModeSwitchRestored` (field 4.14).
@@ -1312,6 +1397,7 @@ class GlassFirmwareSim() : LensPanels {
             diag.event("proto", "unparseable 09 payload"); return
         }
         val damage = fields.firstOrNull { it.field == DamageMsg.CONTROL_FIELD }?.bytes
+        if (damage != null) damageControlWritesSeen++
         if (damage != null && damageContract != null) {
             damageControl(arm, damage, now)
             if (arm == Arm.LEFT && duplicateControlReplies) {
@@ -1332,6 +1418,7 @@ class GlassFirmwareSim() : LensPanels {
         ) {
             when (control[3].toInt()) {
                 SettingsMsg.OP_FB_ACQUIRE -> {
+                    acquiresSeen++
                     // settings_ext.c: "A fresh lease must earn preservation with a
                     // newly presented direct frame; a renewal keeps the current one."
                     // A FRESH acquire — no lease, or one already lapsed — releases the
@@ -1362,6 +1449,23 @@ class GlassFirmwareSim() : LensPanels {
                         "texture cache ${if (kept) "kept under CACHE_KEEP" else "freed"}")
                     diag.panelChanged(arm)
                 }
+                SettingsMsg.OP_WEAR_QUERY -> {
+                    // ~/damage-cfw patches/settings_ext.c, the control handler's op 7: answers from the
+                    // cached state when it is 1 or 2 — no test of the switch and none of the lease. Only
+                    // RIGHT can send; LEFT runs the op and reports nothing.
+                    wearQueriesSeen++
+                    if (arm == Arm.RIGHT) {
+                        if (wearCached in 1..2) sendWearEvent(wearCached == 2)
+                    } else if (duplicateControlReplies) {
+                        // the copy LEFT forwards, answered by RIGHT a few ms later — the same inferred
+                        // model as field 112's second reply above
+                        val later = duplicateReplyDelayMs
+                        Thread {
+                            Thread.sleep(later)
+                            synchronized(this) { if (wearCached in 1..2) sendWearEvent(wearCached == 2) }
+                        }.apply { isDaemon = true }.start()
+                    }
+                }
                 else -> diag.event("lease", "$arm control op ${control[3]} (unmodeled)")
             }
             return
@@ -1376,10 +1480,19 @@ class GlassFirmwareSim() : LensPanels {
             // (G2CC docs/G2_BLE_PROTOCOL.md §10, capture-confirmed) — modeled so
             // the chrome's battery path is exercised offline.
             val msgId = (Pb.varintField(payload, 2) ?: 0L).toInt()
+            deviceInfoReadsSeen++
+            // 0.64: field 10 (`wearDetectionSwitchRestored`, g2-kit gen/g2_setting_pb.ts) is in the block
+            // only while the switch is on — proto3 leaves a zero out — so the default answer's bytes are
+            // what they were; charging (13) follows its knob. The block itself can be withheld from the
+            // f4-sub-request form, as the glasses do ([capabilityReadCarriesDeviceInfo]).
+            val bare = fields.none { it.field == 4 }
             val resp = Pb.cat(
                 Pb.v(1, 2), Pb.v(2, msgId),
-                Pb.l(4, Pb.cat(Pb.v(12, batteryPct), Pb.v(13, 0),
-                    if (reportSilentRestored) Pb.v(SettingsMsg.SILENT_RESTORED_FIELD, if (silentMode) 1 else 0) else ByteArray(0))),
+                if (bare || capabilityReadCarriesDeviceInfo) Pb.l(4, Pb.cat(
+                    if (wearDetectionSwitch) Pb.v(SettingsMsg.WEAR_SWITCH_RESTORED_FIELD, 1) else ByteArray(0),
+                    Pb.v(12, batteryPct), Pb.v(13, if (charging) 1 else 0),
+                    if (reportSilentRestored) Pb.v(SettingsMsg.SILENT_RESTORED_FIELD, if (silentMode) 1 else 0) else ByteArray(0)))
+                else ByteArray(0),
                 Pb.l(SettingsMsg.CAPABILITY_FIELD, capabilityString.toByteArray(Charsets.UTF_8)),
                 Pb.l(SettingsMsg.MIC_STATUS_FIELD, micStatusBody()),
                 damageContract?.let { v ->
@@ -1463,7 +1576,7 @@ class GlassFirmwareSim() : LensPanels {
         var requestId = 0
         var withCacheCrc = false
         when (op) {
-            DamageMsg.OP_TELEMETRY -> requestId = arg      // records no status: field 4 is the register
+            DamageMsg.OP_TELEMETRY -> { requestId = arg; if (arm == Arm.RIGHT) telemetryReadsSeen++ }   // records no status: field 4 is the register
             DamageMsg.OP_CACHE_INFO -> { requestId = arg; withCacheCrc = true }
             DamageMsg.OP_FLAGS_SET ->
                 // contract 2: nothing is armed without the lease (the check settles a lapse first)

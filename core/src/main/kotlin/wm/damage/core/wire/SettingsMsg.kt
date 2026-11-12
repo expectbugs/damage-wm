@@ -110,6 +110,13 @@ object SettingsMsg {
     fun fbAcquire(nonce: Int): ByteArray = control(OP_FB_ACQUIRE, nonce)
     fun fbRelease(nonce: Int): ByteArray = control(OP_FB_RELEASE, nonce)
 
+    /** Op 7, WEAR_QUERY (`~/damage-cfw patches/settings_ext.c`, the control handler's last arm): the glasses
+     *  answer with the wear event on service 0x10 ([WearMsg]) when their cached wear state is 1 (not worn) or
+     *  2 (worn), and with nothing otherwise. It needs no lease and is never waited on: no reply is a legal
+     *  answer. Thirteen bytes, `08 01 10 00 aa 06 06 'F' 'C' 01 07 <lo> <hi>` (the key of field 101 with wire
+     *  type 2 is the varint `aa 06`); MagicRandom stays 0, as for every field-101 control. */
+    fun wearQuery(nonce: Int): ByteArray = control(OP_WEAR_QUERY, nonce)
+
     /** Settings READ (commandId 2 + request wrapper) — its response carries the
      *  EVENCFW capability string in field 100 on a CFW, nothing extra on stock. */
     fun settingsQuery(msgId: Int): ByteArray = Pb.cat(
@@ -148,15 +155,21 @@ object SettingsMsg {
      *  G2CC docs/G2_BLE_PROTOCOL.md §10 ("09-00 f12=<battery%>",
      *  capture-confirmed, hardware-correlated 73→71%) and the vendor schema
      *  (g2-kit gen/g2_setting_pb.ts DeviceReceiveRequestFromAPP 12/13).
-     *  Null when the response carries no device-info block. */
-    fun parseBattery(payload: ByteArray): Pair<Int, Boolean>? {
-        return try {
-            val info = Pb.bytesField(payload, 4) ?: return null
-            val pct = Pb.varintField(info, 12)?.toInt() ?: return null
-            pct.coerceIn(0, 100) to (Pb.varintField(info, 13) == 1L)
-        } catch (e: IllegalArgumentException) {
-            null
+     *  Null when the response carries no device-info block, and (0.64 R2, the review's RG-4) when field 12
+     *  is outside 0–100: such a value is no level — it used to be pressed into range, 255 reading as 100
+     *  and a varint of 2^31 or more as 0. The router reads [parseBatteryRaw] and says the value once. */
+    fun parseBattery(payload: ByteArray): Pair<Int, Boolean>? =
+        parseBatteryRaw(payload)?.let { (v, chg) -> if (v in 0L..100L) v.toInt() to chg else null }
+
+    /** Field 12 as the glasses wrote it — the whole varint, never folded into an Int — with the charging
+     *  flag (13). Null when the frame has no device-info block or the block no field 12 (a zero proto3
+     *  left out is no reading), or is not protobuf. Whether it is a level is the caller's question. */
+    fun parseBatteryRaw(payload: ByteArray): Pair<Long, Boolean>? = try {
+        Pb.bytesField(payload, 4)?.let { info ->
+            Pb.varintField(info, 12)?.let { it to (Pb.varintField(info, 13) == 1L) }
         }
+    } catch (e: IllegalArgumentException) {
+        null
     }
 
     /** Extract the capability string from a settings response payload, or null. */
@@ -199,10 +212,41 @@ object SettingsMsg {
     }
 
     /** The restored state from a READ response's device-info block, or null
-     *  when the block or the field is absent (stock firmware may omit it). */
+     *  when the block or the field is absent. What the transport does with it: a READ puts the
+     *  shell to sleep on a value above 0 and wakes it ONLY on an explicit 0 — an absent field
+     *  calls nothing. Whether the glasses send the zero at all is unread on this firmware
+     *  (stock 2.2.2's block carried no field 14 while awake — G2CC docs/G2_BLE_PROTOCOL.md §10),
+     *  so the push OFF is the one wake the code can count on; the transport journals the
+     *  field's presence once per session ([parseDeviceInfo]) so the journal can answer it. */
     fun parseSilentRestored(payload: ByteArray): Boolean? = try {
         Pb.bytesField(payload, DEVICE_INFO_FIELD)
             ?.let { info -> Pb.varintField(info, SILENT_RESTORED_FIELD)?.let { it > 0L } }
+    } catch (e: IllegalArgumentException) {
+        null
+    }
+
+    /** `wearDetectionSwitchRestored = 10` in `DeviceReceiveRequestFromAPP`, beside 12, 13 and 14 — Even's
+     *  schema (the descriptor embedded in g2-kit `gen/g2_setting_pb.ts`, decoded 2026-11-10; uint32). On our
+     *  wire it is unread: G2CC's capture of the same block on stock 2.2.2 lists fields 2-8, 12 and 18 and no
+     *  10 (docs/G2_BLE_PROTOCOL.md §10) — off then, or not sent. Damage only reads it; nothing writes the
+     *  switch. */
+    const val WEAR_SWITCH_RESTORED_FIELD = 10
+
+    /** What a READ response's device-info block (root field 4) carried, for the journal: the field numbers
+     *  present (sorted, each once), field 10's value ([wearSwitch]) and field 14's ([silentRestored]); a null
+     *  is a field the block did not carry — in proto3 a zero, or a field this firmware does not send. */
+    data class DeviceInfo(val fields: List<Int>, val wearSwitch: Long?, val silentRestored: Long?)
+
+    /** The device-info block of a sid-0x09 frame, or null when the frame has none (or is not protobuf). */
+    fun parseDeviceInfo(payload: ByteArray): DeviceInfo? = try {
+        Pb.bytesField(payload, DEVICE_INFO_FIELD)?.let { info ->
+            val fs = Pb.fields(info)
+            DeviceInfo(
+                fields = fs.map { it.field }.distinct().sorted(),
+                wearSwitch = fs.firstOrNull { it.field == WEAR_SWITCH_RESTORED_FIELD && it.wireType == 0 }?.varint,
+                silentRestored = fs.firstOrNull { it.field == SILENT_RESTORED_FIELD && it.wireType == 0 }?.varint,
+            )
+        }
     } catch (e: IllegalArgumentException) {
         null
     }
@@ -231,9 +275,13 @@ object SettingsMsg {
 object RingMsg {
     const val SID = 0x91
 
-    /** Ring battery percent from a relayed RingDataPackage, or null. */
-    fun parseBattery(payload: ByteArray): Int? = try {
-        Pb.bytesField(payload, 4)?.let { raw -> Pb.varintField(raw, 1)?.toInt()?.coerceIn(0, 100) }
+    /** Ring battery percent from a relayed RingDataPackage, or null — null too for a value outside 0–100,
+     *  which is no level (0.64 R2, the review's RG-4: it was pressed into range, as the glasses' was). */
+    fun parseBattery(payload: ByteArray): Int? = parseBatteryRaw(payload)?.takeIf { it in 0L..100L }?.toInt()
+
+    /** RingRawData's battery (field 1) as relayed, the whole varint; null when absent or not protobuf. */
+    fun parseBatteryRaw(payload: ByteArray): Long? = try {
+        Pb.bytesField(payload, 4)?.let { raw -> Pb.varintField(raw, 1) }
     } catch (e: IllegalArgumentException) {
         null
     }

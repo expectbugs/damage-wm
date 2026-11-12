@@ -21,10 +21,15 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
+import kotlinx.serialization.json.putJsonObject
+import wm.damage.core.comp.Journal
 import wm.damage.core.geom.Geometry
 import wm.damage.core.transport.Arm
 import wm.damage.core.transport.LensPanels
@@ -40,13 +45,15 @@ import wm.damage.core.wire.EvenHubMsg
  * Served by the desktop program and by the phone, token-gated like the seam.
  *
  *   GET /?token=T            → the page
+ *   GET /journal, /journals, /log → this host's flush journal, its archives and its log (see `journalPath`)
  *   GET /ws?token=T          → WebSocket upgrade
  *   server → client binary   [arm u8][y0 u16 LE][rows u16 LE][rows × stride bytes]
  *   server → client text     {"t":"status", ...}
  *   client → server text     {"t":"input","ev":"tap|double|up|down|hold|release"}
- *   client → server text     {"t":"probe","name":"diag|logger|phy|telemetry|cache|flags|selftest","value":"…"}  — a Phase 0
+ *   client → server text     {"t":"probe","name":"diag|logger|phy|telemetry|cache|flags|selftest|wear|sim|rest","value":"…"}  — a Phase 0
  *                            measurement probe for the host's transport (Transport.devProbe;
- *                            `HANDOFF.md` §49); the page never sends it, `tools/glassdrive.py` does
+ *                            `HANDOFF.md` §49) or, offered first, for its shell (Shell.devProbe: `rest`,
+ *                            0.64); the page never sends it, `tools/glassdrive.py` does
  *
  * Per client, one sender thread builds each panel frame AT SEND TIME from
  * the live mirror against what that client last received, so a slow viewer
@@ -74,7 +81,13 @@ class ReplicaServer(
      *  (2026-09-05, `HANDOFF.md` §32) — the phone has no adb on Adam's
      *  setup, and its journal is the only measurement of the daily radio
      *  path. `tail` = the whole lines that start inside the last that many
-     *  bytes. Streamed from disk, never held (2026-11-04, `HANDOFF.md` §71). */
+     *  bytes. Streamed from disk, never held (2026-11-04, `HANDOFF.md` §71).
+     *  0.64 (`HANDOFF.md` §75.1, the journal rotates at a process start):
+     *  `GET /journals?token=T` lists the live file and its archives as JSON, and
+     *  `GET /journal?token=T&name=journal-YYYYMMDD-HHMMSS.jsonl[&tail=N]` serves
+     *  one archive through the same stream. A fresh live file's first line is a
+     *  `journal` note naming the archive that holds what came before it; a tail
+     *  never spans the two files. */
     private val journalPath: () -> Path? = { null },
 ) : AutoCloseable {
 
@@ -139,11 +152,29 @@ class ReplicaServer(
             when (path) {
                 "/", "/index.html" -> reply(out, 200, "text/html; charset=utf-8", page())
                 "/journal" -> {
-                    val p = journalPath()
-                    if (p == null || !Files.isRegularFile(p)) {
-                        reply(out, 404, "text/plain", "no journal on this host"); return
+                    // the path provider stays the FIRST call of the route (ServerErrorGuardTest throws from it)
+                    val live = journalPath()
+                    val name = query["name"]
+                    val p = when {
+                        live == null -> null
+                        name == null -> live
+                        // 0.64: an archive by name. The name must match the archive pattern IN FULL (no
+                        // separator or dot segment passes it) and is resolved beside the live file.
+                        !Journal.isArchiveOf(live, name) -> { reply(out, 400, "text/plain", "not a journal archive name"); return }
+                        else -> live.resolveSibling(name)
                     }
+                    if (p == null || !Files.isRegularFile(p)) {
+                        reply(out, 404, "text/plain",
+                            if (live != null && name != null) "no journal archive of that name" else "no journal on this host")
+                        return
+                    }
+                    // the same stream for an archive as for the live file: `tail` works on both
                     streamJournal(out, p, query["tail"]?.toLongOrNull())
+                }
+                "/journals" -> {
+                    val live = journalPath()
+                    if (live == null) { reply(out, 404, "text/plain", "no journal on this host"); return }
+                    reply(out, 200, "application/json", journalsJson(live))
                 }
                 "/log" -> {
                     // §42: this host's recent log lines (`Log.recent`), the
@@ -259,6 +290,21 @@ class ReplicaServer(
             out.flush()
         }
     }
+
+    /** `GET /journals` (0.64): the live journal and the archives beside it, oldest first, with their
+     *  sizes — what `tools/journal_pull.py` copies by. `live` is null when no live file exists
+     *  (a rotation whose fresh file could not be started); the archives are still listed. */
+    private fun journalsJson(live: Path): String = buildJsonObject {
+        if (Files.isRegularFile(live)) putJsonObject("live") {
+            put("name", live.fileName.toString()); put("bytes", Files.size(live))
+        } else put("live", JsonNull)
+        putJsonArray("archives") {
+            for (a in Journal.archives(live)) addJsonObject {
+                put("name", a.fileName.toString()); put("bytes", Files.size(a))
+                put("modified", Files.getLastModifiedTime(a).toMillis())
+            }
+        }
+    }.toString()
 
     /** Where the first line that starts at or after [from] begins: [from]
      *  itself when the byte before it ends a line, else just past the next

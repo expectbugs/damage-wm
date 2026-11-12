@@ -984,7 +984,14 @@ class GlyphSubsetTest {
      * there — tucked in by a pair kern, or a mask that starts left of its pen. Blacked with the
      * rest of the run's box, that ink was missing from base + draws, the proof refused the rect
      * and the whole line went out as pixels on the flush that first showed the character.
-     * Mutation watched: the kept columns blacked (a `proof` miss, no draw).
+     *
+     * Since 0.64 the base is black only where a draw writes, so the host's ink rides it whatever
+     * the kept columns say and the proof no longer depends on them. What the fields are read for
+     * now is the price: with `keepEnd` ignored or never recorded (mutations-73 M76, M76b) the
+     * host's ink reads as "lit where 0.63 had black", the rect is priced against its pixels and
+     * stays pixels (`dearer`) — so those two mutations still fail this pin, for that reason
+     * (watched 2026-11-10). The reader's own pin is
+     * `BaseMaskTest.aRunBesideAHostDrawnCharacterIsNotPriced`. The expectation is unchanged.
      */
     @Test
     fun aRunBeforeAHostDrawnCharacterKeepsItsLastColumnsAndStillShipsAsADraw() {
@@ -1005,5 +1012,212 @@ class GlyphSubsetTest {
         val a = assertNotNull(comp.assembleFlush(5))
         assertTrue("proof" !in comp.cacheMissSummary(), "base + draws is the composed line: '${comp.cacheMissSummary()}'")
         assertEquals(2, a.ops.count { it is wm.damage.core.transport.DisplayOp.DrawText2 }, "both runs shipped as draws: ${a.ops.map { it::class.simpleName }}")
+    }
+
+    // ---- 0.64: what an acked message wrote, and a re-send (`Shell.atlasShortfall`'s material)
+
+    private fun ranges(writes: List<Pair<Int, Int>>): List<IntRange> = writes.map { (off, len) -> off until off + len }
+    private fun covered(r: List<IntRange>): java.util.BitSet = java.util.BitSet().also { b -> r.forEach { b.set(it.first, it.last + 1) } }
+
+    /** Each ack returns the ranges its message wrote — exactly what the message's bytes copy into the
+     *  cache — and says it was a first send; an ack of another generation returns nothing.
+     *  Mutation watched: the ranges recorded from the appended run only (the table spans left out). */
+    @Test
+    fun anAckSaysWhichBytesItsMessageWrote() {
+        for (v2 in booleanArrayOf(false, true)) {
+            val size = if (v2) 96 * 1024 else 65536
+            val a = GlyphAtlas(NoisyText(), v2 = v2, capacity = size)
+            val cache = ByteArray(size)
+            assertTrue(a.add(f24, codes(AtlasRepackTest.ASCII)))
+            val first = a.takeUpload(1200)
+            assertTrue(first.size >= 2, "a first upload of several messages: ${first.size}")
+            assertNull(a.acked(a.uploadGen - 1), "an ack of another generation returns nothing")
+            for ((i, m) in first.withIndex()) {
+                val wrote = ranges(apply(m, cache))
+                val ack = assertNotNull(a.acked(), "message $i")
+                assertEquals(wrote, ack.writes, "v2=$v2: message $i's ranges are what its bytes write")
+                assertFalse(ack.resend)
+                assertEquals(i + 1, ack.n)
+                assertEquals(wrote.sumOf { it.last - it.first + 1 }, ack.bytes)
+            }
+            assertNull(a.acked(), "an ack with nothing outstanding returns nothing")
+            // an extension: appended records AND table spans, all in the ack's ranges
+            val b = GlyphAtlas(NoisyText(), v2 = v2, capacity = size)
+            assertTrue(b.add(f18, codes("ab")))
+            upload(b, ByteArray(size))
+            val x = (b.extend(f18, codes("cd")) as GlyphAtlas.Extended.Queued).ext
+            val msgs = b.takeUpload()
+            assertEquals(1, msgs.size)
+            val wrote = ranges(apply(msgs[0], ByteArray(size)))
+            val ack = assertNotNull(b.acked())
+            assertEquals(wrote, ack.writes)
+            assertTrue(x.spans.all { span -> ack.writes.any { it.first <= span.first && it.last >= span.last } },
+                "v2=$v2: the extension's table spans ${x.spans} are among the ranges ${ack.writes}")
+            assertTrue(ack.writes.size > x.spans.size, "and so is its run of appended records: ${ack.writes}")
+        }
+    }
+
+    /** `resend(ranges)` then `takeUpload()`: messages that write exactly those ranges with the
+     *  image's bytes, no mark and no generation moved, each acked as a re-send and counted in
+     *  `ackedMsgs`; then nothing is left to hand out. A range already queued is not queued twice;
+     *  an empty one is skipped; one outside the packed bytes is refused.
+     *  Mutations watched: `takeUpload`'s early return ignoring re-sends (nothing is handed out);
+     *  the ack not removing the re-send (it is handed out for ever). */
+    @Test
+    fun aReSendWritesTheSameRangesAgainAndMovesNoMark() {
+        for (v2 in booleanArrayOf(false, true)) {
+            val size = if (v2) 96 * 1024 else 65536
+            val a = GlyphAtlas(NoisyText(), v2 = v2, capacity = size)
+            val cache = ByteArray(size)
+            assertTrue(a.add(f18, codes("ab")))
+            upload(a, cache)
+            assertTrue(a.extend(f18, codes("cd")) is GlyphAtlas.Extended.Queued)
+            val m = a.takeUpload().single()
+            apply(m, cache)
+            val ack = assertNotNull(a.acked())
+            a.promote()
+            val sent = a.sentBytes; val acked = a.ackedBytes; val gen = a.uploadGen; val msgs0 = a.ackedMsgs
+            val bytes = a.resend(ack.writes)
+            assertEquals(ack.bytes, bytes, "the bytes queued")
+            assertEquals(0, a.resend(ack.writes + listOf(IntRange.EMPTY)), "queued once: a repeat and an empty range add nothing")
+            assertEquals(ack.writes.size, a.resendsQueued)
+            assertFailsWith<LintError> { a.resend(listOf(a.used until a.used + 4)) }
+            assertFailsWith<LintError> { a.resend(listOf(0..1)) }
+            val again = a.takeUpload()
+            assertTrue(again.isNotEmpty(), "v2=$v2: the re-send is handed out")
+            val blank = ByteArray(size)
+            val wrote = again.flatMap { ranges(apply(it, blank)) }
+            assertEquals(covered(ack.writes), covered(wrote), "v2=$v2: exactly the ranges of the message, again")
+            val image = a.contentForTest()
+            for (r in ack.writes) assertContentEquals(image.copyOfRange(r.first, r.last + 1), blank.copyOfRange(r.first, r.last + 1), "the image's bytes at $r")
+            assertEquals(sent, a.sentBytes); assertEquals(acked, a.ackedBytes); assertEquals(gen, a.uploadGen)
+            for (x in again) { val k = assertNotNull(a.acked()); assertTrue(k.resend, "acked as a re-send") }
+            assertEquals(msgs0 + again.size, a.ackedMsgs, "a re-send counts as a message: its read-back is owed")
+            assertEquals(acked, a.ackedBytes, "and its ack moves no byte mark")
+            assertEquals(0, a.resendsQueued)
+            assertTrue(a.takeUpload().isEmpty(), "handed out once")
+        }
+    }
+
+    /** A re-send is cut in whole units into messages of its own: every size from the smallest that
+     *  holds a unit up, on both contracts. On v2 every offset is a multiple of 4; on v1 no table
+     *  SPAN is split inside an entry (a re-sent run of appended bytes may be cut at an odd distance
+     *  from a table inside it — the bytes are identical either way; the spans are what this pins).
+     *  No message without data, none over its bound, and none shared with first-time bytes.
+     *  Mutation watched: the unit rounding removed from the re-send's cut. */
+    @Test
+    fun aReSendIsCutInWholeUnitsInItsOwnMessagesAndNeverEmpty() {
+        for (v2 in booleanArrayOf(false, true)) for (max in (9..40) + 3072) {
+            val size = if (v2) 96 * 1024 else 65536
+            val a = GlyphAtlas(NoisyText(), v2 = v2, capacity = size)
+            assertTrue(a.add(f18, codes("ab")))
+            upload(a, ByteArray(size))
+            val ext = (a.extend(f18, codes("cdefgh")) as GlyphAtlas.Extended.Queued).ext
+            val first = a.takeUpload()
+            val acks = first.map { assertNotNull(a.acked()) }
+            a.promote()
+            a.resend(acks.flatMap { it.writes })
+            // first-time bytes waiting too: another face's extension, cut in the same call
+            assertTrue(a.extend(f18, codes("xyz")) is GlyphAtlas.Extended.Queued)
+            val msgs = a.takeUpload(max)
+            val kinds = msgs.map { m -> ranges(apply(m, ByteArray(size))) to assertNotNull(a.acked()) }
+            assertTrue(kinds.any { it.second.resend } && kinds.any { !it.second.resend }, "v2=$v2 max=$max: both kinds were cut")
+            val firstResend = kinds.indexOfFirst { it.second.resend }
+            assertTrue(kinds.drop(firstResend).all { it.second.resend }, "v2=$v2 max=$max: the re-sends follow the first-time bytes, in messages of their own")
+            val unit = if (v2) 4 else 2
+            val resent = kinds.filter { it.second.resend }
+            assertEquals(covered(acks.flatMap { it.writes }), covered(resent.flatMap { it.first }), "v2=$v2 max=$max: every byte of the ranges, nothing else")
+            for ((i, m) in msgs.withIndex()) assertTrue(m.size <= max, "v2=$v2 max=$max: message $i is ${m.size} B")
+            for ((wrote, _) in resent) for (r in wrote) {
+                if (v2) assertEquals(0, r.first % 4, "v2 max=$max: a re-sent piece starts on a unit: $r")
+                for (span in ext.spans) if (r.first in span) assertEquals(0, (r.first - span.first) % unit, "v2=$v2 max=$max: the piece $r starts inside an entry of span $span")
+                for (span in ext.spans) if (r.last in span && r.last != span.last) assertEquals(unit - 1, (r.last - span.first) % unit, "v2=$v2 max=$max: the piece $r ends inside an entry of span $span")
+            }
+        }
+    }
+
+    /** The re-send carries the image AS IT STANDS when it is cut, not the bytes of the first send:
+     *  a later extension of the same face rewrote the same table unit in place, and writing the
+     *  old unit back would take the newer entry off the glasses under a face that is about to
+     *  draw from it. Mutation watched: the bytes kept at `resend()` and sent as they were. */
+    @Test
+    fun aReSendCarriesTheImageAsItStandsAtTheCut() {
+        val a = GlyphAtlas(NoisyText(), v2 = true, capacity = 96 * 1024)
+        val cache = ByteArray(96 * 1024)
+        assertTrue(a.add(f18, codes("a")))
+        upload(a, cache)
+        // b and c share one 4-byte table unit (entries 66 and 67)
+        val xb = (a.extend(f18, codes("b")) as GlyphAtlas.Extended.Queued).ext
+        val mb = a.takeUpload().single()
+        apply(mb, cache)
+        val ack = assertNotNull(a.acked())
+        a.promote()
+        val unitOfB = xb.spans.single()
+        val firstSent = cache.copyOfRange(unitOfB.first, unitOfB.last + 1)
+        a.resend(ack.writes)                                  // queued; not cut yet
+        val xc = (a.extend(f18, codes("c")) as GlyphAtlas.Extended.Queued).ext
+        assertEquals(unitOfB, xc.spans.single(), "c's entry sits in the unit b's patch wrote")
+        val msgs = a.takeUpload()
+        assertEquals(2, msgs.size, "c's extension, then the re-send in a message of its own")
+        val blank = ByteArray(96 * 1024)
+        apply(msgs[0], cache); assertFalse(assertNotNull(a.acked()).resend)
+        apply(msgs[1], blank); apply(msgs[1], cache); assertTrue(assertNotNull(a.acked()).resend)
+        val now = a.contentForTest().copyOfRange(unitOfB.first, unitOfB.last + 1)
+        assertFalse(now.contentEquals(firstSent), "the unit changed between the first send and the cut")
+        assertContentEquals(now, blank.copyOfRange(unitOfB.first, unitOfB.last + 1), "the re-send carries the unit as the image holds it now")
+        a.promote()
+        assertTableMatches(a, f18, content = cache, what = "after the re-send")
+    }
+
+    /** A re-send cut and not acked goes again after a rewind, still marked a re-send; the ack of
+     *  the message cut before the rewind completes nothing.
+     *  Mutation watched: `rewindToAcked` leaving re-sends handed out (nothing goes again). */
+    @Test
+    fun aRewindSendsAnUnackedReSendAgainAndAnOldAckCompletesNothing() {
+        for (v2 in booleanArrayOf(false, true)) {
+            val size = if (v2) 96 * 1024 else 65536
+            val a = GlyphAtlas(NoisyText(), v2 = v2, capacity = size)
+            assertTrue(a.add(f18, codes("ab")))
+            upload(a, ByteArray(size))
+            assertTrue(a.extend(f18, codes("cd")) is GlyphAtlas.Extended.Queued)
+            a.takeUpload()
+            val ack = assertNotNull(a.acked())
+            a.promote()
+            a.resend(ack.writes)
+            val old = a.uploadGen
+            val lost = a.takeUpload()
+            assertTrue(lost.isNotEmpty() && a.takeUpload().isEmpty(), "handed out once")
+            a.rewindToAcked()                                 // the link ended before its ack
+            assertNull(a.acked(old), "an ack of the cut before the rewind completes nothing")
+            assertEquals(ack.writes.size, a.resendsQueued, "still queued")
+            val again = a.takeUpload()
+            assertEquals(lost.size, again.size, "v2=$v2: the re-send goes again")
+            for ((x, y) in lost.zip(again)) assertContentEquals(x, y)
+            for (m in again) assertTrue(assertNotNull(a.acked()).resend, "still marked a re-send: it is never queued a third time")
+            assertEquals(0, a.resendsQueued)
+        }
+    }
+
+    /** A lapse or a repack sends everything again from the guard: a queued re-send is dropped with
+     *  the layout it named. Mutation watched: `forgetUpload` not clearing re-sends (the old
+     *  layout's ranges go out over the new one). */
+    @Test
+    fun aLapseOrARepackDropsAQueuedReSend() {
+        for (repack in booleanArrayOf(false, true)) {
+            val a = GlyphAtlas(NoisyText(), v2 = true, capacity = 96 * 1024)
+            assertTrue(a.add(f24, codes("xyz")))
+            assertTrue(a.add(f18, codes("ab")))
+            upload(a, ByteArray(96 * 1024))
+            assertTrue(a.extend(f18, codes("cd")) is GlyphAtlas.Extended.Queued)
+            a.takeUpload()
+            val ack = assertNotNull(a.acked())
+            a.promote()
+            a.resend(ack.writes)
+            if (repack) a.repack(listOf(f18), emptyList()) else a.forgetUpload()
+            assertEquals(0, a.resendsQueued, "repack=$repack: dropped with the layout")
+            val msgs = a.takeUpload()
+            for (m in msgs) assertFalse(assertNotNull(a.acked()).resend, "repack=$repack: the whole layout goes again as first sends")
+            assertEquals(a.used, a.ackedBytes)
+        }
     }
 }

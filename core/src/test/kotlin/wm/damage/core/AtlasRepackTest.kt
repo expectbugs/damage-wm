@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -88,12 +89,15 @@ class AtlasRepackTest {
         @Volatile var thin: Set<FontSpec> = emptySet()
         /** While set, every row draws one icon no other surface draws (a kind and size of its own). */
         @Volatile var rowIcon = false
+        /** Appended to what the thin face [suffixFace] draws (a character it was not packed with: one small extension). */
+        @Volatile var thinSuffix = ""
+        @Volatile var suffixFace: FontSpec? = null
         private val scratch = Gray8(8, 8)
         override fun view(): WindowView = WindowView.ListView(model, { 30 },
             paintRow = { g, i, r, _ ->
                 if (rowIcon) wm.damage.core.gfx.IconPaint.drawKind(g, IconKind.MUSIC, r.x + 8, r.y + 4, 18, Level.BODY)
                 val f = fonts[i % fonts.size]
-                if (f in thin) tx.draw(g, r.x + 40, r.y + 4, "Row $i", f, Level.BODY)
+                if (f in thin) tx.draw(g, r.x + 40, r.y + 4, "Row $i" + (if (f == suffixFace) thinSuffix else ""), f, Level.BODY)
                 else {
                     (tx as? CachedText)?.via(scratch, 0, 0, wm.damage.core.geom.Rect(0, 0, 0, 0)) { tx.draw(scratch, 0, 0, EVERY_CODE, f, Level.BODY) }
                     tx.draw(g, r.x + 40, r.y + 4, "Row $i " + ASCII.substring((i * 7) % (ASCII.length - 12)).take(12), f, Level.BODY)
@@ -117,10 +121,44 @@ class AtlasRepackTest {
         }
     }
 
-    private class Rig(scope: CoroutineScope, val text: CachedText, val win: SwitchRows, contract: Int = 0) {
+    /** 0.64, for the count's pin: sees every flush, can break the next ATLAS flushes (the first
+     *  write's offset rewritten past the cache: acked, refused whole, never counted) and hold the
+     *  count's readings. The shell is shown a mirror that is not exact and none of the mirror's own
+     *  decode faults: on glass the phone's mirror applies a well-formed write the glasses dropped
+     *  and sees nothing, where this rig's mirror refuses the malformed one as the glasses do. */
+    private class CountSpy(private val inner: wm.damage.core.transport.Transport) : wm.damage.core.transport.Transport by inner {
+        private val flushes = ArrayList<wm.damage.core.transport.FlushRequest>()
+        @Volatile var breakNextAtlas = 0
+        @Volatile var holdCounts: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+        val countsAsked = java.util.concurrent.atomic.AtomicInteger(0)
+        override val mirror: wm.damage.core.transport.LensPanels get() = inner.mirror.let { m ->
+            object : wm.damage.core.transport.LensPanels by m { override val exact: Boolean get() = false } }
+        override val events: kotlinx.coroutines.flow.Flow<wm.damage.core.transport.TransportEvent> = inner.events.filter { ev ->
+            !(ev is wm.damage.core.transport.TransportEvent.Fault && ev.what.startsWith("mirror/")) }
+        override suspend fun telemetry(label: String): wm.damage.core.wire.DamageMsg.Telemetry? {
+            countsAsked.incrementAndGet()
+            holdCounts?.await()
+            return inner.telemetry(label)
+        }
+        override suspend fun submit(flush: wm.damage.core.transport.FlushRequest): Long {
+            synchronized(flushes) { flushes.add(flush) }
+            val brk = flush.label == "ATLAS" && synchronized(this) { if (breakNextAtlas > 0) { breakNextAtlas--; true } else false }
+            return inner.submit(if (!brk) flush else flush.copy(ops = flush.ops.map { op ->
+                if (op is wm.damage.core.transport.DisplayOp.CacheWrite2) wm.damage.core.transport.DisplayOp.CacheWrite2(
+                    op.payload.copyOf().also { it[1] = 0xFF.toByte(); it[2] = 0xFF.toByte() }) else op }))
+        }
+        fun all() = synchronized(flushes) { flushes.toList() }
+        fun atlas() = all().filter { it.label == "ATLAS" }
+        fun keyframes() = all().count { f -> f.ops.any { it is wm.damage.core.transport.DisplayOp.Keyframe } }
+        /** Data bytes of the ATLAS flushes from index [from] on (the payloads less their headers, near enough: the payload sizes). */
+        fun atlasBytes(from: Int) = atlas().drop(from).sumOf { f -> f.ops.sumOf { (it as? wm.damage.core.transport.DisplayOp.CacheWrite2)?.payload?.size ?: 0 } }
+    }
+
+    private class Rig(scope: CoroutineScope, val text: CachedText, val win: SwitchRows, contract: Int = 0, spied: Boolean = false) {
         val tmp = Files.createTempDirectory("damage-repack")
         val sim = GlassFirmwareSim().also { if (contract > 0) it.damageContract = contract }
-        val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+        val spy: CountSpy? = if (spied) CountSpy(SimTransport(sim, scope, SimTransport.Timing(instant = true))) else null
+        val transport: wm.damage.core.transport.Transport = spy ?: SimTransport(sim, scope, SimTransport.Timing(instant = true))
         val journalPath = tmp.resolve("journal.jsonl")
         val shell = Shell(text, transport, Persistence(tmp.resolve("state.json")), journalPath, scope)
 
@@ -146,11 +184,11 @@ class AtlasRepackTest {
             throw AssertionError("$what: did not settle — ${shell.quiescenceReport()}")
         }
 
-        suspend fun until(what: String, cond: () -> Boolean) {
-            val t0 = System.currentTimeMillis()
-            while (!cond() && System.currentTimeMillis() - t0 < 15_000) delay(10)
-            assertTrue(cond(), "$what — live=${shell.cachedFontsLive} notes=${atlasNotes().takeLast(8)}")
-        }
+        /** Decided on the answer that ended the wait ([waitUntil]; 0.64 R1, review 1a RD-7). */
+        suspend fun until(what: String, cond: () -> Boolean) = until({ what }, cond)
+        /** The same, with a text that holds a live value: [what] is read when the wait gives up. */
+        suspend fun until(what: () -> String, cond: () -> Boolean) = waitUntil(15_000, 10, {
+            "${what()} — live=${shell.cachedFontsLive} notes=${atlasNotes().takeLast(8)}" }, cond)
 
         fun lens(left: Boolean): Gray8 {
             val ctx = if (left) sim.left else sim.right
@@ -183,8 +221,13 @@ class AtlasRepackTest {
      * whole thing go live unproven. That is the §63.1 defect one call site along, and a repack is
      * where it costs most: every offset has moved, so a refused write draws the wrong glyphs.
      *
-     * The gate is owed by an EPOCH now, and this is the observable: the repacked layout asks the
-     * glasses again. Without the fix the count does not move.
+     * The gate is owed by an EPOCH now. What this test measures (review 1a, RC-4): the repacked
+     * layout asks the glasses again — and no more than that. It no longer tells the epoch from the
+     * gate's other terms: since `HANDOFF.md` §73 the gate is also owed by MESSAGES, and
+     * `GlyphAtlas.ackedMsgs` is never reset, so the repacked upload's acks put it past the last
+     * answer's mark and the read-back is asked again with the epoch term, the four mark resets or
+     * the repack's `atlasCheckOwed` call removed (read, not run). The epoch's own pin is on the
+     * answer's side: `GlyphSubsetShellTest.aReadBackHeldAcrossALapseIsDroppedByItsEpoch`.
      */
     @Test
     fun aRepackedLayoutIsReadBackAgain(): Unit = runBlocking {
@@ -214,6 +257,89 @@ class AtlasRepackTest {
             rig.settle("after the repack's upload")
             assertTrue(rig.atlasNotes().any { "repacked:" in it }, "a repack ran")
             rig.until("the repacked layout is read back too") { rig.cacheChecks() > checksBefore }
+            rig.assertGlassMatchesBelief("after the repack")
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /**
+     * 0.64, R1: a repack is a clean boundary for the count. A message acked and not counted just
+     * before a forced repack (its reading still out) leaves the books unjudged at the repack — the
+     * journal says so and a keyframe puts right whatever a draw took from it (a repack's own
+     * repaint sends no difference where belief already equals the truth) — the count re-bases
+     * before the new layout's first message, the new layout is judged whole, and nothing is called
+     * short or sent again for a message of the layout before: the repacked layout goes up once.
+     * Mutations watched: `atlasCheckOwed` without the clear and the re-base (a shortfall is taken
+     * across the two layouts: the old message's ranges are asked of the new layout); the keyframe
+     * removed from it (no keyframe follows the repack).
+     */
+    @Test
+    fun aRepackIsACleanBoundaryForTheCount(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val text = CachedText(SizedText())
+            val thin = FontSpec(Face.SYSTEM, 26)
+            // a face under this rasterizer's noise threshold: its glyphs are a handful of solid boxes, so
+            // a character it gains is a record the cache already holds — a message that only rewrites
+            // table entries, which needs no room in a cache that is full
+            val tiny = FontSpec(Face.SYSTEM, 20)
+            val big = listOf(24, 28, 32, 36).map { FontSpec(Face.SYSTEM, it) }
+            val win = SwitchRows(text, big + thin + tiny).also { it.thin = setOf(thin, tiny); it.suffixFace = tiny }
+            val rig = Rig(scope, text, win, contract = 2, spied = true)
+            val spy = rig.spy!!
+            fun count(head: String) = rig.atlasNotes().filter { "\"detail\":\"$head" in it }
+            fun errors() = Files.readAllLines(rig.journalPath).filter { "\"kind\":\"error\"" in it }
+            rig.shell.start(); rig.settle("start")
+            rig.shell.services.runOnShell { rig.shell.services.openWindow("rows", null) }
+            rig.settle("open rows")
+            rig.shell.updateSettings { it.copy(cachedText = "on") }
+            rig.until("the thin faces are live beside the big ones") { thin in rig.shell.cachedFontsLive && tiny in rig.shell.cachedFontsLive }
+            repeat(3) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("warm $it") }
+            rig.until("the first layout is judged by the count") { count("count ok").isNotEmpty() && rig.shell.cacheCountUnjudged == 0L }
+            rig.settle("judged")
+
+            // the last message before the repack: the tiny face gains one character — acked, refused
+            // whole on the glasses, and its reading of the count is held on its way
+            val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+            val asked = spy.countsAsked.get()
+            val sentBefore = spy.atlas().size
+            spy.breakNextAtlas = 1
+            spy.holdCounts = gate
+            win.thinSuffix = "Q"
+            rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("the notch that reveals Q")
+            rig.until("the extension's message is acked and its reading is out") { spy.atlas().size > sentBefore && spy.countsAsked.get() > asked }
+            rig.settle("the reading held")
+            assertEquals(sentBefore + 1, spy.atlas().size, "one message, not counted: ${rig.atlasNotes().takeLast(4)}")
+            val kf = spy.keyframes()
+            val before = spy.atlas().size
+
+            // the window now draws ONLY that face, and every code in it: more than the cache has room for
+            win.fonts = listOf(thin); win.thin = emptySet()
+            repeat(Shell.ATLAS_RECENT_FRAMES.toInt() + 8) {
+                rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+                rig.settle("notch $it")
+            }
+            assertTrue(rig.atlasNotes().any { "repacked:" in it }, "a repack made the room within the notches: ${rig.atlasNotes().takeLast(8)}")
+            assertEquals(1, count("count re-based — 1 atlas message(s) acked before it are not judged (the layout was replaced); keyframing").size,
+                "the unjudged message left the books at the repack, said once: ${count("count")}")
+            rig.until("a keyframe follows") { spy.keyframes() > kf }
+            assertEquals(before, spy.atlas().size, "the new layout waits for the count's reading")
+            gate.complete(Unit); spy.holdCounts = null
+            rig.until("the face in use holds what it draws") { thin in rig.shell.cachedFontsLive && (text.atlas?.entry(thin)?.packedCount ?: 0) >= 90 }
+            rig.until("the new layout is judged whole") { rig.shell.cacheCountUnjudged == 0L && count("count ok").size >= 2 }
+            rig.settle("after the repack's upload")
+            delay(2 * wm.damage.core.shell.CacheLedger.SETTLE_MS + 800)
+            rig.settle("two settle windows on")
+            assertTrue(count("count short").isEmpty(), "nothing is called short across the two layouts: ${count("count short")}")
+            assertTrue(errors().isEmpty(), "and nothing of the old layout was asked of the new one: ${errors()}")
+            assertEquals(null, rig.shell.notifications.current?.takeIf { it.source == "DAMAGE · cache" }, "no notice")
+            val layout = text.atlas!!.used
+            val sent = spy.atlasBytes(before)
+            assertTrue(sent >= layout - 4 && sent < layout * 3 / 2, "the repacked layout went up once: $sent B sent for a layout of $layout B")
+            assertEquals(kf + 1, spy.keyframes(), "one keyframe")
+            rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("drawing from it")
             rig.assertGlassMatchesBelief("after the repack")
             rig.shell.stop()
         } finally {
@@ -309,7 +435,7 @@ class AtlasRepackTest {
             // by frames, not by a wait: the retry is a window of frames after the first refusal and
             // runs on the idle pump after a settled notch, so the repack has happened inside the loop
             assertTrue(rig.atlasNotes().any { "repacked:" in it }, "a repack made the room within the notches: ${rig.atlasNotes().takeLast(8)}")
-            rig.until("the face in use holds what it draws (${text.atlas?.entry(thin)?.packedCount} packed)") {
+            rig.until({ "the face in use holds what it draws (${text.atlas?.entry(thin)?.packedCount} packed)" }) {
                 thin in rig.shell.cachedFontsLive && (text.atlas?.entry(thin)?.packedCount ?: 0) >= 90
             }
             rig.settle("after the repack's upload")
@@ -369,7 +495,7 @@ class AtlasRepackTest {
             // back in use, drawing only what it has drawn before: no new character, no cue of its own
             win.fonts = listOf(thin)
             repeat(Shell.ATLAS_RECENT_FRAMES.toInt() + 8) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("back $it") }
-            rig.until("the face in use was retried and holds what it draws (${text.atlas?.entry(thin)?.packedCount} packed)") {
+            rig.until({ "the face in use was retried and holds what it draws (${text.atlas?.entry(thin)?.packedCount} packed)" }) {
                 thin in rig.shell.cachedFontsLive && (text.atlas?.entry(thin)?.packedCount ?: 0) >= 90
             }
             rig.settle("after the repack's upload")

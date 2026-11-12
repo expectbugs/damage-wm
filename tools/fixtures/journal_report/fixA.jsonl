@@ -1,0 +1,4 @@
+{"t": 1762900000000, "ev": "submit", "id": 1, "epoch": 1, "label": "ATLAS", "via": "ble", "cached": 0, "cacheMiss": "", "ops": [{"op": "cachewrite2", "bytes": 900}]}
+{"t": 1762900000060, "ev": "done", "id": 1, "ok": true, "ackMs": 60, "bytes": 900}
+{"t": 1762900000000, "ev": "note", "kind": "atlas", "detail": "chunk of 900 B submitted as flush 1 (0 to go)"}
+{"t": 1762900000150, "ev": "note", "kind": "stage", "detail": "the atlas check read the generation 1 short inside the settle window — pending, asked again in 500 ms"}

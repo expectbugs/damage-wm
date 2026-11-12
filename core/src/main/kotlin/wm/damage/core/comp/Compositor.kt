@@ -276,6 +276,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
 
     fun assembleFlush(rectBudget: Int): Assembled? {
         compressCache.clear()          // `composed` may have changed since the last assemble
+        failedProofs.clear()           // ...and with it every proof's verdict
         lastTruthNs = 0L; lastCompressNs = 0L; lastCompressN = 0
         cachedRectsThisAssemble = 0
         stagedRectsThisAssemble = 0
@@ -284,6 +285,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             return assembleFlushInner(rectBudget)
         } finally {
             compressCache.clear()      // the ops hold their own payloads; nothing else may
+            failedProofs.clear()
             cachedText?.endFrame()     // §40: the records were this frame's; the next paints anew
         }
     }
@@ -378,6 +380,13 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         // the batch's byte budget (round 7): every sub-message counts toward
         // the firmware's bmp_max, not only against its own 16-bit length
         var bytes = ops.sumOf { sizeOf(it) } + BATCH_HEADER
+        // ...and the batch's COUNT of sub-messages is one byte ([MAX_BATCH_SUBS], 0.64 R1): it is
+        // budgeted like the fids and the bytes, at every site that appends to `ops` from here on
+        // ([subsLeft]). What is in `ops` already — the keyframe, the reseed's fill, the replayed
+        // copies — is counted by `ops.size`, and those three sites carry no check of their own: a
+        // slide's step declares one or two copies and a canvas's detected move one, so 254 of them
+        // in one frame is not expected. Were one ever assembled, the encoder refuses that flush
+        // loudly and [rollback] turns its copies into damage, so the next flush carries none.
         var dirtyLeft = false
         if (bareKeyframe) {
             dirtyLeft = true
@@ -393,7 +402,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
                 val dirtyL = dirtyCells(true, area)
                 val dirtyR = dirtyCells(false, area)
                 if (dirtyL.isEmpty() && dirtyR.isEmpty()) break
-                if (fids >= budget || bytes >= batchMax) { dirtyLeft = true; break }
+                if (fids >= budget || bytes >= batchMax || subsLeft(ops) <= 0) { dirtyLeft = true; break }
                 // the first pass partitions toward the PIPELINED budget (§8.2 —
                 // "1–3 rects") unless this flush continues budget-limited work,
                 // which stays wide until clean; repairs in later passes may
@@ -403,6 +412,13 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
                 if (planned.isEmpty()) break
                 var exhausted = false
                 for (p in planned) {
+                    // 0.64: an earlier op of this pass already brought this rect to the truth on
+                    // both lenses — a cached rect grows to its draws' boxes and its shadows take
+                    // the truth over all of it, so a second planned rect inside the same string
+                    // grew to the same box and shipped the same base and draws again (228 of 3,538
+                    // flushes on glass, 2026-11-10). Nothing to send. BEFORE the fid check: a
+                    // rect that needs nothing must not mark the pass exhausted.
+                    if (p is Planned.Delta && settled(p.rect, p.d)) continue
                     // a contract-2 seam fill spends no fid, so the fid budget must not stop it:
                     // the blacks are planned LAST (later wins), and stopping them here would
                     // leave the seam strip showing the previous frame for another flush
@@ -415,7 +431,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
                     val before = ops.size
                     fids += emit(p, ops, touched, budget - fids, batchMax - bytes)
                     for (i in before until ops.size) bytes += sizeOf(ops[i])
-                    if (ops.size == before) exhausted = true   // refused for bytes: it waits
+                    if (ops.size == before) exhausted = true   // refused for bytes or for the batch's count: it waits
                 }
                 if (exhausted) { dirtyLeft = true; break }
             }
@@ -441,7 +457,8 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             return null
         }
         // v2: a flush whose changed rows are few asks for the partial refresh (mode 24); the
-        // rows are the union of every rect it touched on either lens, so the panel shows all of it
+        // rows are the union of every rect it touched on either lens, so the panel shows all of it.
+        // Its sub-message is the one [subsLeft] keeps back from every other site.
         if (v2 && !keyframe && ops.isNotEmpty() && ops.none { it is DisplayOp.Keyframe }) {
             var y0 = Int.MAX_VALUE; var y1 = -1
             for (t in touched) { if (t.rect.w <= 0 || t.rect.h <= 0) continue; y0 = minOf(y0, t.rect.y); y1 = maxOf(y1, t.rect.bottom - 1) }
@@ -940,7 +957,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         is Planned.Black -> {
             if (v2) {
                 // contract 2: a black box is a mode-21 fill per lens — no fid, no zlib, 18 bytes
-                if (18 + SUB_HEADER > bytesLeft) 0 else {
+                if (18 + SUB_HEADER > bytesLeft || subsLeft(ops) <= 0) 0 else {
                     shadowL.fillRect(p.l, 0)
                     shadowR.fillRect(p.r, 0)
                     markKnown(unknownL, p.l); markKnown(unknownR, p.r)
@@ -950,7 +967,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
                 }
             } else {
                 val payload = black(p.l.w, p.l.h)
-                if (fidsLeft <= 0 || payload.size + SUB_HEADER > bytesLeft) 0 else {
+                if (fidsLeft <= 0 || payload.size + SUB_HEADER > bytesLeft || subsLeft(ops) <= 0) 0 else {
                     shadowL.fillRect(p.l, 0)
                     shadowR.fillRect(p.r, 0)
                     markKnown(unknownL, p.l); markKnown(unknownR, p.r)
@@ -963,7 +980,11 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     }
 
     /** Conservative wire size of a sub-message (the real headers are smaller:
-     *  keyframe 1 B, plain delta 7 B, stereo 11 B, stereo copy 33 B). */
+     *  keyframe 1 B, plain delta 7 B, stereo 11 B, stereo copy 33 B). This is the BATCH BUDGET's
+     *  allowance, and it over-counts draws most: every draw is charged [SUB_HEADER] on top of its
+     *  own header, so a one-character per-lens draw counts 27 B and costs 14 on the wire. Safe
+     *  for a budget (it can only refuse early). Not a price: the one place two ways of sending a
+     *  rect are compared (the `dearer` guard in the cached path) uses [wireSize]. */
     private fun sizeOf(op: DisplayOp): Int = SUB_HEADER + when (op) {
         is DisplayOp.Keyframe -> op.payload.size
         is DisplayOp.Delta -> op.payload.size
@@ -981,6 +1002,29 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         is DisplayOp.CacheWrite2 -> op.payload.size
     }
 
+    /**
+     * Exact bytes inside a mode-8 batch, for the one comparison that is a price (the `dearer` guard
+     * of the cached path): each sub-message as `CfwModes` builds it plus the 2 B length `batch`
+     * writes before it. Lineage, `wire/CfwModes.kt`: `drawCachedText` (mode 14) 9 + n, `drawImage`
+     * (13) 8, `drawText2` (18) 9 + n and `drawText2Pair` 11 + n, `drawImage2` (17) 8 and
+     * `drawImage2Pair` 10, `delta` (3) 7 + payload and `deltaStereo` 11 + payload, `copyStereo` (9) 33.
+     */
+    private fun wireSize(op: DisplayOp): Int = 2 + when (op) {
+        is DisplayOp.DrawText -> 9 + op.text.size
+        is DisplayOp.DrawImage -> 8
+        is DisplayOp.DrawText2 -> (if (op.xL == op.xR) 9 else 11) + op.text.size
+        is DisplayOp.DrawImage2 -> if (op.xL == op.xR) 8 else 10
+        else -> throw LintError("wireSize: ${op::class.simpleName} is not a cached draw")
+    }
+
+    /** A mode-3 delta of [payload] bytes at disparity [d], in a batch (see [wireSize]). */
+    private fun deltaBytes(payload: Int, d: Int): Int = 2 + (if (d == 0) 7 else 11) + payload
+
+    /** What the pixel path sends for [planned] at disparity [d]: one delta of its composed pixels
+     *  (`emitDeltaPlain`; the payload is memoised, so when the answer is "pixels" the rect is not
+     *  compressed twice). */
+    private fun pixelBytes(planned: Rect, d: Int): Int = deltaBytes(compress(planned).size, d)
+
     /** The recording rasterizer whose frame the next assemble may ship as
      *  cached draws (§40); null = every rect is pixels. Set by the shell
      *  once the atlas is on the glasses, cleared when it is not. */
@@ -996,18 +1040,27 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      * its own x — what a copy leaves behind is what the base delta put
      * there, and the firmware's copy is overlap-safe (`draw.c`
      * rect_copy_4bpp). The "clear" is the BASE: the composed pixels over the
-     * widened rect with every draw's box black, so a rule or a divider in
-     * the rect rides that one delta and only the text is drawn. The rect grows to the glyph boxes of every draw it
-     * touches (a draw cannot be clipped; sending the whole box is sending
-     * the truth). The proof is in LENS space: the firmware's result is built
-     * here for each lens and compared byte for byte with that lens's truth
-     * over the widened rect — a grey box, a neighbouring plane's pixels, a
-     * font the glasses no longer hold, anything else, and the caller ships
-     * pixels. Returns the fids spent (the clear's one), or null when the
-     * pixel path applies.
+     * widened rect with every pixel a draw writes black (0.64; until 0.63
+     * every draw's whole box was black, so a rule under a title or a lit cell
+     * under a character failed the proof), so whatever in the rect is not a
+     * draw's own ink rides that one delta and only the text is drawn. A
+     * TRANSPARENT draw skips source level 0 and overwrites otherwise, image
+     * and string alike (`~/damage-cfw/patches/damage_draw.c`, modeled by
+     * `GlassFirmwareSim` and [CachedText.blit]), so base + draws is the
+     * composed rect wherever the draws are the last thing painted there. The
+     * rect grows to the glyph boxes of every draw it touches (a draw cannot
+     * be clipped; sending the whole box is sending the truth). The proof is
+     * in LENS space: the firmware's result is built here for each lens and
+     * compared byte for byte with that lens's truth over the widened rect —
+     * something painted over the text after it was drawn, a neighbouring
+     * plane's pixels, a font the glasses no longer hold, anything else, and
+     * the caller ships pixels. A rect that proves and whose base carries lit
+     * pixels where 0.63 had black is PRICED against the pixels it replaces
+     * and ships as draws only when that is no larger (`dearer`). Returns the
+     * fids spent (the clear's one), or null when the pixel path applies.
      */
     private fun emitCached(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int? {
-        lastMiss = null
+        lastMiss = null; lastMissCounted = false
         // contract 2: a v2 atlas draws per lens — no widening, no copy, no retry on the context. An
         // atlas of the other contract than the session's (between a lease lost and the rebuild) is
         // not drawn from at all: its offsets and modes are the wrong ones for what answers
@@ -1026,25 +1079,36 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         // failed every page (0.38 on glass: fills of 2.4–4.2 KB where draws
         // would do). Retried once at the row's full width inside its region:
         // the rail rides the base delta, the margins are the black inset.
-        if (d != 0 && lastMiss == "proof") {
+        // Either word of a failed proof retries, as every failed proof did
+        // before the word was split ([proofMiss]). The retry is the same
+        // PLANNED rect's second attempt: it un-counts the first attempt's
+        // word (when that attempt counted one — a box already known to fail
+        // counts nothing, [failedProofs]) and is priced against the pixels of
+        // the rect the caller asked for, not of the widened one.
+        val first = lastMiss
+        if (d != 0 && (first == "proof" || first == "two-planes")) {
             val region = planes.asReversed().firstOrNull { it.rect.contains(rect) && it.disparity == d } ?: return null
             val wide = Rect(region.rect.x, rect.y, region.rect.w, rect.h).alignOut()
             if (wide != rect && region.rect.contains(wide)) {
-                cacheMiss["proof"] = (cacheMiss["proof"] ?: 1) - 1
-                emitCachedAt(wide, d, ops, touched, fidsLeft, bytesLeft, src0, atlas)?.let { cacheHitsWidened++; return it }
+                if (lastMissCounted) cacheMiss[first] = (cacheMiss[first] ?: 1) - 1
+                emitCachedAt(wide, d, ops, touched, fidsLeft, bytesLeft, src0, atlas, planned = rect)?.let { cacheHitsWidened++; return it }
             }
         }
         return null
     }
 
-    /** The last refusal's reason (the retry above reads it). */
+    /** The last refusal's reason (the retry above reads it), and whether that refusal was counted
+     *  in [cacheMiss] — a box in [failedProofs] answers with its word and counts nothing. */
     private var lastMiss: String? = null
+    private var lastMissCounted = false
     /** Rects that shipped as draws only after the full-width retry (§41). */
     var cacheHitsWidened = 0
         private set
 
+    /** [planned] is the rect the caller asked for — what the pixel path would send if this
+     *  returns null. It differs from [rect] only on [emitCached]'s full-width retry. */
     private fun emitCachedAt(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int,
-                     src: CachedText, atlas: GlyphAtlas): Int? {
+                     src: CachedText, atlas: GlyphAtlas, planned: Rect = rect): Int? {
         val all = src.frameDraws()
         val allImages = src.frameImageDraws()
         if (all.isEmpty() && allImages.isEmpty()) return miss("no-records")
@@ -1063,7 +1127,12 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             r = u
             if (pass == 3) return miss("growing")   // still growing: leave it to pixels
         }
+        if (knownToFail(r, d)) return null
         if (draws.size + images.size > MAX_CACHED_DRAWS || r.w <= 0 || r.h <= 0) return miss("too-many-draws")
+        // the batch's count ([subsLeft]): the base, the draws and, on a depth plane, the copy. Not a
+        // proof's verdict — the room changes inside the assemble — so the box is NOT remembered in
+        // [failedProofs]; the full-width retry passes through this line again with its own draws
+        if (1 + draws.size + images.size + (if (d != 0) 1 else 0) > subsLeft(ops)) return miss("batch-count")
         val ad = kotlin.math.abs(d)
         // everything the ops touch, on either lens: the rect and the strip the
         // copy reads from and leaves behind on each side
@@ -1072,7 +1141,10 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         // no plane pre-check (0.38 on glass: 280 "planes" refusals, every
         // full-width rect at Depth 16 — the widened rect leaves the region's
         // 16 px inset): the lens-space proof below is the judge, and a
-        // neighbouring plane's pixels fail it exactly where they should
+        // neighbouring plane's pixels fail it exactly where they should.
+        // That retired word `planes` counted rects REFUSED BEFORE the proof.
+        // 0.64's `two-planes` is a different thing and not a pre-check: a
+        // label put on a proof that has already failed ([proofMiss]).
         // the ops, or nothing: a font the glasses do not hold (a lapse
         // between the record and this assemble) makes the whole rect pixels
         val textOps = ArrayList<DisplayOp.DrawText>(draws.size)
@@ -1095,25 +1167,23 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
                 wm.damage.core.wire.CfwModes.options(top = wm.damage.core.gfx.Pack.level(im.level), transparent = true)))
         }
         // the firmware's result: the BASE over w — the composed pixels with
-        // every draw's box black (so a rule, a divider, a black margin ride
-        // the one delta and only the text is drawn), the draws flat at
-        // nominal on top of it...
+        // every pixel a draw writes black (so a rule, a divider, a lit cell, a
+        // black margin ride the one delta and only the text is drawn) — and
+        // the draws flat at nominal on top of it. Both surfaces start as the
+        // composed pixels and ONE walk per draw writes the level into `flat`
+        // and zero into `base` at the same pixel ([CachedText.blit]'s hole):
+        // texts in record order, then icons — the wire order
         val base = Gray8(w.w, w.h)
         for (y in 0 until w.h) System.arraycopy(composed.pix, (w.y + y) * width + w.x, base.pix, y * w.w, w.w)
-        for (dr in draws) blackBox(base, dr, w)
-        for (im in images) {
-            val b = im.rect.intersect(w) ?: continue
-            base.fillRect(b.x - w.x, b.y - w.y, b.w, b.h, 0)
-        }
         val flat = Gray8(w.w, w.h)
         System.arraycopy(base.pix, 0, flat.pix, 0, base.pix.size)
         for (dr in draws) {
             val e = atlas.entry(dr.spec) ?: return miss("font-not-live")
-            CachedText.blit(flat, dr.x - w.x, dr.y - w.y, dr.text, e, dr.level, src.kernOf(dr.spec))
+            CachedText.blit(flat, dr.x - w.x, dr.y - w.y, dr.text, e, dr.level, src.kernOf(dr.spec), hole = base)
         }
         for (im in images) {
             val e = atlas.image(im.key) ?: return miss("image-not-live")
-            CachedText.blitImage(flat, im.x - w.x, im.y - w.y, e.image, im.level)
+            CachedText.blitImage(flat, im.x - w.x, im.y - w.y, e.image, im.level, hole = base)
         }
         // ...then each lens's copy, staged the way the firmware copies
         val expL: Gray8
@@ -1125,10 +1195,16 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             expR = copied(flat, r, w, d) ?: return miss("edge")
         }
         // the proof: each lens's truth over w IS the firmware's result there
-        if (!sameOver(truthL, expL, w) || !sameOver(truthR, expR, w)) return miss("proof")
+        if (!sameOver(truthL, expL, w) || !sameOver(truthR, expR, w)) return proofMiss(r, d)
+        // the price ([inked]): the draws alone first, so a base is not compressed for nothing
+        val priced = inked(base, w, draws, images)
+        val drawBytes = textOps.sumOf { wireSize(it) } + imageOps.sumOf { wireSize(it) } + (if (d != 0) COPY_PAIR_BYTES else 0)
+        if (priced && drawBytes > pixelBytes(planned, d)) return miss("dearer")
         val t0 = System.nanoTime()
         val clear = Zl.encodeCfw(Pack.rect(base, Rect(0, 0, w.w, w.h)))
         lastCompressNs += System.nanoTime() - t0; lastCompressN++
+        // (the base of this shape is always a FLAT delta, whatever the plane)
+        if (priced && deltaBytes(clear.size, 0) + drawBytes > pixelBytes(planned, d)) return miss("dearer")
         val cost = clear.size + SUB_HEADER + textOps.sumOf { sizeOf(it) } + imageOps.sumOf { sizeOf(it) } +
             (if (d != 0) 35 + SUB_HEADER else 0)
         // the base rides a mode-8 batch, whose sub-message length is a u16: `emitDelta` checks this
@@ -1162,11 +1238,13 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
 
     /**
      * Contract 2 (`FIRMWARE.md` §4): [rect] at disparity [d] as ONE stereo base delta (the
-     * composed pixels over the rect with every draw's box black, at each lens's own box) plus
-     * the recorded draws placed per lens by modes 17/18 — nothing widened, nothing copied, no
-     * context to prove: the proof is that each lens's truth over ITS box equals base + draws,
-     * which is the nominal composition shifted. The `edge` miss is only a box off the panel;
-     * the context-caused `proof` misses of the v1 shape (a rail beside the text) are gone.
+     * composed pixels over the rect with every pixel a draw writes black, at each lens's own
+     * box) plus the recorded draws placed per lens by modes 17/18 — nothing widened, nothing
+     * copied, no context to prove: the proof is that each lens's truth over ITS box equals
+     * base + draws, which is the nominal composition shifted. The `edge` miss is only a box off
+     * the panel; the context-caused `proof` misses of the v1 shape (a rail beside the text) are
+     * gone. The base's rule, the price (`dearer`) and the failed proof's two words are
+     * [emitCached]'s and [proofMiss]'s; [rect] is always the planned rect here (no retry).
      */
     private fun emitCachedV2(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int,
                      src: CachedText, atlas: GlyphAtlas): Int? {
@@ -1188,7 +1266,10 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             r = u
             if (pass == 3) return miss("growing")
         }
+        if (knownToFail(r, d)) return null
         if (draws.size + images.size > MAX_CACHED_DRAWS || r.w <= 0 || r.h <= 0) return miss("too-many-draws")
+        // the batch's count ([subsLeft]): the base and the draws; as in [emitCachedAt], not remembered
+        if (1 + draws.size + images.size > subsLeft(ops)) return miss("batch-count")
         val l = r.translate(-d, 0)
         val rr = r.translate(d, 0)
         // Both lenses' boxes on the panel. `r` itself is always on-panel (`Rect.alignOut` clamps),
@@ -1234,26 +1315,30 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             imageOps.add(DisplayOp.DrawImage2(e.offset / 4, im.x - d, im.x + d, im.y,
                 wm.damage.core.wire.CfwModes.options(top = wm.damage.core.gfx.Pack.level(im.level), transparent = true), e.image.w, e.image.h))
         }
-        // the firmware's result on each lens: the base (the composed pixels with the draws'
-        // boxes black) with the draws on top, at that lens's box — the nominal composition
+        // the firmware's result on each lens: the base (the composed pixels with every pixel a
+        // draw writes black) with the draws on top, at that lens's box — the nominal composition.
+        // One walk per draw makes both surfaces, as in [emitCachedAt]
         val base = Gray8(r.w, r.h)
         for (y in 0 until r.h) System.arraycopy(composed.pix, (r.y + y) * width + r.x, base.pix, y * r.w, r.w)
-        for (dr in draws) blackBox(base, dr, r)
-        for (im in images) { val b = im.rect.intersect(r) ?: continue; base.fillRect(b.x - r.x, b.y - r.y, b.w, b.h, 0) }
         val flat = Gray8(r.w, r.h)
         System.arraycopy(base.pix, 0, flat.pix, 0, base.pix.size)
         for (dr in draws) {
             val e = atlas.entry(dr.spec) ?: return miss("font-not-live")
-            CachedText.blit(flat, dr.x - r.x, dr.y - r.y, dr.text, e, dr.level, src.kernOf(dr.spec))
+            CachedText.blit(flat, dr.x - r.x, dr.y - r.y, dr.text, e, dr.level, src.kernOf(dr.spec), hole = base)
         }
         for (im in images) {
             val e = atlas.image(im.key) ?: return miss("image-not-live")
-            CachedText.blitImage(flat, im.x - r.x, im.y - r.y, e.image, im.level)
+            CachedText.blitImage(flat, im.x - r.x, im.y - r.y, e.image, im.level, hole = base)
         }
-        if (!sameOver(truthL, flat, l) || !sameOver(truthR, flat, rr)) return miss("proof")
+        if (!sameOver(truthL, flat, l) || !sameOver(truthR, flat, rr)) return proofMiss(r, d)
+        // the price ([inked]): the draws alone first, so a base is not compressed for nothing
+        val priced = inked(base, r, draws, images)
+        val drawBytes = textOps.sumOf { wireSize(it) } + imageOps.sumOf { wireSize(it) }
+        if (priced && drawBytes > pixelBytes(rect, d)) return miss("dearer")
         val t0 = System.nanoTime()
         val clear = Zl.encodeCfw(Pack.rect(base, Rect(0, 0, r.w, r.h)))
         lastCompressNs += System.nanoTime() - t0; lastCompressN++
+        if (priced && deltaBytes(clear.size, d) + drawBytes > pixelBytes(rect, d)) return miss("dearer")
         val cost = clear.size + SUB_HEADER + textOps.sumOf { sizeOf(it) } + imageOps.sumOf { sizeOf(it) }
         // as the v1 path above: the stereo base is a mode-3 sub-message with a u16 length
         if (clear.size + (if (d == 0) 7 else 11) > MAX_SUB) return miss("over-sub")
@@ -1270,32 +1355,134 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     }
 
     /**
-     * Black [dr]'s box in a cached rect's BASE ([over] is the base's rect in panel coordinates):
-     * the base is the composed pixels with every draw's box black, so only what is not text
-     * rides the delta. A run that follows a host-drawn character keeps its first
-     * [TextDraw.keep] columns from the pen as composed (`HANDOFF.md` §73): that character's ink
-     * may reach into them, and blacked it was lost — the proof then failed and the whole rect
-     * went out as pixels (measured on AWT: `f` in every face, 49 of 69 characters of the italic).
-     * The kept columns hold the composed pixels, the run's own included, and the draw then
-     * writes its non-zero pixels over them with the same values, so base + draws is still
-     * exactly the truth wherever the columns are kept; the proof stays the only judge. A run
-     * with ink LEFT of its pen (a kern past the first glyph) keeps nothing.
+     * The part of [dr]'s box the base of 0.63 blacked ([over] is the base's rect in panel
+     * coordinates): the whole box, less the first [TextDraw.keep] columns from the pen of a run
+     * that follows a host-drawn character and the last [TextDraw.keepEnd] columns of one that
+     * precedes one (`HANDOFF.md` §73 — that character's ink may reach into them, so 0.63 left
+     * them as composed). A run with ink LEFT of its pen (a kern past the first glyph) kept
+     * nothing. Null when 0.63 blacked nothing of it. Since 0.64 nothing is blacked by box (the
+     * base is black where a draw writes, [CachedText.blit]); this is read by [inked] only.
      */
-    private fun blackBox(base: Gray8, dr: TextDraw, over: Rect) {
+    private fun oldBox(dr: TextDraw, over: Rect): Rect? {
         var box = dr.rect
         if (dr.keep > 0 && box.x >= dr.x) {
             val cut = dr.x + dr.keep - box.x
-            if (cut >= box.w) return
+            if (cut >= box.w) return null
             if (cut > 0) box = Rect(box.x + cut, box.y, box.w - cut, box.h)
         }
-        // the same at the run's END when a host-drawn character follows it ([TextDraw.keepEnd]): a
-        // glyph whose mask starts left of its pen, or one a pair kern tucked in, has ink there
         if (dr.keepEnd > 0) {
-            if (dr.keepEnd >= box.w) return
+            if (dr.keepEnd >= box.w) return null
             box = Rect(box.x, box.y, box.w - dr.keepEnd, box.h)
         }
-        val b = box.intersect(over) ?: return
-        base.fillRect(b.x - over.x, b.y - over.y, b.w, b.h, 0)
+        return box.intersect(over)
+    }
+
+    /**
+     * True when [base] (a cached rect's base, over [over]) holds a lit pixel where 0.63's base
+     * was black: inside a text draw's [oldBox] or an icon's box. This is the test for "this rect
+     * ships as draws only since 0.64", and it decides whether the rect is PRICED.
+     *
+     * Not inked: the base equals 0.63's except that a draw's own ink in its kept columns is
+     * black now, and the proof's surface is identical — the verdict and the draws are 0.63's, and
+     * nothing is priced (a line with a host-drawn character ships exactly as it did).
+     * Inked: 0.63's proof failed on that pixel (its base had black there, no draw writes it, the
+     * truth is lit) and the rect went out as `compress(planned)`. The base now carries what lies
+     * under the draws — a rule, or a whole lit field with glyph-shaped holes, which costs about
+     * what the pixels cost with every draw's bytes on top (a terminal's lit row is one draw per
+     * character). So an inked rect, grown or not, ships as draws only when base + draws is no
+     * larger than that delta; otherwise the miss is `dearer` and the pixel path sends exactly
+     * what 0.63 sent. Sizes are the wire's ([wireSize], [pixelBytes]), compared like for like.
+     */
+    private fun inked(base: Gray8, over: Rect, draws: List<TextDraw>, images: List<ImageDraw>): Boolean {
+        fun lit(b: Rect?): Boolean {
+            if (b == null) return false
+            for (y in b.y until b.bottom) {
+                val off = (y - over.y) * over.w - over.x
+                for (x in b.x until b.right) if (base.pix[off + x] != 0.toByte()) return true
+            }
+            return false
+        }
+        for (dr in draws) if (lit(oldBox(dr, over))) return true
+        for (im in images) if (lit(im.rect.intersect(over))) return true
+        return false
+    }
+
+    /**
+     * Grown boxes whose proof failed in THIS assemble, with the word the failure was given
+     * (cleared with [compressCache], at both ends of [assembleFlush]). Every planned rect inside
+     * one record grows to the same box, and within an assemble the proof's verdict is a function
+     * of that box and its disparity alone (the records, `composed` and the truth do not change),
+     * so a second rect that grows to a box already refused built the base and the proof's surface
+     * again to hear the same answer — `proof=3` for one string on glass (2026-11-10 18:22:11).
+     * One attempt per box: a known box answers at once and counts nothing, so `proof=N` and
+     * `two-planes=N` count boxes, not planned rects.
+     */
+    private val failedProofs = HashMap<Pair<Rect, Int>, String>()
+
+    private fun knownToFail(r: Rect, d: Int): Boolean {
+        val word = failedProofs[r to d] ?: return false
+        lastMiss = word; lastMissCounted = false
+        return true
+    }
+
+    /**
+     * Base + draws did not equal the truth over the grown rect [r] at disparity [d]: count it,
+     * under one of two words. A label only — what ships is the same either way (pixels), and the
+     * proof stays the judge.
+     *
+     * `two-planes`: a lens's truth over its box is not the nominal pixels of [r] shifted — the
+     * planned or grown rect holds pixels of more than one plane, so no one shifted box can prove
+     * it. A nearer plane lies in the box (a depth-plane row whose far-lens box ends inside an
+     * open menu's region), or the rect grew past its own plane through a record's line box. Not
+     * provable AS PLANNED, which is not the same as never provable: a tighter growth rule, or a
+     * clip around the base, could serve some of these.
+     * `proof`: the truth IS the nominal pixels shifted, and the draws still disagree with it — a
+     * stale record, something painted over a string after it was drawn, (contract 1) a context
+     * the copy cannot leave behind. The cache could have served this rect and did not.
+     *
+     * (`planes` was a different word: the pre-check 0.38 ran BEFORE the proof and that was
+     * removed in §41. It is not brought back.) Runs only after a proof said no.
+     */
+    private fun proofMiss(r: Rect, d: Int): Int? {
+        val word = if (shiftedSame(truthL, r.translate(-d, 0), r) && shiftedSame(truthR, r.translate(d, 0), r)) "proof" else "two-planes"
+        failedProofs[r to d] = word
+        return miss(word)
+    }
+
+    /** True when [truth] over the lens box [box] equals `composed` over the nominal rect [r]
+     *  (one size; both on the panel — the emit paths check that before any proof). */
+    private fun shiftedSame(truth: Gray8, box: Rect, r: Rect): Boolean {
+        for (y in 0 until r.h) {
+            val a = (box.y + y) * width + box.x
+            val b = (r.y + y) * width + r.x
+            for (x in 0 until r.w) if (truth.pix[a + x] != composed.pix[b + x]) return false
+        }
+        return true
+    }
+
+    /**
+     * True when [rect] at disparity [d] needs nothing sent: on both lenses every cell of its box
+     * is known and every pixel of it already equals the truth. Decided on the shadows as they are
+     * NOW — not on which rect an earlier op declared — so an op in between that painted over the
+     * box (a depth-plane spill, a fill) leaves the rect dirty and it is sent as before. A rect is
+     * planned from dirty cells inside its own lens boxes, so this is false for every rect until
+     * an earlier op of the same pass has painted it.
+     */
+    private fun settled(rect: Rect, d: Int): Boolean =
+        lensSettled(shadowL, truthL, unknownL, rect.translate(-d, 0).clip()) &&
+            lensSettled(shadowR, truthR, unknownR, rect.translate(d, 0).clip())
+
+    private fun lensSettled(shadow: Gray8, truth: Gray8, unknown: BooleanArray, b: Rect): Boolean {
+        if (b.w <= 0 || b.h <= 0) return true
+        // the cells with dirtyCells' rounding: an unknown cell is dirty whatever its pixels say
+        val cx0 = b.x / CW; val cx1 = (b.right + CW - 1) / CW
+        val cy0 = b.y / CH; val cy1 = (b.bottom + CH - 1) / CH
+        for (cy in cy0 until cy1) for (cx in cx0 until cx1) if (unknown[cy * cellsW + cx]) return false
+        for (y in b.y until b.bottom) {
+            val off = y * width
+            for (x in b.x until b.right) if (shadow.pix[off + x] != truth.pix[off + x]) return false
+        }
+        return true
     }
 
     /** The mode-9 copy that puts a flat draw of [r] at [r].x + [s] on one
@@ -1400,7 +1587,8 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
             if (xL + p.w <= 0 || xR >= width || p.originY + p.h <= 0 || p.originY >= height) continue
             if (!stagedSame(truthL, p, l, d) || !stagedSame(truthR, p, rr, -d)) { miss("stage-proof"); continue }
             val cost = 3 * SUB_HEADER + 17 + 10 + 17
-            if (bytes + cost > bytesLeft) break
+            // ...or for the batch's count: a placement is three sub-messages ([subsLeft])
+            if (bytes + cost > bytesLeft || subsLeft(ops) < 3) break
             ops.add(DisplayOp.Clip(l, rr))
             ops.add(DisplayOp.DrawImage2(p.off4, xL, xR, p.originY,
                 wm.damage.core.wire.CfwModes.options(top = 15), p.w, p.h))
@@ -1441,7 +1629,7 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
      *  journal carries it, so "why isn't the cache serving this" is
      *  answered from the phone without a debugger. */
     private val cacheMiss = HashMap<String, Int>()
-    private fun miss(why: String): Int? { cacheMiss[why] = (cacheMiss[why] ?: 0) + 1; lastMiss = why; return null }
+    private fun miss(why: String): Int? { cacheMiss[why] = (cacheMiss[why] ?: 0) + 1; lastMiss = why; lastMissCounted = true; return null }
     fun cacheMissSummary(): String = cacheMiss.entries.sortedByDescending { it.value }.joinToString(",") { "${it.key}=${it.value}" }
 
     private fun emitDelta(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int {
@@ -1479,7 +1667,9 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
     }
 
     private fun emitDeltaPlain(rect: Rect, d: Int, ops: ArrayList<DisplayOp>, touched: ArrayList<Touched>, fidsLeft: Int, bytesLeft: Int): Int {
-        if (fidsLeft <= 0) return 0
+        // no fid left, or no sub-message left in the batch's one-byte count ([subsLeft]): the rect
+        // waits for the next flush, and the plan loop reads "nothing appended" as it does for bytes
+        if (fidsLeft <= 0 || subsLeft(ops) <= 0) return 0
         emitCached(rect, d, ops, touched, fidsLeft, bytesLeft)?.let { return it }
         val payload = compress(rect)
         // the 16-bit length covers the sub-message HEADER too: 7 B for a plain
@@ -1519,6 +1709,15 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         ops.add(DisplayOp.Delta(rect, payload, d))
         return 1
     }
+
+    /** Sub-messages the batch being assembled can still take ([MAX_BATCH_SUBS], less the one kept
+     *  for the mode-24 hint, which is appended last). Read at every site that appends to an
+     *  assemble's `ops`: a cached rect that needs more answers `batch-count` and goes out as one
+     *  pixel delta in the same flush (its records end with this assemble, so waiting would send
+     *  pixels anyway); a pixel delta and a black box wait for the next flush at none left; a staged
+     *  placement takes three, and with one or two left its rect goes on in this same pass as pixels
+     *  or draws — it waits only at none (`R1-verify.md` §5.2 f). */
+    private fun subsLeft(ops: List<DisplayOp>): Int = MAX_BATCH_SUBS - 1 - ops.size
 
     private fun markUnknown(unknown: BooleanArray, r: Rect) = setCells(unknown, r, true)
     private fun markKnown(unknown: BooleanArray, r: Rect) = setCells(unknown, r, false)
@@ -1650,6 +1849,10 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
         private const val MAX_ITERATIONS = 6
         /** zlib_glue.c: a mode-8 sub-message is prefixed by rd16 — 65,535 B. */
         private const val MAX_SUB = 0xFFFF
+        /** `CfwModes.batch`: a mode-8 batch's count of sub-messages is ONE byte
+         *  (`[8][count][len16][submsg]…`, overview.md §4; g2flash/patches/zlib_glue.c :: mode 8).
+         *  Past it the encoder refuses the whole flush (`mode-8 count N exceeds the u8 field`). */
+        private const val MAX_BATCH_SUBS = 0xFF
         private const val BATCH_HEADER = 118
         /** Below this much room, an op that does not fit waits for the next
          *  flush instead of being split into fragments. */
@@ -1663,6 +1866,9 @@ class Compositor(val width: Int = Geometry.PANEL_W, val height: Int = Geometry.P
          *  a terminal pane ~40; each draw is 9 B plus its characters. */
         private const val MAX_CACHED_DRAWS = 96
         private const val COPY_HISTORY = 64
+        /** `CfwModes.copyStereo`: 33 B, and the batch's 2 B length — the per-lens copy a contract-1
+         *  cached rect on a depth plane ends with, as the price counts it. */
+        private const val COPY_PAIR_BYTES = 2 + 33
         private const val OWNER_REMAINDER: Short = -1
         private const val OWNER_SEAM: Short = -2
         private const val OWNER_MIXED: Short = -3

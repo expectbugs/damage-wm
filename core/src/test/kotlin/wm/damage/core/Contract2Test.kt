@@ -218,7 +218,8 @@ class Contract2Test {
             // every flush's misses, from the journal (the compositor's summary is the last assemble's only)
             val misses = Files.readAllLines(rig.tmp.resolve("journal.jsonl")).filter { "\"ev\":\"submit\"" in it }
                 .mapNotNull { Regex("\"cacheMiss\":\"([^\"]*)\"").find(it)?.groupValues?.get(1) }.filter { it.isNotEmpty() }
-            assertTrue(misses.none { "proof=" in it || "edge=" in it }, "no context proof or edge miss on contract 2, in any flush: $misses")
+            // 0.64: a failed proof is counted under one of two words (`Compositor.proofMiss`); this gate refuses both
+            assertTrue(misses.none { "proof=" in it || "two-planes=" in it || "edge=" in it }, "no context proof or edge miss on contract 2, in any flush: $misses")
             assertTrue(rig.all().drop(1).none { f -> f.ops.any { it is DisplayOp.StereoPair } }, "every black box is a fill on contract 2: ${rig.all().drop(1).filter { f -> f.ops.any { it is DisplayOp.StereoPair } }.map(::shape)}")
             rig.shell.stop()
         } finally {

@@ -6310,3 +6310,529 @@ unproven (they are second reads; the first-pass checks are caught); the transpor
 mode's siblings; `DESIGN.md` §0's row; the grade of "the switch"; the flush count, the window labels and the split
 of the 90. What it could not check: Adam's words (they are in the chat), and the sweep's clock times (the log
 carries none).
+
+## 76. APK 0.64 built: §75.6's builds, two review rounds and their fixes (2026-11-11 → 12)
+
+Context for the reader: a personal device, the published patch method, display-rendering work. Adam's own window
+manager for his own glasses on firmware he installed; this section records an unattended build on his machines, of
+the scope §75.6 set and his rulings of 2026-11-10. **Every number below is measured on the simulator (the desktop
+JVM and the model of the firmware) unless it says otherwise. Nothing of 0.64 has been read on the glasses, and its
+phone half has not run on the device.** As written, APK 0.64 is built and not installed, and the PC service runs the
+jar deployed 2026-11-10 (`de67f99`). Nothing was flashed; no probe was sent to the glasses.
+
+The build ran on the local branch `wip/064` from `886d655` (stage commits `7488fe5` T0 … `7bb603d` R2's verify):
+four packages, each built and then checked by a verify stage; review pass 1 in two halves (1a over P1–P2, 1b over
+T0, P3, P4), four readers each with a second reader per finding; a fix round after each half (R1, R2). The lead's
+notes, the stage reports and the decisions are in the session's scratch directory, not in the repo. This section
+covers the tree to `7bb603d`. Review pass 2 (two readers) ran beside its writing; its findings and any fix round
+after it are recorded after these blocks. Every stage started after 18:16 on 11-11 ran on one model at high effort,
+with fewer agents (Adam's instruction); at 13:09–13:11 two workflows stopped on the account's usage limit and were
+relaunched (R1a's partial edits kept as a diff and taken up).
+
+### 76.1 What 0.64 is, package by package
+
+**T0 — the desktop program's arguments; the mutation runner's verdicts** (after the 05:14 start, 76.6).
+- `desktop` reads its arguments through one pure function (`parseArgs`) before `Config.load()`: `--help` prints the
+  usage and exits 0; an argument it does not know is refused with one line and the usage, exit 2, and nothing
+  starts. An empty list still starts the shell in `auto` with the preview, the service's `--transport auto
+  --no-preview` still starts it headless, every tool flag parses as before (`CliTest`, 10).
+- GG-7 (sweeps 2, 76.4): `research/mutate_core.py` removes the previous run's result files and reads gradle's exit
+  status, so a mutant is never judged from stale files (`ERROR (gradle exit N, no results)`, not a verdict); verdict
+  lines print `Class.name`; `--selftest`.
+
+**P1 — the context menu's first paint (§75.3's two causes).**
+- P1a, the compositor: a cached rect's base is the composed pixels with every pixel a draw WRITES black — until 0.63
+  every draw's whole box — so a title drawn over its own rule proves (Cause A). Every inked rect is priced against
+  its pixels: one that proves and costs more as draws ships as pixels (`dearer`), so text on a lit field ships as
+  draws only where that is cheaper. A box no single shifted box can prove at a nonzero Depth is counted
+  `two-planes` (a label on a failed proof, not a pre-check); `proof=N` counts boxes, not planned rects. The columns
+  after a host-drawn character are read by the price (`Compositor.oldBox`), no longer kept out of the base.
+- P1b, the shell: a painter that fills a region of the frame and paints it again drops the frame's records under it
+  first (`Shell.retire`: the menu, keyboard, wheel, notice box, content, lens, exclusive and silent paints, every
+  restore from an under-snapshot) — Cause B. Main's lens cuts a second line too long for its band 20 px before the
+  progress blocks (or the band's edge) and draws its mark there: the mark used to sit in the rail's columns, where
+  the next full repaint cleared it. Both arms changed (the lead's ruling): a cut detail is 292 px beside a progress
+  (was 324) and 504 px without one (was 524).
+- Simulator: the tap-opened menu box 301 B of pixels → a 54 B base and 10 draws; Main's lens 2,362 B of pixels
+  (`proof`) → a 52 B base and 3 draws; a string over its rule 241 B → 76 / 83 B (contract 1 / 2); a Tmux-shaped lit
+  row stays pixels (1,305 B, `dearer`). On glass the box went out 52 of 52 times at ~2.6 KB on 0.63 (§75.3).
+
+**P2 — the cache count read everywhere; a shortfall is a notice and one re-send (§75.1).**
+- The count has one reader (`pumpLedger`, op 1, `launchLedgerRead`) for atlas writes and staged strips alike; the
+  read-back (op 4) judges presence, size and flags only. The base is read before the first cache write. A write the
+  glasses acked and did not count is a notice and ONE re-send of that write; a shortfall never switches cached text
+  off. Still no gate: nothing waits for the count before it draws.
+- Count notes of an atlas-only reading are kind `atlas` (heads `count ok · pending · short (settled reading N) ·
+  short · short again · over · re-based · unread · off`, `re-send counted · landed late`); a `stage` note means a
+  strip was involved. Notices, source `DAMAGE · cache`: `cache/short`, `cache/lost` (R1 added two, below).
+- A keyframe (≈20 KB) follows a counted re-send, and a repack or reset that drops unjudged writes. A dev probe
+  `cache=miscount` exists and was never sent.
+
+**P3 — sync, the journal, the record of an uncaught error (§75.1).**
+- P3a, sync: a different value applies by strict stamp order; an equal value within 2 s (`STAMP_TOLERANCE_MS`) is
+  the same record — no stamp moves, nothing is saved; records newer by more than 2 s flow both ways. A handshake
+  frame's clock is stamped at its write, the receive time taken at its length prefix; `Shell.postSync` ends at its
+  first statement for a record the store already holds. **Cut (the lead's): the value sums** — a different value
+  inside the tolerance is left by the handshake and named by nothing until that key's next edit. A held record no
+  longer runs the freshen: state that changes with no ring input (two of 15 `window.music.player` stamps in the
+  11-10 log were a handshake's freshen, M) reaches the store and the PC at the next input-driven save, the next
+  record for that key that is not held, or an orderly stop; a process that ends early restores the older record.
+- P3b, the journal: renamed at a process start once past 64 MiB to `journal-YYYYMMDD-HHMMSS.jsonl` beside it; the
+  fresh live file starts with a `journal` note naming the archive; nothing is deleted. `GET /journals` lists the
+  archives, `/journal?…&name=` serves one, `tools/journal_pull.py` copies them to beardos (`--live` the live file
+  too; pull before an uninstall).
+- P3b, the record of an uncaught error (`UncaughtRecord`): the trace goes to `uncaught-pending.txt` at the fault; the
+  next start journals an `uncaught` note and moves it to `uncaught-<time>.txt` (eight records a process, 256 KiB;
+  the same fault again is appended and said short). With `Notify · Damage` off the last run's line is a log line
+  and a journal note. Every start writes a `process` note; the phone's first start also journals up to five earlier
+  exits from Android's `ApplicationExitInfo` (compiled, never run).
+- `tools/check_apk_wiring.py`: a text gate over the start steps of both hosts and the built manifests (the phone
+  module has no tests); run after `:phone:assembleDebug`.
+
+**P4 — the low-battery notice and rest mode's build 1 (§75.4).**
+- P4a, the reads: every sid-0x10 frame is journaled with its arm, flag and bytes (`wear` notes); one op 7 query
+  (13 B) to both arms after each start's lease, never waited on; the READ's field 10 and field 14's presence named
+  in a `wear` note (`switch on …` / `device-info field 10 absent … (fields present a,b,c)`); every sid-0x81 frame a
+  `case` note (no CASE_INFO read); a service with no handler named once a session (`sid` notes); one telemetry read
+  (13 B, both arms) on the 60 s poll while painting, so `presents` against `transferUs` is on record. The 60 s READ
+  can put the shell to sleep and wakes it only on an explicit field-14 zero — whether the glasses send one is
+  unread, so the push OFF is the wake the code counts on.
+- P4a, the notice: below 20 % and not charging, with the latch open → a phone notification on its own channel
+  "Glasses battery" (Android's default importance) and a notice on the glasses when the shell can paint. The latch
+  opens again on `charging` or ≥ 25 %, and the phone's notification is withdrawn then (the glasses' notice is not);
+  a leftover notification is cancelled when the app's stack starts. Asleep or with no session the phone alone is
+  told; with neither a phone path nor a paint nothing is said and the latch stays open (`lowbatt` notes). The latch
+  is judged at a reading's arrival and never replayed; a held level is dropped behind a live one.
+- P4b, the sleep has a reason: `Shell.enterSleep(SleepReason, why)`, `SILENT` (the firmware's Silent Mode) or
+  `REST`. A rest is the same path, entered by `probe:rest=on` (never sent) and ended by `rest=off` or any input
+  event, which is consumed; it writes `rest` notes, raises no notice, never rings, and the cell reads `silent`. A
+  cache write in flight and a read-back on its way are dropped at the entry with no keyframe (nothing is sent
+  asleep; the wake's session start keyframes). The transport's watchdog never rebuilds while the page traffic
+  sleeps (`pageTrafficWanted`: Silent Mode, a refusal-streak sleep, a rest), so a refusal-streak sleep is no longer
+  rebuilt by it at ~23 s — the shell's 60 s check or a ring touch does it. `power` notes; `journal_report.py` prints
+  the glasses' battery by state (lit, the shell's silent, rest, the firmware's Silent Mode) and a candidate block,
+  "panel transfers against frames counted". P4's verify: an awake shell's refused rebuild is a `keeper` note, never
+  `silent` (a `silent` note is the firmware's Silent Mode only).
+- Not covered: a PC shell that claims a resting phone through the seam paints into no lease until it leaves; the
+  owner's shell rebuilds at the hand-back.
+
+**R1 — review 1a's fixes (P1, P2; 19 items).**
+- The compositor and the paint sites: a mode-8 batch's count of sub-messages is one byte — the compositor gives out
+  254 and keeps one for the hint (`Compositor.subsLeft`), and a cached rect past it goes to pixels in the same
+  flush (`batch-count`); no split fill while a menu, the keyboard, the wheel or a furling notice floats
+  (`Shell.surfaceFloats`; with Cached text off or `Slide fill = split`, a canvas that moved by itself under an open
+  menu left the menu off the glass — read, not seen); two exclusive delta paints in one frame keep the newer records
+  only; an empty list declares its damage; Main measures the string it draws (three sites and the name); the silent
+  arm repaints a shown notice.
+- The count: a re-send that cannot be judged — dropped at a repack or a reset, under `atlasFailed`, at the count going
+  off, or acked with the count off — is noted and keyframed (four sites); an unanswered reading is asked again 2 s
+  later on its own pump; three unanswered on a steady link raise `cache/off` once a session (the lead's call: staging
+  is off for that session; not on a build without the telemetry bit); the verdict that turns staging off raises
+  `cache/staging` in place of a third `cache/short`; no strip is staged while a re-send is unjudged; the read-back's
+  epoch test precedes its flag; nothing is asked of the cache asleep; the pace's clock is read after the note's stamp.
+- The harness and the tools: `calm` sees a count reading and cache work in flight (`Shell.cacheWorkInFlight`,
+  loop-only, read inside `sampleIdle`; RD-N1 reaches a new face that gains no glyph in a live face; RB-7 has a pin);
+  the two older held transports hand answers over in order; belief against glass from one loop sample; one wait
+  helper that decides on one evaluation (four files moved; the class stands at 66 sites in 46 files, RD-5's at nine
+  files); `journal_report.py` reads 0.64's cache lines (`--since` at the upgrade, "refusals by reason", "short on
+  staged strips alone") and has a `--selftest`; the Music miss prints its state when it fails.
+
+**R2 — review 1b's fixes (T0, P3, P4; 31 items, and six tool items built first in their own worktree).**
+- The inbound path: the field reader refuses a negative length; one net around the router names a frame whose
+  handler threw; the device-info note names its frame (a READ's answer said on a change of its shape, any other
+  frame once per shape, at most 16) and the switch state follows the READ alone; a battery value outside 0–100 is no
+  reading (`… — not a level, not taken`, said once); RIGHT's second copy of a telemetry reply is not journaled (the
+  first such copy said: `a second copy of reply id N`); the low-battery note says when the phone did not show it
+  (`the glasses only (the phone will not show it …)` / `nowhere (…)`); the phone's text has a big-text style;
+  said-once notes carry the frame whole, the per-frame `wear` and `case` notes stay bounded at 96 B except a
+  session's first longer frame.
+- The stop and the sleep: the loop's drain keeps a flush's answer and a typed line queued behind the Shutdown for the
+  next session, and a stop returns only after that drain (it joins the loop); a synced record behind the Shutdown is
+  stored; a paced check asks nothing of a transport with no session; a rest is taken only where the transport can
+  release the lease (`Transport.leaseOnDemand`; through the seam's client `rest=on` is refused, "rest from the host
+  that owns the radio"); the settings are the store's from construction (the phone's error sink read `Phone
+  notifications` before they loaded); R1 verify's defect (item 31): a re-send still queued when the count goes off
+  stays owed until its last ack, or until what drops it says so and keyframes, once.
+- The process start: a shell or `--host-only` start on a data directory another process holds exits 4 before it
+  touches the journal (`instance.lock`, claimed first and held for the life of the process; measured: closing a
+  second descriptor of a locked file drops the process's POSIX lock, so a second claim in one process is answered from
+  the claims map); the banner prints `?token=…` and names `config.json` (lint `SEC001`); the usage admits only what
+  the parser runs; "the same fault again" compares the first 32 frames; a start loop on one fault keeps eight
+  records and one counter line rewritten in place (said at n ≤ 8 and at powers of two); a record cut at the limit
+  still names its root cause; the phone's start steps are caught and said (insurance); the `process` note carries
+  the archives' count and total.
+- The tools: a signal no longer leaves a mutant in the source (`<file>.mutate-orig` beside it, a hard link, put back
+  at any start; exit 143 / 129; one run per tree; checked by the lead under a real gradle: a caught entry with its
+  reason, then a SIGTERM mid-entry → 143, the same inode and time, nothing left); a test that never ran prints
+  `NOT RUN`, a declared entry `NO PIN (declared)` (29 entries printed `NOT CAUGHT BY` before); `journal_pull.py`
+  decides a set-aside by content, keeps no live copy an archive holds and never prints the token; the wiring gate
+  judges by content and reads code outside string literals; `journal_report.py` closes a state at a process's own
+  start notes and counts `count ended — `.
+
+### 76.2 What is new, where
+
+- **On the wire (phone → glasses):** one op 7 WEAR_QUERY (13 B) to both arms after each session start's lease (and
+  on `probe:wear=query`); one telemetry read (13 B, both arms) a minute while painting; a re-send of a cache write the
+  glasses did not count (once per write) with its keyframe. No display encoder changed.
+- **On the glasses:** the notices `cache/short`, `cache/lost`, `cache/staging`, `cache/off` (the last two never
+  ring the phone) and the low-battery notice; Main's lens's cut second line; text drawn on lit pixels where draws are
+  cheaper (that a draw leaves what it does not write is the model's and both patch sources' reading, unread on
+  glass); a whole-lens repaint after a re-send that could not be judged.
+- **On the phone:** the channel "Glasses battery"; the last run's uncaught-error line; `GET /journals` and
+  `/journal?…&name=`.
+- **On disk:** the journal renamed past 64 MiB at a process start; the uncaught-error record's files; on the PC,
+  `instance.lock` in the data directory and exit status 4 for a second process on it (under the supervisor a
+  refused start repeats every 5 s, one `damage.log` line each); the start banner without the token value; pulled
+  copies under `~/.damage/phone-journal/`. New note kinds: `wear`, `case`, `sid`, `lowbatt`, `rest`, `power`,
+  `journal`, `uncaught`, `process`.
+
+### 76.3 The numbers (at R3, the final battery, `7a6583f`, simulator)
+
+| gate | result |
+|---|---|
+| `:core:test` | 932 of 932 (926 at R2's verify, 699 at 0.63), run as four class groups (117 / 217 / 186 / 412) — one command is ~600 s of gradle, past a ten-minute tool limit |
+| `:desktop:test` | 32 (22 at 0.63) |
+| `desktop --selfcheck` | 485 PASS, three times (484 at 0.63) |
+| `desktop --snapshot` | 57 renders; the notice renders' body lines as at R2 (the clock and the link-rate digits differ) |
+| `tools/lint.py` | 0 findings; `--selftest` 7 of 12 rules covered |
+| `:phone:assembleDebug`, then `tools/check_apk_wiring.py` | builds; 17 lines, all ok; the merged manifest carries versionCode 64, versionName 0.64 |
+| the tools' self-tests | `mutate_core.py` 45 · `journal_report.py` 16 · `journal_pull.py` 26 · `check_apk_wiring.py` 26 |
+| mutation lists, `--check` | 89 / 73 / 76 / 56 / 100 / 48 / 59 / 10 apply (`-73`, `-75-p1`, `-75-p3`, `-76-p2`, `-76-p4`, `-76-r1`, `-76-r2`, `-76-r3`) |
+| rates, twenty uncached runs a class | 20 of 20 for twelve classes: `OverlayCachedPaintTest`, `GlyphSubsetShellTest`, `StagingTest`, `AtlasRepackTest` (R1's verify); `QueueWhileDownTest`, `SilentGlassesTest`, `WatchdogTest`, `RestModeTest`, `SyncToleranceTest`, `WearCaseWireTest`, `LowBatteryTest`, `UncaughtRecordTest` (R2's); at R3 `StagingTest`, `WearCaseWireTest`, `LowBatteryTest`, `MainLensTest` 20 of 20 and `GlyphSubsetShellTest` 5 of 5 (249 s a run) |
+
+Not run in this build: `--epub-check`, `--music-check`, `--games-check`, `--feed-check`, `--card-render` (nothing of
+theirs in the diff); the differential fuzz and the fork's sweep (no patch source and no display encoder changed).
+
+**The mutation sweep (`research/mutate_core.py`), by list:** P1's 74 entries — P1a 34 (32 caught), P1b 28 (19), its
+verify 12 (6); R2 removed one entry listed twice (73). P2's 56: 51 caught, 5 named with no pin. P3's 76. P4's 100:
+P4a 61 of 61, P4b 29 of 29, its verify 10 more, all caught. R1's 48: 42 caught, 6 named. R2's 59: 55 of 56 caught at
+its verify plus R2v-01…03, R2b-11 declared with no pin; 17 re-pointed older entries caught. T0: 26 hand edits of
+`Main.kt` (33 results) and 10 of the runner, all caught (scripts in scratch, no list). R2's tool items: 89 guards
+undone one at a time, 89 fail the case that names them. The guards no pin names are listed per stage in the reports.
+
+### 76.4 The sweeps and the reviews, in numbers
+
+| pass | read | confirmed | went to |
+|---|---|---|---|
+| sweeps 1 (11-10 23:35, read-only on `886d655`) | twice-read ~300 · boundary-clear 174 · wait-no-escape 240 | 2 · 5 · 3 (+2 uncertain) | P5 |
+| the fork's busy word (same pass) | FBW-1…4 | FBW-1, FBW-2 findings; FBW-3 refuted; FBW-4 uncertain | findings only (a change needs a flash) |
+| sweeps 2 (11-11 00:40) | identity-guard 143 · one-sibling 290 · green-gate 105 · loop-cost 179 | 2 · 8 · 8 (inferred, no mutation run) · 6 (1 refuted) | P5, P6, P7; GG-7 built in T0 |
+| review 1a (P1, P2; snapshot `716da79`) | 26 findings | 23 (1 refuted, 2 uncertain) | R1, 19 items |
+| review 1b (T0, P3, P4; snapshot `b194706`) | 36 findings, 3 new from the second readers | 32 (2 refuted, 1 uncertain) | R2, 31 items + 6 tool items |
+| R1's verify | — | 1 defect (a re-send queued when the count goes off), 9 smaller | R2 items 31 and 27; 76.9 |
+
+None of the sweeps' confirmed findings is covered by P1–P4. Sweeps 1's are modeled from the code (P5 writes each pin
+first); of sweeps 2's, OS-1 and OS-5 were measured in the saved phone log and the green-gate ones are inferred. Review
+1a found no wrong-pixel regression from P1–P2's own code, review 1b no daily wrong-pixel defect. FBW-1: no gate
+reaches the deferred half of either handshake (the host harness is one thread — a harness capability, not a patch
+change). FBW-2: the cache pointer's release is still load / test / store / free where the slots and the scratch use an
+exchange; the reported interleaving does not hold, and what remains needs a switch inside a three-instruction window
+on dev-only or two-pool-worker paths. FBW-4 turns on whether the context survives a lens restart on 2.2.6.10 (§74 item
+9's check).
+
+**The fork's vector pass, designed 11-10 23:15 (read-only; built with 0.65):** of 53 sites, 26 are reachable, 16
+answered first by an earlier check, 6 need a harness capability (3 an allocation failure, 3 no shadow), 5 are not a
+guard as the sweep assumed; no wrong guard. Six new vectors, 83 steps (`v1-shape`, `v1-gates`, `v1-mode15`,
+`v1-batchmax`, `v2-shape`, `v2-window`): in scratch copies each of the 26 reachable mutants fails `run_vectors.py`
+on them; the sweep would read 69 of 96 (assembled per site, not re-run). The simulator records nothing for mode 15,
+though `FIRMWARE.md` §4 states its refusal order (a three-line change for `v1-mode15`), and §4 wants three sentences
+(mode 10, mode 8's structure, mode 9's "at least") before the vectors land. The not-returning mutant of §75.5 removes
+the call that fills `img`; with the call kept and only the refusal dropped, four existing vectors fail. `mutate.py`
+wants a call-preserving operator and must end its child at the budget (one left from the 11-10 20:00 sweep ran a core
+for 3 h 17 min, ended by the lead at 23:17). Mode 23's capture-rect refusal is caught only through that operator's
+effect; `v2-shape` steps 12–14 pin it.
+
+### 76.5 Read while the build ran (M: APK 0.63's journal on the phone, read-only)
+
+- **His 22:23 press** (`REMINDER.md` item 13 (a); `captures/2026-11-10-silent-press/`): the shell in its own silent
+  mode from 22:02:22, one clock flush a minute; 22:23:00.164 the last flush acked; 22:23:10.151 the `silent` note
+  "glasses asleep — the firmware's Silent Mode is on" (the push arrived); 22:23:11.029 `SYSTEM_EXIT (type 7, source
+  0)`; no flush after; the 60 s READ still answered at 22:25:06 (38 %). The leaving-work press was reported on 0.63
+  as on 11-09 (n=2 for that case). The case that failed — the first press after the case at home — is still unread.
+- **18:23–22:23, the "before" for P1** (`report-063-2225.txt`): 5,257 flushes, none refused; 5,781 rects shipped as
+  draws over 5,214 flushes; pixels by reason `no-draws` 412, `no-records` 159, `proof` 143, `growing` 82; the atlas
+  42 messages, 29,886 B, no repack, 32 extensions in 28 promotions; 210 host-drawn characters over 45 flushes;
+  battery 68 → 38 % in 3.93 h (7.6 %/h, lit and the shell's own silent mode). The regime left SLOW at 22:01:22
+  (29 ms/KB, n=9, floor 53), the only `link` note of the four hours; SLOW had stood since 17:25:11. Not chased.
+- **Loop cost, 18:23–22:25 (phone, debug variant):** Σ handle 192,158 ms over 5,214 flushes (1.3 % of a core); WINDOW
+  no-input 81 %; one cluster 1,671 flushes / 98.8 KB / 63.7 s of handle on a 2,800.37 ms period (the PC's tmux
+  `statusLoop`); the mirror scan ≈116 s, unjournaled (a dead zone of 14 / 30 ms after an ack at rest, measured
+  indirectly); a save ≈100–150 ms on the loop 2 s after a burst (indirect; store 218,834 B, the player record
+  191,178 B, 1,415 queue entries); all-draw gesture flushes `compressMs` 17 / 77 / 202, `compressN` 11 / 19 / 20
+  (n=107). P6's input.
+- **Device-info frames arrive unasked (RG-1, from the kept tails):** 64 one-percent steps 33–35 s apart while charging
+  under Silent Mode (11-10 00:16–00:57, APK 0.57); at the one process start on record (11-10 17:16:42, 0.63) a level
+  was journaled before the reset check — so either an unasked frame at connect or the capability READ's answer now
+  carries the block, against `CLAIMS.md` row 283 (M on the upstream build, 08-31). 0.64's note names its frame: a
+  note naming `09-00 cmd 2, the start's READ` contradicts row 283 on the fork's build; `09-01 …` says the start's
+  level was unasked. The simulator's `capabilityReadCarriesDeviceInfo = false` ("as the glasses do") waits on it.
+
+### 76.6 The 05:14 start of a second shell on the PC, and its two corrections
+
+P2's verify stage ran `desktop/build/install/desktop/bin/desktop --help` at 05:14:12 on 11-11. `Main.kt` knew no
+`--help`, and any argument list without a tool flag went to `runShell`: a full standby instance (`auto`, a preview
+window on Adam's display, the real `~/.damage`), built from the wip tree. Adam saw the window and asked. Measured: it
+was ended by the lead with SIGTERM at 05:18:29 (it exited in 1 s); it could not bind :7300, :7401, :7403 or :7404
+(the service held them; it retried every 5 s); it read the music library and qBittorrent's loopback API and re-wrote
+`~/.damage/feed/sources/{8bt,xkcd,slashdot,smbc,popular}.json` at 05:14:13–14; it wrote nothing to `journal.jsonl`
+(modified 11-10 22:30:26) or `state.json` (the service's own saves at 05:09:08 and 05:19:08 stand). hci0 was not
+powered, so no Bluetooth to the glasses was possible; no keeper claim was logged. The service (up since 11-10
+17:18:52) was not restarted and kept its phone connections. Its console output carried the browser replica's URL
+with the token — the line the service writes to `~/.damage/damage.log` (0644) at every start; it reached the build
+session's transcript once as tool output, in no file a stage wrote and in no outside request, and is repeated
+nowhere. The same stage ran `rc-service damage status` once (read-only).
+
+**Corrections.** (1) The first note said the instance made ~50 reachability probes of the phone's port. It made
+none: the standby loop goes on to the next pass before `SeamProbe.probe` while the content port is not bound
+("content port busy — another instance? not claiming"), and its own log shows the port busy throughout; "probing
+<phone>:7402" is the start banner (read at the code; P2's verify read the same). (2) So the status line corrected
+on the strength of (1) stands as first written: the only phone contact of the build's session is the 22:34 journal
+fetch.
+
+Fixes: a rule for the build stages (the `desktop` binary takes tool flags only); T0; R2's lock (a second process on
+one data directory exits 4 — since P3 such a process would rename the service's journal) and the banner without the
+token.
+
+### 76.7 Stage slips and harness lessons
+
+- **Slips** (each told in its report): P3b ran `git stash` / `pop` once (to run the report tool as it was); P3's
+  verify ran `git checkout` of the manifest once (its own probe edit); T0 ran `--selfcheck` twice and two real-gradle
+  mutant runs; R1a ran `git stash list` once (a read); R1b removed two scratch probe lines by hand; R2's tool verify
+  watched its guards on scratch copies; R1c put scratch edits back from its own copy, never through git. P2's verify:
+  the 05:14 start and the `rc-service` status call (76.6).
+- **A rig that holds the glasses' answers hands them over in order, later arrivals queued behind** (P1's verify): the
+  transport's own lost-ack line is the read that says a shared-frame scene was what it claims; "deterministic" had
+  been claimed for a pin that missed 22 % warm. R1 swept the class (the two older held transports).
+- **A pin that passed alone failed 13 of 13 beside another class in one JVM** (P3b, found before its commit): the
+  rig's pipe reader asked the stream for its position, a pipe refuses, and the reader ended at once.
+- **P3's verify fixed two:** another fault behind the same one was journaled as one short line
+  (`UncaughtRecord.pickup`, `parse`); the wiring gate did not see a call by its full package name.
+- **The model's `setSilent` is not atomic** (mode before push): the simulator can deliver a refusal ahead of the
+  Silent Mode push — the order of F10's residue (76.9).
+- **R1c's `RestModeTest` miss** (`:497`, `expected:<3> but was:<4>`, 1 of 1 full run, 0 of 6 alone) was the count taken
+  between the two arms' releases; R2 reproduced it exactly with a 300 ms scratch delay, fixed it and a second site.
+  The readers' disagreement on RH-1 is settled by R2b-08 (the paced branch's mutation, caught at "a rebuild
+  follows"): the second reader was right. The two refusal-streak tests now paint; 5.6 → 0.8 s and 6.6 → 1.6 s.
+- **The Music miss** (`MusicWindowTest.windowGrammarAt480`, 1 of 4 full runs on P4's trees, 6 of 6 alone, cause not
+  proven): its failure now prints `shell.quiescenceReport()` and the link state; no miss reported since.
+- **R2's verify pinned three guards no pin named** (R2v-01…03): with the clear at a re-send's last ack removed nothing
+  failed — the staging pace stayed shut for the session and the next sleep said the re-send again; a counter line
+  rewritten over a longer unreadable one left its tail; the path transport's forward of `leaseOnDemand` (no host
+  builds a `PathTransport` today, so it has no daily effect).
+
+### 76.8 Corrections to earlier records
+
+- **§75.5's "inseparable twins" does not hold:** the five first-pass checks (`damage_draw.c:412, 415`;
+  `texture_cache.c:233, 237, 345`) separate once a sound entry or glyph precedes the malformed one (76.4's design).
+- **`FORK.md` Phase 2's envelope, (d): "the save-under slots and the cache pointer move under one state word"**
+  is wrong as written: the cache pointer is under none (FBW-2). `REMINDER.md`'s line had it right; `FORK.md` is
+  corrected.
+- **§34.2's "the mirror scan is zero" does not hold** on 0.63: ≈116 s over four hours (76.5).
+- **§66's decision 5 and (f)** ("the atlas check reads the same ledger"; "the atlas check and the stage check read one
+  ledger (a shortfall with atlas chunks in it switches cached text off …)"): since 0.64 the count has one reader
+  (`pumpLedger`, op 1), the read-back judges presence, size and flags, and a shortfall never switches cached text
+  off. §66's "asked again on the next idle pump": since R1, 2 s later on its own pump.
+- **§41.4's list of `cacheMiss` reasons:** 0.64 adds `batch-count`, `two-planes` and `dearer`; §57's "`planes` is no
+  longer a miss reason" still holds.
+- **§73's mutation runner:** `--selftest` exists; verdict lines print `Class.name`; `ERROR`, `NOT RUN` and `NO PIN
+  (declared)` are not verdicts.
+- **§36.3's `Shell.enterSilentGlasses`** is `Shell.enterSleep(SleepReason, why)` since 0.64.
+- **`CLAIMS.md` row 283** is open again (76.5); the row says so.
+- P2's verify commit message says "50 caught, 6 named": 51 and 5. `P4-spec.md` (scratch) cited
+  `GlassesSessionCore.kt`; in this tree the code is `FaceclawBleCommunicator.java`.
+
+### 76.9 Not built
+
+Into APK 0.65 (`P5`–`P7`, decided in the scratch decisions files):
+- **P5, the class-sweep fixes:** sweeps 1's ten confirmed findings; IG-1, IG-2, GG-1…5, OS-7, OS-8; RC-N1 (pumps
+  submit into a session the transport is ending; item 8, part b, with R1 verify's d — the `cache/off` notice inside
+  a restart the transport began); RH-5 with P4 verify's a (a release coroutine of the session before turns
+  `leaseWanted` off under the next start; item 3); RE-4's sibling (`running = false` ahead of the final save).
+- **P6, loop cost:** LC-7, LC-1, LC-6 (1)(2), LC-4, LC-2; RB-1 (a menu or keyboard cancel ships its restore as pixel
+  rects), item 6, measured first.
+- **P7, notices, windows, tools:** OS-1…6, GG-6, GG-8 (`--epub-check` honours its directory; T0 carries it); RD-7's
+  other 46 files (item 10); the last-run line as a fault on glass (item 2).
+- **The fork's vector pass** (76.4).
+
+Left, with the reason:
+- `tapFocused`'s second compose (CPU; nine windows' commit handlers lean on that repaint); `planOps`' order (1 KB over
+  19 flushes); a hold of `pumpAtlas` on an open count; a periodic save tick (76.1, P3a); a CASE_INFO read.
+- The deliberate uncaught-error probe; a pull by the PC service; the urgent channel for the last-run line; a delete
+  route or compression — each his call (76.10).
+- The value sums (cut); the applied-record path's synchronous save on the loop.
+- RD-3 (refuted: one small control read per batch); RC-1 (iii); RC-6's missed-push form; RE-5's reorder (refuted:
+  at most one re-handshake); RF-2 (a) (the lock removes the sequence); RG-3 step 2 (`unsay()`); RG-5's read to RIGHT
+  alone (it changes what is written to the glasses on an inference).
+- P4 verify's b and e (test-only, or nothing reads it after a stop); c and d go to rest mode's build 2 (76.10).
+- R1 verify's b (the unanswered pace is on the wall clock and gates the base), c (no build without the telemetry bit
+  is installed), e (`pendingCopies` has no cap — loud, once), i (the furl's snapshot siblings; `Notifications`'
+  raw measure): listed for review pass 2.
+- Named at R2's verify and handed to review pass 2: `parseSilentRestored` moved by any block-bearing device-info
+  frame; op 7's answer to LEFT's forwarded copy writing a second "worn again" note; a keyed window push behind the
+  Shutdown dropped by the drain; an `Error` from a `dropped` callback ending the drain early; the loop's `!running`
+  arm; `InstanceLock`'s overlapping arm.
+- A driver that claims a resting session through the seam (76.1, P4; the seam stays as it is). F10's residue: a
+  refusal that reaches the shell before the Silent Mode push is handled awake — its signature is an `atlas` note
+  `cached text off — the glasses refused a cache write: …` (or a `fault` note `imgres: …`) inside the second before a
+  `silent` note.
+- Seen by the builders, not touched: `LinkState.inFlight` lags submit, so a burst can submit past the window; a rect
+  that is not inked is never priced (the tap-opened keyboard ≈1.1 KB as draws against 641 B as pixels in the rig's
+  face, modeled); the rail's track gap after a sub-2 px notch (seen on the simulator); `StagingTest` missed twice
+  on wall-clock windows (1 in 40; P1's verify rewrote one wait).
+- F16 (`atlasReset` clears `atlasInFlight` under a chunk in the air; reach: the self-test's live writes only).
+- Rest mode's build 2 (by design: after build 1's reads). Anything on glass or on the phone.
+
+### 76.10 For Adam
+
+His calls:
+1. **Installing 0.64**, and every `glassdrive.py` line after it — PRESENTED arming, the timed `rest` hour,
+   `cache=miscount`, `wear=query`. The wear-detection switch, a phone-side Silent Mode write and any flash stay his.
+2. **T2's exit** (`REMINDER.md` item 3): `planes` cannot occur. Proposed: "`proof` at zero, `two-planes` reported
+   beside it" — tens a day expected (rects no single shifted box can prove at a nonzero Depth).
+3. **Main's lens, his eye:** the 8 renders in `captures/2026-11-10-build064/main-lens/` (a cut detail 292 px beside a
+   progress, was 324). The arm without one (504 px, was 524) was not in his ruling; the lead changed it as a defect
+   (reversible).
+4. **Sync: sums decide?** (offered, outside his ruling): an equal value sum → the tolerance, a different one → strict
+   order. As built a different value inside 2 s is left and named by nothing.
+5. **The last run's uncaught-error line:** as built it follows the error path (with `Notify · Damage` off, his
+   setting, a log line and a journal note). Offered: always the phone's urgent channel, as the low-battery notice.
+6. **The archives:** pulled by hand; offered: the PC service pulls on its standby pacing; a delete route or
+   compression once they pass about 1 GB (modeled 0.7–3 GB a year).
+7. **One deliberate uncaught error on the device** (not built): it ends the APK's process once and reads the whole
+   chain — file, note, line. Until then the phone half is unread.
+8. **A limit on restarts:** a start loop on one fault is bounded (eight records, one counter line); two different or
+   alternating faults are not, and on the PC a fault after the pickup repeats every 5 s without limit.
+9. **Journal notes whole or bounded** (the lead's call): said-once notes carry an unknown frame whole; per-frame
+   `wear` / `case` notes are bounded at 96 B. Whether the no-truncation rule reaches journal lines is his.
+10. **The telemetry read to RIGHT alone** would halve the replies at the source; on an inference, not built.
+11. **The config token** reached one build stage's transcript (76.6), no file and no outside request. Rotating it
+    (`config.json` and the baked secrets file: an APK build and a service restart together) is his call.
+12. **Which keyed window push wins** when one lands behind a stop (R2b's find; today the next session shows the
+    window's older data until its next push).
+13. **Rest mode's build 2:** a typed line during a rest is delivered (a replica keyboard's line is not an input
+    event); any input type, an unknown one included, ends a rest.
+14. **A loss of staged strips alone** still re-sends an atlas message and keyframes (P2's leftover (b), narrowed
+    in R1): whether it should spare the atlas both.
+
+The lead's calls in the build, each reversible:
+15. Text on a lit field ships as draws where that is cheaper; the cacheMiss words `two-planes` and `dearer`.
+16. Sync's 2 s decides only "same record"; a different value keeps strict order; the value sums cut.
+17. A keyframe (≈20 KB) after a counted re-send, when a repack or reset drops unjudged writes, and after a re-send
+    that could not be judged — a whole-lens repaint, once.
+18. Two boxes that can now appear on glass, neither rings: `cache/off` (the count not answered three times on a
+    steady link; staging off for the session) and `cache/staging`.
+19. The low-battery channel at Android's default importance (one sound, no heads-up); a leftover notification
+    cancelled when the app's stack starts (a second sound if the pair is still low); when the phone will not show
+    it the note says so and nothing says it again.
+20. A rest ends on any input and that input is consumed; a rest writes no notice and never rings; the cell reads
+    `silent`.
+21. Dev probes built and never sent: `cache=miscount`, `rest=on|off`, `wear=query`, `sim=…` (SIM target only).
+22. On the wire: one 13 B op 7 to both arms at every session start; one 13 B telemetry read to both arms a minute
+    while painting.
+23. A refusal-streak sleep is no longer rebuilt by the watchdog at ~23 s; the shell's 60 s check or a ring touch does.
+24. The desktop program refuses an argument it does not know (exit 2); a second process on one data directory exits
+    4 (a lock that cannot be tried logs one ERROR line and the start goes on — the builder's call); the banner prints
+    the URL without the token value.
+25. The kept uncaught-error file: eight whole records, then one counter line; a record cut at 256 KiB less 512 B
+    keeps its root cause. Insurance catches on the phone's start steps.
+26. The wiring gate's checks 6 and 7; input events that ask for a wake already on its way are journaled once per wake;
+    an awake shell's refused rebuild is a `keeper` note. Not covered: a PC shell claiming a resting phone.
+
+For APK 0.65 (built with P5–P7, not in 0.64):
+27. **The first line of 0.65's summary: `Notify · Damage` off will no longer mute the apps' own notices** (OS-1; on the
+    captured day 27 Tmux alert boxes, 13 a minute apart). The rows that turn each off: Tmux `Alerts` and the
+    per-session mute, Torrents `notifyDone` / `notifyErrors`, Music `notifyRoute` / `notifyYt`.
+28. Answers to his own gesture show whatever the row says (OS-2); Now Playing's time moves at Music's 5 s pace once
+    Tmux stops asking every 2.8 s (faster is `CARD_PACE_MS`, his call); one 2-byte ring-clear image at each session
+    start (IG-1); Feed's open article survives a session restart; Reader no longer parses the open book at each
+    session start.
+29. Not built, his word: LC-3, LC-5, LC-6 step 3, a non-debuggable daily APK (the one lever on every phone CPU number).
+
+### 76.11 What is next
+
+1. Review pass 2's adjudication and its fix round, the final battery, the version (0.63 → 0.64, versionCode 64), the
+   squash onto `main`, the push, the build and the staging (0.63 kept in `~/.damage/backup/`) — the lead's, recorded
+   after this section.
+2. **Adam installs 0.64** (his word). Then the first day's journal: after the install `/log` shows "uncaught-error
+   record installed (previous handler …)" and the journal a `process` note with the same words — the only read of
+   the phone half; the phone's first start renames its journal (grown since August, size unread), so
+   `&tail=2000000` returns only the new process's lines, starting with the `journal` note; pull the archive with
+   `python3 tools/journal_pull.py --live` in a quiet minute (it shares the radio). Then read: the wear event's arm and
+   flag; op 7's answer with the switch off; field 10 and a field-14 zero in a READ; sid-0x81 pushes; the frame that
+   names the start's level (row 283); the menu box's first flush against 0.63's 2.6 KB; `proof`, `two-planes`,
+   `dearer`; the first `count` notes and any `cache/*` notice; the price's own CPU — `compressMs` and `compressN` on
+   flushes whose `cacheMiss` holds `dearer`, against the same windows on 0.63 (`assembleMs − truthMs − compressMs`
+   cannot see it).
+3. **The PC deploy:** the first start of the new jar renames the PC's journal (79,742,489 B, past 67,108,864) and takes
+   `instance.lock`; read `damage.log` then. After it, look for a pair "77 newer there" / "77 wanted" five minutes
+   apart (a late handshake costs two full sync rounds, each record saved on the phone's loop — modeled), and the flush
+   gap at each `:x4:09` / `:x9:09` handshake against the minute before, after the PC deploy alone and again after 0.64.
+4. **The timed rest hour** (his word; `DAILY.md`'s recipe).
+5. **APK 0.65 = P5–P7 and the fork's vector pass**, started after 0.64 is staged; a day of 0.64 on glass is P6's
+   "before".
+
+### 76.12 Review pass 2 and fix round R3 (2026-11-12, simulator)
+
+Review pass 2 was two readers on `7bb603d`, with no second reader behind them: A read the compositor, the shell's
+paint sites and the cache count (P1, P2, R1); B the process starts, the inbound path and the first launch (T0, P3,
+P4, R2). Neither found a defect of daily use. R3 built three findings, one sibling and one comment (`7a6583f`;
+numbers in §76.3; mutations `-76-r3` 10 of 10 caught, P4a-11 re-pointed after 2B-1 and caught).
+- **2A-1, built.** A notice's body was wrapped raw and drawn substituted: a character the face lacks that measures
+  nothing (a joiner, a control code) came back as an 8 px `?`, and a full line lost its tail to `Draw.fit`, on no
+  other line. `Notifications.bodyLines` substitutes each paragraph before the wrap; no other shell surface wraps
+  external text (Reader, Files, Feed, Torrents and Music wrap their own; listed, not changed).
+- **2A-2, built.** A cache-count reading the glasses never answer was asked every 2 s for the session and held both
+  cache-write lanes, said by one journal line. Now it ends at its third unanswered ask (a bound by asks, no clock;
+  the count's two labels only — the start's reset check reads a null as the session's end, and the read-back's
+  bound was ruled not built), the three-in-a-row bound switches the count off, and `cache/off` says the cause (not
+  asked, with the reason; not answered, with the asks) and names Page staging only with its row on. A late answer
+  is dropped by its id.
+- **2B-1, built.** A session that starts while the glasses say Silent Mode is on writes no op-7 wear query; one note
+  says so, and the wake's session asks. Where the start's READ carries no device-info block — the glasses' form of
+  that READ, as the model records it (2026-08-31) — the transport cannot see Silent Mode there and the query still
+  goes (shown on the model; unread on glass). Holding the query to the session's first device-info READ is not built.
+- **Item 31's sibling, built; its pin reads a note.** The re-base cleared the re-send owed while the re-send was still
+  queued; it now keeps it, as the count-off does. In the one rig found (a re-send lost, a re-base, then a refusal)
+  the keyframe came either way, from two messages the rewind re-cut and nothing judged; the field shows only in the
+  note's "and a re-send owed". The consequence A named (a strip read in the re-send's interval) was not reached.
+- `LinkState.worn`'s KDoc said "cleared at every session end"; the CFW transport clears it at a start only — the
+  comment says so now. The version is 0.64 (versionCode 64).
+
+Judged and left (A):
+- b, the unanswered pace on the wall clock: needs a backward clock step inside 2 s of an unanswered reading; if ever
+  built, all three paces together on a monotonic clock.
+- e, `pendingCopies` without a cap: asleep, one small object per canvas move for the sleep, freed at the wake; awake,
+  254 or more moves with no room in the window cost one refused flush and one fault box.
+- i (first half), a slide under a furling notice: not reachable from input — every furl starts in
+  `handleNotificationGesture`, which runs only while the box is focused.
+- Smaller: the count-off with one re-send message acked and one not can keyframe twice (bounded; a reading launches
+  only with the atlas queue empty); a canvas split's Run after a move into exclusive mode restores a notice snapshot
+  never invalidated (the box repaint covers the same rect). The Base arm and the `cache/off` wording were built above.
+
+Judged and left (B, the six named items and the smaller notes):
+- `parseSilentRestored` acts on any block-bearing frame: older than 0.64; field 14 means the same in any frame.
+- The forwarded copy of op 7 writes a second "worn again" note: one line per session start; nothing acts on it.
+- A keyed `runOnShell` push behind the Shutdown is dropped by the drain: older than 0.64; needs the key on `Msg.Run`
+  (P5, if Adam wants it).
+- An `Error` from a `dropped` callback ends the drain early: only a VM error can, and it reaches the process handler.
+- The loop's `!running` arm drops a transport event without `keepWhileDown`: not reachable.
+- `InstanceLock`'s overlapping-lock arm closes its new channel: needs a second spelling of the directory (a symlink).
+- The phone's `startStack` throwing after `shell = sh`: the last run's line reaches logcat and the journal only; no
+  such throw is known.
+- The low-battery hook's six binder calls on the loop, once per discharge: no disk, no network.
+- `ShellService.onCreate`'s file I/O on the main thread: bounded; the archives' stat count grows with their number.
+- A second `ShellService.onCreate` in one process logs a WARN: only after an outside stop.
+- The PC's last-run uncaught-error line reaches `damage.log` and the journal only: as P3 built it.
+- Every uncaught PC exception, dbus-java's routine ones too, spends the eight-record budget; the next start journals
+  up to 256 KiB as one note line.
+
+Not read by the readers:
+- A: 0.63 code 0.64 did not change (`GlyphAtlas` packing, extension, repack and promote; `CachedText.layout`; the
+  `Staging` registry and ring); the staged-draw path past `emitStaged`; `LinkEstimator.kt`; R1c's test helpers; the
+  mutation entries; the wake path's order after a Silent Mode sleep (inferred).
+- B: `check_apk_wiring.py`, `mutate_core.py`, `journal_pull.py`, lint's SEC001 and the fixtures (`journal_report.py`
+  only in `power_report` and `chain`); `GlassFirmwareSim` past wear, case and device info; `SyncNet` past the skew and
+  diff; `Persistence.load`; item 31's field lifetime past its four hunks.
+
+Not built: the same bound at the atlas read-back (`cacheCheck`, op 4 — ruled; on glass since 0.63, read there 11 of
+11); the wear query held to the session's first device-info READ (above).

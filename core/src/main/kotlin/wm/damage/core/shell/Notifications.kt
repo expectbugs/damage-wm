@@ -33,7 +33,9 @@ class Notifications(private val text: TextRasterizer) {
         val target: String? = null,
         var read: Boolean = false,
         /** A FAULT's notice (`Shell.raiseFault`, `HANDOFF.md` §69): shown whatever Global
-         *  `Notify · Damage` says — that row gates courtesy notices, never a fault. */
+         *  `Notify · Damage` says — that row gates courtesy notices, never a fault. Also set on
+         *  the low-battery notice (`HANDOFF.md` §75.4 call 3), for that one effect: it opens no
+         *  fault episode and the status cell does not say `fault` for it. */
         val fault: Boolean = false,
     )
 
@@ -357,7 +359,12 @@ class Notifications(private val text: TextRasterizer) {
      *  no mark, and the part outside the damaged rect was ink in `composed`
      *  that nothing would ever send. */
     fun bodyLines(n: Notice, l: Layout, silent: Boolean = false): List<String> =
-        Wrap.wrap(n.body, fBody, text, bodyWidth(l, silent))
+        // wrapped on the string `paint` DRAWS (R3, review 2 2A-1): each paragraph substituted
+        // first (a character the face lacks, a control code, becomes its `?`), '\n' kept for
+        // the wrap. A raw wrap measured a joiner as 0 px; drawn as an 8 px `?`, a line that
+        // filled the width came back wider and `Draw.fit` cut its tail, on no other line.
+        Wrap.wrap(n.body.split('\n').joinToString("\n") { Draw.dynamic(text, it, fBody) },
+            fBody, text, bodyWidth(l, silent))
 
     private fun bodyWidth(l: Layout, silent: Boolean): Int =
         (if (silent) SILENT_W else l.notificationMax.w) - 16

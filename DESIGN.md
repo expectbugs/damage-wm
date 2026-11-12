@@ -30,7 +30,7 @@ Recorded so they are not re-proposed. These are *decisions*, not oversights.
 | ❌ **The piezo buzzer, entirely** | Adam, 2026-08-17: *"no tone/buzzer. i do not want my glasses to emit sound."* Mode 5 is never sent. Out-of-band alerting goes to the phone (§9.3) |
 | ⚠ ~~❌ **Scroll acceleration / velocity**~~ **RE-OPENED 2026-08-30 · ✅ SHIPPED 2026-08-31** | Original reasoning: scroll and tap are hard to distinguish on the ring's small sensor, especially gloved, so every notch was one step. **Adam reversed this after using Reader on glass** — one line per notch in a book is far too little; he asked for acceleration "like firmware scroll" with a lines-per-notch setting as the fallback. Two facts had also changed: ack latency measured ~50 ms rather than 176 ms, and first light showed tap and scroll arriving as distinct event types. **Shipped 2026-08-31: a per-notch step setting (1–8 lines) plus a direction-gated ramp — notches ≤250 ms apart multiply the step up to 6×. Same-day verdict on glass: the ramp is too uneven — "lets just default the scrolling to 5 lines per notch - configurable." DEFAULT = 5 lines/notch, acceleration OFF; both in Settings → Reader. Lists stay one item per notch: acceleration over selections would overshoot them.** |
 | ⚠ ~~❌ **User-settable chrome/app typography**~~ **REVERSED 2026-08-31 · ✅ SHIPPED** | §Type locked "the system face is not negotiable per window" and one fixed chrome face. **Adam reversed it**: Settings → Global sets font/size/style for chrome + Main; every app category sets font/size/style for that app's content, each option previewed in its own face. The §Type MEASUREMENTS still price the choices; only the lock moved from "decided once" to "his to change at runtime". `core/text/Style.kt`; defaults render byte-identically |
-| ❌ **Wear / unwear differentiation** | not wanted for now. `wearnotify` stays banked, unused — **except to rest:** Adam's ruling of 2026-09-21 (§9.3, `HANDOFF.md` §70) rests the shell on the not-worn event; designed (`HANDOFF.md` §75.4), not built, and nothing else tells worn from not worn |
+| ❌ **Wear / unwear differentiation** | not wanted for now. `wearnotify` stays banked, unused — **except to rest:** Adam's ruling of 2026-09-21 (§9.3, `HANDOFF.md` §70) rests the shell on the not-worn event; designed (`HANDOFF.md` §75.4); build 1 — the reads and the manual rest — built in APK 0.64, not yet installed (`HANDOFF.md` §76): nothing rests by itself, and nothing tells worn from not worn but the journal |
 | ❌ **Head tracking on by default** | available, **defaults OFF** — his head moves constantly at work (§7.1) |
 | ❌ **Long-press as a live gesture by default** | reversed 2026-08-30: the most common accidental press by far, gloves worst — **defaults OFF (a no-op)**; the §1.3 chord opens the switcher; a Settings row restores the direct open |
 | ❌ **Dithering** | halves compression; the 4-bit downsample looks better without it |
@@ -657,7 +657,8 @@ Settings**.
 
 **Three columns: icon, window name (small caps, dim), live summary (brighter).** Numerics
 right-align into a column. **In the lens, the focused window shows its full summary, wrapped over
-two lines** — 64 px is exactly two 32 px lines. Unfocused rows show one line and, when there is
+two lines** — 64 px is exactly two 32 px lines; a second line too long for the band is cut 20 px before the
+progress blocks (or the band's edge) and carries the mark there (APK 0.64). Unfocused rows show one line and, when there is
 more, the **right-edge continuation mark `▸`** — reachable (focus it and the lens reveals it in
 full) and advertised (§2.4 rule 3). Wrapping every row instead would turn a glanceable dashboard
 into a wall.
@@ -721,7 +722,7 @@ overrides the global for that app only. Reader's Size row is the first instance 
 | **Link** | 🆕 **built (2026-09-12, `HANDOFF.md` §47): `high · balanced`, high the default.** The radio's connection priority: the phone asks for it at connect and asks AGAIN, paced (5 s per arm), whenever the glasses move the link to slower parameters — measured 2026-09-12: they moved both arms to 105 ms / latency 4 at 12:00:02 and every flush waited ~470 ms more for three hours. Slow parameters flip the slide regime at once, put `link slow` in the status cell and raise one notice; `balanced` (30–50 ms) is the on-glass experiment for whether the ~50-minute arm rebuilds follow the fast set |
 | **Notification sources** | only `Notify · Damage` here — **each app's toggles live in that app's own category** (Adam, 2026-09-01; §4.5) |
 | **Keyboard** | qwerty / abc — the §4.8 keyboard's layout |
-| **Battery alert** | off / on / escalating — the ≤ 20 % pulse (§4.1) |
+| **Battery alert** | off / on / escalating — the ≤ 20 % pulse (§4.1); still a row with no reader — §9.3's low-battery notice does not read it |
 | **Profiler · Diag overlay** | the status-bar profiler (off by default) and the mode-7 diagnostic overlay (on since bring-up; a sticky flag is a hard error either way — §9.2) |
 
 🔑 **Every appearance setting previews LIVE as you scroll its value** — brightness, depth, size
@@ -913,7 +914,7 @@ returns after. The wheel owns the screen.
 "Errors should come up as a notification, not a truncated status bar line that hides inputs and can't be
 cleared." The cell shows ONE word from a fixed list, **derived** on every chrome sync from conditions that each
 have their own lifecycle, the first that holds: `no link` · `silent` · `rebuild` · `no lease` · `halted` ·
-`fault` · `link slow` · `ok`. Nothing sets it and nothing clears it, so one state's exit cannot clear another's
+`fault` · `link slow` · `ok` (a rest, APK 0.64, reads `silent`: composed, never sent while it rests). Nothing sets it and nothing clears it, so one state's exit cannot clear another's
 word. `fault` means a fault episode is open — it covers the case where the notice itself cannot be shown — and
 clears after a quiet minute. The echo's words are fixed too (`tap · dbl · up · down · hold · rel`, `evNN` for an
 event with no word), so the cell is **measured** for the widest state beside the widest echo in the chrome face
@@ -927,7 +928,11 @@ updating the one box's count at ×2, ×4, ×8 …, the phone hearing an urgent c
 staying dismissed until the class has been quiet for a minute. Fault notices ignore Global `Notify · Damage`
 (that row gates courtesy notices). Two things never raise a box: a fault of a session that is ending (the word
 says `no link` or `rebuild`), and a **refused image** — its box would be more images into a page that refuses
-them (§36); the refusal streak's sleep is said once instead.
+them (§36); the refusal streak's sleep is said once instead. From APK 0.64 (built, not yet installed; `HANDOFF.md`
+§76) the cache count raises four classes, source `DAMAGE · cache`: `cache/short`, `cache/lost` (its body ends "for
+the re-sent message(s)"), `cache/staging` (the verdict that turns Page staging off, in place of a third
+`cache/short`) and `cache/off` ("the glasses did not answer the cache count — cache writes go unchecked and Page
+staging is off until the next session", once a session); the last two never ring the phone.
 
 #### 🔴 There are two links and they fail completely differently
 
@@ -1755,7 +1760,7 @@ each boundary so it cannot flicker between N and NE.
 
 ### 7.3 Wear detection — excluded for now
 
-`wearnotify` is in the CFW capability string and stays unused (§0) but for §9.3's rest mode (ruled 2026-09-21, not built).
+`wearnotify` is in the CFW capability string and stays unused (§0) but for §9.3's rest mode (ruled 2026-09-21; build 1 — the reads and the manual rest — built in APK 0.64, not yet installed; nothing rests by itself).
 
 ---
 
@@ -2051,7 +2056,7 @@ when the display itself is what is broken.
 Severity worth escalating to the phone: framebuffer lease lost · decompress failure ·
 `ImgResCmd.ErrorCode` · link down · fid collision detected · sustained ack-timeout streak.
 
-**Low glasses battery (Adam, 2026-09-21 — designed, NOT built; `HANDOFF.md` §70; not in APK 0.61–0.63 — `REMINDER.md` item 10 is the build that carries it):** when the
+**Low glasses battery (Adam, 2026-09-21 — built in APK 0.64, not yet installed; `HANDOFF.md` §70, §76):** when the
 glasses' battery falls **below 20 %** the phone gets a notification through this same path, and the glasses a notice.
 It is not gated by Global `Notify · Damage` (that row is off on his phone, and the point is to be told). Once per
 discharge: said at the crossing, armed again by a `charging` reading or a reading of 25 % or more — never once per
@@ -2059,9 +2064,12 @@ percent on the way down. The source is the battery reading the shell already jou
 **The design pass (2026-11-10, `HANDOFF.md` §75.4; the lead's calls, for Adam's review):** the phone half is a
 notification on a channel of its own rather than this path's — whose gate is `Phone notifications`, off by default:
 honoured, this ruling could not be met — and is gated by neither that row nor `Battery alert` (§4.1's pulse keeps it); the glasses' half is said only when the shell
-can paint; the once-per-discharge latch lives in memory and does not clear at a session boundary.
+can paint; the once-per-discharge latch lives in memory and does not clear at a session boundary. **As built
+(0.64):** the channel is "Glasses battery" at Android's default importance; the notification is withdrawn when the
+latch opens again and the glasses' notice is not; with no phone path and no paint (the PC asleep or with no session)
+nothing is said and the latch stays open; a crossing while asleep or with no session tells the phone only.
 
-**A rest mode in the charging case (Adam, 2026-09-21 — designed, NOT built; `HANDOFF.md` §70; the same build as the notice above):** "no
+**A rest mode in the charging case (Adam, 2026-09-21 — build 1 built in APK 0.64, not yet installed (`HANDOFF.md` §70, §76): the reads and the manual rest; build 2, resting by itself, not built):** "no
 reason to drain battery at full throttle while in an enclosed case." Today the shell paints every minute tick to
 the panel whether or not anyone wears the glasses; a powered case turns the panel off (`CLAIMS.md`: copied, counted,
 never transferred) but the link, the lease renewals, the polls and the frames go on, and a case that has run out
@@ -2077,7 +2085,7 @@ case, and what a rest saves over a lit panel are all unread. So it is built in t
 the wear event, the switch (the 60 s READ's device-info has a field for it, unread on our wire), the case's own pushes and the panel gate's pattern
 go to the journal, and a dev probe rests the pair by hand for a timed hour — and **the second rests by itself**, on
 the trigger those reads allow (§75.4's table), after 120 s of "not worn" with no worn report, with a Global `Rest`
-row (`off · on`). A rest is the Silent-Mode path under a second reason, the transport's watchdog standing down with it; its wake is a session rebuild. If the timed
+row (`off · on`). A rest is the Silent-Mode path under a second reason, the transport's watchdog standing down with it; its wake is a session rebuild; an input event ends a rest and is not delivered (the lead's ruling Q2 with the review's finding 2). If the timed
 hour reads near the lit rate, the next levers are `Link` to balanced while resting, then the phone-side Silent
 Mode write (a probe: his word first).
 

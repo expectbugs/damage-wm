@@ -74,7 +74,13 @@ class Shell(
     data class LocalClock(val hh: Int, val mm: Int, val hhmm: String, val amPm: String)
 
     // ------------------------------------------------------------------ state
-    var settings: ShellSettings = ShellSettings()
+    /** R2 (RF-1): read from the store at construction — both hosts load it before they build the shell, an
+     *  unloaded store answers null and so the defaults — because the phone's error sink and `onUrgent` read
+     *  `Phone notifications` between the construction and the first start (it was the defaults until
+     *  `startLocked` read the store). `startLocked` reads it again at every start, so an unreadable record is
+     *  logged at ERROR twice (here, then there). Written on the loop and the start path, read from the
+     *  host's threads: `@Volatile`. */
+    @Volatile var settings: ShellSettings = ShellSettings.fromJson(persistence.get("shell.settings"))
         private set
     var layout = Layout()
         private set
@@ -270,6 +276,10 @@ class Shell(
     private var previewPainted: String? = null
     @Volatile private var running = false
     @Volatile private var loopLaunched = false
+    /** R2 (RH-6): the running session's loop, joined by [stopLocked] after its `done` so that a stop
+     *  returns only once the loop's drain has run. Written at the launch and read and cleared by the
+     *  stop, both under [lifecycle]. */
+    private var loopJob: kotlinx.coroutines.Job? = null
     private var collectorLaunched = false
 
     /** Host-link status line for the status bar (set by the content client). */
@@ -286,6 +296,23 @@ class Shell(
     /** §9.3: the phone is the out-of-band error channel — urgent internal
      *  notices also fire this hook (the APK raises a real phone notification). */
     @Volatile var onUrgent: ((source: String, body: String) -> Unit)? = null
+
+    /** 0.64 (`HANDOFF.md` §75.4 calls 1-3; `DESIGN.md` §9.3): the host's own alert path for the low-battery
+     *  latch — `(true, pct)` when the latch closes (below 20 %, not charging, once per discharge),
+     *  `(false, pct)` when it opens again (the host withdraws what it showed). NOT [onUrgent]: it is not
+     *  behind Global `Phone notifications`, and it needs no link and no session. Null = this host has no
+     *  such path (the PC). Called on the shell's loop, or on the thread that delivers a transport event
+     *  while no session runs — the hook must be safe on either; a throw is logged and journaled. It answers
+     *  whether the host SHOWED it (0.64 R2, the review's RG-3): a phone with Damage's notifications or the
+     *  channel off shows nothing and says no error, and the `lowbatt` note then does not claim the phone.
+     *  The answer to `(false, pct)` is not read. */
+    @Volatile var onGlassesBattery: ((low: Boolean, pct: Int) -> Boolean)? = null
+    private val batteryLatch = BatteryLatch()
+    /** A glasses battery reading was handled by THIS session's loop (the P4 review's finding 13): the
+     *  reading held while no session ran is posted behind whatever the start itself queued, so once a
+     *  live reading has been handled the held one is the older of the two and is dropped. Loop-only;
+     *  reset on the start path before the loop launches, like the session flags beside `glassesSilent`. */
+    private var batterySeenThisSession = false
 
     private val inflightFlushes = HashMap<Long, Compositor.Assembled>()
     private var flushFailStreak = 0
@@ -359,7 +386,7 @@ class Shell(
             // a box on screen goes back to the queue unread and returns after
             if (notifications.active) {
                 if (notifications.furlingOut) {
-                    notifications.restoreUnderFinished(comp.composed)?.let { comp.damage(it) }
+                    notifications.restoreUnderFinished(comp.composed)?.let { retire(it); comp.damage(it) }
                     notifications.abandonFurl()
                 } else {
                     liftNotificationBox()
@@ -400,7 +427,7 @@ class Shell(
             settleSlidesForOverlay()
             if (notifications.active) {
                 if (notifications.furlingOut) {
-                    notifications.restoreUnderFinished(comp.composed)?.let { comp.damage(it) }
+                    notifications.restoreUnderFinished(comp.composed)?.let { retire(it); comp.damage(it) }
                     notifications.abandonFurl()
                 } else {
                     liftNotificationBox()
@@ -470,6 +497,13 @@ class Shell(
         // is gone or never came up, and the keeper retrying a start that keeps failing made them
         // by the thousand. Each kind is decided by [keepWhileDown].
         if (m is Msg.Trans && !running && !keepWhileDown(m)) return
+        enqueue(m)
+    }
+
+    /** [post] without the decision: for a message [keepWhileDown] has ALREADY kept (R2, RH-N1) — it is
+     *  asked once per message, so its side effects (a battery reading judged, a note journaled, a count)
+     *  are never run twice. */
+    private fun enqueue(m: Msg) {
         queued.incrementAndGet()
         if (msgs.trySend(m).isFailure) {
             queued.decrementAndGet()
@@ -523,32 +557,152 @@ class Shell(
      *  - FlushDone stays queued: it completes the in-flight, atlas and page-staging bookkeeping,
      *    which would otherwise never empty (the second review's finding).
      *  - Text stays queued: a typed line must never vanish (handleTypedText).
-     *  - Battery is held, the latest only: the next session's chrome wants the newest level.
+     *  - Battery: the low-battery latch judges the reading NOW, at its arrival (0.64 — the phone's
+     *    half needs no link and no session), and only the chrome's part is held, the latest only:
+     *    the next session's chrome wants the newest level. The latch is not replayed: a held
+     *    reading is posted BEHIND the readings the next start itself queues, so a replayed
+     *    "19 %, not charging" could follow a live "19 %, charging" and say it a second time.
      *  - Note, Presented, Link and Fault are facts for the journal. They are journaled now, so
      *    they also carry the time they happened.
-     *  - Input, Lease, SilentMode, DiagFlags and LinkState describe a session that is gone. The
+     *  - Input, Lease, SilentMode, DiagFlags and Wear describe a session that is gone. The
      *    next start re-reads the transport's state. Delivered late, a stale `Lease(held=false)`
      *    raised "lease lost" and requested a rebuild in the new session, and a stale
-     *    `SilentMode(false)` woke it. Dropped, counted, said at the next start. */
+     *    `SilentMode(false)` woke it; a late "not worn" must not act on the next session either.
+     *    Dropped, counted, said at the next start.
+     *  Every kind is named: a new event kind does not compile until it is decided here. */
     private fun keepWhileDown(m: Msg.Trans): Boolean {
         when (val ev = m.ev) {
             is TransportEvent.FlushDone, is TransportEvent.Text -> return true
-            is TransportEvent.Battery -> synchronized(heldLock) {
-                if (windowsLive) return true       // a session went live meanwhile: queue it as usual
-                holdLatestLocked("shell.battery") { handleTransport(ev) }
+            is TransportEvent.Battery -> {
+                // no session runs, so nothing can be painted: the host's own path is the only one
+                val said = batteryReading(ev, canPaint = false)
+                if (said.verdict == BatteryLatch.Verdict.SAY)
+                    journal.note("lowbatt", "said at ${ev.glassesPct}% — " + lowbattWhere(said, canPaint = false, asleep = false, down = true))
+                synchronized(heldLock) {
+                    // a session went live meanwhile: queue it as usual. `handleTransport` judges it a
+                    // second time, which is NONE for the latch on the same reading — nothing repeats
+                    if (windowsLive) return true
+                    holdLatestLocked("shell.battery") { if (!batterySeenThisSession) applyBatteryToChrome(ev) }
+                }
             }
             is TransportEvent.Note -> journal.note(ev.kind, ev.detail)
             is TransportEvent.Presented -> journal.present(ev.seq, ev.workerUs, ev.copyUs, ev.transferUs, ev.path)
             is TransportEvent.Link -> journal.note("link", if (ev.connected) "up: ${ev.detail}" else "DOWN: ${ev.detail}")
             is TransportEvent.Fault -> journal.note("fault", "${ev.what}: ${ev.detail} (no session running)")
-            else -> transEventsDroppedWhileDown.incrementAndGet()
+            is TransportEvent.Input, is TransportEvent.Lease, is TransportEvent.SilentMode,
+            is TransportEvent.DiagFlags, is TransportEvent.Wear -> transEventsDroppedWhileDown.incrementAndGet()
         }
         return false
     }
 
-    /** The session is over (or never started): keyed pushes are held from now on. */
+    // ---------------------------------------------------------------- 0.64: the low-battery latch
+    /** What one battery reading did to the latch, whether a host hook was set, whether it ran, and whether it
+     *  answered that the host showed it. */
+    private class BatterySaid(val verdict: BatteryLatch.Verdict, val hookSet: Boolean, val hookRan: Boolean, val shown: Boolean)
+
+    /** One glasses battery reading through the latch (`BatteryLatch`), from any thread. The hook is read
+     *  ONCE: that one read decides whether anybody can be told (`canTell`), whether the hook is called,
+     *  and what the caller's note may say. On SAY the hook hears `(true, pct)`; on REOPENED `(false, pct)`
+     *  and the journal says it. A ring reading (no glasses level) is not a glasses reading.
+     *
+     *  Two threads can judge at once — the loop and the event collector, or a failed start's drain beside
+     *  the collector (`dropTransportEventsOfFailedStart`) — so an older "not charging" can be judged after a
+     *  newer "charging" and say it once more; the next reading (a minute on) opens the latch again and the
+     *  host withdraws what it showed. The latch itself is locked; the ORDER of two readings is not kept. */
+    private fun batteryReading(ev: TransportEvent.Battery, canPaint: Boolean): BatterySaid {
+        val pct = ev.glassesPct ?: return BatterySaid(BatteryLatch.Verdict.NONE, hookSet = false, hookRan = false, shown = false)
+        val hook = onGlassesBattery
+        val charging = ev.glassesCharging == true
+        val v = batteryLatch.reading(pct, charging, canTell = hook != null || canPaint)
+        var ran = false
+        var shown = false
+        if (v != BatteryLatch.Verdict.NONE && hook != null) {
+            // a host's hook that throws must not end the loop's message or, with no session running, the
+            // collector that delivers every transport event
+            try { shown = hook(v == BatteryLatch.Verdict.SAY, pct); ran = true } catch (t: Throwable) {
+                Log.e("shell", "the host's glasses-battery hook failed at $pct%", t)
+                journal.note("lowbatt", "the host's hook failed at $pct%: ${t.message ?: t::class.simpleName}")
+            }
+        }
+        if (v == BatteryLatch.Verdict.REOPENED)
+            journal.note("lowbatt", "open again — " + (if (charging) "a charging reading" else "$pct%"))
+        return BatterySaid(v, hookSet = hook != null, hookRan = ran, shown = shown)
+    }
+
+    /** Who was told, for the `lowbatt` note of a SAY — from what the caller already read, nothing re-read. */
+    private fun lowbattWhere(said: BatterySaid, canPaint: Boolean, asleep: Boolean, down: Boolean): String {
+        val why = when { down -> "no session running"; asleep -> "asleep"; else -> "the link is not steady" }
+        // R2 (RG-3): the phone is claimed only when the hook answered that it showed it
+        val wontShow = "the phone will not show it — notifications are off for Damage or for its Glasses battery channel"
+        return when {
+            said.hookRan && said.shown && canPaint -> "the phone and the glasses"
+            said.hookRan && said.shown -> "the phone only ($why)"
+            said.hookRan && canPaint -> "the glasses only ($wontShow)"
+            said.hookRan -> "nowhere ($wontShow; $why)"
+            canPaint && said.hookSet -> "the glasses only (the phone's hook failed)"
+            canPaint -> "the glasses only (this host has no phone path)"
+            // reachable only through a hook that threw: with no hook and no paint the latch does not say
+            // (a hook that answered "not shown" is the `nowhere` above: the latch counted the hook as a teller)
+            else -> "nowhere (the phone's hook failed; $why)"
+        }
+    }
+
+    /** The chrome's part of a battery reading — chrome never justifies its own flush (§8.3): the new
+     *  value rides the next content flush or the idle chrome tick. LOOP-ONLY. `ev.ringPct` is ignored:
+     *  the ring battery has no source and no cell (`CLAIMS.md`); the relay listener stays only to log
+     *  a frame if a future CFW ever pushes one. */
+    private fun applyBatteryToChrome(ev: TransportEvent.Battery) {
+        ev.glassesPct?.let { glassesBattery = Chrome.Battery(it) }
+        chromeDirty = true
+    }
+
+    /** The session is over (or never started): keyed pushes are held from now on. Every place a
+     *  session ends reaches this, each with `running` already false — so it is also where the `power`
+     *  note says `down` (0.64), AFTER the lock: the journal takes its own. */
     private fun holdPushes() {
         synchronized(heldLock) { windowsLive = false }
+        notePower()
+    }
+
+    // ---------------------------------------------------------------- 0.64: the `power` notes
+    private val powerLock = Any()
+    /** The state the last `power` note named; guarded by [powerLock]. */
+    private var lastPower = "down"
+
+    /**
+     * 0.64 (`HANDOFF.md` §75.4): one `power` note whenever the shell's power state CHANGES, so
+     * `tools/journal_report.py` can charge each percent of the glasses' battery to the state it was
+     * lost in: `lit` (painting), `shell-silent` (the shell's own silent clock screen), `rest`,
+     * `fw-silent` (asleep for the firmware's Silent Mode, a refusal streak included) and `down` (no
+     * session). A live state carries the glasses' level when one has been read (` 61%`); a session's
+     * first note may have none — the start's call runs before the loop has handled a reading.
+     *
+     * ONE derived state, read where it can change: after every loop message, on the start path just
+     * before the loop launches, and at every session end ([holdPushes]) — so the `mode =` sites and
+     * the sleep's transitions need no hook each. The envelope: (a) `down` at every session end,
+     * re-derived at every start; a process that ends without writing one is closed in the report by
+     * the next process start's notes. (b) No wait. (c) The token itself; nothing is keyed on an older
+     * value. (d) The loop, the start path and the stop paths: the compare, the set and the write are
+     * under one lock, so the notes are in the order of the changes; `mode` is read only while a
+     * session runs, which is the loop's or the start path's own thread. (e) `running` and `sleep`
+     * are each read once. (f) Every `mode =` site and every sleep transition — the per-message call;
+     * every session end — [holdPushes].
+     */
+    private fun notePower() {
+        val live = running
+        val s = sleep                                           // one read (it is `@Volatile`)
+        val now = when {
+            !live -> "down"
+            s == SleepReason.REST -> "rest"
+            s == SleepReason.SILENT -> "fw-silent"
+            mode == Mode.SILENT -> "shell-silent"
+            else -> "lit"
+        }
+        synchronized(powerLock) {
+            if (now == lastPower) return
+            lastPower = now
+            journal.note("power", if (live) now + (glassesBattery?.let { " ${it.pct}%" } ?: "") else now)
+        }
     }
 
     /** §72: a start that failed before this session's loop launched. Its transport events go
@@ -564,7 +718,7 @@ class Shell(
             queued.decrementAndGet()
             if (m !is Msg.Trans || keepWhileDown(m)) keep.add(m)
         }
-        for (m in keep) post(m)      // running is false: a kept Trans passes keepWhileDown again
+        for (m in keep) enqueue(m)   // decided above: a kept Trans is not judged a second time (R2, RH-N1)
     }
 
     /** Loop liveness, for [quiescenceReport]: a stall that says WHICH — the
@@ -617,8 +771,10 @@ class Shell(
     /** Whether a fault of the link's own traffic is news: with the link down, the session not
      *  started or a rebuild asked for, the cell's word already says so, and the fault belongs to
      *  a session that is ending — as a notice it would only wait in the queue as a stale box. */
-    private fun linkUpAndSteady(): Boolean =
-        transport.state.value.let { it.connected && it.started } && !restartRequested
+    private fun linkUpAndSteady(): Boolean = linkUpAndSteady(transport.state.value)
+
+    /** The same rule from a link state the caller already read (ONE read per decision). */
+    private fun linkUpAndSteady(st: LinkState): Boolean = st.connected && st.started && !restartRequested
 
     /** The `fault` word clears itself: look again once the oldest open episode may have closed. */
     private fun scheduleFaultClose() {
@@ -871,16 +1027,45 @@ class Shell(
         // if they are silent — no keyframe goes out to be refused; otherwise
         // this session paints. The SilentMode event the READ may also have
         // raised is queued behind this and finds the shell already there.
-        glassesSilent = false
+        // 0.64: the same holds for a REST — it never crosses a session (a link end during one starts
+        // an awake session, upstream's trap), and a probe taken before this line is not this session's.
+        sleep = null
         silentGen++
+        sessionSerial++
+        restWakeWanted = false
+        restAskNotTakenSaid = false
         restartRequested = false
         refusalStreak = 0
         silentNoticeShown = false
         rebuildRefusalShown = false
         faults.clear(); faultCloseGen++       // a new session's faults are news again (§69)
+        batterySeenThisSession = false        // 0.64: this session's loop has handled no battery reading yet
         v2RefusedThisSession = false          // the start arms DRAW2 afresh, and the atlas check reads it again
-        if (transport.state.value.glassesSilent)
-            enterSilentGlasses("the glasses say Silent Mode is on (the READ at session start)")
+        val atStart = transport.state.value   // ONE read for the two decisions below
+        if (atStart.glassesSilent)
+            enterSleep(SleepReason.SILENT, "the glasses say Silent Mode is on (the READ at session start)")
+        else if (adopted && atStart.started && !atStart.leaseHeld) {
+            // 0.64 (the P4 review's finding 4): this start ADOPTED a live session (a keeper resume, a
+            // handback) whose lease is not held and whose glasses do not say Silent Mode — the session of a
+            // driver that was asleep: a rest, or a refusal-streak sleep. That driver's release stopped the
+            // renewals, the keepalive and the carrier refresh and stood the watchdog down, and the
+            // transport's `leaseWanted` returns to true only inside `transport.start()`, which an adopted
+            // start does not call. This shell starts awake (`sleep = null` above), so it would paint into
+            // no lease until the link happened to end. The rebuild is the same one a wake is: the next
+            // start is a fresh one and takes the lease. (A lease that LAPSED under the driver before reads
+            // the same here and gets the same answer — on a Damage build its flags went with it, which is
+            // what a lapse under a running shell rebuilds for.)
+            // Keyed on THIS shell's own adoption, not on the state alone: a fresh `transport.start()`
+            // returns with the lease held, and a state that says otherwise for an instant must not end a
+            // session nobody released. NOT covered: a driver that claims such a session through the seam —
+            // there the adoption is the far end's (`RemoteTransportServer`), this flag is false, and the
+            // seam carries no word of it (P4's Q9: the seam is left as it is); that driver paints into no
+            // lease until it leaves, and the owner's own shell rebuilds on the hand-back, here.
+            journal.note("keeper", "adopted a session whose lease is not held and whose glasses do not say Silent Mode " +
+                "(released by a driver that was asleep, or lapsed) — rebuilding the session")
+            Log.w("shell", "adopted a session with no lease and no Silent Mode: rebuilding it")
+            requestRebuild("adopted a session whose lease was not held (a driver that was asleep released it, or it lapsed)")
+        }
 
         try {
             // initial surface — mode AND window restore (§9.1 rule 1). A SILENT
@@ -924,8 +1109,9 @@ class Shell(
             // §72: the session is up and its loop about to run — window pushes run as they
             // come, and the ones held while it was down (the latest per key) run now. Not any
             // earlier: a start that fails before this line keeps them held, bounded by key.
+            notePower()                   // 0.64: the session's state as it starts (`lit`, or asleep from its first frame)
             releaseHeldPushes()
-            scope.launch { loop() }
+            loopJob = scope.launch { loop() }
             loopLaunched = true
             loopStartedThisSession = true
             // §19.4 post-start reconciliation (2026-09-01): the FIRST loop
@@ -1017,6 +1203,12 @@ class Shell(
                 }
             }
         }
+        // R2 (RH-6): `done` is completed INSIDE the Shutdown's arm; the loop still has its drain to run (a
+        // probe's answer, a synced record stored, a flush's answer kept for the next session). Returned
+        // before it, a stop let a start that followed run beside the old loop's drain. Nothing the drain
+        // does waits on this stopper or takes `lifecycle`; no caller of `stop` runs on the loop.
+        loopJob?.join()
+        loopJob = null
         if (stopTransport) transport.stop()
         if (cachedText != null && wm.damage.core.gfx.IconPaint.recorder === cachedText) wm.damage.core.gfx.IconPaint.recorder = null
         journal.close()
@@ -1038,7 +1230,9 @@ class Shell(
             textNsAtMsgStart = wm.damage.core.text.TextProfile.drawNs.get()
             val handlerT0 = System.nanoTime()
             if (!running && m !is Msg.Shutdown) {
-                if (m is Msg.Run) m.dropped?.invoke()
+                // R2 (RE-4's class): an answer that throws must not end the loop with this message counted
+                if (m is Msg.Run && m.dropped != null)
+                    try { m.dropped.invoke() } catch (e: Exception) { Log.e("shell", "a dropped message's answer failed", e) }
                 queued.decrementAndGet()
                 continue
             }
@@ -1105,6 +1299,7 @@ class Shell(
                 journal.note("pump-error", e.toString())
                 raiseFault("pump", "pump ERROR: ${e.message ?: e::class.simpleName} — restart when convenient", urgent = true, source = "shell")
             }
+            notePower()                   // 0.64: a state change this message made (a string compare, no layout)
             queued.decrementAndGet()
             loopHandling = null
             if (!running && m is Msg.Shutdown) break
@@ -1112,10 +1307,30 @@ class Shell(
         } finally {
             loopAlive = false
             // whatever is still in the channel will never be handled: the
-            // count must not outlive the loop that would have cleared it
+            // count must not outlive the loop that would have cleared it.
+            // 0.64 (the P4 review's finding 9): a `Run` among them is TOLD — its `dropped` runs here as
+            // it does for one that reaches a stopped loop above. Without it a caller's promise "an
+            // answer either way" ([Msg.Run], `sampleIdle`) did not hold behind a Shutdown: the probe
+            // `rest=…` queued there left its `probe` note and nothing else.
+            // R2 (RH-N1): a transport event is decided by [keepWhileDown], as a post with no session is: a
+            // flush's answer or a typed line queued behind the Shutdown is kept for the next session (it was
+            // counted here and gone — the flush's in-flight entry then stayed for the life of the process:
+            // no quiescence, no mirror check), the rest journaled or counted there. The kept ones go back
+            // in the channel after the drain, decided once.
             var left = 0
-            while (msgs.tryReceive().isSuccess) { queued.decrementAndGet(); left++ }
+            val keep = ArrayList<Msg.Trans>()
+            while (true) {
+                val m = msgs.tryReceive().getOrNull() ?: break
+                queued.decrementAndGet()
+                if (m is Msg.Trans) { if (keepWhileDown(m)) keep.add(m); continue }
+                left++
+                if (m is Msg.Run && m.dropped != null) {
+                    try { m.dropped.invoke() } catch (e: Exception) { Log.e("shell", "a dropped message's answer failed", e) }
+                }
+            }
             if (left > 0) Log.w("shell", "the loop ended with $left message(s) unhandled")
+            if (keep.isNotEmpty()) Log.i("shell", "the loop ended with ${keep.size} transport event(s) kept for the next session")
+            for (m in keep) enqueue(m)
         }
     }
 
@@ -1163,8 +1378,19 @@ class Shell(
     private fun handleInput(type: Int, source: Int) {
         // a ring event while the glasses are silent: the person is there —
         // check now rather than at the next pacing tick (§36, §37.0); the
-        // input itself is handled normally, the surface stays current
-        if (glassesSilent) silentTick("input")
+        // input itself is handled normally, the surface stays current.
+        // 0.64: an input event during a REST is its WAKE, and the waking event is CONSUMED (the P4
+        // review's finding 2) — the panel is dark, so a ring tap would otherwise commit whatever the
+        // cursor sits on, unseen (`DESIGN.md` §1.7's stray tap). Any input wakes: the ring, a temple, a
+        // replica's key — tested here, before the ring-only filter. SILENT's path is as it was.
+        when (sleep) {
+            SleepReason.SILENT -> silentTick("input")
+            SleepReason.REST -> {
+                wakeFromRest("an input event (type $type, source $source) — the event is not delivered")
+                return
+            }
+            null -> {}
+        }
         // §1: the R1 ring is the ONLY input device — a temple brush must not
         // select or scroll. Text-region scroll events carry no source and
         // arrive as SRC_RING from the transport (G2_BLE_PROTOCOL.md §6.6).
@@ -1419,6 +1645,9 @@ class Shell(
         // furl owns its snapshot strip by strip and must not be disturbed
         if (!notifications.active || notifications.furlingOut) return
         val lifted = notifications.restoreUnderFinished(comp.composed) ?: return
+        // the box's strings of this frame go with its pixels: a lift is followed by a slide that
+        // moves the records under it, or by a requeue that never paints this rect again
+        retire(lifted)
         comp.damage(lifted)
         boxLifted = true
     }
@@ -1504,6 +1733,9 @@ class Shell(
     /** The focused window paints the WHOLE panel; one flush of everything. */
     private fun paintExclusiveFull() {
         val w = current ?: return
+        // an entry from a menu commit or a deep link paints the whole panel twice in one frame
+        // (the handler enters the mode, then the commit path composes the content)
+        retire(Rect(0, 0, comp.width, comp.height))
         comp.composed.fillRect(Rect(0, 0, comp.width, comp.height), Level.BG)
         try {
             w.paintExclusive(comp.composed, layout.safe, full = true)
@@ -1529,6 +1761,12 @@ class Shell(
         val prev = exclusivePrev?.takeIf { it.w == safe.w && it.h == safe.h }
             ?: Gray8(safe.w, safe.h).also { exclusivePrev = it }
         prev.blit(comp.composed, safe, 0, 0)
+        // 0.64 R1: what this frame has recorded so far. The window fills the bands it repaints and
+        // only says which afterwards, so the drop that every other painter here makes BEFORE its
+        // fill ([retire]) is made after this one, on the records that were there before it
+        val rec = cachedText
+        val olderDraws = rec?.frameDraws() ?: emptyList()
+        val olderImages = rec?.frameImageDraws() ?: emptyList()
         val rects = try {
             w.paintExclusive(comp.composed, layout.safe, full = false)
         } catch (e: Exception) {
@@ -1537,6 +1775,11 @@ class Shell(
             emptyList()
         }
         if (rects.isEmpty()) return
+        // with the window full two repaints of one band share a frame (modeled: the visualizer's
+        // eight a second against a flush of 70 ms and up): the earlier paint's records under a rect this
+        // paint returned are stale — a string that changed fails the band's proof, one that did not
+        // ships twice
+        rec?.dropOlderRecords(olderDraws, olderImages, rects)
         for (r in rects) comp.damage(r)
         for (r in rects) {
             if (r.h < 64 || !safe.contains(r)) continue
@@ -1588,7 +1831,24 @@ class Shell(
     }
 
     // ------------------------------------------------------------------ menu
+    /**
+     * [r] of the composed surface is about to be painted over whole — an overlay's box, a region's
+     * repaint, a restore from an under-snapshot. What this frame recorded there no longer describes
+     * the surface, and a record that only reaches into it goes too: a cached draw cannot be clipped.
+     * `Slide.paintInto` has done this for a strip since §41; until 0.64 every other painter left its
+     * predecessor's records behind, and a frame that painted a region twice either refused the rect
+     * (the context menu's box: pixels on 52 of 52 first paints on glass, `HANDOFF.md` §75.3) or
+     * shipped each string twice. The rule for a painter in this file: a fill of a region that is
+     * then painted again has a `retire` of that region before it.
+     *
+     * On the shell's own recorder ([cachedText], there whenever the host wrapped its rasterizer in
+     * one), not `comp.cachedText`, which is null while no font is live. A null [r] is a surface
+     * that is not up: nothing to drop.
+     */
+    private fun retire(r: Rect?) { if (r != null) cachedText?.dropRecords(r) }
+
     private fun paintMenu() {
+        retire(menu.rect(layout))          // the rows under the box, and the menu's own earlier paint of this frame
         menu.paint(comp.composed, layout)?.let { comp.damage(it) }
         chromeDirty = true
     }
@@ -1600,7 +1860,8 @@ class Shell(
         val s = menu.close()
         if (restore) {
             val r = menu.restoreUnderFinished(comp.composed)
-            if (r != null) comp.damage(r) else composeContent()
+            // the content's pixels are back; the menu's strings of this frame are not on them
+            if (r != null) { retire(r); comp.damage(r) } else composeContent()
         } else {
             menu.invalidateUnder()
         }
@@ -1641,6 +1902,7 @@ class Shell(
 
     // ------------------------------------------------------------------ keyboard (§4.8)
     private fun paintKeyboard() {
+        retire(keyboard.rect(layout))
         keyboard.paint(comp.composed, layout)?.let { comp.damage(it) }
         chromeDirty = true
     }
@@ -1652,7 +1914,7 @@ class Shell(
         val s = keyboard.close()
         if (restore) {
             val r = keyboard.restoreUnderFinished(comp.composed)
-            if (r != null) comp.damage(r) else composeContent()
+            if (r != null) { retire(r); comp.damage(r) } else composeContent()
         } else {
             keyboard.invalidateUnder()
         }
@@ -1796,6 +2058,7 @@ class Shell(
         // smaller form, one at a time, auto-dismissing (§1.5/§4.5)
         notifications.requeueCurrent()
         val c = wallClock()
+        retire(Rect(0, 0, comp.width, comp.height))
         SilentMode.paintAll(comp.composed, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c))
         comp.planes = emptyList()
         comp.damageAll()
@@ -1825,7 +2088,7 @@ class Shell(
         // a box mid-furl finishes at once and stays dismissed.
         if (notifications.active) {
             if (notifications.furlingOut) {
-                notifications.restoreUnderFinished(comp.composed)?.let { comp.damage(it) }
+                notifications.restoreUnderFinished(comp.composed)?.let { retire(it); comp.damage(it) }
                 notifications.abandonFurl()
             } else {
                 liftNotificationBox()
@@ -1876,6 +2139,7 @@ class Shell(
     }
 
     private fun paintSwitcherFrame() {
+        retire(layout.switcherPanel)       // the previewed window's rows under the panel, the last spin frame's names
         val panel = switcher.paint(comp.composed, layout)
         comp.damage(panel)
         chromeDirty = true        // the top bar previews too, snapping (§4.3)
@@ -2000,6 +2264,7 @@ class Shell(
         val silent = quiet
         val full = notifications.fullRect(n, layout, silent)
         notifications.captureUnder(comp.composed, full)
+        retire(notifications.boxRect(layout, silent))      // the box at its current unfurl step: what `paint` fills
         val box = notifications.paint(comp.composed, layout, silent)
         if (box != null) comp.damage(box)
     }
@@ -2022,6 +2287,7 @@ class Shell(
         notifications.dropSilent()
         if (mode == Mode.EXCLUSIVE) { paintExclusiveFull(); if (notifications.active) scheduleSilentDismiss(); return }
         val c = wallClock()
+        retire(Rect(0, 0, comp.width, comp.height))
         SilentMode.paintAll(comp.composed, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c))
         comp.damageAll()
         if (notifications.active) {
@@ -2084,17 +2350,38 @@ class Shell(
             is TransportEvent.Text -> handleTypedText(ev.line)
             is TransportEvent.FlushDone -> completeFlush(ev)
             is TransportEvent.Battery -> {
-                // chrome never justifies its own flush (§8.3): the new value
-                // rides the next content flush or the idle chrome tick
-                ev.glassesPct?.let { glassesBattery = Chrome.Battery(it) }
-                // ev.ringPct is ignored: ring battery has no source and no cell
-                // (CLAIMS.md); the relay listener stays only to log a frame if a
-                // future CFW ever pushes one
-                chromeDirty = true
+                applyBatteryToChrome(ev)
+                if (ev.glassesPct != null) batterySeenThisSession = true    // the held reading is older than this one
+                // 0.64, the low-battery latch (`HANDOFF.md` §75.4 calls 1-3). The glasses' half needs a
+                // shell that can paint: awake (§36 — never an image into a pair that refuses them) and a
+                // link that is up and steady. One read of each.
+                val asleep = glassesSilent
+                val canPaint = !asleep && linkUpAndSteady()
+                val said = batteryReading(ev, canPaint)
+                if (said.verdict == BatteryLatch.Verdict.SAY) {
+                    val pct = ev.glassesPct!!
+                    // Posted directly, not through `raiseFault`: no fault episode opens and the status
+                    // cell does not say `fault`. `fault = true` is used for its one effect — the notice
+                    // is shown whatever Global `Notify · Damage` says (`noticeAllowed`). It is NOT
+                    // withdrawn when the latch opens again (the phone's notification is): it stays in
+                    // the queue as the record that the level was crossed.
+                    if (canPaint) post(Msg.Notice(Notifications.Notice("DAMAGE · glasses", "battery",
+                        "glasses battery $pct% — time to charge", wallClock().hhmm, fault = true)))
+                    journal.note("lowbatt", "said at $pct% — " + lowbattWhere(said, canPaint, asleep, down = false))
+                }
             }
+            // 0.64 build 1 of rest mode READS only (`DESIGN.md` §0): a wear report acts on nothing here —
+            // the transport's `wear` note is the record, and `LinkState.worn` the state
+            is TransportEvent.Wear -> {}
             is TransportEvent.SilentMode ->
-                if (ev.on) enterSilentGlasses("the firmware's Silent Mode is on")
-                else wakeGlasses("the firmware's Silent Mode is off")
+                if (ev.on) enterSleep(SleepReason.SILENT, "the firmware's Silent Mode is on")
+                else when (sleep) {                                 // one read
+                    SleepReason.SILENT -> wakeGlasses("the firmware's Silent Mode is off")
+                    // not reachable through the transport today (it emits CHANGES only, and an ON would have
+                    // changed the reason first); the guard keeps a stray OFF from waking a rest if it ever is
+                    SleepReason.REST -> journal.note("rest", "the firmware's Silent Mode went off while resting — the rest goes on")
+                    null -> {}
+                }
             is TransportEvent.Lease -> {
                 if (!ev.held && glassesSilent) {
                     // released on purpose (§36): not a loss, no keyframe, no notice
@@ -2140,11 +2427,17 @@ class Shell(
                 }
             }
             is TransportEvent.Fault -> {
-                if (glassesSilent && ev.what == "imgres") {
+                if (glassesSilent && ev.what in FAULTS_EXPECTED_ASLEEP) {
                     // a refusal that lands while the glasses are silent (a
                     // frame in flight at the sleep) is the expected answer,
-                    // not a fault to shout about (§36)
-                    journal.note("silent", "refused while asleep: ${ev.detail}")
+                    // not a fault to shout about (§36). 0.64 (the P4 review's finding 3): the firmware
+                    // MODEL's own refusal joins `imgres` — a v2 op, a cached draw or a cache write
+                    // decoded after the release has no lease, which the simulator reports as `decode`
+                    // and a hardware transport's mirror as `mirror/decode`; a later fragment of an image
+                    // already on its way at the release is how one gets there. Raised as a fault it was
+                    // a notice waiting in the queue for the wake. The kind follows the sleep's reason
+                    // (finding 11): a rest writes no `silent` note.
+                    journal.note(sleepKind(), "refused while asleep (${ev.what}): ${ev.detail}")
                 } else {
                     journal.note("fault", "${ev.what}: ${ev.detail}")
                     // with the link down or the session rebuilding the cell already says so, and a
@@ -2159,6 +2452,9 @@ class Shell(
             is TransportEvent.Note -> {
                 journal.note(ev.kind, ev.detail)   // a fact: the journal only
                 if (ev.kind == "link") noteLinkRegime()   // §47: the transport's own parameter facts
+                // the one dev probe that is the shell's (the ledger lives here): the transport journals
+                // every probe as this note and sends nothing for this one
+                if (ev.kind == "probe" && ev.detail == "cache=miscount") probeCacheMiscount()
             }
             is TransportEvent.Presented ->         // FIRMWARE.md §3 (F1.3): a panel transfer timed on the glasses; §4: its path
                 journal.present(ev.seq, ev.workerUs, ev.copyUs, ev.transferUs, ev.path)
@@ -2190,7 +2486,7 @@ class Shell(
             if (refused && refusalStreak >= REFUSALS_TO_SLEEP) {
                 Log.e("shell", "flush ${ev.id} refused: ${ev.error}")
                 if (a != null) comp.rollback(a)
-                enterSilentGlasses("the glasses refused $refusalStreak frames in a row")
+                enterSleep(SleepReason.SILENT, "the glasses refused $refusalStreak frames in a row")
                 return
             }
             Log.e("shell", "flush ${ev.id} FAILED: ${ev.error}")
@@ -2349,7 +2645,7 @@ class Shell(
         // (2026-09-16 review). Asking HERE, with nothing to upload, was tried and taken back out:
         // the carry decision already reads RIGHT's cache presence and generation at the acquire,
         // and the read-back reads the same lens, so a check there could not be made to fail.
-        atlasCheckOwed()
+        atlasCheckOwed("a session carried across the rebuild")      // the count was reset by the start: nothing to drop here
         atlasLapsedOwed = false
         atlasPendingSpecs.clear()
         atlasSeenVersion = -1
@@ -2384,7 +2680,7 @@ class Shell(
         atlas = null
         atlasQueue.clear()
         atlasInFlight = null
-        atlasCheckOwed()                               // a fresh atlas owes its own read-back
+        atlasCheckOwed("the layout was replaced")      // a fresh atlas owes its own read-back; mid-session, the count re-bases
         atlasLapsedOwed = false
         atlasPendingSpecs.clear()
         atlasSeenVersion = -1
@@ -2451,6 +2747,14 @@ class Shell(
      *  rather than applied, which is also what releases the in-flight flag those events used to
      *  leave standing. */
     private fun atlasCheckThenLive() {
+        // 0.64 R1 (review 1a, RC-6): nothing is asked of a sleeping pair and nothing goes live there. The
+        // release at a sleep frees the glasses' cache on purpose and RIGHT still answers op 4 — with no
+        // cache to report, which read as "the glasses hold no texture cache": cached text off and a
+        // fault notice for a sleep that was asked for. [enterSleep] already drops a read-back that was
+        // out (its epoch) and a chunk in flight; this is the read-back ASKED while asleep — a grow with
+        // nothing to upload (the Cached text row off and on during the sleep). Either reason. The
+        // wake is a session start: [atlasAtSessionStart] decides keep or reset afresh.
+        if (glassesSilent) return
         val a = atlas ?: return goLive()
         val st = transport.state.value
         // an upstream build has nothing to answer with, and an upload with nothing acked yet has
@@ -2472,16 +2776,10 @@ class Shell(
         // allocated must be the atlas's capacity plus that reserve
         val wantSize = if (a.v2) a.capacity + CfwModes.STAGE_RESERVE else null
         val wantDraw2 = a.v2
-        val sendAcked = cacheLedger.acked            // §66: the counts this reading speaks for
-        val sendAtlasAcked = cacheLedger.atlasAcked
-        val settled = System.currentTimeMillis() - cacheWriteLastAckMs >= CacheLedger.SETTLE_MS
         scope.launch {
             var why0: String? = null
             val t = try { transport.cacheCheck() } catch (e: Exception) { why0 = e.message ?: e.toString(); null }
             post(Msg.Run {
-                atlasCheckInFlight = false
-                val again = atlasCheckWanted
-                atlasCheckWanted = false
                 val cur = atlas
                 // identity, not the generation: two atlases of one process share generation 0.
                 // The epoch covers what identity cannot: a repack keeps the object and moves
@@ -2489,6 +2787,18 @@ class Shell(
                 // (2026-09-16 review — applying this answer then would vouch for the wrong bytes,
                 // or report a lapse the shell had already handled as a refusal)
                 if (cur !== target || epoch != atlasCheckEpoch || !running) return@Run
+                // the test FIRST, the flag after (0.64 R1, review 1a RC-5 — the order the count's reader
+                // has): an answer clears only its OWN flag. Every event that makes it stale has released
+                // the flag itself ([atlasCheckOwed]: a reset, a repack, a lapse, a kept start, a sleep),
+                // so a newer read-back may be out when a stale answer lands; cleared up here, the stale
+                // one released both cache-write lanes under the newer one and spent its "asked again" mark.
+                atlasCheckInFlight = false
+                val again = atlasCheckWanted
+                atlasCheckWanted = false
+                // cached text failed under this read-back (a refused chunk, an undeliverable one): nothing
+                // goes live on its answer — and not on NO answer either, which is why this stands above
+                // the branch below (it used to follow it: `goLive()` there put the fonts back)
+                if (atlasFailed) return@Run
                 if (t == null) {
                     // three different facts used to arrive as one silent null. Say which: the
                     // fonts go live on bytes nothing vouched for either way, and the next batch
@@ -2503,10 +2813,12 @@ class Shell(
                         " — $covered B go live unproven")
                     goLive(); return@Run
                 }
-                // §66: the generation count is the proof the size and the flags are not — a chunk the
-                // glasses refused moved no generation. The ledger's verdict may switch the atlas off.
-                t.cacheGen?.let { g -> ledgerVerdict(cacheLedger.answer(g, sendAcked, sendAtlasAcked, settled), "the atlas check") }
-                if (atlasFailed) return@Run
+                // 0.64: this answer no longer carries the generation count into the ledger. The count
+                // has ONE reader ([pumpLedger], op 1), launched under one lane rule and one pace; this
+                // read-back was launched from the ack's own handler (never settled) and from the
+                // grow's held path (possibly with a STAGE flush in flight), and two settled short
+                // readings could arrive inside one pace. It judges presence, size and flags only.
+                // (The `atlasFailed` test that stood here is above the "no answer" branch now.)
                 val size = t.cacheSize
                 // the two conditions that are THIS upload's, and not sticky: the cache's presence and
                 // size, and the flag every mode-19 write needs. The refusal record (fields 23-25) is
@@ -2563,8 +2875,9 @@ class Shell(
         // the message was acked and the read-back found the cache present, the right size and
         // DRAW2 armed. Neither says the glasses APPLIED that message (the ack precedes the decode);
         // one they dropped leaves the table naming the tofu, drawn with no refusal — an accepted
-        // exposure, graded in `CLAIMS.md`, with the closing mechanism (the staged records' count
-        // rule for an extension) under "Not built" in `HANDOFF.md` §73.
+        // exposure, graded in `CLAIMS.md`. Since 0.64 it is bounded in time and said, still with no
+        // gate here (Adam's ruling, `HANDOFF.md` §75.1): the count is read after every batch
+        // ([pumpLedger]), and a message it does not show is a notice and ONE re-send ([atlasShortfall]).
         // Nothing is repainted or dropped for a promotion alone:
         // the host-drawn character went out as pixels, so belief already equals glass; a record
         // or a staged strip made before it is proven against the truth when it is used; the next
@@ -2610,8 +2923,23 @@ class Shell(
     private var atlasCheckWanted = false
 
     /** Everything an answer could have vouched for is now in doubt: the gate is owed again, and an
-     *  answer already on its way is dropped when it lands (its epoch will not match). */
-    private fun atlasCheckOwed() {
+     *  answer already on its way is dropped when it lands (its epoch will not match).
+     *
+     *  0.64, the count's half: the atlas messages acked and not yet covered by an agreed reading
+     *  leave the books here — their offsets belong to a layout that is going or their ranges can no
+     *  longer be sent again — and the next reading re-bases ([CacheLedger.rebaseNext]), so an
+     *  interval never spans two layouts and a shortfall is never answered by sending a whole
+     *  repacked layout again for a message of the one before it. Dropped unjudged, one of them may
+     *  not have landed while a draw already used it: belief then equals the truth and a repaint
+     *  sends no difference (the compositor diffs shadow against truth), so the lens is put right
+     *  by a keyframe, and the journal says so. [why] is the note's reason. At a session start and
+     *  a lapse [ledgerReset] ran first and this half is a no-op.
+     *
+     *  [keyframe] false is the sleep's entry ([enterSleep], 0.64 P4): the messages leave the books
+     *  the same way, but no keyframe is asked for — nothing may be sent into a sleeping pair (§36;
+     *  a rest has released the lease), the pump sends nothing while asleep, and every wake is a
+     *  session rebuild whose start keyframes by itself. The note says so instead of "keyframing". */
+    private fun atlasCheckOwed(why: String, keyframe: Boolean = true) {
         atlasCheckEpoch++
         atlasCheckedAtlas = null
         atlasCheckedEpoch = -1
@@ -2619,6 +2947,27 @@ class Shell(
         atlasCheckedMsgs = -1
         atlasCheckWanted = false
         atlasCheckInFlight = false
+        val dropped = atlasUnproven.size
+        val resendOwed = atlasResendMissing > 0L        // read BEFORE the clears: queued, in the air, or acked and unjudged
+        atlasUnproven.clear()
+        atlasResendMissing = 0L
+        atlasLastAcked = null
+        if (cacheLedger.unjudged > 0) cacheLedger.rebaseNext()
+        // 0.64 R1 (review 1a, RC-1): a shortfall re-bases the count and empties the books, so between it
+        // and its re-send's ack nothing is "acked and unjudged" — and a repack or a mid-session reset in
+        // that window dropped the re-send (`repack` / `forgetUpload` clear the atlas's own list, a reset
+        // drops the atlas) with no note and no keyframe, while the row drawn from the entry the glasses
+        // never held stayed as it was. The re-send owed is the reason too, said in words of its own.
+        if (!resendOwed && !(dropped > 0 && cacheLedger.unjudged > 0)) return
+        // R2 (`R1-verify.md` §5.2 g): at a sleep the layout has not left — the wake's session start keeps or resets it
+        val what = if (dropped > 0) "count re-based — $dropped atlas message(s) acked before it are not judged ($why)"
+            else if (!keyframe) "re-send unjudged — the re-send owed after a shortfall is not judged before the sleep; the wake's session start keeps or resets its layout ($why)"
+            else "re-send unjudged — the re-send owed after a shortfall left with its layout ($why)"
+        if (!keyframe) journal.note("atlas", "$what; no keyframe: nothing is sent while asleep, and the wake's session start keyframes")
+        else {
+            journal.note("atlas", "$what; keyframing")
+            comp.requestKeyframe()
+        }
     }
 
     private fun atlasDisable(why: String) {
@@ -2638,6 +2987,20 @@ class Shell(
         atlasWantVersion = -1
         atlasPendingSpecs.clear()
         journal.note("atlas", "cached text off — $why")
+        // 0.64 R1 (RC-1's sibling): switched off for the SESSION ([atlasFailed] — a refused or undeliverable
+        // chunk, a read-back that found no cache), nothing reads the count again ([ledgerReadable]), so the
+        // messages acked and unjudged and a re-send still owed are never judged: one of them may not have
+        // landed while a draw used it, belief equals the truth there, and only a keyframe puts the lens
+        // right. Said once: the books are emptied here. With the row merely off they stay, and are judged
+        // when it is back.
+        if (atlasFailed && (atlasResendMissing > 0L || atlasUnproven.isNotEmpty())) {
+            val n = atlasUnproven.size
+            val resend = atlasResendMissing > 0L
+            atlasUnproven.clear(); atlasResendMissing = 0L
+            journal.note("atlas", "count ended — cached text is off for this session with $n atlas message(s) acked and not judged" +
+                (if (resend) " and a re-send owed" else "") + "; keyframing")
+            comp.requestKeyframe()
+        }
     }
 
     /** The lease lapsed: the firmware freed the cache. Every font is pixels
@@ -2646,7 +3009,7 @@ class Shell(
      *  under a lapse would switch the feature off for the session). */
     private fun atlasLapsed() {
         stageClear("the lease lapsed — the cache is gone")
-        cacheLedger.reset()             // the next reading re-bases the count
+        ledgerReset()                   // the count starts over with the cache; a reading on its way is dropped
         val ct = cachedText ?: return
         val a = atlas ?: return
         comp.cachedText = null
@@ -2654,7 +3017,7 @@ class Shell(
         ct.liveImages = emptySet()
         atlasQueue.clear()
         atlasInFlight = null            // its ack would read as this layout's upload finishing (2026-09-15, the third
-        atlasCheckOwed()                // review): the check would then report the lapse as a refusal — and one
+        atlasCheckOwed("the lease lapsed") // review): the check would then report the lapse as a refusal — and one
                                         // already in flight would do the same when it landed (2026-09-16)
         atlasPendingSpecs.clear()
         // NOT `atlasSeenVersion = -1` here: that would have `pumpAtlas` call `atlasGrow` on the
@@ -2914,7 +3277,7 @@ class Shell(
         // the SAME GlyphAtlas, every record at a new offset and `ackedBytes` back at the guard:
         // the mark the last answer left covered a byte axis that no longer exists, so keying the
         // gate on identity + bytes alone skipped the whole repacked layout (2026-09-16 review)
-        atlasCheckOwed()
+        atlasCheckOwed("the layout was replaced")
         lastAtlasRepackMs = now
         journal.note("atlas", "repacked: ${keep.size} font(s) and ${keepImages.size} icon(s) kept, $used B in use, ${a.free} B free for $spec (needs $need B)" +
             " — ${(System.nanoTime() - repackT0) / 1_000_000} ms; evicted [$evictedNames]")
@@ -2978,8 +3341,13 @@ class Shell(
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         // §66: a generation reading on its way speaks for the writes acked at its send and no
         // other — nothing else is written until it lands (the reading re-asks on the pacing tick
-        // and a session end fails it, so this holds nothing for ever)
-        if (atlasCheckInFlight || stageReadInFlight) return false
+        // and a session end fails it, so this holds nothing for ever). Nor under a STAGE flush:
+        // the count's reader judges the lanes still by the shell's own books.
+        if (atlasCheckInFlight || ledgerReadInFlight || stageInFlight != null) return false
+        // 0.64: the count's base is read BEFORE a cache write whenever it is owed — a session's
+        // first chunk (so the first batch is judged like every other), after a lost write, after a
+        // repack or a mid-session reset, the row switched on mid-session. One round trip.
+        if (ledgerBaseOwed(st)) return tryLedgerRead(st)
         val (chunk, gen) = atlasQueue.removeFirst()
         val write: DisplayOp = if (atlas?.v2 == true) DisplayOp.CacheWrite2(chunk) else DisplayOp.CacheWrite(chunk)
         val id = try {
@@ -3033,7 +3401,24 @@ class Shell(
         atlasUndelivered = 0
         cacheLedger.writeAcked(1, atlas = true)  // §66: one non-empty mode-12/19 message per atlas flush
         cacheWriteLastAckMs = System.currentTimeMillis()
-        atlas?.acked(atlasInFlightGen)          // a chunk of a layout a repack replaced moves no watermark
+        // null: a chunk of a layout a repack replaced, or of a cut since rewound — it moves no
+        // watermark; it is counted all the same, and there is nothing of it to send again
+        val done = atlas?.acked(atlasInFlightGen)
+        if (done != null) atlasLastAcked = done
+        val st = transport.state.value           // ONE read for the two decisions below
+        // 0.64: remembered until a reading of the count covers it — what a shortfall sends once more
+        if (ledgerJudges(st)) atlasUnproven.addLast(AtlasWrite(cacheLedger.acked, done))
+        // 0.64 R1 (RC-1's second sibling): a shortfall's re-send acked where nothing judges it any more
+        // (the count went off with the re-send still queued). The keyframe belongs HERE, at its ack: one
+        // asked for when the count went off would go out before the re-send's bytes had landed.
+        // R2 (item 31; `R1-verify.md` §5.2 a): at the LAST message of the re-send only — one keyframe for a re-send
+        // of N messages, after all of their bytes have landed — and the owed re-send the count-off kept ends here
+        if (done?.resend == true && !ledgerJudges(st) && (atlas?.resendsQueued ?: 0) == 0) {
+            atlasResendMissing = 0L
+            journal.note("atlas", "re-send unjudged — a re-send was acked with the count off for this session: nothing judges it; keyframing")
+            comp.requestKeyframe()
+        }
+        countStateChanged(st)
         if (atlasQueue.isEmpty()) {
             // the last chunk of this batch: every font whose bytes are acked
             // is on the glasses (the acked watermark, §41 — never the queued
@@ -3059,36 +3444,99 @@ class Shell(
      * disable, a live-set change, Silent Mode, the row going off, a relayout or another document
      * (`stage.retain`); the ring lies outside the atlas's capacity, so a repack never reaches it.
      * (b) A write's wait is its FlushDone — ok, not ok, or the session's sweep; a failed write goes
-     * again, bounded by [STAGE_FAILURES_MAX]; a reading that does not answer is asked again on the
-     * next idle pump, bounded the same way; an unproven record is never drawn. (c) A record is keyed
-     * on the layout's identity and its lines, on the glasses by the ledger's count and this session's
-     * [stageEpoch]; placements are rebuilt from the registry before every assemble. (d) Everything
+     * again, bounded by [STAGE_FAILURES_MAX]; a reading that does not answer is asked again a
+     * pace later (`CacheLedger.UNANSWERED_PACE_MS`, 0.64 R1), bounded the same way; an unproven record is never drawn. (c) A record is keyed
+     * on the layout's identity and its lines, on the glasses by the ledger's count
+     * ([StagedRecord.ackedAt]); placements are rebuilt from the registry before every assemble. (d) Everything
      * runs on the loop; the lanes are held while a reading is on its way; LEFT cannot report — the
      * atlas's accepted blindness. (e) One read of the link state per pump. (f) The v1 path stages
-     * nothing; the atlas check and the stage check read one ledger; both lenses through the pair forms.
+     * nothing; the atlas's messages and the staged strips are judged by one ledger with ONE reader
+     * of the count (0.64: [pumpLedger] — the reading is the cache's, not staging's, and a stage
+     * clear no longer drops it); both lenses through the pair forms.
      */
     private val stage = Staging()
     private val cacheLedger = CacheLedger()
     private var stageInFlight: Long? = null
     private var stageInFlightRec: StagedRecord? = null
     private var stageInFlightWrites = 0
-    private var stageReadInFlight = false
-    /** Bumped by every clear: a reading on its way lands with a stale epoch and is dropped. */
-    private var stageEpoch = 0
     private var stageFailed = false
     /** Writes that could not be submitted or came back not ok, in a row (a success resets it). */
     private var stageWriteFailures = 0
-    /** Readings that did not answer, in a row. */
-    private var stageReadFailures = 0
-    /** Shortfalls this session — a write the glasses acked and did not keep is never a run of luck. */
+    /** Shortfalls this session whose interval held a staged strip's write — a write the glasses
+     *  acked and did not keep is never a run of luck. An atlas-only shortfall does not count here
+     *  (0.64: with the count read everywhere it is the usual kind, and three of them at Main must
+     *  not switch Page staging off). */
     private var stageShortfalls = 0
     /** Strips too large for the reserve this session — not re-rendered on every pump. */
     private val stageRefused = HashSet<StageKey>()
     /** When the last cache write (atlas or stage) was acked: a generation reading sent within
      *  `CacheLedger.SETTLE_MS` of it may be short for the decode still on its way (§66.1). */
     private var cacheWriteLastAckMs = 0L
-    /** No reading before this after a pending or short one (`CacheLedger.REREAD_PACE_MS`). */
-    private var stageReadNotBeforeMs = 0L
+
+    // ---- the count's one reader (0.64). The envelope, `FORK.md` §3.8: (a) [ledgerReset] at a session
+    // start and a lapse; [ledgerDropReading] at a sleep; [atlasCheckOwed] at a repack and a mid-session
+    // reset (the unjudged messages leave the books, the next reading re-bases). (b) A reading's wait is
+    // the transport's read: asked again every 2 s until the answer or the session's end; one that is not
+    // answered is asked again a pace later ([ledgerRetryNotBeforeMs], on [pumpAfter]'s pump); three without
+    // an answer end the asking for the session ([ledgerOff]) and nothing waits on the count after that.
+    // (c) A reading is keyed on [ledgerEpoch], checked BEFORE its flag is touched, so an answer clears
+    // only its own flag; an unjudged message on [CacheLedger.acked] at its ack. (d) Loop only; RIGHT
+    // answers, LEFT cannot. (e) One read of the link state per pump and per handler. (f) Three launch
+    // sites — [pumpLedger], and the base backstops in [pumpAtlas] and [pumpStage] — all through
+    // [tryLedgerRead]; both write lanes hold on [ledgerReadInFlight].
+    /** A reading of the cache generation count is on its way: nothing is written to the cache under it. */
+    private var ledgerReadInFlight = false
+    /** Bumped wherever a reading on its way stops meaning anything: a session start, a lapse, a sleep. */
+    private var ledgerEpoch = 0
+    /** Readings that did not answer, in a row. */
+    private var ledgerReadFailures = 0
+    /** The count cannot be read this session (three readings without an answer): nothing more is asked. */
+    private var ledgerOff = false
+    /** The `cache/off` notice has been raised this session (0.64 R1: said once per session). Cleared
+     *  at a session start only ([stageSessionStart]) — a lapse's [ledgerReset] re-arms the count, not
+     *  the notice. Loop-only. */
+    private var cacheOffSaid = false
+    /** No reading before this after a pending or short one (`CacheLedger.REREAD_PACE_MS`, `SETTLE_MS`). */
+    private var ledgerReadNotBeforeMs = 0L
+    /** No reading at all before this after one that was not answered (`CacheLedger.UNANSWERED_PACE_MS`,
+     *  0.64 R1). A pace of its own, tested in [tryLedgerRead] so a BASE waits behind it too — the
+     *  pending / short pace above is [pumpLedger]'s alone, and a base ignores that one on purpose.
+     *  Cleared by [ledgerReset]; loop-only. */
+    private var ledgerRetryNotBeforeMs = 0L
+    /** One atlas message acked and not yet covered by a reading that agreed: the ledger's count
+     *  right after its ack, and what it wrote (null: a message of a cut since replaced). */
+    private class AtlasWrite(val ledgerAt: Long, val done: GlyphAtlas.Acked?)
+    /** Oldest first. At most the messages between two verdicts: emptied up to the judged mark by
+     *  every verdict but pending / short, whole by [atlasCheckOwed] and [ledgerReset]; nothing is
+     *  appended while the count cannot judge. */
+    private val atlasUnproven = ArrayDeque<AtlasWrite>()
+    /** How many writes the shortfall that queued the standing re-send was missing: a later reading
+     *  with at least that many extra bumps says the first sends landed late (no keyframe); fewer,
+     *  and one of them was absent until the re-send wrote it. Cleared with [atlasUnproven].
+     *  While it stands a re-send is owed or unjudged: [pumpStage] takes no new strip (0.64 R1), and
+     *  [atlasCheckOwed] reads it before its clears. */
+    private var atlasResendMissing = 0L
+    /** The last atlas message acked on the layout that stands (the `cache=miscount` dev probe's subject). */
+    private var atlasLastAcked: GlyphAtlas.Acked? = null
+    /** Cache writes acked that a reading of the count will still judge — 0 where nothing will be
+     *  read (harnesses wait on it: "nothing unread" includes the count). */
+    @Volatile var cacheCountUnjudged = 0L
+        private set
+    /**
+     * Test introspection, LOOP-ONLY: a cache write, a read-back or a count reading is between its
+     * launch and the run that applies its result. Each of the four flags is set in the loop turn that
+     * sends its work and cleared by the handler that applies the answer (or by the event that makes
+     * the answer stale), so read ON the loop with nothing queued behind — inside [sampleIdle]'s block,
+     * its only reader — "false" means no cache work is anywhere on its way. None of this is part of
+     * quiescence, and a harness that counts answers at the transport cannot see the stall between
+     * the transport's return and the run that applies it (0.64 R1; review 1a, RB-7). Not `@Volatile`
+     * and not for another thread: it reads four plain fields of the loop.
+     */
+    val cacheWorkInFlight: Boolean
+        get() = atlasInFlight != null || atlasCheckInFlight || stageInFlight != null || ledgerReadInFlight
+    /** First-time atlas messages chosen to be written once more after a shortfall, so far (never reset). */
+    @Volatile var atlasWritesChosenAgain = 0
+        private set
     /** Extra bumps seen this session (a count anomaly to read, never a reason to drop a record). */
     private var stageForeignBumps = 0L
     private var stageFullSaid = false
@@ -3114,10 +3562,11 @@ class Shell(
 
     private fun stageSessionStart() {
         stageClear(null)
-        cacheLedger.reset()
-        stageFailed = false; stageWriteFailures = 0; stageReadFailures = 0; stageShortfalls = 0
+        ledgerReset()
+        stageFailed = false; stageWriteFailures = 0; stageShortfalls = 0
+        cacheOffSaid = false
         stageRefused.clear(); stageFullSaid = false
-        cacheWriteLastAckMs = 0L; stageReadNotBeforeMs = 0L; stageForeignBumps = 0L
+        stageForeignBumps = 0L
         stage.ring = null                  // sized from the session's cache at the first strip
     }
 
@@ -3127,8 +3576,9 @@ class Shell(
         val had = stage.records.size
         stage.clear()
         stageInFlight = null; stageInFlightRec = null; stageInFlightWrites = 0
-        stageReadInFlight = false
-        stageEpoch++
+        // 0.64: NOT the count's reading. It is the cache's, about every acked write, and a clear of
+        // the registry (the row off, a live-set change, a reset) leaves it valid; dropping its flag
+        // here released both write lanes under a reading still on its way.
         stageClears++
         comp.placements = emptyList()
         stageRecount()
@@ -3161,7 +3611,7 @@ class Shell(
         val ct = cachedText ?: return false
         if (settings.cachedText != "on" || atlasFailed || atlas == null) return false
         if (atlasInFlight != null || atlasQueue.isNotEmpty() || atlasLapsedOwed || atlasCheckInFlight) return false
-        if (stageInFlight != null || stageReadInFlight) return false
+        if (stageInFlight != null || ledgerReadInFlight) return false
         if (st.inFlight != 0 || comp.hasPending || comp.needsKeyframe) return false
         val v = stagedDoc() ?: return false
         val key = v.contentKey() ?: return false
@@ -3173,12 +3623,22 @@ class Shell(
         val gone = stage.retain(key, lineH, region.w)
         if (gone.isNotEmpty()) { stageRecount(); journal.note("stage", "dropped ${gone.size} record(s) of another layout") }
         val ring = stage.ring ?: StageRing(st.cacheSize - CfwModes.STAGE_RESERVE, st.cacheSize).also { stage.ring = it }
-        // a reading is owed before anything else goes out: the session's base, and one per batch of
-        // acked writes (`CacheLedger`) — an unproven record is never drawn
-        if (cacheLedger.baseGen == null || stage.count(StagedRecord.State.ACKED) > 0) {
-            if (System.currentTimeMillis() < stageReadNotBeforeMs) return false   // paced after a pending or short reading
-            launchStageRead(); return true
-        }
+        // the count's base is owed before anything goes out (the backstop, as in `pumpAtlas`); the
+        // reading of acked strips is [pumpLedger]'s, and staging writes nothing while a strip is
+        // unproven — an unproven record is never drawn
+        if (ledgerBaseOwed(st)) return tryLedgerRead(st)
+        if (stage.count(StagedRecord.State.ACKED) > 0) return false
+        // 0.64 R1 (review 1a, RC-3): no new strip while a shortfall's re-send is owed or unjudged. The
+        // lanes above hold it while the re-send is queued or in flight; this is the stretch after its
+        // ack, while its reading is pending or short (the bump lands up to a second after the ack on
+        // glass). A strip written there is read in ONE interval with the re-send, and a strip the
+        // glasses dropped was then said as "short again after a re-send" (`cache/lost`) about a
+        // re-send that had been counted. A pace, never a latch — read afresh on every pump; every
+        // verdict of the re-send clears it (counted, late, short again, a re-base), and so do the
+        // count going off (with the re-send still queued: at its last message's ack, R2 item 31), a
+        // repack, a reset, a sleep, a lapse and a session start ([atlasResendMissing]'s own clears).
+        // The pump that follows the verdict brings staging back.
+        if (atlasResendMissing > 0L) return false
         val visible = kit.visibleLines(layout, v)
         val top = v.model.topLine
         val count = v.lineCount()
@@ -3293,74 +3753,263 @@ class Shell(
             rec.ackedAt = cacheLedger.acked
         }
         stageRecount()
+        countStateChanged(transport.state.value)
         post(Msg.Pump)                     // the reading follows on the idle pump
     }
 
-    /** One reading of the cache generation (op 1) — off the loop, applied on it against the epoch. */
-    private fun launchStageRead() {
-        stageReadInFlight = true
-        val epoch = stageEpoch
+    // ------------------------------------------------------ the cache count's one reader (0.64)
+    /** The count can judge cache writes at all this session: a Damage build, a transport with a
+     *  radio of its own, and readings that answer. */
+    private fun ledgerJudges(st: LinkState) = !ledgerOff && st.damageContract > 0 && transport.cacheCheckSupported
+    /** A reading may be asked now: cached text on and up, the glasses awake, the cache there. */
+    private fun ledgerReadable(st: LinkState) = cachedText != null && settings.cachedText == "on" && !atlasFailed &&
+        !glassesSilent && !atlasLapsedOwed && st.leaseHeld && ledgerJudges(st)
+    /** No base to count from (a new session, a lost write, a replaced layout): one is read before the next cache write. */
+    private fun ledgerBaseOwed(st: LinkState) = ledgerReadable(st) && (cacheLedger.baseGen == null || cacheLedger.unsure)
+
+    /** Launch one reading if both write lanes are still by the shell's OWN books. True when launched.
+     *  (The atlas read-back, op 4, may be out at the same time: it no longer touches the count, and
+     *  each read has its own request id and waiter.) */
+    private fun tryLedgerRead(st: LinkState): Boolean {
+        if (!ledgerReadable(st) || ledgerReadInFlight) return false
+        // 0.64 R1 (review 1a, RC-2): an unanswered reading is asked again one pace later, not on the
+        // next pump — the loop pumps after every message, the unanswered reading's own included, and
+        // three in a row (the bound that ends the asking for the session) were then one event
+        if (System.currentTimeMillis() < ledgerRetryNotBeforeMs) return false
+        if (atlasInFlight != null || stageInFlight != null || st.inFlight != 0) return false
+        launchLedgerRead()
+        return true
+    }
+
+    /** The count's reading wherever the shell is — at Main, in a list, in the Reader: cache writes are
+     *  acked past the last agreed reading, the batch has ended, nothing else is waiting to go, and
+     *  the pace of a pending or short reading has passed. An interval is the batches since the last
+     *  agreed reading (a grow cued at a batch's last ack refills the queue before this runs). With
+     *  no base and writes already acked it asks the base itself; with nothing acked yet the base
+     *  is the writing lane's to ask ([pumpAtlas], [pumpStage]). */
+    private fun pumpLedger(st: LinkState): Boolean {
+        countStateChanged(st)
+        if (cacheLedger.unjudged == 0L) return false                          // nothing acked past the last agreed reading
+        val based = cacheLedger.baseGen != null && !cacheLedger.unsure
+        if (based && atlasQueue.isNotEmpty()) return false                    // a batch is read at its end
+        if (comp.hasPending || comp.needsKeyframe) return false               // yields to content, as a chunk does
+        // the pace; a base counts nothing short and ignores it
+        if (based && System.currentTimeMillis() < ledgerReadNotBeforeMs) return false
+        return tryLedgerRead(st)
+    }
+
+    /** What harnesses wait on: the writes a reading will still judge (0 where none will be asked). */
+    private fun countStateChanged(st: LinkState) {
+        cacheCountUnjudged = if (ledgerReadable(st)) cacheLedger.unjudged else 0L
+    }
+
+    /** The count starts over: a session start, a lapse. A reading on its way is dropped when it lands. */
+    private fun ledgerReset() {
+        cacheLedger.reset()
+        ledgerEpoch++
+        ledgerReadInFlight = false
+        ledgerReadNotBeforeMs = 0L
+        ledgerRetryNotBeforeMs = 0L
+        ledgerReadFailures = 0
+        ledgerOff = false
+        atlasUnproven.clear()
+        atlasResendMissing = 0L
+        atlasLastAcked = null
+        cacheWriteLastAckMs = 0L
+        cacheCountUnjudged = 0L
+    }
+
+    /** The shell goes to sleep (the firmware's Silent Mode, or a rest): a reading on its way is dropped
+     *  when it lands and holds no lane meanwhile. Nothing is asked while asleep ([ledgerReadable]); what
+     *  was unjudged is never read — the atlas's messages leave the books at the same entry
+     *  ([atlasCheckOwed] with no keyframe, 0.64 P4), a staged strip's with its record ([stageClear]) —
+     *  and the wake's session start resets the count. ONE owner of this drop: [enterSleep], the one
+     *  entry of every sleep. */
+    private fun ledgerDropReading() {
+        ledgerEpoch++
+        ledgerReadInFlight = false
+        cacheCountUnjudged = 0L
+    }
+
+    /** One reading of the cache generation (op 1, RIGHT) — off the loop, applied on it against the
+     *  epoch. The counts it speaks for are captured here, with both lanes still. */
+    private fun launchLedgerRead() {
+        ledgerReadInFlight = true
+        val epoch = ledgerEpoch
         val sendAcked = cacheLedger.acked
         val sendAtlasAcked = cacheLedger.atlasAcked
         val settled = System.currentTimeMillis() - cacheWriteLastAckMs >= CacheLedger.SETTLE_MS
+        // the journal's subject is true to what the reading is for: a strip acked and unproven
+        // makes it the stage check (its notes are kind `stage`); otherwise it is the cache count's
+        val staged = stage.count(StagedRecord.State.ACKED) > 0
+        val label = if (staged) "stage check" else "cache count"
         scope.launch {
             var why: String? = null
-            val t = try { transport.telemetry("stage check") } catch (e: Exception) { why = e.message ?: e.toString(); null }
+            // R3 (review 2, 2A-2): the transport's word for a reading it ended — not asked (its first write
+            // failed), or asked this many times and not answered. Null: no answer and no cause given.
+            var ended: wm.damage.core.transport.ReadingEnded? = null
+            val t = try { transport.telemetry(label) }
+                catch (e: wm.damage.core.transport.ReadingEnded) { ended = e; why = e.message; null }
+                catch (e: Exception) { why = e.message ?: e.toString(); null }
             post(Msg.Run {
-                stageReadInFlight = false
-                if (epoch != stageEpoch || !running) return@Run
+                // the epoch FIRST: an answer clears only its own flag (a stale one landing after a
+                // newer reading was launched used to clear the newer one's, and the lanes were then
+                // not held under it); every epoch bump clears the flag itself
+                if (epoch != ledgerEpoch || !running) return@Run
+                ledgerReadInFlight = false
+                val st = transport.state.value
                 val gen = t?.cacheGen
                 if (gen == null) {
-                    if (++stageReadFailures >= STAGE_FAILURES_MAX)
-                        stageOff("the cache generation read did not answer $stageReadFailures times" + (why?.let { " ($it)" } ?: ""))
-                    else journal.note("stage", "the cache generation read did not answer" + (why?.let { " ($it)" } ?: "") + " — asked again on the next idle pump")
+                    val because = why?.let { " ($it)" } ?: ""
+                    if (++ledgerReadFailures >= STAGE_FAILURES_MAX) {
+                        ledgerOff = true
+                        // 0.64 R1 (RC-1's class): a re-send ACKED and still unjudged leaves the books here
+                        // with the rest — as at the re-base that swallows one ([ledgerVerdict], Base), the
+                        // lens is put right by a keyframe. One still QUEUED is not this: its keyframe
+                        // comes at its own ack ([atlasDone]), after its bytes have landed.
+                        val reSendAcked = atlasUnproven.any { it.done?.resend == true }
+                        atlasUnproven.clear()
+                        // R2 (item 31, `R1-verify.md` §5.1): a re-send still QUEUED keeps the field until its last
+                        // message's ack ([atlasDone]) — or until what drops it ([atlasDisable] after a refusal or
+                        // three undelivered, [atlasCheckOwed] at a repack, a reset, a sleep) says so and keyframes.
+                        // Cleared here, a re-send that was then never acked left with no note and no keyframe.
+                        if ((atlas?.resendsQueued ?: 0) == 0) atlasResendMissing = 0L
+                        // a build whose capabilities carry no telemetry bit has no count to read: the
+                        // transport answers null without asking. A capability, not a failure
+                        val hasCount = st.damageFeatures and wm.damage.core.wire.DamageMsg.FEATURE_TELEMETRY != 0
+                        journal.note("atlas", "count off — the cache generation read did not answer $ledgerReadFailures times$because; " +
+                            "cache writes are not judged by the count for the rest of this session" +
+                            (if (hasCount) "" else " (this build's capabilities carry no telemetry: there is no count to read)") +
+                            (if (reSendAcked) "; a re-send was acked and not yet judged: keyframing" else ""))
+                        if (reSendAcked) comp.requestKeyframe()
+                        if (!stageFailed) stageOff("the cache generation read did not answer $ledgerReadFailures times$because")
+                        // 0.64 R1 (the lead's ruling on review 1a, RC-2): SAID, once per session. With the
+                        // count off Page staging is off and the one check that says a cache write was not
+                        // applied is gone — a state the journal alone held. Only on a link that is up and
+                        // steady by THIS handler's one read of it (a session that is ending answers null
+                        // three times by itself; its box would wait in the queue about a session that is
+                        // over — the `flush` notice's rule), and only on a build that has a count.
+                        if (hasCount && !cacheOffSaid && linkUpAndSteady(st)) {
+                            cacheOffSaid = true
+                            // R3 (review 2, 2A-2): the body says the cause the last reading had, and names Page
+                            // staging only where its row is on (with the row off there was nothing to switch off)
+                            val e = ended
+                            val cause = when {
+                                e != null && e.asks == 0 -> "the cache count could not be asked ($why)"
+                                e != null -> "the glasses did not answer the cache count (asked ${e.asks} times)"
+                                why != null -> "the cache count could not be read ($why)"
+                                else -> "the glasses did not answer the cache count"
+                            }
+                            raiseFault("cache/off", "$cause — cache writes go unchecked" +
+                                (if (settings.pageStaging == "on") " and Page staging is off until the next session" else ""),
+                                source = "cache")
+                        }
+                    } else {
+                        // the note, THEN the clock for the pace, THEN the pump at its end — in that
+                        // order, so the pace is never read before the note's own stamp (RD-4's order)
+                        journal.note(if (staged) "stage" else "atlas",
+                            (if (staged) "" else "count unread — ") + "the cache generation read did not answer$because — asked again in ${CacheLedger.UNANSWERED_PACE_MS} ms")
+                        ledgerRetryNotBeforeMs = System.currentTimeMillis() + CacheLedger.UNANSWERED_PACE_MS
+                        pumpAfter(CacheLedger.UNANSWERED_PACE_MS)
+                    }
+                    countStateChanged(st)
                     return@Run
                 }
-                stageReadFailures = 0
-                ledgerVerdict(cacheLedger.answer(gen, sendAcked, sendAtlasAcked, settled), "the stage check")
+                ledgerReadFailures = 0
+                ledgerVerdict(cacheLedger.answer(gen, sendAcked, sendAtlasAcked, settled), "the $label", t, staged)
+                countStateChanged(st)
                 post(Msg.Pump)
             })
         }
     }
 
-    /** What a generation reading means for the staged records and for the atlas (`CacheLedger`). */
-    private fun ledgerVerdict(v: CacheLedger.Verdict, from: String) {
+    /** What a generation reading means for the staged records and for the atlas (`CacheLedger`).
+     *  [staged]: a strip was acked and unproven at the reading's launch — its pending, short and
+     *  over-count notes are staging's (kind `stage`); otherwise they are the count's own (kind `atlas`). */
+    private fun ledgerVerdict(v: CacheLedger.Verdict, from: String, t: wm.damage.core.wire.DamageMsg.Telemetry?, staged: Boolean) {
+        val gen = cacheLedger.baseGen
         when (v) {
             is CacheLedger.Verdict.Base -> {
                 // nothing before this reading can be proven by counting: an acked record goes again
                 val unproven = stage.records.values.filter { it.state == StagedRecord.State.ACKED }
                 for (r in unproven) stage.remove(r)
                 if (unproven.isNotEmpty()) journal.note("stage", "$from re-based the generation count at ${v.gen} — ${unproven.size} acked record(s) go again")
+                // the atlas's half: the messages acked before it leave the books unjudged; a re-send
+                // among them can no longer be read, so the lens is put right by a keyframe instead
+                val dropped = atlasUnproven.toList()
+                atlasUnproven.clear()
+                // R3 (review 2, item 31's sibling): a re-send still QUEUED keeps the field — under the new base it
+                // is judged like any write (its verdict clears it), or what drops it says so and keyframes
+                // ([atlasDisable], [atlasCheckOwed]). Cleared here, a re-send then refused left unnamed.
+                if ((atlas?.resendsQueued ?: 0) == 0) atlasResendMissing = 0L
+                if (dropped.isNotEmpty()) {
+                    val resent = dropped.any { it.done?.resend == true }
+                    journal.note("atlas", "count re-based — ${dropped.size} atlas message(s) acked before it are not judged (" +
+                        (if (v.first) "the session's first reading" else "a write was lost before the reading") + ", generation ${v.gen})" +
+                        (if (resent) "; a re-send among them: keyframing" else ""))
+                    if (resent) comp.requestKeyframe()
+                }
             }
             is CacheLedger.Verdict.Proven -> {
                 var n = 0
                 for (r in stage.records.values) if (r.state == StagedRecord.State.ACKED && r.ackedAt <= v.upTo) { r.state = StagedRecord.State.PROVEN; n++ }
                 if (n > 0) journal.note("stage", "$from proved $n record(s) — ${stage.count(StagedRecord.State.PROVEN)} drawable, ${stage.ring?.bytesHeld ?: 0} B in the reserve")
+                val counted = atlasUnproven.filter { it.ledgerAt <= v.upTo }
+                atlasUnproven.removeAll { it.ledgerAt <= v.upTo }
+                val again = counted.count { it.done?.resend == true }
+                if (counted.size > again) journal.note("atlas", "count ok — ${counted.size - again} atlas message(s) counted by RIGHT, generation $gen")
+                if (again > 0) {
+                    // the re-send was counted: with an interval of one message the first send had not
+                    // landed (the note claims no more than the count shows). Draws made meanwhile used
+                    // bytes the glasses did not hold, and belief already equals the truth there — a
+                    // repaint would send nothing, so the lens is put right by one keyframe
+                    atlasResendMissing = 0L
+                    journal.note("atlas", "re-send counted — $again atlas message(s) sent a second time were counted by RIGHT; keyframing")
+                    comp.requestKeyframe()
+                }
             }
             is CacheLedger.Verdict.Pending -> {
-                // the acked writes have not had their settle window: counts for nothing, asked again paced
-                stageReadNotBeforeMs = System.currentTimeMillis() + CacheLedger.REREAD_PACE_MS
-                journal.note("stage", "$from read the generation ${v.missing} short inside the settle window — pending, asked again in ${CacheLedger.REREAD_PACE_MS} ms")
+                // the acked writes have not had their settle window: counts for nothing, asked again paced.
+                // The note FIRST, then the clock for the pace, then the pump at its end (0.64 R1, review 1a
+                // RD-4): with the clock read before the note, the note's stamp could come after it and a
+                // re-read launched by some other pump was then less than the pace after the NOTE — the
+                // one fact a journal reader (and `StagingTest`'s bound) has. The pump stays last: launched
+                // before the pace it would arrive early after a stall, and the re-read would wait for the
+                // idle tick.
+                if (staged) journal.note("stage", "$from read the generation ${v.missing} short inside the settle window — pending, asked again in ${CacheLedger.REREAD_PACE_MS} ms")
+                else journal.note("atlas", "count pending — $from read the generation ${v.missing} short inside the settle window, asked again in ${CacheLedger.REREAD_PACE_MS} ms")
+                ledgerReadNotBeforeMs = System.currentTimeMillis() + CacheLedger.REREAD_PACE_MS
                 pumpAfter(CacheLedger.REREAD_PACE_MS)
             }
             is CacheLedger.Verdict.Short -> {
                 // §73: paced at the settle window, not the re-read pace — the second settled reading
                 // is the one that makes a shortfall, and until the pump below existed it came with
-                // the 5 s idle tick; at 500 ms a decode 2.5 s behind its ack would have been called lost
-                stageReadNotBeforeMs = System.currentTimeMillis() + CacheLedger.SETTLE_MS
-                journal.note("stage", "$from read the generation ${v.missing} short after the settle window (settled reading ${v.reads}) — asked again in ${CacheLedger.SETTLE_MS} ms")
+                // the 5 s idle tick; at 500 ms a decode 2.5 s behind its ack would have been called lost.
+                // The note, then the clock, then the pump — the order of the branch above, for its reason.
+                if (staged) journal.note("stage", "$from read the generation ${v.missing} short after the settle window (settled reading ${v.reads}) — asked again in ${CacheLedger.SETTLE_MS} ms")
+                else journal.note("atlas", "count short (settled reading ${v.reads}) — $from read the generation ${v.missing} short after the settle window, asked again in ${CacheLedger.SETTLE_MS} ms")
+                ledgerReadNotBeforeMs = System.currentTimeMillis() + CacheLedger.SETTLE_MS
                 pumpAfter(CacheLedger.SETTLE_MS)
             }
             is CacheLedger.Verdict.Shortfall -> {
                 val lost = stage.records.values.filter { it.state == StagedRecord.State.ACKED && it.ackedAt > v.fromAcked && it.ackedAt <= v.toAcked }
                 for (r in lost) stage.remove(r)
                 // the atlas is NOT switched off on a shortfall (2026-09-16 21:xx, §66.1): the 0.57 ledger took
-                // cached text down for the evening on three lagged readings forty minutes apart, and a refused
-                // atlas chunk is what the read-back's refusal record (fields 23–25, refMode 19) already names —
-                // until the decode lag is understood a shortfall costs staging, never the fonts
-                journal.note("stage", "$from: the generation says ${v.missing} of the cache writes since the last reading never landed — " +
-                    "${lost.size} record(s) dropped" + (if (v.atlasInvolved) "; atlas chunks were among the writes (the atlas stays: its own read-back judges it)" else ""))
-                if (++stageShortfalls >= STAGE_FAILURES_MAX) stageOff("$stageShortfalls shortfalls this session")
+                // cached text down for the evening on three lagged readings forty minutes apart. 0.64 (Adam's
+                // ruling, §75.1): no gate either — a shortfall is SAID, the atlas messages of its interval are
+                // written once more, and staging keeps its own rule (the strips dropped and staged again)
+                val stageWrites = (v.toAcked - v.fromAcked) - v.atlasWrites
+                if (stageWrites > 0) journal.note("stage", "$from: the generation says ${v.missing} of the cache writes since the last reading never landed — " +
+                    "${lost.size} record(s) dropped" + (if (v.atlasInvolved) "; atlas messages were among the writes (the atlas note says what goes again)" else ""))
+                // staging's three count only a shortfall whose interval held a stage write — BEFORE the
+                // notice is worded, which says "staging is off" in place of "staged again" when this fired
+                var stagingOff = false
+                if (stageWrites > 0 && ++stageShortfalls >= STAGE_FAILURES_MAX) {
+                    stageOff("$stageShortfalls shortfalls this session")
+                    stagingOff = true
+                }
+                atlasShortfall(v, lost.size, stagingOff,
+                    t?.refusal?.let { "; the last refusal on record: ${it.describe()} (sticky)" } ?: "; no refusal on record")
             }
             is CacheLedger.Verdict.Foreign -> {
                 // more bumps than this shell's acked writes: the count is re-based and the acked records
@@ -3369,15 +4018,124 @@ class Shell(
                 stageForeignBumps += v.extra
                 var n = 0
                 for (r in stage.records.values) if (r.state == StagedRecord.State.ACKED && r.ackedAt <= v.toAcked) { r.state = StagedRecord.State.PROVEN; n++ }
-                journal.note("stage", "$from: ${v.extra} more generation bump(s) than this shell's writes since the last reading ($stageForeignBumps this session) — re-based; $n acked record(s) taken as landed")
+                // with no strip acked at the reading's launch this is the count's own note (kind `atlas`,
+                // like its pending and short notes): a `stage` note means a strip was involved
+                if (staged) journal.note("stage", "$from: ${v.extra} more generation bump(s) than this shell's writes since the last reading ($stageForeignBumps this session) — re-based; $n acked record(s) taken as landed")
+                else journal.note("atlas", "count over — $from read ${v.extra} more generation bump(s) than this shell's writes since the last agreed reading " +
+                    "($stageForeignBumps this session); re-based, nothing is called lost")
+                val counted = atlasUnproven.filter { it.ledgerAt <= v.toAcked }
+                atlasUnproven.removeAll { it.ledgerAt <= v.toAcked }
+                val again = counted.count { it.done?.resend == true }
+                if (again > 0) {
+                    val missing = atlasResendMissing
+                    atlasResendMissing = 0L
+                    if (v.extra >= missing) {
+                        // every write the shortfall missed has bumped since: the first sends were applied
+                        // after all (a decode slower than two settle windows); the image lane decodes in
+                        // order, so nothing was drawn ahead of them — no keyframe
+                        journal.note("atlas", "re-send landed late — ${v.extra} more bump(s) than writes after a re-send: the write(s) called short were counted after all; nothing was lost")
+                    } else {
+                        // fewer late bumps than the shortfall missed: one write was absent until the
+                        // re-send wrote it, and the lens keeps what was drawn meanwhile — the keyframe
+                        journal.note("atlas", "re-send counted — $again atlas message(s) sent a second time were counted by RIGHT, " +
+                            "and ${v.extra} of the $missing write(s) called short bumped late; keyframing")
+                        comp.requestKeyframe()
+                    }
+                }
             }
         }
         stageRecount()
     }
 
     /**
+     * 0.64 (Adam's ruling, `HANDOFF.md` §75.1 — no proof gate; the re-read everywhere, a shortfall
+     * notice and ONE re-send): the count is short by `v.missing` of the `k` messages acked since
+     * the last agreed reading. It cannot say which, so every first-time atlas message of the
+     * interval is written once more — a cache write is a plain copy, and one that did land is
+     * rewritten with its own bytes — through the existing queue, with the fonts left live. Nothing
+     * else happens: no font leaves the live set, no promotion is taken back, cached text stays on.
+     *
+     * The bound is on the message's own record ([GlyphAtlas.Acked.resend]): a message that was
+     * itself a re-send is never queued again. When the re-sent messages alone can account for what
+     * is missing they are taken as the ones not counted, and the first-time messages read with
+     * them (the notice's own faces gaining glyphs, typically) are not sent again; that is stated as
+     * fact only when the interval held nothing else.
+     */
+    private fun atlasShortfall(v: CacheLedger.Verdict.Shortfall, strips: Int, stagingOff: Boolean, ref: String) {
+        val k = v.toAcked - v.fromAcked
+        val gen = cacheLedger.baseGen
+        val cand = atlasUnproven.filter { it.ledgerAt > v.fromAcked && it.ledgerAt <= v.toAcked }
+        atlasUnproven.removeAll { it.ledgerAt <= v.toAcked }
+        val a = atlas                                                     // ONE read
+        val mine = cand.mapNotNull { it.done }                            // null: a cut since replaced — its bytes went again already
+        val again = mine.filter { it.resend }
+        val first = if (again.isNotEmpty() && v.missing <= again.size) emptyList() else mine.filter { !it.resend }
+        atlasResendMissing = 0L
+        val parts = ArrayList<String>()
+        if (first.isNotEmpty() && a != null) {
+            val bytes = a.resend(first.flatMap { it.writes })
+            atlasWritesChosenAgain += first.size
+            atlasResendMissing = v.missing
+            atlasWantVersion = -1          // the grow's cue, as after a rewind: takeUpload -> atlasQueue -> pumpAtlas
+            journal.note("atlas", "count short — RIGHT's generation is $gen, ${v.missing} short of $k cache write(s) acked since the last agreed reading " +
+                "(${v.atlasWrites} of the atlas); ${first.size} atlas message(s), $bytes B, go once more$ref")
+            parts += "${first.size} sent once more"
+        } else if (v.atlasWrites > 0 && again.isEmpty())
+            journal.note("atlas", "count short — RIGHT's generation is $gen, ${v.missing} short of $k cache write(s); ${v.atlasWrites} atlas message(s) " +
+                "in the interval, none of the layout that stands — nothing to send again$ref")
+        val alone = k == again.size.toLong()                             // the interval held the re-sent messages and nothing else
+        if (again.isNotEmpty()) journal.note("atlas", if (alone)
+            "count short again — ${again.size} atlas message(s) sent twice were not counted either time; nothing more is sent for them and the atlas stays live$ref"
+        else "count short again — the count is ${v.missing} short after a re-send (${again.size} re-sent, ${k - again.size} other write(s) read with it); " +
+            "nothing more is sent for the re-sent message(s) and the atlas stays live$ref")
+        if (!linkUpAndSteady()) return                                    // a session that is ending: the journal has it
+        if (stagingOff) parts += (if (strips > 0) "$strips staged strip(s) not staged again: " else "") + "staging is off for this session"
+        else if (strips > 0) parts += "$strips staged strip(s) staged again"
+        // 0.64 R1 (review 1a, RC-3): the verdict that switches staging off is raised under a class of its
+        // own, IN PLACE of `cache/short` — one box per verdict. Three strip shortfalls a few seconds
+        // apart are one episode of `cache/short` (posted, updated at the second, and the third — not a
+        // power of two — shown nowhere; a dismissed box mutes the rest), so the body that says
+        // "staging is off for this session" was only ever in the journal. Staging goes off once per
+        // session, so this class is raised at most once per session.
+        if (first.isNotEmpty() || strips > 0 || stagingOff || again.isEmpty())
+            raiseFault(if (stagingOff) "cache/staging" else "cache/short",
+                "the glasses acknowledged $k cache write(s) and counted ${maxOf(0L, k - v.missing)} — " +
+                (if (parts.isEmpty()) "nothing to send again" else parts.joinToString(", ")), source = "cache")
+        // "for the re-sent message(s)": the same verdict's other box may say "N sent once more" for the
+        // first-time messages read with them — the two must not read as contradicting each other
+        if (again.isNotEmpty())
+            raiseFault("cache/lost", if (alone)
+                "a cache write sent twice was not counted either time — it is not sent again; text from the cache may draw wrong until the next session"
+            else "the count is short again after a re-send (${again.size} re-sent, ${k - again.size} other write(s) read with it) — nothing more is sent for the re-sent message(s)",
+                source = "cache")
+    }
+
+    /** The `cache=miscount` dev probe (sent only on Adam's word, `tools/glassdrive.py probe:cache=miscount`):
+     *  one atlas ack the glasses never saw is added to the ledger, with the last acked message as
+     *  what it wrote. The count then reads one short and the real path runs end to end on glass —
+     *  the short readings, the notice, a re-send of bytes the glasses already hold (a plain copy of
+     *  identical bytes), the agreed reading, one keyframe. Nothing new goes on the wire. */
+    private fun probeCacheMiscount() {
+        val st = transport.state.value
+        val last = atlasLastAcked
+        val why = when {
+            !ledgerReadable(st) -> "the count is not being read (cached text off or not up, the glasses asleep, or a build or transport that cannot answer)"
+            cacheLedger.baseGen == null || cacheLedger.unsure -> "the count has no base yet"
+            last == null -> "no atlas message has been acked on this layout this session (draw a character a face has not drawn, then send it again)"
+            else -> null
+        }
+        if (why != null || last == null) { journal.note("probe", "cache=miscount not run — $why"); return }
+        cacheLedger.writeAcked(1, atlas = true)
+        cacheWriteLastAckMs = System.currentTimeMillis()      // as a real ack would: the settle window runs from here
+        atlasUnproven.addLast(AtlasWrite(cacheLedger.acked, GlyphAtlas.Acked(last.n, last.writes, resend = false)))
+        countStateChanged(st)
+        journal.note("probe", "cache=miscount — one atlas ack the glasses never saw is on the ledger (the last acked message, ${last.bytes} B): the count reads one short from here")
+        post(Msg.Pump)
+    }
+
+    /**
      * §73: one pump when a paced re-read comes due. The verdicts above only set
-     * [stageReadNotBeforeMs]; nothing ran when it passed, so on a quiet link the re-read waited
+     * [ledgerReadNotBeforeMs]; nothing ran when it passed, so on a quiet link the re-read waited
      * for the 5 s idle tick and a strip sat acked and not drawable that long — on glass the
      * first reading after a write is normally short (the bump lands up to a second after the
      * ack). A pace, not a bound: nothing is given up when the delay ends, and a pump that
@@ -3416,7 +4174,13 @@ class Shell(
         return out
     }
 
-    // ------------------------------------------------------ silent glasses (§36, §37.0)
+    // ------------------------------------------------------ the shell asleep (§36, §37.0; 0.64: the reason)
+    /** Why the shell is asleep (`HANDOFF.md` §75.4 call 6). SILENT: the firmware's Silent Mode — a push,
+     *  the READ at a session start, or three refusals in a row. REST: the shell's own; in 0.64 (build 1 of
+     *  rest mode) only the dev probe `rest=on` starts one — nothing rests by itself. Neither is
+     *  `Mode.SILENT` (the shell's own silent clock screen) nor `main.resting` (Main's 12 s dashboard rest). */
+    private enum class SleepReason { SILENT, REST }
+
     /** The glasses are in the firmware's Silent Mode: they refuse every image
      *  until the both-temple long-press wakes them — and LEAVING the mode ends
      *  the firmware's EvenHub page, so nothing paints again until a CREATE
@@ -3426,9 +4190,31 @@ class Shell(
      *  session REBUILD (`Transport.restartSession`: the link ends, the keeper
      *  stops this shell and starts it again from the prelude up — G2CC's
      *  reconnect-and-relayout path), never a keyframe. The new start reads the
-     *  glasses' state before its first frame ([startLocked]). */
-    private var glassesSilent = false
-    private var silentGen = 0
+     *  glasses' state before its first frame ([startLocked]).
+     *
+     *  0.64: a REST is the same sleep under the shell's own reason — frames stop, the lease is
+     *  released, the page traffic and the transport's watchdog sleep with it (`pageTrafficWanted`),
+     *  and its wake is the same session rebuild. It posts no notice and never rings the phone.
+     *
+     *  The envelope (`FORK.md` §3.8) of [sleep] and [silentGen]: (a) `sleep = null` and `silentGen++`
+     *  at every session start; a lease lapse does not touch them (a sleep has no lease to lapse).
+     *  A start that ADOPTS a live session calls no `transport.start()`, and that is the only place
+     *  the transport's `leaseWanted` returns to true — so an adopted session can be one whose lease
+     *  the last driver released for its own sleep: [startLocked] rebuilds the session this shell
+     *  itself adopts (the P4 review's finding 4), so a sleep is never inherited and its released
+     *  lease does not outlive the hand-back. (b) The release write is
+     *  awaited inside the transport and ends on the write, its failure or the scope's end; the wake
+     *  is a rebuild asked again on the pacing while the transport refuses it. (c) An episode is
+     *  [silentGen]'s: the release coroutine and the pacing loop are keyed on it; a REST that becomes
+     *  SILENT keeps the generation on purpose (one episode, one release, one loop). (d) Written on
+     *  the loop and the start path, read off the loop by those two coroutines and by status readers
+     *  — hence `@Volatile`. (e) [enterSleep] and [restProbe] read [sleep] once. (f) Every reader of
+     *  [glassesSilent] means "asleep for either reason"; the sites that differ by reason are the
+     *  paced check, the input path, the `SilentMode(false)` event, the notice and the note kinds. */
+    @Volatile private var sleep: SleepReason? = null
+    /** Asleep, for either reason: frames stop, the lease is released, the page traffic sleeps. */
+    private val glassesSilent: Boolean get() = sleep != null
+    @Volatile private var silentGen = 0
     private var silentNoticeShown = false
     /** A refused session rebuild was said (§69); per session, like [silentNoticeShown]. */
     private var rebuildRefusalShown = false
@@ -3438,38 +4224,104 @@ class Shell(
      *  transport reports the link down, and nothing more is sent or asked. */
     private var restartRequested = false
     private var lastRebuildAskMs = 0L
+    /** A rest's wake was asked for and the transport has not taken it yet: the paced check asks again
+     *  (as [silentTick] does for a refusal streak). Cleared at a session start and when the reason
+     *  becomes SILENT; loop-only. */
+    private var restWakeWanted = false
+    /** An input event that asked for a wake and was not taken (one already on its way, or refused inside
+     *  the pacing) has been journaled: the next ones of the same wake are consumed without a line.
+     *  Cleared at a session start and by every ask that IS taken; loop-only; journal pacing only —
+     *  nothing reads it to decide. */
+    private var restAskNotTakenSaid = false
+    /** Bumped at every session start — the identity a dev probe carries from the thread that took it
+     *  to the loop message that runs it ([devProbe]): a probe taken while a start was still on its
+     *  way, or kept in the queue across a start that failed, is not run in the session that follows.
+     *  (`tickGen` cannot serve: it is bumped after the loop has launched.) */
+    @Volatile private var sessionSerial = 0
 
     /** How the glasses currently read to this shell — for status lines and tests. */
     val glassesAsleep: Boolean get() = glassesSilent
+    /** Asleep for the shell's own reason (a rest) — for status lines and tests. */
+    val resting: Boolean get() = sleep == SleepReason.REST
 
     /** The asleep shell's check pacing (a paced loop, never a bound on work):
-     *  each tick either waits on — the glasses say they are still silent — or
-     *  asks for the rebuild a refusal streak calls for. Tests shorten it. */
+     *  each tick either waits on — the glasses say they are still silent, or the
+     *  shell rests — or asks for the rebuild a refusal streak or a refused wake
+     *  calls for. Tests shorten it. */
     @Volatile var silentPacingMs = SILENT_PACING_MS
 
-    private fun enterSilentGlasses(why: String) {
-        if (glassesSilent) return
-        glassesSilent = true
-        stageClear("the glasses are silent — the lease goes, and the wake rebuilds the session")
+    /** The journal kind of a note about the sleep itself: `rest` under a rest, `silent` otherwise —
+     *  `REMINDER.md` reads Adam's Silent Mode presses from the `silent` notes, so a rest writes none. */
+    private fun sleepKind(): String = if (sleep == SleepReason.REST) "rest" else "silent"
+
+    /** The once-per-session notice that the firmware's Silent Mode is on (and the phone's ring). */
+    private fun saySilentOnce(why: String) {
+        if (silentNoticeShown) return
+        silentNoticeShown = true
+        services.notifyInternal("glasses",
+            "the glasses are in Silent Mode ($why) — long-press both temples to wake them; the display rebuilds by itself",
+            urgent = true)
+    }
+
+    /** The shell goes to sleep for [reason]. LOOP-ONLY (and the start path, before the loop launches).
+     *  Already asleep for the same reason: nothing. A rest asked for under the firmware's Silent Mode:
+     *  a note, nothing else — that mode is the stronger sleep and its exit ends the firmware's page.
+     *  Silent Mode coming on during a rest: the SAME sleep under the stronger reason — nothing is
+     *  released twice, this episode's pacing loop goes on under the Silent rule, the Silent notice is
+     *  said; the rest is over as a rest (the push OFF wakes into a painting session). */
+    private fun enterSleep(reason: SleepReason, why: String) {
+        val was = sleep                                         // ONE read: every branch decides from it
+        if (was == reason) return
+        if (was == SleepReason.SILENT) {
+            journal.note("rest", "not taken — asleep for the firmware's Silent Mode already ($why)")
+            return
+        }
+        sleep = reason
+        if (was == SleepReason.REST) {
+            restWakeWanted = false
+            chromeDirty = true
+            journal.note("silent", "resting, and the firmware's Silent Mode came on — $why; its push off or the READ is the wake now")
+            Log.w("shell", "resting, and the glasses are silent ($why): the same sleep, the firmware's wake")
+            saySilentOnce(why)
+            return                                              // the lease is released already and this episode's pacing runs
+        }
+        stageClear(if (reason == SleepReason.SILENT) "the glasses are silent — the lease goes, and the wake rebuilds the session"
+            else "the shell rests — the lease goes, and the wake rebuilds the session")
+        ledgerDropReading()            // a reading on its way is not applied while asleep (no verdict, no notice, no lane held)
+        // 0.64 (P4 Q7), as [atlasLapsed] does: the release frees the glasses' cache ON PURPOSE, so a
+        // cache write still in flight and a read-back still on its way must not be judged against it —
+        // the write's ack read as "this layout's upload finished" and its read-back then found no
+        // cache ("the glasses hold no texture cache"), or the firmware's Silent Mode refused the
+        // chunk ("the glasses refused a cache write"): a fault notice and cached text off for a sleep
+        // that was asked for. The completion now takes the plain path ([completeFlush]: asleep, a
+        // refusal is rolled back and otherwise ignored), the read-back's answer is dropped by its
+        // epoch, and the wake's session start resets everything this touches ([atlasAtSessionStart]).
+        // NO keyframe is asked for here, unlike every other caller: nothing may be sent into a
+        // sleeping pair (§36 — a refused image is never answered with more images; a rest has no
+        // lease to paint into), and every wake is a session rebuild whose start keyframes by itself.
+        atlasInFlight = null
+        atlasCheckOwed("the shell went to sleep", keyframe = false)
         silentChecks = 0
         val gen = ++silentGen
         keyframeFailStreak = 0; flushFailStreak = 0; haltedEpoch = null
         chromeDirty = true
-        journal.note("silent", "glasses asleep — $why; no frames until they wake")
-        Log.w("shell", "the glasses are silent ($why): frames stop, the lease is released; a check every ${silentPacingMs / 1000} s")
-        if (!silentNoticeShown) {
-            silentNoticeShown = true
-            services.notifyInternal("glasses",
-                "the glasses are in Silent Mode ($why) — long-press both temples to wake them; the display rebuilds by itself",
-                urgent = true)
+        if (reason == SleepReason.SILENT) {
+            journal.note("silent", "glasses asleep — $why; no frames until they wake")
+            Log.w("shell", "the glasses are silent ($why): frames stop, the lease is released; a check every ${silentPacingMs / 1000} s")
+            saySilentOnce(why)
+        } else {
+            // a rest paints nothing by definition and posts no notice: a box posted here could only
+            // be seen after the wake, when it is no longer true
+            journal.note("rest", "resting — $why; frames stop, the lease is released, the page traffic sleeps")
+            Log.w("shell", "resting ($why): frames stop, the lease is released; a check every ${silentPacingMs / 1000} s")
         }
         scope.launch {
             // the wake may have rebuilt the session before this ran: a release written into the NEW
             // session frees the glasses' texture cache, clears DRAW2 and stops the renewal loop —
             // one spurious rebuild and a whole atlas again (2026-09-15, the third review). The
-            // generation this silent episode owns is the guard, as the pacing loop below uses it.
-            if (gen != silentGen || !glassesSilent) return@launch
-            try { transport.setLeaseWanted(false) } catch (e: Exception) { Log.e("shell", "lease release while silent", e) }
+            // generation this episode owns is the guard, as the pacing loop below uses it.
+            if (gen != silentGen || sleep == null) return@launch
+            try { transport.setLeaseWanted(false) } catch (e: Exception) { Log.e("shell", "lease release while asleep", e) }
         }
         scope.launch {
             while (running && gen == silentGen) {
@@ -3481,14 +4333,27 @@ class Shell(
 
     /** The asleep shell's check, on the pacing tick and on a ring event.
      *  While the glasses THEMSELVES say Silent Mode is on (the last push or
-     *  READ, `LinkState.glassesSilent`) there is nothing to do: the push OFF,
-     *  or the 60 s poll's READ, is the wake. When they say it is off and the
+     *  READ, `LinkState.glassesSilent`) there is nothing to do: the push OFF
+     *  is the wake — the 60 s poll's READ wakes too, but only on an explicit
+     *  field-14 zero, and whether the glasses send one is unread
+     *  (`SettingsMsg.parseSilentRestored`). When they say it is off and the
      *  shell sleeps all the same — a refusal streak: the page ended and no
      *  push came, §37.0's 22:04:28 — the session is rebuilt, at most once per
-     *  pacing (a ring spun twice must not ask twice). */
+     *  pacing (a ring spun twice must not ask twice). 0.64: the transport's
+     *  watchdog stands down for that sleep too (`pageTrafficWanted`), so this
+     *  check — or an input event — is its one way back. A REST has its own
+     *  check ([restCheck]). */
     private fun silentTick(why: String) {
-        if (!glassesSilent || restartRequested) return
-        if (transport.state.value.glassesSilent) {
+        val s = sleep                                           // one read
+        if (s == null || restartRequested) return
+        // R2 (RG-6): a link that is down, or a session not started, says nothing about the glasses — the
+        // flags a link end clears read "awake" — and the keeper is already on its way (it polls `started`
+        // and stops and starts the shell; the new session starts awake). Asked here, the transport refused
+        // the rebuild ("no session is started") and a `rebuild` notice followed about the link being down.
+        val st = transport.state.value                          // one snapshot for this check
+        if (!st.connected || !st.started) return
+        if (s == SleepReason.REST) { restCheck(); return }
+        if (st.glassesSilent) {
             // §42: the pacing tick is counted, not journaled — ten hours asleep
             // wrote 600 identical lines. The first check, a ring event and
             // every hour's worth still land; the wake note carries the count.
@@ -3503,12 +4368,112 @@ class Shell(
         requestRebuild("the glasses say they are awake and refused the last frames ($why)")
     }
 
+    /** A rest's paced check. Build 1 READS only: one wear query (op 7) per check, never waited on — no
+     *  reply is a legal answer, and an answer is the transport's `wear` note; it acts on nothing here
+     *  (`DESIGN.md` §0). A wake the transport refused is asked again instead, at most once per pacing. */
+    private fun restCheck() {
+        silentChecks++
+        if (restWakeWanted) {
+            val now = System.currentTimeMillis()
+            if (now - lastRebuildAskMs >= silentPacingMs) { lastRebuildAskMs = now; requestRebuild("the rest's wake, asked again") }
+            return
+        }
+        val asked = transport.queryWear()                       // false = nothing went out; the note says which
+        if (silentChecks == 1 || silentChecks % SILENT_CHECKS_PER_NOTE == 0)
+            journal.note("rest", "still resting (check $silentChecks) — " +
+                (if (asked) "wear query sent" else "no wear query sent: this transport has no session of its own to ask with"))
+    }
+
     private fun wakeGlasses(why: String) {
-        if (!glassesSilent || restartRequested) return
+        if (sleep != SleepReason.SILENT || restartRequested) return
         journal.note("silent", "glasses awake after $silentChecks check(s) — $why; rebuilding the session (leaving Silent Mode ends the firmware's page)")
         Log.i("shell", "the glasses are awake ($why): session rebuild")
         lastRebuildAskMs = System.currentTimeMillis()
         requestRebuild(why)
+    }
+
+    /** A rest ends: the same session rebuild the Silent Mode wake is (the release took the flags and the
+     *  glasses' cache with it). A second ask while the first is on its way (a repeated `rest=off`, a ring
+     *  spun twice), or inside the pacing after a refused one (a ring spun twice asks once: the paced check
+     *  asks next), asks nothing more and SAYS so — the P4 review's finding 9. A [probe] is answered every
+     *  time; of the input events of one wake (a ring spun on a dark panel) only the first is, so the
+     *  notes are bounded by the asks, not by the ring. */
+    private fun wakeFromRest(why: String, probe: Boolean = false) {
+        if (sleep != SleepReason.REST) return
+        val now = System.currentTimeMillis()
+        val notTaken = when {
+            restartRequested -> "the wake is on its way already — not asked again"
+            restWakeWanted && now - lastRebuildAskMs < silentPacingMs ->
+                "the wake was refused a moment ago — the paced check asks again, not this one"
+            else -> null
+        }
+        if (notTaken != null) {
+            if (probe || !restAskNotTakenSaid) journal.note("rest", "$notTaken ($why)")
+            if (!probe) restAskNotTakenSaid = true
+            return
+        }
+        restWakeWanted = true
+        restAskNotTakenSaid = false
+        journal.note("rest", "awake after $silentChecks check(s) — $why; rebuilding the session (the release took the flags and the cache)")
+        Log.i("shell", "the rest ends ($why): session rebuild")
+        lastRebuildAskMs = now
+        requestRebuild(why)
+    }
+
+    /**
+     * A dev probe for the SHELL. The host's probe route offers every probe here BEFORE its transport
+     * (`ReplicaServer`'s token-gated `probe` message — `tools/glassdrive.py probe:rest=on|off`; the
+     * transport's own probes are [wm.damage.core.transport.Transport.devProbe]):
+     *
+     *   rest = on | off    0.64, build 1 of rest mode (`HANDOFF.md` §75.4): start or end a rest by hand.
+     *                      `on` while awake on a steady link: frames stop, the lease is released on
+     *                      purpose, the renewals, the keepalive, the carrier refresh, the poll's
+     *                      telemetry read and the transport's watchdog stop with it; the 60 s device-info
+     *                      READ goes on and each paced check sends one wear query (op 7). `off` — or ANY
+     *                      input event, which is then consumed — rebuilds the session, as the Silent
+     *                      Mode wake does. Every other case is a `rest` note saying why nothing was done.
+     *                      Sent to glass only on Adam's word.
+     *
+     * True when the name is the shell's: the host then does not hand it to the transport. Any thread.
+     * The probe is run ON the loop, and only in the session it was taken in ([sessionSerial]): one taken
+     * while a start was still on its way, or queued behind a stop, says so in a note and does nothing.
+     */
+    fun devProbe(name: String, value: String): Boolean {
+        if (name != "rest") return false
+        Log.i("shell", "probe: $name=$value")
+        journal.note("probe", "$name=$value")
+        if (!running) {
+            journal.note("rest", "rest=$value not taken — no session")
+            return true
+        }
+        val serial = sessionSerial                              // captured once, on the caller's thread
+        post(Msg.Run(dropped = { journal.note("rest", "rest=$value not taken — the session ended") }) {
+            if (serial != sessionSerial) journal.note("rest", "rest=$value not taken — the session changed")
+            else restProbe(value)
+        })
+        return true
+    }
+
+    private fun restProbe(value: String) {
+        val s = sleep                                           // one read
+        when (value) {
+            "on" -> when {
+                s == SleepReason.REST -> journal.note("rest", "rest=on — already resting")
+                s == SleepReason.SILENT -> journal.note("rest", "rest=on not taken — asleep for the firmware's Silent Mode")
+                !linkUpAndSteady() -> journal.note("rest", "rest=on not taken — the link is down or the session is rebuilding")
+                // R2 (RH-7): a rest says "the lease is released" and its `power` note charges the hour to `rest`;
+                // through the seam's client the release is a log line and the owner keeps the lease lit
+                !transport.leaseOnDemand -> journal.note("rest",
+                    "rest=on not taken — this host's transport cannot release the lease (the seam): rest from the host that owns the radio")
+                else -> enterSleep(SleepReason.REST, "probe rest=on")
+            }
+            "off" -> when (s) {
+                SleepReason.REST -> wakeFromRest("probe rest=off", probe = true)
+                SleepReason.SILENT -> journal.note("rest", "rest=off — not resting: asleep for the firmware's Silent Mode, its push off is the wake")
+                null -> journal.note("rest", "rest=off — not resting")
+            }
+            else -> journal.note("rest", "rest=$value — expected on | off")
+        }
     }
 
     /** The one way out of the sleep (§37.0): the transport ends its link and
@@ -3525,12 +4490,23 @@ class Shell(
             val ok = try { transport.restartSession(why) } catch (e: Exception) { Log.e("shell", "session restart", e); false }
             if (!ok) post(Msg.Run {
                 restartRequested = false
-                journal.note("silent", "session rebuild refused by the transport ($why) — still asleep; asking again on the next check")
+                // The kind follows the sleep's reason (the P4 review's finding 11): a rest writes no
+                // `silent` note. Awake — a lapse on a Damage build, an adopted session with no lease —
+                // no paced check runs, so the words do not promise a second ask; and an awake shell
+                // writes no `silent` note either (the P4 verify pass, the same class: `REMINDER.md`
+                // reads the firmware's Silent Mode from that kind) — it is a `keeper` note, the kind
+                // of the adopted-session note beside it and one `tools/journal_report.py` lists.
+                val s = sleep                                   // one read for the kind and both texts
+                val again = if (s != null) "still asleep; asking again on the next check"
+                    else "not asleep, so no check asks again: the session goes on as it is"
+                val kind = when (s) { SleepReason.REST -> "rest"; SleepReason.SILENT -> "silent"; null -> "keeper" }
+                journal.note(kind, "session rebuild refused by the transport ($why) — $again")
                 // asked again every pacing tick, and the pacing IS the episodes' quiet period: said
                 // once per sleep (the journal takes each refusal), or a dismissed box came back every minute
                 if (!rebuildRefusalShown) {
                     rebuildRefusalShown = true
-                    raiseFault("rebuild", "the transport refused a session rebuild ($why) — asking again on every check", source = "transport")
+                    raiseFault("rebuild", "the transport refused a session rebuild ($why)" +
+                        (if (s != null) " — asking again on every check" else ""), source = "transport")
                 }
             })
         }
@@ -4092,11 +5068,19 @@ class Shell(
         if (mode == Mode.EXCLUSIVE) { paintExclusiveFull(); return }
         if (mode == Mode.SILENT) {
             val c = wallClock()
+            retire(Rect(0, 0, comp.width, comp.height))
             SilentMode.paintAll(comp.composed, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c))
             comp.planes = emptyList()
             comp.damageAll()
+            // 0.64 R1: the clear took a shown notice with it, and the pump repaints a box only while
+            // it animates or after a lift — a shown one is neither, so it was gone from the glass
+            // up to its 5 s early (a synced silent-clock size, a restyle or the Cached text row
+            // landing inside them). As every sibling of this arm does after its clear
+            // ([enterSilent], [handleSilentTick], the quiet furl's end, [paintExclusiveFull]).
+            if (notifications.active) { notifications.invalidateUnder(); paintNotification() }
             return
         }
+        retire(Rect(0, 0, comp.width, comp.height))      // the bars' cells and the content: all of it is painted again
         comp.composed.fillRect(Rect(0, 0, comp.width, comp.height), Level.BG)
         chrome.invalidate()
         chromeDirty = true
@@ -4134,6 +5118,10 @@ class Shell(
      *  the live surface and for switcher preview (render, not activation). */
     private fun paintContentOf(w: DamageWindow?) {
         kit.resetRail()
+        // one drop for the three content painters (a list, a document, a canvas each fill the
+        // content first): a tap that opens a window, a menu or the keyboard paints the content
+        // twice in its frame, and so does every commit handler that composes by itself
+        retire(layout.content)
         if (w == null) {
             kit.paintList(comp.composed, layout, main.view(), resting = main.resting)
         } else when (val v = w.view()) {
@@ -4177,22 +5165,53 @@ class Shell(
         val prev = canvasPrev?.takeIf { it.w == r.w && it.h == r.h }
             ?: Gray8(r.w, r.h).also { canvasPrev = it }
         prev.blit(comp.composed, r, 0, 0)
+        retire(r)              // `applyCanvasFill` above may have painted this canvas a moment ago
         v.paint(comp.composed, r)
         comp.damage(r)
         // the floor is a block worth one copy op; below it the diff is cheaper
         // than the copy plus the repairs behind it
         val exposed = declareTranslation(prev, Rect(0, 0, r.w, r.h), r) ?: return
-        if (splitFills() && exposed.w * exposed.h >= Slide.SPLIT_FILL_PX) {
+        // 0.64 R1: nothing splits while a surface floats on the content that the owed fill's run
+        // cannot repaint. A canvas that moves by itself under an open menu, the keyboard or the
+        // wheel (a lyric line, a terminal's output; the box in `prev` breaks the moved block, so
+        // the exposed strip holds rows of the box) sent that strip blank, the surface captured the
+        // blank rows as what it covers, and the fill then painted the whole canvas over the surface
+        // with nothing to paint it again: a menu that takes input and is not on the glass. Under a
+        // FURLING notice the fill left the box's snapshot standing (a furl is not lifted) and the
+        // furl put the blank rows back over the fresh canvas. The strip lands whole instead, in the
+        // flush that carries the surface.
+        if (!surfaceFloats() && splitFills() && exposed.w * exposed.h >= Slide.SPLIT_FILL_PX) {
             // §40: copy first, fill second. The strip goes out BLANK with the
             // translation (a uniform run, a few bytes — the glass moves ~70 ms
             // after the notch) and its content one message on. A tmux history
             // notch measured 352–645 ms to its first visible change as one
             // 2.4–4.3 KB flush.
+            retire(exposed)    // the canvas has just drawn the strip's strings; they are not on the blank that ships
             comp.composed.fillRect(exposed.x, exposed.y, exposed.w, exposed.h, Level.BG)
             canvasFillOwed = true
-            post(Msg.Run { liftNotificationBox(); applyCanvasFill() })
+            post(Msg.Run {
+                if (!canvasFillOwed) return@Run                      // a later paint of the canvas landed it
+                if (surfaceFloats()) {
+                    // a surface opened, or a furl began, off a message queued ahead of this one: the
+                    // content, then whatever floats on it, each with a fresh capture. Not from
+                    // inside `applyCanvasFill` — `paintCanvasOf` calls that from a compose. The
+                    // flag is cleared first, so the compose finds the block where it already is
+                    // (no second move against the half-drawn frame) and starts no second split.
+                    canvasFillOwed = false
+                    composeContent()
+                } else {
+                    liftNotificationBox()
+                    applyCanvasFill()
+                }
+            })
         }
     }
+
+    /** A surface floats on the content that a bare repaint of the content would paint over and
+     *  nothing would paint again: a menu, the keyboard, the wheel, or a notice mid-furl (a shown or
+     *  unfurling notice is lifted and repainted by the pump; a furl owns its snapshot strip by
+     *  strip). Read on the loop, once per decision. */
+    private fun surfaceFloats(): Boolean = menu.open || keyboard.open || switcher.open || notifications.furlingOut
 
     /** A canvas strip sent blank by [paintCanvasOf] whose content is still
      *  owed (§40). */
@@ -4217,6 +5236,7 @@ class Shell(
         canvasFillOwed = false
         if (mode != Mode.WINDOW) return                          // the surface moved on and painted itself
         val cv = focusedView() as? WindowView.CanvasView ?: return
+        retire(layout.content)     // the paint that left the strip owed may be in this frame still
         cv.paint(comp.composed, layout.content)
         comp.damage(layout.content)
     }
@@ -4366,6 +5386,7 @@ class Shell(
         liftNotificationBox()
         val v = focusedView()
         if (v is WindowView.ListView) {
+            retire(layout.lens)    // with the window full, the lens repaints of several notches share a frame
             comp.composed.fillRect(layout.lens, Level.BG)
             comp.composed.fillRect(layout.lens.x, layout.lens.y, layout.lens.w - Layout.RAIL_W, 2, Level.DIM)
             comp.composed.fillRect(layout.lens.x, layout.lens.bottom - 2, layout.lens.w - Layout.RAIL_W, 2, Level.DIM)
@@ -4537,7 +5558,7 @@ class Shell(
                     // snapshot invalidated (content repainted beneath): repaint
                     // the whole surface under it once, loudly correct
                     composeContent()
-                }
+                } else retire(strip)       // the box's lines of this frame that stood in the strip
                 comp.damage(strip)
             }
             if (notifications.consumeFurlFinished()) {
@@ -4549,12 +5570,13 @@ class Shell(
                     if (mode == Mode.EXCLUSIVE) paintExclusiveFull()
                     else {
                         val c = wallClock()
+                        retire(Rect(0, 0, comp.width, comp.height))
                         SilentMode.paintAll(comp.composed, layout, c.hh, c.mm, settings.silentClock, silentSmallPainter(c))
                         comp.damageAll()
                     }
                 } else {
                     val restored = notifications.restoreUnderFinished(comp.composed)
-                    if (restored != null) comp.damage(restored) else composeContent()
+                    if (restored != null) { retire(restored); comp.damage(restored) } else composeContent()
                 }
                 updatePlanes()
             }
@@ -4670,9 +5692,10 @@ class Shell(
             // all (or its paint went out with an earlier flush) — the flag is not left standing
             // for whatever flushes next (an idle tick, a push), which no ring event started
             inputAwaitsSlot = false
-            // 6. nothing pending: the lowest-priority work — the atlas's
-            //    next chunk (§40), then a staged strip (§66), then the preview settle
-            if (!animated && !pumpAtlas(st) && !pumpStage(st)) settlePreview()
+            // 6. nothing pending: the lowest-priority work — the cache count's reading
+            //    (0.64), the atlas's next chunk (§40), then a staged strip (§66), then
+            //    the preview settle
+            if (!animated && !pumpLedger(st) && !pumpAtlas(st) && !pumpStage(st)) settlePreview()
         }
 
         // animations continue on the next completion or message; make sure one
@@ -4747,7 +5770,9 @@ class Shell(
      *  checksum. The only source is the closed Even SDK. Not pursued
      *  (cosmetic) — `CLAIMS.md`. The relay listener stays wired in the
      *  transport in case a future CFW ever implements the push. */
-    private var glassesBattery: Chrome.Battery? = null
+    @Volatile private var glassesBattery: Chrome.Battery? = null
+    /** The glasses' level as the chrome will next paint it (null until the wire reports) — status lines and tests. */
+    val glassesBatteryPct: Int? get() = glassesBattery?.pct
 
     /** The active window's id, or null at Main/silent — test introspection. */
     fun currentWindowId(): String? = if (mode == Mode.WINDOW || mode == Mode.EXCLUSIVE) current?.id else null
@@ -4827,14 +5852,42 @@ class Shell(
     /**
      * A sync record from the peer (HANDOFF.md §19.2). Returns false when the
      * shell is not running — the caller applies it to the store directly. On
-     * the loop: FRESHEN the key first (last-write-wins must compare against
-     * the state the user sees now, not the last debounced save), then apply
-     * under LWW, then live-apply so the change is visible without a restart.
+     * the loop: a record the store already HOLDS (the same value, a stamp not
+     * newer by more than the tolerance — HANDOFF §75.1) ends here, before any
+     * work is done for it. Otherwise FRESHEN the key first (last-write-wins
+     * must compare against the state the user sees now, not the last debounced
+     * save), then apply, then live-apply so the change is visible without a
+     * restart.
+     *
+     * The held-record test is the Run's FIRST statement and runs on the loop,
+     * not where the record is read off the wire (0.64 P3, review finding 1):
+     * records for one key are applied in the order they were posted, and a
+     * test made on the reader's thread compares against a store the queued
+     * ones have not reached yet (K = v1; the peer sends v2, then v1 again
+     * inside the tolerance: the second would be dropped against the old v1 and
+     * this side would end on v2).
+     *
+     * What skipping the freshen costs: the freshen also puts live state that
+     * no save has captured yet, and a save tick follows INPUT only, so state
+     * that changed with no ring input (a track change in Music) is not put by
+     * this record any more. It reaches the store and the peer at the next
+     * input-driven save, the next record for the key that is not held, or an
+     * orderly stop. Before this, a handshake's 77 records each ran the
+     * freshen and a whole-store save on the loop, every other handshake.
      */
     fun postSync(key: String, value: JsonObject, stamp: Long): Boolean {
         if (!running) return false
-        post(Msg.Run {
+        // R2 (RE-4): `running` is read before the post, so a record can land behind the stop's Shutdown; the
+        // loop's drain then runs `dropped` — the store-direct apply the caller makes when this returns false.
+        // Inside its own `try`: the loop's `!running` arm calls `dropped` too.
+        post(Msg.Run(dropped = {
             try {
+                if (persistence.tryApplyRemote(key, value, stamp))
+                    Log.i("sync", "'$key' from the peer met a stopped shell — stored; the next start shows it")
+            } catch (e: Exception) { Log.e("sync", "storing synced '$key' failed", e) }
+        }) {
+            try {
+                if (persistence.holdsSame(key, value, stamp)) return@Run
                 freshenSyncKey(key)
                 if (persistence.tryApplyRemote(key, value, stamp)) liveApplySync(key, value)
             } catch (e: Exception) {
@@ -5106,6 +6159,12 @@ class Shell(
          *  held back after a reset, a build without the required capabilities, a stalled window.
          *  Every other transport fault is a notice on the glasses only. */
         val URGENT_TRANSPORT_FAULTS = setOf("holdback", "capability", "stall")
+        /** Transport faults that are the EXPECTED answer to a frame that lands after the shell went to
+         *  sleep — a journal note, never a notice (§36; 0.64, the P4 review's finding 3): the firmware's
+         *  own refusal of an image (`imgres`), and the model's refusal of a v2 op, a cached draw or a
+         *  cache write decoded with no lease — `decode` from the simulator's transport
+         *  (`SimTransport`), `mirror/decode` from a hardware transport's mirror (`CfwTransportBase`). */
+        val FAULTS_EXPECTED_ASLEEP = setOf("imgres", "decode", "mirror/decode")
         /** The list rhythm's inputs (review §29): the row face every list
          *  draws its main text in (Clear Sans 18 through the window's own
          *  transform — a Fira or Mono list inks a little less at the same

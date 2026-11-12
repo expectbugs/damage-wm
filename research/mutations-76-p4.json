@@ -1,0 +1,1718 @@
+[
+ {
+  "id": "P4a-01-the-wear-service-has-no-branch",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            WearMsg.SID -> onWearFrame(arm, frame)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.theTransportTurnsAWearFrameIntoStateAnEventAndANote"
+  ],
+  "expect": [
+   "theTransportTurnsAWearFrameIntoStateAnEventAndANote"
+  ],
+  "note": "the tree before, as near as the new router allows: the frame is no longer a wear report (it is named once as an unhandled service)"
+ },
+ {
+  "id": "P4a-02-the-case-service-has-no-branch",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            CaseMsg.SID -> onCaseFrame(arm, frame)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.aCasePushIsACaseNote"
+  ],
+  "expect": [
+   "aCasePushIsACaseNote"
+  ],
+  "note": "the tree before: no `case` note"
+ },
+ {
+  "id": "P4a-03-a-service-with-no-handler-is-dropped-with-no-line",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            else -> noteUnhandled(frame.sid, arm, frame)",
+    "            else -> {}"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.aServiceWithNoHandlerIsNamedOncePerSession"
+  ],
+  "expect": [
+   "aServiceWithNoHandlerIsNamedOncePerSession"
+  ],
+  "note": "the tree before: the outer when had no else"
+ },
+ {
+  "id": "P4a-04-an-evenhub-flag-with-no-branch-is-dropped-with-no-line",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                else -> noteUnhandled(UNHANDLED_FLAG_KEY or frame.flag, arm, frame)",
+    "                else -> {}"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.aServiceWithNoHandlerIsNamedOncePerSession"
+  ],
+  "expect": [
+   "aServiceWithNoHandlerIsNamedOncePerSession"
+  ],
+  "note": "the tree before: the flag when had no else"
+ },
+ {
+  "id": "P4a-05-an-unhandled-service-is-named-on-every-frame",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (!unhandledSaid.add(key)) return\n",
+    "        unhandledSaid.add(key)\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.aServiceWithNoHandlerIsNamedOncePerSession"
+  ],
+  "expect": [
+   "aServiceWithNoHandlerIsNamedOncePerSession"
+  ],
+  "note": "once per session is the bound on the journal"
+ },
+ {
+  "id": "P4a-06-the-said-set-is-not-cleared-at-a-session-start",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        unhandledSaid.clear()\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.aServiceWithNoHandlerIsNamedOncePerSession"
+  ],
+  "expect": [
+   "aServiceWithNoHandlerIsNamedOncePerSession"
+  ],
+  "note": "a new session makes each service news once more"
+ },
+ {
+  "id": "P4a-07-a-non-wear-frame-on-0x10-is-a-note-per-frame",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            if (!unhandledSaid.add(UNHANDLED_WEAR_KEY or ((cmd ?: 0xFF) and 0xFF))) return\n",
+    "            unhandledSaid.add(UNHANDLED_WEAR_KEY or ((cmd ?: 0xFF) and 0xFF))\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.aFrameOnTheWearServiceThatIsNotAWearEventIsNamedOncePerCommand"
+  ],
+  "expect": [
+   "aFrameOnTheWearServiceThatIsNotAWearEventIsNamedOncePerCommand"
+  ],
+  "note": "the review's finding 14"
+ },
+ {
+  "id": "P4a-08-a-case-frame-that-is-not-protobuf-is-a-note-per-frame",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            if (!unhandledSaid.add(UNHANDLED_CASE_KEY)) return\n",
+    "            unhandledSaid.add(UNHANDLED_CASE_KEY)\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.aCasePushIsACaseNote"
+  ],
+  "expect": [
+   "aCasePushIsACaseNote"
+  ],
+  "note": "finding 14's class, the sibling site"
+ },
+ {
+  "id": "P4a-09-the-wear-state-is-kept-across-a-session-start",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "copy(glassesSilent = false, worn = null, wearSwitch = null)",
+    "copy(glassesSilent = false, wearSwitch = null)"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.aSessionStartForgetsTheWearStateAndAsksOnce"
+  ],
+  "expect": [
+   "aSessionStartForgetsTheWearStateAndAsksOnce"
+  ],
+  "note": "the second session's answer is then \"again\", not a first report"
+ },
+ {
+  "id": "P4a-10-the-switch-reading-is-kept-across-a-session-start",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "copy(glassesSilent = false, worn = null, wearSwitch = null)",
+    "copy(glassesSilent = false, worn = null)"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.aSessionStartForgetsTheWearStateAndAsksOnce"
+  ],
+  "expect": [
+   "aSessionStartForgetsTheWearStateAndAsksOnce"
+  ],
+  "note": "the review's finding 1e: with the block withheld from the capability READ, null after a rebuild means the clear ran"
+ },
+ {
+  "id": "P4a-11-the-start-says-a-query-it-does-not-send",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            else if (queryWear()) emitNote(\"wear\", \"query sent after the lease (op 7, both arms) — no reply is a legal answer\")\n            else emitNote(\"wear\", \"query not sent after the lease — the session ended first\")\n",
+    "            else emitNote(\"wear\", \"query sent after the lease (op 7, both arms) — no reply is a legal answer\")\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.aSessionStartForgetsTheWearStateAndAsksOnce"
+  ],
+  "expect": [
+   "aSessionStartForgetsTheWearStateAndAsksOnce"
+  ],
+  "note": "no query at the start's tail: the model counts none (R3: re-pointed after the Silent Mode gate became the first arm)"
+ },
+ {
+  "id": "P4a-12-a-report-is-never-a-first-report",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            first = was == null\n",
+    "            first = false\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.theTransportTurnsAWearFrameIntoStateAnEventAndANote"
+  ],
+  "expect": [
+   "theTransportTurnsAWearFrameIntoStateAnEventAndANote"
+  ],
+  "note": "`first` is \"nothing reported yet this session\""
+ },
+ {
+  "id": "P4a-13-a-wear-report-is-a-note-and-no-event",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (!_events.tryEmit(TransportEvent.Wear(worn, first))) Log.e(name, \"Wear event DROPPED (buffer full)\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.theTransportTurnsAWearFrameIntoStateAnEventAndANote"
+  ],
+  "expect": [
+   "theTransportTurnsAWearFrameIntoStateAnEventAndANote"
+  ],
+  "note": "the event is what the seam relays and build 2 will read"
+ },
+ {
+  "id": "P4a-14-a-wear-report-does-not-reach-the-link-state",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            if (changed) _state.value = _state.value.copy(worn = worn)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.theTransportTurnsAWearFrameIntoStateAnEventAndANote"
+  ],
+  "expect": [
+   "theTransportTurnsAWearFrameIntoStateAnEventAndANote"
+  ],
+  "note": "LinkState.worn"
+ },
+ {
+  "id": "P4a-15-the-query-claims-to-have-been-sent-with-no-session",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (!_state.value.started) return false\n        val nonce = (nowMs() and 0xFFFF).toInt()",
+    "        if (!_state.value.started) return true\n        val nonce = (nowMs() and 0xFFFF).toInt()"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.theWearQueryProbeSaysWhetherItWasSent"
+  ],
+  "expect": [
+   "theWearQueryProbeSaysWhetherItWasSent"
+  ],
+  "note": "the review's finding 7: a note must not say \"sent\" for a query that did not leave"
+ },
+ {
+  "id": "P4a-16-the-device-info-note-is-said-on-every-read",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            if (deviceInfoSaid == key) return      // a doubled note on a race between two frames is harmless\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.field10AndItsAbsenceAreSaidOncePerSession"
+  ],
+  "expect": [
+   "field10AndItsAbsenceAreSaidOncePerSession"
+  ],
+  "note": "once per session and on a change, not every minute"
+ },
+ {
+  "id": "P4a-17-what-was-said-about-the-block-is-kept-across-a-session-start",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        deviceInfoSaid = null\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.field10AndItsAbsenceAreSaidOncePerSession"
+  ],
+  "expect": [
+   "field10AndItsAbsenceAreSaidOncePerSession"
+  ],
+  "note": "the review's finding 1e (P4-no-said-clear)"
+ },
+ {
+  "id": "P4a-18-field-14s-presence-is-not-part-of-what-was-said",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "DeviceInfoSaid(info.wearSwitch, info.silentRestored != null, info.fields)",
+    "DeviceInfoSaid(info.wearSwitch, true, info.fields.filter { it != SettingsMsg.SILENT_RESTORED_FIELD })"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.field14sPresenceIsNamedAndSaidAgainWhenItChanges"
+  ],
+  "expect": [
+   "field14sPresenceIsNamedAndSaidAgainWhenItChanges"
+  ],
+  "note": "the decisions' addition: said again when the presence changes within a session (R2a: the key's field list carries field 14 too, so the presence is taken out of both)"
+ },
+ {
+  "id": "P4a-19-field-14s-value-is-part-of-what-was-said",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "private data class DeviceInfoSaid(val wearSwitch: Long?, val silentPresent: Boolean, val fields: List<Int>)",
+    "private data class DeviceInfoSaid(val wearSwitch: Long?, val silentPresent: Long?, val fields: List<Int>)"
+   ],
+   [
+    "DeviceInfoSaid(info.wearSwitch, info.silentRestored != null, info.fields)",
+    "DeviceInfoSaid(info.wearSwitch, info.silentRestored, info.fields)"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.field14sPresenceIsNamedAndSaidAgainWhenItChanges"
+  ],
+  "expect": [
+   "field14sPresenceIsNamedAndSaidAgainWhenItChanges"
+  ],
+  "note": "as ruled the key is the presence: a change of the value is the Silent Mode state, which has its own event"
+ },
+ {
+  "id": "P4a-20-the-switch-reading-does-not-reach-the-link-state",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        updateState { it.copy(wearSwitch = sw) }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.field10AndItsAbsenceAreSaidOncePerSession"
+  ],
+  "expect": [
+   "field10AndItsAbsenceAreSaidOncePerSession"
+  ],
+  "note": "LinkState.wearSwitch"
+ },
+ {
+  "id": "P4a-21-the-battery-note-is-written-on-a-level-change-only",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "(glassesPct != lastLoggedGlassesPct || charging != lastLoggedCharging)",
+    "(glassesPct != lastLoggedGlassesPct)"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.theChargingFlipIsJournaledAtAnUnchangedLevel"
+  ],
+  "expect": [
+   "theChargingFlipIsJournaledAtAnUnchangedLevel"
+  ],
+  "note": "the tree before"
+ },
+ {
+  "id": "P4a-22-the-poll-reads-telemetry-while-the-page-traffic-sleeps",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (pollTelemetryOn() && pageTrafficWanted(st) && damageCaps?.has(DamageMsg.FEATURE_TELEMETRY) == true) {",
+    "if (pollTelemetryOn() && damageCaps?.has(DamageMsg.FEATURE_TELEMETRY) == true) {"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.thePollReadsTelemetryWhileThePageTrafficIsWanted"
+  ],
+  "expect": [
+   "thePollReadsTelemetryWhileThePageTrafficIsWanted"
+  ],
+  "note": "P4-poll-while-asleep"
+ },
+ {
+  "id": "P4a-23-the-poll-reads-no-telemetry",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (pollTelemetryOn() && pageTrafficWanted(st) && damageCaps?.has(DamageMsg.FEATURE_TELEMETRY) == true) {",
+    "if (pollTelemetryOn() && pageTrafficWanted(st) && damageCaps?.has(DamageMsg.FEATURE_TELEMETRY) == true && !st.started) {"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.thePollReadsTelemetryWhileThePageTrafficIsWanted"
+  ],
+  "expect": [
+   "thePollReadsTelemetryWhileThePageTrafficIsWanted"
+  ],
+  "note": "the tree before: the count never rises after the start"
+ },
+ {
+  "id": "P4a-24-the-poll-reads-telemetry-on-an-upstream-build",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (pollTelemetryOn() && pageTrafficWanted(st) && damageCaps?.has(DamageMsg.FEATURE_TELEMETRY) == true) {",
+    "if (pollTelemetryOn() && pageTrafficWanted(st)) {"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.thePollReadsTelemetryWhileThePageTrafficIsWanted"
+  ],
+  "expect": [
+   "thePollReadsTelemetryWhileThePageTrafficIsWanted"
+  ],
+  "note": "the review's finding 1d: counted before the build test, so the write is seen"
+ },
+ {
+  "id": "P4a-25-the-polls-telemetry-read-is-on-by-default-on-an-instant-transport",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "private fun pollTelemetryOn(): Boolean = pollTelemetry ?: !instant",
+    "private fun pollTelemetryOn(): Boolean = pollTelemetry ?: true"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.thePollReadsTelemetryWhileThePageTrafficIsWanted"
+  ],
+  "expect": [
+   "thePollReadsTelemetryWhileThePageTrafficIsWanted"
+  ],
+  "note": "Q10's rule: its records would answer other tests' waits for a telemetry reply"
+ },
+ {
+  "id": "P4a-26-the-sim-probe-queues-no-read",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        return controlQueue.trySend(CtlWork.Settings(sessionEpoch.get(), SettingsMsg.deviceInfoQuery(0))).isSuccess\n",
+    "        return true\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.theSimProbeMovesTheModelAndReadsAtOnce"
+  ],
+  "expect": [
+   "theSimProbeMovesTheModelAndReadsAtOnce"
+  ],
+  "note": "the review's finding 17: on the modeled-timing simulator the next READ is a minute away (this one takes its ten seconds to fail; the note still says a READ was queued, so only the reading can show it)"
+ },
+ {
+  "id": "P4a-27-the-models-notify-step-ignores-the-switch",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "        if (wearDetectionSwitch && state in 1..2) sendWearEvent(state == 2)",
+    "        if (state in 1..2) sendWearEvent(state == 2)"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.aScriptedWearChangeNotifiesOnlyWithTheSwitchOn"
+  ],
+  "expect": [
+   "aScriptedWearChangeNotifiesOnlyWithTheSwitchOn"
+  ],
+  "note": "stock sends the event only while the switch is on"
+ },
+ {
+  "id": "P4a-28-the-models-setter-does-not-run-the-notify-step",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "        diag.event(\"wear\", \"wear-detection switch ${if (on) \"on\" else \"off\"} (cached $wearCached)\")\n        wearNotifyStep(wearCached)\n",
+    "        diag.event(\"wear\", \"wear-detection switch ${if (on) \"on\" else \"off\"} (cached $wearCached)\")\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.turningTheSwitchOnReportsTheCachedState"
+  ],
+  "expect": [
+   "turningTheSwitchOnReportsTheCachedState"
+  ],
+  "note": "the setter at 0x0049EB6E re-runs the handler with the cached state"
+ },
+ {
+  "id": "P4a-29-the-models-op-7-is-gated-on-the-switch",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "                        if (wearCached in 1..2) sendWearEvent(wearCached == 2)\n                    } else if (duplicateControlReplies) {",
+    "                        if (wearDetectionSwitch && wearCached in 1..2) sendWearEvent(wearCached == 2)\n                    } else if (duplicateControlReplies) {"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.op7AnswersFromTheCachedStateWhateverTheSwitchSays"
+  ],
+  "expect": [
+   "op7AnswersFromTheCachedStateWhateverTheSwitchSays"
+  ],
+  "note": "the fork's op 7 has no test of the switch"
+ },
+ {
+  "id": "P4a-61-the-model-does-not-answer-the-copy-left-forwards",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "                    } else if (duplicateControlReplies) {\n                        // the copy LEFT forwards",
+    "                    } else if (false) {\n                        // the copy LEFT forwards"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.op7AnswersFromTheCachedStateWhateverTheSwitchSays"
+  ],
+  "expect": [
+   "op7AnswersFromTheCachedStateWhateverTheSwitchSays"
+  ],
+  "note": "the inferred second answer, modeled as field 112's is; off by default"
+ },
+ {
+  "id": "P4a-30-the-models-read-always-carries-field-10",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "if (wearDetectionSwitch) Pb.v(SettingsMsg.WEAR_SWITCH_RESTORED_FIELD, 1) else ByteArray(0),",
+    "Pb.v(SettingsMsg.WEAR_SWITCH_RESTORED_FIELD, if (wearDetectionSwitch) 1 else 0),"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.theReadAnswerCarriesField10OnlyWhenTheSwitchIsOn"
+  ],
+  "expect": [
+   "theReadAnswerCarriesField10OnlyWhenTheSwitchIsOn"
+  ],
+  "note": "the default READ stays byte-identical"
+ },
+ {
+  "id": "P4a-31-a-reboot-keeps-the-models-cached-wear-word",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "uptimeOffsetMs = now; wearCached = 0 }",
+    "uptimeOffsetMs = now }"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.turningTheSwitchOnReportsTheCachedState"
+  ],
+  "expect": [
+   "turningTheSwitchOnReportsTheCachedState"
+  ],
+  "note": "RIGHT's RAM"
+ },
+ {
+  "id": "P4a-32-the-models-case-push-rides-the-response-flag",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), CaseMsg.SID, 0x01,",
+    "diag.notify(Arm.RIGHT, AaFrame.frame(nextSeq(), CaseMsg.SID, 0x00,"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.aCasePushIsACaseNote"
+  ],
+  "expect": [
+   "aCasePushIsACaseNote"
+  ],
+  "note": "the note carries the flag as it arrived"
+ },
+ {
+  "id": "P4a-33-the-wear-state-is-left-out-of-the-wire-state",
+  "file": "transport/RemoteTransport.kt",
+  "edits": [
+   [
+    "    floorSamples = floorSamples, transferSamples = transferSamples,\n    worn = worn, wearSwitch = wearSwitch)\n",
+    "    floorSamples = floorSamples, transferSamples = transferSamples)\n"
+   ]
+  ],
+  "tests": [
+   "*SeamSessionTest.theWearReportCrossesTheSeamAndIsForgottenAtTheClientsSessionEnds"
+  ],
+  "expect": [
+   "SeamSessionTest.theWearReportCrossesTheSeamAndIsForgottenAtTheClientsSessionEnds"
+  ],
+  "note": "P4-seam-state-dropped: a defaulted field left out of a mapper compiles"
+ },
+ {
+  "id": "P4a-34-the-wear-state-is-not-read-from-the-wire-state",
+  "file": "transport/RemoteTransport.kt",
+  "edits": [
+   [
+    "    worn = worn, wearSwitch = wearSwitch,\n    floorSamples = floorSamples",
+    "    floorSamples = floorSamples"
+   ]
+  ],
+  "tests": [
+   "*SeamSessionTest.theWearReportCrossesTheSeamAndIsForgottenAtTheClientsSessionEnds"
+  ],
+  "expect": [
+   "SeamSessionTest.theWearReportCrossesTheSeamAndIsForgottenAtTheClientsSessionEnds"
+  ],
+  "note": "the other mapper"
+ },
+ {
+  "id": "P4a-35-the-client-has-no-wear-branch",
+  "file": "transport/RemoteTransport.kt",
+  "edits": [
+   [
+    "            \"wear\" -> emit(TransportEvent.Wear(c.held, c.ok), \"Wear\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*SeamSessionTest.theWearReportCrossesTheSeamAndIsForgottenAtTheClientsSessionEnds"
+  ],
+  "expect": [
+   "SeamSessionTest.theWearReportCrossesTheSeamAndIsForgottenAtTheClientsSessionEnds"
+  ],
+  "note": "an unknown control is only logged"
+ },
+ {
+  "id": "P4a-36-first-does-not-cross-the-seam",
+  "file": "transport/RemoteTransport.kt",
+  "edits": [
+   [
+    "Ctl(t = \"wear\", held = ev.worn, ok = ev.first)",
+    "Ctl(t = \"wear\", held = ev.worn)"
+   ]
+  ],
+  "tests": [
+   "*SeamSessionTest.theWearReportCrossesTheSeamAndIsForgottenAtTheClientsSessionEnds"
+  ],
+  "expect": [
+   "SeamSessionTest.theWearReportCrossesTheSeamAndIsForgottenAtTheClientsSessionEnds"
+  ],
+  "note": "a first report must arrive as one"
+ },
+ {
+  "id": "P4a-37-the-seams-end-keeps-what-the-far-end-said",
+  "file": "transport/RemoteTransport.kt",
+  "edits": [
+   [
+    "updateState { it.copy(connected = false, started = false, leaseHeld = false, glassesSilent = false, worn = null, wearSwitch = null) }",
+    "updateState { it.copy(connected = false, started = false, leaseHeld = false) }"
+   ]
+  ],
+  "tests": [
+   "*SeamSessionTest.theWearReportCrossesTheSeamAndIsForgottenAtTheClientsSessionEnds"
+  ],
+  "expect": [
+   "SeamSessionTest.theWearReportCrossesTheSeamAndIsForgottenAtTheClientsSessionEnds"
+  ],
+  "note": "the review's finding 8, the client's down()"
+ },
+ {
+  "id": "P4a-38-the-clients-stop-keeps-what-the-far-end-said",
+  "file": "transport/RemoteTransport.kt",
+  "edits": [
+   [
+    "updateState { it.copy(connected = false, started = false, glassesSilent = false, worn = null, wearSwitch = null) }   // as down() does",
+    "updateState { it.copy(connected = false, started = false) }"
+   ]
+  ],
+  "tests": [
+   "*SeamSessionTest.theWearReportCrossesTheSeamAndIsForgottenAtTheClientsSessionEnds"
+  ],
+  "expect": [
+   "SeamSessionTest.theWearReportCrossesTheSeamAndIsForgottenAtTheClientsSessionEnds"
+  ],
+  "note": "finding 8, the client's stop()"
+ },
+ {
+  "id": "P4a-39-the-path-transports-stop-keeps-what-the-path-said",
+  "file": "transport/PathTransport.kt",
+  "edits": [
+   [
+    "transportName = \"auto\",\n            glassesSilent = false, worn = null, wearSwitch = null) }",
+    "transportName = \"auto\") }"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.thePathTransportForwardsTheQueryAndForgetsTheSessionAtItsStop"
+  ],
+  "expect": [
+   "thePathTransportForwardsTheQueryAndForgetsTheSessionAtItsStop"
+  ],
+  "note": "finding 8, PathTransport.stop()"
+ },
+ {
+  "id": "P4a-40-the-path-transport-does-not-forward-the-query",
+  "file": "transport/PathTransport.kt",
+  "edits": [
+   [
+    "override fun queryWear(): Boolean = active?.transport?.queryWear() ?: false",
+    "override fun queryWear(): Boolean = false"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.thePathTransportForwardsTheQueryAndForgetsTheSessionAtItsStop"
+  ],
+  "expect": [
+   "thePathTransportForwardsTheQueryAndForgetsTheSessionAtItsStop"
+  ],
+  "note": "the PC standby's transport is a path transport"
+ },
+ {
+  "id": "P4a-41-the-notice-is-gated-by-notify-damage",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "\"glasses battery $pct% — time to charge\", wallClock().hhmm, fault = true)))",
+    "\"glasses battery $pct% — time to charge\", wallClock().hhmm, fault = false)))"
+   ]
+  ],
+  "tests": [
+   "*LowBatteryTest.belowTwentySaysItOnThePhoneAndOnTheGlasses"
+  ],
+  "expect": [
+   "belowTwentySaysItOnThePhoneAndOnTheGlasses"
+  ],
+  "note": "P4-notice-gated"
+ },
+ {
+  "id": "P4a-42-the-notice-opens-a-fault-episode",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                    if (canPaint) post(Msg.Notice(Notifications.Notice(\"DAMAGE · glasses\", \"battery\",\n                        \"glasses battery $pct% — time to charge\", wallClock().hhmm, fault = true)))\n",
+    "                    if (canPaint) raiseFault(\"battery\", \"glasses battery $pct% — time to charge\", source = \"glasses\")\n"
+   ]
+  ],
+  "tests": [
+   "*LowBatteryTest.belowTwentySaysItOnThePhoneAndOnTheGlasses"
+  ],
+  "expect": [
+   "belowTwentySaysItOnThePhoneAndOnTheGlasses"
+  ],
+  "note": "the same box through raiseFault: the status cell would say `fault` for a low battery"
+ },
+ {
+  "id": "P4a-43-the-notice-is-painted-while-asleep",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                val canPaint = !asleep && linkUpAndSteady()\n",
+    "                val canPaint = linkUpAndSteady()\n"
+   ]
+  ],
+  "tests": [
+   "*LowBatteryTest.asleepThePhoneAloneIsTold"
+  ],
+  "expect": [
+   "asleepThePhoneAloneIsTold"
+  ],
+  "note": "§36: never an image into a pair that refuses them"
+ },
+ {
+  "id": "P4a-44-the-latch-is-re-armed-at-every-session-start",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        batterySeenThisSession = false        // 0.64: this session's loop has handled no battery reading yet\n",
+    "        batterySeenThisSession = false; batteryLatch.reading(100, false, true)\n"
+   ]
+  ],
+  "tests": [
+   "*LowBatteryTest.aSessionBoundaryDoesNotOpenTheLatch"
+  ],
+  "expect": [
+   "aSessionBoundaryDoesNotOpenTheLatch"
+  ],
+  "note": "P4-latch-per-session"
+ },
+ {
+  "id": "P4a-45-the-held-reading-is-replayed-through-the-latch",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "holdLatestLocked(\"shell.battery\") { if (!batterySeenThisSession) applyBatteryToChrome(ev) }",
+    "holdLatestLocked(\"shell.battery\") { handleTransport(ev) }"
+   ]
+  ],
+  "tests": [
+   "*LowBatteryTest.aReadingWithNoSessionRunningTellsThePhoneOnceAndIsNotReplayed"
+  ],
+  "expect": [
+   "aReadingWithNoSessionRunningTellsThePhoneOnceAndIsNotReplayed"
+  ],
+  "note": "P4-latch-replayed, the tree before (the review's finding 1b)"
+ },
+ {
+  "id": "P4a-46-a-reading-with-no-session-is-not-judged-at-its-arrival",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                val said = batteryReading(ev, canPaint = false)\n                if (said.verdict == BatteryLatch.Verdict.SAY)\n                    journal.note(\"lowbatt\", \"said at ${ev.glassesPct}% — \" + lowbattWhere(said, canPaint = false, asleep = false, down = true))\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*LowBatteryTest.aReadingWithNoSessionRunningTellsThePhoneOnceAndIsNotReplayed"
+  ],
+  "expect": [
+   "aReadingWithNoSessionRunningTellsThePhoneOnceAndIsNotReplayed"
+  ],
+  "note": "the phone's half needs no session"
+ },
+ {
+  "id": "P4a-47-the-held-level-overwrites-a-live-one",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "{ if (!batterySeenThisSession) applyBatteryToChrome(ev) }",
+    "{ applyBatteryToChrome(ev) }"
+   ]
+  ],
+  "tests": [
+   "*LowBatteryTest.theHeldLevelDoesNotOverwriteTheLiveOne"
+  ],
+  "expect": [
+   "theHeldLevelDoesNotOverwriteTheLiveOne"
+  ],
+  "note": "the review's finding 13"
+ },
+ {
+  "id": "P4a-48-the-live-reading-flag-is-never-reset",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        batterySeenThisSession = false        // 0.64: this session's loop has handled no battery reading yet\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*LowBatteryTest.theHeldLevelDoesNotOverwriteTheLiveOne"
+  ],
+  "expect": [
+   "theHeldLevelDoesNotOverwriteTheLiveOne"
+  ],
+  "note": "with nothing newer the held level must still reach the chrome"
+ },
+ {
+  "id": "P4a-49-the-latch-closes-when-nobody-could-be-told",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "canTell = hook != null || canPaint)",
+    "canTell = true)"
+   ]
+  ],
+  "tests": [
+   "*LowBatteryTest.aHostWithNoPhonePathDoesNotSpendTheNoticeOnNobody"
+  ],
+  "expect": [
+   "aHostWithNoPhonePathDoesNotSpendTheNoticeOnNobody"
+  ],
+  "note": "the review's finding 6"
+ },
+ {
+  "id": "P4a-50-the-host-is-not-told-when-the-latch-opens-again",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (v != BatteryLatch.Verdict.NONE && hook != null) {",
+    "        if (v == BatteryLatch.Verdict.SAY && hook != null) {"
+   ]
+  ],
+  "tests": [
+   "*LowBatteryTest.chargingOrTwentyFiveOpensItAgain"
+  ],
+  "expect": [
+   "chargingOrTwentyFiveOpensItAgain"
+  ],
+  "note": "Q6 d: the phone's notification is withdrawn"
+ },
+ {
+  "id": "P4a-51-a-throw-out-of-the-hosts-hook-is-not-caught",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            try { shown = hook(v == BatteryLatch.Verdict.SAY, pct); ran = true } catch (t: Throwable) {\n                Log.e(\"shell\", \"the host's glasses-battery hook failed at $pct%\", t)\n                journal.note(\"lowbatt\", \"the host's hook failed at $pct%: ${t.message ?: t::class.simpleName}\")\n            }\n",
+    "            shown = hook(v == BatteryLatch.Verdict.SAY, pct); ran = true\n"
+   ]
+  ],
+  "tests": [
+   "*LowBatteryTest.aHookThatThrowsEndsNeitherTheLoopNorTheDelivery"
+  ],
+  "expect": [
+   "aHookThatThrowsEndsNeitherTheLoopNorTheDelivery"
+  ],
+  "note": "on the collector's thread a throw would end the delivery of every transport event"
+ },
+ {
+  "id": "P4a-52-a-wear-report-with-no-session-waits-for-the-next",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            is TransportEvent.DiagFlags, is TransportEvent.Wear -> transEventsDroppedWhileDown.incrementAndGet()",
+    "            is TransportEvent.DiagFlags -> transEventsDroppedWhileDown.incrementAndGet()\n            is TransportEvent.Wear -> return true"
+   ]
+  ],
+  "tests": [
+   "*QueueWhileDownTest.transportEventsWhileDownAreDropped"
+  ],
+  "expect": [
+   "QueueWhileDownTest.transportEventsWhileDownAreDropped"
+  ],
+  "note": "a late \"not worn\" must not act on the next session"
+ },
+ {
+  "id": "P4a-53-twenty-is-low",
+  "file": "shell/BatteryLatch.kt",
+  "edits": [
+   [
+    "pct < LOW_PCT && !closed && canTell",
+    "pct <= LOW_PCT && !closed && canTell"
+   ]
+  ],
+  "tests": [
+   "*LowBatteryTest.theLatchSaysItOncePerDischarge"
+  ],
+  "expect": [
+   "theLatchSaysItOncePerDischarge"
+  ],
+  "note": "the ruling: below 20 %"
+ },
+ {
+  "id": "P4a-54-twenty-five-does-not-re-arm",
+  "file": "shell/BatteryLatch.kt",
+  "edits": [
+   [
+    "charging || pct >= REARM_PCT ->",
+    "charging || pct > REARM_PCT ->"
+   ]
+  ],
+  "tests": [
+   "*LowBatteryTest.theLatchSaysItOncePerDischarge"
+  ],
+  "expect": [
+   "theLatchSaysItOncePerDischarge"
+  ],
+  "note": "the ruling: 25 % or more"
+ },
+ {
+  "id": "P4a-55-a-charging-reading-does-not-re-arm",
+  "file": "shell/BatteryLatch.kt",
+  "edits": [
+   [
+    "charging || pct >= REARM_PCT ->",
+    "pct >= REARM_PCT ->"
+   ]
+  ],
+  "tests": [
+   "*LowBatteryTest.theLatchSaysItOncePerDischarge"
+  ],
+  "expect": [
+   "theLatchSaysItOncePerDischarge"
+  ],
+  "note": "the ruling: or any charging reading"
+ },
+ {
+  "id": "P4a-56-the-latch-ignores-whether-anybody-could-be-told",
+  "file": "shell/BatteryLatch.kt",
+  "edits": [
+   [
+    "pct < LOW_PCT && !closed && canTell",
+    "pct < LOW_PCT && !closed"
+   ]
+  ],
+  "tests": [
+   "*LowBatteryTest.theLatchSaysItOncePerDischarge"
+  ],
+  "expect": [
+   "theLatchSaysItOncePerDischarge"
+  ],
+  "note": "the review's finding 6, the pure half"
+ },
+ {
+  "id": "P4a-57-a-wear-param-that-is-no-state-reads-as-worn",
+  "file": "wire/WearMsg.kt",
+  "edits": [
+   [
+    "                1L -> true\n                else -> null\n",
+    "                else -> true\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.theWearEventsBytesAreTheForksAndParseByShape"
+  ],
+  "expect": [
+   "theWearEventsBytesAreTheForksAndParseByShape"
+  ],
+  "note": "a value the parser does not know is journaled whole, not read as either"
+ },
+ {
+  "id": "P4a-58-any-onboarding-event-reads-as-a-wear-event",
+  "file": "wire/WearMsg.kt",
+  "edits": [
+   [
+    "            if ((Pb.varintField(ev, 1) ?: -1L).toInt() != EVENT_WEAR_STATUS) null\n            else when",
+    "            when"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.theWearEventsBytesAreTheForksAndParseByShape"
+  ],
+  "expect": [
+   "theWearEventsBytesAreTheForksAndParseByShape"
+  ],
+  "note": "recognised by shape"
+ },
+ {
+  "id": "P4a-59-the-wear-query-is-another-op",
+  "file": "wire/SettingsMsg.kt",
+  "edits": [
+   [
+    "fun wearQuery(nonce: Int): ByteArray = control(OP_WEAR_QUERY, nonce)",
+    "fun wearQuery(nonce: Int): ByteArray = control(OP_FB_RELEASE, nonce)"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.field10AndField14AreReadFromTheDeviceInfoBlockAndTheQueryIsOp7"
+  ],
+  "expect": [
+   "field10AndField14AreReadFromTheDeviceInfoBlockAndTheQueryIsOp7"
+  ],
+  "note": "verify bytes: op 6 here would release the lease on both arms"
+ },
+ {
+  "id": "P4a-60-field-10-is-read-from-another-field",
+  "file": "wire/SettingsMsg.kt",
+  "edits": [
+   [
+    "    const val WEAR_SWITCH_RESTORED_FIELD = 10",
+    "    const val WEAR_SWITCH_RESTORED_FIELD = 11"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.field10AndField14AreReadFromTheDeviceInfoBlockAndTheQueryIsOp7"
+  ],
+  "expect": [
+   "field10AndField14AreReadFromTheDeviceInfoBlockAndTheQueryIsOp7"
+  ],
+  "note": "Even's schema: 10 is the switch, 11 deviceRunningStatus"
+ },
+ {
+  "id": "P4b-01-rest-on-enters-nothing",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                else -> enterSleep(SleepReason.REST, \"probe rest=on\")",
+    "                else -> {}"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.restOnStopsFramesReleasesTheLeaseAndTheReadGoesOn"
+  ],
+  "expect": [
+   "restOnStopsFramesReleasesTheLeaseAndTheReadGoesOn"
+  ],
+  "note": "the probe does nothing: no rest"
+ },
+ {
+  "id": "P4b-02-a-probe-with-no-session-is-queued-for-the-next",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (!running) {\n            journal.note(\"rest\", \"rest=$value not taken — no session\")\n            return true\n        }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.restOnStopsFramesReleasesTheLeaseAndTheReadGoesOn"
+  ],
+  "expect": [
+   "restOnStopsFramesReleasesTheLeaseAndTheReadGoesOn"
+  ],
+  "note": "with no session the probe says so and is gone; queued, it would wait for whatever session comes next"
+ },
+ {
+  "id": "P4b-03-a-rest-is-entered-as-the-silent-sleep-is",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (reason == SleepReason.SILENT) {\n            journal.note(\"silent\", \"glasses asleep — $why; no frames until they wake\")",
+    "        if (true) {\n            journal.note(\"silent\", \"glasses asleep — $why; no frames until they wake\")"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.restOnStopsFramesReleasesTheLeaseAndTheReadGoesOn"
+  ],
+  "expect": [
+   "restOnStopsFramesReleasesTheLeaseAndTheReadGoesOn"
+  ],
+  "note": "a rest writes its own note, posts no notice and never rings the phone"
+ },
+ {
+  "id": "P4b-04-the-rests-check-asks-nothing",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val asked = transport.queryWear()                       // false = nothing went out; the note says which",
+    "        val asked = false"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.restOnStopsFramesReleasesTheLeaseAndTheReadGoesOn"
+  ],
+  "expect": [
+   "restOnStopsFramesReleasesTheLeaseAndTheReadGoesOn"
+  ],
+  "note": "each paced check of a rest sends one wear query"
+ },
+ {
+  "id": "P4b-05-the-rests-check-says-sent-whatever-happened",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                (if (asked) \"wear query sent\" else \"no wear query sent: this transport has no session of its own to ask with\"))",
+    "                \"wear query sent\")"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.theRestsCheckSaysWhetherItsQueryWentOut"
+  ],
+  "expect": [
+   "theRestsCheckSaysWhetherItsQueryWentOut"
+  ],
+  "note": "the review's finding 7, the second note"
+ },
+ {
+  "id": "P4b-06-the-wake-from-a-rest-asks-for-nothing",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        Log.i(\"shell\", \"the rest ends ($why): session rebuild\")\n        lastRebuildAskMs = now\n        requestRebuild(why)",
+    "        Log.i(\"shell\", \"the rest ends ($why): session rebuild\")\n        lastRebuildAskMs = now"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.restOffRebuildsTheSessionAndTheGlassEqualsBelief"
+  ],
+  "expect": [
+   "restOffRebuildsTheSessionAndTheGlassEqualsBelief"
+  ],
+  "note": "rest=off rebuilds the session"
+ },
+ {
+  "id": "P4b-07-a-repeated-wake-says-nothing",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (probe || !restAskNotTakenSaid) journal.note(\"rest\", \"$notTaken ($why)\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.restOffRebuildsTheSessionAndTheGlassEqualsBelief"
+  ],
+  "expect": [
+   "restOffRebuildsTheSessionAndTheGlassEqualsBelief"
+  ],
+  "note": "the review's finding 9: a second rest=off leaves a note"
+ },
+ {
+  "id": "P4b-08-the-waking-event-is-delivered",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                wakeFromRest(\"an input event (type $type, source $source) — the event is not delivered\")\n                return\n",
+    "                wakeFromRest(\"an input event (type $type, source $source) — the event is not delivered\")\n"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.anInputEventWakesARestAndIsNotDelivered"
+  ],
+  "expect": [
+   "anInputEventWakesARestAndIsNotDelivered"
+  ],
+  "note": "the tap that wakes a dark panel opens the row under the cursor"
+ },
+ {
+  "id": "P4b-09-an-input-event-does-not-wake-a-rest",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            SleepReason.REST -> {\n                wakeFromRest(\"an input event (type $type, source $source) — the event is not delivered\")\n                return\n            }",
+    "            SleepReason.REST -> silentTick(\"input\")"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.anInputEventWakesARestAndIsNotDelivered"
+  ],
+  "expect": [
+   "anInputEventWakesARestAndIsNotDelivered"
+  ],
+  "note": "a rest routed to the Silent Mode check: no wake by input"
+ },
+ {
+  "id": "P4b-10-a-resting-shell-ignores-the-silent-push",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        sleep = reason\n        if (was == SleepReason.REST) {",
+    "        if (was == SleepReason.REST) return\n        sleep = reason\n        if (was == SleepReason.REST) {"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.aSilentModePushDuringARestBecomesTheSilentSleep"
+  ],
+  "expect": [
+   "aSilentModePushDuringARestBecomesTheSilentSleep"
+  ],
+  "note": "the reason must become the firmware's, or rest=off would wake into a page the firmware ended"
+ },
+ {
+  "id": "P4b-11-the-change-of-reason-is-a-second-entry",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        sleep = reason\n        if (was == SleepReason.REST) {",
+    "        sleep = reason\n        if (false) {"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.aSilentModePushDuringARestBecomesTheSilentSleep"
+  ],
+  "expect": [
+   "aSilentModePushDuringARestBecomesTheSilentSleep"
+  ],
+  "note": "one episode: no second entry, its note and its count go on"
+ },
+ {
+  "id": "P4b-12-a-rest-crosses-a-session-start",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        sleep = null\n        silentGen++\n        sessionSerial++",
+    "        silentGen++\n        sessionSerial++"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.aLinkEndDuringARestStartsAnAwakeSession"
+  ],
+  "expect": [
+   "aLinkEndDuringARestStartsAnAwakeSession"
+  ],
+  "note": "upstream's trap: a link end during a rest must start an awake session"
+ },
+ {
+  "id": "P4b-13-a-probe-is-run-in-whatever-session-it-reaches",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (serial != sessionSerial) journal.note(\"rest\", \"rest=$value not taken — the session changed\")\n            else restProbe(value)",
+    "            restProbe(value)"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.aProbeTakenDuringAStartIsNotRunInTheSessionThatFollows"
+  ],
+  "expect": [
+   "aProbeTakenDuringAStartIsNotRunInTheSessionThatFollows"
+  ],
+  "note": "the review's finding 1a: the serial guard"
+ },
+ {
+  "id": "P4b-14-the-serial-does-not-move-at-a-session-start",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        silentGen++\n        sessionSerial++\n",
+    "        silentGen++\n"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.aProbeTakenDuringAStartIsNotRunInTheSessionThatFollows"
+  ],
+  "expect": [
+   "aProbeTakenDuringAStartIsNotRunInTheSessionThatFollows"
+  ],
+  "note": "the other half of the same guard"
+ },
+ {
+  "id": "P4b-15-a-refused-wake-is-not-asked-again",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (now - lastRebuildAskMs >= silentPacingMs) { lastRebuildAskMs = now; requestRebuild(\"the rest's wake, asked again\") }\n            return",
+    "            return"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.aWakeTheTransportRefusedIsAskedAgainByThePacedCheck"
+  ],
+  "expect": [
+   "aWakeTheTransportRefusedIsAskedAgainByThePacedCheck"
+  ],
+  "note": "the paced check is the release for a refused rebuild"
+ },
+ {
+  "id": "P4b-16-an-input-event-asks-again-inside-the-pacing",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            restWakeWanted && now - lastRebuildAskMs < silentPacingMs ->\n",
+    "            false ->\n"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.aWakeTheTransportRefusedIsAskedAgainByThePacedCheck"
+  ],
+  "expect": [
+   "aWakeTheTransportRefusedIsAskedAgainByThePacedCheck"
+  ],
+  "note": "a ring spun twice asks once"
+ },
+ {
+  "id": "P4b-17-a-refused-rebuild-is-a-silent-note-under-a-rest",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                val kind = when (s) { SleepReason.REST -> \"rest\"; SleepReason.SILENT -> \"silent\"; null -> \"keeper\" }",
+    "                val kind = when (s) { SleepReason.REST -> \"silent\"; SleepReason.SILENT -> \"silent\"; null -> \"keeper\" }"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.aWakeTheTransportRefusedIsAskedAgainByThePacedCheck"
+  ],
+  "expect": [
+   "aWakeTheTransportRefusedIsAskedAgainByThePacedCheck"
+  ],
+  "note": "the review's finding 11 (the anchor moved with the verify stage's fix: the kind is a `when` over the reason)"
+ },
+ {
+  "id": "P4b-18-only-an-imgres-is-expected-asleep",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val FAULTS_EXPECTED_ASLEEP = setOf(\"imgres\", \"decode\", \"mirror/decode\")",
+    "        val FAULTS_EXPECTED_ASLEEP = setOf(\"imgres\")"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.aRefusalThatLandsAfterTheSleepIsANoteNotANotice",
+   "*RestModeTest.aPaintTheReleaseOvertakesIsRefusedInTheJournalOnly"
+  ],
+  "expect": [
+   "aRefusalThatLandsAfterTheSleepIsANoteNotANotice",
+   "aPaintTheReleaseOvertakesIsRefusedInTheJournalOnly"
+  ],
+  "note": "0.63's rule (the review's finding 3): by hand, and on the modeled-timing simulator"
+ },
+ {
+  "id": "P4b-19-a-refusal-asleep-is-a-silent-note-under-a-rest",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                    journal.note(sleepKind(), \"refused while asleep (${ev.what}): ${ev.detail}\")",
+    "                    journal.note(\"silent\", \"refused while asleep (${ev.what}): ${ev.detail}\")"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.aRefusalThatLandsAfterTheSleepIsANoteNotANotice"
+  ],
+  "expect": [
+   "aRefusalThatLandsAfterTheSleepIsANoteNotANotice"
+  ],
+  "note": "the review's finding 11"
+ },
+ {
+  "id": "P4b-20-a-cache-write-in-flight-at-the-sleep-is-judged",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        atlasInFlight = null\n        atlasCheckOwed(\"the shell went to sleep\", keyframe = false)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.aCacheWriteInFlightAtARestIsNotJudged",
+   "*RestModeTest.aCacheWriteInFlightAtTheSilentSleepIsNotJudged"
+  ],
+  "expect": [
+   "aCacheWriteInFlightAtARestIsNotJudged",
+   "aCacheWriteInFlightAtTheSilentSleepIsNotJudged"
+  ],
+  "note": "Q7's two lines removed: the tree before, for both sleeps"
+ },
+ {
+  "id": "P4b-21-a-keyframe-is-asked-for-at-a-sleep",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        atlasCheckOwed(\"the shell went to sleep\", keyframe = false)",
+    "        atlasCheckOwed(\"the shell went to sleep\")"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.aCacheWriteInFlightAtARestIsNotJudged",
+   "*RestModeTest.aCacheWriteInFlightAtTheSilentSleepIsNotJudged"
+  ],
+  "expect": [
+   "aCacheWriteInFlightAtARestIsNotJudged",
+   "aCacheWriteInFlightAtTheSilentSleepIsNotJudged"
+  ],
+  "note": "nothing may be sent into a sleeping pair: the keyframe is not asked for, and the note does not claim one"
+ },
+ {
+  "id": "P4b-22-no-power-note-after-a-loop-message",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            notePower()                   // 0.64: a state change this message made (a string compare, no layout)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.thePowerNotesFollowTheShellsState"
+  ],
+  "expect": [
+   "thePowerNotesFollowTheShellsState"
+  ],
+  "note": "no change of state inside a session is ever said"
+ },
+ {
+  "id": "P4b-23-no-power-note-where-a-session-ends",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        synchronized(heldLock) { windowsLive = false }\n        notePower()",
+    "        synchronized(heldLock) { windowsLive = false }"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.aSessionThatEndsWithoutItsLoopStillSaysDown"
+  ],
+  "expect": [
+   "aSessionThatEndsWithoutItsLoopStillSaysDown"
+  ],
+  "note": "a session that ends without its loop would stay `lit` in the journal"
+ },
+ {
+  "id": "P4b-24-the-watchdog-reads-the-glasses-flag-alone",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (!running || !st.started || !pageTrafficWanted(st)) {",
+    "        if (!running || !st.started || st.glassesSilent) {"
+   ]
+  ],
+  "tests": [
+   "*WatchdogTest.theWatchdogRestsWithARest",
+   "*WatchdogTest.theWatchdogStandsDownForASleepTheGlassesDidNotAnnounce"
+  ],
+  "expect": [
+   "theWatchdogRestsWithARest",
+   "theWatchdogStandsDownForASleepTheGlassesDidNotAnnounce"
+  ],
+  "note": "0.63's condition: a rest and a refusal-streak sleep are probed and rebuilt (Q1)"
+ },
+ {
+  "id": "P4b-25-a-queued-acquire-is-written-after-the-release",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                            if (work.op == SettingsMsg.OP_FB_ACQUIRE && (!running || !leaseWanted)) {",
+    "                            if (work.op == SettingsMsg.OP_FB_ACQUIRE && !running) {"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.anAcquireQueuedBeforeTheReleaseIsNotWrittenOnceTheLeaseIsNotWanted"
+  ],
+  "expect": [
+   "anAcquireQueuedBeforeTheReleaseIsNotWrittenOnceTheLeaseIsNotWanted"
+  ],
+  "note": "the review's finding 12"
+ },
+ {
+  "id": "P4b-26-an-adopted-session-with-no-lease-is-kept",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        else if (adopted && atStart.started && !atStart.leaseHeld) {",
+    "        else if (false) {"
+   ]
+  ],
+  "tests": [
+   "*SeamSessionTest.anAdoptedSessionWhoseLeaseASleepingShellReleasedIsRebuilt"
+  ],
+  "expect": [
+   "anAdoptedSessionWhoseLeaseASleepingShellReleasedIsRebuilt"
+  ],
+  "note": "the tree before: the shell that adopts its session back paints into no lease"
+ },
+ {
+  "id": "P4b-27-every-adopted-session-is-rebuilt",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        else if (adopted && atStart.started && !atStart.leaseHeld) {",
+    "        else if (adopted && atStart.started) {"
+   ]
+  ],
+  "tests": [
+   "*SeamSessionTest.anAdoptedSessionWhoseLeaseASleepingShellReleasedIsRebuilt"
+  ],
+  "expect": [
+   "anAdoptedSessionWhoseLeaseASleepingShellReleasedIsRebuilt"
+  ],
+  "note": "the lease's term: a session adopted with its lease held is the one the hand-over exists for (no teardown)"
+ },
+ {
+  "id": "P4b-28-the-loops-drain-tells-nobody",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (m is Msg.Run && m.dropped != null) {\n                    try { m.dropped.invoke() } catch (e: Exception) { Log.e(\"shell\", \"a dropped message's answer failed\", e) }\n                }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*QueueWhileDownTest.aMessageQueuedBehindTheShutdownIsToldItWasDropped"
+  ],
+  "expect": [
+   "aMessageQueuedBehindTheShutdownIsToldItWasDropped"
+  ],
+  "note": "0.63's loop: a probe queued behind the Shutdown leaves no word"
+ },
+ {
+  "id": "P4b-29-every-input-event-of-a-wake-not-taken-is-a-note",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (probe || !restAskNotTakenSaid) journal.note(\"rest\", \"$notTaken ($why)\")",
+    "            journal.note(\"rest\", \"$notTaken ($why)\")"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.aWakeTheTransportRefusedIsAskedAgainByThePacedCheck"
+  ],
+  "expect": [
+   "aWakeTheTransportRefusedIsAskedAgainByThePacedCheck"
+  ],
+  "note": "a ring spun on a dark panel: one line per wake, not one per event"
+ },
+ {
+  "id": "P4v-01-the-same-sleep-said-twice-is-not-tested-first",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (was == reason) return\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.theSameSleepSaidTwiceIsEnteredOnce"
+  ],
+  "expect": [
+   "theSameSleepSaidTwiceIsEnteredOnce"
+  ],
+  "note": "P4 verify: a session that starts under Silent Mode hears it twice (the start's read, the READ's own event); the second word then takes the branch of a rest asked for under Silent Mode and writes a `rest` note"
+ },
+ {
+  "id": "P4v-02-an-adopted-silent-mode-sleep-is-rebuilt",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        else if (adopted && atStart.started && !atStart.leaseHeld) {",
+    "        if (adopted && atStart.started && !atStart.leaseHeld) {"
+   ]
+  ],
+  "tests": [
+   "*SeamSessionTest.anAdoptedSessionWhoseLeaseASleepingShellReleasedIsRebuilt"
+  ],
+  "expect": [
+   "anAdoptedSessionWhoseLeaseASleepingShellReleasedIsRebuilt"
+  ],
+  "note": "P4 verify: the review's finding 4, 'and whose glasses are not silent' — the check made whatever the glasses say"
+ },
+ {
+  "id": "P4v-03-the-notice-is-posted-on-a-link-that-is-not-steady",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                val canPaint = !asleep && linkUpAndSteady()\n",
+    "                val canPaint = !asleep\n"
+   ]
+  ],
+  "tests": [
+   "*LowBatteryTest.onALinkThatIsNotSteadyThePhoneAloneIsTold"
+  ],
+  "expect": [
+   "onALinkThatIsNotSteadyThePhoneAloneIsTold"
+  ],
+  "note": "P4 verify: HANDOFF 75.4 call 2, the link's half of 'the shell can paint'"
+ },
+ {
+  "id": "P4v-04-rest-on-is-taken-on-a-link-that-is-down",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                !linkUpAndSteady() -> journal.note(\"rest\", \"rest=on not taken — the link is down or the session is rebuilding\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.restOnIsNotTakenOnALinkThatIsDown"
+  ],
+  "expect": [
+   "restOnIsNotTakenOnALinkThatIsDown"
+  ],
+  "note": "P4 verify: the probe's third refusal"
+ },
+ {
+  "id": "P4v-05-the-paced-check-asks-again-inside-the-pacing",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (now - lastRebuildAskMs >= silentPacingMs) { lastRebuildAskMs = now; requestRebuild(\"the rest's wake, asked again\") }",
+    "            run { lastRebuildAskMs = now; requestRebuild(\"the rest's wake, asked again\") }"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.aWakeTheTransportRefusedIsAskedAgainByThePacedCheck"
+  ],
+  "expect": [
+   "aWakeTheTransportRefusedIsAskedAgainByThePacedCheck"
+  ],
+  "note": "P4 verify: at most once per pacing — the tick inside the refused ask's pacing asks nothing"
+ },
+ {
+  "id": "P4v-06-a-wake-wanted-crosses-a-session-start",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        sessionSerial++\n        restWakeWanted = false\n",
+    "        sessionSerial++\n"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.anInputEventWakesARestAndIsNotDelivered"
+  ],
+  "expect": [
+   "anInputEventWakesARestAndIsNotDelivered"
+  ],
+  "note": "P4 verify: the flag kept, the next session's rest takes its first input event for 'refused a moment ago' and does not wake (the pin existed; no entry named the guard)"
+ },
+ {
+  "id": "P4v-07-the-models-refusal-is-expected-awake-too",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (glassesSilent && ev.what in FAULTS_EXPECTED_ASLEEP) {",
+    "                if (ev.what in FAULTS_EXPECTED_ASLEEP) {"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.awakeADecodeFaultIsAFaultAndARefusedRebuildIsNotASilentNote"
+  ],
+  "expect": [
+   "awakeADecodeFaultIsAFaultAndARefusedRebuildIsNotASilentNote"
+  ],
+  "note": "P4 verify: the review's finding 3, its other side — awake, a decode fault is a fault and a notice"
+ },
+ {
+  "id": "P4v-08-an-awake-shells-refused-rebuild-is-a-silent-note",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                val kind = when (s) { SleepReason.REST -> \"rest\"; SleepReason.SILENT -> \"silent\"; null -> \"keeper\" }",
+    "                val kind = when (s) { SleepReason.REST -> \"rest\"; SleepReason.SILENT -> \"silent\"; null -> \"silent\" }"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.awakeADecodeFaultIsAFaultAndARefusedRebuildIsNotASilentNote"
+  ],
+  "expect": [
+   "awakeADecodeFaultIsAFaultAndARefusedRebuildIsNotASilentNote"
+  ],
+  "note": "P4 verify: the tree before this stage's fix (the review's finding 11, the awake case)"
+ },
+ {
+  "id": "P4v-09-an-awake-shells-refused-rebuild-promises-the-next-check",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                    else \"not asleep, so no check asks again: the session goes on as it is\"\n",
+    "                    else \"still asleep; asking again on the next check\"\n"
+   ],
+   [
+    "                        (if (s != null) \" — asking again on every check\" else \"\"), source = \"transport\")",
+    "                        \" — asking again on every check\", source = \"transport\")"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.awakeADecodeFaultIsAFaultAndARefusedRebuildIsNotASilentNote"
+  ],
+  "expect": [
+   "awakeADecodeFaultIsAFaultAndARefusedRebuildIsNotASilentNote"
+  ],
+  "note": "P4 verify: 0.63's words for every refused rebuild, said by a shell that is awake"
+ },
+ {
+  "id": "P4v-10-the-polls-telemetry-read-is-off-on-every-transport",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "    private fun pollTelemetryOn(): Boolean = pollTelemetry ?: !instant\n",
+    "    private fun pollTelemetryOn(): Boolean = pollTelemetry ?: false\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.thePollsTelemetryReadIsOnByDefaultAtTheRealPace"
+  ],
+  "expect": [
+   "thePollsTelemetryReadIsOnByDefaultAtTheRealPace"
+  ],
+  "note": "P4 verify: HANDOFF 75.4 call 5 on glass — the default at the real pace (P4a-25 pins the instant default only); this run waits out the pin's 30 s"
+ }
+]

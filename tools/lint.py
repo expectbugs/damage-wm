@@ -7,6 +7,8 @@ nothing.
 
     SYM001  a drawn string contains a codepoint the target face cannot render
     SYM002  a KOTLIN string literal contains one (the shell's own drawing code)
+    SEC001  a KOTLIN string literal inside a `Log.` call interpolates a name ending in `token`
+            (a config secret is never displayed; damage.log is 0644)
     GEO000-003, GEO007  the cells DESIGN.md §2.3 declares (tools/geometry.py)
     BUD000, BUD005-007  ink budgets measured from design/shots
 
@@ -21,7 +23,7 @@ Usage:
 Exit status is 1 if any rule fails, so it works as a pre-commit or CI gate.
 """
 from __future__ import annotations
-import argparse, ast, subprocess, sys, unicodedata
+import argparse, ast, re, subprocess, sys, unicodedata
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -278,6 +280,138 @@ def check_kotlin(path: Path, cov: dict[str, set[int]]) -> list[str]:
     return findings
 
 
+# SEC001 — no token reaches a log line (APK 0.64 R2, review 1b RE-8).
+#
+# Adam's rule: a config secret is never displayed. `damage.log` is 0644 under a 0755 home, and the
+# phone's log ring is served; a `Log.` call whose text interpolates the token puts it in both. The
+# start banner printed `?token=${cfg.token}` until R2. Read: every "…" and raw string literal whose
+# opening quote lies inside the parentheses of a `Log.<x>(` call, and the names in its templates
+# (`$name`, and every identifier of `${…}` outside a string nested in it); a name whose lower case
+# ends in `token` is a finding. `\$token` (an escaped dollar) is text, not a template. The walk
+# knows comments and char literals as `_kotlin_strings` does, and a template's nested strings
+# and braces.
+SEC_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+LOG_CALL = re.compile(r"(?<![A-Za-z0-9_])Log\.[a-z]\s*\(")
+
+
+def _kotlin_log_templates(src: str):
+    """(line, [names in templates]) for every string literal opened inside a `Log.<x>(` call."""
+    out, i, line, n = [], 0, 1, len(src)
+    depth, calls = 0, []                     # code paren depth; the depths at which Log calls opened
+
+    def string(i, line, raw):
+        """Reads one string literal from just past its opening quote(s): (end, line, names)."""
+        names = []
+        while i < n:
+            if raw and src.startswith('"""', i):
+                while src.startswith('"', i + 3):   # a raw string whose text ends with quotes
+                    i += 1
+                return i + 3, line, names
+            c = src[i]
+            if not raw and c == '"':
+                return i + 1, line, names
+            if c == "\n":
+                if not raw:
+                    return i + 1, line + 1, names    # a "…" string never passes its line
+                line += 1
+            if not raw and c == "\\":
+                i += 2; continue
+            if c == "$" and i + 1 < n and src[i + 1] == "{":
+                i, line, inner = template(i + 2, line)
+                names += inner; continue
+            if c == "$":
+                m = SEC_NAME.match(src, i + 1)
+                if m:
+                    names.append(m.group(0)); i = m.end(); continue
+            i += 1
+        return i, line, names
+
+    def template(i, line):
+        """Reads a `${…}` body from just past `${`: (end, line, identifiers outside nested strings)."""
+        names, braces = [], 1
+        while i < n:
+            c = src[i]
+            if c == "\n":
+                line += 1
+            if src.startswith('"""', i):
+                i, line, inner = string(i + 3, line, True); names += inner; continue
+            if c == '"':
+                i, line, inner = string(i + 1, line, False); names += inner; continue
+            if c == "{":
+                braces += 1
+            elif c == "}":
+                braces -= 1
+                if braces == 0:
+                    return i + 1, line, names
+            m = SEC_NAME.match(src, i)
+            if m and (i == 0 or not (src[i - 1].isalnum() or src[i - 1] == "_")):
+                names.append(m.group(0)); i = m.end(); continue
+            i += 1
+        return i, line, names
+
+    while i < n:
+        c = src[i]
+        if c == "\n":
+            line += 1; i += 1; continue
+        if c == "'":
+            j = i + 1
+            if j < n and src[j] == "\\":
+                j += 1
+            j += 1
+            if j < n and src[j] == "'":
+                i = j + 1; continue
+            i += 1; continue
+        if c == "/" and i + 1 < n and src[i + 1] == "/":
+            while i < n and src[i] != "\n":
+                i += 1
+            continue
+        if c == "/" and i + 1 < n and src[i + 1] == "*":
+            i += 2
+            nest = 1
+            while i < n and nest:
+                if src.startswith("/*", i):
+                    nest += 1; i += 2; continue
+                if src.startswith("*/", i):
+                    nest -= 1; i += 2; continue
+                if src[i] == "\n":
+                    line += 1
+                i += 1
+            continue
+        if c == '"':
+            raw = src.startswith('"""', i)
+            start = line
+            i, line, names = string(i + (3 if raw else 1), line, raw)
+            if calls:
+                out.append((start, names))
+            continue
+        m = LOG_CALL.match(src, i)
+        if m:
+            depth += 1
+            calls.append(depth)
+            i = m.end(); continue
+        if c == "(":
+            depth += 1
+        elif c == ")":
+            if calls and calls[-1] == depth:
+                calls.pop()
+            depth -= 1
+        i += 1
+    return out
+
+
+def check_kotlin_secrets(path: Path) -> list[str]:
+    src = path.read_text(encoding="utf-8", errors="replace")
+    findings = []
+    for lineno, names in _kotlin_log_templates(src):
+        bad = sorted({nm for nm in names if nm.lower().endswith("token")})
+        if bad:
+            findings.append(
+                f"{path}:{lineno}: SEC001 a Log line interpolates {', '.join(bad)}\n"
+                f"    -> a config secret is never displayed: say where it is (`?token=…`, config.json), "
+                f"never its value (damage.log is 0644; the phone's log ring is served)")
+    return findings
+
+
 # ---------------------------------------------------------------------------
 # GEO — validate the geometry the spec DECLARES. DESIGN.md §2.3's cell table is the
 # current source of truth for the shell's layout, and it is machine-readable. Both real
@@ -415,6 +549,32 @@ def selftest() -> int:
     finally:
         tmp.unlink()
 
+    # SEC001 (R2, RE-8): synthetic Kotlin only — no real token is read or printed here. Lines 1, 2, 3
+    # and 5 must be found (a plain template, a property in braces, a name ending in Token, the literal
+    # of a call spread over lines 4-5); lines 6-10 must not (the text `?token=…`, an escaped dollar, a
+    # token outside any Log call, a token named only in a comment, a string nested in a template that
+    # merely SAYS token).
+    sec = ('Log.i("x", "url ?token=$token")\n'
+           'Log.w(TAG, "a ${cfg.token} b")\n'
+           'Log.e("x", "c $setupToken d", e)\n'
+           'Log.i("x",\n "e ${f(cfg.token)}")\n'
+           'Log.i("x", "url ?token=\u2026 (in config.json)")\n'
+           'Log.i("x", "plain \\$token text")\n'
+           'val u = "?token=$token"; Log.i("x", "f")\n'
+           'Log.i("x", "g") // "$token"\n'
+           'Log.i("x", "h ${f("token")}")\n')
+    with tempfile.NamedTemporaryFile("w", suffix=".kt", delete=False) as f:
+        f.write(sec)
+        tmp = Path(f.name)
+    try:
+        hits = check_kotlin_secrets(tmp)
+        lines_hit = sorted(int(h.split(":")[1]) for h in hits)
+        cases.append(("SEC001 a token in a Log line", hits, "SEC001"))
+        cases.append(("SEC001 four found, five silent",
+                      ["ok"] if lines_hit == [1, 2, 3, 5] else [f"lines {lines_hit}"], "ok"))
+    finally:
+        tmp.unlink()
+
     ok = True
     for label, got, expect in cases:
         hit = any(expect in g for g in got)
@@ -444,6 +604,7 @@ RULE_IDS = {
     "GEO000", "GEO001", "GEO002", "GEO003", "GEO007",
     "BUD000", "BUD005", "BUD006", "BUD007",
     "SYM001", "SYM002",
+    "SEC001",
 }
 
 
@@ -501,6 +662,7 @@ def main() -> int:
         for r in roots:
             kt.extend(sorted(r.rglob("*.kt")) if r.is_dir() else ([r] if r.suffix == ".kt" else []))
     findings += [f for path in kt for f in check_kotlin(path, cov)]
+    findings += [f for path in kt for f in check_kotlin_secrets(path)]
     if not args.paths and not args.no_geometry:
         root = Path(__file__).resolve().parent.parent
         findings += check_design_table(root / "DESIGN.md")

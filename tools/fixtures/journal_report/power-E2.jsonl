@@ -1,0 +1,7 @@
+{"t": 1800003600000, "ev": "note", "kind": "journal", "detail": "rotated at this process start: the 123 B before this line are in journal-x.jsonl"}
+{"t": 1800003600010, "ev": "note", "kind": "process", "detail": "apk 0.64 pid 3"}
+{"t": 1800003600020, "ev": "note", "kind": "keeper", "detail": "starting"}
+{"t": 1800003603000, "ev": "note", "kind": "power", "detail": "lit"}
+{"t": 1800003604000, "ev": "note", "kind": "battery", "detail": "glasses 87%"}
+{"t": 1800007200000, "ev": "note", "kind": "battery", "detail": "glasses 85%"}
+{"t": 1800007200001, "ev": "note", "kind": "power", "detail": "down"}

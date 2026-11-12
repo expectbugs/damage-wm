@@ -1,0 +1,1350 @@
+[
+ {
+  "id": "P3a-01-an-equal-value-adopts-the-higher-stamp-and-saves",
+  "file": "shell/Persistence.kt",
+  "edits": [
+   [
+    "                sameRecord(old, value, clamped) -> return false",
+    "                sameRecord(old, value, clamped) -> { old.stamp = maxOf(old.stamp, clamped); false }"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.anEqualValueInsideTheToleranceMovesNothing",
+   "*SyncToleranceTest.aStampNeverWalks",
+   "*SyncToleranceTest.theOldServersReplyMovesNoStampAndRewritesNoFile",
+   "*SyncTest.putRestampsOnlyOnChange_andApplyIsStrictLww"
+  ],
+  "expect": [
+   "anEqualValueInsideTheToleranceMovesNothing",
+   "aStampNeverWalks",
+   "theOldServersReplyMovesNoStampAndRewritesNoFile",
+   "SyncTest.putRestampsOnlyOnChange_andApplyIsStrictLww"
+  ],
+  "note": "the tree before this package: row 2 of the table adopts the stamp and falls through to save()"
+ },
+ {
+  "id": "P3a-02-an-equal-value-inside-the-tolerance-is-saved-anyway",
+  "file": "shell/Persistence.kt",
+  "edits": [
+   [
+    "                sameRecord(old, value, clamped) -> return false",
+    "                sameRecord(old, value, clamped) -> false"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.anEqualValueInsideTheToleranceMovesNothing",
+   "*SyncToleranceTest.theOldServersReplyMovesNoStampAndRewritesNoFile"
+  ],
+  "expect": [
+   "anEqualValueInsideTheToleranceMovesNothing",
+   "theOldServersReplyMovesNoStampAndRewritesNoFile"
+  ],
+  "note": "the stamp stays but the whole store is written: the file instrument, not the stamp, must see it"
+ },
+ {
+  "id": "P3a-03-an-equal-value-never-adopts",
+  "file": "shell/Persistence.kt",
+  "edits": [
+   [
+    "                old.value == value -> { old.stamp = clamped; false }",
+    "                old.value == value -> return false"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.anEqualValueBeyondTheToleranceAdoptsTheHigherStamp",
+   "*SyncToleranceTest.aHeldRecordPostedToTheShellDoesNoWorkAndSavesNothing",
+   "*SyncTest.putRestampsOnlyOnChange_andApplyIsStrictLww"
+  ],
+  "expect": [
+   "anEqualValueBeyondTheToleranceAdoptsTheHigherStamp",
+   "aHeldRecordPostedToTheShellDoesNoWorkAndSavesNothing",
+   "SyncTest.putRestampsOnlyOnChange_andApplyIsStrictLww"
+  ],
+  "note": "row 3 dropped"
+ },
+ {
+  "id": "P3a-04-a-different-value-inside-the-tolerance-is-refused",
+  "file": "shell/Persistence.kt",
+  "edits": [
+   [
+    "                clamped > old.stamp -> { loaded[key] = Rec(value, clamped); true }",
+    "                newer(clamped, old.stamp) -> { loaded[key] = Rec(value, clamped); true }"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.aDifferentValueKeepsTheStrictOrder",
+   "*SyncToleranceTest.aSecondEditRightAfterTheFirstReachesThePeer"
+  ],
+  "expect": [
+   "aDifferentValueKeepsTheStrictOrder",
+   "aSecondEditRightAfterTheFirstReachesThePeer"
+  ],
+  "note": "the ruling read literally (Open question 1): the wrong fix"
+ },
+ {
+  "id": "P3a-05-no-zero-arm-in-newer",
+  "file": "shell/Persistence.kt",
+  "edits": [
+   [
+    "fun newer(a: Long, b: Long): Boolean = if (b <= 0L) a > 0L else a - b > STAMP_TOLERANCE_MS",
+    "fun newer(a: Long, b: Long): Boolean = a - b > STAMP_TOLERANCE_MS"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.aBaselineLosesToAnyRealStamp"
+  ],
+  "expect": [
+   "aBaselineLosesToAnyRealStamp"
+  ],
+  "note": "a baseline (stamp 0) must lose to any real stamp at once"
+ },
+ {
+  "id": "P3a-06-exactly-the-tolerance-counts-as-newer",
+  "file": "shell/Persistence.kt",
+  "edits": [
+   [
+    "fun newer(a: Long, b: Long): Boolean = if (b <= 0L) a > 0L else a - b > STAMP_TOLERANCE_MS",
+    "fun newer(a: Long, b: Long): Boolean = if (b <= 0L) a > 0L else a - b >= STAMP_TOLERANCE_MS"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.aBaselineLosesToAnyRealStamp",
+   "*SyncToleranceTest.anEqualValueInsideTheToleranceMovesNothing",
+   "*SyncToleranceTest.aHandshakeLeavesRecordsInsideTheToleranceAlone"
+  ],
+  "expect": [
+   "aBaselineLosesToAnyRealStamp",
+   "anEqualValueInsideTheToleranceMovesNothing",
+   "aHandshakeLeavesRecordsInsideTheToleranceAlone"
+  ],
+  "note": "the boundary: within 2 s INCLUSIVE is the same record"
+ },
+ {
+  "id": "P3a-07-the-handshake-sends-on-a-strict-compare",
+  "file": "sync/SyncNet.kt",
+  "edits": [
+   [
+    "            if (Persistence.newer(r.second, theirs[k] ?: 0L)) newerHere.add(SRec(k, r.first, r.second))",
+    "            if (r.second > (theirs[k] ?: 0L)) newerHere.add(SRec(k, r.first, r.second))"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.aHandshakeLeavesRecordsInsideTheToleranceAlone"
+  ],
+  "expect": [
+   "aHandshakeLeavesRecordsInsideTheToleranceAlone"
+  ],
+  "note": "the diff's send side (review finding 5: the pin read one direction only)"
+ },
+ {
+  "id": "P3a-08-the-handshake-asks-on-a-strict-compare",
+  "file": "sync/SyncNet.kt",
+  "edits": [
+   [
+    "Persistence.syncable(it.key) && Persistence.newer(it.value, mine[it.key]?.second ?: 0L)",
+    "Persistence.syncable(it.key) && it.value > (mine[it.key]?.second ?: 0L)"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.aHandshakeLeavesRecordsInsideTheToleranceAlone"
+  ],
+  "expect": [
+   "aHandshakeLeavesRecordsInsideTheToleranceAlone"
+  ],
+  "note": "the diff's ask side"
+ },
+ {
+  "id": "P3a-09-no-held-record-test-on-the-loop",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (persistence.holdsSame(key, value, stamp)) return@Run\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.aHeldRecordPostedToTheShellDoesNoWorkAndSavesNothing"
+  ],
+  "expect": [
+   "aHeldRecordPostedToTheShellDoesNoWorkAndSavesNothing"
+  ],
+  "note": "review finding 1: the early-out"
+ },
+ {
+  "id": "P3a-10-the-held-record-test-on-the-posters-thread",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (!running) return false\n        // R2 (RE-4)",
+    "        if (!running) return false\n        if (persistence.holdsSame(key, value, stamp)) return true\n        // R2 (RE-4)"
+   ],
+   [
+    "                if (persistence.holdsSame(key, value, stamp)) return@Run\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.twoRecordsForOneKeyPostedWhileTheLoopIsBusyEndOnTheSecond"
+  ],
+  "expect": [
+   "twoRecordsForOneKeyPostedWhileTheLoopIsBusyEndOnTheSecond"
+  ],
+  "note": "review finding 1: the spec's placement (A4), decided against a store the queued applies have not reached"
+ },
+ {
+  "id": "P3a-11-the-clock-stamped-where-the-handshake-is-queued",
+  "file": "sync/SyncNet.kt",
+  "edits": [
+   [
+    "        synchronized(this) { frame(w.copy(clock = now())) }",
+    "        synchronized(this) { frame(w) }"
+   ],
+   [
+    "        stamps = peer.store.stamps().filterKeys { Persistence.syncable(it) })\n",
+    "        stamps = peer.store.stamps().filterKeys { Persistence.syncable(it) }, clock = now())\n"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.aHandshakeQueuedBehindAPushCarriesTheClockOfItsWrite",
+   "*SyncToleranceTest.aHandshakeLeavesRecordsInsideTheToleranceAlone"
+  ],
+  "expect": [
+   "aHandshakeQueuedBehindAPushCarriesTheClockOfItsWrite",
+   "aHandshakeLeavesRecordsInsideTheToleranceAlone"
+  ],
+  "note": "review finding 9, the tree before: the client stamps at enqueue; the server's answer then carries no clock from the writer"
+ },
+ {
+  "id": "P3a-12-the-receive-time-taken-after-the-body",
+  "file": "sync/SyncNet.kt",
+  "edits": [
+   [
+    "    val n = readInt()\n    val at = now()\n    require(n in 1..maxLen) { \"sync frame length $n out of range\" }",
+    "    val n = readInt()\n    require(n in 1..maxLen) { \"sync frame length $n out of range\" }"
+   ],
+   [
+    "    return Got(json.decodeFromString(SWire.serializer(), b.toString(Charsets.UTF_8)), at)",
+    "    val w = json.decodeFromString(SWire.serializer(), b.toString(Charsets.UTF_8))\n    return Got(w, now())"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.theSkewIsTakenWhenTheFramesLengthArrives",
+   "*SyncToleranceTest.theServersSkewIsTakenWhenTheFramesLengthArrives"
+  ],
+  "expect": [
+   "theSkewIsTakenWhenTheFramesLengthArrives",
+   "theServersSkewIsTakenWhenTheFramesLengthArrives"
+  ],
+  "note": "review finding 9, the tree before: the time is read after readFully and the decode"
+ },
+ {
+  "id": "P3a-13-the-clients-skew-from-a-later-clock-read",
+  "file": "sync/SyncNet.kt",
+  "edits": [
+   [
+    "                                    skew = w.clock - got.at",
+    "                                    skew = w.clock - now()"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.theSkewIsTakenWhenTheFramesLengthArrives"
+  ],
+  "expect": [
+   "theSkewIsTakenWhenTheFramesLengthArrives"
+  ],
+  "note": "the receive time is taken but not used"
+ },
+ {
+  "id": "P3a-14-a-zero-stamp-shifted-by-the-skew",
+  "file": "sync/SyncNet.kt",
+  "edits": [
+   [
+    "private fun shifted(t: Long, skew: Long): Long = if (t <= 0L) 0L else t - skew",
+    "private fun shifted(t: Long, skew: Long): Long = t - skew"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.aBaselinesZeroStaysZeroAcrossTheWire",
+   "*SyncToleranceTest.theOldServersReplyMovesNoStampAndRewritesNoFile"
+  ],
+  "expect": [
+   "aBaselinesZeroStaysZeroAcrossTheWire",
+   "theOldServersReplyMovesNoStampAndRewritesNoFile"
+  ],
+  "note": "review NIT 13"
+ },
+ {
+  "id": "P3a-15-a-refusal-inside-the-tolerance-said-every-time",
+  "file": "shell/Persistence.kt",
+  "edits": [
+   [
+    "if (older <= STAMP_TOLERANCE_MS && saidKept.add(key)) keptOverMs = older",
+    "if (older <= STAMP_TOLERANCE_MS) keptOverMs = older"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.aDifferentValueKeepsTheStrictOrder"
+  ],
+  "expect": [
+   "aDifferentValueKeepsTheStrictOrder"
+  ],
+  "note": "review NIT 16: once per key per connection"
+ },
+ {
+  "id": "P3a-16-the-said-memory-never-cleared",
+  "file": "shell/Persistence.kt",
+  "edits": [
+   [
+    "    fun syncConnectionStarted() { synchronized(lock) { saidKept.clear() } }",
+    "    fun syncConnectionStarted() { }"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.aDifferentValueKeepsTheStrictOrder"
+  ],
+  "expect": [
+   "aDifferentValueKeepsTheStrictOrder"
+  ],
+  "note": "a standing refusal is said once more per connection"
+ },
+ {
+  "id": "P3a-17-a-refusal-past-the-tolerance-is-said-too",
+  "file": "shell/Persistence.kt",
+  "edits": [
+   [
+    "if (older <= STAMP_TOLERANCE_MS && saidKept.add(key)) keptOverMs = older",
+    "if (saidKept.add(key)) keptOverMs = older"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.aDifferentValueKeepsTheStrictOrder"
+  ],
+  "expect": [
+   "aDifferentValueKeepsTheStrictOrder"
+  ],
+  "note": "an older record refused is the ordinary outcome and is not news"
+ },
+ {
+  "id": "P3a-18-the-same-record-test-ignores-the-value",
+  "file": "shell/Persistence.kt",
+  "edits": [
+   [
+    "        old != null && old.value == value && !newer(clamped, old.stamp)",
+    "        old != null && !newer(clamped, old.stamp)"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.anEqualValueInsideTheToleranceMovesNothing",
+   "*SyncToleranceTest.aDifferentValueKeepsTheStrictOrder"
+  ],
+  "expect": [
+   "anEqualValueInsideTheToleranceMovesNothing",
+   "aDifferentValueKeepsTheStrictOrder"
+  ],
+  "note": "holdsSame and row 2 share this predicate"
+ },
+ {
+  "id": "P3a-19-the-servers-skew-from-a-later-clock-read",
+  "file": "sync/SyncNet.kt",
+  "edits": [
+   [
+    "                    \"sync\" -> handshake(w, got.at)",
+    "                    \"sync\" -> handshake(w, now())"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.theServersSkewIsTakenWhenTheFramesLengthArrives"
+  ],
+  "expect": [
+   "theServersSkewIsTakenWhenTheFramesLengthArrives"
+  ],
+  "note": "finding 9's twin on the server's re-handshake"
+ },
+ {
+  "id": "P3a-20-the-client-starts-no-said-memory-at-connect",
+  "file": "sync/SyncNet.kt",
+  "edits": [
+   [
+    "                    peer.store.syncConnectionStarted()\n                    o.sendWire(handshakeWire(), now)",
+    "                    o.sendWire(handshakeWire(), now)"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.theOldServersReplyMovesNoStampAndRewritesNoFile"
+  ],
+  "expect": [
+   "theOldServersReplyMovesNoStampAndRewritesNoFile"
+  ],
+  "note": "NIT 16's call site, client"
+ },
+ {
+  "id": "P3a-21-the-server-starts-no-said-memory-at-attach",
+  "file": "sync/SyncNet.kt",
+  "edits": [
+   [
+    "        peer.store.syncConnectionStarted()\n        Log.i(\"sync-host\", \"peer ${sock.inetAddress} attached",
+    "        Log.i(\"sync-host\", \"peer ${sock.inetAddress} attached"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.aHandshakeLeavesRecordsInsideTheToleranceAlone"
+  ],
+  "expect": [
+   "aHandshakeLeavesRecordsInsideTheToleranceAlone"
+  ],
+  "note": "NIT 16's call site, server"
+ },
+ {
+  "id": "P3a-22-a-pushed-zero-stamp-shifted-on-the-client",
+  "file": "sync/SyncNet.kt",
+  "edits": [
+   [
+    "                                \"syncrec\" -> for (r in w.records) peer.applier(r.k, r.v, local(r.t))",
+    "                                \"syncrec\" -> for (r in w.records) peer.applier(r.k, r.v, r.t - skew)"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.theOldServersReplyMovesNoStampAndRewritesNoFile"
+  ],
+  "expect": [
+   "theOldServersReplyMovesNoStampAndRewritesNoFile"
+  ],
+  "note": "NIT 13, the client's push site by itself"
+ },
+ {
+  "id": "P3a-23-a-pushed-zero-stamp-shifted-on-the-server",
+  "file": "sync/SyncNet.kt",
+  "edits": [
+   [
+    "                        peer.applier(r.k, r.v, normalize(r.t))",
+    "                        peer.applier(r.k, r.v, r.t - skew)"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.aBaselinesZeroStaysZeroAcrossTheWire"
+  ],
+  "expect": [
+   "aBaselinesZeroStaysZeroAcrossTheWire"
+  ],
+  "note": "NIT 13, the server's push site by itself"
+ },
+ {
+  "id": "P3a-24-a-handshake-record-zero-stamp-shifted-on-the-client",
+  "file": "sync/SyncNet.kt",
+  "edits": [
+   [
+    "                                    for (r in w.records) peer.applier(r.k, r.v, local(r.t))",
+    "                                    for (r in w.records) peer.applier(r.k, r.v, r.t - skew)"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.theOldServersReplyMovesNoStampAndRewritesNoFile"
+  ],
+  "expect": [
+   "theOldServersReplyMovesNoStampAndRewritesNoFile"
+  ],
+  "note": "NIT 13, the client's handshake site by itself"
+ },
+ {
+  "id": "P3b-01-no-first-line-in-the-fresh-file",
+  "file": "comp/Journal.kt",
+  "edits": [
+   [
+    "val said = appendNote(live, \"journal\", \"rotated at this process start: the $size B before this line are in ${target.fileName}\")",
+    "val said = true"
+   ]
+  ],
+  "tests": [
+   "*JournalRotateTest.aJournalPastTheLimitIsSetAsideAndAFreshOneStarted"
+  ],
+  "expect": [
+   "JournalRotateTest.aJournalPastTheLimitIsSetAsideAndAFreshOneStarted"
+  ],
+  "note": "B1 step 8: the fresh file is not started and nothing in it names the archive"
+ },
+ {
+  "id": "P3b-02-a-journal-exactly-at-the-limit-rotates",
+  "file": "comp/Journal.kt",
+  "edits": [
+   [
+    "if (size <= limit) return null",
+    "if (size < limit) return null"
+   ]
+  ],
+  "tests": [
+   "*JournalRotateTest.aJournalAtOrUnderTheLimitStays"
+  ],
+  "expect": [
+   "JournalRotateTest.aJournalAtOrUnderTheLimitStays"
+  ],
+  "note": "B1 step 5"
+ },
+ {
+  "id": "P3b-03-no-once-per-process",
+  "file": "comp/Journal.kt",
+  "edits": [
+   [
+    "ASKED -> return null",
+    "ASKED -> {}"
+   ]
+  ],
+  "tests": [
+   "*JournalRotateTest.oncePerProcessAndPath"
+  ],
+  "expect": [
+   "JournalRotateTest.oncePerProcessAndPath"
+  ],
+  "note": "B1 step 1: a second call in one process rotates again"
+ },
+ {
+  "id": "P3b-04-a-writer-does-not-mark-its-path",
+  "file": "comp/Journal.kt",
+  "edits": [
+   [
+    "        touched.putIfAbsent(keyOf(it), OPENED)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*JournalRotateTest.aRotationAfterTheJournalWasOpenedIsRefusedAndSaid",
+   "*JournalRotateTest.aPathSpelledTwoWaysIsOnePath"
+  ],
+  "expect": [
+   "JournalRotateTest.aRotationAfterTheJournalWasOpenedIsRefusedAndSaid",
+   "JournalRotateTest.aPathSpelledTwoWaysIsOnePath"
+  ],
+  "note": "B2: a rotation after a Journal was opened in this process is not refused"
+ },
+ {
+  "id": "P3b-05-paths-not-normalized",
+  "file": "comp/Journal.kt",
+  "edits": [
+   [
+    "p.toAbsolutePath().normalize()",
+    "p.toAbsolutePath()"
+   ]
+  ],
+  "tests": [
+   "*JournalRotateTest.aPathSpelledTwoWaysIsOnePath"
+  ],
+  "expect": [
+   "JournalRotateTest.aPathSpelledTwoWaysIsOnePath"
+  ],
+  "note": "NIT 14"
+ },
+ {
+  "id": "P3b-06-the-move-replaces-an-existing-target",
+  "file": "comp/Journal.kt",
+  "edits": [
+   [
+    "{ a, b -> Files.move(a, b) }",
+    "{ a, b -> Files.move(a, b, java.nio.file.StandardCopyOption.REPLACE_EXISTING) }"
+   ]
+  ],
+  "tests": [
+   "*JournalRotateTest.aTakenNameIsNeverOverwritten"
+  ],
+  "expect": [
+   "JournalRotateTest.aTakenNameIsNeverOverwritten"
+  ],
+  "note": "B1 step 7"
+ },
+ {
+  "id": "P3b-07-a-failed-move-is-not-said",
+  "file": "comp/Journal.kt",
+  "edits": [
+   [
+    "Log.e(\"journal\", \"the journal is $size B and could not be set aside as ${target.fileName} — it keeps growing\", e)",
+    "Unit"
+   ]
+  ],
+  "tests": [
+   "*JournalRotateTest.aRenameThatFailsIsSaidAndTheOldFileKeepsGrowing",
+   "*JournalRotateTest.aTakenNameIsNeverOverwritten"
+  ],
+  "expect": [
+   "JournalRotateTest.aRenameThatFailsIsSaidAndTheOldFileKeepsGrowing",
+   "JournalRotateTest.aTakenNameIsNeverOverwritten"
+  ],
+  "note": "B1 step 9, line D2"
+ },
+ {
+  "id": "P3b-08-a-failed-move-is-not-noted",
+  "file": "comp/Journal.kt",
+  "edits": [
+   [
+    "appendNote(live, \"journal\", \"rotation FAILED: $size B, wanted ${target.fileName}: ${e::class.simpleName}: ${e.message}\")",
+    "Unit"
+   ]
+  ],
+  "tests": [
+   "*JournalRotateTest.aRenameThatFailsIsSaidAndTheOldFileKeepsGrowing"
+  ],
+  "expect": [
+   "JournalRotateTest.aRenameThatFailsIsSaidAndTheOldFileKeepsGrowing"
+  ],
+  "note": "B1 step 9, the note in the old file"
+ },
+ {
+  "id": "P3b-09-the-start-says-no-sizes",
+  "file": "comp/Journal.kt",
+  "edits": [
+   [
+    "Log.i(\"journal\", (if (size < 0) \"no ${live.fileName} yet\" else \"${live.fileName} is $size B\") +\n                    \"; $count archive(s) beside it, $total B (set aside past $limit B at a process start, never deleted)\")",
+    "Unit"
+   ]
+  ],
+  "tests": [
+   "*JournalRotateTest.everyStartSaysTheArchivesCountAndTotal"
+  ],
+  "expect": [
+   "JournalRotateTest.everyStartSaysTheArchivesCountAndTotal"
+  ],
+  "note": "Q6: the line that says the archives count and total at every start — re-pointed in R2c (the count and total come from archivesCounted)"
+ },
+ {
+  "id": "P3b-10-no-live-file-returns-before-the-line",
+  "file": "comp/Journal.kt",
+  "edits": [
+   [
+    "val size = if (Files.isRegularFile(live)) Files.size(live) else -1L      // read once",
+    "if (!Files.isRegularFile(live)) return null; val size = Files.size(live)"
+   ]
+  ],
+  "tests": [
+   "*JournalRotateTest.everyStartSaysTheArchivesCountAndTotal"
+  ],
+  "expect": [
+   "JournalRotateTest.everyStartSaysTheArchivesCountAndTotal"
+  ],
+  "note": "NIT 23: archives with no live file are still counted and said"
+ },
+ {
+  "id": "P3b-11-appendNote-says-landed-when-it-did-not",
+  "file": "comp/Journal.kt",
+  "edits": [
+   [
+    "Log.e(\"journal\", \"a $kind note could not be appended to ${live.fileName}\", e)\n                false",
+    "Log.e(\"journal\", \"a $kind note could not be appended to ${live.fileName}\", e)\n                true"
+   ]
+  ],
+  "tests": [
+   "*JournalRotateTest.appendNoteSaysWhetherTheLineLanded",
+   "*UncaughtRecordTest.aNoteThatDidNotLandKeepsTheRecordPending"
+  ],
+  "expect": [
+   "JournalRotateTest.appendNoteSaysWhetherTheLineLanded",
+   "UncaughtRecordTest.aNoteThatDidNotLandKeepsTheRecordPending"
+  ],
+  "note": "NIT 17"
+ },
+ {
+  "id": "P3b-12-an-archive-name-is-not-matched-in-full",
+  "file": "comp/Journal.kt",
+  "edits": [
+   [
+    "return ARCHIVE_MID.matches(name.substring(stem.length + 1, name.length - EXT.length))",
+    "return ARCHIVE_MID.containsMatchIn(name)"
+   ]
+  ],
+  "tests": [
+   "*JournalRotateTest.archivesAreListedAndServedByName"
+  ],
+  "expect": [
+   "JournalRotateTest.archivesAreListedAndServedByName"
+  ],
+  "note": "isArchiveOf: a name that only contains the date pattern passes"
+ },
+ {
+  "id": "P3b-13-no-name-check-on-the-route",
+  "file": "replica/ReplicaServer.kt",
+  "edits": [
+   [
+    "!Journal.isArchiveOf(live, name) -> { reply(out, 400, \"text/plain\", \"not a journal archive name\"); return }",
+    "false -> { reply(out, 400, \"text/plain\", \"not a journal archive name\"); return }"
+   ]
+  ],
+  "tests": [
+   "*JournalRotateTest.archivesAreListedAndServedByName"
+  ],
+  "expect": [
+   "JournalRotateTest.archivesAreListedAndServedByName"
+  ],
+  "note": "B4: any sibling path is served"
+ },
+ {
+  "id": "P3b-14-an-archive-is-read-whole",
+  "file": "replica/ReplicaServer.kt",
+  "edits": [
+   [
+    "                    streamJournal(out, p, query[\"tail\"]?.toLongOrNull())",
+    "                    if (name != null) replyBytes(out, 200, \"application/x-ndjson\", Files.readAllBytes(p)) else streamJournal(out, p, query[\"tail\"]?.toLongOrNull())"
+   ]
+  ],
+  "tests": [
+   "*JournalRotateTest.anArchivePastAnyArrayIsStreamed"
+  ],
+  "expect": [
+   "JournalRotateTest.anArchivePastAnyArrayIsStreamed"
+  ],
+  "note": "B4: the archive branch does not go through streamJournal"
+ },
+ {
+  "id": "P3b-15-the-listing-needs-a-live-file",
+  "file": "replica/ReplicaServer.kt",
+  "edits": [
+   [
+    "if (Files.isRegularFile(live)) putJsonObject(\"live\") {",
+    "if (true) putJsonObject(\"live\") {"
+   ]
+  ],
+  "tests": [
+   "*JournalRotateTest.archivesAreListedAndServedByName"
+  ],
+  "expect": [
+   "JournalRotateTest.archivesAreListedAndServedByName"
+  ],
+  "note": "NIT 23: archives with no live file"
+ },
+ {
+  "id": "P3b-20-the-handler-writes-nothing",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "synchronized(lock) { record(thread, e) }",
+    "synchronized(lock) { }"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.theTraceIsOnDiskBeforeThePreviousHandlerRuns",
+   "*UncaughtRecordTest.theNextStartSaysItOnce"
+  ],
+  "expect": [
+   "UncaughtRecordTest.theTraceIsOnDiskBeforeThePreviousHandlerRuns",
+   "UncaughtRecordTest.theNextStartSaysItOnce"
+  ],
+  "note": "C1"
+ },
+ {
+  "id": "P3b-21-the-previous-handler-runs-before-the-write",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "synchronized(lock) { record(thread, e) }",
+    "previous?.uncaughtException(thread, e); synchronized(lock) { record(thread, e) }"
+   ],
+   [
+    "if (previous != null) previous.uncaughtException(thread, e)",
+    "if (previous != null) Unit"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.theTraceIsOnDiskBeforeThePreviousHandlerRuns"
+  ],
+  "expect": [
+   "UncaughtRecordTest.theTraceIsOnDiskBeforeThePreviousHandlerRuns"
+  ],
+  "note": "C1: on Android the previous handler ends the process"
+ },
+ {
+  "id": "P3b-22-not-set-as-the-default-handler",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "Thread.setDefaultUncaughtExceptionHandler(h)",
+    "Unit"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.anUncaughtThrowableOnAnyThreadReachesItThroughInstall"
+  ],
+  "expect": [
+   "UncaughtRecordTest.anUncaughtThrowableOnAnyThreadReachesItThroughInstall"
+  ],
+  "note": "C1 install"
+ },
+ {
+  "id": "P3b-23-the-installed-line-is-a-flag",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "return if (Thread.getDefaultUncaughtExceptionHandler() === h)",
+    "return if (true)"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.anUncaughtThrowableOnAnyThreadReachesItThroughInstall"
+  ],
+  "expect": [
+   "UncaughtRecordTest.anUncaughtThrowableOnAnyThreadReachesItThroughInstall"
+  ],
+  "note": "F3: the line must read the process handler as it is"
+ },
+ {
+  "id": "P3b-24-a-second-install-wraps-the-first",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "if (now != null && now === ours) return",
+    "Unit"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.anUncaughtThrowableOnAnyThreadReachesItThroughInstall"
+  ],
+  "expect": [
+   "UncaughtRecordTest.anUncaughtThrowableOnAnyThreadReachesItThroughInstall"
+  ],
+  "note": "C1: once per process"
+ },
+ {
+  "id": "P3b-25-a-failed-write-leaves-the-handler",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "catch (unsaid: Throwable) { }",
+    "catch (unsaid: Throwable) { }; throw t"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.theHandlerNeverThrowsAndStillHandsOn"
+  ],
+  "expect": [
+   "UncaughtRecordTest.theHandlerNeverThrowsAndStillHandsOn"
+  ],
+  "note": "C1 step 2"
+ },
+ {
+  "id": "P3b-26-no-print-when-there-was-no-handler",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "System.err.print(\"Exception in thread \\\"${thread.name}\\\" \")",
+    "Unit"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.withNoPreviousHandlerTheTraceStillReachesStderr"
+  ],
+  "expect": [
+   "UncaughtRecordTest.withNoPreviousHandlerTheTraceStillReachesStderr"
+  ],
+  "note": "C1 step 3 / Q5: the PC log depends on the JVM print"
+ },
+ {
+  "id": "P3b-27-no-bound-per-process",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "if (written >= MAX_PER_PROCESS) { close(\"$MAX_PER_PROCESS records in this process\"); return }",
+    "if (false) { close(\"$MAX_PER_PROCESS records in this process\"); return }"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.aRepeatingFaultIsBounded"
+  ],
+  "expect": [
+   "UncaughtRecordTest.aRepeatingFaultIsBounded"
+  ],
+  "note": "C1 / F7"
+ },
+ {
+  "id": "P3b-28-no-limit-check-before-a-record",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "if (room <= 0) { close(\"the file's limit of $MAX_PENDING_BYTES B\"); return }",
+    "if (false) { close(\"the file's limit of $MAX_PENDING_BYTES B\"); return }"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.aRepeatingFaultIsBounded"
+  ],
+  "expect": [
+   "UncaughtRecordTest.aRepeatingFaultIsBounded"
+  ],
+  "note": "C1: the byte limit"
+ },
+ {
+  "id": "P3b-29-the-closing-line-is-said-at-every-fault",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "            if (closed) return\n            closed = true\n            if (!endsWithClosing())",
+    "            closed = true\n            if (!endsWithClosing())"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.aRepeatingFaultIsBounded"
+  ],
+  "expect": [
+   "UncaughtRecordTest.aRepeatingFaultIsBounded"
+  ],
+  "note": "F7: once per process (the stderr line)"
+ },
+ {
+  "id": "P3b-30-every-process-adds-its-closing-line",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "            if (!endsWithClosing())\n                FileOutputStream",
+    "            if (true)\n                FileOutputStream"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.aRepeatingFaultIsBounded"
+  ],
+  "expect": [
+   "UncaughtRecordTest.aRepeatingFaultIsBounded"
+  ],
+  "note": "a start loop before the pickup: one line per process without the tail check"
+ },
+ {
+  "id": "P3b-31-a-record-is-not-cut-at-the-limit",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "val n = minOf(len.toLong(), room).toInt()",
+    "val n = len"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.aRecordThatReachesTheLimitIsCutThereAndSaysSo"
+  ],
+  "expect": [
+   "UncaughtRecordTest.aRecordThatReachesTheLimitIsCutThereAndSaysSo"
+  ],
+  "note": "the pending file never passes its limit"
+ },
+ {
+  "id": "P3b-32-a-cut-record-does-not-say-so",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "if (cut) fos.write(",
+    "if (false) fos.write("
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.aRecordThatReachesTheLimitIsCutThereAndSaysSo"
+  ],
+  "expect": [
+   "UncaughtRecordTest.aRecordThatReachesTheLimitIsCutThereAndSaysSo"
+  ],
+  "note": "the cut is said in the file"
+ },
+ {
+  "id": "P3b-33-the-pending-file-is-not-renamed",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "Files.move(pending, target)     // no options: an existing target is refused, never replaced",
+    "Unit"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.theNextStartSaysItOnce"
+  ],
+  "expect": [
+   "UncaughtRecordTest.theNextStartSaysItOnce"
+  ],
+  "note": "C1 takePending: said once"
+ },
+ {
+  "id": "P3b-34-the-note-is-cut",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "!Journal.appendNote(journal, \"uncaught\", text)",
+    "!Journal.appendNote(journal, \"uncaught\", text.take(1000))"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.theNextStartSaysItOnce"
+  ],
+  "expect": [
+   "UncaughtRecordTest.theNextStartSaysItOnce"
+  ],
+  "note": "F4: the pending text is journaled whole"
+ },
+ {
+  "id": "P3b-35-renamed-though-the-note-did-not-land",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "if (journal != null && !Journal.appendNote(journal, \"uncaught\", text))",
+    "if (journal != null && !Journal.appendNote(journal, \"uncaught\", text) && false)"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.aNoteThatDidNotLandKeepsTheRecordPending"
+  ],
+  "expect": [
+   "UncaughtRecordTest.aNoteThatDidNotLandKeepsTheRecordPending"
+  ],
+  "note": "NIT 17"
+ },
+ {
+  "id": "P3b-36-a-file-that-does-not-parse-is-dropped",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "        val rec = parse(text)\n",
+    "        val rec = parse(text) ?: return null\n"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.aPendingFileThatDoesNotParseIsStillSaid"
+  ],
+  "expect": [
+   "UncaughtRecordTest.aPendingFileThatDoesNotParseIsStillSaid"
+  ],
+  "note": "NIT 19"
+ },
+ {
+  "id": "P3b-37-never-the-same-again",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "before.signature == rec.signature",
+    "false"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.theSameFaultAgainIsAppendedAndSaidShort",
+   "*UncaughtRecordTest.anotherClassOrThreadOnTheSameFrameIsAnotherFault"
+  ],
+  "expect": [
+   "UncaughtRecordTest.theSameFaultAgainIsAppendedAndSaidShort",
+   "UncaughtRecordTest.anotherClassOrThreadOnTheSameFrameIsAnotherFault"
+  ],
+  "note": "F7: one file and one journal note per start of a start loop"
+ },
+ {
+  "id": "P3b-38-thread-digits-not-levelled",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "listOf(cls, thread.replace(DIGITS, \"#\")) + frames",
+    "listOf(cls, thread) + frames"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.theSameFaultAgainIsAppendedAndSaidShort"
+  ],
+  "expect": [
+   "UncaughtRecordTest.theSameFaultAgainIsAppendedAndSaidShort"
+  ],
+  "note": "F7: a pool worker number differs from run to run"
+ },
+ {
+  "id": "P3b-39-the-count-is-the-pending-only",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "val n = whole + more + rec.count",
+    "val n = rec.count"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.theSameFaultAgainIsAppendedAndSaidShort"
+  ],
+  "expect": [
+   "UncaughtRecordTest.theSameFaultAgainIsAppendedAndSaidShort"
+  ],
+  "note": "F7: n since — re-pointed in R2c (the count is whole records + the counter line + the pending)"
+ },
+ {
+  "id": "P3b-40-the-same-again-is-not-appended",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "Files.newOutputStream(newest, StandardOpenOption.APPEND).use { out -> Files.newInputStream(pending).use { it.copyTo(out) } }",
+    "Unit"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.theSameFaultAgainIsAppendedAndSaidShort"
+  ],
+  "expect": [
+   "UncaughtRecordTest.theSameFaultAgainIsAppendedAndSaidShort"
+  ],
+  "note": "F7: the record goes into the kept file before the pending file is removed"
+ },
+ {
+  "id": "P3b-41-a-taken-name-has-no-fallback",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "val target = if (Files.exists(byRecord)) dir.resolve(\"uncaught-${now().format(FILE_STAMP)}.txt\") else byRecord",
+    "val target = byRecord"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.aTakenDatedNameFallsBackToThePickupsTime"
+  ],
+  "expect": [
+   "UncaughtRecordTest.aTakenDatedNameFallsBackToThePickupsTime"
+  ],
+  "note": "a taken name would fail the same way at every start"
+ },
+ {
+  "id": "P3b-42-a-longer-file-is-not-said",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "if (size > MAX_PENDING_BYTES)",
+    "if (false)"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.aPendingFilePastWhatThisBuildWritesIsSaid"
+  ],
+  "expect": [
+   "UncaughtRecordTest.aPendingFilePastWhatThisBuildWritesIsSaid"
+  ],
+  "note": "the bounded read says what it left out"
+ },
+ {
+  "id": "P3b-43-the-pickup-does-not-take-the-lock",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "synchronized(lock) { pickup(dir, journal, now) }",
+    "pickup(dir, journal, now)"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.aRecordWrittenDuringThePickupIsNeverInAFileAlreadySaid"
+  ],
+  "expect": [
+   "UncaughtRecordTest.aRecordWrittenDuringThePickupIsNeverInAFileAlreadySaid"
+  ],
+  "note": "NIT 18"
+ },
+ {
+  "id": "P3b-44-the-top-frame-is-not-compared",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "listOf(cls, thread.replace(DIGITS, \"#\")) + frames",
+    "listOf(cls, thread.replace(DIGITS, \"#\"))"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.aTakenDatedNameFallsBackToThePickupsTime",
+   "*UncaughtRecordTest.aSharedTopFrameFromAnotherCallerIsAnotherFault"
+  ],
+  "expect": [
+   "UncaughtRecordTest.aTakenDatedNameFallsBackToThePickupsTime",
+   "UncaughtRecordTest.aSharedTopFrameFromAnotherCallerIsAnotherFault"
+  ],
+  "note": "F7 / R2 RF-3: first class, thread AND the first SIGNATURE_FRAMES (32) frames of the first section — re-pointed in R2c (the signature compared the top frame alone before)"
+ },
+ {
+  "id": "P3b-45-the-class-is-not-compared",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "listOf(cls, thread.replace(DIGITS, \"#\")) + frames",
+    "listOf(\"\", thread.replace(DIGITS, \"#\")) + frames"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.anotherClassOrThreadOnTheSameFrameIsAnotherFault"
+  ],
+  "expect": [
+   "UncaughtRecordTest.anotherClassOrThreadOnTheSameFrameIsAnotherFault"
+  ],
+  "note": "F7"
+ },
+ {
+  "id": "P3b-46-the-thread-is-not-compared",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "listOf(cls, thread.replace(DIGITS, \"#\")) + frames",
+    "listOf(cls, \"\") + frames"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.anotherClassOrThreadOnTheSameFrameIsAnotherFault"
+  ],
+  "expect": [
+   "UncaughtRecordTest.anotherClassOrThreadOnTheSameFrameIsAnotherFault"
+  ],
+  "note": "F7"
+ },
+ {
+  "id": "P3b-47-the-same-again-note-ignores-a-failed-write",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "if (say && journal != null && !Journal.appendNote(journal, \"uncaught\", line))",
+    "if (say && journal != null && !Journal.appendNote(journal, \"uncaught\", line) && false)"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.aSameAgainNoteThatDidNotLandKeepsTheRecordPending"
+  ],
+  "expect": [
+   "UncaughtRecordTest.aSameAgainNoteThatDidNotLandKeepsTheRecordPending"
+  ],
+  "note": "NIT 17 on the same-again path — re-pointed in R2c (the note is written when the line is said)"
+ },
+ {
+  "id": "P3v-01-a-refused-record-is-saved",
+  "file": "shell/Persistence.kt",
+  "edits": [
+   [
+    "\"inside the tolerance — ours kept\")\n            return false\n        }\n        save()",
+    "\"inside the tolerance — ours kept\")\n            save(); return false\n        }\n        save()"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.aDifferentValueKeepsTheStrictOrder"
+  ],
+  "expect": [
+   "SyncToleranceTest.aDifferentValueKeepsTheStrictOrder"
+  ],
+  "note": "P3 verify: the table's last row (refused, nothing saved) had no pin on the file"
+ },
+ {
+  "id": "P3v-02-only-the-handshake-carries-the-clock",
+  "file": "sync/SyncNet.kt",
+  "edits": [
+   [
+    "private fun carriesClock(w: SWire) = w.t == \"sync\" || w.t == \"syncok\"",
+    "private fun carriesClock(w: SWire) = w.t == \"sync\""
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.aHandshakeLeavesRecordsInsideTheToleranceAlone"
+  ],
+  "expect": [
+   "SyncToleranceTest.aHandshakeLeavesRecordsInsideTheToleranceAlone"
+  ],
+  "note": "P3 verify, finding 9: the server's answer is a clock-carrying frame too"
+ },
+ {
+  "id": "P3v-03-only-the-answer-carries-the-clock",
+  "file": "sync/SyncNet.kt",
+  "edits": [
+   [
+    "private fun carriesClock(w: SWire) = w.t == \"sync\" || w.t == \"syncok\"",
+    "private fun carriesClock(w: SWire) = w.t == \"syncok\""
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.theOldServersReplyMovesNoStampAndRewritesNoFile",
+   "*SyncToleranceTest.aHandshakeQueuedBehindAPushCarriesTheClockOfItsWrite"
+  ],
+  "expect": [
+   "SyncToleranceTest.theOldServersReplyMovesNoStampAndRewritesNoFile",
+   "SyncToleranceTest.aHandshakeQueuedBehindAPushCarriesTheClockOfItsWrite"
+  ],
+  "note": "P3 verify, finding 9: the client's handshake"
+ },
+ {
+  "id": "P3v-04-no-room-kept-for-the-closing-line",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "val room = MAX_PENDING_BYTES - CLOSING_ROOM - size",
+    "val room = MAX_PENDING_BYTES - size"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.aRecordThatReachesTheLimitIsCutThereAndSaysSo"
+  ],
+  "expect": [
+   "UncaughtRecordTest.aRecordThatReachesTheLimitIsCutThereAndSaysSo"
+  ],
+  "note": "P3 verify: the closing line of a cut record would carry the file past its limit"
+ },
+ {
+  "id": "P3v-05-a-cut-does-not-close-the-record",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "            if (cut) {\n                closed = true\n",
+    "            if (cut) {\n"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.aRecordThatReachesTheLimitIsCutThereAndSaysSo"
+  ],
+  "expect": [
+   "UncaughtRecordTest.aRecordThatReachesTheLimitIsCutThereAndSaysSo"
+  ],
+  "note": "P3 verify, F7: once per process on stderr, on the arm where a record was cut"
+ },
+ {
+  "id": "P3v-06-a-header-time-that-does-not-parse-leaves-the-pickup",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "catch (e: DateTimeParseException) { return null }",
+    "catch (e: DateTimeParseException) { throw e }"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.aPendingFileThatDoesNotParseIsStillSaid"
+  ],
+  "expect": [
+   "UncaughtRecordTest.aPendingFileThatDoesNotParseIsStillSaid"
+  ],
+  "note": "P3 verify, NIT 19: a whole header with an unreadable time is unread, not a pickup that fails at every start"
+ },
+ {
+  "id": "P3v-07-the-pickup-lets-an-exception-out",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "        } catch (e: Exception) {\n            \"the last run's uncaught-error record could not be picked up",
+    "        } catch (e: IllegalStateException) {\n            \"the last run's uncaught-error record could not be picked up"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.aPickupThatCannotFinishSaysSoAndLeavesTheRecord"
+  ],
+  "expect": [
+   "UncaughtRecordTest.aPickupThatCannotFinishSaysSoAndLeavesTheRecord"
+  ],
+  "note": "P3 verify: takePending never throws (it runs in onCreate and in runShell's first lines)"
+ },
+ {
+  "id": "P3v-08-the-rotation-check-lets-an-exception-out",
+  "file": "comp/Journal.kt",
+  "edits": [
+   [
+    "            } catch (e: Exception) {\n                Log.e(\"journal\", \"the rotation check of",
+    "            } catch (e: IllegalStateException) {\n                Log.e(\"journal\", \"the rotation check of"
+   ]
+  ],
+  "tests": [
+   "*JournalRotateTest.aRotationCheckThatCannotFinishSaysSoAndLeavesTheJournal"
+  ],
+  "expect": [
+   "JournalRotateTest.aRotationCheckThatCannotFinishSaysSoAndLeavesTheJournal"
+  ],
+  "note": "P3 verify: rotateAtStart never throws (the first statement of both process starts)"
+ },
+ {
+  "id": "P3v-09-another-fault-behind-the-same-one-is-the-same-again",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "if (rec != null && rec.uniform && newest != null",
+    "if (rec != null && newest != null"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest.anotherFaultBehindTheSameOneIsJournaledWhole"
+  ],
+  "expect": [
+   "UncaughtRecordTest.anotherFaultBehindTheSameOneIsJournaledWhole"
+  ],
+  "note": "P3 verify, the tree as built: only the first record of a pending file was compared, and another fault behind it was journaled as one short line"
+ }
+]

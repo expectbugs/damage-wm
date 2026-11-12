@@ -27,7 +27,9 @@ import wm.damage.core.transport.PathTransport
 import wm.damage.core.transport.RemoteTransportClient
 import wm.damage.core.transport.SimTransport
 import wm.damage.core.transport.Transport
+import wm.damage.core.util.InstanceLock
 import wm.damage.core.util.Log
+import wm.damage.core.util.UncaughtRecord
 import wm.damage.core.windows.reader.ReaderWindow
 
 /**
@@ -51,47 +53,241 @@ import wm.damage.core.windows.reader.ReaderWindow
  * Whatever the mode: the 1x preview draws the transport's mirror with mouse
  * input, the browser replica is served on `replicaPort`, the content host
  * serves `booksDir` + tmux + sync, and a session keeper restarts any running
- * session after every link end. Other entry points:
+ * session after every link end. Other entry points, one at a time:
  *
- *   --selfcheck · --snapshot DIR · --epub-check · --music-check · --games-check [deep] · --feed-check [live]
- *   --card-render DIR
+ *   --selfcheck · --snapshot [DIR] · --epub-check [DIR] · --music-check · --games-check [deep]
+ *   --feed-check [DIR] [live] · --card-render [DIR]
  *   --host-only · --ble-info
+ *   --help | -h
  *
  * `--no-preview` runs any transport mode headless (no Swing, no X) — the
  * all-day OpenRC service mode (DAILY.md); views are the replicas.
+ *
+ * The argument list is read whole by [parseArgs] before anything starts
+ * (0.64 T0, 2026-11-11). Until then a tool was picked by `"--flag" in args`
+ * and every other list went to the shell, so `--help`, a mistyped tool flag
+ * or `--version` started a second shell in `auto` with the preview on the
+ * real data directory, beside the running service. Now a list that is not
+ * understood prints one line naming the argument and [USAGE], and exits 2.
+ * The flags are [CLI_FLAGS]. `CliTest` fails on a flag in that list with no
+ * branch in [parseArgs] or no line in [USAGE], and on a flag in [USAGE] that
+ * is not in the list; a branch for a flag the list does not name is refused
+ * as unknown, so it cannot be reached before the other two exist.
  */
 fun main(args: Array<String>) {
-    // --no-preview: the all-day service mode (DAILY.md) — no Swing window, no
-    // X needed; the phone screen and the browser replica are the views. Set
-    // BEFORE any AWT class loads so the JVM commits to headless.
-    if ("--no-preview" in args) System.setProperty("java.awt.headless", "true")
-    val cfg = Config.load()
-    when {
-        "--selfcheck" in args -> SelfCheck.run(cfg)
-        "--epub-check" in args -> epubCheck(cfg)
-        "--music-check" in args -> MusicCheck.run(cfg)
-        "--games-check" in args -> GamesCheck.run(cfg, deep = "deep" in args)
-        "--feed-check" in args -> FeedCheck.run(cfg, live = "live" in args,
-            fixtures = Path.of(args.getOrNull(args.indexOf("--feed-check") + 1)?.takeIf { it != "live" } ?: "core/src/test/resources/feed"))
-        "--card-render" in args -> CardSheet.run(cfg,
-            Path.of(args.getOrNull(args.indexOf("--card-render") + 1) ?: "design/shots/cards"))
-        "--snapshot" in args -> Snapshot.run(cfg,
-            Path.of(args.getOrNull(args.indexOf("--snapshot") + 1) ?: "snapshots"))
-        "--ble-info" in args -> bleInfo()
-        "--host-only" in args -> runBlocking { hostOnly(cfg) }
-        else -> {
-            val remoteHost = if ("--remote" in args) args.getOrNull(args.indexOf("--remote") + 1) else null
-            val mode = when {
-                "--transport" in args -> args.getOrNull(args.indexOf("--transport") + 1) ?: "auto"
-                remoteHost != null -> "remote"
-                "--sim" in args -> "sim"
-                "--ble" in args -> "ble"
-                else -> "auto"
-            }
-            runShell(cfg, mode, remoteHost, preview = "--no-preview" !in args)
+    val code = runCli(args, System.out, System.err) { cli ->
+        // --no-preview: the all-day service mode (DAILY.md) — no Swing window, no
+        // X needed; the phone screen and the browser replica are the views. Set
+        // BEFORE any AWT class loads so the JVM commits to headless.
+        if (cli.headless) System.setProperty("java.awt.headless", "true")
+        val cfg = Config.load()
+        when (cli) {
+            is Cli.SelfCheck -> SelfCheck.run(cfg)
+            // cli.dir is carried and not read yet: honouring it (and a non-zero exit over zero
+            // books) is green-gate GG-8's fix, a change of its own
+            is Cli.EpubCheck -> epubCheck(cfg)
+            is Cli.MusicCheck -> MusicCheck.run(cfg)
+            is Cli.GamesCheck -> GamesCheck.run(cfg, deep = cli.deep)
+            is Cli.FeedCheck -> FeedCheck.run(cfg, live = cli.live, fixtures = Path.of(cli.fixtures))
+            is Cli.CardRender -> CardSheet.run(cfg, Path.of(cli.dir))
+            is Cli.Snapshot -> Snapshot.run(cfg, Path.of(cli.dir))
+            is Cli.BleInfo -> bleInfo()
+            is Cli.HostOnly -> runBlocking { hostOnly(cfg) }
+            is Cli.Shell -> runShell(cfg, cli.mode, cli.remoteHost, preview = cli.preview)
         }
     }
+    if (code != 0) kotlin.system.exitProcess(code)
 }
+
+/** What an argument list asks of the program — [parseArgs]'s answer. */
+internal sealed interface Cli {
+    /** `--help` / `-h`: [USAGE] on stdout, exit 0, nothing else. */
+    data object Usage : Cli
+
+    /** A list that is not understood. [what] is the one line that names the argument; [USAGE]
+     *  follows it on stderr and the exit status is [CLI_REFUSED]. Nothing else starts. */
+    data class Refused(val what: String) : Cli
+
+    /** An entry point that runs. [headless]: `--no-preview` was given, so `main` sets
+     *  `java.awt.headless` before the config is read or an AWT class loads. */
+    sealed interface Run : Cli { val headless: Boolean }
+
+    /** The shell (`runShell`): [mode] is one of [DesktopStack.MODES]; [remoteHost] is the phone's
+     *  host for `remote` and for the standby probe, null = the config's `phoneHost`. */
+    data class Shell(val mode: String, val remoteHost: String?, val preview: Boolean) : Run {
+        override val headless: Boolean get() = !preview
+    }
+    data class SelfCheck(override val headless: Boolean = false) : Run
+    data class Snapshot(val dir: String, override val headless: Boolean = false) : Run
+    /** [dir] null = no directory was given (the config's `booksDir`). */
+    data class EpubCheck(val dir: String?, override val headless: Boolean = false) : Run
+    data class MusicCheck(override val headless: Boolean = false) : Run
+    data class GamesCheck(val deep: Boolean, override val headless: Boolean = false) : Run
+    data class FeedCheck(val fixtures: String, val live: Boolean, override val headless: Boolean = false) : Run
+    data class CardRender(val dir: String, override val headless: Boolean = false) : Run
+    data class BleInfo(override val headless: Boolean = false) : Run
+    data class HostOnly(override val headless: Boolean = false) : Run
+
+    companion object {
+        /** Where a tool writes or reads when no directory follows its flag — the values `main`
+         *  held inline before [parseArgs]. */
+        const val SNAPSHOT_DIR = "snapshots"
+        const val CARD_DIR = "design/shots/cards"
+        const val FEED_FIXTURES = "core/src/test/resources/feed"
+    }
+}
+
+/** The exit status of a refused argument list (the common "usage" status). */
+internal const val CLI_REFUSED = 2
+
+/** Every flag [parseArgs] knows. Anything else on the command line is the value of one of these or
+ *  is refused. `CliTest` holds this list, [parseArgs] and [USAGE] to each other. */
+internal val CLI_FLAGS: List<String> = listOf(
+    "--transport", "--remote", "--sim", "--ble", "--no-preview",
+    "--selfcheck", "--snapshot", "--epub-check", "--music-check", "--games-check", "--feed-check", "--card-render",
+    "--host-only", "--ble-info",
+    "--help", "-h")
+
+/** What `--help` prints, and what follows the line that names a refused argument. */
+internal val USAGE: String = """
+    usage: desktop [--transport MODE [--remote HOST] | --remote HOST | --sim | --ble] [--no-preview]
+           desktop ENTRY [--no-preview]
+           desktop --help | -h
+
+    Without an ENTRY the shell starts; without any argument, in auto with the preview window.
+      --transport MODE    auto    standby (the default): the phone drives, this serves the data
+                          sim     the firmware model in-process (development)
+                          ble     PC-direct BLE
+                          remote  drive through the phone's transport
+      --sim, --ble        short for --transport sim, --transport ble
+      --remote HOST       the phone at HOST; without --transport it means --transport remote
+      --no-preview        headless, no window (the service runs --transport auto --no-preview)
+
+    ENTRY, one at a time:
+      --selfcheck                the scripted whole-stack check on the simulator
+      --snapshot [DIR]           lens-truth PNGs of every surface (default: ${Cli.SNAPSHOT_DIR})
+      --epub-check [DIR]         parse every book in the config's booksDir (DIR is read and not used yet)
+      --music-check              the real music library, read-only
+      --games-check [deep]       the Hold'em ecology in memory; deep is the long run
+      --feed-check [DIR] [live]  the feed engine over fixtures (default: ${Cli.FEED_FIXTURES});
+                                 live fetches each source once
+      --card-render [DIR]        the card sheets at 1x (default: ${Cli.CARD_DIR})
+      --host-only                the content host alone, no shell
+      --ble-info                 the BlueZ adapter and the devices it knows, no discovery
+
+    An argument that is not listed here is refused with exit $CLI_REFUSED, and nothing starts.
+    The shell and --host-only exit ${InstanceLock.EXIT_HELD} when another process holds the data directory
+    (its ${InstanceLock.FILE}), and nothing starts.
+""".trimIndent()
+
+/**
+ * Reads an argument list into what `main` will do. PURE: no I/O, no AWT, no `Config.load()` — `main`
+ * calls it before anything else, and `CliTest` calls it with every list it can build.
+ *
+ * The rule: an accepted list means what it meant to the `"--flag" in args` chain this replaced
+ * (`CliTest.anAcceptedLineMeansWhatItMeantBefore` holds that against a transcription of the chain),
+ * and a list that chain would have run while dropping part of it is refused —
+ *  - an argument that is no flag and no flag's value (the old chain started the shell);
+ *  - two entry points, or a shell flag beside one (it ran the first in its own order);
+ *  - two statements of the mode (`--transport` won over `--remote` over `--sim` over `--ble`);
+ *  - `--transport` with no mode or `--remote` with no host (it went on as if the flag were absent);
+ *  - a mode that is not one of [DesktopStack.MODES] (it bound the ports, then the stack threw
+ *    [unknownStackMode]; the refusal is that sentence);
+ *  - a flag given twice (it read the first).
+ * One reading changes on purpose: a flag is never another flag's value. `--snapshot --no-preview`
+ * wrote into a directory named `--no-preview`; it now writes headless into the default.
+ * A value follows its flag directly; `deep` and `live` used to be read anywhere in the list.
+ */
+internal fun parseArgs(args: Array<String>): Cli {
+    if (args.any { it == "--help" || it == "-h" }) return Cli.Usage
+    // a flag is never taken as a value (value(), below), so this is exactly "the flag was given"
+    val headless = "--no-preview" in args
+    val modes = DesktopStack.MODES.joinToString(" | ")
+    val seen = HashSet<String>()
+    var entry: Pair<String, Cli.Run>? = null     // the entry point asked for, under the flag that named it
+    var shellOnly: String? = null                // the first flag only the shell reads
+    var transport: String? = null
+    var remote: String? = null
+    var i = 0
+    // the argument after the flag at i when it is that flag's value: there, not blank, not a flag
+    fun value(): String? = args.getOrNull(i + 1)?.takeIf { it.isNotBlank() && !it.startsWith("-") }?.also { i++ }
+    fun word(w: String): Boolean = (args.getOrNull(i + 1) == w).also { if (it) i++ }
+    while (i < args.size) {
+        val a = args[i]
+        if (a !in CLI_FLAGS) return Cli.Refused("unknown argument '$a'")
+        if (!seen.add(a)) return Cli.Refused("$a is given twice")
+        val run: Cli.Run? = when (a) {
+            "--selfcheck" -> Cli.SelfCheck(headless)
+            "--snapshot" -> Cli.Snapshot(value() ?: Cli.SNAPSHOT_DIR, headless)
+            "--epub-check" -> Cli.EpubCheck(value(), headless)
+            "--music-check" -> Cli.MusicCheck(headless)
+            "--games-check" -> Cli.GamesCheck(deep = word("deep"), headless)
+            "--feed-check" -> {
+                // [DIR] [live]: `live` first is the word, never a directory of that name (as before)
+                val liveFirst = word("live")
+                val dir = if (liveFirst) null else value()
+                Cli.FeedCheck(dir ?: Cli.FEED_FIXTURES, live = liveFirst || (dir != null && word("live")), headless)
+            }
+            "--card-render" -> Cli.CardRender(value() ?: Cli.CARD_DIR, headless)
+            "--host-only" -> Cli.HostOnly(headless)
+            "--ble-info" -> Cli.BleInfo(headless)
+            "--transport" -> {
+                val m = value() ?: return Cli.Refused("--transport needs a mode ($modes)")
+                // the stack's own sentence, said here before anything starts: runShell said it
+                // only from DesktopStack's constructor, after the ports were bound
+                if (m !in DesktopStack.MODES) return Cli.Refused(unknownStackMode(m))
+                transport = m
+                null
+            }
+            "--remote" -> { remote = value() ?: return Cli.Refused("--remote needs a host"); null }
+            "--sim", "--ble", "--no-preview" -> null
+            // CLI_FLAGS names a flag this function has no branch for
+            else -> return Cli.Refused("unknown argument '$a'")
+        }
+        if (run != null) {
+            entry?.let { return Cli.Refused("${it.first} and $a: one entry point at a time") }
+            entry = a to run
+        } else if (a != "--no-preview" && shellOnly == null) shellOnly = a
+        i++
+    }
+    entry?.let { (flag, run) ->
+        shellOnly?.let { return Cli.Refused("$it does not apply to $flag") }
+        return run
+    }
+    // the mode is said once: --transport MODE, or one short form. --remote HOST alone is a short
+    // form (remote); beside --transport it only names the host, as it always did
+    val said = listOfNotNull("--transport".takeIf { transport != null },
+        "--remote".takeIf { remote != null && transport == null },
+        "--sim".takeIf { it in seen }, "--ble".takeIf { it in seen })
+    if (said.size > 1) return Cli.Refused("${said[0]} and ${said[1]}: the mode is said once " +
+        "(--transport MODE beside --remote HOST keeps the host)")
+    val mode = transport ?: when (said.firstOrNull()) {
+        "--remote" -> "remote"
+        "--sim" -> "sim"
+        "--ble" -> "ble"
+        else -> "auto"
+    }
+    return Cli.Shell(mode, remote, preview = !headless)
+}
+
+/** The one sentence for a transport mode nothing here can run. [DesktopStack] throws it for a mode
+ *  its `when` does not build; [parseArgs] refuses `--transport MODE` with it for a MODE outside
+ *  [DesktopStack.MODES], so the command line never reaches that throw. */
+internal fun unknownStackMode(mode: String): String =
+    "unknown stack mode '$mode' (sim | ble | remote; auto is the standby policy, not a stack)"
+
+/**
+ * Acts on an argument list: [USAGE] for `--help`, the refusal and [USAGE] for a list [parseArgs]
+ * does not understand, [start] for everything else. Returns the process's exit status. [start] is
+ * not called for the first two, so when they return nothing was read, bound or drawn.
+ */
+internal fun runCli(args: Array<String>, out: java.io.PrintStream, err: java.io.PrintStream,
+                    start: (Cli.Run) -> Unit): Int =
+    when (val cli = parseArgs(args)) {
+        Cli.Usage -> { out.println(USAGE); 0 }
+        is Cli.Refused -> { err.println("desktop: ${cli.what}"); err.println(USAGE); CLI_REFUSED }
+        is Cli.Run -> { start(cli); 0 }
+    }
 
 @Serializable
 data class Config(
@@ -421,6 +617,9 @@ private fun bleInfo() {
 }
 
 private suspend fun hostOnly(cfg: Config) {
+    // R2 (RE-3): first, the data directory — the same store, ports and engines as the service's; a
+    // directory another process holds ends this start here (exit 4, one stderr line)
+    InstanceLock.claimOrExit(Path.of(cfg.dataDir))
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     val tmux = wm.damage.core.windows.tmux.LocalTmuxProvider(cfg.tmuxHostList(), cfg.tmuxConfig(), scope)
     // host-only still syncs (§19.2): the store is the data, no shell needed
@@ -494,7 +693,7 @@ class DesktopStack(
         "remote" -> remote()
         // "auto" builds NO stack: it is the standby policy in runShell (§19.2)
         // — a stack only exists while the APK is not available
-        else -> throw IllegalArgumentException("unknown stack mode '$mode' (sim | ble | remote; auto is the standby policy, not a stack)")
+        else -> throw IllegalArgumentException(unknownStackMode(mode))
     }
     val shell: Shell
     val keeper: ShellKeeper
@@ -575,6 +774,38 @@ class DesktopStack(
 }
 
 private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Boolean = true): Unit = runBlocking {
+    // 0.64 (`HANDOFF.md` §75.1), FIRST, before the store, the host and any stack — no journal writer
+    // and no server exists yet in this process:
+    //   0. the data directory is claimed (R2, RE-3): another process holding it (the service, when
+    //      this is a dev session or a stray start) ends this start here with one stderr line and
+    //      exit 4 — before anything below appends to its journal, renames it or takes its record
+    //   1. the uncaught-error record (on this JVM an uncaught throwable ends its thread, not the
+    //      process, and an OutOfMemoryError never reaches a handler: -XX:+ExitOnOutOfMemoryError)
+    //   2. the journal past 64 MiB is set aside; nothing is deleted
+    //   3. the last run's record, journaled and renamed, then said once
+    // Only here and in the phone's ShellService.onCreate: `--host-only` has no journal writer, and a
+    // tool (`--selfcheck`, `--snapshot`, the `--*-check` entries) must never rename the service's
+    // file (`tools/check_apk_wiring.py` holds the list of callers). A dev session on the real data
+    // directory while the service runs is refused at step 0; with the service stopped it IS a start:
+    // it rotates the journal and picks up the last run's record.
+    val dataDir = Path.of(cfg.dataDir)
+    InstanceLock.claimOrExit(dataDir)
+    val journalFile = dataDir.resolve("journal.jsonl")
+    UncaughtRecord.install(dataDir, "desktop " + (DesktopStack::class.java.getResource("/damage-build.txt")?.readText()?.trim() ?: "unstamped"))
+    Journal.rotateAtStart(journalFile)
+    // the start's `process` note carries the archives' count and total (R2 item 26), in both arms
+    val archives = Journal.archivesSaid(journalFile)
+    val installed = UncaughtRecord.installedLine()
+    if (installed != null) {
+        Log.i("uncaught", installed)
+        Journal.appendNote(journalFile, "process", "$installed; ${journalFile.fileName}: $archives")
+    } else {
+        val line = "the uncaught-error record is NOT installed in this process — an uncaught error would leave no record"
+        Log.e("uncaught", line)
+        Journal.appendNote(journalFile, "process", "$line; ${journalFile.fileName}: $archives")
+    }
+    UncaughtRecord.takePending(dataDir, journalFile)?.let { Log.e("uncaught", it) }
+
     // the current stack: written by the switch thread, read by the EDT, the
     // replica's threads and every client — a reference with visibility.
     // NULL is a legal steady state now (§19): standby with the phone driving.
@@ -714,6 +945,10 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     // advertising to this adapter (§47) starts a plain BLE stack; the APK's
     // return stops it — the handback.
     val standbyScan = StandbyScan(cfg)
+    // Never closed: it holds the file open for the life of the process. Were a second process on
+    // this data directory to set the file aside at its start, these notes would follow the bytes
+    // into the archive until this process ends (`Journal.rotateAtStart`). The daily setup never
+    // runs two (the service is stopped before a dev session).
     val standbyJournal = Journal(Path.of(cfg.dataDir).resolve("journal.jsonl"))
     launch(Dispatchers.IO) {
         var absentStreak = 0
@@ -878,7 +1113,9 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
         )
     }, onInput = { t -> stack()?.transport?.injectInput(t) },
         onText = { line -> stack()?.transport?.injectText(line) },
-        onProbe = { n, v -> stack()?.transport?.devProbe(n, v)
+        // 0.64: a probe is offered to the SHELL first (`rest=on|off` is its own, `Shell.devProbe`), then
+        // to the transport; with no stack (standby, the phone drives) neither exists to take it
+        onProbe = { n, v -> stack()?.let { if (!it.shell.devProbe(n, v)) it.transport.devProbe(n, v) }
             ?: Log.w("damage", "probe $n=$v: no shell stack on this host (the phone drives)") },
         journalPath = { Path.of(cfg.dataDir).resolve("journal.jsonl") })
     try {
@@ -892,7 +1129,9 @@ private fun runShell(cfg: Config, mode: String, remoteHost: String?, preview: Bo
     else
         "shell up in $mode mode — books from ${cfg.booksDir}, journal in ${cfg.dataDir}")
     Log.i("damage", "preview: wheel/click/right-click/hold = ring · Tab lens · B both")
-    Log.i("damage", "browser replica: http://<this-host>:${cfg.replicaPort}/?token=${cfg.token}")
+    // the token's value is never written here (R2, RE-8: a config secret is never displayed; damage.log
+    // is 0644 and the log ring is served) — the line says where it is; tools/lint.py SEC001 holds it
+    Log.i("damage", "browser replica: http://<this-host>:${cfg.replicaPort}/?token=… (the token is in ${Config.path()})")
     kotlinx.coroutines.awaitCancellation()
 }
 

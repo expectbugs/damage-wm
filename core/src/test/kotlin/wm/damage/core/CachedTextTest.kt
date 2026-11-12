@@ -62,9 +62,16 @@ class CachedTextTest {
         val tmp = Files.createTempDirectory("damage-cached")
         val sim = GlassFirmwareSim()
         val spy = SpyTransport(SimTransport(sim, scope, SimTransport.Timing(instant = true)))
-        val shell = Shell(text, spy, Persistence(tmp.resolve("state.json")), null, scope)
+        val journal = tmp.resolve("journal.jsonl")
+        val shell = Shell(text, spy, Persistence(tmp.resolve("state.json")), journal, scope)
 
         init { for (w in windows) shell.register(w) }
+
+        /** The journal's `cacheMiss` of every submit since line [from], one per flush in order ("" where a
+         *  flush had none) — the file is this rig's own, in its disposable directory. */
+        fun missesSince(from: Int): List<String> = journalLines().drop(from).filter { "\"ev\":\"submit\"" in it }
+            .map { Regex("\"cacheMiss\":\"([^\"]*)\"").find(it)?.groupValues?.get(1) ?: "" }
+        fun journalLines(): List<String> = if (Files.exists(journal)) Files.readAllLines(journal) else emptyList()
 
         suspend fun settle(what: String) {
             val t0 = System.currentTimeMillis()
@@ -256,10 +263,27 @@ class CachedTextTest {
             rig.until("live") { rig.shell.cachedTextActive && rig.shell.cachedFontsLive.isNotEmpty() }
             rig.settle("after the upload")
             val n0 = rig.all().size
+            val j0 = rig.journalLines().size
             repeat(3) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("notch $it") }
             val notch = rig.all().drop(n0)
             val lensDraws = notch.filter { f -> f.ops.any { it is DisplayOp.DrawText && it.y in rig.shell.layout.lens.y..rig.shell.layout.lens.bottom } }
             assertTrue(lensDraws.isEmpty(), "the lens text sits on a grey box: the proof refuses the cached path — ${lensDraws.map { f -> f.ops.map { it::class.simpleName } }}")
+            // 0.64: WHY it stays pixels changed, and the journal's word says which. Until 0.63 the
+            // string's box was black in the base, the grey under it was lost and the proof refused
+            // the rect (`proof`). Now the base carries the grey and the rect proves — a notch changes
+            // one digit, the rect grows to the whole string's box, and that box of grey with a draw
+            // and a copy costs more than the digit's cells: `dearer`, the same pixels on the wire.
+            // Read per flush, on the flushes that carry the lens's rect (a slide's strip flush has
+            // misses of its own); `proof=0` is the full-width retry's first attempt taken back.
+            val misses = rig.missesSince(j0)
+            assertEquals(notch.size, misses.size, "one journal record per flush: ${misses.size} for ${notch.size}")
+            val lens = rig.shell.layout.lens
+            val onTheLens = notch.indices.filter { i -> notch[i].ops.any { it is DisplayOp.Delta && it.box.overlaps(lens) } }
+            assertTrue(onTheLens.size >= 3, "each notch repaints the lens: ${onTheLens.size} flushes")
+            for (i in onTheLens) {
+                assertTrue(Regex("dearer=[1-9]").containsMatchIn(misses[i]), "the lens rect is priced and stays pixels as the dearer message: '${misses[i]}'")
+                assertTrue(!Regex("(proof|two-planes)=[1-9]").containsMatchIn(misses[i]), "and no proof fails on it any more: '${misses[i]}'")
+            }
             rig.assertGlassMatchesBelief("after the notches")
             rig.shell.stop()
         } finally {

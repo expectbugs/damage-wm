@@ -54,6 +54,9 @@ class SilentGlassesTest {
         val kinds = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
         init {
+            // R2 (RH-N2): a list window, so a scroll at Main moves a row and paints — with Settings alone a
+            // gesture composed nothing and the first frame to leave was the idle tick's, 5 s in
+            shell.register(Rows(FakeText()))
             scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
                 transport.events.collect {
                     kinds.merge(it::class.simpleName ?: "?", 1, Int::plus)
@@ -95,11 +98,9 @@ class SilentGlassesTest {
         }
 
         /** Wait for a condition decided by the sim, the transport or the keeper, off the loop. */
-        suspend fun until(what: String, cond: () -> Boolean) {
-            val t0 = System.currentTimeMillis()
-            while (!cond() && System.currentTimeMillis() - t0 < 10_000) delay(10)
-            assertTrue(cond(), "$what — keeper ${keeper.state} attempts ${keeper.attempts} '${keeper.lastReason}'; shell ${shell.quiescenceReport()}; transport ${transport.state.value}; notes ${synchronized(notes) { notes.map { it.kind + ": " + it.detail } }}")
-        }
+        suspend fun until(what: String, cond: () -> Boolean) =
+            // R2 (RH-8): the shared wait — ONE evaluation decides (`WaitTest`); the condition is not asked again after it held
+            waitUntil(10_000, 10, { "$what — keeper ${keeper.state} attempts ${keeper.attempts} '${keeper.lastReason}'; shell ${shell.quiescenceReport()}; transport ${transport.state.value}; notes ${synchronized(notes) { notes.map { it.kind + ": " + it.detail } }}" }, cond)
 
         fun lens(left: Boolean): Gray8 {
             val ctx = if (left) sim.left else sim.right
@@ -170,7 +171,10 @@ class SilentGlassesTest {
             assertTrue(rig.flushes() > flushesAwake, "a keyframe went out in the new session")
             assertEquals(0, rig.failures(), "the rebuild's frames were accepted — nothing was refused")
             assertEquals(listOf(true, false), synchronized(rig.silentEvents) { rig.silentEvents.toList() })
-            assertTrue(synchronized(rig.notes) { rig.notes.any { it.kind == "restart" } }, "the restart is a journaled fact")
+            // R2 (RH-1): the wake is the push OFF's — the paced check would rebuild too (the transport's flag is false
+            // after the push), so the reason is what says which one woke it
+            assertEquals(listOf("the firmware's Silent Mode is off"),
+                synchronized(rig.notes) { rig.notes.filter { it.kind == "restart" }.map { it.detail } }, "the restart is a journaled fact, and the push OFF's")
             rig.assertGlassMatchesBelief("after the rebuild")
             delay(300)
             assertEquals(2, rig.keeper.attempts, "exactly one rebuild per wake")
@@ -191,7 +195,9 @@ class SilentGlassesTest {
 
             rig.sim.reportSilentRestored = false            // and the 60 s poll does not carry the state either
             rig.sim.setSilent(true, push = false)           // the push was missed
-            repeat(6) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("scroll") }
+            // R2 (RH-N2): a gesture only while awake — one handled asleep asks by input, and the paced
+            // branch would no longer be what this test needs (each scroll paints: the rig has a list window)
+            repeat(6) { if (!rig.shell.glassesAsleep) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("scroll") } }
             rig.until("three refusals put the shell to sleep") { rig.shell.glassesAsleep }
             val failedAtSleep = rig.failures()
             assertTrue(failedAtSleep in 1..Shell.REFUSALS_TO_SLEEP + 3,
@@ -205,6 +211,9 @@ class SilentGlassesTest {
             // per pacing, never an unbounded loop.)
             rig.sim.setSilent(false, push = false)
             rig.until("a rebuild follows") { rig.keeper.attempts >= 2 }
+            // R2 (RH-1): the single unattended way back from this sleep is the paced check — said by the reason
+            rig.until("the rebuild was the paced check's") {
+                synchronized(rig.notes) { rig.notes.any { it.kind == "restart" && it.detail.endsWith("(pacing)") } } }
             rig.until("a rebuilt session paints and is awake") { rig.driving() && !rig.shell.glassesAsleep && !rig.sim.carrierLost }
             rig.until("the lease is back") { rig.leaseHeld() }
             rig.settle("the keyframe after the rebuild")
@@ -217,6 +226,67 @@ class SilentGlassesTest {
         } finally {
             scope.cancel()
         }
+    }
+
+    /**
+     * R2 (RG-6, the sibling on any transport): a refusal-streak sleep is the firmware's-Silent-Mode sleep with
+     * the transport's flag false from the start. A link that ends in it left the paced check reading "the
+     * glasses say they are awake": it asked for a rebuild, the transport refused (no session is started) and
+     * a `rebuild` notice followed about a refusal that was the link being down. No keeper (in the product it
+     * stops the shell at its next poll; a pacing tick inside that window did the same). A list window, so
+     * each gesture paints and its frame is refused. The absences are behind a mark, after eight pacings.
+     */
+    @Test
+    fun aPacedCheckAsksNothingOfALinkThatEndedInARefusalStreakSleep(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val tmp = Files.createTempDirectory("damage-silent-down")
+        try {
+            val sim = GlassFirmwareSim()
+            val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+            val journal = tmp.resolve("journal.jsonl")
+            fun notes(kind: String) = (if (Files.exists(journal)) Files.readAllLines(journal) else emptyList())
+                .filter { "\"ev\":\"note\",\"kind\":\"$kind\"" in it }.map { it.substringAfter("\"detail\":\"").removeSuffix("\"}") }
+            val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state.json")), journal, scope)
+            shell.register(Rows(FakeText()))
+            shell.silentPacingMs = 50
+            shell.start()
+            waitUntil(10_000, message = { "the session settles: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
+            sim.reportSilentRestored = false
+            sim.setSilent(true, push = false)               // the push was missed: frames are refused
+            // one scroll moves Main's cursor from Rows to Settings: its frame is refused, re-sent, refused — three
+            // refusals and the shell sleeps. One only: a second one handled asleep would ask by input, on a live link
+            shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM)
+            waitUntil(10_000, message = { "a refusal streak put the shell to sleep: ${shell.quiescenceReport()}" }) { shell.glassesAsleep }
+            assertFalse(transport.state.value.glassesSilent, "a refusal streak: the transport's flag is false")
+            transport.endLink("test: the link ends while the shell sleeps")
+            waitUntil(10_000, message = { "the link's end is in the transport's state" }) { !transport.state.value.connected }
+            delay(400)                                      // eight pacings
+            shell.services.runOnShell { shell.journalNote("mark", "m1") }
+            waitUntil(10_000, message = { "the mark went through the loop" }) { "m1" in notes("mark") }
+            assertEquals(emptyList(), notes("silent").filter { "rebuild refused" in it },
+                "a paced check asked a transport with no session for a rebuild (behind the mark, eight pacings)")
+            val faults = listOfNotNull(shell.notifications.current) + shell.notifications.queued()
+            assertEquals(emptyList(), faults.filter { it.thread == "rebuild" }.map { it.body }, "and raised a notice about a refusal that was the link being down")
+            shell.stop()
+        } finally {
+            scope.cancel()
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /** A list window, so a scroll at Main moves a row and paints (RH-N2: with Settings alone, Main has one row
+     *  and a scroll composes nothing). */
+    private class Rows(private val tx: wm.damage.core.text.TextRasterizer) :
+        wm.damage.core.shell.DamageWindow("rows", "Rows", wm.damage.core.gfx.IconKind.FILES) {
+        private val model = wm.damage.core.shell.ListModel()
+        private val font = wm.damage.core.text.FontSpec(wm.damage.core.text.Face.SYSTEM, 20)
+        override fun view(): wm.damage.core.shell.WindowView = wm.damage.core.shell.WindowView.ListView(model, { 40 },
+            paintRow = { g, i, r, _ -> tx.draw(g, r.x + 40, r.y + 4, "Row $i text", font, wm.damage.core.gfx.Level.BODY) },
+            paintLens = { g, r, i -> tx.draw(g, r.x + 44, r.y + 6, "Row $i", font, wm.damage.core.gfx.Level.HEAD) },
+            onCommit = {})
+        override fun summary() = Summary("40 rows")
+        override fun saveState(): kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.buildJsonObject {}
+        override fun restoreState(state: kotlinx.serialization.json.JsonObject) {}
     }
 
     /**

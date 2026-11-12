@@ -11,6 +11,7 @@ import android.os.Binder
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -19,6 +20,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import wm.damage.core.comp.Journal
 import wm.damage.core.content.RemoteContent
 import wm.damage.core.replica.ReplicaServer
 import wm.damage.core.shell.Chrome
@@ -32,6 +34,7 @@ import wm.damage.core.transport.RemoteTransportServer
 import wm.damage.core.transport.SimTransport
 import wm.damage.core.transport.Transport
 import wm.damage.core.util.Log
+import wm.damage.core.util.UncaughtRecord
 import wm.damage.core.windows.reader.ReaderWindow
 import wm.damage.core.windows.tmux.RemoteTmuxProvider
 import wm.damage.core.windows.tmux.TmuxWindow
@@ -146,7 +149,103 @@ class ShellService : Service() {
         // type is added when playback engages (review 2026-09-02)
         startForeground(NOTIF_ID, buildNotification("Damage shell starting"),
             android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
-        startStack(Prefs(this).target)
+        // APK 0.64 (`HANDOFF.md` §75.1). The order is the design, and `tools/check_apk_wiring.py`
+        // reads it: after the sink (a rotation that fails raises its notice), before the first
+        // Shell and the replica (no writer and no fetch exists yet in this process) —
+        //   1. the journal past 64 MiB is set aside; nothing is deleted
+        //   2. whether the uncaught-error record is in place, said at every start
+        //   3. the last run's record is journaled and renamed BEFORE the stack is built, so a
+        //      start that fails again still leaves the earlier record said
+        //   4. Android's own account of why earlier processes ended (memory, a native fault, a
+        //      stall and a force stop raise no throwable: only this sees them)
+        //   5. the stack; and only then the last run's line, so that it takes the existing error
+        //      path (verdict 21): a notice on the glasses through the running shell, the phone
+        //      when `Phone notifications` is on. With `Notify · Damage` off it is a log line
+        //      and a journal note.
+        //   R2 (review 1b RF-9; insurance — each step catches its own Exception and no throw is
+        //   known): steps 1-4 sit in one catch of anything but a VM error, said at ERROR (the sink
+        //   above raises the phone's error notice), and the stack starts all the same — a fault
+        //   here would otherwise end every launch with nothing readable.
+        val dir = filesDir.toPath()
+        val journalFile = dir.resolve("journal.jsonl")
+        var lastRun: String? = null
+        try {
+            Journal.rotateAtStart(journalFile)
+            // the start's `process` note carries the archives' count and total (R2 item 26), in both arms
+            val archives = Journal.archivesSaid(journalFile)
+            val installed = UncaughtRecord.installedLine()
+            if (installed != null) {
+                Log.i("uncaught", installed)
+                Journal.appendNote(journalFile, "process", "$installed; ${journalFile.fileName}: $archives")
+            } else {
+                val why = DamageApp.installFailure?.let { "its install failed: $it" } ?: "DamageApp did not run"
+                val line = "the uncaught-error record is NOT installed in this process ($why) — an uncaught error would leave no record"
+                Log.e("uncaught", line)
+                Journal.appendNote(journalFile, "process", "$line; ${journalFile.fileName}: $archives")
+            }
+            lastRun = UncaughtRecord.takePending(dir, journalFile)
+            journalEarlierExits(journalFile)
+        } catch (t: Throwable) {
+            if (t is VirtualMachineError) throw t
+            Log.e("process", "a start step before the stack did not finish (the journal's rotation, the record's " +
+                "line, the last run's pickup or the earlier exits) — the stack starts all the same", t)
+        }
+        try {
+            startStack(Prefs(this).target)
+        } finally {
+            lastRun?.let { Log.e("uncaught", it) }
+        }
+    }
+
+    /**
+     * Android's own record of why this app's earlier processes ended, journaled once each as a
+     * `process` note (APK 0.64). The uncaught-error record sees a throwable; the system ending the
+     * process for memory, a native fault, a stall or a force stop raises none, and on 2026-11-04
+     * nothing could say which of those it had been (`HANDOFF.md` §71). Read-only, no permission.
+     * `lastExitSeen` (a preference) is the newest entry already journaled; it moves only past an
+     * entry whose note landed, so one that could not be written is journaled by the next start.
+     */
+    private fun journalEarlierExits(journalFile: java.nio.file.Path) {
+        try {
+            val am = getSystemService(android.app.ActivityManager::class.java)
+            val prefs = getSharedPreferences("damage", Context.MODE_PRIVATE)
+            val seen = prefs.getLong("lastExitSeen", 0L)
+            val stamp = java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm:ss")
+            var newest = seen
+            for (x in am.getHistoricalProcessExitReasons(packageName, 0, 5).filter { it.timestamp > seen }.sortedBy { it.timestamp }) {
+                val at = java.time.LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(x.timestamp), java.time.ZoneId.systemDefault())
+                val line = ("an earlier process ended: ${exitReason(x.reason)} at ${at.format(stamp)} " +
+                    "(status ${x.status}, importance ${x.importance}, rss ${x.rss} kB) ${x.description ?: ""}").trimEnd()
+                Log.i("process", line)
+                if (!Journal.appendNote(journalFile, "process", line)) break
+                newest = x.timestamp
+            }
+            if (newest != seen) prefs.edit().putLong("lastExitSeen", newest).apply()
+        } catch (e: Exception) {
+            Log.w("process", "Android's record of earlier process ends could not be read: ${e::class.simpleName}: ${e.message}")
+        }
+    }
+
+    /** `ApplicationExitInfo`'s reason by the SDK's own constant names. */
+    private fun exitReason(n: Int): String = when (n) {
+        android.app.ApplicationExitInfo.REASON_UNKNOWN -> "UNKNOWN"
+        android.app.ApplicationExitInfo.REASON_EXIT_SELF -> "EXIT_SELF"
+        android.app.ApplicationExitInfo.REASON_SIGNALED -> "SIGNALED"
+        android.app.ApplicationExitInfo.REASON_LOW_MEMORY -> "LOW_MEMORY"
+        android.app.ApplicationExitInfo.REASON_CRASH -> "CRASH"
+        android.app.ApplicationExitInfo.REASON_CRASH_NATIVE -> "CRASH_NATIVE"
+        android.app.ApplicationExitInfo.REASON_ANR -> "ANR"
+        android.app.ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> "INITIALIZATION_FAILURE"
+        android.app.ApplicationExitInfo.REASON_PERMISSION_CHANGE -> "PERMISSION_CHANGE"
+        android.app.ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "EXCESSIVE_RESOURCE_USAGE"
+        android.app.ApplicationExitInfo.REASON_USER_REQUESTED -> "USER_REQUESTED"
+        android.app.ApplicationExitInfo.REASON_USER_STOPPED -> "USER_STOPPED"
+        android.app.ApplicationExitInfo.REASON_DEPENDENCY_DIED -> "DEPENDENCY_DIED"
+        android.app.ApplicationExitInfo.REASON_OTHER -> "OTHER"
+        android.app.ApplicationExitInfo.REASON_FREEZER -> "FREEZER"
+        android.app.ApplicationExitInfo.REASON_PACKAGE_STATE_CHANGE -> "PACKAGE_STATE_CHANGE"
+        android.app.ApplicationExitInfo.REASON_PACKAGE_UPDATED -> "PACKAGE_UPDATED"
+        else -> "reason $n"
     }
 
     /** An error text seen within the gap: when, and whether it raised a notice. */
@@ -308,6 +407,20 @@ class ShellService : Service() {
         // Global "Phone notifications" switch is on; the shell's own box
         // already shows them on glass
         sh.onUrgent = { source, body -> if (sh.settings.phoneNotifications) urgentNotification(source, body) }
+        // 0.64 (`HANDOFF.md` §75.4 calls 1-3, `DESIGN.md` §9.3): low glasses battery, once per discharge, on a
+        // channel of its own — beside `onUrgent` and NOT through it: `Phone notifications` does not gate
+        // this one (Android's own settings for the "Glasses battery" channel do). Withdrawn when the
+        // shell's latch opens again (a charging reading, or 25 % and more). Called on the shell's loop
+        // or, with no session running, on its event collector — `NotificationManager` is safe on either.
+        // A new shell's latch starts open, so nothing on the phone is its: a notification left by the
+        // stack before this one (a target switch, a process that ended while it was showing) has no
+        // latch that could ever withdraw it. This shell says it again at its first low reading.
+        channels().cancel(BATTERY_NOTIF_ID)
+        sh.onGlassesBattery = { low, pct ->
+            // R2 (RG-3): the answer is whether the phone showed it; a withdrawal's answer is not read
+            if (low) batteryNotification(pct, simulated = target != Prefs.Target.GLASSES)
+            else { channels().cancel(BATTERY_NOTIF_ID); true }
+        }
         sh.hostSettings = listOf(
             HostSetting("Target", listOf("sim", "glasses"),
                 current = { if (prefs.target == Prefs.Target.GLASSES) "glasses" else "sim" },
@@ -351,7 +464,12 @@ class ShellService : Service() {
         try {
             val rs = ReplicaServer(prefs.replicaPort, prefs.token, { mirror }, { replicaStatus() },
                 onInput = { postGesture(it) }, onText = { postText(it) },
-                onProbe = { n, v -> transport?.devProbe(n, v) ?: Log.w("service", "probe $n=$v with no transport") },
+                // 0.64: a probe is offered to the SHELL first (`rest=on|off` is its own, `Shell.devProbe`),
+                // then to the transport
+                onProbe = { n, v ->
+                    if (shell?.devProbe(n, v) != true)
+                        transport?.devProbe(n, v) ?: Log.w("service", "probe $n=$v with no transport")
+                },
                 journalPath = { filesDir.toPath().resolve("journal.jsonl") })
             rs.start()
             replica = rs
@@ -598,7 +716,37 @@ class ShellService : Service() {
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_URGENT, "Damage errors", NotificationManager.IMPORTANCE_HIGH),
         )
+        // 0.64: the glasses' low battery. DEFAULT importance (the lead's ruling on the P4 review's
+        // finding 18): one sound, no heads-up over whatever the phone is showing; the channel's own
+        // page in Android's settings is where that is changed.
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_BATTERY, "Glasses battery", NotificationManager.IMPORTANCE_DEFAULT),
+        )
         return nm
+    }
+
+    /** The low-battery latch closed at [pct] (`Shell.onGlassesBattery`). One fixed id, so a later one
+     *  replaces it and the latch opening again can withdraw it. A phone that will not show it — the
+     *  app's notifications off, or this channel switched off — is said in the log, and the answer
+     *  (false) makes the shell's `lowbatt` note say so (R2, RG-3; it used to claim the phone beside a
+     *  journal line of ours that said the opposite): `notify()` does nothing there, with no error. */
+    private fun batteryNotification(pct: Int, simulated: Boolean): Boolean {
+        val nm = channels()
+        val channelOff = nm.getNotificationChannel(CHANNEL_BATTERY)?.importance == NotificationManager.IMPORTANCE_NONE
+        val shown = !channelOff && NotificationManagerCompat.from(this).areNotificationsEnabled()
+        if (!shown)
+            Log.w("service", "glasses battery $pct%: the phone will not show it — notifications are off for Damage or for its Glasses battery channel")
+        val text = "Below 20% and not charging. Said once per discharge."
+        nm.notify(BATTERY_NOTIF_ID,
+            NotificationCompat.Builder(this, CHANNEL_BATTERY)
+                .setSmallIcon(R.drawable.ic_damage)
+                .setContentTitle("Glasses battery $pct%" + if (simulated) " (simulator)" else "")
+                .setContentText(text)
+                // R2 (RG-7): as `urgentNotification` does — collapsed, one line is cut and nothing expands
+                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .build())
+        return shown
     }
 
     private fun buildNotification(text: String): Notification {
@@ -662,8 +810,12 @@ class ShellService : Service() {
 
     companion object {
         private const val NOTIF_ID = 1
+        /** 0.64: the low-battery notification. 1 is the foreground notification, 1000-1063 the urgent
+         *  ones, 0xD02E the boot receiver's. */
+        private const val BATTERY_NOTIF_ID = 2
         private const val CHANNEL = "damage"
         private const val CHANNEL_URGENT = "damage-urgent"
+        private const val CHANNEL_BATTERY = "damage-battery"
         private const val ERROR_NOTICE_GAP_MS = 10_000L
         /** Distinct error notices one tag may raise per gap; the rest stay in logcat. */
         private const val ERROR_NOTICES_PER_TAG = 3

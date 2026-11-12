@@ -1,0 +1,8 @@
+{"t": 1800000000000, "ev": "note", "kind": "keeper", "detail": "starting"}
+{"t": 1800000000001, "ev": "note", "kind": "power", "detail": "lit"}
+{"t": 1800000001000, "ev": "note", "kind": "battery", "detail": "glasses 70%"}
+{"t": 1800003600000, "ev": "note", "kind": "power", "detail": "rest 70%"}
+{"t": 1800005400000, "ev": "note", "kind": "battery", "detail": "glasses 69%"}
+{"t": 1800009000000, "ev": "note", "kind": "battery", "detail": "glasses 68%"}
+{"t": 1800010800000, "ev": "note", "kind": "battery", "detail": "glasses 67%"}
+{"t": 1800010800001, "ev": "note", "kind": "mark", "detail": "pulled here"}

@@ -47,7 +47,9 @@ rebuild are the only work until its Phase 8 closes) → `FIRMWARE.md` (wins on t
   `desktop --selfcheck` (the truth oracle on every settle, both contracts; run it more than once, twenty when
   the question is a rate) · `desktop --snapshot DIR` (look at the renders; run it, and any harness you suspect, more than once) · `--epub-check ~/books` ·
   `--music-check` · `--games-check` · `--feed-check` (`live` fetches the real sites once, read-only) ·
-  `tools/lint.py` · `./gradlew :phone:assembleDebug` **in its own gradle invocation**. After a card-art change
+  `tools/lint.py` · `./gradlew :phone:assembleDebug` **in its own gradle invocation**, then `python3
+  tools/check_apk_wiring.py` (exit 0) · the tools' `--selftest` (`research/mutate_core.py`,
+  `tools/journal_report.py`, `tools/journal_pull.py`, `tools/check_apk_wiring.py`). After a card-art change
   also `--card-render`. Deploy = `./gradlew :desktop:stageJar && sudo rc-service damage restart`
   (`DAILY.md`); a PC deploy never touches the display. Stop the service before any `:desktop:run` dev session.
   Never rebuild the jar under a running instance. `REMINDER.md` carries the current counts.
@@ -240,7 +242,8 @@ errors" is how a bogus "10 fps" got into the world).
 - **One mode-8 flush per frame**, capped at the fid budget: **5 mode-3 rects** at the 3-deep pipeline
   (`Geometry.rectBudget`; the duplicate-fid ring is 16 deep, a collision silently skipped). `fid` in
   `[1,0xFFFE]`, +1 per delta; only mode 3 burns one. A batch accepts sub-modes 3/6/9/13/14/15 (contract 2's
-  list: `FIRMWARE.md` §4). `CFW_RECT_MAX = 16` is diagnostic only.
+  list: `FIRMWARE.md` §4). The batch's count is one byte; the compositor gives out 254 and keeps one for the hint
+  (`Compositor.subsLeft`). `CFW_RECT_MAX = 16` is diagnostic only.
 - **The carrier layout is an image container plus a full-screen dummy TEXT container**
   (`content=" "`, `isEventCapture=true`); image-only layouts ack but never paint.
 - **Hold the framebuffer lease or lose the screen**: sid 0x09 field 101 op 5, both arms, renew every 45 s

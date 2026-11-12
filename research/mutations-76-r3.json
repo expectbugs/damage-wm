@@ -1,0 +1,176 @@
+[
+ {
+  "id": "R3-01-a-notice-body-is-wrapped-raw-and-drawn-substituted",
+  "file": "shell/Notifications.kt",
+  "edits": [
+   [
+    "        Wrap.wrap(n.body.split('\\n').joinToString(\"\\n\") { Draw.dynamic(text, it, fBody) },\n            fBody, text, bodyWidth(l, silent))\n",
+    "        Wrap.wrap(n.body,\n            fBody, text, bodyWidth(l, silent))\n"
+   ]
+  ],
+  "tests": [
+   "*MainLensTest*"
+  ],
+  "expect": [
+   "aNoticeBodyIsWrappedOnTheStringItDraws"
+  ],
+  "note": "2A-1: the wrap measured a joiner as 0 px; paint draws it as an 8 px '?', so a line that filled the 232 px width was cut by Draw.fit and its tail was on no other line"
+ },
+ {
+  "id": "R3-02-a-count-reading-is-asked-for-the-whole-session",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                if (askBound > 0 && asks >= askBound) {\n",
+    "                if (askBound < 0 && asks >= askBound) {\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aCountTheGlassesNeverAnswer*",
+   "*GlyphSubsetShellTest.anAnswerThatArrivesAfterTheBound*"
+  ],
+  "expect": [
+   "aCountTheGlassesNeverAnswerEndsInTheNoticeAndTheCacheGoesOnUnchecked",
+   "anAnswerThatArrivesAfterTheBoundIsNotTakenByTheNextReading"
+  ],
+  "note": "2A-2: with no bound the reading asks again every 2 s for the session, holds both cache-write lanes, and cache/off never comes"
+ },
+ {
+  "id": "R3-03-a-late-answer-is-taken-by-the-reading-still-out",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                        val w = telemetryWaiters[id.toInt()]\n",
+    "                        val w = telemetryWaiters[id.toInt()] ?: telemetryWaiters.entries.firstOrNull { it.key != 0 }?.value\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.anAnswerThatArrivesAfterTheBound*"
+  ],
+  "expect": [
+   "anAnswerThatArrivesAfterTheBoundIsNotTakenByTheNextReading"
+  ],
+  "note": "2A-2 (c): an answer whose reading ended at its bound must be dropped by its id; handed to the next reading it gives the count a base and frees the cache-write lanes"
+ },
+ {
+  "id": "R3-04-a-count-ask-that-cannot-be-written-gives-no-cause",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                    if (askBound > 0) ended = ReadingEnded(0, \"$label $id not written: $reason\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.theCacheOffNoticeSays*"
+  ],
+  "expect": [
+   "theCacheOffNoticeSaysItsCauseAndNamesPageStagingOnlyWhereItsRowIsOn"
+  ],
+  "note": "2A-2: a reading whose first write failed ended as a bare null; the notice then said the glasses did not answer"
+ },
+ {
+  "id": "R3-05-the-notice-says-not-answered-for-a-reading-never-asked",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                                e != null && e.asks == 0 -> \"the cache count could not be asked ($why)\"\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.theCacheOffNoticeSays*"
+  ],
+  "expect": [
+   "theCacheOffNoticeSaysItsCauseAndNamesPageStagingOnlyWhereItsRowIsOn"
+  ],
+  "note": "2A-2: cache/off's body says the cause it had; a reading that could not be asked is not 'the glasses did not answer'"
+ },
+ {
+  "id": "R3-06-the-notice-does-not-say-the-asks",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                                e != null -> \"the glasses did not answer the cache count (asked ${e.asks} times)\"\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aCountTheGlassesNeverAnswer*"
+  ],
+  "expect": [
+   "aCountTheGlassesNeverAnswerEndsInTheNoticeAndTheCacheGoesOnUnchecked"
+  ],
+  "note": "2A-2: a reading ended at its bound is said as not answered, with its asks"
+ },
+ {
+  "id": "R3-07-the-notice-names-page-staging-with-its-row-off",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                                (if (settings.pageStaging == \"on\") \" and Page staging is off until the next session\" else \"\"),\n",
+    "                                \" and Page staging is off until the next session\",\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.theCacheOffNoticeSays*"
+  ],
+  "expect": [
+   "theCacheOffNoticeSaysItsCauseAndNamesPageStagingOnlyWhereItsRowIsOn"
+  ],
+  "note": "review 2 (A, Smaller): 'Page staging is off until the next session' only when the Page staging row is on"
+ },
+ {
+  "id": "R3-08-the-shell-takes-the-transports-cause-as-any-exception",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                catch (e: wm.damage.core.transport.ReadingEnded) { ended = e; why = e.message; null }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aCountTheGlassesNeverAnswer*",
+   "*GlyphSubsetShellTest.theCacheOffNoticeSays*"
+  ],
+  "expect": [
+   "aCountTheGlassesNeverAnswerEndsInTheNoticeAndTheCacheGoesOnUnchecked",
+   "theCacheOffNoticeSaysItsCauseAndNamesPageStagingOnlyWhereItsRowIsOn"
+  ],
+  "note": "2A-2: without its own catch the reading's cause reads as 'could not be read', for both causes"
+ },
+ {
+  "id": "R3-09-the-wear-query-goes-to-glasses-in-silent-mode",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            if (_state.value.glassesSilent) emitNote(\"wear\", \"query not sent: the glasses say Silent Mode is on — the session the wake rebuilds asks\")\n",
+    "            if (false) emitNote(\"wear\", \"query not sent: the glasses say Silent Mode is on — the session the wake rebuilds asks\")\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest.aSessionThatStartsInSilentMode*"
+  ],
+  "expect": [
+   "aSessionThatStartsInSilentModeSendsNoWearQueryAndTheWakesSessionDoes"
+  ],
+  "note": "2B-1: a session that starts in Silent Mode wrote op 7 to both arms before the shell slept"
+ },
+ {
+  "id": "R3-10-the-rebase-clears-the-resend-owed-while-it-is-queued",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "([atlasDisable], [atlasCheckOwed]). Cleared here, a re-send then refused left unnamed.\n                if ((atlas?.resendsQueued ?: 0) == 0) atlasResendMissing = 0L\n",
+    "([atlasDisable], [atlasCheckOwed]). Cleared here, a re-send then refused left unnamed.\n                atlasResendMissing = 0L\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReSendStillQueuedAtARebase*"
+  ],
+  "expect": [
+   "aReSendStillQueuedAtARebaseThatTheGlassesThenRefuseKeyframes"
+  ],
+  "note": "review 2 (A, Smaller 1): item 31's sibling — the Base arm cleared atlasResendMissing with the re-send still queued; the refusal that followed did not name the re-send owed"
+ }
+]

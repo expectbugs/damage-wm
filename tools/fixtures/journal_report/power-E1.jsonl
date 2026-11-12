@@ -1,0 +1,4 @@
+{"t": 1800000000000, "ev": "note", "kind": "keeper", "detail": "starting"}
+{"t": 1800000000001, "ev": "note", "kind": "power", "detail": "lit"}
+{"t": 1800000001000, "ev": "note", "kind": "battery", "detail": "glasses 90%"}
+{"t": 1800001800000, "ev": "note", "kind": "battery", "detail": "glasses 88%"}

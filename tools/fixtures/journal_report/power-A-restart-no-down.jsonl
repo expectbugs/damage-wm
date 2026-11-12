@@ -1,0 +1,15 @@
+{"t": 1800000000000, "ev": "note", "kind": "keeper", "detail": "starting"}
+{"t": 1800000000001, "ev": "note", "kind": "power", "detail": "lit"}
+{"t": 1800000060000, "ev": "note", "kind": "battery", "detail": "glasses 80%"}
+{"t": 1800000900000, "ev": "note", "kind": "battery", "detail": "glasses 79%"}
+{"t": 1800001800000, "ev": "note", "kind": "battery", "detail": "glasses 78%"}
+{"t": 1800002700000, "ev": "note", "kind": "battery", "detail": "glasses 77%"}
+{"t": 1800003600000, "ev": "note", "kind": "battery", "detail": "glasses 76%"}
+{"t": 1800003600000, "ev": "note", "kind": "mark", "detail": "the last record of process 1"}
+{"t": 1800036000000, "ev": "note", "kind": "process", "detail": "apk 0.64 (64) pid 2"}
+{"t": 1800036000050, "ev": "note", "kind": "keeper", "detail": "starting"}
+{"t": 1800036005000, "ev": "note", "kind": "power", "detail": "lit"}
+{"t": 1800036006000, "ev": "note", "kind": "battery", "detail": "glasses 70%"}
+{"t": 1800037800000, "ev": "note", "kind": "battery", "detail": "glasses 69%"}
+{"t": 1800039600000, "ev": "note", "kind": "battery", "detail": "glasses 68%"}
+{"t": 1800039600001, "ev": "note", "kind": "mark", "detail": "end"}

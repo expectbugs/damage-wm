@@ -58,8 +58,11 @@ class MusicWindowTest {
     private suspend fun awaitTrue(what: String, ms: Long = 20_000, cond: () -> Boolean) {
         val t0 = System.currentTimeMillis()
         while (!cond() && System.currentTimeMillis() - t0 < ms) delay(20)
-        assertTrue(cond(), "did not converge: $what")
+        // 0.64 R1: a miss says what the shell and the link were doing (`P4-verify.md` §5.1's instrument); built only on a miss
+        if (!cond()) kotlin.test.fail("did not converge: $what" + (lastRig?.let { " — the last rig built: ${it.shell.quiescenceReport()} link=${it.transport.state.value}" } ?: ""))
     }
+    /** The rig a failed [awaitTrue] reports on: this helper holds no shell, and a test's rigs are built one after the other. */
+    private companion object { @Volatile var lastRig: Rig? = null }
 
     private fun t(id: Int, artist: String = "A", dur: Int = 200_000) = TrackRef(id, "T$id", artist, "Al", dur)
 
@@ -431,6 +434,7 @@ class MusicWindowTest {
         init {
             if (height != 480) store.put("shell.settings", ShellSettings(heightMode = height).toJson())
             shell.register(win)
+            lastRig = this
         }
         suspend fun start() { shell.start(); shell.postGesture(EvenHubMsg.EV_CLICK) }   // Main row 0 = Music
         suspend fun stop() { shell.stop(); scope.cancel() }
@@ -445,7 +449,8 @@ class MusicWindowTest {
         private suspend fun until(what: String, ms: Long = 20_000, cond: () -> Boolean) {
             val t0 = System.currentTimeMillis()
             while (!cond() && System.currentTimeMillis() - t0 < ms) delay(20)
-            assertTrue(cond(), "did not converge: $what")
+            // 0.64 R1: a miss says what the shell and the link were doing (`P4-verify.md` §5.1's instrument); built only on a miss
+            if (!cond()) kotlin.test.fail("did not converge: $what — ${shell.quiescenceReport()} link=${transport.state.value}")
         }
         suspend fun toMenuRow() {
             until("quiescent") { shell.isQuiescent() }

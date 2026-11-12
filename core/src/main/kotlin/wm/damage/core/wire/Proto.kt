@@ -90,7 +90,10 @@ object Pb {
                 2 -> {
                     val (len, ln) = readVarint(data, i)
                     i += ln
-                    if (i + len > data.size)
+                    // `i <= data.size` holds here, so the subtraction cannot go below 0. A ten-byte varint with
+                    // bit 63 set is a negative Long, which `i + len > data.size` let through to `copyOfRange`
+                    // as an IndexOutOfBoundsException that no parser catches (0.64 R2, the review's RG-2).
+                    if (len < 0 || len > data.size - i)
                         throw IllegalArgumentException("field $field length $len overruns buffer")
                     out += Field(field, null, data.copyOfRange(i, i + len.toInt()), 2)
                     i += len.toInt()

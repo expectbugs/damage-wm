@@ -215,6 +215,10 @@ class PathTransport(
     }
 
     override suspend fun setLeaseWanted(wanted: Boolean) { active?.transport?.setLeaseWanted(wanted) }
+    /** R2 (RH-7): the driving path's; false when no path drives. */
+    override val leaseOnDemand: Boolean get() = active?.transport?.leaseOnDemand ?: false
+    /** 0.64: the driving path asks; false when no path drives or that path sent nothing. */
+    override fun queryWear(): Boolean = active?.transport?.queryWear() ?: false
     override suspend fun restartSession(reason: String): Boolean = active?.transport?.restartSession(reason) ?: false
 
     override suspend fun stop() {
@@ -228,7 +232,11 @@ class PathTransport(
                 try { a.transport.stop() } catch (e: Exception) { Log.w("path", "${a.name} stop: ${e.message}") }
             }
         }
-        updateState { it.copy(connected = false, started = false, leaseHeld = false, transportName = "auto") }
+        // 0.64 (the P4 review's finding 8): the forwarded copies of what the path's session said — the
+        // firmware's Silent Mode, the wear report, the wear-detection switch — end with it; the next
+        // winner's state replaces this whole
+        updateState { it.copy(connected = false, started = false, leaseHeld = false, transportName = "auto",
+            glassesSilent = false, worn = null, wearSwitch = null) }
         if (a != null) emit(TransportEvent.Link(false, "auto: stopped"))
     }
 

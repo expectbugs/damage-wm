@@ -1,0 +1,4 @@
+{"t": 1762900000000, "ev": "submit", "id": 1, "epoch": 1, "label": "WINDOW", "via": "ble", "ops": [{"op": "delta", "box": "0,0 8x8", "bytes": 40, "d": 0}]}
+{"t": 1762900000060, "ev": "done", "id": 1, "ok": true, "ackMs": 60, "bytes": 40}
+{"t": 1762900010000, "ev": "note", "kind": "atlas", "detail": "count ended — cached text is off for this session with 2 atlas message(s) acked and not judged and a re-send owed; keyframing"}
+{"t": 1762900020000, "ev": "note", "kind": "atlas", "detail": "re-send unjudged — a re-send was acked with the count off for this session: nothing judges it; keyframing"}

@@ -52,7 +52,10 @@ class ContentKit(private val comp: Compositor) {
     fun paintList(g: Gray8, l: Layout, v: WindowView.ListView, resting: Boolean = false) {
         g.fillRect(l.content, Level.BG)
         val n = v.rowCount()
-        if (n == 0) return
+        // a list of no rows is still a repaint: the content was cleared, and a rect a paint
+        // clears is a promise like one it fills (0.64 R1 — returning before the damage left the
+        // rows of the level before on the glass, with belief agreeing and only the truth not)
+        if (n == 0) { comp.damage(l.content); return }
         val c = v.model.cursor.mod(n)
         v.model.cursor = c
         val slots = l.rowsAbove + l.rowsBelow + 1

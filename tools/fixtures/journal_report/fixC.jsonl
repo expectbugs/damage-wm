@@ -1,0 +1,2 @@
+{"t": 1762900000000, "ev": "submit", "id": 1, "epoch": 1, "label": "WINDOW", "via": "ble", "cached": 1, "cacheMiss": "proof=0,two-planes=1", "ops": [{"op": "delta", "box": "0,0 8x8", "bytes": 40, "d": 0}]}
+{"t": 1762900000060, "ev": "done", "id": 1, "ok": true, "ackMs": 60, "bytes": 40}

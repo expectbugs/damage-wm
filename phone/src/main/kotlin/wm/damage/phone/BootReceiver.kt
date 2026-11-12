@@ -66,6 +66,8 @@ class BootReceiver : BroadcastReceiver() {
                 .setSmallIcon(R.drawable.ic_damage)
                 .setContentTitle("Damage: battery optimization is back on")
                 .setContentText("Tap to re-grant the exemption — without it Doze stalls the glasses session.")
+                // R2 (RG-7's class): the text is longer than one collapsed line — expandable, never cut
+                .setStyle(NotificationCompat.BigTextStyle().bigText("Tap to re-grant the exemption — without it Doze stalls the glasses session."))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
                 .setContentIntent(pi)

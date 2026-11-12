@@ -110,10 +110,16 @@ class PathTransportTest {
             scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
                 path.events.collect { synchronized(events) { events.add(it) } }
             }
+            assertTrue(!path.leaseOnDemand, "no path drives: no lease this host can release")
             path.start(warmup())
             assertEquals("ble", path.activeName)
             assertTrue(path.state.value.started, "the winner's state is forwarded")
             assertEquals("sim", path.state.value.transportName)
+            // R2 verify (RH-7's forward): a rest is taken only where the transport can release the lease, and this
+            // class answers for its driving path. No host builds it today (the desktop only casts to it when its
+            // stack ends); a host that wires it again would refuse every rest without the forward.
+            // Watched with the forward removed (the interface's default, false).
+            assertTrue(path.leaseOnDemand, "the winner holds the lease: whether it can release it is forwarded")
             assertTrue(phone.cancelled, "the stalled attempt was cancelled")
             assertTrue(path.mirror.exact, "the winner's local mirror is exact")
 

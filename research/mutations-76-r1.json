@@ -1,0 +1,822 @@
+[
+ {
+  "id": "R1a-01-batch-count-not-checked-in-the-contract-1-cached-path",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        if (1 + draws.size + images.size + (if (d != 0) 1 else 0) > subsLeft(ops)) return miss(\"batch-count\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aFlushOfManyCachedRowsStaysInsideTheBatchsCount"
+  ],
+  "note": "RA-1 on contract 1: five rows of 52 one-character draws are 265 sub-messages and the encoder refuses the flush (mode-8 count 265 exceeds the u8 field)"
+ },
+ {
+  "id": "R1a-02-batch-count-not-checked-in-the-contract-2-cached-path",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        if (1 + draws.size + images.size > subsLeft(ops)) return miss(\"batch-count\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "aFlushOfManyCachedRowsStaysInsideTheBatchsCount"
+  ],
+  "note": "RA-1 on contract 2: the same 265"
+ },
+ {
+  "id": "R1a-03-a-pixel-delta-does-not-wait-for-the-batchs-count",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "        if (fidsLeft <= 0 || subsLeft(ops) <= 0) return 0\n",
+    "        if (fidsLeft <= 0) return 0\n"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "atTheBatchsLastSubMessageWhatIsLeftWaitsAFlush"
+  ],
+  "note": "with 254 given out the depth plane's delta and the shelf's pixels are appended: 256 and over"
+ },
+ {
+  "id": "R1a-04-a-staged-placement-does-not-wait-for-the-batchs-count",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "            if (bytes + cost > bytesLeft || subsLeft(ops) < 3) break\n",
+    "            if (bytes + cost > bytesLeft) break\n"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "atTheBatchsLastSubMessageWhatIsLeftWaitsAFlush"
+  ],
+  "note": "contract 2 only: a clip, a mode-17 draw and a clip reset appended behind the 254"
+ },
+ {
+  "id": "R1a-05-a-contract-2-black-box-does-not-wait-for-the-batchs-count",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "                if (18 + SUB_HEADER > bytesLeft || subsLeft(ops) <= 0) 0 else {\n",
+    "                if (18 + SUB_HEADER > bytesLeft) 0 else {\n"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "atTheBatchsLastSubMessageWhatIsLeftWaitsAFlush"
+  ],
+  "note": "the fill is the 255th and the hint the 256th"
+ },
+ {
+  "id": "R1a-06-a-contract-1-black-box-does-not-wait-for-the-batchs-count",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "                if (fidsLeft <= 0 || payload.size + SUB_HEADER > bytesLeft || subsLeft(ops) <= 0) 0 else {\n",
+    "                if (fidsLeft <= 0 || payload.size + SUB_HEADER > bytesLeft) 0 else {\n"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "atTheBatchsLastSubMessageWhatIsLeftWaitsAFlush"
+  ],
+  "note": "contract 1 has no hint, so the stereo pair as the 255th still encodes: the pin's count of 254 is what fails"
+ },
+ {
+  "id": "R1a-07-the-hints-slot-is-not-kept",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "    private fun subsLeft(ops: List<DisplayOp>): Int = MAX_BATCH_SUBS - 1 - ops.size\n",
+    "    private fun subsLeft(ops: List<DisplayOp>): Int = MAX_BATCH_SUBS - ops.size\n"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "atTheBatchsLastSubMessageWhatIsLeftWaitsAFlush"
+  ],
+  "note": "a 255th sub-message is given out and, on contract 2, the hint is the 256th"
+ },
+ {
+  "id": "R1a-08-the-plan-loop-does-not-stop-a-pass-at-the-batchs-count",
+  "file": "comp/Compositor.kt",
+  "edits": [
+   [
+    "                if (fids >= budget || bytes >= batchMax || subsLeft(ops) <= 0) { dirtyLeft = true; break }\n",
+    "                if (fids >= budget || bytes >= batchMax) { dirtyLeft = true; break }\n"
+   ]
+  ],
+  "tests": [
+   "*BaseMaskTest*"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "equivalent as far as reading goes: with the pass not stopped here every site that appends refuses by itself and the loop marks the pass exhausted; what the check saves is one planOps"
+ },
+ {
+  "id": "R1a-09-a-canvas-splits-its-fill-under-a-floating-surface",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (!surfaceFloats() && splitFills() && exposed.w * exposed.h >= Slide.SPLIT_FILL_PX) {\n",
+    "        if (splitFills() && exposed.w * exposed.h >= Slide.SPLIT_FILL_PX) {\n"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "aCanvasThatMovesUnderAnOpenMenuLeavesTheMenuOnTheGlass"
+  ],
+  "note": "RB-2 at paintCanvasOf alone: the run behind the split composes, so the frame ends right; the pin's one-flush count is what says the strip went out blank under the menu"
+ },
+ {
+  "id": "R1a-10-the-owed-fills-run-always-takes-the-bare-fill",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (surfaceFloats()) {\n                    // a surface opened, or a furl began, off a message queued ahead of this one: the\n",
+    "                if (false) {\n                    // a surface opened, or a furl began, off a message queued ahead of this one: the\n"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "aMenuOpenedBetweenACanvasMoveAndItsOwedFillStaysOnTheGlass"
+  ],
+  "note": "RB-2's ordering variant: the fill paints the canvas over a menu that opened ahead of it"
+ },
+ {
+  "id": "R1a-11-a-menu-is-not-a-floating-surface",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "    private fun surfaceFloats(): Boolean = menu.open || keyboard.open || switcher.open || notifications.furlingOut\n",
+    "    private fun surfaceFloats(): Boolean = keyboard.open || switcher.open || notifications.furlingOut\n"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "aCanvasThatMovesUnderAnOpenMenuLeavesTheMenuOnTheGlass",
+   "aMenuOpenedBetweenACanvasMoveAndItsOwedFillStaysOnTheGlass"
+  ],
+  "note": "the tree before R1 for a menu: its top rule is the canvas's pixels"
+ },
+ {
+  "id": "R1a-12-a-furling-notice-is-not-a-floating-surface",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "    private fun surfaceFloats(): Boolean = menu.open || keyboard.open || switcher.open || notifications.furlingOut\n",
+    "    private fun surfaceFloats(): Boolean = menu.open || keyboard.open || switcher.open\n"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "aCanvasThatMovesUnderAFurlingNoticeIsNotLeftWithABlackPatch"
+  ],
+  "note": "RB-N1, the tree before R1: the furl puts the blank rows back over the canvas"
+ },
+ {
+  "id": "R1a-13-the-keyboard-is-not-a-floating-surface",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "    private fun surfaceFloats(): Boolean = menu.open || keyboard.open || switcher.open || notifications.furlingOut\n",
+    "    private fun surfaceFloats(): Boolean = menu.open || switcher.open || notifications.furlingOut\n"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "not reached at the 480 layout by the challenge's reading: the keyboard's box leaves 56 rows above and below, under the detector's floor of 52; no scene built"
+ },
+ {
+  "id": "R1a-14-the-wheel-is-not-a-floating-surface",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "    private fun surfaceFloats(): Boolean = menu.open || keyboard.open || switcher.open || notifications.furlingOut\n",
+    "    private fun surfaceFloats(): Boolean = menu.open || keyboard.open || notifications.furlingOut\n"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "aCanvasThatMovesUnderTheWheelLeavesTheWheelOnTheGlass"
+  ],
+  "note": "pinned by the R1 verify stage: the wheel previews the canvas (lines that end in words of their own, so the move is elected under the panel) and the canvas moves two lines — without the term the strip goes out blank and the owed fill paints the focused canvas over the wheel's panel"
+ },
+ {
+  "id": "R1a-15-the-owed-fills-run-does-not-ask-whether-the-fill-is-still-owed",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (!canvasFillOwed) return@Run                      // a later paint of the canvas landed it\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "with it removed a run whose fill has landed lifts a shown notice for nothing (as before R1) or composes once more under a floating surface: more work on the loop, the same frame"
+ },
+ {
+  "id": "R1a-16-an-exclusive-delta-paint-leaves-the-older-records",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        rec?.dropOlderRecords(olderDraws, olderImages, rects)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "twoRepaintsOfAWholePanelModesBandInOneFrameLeaveOneSetOfRecords"
+  ],
+  "note": "RB-3, the tree before R1: the band holds two paints' records, proof=1, the band as pixels"
+ },
+ {
+  "id": "R1a-17-the-drop-takes-the-paints-own-records-too",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "            draws.removeAll { d -> d in old && rects.any { d.rect.overlaps(it) } }\n",
+    "            draws.removeAll { d -> rects.any { d.rect.overlaps(it) } }\n"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "twoRepaintsOfAWholePanelModesBandInOneFrameLeaveOneSetOfRecords"
+  ],
+  "note": "the identity test removed: the paint's own strings are dropped with the older ones and the band ships as pixels"
+ },
+ {
+  "id": "R1a-18-the-drop-leaves-the-older-icon-records",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "            imageDraws.removeAll { d -> d in old && rects.any { d.rect.overlaps(it) } }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "the icon half of the drop: the pin's band draws strings only"
+ },
+ {
+  "id": "R1a-19-a-list-of-no-rows-declares-no-damage",
+  "file": "shell/ContentKit.kt",
+  "edits": [
+   [
+    "        if (n == 0) { comp.damage(l.content); return }\n",
+    "        if (n == 0) return\n"
+   ]
+  ],
+  "tests": [
+   "*OracleWalkTest.aListThatGoesToZeroRowsIsClearedOnTheGlass"
+  ],
+  "expect": [
+   "aListThatGoesToZeroRowsIsClearedOnTheGlass"
+  ],
+  "note": "RB-4, the tree before R1: the glass keeps the rows of the level before (glass != TRUTH at the lens's top rule)"
+ },
+ {
+  "id": "R1a-20-mains-row-decides-its-mark-on-the-raw-summary",
+  "file": "shell/MainSurface.kt",
+  "edits": [
+   [
+    "        val line = Draw.dynamic(text, if (unavailable) \"unavailable offline\" else s.line, fRow)\n",
+    "        val line = if (unavailable) \"unavailable offline\" else s.line\n"
+   ]
+  ],
+  "tests": [
+   "*MainLensTest*"
+  ],
+  "expect": [
+   "aRowsSummaryThatOnlyFitsBeforeSubstitutionIsCutWithItsMark"
+  ],
+  "note": "RB-5, the row: cut with no mark"
+ },
+ {
+  "id": "R1a-21-mains-lens-fits-line-one-on-the-raw-string",
+  "file": "shell/MainSurface.kt",
+  "edits": [
+   [
+    "        val l1 = Draw.dynamic(text, s.line, fRow)\n",
+    "        val l1 = s.line\n"
+   ]
+  ],
+  "tests": [
+   "*MainLensTest*"
+  ],
+  "expect": [
+   "aFirstLineIsRightAlignedByTheWidthItIsDrawnAt",
+   "aFirstLineThatOnlyFitsBeforeSubstitutionIsCutWithItsMark"
+  ],
+  "note": "RB-5, line one: placed by its raw width, its end right of the band"
+ },
+ {
+  "id": "R1a-22-mains-lens-decides-the-details-mark-on-the-raw-string",
+  "file": "shell/MainSurface.kt",
+  "edits": [
+   [
+    "            val detail = Draw.dynamic(text, s.detail, fRow)\n",
+    "            val detail = s.detail\n"
+   ]
+  ],
+  "tests": [
+   "*MainLensTest*"
+  ],
+  "expect": [
+   "aDetailThatOnlyFitsBeforeSubstitutionIsCutWithItsMark"
+  ],
+  "note": "RB-5, the detail: cut with no mark"
+ },
+ {
+  "id": "R1a-23-mains-lens-measures-the-raw-name",
+  "file": "shell/MainSurface.kt",
+  "edits": [
+   [
+    "        val name = Draw.dynamic(text, w.name.uppercase(), fRowB)\n",
+    "        val name = w.name.uppercase()\n"
+   ]
+  ],
+  "tests": [
+   "*MainLensTest*"
+  ],
+  "expect": [
+   "lineOnesRoomIsMeasuredFromTheNameAsDrawn"
+  ],
+  "note": "the sibling in the same painter: line one's room measured from the raw name's end"
+ },
+ {
+  "id": "R1a-24-the-silent-arm-does-not-repaint-a-shown-notice",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (notifications.active) { notifications.invalidateUnder(); paintNotification() }\n            return\n        }\n        retire(Rect(0, 0, comp.width, comp.height))      // the bars' cells and the content: all of it is painted again\n",
+    "            return\n        }\n        retire(Rect(0, 0, comp.width, comp.height))      // the bars' cells and the content: all of it is painted again\n"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest.aSettingThatRepaintsTheSilentSurfaceLeavesItsShownNoticeUp"
+  ],
+  "expect": [
+   "aSettingThatRepaintsTheSilentSurfaceLeavesItsShownNoticeUp"
+  ],
+  "note": "RB-6, the tree before R1: the box is cleared with the panel and not painted again while the notice is still up"
+ },
+ {
+  "id": "R1b-01-a-re-send-owed-is-no-reason-at-a-replaced-layout",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val resendOwed = atlasResendMissing > 0L        // read BEFORE the clears: queued, in the air, or acked and unjudged\n",
+    "        val resendOwed = false\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReSendOwedAtAMidSessionResetIsSaidAndKeyframes"
+  ],
+  "expect": [
+   "aReSendOwedAtAMidSessionResetIsSaidAndKeyframes"
+  ],
+  "note": "RC-1: the tree before — a re-send in the air at a mid-session reset leaves with no note and no keyframe (the pin waits for a keyframe that never comes)"
+ },
+ {
+  "id": "R1b-02-no-keyframe-when-cached-text-goes-off-for-the-session-with-a-re-send-owed",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (atlasFailed && (atlasResendMissing > 0L || atlasUnproven.isNotEmpty())) {",
+    "        if (false) {"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReSendTheGlassesRefuseSwitchesCachedTextOffAndKeyframes"
+  ],
+  "expect": [
+   "aReSendTheGlassesRefuseSwitchesCachedTextOffAndKeyframes"
+  ],
+  "note": "RC-1's sibling in atlasDisable: a refused re-send switches cached text off and nothing reads the count again"
+ },
+ {
+  "id": "R1b-03-no-keyframe-at-a-re-sends-ack-with-the-count-off",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (done?.resend == true && !ledgerJudges(st) && (atlas?.resendsQueued ?: 0) == 0) {",
+    "        if (false) {"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReSendAckedAfterTheCountWentOffKeyframesAtItsAck"
+  ],
+  "expect": [
+   "aReSendAckedAfterTheCountWentOffKeyframesAtItsAck"
+  ],
+  "note": "RC-1's sibling in atlasDone: the count went off with the re-send still queued; the keyframe is at the re-send's ack"
+ },
+ {
+  "id": "R1b-04-no-keyframe-when-the-count-goes-off-over-an-acked-re-send",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                        if (reSendAcked) comp.requestKeyframe()",
+    "                        if (false) comp.requestKeyframe()"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReSendAckedAndUnjudgedWhenTheCountGoesOffKeyframes"
+  ],
+  "expect": [
+   "aReSendAckedAndUnjudgedWhenTheCountGoesOffKeyframes"
+  ],
+  "note": "RC-1's class, the count-off branch (found by the sweep): a re-send acked and unjudged leaves the books when three readings do not answer"
+ },
+ {
+  "id": "R1b-05-an-unanswered-reading-is-asked-again-at-once",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (System.currentTimeMillis() < ledgerRetryNotBeforeMs) return false\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*StagingTest.anUnansweredReadingIsAskedAgainAPaceLaterOnItsOwnPump"
+  ],
+  "expect": [
+   "anUnansweredReadingIsAskedAgainAPaceLaterOnItsOwnPump"
+  ],
+  "note": "RC-2: the tree before — the pace is set and never tested; the next ask comes milliseconds after the unanswered one"
+ },
+ {
+  "id": "R1b-06-no-pump-at-the-end-of-an-unanswered-readings-pace",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                        pumpAfter(CacheLedger.UNANSWERED_PACE_MS)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*StagingTest.anUnansweredReadingIsAskedAgainAPaceLaterOnItsOwnPump"
+  ],
+  "expect": [
+   "anUnansweredReadingIsAskedAgainAPaceLaterOnItsOwnPump"
+  ],
+  "note": "RC-2: without its own pump the re-ask waits for whatever pumps a quiet shell next — watched: 3,168 and 3,176 ms after the unanswered ask, against the pin's 2,800"
+ },
+ {
+  "id": "R1b-07-the-count-off-notice-without-the-links-test",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                        if (hasCount && !cacheOffSaid && linkUpAndSteady(st)) {",
+    "                        if (hasCount && !cacheOffSaid) {"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aCountThatGoesOffIsANoticeOnASteadyLinkOfABuildThatHasOne"
+  ],
+  "expect": [
+   "aCountThatGoesOffIsANoticeOnASteadyLinkOfABuildThatHasOne"
+  ],
+  "note": "RC-2's notice: raised about a session that is ending"
+ },
+ {
+  "id": "R1b-08-the-count-off-notice-without-the-capabilitys-test",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                        if (hasCount && !cacheOffSaid && linkUpAndSteady(st)) {",
+    "                        if (!cacheOffSaid && linkUpAndSteady(st)) {"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aCountThatGoesOffIsANoticeOnASteadyLinkOfABuildThatHasOne"
+  ],
+  "expect": [
+   "aCountThatGoesOffIsANoticeOnASteadyLinkOfABuildThatHasOne"
+  ],
+  "note": "RC-2's notice: raised on a build whose capabilities carry no telemetry bit"
+ },
+ {
+  "id": "R1b-09-no-notice-when-the-count-goes-off",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                        if (hasCount && !cacheOffSaid && linkUpAndSteady(st)) {",
+    "                        if (false) {"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aCountThatGoesOffIsANoticeOnASteadyLinkOfABuildThatHasOne"
+  ],
+  "expect": [
+   "aCountThatGoesOffIsANoticeOnASteadyLinkOfABuildThatHasOne"
+  ],
+  "note": "RC-2's notice: the tree before (the journal only)"
+ },
+ {
+  "id": "R1b-10-the-count-off-notice-is-not-latched",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                            cacheOffSaid = true\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aCountThatGoesOffIsANoticeOnASteadyLinkOfABuildThatHasOne"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "once per session: the count goes off twice in one session only after a lapse whose rebuild the transport refused and three more unanswered readings — no rig makes that"
+ },
+ {
+  "id": "R1b-11-a-strip-is-staged-while-a-re-send-is-unjudged",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (atlasResendMissing > 0L) return false\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*StagingTest.noStripIsStagedWhileAReSendIsUnjudgedSoNoCountedWriteIsCalledLost"
+  ],
+  "expect": [
+   "noStripIsStagedWhileAReSendIsUnjudgedSoNoCountedWriteIsCalledLost"
+  ],
+  "note": "RC-3 part two: the tree before — a strip goes out inside a re-send's pending pace and its lost write is read with the re-send: `cache/lost` about re-sends that were counted"
+ },
+ {
+  "id": "R1b-12-the-verdict-that-switches-staging-off-is-raised-as-cache-short",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            raiseFault(if (stagingOff) \"cache/staging\" else \"cache/short\",",
+    "            raiseFault(\"cache/short\","
+   ]
+  ],
+  "tests": [
+   "*StagingTest.aWriteTheGlassesRefusedIsNeverDrawnAndStagingGivesUpBounded"
+  ],
+  "expect": [
+   "aWriteTheGlassesRefusedIsNeverDrawnAndStagingGivesUpBounded"
+  ],
+  "note": "RC-3 part one: the tree before — the third raise of one episode is shown nowhere, so `staging is off for this session` never reaches a box"
+ },
+ {
+  "id": "R1b-13-the-lost-notice-says-nothing-more-is-sent-at-all",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    " — nothing more is sent for the re-sent message(s)\",\n                source = \"cache\")",
+    " — nothing more is sent\",\n                source = \"cache\")"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReSendTheGlassesDidNotCountEitherIsSaidAndNothingMoreIsSent"
+  ],
+  "expect": [
+   "aReSendTheGlassesDidNotCountEitherIsSaidAndNothingMoreIsSent"
+  ],
+  "note": "RC-3 (3): caught when the interval that judged the re-send held other writes beside it (the first notice's own glyph uploads — the shape of every run watched); L16 pins the other body"
+ },
+ {
+  "id": "R1b-14-the-read-backs-flag-is-cleared-before-its-epoch-test",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                val cur = atlas\n                // identity, not the generation: two atlases of one process share generation 0.",
+    "                atlasCheckInFlight = false\n                val cur = atlas\n                // identity, not the generation: two atlases of one process share generation 0."
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReadBackFromTheLastSessionClearsNoFlagButItsOwn"
+  ],
+  "expect": [
+   "aReadBackFromTheLastSessionClearsNoFlagButItsOwn"
+  ],
+  "note": "RC-5: the tree before — a stale answer releases the lanes under the next session's read-back and the second face's chunk leaves"
+ },
+ {
+  "id": "R1b-15-an-unanswered-read-back-puts-fonts-live-after-cached-text-failed",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (atlasFailed) return@Run\n                if (t == null) {",
+    "                if (t == null) {"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReadBackFromTheLastSessionClearsNoFlagButItsOwn"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "RC-5's second order: reachable only through the first (no chunk is sent under a read-back whose flag is up), which R1b-14 pins"
+ },
+ {
+  "id": "R1b-16-a-read-back-is-asked-while-asleep",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (glassesSilent) return\n        val a = atlas ?: return goLive()",
+    "        val a = atlas ?: return goLive()"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReadBackIsNeitherAppliedNorAskedWhileTheGlassesSleep"
+  ],
+  "expect": [
+   "aReadBackIsNeitherAppliedNorAskedWhileTheGlassesSleep"
+  ],
+  "note": "RC-6 (b): the tree before — the row off and on during a rest asks the freed cache to vouch for the acked faces: `cached text off — the glasses hold no texture cache` and the `atlas` notice"
+ },
+ {
+  "id": "R1b-17-the-sleeps-entry-leaves-the-read-backs-epoch",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "    private fun atlasCheckOwed(why: String, keyframe: Boolean = true) {\n        atlasCheckEpoch++",
+    "    private fun atlasCheckOwed(why: String, keyframe: Boolean = true) {\n        if (keyframe) atlasCheckEpoch++"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReadBackIsNeitherAppliedNorAskedWhileTheGlassesSleep"
+  ],
+  "expect": [
+   "aReadBackIsNeitherAppliedNorAskedWhileTheGlassesSleep"
+  ],
+  "note": "RC-6 (a), P4's guard by the held-answer route: a read-back out at the sleep is answered by a pair whose cache the release freed, and applied"
+ },
+ {
+  "id": "R1b-18-the-read-backs-answer-is-not-tested-against-its-epoch",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (cur !== target || epoch != atlasCheckEpoch || !running) return@Run",
+    "                if (cur !== target || !running) return@Run"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReadBackHeldAcrossALapseIsDroppedByItsEpoch",
+   "*GlyphSubsetShellTest.aReadBackFromTheLastSessionClearsNoFlagButItsOwn",
+   "*GlyphSubsetShellTest.aReadBackIsNeitherAppliedNorAskedWhileTheGlassesSleep"
+  ],
+  "expect": [
+   "aReadBackHeldAcrossALapseIsDroppedByItsEpoch"
+  ],
+  "note": "RC-4: a read-back held across a lapse whose rebuild is refused is applied to the lapsed session — `cached text off — the glasses hold no texture cache` and the `atlas` notice"
+ },
+ {
+  "id": "R1c-01-the-cache-work-getter-always-answers-false",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        get() = atlasInFlight != null || atlasCheckInFlight || stageInFlight != null || ledgerReadInFlight\n",
+    "        get() = false\n"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "theRigIsNotAtRestWhileAReadBackIsNotYetApplied"
+  ],
+  "note": "RB-7: the harness's rest reads the shell's own flags on the loop; without them calm returns between a read-back's answer and the run that applies it (the spy's counts already agree). theRigIsNotAtRestWhileACountReadingIsOut does NOT fail under this one: a reading that has not answered is also seen by the spy's counts and by cacheCountUnjudged"
+ },
+ {
+  "id": "R1c-02-the-cache-work-getter-does-not-read-the-read-backs-flag",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        get() = atlasInFlight != null || atlasCheckInFlight || stageInFlight != null || ledgerReadInFlight\n",
+    "        get() = atlasInFlight != null || stageInFlight != null || ledgerReadInFlight\n"
+   ]
+  ],
+  "tests": [
+   "*OverlayCachedPaintTest*"
+  ],
+  "expect": [
+   "theRigIsNotAtRestWhileAReadBackIsNotYetApplied"
+  ],
+  "note": "RB-7: the read-back's term of the getter. The other three terms (a cache write between submit and ack, a staged strip's write, a count reading between the transport's return and its run) have no pin of their own in this round: R1c-built.md says why"
+ },
+ {
+  "id": "R1v-01-the-row-merely-off-empties-the-books",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (atlasFailed && (atlasResendMissing > 0L || atlasUnproven.isNotEmpty())) {",
+    "        if ((atlasResendMissing > 0L || atlasUnproven.isNotEmpty())) {"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.withTheRowOffNothingIsReadAndTheQuestionIsAnsweredWhenItIsBack"
+  ],
+  "expect": [
+   "withTheRowOffNothingIsReadAndTheQuestionIsAnsweredWhenItIsBack"
+  ],
+  "note": "the R1 verify stage: atlasDisable's `atlasFailed` term had no entry. With the row merely off the unjudged messages stay on the books (L9): emptied there, the shortfall that follows the row's return finds nothing of the layout to send again"
+ },
+ {
+  "id": "R1v-02-a-queued-re-send-keyframes-when-the-count-goes-off",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                        val reSendAcked = atlasUnproven.any { it.done?.resend == true }",
+    "                        val reSendAcked = atlasResendMissing > 0L"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReSendAckedAfterTheCountWentOffKeyframesAtItsAck"
+  ],
+  "expect": [
+   "aReSendAckedAfterTheCountWentOffKeyframesAtItsAck"
+  ],
+  "note": "the R1 verify stage: the count-off branch keyframes for a re-send ACKED and unjudged only; one still queued gets its keyframe at its own ack — with the test widened to any re-send owed there are two keyframes, the first before the re-send's bytes have landed"
+ },
+ {
+  "id": "R1v-03-the-count-off-latch-is-not-cleared-at-a-session-start",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        stageFailed = false; stageWriteFailures = 0; stageShortfalls = 0\n        cacheOffSaid = false\n",
+    "        stageFailed = false; stageWriteFailures = 0; stageShortfalls = 0\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aCountThatGoesOffIsANoticeOnASteadyLinkOfABuildThatHasOne"
+  ],
+  "expect": [
+   "aCountThatGoesOffIsANoticeOnASteadyLinkOfABuildThatHasOne"
+  ],
+  "note": "the R1 verify stage: once per SESSION — without the clear the notice is said once for the life of the process and the next session's count goes off with no box"
+ },
+ {
+  "id": "R1v-04-the-disable-that-keyframes-leaves-the-books",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            val resend = atlasResendMissing > 0L\n            atlasUnproven.clear(); atlasResendMissing = 0L\n",
+    "            val resend = atlasResendMissing > 0L\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReSendTheGlassesRefuseSwitchesCachedTextOffAndKeyframes"
+  ],
+  "expect": [
+   "aReSendTheGlassesRefuseSwitchesCachedTextOffAndKeyframes"
+  ],
+  "note": "the R1 verify stage: said once — the books are emptied where `count ended` is said, so the next switch-off under the same failure (the row going off) says nothing and asks for no second keyframe"
+ }
+]

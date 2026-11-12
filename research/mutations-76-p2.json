@@ -1,0 +1,944 @@
+[
+ {
+  "id": "P2-01-reader-narrowed-to-an-acked-strip",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (cacheLedger.unjudged == 0L) return false                          // nothing acked past the last agreed reading",
+    "        if (cacheLedger.unjudged == 0L || stage.count(StagedRecord.State.ACKED) == 0) return false"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aCacheWriteOutsideTheReaderIsCountedByItsOwnReading",
+   "*StagingTest.aPendingReadingAtMainIsAskedAgainOnItsOwnPump"
+  ],
+  "expect": [
+   "aCacheWriteOutsideTheReaderIsCountedByItsOwnReading",
+   "aPendingReadingAtMainIsAskedAgainOnItsOwnPump"
+  ],
+  "note": "the 0.63 trigger: a reading only with a strip acked"
+ },
+ {
+  "id": "P2-02-pumpAtlas-not-held-under-a-reading",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (atlasCheckInFlight || ledgerReadInFlight || stageInFlight != null) return false",
+    "        if (atlasCheckInFlight || stageInFlight != null) return false"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aCacheWriteOutsideTheReaderIsCountedByItsOwnReading"
+  ],
+  "expect": [
+   "aCacheWriteOutsideTheReaderIsCountedByItsOwnReading"
+  ]
+ },
+ {
+  "id": "P2-03-base-backstop-removed-from-pumpAtlas",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (ledgerBaseOwed(st)) return tryLedgerRead(st)\n        val (chunk, gen) = atlasQueue.removeFirst()",
+    "        val (chunk, gen) = atlasQueue.removeFirst()"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.theCountsBaseIsReadBeforeTheFirstCacheWriteAndNothingIsWrittenUnderAReading"
+  ],
+  "expect": [
+   "theCountsBaseIsReadBeforeTheFirstCacheWriteAndNothingIsWrittenUnderAReading"
+  ]
+ },
+ {
+  "id": "P2-04-base-backstop-removed-from-pumpStage",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (ledgerBaseOwed(st)) return tryLedgerRead(st)\n        if (stage.count(StagedRecord.State.ACKED) > 0) return false",
+    "        if (stage.count(StagedRecord.State.ACKED) > 0) return false"
+   ]
+  ],
+  "tests": [
+   "*StagingTest.aLostStageWriteIsReBasedBeforeTheNextStrip"
+  ],
+  "expect": [
+   "aLostStageWriteIsReBasedBeforeTheNextStrip"
+  ]
+ },
+ {
+  "id": "P2-05-no-resend-call",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            val bytes = a.resend(first.flatMap { it.writes })",
+    "            val bytes = first.sumOf { it.bytes }"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aWriteTheGlassesDidNotCountIsSaidAndSentOnceMore"
+  ],
+  "expect": [
+   "aWriteTheGlassesDidNotCountIsSaidAndSentOnceMore"
+  ]
+ },
+ {
+  "id": "P2-06-no-keyframe-after-a-counted-re-send",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "were counted by RIGHT; keyframing\")\n                    comp.requestKeyframe()",
+    "were counted by RIGHT; keyframing\")"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aWriteTheGlassesDidNotCountIsSaidAndSentOnceMore",
+   "*GlyphSubsetShellTest.theMiscountProbeDrivesTheWholePathOnTheSimulator"
+  ],
+  "expect": [
+   "aWriteTheGlassesDidNotCountIsSaidAndSentOnceMore",
+   "theMiscountProbeDrivesTheWholePathOnTheSimulator"
+  ]
+ },
+ {
+  "id": "P2-07-a-shortfall-switches-cached-text-off",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        atlasResendMissing = 0L\n        val parts = ArrayList<String>()",
+    "        atlasResendMissing = 0L\n        atlasDisable(\"a shortfall\")\n        val parts = ArrayList<String>()"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aWriteTheGlassesDidNotCountIsSaidAndSentOnceMore"
+  ],
+  "expect": [
+   "aWriteTheGlassesDidNotCountIsSaidAndSentOnceMore"
+  ]
+ },
+ {
+  "id": "P2-08-an-ack-never-marked-a-re-send",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "        return Acked(ackedMsgs, d.writes, d.resend)",
+    "        return Acked(ackedMsgs, d.writes, false)"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReSendTheGlassesDidNotCountEitherIsSaidAndNothingMoreIsSent",
+   "*GlyphSubsetTest.aReSendWritesTheSameRangesAgainAndMovesNoMark",
+   "*GlyphSubsetTest.aRewindSendsAnUnackedReSendAgainAndAnOldAckCompletesNothing"
+  ],
+  "expect": [
+   "aReSendTheGlassesDidNotCountEitherIsSaidAndNothingMoreIsSent",
+   "aReSendWritesTheSameRangesAgainAndMovesNoMark",
+   "aRewindSendsAnUnackedReSendAgainAndAnOldAckCompletesNothing"
+  ]
+ },
+ {
+  "id": "P2-09-suspects-rule-removed",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val first = if (again.isNotEmpty() && v.missing <= again.size) emptyList() else mine.filter { !it.resend }",
+    "        val first = mine.filter { !it.resend }"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReSendTheGlassesDidNotCountEitherIsSaidAndNothingMoreIsSent"
+  ],
+  "expect": [
+   "aReSendTheGlassesDidNotCountEitherIsSaidAndNothingMoreIsSent"
+  ]
+ },
+ {
+  "id": "P2-10-an-over-count-after-a-re-send-read-as-counted",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                    if (v.extra >= missing) {",
+    "                    if (false) {"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aBumpThatLandsAfterTheReSendIsSaidAsLateNotAsLost"
+  ],
+  "expect": [
+   "aBumpThatLandsAfterTheReSendIsSaidAsLateNotAsLost"
+  ]
+ },
+ {
+  "id": "P2-11-rewind-leaves-re-sends-handed-out",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "        for (r in resends) r.handedOut = false         // a re-send cut and not acked goes again, like a table patch\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReSendOwedAtALinkEndGoesAgainUnderTheKeptAtlas",
+   "*GlyphSubsetTest.aRewindSendsAnUnackedReSendAgainAndAnOldAckCompletesNothing"
+  ],
+  "expect": [
+   "aReSendOwedAtALinkEndGoesAgainUnderTheKeptAtlas",
+   "aRewindSendsAnUnackedReSendAgainAndAnOldAckCompletesNothing"
+  ]
+ },
+ {
+  "id": "P2-12-epoch-check-removed-from-the-reading",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (epoch != ledgerEpoch || !running) return@Run\n                ledgerReadInFlight = false",
+    "                if (!running) return@Run\n                ledgerReadInFlight = false"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aCountsReadingFromTheLastSessionIsDropped"
+  ],
+  "expect": [
+   "aCountsReadingFromTheLastSessionIsDropped"
+  ]
+ },
+ {
+  "id": "P2-13-flag-cleared-before-the-epoch-check",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (epoch != ledgerEpoch || !running) return@Run\n                ledgerReadInFlight = false",
+    "                ledgerReadInFlight = false\n                if (epoch != ledgerEpoch || !running) return@Run"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aCountsReadingFromTheLastSessionIsDropped"
+  ],
+  "expect": [
+   "aCountsReadingFromTheLastSessionIsDropped"
+  ]
+ },
+ {
+  "id": "P2-14-asleep-term-removed-from-the-reader",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        !glassesSilent && !atlasLapsedOwed && st.leaseHeld && ledgerJudges(st)",
+    "        !atlasLapsedOwed && st.leaseHeld && ledgerJudges(st)"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.silentModeAndALapseEndTheQuestion"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "the pump returns before its idle step while the glasses are silent, so no launch site is reached asleep: the term is a second line behind that return (and what the harness value and the probe read)"
+ },
+ {
+  "id": "P2-15-drop-removed-from-enterSilentGlasses",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        ledgerDropReading()            // a reading on its way is not applied while asleep (no verdict, no notice, no lane held)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.silentModeAndALapseEndTheQuestion"
+  ],
+  "expect": [
+   "silentModeAndALapseEndTheQuestion"
+  ]
+ },
+ {
+  "id": "P2-16-row-term-removed-from-the-reader",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "    private fun ledgerReadable(st: LinkState) = cachedText != null && settings.cachedText == \"on\" && !atlasFailed &&",
+    "    private fun ledgerReadable(st: LinkState) = cachedText != null && !atlasFailed &&"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.withTheRowOffNothingIsReadAndTheQuestionIsAnsweredWhenItIsBack"
+  ],
+  "expect": [
+   "withTheRowOffNothingIsReadAndTheQuestionIsAnsweredWhenItIsBack"
+  ]
+ },
+ {
+  "id": "P2-17-keyframe-removed-from-atlasCheckOwed",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            journal.note(\"atlas\", \"$what; keyframing\")\n            comp.requestKeyframe()",
+    "            journal.note(\"atlas\", \"$what; keyframing\")"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aMidSessionResetDropsTheUnjudgedMessagesAndKeyframes",
+   "*AtlasRepackTest.aRepackIsACleanBoundaryForTheCount"
+  ],
+  "expect": [
+   "aMidSessionResetDropsTheUnjudgedMessagesAndKeyframes",
+   "aRepackIsACleanBoundaryForTheCount"
+  ]
+ },
+ {
+  "id": "P2-18-atlasCheckOwed-without-the-clear-and-the-re-base",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val dropped = atlasUnproven.size\n        val resendOwed = atlasResendMissing > 0L        // read BEFORE the clears: queued, in the air, or acked and unjudged\n        atlasUnproven.clear()\n        atlasResendMissing = 0L\n        atlasLastAcked = null\n        if (cacheLedger.unjudged > 0) cacheLedger.rebaseNext()\n",
+    "        val dropped = 0\n        val resendOwed = false\n        atlasLastAcked = null\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aMidSessionResetDropsTheUnjudgedMessagesAndKeyframes",
+   "*AtlasRepackTest.aRepackIsACleanBoundaryForTheCount"
+  ],
+  "expect": [
+   "aMidSessionResetDropsTheUnjudgedMessagesAndKeyframes",
+   "aRepackIsACleanBoundaryForTheCount"
+  ]
+ },
+ {
+  "id": "P2-19-notice-raised-without-the-link-check",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (!linkUpAndSteady()) return                                    // a session that is ending: the journal has it\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aShortfallOnALinkThatIsEndingIsJournaledAndNotANotice"
+  ],
+  "expect": [
+   "aShortfallOnALinkThatIsEndingIsJournaledAndNotANotice"
+  ]
+ },
+ {
+  "id": "P2-20-probe-route-removed",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (ev.kind == \"probe\" && ev.detail == \"cache=miscount\") probeCacheMiscount()\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.theMiscountProbeDrivesTheWholePathOnTheSimulator"
+  ],
+  "expect": [
+   "theMiscountProbeDrivesTheWholePathOnTheSimulator"
+  ]
+ },
+ {
+  "id": "P2-21-no-pump-after-a-pending-reading",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                ledgerReadNotBeforeMs = System.currentTimeMillis() + CacheLedger.REREAD_PACE_MS\n                pumpAfter(CacheLedger.REREAD_PACE_MS)",
+    "                ledgerReadNotBeforeMs = System.currentTimeMillis() + CacheLedger.REREAD_PACE_MS"
+   ]
+  ],
+  "tests": [
+   "*StagingTest.aPendingReadingAtMainIsAskedAgainOnItsOwnPump",
+   "*StagingTest.aPendingReadingIsAskedAgainOnItsOwnPumpNotTheIdleTick"
+  ],
+  "expect": [
+   "aPendingReadingAtMainIsAskedAgainOnItsOwnPump",
+   "aPendingReadingIsAskedAgainOnItsOwnPumpNotTheIdleTick"
+  ]
+ },
+ {
+  "id": "P2-22-stageClear-clears-the-readings-flag",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        stageClears++\n        comp.placements = emptyList()",
+    "        ledgerReadInFlight = false\n        stageClears++\n        comp.placements = emptyList()"
+   ]
+  ],
+  "tests": [
+   "*StagingTest.aStageClearDoesNotReleaseTheLanesUnderAReading"
+  ],
+  "expect": [
+   "aStageClearDoesNotReleaseTheLanesUnderAReading"
+  ]
+ },
+ {
+  "id": "P2-23-staging-counts-an-atlas-only-shortfall",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (stageWrites > 0 && ++stageShortfalls >= STAGE_FAILURES_MAX) {",
+    "                if (++stageShortfalls >= STAGE_FAILURES_MAX) {"
+   ]
+  ],
+  "tests": [
+   "*StagingTest.threeAtlasOnlyShortfallsDoNotSwitchPageStagingOff"
+  ],
+  "expect": [
+   "threeAtlasOnlyShortfallsDoNotSwitchPageStagingOff"
+  ]
+ },
+ {
+  "id": "P2-24-pumpLedger-ignores-the-pace",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (based && System.currentTimeMillis() < ledgerReadNotBeforeMs) return false",
+    "        if (false) return false"
+   ]
+  ],
+  "tests": [
+   "*StagingTest.aShortReadingIsAskedAgainASettleWindowLaterOnItsOwnPump"
+  ],
+  "expect": [
+   "aShortReadingIsAskedAgainASettleWindowLaterOnItsOwnPump"
+  ]
+ },
+ {
+  "id": "P2-25-forgetUpload-keeps-queued-re-sends",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "        resends.clear()                                // everything goes again from the guard anyway\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest.aLapseOrARepackDropsAQueuedReSend"
+  ],
+  "expect": [
+   "aLapseOrARepackDropsAQueuedReSend"
+  ]
+ },
+ {
+  "id": "P2-26-takeUpload-early-return-ignores-re-sends",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "        if (builder.used <= sentBytes && exts.isEmpty() && resends.all { it.handedOut }) return emptyList()",
+    "        if (builder.used <= sentBytes && exts.isEmpty()) return emptyList()"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest.aReSendWritesTheSameRangesAgainAndMovesNoMark"
+  ],
+  "expect": [
+   "aReSendWritesTheSameRangesAgainAndMovesNoMark"
+  ]
+ },
+ {
+  "id": "P2-27-an-ack-does-not-complete-its-re-send",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "        resends.removeAll(d.resent)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest.aReSendWritesTheSameRangesAgainAndMovesNoMark"
+  ],
+  "expect": [
+   "aReSendWritesTheSameRangesAgainAndMovesNoMark"
+  ]
+ },
+ {
+  "id": "P2-28-re-send-cut-off-a-unit",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "                if (a + n <= r.range.last) n -= n % unit       // only a range's last piece may end off a unit\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest.aReSendIsCutInWholeUnitsInItsOwnMessagesAndNeverEmpty"
+  ],
+  "expect": [
+   "aReSendIsCutInWholeUnitsInItsOwnMessagesAndNeverEmpty"
+  ]
+ },
+ {
+  "id": "P2-29-re-send-bytes-kept-from-the-queueing",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "    private class Resend(val range: IntRange) { var handedOut = false }",
+    "    private class Resend(val range: IntRange, val kept: ByteArray) { var handedOut = false }"
+   ],
+   [
+    "            resends += Resend(r)",
+    "            resends += Resend(r, builder.read(r))"
+   ],
+   [
+    "                writes += a to builder.read(a until a + n)\n                size += builder.writeOverhead + n\n                a += n\n            }\n            r.handedOut = true",
+    "                writes += a to r.kept.copyOfRange(a - r.range.first, a - r.range.first + n)\n                size += builder.writeOverhead + n\n                a += n\n            }\n            r.handedOut = true"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest.aReSendCarriesTheImageAsItStandsAtTheCut"
+  ],
+  "expect": [
+   "aReSendCarriesTheImageAsItStandsAtTheCut"
+  ]
+ },
+ {
+  "id": "P2-30-an-ack-names-the-first-run-only",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "                writes.map { (off, d) -> off until off + d.size }, resend, resentDone))",
+    "                writes.take(1).map { (off, d) -> off until off + d.size }, resend, resentDone))"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest.anAckSaysWhichBytesItsMessageWrote"
+  ],
+  "expect": [
+   "anAckSaysWhichBytesItsMessageWrote"
+  ]
+ },
+ {
+  "id": "P2-31-shortfall-atlas-share-not-relative-to-the-base",
+  "file": "shell/Staging.kt",
+  "edits": [
+   [
+    "                    val atlasWrites = sendAtlasAcked - baseAtlasAcked     // taken before the re-base",
+    "                    val atlasWrites = sendAtlasAcked"
+   ]
+  ],
+  "tests": [
+   "*StagingTest.theLedgerProvesByCountingWaitsOutTheSettleWindowAndKeepsRecordsOnAnExtraBump"
+  ],
+  "expect": [
+   "theLedgerProvesByCountingWaitsOutTheSettleWindowAndKeepsRecordsOnAnExtraBump"
+  ]
+ },
+ {
+  "id": "P2-32-rebaseNext-does-nothing",
+  "file": "shell/Staging.kt",
+  "edits": [
+   [
+    "    fun rebaseNext() { unsure = true }",
+    "    fun rebaseNext() { }"
+   ]
+  ],
+  "tests": [
+   "*StagingTest.theLedgerProvesByCountingWaitsOutTheSettleWindowAndKeepsRecordsOnAnExtraBump"
+  ],
+  "expect": [
+   "theLedgerProvesByCountingWaitsOutTheSettleWindowAndKeepsRecordsOnAnExtraBump"
+  ]
+ },
+ {
+  "id": "P2-33-a-late-bump-always-read-as-landed-late",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                    if (v.extra >= missing) {",
+    "                    if (true) {"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aLateBumpThatDoesNotCoverTheShortfallStillKeyframes"
+  ],
+  "expect": [
+   "aLateBumpThatDoesNotCoverTheShortfallStillKeyframes"
+  ]
+ },
+ {
+  "id": "P2-34-re-send-range-not-checked",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "            if (r.first < builder.guard || r.last >= builder.used)\n                throw LintError(\"a re-send of",
+    "            if (false)\n                throw LintError(\"a re-send of"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest.aReSendWritesTheSameRangesAgainAndMovesNoMark"
+  ],
+  "expect": [
+   "aReSendWritesTheSameRangesAgainAndMovesNoMark"
+  ]
+ },
+ {
+  "id": "P2-35-a-range-queued-twice",
+  "file": "comp/CachedText.kt",
+  "edits": [
+   [
+    "            if (resends.any { it.range == r }) continue\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetTest.aReSendWritesTheSameRangesAgainAndMovesNoMark"
+  ],
+  "expect": [
+   "aReSendWritesTheSameRangesAgainAndMovesNoMark"
+  ]
+ },
+ {
+  "id": "P2-36-count-notes-always-stagings",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val staged = stage.count(StagedRecord.State.ACKED) > 0\n        val label",
+    "        val staged = true\n        val label"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aCacheWriteOutsideTheReaderIsCountedByItsOwnReading",
+   "*StagingTest.aPendingReadingAtMainIsAskedAgainOnItsOwnPump"
+  ],
+  "expect": [
+   "aCacheWriteOutsideTheReaderIsCountedByItsOwnReading",
+   "aPendingReadingAtMainIsAskedAgainOnItsOwnPump"
+  ],
+  "note": "F12: an atlas-only reading writes its pending and short notes as kind atlas (the label is then the stage check too)"
+ },
+ {
+  "id": "P2-37-harness-count-not-limited-to-what-will-be-read",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        cacheCountUnjudged = if (ledgerReadable(st)) cacheLedger.unjudged else 0L",
+    "        cacheCountUnjudged = cacheLedger.unjudged"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aLapseHoldsEveryCacheWriteAndFoldsTheExtension"
+  ],
+  "expect": [
+   "aLapseHoldsEveryCacheWriteAndFoldsTheExtension"
+  ],
+  "note": "F13: on an upstream build nothing reads the count, and a harness waiting for 0 would wait out its bound"
+ },
+ {
+  "id": "P2-38-the-lapse-resets-the-ledger-object-only",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        ledgerReset()                   // the count starts over with the cache; a reading on its way is dropped",
+    "        cacheLedger.reset()"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.silentModeAndALapseEndTheQuestion"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "a session start follows a lapse on every build whose count is read (the rebuild) and resets the same state"
+ },
+ {
+  "id": "P2-39-no-keyframe-at-a-re-base-that-swallowed-a-re-send",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                    if (resent) comp.requestKeyframe()",
+    "                    if (false) comp.requestKeyframe()"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReBaseThatSwallowsAReSendKeyframes"
+  ],
+  "expect": [
+   "aReBaseThatSwallowsAReSendKeyframes"
+  ],
+  "note": "0.64 verify: pinned (a re-send acked and pending, then a cache write whose ack never came — the re-base drops the re-send unjudged and keyframes)"
+ },
+ {
+  "id": "P2-40-pumpAtlas-not-held-under-a-STAGE-flush",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (atlasCheckInFlight || ledgerReadInFlight || stageInFlight != null) return false",
+    "        if (atlasCheckInFlight || ledgerReadInFlight) return false"
+   ]
+  ],
+  "tests": [
+   "*StagingTest.aNotchWithAStagedStripShipsOneDrawUnderAClipAndNoPixelsOverTheBand"
+  ],
+  "expect": [
+   "<no pin: named in the build report>"
+  ],
+  "note": "the state needs a completion queued behind the pump; pumpStage does not start a strip with an atlas message queued"
+ },
+ {
+  "id": "P2-41-a-reading-launched-with-a-flush-in-flight",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (atlasInFlight != null || stageInFlight != null || st.inFlight != 0) return false\n        launchLedgerRead()",
+    "        launchLedgerRead()"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aCacheWriteOutsideTheReaderIsCountedByItsOwnReading",
+   "*StagingTest.aPendingReadingAtMainIsAskedAgainOnItsOwnPump"
+  ],
+  "expect": [
+   "aCacheWriteOutsideTheReaderIsCountedByItsOwnReading",
+   "aPendingReadingAtMainIsAskedAgainOnItsOwnPump"
+  ],
+  "note": "the lanes judged still by the shell's own books: without it a reading is launched under a flush in flight and speaks for a count that is still moving"
+ },
+ {
+  "id": "P2-42-no-notice-for-a-strips-only-shortfall",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (first.isNotEmpty() || strips > 0 || stagingOff || again.isEmpty())\n",
+    "        if (first.isNotEmpty())\n"
+   ]
+  ],
+  "tests": [
+   "*StagingTest.aWriteTheGlassesRefusedIsNeverDrawnAndStagingGivesUpBounded"
+  ],
+  "expect": [
+   "aWriteTheGlassesRefusedIsNeverDrawnAndStagingGivesUpBounded"
+  ],
+  "note": "0.64 verify: the changed existing pin, watched under a mutation of its own (a staged strip's shortfall is a notice too)"
+ },
+ {
+  "id": "P2-43-staged-again-not-said",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        else if (strips > 0) parts += \"$strips staged strip(s) staged again\"\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*StagingTest.aWriteTheGlassesRefusedIsNeverDrawnAndStagingGivesUpBounded"
+  ],
+  "expect": [
+   "aWriteTheGlassesRefusedIsNeverDrawnAndStagingGivesUpBounded"
+  ]
+ },
+ {
+  "id": "P2-44-pumpStage-not-held-under-a-reading",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (stageInFlight != null || ledgerReadInFlight) return false\n",
+    "        if (stageInFlight != null) return false\n"
+   ]
+  ],
+  "tests": [
+   "*StagingTest.aStageClearDoesNotReleaseTheLanesUnderAReading"
+  ],
+  "expect": [
+   "aStageClearDoesNotReleaseTheLanesUnderAReading"
+  ],
+  "note": "the stage lane's own hold (P2-22 is the clear that used to release it)"
+ },
+ {
+  "id": "P2-45-a-reading-launched-under-a-reading",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (!ledgerReadable(st) || ledgerReadInFlight) return false\n",
+    "        if (!ledgerReadable(st)) return false\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aCacheWriteOutsideTheReaderIsCountedByItsOwnReading"
+  ],
+  "expect": [
+   "aCacheWriteOutsideTheReaderIsCountedByItsOwnReading"
+  ],
+  "note": "one reading of the count at a time: without it one is launched on every pump and the atlas's lane never runs"
+ },
+ {
+  "id": "P2-46-a-batch-read-after-every-message",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (based && atlasQueue.isNotEmpty()) return false                    // a batch is read at its end\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.theCountsBaseIsReadBeforeTheFirstCacheWriteAndNothingIsWrittenUnderAReading"
+  ],
+  "expect": [
+   "theCountsBaseIsReadBeforeTheFirstCacheWriteAndNothingIsWrittenUnderAReading"
+  ],
+  "note": "a batch is read at its end (no pin named it before the verify stage)"
+ },
+ {
+  "id": "P2-47-ledgerReset-does-not-bump-the-epoch",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        cacheLedger.reset()\n        ledgerEpoch++\n",
+    "        cacheLedger.reset()\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aCountsReadingFromTheLastSessionIsDropped"
+  ],
+  "expect": [
+   "aCountsReadingFromTheLastSessionIsDropped"
+  ]
+ },
+ {
+  "id": "P2-48-ledgerReset-leaves-the-readings-flag",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        ledgerEpoch++\n        ledgerReadInFlight = false\n        ledgerReadNotBeforeMs = 0L\n",
+    "        ledgerEpoch++\n        ledgerReadNotBeforeMs = 0L\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aCountsReadingFromTheLastSessionIsDropped"
+  ],
+  "expect": [
+   "aCountsReadingFromTheLastSessionIsDropped"
+  ],
+  "note": "a session start under a reading still out: without the clear the new session never asks its base and both lanes hold for good"
+ },
+ {
+  "id": "P2-49-ledgerReset-keeps-the-unjudged-messages",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        ledgerOff = false\n        atlasUnproven.clear()\n",
+    "        ledgerOff = false\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.silentModeAndALapseEndTheQuestion",
+   "*GlyphSubsetShellTest.aReSendOwedAtALinkEndGoesAgainUnderTheKeptAtlas"
+  ],
+  "expect": [
+   "<no pin: named in the verify report>"
+  ],
+  "note": "stale entries would be counted in a later `count ok` or sent again at a later shortfall; needs a shortfall in the next session whose interval covers the old entry's count"
+ },
+ {
+  "id": "P2-50-the-lost-notice-always-states-it-as-fact",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val alone = k == again.size.toLong()",
+    "        val alone = true"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReSendTheGlassesDidNotCountEitherIsSaidAndNothingMoreIsSent"
+  ],
+  "expect": [
+   "aReSendTheGlassesDidNotCountEitherIsSaidAndNothingMoreIsSent"
+  ],
+  "note": "F7: caught when the run's interval holds other writes beside the re-send (the first notice's own glyph uploads — every run watched); the pin holds the wording to the interval either way"
+ },
+ {
+  "id": "P2-51-the-lost-notice-never-states-it-as-fact",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val alone = k == again.size.toLong()",
+    "        val alone = false"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReSendAloneInItsIntervalAndNotCountedIsStatedAsFact"
+  ],
+  "expect": [
+   "aReSendAloneInItsIntervalAndNotCountedIsStatedAsFact"
+  ]
+ },
+ {
+  "id": "P2-52-an-ack-remembered-where-the-count-cannot-judge",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (ledgerJudges(st)) atlasUnproven.addLast(AtlasWrite(cacheLedger.acked, done))",
+    "        atlasUnproven.addLast(AtlasWrite(cacheLedger.acked, done))"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aLapseHoldsEveryCacheWriteAndFoldsTheExtension"
+  ],
+  "expect": [
+   "<no pin: named in the verify report>"
+  ],
+  "note": "on a build or transport whose count is never read the list would grow by one entry per atlas message until the session ends; nothing observable reads it"
+ },
+ {
+  "id": "P2-53-base-first-always-true",
+  "file": "shell/Staging.kt",
+  "edits": [
+   [
+    "            return Verdict.Base(gen, first = base == null)",
+    "            return Verdict.Base(gen, first = true)"
+   ]
+  ],
+  "tests": [
+   "*StagingTest.theLedgerProvesByCountingWaitsOutTheSettleWindowAndKeepsRecordsOnAnExtraBump"
+  ],
+  "expect": [
+   "theLedgerProvesByCountingWaitsOutTheSettleWindowAndKeepsRecordsOnAnExtraBump"
+  ]
+ },
+ {
+  "id": "P2-54-the-shortfalls-missing-never-remembered",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            atlasResendMissing = v.missing\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aLateBumpThatDoesNotCoverTheShortfallStillKeyframes"
+  ],
+  "expect": [
+   "aLateBumpThatDoesNotCoverTheShortfallStillKeyframes"
+  ]
+ },
+ {
+  "id": "P2-55-count-ok-not-said",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (counted.size > again) journal.note(\"atlas\", \"count ok — ",
+    "                if (false) journal.note(\"atlas\", \"count ok — "
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aCacheWriteOutsideTheReaderIsCountedByItsOwnReading"
+  ],
+  "expect": [
+   "aCacheWriteOutsideTheReaderIsCountedByItsOwnReading"
+  ]
+ },
+ {
+  "id": "P2-56-an-over-count-always-written-as-stagings-note",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (staged) journal.note(\"stage\", \"$from: ${v.extra} more generation bump(s)",
+    "                if (true) journal.note(\"stage\", \"$from: ${v.extra} more generation bump(s)"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.anExtraBumpWithNoStripInvolvedIsTheCountsOwnNote"
+  ],
+  "expect": [
+   "anExtraBumpWithNoStripInvolvedIsTheCountsOwnNote"
+  ],
+  "note": "F12 swept over its class: the over-count was the one verdict still written as a `stage` note with no strip involved"
+ }
+]

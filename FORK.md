@@ -223,7 +223,8 @@ the cache size drop with the lease (§61.2 item 6); `glassesSilent`, `recentlyRe
 are per session or per epoch (§64.2 items 2, 7, 11). (b) The prelude, the capability query, FLAGS_SET, op 5 and
 the warmup each re-ask on the pacing tick with one deferred that latches on success (§63.3 item 4, §64.2 items
 4–5). (c) The atlas read-back is keyed on an epoch, not a per-atlas counter that every new atlas restarts at 0
-(§63.1, §64.2 item 2). (d) The save-under slots and the cache pointer move under one state word; every second
+(§63.1, §64.2 item 2). (d) The save-under slots move under one state word — the cache pointer under none: its
+release is still load / test / store / free (corrected 2026-11-11, `HANDOFF.md` §76.8); every second
 pass re-derives its pointer and records its refusal (§62.2 item 2, §63.2 items 2–3, §64.3 items 1–3). (e) One
 read of the link state per decision — `pump()`, the compositor's `v2`, `CachedText`'s atlas (§62.3 item 9, §63.3
 item 8, §64.2 item 6). (f) Mode 12 with 19, modes 14/15 with 18, the writers with the readers, both lenses of a

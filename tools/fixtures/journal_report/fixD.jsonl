@@ -1,0 +1,19 @@
+{"t": 1762800000000, "ev": "submit", "id": 1, "epoch": 1, "label": "ATLAS", "via": "ble", "cached": 0, "cacheMiss": "", "ops": [{"op": "cachewrite2", "bytes": 900}]}
+{"t": 1762800000060, "ev": "done", "id": 1, "ok": true, "ackMs": 60, "bytes": 900}
+{"t": 1762800000150, "ev": "note", "kind": "stage", "detail": "the atlas check read the generation 1 short inside the settle window — pending, asked again in 500 ms"}
+{"t": 1762800000670, "ev": "note", "kind": "stage", "detail": "the atlas check read the generation 1 short inside the settle window — pending, asked again in 500 ms"}
+{"t": 1762800001700, "ev": "note", "kind": "stage", "detail": "the atlas check read the generation 1 short after the settle window (settled reading 1) — asked again in 2000 ms"}
+{"t": 1762800003750, "ev": "note", "kind": "stage", "detail": "the atlas check: 1 more generation bump(s) than this shell's writes since the last reading (1 this session) — re-based; 0 acked record(s) taken as landed"}
+{"t": 1762900000000, "ev": "submit", "id": 1, "epoch": 1, "label": "ATLAS", "via": "ble", "cached": 0, "cacheMiss": "", "ops": [{"op": "cachewrite2", "bytes": 900}]}
+{"t": 1762900000060, "ev": "done", "id": 1, "ok": true, "ackMs": 60, "bytes": 900}
+{"t": 1762900000150, "ev": "note", "kind": "atlas", "detail": "count pending — the cache count read the generation 1 short inside the settle window, asked again in 500 ms"}
+{"t": 1762900000700, "ev": "note", "kind": "atlas", "detail": "count ok — 1 atlas message(s) counted by RIGHT, generation 9"}
+{"t": 1762900005000, "ev": "submit", "id": 2, "epoch": 1, "label": "STAGE", "via": "ble", "cached": 0, "cacheMiss": "", "ops": [{"op": "cachewrite2", "bytes": 900}]}
+{"t": 1762900005060, "ev": "done", "id": 2, "ok": true, "ackMs": 60, "bytes": 900}
+{"t": 1762900005100, "ev": "submit", "id": 3, "epoch": 1, "label": "ATLAS", "via": "ble", "cached": 0, "cacheMiss": "", "ops": [{"op": "cachewrite2", "bytes": 900}]}
+{"t": 1762900005160, "ev": "done", "id": 3, "ok": true, "ackMs": 60, "bytes": 900}
+{"t": 1762900006300, "ev": "note", "kind": "stage", "detail": "the stage check read the generation 2 short after the settle window (settled reading 1) — asked again in 2000 ms"}
+{"t": 1762900008350, "ev": "note", "kind": "atlas", "detail": "count short — RIGHT's generation is 9, 2 short of 2 cache write(s) acked since the last agreed reading (1 of the atlas); 1 atlas message(s), 900 B, go once more"}
+{"t": 1762900008351, "ev": "note", "kind": "stage", "detail": "the stage check: the generation says 2 of the cache writes since the last reading never landed — 1 record(s) dropped; atlas messages were among the writes (the atlas note says what goes again)"}
+{"t": 1762900020000, "ev": "note", "kind": "stage", "detail": "the cache generation read did not answer — asked again in 2000 ms"}
+{"t": 1762900030000, "ev": "note", "kind": "atlas", "detail": "re-send unjudged — a re-send was acked with the count off for this session: nothing judges it; keyframing"}

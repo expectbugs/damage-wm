@@ -1,0 +1,24 @@
+{"t": 1800000000000, "ev": "note", "kind": "process", "detail": "apk 0.64 pid 1"}
+{"t": 1800000000010, "ev": "note", "kind": "keeper", "detail": "starting"}
+{"t": 1800000000020, "ev": "note", "kind": "power", "detail": "lit"}
+{"t": 1800000060000, "ev": "note", "kind": "battery", "detail": "glasses 100%"}
+{"t": 1800001860000, "ev": "note", "kind": "battery", "detail": "glasses 99%"}
+{"t": 1800003660000, "ev": "note", "kind": "battery", "detail": "glasses 98%"}
+{"t": 1800005460000, "ev": "note", "kind": "battery", "detail": "glasses 97%"}
+{"t": 1800007260000, "ev": "note", "kind": "battery", "detail": "glasses 96%"}
+{"t": 1800009060000, "ev": "note", "kind": "battery", "detail": "glasses 95%"}
+{"t": 1800010860000, "ev": "note", "kind": "battery", "detail": "glasses 94%"}
+{"t": 1800012660000, "ev": "note", "kind": "battery", "detail": "glasses 93%"}
+{"t": 1800014460000, "ev": "note", "kind": "battery", "detail": "glasses 92%"}
+{"t": 1800016260000, "ev": "note", "kind": "battery", "detail": "glasses 91%"}
+{"t": 1800018060000, "ev": "note", "kind": "battery", "detail": "glasses 90%"}
+{"t": 1800018360000, "ev": "note", "kind": "power", "detail": "down"}
+{"t": 1800072000000, "ev": "note", "kind": "keeper", "detail": "reconnecting (attempt 2)"}
+{"t": 1800072000005, "ev": "note", "kind": "power", "detail": "lit 90%"}
+{"t": 1800072060000, "ev": "note", "kind": "battery", "detail": "glasses 100%"}
+{"t": 1800073860000, "ev": "note", "kind": "battery", "detail": "glasses 99%"}
+{"t": 1800075660000, "ev": "note", "kind": "battery", "detail": "glasses 98%"}
+{"t": 1800077460000, "ev": "note", "kind": "battery", "detail": "glasses 97%"}
+{"t": 1800079260000, "ev": "note", "kind": "battery", "detail": "glasses 96%"}
+{"t": 1800081060000, "ev": "note", "kind": "battery", "detail": "glasses 95%"}
+{"t": 1800081360000, "ev": "note", "kind": "power", "detail": "down"}

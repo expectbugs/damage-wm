@@ -45,6 +45,8 @@ class LinkEstimatorWiringTest {
 
     private class HeldTransport(val glass: GlassFirmwareSim, scope: CoroutineScope) : CfwTransportBase(scope, "held") {
         @Volatile var clock = 1_000_000L
+        /** While set, the glasses' answers wait in [held]. A test sets it directly; it is read and
+         *  cleared under [held]'s lock. */
         @Volatile var hold = false
         private val held = ArrayList<Pair<Arm, ByteArray>>()
         override val instant: Boolean get() = true
@@ -54,7 +56,10 @@ class LinkEstimatorWiringTest {
             glass.attachListener(object : GlassFirmwareSim.SimDiag {
                 override fun event(kind: String, detail: String) {}
                 override fun notify(arm: Arm, packet: ByteArray) {
-                    if (hold) synchronized(held) { held.add(arm to packet) } else onNotifyPacket(arm, packet)
+                    // decided and queued in ONE step: an answer that read "held" a moment before a
+                    // release (or a discard) must not join the list after it was emptied
+                    synchronized(held) { if (hold) { held.add(arm to packet); return } }
+                    onNotifyPacket(arm, packet)
                 }
                 override fun panelChanged(arm: Arm) {}
             })
@@ -71,14 +76,19 @@ class LinkEstimatorWiringTest {
             g.await()
         }
 
-        /** Everything the glasses said while held, in order. */
+        /** Everything the glasses said while held, in the order they said it, and nothing they say
+         *  meanwhile ahead of it: answers stay held until the last kept one has been handed over.
+         *  The class sweep (0.64 R1; review 1a, RB-8) of the defect measured and fixed at
+         *  `OverlayCachedPaintTest.HeldTransport.release`; this rig has no shell answering a
+         *  completion, so only the list's lock applied here. Nothing was seen to fail for it. */
         fun release() {
-            hold = false
-            val l = synchronized(held) { held.toList().also { held.clear() } }
-            for ((a, p) in l) onNotifyPacket(a, p)
+            while (true) {
+                val next = synchronized(held) { if (held.isEmpty()) { hold = false; null } else held.removeAt(0) } ?: return
+                onNotifyPacket(next.first, next.second)
+            }
         }
         /** The link ended with those answers in the air. */
-        fun discard() { hold = false; synchronized(held) { held.clear() } }
+        fun discard() { synchronized(held) { hold = false; held.clear() } }
 
         override suspend fun connectLink() {}
         override suspend fun disconnectLink() { glass.linkReset() }

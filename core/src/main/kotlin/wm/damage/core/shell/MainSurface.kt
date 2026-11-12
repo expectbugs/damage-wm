@@ -61,7 +61,12 @@ class MainSurface(
         val unavailable = w.needs.isNotEmpty() && s.line.isEmpty()
         val summaryX = r.x + 160
         val maxW = r.right - 24 - summaryX - (if (s.progress != null) 152 else 0)
-        val line = if (unavailable) "unavailable offline" else s.line
+        // substituted ONCE, and that one string is measured, fitted and drawn (0.64 R1): the mark
+        // below was decided on the raw summary while the substituted one was drawn, and the two
+        // differ in width whenever the face lacks a character — a summary that fit raw was cut
+        // with no mark. `Draw.dynamic` returns a covered string as it is, so the draw's own
+        // substitution finds nothing left to do.
+        val line = Draw.dynamic(text, if (unavailable) "unavailable offline" else s.line, fRow)
         drawFit(g, summaryX, r.y + 5, line, if (unavailable) Level.REST else Level.BODY, fRow, maxW)
         if (s.progress != null) Icons.blocks(g, r.right - 168, r.y + 12, 144, 6, s.progress, level = Level.of(4))
         if (s.more || text.measure(line, fRow) > maxW) Icons.tri(g, r.right - 16, r.y + 11, 11, Level.DIM)
@@ -76,13 +81,22 @@ class MainSurface(
         wm.damage.core.gfx.IconPaint.draw(g, icons(), wm.damage.core.gfx.IconNames.forKind(w.icon),
             r.x + 8, r.y + 4, 56, w.icon, Level.HEAD)
         val tx0 = r.x + 72
-        draw(g, tx0, r.y + 8, w.name.uppercase(), Level.HEAD, fRowB)
+        // Each string of the band is substituted ONCE, here, and that one string is what is
+        // measured, fitted and drawn (0.64 R1). The three decisions below — where the name ends,
+        // whether line one fits and where a right-aligned one starts, whether the detail is cut —
+        // were taken on the raw string while `draw` drew the substituted one. A character the
+        // face lacks that measures nothing by itself (a joiner, a variation selector, a control
+        // code) becomes a `?` with an advance, so the drawn string is the wider one: a line one
+        // placed by its raw width ran right of the band, into the rail's columns and past the
+        // rect that is damaged, and a detail that fit raw was cut with no mark.
+        val name = Draw.dynamic(text, w.name.uppercase(), fRowB)
+        draw(g, tx0, r.y + 8, name, Level.HEAD, fRowB)
         // right-aligned first line, bounded so it can never overrun the name
         // (an unbounded draw was a silent-overlap finding); overflow gets the
         // drawn mark — the lens is the reveal, the mark says "more exists"
-        val nameEnd = tx0 + text.measure(w.name.uppercase(), fRowB) + 16
+        val nameEnd = tx0 + text.measure(name, fRowB) + 16
         val l1Max = r.right - 16 - nameEnd
-        val l1 = s.line
+        val l1 = Draw.dynamic(text, s.line, fRow)
         if (text.measure(l1, fRow) <= l1Max) {
             drawRight(g, r.right - 16, r.y + 8, l1, Level.BODY, fRow)
         } else {
@@ -93,9 +107,23 @@ class MainSurface(
         // 100 %, lower as the chrome face grows
         val y2 = Draw.lineBelow(text, fRowB, r.y + 8, r.y + 34)
         if (s.detail.isNotEmpty()) {
-            val dMax = r.right - 88 - (if (s.progress != null) 200 else 0)
-            drawFit(g, tx0, y2, s.detail, Level.BODY, fRow, dMax)
-            if (text.measure(s.detail, fRow) > dMax) Icons.tri(g, tx0 + dMax + 4, y2 + 5, 11, Level.DIM)
+            // The detail ends 20 px short of whatever stands to its right, so a cut one has
+            // room for its mark: the 4 px lead the mark is drawn at, the mark, and clear columns
+            // after it. What stands to its right is the progress blocks' left edge when the row
+            // has a progress, and the band's own right edge when it has none.
+            // Until 0.64 the detail ran 12 px INTO the first block (the blocks are filled after
+            // it) with its mark under that block, and with no progress it ran to the band's edge
+            // with its mark in the rail's columns, where the next full repaint cleared it: a cut
+            // with no mark either way (`CLAUDE.md`, No Truncation). Glyphs under a block also
+            // keep the band out of the texture cache: measured on the simulator, 2.4 KB of
+            // pixels where the same band ships as a 52 B base and three draws (`OverlayCachedPaintTest`);
+            // the two 2.2 KB paints of Main on glass on 2026-11-10 are read as this, inferred —
+            // the journal does not hold the string (`HANDOFF.md` §75.3).
+            val edge = if (s.progress != null) r.right - 212 else r.right
+            val dMax = edge - 20 - tx0
+            val detail = Draw.dynamic(text, s.detail, fRow)
+            drawFit(g, tx0, y2, detail, Level.BODY, fRow, dMax)
+            if (text.measure(detail, fRow) > dMax) Icons.tri(g, tx0 + dMax + 4, y2 + 5, 11, Level.DIM)
         }
         if (s.progress != null) Icons.blocks(g, r.right - 212, y2 + 6, 196, 8, s.progress)
     }

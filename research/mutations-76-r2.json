@@ -1,0 +1,1017 @@
+[
+ {
+  "id": "R2a-01-the-readers-length-bound-misses-a-negative-length",
+  "file": "wire/Proto.kt",
+  "edits": [
+   [
+    "                    if (len < 0 || len > data.size - i)\n",
+    "                    if (i + len > data.size)\n"
+   ]
+  ],
+  "tests": [
+   "*ProtoReaderTest*",
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "aLengthPastTheLongRangeIsRefusedAsNotProtobuf",
+   "aLengthPastTheLongRangeIsNotProtobuf",
+   "aFrameThatDoesNotParseIsNamedNotThrown"
+  ],
+  "note": "RG-2 (1): a ten-byte length with bit 63 set is negative; copyOfRange raises IndexOutOfBoundsException past every parser's IllegalArgumentException catch"
+ },
+ {
+  "id": "R2a-02-the-readers-bound-lets-one-byte-past-the-end-through",
+  "file": "wire/Proto.kt",
+  "edits": [
+   [
+    "                    if (len < 0 || len > data.size - i)\n",
+    "                    if (len < 0 || len > data.size - i + 1)\n"
+   ]
+  ],
+  "tests": [
+   "*ProtoReaderTest*"
+  ],
+  "expect": [
+   "aLengthIsReadUpToTheEndAndRefusedPastIt"
+  ],
+  "note": "RG-2 (1): the rewritten bound's edge"
+ },
+ {
+  "id": "R2a-03-no-net-around-the-router",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        try {\n            routeFrame(arm, frame)\n        } catch (e: Exception) {\n            noteRouteFailed(arm, frame, e)\n        }\n",
+    "        routeFrame(arm, frame)\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "aFrameThatDoesNotParseIsNamedNotThrown"
+  ],
+  "note": "RG-2 (2): a sid-0x09 flag-0x00 body with wire type 3 throws out of the bare Pb.varintField and out of the notify callback"
+ },
+ {
+  "id": "R2a-04-the-nets-note-is-said-per-frame",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (!unhandledSaid.add(UNHANDLED_THREW_KEY or (frame.sid and 0xFF))) {\n",
+    "        if (!unhandledSaid.add(UNHANDLED_THREW_KEY or (frame.sid and 0xFF)) && false) {\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "aFrameThatDoesNotParseIsNamedNotThrown"
+  ],
+  "note": "RG-2 (2): one note per service per session, not one per frame"
+ },
+ {
+  "id": "R2a-05-the-device-info-note-does-not-name-its-frame",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "the field is not sent ($from; $f14; $present)\"",
+    "the field is not sent ($f14; $present)\""
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "theDeviceInfoNoteNamesItsFrame"
+  ],
+  "note": "RG-1: the note names the frame it read (09-00 cmd 2 / 09-01 cmd 2)"
+ },
+ {
+  "id": "R2a-06-every-block-bearing-frame-is-taken-as-a-reads-answer",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        val read = flag == SettingsMsg.FLAG_RESPONSE && cmd == 2L\n",
+    "        val read = true\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "anUnaskedBlockDoesNotMakeTheReadsNoteRepeat",
+   "anUnaskedBlockDoesNotMoveTheSwitchState"
+  ],
+  "note": "RG-1: today's alternation between the READ's shape and an unasked frame's; the switch state moved by any frame"
+ },
+ {
+  "id": "R2a-07-the-field-list-is-not-part-of-the-reads-key",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "DeviceInfoSaid(info.wearSwitch, info.silentRestored != null, info.fields)",
+    "DeviceInfoSaid(info.wearSwitch, info.silentRestored != null, emptyList())"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "aReadsAnswerIsSaidAgainWhenItsFieldListChanges"
+  ],
+  "note": "RG-1: the READ's compare-with-the-last-said keys on the field list too"
+ },
+ {
+  "id": "R2a-08-the-unasked-shapes-are-not-bounded",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                if (deviceInfoShapesSaid.size < DEVICE_INFO_SHAPES_MAX) {",
+    "                if (true) {"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "unaskedShapesAreBoundedPerSessionAndForgottenAtAStart"
+  ],
+  "note": "RG-1: at most 16 shapes per session, then one line"
+ },
+ {
+  "id": "R2a-09-the-unasked-shapes-are-kept-across-a-session-start",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        synchronized(deviceInfoShapesSaid) { deviceInfoShapesSaid.clear(); deviceInfoShapesCapped = false }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "unaskedShapesAreBoundedPerSessionAndForgottenAtAStart"
+  ],
+  "note": "RG-1: cleared at start() beside unhandledSaid"
+ },
+ {
+  "id": "R2a-10-the-switch-state-follows-any-block",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (read) {\n            updateState { it.copy(wearSwitch = sw) }\n",
+    "        updateState { it.copy(wearSwitch = sw) }\n        if (read) {\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "anUnaskedBlockDoesNotMoveTheSwitchState"
+  ],
+  "note": "RG-1: LinkState.wearSwitch follows the READ's answer only"
+ },
+ {
+  "id": "R2a-11-the-glasses-level-is-pressed-into-range-again",
+  "file": "wire/SettingsMsg.kt",
+  "edits": [
+   [
+    "if (v in 0L..100L) v.toInt() to chg else null",
+    "v.coerceIn(0L, 100L).toInt() to chg"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "aLevelOutsideZeroToHundredIsNoLevel"
+  ],
+  "note": "RG-4: 255 read as 100, 2^31 as 0"
+ },
+ {
+  "id": "R2a-12-the-router-takes-an-out-of-range-glasses-level",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (raw in 0L..100L) emitBattery(glassesPct = raw.toInt(), glassesCharging = chg)",
+    "if (true) emitBattery(glassesPct = raw.coerceIn(0L, 100L).toInt(), glassesCharging = chg)"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "aLevelOutsideZeroToHundredIsNotTaken"
+  ],
+  "note": "RG-4: the router decides; out of range is no event"
+ },
+ {
+  "id": "R2a-13-the-router-takes-an-out-of-range-ring-level",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "else if (raw in 0L..100L) emitBattery(ringPct = raw.toInt())",
+    "else if (true) emitBattery(ringPct = raw.coerceIn(0L, 100L).toInt())"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "aLevelOutsideZeroToHundredIsNotTaken"
+  ],
+  "note": "RG-4's class: RingMsg, the same treatment"
+ },
+ {
+  "id": "R2a-14-the-not-a-level-note-is-said-per-frame",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (!unhandledSaid.add(UNHANDLED_LEVEL_KEY or source)) return\n",
+    "        unhandledSaid.add(UNHANDLED_LEVEL_KEY or source)\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "aLevelOutsideZeroToHundredIsNotTaken"
+  ],
+  "note": "RG-4: one note per source per session"
+ },
+ {
+  "id": "R2a-15-the-ring-level-is-pressed-into-range-again",
+  "file": "wire/SettingsMsg.kt",
+  "edits": [
+   [
+    "parseBatteryRaw(payload)?.takeIf { it in 0L..100L }?.toInt()",
+    "parseBatteryRaw(payload)?.coerceIn(0L, 100L)?.toInt()"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "aLevelOutsideZeroToHundredIsNoLevel"
+  ],
+  "note": "RG-4's class: RingMsg.parseBattery"
+ },
+ {
+  "id": "R2a-16-every-telemetry-copy-is-journaled",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "val second = if (arm == Arm.RIGHT) secondCopyOf(t.requestId) else null",
+    "val second: Pair<Long, Boolean>? = null"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "eachTelemetryReplyIsJournaledOnce",
+   "interleavedSecondCopiesAreDroppedAndASessionStartForgetsThem"
+  ],
+  "note": "RG-5: the second copy of each reply logged and journaled"
+ },
+ {
+  "id": "R2a-17-the-first-dropped-copy-is-not-said",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                    } else if (second.second) {\n",
+    "                    } else if (false) {\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "eachTelemetryReplyIsJournaledOnce"
+  ],
+  "note": "RG-5: the journal still shows that replies arrive twice"
+ },
+ {
+  "id": "R2a-18-every-dropped-copy-is-said",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            val sayIt = !telemetrySecondCopySaid\n",
+    "            val sayIt = true\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "eachTelemetryReplyIsJournaledOnce",
+   "interleavedSecondCopiesAreDroppedAndASessionStartForgetsThem"
+  ],
+  "note": "RG-5: said once per session"
+ },
+ {
+  "id": "R2a-19-only-the-last-id-is-remembered",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        const val TELEMETRY_IDS_KEPT = 8\n",
+    "        const val TELEMETRY_IDS_KEPT = 1\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "interleavedSecondCopiesAreDroppedAndASessionStartForgetsThem"
+  ],
+  "note": "RG-5 corrected: 'equal to the previous record's id' misses interleaved replies"
+ },
+ {
+  "id": "R2a-20-the-ids-are-kept-across-a-session-start",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        synchronized(telemetryIdsSeen) { telemetryIdsSeen.clear(); telemetrySecondCopySaid = false }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "interleavedSecondCopiesAreDroppedAndASessionStartForgetsThem"
+  ],
+  "note": "RG-5: cleared at start()"
+ },
+ {
+  "id": "R2a-21-the-phone-is-claimed-whatever-the-hook-answered",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "try { shown = hook(v == BatteryLatch.Verdict.SAY, pct); ran = true }",
+    "try { hook(v == BatteryLatch.Verdict.SAY, pct); shown = true; ran = true }"
+   ]
+  ],
+  "tests": [
+   "*LowBatteryTest*"
+  ],
+  "expect": [
+   "aPhoneThatWillNotShowItIsNotClaimed"
+  ],
+  "note": "RG-3 step 1: the decisions' mutation (shown = true whatever the hook returned)"
+ },
+ {
+  "id": "R2a-22-the-no-handler-note-is-bounded-in-the-journal",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        emitNote(\"sid\", head + hexWhole(frame.payload) + tail)\n",
+    "        emitNote(\"sid\", head + hex(frame.payload) + tail)\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "aSaidOnceNoteCarriesTheFrameWholeAndItsLogLineTheBound",
+   "aServiceWithNoHandlerIsNamedOncePerSession"
+  ],
+  "note": "item 7: the said-once notes carry the frame whole in the journal"
+ },
+ {
+  "id": "R2a-23-the-no-handler-log-line-is-whole",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        Log.w(name, \"sid \" + head + hex(frame.payload) + tail)\n",
+    "        Log.w(name, \"sid \" + head + hexWhole(frame.payload) + tail)\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "aSaidOnceNoteCarriesTheFrameWholeAndItsLogLineTheBound"
+  ],
+  "note": "item 7: the Log line beside each stays bounded with the size said"
+ },
+ {
+  "id": "R2a-24-the-other-said-once-notes-are-bounded-in-the-journal",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            emitNote(\"case\", head + hexWhole(frame.payload) + tail)\n",
+    "            emitNote(\"case\", head + hex(frame.payload) + tail)\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "aSaidOnceNoteCarriesTheFrameWholeAndItsLogLineTheBound"
+  ],
+  "note": "item 7's class: the case frame that is not protobuf (the wear and the net's notes share the assertion)"
+ },
+ {
+  "id": "R2a-25-no-per-frame-note-is-ever-whole",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (b.size > UNHANDLED_HEX_MAX && unhandledSaid.add(UNHANDLED_LONG_KEY or kind))\n",
+    "        if (false)\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "theFirstLongCaseFrameOfASessionIsWrittenWholeAndTheNextBounded"
+  ],
+  "note": "item 7: the first frame of a session longer than the bound is written whole"
+ },
+ {
+  "id": "R2a-26-every-long-per-frame-note-is-whole",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (b.size > UNHANDLED_HEX_MAX && unhandledSaid.add(UNHANDLED_LONG_KEY or kind))\n",
+    "        if (b.size > UNHANDLED_HEX_MAX)\n"
+   ]
+  ],
+  "tests": [
+   "*WearCaseWireTest*"
+  ],
+  "expect": [
+   "theFirstLongCaseFrameOfASessionIsWrittenWholeAndTheNextBounded"
+  ],
+  "note": "item 7: the per-frame notes stay bounded at 96 B after the first"
+ },
+ {
+  "id": "R2a-27-a-ring-event-with-no-session-waits-for-the-next",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            is TransportEvent.Input, is TransportEvent.Lease, is TransportEvent.SilentMode,\n",
+    "            is TransportEvent.Input -> return true\n            is TransportEvent.Lease, is TransportEvent.SilentMode,\n"
+   ]
+  ],
+  "tests": [
+   "*QueueWhileDownTest.transportEventsWhileDownAreDropped"
+  ],
+  "expect": [
+   "transportEventsWhileDownAreDropped"
+  ],
+  "note": "RG-9 (b): the sync point by a typed line sees the 200 ring events kept (P4a-52 is the wear half)"
+ },
+ {
+  "id": "R2b-01-the-drain-counts-a-transport-event-as-unhandled",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (m is Msg.Trans) { if (keepWhileDown(m)) keep.add(m); continue }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*QueueWhileDownTest.aFlushAnswerAndATypedLineQueuedBehindTheShutdownReachTheNextSession"
+  ],
+  "expect": [
+   "aFlushAnswerAndATypedLineQueuedBehindTheShutdownReachTheNextSession"
+  ],
+  "note": "RH-N1: the P4 drain; a flush answered behind the Shutdown leaves its in-flight entry for the life of the process (inflight=1)"
+ },
+ {
+  "id": "R2b-02-the-drain-keeps-no-typed-line",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (m is Msg.Trans) { if (keepWhileDown(m)) keep.add(m); continue }\n",
+    "                if (m is Msg.Trans) { if (m.ev !is TransportEvent.Text && keepWhileDown(m)) keep.add(m); continue }\n"
+   ]
+  ],
+  "tests": [
+   "*QueueWhileDownTest.aFlushAnswerAndATypedLineQueuedBehindTheShutdownReachTheNextSession"
+  ],
+  "expect": [
+   "aFlushAnswerAndATypedLineQueuedBehindTheShutdownReachTheNextSession"
+  ],
+  "note": "RH-N1's second half: a line typed behind the Shutdown is gone (the test's last wait)"
+ },
+ {
+  "id": "R2b-03-the-stop-returns-before-the-loops-drain",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        loopJob?.join()\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*QueueWhileDownTest.aStopReturnsOnlyOnceTheLoopsDrainHasRun"
+  ],
+  "expect": [
+   "aStopReturnsOnlyOnceTheLoopsDrainHasRun"
+  ],
+  "note": "RH-6: stopLocked returns at done; the drain (held in the battery hook) is still running"
+ },
+ {
+  "id": "R2b-04-a-synced-record-behind-the-shutdown-is-not-stored",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (persistence.tryApplyRemote(key, value, stamp))\n                    Log.i(\"sync\", \"'$key' from the peer met a stopped shell",
+    "                if (false)\n                    Log.i(\"sync\", \"'$key' from the peer met a stopped shell"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.aSyncedRecordQueuedBehindTheShutdownIsStored"
+  ],
+  "expect": [
+   "aSyncedRecordQueuedBehindTheShutdownIsStored"
+  ],
+  "note": "RE-4: the record is counted by the drain and lost"
+ },
+ {
+  "id": "R2b-05-a-paced-check-asks-a-transport-with-no-session",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (!st.connected || !st.started) return\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*SeamSessionTest.aPacedCheckAsksNothingOverASeamThatEnded",
+   "*SilentGlassesTest.aPacedCheckAsksNothingOfALinkThatEndedInARefusalStreakSleep"
+  ],
+  "expect": [
+   "aPacedCheckAsksNothingOverASeamThatEnded",
+   "aPacedCheckAsksNothingOfALinkThatEndedInARefusalStreakSleep"
+  ],
+  "note": "RG-6: the seam's end (and a link end in a refusal-streak sleep) reads 'awake'; the refused rebuild raises a rebuild notice"
+ },
+ {
+  "id": "R2b-06-a-rest-is-taken-where-the-transport-cannot-release-the-lease",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                !transport.leaseOnDemand -> journal.note(\"rest\",\n                    \"rest=on not taken — this host's transport cannot release the lease (the seam): rest from the host that owns the radio\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.restOnIsNotTakenWhereTheTransportCannotReleaseTheLease"
+  ],
+  "expect": [
+   "restOnIsNotTakenWhereTheTransportCannotReleaseTheLease"
+  ],
+  "note": "RH-7: the shell rests and says the lease is released while the seam's client releases nothing"
+ },
+ {
+  "id": "R2b-07-the-settings-are-the-defaults-until-the-first-start",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "    @Volatile var settings: ShellSettings = ShellSettings.fromJson(persistence.get(\"shell.settings\"))\n",
+    "    @Volatile var settings: ShellSettings = ShellSettings()\n"
+   ]
+  ],
+  "tests": [
+   "*QueueWhileDownTest.aShellReadsItsSettingsFromTheStoreBeforeAnySession"
+  ],
+  "expect": [
+   "aShellReadsItsSettingsFromTheStoreBeforeAnySession"
+  ],
+  "note": "RF-1: the phone's error sink reads Phone notifications as the default false before the first start"
+ },
+ {
+  "id": "R2b-08-the-paced-check-never-rebuilds-a-refusal-streak-sleep",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (now - lastRebuildAskMs < silentPacingMs) return\n        lastRebuildAskMs = now\n        requestRebuild(\"the glasses say they are awake",
+    "        if (now - lastRebuildAskMs < silentPacingMs) return\n        if (why == \"pacing\") return\n        lastRebuildAskMs = now\n        requestRebuild(\"the glasses say they are awake"
+   ]
+  ],
+  "tests": [
+   "*SilentGlassesTest"
+  ],
+  "expect": [
+   "threeRefusalsWithoutAPushSleepTheShellAndTheNextCheckRebuildsTheSession"
+  ],
+  "note": "RH-1 / RH-N2: the single unattended way back from a refusal-streak sleep; settles the two readers (the second predicted CAUGHT at 'a rebuild follows')"
+ },
+ {
+  "id": "R2b-09-the-push-off-wakes-nothing",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                    SleepReason.SILENT -> wakeGlasses(\"the firmware's Silent Mode is off\")\n",
+    "                    SleepReason.SILENT -> {}\n"
+   ]
+  ],
+  "tests": [
+   "*SilentGlassesTest.thePushPutsTheShellToSleepAndThePushOffRebuildsTheSession",
+   "*RestModeTest.aSilentModePushDuringARestBecomesTheSilentSleep"
+  ],
+  "expect": [
+   "thePushPutsTheShellToSleepAndThePushOffRebuildsTheSession",
+   "aSilentModePushDuringARestBecomesTheSilentSleep"
+  ],
+  "note": "RH-1's sweep: with the push OFF waking nothing the paced check rebuilds (the transport's flag is false) — only the restart note's reason tells them apart"
+ },
+ {
+  "id": "R2b-10-the-count-off-clears-a-re-send-still-queued",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                        if ((atlas?.resendsQueued ?: 0) == 0) atlasResendMissing = 0L\n",
+    "                        atlasResendMissing = 0L\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReSend*"
+  ],
+  "expect": [
+   "aReSendAfterTheCountWentOffThatTheGlassesRefuseKeyframes"
+  ],
+  "note": "R2 item 31 (R1-verify 5.1): the re-send refused after the count went off finds nothing owed — no note, no keyframe"
+ },
+ {
+  "id": "R2b-11-every-message-of-an-unjudged-re-send-keyframes",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (done?.resend == true && !ledgerJudges(st) && (atlas?.resendsQueued ?: 0) == 0) {\n",
+    "        if (done?.resend == true && !ledgerJudges(st)) {\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReSend*"
+  ],
+  "expect": [
+   "<no pin: named in the build report — every rig's re-send is one message, acked last at its own ack (R1-verify 5.2 a)>"
+  ],
+  "note": "R2 item 31 / 5.2 a: N keyframes for a re-send of N messages; also clears the owed re-send at the first of them"
+ },
+ {
+  "id": "R2c-01-a-lock-held-through-another-channel-reads-as-not-tried",
+  "file": "util/InstanceLock.kt",
+  "edits": [
+   [
+    "        } catch (e: OverlappingFileLockException) {\n            null\n",
+    "        } catch (e: OverlappingFileLockException) {\n            ch.close(); throw e\n"
+   ]
+  ],
+  "tests": [
+   "*InstanceLockTest*"
+  ],
+  "expect": [
+   "aHeldDirectoryEndsTheStartBeforeTheJournalIsTouched"
+  ],
+  "note": "R2 item 19 / RE-3 correction 1: OverlappingFileLockException must read as held, or the start goes on and renames the journal"
+ },
+ {
+  "id": "R2c-02-a-second-claim-of-this-process-opens-a-second-descriptor",
+  "file": "util/InstanceLock.kt",
+  "edits": [
+   [
+    "        if (held.containsKey(file)) return null\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*InstanceLockTest*"
+  ],
+  "expect": [
+   "aSecondClaimOnOneDirectoryIsRefusedUntilTheFirstIsClosed"
+  ],
+  "note": "R2 item 19: a refused in-process claim that opens and closes a second descriptor drops the first claim's POSIX lock (read in /proc/locks)"
+ },
+ {
+  "id": "R2c-03-a-held-directory-does-not-end-the-start",
+  "file": "util/InstanceLock.kt",
+  "edits": [
+   [
+    "            exit(EXIT_HELD)\n",
+    "            return null\n"
+   ]
+  ],
+  "tests": [
+   "*InstanceLockTest*"
+  ],
+  "expect": [
+   "aHeldDirectoryEndsTheStartBeforeTheJournalIsTouched"
+  ],
+  "note": "R2 item 19: a refused start EXITS; nothing after the claim runs"
+ },
+ {
+  "id": "R2c-04-the-claim-is-not-kept-by-the-process",
+  "file": "util/InstanceLock.kt",
+  "edits": [
+   [
+    "        return Claim(file, ch).also { held[file] = it }\n",
+    "        return Claim(file, ch)\n"
+   ]
+  ],
+  "tests": [
+   "*InstanceLockTest*"
+  ],
+  "expect": [
+   "aSecondClaimOnOneDirectoryIsRefusedUntilTheFirstIsClosed"
+  ],
+  "note": "R2 item 19: the map is the strong reference and the in-process held answer; without it a second claim opens a second descriptor (the collected-channel half is unpinned)"
+ },
+ {
+  "id": "R2c-05-a-lock-that-cannot-be-tried-ends-the-start-with-a-fault",
+  "file": "util/InstanceLock.kt",
+  "edits": [
+   [
+    "        } catch (e: Exception) {\n            Log.e(\"instance\",",
+    "        } catch (e: IllegalStateException) {\n            Log.e(\"instance\","
+   ]
+  ],
+  "tests": [
+   "*InstanceLockTest*"
+  ],
+  "expect": [
+   "aLockThatCannotBeTriedIsSaidAndTheStartGoesOn"
+  ],
+  "note": "R2 item 19: an IOException trying the lock is one ERROR line and the start goes on (the service must start)"
+ },
+ {
+  "id": "R2c-06-the-frames-compared-are-not-capped",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "                .take(SIGNATURE_FRAMES).map { it.trim() }.toList()\n",
+    "                .map { it.trim() }.toList()\n"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest*"
+  ],
+  "expect": [
+   "aSharedTopFrameFromAnotherCallerIsAnotherFault"
+  ],
+  "note": "R2 item 22 / RF-3 correction: uncapped, a deep recursion's first section never compares equal through the 64 KiB head read; two records equal in their first 32 frames are the same again"
+ },
+ {
+  "id": "R2c-07-only-the-top-frame-is-compared",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "                .take(SIGNATURE_FRAMES).map { it.trim() }.toList()\n",
+    "                .take(1).map { it.trim() }.toList()\n"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest*"
+  ],
+  "expect": [
+   "aSharedTopFrameFromAnotherCallerIsAnotherFault"
+  ],
+  "note": "R2 item 22 / RF-3: a library frame on top shared by two faults from different callers read as the same again"
+ },
+ {
+  "id": "R2c-08-the-kept-file-takes-every-record",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "            val counting = whole >= MAX_PER_PROCESS\n",
+    "            val counting = false\n"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest*"
+  ],
+  "expect": [
+   "aStartLoopOnOneFaultKeepsEightRecordsAndOneCounterLine"
+  ],
+  "note": "R2 item 23 / RF-4: a start loop grows the kept file by one record per start"
+ },
+ {
+  "id": "R2c-09-the-counter-line-is-appended-not-rewritten",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "            val at = old?.offset ?: size\n",
+    "            val at = size\n"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest*"
+  ],
+  "expect": [
+   "aStartLoopOnOneFaultKeepsEightRecordsAndOneCounterLine",
+   "aCounterLineThatDoesNotReadIsRewrittenAndSaid"
+  ],
+  "note": "R2 item 23: ONE counter line, rewritten in place (else one line per start)"
+ },
+ {
+  "id": "R2c-10-the-short-line-is-said-at-every-start",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "            val say = n <= MAX_PER_PROCESS || Integer.highestOneBit(n) != Integer.highestOneBit(n - rec.count) || unreadable\n",
+    "            val say = true\n"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest*"
+  ],
+  "expect": [
+   "aStartLoopOnOneFaultKeepsEightRecordsAndOneCounterLine"
+  ],
+  "note": "R2 item 23: the journal and the log take a line for n <= 8 and at powers of two only"
+ },
+ {
+  "id": "R2c-11-the-counter-does-not-add-the-count-before",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "            if (counting) writeCounter(newest, counter, more + rec.count, rec.lastAt)\n",
+    "            if (counting) writeCounter(newest, counter, rec.count, rec.lastAt)\n"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest*"
+  ],
+  "expect": [
+   "aStartLoopOnOneFaultKeepsEightRecordsAndOneCounterLine"
+  ],
+  "note": "R2 item 23: the counter is exact (N more since)"
+ },
+ {
+  "id": "R2c-12-an-unreadable-counter-line-is-not-said",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "Integer.highestOneBit(n - rec.count) || unreadable\n",
+    "Integer.highestOneBit(n - rec.count)\n"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest*"
+  ],
+  "expect": [
+   "aCounterLineThatDoesNotReadIsRewrittenAndSaid"
+  ],
+  "note": "R2 item 23: a counter whose count was lost to a torn write says so"
+ },
+ {
+  "id": "R2c-13-no-root-cause-line",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "                rootLine(e)?.let { limited.write(it.toByteArray(Charsets.UTF_8)) }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest*"
+  ],
+  "expect": [
+   "aCutRecordStillNamesItsRootCause"
+  ],
+  "note": "R2 item 24 / RF-6: a record cut at the limit loses its root cause's name"
+ },
+ {
+  "id": "R2c-14-a-root-cause-line-without-a-cause",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "            if (e.cause == null) null else {\n",
+    "            if (false) null else {\n"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest*"
+  ],
+  "expect": [
+   "aCutRecordStillNamesItsRootCause"
+  ],
+  "note": "R2 item 24 guard 1: only when e.cause != null (else it repeats the trace's first line)"
+ },
+ {
+  "id": "R2c-15-a-throwing-message-costs-the-record",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "        } catch (t: Throwable) {\n            null\n        }\n",
+    "        } catch (t: Throwable) {\n            throw t\n        }\n"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest*"
+  ],
+  "expect": [
+   "aCutRecordStillNamesItsRootCause"
+  ],
+  "note": "R2 item 24 guard 2: the line is built inside its own try that writes nothing on a throw"
+ },
+ {
+  "id": "R2c-16-the-root-message-is-not-capped",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "                    msg.length <= ROOT_MESSAGE_CHARS -> \": $msg\"\n",
+    "                    true -> \": $msg\"\n"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest*"
+  ],
+  "expect": [
+   "aCutRecordStillNamesItsRootCause"
+  ],
+  "note": "R2 item 24 guard 3: capped at 300 characters with the full length said"
+ },
+ {
+  "id": "R2c-17-the-root-cause-line-is-read-as-the-class",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    " && !it.startsWith(ROOT) }.toList()",
+    " }.toList()"
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest*"
+  ],
+  "expect": [
+   "aCutRecordStillNamesItsRootCause"
+  ],
+  "note": "R2 item 24: parse skips the line as it skips the closing line, so the record is the outer throwable's"
+ },
+ {
+  "id": "R2c-18-the-process-note-counts-no-archives",
+  "file": "comp/Journal.kt",
+  "edits": [
+   [
+    "            \"$n archive(s) beside it, $total B\"\n",
+    "            \"0 archive(s) beside it, 0 B\"\n"
+   ]
+  ],
+  "tests": [
+   "*JournalRotateTest*"
+  ],
+  "expect": [
+   "everyStartSaysTheArchivesCountAndTotal"
+  ],
+  "note": "R2 item 26: the start's process note carries the archives' count and total (both hosts call archivesSaid; the wiring gate holds the call's place)"
+ },
+ {
+  "id": "R2v-01-the-re-send-owed-is-kept-past-its-last-ack",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (done?.resend == true && !ledgerJudges(st) && (atlas?.resendsQueued ?: 0) == 0) {\n            atlasResendMissing = 0L\n",
+    "        if (done?.resend == true && !ledgerJudges(st) && (atlas?.resendsQueued ?: 0) == 0) {\n"
+   ]
+  ],
+  "tests": [
+   "*GlyphSubsetShellTest.aReSendAckedAfterTheCountWentOffKeyframesAtItsAck"
+  ],
+  "expect": [
+   "aReSendAckedAfterTheCountWentOffKeyframesAtItsAck"
+  ],
+  "note": "R2 verify, item 31's field lifetime: the owed re-send the count-off kept ends at its last message's ack; kept, staging stays shut for the session and the sleep says the re-send again"
+ },
+ {
+  "id": "R2v-02-the-counter-rewrite-leaves-the-old-lines-tail",
+  "file": "util/UncaughtRecord.kt",
+  "edits": [
+   [
+    "            ch.truncate(pos)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*UncaughtRecordTest*"
+  ],
+  "expect": [
+   "aLongerUnreadableCounterLineLeavesNothingBehindItsRewrite"
+  ],
+  "note": "R2 verify, item 23: a rewrite over a longer unreadable counter line is cut at the new line's end"
+ },
+ {
+  "id": "R2v-03-the-path-does-not-forward-lease-on-demand",
+  "file": "transport/PathTransport.kt",
+  "edits": [
+   [
+    "    override val leaseOnDemand: Boolean get() = active?.transport?.leaseOnDemand ?: false\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*PathTransportTest*"
+  ],
+  "expect": [
+   "theFirstPathToStartWinsAndTheOtherIsCancelled"
+  ],
+  "note": "R2 verify, item 14: the path answers for its driving transport; no host builds a PathTransport today, and one wired again would refuse every rest without the forward"
+ }
+]

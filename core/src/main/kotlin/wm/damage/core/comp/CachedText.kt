@@ -26,13 +26,19 @@ import wm.damage.core.wire.TextureCache
  * pixel as the firmware will draw it (source 0 skipped — the TRANSPARENT
  * option — every other level through the LUT `s × top / 15`), and recorded
  * as a [TextDraw]; everything else draws as before. The compositor, for a
- * dirty rect at disparity 0, re-renders the recorded draws over black and,
- * ONLY when that equals the composed pixels byte for byte, ships one clear
- * and the strings as mode-14 draws instead of the pixels
+ * dirty rect, builds what the glasses would hold after a BASE delta — the
+ * composed pixels with every pixel a draw writes black — and the recorded
+ * draws on top of it, and ONLY when that equals each lens's truth byte for
+ * byte ships the base and the strings as draws instead of the pixels
  * (`Compositor.emitCached`). So the path is exact by construction and
  * opportunistic by construction: a font not on the glasses, a character its
- * table holds no glyph for, text over anything but black, a rect on a
- * depth plane — each simply stays pixels.
+ * table holds no glyph for, something painted over the text after it was
+ * drawn — each simply stays pixels. Since APK 0.64 what lies UNDER a draw's
+ * box (a rule, a lit cell) rides the base: the base is black only where a
+ * draw writes ([blit]'s `hole`), where it used to be black over the whole
+ * box, and a rect whose base then carries lit pixels is priced against the
+ * pixels it replaces (`dearer`), so text on a lit field ships as draws only
+ * when that is the cheaper message.
  *
  * WHICH glyphs (`HANDOFF.md` §73, 2026-11-09): the ones the face has drawn.
  * Until then a face was packed whole — every Latin-1 code on a v2 table,
@@ -46,12 +52,13 @@ import wm.damage.core.wire.TextureCache
  * table's entry rewritten in place ([GlyphAtlas.extend]), live once the
  * glasses hold both ([GlyphAtlas.promote]).
  *
- * Why disparity 0 only: modes 13/14 ignore the batch's "lenses differ" bit
- * and draw at one x into each lens's shadow (`zlib_glue.c`), so a cached
- * draw is always flat. Content planes park at depth 8 and chrome at 12;
- * plane 0 is the lens band (the heavy part of a list notch, 3–6 KB
- * measured), menus, notifications, the switcher — and everything when the
- * Depth setting is 0. A per-lens variant is a firmware-side ask.
+ * Depth planes. Modes 13/14 ignore the batch's "lenses differ" bit and draw
+ * at one x into each lens's shadow (`zlib_glue.c`), so a contract-1 draw is
+ * always flat: a rect on a depth plane ships as a flat base widened by the
+ * disparity, the draws at their nominal x and one per-lens copy (§41,
+ * `Compositor.emitCachedAt`). Contract 2 places every draw per lens (modes
+ * 17/18, the last paragraph below). This comment said "disparity 0 only"
+ * until 0.64; that had not been true since §41.
  *
  * What changes visibly: cached text advances by integer glyph widths (with
  * the platform's pair kerning as adjust bytes since Phase 2 — the same glyph
@@ -63,7 +70,7 @@ import wm.damage.core.wire.TextureCache
  * Contract 2 (`FIRMWARE.md` §4, a [GlyphAtlas] built with [GlyphAtlas.v2]): the
  * same glyph images behind 224-entry tables (Latin-1), icons as v2 records, the
  * cache the session's size (op 5), and every draw placed PER LENS by mode 17/18 —
- * `Compositor.emitCachedAt` ships a rect on a depth plane as one stereo base delta
+ * `Compositor.emitCachedV2` ships a rect on a depth plane as one stereo base delta
  * plus the draws at each lens's own x, no widening and no copy.
  */
 class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val capacity: Int = CfwModes.TEXTURE_CACHE_SIZE) {
@@ -212,9 +219,47 @@ class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val 
      *  packed, a row icon ~150 B; fonts are where the bytes are. */
     val imageBudget: Int get() = capacity / 4
     /** What the ack of each message [takeUpload] handed out completes, in order: the packed
-     *  bytes up to [end], and the extensions whose last table span rode in it. */
-    private class Done(val end: Int, val exts: List<Ext>)
+     *  bytes up to [end], the extensions whose last table span rode in it, the image ranges the
+     *  message wrote ([writes]), whether it was a re-send and the queued re-sends it completes. */
+    private class Done(val end: Int, val exts: List<Ext>, val writes: List<IntRange>,
+        val resend: Boolean, val resent: List<Resend>)
     private val chunkEnds = ArrayDeque<Done>()
+
+    /** What one acked upload message wrote — image ranges, appended bytes and table spans alike (a
+     *  cache write is a plain copy at an offset) — and whether the message was itself a re-send
+     *  (0.64: the record a count shortfall needs to write a message once more; before it nothing
+     *  kept what a message wrote past its ack, nor a promoted extension's spans). [n] is the
+     *  atlas's count of acked messages with this one. */
+    class Acked(val n: Int, val writes: List<IntRange>, val resend: Boolean) {
+        val bytes: Int get() = writes.sumOf { it.last - it.first + 1 }
+    }
+    /** One image range queued to be written once more ([resend]); gone at the ack of the message
+     *  that carries its last piece, at a lapse and at a repack. */
+    private class Resend(val range: IntRange) { var handedOut = false }
+    private val resends = ArrayList<Resend>()
+    /** Ranges queued to go once more and not yet acked. */
+    val resendsQueued: Int get() = resends.size
+
+    /**
+     * Queue image [ranges] of the layout that stands to be written once more (0.64: the glasses
+     * acked a message and their generation count did not move for it). Returns the bytes queued.
+     * [takeUpload] cuts them into messages of their own, from the image AS IT STANDS at the cut.
+     * A range outside the packed bytes is refused loudly; an empty one, or one equal to a range
+     * already queued, is skipped. Ranges are NOT merged: a table span keeps its own start, so a
+     * cut never splits a table entry. Moves no mark, bumps no generation, changes no entry.
+     */
+    fun resend(ranges: List<IntRange>): Int {
+        var bytes = 0
+        for (r in ranges) {
+            if (r.isEmpty()) continue
+            if (r.first < builder.guard || r.last >= builder.used)
+                throw LintError("a re-send of $r lies outside the packed bytes ${builder.guard}..${builder.used - 1}")
+            if (resends.any { it.range == r }) continue
+            resends += Resend(r)
+            bytes += r.last - r.first + 1
+        }
+        return bytes
+    }
 
     val used: Int get() = builder.used
     val free: Int get() = builder.free
@@ -468,10 +513,14 @@ class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val 
      * (the shell submits one per flush and counts one generation bump for it); the spans ride
      * the message that carries the last appended bytes when they fit, so an extension is
      * normally a single flush. Never an empty message.
+     *
+     * 0.64: ranges queued by [resend] follow in messages of their OWN — never sharing one with
+     * first-time bytes, so the ack of such a message says "a re-send" and nothing else. A normal
+     * upload's messages are byte-identical to what they were without a re-send queued.
      */
     fun takeUpload(maxMessage: Int = 3072): List<ByteArray> {
         val exts = pending.values.filter { !it.handedOut }
-        if (builder.used <= sentBytes && exts.isEmpty()) return emptyList()
+        if (builder.used <= sentBytes && exts.isEmpty() && resends.all { it.handedOut }) return emptyList()
         // refused BEFORE anything is cut: under 9 B a message cannot hold one aligned unit behind
         // its own bytes, and the cut used to throw part-way with chunk ends already recorded
         if (maxMessage < builder.messageOverhead + builder.writeOverhead + 4)
@@ -481,12 +530,15 @@ class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val 
         var writes = ArrayList<Pair<Int, ByteArray>>()
         var size = builder.messageOverhead
         var done = ArrayList<Ext>()
+        var resentDone = ArrayList<Resend>()
         var pos = sentBytes
-        fun flush() {
+        fun flush(resend: Boolean = false) {
             if (writes.isEmpty()) return
             out += builder.message(writes)
-            chunkEnds.addLast(Done(pos, done))
-            writes = ArrayList(); size = builder.messageOverhead; done = ArrayList()
+            // a re-send moves no byte mark: its end is the guard, below every acked mark
+            chunkEnds.addLast(Done(if (resend) builder.guard else pos, done,
+                writes.map { (off, d) -> off until off + d.size }, resend, resentDone))
+            writes = ArrayList(); size = builder.messageOverhead; done = ArrayList(); resentDone = ArrayList()
         }
         while (pos < all.size) {
             val n = builder.chunkLen(all.size, pos, maxMessage)
@@ -514,6 +566,27 @@ class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val 
         }
         flush()
         sentBytes = all.size
+        // the re-sends not yet handed out, after the first-time bytes and in messages of their own.
+        // The image as it stands, not bytes kept from the first send: a later extension of the same
+        // face may have rewritten the same table unit in place; the newer bytes are a superset
+        // (entries only gain codes inside one layout), and an entry naming a record the glasses do
+        // not hold yet is not drawn from until its own promotion.
+        for (r in resends) {
+            if (r.handedOut) continue
+            var a = r.range.first
+            while (a <= r.range.last) {
+                if (maxMessage - size - builder.writeOverhead < unit) flush(resend = true)
+                var n = minOf(maxMessage - size - builder.writeOverhead, r.range.last + 1 - a)
+                if (a + n <= r.range.last) n -= n % unit       // only a range's last piece may end off a unit
+                if (n <= 0) throw LintError("a $maxMessage B message carries no re-sent bytes")
+                writes += a to builder.read(a until a + n)
+                size += builder.writeOverhead + n
+                a += n
+            }
+            r.handedOut = true
+            resentDone += r                      // complete when the message being built is acked
+        }
+        flush(resend = true)
         return out
     }
 
@@ -528,19 +601,23 @@ class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val 
         private set
 
     /** One message acked, in the order [takeUpload] handed them out; [gen] is the generation it
-     *  was taken from. A message of an older generation moves nothing. */
-    fun acked(gen: Int = uploadGen) {
-        if (gen != uploadGen) return
+     *  was taken from. A message of an older generation moves nothing. Returns what the message
+     *  wrote, or null when it moved nothing (another generation, no outstanding entry). A re-send
+     *  counts in [ackedMsgs] like any message, so the read-back gate asks its own round trip. */
+    fun acked(gen: Int = uploadGen): Acked? {
+        if (gen != uploadGen) return null
         val d = chunkEnds.removeFirstOrNull()
         if (d == null) {
             // never a quiet no-op: an ack with no outstanding chunk end means the queue was
             // cleared under an in-flight chunk, and the watermark would silently stand still
             wm.damage.core.util.Log.w("atlas", "a chunk ack arrived with no outstanding chunk end (layout $gen) — the acked watermark stands at $ackedBytes B")
-            return
+            return null
         }
         ackedBytes = maxOf(ackedBytes, d.end)
         ackedMsgs++
         for (x in d.exts) if (pending[x.spec] === x) x.ackedAt = ackedMsgs
+        resends.removeAll(d.resent)
+        return Acked(ackedMsgs, d.writes, d.resend)
     }
 
     /** The messages past the acked watermark may or may not have landed (the link ended
@@ -551,6 +628,7 @@ class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val 
         sentBytes = ackedBytes
         chunkEnds.clear()
         for (x in pending.values) { x.handedOut = false; x.ackedAt = -1 }
+        for (r in resends) r.handedOut = false         // a re-send cut and not acked goes again, like a table patch
         uploadGen++                                    // an ack of a message cut before this completes nothing
     }
 
@@ -561,6 +639,7 @@ class GlyphAtlas(private val base: TextRasterizer, val v2: Boolean = false, val 
         sentBytes = builder.guard
         ackedBytes = builder.guard
         chunkEnds.clear()
+        resends.clear()                                // everything goes again from the guard anyway
         uploadGen++                                    // chunks handed out before this belong to the old layout
     }
 
@@ -594,11 +673,16 @@ class ImageDraw(val rect: Rect, val key: Any, val x: Int, val y: Int, val level:
  *  the glyph boxes' union — exactly the pixels the blit could have touched. [keep] > 0 marks a
  *  run that FOLLOWS a character the host drew in the same string (`HANDOFF.md` §73): the first
  *  [keep] columns from the run's pen may hold that character's ink (a rasterizer's mask runs
- *  past the advance — an `f`, most of an italic face), so the compositor's base leaves them as
- *  composed instead of blacking them with the rest of the box, and the proof — still the only
- *  judge — holds where the overhang used to send the whole rect to pixels. [keepEnd] is the same
- *  for a run that PRECEDES a host-drawn character: its last columns may hold that character's
- *  ink — a glyph whose mask starts left of its pen, or one a pair kern tucked in. */
+ *  past the advance — an `f`, most of an italic face). [keepEnd] is the same for a run that
+ *  PRECEDES a host-drawn character: its last columns may hold that character's ink — a glyph
+ *  whose mask starts left of its pen, or one a pair kern tucked in.
+ *
+ *  Until 0.63 the compositor's base blacked a draw's whole box and these columns were the
+ *  exception it left as composed. Since 0.64 the base is black only where a draw writes
+ *  ([CachedText.blit]'s `hole`), so the two fields no longer steer the base, and the proof's
+ *  verdict does not depend on them. They are still recorded and still read: they say which
+ *  columns 0.63 already left to the base, which is how the price guard tells a rect that shipped
+ *  as draws on 0.63 from one that proves only since 0.64 (`Compositor.oldBox`, `dearer`). */
 class TextDraw(val rect: Rect, val text: String, val spec: FontSpec, val x: Int, val y: Int, val level: Int,
     val keep: Int = 0, val keepEnd: Int = 0)
 
@@ -1058,6 +1142,25 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
         imageDraws.removeAll { it.rect.overlaps(r) }
     }
 
+    /** A painter that decides for itself what it repaints has just filled [rects] and drawn them
+     *  again (0.64 R1: the whole-panel mode's own repaint, `Shell.paintExclusiveDelta`): of the
+     *  records taken BEFORE that paint ([olderDraws], [olderImages] — [frameDraws] and
+     *  [frameImageDraws] as they stood), those that overlap one of [rects] describe what the paint
+     *  covered and are dropped; what the paint itself recorded stays. By identity: a record is a
+     *  plain object, and two paints of one string are two records. A painter that names a rect it
+     *  did not fill loses records it could have kept — pixels once, never a wrong pixel. */
+    fun dropOlderRecords(olderDraws: List<TextDraw>, olderImages: List<ImageDraw>, rects: List<Rect>) = synchronized(draws) {
+        if (rects.isEmpty()) return@synchronized
+        if (olderDraws.isNotEmpty()) {
+            val old = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<TextDraw, Boolean>(olderDraws.size)).also { it.addAll(olderDraws) }
+            draws.removeAll { d -> d in old && rects.any { d.rect.overlaps(it) } }
+        }
+        if (olderImages.isNotEmpty()) {
+            val old = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<ImageDraw, Boolean>(olderImages.size)).also { it.addAll(olderImages) }
+            imageDraws.removeAll { d -> d in old && rects.any { d.rect.overlaps(it) } }
+        }
+    }
+
     /** The pixels of [src] moved to [dst] on the target (a slide's
      *  translation): records wholly inside [src] move with them; a record
      *  that straddles the edge, or sat where the copy landed, is dropped —
@@ -1105,8 +1208,11 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
         const val HOST_OVERHANG_PX = 4
 
         /** The firmware's image draw (`cfw_texture_render`, TRANSPARENT): the
-         *  same LUT as [blit], for a whole image. Shared with the proof. */
-        fun blitImage(g: Gray8, x0: Int, y0: Int, img: TextureCache.Image, level: Int) {
+         *  same LUT as [blit], for a whole image. Shared with the proof. [hole] is the base's
+         *  rule, as in [blit]: black in the base exactly where this draw writes. */
+        fun blitImage(g: Gray8, x0: Int, y0: Int, img: TextureCache.Image, level: Int, hole: Gray8? = null) {
+            if (hole != null && (hole.w != g.w || hole.h != g.h))
+                throw LintError("blitImage: the base is ${hole.w}x${hole.h} and the surface ${g.w}x${g.h}")
             val top = Pack.level(level)
             val w = img.w
             for (p in img.levels.indices) {
@@ -1115,7 +1221,9 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
                 val x = x0 + p % w
                 val y = y0 + p / w
                 if (x < 0 || y < 0 || x >= g.w || y >= g.h) continue
-                g.pix[y * g.w + x] = ((s * top) / 15 * 17).toByte()
+                val i = y * g.w + x
+                g.pix[i] = ((s * top) / 15 * 17).toByte()
+                if (hole != null) hole.pix[i] = 0
             }
         }
 
@@ -1157,9 +1265,17 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
          * (integer), here as the 8-bit `k × 17` the wire's quantiser maps
          * back to k. Returns the pen advance. Shared by the recorder and the
          * compositor's re-render so the two can never disagree.
+         *
+         * [hole] (0.64) is the base's rule: a surface of [g]'s size that is set to 0 at every
+         * pixel this draw writes, in the same iteration that writes it. The compositor passes
+         * the BASE of a cached rect there while it builds the proof's surface in [g], so a
+         * pixel is black in the base exactly when a draw writes it, and the base's holes and the
+         * proof's draws cannot disagree: one loop makes both. The recorder passes nothing.
          */
         fun blit(g: Gray8, x0: Int, y0: Int, text: String, e: GlyphAtlas.Entry, level: Int,
-                 kern: (Char, Char) -> Int = { _, _ -> 0 }): Int {
+                 kern: (Char, Char) -> Int = { _, _ -> 0 }, hole: Gray8? = null): Int {
+            if (hole != null && (hole.w != g.w || hole.h != g.h))
+                throw LintError("blit: the base is ${hole.w}x${hole.h} and the surface ${g.w}x${g.h}")
             val top = Pack.level(level)
             var px = x0
             var prev: Char? = null
@@ -1174,7 +1290,9 @@ class CachedText(val base: TextRasterizer) : TextRasterizer, wm.damage.core.gfx.
                     val x = px + p % w
                     val y = y0 + p / w
                     if (x < 0 || y < 0 || x >= g.w || y >= g.h) continue
-                    g.pix[y * g.w + x] = ((s * top) / 15 * 17).toByte()
+                    val i = y * g.w + x
+                    g.pix[i] = ((s * top) / 15 * 17).toByte()
+                    if (hole != null) hole.pix[i] = 0
                 }
                 px += w
             }

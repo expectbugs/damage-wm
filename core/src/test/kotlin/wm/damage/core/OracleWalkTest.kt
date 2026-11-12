@@ -343,6 +343,77 @@ class OracleWalkTest {
         override fun restoreState(state: kotlinx.serialization.json.JsonObject) {}
     }
 
+    /** A list of three rows whose tap leads to a level that is a list of NO rows (Feed's flagged
+     *  level, emptied from inside: the one list in the tree that can reach zero). */
+    private class EmptyingWindow : wm.damage.core.shell.DamageWindow(
+        "emptying", "Emptying", wm.damage.core.gfx.IconKind.FILES,
+    ) {
+        private val model = wm.damage.core.shell.ListModel()
+        private var emptied = false
+        override fun view() = wm.damage.core.shell.WindowView.ListView(
+            model, { if (emptied) 0 else 3 },
+            { g, i, r, _ -> g.fillRect(r.x + 8, r.y + 6, 200 + i * 40, 12, ((i % 12) + 4) * 17) },
+            { g, r, i -> g.fillRect(r.x + 8, r.y + 8, 240, 16, ((i % 12) + 6) * 17) },
+            { emptied = true },
+        )
+        override fun back(): Boolean = if (emptied) { emptied = false; true } else false
+        override fun levelDepth() = if (emptied) 2 else 1
+        override fun summary() = Summary("three rows, then none")
+        override fun saveState() = kotlinx.serialization.json.buildJsonObject { }
+        override fun restoreState(state: kotlinx.serialization.json.JsonObject) {}
+    }
+
+    /**
+     * RB-4 (0.64 R1), one scripted scene in the walk's rig: a list that goes to ZERO rows.
+     * `ContentKit.paintList` cleared the content of the composed surface and returned before it
+     * declared the damage, so nothing was scanned: the glass kept the three rows while the shell
+     * sat on an empty list, and belief agreed with the glass — only the truth comparison can see it.
+     * Both contracts, the default depth (the view stays a list, so the plane map does not change
+     * and no hint comes from there either). The scene pins its seed; nothing in it is random.
+     * THE SHAPE GUARD: the rows are lit on the glass before the tap. Mutation watched: the damage
+     * at zero rows removed (`glass != TRUTH` at a row's first lit pixel).
+     */
+    @Test
+    fun aListThatGoesToZeroRowsIsClearedOnTheGlass(): Unit = runBlocking {
+        for ((contract, cached) in listOf(1 to false, 2 to true)) {
+            val rig = Rig(480, seed = 0x0E_4B_04L, contract = contract, cached = cached)
+            val tag = "c$contract"
+            try {
+                rig.shell.register(EmptyingWindow())
+                rig.shell.start()
+                rig.settle("$tag boot")
+                rig.shell.services.runOnShell { rig.shell.services.openWindow("emptying", null) }
+                rig.settle("$tag the list of three rows")
+                rig.assertOracle("$tag the list of three rows")
+                suspend fun litInTheContent(what: String): Int {
+                    repeat(2_000) {
+                        rig.settle(what)
+                        rig.shell.sampleIdle {
+                            val c = rig.shell.layout.content
+                            val g = rig.lens(true)
+                            var n = 0
+                            for (y in c.y until c.bottom) for (x in c.x until c.right) if (g[x, y] != 0) n++
+                            n
+                        }?.let { return it }
+                    }
+                    throw AssertionError("$what: the shell never sat idle for a sample — ${rig.shell.quiescenceReport()}")
+                }
+                assertTrue(litInTheContent("$tag the rows on the glass") > 3 * 12 * 100, "$tag — the shape guard: the three rows are lit on the glass before the tap")
+                rig.shell.postGesture(EvenHubMsg.EV_CLICK)
+                rig.settle("$tag the list, emptied")
+                rig.assertOracle("$tag the list, emptied")
+                assertTrue(litInTheContent("$tag the empty list on the glass") == 0, "$tag: nothing of the three rows is left on the glass")
+                // ...and back: the rows return
+                rig.shell.postGesture(EvenHubMsg.EV_DOUBLE_CLICK)
+                rig.settle("$tag back to the three rows")
+                rig.assertOracle("$tag back to the three rows")
+                assertTrue(rig.shell.currentWindowId() == "emptying", "$tag: the double-tap went back one level, not to Main")
+            } finally {
+                rig.stop()
+            }
+        }
+    }
+
     @Test
     fun beliefEqualsGlassEqualsTruthAcrossARandomWalkAtEveryHeight(): Unit = runBlocking { walk(1, false) }
 

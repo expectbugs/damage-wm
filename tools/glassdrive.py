@@ -15,8 +15,19 @@ probe for the host's transport, `HANDOFF.md` §49 — `probe:diag=show|hide` the
 firmware's diagnostic overlay, `probe:logger=on|off` the glasses' own log stream
 into the journal as `glasslog` notes, `probe:phy=2m|1m` the radio PHY ask; APK
 0.45+; on a Damage build (`FIRMWARE.md` §3, APK 0.46+): `probe:telemetry=read`,
-`probe:cache=info`, `probe:flags=clear|probe|0xNNNN`, `probe:selftest=begin|end|step:HEX|live:HEX`, `probe:cachesize=64..160`,
-`probe:diag=clear` — mode 7 sub 0: the sticky diagnostics, the fid ring and the refusal record),
+`probe:cache=info`, `probe:cache=miscount` (APK 0.64+, on Adam's word only: one atlas ack the glasses never saw
+is added to the shell's cache-write ledger, so the count reads one short and the notice, the one re-send and the
+keyframe run on glass; nothing new on the wire), `probe:flags=clear|probe|0xNNNN`, `probe:selftest=begin|end|step:HEX|live:HEX`, `probe:cachesize=64..160`,
+`probe:diag=clear` — mode 7 sub 0: the sticky diagnostics, the fid ring and the refusal record;
+APK 0.64+: `probe:wear=query` — one wear-state query (op 7, both arms), its answer a `wear` journal note, on
+Adam's word only when the host drives the glasses; and, on a SIMULATOR target only (the model's knobs, nothing
+on a radio — a host driving the glasses says it runs no such probe):
+`probe:sim=battery=N|charging=on|off|worn=yes|no|wearswitch=on|off|case=docked|out`;
+`probe:rest=on|off` (APK 0.64+, the SHELL's own probe, on Adam's word only when the host drives the glasses:
+`on` starts a rest — frames stop, the lease is released on purpose, the page traffic and the transport's
+watchdog sleep, the 60 s device-info READ goes on and each paced check sends one wear query; `off`, or any
+input event, which is then not delivered, rebuilds the session; every case that does nothing says why in a
+`rest` journal note, and `tools/journal_report.py` prints the battery %/h by state from the `power` notes)),
 `selftest:PATH.json` (a conformance vector — `firmware/vectors/v1-*.json`, `v2-*.json` —
 driven through the glasses' self-test step by step; after each step RIGHT's telemetry is
 read from the host's `/log` and its scratch CRC, refusal and the refusal record's mode

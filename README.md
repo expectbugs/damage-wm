@@ -127,16 +127,17 @@ Three facts about this display shape most of the design:
 ## Building and verifying
 
 ```
-./gradlew :core:test                                  # 699 tests, incl. the per-lens oracle and the conformance vectors
-./gradlew :desktop:test                               # 22 tests: the BlueZ glue over a fake link, the standby policy, the setup server, the config file, the xkcd PNG decoder, the status cell's fit
-./gradlew :desktop:run --args="--selfcheck"           # the 484-check whole-stack gate, run twice (both contracts); run it more than once
+./gradlew :core:test                                  # 932 tests, incl. the per-lens oracle and the conformance vectors
+./gradlew :desktop:test                               # 32 tests: the BlueZ glue over a fake link, the standby policy, the setup server, the config file, the xkcd PNG decoder, the status cell's fit
+./gradlew :desktop:run --args="--selfcheck"           # the 485-check whole-stack gate, run twice (both contracts); run it more than once
 ./gradlew :desktop:run --args="--snapshot DIR"        # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"          # parse every book; chapters + image decode
 ./gradlew :desktop:run --args="--music-check"         # the real music library, read-only (counts, catalog, lanes, cache keys, Qdrant, viz)
 ./gradlew :desktop:run --args="--games-check"         # the Hold'em ecology over hundreds of simulated tournaments
 ./gradlew :desktop:run --args="--card-render"         # the card sheets at true 1x
-./gradlew :desktop:run --args="--transport ble"       # PC-direct BLE (the at-the-desk fallback)
-./gradlew :desktop:run                                # auto = the §19 standby (data host; claims nothing) + preview (4x)
+./gradlew :desktop:run --args="--help"                # the usage text; an argument the program does not know is refused (exit 2) and nothing starts
+./gradlew :desktop:run --args="--transport ble"       # PC-direct BLE (the at-the-desk fallback); stop the service first (exit 4 otherwise)
+./gradlew :desktop:run                                # auto = the §19 standby (data host; claims nothing) + preview (4x); stop the service first (exit 4 otherwise)
 ./gradlew :phone:assembleDebug                        # the APK (deploy flow: :phone:stageApk → the setup page)
 tools/lint.py                # design gate: SYM (every string literal), GEO (DESIGN.md's declared cells), BUD (ink from the renders); --selftest names what it covers
 python3 design/render_shots.py   # design renders at true 1x, priced through the firmware's RLE
