@@ -10,7 +10,7 @@ transport read against ours) → **§66** (Reader's page staging: the design pas
 ## Where we are (2026-11-12)
 
 - **2026-11-12 — APK 0.65 BUILT, pushed as `b833713`, and STAGED at 16:58 (versionCode 65; 0.64 kept in
-  `~/.damage/backup/`) — not installed, his word; the PC service runs `b833713` since 16:58 (`HANDOFF.md` §77,
+  `~/.damage/backup/`); **Adam said at ~17:05 he was installing it, and that 0.64 WAS installed and in use (the records said otherwise — §77.12's correction)**; the PC service runs `b833713` since 16:58 (`HANDOFF.md` §77,
   §77.12). Everything in it is measured on the simulator; nothing of 0.65 or of 0.64 has been read on the glasses.** P5, the class-sweep fixes (session boundaries; the start gates; a wide flush behind one lost
   image ack written at depth 2; the fid-ring clear, `07 00`, at every session start); P6, loop cost (a `loop` note a
   minute; parked windows compose nothing; the mirror check over changed rows); P7, notices, windows and tools (with
@@ -20,7 +20,7 @@ transport read against ours) → **§66** (Reader's page staging: the design pas
   §77.10 lists his calls first. The late sync-handshake pair §76.11 item 3 named is gone with the PC deploy alone (0
   lines in seven hours against 545 before; M, the PC's log, §77.6).
 
-- **2026-11-11 → 12 — APK 0.64 BUILT and STAGED (replaced on the setup page by 0.65 on 11-12 16:58, never installed); pushed as `26ed20a`; the PC service deployed from it
+- **2026-11-11 → 12 — APK 0.64 BUILT and STAGED (INSTALLED by Adam on 11-12 — his word at ~17:05, the time unread; replaced on the setup page by 0.65 at 16:58); pushed as `26ed20a`; the PC service deployed from it
   11-12 02:48 (`HANDOFF.md` §76, §76.13). Everything in it is measured on the
   simulator; nothing of it has been read on the glasses, and its phone half has not run on the device.** §75.6's
   scope in four packages: the menu's first paint (the base blacks only what a draw writes, every inked rect priced
@@ -30,7 +30,7 @@ transport read against ours) → **§66** (Reader's page staging: the design pas
   (the reads, op 7 at each session start, a telemetry read a minute while painting, a `rest` probe for a timed
   hour); with T0 (the desktop program refuses an argument it does not know). Two review rounds (62 findings, 55
   confirmed) and their fixes, among them `instance.lock` (a second process on one data directory exits 4) and a
-  start banner without the token value. **The phone runs 0.63 until Adam installs 0.64 (staged on the setup page; 0.63 kept in
+  start banner without the token value. **Adam installed 0.64 on 11-12 (his word; the time unread — §77.12's correction; 0.63 kept in
   `~/.damage/backup/`); the PC service ran `26ed20a` from 11-12 02:48 to 16:58** (0.65's jar since, §77.12; the old jars kept beside the APKs) — its
   first start set the 79.7 MB journal aside as `journal-20261112-024805.jsonl`, took `instance.lock`, and the 0.63
   phone attached on every channel (M, §76.13). Installing is Adam's word; §76.10 lists his calls first.
@@ -187,7 +187,7 @@ transport read against ours) → **§66** (Reader's page staging: the design pas
   `QueueWhileDownTest`, `SilentGlassesTest`; `MirrorSpanTest` and `GlyphSubsetShellTest` 5 of 5; `ParkedRenderTest` 18
   of 20 at R4 and 40 of 40 after the lead's fix to its slide test (§77.3) · the fork's 34 vectors / 342 steps, the self-test form on 26 (at the vector pass). Not run in 0.65's
   build stages (the lead's before the push; last at 0.64's R3, §76.13): `--epub-check ~/books` (every book OK, 2,580
-  of 2,604 images decode) · music/games/feed — all four run again by the lead before 0.65's push (73 books OK, 2,580 of 2,604; §77.12). The phone runs 0.63 (installed 2026-11-10); the PC runs `b833713`.
+  of 2,604 images decode) · music/games/feed — all four run again by the lead before 0.65's push (73 books OK, 2,580 of 2,604; §77.12). The phone ran 0.64 on 11-12 (Adam's word; the lead's "0.63" was an assumption) and 0.65 from his install that evening (to be read from the journal); the PC runs `b833713`.
   Known rate misses (§54.5, §54.7; and `MusicWindowTest.windowGrammarAt480`, 1 of 4 full runs on 0.64's P4
   trees, cause not proven — its failure now prints its state, §76.7): `FeedWindowTest.deepLinks…` and
   `…browseThroughTheKeyboard…` (§49.6), a seam test race (`SeamSessionTest.kt:82`),
@@ -218,8 +218,8 @@ The ack precedes the panel refresh (§48.1, verified): what the eye waits for is
 
 ## 🔴 The next session — Adam installs APK 0.65 (staged 11-12 16:58; his word; `HANDOFF.md` §77, §76), then its first day's journal is read
 
-0. **APK 0.65 (`HANDOFF.md` §77) is BUILT, pushed (`b833713`) and STAGED (11-12 16:58, versionCode 65) — not
-   installed. APK 0.64 (never installed) is kept as `~/.damage/backup/damage-wm-0.64.apk`. Installing is Adam's
+0. **APK 0.65 (`HANDOFF.md` §77) is BUILT, pushed (`b833713`) and STAGED (11-12 16:58, versionCode 65); Adam said at
+   ~17:05 he was installing it (not yet read from the phone). APK 0.64 (installed by Adam on 11-12, §77.12's correction) is kept as `~/.damage/backup/damage-wm-0.64.apk`. Installing is Adam's
    word.** 0.65 is 0.63 plus §75.6's builds, two review rounds'
    fixes (0.64), P5–P7, the fork's vector pass and review pass 3's fixes, all measured on the simulator. **First, after the install:** `/log` shows
    "uncaught-error record installed (previous handler …)" at the first start and the journal a `process` note with
@@ -353,7 +353,7 @@ flashing; the protocol (`CLAUDE.md` "Scope, build, review", `FORK.md` §3.8) bin
    (where the carrier's two buffers live is U again, `CLAIMS.md`). **With it in that candidate (§68): a deflated cache
    write** (cache writes were 61 % of the image lane's bytes, deflate takes 43 % off); the kept compression context only
    after `research/flushdecomp.py` has read a capture of Phase 2 traffic.
-10. **BUILT in APK 0.64, not installed (`HANDOFF.md` §76.1, P4): the low-battery notice (the phone channel "Glasses
+10. **BUILT in APK 0.64 (installed 11-12, Adam's word; `HANDOFF.md` §76.1, P4): the low-battery notice (the phone channel "Glasses
    battery") and rest mode's build 1 — the reads (`wear`, `case`, `sid` notes), op 7 at each session start, a
    telemetry read a minute while painting, the `rest=on|off` probe (his word on glass). Build 2 (resting by itself)
    waits on what build 1 reads: the first day's journal (item 0) and the timed hour (`DAILY.md`'s recipe).**

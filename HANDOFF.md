@@ -7378,13 +7378,24 @@ and pushed. Counted in the pushed diff and message, not shown: no value of `~/.d
 no private network address.
 
 - **APK 0.65 is STAGED, not installed** (`~/.damage/damage-wm.apk`, 27,425,068 B, versionCode 65 / 0.65 read from
-  the APK, the same signing certificate as 0.63 and 0.64; the wiring gate exit 0). APK 0.64, never installed, is
+  the APK, the same signing certificate as 0.63 and 0.64; the wiring gate exit 0). APK 0.64 is
   kept as `~/.damage/backup/damage-wm-0.64.apk`. Installing is Adam's word (his "keep going" of 11-12 covered the
-  push, the staging and the PC deploy). The phone runs 0.63 until then.
+  push, the staging and the PC deploy).
 - **The PC service runs `b833713`** (restarted 16:58:26; the jar before it kept as
   `~/.damage/backup/damage-0.64-26ed20a.jar`). Its start, read from `damage.log` and the journal (M): 26 lines, no
   `[W]` or `[E]`; the journal's `process` note; the replica line with `?token=…` and no token value in what this
-  start wrote; the 0.63 phone attached to the feed, torrents, files, music, tmux and sync channels within 18 s.
+  start wrote; the phone attached to the feed, torrents, files, music, tmux and sync channels within 18 s.
   Going back: copy a kept jar over `~/.damage/damage.jar` and restart.
 - Not read: anything of 0.65 or 0.64 on the glasses; the phone's journal (the flush gap at a handshake, 77.11 item 3).
 - The fork's `f9ba7c6` is still local — Adam's push.
+
+**Correction (Adam, 2026-11-12 ~17:05): APK 0.64 WAS installed and in use.** His words: "0.64 was installed, I'm
+literally using it right now", and that he was installing 0.65 then. Every line of §76, §77 and `REMINDER.md` that
+says 0.64 was "not installed", or that the phone "runs 0.63" after 11-12 02:47, was the lead's assumption from
+hearing nothing: he installs from the setup page without saying so, and the PC's log names no version for the phone
+that attaches. The installed build is a fact to read (the phone's journal: the `process` note at a first start),
+never one to infer. Consequences: the pairing "0.63 phone against the new PC jar" in §76.13 and above was a 0.64
+phone for an unread part of that day; 0.64's first start and its hours on the glasses are in the phone's journal,
+unread (§76.11 item 2's reads now apply to that stretch, and it is P6's "before"); the phone's journal was renamed
+at 0.64's first start, not 0.65's.
+
