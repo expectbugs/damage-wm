@@ -6318,7 +6318,7 @@ manager for his own glasses on firmware he installed; this section records an un
 the scope §75.6 set and his rulings of 2026-11-10. **Every number below is measured on the simulator (the desktop
 JVM and the model of the firmware) unless it says otherwise. Nothing of 0.64 has been read on the glasses, and its
 phone half has not run on the device.** As written, APK 0.64 is built and not installed, and the PC service runs the
-jar deployed 2026-11-10 (`de67f99`). Nothing was flashed; no probe was sent to the glasses.
+jar deployed 2026-11-10 (`de67f99`) — since staged and deployed, 76.13. Nothing was flashed; no probe was sent to the glasses.
 
 The build ran on the local branch `wip/064` from `886d655` (stage commits `7488fe5` T0 … `7bb603d` R2's verify):
 four packages, each built and then checked by a verify stage; review pass 1 in two halves (1a over P1–P2, 1b over
@@ -6763,8 +6763,7 @@ For APK 0.65 (built with P5–P7, not in 0.64):
    `dearer`; the first `count` notes and any `cache/*` notice; the price's own CPU — `compressMs` and `compressN` on
    flushes whose `cacheMiss` holds `dearer`, against the same windows on 0.63 (`assembleMs − truthMs − compressMs`
    cannot see it).
-3. **The PC deploy:** the first start of the new jar renames the PC's journal (79,742,489 B, past 67,108,864) and takes
-   `instance.lock`; read `damage.log` then. After it, look for a pair "77 newer there" / "77 wanted" five minutes
+3. **The PC deploy — DONE 2026-11-12 02:48 (76.13: the journal set aside, the lock taken, the log read).** Still to read: look for a pair "77 newer there" / "77 wanted" five minutes
    apart (a late handshake costs two full sync rounds, each record saved on the phone's loop — modeled), and the flush
    gap at each `:x4:09` / `:x9:09` handshake against the minute before, after the PC deploy alone and again after 0.64.
 4. **The timed rest hour** (his word; `DAILY.md`'s recipe).
@@ -6836,3 +6835,27 @@ Not read by the readers:
 
 Not built: the same bound at the atlas read-back (`cacheCheck`, op 4 — ruled; on glass since 0.63, read there 11 of
 11); the wear query held to the session's first device-info READ (above).
+
+### 76.13 Pushed, staged, the PC service deployed (2026-11-12 02:44–02:49)
+
+After R3's battery the lead ran the four content checks from the installed build (`--epub-check ~/books`: every book
+OK, 2580 of 2604 images decode; `--music-check`, `--games-check`, `--feed-check`: all pass), squashed `wip/064` onto
+`main` as one commit, **`26ed20a`**, and pushed it (the tree is `299d0f1`'s, byte for byte). This block's own commit
+is documents only.
+
+- **APK 0.64 is STAGED, not installed** (`~/.damage/damage-wm.apk`, 27,379,964 B, versionCode 64 / 0.64 read from the
+  APK; the setup page serves it). APK 0.63 is kept as `~/.damage/backup/damage-wm-0.63.apk`. Installing is Adam's
+  word. Until then the phone runs 0.63 against the new PC jar — the pairing §76 walked in code; this start is its
+  first run (M, below).
+- **The PC service runs `26ed20a`** (deployed 02:48:05 under the standing mandate: the lead had held it on an
+  assumption Adam corrected on 11-12, and had told him it would follow the push; the old jar kept as
+  `~/.damage/backup/damage-0.63-de67f99.jar`). Its first start, read from `damage.log` and the journal (M):
+  `journal.jsonl` 79,742,959 B set aside as `journal-20261112-024805.jsonl`, the new journal opening with the
+  `journal` note and the `process` note ("uncaught-error record installed (previous handler none)"); `instance.lock`
+  taken; the banner's replica line carries `?token=…` and the token's value is nowhere in what this start wrote; all
+  four ports up; the 0.63 phone attached to the files, torrents, feed, music, tmux and sync channels within the first
+  seconds; no `[W]` or `[E]` line. `damage.log` itself still holds earlier starts' banners with the value (§76.10).
+  Going back: copy the kept jar over `~/.damage/damage.jar` and restart; the older jar ignores the lock file and
+  appends to whichever `journal.jsonl` is there.
+- Not yet read: the handshake pair and the flush gap §76.11 item 3 names (a day's journal), and anything of 0.64 on
+  the glasses.

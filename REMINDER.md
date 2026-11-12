@@ -2,14 +2,15 @@
 
 **The entry point for a fresh session**: what is true now, what comes next, where the records are. History lives
 in `HANDOFF.md`; this file only points at it. Read `CLAUDE.md` → this file → **`FORK.md`** (the plan; §11 the
-log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` **§76** (2026-11-11/12: APK 0.64 built and not installed — §75.6's builds, two review rounds and their fixes; everything in it measured on the simulator; its "For Adam" list, his calls first) → **§75** (2026-11-10 evening, documents only: Adam's rulings on §71–§73's calls; the menu's first paint traced to two causes; item 10's design pass; the fork's mutation sweep) → **§74** (upstream and official firmware read 2026-11-10, nothing built: facts for rest mode, the case, the ring and the link; small candidates for Phase 3's flash; D1 stands) → **§73** (the atlas packs what a face draws and grows in place; the link estimator on isolated flushes; APK 0.63, committed `6bba881`, INSTALLED 2026-11-10 17:16; Adam's calls in its "For Adam" block; its addendum = the 11-09 slow stretches and the two silent modes) → **§72** (the PC's OOM while Adam read in Sim; what a shell holds while down; the standby claims only on sight) → **§71** (the phone's `/journal` ended the APK; it streams in 0.61) → **§70** (the glasses ran flat: the case's battery; two rulings for the next APK) → **§69** (the status cell as states, every event a notice) → §67–§68 (upstream's cache and
+log) → `FIRMWARE.md` (the contract) → `HANDOFF.md` **§76** (2026-11-11/12: APK 0.64 built and staged, not installed; the PC service deployed, §76.13 — §75.6's builds, two review rounds and their fixes; everything in it measured on the simulator; its "For Adam" list, his calls first) → **§75** (2026-11-10 evening, documents only: Adam's rulings on §71–§73's calls; the menu's first paint traced to two causes; item 10's design pass; the fork's mutation sweep) → **§74** (upstream and official firmware read 2026-11-10, nothing built: facts for rest mode, the case, the ring and the link; small candidates for Phase 3's flash; D1 stands) → **§73** (the atlas packs what a face draws and grows in place; the link estimator on isolated flushes; APK 0.63, committed `6bba881`, INSTALLED 2026-11-10 17:16; Adam's calls in its "For Adam" block; its addendum = the 11-09 slow stretches and the two silent modes) → **§72** (the PC's OOM while Adam read in Sim; what a shell holds while down; the standby claims only on sight) → **§71** (the phone's `/journal` ended the APK; it streams in 0.61) → **§70** (the glasses ran flat: the case's battery; two rulings for the next APK) → **§69** (the status cell as states, every event a notice) → §67–§68 (upstream's cache and
 transport read against ours) → **§66** (Reader's page staging: the design pass, T2's day read, the build) → **§65** (what four reviews of Phase 2 measured, and the protocol), §64–§61 (the four reviews), §60 (Phase 2 built), §59 (the day's live defect), §55 (Phase 1 flashed),
 §48 (the fork decided). Firmware facts: `CLAIMS.md` → `research/fork-reads-2026-09-13.md` → the image through
 `research/fwread.py`.
 
 ## Where we are (2026-11-12)
 
-- **2026-11-11 → 12 — APK 0.64 BUILT, not installed (`HANDOFF.md` §76). Everything in it is measured on the
+- **2026-11-11 → 12 — APK 0.64 BUILT and STAGED, not installed; pushed as `26ed20a`; the PC service deployed from it
+  11-12 02:48 (`HANDOFF.md` §76, §76.13). Everything in it is measured on the
   simulator; nothing of it has been read on the glasses, and its phone half has not run on the device.** §75.6's
   scope in four packages: the menu's first paint (the base blacks only what a draw writes, every inked rect priced
   against its pixels; `Shell.retire`; Main's lens), the cache count read everywhere with a notice and one re-send
@@ -18,9 +19,10 @@ transport read against ours) → **§66** (Reader's page staging: the design pas
   (the reads, op 7 at each session start, a telemetry read a minute while painting, a `rest` probe for a timed
   hour); with T0 (the desktop program refuses an argument it does not know). Two review rounds (62 findings, 55
   confirmed) and their fixes, among them `instance.lock` (a second process on one data directory exits 4) and a
-  start banner without the token value. **The phone runs 0.63 and the PC service the jar deployed 2026-11-10
-  (`de67f99`) until 0.64 is installed and deployed;** the new jar's first start renames the ~80 MB PC journal and
-  takes the lock — read `damage.log` then. Installing is Adam's word; §76.10 lists his calls first.
+  start banner without the token value. **The phone runs 0.63 until Adam installs 0.64 (staged on the setup page; 0.63 kept in
+  `~/.damage/backup/`); the PC service runs `26ed20a` since 11-12 02:48** (the old jar kept beside the APK) — its
+  first start set the 79.7 MB journal aside as `journal-20261112-024805.jsonl`, took `instance.lock`, and the 0.63
+  phone attached on every channel (M, §76.13). Installing is Adam's word; §76.10 lists his calls first.
 
 - **2026-11-10, evening (`HANDOFF.md` §75; documents only — no code changed, nothing built, staged, deployed or
   flashed, no probe sent; the tree's code is `6bba881`'s):**
@@ -108,7 +110,7 @@ transport read against ours) → **§66** (Reader's page staging: the design pas
   LE 2M, the partial refresh running; Adam's verdict "large images significantly faster, no problems"; the on-glass
   self-test 19 of 20 vectors matching every step as its driver judged it then — the twentieth's difference was the driver's own expectation (item 4, closed in §73; a re-run would show 20 of 20). Phase 1's record (§55, §56, §65): 7.3 h then 10.2 h worn clean, transfer 2.0 ms median, the uptime tick
   1.024 per ms, the arm drops = in-case reboots. The phone APK drives; the OpenRC `damage` service is the data host
-  and standby (§19, `DAILY.md`), deployed 2026-11-10 17:18 from `de67f99` (§73's last block; `0dd6ba6` from 11-09 00:43 before that, §72).
+  and standby (§19, `DAILY.md`), deployed 2026-11-12 02:48 from `26ed20a` (§76.13; `de67f99` from 11-10 17:18 before that, §73's last block).
 - **The APK. 0.49 installed** (2026-09-15 03:46; every `build` note through 09-16 12:17). **0.55 INSTALLED 2026-09-16 ~13:10 (Adam)** and driving Phase 2 since 13:32 (§65). **0.57 INSTALLED 19:09 (Adam)**, its first read `HANDOFF.md` §66.1. **0.60 STAGED (§69: the status cell as states, every event a notice; it supersedes 0.59, never installed)** with 0.59's staging fixes (§66.1) — the ledger's settle
   window, the 64 KiB reserve, and a shortfall that can never switch the atlas off (0.57's ledger took cached text down at
   19:51 on three lagged readings); Adam installs whenever (~30 s blank, a 13 s atlas re-upload), then PRESENTED wants arming again.
@@ -203,7 +205,7 @@ The ack precedes the panel refresh (§48.1, verified): what the eye waits for is
 
 ## 🔴 The next session — Adam installs APK 0.64 (his word; `HANDOFF.md` §76), then its first day's journal is read; the PC deploy; APK 0.65 = P5–P7 and the fork's vector pass
 
-0. **APK 0.64 (`HANDOFF.md` §76) is BUILT, not installed — installing is Adam's word.** It is 0.63 plus §75.6's
+0. **APK 0.64 (`HANDOFF.md` §76) is BUILT and STAGED (11-12 02:47), not installed — installing is Adam's word.** It is 0.63 plus §75.6's
    builds and two review rounds' fixes, all measured on the simulator. **First, after the install:** `/log` shows
    "uncaught-error record installed (previous handler …)" at the first start and the journal a `process` note with
    the same words — the only read of the phone half; the phone's first start renames its journal (grown since
@@ -217,8 +219,8 @@ The ack precedes the panel refresh (§48.1, verified): what the eye waits for is
    first day's journal answers (§76.11):** the wear event's arm and flag; op 7's answer with the switch off; field 10
    and a field-14 zero in a READ; sid-0x81 pushes; the frame that names the start's level (`CLAIMS.md` row 283); the
    menu box's first flush against 0.63's 2.6 KB; `proof`, `two-planes`, `dearer`; the first `count` notes and any
-   `cache/*` notice. **The PC deploy** (at a quiet moment, the old jar kept): its first start renames the ~80 MB PC
-   journal and takes `instance.lock` — read `damage.log` then; after it, a pair "77 newer there" / "77 wanted" five
+   `cache/*` notice. **The PC deploy is DONE** (11-12 02:48, §76.13; the old jar kept): the journal was set
+   aside and `instance.lock` taken; still to read in a day's journal: a pair "77 newer there" / "77 wanted" five
    minutes apart is a late handshake (two full sync rounds, modeled). **The timed rest hour** is his
    (`DAILY.md`'s recipe). **APK 0.65** (P5 the class-sweep fixes, P6 loop cost, P7 notices, windows and tools, the
    fork's vector pass) starts after 0.64 is staged; a day of 0.64 on glass is P6's "before".
