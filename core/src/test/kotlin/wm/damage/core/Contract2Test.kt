@@ -121,9 +121,7 @@ class Contract2Test {
         }
 
         suspend fun until(what: String, cond: () -> Boolean) {
-            val t0 = System.currentTimeMillis()
-            while (!cond() && System.currentTimeMillis() - t0 < 10_000) delay(10)
-            assertTrue(cond(), "$what — live=${shell.cachedFontsLive} active=${shell.cachedTextActive} flushes=${all().size}")
+            waitUntil(10_000, 10, { "$what — live=${shell.cachedFontsLive} active=${shell.cachedTextActive} flushes=${all().size}" }) { cond() }
         }
 
         /** Up on the rows window with a v2 atlas live. */

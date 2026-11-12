@@ -54,10 +54,23 @@ class Round3Test {
                     if (it is TransportEvent.Fault && it.what != "warmup") synchronized(faults) { faults.add(it) }
                 }
             }
+            // P5 item 15 (IG-1's pin 2): the wrap is reached — the model's mode-7 sub-0 events per arm, counted from
+            // after the session's first keyframe (the start's own ring clear is dispatched before it). An allocator
+            // restarted at the start would run these five deltas from fid 1 and every assertion below would still pass.
+            val ringClears = java.util.concurrent.ConcurrentHashMap<String, Int>()
+            sim.attachListener(object : GlassFirmwareSim.SimDiag {
+                override fun event(kind: String, detail: String) {
+                    if (kind == "diag" && "mode-7 sub-0" in detail) ringClears.merge(detail.substringBefore(' '), 1, Int::plus)
+                }
+                override fun notify(arm: Arm, packet: ByteArray) {}
+                override fun panelChanged(arm: Arm) {}
+            })
             val g = Gray8(640, 480)
             val full = Zl.encodeCfw(Pack.rect(g, Rect(0, 0, 640, 480)))
             t.start(full)
-            t.submit(FlushRequest(listOf(DisplayOp.Keyframe(full)), 1, wide = true))
+            val key = t.submit(FlushRequest(listOf(DisplayOp.Keyframe(full)), 1, wide = true))
+            waitUntil(10_000, message = { "the keyframe was not answered: $done" }) { synchronized(done) { done.any { it.id == key } } }
+            val clearsBefore = synchronized(sim) { HashMap(ringClears) }     // the model's write call is over
             g.fillRect(100, 100, 40, 20, 8 * 17)
             val p = Zl.encodeCfw(Pack.rect(g, Rect(100, 100, 40, 20)))
             // 3 rects with 3 fids left: the whole flush must move past the wrap
@@ -77,6 +90,8 @@ class Round3Test {
             assertEquals(emptyList(), synchronized(faults) { faults.toList() })
             for (arm in Arm.entries) {
                 assertTrue(sim.flags(arm).none { it.value }, "sticky flags on $arm after the wrap: ${sim.flags(arm)}")
+                val wrapClears = synchronized(sim) { (ringClears[arm.toString()] ?: 0) - (clearsBefore[arm.toString()] ?: 0) }
+                assertTrue(wrapClears >= 1, "$arm: the wrap was reached — no mode-7 sub-0 after the first keyframe (all: $ringClears, before: $clearsBefore)")
             }
             t.stop()
         } finally {

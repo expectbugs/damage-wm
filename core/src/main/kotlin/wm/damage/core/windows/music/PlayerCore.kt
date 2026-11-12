@@ -597,11 +597,20 @@ abstract class PlayerCore(
     }
 
     // ------------------------------------------------------------------ persistence
+    /** P6 item 3: the queue list [persist] last built its array from, and that array (immutable). The caller's thread
+     *  only — the shell loop's save; one reference, so a reader never pairs one call's list with another's array. */
+    @Volatile private var persistedQueue: Pair<List<QueueEntry>, kotlinx.serialization.json.JsonArray>? = null
+
     /** From the CACHED snapshot: the shell loop saves while the player's
      *  thread may be reordering the engine's list. */
     override fun persist(): JsonObject = buildJsonObject {
         val s = cached
-        put("engine", QueueEngine.jsonOf(s.queue, s.index, s.mode, s.label))
+        // P6 item 3 (the loop-cost sweep's LC-6, step 1): the queue array is rebuilt only when the list differs from
+        // the one it was built from. The 10 s tick makes a new snapshot list of the same entries, so the key is the
+        // list's equality (data classes), not its identity; the pair is one reference, read and written once here.
+        val kept = persistedQueue?.takeIf { it.first == s.queue }
+            ?: (s.queue to QueueEngine.queueJsonOf(s.queue)).also { persistedQueue = it }
+        put("engine", QueueEngine.jsonOf(s.queue, s.index, s.mode, s.label, queueJson = kept.second))
         put("play", s.play.name)           // the truth for the mirror; a RESTORE never auto-plays (see restore)
         put("posMs", s.posMs)
         put("posAt", s.posAtMs)

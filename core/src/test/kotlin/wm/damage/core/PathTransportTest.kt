@@ -127,16 +127,18 @@ class PathTransportTest {
             val id = path.submit(FlushRequest(listOf(DisplayOp.Keyframe(warmup())), 1L))
             val t0 = System.currentTimeMillis()
             fun done() = synchronized(events) { events.any { it is TransportEvent.FlushDone && it.id == id && it.ok } }
-            while (!done() && System.currentTimeMillis() - t0 < 5_000) delay(5)
-            assertTrue(done(), "the flush completed through the active path")
+            var ok1 = done()
+            while (!ok1 && System.currentTimeMillis() - t0 < 5_000) { delay(5); ok1 = done() }
+            assertTrue(ok1, "the flush completed through the active path")
             assertTrue(sim.left.seeded, "the keyframe reached the winner's glasses")
             assertTrue(path.mirror.panel(Arm.LEFT) === sim.panel(Arm.LEFT), "the mirror proxy shows the winner's panels")
 
             path.injectInput(EvenHubMsg.EV_CLICK)
             val t1 = System.currentTimeMillis()
             fun input() = synchronized(events) { events.any { it is TransportEvent.Input && it.type == EvenHubMsg.EV_CLICK } }
-            while (!input() && System.currentTimeMillis() - t1 < 5_000) delay(5)
-            assertTrue(input(), "injected input reaches the path's events")
+            var ok2 = input()
+            while (!ok2 && System.currentTimeMillis() - t1 < 5_000) { delay(5); ok2 = input() }
+            assertTrue(ok2, "injected input reaches the path's events")
 
             path.stop()
             assertEquals(null, path.activeName)
@@ -196,9 +198,7 @@ class PathTransportTest {
             val path = PathTransport(listOf(PathTransport.Candidate("ble", winner), PathTransport.Candidate("remote:phone", slow)),
                 scope, headStartMs = 0)
             val starting = scope.launch { path.start(warmup()) }
-            val t0 = System.currentTimeMillis()
-            while (!winner.state.value.started && System.currentTimeMillis() - t0 < 5_000) delay(5)
-            assertTrue(winner.state.value.started, "the sim path completed its start")
+            waitUntil(5_000, 5, { "the sim path completed its start" }) { winner.state.value.started }
             delay(20)
             // the invariant, stated so a starved scheduler cannot fail it: on a
             // loaded machine `delay` can resume long after the rollback ended,

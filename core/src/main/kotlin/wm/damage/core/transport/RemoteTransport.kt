@@ -132,6 +132,9 @@ data class WireState(
     // 2026-11-11 (0.64, `HANDOFF.md` §75.4): the far end's wear report and wear-detection switch; an older
     // peer reads null — "no report this session" / "field 10 not in the block"
     val worn: Boolean? = null, val wearSwitch: Boolean? = null,
+    // P5 item 19 (the one-sibling sweep's OS-8): the connection parameters as numbers (§47), which the shell's
+    // slow-link regime reads at once; an older peer reads 0.0 / 0, "not reported" (`Shell.paramsSlow` tests > 0)
+    val linkIntervalMs: Double = 0.0, val linkLatency: Int = 0,
 )
 
 // named on both sides: the two classes order their fields differently, and a
@@ -144,7 +147,8 @@ private fun LinkState.toWire() = WireState(connected = connected, started = star
     leaseCarried = leaseCarried, leaseCarry = leaseCarry, cacheWriter = cacheWriter,
     damageContract = damageContract, damageFeatures = damageFeatures, flagsInForce = flagsInForce, cacheSize = cacheSize,
     floorSamples = floorSamples, transferSamples = transferSamples,
-    worn = worn, wearSwitch = wearSwitch)
+    worn = worn, wearSwitch = wearSwitch,
+    linkIntervalMs = linkIntervalMs, linkLatency = linkLatency)
 
 private fun WireState.toState() = LinkState(connected = connected, started = started, leaseHeld = leaseHeld,
     inFlight = inFlight, window = window, ackMsEma = ackMsEma, bytesPerSecEma = bytesPerSecEma,
@@ -154,6 +158,7 @@ private fun WireState.toState() = LinkState(connected = connected, started = sta
     damageContract = damageContract, damageFeatures = damageFeatures, flagsInForce = flagsInForce, cacheSize = cacheSize,
     worn = worn, wearSwitch = wearSwitch,
     floorSamples = floorSamples, transferSamples = transferSamples,
+    linkIntervalMs = linkIntervalMs, linkLatency = linkLatency,
     capability = capability, rssiDbm = rssiDbm, transportName = "remote:$transportName", detail = detail)
 
 private fun DataOutputStream.send(c: Ctl, blob: ByteArray? = null) {

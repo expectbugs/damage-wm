@@ -97,8 +97,9 @@ class SeamLivenessTest {
             assertTrue(client.state.value.started)
             val t0 = System.currentTimeMillis()
             fun quietDown() = synchronized(links) { links.any { !it.connected && "quiet" in it.detail } }
-            while (!quietDown() && System.currentTimeMillis() - t0 < 8_000) delay(50)
-            assertTrue(quietDown(), "the quiet seam was reported as the link ending: $links")
+            var ok = quietDown()
+            while (!ok && System.currentTimeMillis() - t0 < 8_000) { delay(50); ok = quietDown() }
+            assertTrue(ok, "the quiet seam was reported as the link ending: $links")
             assertFalse(client.state.value.started, "the keeper's poll sees the session end")
             val took = System.currentTimeMillis() - t0
             assertTrue(took < 6_000, "detection rode the quiet bound (took $took ms), not TCP retransmission")
@@ -132,12 +133,14 @@ class SeamLivenessTest {
             out.frame("""{"t":"ping"}""")              // liveness spoken once
             val t0 = System.currentTimeMillis()
             fun claimed() = synchronized(driverStates) { driverStates.contains(true) }
-            while (!claimed() && System.currentTimeMillis() - t0 < 3_000) delay(50)
-            assertTrue(claimed(), "the fake driver claimed the transport")
+            var ok = claimed()
+            while (!ok && System.currentTimeMillis() - t0 < 3_000) { delay(50); ok = claimed() }
+            assertTrue(ok, "the fake driver claimed the transport")
             // then: total silence. The server must hand the glasses back.
             fun released() = synchronized(driverStates) { driverStates.lastOrNull() == false }
-            while (!released() && System.currentTimeMillis() - t0 < 8_000) delay(50)
-            assertTrue(released(), "the quiet driver was released: $driverStates")
+            var ok1 = released()
+            while (!ok1 && System.currentTimeMillis() - t0 < 8_000) { delay(50); ok1 = released() }
+            assertTrue(ok1, "the quiet driver was released: $driverStates")
             val took = System.currentTimeMillis() - t0
             assertTrue(took < 6_000, "release rode the quiet bound (took $took ms), not TCP retransmission")
             sock.close()

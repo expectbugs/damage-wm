@@ -1,0 +1,1293 @@
+[
+ {
+  "id": "P5a-01-the-start-keeps-the-last-sessions-inflight",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            inflightFlushes.clear()\n            mirrorSpanLo = Int.MAX_VALUE; mirrorSpanHi = -1; mirrorWhole = true    // P6 item 5: the first check is whole\n",
+    "            mirrorSpanLo = Int.MAX_VALUE; mirrorSpanHi = -1; mirrorWhole = true    // P6 item 5: the first check is whole\n"
+   ]
+  ],
+  "tests": [
+   "*QueueWhileDownTest.aFlushOfTheLastSessionIsNotJudgedByTheNext"
+  ],
+  "expect": [
+   "aFlushOfTheLastSessionIsNotJudgedByTheNext"
+  ],
+  "note": "P5 item 1 (twice-read F1 = boundary-clear F2): the swept answer of the last session finds its entry and is judged: a flush notice in the next session"
+ },
+ {
+  "id": "P5a-02-a-completion-of-no-flush-of-this-session-is-judged",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (a == null) return\n        if (!ev.ok) {\n",
+    "        if (a == null) { if (!ev.ok && linkUpAndSteady()) raiseFault(\"flush\", \"a flush failed: ${ev.error}\"); return }\n        if (!ev.ok) {\n"
+   ]
+  ],
+  "tests": [
+   "*QueueWhileDownTest.aFlushOfTheLastSessionIsNotJudgedByTheNext"
+  ],
+  "expect": [
+   "aFlushOfTheLastSessionIsNotJudgedByTheNext"
+  ],
+  "note": "P5 item 1: the cleared id is judged as the session's own failure again (the notice arm, as before the fix: linkUpAndSteady is true in the new session and the flush notice is raised). P5 verify: rewritten from removing the return — since a75bcf2's `a` non-null cleanup that mutant no longer compiled"
+ },
+ {
+  "id": "P5a-03-a-flush-answer-is-not-kept-while-down",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            is TransportEvent.FlushDone, is TransportEvent.Text -> return true\n",
+    "            is TransportEvent.Text -> return true\n            is TransportEvent.FlushDone -> transEventsDroppedWhileDown.incrementAndGet()\n"
+   ]
+  ],
+  "tests": [
+   "*QueueWhileDownTest.aFlushAnsweredWhileDownStillCompletesInTheNextSession"
+  ],
+  "expect": [
+   "aFlushAnsweredWhileDownStillCompletesInTheNextSession"
+  ],
+  "note": "P5 item 1 (twice-read F1 correction 3): the re-pointed pin reads what keeping still buys, the done line the next session journals"
+ },
+ {
+  "id": "P5a-04-the-drain-re-posts-when-the-scope-ended",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                if (m is Msg.Trans && leftThroughShutdown) { if (keepWhileDown(m)) keep.add(m); continue }\n",
+    "                if (m is Msg.Trans) { if (keepWhileDown(m)) keep.add(m); continue }\n"
+   ]
+  ],
+  "tests": [
+   "*QueueWhileDownTest*"
+  ],
+  "expect": [
+   "(no pin: no rig found that leaves a message in the channel at the finally of a loop whose scope was cancelled)"
+  ],
+  "note": "P5 item 1 (twice-read F1's corrected drain): a re-post with no loop left would read as queued work for good"
+ },
+ {
+  "id": "P5a-05-the-flush-streak-crosses-the-start",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        flushFailStreak = 0; keyframeFailStreak = 0; haltedEpoch = null\n        reserveHeldAt = -1L; reserveYield = false   // P5 item 5: the reserve's ticks are per session\n",
+    "        keyframeFailStreak = 0; haltedEpoch = null\n        reserveHeldAt = -1L; reserveYield = false   // P5 item 5: the reserve's ticks are per session\n"
+   ]
+  ],
+  "tests": [
+   "*SessionBoundaryTest*"
+  ],
+  "expect": [
+   "aFailureCountDoesNotCrossASessionStart",
+   "aStartsFailuresDoNotCarryIntoTheNextStart"
+  ],
+  "note": "P5 item 2 (boundary-clear F1 fix 1): two steady failures before a yield stop and one after the start make a panic and the urgent resync ring"
+ },
+ {
+  "id": "P5a-06-the-keyframe-streak-crosses-the-start",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        flushFailStreak = 0; keyframeFailStreak = 0; haltedEpoch = null\n        reserveHeldAt = -1L; reserveYield = false   // P5 item 5: the reserve's ticks are per session\n",
+    "        flushFailStreak = 0; haltedEpoch = null\n        reserveHeldAt = -1L; reserveYield = false   // P5 item 5: the reserve's ticks are per session\n"
+   ]
+  ],
+  "tests": [
+   "*SessionBoundaryTest*"
+  ],
+  "expect": [
+   "aStartsFailuresDoNotCarryIntoTheNextStart"
+  ],
+  "note": "P5 item 2: the keyframe count of a start's failures carried into the next start (a halt and its ring)"
+ },
+ {
+  "id": "P5a-07-the-halt-crosses-the-start",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        flushFailStreak = 0; keyframeFailStreak = 0; haltedEpoch = null\n        reserveHeldAt = -1L; reserveYield = false   // P5 item 5: the reserve's ticks are per session\n",
+    "        flushFailStreak = 0; keyframeFailStreak = 0\n        reserveHeldAt = -1L; reserveYield = false   // P5 item 5: the reserve's ticks are per session\n"
+   ]
+  ],
+  "tests": [
+   "*SessionBoundaryTest*"
+  ],
+  "expect": [
+   "(no pin: three keyframe failures in a row made a flush streak, not a halt, on the scripted rig — the halt arm was not reached)"
+  ],
+  "note": "P5 item 2: a halted epoch carried into the next session would hold its pump until the epoch moves"
+ },
+ {
+  "id": "P5a-08-a-swept-failure-counts-toward-the-arms",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (!refused && !steady) return\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*SessionBoundaryTest.aLinkEnd*"
+  ],
+  "expect": [
+   "aLinkEndsSweepRaisesNoResyncAndNoHalt"
+  ],
+  "note": "P5 item 2 (boundary-clear F1 fix 2): the link end's two swept failures make the third of a streak with the one before (a panic, the urgent resync ring)"
+ },
+ {
+  "id": "P5a-09-the-link-end-publishes-its-state-after-the-sweep",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        updateState { it.copy(connected = false, started = false, leaseHeld = false, flagsInForce = 0) }\n        sweepSession(\"link down: $reason\")\n",
+    "        sweepSession(\"link down: $reason\")\n        updateState { it.copy(connected = false, started = false, leaseHeld = false, flagsInForce = 0) }\n"
+   ]
+  ],
+  "tests": [
+   "*SessionBoundaryTest.aLinkEnd*"
+  ],
+  "expect": [
+   "aLinkEndSaysEndedBeforeItsSweepFailsTheWork"
+  ],
+  "note": "P5 item 2 (boundary-clear F1 fix 3, correction 4): the sweep emits a queued flush's failure while the state still says started; the shell's loop could judge it steady. The shell-level sweep pin read this by timing on the instant rig (caught 3 of 3 there, a miss of the fixed tree 1 in 16); the transport-level pin reads it in the emitter's own step"
+ },
+ {
+  "id": "P5a-10-the-tick-stamp-moves-after-the-transport-start",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        tickGen++\n        silentGen++\n        starting = true ",
+    "        silentGen++\n        starting = true "
+   ],
+   [
+    "            val gen = tickGen             // P5 item 3:",
+    "            val gen = ++tickGen             // P5 item 3:"
+   ]
+  ],
+  "tests": [
+   "*SessionBoundaryTest.aStartInProgress*"
+  ],
+  "expect": [
+   "aStartInProgressTakesNoTicksFromTheSessionBefore"
+  ],
+  "note": "P5 item 3 (boundary-clear F4): 0.64's order; the last session's idle loop posts a tick every 5 s into a start in progress"
+ },
+ {
+  "id": "P5a-11-the-silent-stamp-does-not-move-at-the-start",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        tickGen++\n        silentGen++\n        starting = true ",
+    "        tickGen++\n        starting = true "
+   ]
+  ],
+  "tests": [
+   "*SessionBoundaryTest*"
+  ],
+  "expect": [
+   "(no pin: the session end's own bump in holdPushes stops the same loops first; the start's is the second of two)"
+  ],
+  "note": "P5 item 3 (boundary-clear F4): silentGen at the start's first lines"
+ },
+ {
+  "id": "P5a-12-the-session-end-does-not-move-the-silent-stamp",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        // needs a coroutine held between its launch and its first line.\n        silentGen++\n        notePower()\n",
+    "        // needs a coroutine held between its launch and its first line.\n        notePower()\n"
+   ]
+  ],
+  "tests": [
+   "*SessionBoundaryTest*"
+  ],
+  "expect": [
+   "(no pin: a release coroutine cannot be held between its launch and its first line from outside — RH-5 fix 2)"
+  ],
+  "note": "P5 item 3 (RH-5 fix 2, the root): a late release coroutine of an ended session passes its guard"
+ },
+ {
+  "id": "P5a-13-a-lease-change-during-a-start-is-taken",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            refused = startInProgress\n",
+    "            refused = false\n"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.aLeaseChangeAskedDuringAStartIsNotTaken"
+  ],
+  "expect": [
+   "aLeaseChangeAskedDuringAStartIsNotTaken"
+  ],
+  "note": "P5 item 3 (RH-5 fix 1): the call turns the lease off under the start; the lane drops the start's ACQUIRE and the start reports the lease held"
+ },
+ {
+  "id": "P5a-14-the-start-wants-the-lease-before-it-is-in-progress",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        started = true\n        sayStaleTees(\"at the next start\")",
+    "        started = true\n        leaseWanted = true\n        sayStaleTees(\"at the next start\")"
+   ],
+   [
+    "            startInProgress = true\n            leaseWanted = true\n        }\n",
+    "            startInProgress = true\n        }\n"
+   ]
+  ],
+  "tests": [
+   "*RestModeTest.aLeaseChangeAskedDuringAStartIsNotTaken"
+  ],
+  "expect": [
+   "(no pin: the order bites only for a call between the start's first line and its startInProgress write, which no rig can place)"
+  ],
+  "note": "P5 item 3 (RH-5 fix 1): a call in that span lands after the start's write and is not overwritten"
+ },
+ {
+  "id": "P5a-15-a-rebuild-of-an-ended-session-is-run",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (gen != tickGen || !running) {\n",
+    "            if (false) {\n"
+   ]
+  ],
+  "tests": [
+   "*SessionBoundaryTest*"
+  ],
+  "expect": [
+   "(no pin: the rebuild's coroutine cannot be held between its launch and its first line from outside)"
+  ],
+  "note": "P5 item 3, RH-5's second site: Shell.requestRebuild's coroutine run after the next session started ends that session"
+ },
+ {
+  "id": "P5a-16-input-during-a-start-is-queued",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (m is Msg.Trans && m.ev is TransportEvent.Input && starting) {\n",
+    "        if (m is Msg.Trans && m.ev is TransportEvent.Input && false) {\n"
+   ]
+  ],
+  "tests": [
+   "*SessionBoundaryTest.inputDuringAStart*"
+  ],
+  "expect": [
+   "inputDuringAStartInProgressIsNotReplayedIntoTheSession"
+  ],
+  "note": "P5 item 4 (boundary-clear F5): a click made while the start is parked in its connect opens Main's focused row in the new session"
+ },
+ {
+  "id": "P5a-17-the-start-phase-ends-before-the-transport-start",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        starting = true                   // P5 item 4:",
+    "        starting = false                   // P5 item 4:"
+   ]
+  ],
+  "tests": [
+   "*SessionBoundaryTest.inputDuringAStart*"
+  ],
+  "expect": [
+   "inputDuringAStartInProgressIsNotReplayedIntoTheSession"
+  ],
+  "note": "P5 item 4: the phase flag is never raised; the start in progress queues the clicks"
+ },
+ {
+  "id": "P5a-18-the-start-phase-outlives-the-start",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        starting = false                  // P5 item 4: the start has its session",
+    "        starting = starting               // P5 item 4: the start has its session"
+   ]
+  ],
+  "tests": [
+   "*SessionBoundaryTest.inputDuringAStart*"
+  ],
+  "expect": [
+   "inputDuringAStartInProgressIsNotReplayedIntoTheSession"
+  ],
+  "note": "P5 item 4: the flag cleared at the sessionSerial bump; left set, every ring event of the session is dropped — the pin's click after the start opens nothing"
+ },
+ {
+  "id": "P5a-19-the-reserve-never-yields",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val cap = if (pumpPriority || yieldReserve) st.window else maxOf(1, st.window - 1)",
+    "        val cap = if (pumpPriority) st.window else maxOf(1, st.window - 1)"
+   ]
+  ],
+  "tests": [
+   "*ReserveYieldTest*",
+   "*StagingTest.aStagedStripWhoseAcks*"
+  ],
+  "expect": [
+   "theReserveYieldsAfterTwoIdleTicksWithNoCompletion",
+   "aStagedStripWhoseAcksAreLostDoesNotHoldTheOtherFrames"
+  ],
+  "note": "P5 item 5 (wait-no-escape finding 2): 0.64's reserve; two un-acked messages hold every non-input frame until the counter comes round"
+ },
+ {
+  "id": "P5a-20-the-yield-keyed-on-display-flushes",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            st.inFlight >= st.window - 1 && st.inFlight < st.window\n",
+    "            inflightFlushes.isNotEmpty() && st.inFlight < st.window\n"
+   ]
+  ],
+  "tests": [
+   "*ReserveYieldTest*",
+   "*StagingTest.aStagedStripWhoseAcks*"
+  ],
+  "expect": [
+   "aStagedStripWhoseAcksAreLostDoesNotHoldTheOtherFrames"
+  ],
+  "note": "P5 item 5, the challenge's corrected condition: keyed on the display flushes in flight (the first reader's proposal), a staged strip's two un-acked writes hold the reserve with none in flight and the yield never comes"
+ },
+ {
+  "id": "P5a-21-the-yield-outlives-its-tick",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val yieldReserve = reserveYield                 // P5 item 5: decided by this message's idle tick only\n        reserveYield = false\n",
+    "        val yieldReserve = reserveYield                 // P5 item 5: decided by this message's idle tick only\n"
+   ]
+  ],
+  "tests": [
+   "*ReserveYieldTest*"
+  ],
+  "expect": [
+   "theReserveYieldsAfterTwoIdleTicksWithNoCompletion"
+  ],
+  "note": "P5 item 5: a yield left standing takes the reserve away for every pump after it"
+ },
+ {
+  "id": "P5a-22-a-completion-is-not-counted",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        completionsSeen++                             // P5 item 5: a completion of any kind (content, atlas, stage)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*ReserveYieldTest*"
+  ],
+  "expect": [
+   "(no pin: the count tells two held ticks with an ack between them from two without; no rig holds the reserve across a completion that releases nothing)"
+  ],
+  "note": "P5 item 5: with no count, a reserve held on two ticks yields even when a completion came between them"
+ },
+ {
+  "id": "P5a-23-the-yield-asked-for-a-full-window",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            st.inFlight >= st.window - 1 && st.inFlight < st.window\n",
+    "            st.inFlight >= st.window - 1\n"
+   ]
+  ],
+  "tests": [
+   "*ReserveYieldTest*"
+  ],
+  "expect": [
+   "(no pin: with the window full the yield takes no slot — the pump has no room either way; the bound keeps the note honest)"
+  ],
+  "note": "P5 item 5: the yield's note would be written for a full window, where the pump cannot send (finding 1's case, part b)"
+ },
+ {
+  "id": "P5a-24-the-urgent-hook-unguarded-in-notify",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (urgent) try { onUrgent?.invoke(source, body) } catch (t: Throwable) {\n                Log.e(\"shell\", \"the host's urgent hook failed for '$source' — the notice still goes up\", t)\n            }\n",
+    "            if (urgent) onUrgent?.invoke(source, body)\n"
+   ]
+  ],
+  "tests": [
+   "*SilentGlassesTest.aThrowingUrgentHook*"
+  ],
+  "expect": [
+   "aThrowingUrgentHookDoesNotEndASilentStart"
+  ],
+  "note": "P5 item 6 (wait-no-escape finding 4, the sibling fix): a hook that throws on the Silent-Mode start path ends the start with running left set"
+ },
+ {
+  "id": "P5a-25-a-failed-starts-events-wait-for-the-next",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            // keeper retrying a start that keeps failing must not pile them up\n            dropTransportEventsOfFailedStart()\n            journal.close()\n            throw e\n",
+    "            // keeper retrying a start that keeps failing must not pile them up\n            journal.close()\n            throw e\n"
+   ]
+  ],
+  "tests": [
+   "*QueueWhileDownTest.startsThatFail*"
+  ],
+  "expect": [
+   "startsThatFailOnTheCapabilityGateLeaveNoEventForTheNext"
+  ],
+  "note": "P5 item 11 (GG-3, the drain): the events of five starts that failed on the capability gate stay queued; the good session sleeps on a stale SilentMode(true)"
+ },
+ {
+  "id": "P5a-26-a-silent-mode-is-kept-while-down",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            is TransportEvent.FlushDone, is TransportEvent.Text -> return true\n",
+    "            is TransportEvent.FlushDone, is TransportEvent.Text, is TransportEvent.SilentMode -> return true\n"
+   ],
+   [
+    "            is TransportEvent.Input, is TransportEvent.Lease, is TransportEvent.SilentMode,\n",
+    "            is TransportEvent.Input, is TransportEvent.Lease,\n"
+   ]
+  ],
+  "tests": [
+   "*QueueWhileDownTest.aSilentModeSaid*"
+  ],
+  "expect": [
+   "aSilentModeSaidWhileDownDoesNotReachTheNextSession"
+  ],
+  "note": "P5 item 11 (GG-3, the SilentMode kind, after a full stop): the next session sleeps on a press of no session"
+ },
+ {
+  "id": "P5a-27-a-lease-change-is-kept-while-down",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            is TransportEvent.FlushDone, is TransportEvent.Text -> return true\n",
+    "            is TransportEvent.FlushDone, is TransportEvent.Text, is TransportEvent.Lease -> return true\n"
+   ],
+   [
+    "            is TransportEvent.Input, is TransportEvent.Lease, is TransportEvent.SilentMode,\n",
+    "            is TransportEvent.Input, is TransportEvent.SilentMode,\n"
+   ]
+  ],
+  "tests": [
+   "*QueueWhileDownTest.aLeaseChange*"
+  ],
+  "expect": [
+   "aLeaseChangeWhileDownDoesNotReachTheAdoptingSession"
+  ],
+  "note": "P5 item 11 (GG-3, the Lease kind, the yield form): the adopting session raises the urgent lease-lost for a lease that is held"
+ },
+ {
+  "id": "P5a-28-running-false-before-the-final-save",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                    is Msg.Shutdown -> try {\n                        holdPushes()",
+    "                    is Msg.Shutdown -> try {\n                        running = false\n                        holdPushes()"
+   ]
+  ],
+  "tests": [
+   "*SyncToleranceTest.aSyncedRecordThatComesDuringTheFinalSave*"
+  ],
+  "expect": [
+   "aSyncedRecordThatComesDuringTheFinalSaveIsKept"
+  ],
+  "note": "P5 part a, RE-4's sibling: 0.64's order; a synced record stored directly during the final save is replaced by the live state under a fresh stamp"
+ },
+ {
+  "id": "P5b-01-draw2-armed-whatever-the-size",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                val armDraw2 = !heldBack && roomForV2\n",
+    "                val armDraw2 = !heldBack\n"
+   ]
+  ],
+  "tests": [
+   "*Draw2SessionTest*"
+  ],
+  "expect": [
+   "aCacheAllocatedAt64KiBIsNotArmedForDraw2",
+   "aSizeOutsideTheBudgetFallsBackWithoutDraw2",
+   "aRefusedCacheSizeIsNotArmedForDraw2"
+  ],
+  "note": "P5 item 7 (twice-read F2): DRAW2 armed over a 64 KiB cache (status 4, the out-of-range fallback, a refused op 5): atlas capacity 0"
+ },
+ {
+  "id": "P5b-02-the-wish-overrules-the-session",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                    withhold = if (armDraw2) 0 else DamageMsg.FLAG_DRAW2)\n",
+    "                    withhold = 0)\n"
+   ]
+  ],
+  "tests": [
+   "*Draw2SessionTest*"
+  ],
+  "expect": [
+   "aProbeDuringTheSizesWaitDoesNotArmDraw2OverASmallCache"
+  ],
+  "note": "P5 item 7: a hand probe's bit 2 in the wish arms DRAW2 over the 64 KiB a held-back start asked for"
+ },
+ {
+  "id": "P5b-03-the-hold-back-read-again-after-the-wait",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                if (heldBack) emitNote(\"keeper\", \"DRAW2 held back since",
+    "                if (draw2HeldBack) emitNote(\"keeper\", \"DRAW2 held back since"
+   ]
+  ],
+  "tests": [
+   "*Draw2SessionTest*"
+  ],
+  "expect": [
+   "aProbeDuringTheSizesWaitDoesNotArmDraw2OverASmallCache"
+  ],
+  "note": "P5 item 7: the hold-back read a second time after the size's wait: a probe inside it took the start's held-back line away"
+ },
+ {
+  "id": "P5b-04-the-no-room-branch-says-nothing",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                else if (!roomForV2) emitNote(\"keeper\", \"DRAW2 not armed: this session's cache is",
+    "                else if (false) emitNote(\"keeper\", \"DRAW2 not armed: this session's cache is"
+   ]
+  ],
+  "tests": [
+   "*Draw2SessionTest*"
+  ],
+  "expect": [
+   "aCacheAllocatedAt64KiBIsNotArmedForDraw2",
+   "aSizeOutsideTheBudgetFallsBackWithoutDraw2",
+   "aRefusedCacheSizeIsNotArmedForDraw2"
+  ],
+  "note": "P5 item 7: the branch that does not arm for want of room writes no note (no silent failures)"
+ },
+ {
+  "id": "P5b-05-submit-reads-only-the-published-state",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        check(started) { \"the session is ending\" }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*SessionBoundaryTest.aRestartsDisconnectWindowFailsNoFlush"
+  ],
+  "expect": [
+   "aRestartsDisconnectWindowFailsNoFlush"
+  ],
+  "note": "P5 item 8 (boundary-clear F3): a flush taken inside a restart's disconnect is failed at once by the lane (transport not running) and submitted again"
+ },
+ {
+  "id": "P5b-06-the-control-lane-writes-for-an-ending-session",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                if (!running && work !is CtlWork.Lease) {\n                    failCtlWork(work, \"transport not running\")\n                    continue\n                }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*SessionBoundaryTest.nothingReachesAnArmOnceARestartHasBegun"
+  ],
+  "expect": [
+   "nothingReachesAnArmOnceARestartHasBegun"
+  ],
+  "note": "P5 item 8, the lanes' half: keepalives, carrier refreshes and READs enqueued inside a restart's disconnect are written into arms being disconnected"
+ },
+ {
+  "id": "P5b-07-a-read-ends-only-on-its-first-write",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                    failed = if (first) firstFailed else null, rightFailed = rightFailed) { DamageMsg.control(op, id) })",
+    "                    failed = if (first) firstFailed else null) { DamageMsg.control(op, id) })"
+   ]
+  ],
+  "tests": [
+   "*StartGateTest*"
+  ],
+  "expect": [
+   "aResetCheckWhoseReAskCannotBeWrittenToRightEndsTheStart",
+   "anArmingWhoseReadEndsEarlySaysSo"
+  ],
+  "note": "P5 item 9 (wait-no-escape finding 3): the reset check's (and the arming's) read re-asks for good once RIGHT's writes throw from the second attempt on"
+ },
+ {
+  "id": "P5b-08-op-5-ends-only-on-its-first-write",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "written = writtenBoth, rightFailed = rightFailed) { DamageMsg.control(DamageMsg.OP_CACHE_SIZE, kib) })",
+    "written = writtenBoth) { DamageMsg.control(DamageMsg.OP_CACHE_SIZE, kib) })"
+   ]
+  ],
+  "tests": [
+   "*StartGateTest*"
+  ],
+  "expect": [
+   "aCacheSizeWhoseReAskCannotBeWrittenToRightEndsTheStart"
+  ],
+  "note": "P5 item 9: the cache size re-asks for good once RIGHT's writes throw from the second attempt on"
+ },
+ {
+  "id": "P5b-09-a-flags-set-ends-only-on-its-first-write",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "written = writtenBoth, rightFailed = rightFailed) { DamageMsg.control(DamageMsg.OP_FLAGS_SET, set) })",
+    "written = writtenBoth) { DamageMsg.control(DamageMsg.OP_FLAGS_SET, set) })"
+   ]
+  ],
+  "tests": [
+   "*StartGateTest*"
+  ],
+  "expect": [
+   "aFlagsSetWhoseReAskCannotBeWrittenToRightIsNotTakenAsArmed"
+  ],
+  "note": "P5 item 9: a FLAGS_SET re-asks for good once RIGHT's writes throw from the second attempt on"
+ },
+ {
+  "id": "P5b-10-any-arms-failure-ends-a-flags-set",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                    failed = if (first) firstFailed else null, written = writtenBoth, rightFailed = rightFailed) { DamageMsg.control(DamageMsg.OP_FLAGS_SET, set) })",
+    "                    failed = firstFailed, written = writtenBoth, rightFailed = rightFailed) { DamageMsg.control(DamageMsg.OP_FLAGS_SET, set) })"
+   ]
+  ],
+  "tests": [
+   "*StartGateTest*"
+  ],
+  "expect": [
+   "aFlagsSetWhoseReAskFailsOnLeftOnlyIsStillArmed"
+  ],
+  "note": "P5 item 9, correction 1 (§63.3 item 4's regression): the uncorrected fix — a LEFT that throws on a re-ask ends a wait RIGHT still answers, and the armed set is reported as not reaching an arm"
+ },
+ {
+  "id": "P5b-11-placed-on-both-reads-did-not-reach-an-arm",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (writtenBoth.isCompleted) {\n            val why = if (rightFailed.isCompleted)",
+    "        if (false) {\n            val why = if (rightFailed.isCompleted)"
+   ]
+  ],
+  "tests": [
+   "*StartGateTest*"
+  ],
+  "expect": [
+   "aFlagsSetWhoseReAskCannotBeWrittenToRightIsNotTakenAsArmed"
+  ],
+  "note": "P5 item 9, correction 2: a set placed on both arms and not answered is reported as not reaching an arm"
+ },
+ {
+  "id": "P5b-12-the-arming-read-ends-in-silence",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            emitNote(\"keeper\", \"flags 0x${wanted.toString(16)} not armed: the read before the arming ended early \" +",
+    "            if (false) emitNote(\"keeper\", \"flags 0x${wanted.toString(16)} not armed: the read before the arming ended early \" +"
+   ]
+  ],
+  "tests": [
+   "*StartGateTest*"
+  ],
+  "expect": [
+   "anArmingWhoseReadEndsEarlySaysSo"
+  ],
+  "note": "P5 item 9, correction 3: the arming's read ending early drops the arming with a log line only"
+ },
+ {
+  "id": "P5b-13-the-lane-never-says-right-failed",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                                    if (arm == Arm.RIGHT) work.rightFailed?.complete(\"$arm: ${e.message}\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*StartGateTest*"
+  ],
+  "expect": [
+   "aResetCheckWhoseReAskCannotBeWrittenToRightEndsTheStart",
+   "aCacheSizeWhoseReAskCannotBeWrittenToRightEndsTheStart",
+   "aFlagsSetWhoseReAskCannotBeWrittenToRightIsNotTakenAsArmed",
+   "anArmingWhoseReadEndsEarlySaysSo"
+  ],
+  "note": "P5 item 9: the lane's per-arm catch never completes RIGHT's deferred, so no gate's later attempt can end its wait"
+ },
+ {
+  "id": "P5b-14-the-drain-read-after-a-refusal-ends-in-silence",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                    emitNote(\"keeper\", \"flags above bit $bit not armed: the read after the refusal ended early \" +",
+    "                    if (false) emitNote(\"keeper\", \"flags above bit $bit not armed: the read after the refusal ended early \" +"
+   ]
+  ],
+  "tests": [
+   "*StartGateTest*"
+  ],
+  "expect": [
+   "(no pin: the second early return of armFeatures needs a wanted bit the build refuses as unsupported and then the drain read lost with RIGHT's re-ask unwritten; the note is the first site's twin, read in review)"
+  ],
+  "note": "P5 item 9, correction 3's second site"
+ },
+ {
+  "id": "P5b-15-the-parked-drain-is-never-nudged",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                    if (now - park.sinceMs > bound && now - lastImageAckAtMs > bound) park.nudge.complete(Unit)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*PendingAckReleaseTest*"
+  ],
+  "expect": [
+   "aWideFlushBehindALostAckIsWrittenAtDepthTwoAndReleasesIt",
+   "aNudgedWideFlushIsBudgetedAtTheDepthItGoesOutAt"
+  ],
+  "note": "P5 item 10 (wait-no-escape finding 1): the wide drain waits behind one lost ack until the msgId counter comes round"
+ },
+ {
+  "id": "P5b-16-the-nudge-releases-every-slot",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                val n = park.taken.get()\n                repeat(n) { window.release() }\n",
+    "                val n = park.taken.get()\n                repeat(WINDOW) { window.release() }\n"
+   ]
+  ],
+  "tests": [
+   "*PendingAckReleaseTest*"
+  ],
+  "expect": [
+   "aWideFlushBehindALostAckIsWrittenAtDepthTwoAndReleasesIt"
+  ],
+  "note": "P5 item 10, correction 1: the nudge releases more permits than the child took (the lost message's slot among them)"
+ },
+ {
+  "id": "P5b-17-the-nudged-flush-is-budgeted-at-depth-one",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                window = if (work.request.wide) depth else WINDOW)",
+    "                window = if (work.request.wide) 1 else WINDOW)"
+   ]
+  ],
+  "tests": [
+   "*PendingAckReleaseTest*"
+  ],
+  "expect": [
+   "aNudgedWideFlushIsBudgetedAtTheDepthItGoesOutAt"
+  ],
+  "note": "P5 item 10 with GG-2's pointer: the emit's budget no longer states the depth a nudged wide flush goes out at"
+ },
+ {
+  "id": "P5b-18-the-depth-two-write-is-not-journaled",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                emitNote(\"stall\", \"wide flush written at depth $depth after",
+    "                if (false) emitNote(\"stall\", \"wide flush written at depth $depth after"
+   ]
+  ],
+  "tests": [
+   "*PendingAckReleaseTest*"
+  ],
+  "expect": [
+   "aWideFlushBehindALostAckIsWrittenAtDepthTwoAndReleasesIt"
+  ],
+  "note": "P5 item 10, correction 3: the stall's journal note for the depth-2 write"
+ },
+ {
+  "id": "P5b-19-a-drain-holding-no-slot-is-nudged",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (running && park != null && !park.nudge.isCompleted && park.taken.get() >= 1) {",
+    "if (running && park != null && !park.nudge.isCompleted) {"
+   ]
+  ],
+  "tests": [
+   "*PendingAckReleaseTest*"
+  ],
+  "expect": [
+   "(no pin: three acks lost in a row before a wide flush; the nudge then releases nothing and the write parks in writeImage's own acquire instead of the drain — the same stall, with a note that names depth 4)"
+  ],
+  "note": "P5 item 10: with every slot held by an un-acked message nothing can be written; that case stays reported only"
+ },
+ {
+  "id": "P5b-20-a-cancelled-drain-keeps-its-permits",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            if (!released) repeat(park.taken.get()) { window.release() }\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*PendingAckReleaseTest*"
+  ],
+  "expect": [
+   "(no pin: the lane is cancelled only when the transport's scope ends; the permits then go with the instance)"
+  ],
+  "note": "P5 item 10: the child's permits released when the lane is cancelled while parked"
+ },
+ {
+  "id": "P5b-21-emit-rect-budget-unchecked",
+  "file": "transport/Emit.kt",
+  "edits": [
+   [
+    "        if (rects > Geometry.rectBudget(window))\n",
+    "        if (rects > 0xFFFF)\n"
+   ]
+  ],
+  "tests": [
+   "*EmitRulesTest*",
+   "*PendingAckReleaseTest*"
+  ],
+  "expect": [
+   "overTheBudgetIsRefusedBeforeAFidIsTaken",
+   "aNudgedWideFlushIsBudgetedAtTheDepthItGoesOutAt"
+  ],
+  "note": "P5 item 13 (GG-2a, the sweep's mutation): the emit's BUD001 — the one of the three with no downstream oracle (the model applies an over-budget batch; belief = glass holds)"
+ },
+ {
+  "id": "P5b-22-emit-fid-rules-not-thrown",
+  "file": "transport/Emit.kt",
+  "edits": [
+   [
+    "                    if (errs.isNotEmpty()) throw LintError(errs.joinToString(\"; \"))\n                    subs += if (op.disparity == 0) {\n",
+    "                    subs += if (op.disparity == 0) {\n"
+   ],
+   [
+    "                    if (errs.isNotEmpty()) throw LintError(errs.joinToString(\"; \"))\n                    subs += CfwModes.deltaStereo(op.left, op.right, op.payload, fid)\n",
+    "                    subs += CfwModes.deltaStereo(op.left, op.right, op.payload, fid)\n"
+   ]
+  ],
+  "tests": [
+   "*EmitRulesTest*"
+  ],
+  "expect": [
+   "aDeltaBeforeAKeyframeIsRefusedAndHandsItsFidBack"
+  ],
+  "note": "P5 item 13 (GG-2b): the emit's fid rules not thrown — a second line behind the simulator's sticky flags"
+ },
+ {
+  "id": "P5b-23-mode3-box-lint-not-called",
+  "file": "wire/CfwModes.kt",
+  "edits": [
+   [
+    "        failIf(Geometry.checkRect(box, \"mode-3 box\"))\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*EmitRulesTest*"
+  ],
+  "expect": [
+   "aBoxOffTheGridOrOffThePanelIsRefused"
+  ],
+  "note": "P5 item 13 (GG-2c): the mode-3 box's alignment and bounds — a second line behind every oracle test's belief = glass"
+ },
+ {
+  "id": "P5b-24-stereo-pair-bounds-not-thrown",
+  "file": "transport/Emit.kt",
+  "edits": [
+   [
+    "        val rr = r.translate(d, 0)\n        val errs = Geometry.checkStereoPair(l, rr)\n        if (errs.isNotEmpty()) throw LintError(errs.joinToString(\"; \"))\n",
+    "        val rr = r.translate(d, 0)\n"
+   ]
+  ],
+  "tests": [
+   "*EmitRulesTest*"
+  ],
+  "expect": [
+   "aBoxOffTheGridOrOffThePanelIsRefused"
+  ],
+  "note": "P5 item 13 (GG-2): a stereo pair pushed off the panel by its disparity (GEO002 through Emit.stereo)"
+ },
+ {
+  "id": "P5b-25-warmup-not-sent-again",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "\"sent again\")\n                    imageQueue.trySend(ImgWork.Raw(epoch, warmupFrame, warmupDone))\n",
+    "\"sent again\")\n"
+   ]
+  ],
+  "tests": [
+   "*PreludeTest*"
+  ],
+  "expect": [
+   "aWarmupTheGlassesNeverSawEndsTheStartAndTheNextOneCompletes"
+  ],
+  "note": "P5 item 14 (GG-4a): the warmup's re-send on its pacing"
+ },
+ {
+  "id": "P5b-26-prelude-not-asked-again",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                        // the class §63.3 item 4 closed for the two gates below this one)\n                        controlQueue.trySend(CtlWork.Launch(epoch, writeFailed))\n",
+    "                        // the class §63.3 item 4 closed for the two gates below this one)\n"
+   ]
+  ],
+  "tests": [
+   "*PreludeTest*"
+  ],
+  "expect": [
+   "aPreludeWriteTheGlassesNeverSawIsSentAgain",
+   "aPreludeWhoseReAsksCannotBeWrittenEndsTheStart"
+  ],
+  "note": "P5 item 14 (GG-4b): the prelude's re-ask"
+ },
+ {
+  "id": "P5b-27-capability-not-asked-again",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                        Log.i(name, \"capability query unanswered after ${CAPABILITY_REASK_MS} ms — asking again\")\n                        controlQueue.trySend(CtlWork.Settings(epoch, SettingsMsg.settingsQuery(0), queryFailed))\n",
+    "                        Log.i(name, \"capability query unanswered after ${CAPABILITY_REASK_MS} ms — asking again\")\n"
+   ]
+  ],
+  "tests": [
+   "*PreludeTest*"
+  ],
+  "expect": [
+   "aCapabilityReadTheGlassesNeverSawIsAskedAgain"
+  ],
+  "note": "P5 item 14 (GG-4c): the capability READ's re-ask"
+ },
+ {
+  "id": "P5b-28-prelude-re-ask-with-a-throwaway-deferred",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                        // the class §63.3 item 4 closed for the two gates below this one)\n                        controlQueue.trySend(CtlWork.Launch(epoch, writeFailed))\n",
+    "                        // the class §63.3 item 4 closed for the two gates below this one)\n                        controlQueue.trySend(CtlWork.Launch(epoch, CompletableDeferred()))\n"
+   ]
+  ],
+  "tests": [
+   "*PreludeTest*"
+  ],
+  "expect": [
+   "aPreludeWhoseReAsksCannotBeWrittenEndsTheStart"
+  ],
+  "note": "P5 item 14 (GG-4, §64.2 item 5's escape): the prelude's re-ask hands a throwaway deferred, so a write failing after the first attempt ends nothing"
+ },
+ {
+  "id": "P5c-01-no-ring-clear-at-the-start",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            clearFidRingAtStart(epoch)\n",
+    "\n"
+   ]
+  ],
+  "tests": [
+   "*FidRingStartTest*"
+  ],
+  "expect": [
+   "aNewInstancesFirstDeltaIsNotSkippedAgainstTheRingTheLastOneLeft"
+  ],
+  "note": "P5 item 15 (IG-1): the start sends no mode 7 sub 0 — a new instance's first delta hits the fid the last one left in the glasses' ring"
+ },
+ {
+  "id": "P5c-02-the-allocator-restarted-at-the-start",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        } finally {\n            reask.cancel()\n        }\n        // the session's own end",
+    "        } finally {\n            reask.cancel()\n        }\n        fids.restart()\n        // the session's own end"
+   ]
+  ],
+  "tests": [
+   "*Round3Test*"
+  ],
+  "expect": [
+   "fidWrapInsideAFlushDoesNotWedgeTheTransport"
+  ],
+  "note": "P5 item 15 (IG-1 correction 1): the uncorrected fix — the allocator restarted at every start; the wrap pin would run from fid 1 and stay green without its new count"
+ },
+ {
+  "id": "P5c-03-the-ring-clear-sent-under-silent-mode",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (_state.value.glassesSilent) {          // one read: the start's READ (or a push since) set it\n",
+    "        if (false && _state.value.glassesSilent) {          // one read: the start's READ (or a push since) set it\n"
+   ]
+  ],
+  "tests": [
+   "*FidRingStartTest*"
+  ],
+  "expect": [
+   "noRingClearGoesToGlassesTheReadSaysAreSilent"
+  ],
+  "note": "P5 item 15 (IG-1, §36): the ring clear goes to glasses whose READ said Silent Mode"
+ },
+ {
+  "id": "P5c-04-the-ring-clear-not-awaited",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            cleared.await(); null\n",
+    "            null\n"
+   ]
+  ],
+  "tests": [
+   "*FidRingStartTest*"
+  ],
+  "expect": [
+   "aLostAckForTheRingClearIsOneNoteAndTheStartGoesOn"
+  ],
+  "note": "P5 item 15 (IG-1 correction 2): the clear queued and not awaited — its lost ack is left to the keyframe's drain and nothing says the clear was not confirmed"
+ },
+ {
+  "id": "P5c-05-the-ring-clear-never-sent-again",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "\"sent again\")\n                imageQueue.trySend(ImgWork.Raw(epoch, clear, cleared))\n",
+    "\"sent again\")\n"
+   ]
+  ],
+  "tests": [
+   "*FidRingStartTest*"
+  ],
+  "expect": [
+   "aLostAckForTheRingClearIsOneNoteAndTheStartGoesOn"
+  ],
+  "note": "P5 item 15 (IG-1): the clear is not re-sent — a lost first ack parks the start (nothing later on the image lane releases it)"
+ },
+ {
+  "id": "P5c-06-the-sessions-own-end-said-as-a-failed-clear",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        if (why != null && epoch == sessionEpoch.get() && running)\n",
+    "        if (why != null)\n"
+   ]
+  ],
+  "tests": [
+   "*FidRingStartTest*"
+  ],
+  "expect": [
+   "aLinkThatEndsDuringTheRingClearEndsTheStartWithNoNote"
+  ],
+  "note": "P5 item 15 (IG-1): a session that ends during the clear is also said as a clear not confirmed (the start's epoch test is the one to say it)"
+ },
+ {
+  "id": "P5c-07-the-tee-ignores-the-works-session",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "            if (atEpoch == sessionEpoch.get()) mirrorSim.write(arm, packet, nowMs()) else staleTees++\n",
+    "            if (true || atEpoch == sessionEpoch.get()) mirrorSim.write(arm, packet, nowMs()) else staleTees++\n"
+   ]
+  ],
+  "tests": [
+   "*MirrorTeeTest*"
+  ],
+  "expect": [
+   "aFragmentsTailAfterTheLinkEndsIsNotAppliedToTheMirror",
+   "aLastFragmentsTailLeavesTheNextSessionsWarmupAlone",
+   "aSessionAfterALinkEndInsideAFragmentKeepsTheMirrorEqualToTheGlass"
+  ],
+  "note": "P5 item 16 (IG-2): the tail of a fragment written after its session ended is applied to the mirror its reset cleared — an abort, then the next ids near it refused for the process"
+ },
+ {
+  "id": "P5c-08-the-stale-tees-not-said-at-the-stop",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        sayStaleTees(\"at the stop\")\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MirrorTeeTest*"
+  ],
+  "expect": [
+   "aFragmentsTailAfterTheLinkEndsIsNotAppliedToTheMirror"
+  ],
+  "note": "P5 item 16 (IG-2): the packets kept from the mirror are counted and never said"
+ },
+ {
+  "id": "P5c-09-the-stale-tees-not-said-at-the-start",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "        sayStaleTees(\"at the next start\")     // P5 item 16: a link end the keeper did not follow with a stop\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MirrorTeeTest*"
+  ],
+  "expect": [
+   "(no pin: the keeper stops the transport after every link end, and the stop says the count; the start's line covers a driver that starts again without a stop)"
+  ],
+  "note": "P5 item 16 (IG-2): the start's say of the stale count — defensive"
+ },
+ {
+  "id": "P5c-10-the-carrier-refresh-while-asleep",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                if (st.started && pageTrafficWanted(st)) controlQueue.trySend(CtlWork.Hub(sessionEpoch.get(), EvenHubMsg.carrierTextUpgrade(0), null))\n",
+    "                if (st.started) controlQueue.trySend(CtlWork.Hub(sessionEpoch.get(), EvenHubMsg.carrierTextUpgrade(0), null))\n"
+   ]
+  ],
+  "tests": [
+   "*SilentGlassesTest*",
+   "*RestModeTest*"
+  ],
+  "expect": [
+   "thePushPutsTheShellToSleepAndThePushOffRebuildsTheSession",
+   "noKeepaliveWhileTheShellSleepsWithTheGlasses",
+   "restOnStopsFramesReleasesTheLeaseAndTheReadGoesOn"
+  ],
+  "note": "P5 item 17 (GG-5a): the 30 s carrier refresh goes on into a page the firmware ended (Silent Mode, rest) — read by textUpgradesSeen"
+ },
+ {
+  "id": "P5c-11-the-renewal-loop-ignores-leasewanted",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                if (_state.value.started && leaseWanted) controlQueue.trySend(CtlWork.Lease(sessionEpoch.get(), SettingsMsg.OP_FB_ACQUIRE))\n",
+    "                if (_state.value.started) controlQueue.trySend(CtlWork.Lease(sessionEpoch.get(), SettingsMsg.OP_FB_ACQUIRE))\n"
+   ]
+  ],
+  "tests": [
+   "*SilentGlassesTest*",
+   "*RestModeTest*"
+  ],
+  "expect": [
+   "(no pin alone: the lane's F12 guard drops the renewal's ACQUIRE while the lease is not wanted — P5c-13 is the pair that must fail)"
+  ],
+  "note": "P5 item 17 (GG-5b), the renewal loop's half alone"
+ },
+ {
+  "id": "P5c-12-the-lane-takes-an-unwanted-acquire",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                            if (work.op == SettingsMsg.OP_FB_ACQUIRE && (!running || !leaseWanted)) {\n",
+    "                            if (work.op == SettingsMsg.OP_FB_ACQUIRE && (!running)) {\n"
+   ]
+  ],
+  "tests": [
+   "*SilentGlassesTest*",
+   "*RestModeTest*"
+  ],
+  "expect": [
+   "anAcquireQueuedBeforeTheReleaseIsNotWrittenOnceTheLeaseIsNotWanted"
+  ],
+  "note": "P5 item 17 (GG-5b), the lane's F12 half alone: the sleep pins read nothing (the renewal loop enqueues no ACQUIRE while the lease is not wanted); 0.64's queued-before-the-release pin catches it — P5c-13 is the pair the sleep pins must fail"
+ },
+ {
+  "id": "P5c-13-the-lease-renewed-while-not-wanted",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                if (_state.value.started && leaseWanted) controlQueue.trySend(CtlWork.Lease(sessionEpoch.get(), SettingsMsg.OP_FB_ACQUIRE))\n",
+    "                if (_state.value.started) controlQueue.trySend(CtlWork.Lease(sessionEpoch.get(), SettingsMsg.OP_FB_ACQUIRE))\n"
+   ],
+   [
+    "                            if (work.op == SettingsMsg.OP_FB_ACQUIRE && (!running || !leaseWanted)) {\n",
+    "                            if (work.op == SettingsMsg.OP_FB_ACQUIRE && (!running)) {\n"
+   ]
+  ],
+  "tests": [
+   "*SilentGlassesTest*",
+   "*RestModeTest*"
+  ],
+  "expect": [
+   "thePushPutsTheShellToSleepAndThePushOffRebuildsTheSession",
+   "noKeepaliveWhileTheShellSleepsWithTheGlasses",
+   "restOnStopsFramesReleasesTheLeaseAndTheReadGoesOn"
+  ],
+  "note": "P5 item 17 (GG-5b): both halves removed — the lease is re-taken inside Silent Mode or a rest; read by acquiresSeen and the lease read after the quiet stretch"
+ },
+ {
+  "id": "P5c-14-the-sim-listener-leaves-out-image",
+  "file": "transport/SimTransport.kt",
+  "edits": [
+   [
+    "                if (kind in setOf(\"decode\", \"fid\", \"session\", \"msgid\", \"compressmode\", \"abort\", \"image\"))\n",
+    "                if (kind in setOf(\"decode\", \"fid\", \"session\", \"msgid\", \"compressmode\", \"abort\"))\n"
+   ]
+  ],
+  "tests": [
+   "*SimRoundTripTest*"
+  ],
+  "expect": [
+   "anInterleavedImageIsAFaultOnTheSimTransport"
+  ],
+  "note": "P5 item 18 (OS-7): the simulator transport's listener promotes six kinds, the mirror tee's seven — interleaved fragments are a log line on every sim-backed gate"
+ },
+ {
+  "id": "P5c-15-the-link-parameters-left-out-of-the-wire-state",
+  "file": "transport/RemoteTransport.kt",
+  "edits": [
+   [
+    "    worn = worn, wearSwitch = wearSwitch,\n    linkIntervalMs = linkIntervalMs, linkLatency = linkLatency)\n",
+    "    worn = worn, wearSwitch = wearSwitch)\n"
+   ]
+  ],
+  "tests": [
+   "*SeamSessionTest.theWearReportCrossesTheSeamAndIsForgottenAtTheClientsSessionEnds"
+  ],
+  "expect": [
+   "theWearReportCrossesTheSeamAndIsForgottenAtTheClientsSessionEnds"
+  ],
+  "note": "P5 item 19 (OS-8): the server's mapper leaves the connection parameters out — a defaulted field compiles and arrives 0.0 / 0"
+ },
+ {
+  "id": "P5c-16-the-link-parameters-left-out-of-the-client-state",
+  "file": "transport/RemoteTransport.kt",
+  "edits": [
+   [
+    "    linkIntervalMs = linkIntervalMs, linkLatency = linkLatency,\n    capability = capability,",
+    "    capability = capability,"
+   ]
+  ],
+  "tests": [
+   "*SeamSessionTest.theWearReportCrossesTheSeamAndIsForgottenAtTheClientsSessionEnds"
+  ],
+  "expect": [
+   "theWearReportCrossesTheSeamAndIsForgottenAtTheClientsSessionEnds"
+  ],
+  "note": "P5 item 19 (OS-8): the client's mapper leaves the connection parameters out"
+ },
+ {
+  "id": "P5v-01-a-drain-that-ended-on-its-ack-says-stall",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                if (n == WINDOW) return@coroutineScope 1                   // every slot came back (the ack beat the nudge)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*PendingAckReleaseTest.aWideFlushWaitingForAnAckOnItsWayGoesAtDepthOneAndSaysNothing"
+  ],
+  "expect": [
+   "aWideFlushWaitingForAnAckOnItsWayGoesAtDepthOneAndSaysNothing"
+  ],
+  "note": "P5 verify, item 10's drained branch (the one every keyframe behind an ack still on its way takes on the phone): without its early return a drain that ended on the ack writes a 'wide flush written at depth 1 after 0 s' stall note"
+ }
+]

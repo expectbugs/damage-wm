@@ -79,9 +79,7 @@ class FilesCacheTest {
     }
 
     private suspend fun awaitTrue(what: String, cond: () -> Boolean) {
-        val t0 = System.currentTimeMillis()
-        while (!cond() && System.currentTimeMillis() - t0 < 20_000) delay(25)
-        assertTrue(cond(), "did not converge: $what")
+        waitUntil(20_000, 25, { "did not converge: $what" }) { cond() }
     }
 
     @Test

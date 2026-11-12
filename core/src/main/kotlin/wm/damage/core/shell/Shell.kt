@@ -260,7 +260,9 @@ class Shell(
      *  a loop that only checked `running` would come back from its sleep to
      *  find the NEXT session running and keep going — every restart added a
      *  loop, accumulating wakeups forever on the all-day driver. A stale
-     *  generation exits instead. */
+     *  generation exits instead. P5 item 3: bumped at a start's first lines (with `running`), so the loops of
+     *  the session before stop through a start in progress; also the identity [requestRebuild]'s coroutine
+     *  carries. Written on the start path under `lifecycle`; read by the loops and that coroutine. */
     @Volatile private var tickGen = 0
     private var restGen = 0
     private var graceGen = 0
@@ -348,11 +350,17 @@ class Shell(
         }
 
         override fun notifyInternal(source: String, body: String, urgent: Boolean,
-            appId: String?, thread: String, target: String?) {
-            if (urgent) onUrgent?.invoke(source, body)
+            appId: String?, thread: String, target: String?, answer: Boolean) {
+            // P5 item 6 (wait-no-escape finding 4, its sibling fix only): the host's hook under the same try as
+            // `raiseFault`'s. Called on the start path of a session whose READ says Silent Mode (`enterSleep` →
+            // `saySilentOnce`), a throw left the start past `transport.start()` and outside both its catches,
+            // `running` set. The notice below still goes up; the log holds the hook's failure.
+            if (urgent) try { onUrgent?.invoke(source, body) } catch (t: Throwable) {
+                Log.e("shell", "the host's urgent hook failed for '$source' — the notice still goes up", t)
+            }
             val c = wallClock()
             post(Msg.Notice(Notifications.Notice("DAMAGE · $source", thread.ifEmpty { source },
-                body, c.hhmm, emergency = false, appId = appId, target = target)))
+                body, c.hhmm, emergency = false, appId = appId, target = target, answer = answer)))
         }
 
         override fun openMenu(spec: MenuSurface.Spec, owner: DamageWindow?): Boolean {
@@ -497,6 +505,15 @@ class Shell(
         // is gone or never came up, and the keeper retrying a start that keeps failing made them
         // by the thousand. Each kind is decided by [keepWhileDown].
         if (m is Msg.Trans && !running && !keepWhileDown(m)) return
+        // P5 item 4 (boundary-clear F5): §72's rule for the third state. `running` is true from a start's first line,
+        // and a ring event that came while the start was still on its way (a touch on the lens view or a replica while
+        // the phone scans for the glasses; the inputs after the one that woke a rest) was replayed into the new
+        // session. Dropped, counted, said in the start's `queue` note; `Msg.In` (the harness entry) is not touched.
+        if (m is Msg.Trans && m.ev is TransportEvent.Input && starting) {
+            inputDroppedDuringStart.incrementAndGet()
+            Log.i("shell", "a ring event (type ${m.ev.type}) came during a start in progress — dropped")
+            return
+        }
         enqueue(m)
     }
 
@@ -522,12 +539,18 @@ class Shell(
     /** Pushes a newer push of the same key replaced while down (under [heldLock]). */
     private var supersededWhileDown = 0
     private val transEventsDroppedWhileDown = java.util.concurrent.atomic.AtomicInteger(0)
+    /** P5 item 4: a start is on its way — true from its first line (with `running`) until it has its session, at the
+     *  [sessionSerial] bump, so "during a start" means here what it means to a dev probe; false again on both failure
+     *  paths. Written on the start path (under `lifecycle`), read by [post] on the collector's thread. */
+    @Volatile private var starting = false
+    /** Ring events dropped by [post] while [starting]; said and zeroed by the next start's `queue` note. */
+    private val inputDroppedDuringStart = java.util.concurrent.atomic.AtomicInteger(0)
 
     /** The session is up: keyed pushes run as they come, and what was held while it was down is
      *  posted now — one action per key, in the order of their last update. Called on the start
      *  path just before the loop launches, so the loop runs them after the restore and the first
      *  compose, as it ran every queued push before §72. */
-    private fun releaseHeldPushes() {
+    private fun releaseHeldPushes(unanswered: List<Long> = emptyList()) {
         val n: Int
         val superseded: Int
         synchronized(heldLock) {
@@ -544,6 +567,14 @@ class Shell(
         if (superseded > 0 || trans > 0 || n > 0)
             journal.note("queue", "while down: $n held push(es) run now, $superseded superseded by a newer one, " +
                 "$trans stale transport event(s) dropped")
+        // P5 item 4: counted until the start had its session ([starting] false); a failed start's are said here too
+        val inputs = inputDroppedDuringStart.getAndSet(0)
+        if (inputs > 0) journal.note("queue", "$inputs ring event(s) that came during the start dropped")
+        // P5 item 1: the flushes of the last session with no answer handled — an answer kept while down is one of
+        // them (it waits in the queue behind this start), a late one from a lane is another
+        if (unanswered.isNotEmpty())
+            journal.note("queue", "${unanswered.size} flush(es) of the last session not answered when this session started " +
+                "(id ${unanswered.joinToString(",")}): an answer that comes is journaled, not judged")
     }
 
     /** Under [heldLock]: keep [action] as the latest for [key], moved to the end. */
@@ -661,6 +692,11 @@ class Shell(
      *  note says `down` (0.64), AFTER the lock: the journal takes its own. */
     private fun holdPushes() {
         synchronized(heldLock) { windowsLive = false }
+        // P5 item 3 (review 1b RH-5, its fix 2 — the root): a sleep's release coroutine and its pacing loop are keyed
+        // on `silentGen`; bumped where every session ends, one that runs late fails its guard instead of turning the
+        // lease off under the next start (or writing a real RELEASE into the next session). No pin from outside: it
+        // needs a coroutine held between its launch and its first line.
+        silentGen++
         notePower()
     }
 
@@ -746,7 +782,8 @@ class Shell(
      * ([FaultEpisodes]): a repeat updates the one box's count at ×2, ×4, ×8 … — unless Adam
      * dismissed it ([dismissNotice] mutes the episode), and then it stays dismissed until the
      * class has been quiet for a minute; the phone hears an [urgent] class once per episode. A
-     * fault notice ignores Global `Notify · Damage` (that row gates courtesy notices). It is POSTED,
+     * fault notice ignores Global `Notify · Damage` (that row gates the WM's own courtesy notices;
+     * an app's notices are gated by its own rows, `noticeAllowed`). It is POSTED,
      * never painted from here: this runs inside the loop's own catch blocks, and whatever the
      * box's paint does it does as an ordinary message, under the same catch — so it cannot
      * throw out of one either. The journal and the log are the caller's, as before.
@@ -802,6 +839,15 @@ class Shell(
     /** External notice entry (content client, phone bridge, tests). */
     fun postNotice(n: Notifications.Notice) = post(Msg.Notice(n))
 
+    /** A host's failure report as a fault of class [cls] (P7 item 2: the phone's line for the last run's
+     *  uncaught error, `ShellService.onCreate`): shown whatever Global `Notify · Damage` says, not urgent —
+     *  the host's own log sink decides the phone's half, as before. Any thread; posted, and raised on the loop
+     *  (`raiseFault` is LOOP-ONLY). Posted before a session runs it waits for the first one; a stop that drains
+     *  it first says so in the log (the host's log line and the journal hold the report itself). */
+    fun raiseHostFault(cls: String, body: String) = post(Msg.Run(dropped = {
+        Log.w("shell", "the host's '$cls' fault was not shown: the session ended before the loop reached it — the log holds it")
+    }) { raiseFault(cls, body) })
+
     /** External input entry (keyboard harness, touch harness, remote shell). */
     fun postGesture(type: Int, source: Int = EvenHubMsg.SRC_RING) =
         post(Msg.In(type, source))
@@ -846,6 +892,21 @@ class Shell(
     private suspend fun startLocked() {
         check(!running) { "shell already started" }
         running = true
+        // P5 item 3 (boundary-clear F4): the session stamps move HERE, with `running`. Moved only after
+        // `transport.start()` returned, the last session's idle and minute loops (keyed on `tickGen`) and its sleep's
+        // release and pacing (keyed on `silentGen`) read their guard as true through a start in progress — a long
+        // scan — and posted into a queue no loop drains. A failed start leaves them bumped, which is right.
+        tickGen++
+        silentGen++
+        starting = true                   // P5 item 4: until the start has its session (the `sessionSerial` bump)
+        // R4 item 3 (review 3A open finding (c)): the failed start's rollback below covers the prelude too. A throw
+        // here (a window's `onRegistered`, the load, a restore) left `running` and `starting` set: every later start
+        // read "shell already started" and `post` dropped every ring event as a start's.
+        val adopted: Boolean
+        val stampsAtLoad: Map<String, Long>
+        val restoredId: String?
+        val restoredMode: String?
+        try {
         // registration happens ONCE per instance: a retried start after a
         // refused transport must not add a second Settings row or a second
         // event collector (round 4, shell #2)
@@ -891,7 +952,7 @@ class Shell(
         // syncable key whose stamp advances before the loop's first pass was
         // applied store-direct and must be LIVE-applied before the first save
         // can out-stamp it with stale live state (2026-09-01)
-        val stampsAtLoad = persistence.stamps()
+        stampsAtLoad = persistence.stamps()
         stateLoaded = true
         settings = ShellSettings.fromJson(persistence.get("shell.settings"))
         // §73: BEFORE any window restores or wraps — with cached text on, every layout of the
@@ -957,8 +1018,8 @@ class Shell(
             }
         }
         val shellState = persistence.get("shell.state")
-        val restoredId = shellState?.get("current")?.jsonPrimitive?.contentOrNull
-        val restoredMode = shellState?.get("mode")?.jsonPrimitive?.contentOrNull
+        restoredId = shellState?.get("current")?.jsonPrimitive?.contentOrNull
+        restoredMode = shellState?.get("mode")?.jsonPrimitive?.contentOrNull
         main.model.cursor = shellState?.get("mainCursor")?.jsonPrimitive?.contentOrNull
             ?.toIntOrNull() ?: 0
         // same-instance restart: the persisted notices ARE the in-memory ones
@@ -990,21 +1051,21 @@ class Shell(
         // rebaseline the glasses from OUR truth in one wide flush. This is
         // what turns a driver change from a multi-second teardown (Adam's two
         // blinks per WiFi edge) into a repaint — the G2CC decoupling.
-        val adopted = transport.state.value.started
+        adopted = transport.state.value.started
         // §47: the radio's priority is a setting — told to the transport before
         // the connect so the first request already asks for it, and again on
         // an adopted session so a handback re-asserts it
         transport.setLinkPriority(settings.linkPriority)
-        try {
-            if (adopted) {
-                Log.i("shell", "adopting the transport's live session (a takeover/handback) — no re-choreography, one keyframe")
-            } else {
-                transport.start(splashFrame())
-            }
+        if (adopted) {
+            Log.i("shell", "adopting the transport's live session (a takeover/handback) — no re-choreography, one keyframe")
+        } else {
+            transport.start(splashFrame())
+        }
         } catch (e: Exception) {
             // refuse-to-start (capability gate, link failure): leave the shell
             // stopped, not half-running with no loop (review round 2 #B1)
             running = false
+            starting = false              // P5 item 4: with no session running, `keepWhileDown` decides again
             holdPushes()
             // §72: this attempt's transport events would wait for the next session; a
             // keeper retrying a start that keeps failing must not pile them up
@@ -1013,6 +1074,8 @@ class Shell(
             throw e
         }
         var loopStartedThisSession = false
+        // R4 item 3: the rollback after `transport.start()` covers this stretch too (P5 item 6 fixed one throw in it)
+        try {
         // the firmware restores ITS OWN brightness across reboots: push the
         // configured value once per session so the setting always wins
         // (faceclaw pushes force=true on a fresh connection for the same
@@ -1032,13 +1095,21 @@ class Shell(
         sleep = null
         silentGen++
         sessionSerial++
+        starting = false                  // P5 item 4: the start has its session — a ring event from here on is this session's
         restWakeWanted = false
         restAskNotTakenSaid = false
         restartRequested = false
         refusalStreak = 0
+        // P5 item 2 (boundary-clear F1): the other two counts and the halt are per session too — a count of 1 or 2
+        // stood at the next start after a link end, and its first failure could make the third of a streak
+        flushFailStreak = 0; keyframeFailStreak = 0; haltedEpoch = null
+        reserveHeldAt = -1L; reserveYield = false   // P5 item 5: the reserve's ticks are per session
         silentNoticeShown = false
         rebuildRefusalShown = false
         faults.clear(); faultCloseGen++       // a new session's faults are news again (§69)
+        // P7 item 2 (OS-2's latch): a failed Shutdown save set it and its notice went with that session's queue
+        // (the drain): kept, the next session said nothing for as long as the streak lasted
+        saveFailureRaised = false
         batterySeenThisSession = false        // 0.64: this session's loop has handled no battery reading yet
         v2RefusedThisSession = false          // the start arms DRAW2 afresh, and the atlas check reads it again
         val atStart = transport.state.value   // ONE read for the two decisions below
@@ -1067,7 +1138,6 @@ class Shell(
             requestRebuild("adopted a session whose lease was not held (a driver that was asleep released it, or it lapsed)")
         }
 
-        try {
             // initial surface — mode AND window restore (§9.1 rule 1). A SILENT
             // restore must not carry an activated window underneath the clock
             // (review round 2 #A8): silent has no focused window by definition.
@@ -1097,6 +1167,14 @@ class Shell(
             journal.note("build", buildTag.ifEmpty { "unstamped host" } + " · session start via ${transport.state.value.transportName}")
             linkRegimeSessionStart(adopted)
             inputAwaitsSlot = false; inputFlushPending = false     // a gesture of the last session flags nothing here
+            // P5 item 1 (twice-read F1 = boundary-clear F2): a completion carries no session, only its id. What the
+            // last session left in flight is cleared here — its answers, kept while down or late from a lane, are
+            // journaled when they come and judged by nobody (`completeFlush`); every start composes the whole
+            // surface and keyframes below, so nothing of an older flush needs a rollback. Said in the start's
+            // `queue` note. The map is the loop's, and no loop runs here (the old one was joined by the stop).
+            val unanswered = inflightFlushes.keys.sorted()
+            inflightFlushes.clear()
+            mirrorSpanLo = Int.MAX_VALUE; mirrorSpanHi = -1; mirrorWhole = true    // P6 item 5: the first check is whole
             atlasAtSessionStart(adopted)
             composeFullSurface()
             comp.requestKeyframe()
@@ -1110,7 +1188,7 @@ class Shell(
             // come, and the ones held while it was down (the latest per key) run now. Not any
             // earlier: a start that fails before this line keeps them held, bounded by key.
             notePower()                   // 0.64: the session's state as it starts (`lit`, or asleep from its first frame)
-            releaseHeldPushes()
+            releaseHeldPushes(unanswered)
             loopJob = scope.launch { loop() }
             loopLaunched = true
             loopStartedThisSession = true
@@ -1129,7 +1207,7 @@ class Shell(
                     }
                 }
             })
-            val gen = ++tickGen
+            val gen = tickGen             // P5 item 3: bumped at the start's first lines (a rebuild asked above captured it)
             scheduleMinuteTick(gen)
             scope.launch {
                 while (isActive && running && gen == tickGen) {
@@ -1150,6 +1228,7 @@ class Shell(
             // session was ADOPTED, in which case it belongs to the transport's
             // owner and another driver may still claim it
             running = false
+            starting = false              // R4 item 3: a throw before the session's `sessionSerial` bump left it set
             holdPushes()
             if (!loopStartedThisSession) dropTransportEventsOfFailedStart()   // §72, as above
             if (!adopted) {
@@ -1180,7 +1259,11 @@ class Shell(
         if (!loopLaunched) {
             running = false
             holdPushes()
-            if (stateLoaded) saveAll(sync = true)   // never write defaults over a state never read
+            // never write defaults over a state never read. A save that does not land raises the `state` fault
+            // HERE, off the loop (`raiseFault` is LOOP-ONLY; P7 item 2): no loop exists to share `faults`,
+            // `lifecycle` is held, the notice waits in the channel for the next session, and `startLocked`
+            // clears the episodes' table first
+            if (stateLoaded) saveAll(sync = true)
             if (stopTransport) transport.stop()
             journal.close()              // reopens by itself on the next write
             return
@@ -1217,6 +1300,7 @@ class Shell(
     // ------------------------------------------------------------------ loop
     private suspend fun loop() {
         loopAlive = true
+        var leftThroughShutdown = false    // P5 item 1: the drain re-posts what it keeps only then
         try {
         for (m in msgs) {
             loopHandling = m::class.simpleName
@@ -1244,6 +1328,7 @@ class Shell(
                     Msg.IdleTick -> {
                         chromeDirty = true
                         chromeIdleFlush = true      // §8.3: chrome-only changes flush HERE
+                        reserveCheck()              // P5 item 5: the input reserve's way out
                     }
                     is Msg.RestTick -> if (m.gen == restGen && mode == Mode.MAIN && !main.resting) {
                         main.resting = true
@@ -1253,11 +1338,12 @@ class Shell(
                     is Msg.SilentTick -> handleSilentTick(m.gen)
                     is Msg.SaveTick -> if (m.gen == saveGen) saveAll()
                     is Msg.Notice -> handleNotice(m.n)
-                    is Msg.Invalidate -> if (mode == Mode.EXCLUSIVE) paintExclusiveDelta()
+                    // P6 item 2 (LC-1): a parked window's request composes nothing; its divider tick rides the chrome
+                    is Msg.Invalidate -> if (!showsRequestOf(m.windowId)) chromeDirty = true
+                        else if (mode == Mode.EXCLUSIVE) paintExclusiveDelta()
                         else if (mode != Mode.SILENT) { syncLayout(); composeContent() }
                     is Msg.Run -> m.action()
-                    is Msg.Shutdown -> {
-                        running = false
+                    is Msg.Shutdown -> try {
                         holdPushes()              // §72: keyed pushes are held from here on
                         dropKeyboard()    // the draft goes back to its requester BEFORE the save (review 2026-09-01 K5)
                         // the focused window's session-bound state ends with the
@@ -1265,6 +1351,17 @@ class Shell(
                         // start() re-activates the restored window (R2-W13)
                         try { current?.onDeactivate() } catch (e: Exception) { Log.e("shell", "onDeactivate at shutdown", e) }
                         saveAll(sync = true)      // the last state must be ON DISK before stop() returns
+                    } finally {
+                        // P5 part a (review 1b RE-4's sibling): `running` goes false only AFTER the final save. Set
+                        // before it, a synced record that came during the save met `postSync` false, was stored
+                        // directly by the host's applier, and the save then put the live state over it under a fresh
+                        // stamp (pushed back to the peer). Now it is posted behind this message and the drain's
+                        // `dropped` arm stores it after the save. A message another thread posts meanwhile (a tick, a
+                        // probe, a transport event) goes to the drain, which decides it as `post` would have.
+                        // R4 item 2 (review 3A-3): on EVERY exit from the steps above. A throw there (an `Error`, an
+                        // encode) left `running` true and `done` open: the loop served on with the pushes held and
+                        // `stop()` did not return. The throw still reaches the catch below and its fault.
+                        running = false
                         m.done.complete(Unit)
                     }
                     Msg.Pump -> {}
@@ -1288,8 +1385,12 @@ class Shell(
                 raiseFault("loop", "ERROR handling ${m::class.simpleName}: ${e.message ?: e::class.simpleName} — restart when convenient", urgent = true, source = "shell")
             }
             handlerNsThisMsg = System.nanoTime() - handlerT0
+            // P6 item 1 (LC-7): every handled message's time, whether or not its turn submits
+            loopCost.getOrPut(if (m is Msg.Trans) m.ev.javaClass else m.javaClass) { LoopCost() }.add(handlerNsThisMsg)
+            val pumpT0 = System.nanoTime()
+            val pumped = running
             try {
-                if (running) pump()
+                if (pumped) pump()
             } catch (e: Exception) {
                 Log.e("shell", "pump error", e)
                 journal.note("pump-error", e.toString())
@@ -1299,10 +1400,11 @@ class Shell(
                 journal.note("pump-error", e.toString())
                 raiseFault("pump", "pump ERROR: ${e.message ?: e::class.simpleName} — restart when convenient", urgent = true, source = "shell")
             }
+            if (pumped) pumpCost.add(System.nanoTime() - pumpT0)
             notePower()                   // 0.64: a state change this message made (a string compare, no layout)
             queued.decrementAndGet()
             loopHandling = null
-            if (!running && m is Msg.Shutdown) break
+            if (!running && m is Msg.Shutdown) { leftThroughShutdown = true; break }
         }
         } finally {
             loopAlive = false
@@ -1317,18 +1419,28 @@ class Shell(
             // counted here and gone — the flush's in-flight entry then stayed for the life of the process:
             // no quiescence, no mirror check), the rest journaled or counted there. The kept ones go back
             // in the channel after the drain, decided once.
-            var left = 0
+            // P5 item 1 (twice-read F1's corrected drain): kept ones go back only when the loop left through the
+            // Shutdown. This `finally` also runs when the loop's scope is cancelled, with no loop left to take a
+            // re-posted message: counted in `queued` there, it would read as work forever. Then they are counted
+            // with the rest, and the journal names the kinds (the log line was the only trace).
+            val left = LinkedHashMap<String, Int>()
             val keep = ArrayList<Msg.Trans>()
             while (true) {
                 val m = msgs.tryReceive().getOrNull() ?: break
                 queued.decrementAndGet()
-                if (m is Msg.Trans) { if (keepWhileDown(m)) keep.add(m); continue }
-                left++
+                if (m is Msg.Trans && leftThroughShutdown) { if (keepWhileDown(m)) keep.add(m); continue }
+                val kind = if (m is Msg.Trans) "Trans.${m.ev::class.simpleName}" else m::class.simpleName ?: "?"
+                left[kind] = (left[kind] ?: 0) + 1
                 if (m is Msg.Run && m.dropped != null) {
                     try { m.dropped.invoke() } catch (e: Exception) { Log.e("shell", "a dropped message's answer failed", e) }
                 }
             }
-            if (left > 0) Log.w("shell", "the loop ended with $left message(s) unhandled")
+            if (left.isNotEmpty()) {
+                val kinds = left.entries.joinToString(", ") { "${it.key}×${it.value}" }
+                Log.w("shell", "the loop ended with ${left.values.sum()} message(s) unhandled: $kinds")
+                journal.note("queue", "the loop ended with ${left.values.sum()} message(s) unhandled" +
+                    (if (leftThroughShutdown) "" else " (its scope ended, not a stop)") + ": $kinds")
+            }
             if (keep.isNotEmpty()) Log.i("shell", "the loop ended with ${keep.size} transport event(s) kept for the next session")
             for (m in keep) enqueue(m)
         }
@@ -1368,7 +1480,7 @@ class Shell(
                 else -> "${w.name} does not accept typed text"
             }
             services.notifyInternal("type",
-                "typed line not delivered — $where (focus a window that types, like Tmux)")
+                "typed line not delivered — $where (focus a window that types, like Tmux)", answer = true)
             return
         }
         composeContent()
@@ -1551,7 +1663,7 @@ class Shell(
                         // why nothing opened instead of swallowing the tap
                         Log.w("shell", "notice tap: window '${n.appId}' is not registered here")
                         services.notifyInternal("shell",
-                            "that notice's app (${n.appId}) is not available on this device")
+                            "that notice's app (${n.appId}) is not available on this device", answer = true)
                     } else {
                         commitWindow(w, ActivationSource.DEEP_LINK)
                         // §16.1: tap = commit + activate + open AT the item
@@ -1884,7 +1996,7 @@ class Shell(
             s.onCommit(idx)
         } catch (e: Exception) {
             Log.e("shell", "menu commit failed", e)
-            services.notifyInternal("menu", "action failed: ${e.message}")
+            raiseFault("menu", "action failed: ${e.message}")      // P7 item 2: a failure, shown whatever the row says
         }
         composeContent()
         scheduleSave()
@@ -1937,7 +2049,7 @@ class Shell(
                     s?.onExtra?.invoke(t.id)
                 } catch (e: Exception) {
                     Log.e("shell", "keyboard live key failed", e)
-                    services.notifyInternal("keyboard", "key failed: ${e.message}")
+                    raiseFault("keyboard", "key failed: ${e.message}")   // P7 item 2, as `commitMenu`
                 }
                 paintKeyboard()
             }
@@ -1952,7 +2064,7 @@ class Shell(
             s.onCommit(text)
         } catch (e: Exception) {
             Log.e("shell", "keyboard commit failed", e)
-            services.notifyInternal("keyboard", "typed text failed: ${e.message}")
+            raiseFault("keyboard", "typed text failed: ${e.message}")   // P7 item 2, as `commitMenu`
         }
         composeContent()
         scheduleSave()
@@ -1995,7 +2107,7 @@ class Shell(
             false
         }
         if (!ok) {
-            services.notifyInternal(w.id, "couldn't open the requested item ($target) — it may be gone")
+            services.notifyInternal(w.id, "couldn't open the requested item ($target) — it may be gone", answer = true)
         }
         composeContent()
         scheduleSave()
@@ -2233,7 +2345,12 @@ class Shell(
             // (WINDOWS.md §1), and the Global "Notify · Music" row that APKs up
             // to 0.17 carried could have persisted a false that no row could
             // undo — a hidden gate (docs audit 2026-09-02)
-            "DAMAGE" -> settings.notifyDamage
+            // `Notify · Damage` is the WM's own events (`DESIGN.md` §4.5): a notice that names its app
+            // is gated by that app's own rows in its own Settings category, never by a Global row
+            // (P7 item 1, OS-1). Inside this arm, not ahead of the `when`: an `appId` on an SMS or MAIL
+            // notice does not get it past `Notify · SMS` / `Notify · Mail`. An answer to Adam's own gesture
+            // (`Notice.answer`, P7 item 2) is not a courtesy event either.
+            "DAMAGE" -> n.appId != null || n.answer || settings.notifyDamage
             else -> true
         }
     }
@@ -2298,6 +2415,7 @@ class Shell(
 
     // ------------------------------------------------------------------ ticks
     private fun handleMinute() {
+        noteLoopCost()            // P6 item 1 (LC-7): the minute's loop time, before any early return below
         noteLinkRegime()          // §47: a parameter change while idle shows within the minute
         watchFloor()
         if (mode == Mode.EXCLUSIVE) { paintExclusiveDelta(); return }   // the window's own clock surface
@@ -2462,11 +2580,16 @@ class Shell(
     }
 
     private fun completeFlush(ev: TransportEvent.FlushDone) {
+        completionsSeen++                             // P5 item 5: a completion of any kind (content, atlas, stage)
         if (ev.id == atlasInFlight) { atlasDone(ev); return }
         if (ev.id == stageInFlight) { stageDone(ev); return }
         val a = inflightFlushes.remove(ev.id)
         journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)
+        // P5 item 1: an id this session did not send (the start cleared what the last one left; ids never repeat) —
+        // its `done` line above is its record; it is no failure, success or link reading of this session's
+        if (a == null) return
         if (!ev.ok) {
+            mirrorWhole = true            // P6 item 5: a failed flush (each arm below rolls back) — the next check is whole
             // 🔴 A REFUSAL is not a failure to recover from by sending more
             // (2026-09-05, `HANDOFF.md` §36): the firmware in its Silent Mode
             // answered a 37-byte delta and every keyframe after it with
@@ -2480,12 +2603,12 @@ class Shell(
             val refused = ev.error?.contains("ImgResCmd") == true
             refusalStreak = if (refused) refusalStreak + 1 else 0
             if (glassesSilent) {
-                if (a != null) comp.rollback(a)
+                comp.rollback(a)
                 return
             }
             if (refused && refusalStreak >= REFUSALS_TO_SLEEP) {
                 Log.e("shell", "flush ${ev.id} refused: ${ev.error}")
-                if (a != null) comp.rollback(a)
+                comp.rollback(a)
                 enterSleep(SleepReason.SILENT, "the glasses refused $refusalStreak frames in a row")
                 return
             }
@@ -2493,13 +2616,18 @@ class Shell(
             // a flush the session's own end swept is the link's story, told by the cell's word; and
             // a REFUSAL never raises a box — its paint would answer a refused image with more
             // images (§36): the streak above is that path, and the journal holds each one
-            if (!refused && linkUpAndSteady()) raiseFault("flush", "a flush failed: ${ev.error}")
-            if (a != null) comp.rollback(a)
+            val steady = linkUpAndSteady()             // P5 item 2: ONE read for the notice and the two arms below
+            if (!refused && steady) raiseFault("flush", "a flush failed: ${ev.error}")
+            comp.rollback(a)
+            // P5 item 2 (boundary-clear F1): the `halt` and `resync` arms follow the notice's rule — a failure the
+            // session's end swept counts toward no streak (three of them rang the phone and saved a `resync` notice
+            // for the next session). The log line and the journal's `done` above are its record.
+            if (!refused && !steady) return
             // a KEYFRAME that fails three times in a row cannot be helped by
             // another keyframe (the frame itself is undisplayable — past the
             // firmware's caps): halt until the content changes, with ONE loud
             // notice, instead of a failure loop that repeats at the phone (round 6)
-            keyframeFailStreak = if (a?.keyframe == true) keyframeFailStreak + 1 else 0
+            keyframeFailStreak = if (a.keyframe) keyframeFailStreak + 1 else 0
             if (keyframeFailStreak >= 3) {
                 haltedEpoch = comp.epoch
                 keyframeFailStreak = 0
@@ -2522,6 +2650,10 @@ class Shell(
             keyframeFailStreak = 0
             refusalStreak = 0
             noteLinkRegime()
+            // P6 item 5: the rows this flush touched join the shell's span until a check agrees
+            for (t in a.touched) if (t.rect.h > 0 && t.rect.w > 0) {
+                mirrorSpanLo = minOf(mirrorSpanLo, t.rect.y); mirrorSpanHi = maxOf(mirrorSpanHi, t.rect.bottom - 1)
+            }
             checkMirrorAgreement()
         }
     }
@@ -4236,7 +4368,8 @@ class Shell(
     /** Bumped at every session start — the identity a dev probe carries from the thread that took it
      *  to the loop message that runs it ([devProbe]): a probe taken while a start was still on its
      *  way, or kept in the queue across a start that failed, is not run in the session that follows.
-     *  (`tickGen` cannot serve: it is bumped after the loop has launched.) */
+     *  (`tickGen` cannot serve: it moves at a start's first line, before the start has its session — a probe
+     *  taken during a start in progress would carry the new value.) */
     @Volatile private var sessionSerial = 0
 
     /** How the glasses currently read to this shell — for status lines and tests. */
@@ -4486,7 +4619,16 @@ class Shell(
     private fun requestRebuild(why: String) {
         restartRequested = true
         chromeDirty = true
+        // P5 item 3, RH-5's second site: the coroutine ran with no guard of the session it was asked in — run after
+        // that session ended and the next had started, it ended the new one. Keyed on `tickGen`, which moves only at
+        // a start's first lines; captured here, on the loop or on the start path after that bump.
+        val gen = tickGen
         scope.launch {
+            if (gen != tickGen || !running) {
+                journal.note("keeper", "a session rebuild asked in a session that has ended is not run ($why)")
+                Log.w("shell", "session rebuild of an ended session not run: $why")
+                return@launch
+            }
             val ok = try { transport.restartSession(why) } catch (e: Exception) { Log.e("shell", "session restart", e); false }
             if (!ok) post(Msg.Run {
                 restartRequested = false
@@ -4692,9 +4834,58 @@ class Shell(
     private var chromeNs = 0L
     private var overlaysNs = 0L
 
+    /** APK 0.65, P6 item 1 (the loop-cost sweep's LC-7): a count, a total and a maximum, in ns. */
+    private class LoopCost {
+        var n = 0; var totalNs = 0L; var maxNs = 0L
+        fun add(ns: Long) { n++; totalNs += ns; if (ns > maxNs) maxNs = ns }
+        override fun toString() = "n=$n total=${ms1(totalNs)} max=${ms1(maxNs)}"
+        private fun ms1(ns: Long) = "${ns / 1_000_000}.${(ns / 100_000) % 10}"     // tenths of a ms, no locale
+    }
+    /** P6 item 1 (LC-7): the loop's time per message class since the last `loop` note — the handler's time,
+     *  keyed by the message's class (a transport event by its own); the pumps and the mirror scans apart. A
+     *  message that submits nothing reached no row before: the `submit` line's split carries the time of the
+     *  turn that flushed, and the scan an ack at rest runs is in a turn that never submits. Loop thread only:
+     *  [loop] adds, [noteLoopCost] (from [handleMinute]) writes one line and clears. */
+    private val loopCost = LinkedHashMap<Class<*>, LoopCost>()
+    private var pumpCost = LoopCost()
+    private var mirrorCost = LoopCost()
+    private var loopCostSince = System.currentTimeMillis()
+    /** Set by [checkMirrorAgreementInner] when it reached the compare — the early returns are not scans. */
+    private var mirrorCompared = false
+    /** P6 item 5: rows the scans compared since the last `loop` note, both lenses summed (a whole pair is 960). */
+    private var mirrorRowsCompared = 0L
+    /** P6 item 5 (the loop-cost sweep's LC-2, the challenge's corrected fix): the rows the completed flushes touched
+     *  since the last agreeing check (lo > hi: none) — [completeFlush] widens it, an agreeing check clears it.
+     *  [mirrorWhole]: the next check compares every row — the session's first, after a failed or rolled-back flush.
+     *  [mirrorWholeAtNs]: when the last whole compare ran; one a minute is kept, the one check that does not lean on
+     *  this bookkeeping. Loop thread only; a session start resets the span and asks for a whole compare. */
+    private var mirrorSpanLo = Int.MAX_VALUE
+    private var mirrorSpanHi = -1
+    private var mirrorWhole = true
+    private var mirrorWholeAtNs = 0L
+
     private fun checkMirrorAgreement() {
         val t0 = System.nanoTime()
-        try { checkMirrorAgreementInner() } finally { mirrorNsThisMsg += System.nanoTime() - t0 }
+        mirrorCompared = false
+        try { checkMirrorAgreementInner() } finally {
+            val ns = System.nanoTime() - t0
+            mirrorNsThisMsg += ns
+            if (mirrorCompared) mirrorCost.add(ns)
+        }
+    }
+
+    /** P6 item 1 (LC-7): one `loop` note when anything ran since the last one. A local journal line, no page
+     *  traffic. The `done` line is not moved behind the scan: the report's WAIT column is `done.t − submit.t`. */
+    private fun noteLoopCost() {
+        if (loopCost.isEmpty() && pumpCost.n == 0) return
+        val now = System.currentTimeMillis()
+        val parts = loopCost.entries.sortedByDescending { it.value.totalNs }.joinToString("; ") { (k, c) ->
+            (if (TransportEvent::class.java.isAssignableFrom(k)) "Trans." else "") + k.simpleName + " " + c
+        }
+        journal.note("loop", "over ${(now - loopCostSince) / 1000} s: $parts; pump $pumpCost; mirror $mirrorCost " +
+            "rows=$mirrorRowsCompared (ms; handler time per message class, the mirror scan inside its FlushDone; rows " +
+            "compared, both lenses)")
+        loopCost.clear(); pumpCost = LoopCost(); mirrorCost = LoopCost(); loopCostSince = now; mirrorRowsCompared = 0
     }
 
     private fun checkMirrorAgreementInner() {
@@ -4705,19 +4896,34 @@ class Shell(
         // the report it raised at 22:04:02 was a false alarm that stuck
         if (glassesSilent) return
         if (inflightFlushes.isNotEmpty() || comp.hasPending || comp.needsKeyframe) return
+        mirrorCompared = true                  // P6 item 1: a scan the `loop` note counts
         val stride = m.stride
         var report: String? = null
+        // P6 item 5 (LC-2): since the last agreeing check only the rows the model's panel was written in and the rows
+        // our completed flushes touched can differ; those are compared, read in place under the model's monitor. Every
+        // row: the session's first check, after a failed or rolled-back flush, while a disagreement stands, and once
+        // a minute. Each arm's span is taken at every compare, so the next starts from here.
+        val now = System.nanoTime()
+        val whole = mirrorWhole || lastDivergence != null || now - mirrorWholeAtNs >= MIRROR_WHOLE_EVERY_NS
         for (arm in Arm.entries) {
             val belief = comp.expectedLens(arm == Arm.LEFT)
-            val panel = m.snapshot(arm)
-            val first = firstDisagreement(belief, panel, stride) ?: continue
-            if (report == null) {
-                val diffs = countDisagreements(belief, panel, stride)
-                report = "$arm: $diffs px differ, first at (${first.first},${first.second}) belief " +
+            val model = m.takeChangedRows(arm)
+            val lo = if (whole) 0 else maxOf(0, minOf(if (model.isEmpty()) Int.MAX_VALUE else model.first, mirrorSpanLo))
+            val hi = if (whole) comp.height - 1 else minOf(comp.height - 1, maxOf(if (model.isEmpty()) -1 else model.last, mirrorSpanHi))
+            if (lo > hi) continue
+            mirrorRowsCompared += hi - lo + 1
+            val said = m.readPanel(arm) { panel ->
+                val first = firstDisagreement(belief, panel, stride, lo, hi) ?: return@readPanel null
+                if (report != null) return@readPanel ""
+                val diffs = countDisagreements(belief, panel, stride, lo, hi)
+                "$arm: $diffs px differ, first at (${first.first},${first.second}) belief " +
                     "${belief[first.first, first.second]} (level ${LEVEL[belief[first.first, first.second]]}) mirror level ${nibble(panel, stride, first.first, first.second)}"
             }
+            if (said != null && report == null) report = said
         }
         if (report == null) {
+            mirrorSpanLo = Int.MAX_VALUE; mirrorSpanHi = -1; mirrorWhole = false
+            if (whole) mirrorWholeAtNs = now
             if (lastDivergence != null) {
                 journal.note("divergence", "agreement restored")
             }
@@ -4755,9 +4961,9 @@ class Shell(
 
     /** The first pixel whose quantised belief differs from the panel, or null
      *  — a cheap early-out scan (a lookup table replaces the per-pixel divide). */
-    private fun firstDisagreement(belief: Gray8, panel: ByteArray, stride: Int): Pair<Int, Int>? {
+    private fun firstDisagreement(belief: Gray8, panel: ByteArray, stride: Int, lo: Int, hi: Int): Pair<Int, Int>? {
         val w = comp.width
-        for (y in 0 until comp.height) {
+        for (y in lo..hi) {
             val row = y * stride
             var x = 0
             while (x < w) {
@@ -4770,9 +4976,9 @@ class Shell(
         return null
     }
 
-    private fun countDisagreements(belief: Gray8, panel: ByteArray, stride: Int): Int {
+    private fun countDisagreements(belief: Gray8, panel: ByteArray, stride: Int, lo: Int, hi: Int): Int {
         var diffs = 0
-        for (y in 0 until comp.height) {
+        for (y in lo..hi) {
             val row = y * stride
             for (x in 0 until comp.width) {
                 if (LEVEL[belief[x, y]] != nibble(panel, stride, x, y)) diffs++
@@ -5097,9 +5303,7 @@ class Shell(
         // (§4.3) — an async repaint (an icon resolve, an invalidate) must not
         // swap it back to the current window under a settled preview
         // (review 2026-09-01 F7). Render-only, never an activation.
-        val behind = if (switcher.open && previewPainted != null) switcher.selected()?.window
-        else if (mode == Mode.WINDOW) current else null
-        paintContentOf(behind)
+        paintContentOf(contentWindow())
         if (switcher.open) paintSwitcherFrame()
         if (menu.open) {
             menu.invalidateUnder()        // recapture over the fresh content
@@ -5112,6 +5316,29 @@ class Shell(
         updatePlanes()
         if (notifications.active) paintNotification()
         chromeDirty = true
+    }
+
+    /** The window whose content [composeContent] paints — null for Main's rows. One definition for the compose and
+     *  for [showsRequestOf], so the two cannot disagree. R4 item 4 (review 3A-2): while the wheel is open it is the
+     *  window the area SHOWS ([previewPainted], set by [settlePreview] before its paint), not the cursor's — a notch
+     *  moves the cursor at once, and a push from the window still shown was judged parked and dropped; a notch back
+     *  inside the spin then met an unchanged key and the preview stayed stale until the wheel closed. */
+    private fun contentWindow(): DamageWindow? =
+        if (switcher.open && previewPainted != null) windows.firstOrNull { it.id == previewPainted }   // "@main": null
+        else if (mode == Mode.WINDOW) current else null
+
+    /** P6 item 2 (the loop-cost sweep's LC-1): whether a render request from window [id] is for what the content
+     *  area shows. Tmux at its session list asks on every status push (2.8 s from the PC), and the arm composed
+     *  whatever was on screen for it — Now Playing recomposed and flushed about 1,550 times in four hours (APK
+     *  0.63's journal), a running slide ended, an open menu repainted. `CLAUDE.md`: a live window may keep the link
+     *  busy only while ACTIVE. True: no id; in EXCLUSIVE the current window; Main's rows (every window's summary);
+     *  the window shown (the wheel's previewed entry while one is painted); Settings (it reads every window's
+     *  `appSettings()` on each render). A parked window is composed whole when it is next focused. */
+    private fun showsRequestOf(id: String?): Boolean {
+        if (id == null) return true
+        if (mode == Mode.EXCLUSIVE) return current?.id == id
+        val shown = contentWindow() ?: return true
+        return shown.id == id || shown === settingsWindow
     }
 
     /** Paint [w]'s (or Main's) content into the content area — used both for
@@ -5487,7 +5714,41 @@ class Shell(
      *  like, and the readout measured 40–230 B of a 184–470 B first flush. */
     private var inputFlushPending = false
 
+    /** P5 item 5 (wait-no-escape finding 2, its corrected condition): the input reserve's way out. Every pump that
+     *  does not follow a ring event stops one short of the window; with that many image messages un-acked and
+     *  nothing acked after them, no such pump has room, and the earlier messages can be released only by a later
+     *  image ack (§34), whose only source is such a pump — frames stop for everything but input, with no word,
+     *  until the msgId counter comes round or the link ends. Keyed on what the room check itself reads
+     *  (`inFlight`), not on the display flushes in flight: a staged strip's writes hold slots too.
+     *  [completionsSeen]: every completion the loop handles. [reserveHeldAt]: that count at the last idle tick
+     *  that found the reserve holding (-1: the last tick did not). [reserveYield]: the next pump may take the
+     *  whole window. [reserveSaidAt]: the count at the last `link` note — one note per held episode. Loop-only;
+     *  a session start clears the tick state; asleep, nothing is held (nothing is sent). */
+    private var completionsSeen = 0L
+    private var reserveHeldAt = -1L
+    private var reserveYield = false
+    private var reserveSaidAt = -1L
+
+    /** On the idle tick: the reserve holding on two ticks in a row with no completion of any kind between them →
+     *  this tick's pump takes the whole window. A send, decided by pacing; the ack decides the rest. */
+    private fun reserveCheck() {
+        val st = transport.state.value                                  // ONE read for the decision
+        val held = !glassesSilent && st.started && st.window > 1 &&
+            st.inFlight >= st.window - 1 && st.inFlight < st.window
+        if (!held) { reserveHeldAt = -1L; return }
+        if (reserveHeldAt != completionsSeen) { reserveHeldAt = completionsSeen; return }   // the first such tick
+        reserveHeldAt = -1L                                             // two in a row: yield, then count afresh
+        reserveYield = true
+        if (reserveSaidAt != completionsSeen) {
+            reserveSaidAt = completionsSeen
+            journal.note("link", "the input reserve yields: ${st.inFlight} image message(s) un-acked over two idle ticks " +
+                "with no completion between them — this pump may take the whole window; its ack releases the earlier ones")
+        }
+    }
+
     private suspend fun pump() {
+        val yieldReserve = reserveYield                 // P5 item 5: decided by this message's idle tick only
+        reserveYield = false
         // ONE read (2026-09-16 review — the §62.3 item 9 / §63.3 item 8 class, in the hottest
         // path): a lapse landing between two of the three reads this used to take left
         // `comp.v2` true while `st.draw2` was already false, and the frame was assembled with
@@ -5511,7 +5772,7 @@ class Shell(
         // follows a ring event may fill the window; every other pump stops one
         // short. An instant transport never sees the difference — nothing
         // stays in flight — and a window of 1 keeps its one slot.
-        val cap = if (pumpPriority) st.window else maxOf(1, st.window - 1)
+        val cap = if (pumpPriority || yieldReserve) st.window else maxOf(1, st.window - 1)
         val room = st.inFlight < cap
         if (!room) {              // FlushDone re-pumps; §5.13 coalescing happens here
             if (pumpPriority) inputAwaitsSlot = true      // §73: the flush that follows is still this gesture's
@@ -5680,11 +5941,13 @@ class Shell(
                     // note, not an error
                     journal.note("link", "flush dropped: ${e.message} — the session is restarting")
                     comp.rollback(assembled)
+                    mirrorWhole = true                     // P6 item 5: a rolled-back flush — the next check is whole
                 } catch (e: Exception) {
                     Log.e("shell", "submit failed", e)
                     journal.note("submit-error", e.toString())
                     raiseFault("submit", "a flush could not be submitted: ${e.message ?: e::class.simpleName}", urgent = true, source = "transport")
                     comp.rollback(assembled)
+                    mirrorWhole = true                     // P6 item 5
                 }
             }
         } else {
@@ -6048,11 +6311,15 @@ class Shell(
     }
 
     /** Raise once per failure streak (R3s#11): an all-day driver on a full
-     *  disk must not learn at the next restart that nothing persisted. */
+     *  disk must not learn at the next restart that nothing persisted.
+     *  P7 item 2 (OS-2): a FAULT of class `state`, shown whatever Global `Notify · Damage` says (it went
+     *  through the WM's courtesy door and was dropped with that row off). LOOP-ONLY like [raiseFault],
+     *  with one exception said at its call: `stopLocked`'s no-loop arm. The streak's latch is per
+     *  session — cleared at [startLocked] beside the episodes' table. */
     private fun noteSaveLanded(landed: Boolean) {
         if (!landed && !saveFailureRaised) {
             saveFailureRaised = true
-            services.notifyInternal("state", "state save FAILED — changes will not survive a restart", urgent = true)
+            raiseFault("state", "state save FAILED — changes will not survive a restart", urgent = true)
         } else if (landed) saveFailureRaised = false
     }
 
@@ -6145,6 +6412,8 @@ class Shell(
         const val SILENT_CHECKS_PER_NOTE = 60
         const val DIVERGE_EPISODES_MAX = 3
         const val DIVERGE_QUIET_CHECKS = 10
+        /** P6 item 5: the agreement check compares every row at least this often (the decision: one a minute). */
+        const val MIRROR_WHOLE_EVERY_NS = 60_000_000_000L
 
         /** How many depth regions a window may ask for inside the content
          *  area (§3, `DamageWindow.contentPlanes`). Every region splits the

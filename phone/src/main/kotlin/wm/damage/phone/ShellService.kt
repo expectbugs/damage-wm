@@ -159,9 +159,9 @@ class ShellService : Service() {
         //   4. Android's own account of why earlier processes ended (memory, a native fault, a
         //      stall and a force stop raise no throwable: only this sees them)
         //   5. the stack; and only then the last run's line, so that it takes the existing error
-        //      path (verdict 21): a notice on the glasses through the running shell, the phone
-        //      when `Phone notifications` is on. With `Notify · Damage` off it is a log line
-        //      and a journal note.
+        //      path (verdict 21): the phone when `Phone notifications` is on — and a `process`
+        //      fault on the glasses through the running shell, whatever `Notify · Damage` says
+        //      (0.65 P7 item 2; with that row off it was a log line and a journal note).
         //   R2 (review 1b RF-9; insurance — each step catches its own Exception and no throw is
         //   known): steps 1-4 sit in one catch of anything but a VM error, said at ERROR (the sink
         //   above raises the phone's error notice), and the stack starts all the same — a fault
@@ -193,7 +193,11 @@ class ShellService : Service() {
         try {
             startStack(Prefs(this).target)
         } finally {
-            lastRun?.let { Log.e("uncaught", it) }
+            // 0.65 P7 item 2: logged as before (the sink's path: the phone's notification when `Phone notifications`
+            // is on, else the WM's courtesy notice), then raised on the glasses as a `process` fault — shown whatever
+            // `Notify · Damage` says, like the shell's other failure reports. No shell (a stack that did not build):
+            // the log line's phone notification is the one channel, as before.
+            lastRun?.let { Log.e("uncaught", it); shell?.raiseHostFault("process", it) }
         }
     }
 

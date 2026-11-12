@@ -866,7 +866,7 @@ class FilesWindow(
                         owner = this@FilesWindow) == true
                 if (!shown) {
                     services?.notifyInternal("files",
-                        "${e?.name ?: shortPath(path)}: " + lines.joinToString(" · ") { "${it.label} ${it.detail}" })
+                        "${e?.name ?: shortPath(path)}: " + lines.joinToString(" · ") { "${it.label} ${it.detail}" }, answer = true)
                 }
             }
         }
@@ -896,7 +896,7 @@ class FilesWindow(
                 services?.setOperation("idle")
                 if (err != null) {
                     setNotice(err)
-                    services?.notifyInternal("files", "$verb failed: $err")
+                    services?.notifyInternal("files", "$verb failed: $err", answer = true)
                 } else {
                     if (msg != null) setNotice(msg)
                     onSuccess?.invoke()

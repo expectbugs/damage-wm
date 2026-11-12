@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -110,10 +111,37 @@ abstract class CfwTransportBase(
     }
 
     /** Write one AA packet and, once it went out, apply it to the mirror. Every
-     *  packet this transport sends passes through here. */
-    private suspend fun writePacket(arm: Arm, packet: ByteArray) {
+     *  packet this transport sends passes through here.
+     *
+     *  P5 item 16 (the identity-guard sweep's IG-2, its corrected fix): [atEpoch] is the session of the WORK the packet
+     *  belongs to. A message in progress when its session ends is still written whole (the wire is what it was: `wire`
+     *  is held per message, and an AA frame is never abandoned part-way on an arm that is still connected), but its
+     *  packets after the end are not applied to the mirror: the mirror's reset at the end dropped the open image
+     *  stream, and the tail would complete a fragment that opens nothing — the model then marks that session id broken
+     *  for the rest of the process and refuses the next ids near it (`mirror/session`, then divergence episodes on a
+     *  pair that draws correctly). The epoch moves before each reset that follows it (`onLinkDown`, `stop`) and the test
+     *  and the write share the mirror's monitor with the reset, so a tee that passes its test is applied before the
+     *  reset and one that arrives after it fails the test. Counted, and said at the next stop or start
+     *  ([sayStaleTees]). The failed start's rollback resets without moving the epoch: its only image is the
+     *  single-fragment warmup, so nothing lasting can follow it. */
+    private suspend fun writePacket(arm: Arm, packet: ByteArray, atEpoch: Long) {
         writeArm(arm, packet)
-        if (teeMirror) mirrorSim.write(arm, packet, nowMs())
+        if (teeMirror) synchronized(mirrorSim) {
+            if (atEpoch == sessionEpoch.get()) mirrorSim.write(arm, packet, nowMs()) else staleTees++
+        }
+    }
+
+    /** P5 item 16: packets of an ended session written after its end and not applied to the mirror. Under the
+     *  mirror's monitor; read and zeroed by [sayStaleTees]. */
+    private var staleTees = 0
+
+    /** One `control` note when packets of an ended session were kept from the mirror since the last time this was
+     *  asked — at a stop (after the disconnect: no packet of the old session leaves after it) and at a start (a link
+     *  end the keeper did not follow with a stop). */
+    private fun sayStaleTees(where: String) {
+        if (!teeMirror) return
+        val n = synchronized(mirrorSim) { staleTees.also { staleTees = 0 } }
+        if (n > 0) emitNote("control", "$n packet(s) of the ended session left after its end and were not applied to the mirror ($where)")
     }
 
     override fun injectInput(type: Int) = emitInput(type, EvenHubMsg.SRC_RING)
@@ -316,6 +344,10 @@ abstract class CfwTransportBase(
         // on a link that is still up re-asked for ever, and the start — which the watchdog cannot
         // see until it completes — never returned). Pacing, never a clock.
         val firstFailed = CompletableDeferred<String>()
+        // P5 item 9 (wait-no-escape finding 3): RIGHT's write failing on a LATER attempt ends it too — only the first
+        // attempt's failure did, and a RIGHT whose writes threw from the second attempt on (an object gone from the bus
+        // with no link-end report) left this re-asking every 2 s for good, inside a start the watchdog cannot see
+        val rightFailed = CompletableDeferred<String>()
         // completed by the re-ask loop with the count of asks when [askBound] of them went unanswered
         val unanswered = CompletableDeferred<Int>()
         telemetryWaiters[id] = waiter
@@ -325,7 +357,7 @@ abstract class CfwTransportBase(
             while (true) {
                 if (epoch != sessionEpoch.get()) { waiter.completeExceptionally(LintError("session ended")); break }
                 controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage $label $id",
-                    failed = if (first) firstFailed else null) { DamageMsg.control(op, id) })
+                    failed = if (first) firstFailed else null, rightFailed = rightFailed) { DamageMsg.control(op, id) })
                 first = false
                 asks++
                 delay(CAPABILITY_REASK_MS)
@@ -354,6 +386,11 @@ abstract class CfwTransportBase(
                     null
                 }
                 unanswered.onAwait { asks -> ended = ReadingEnded(asks, "$label $id not answered after $asks asks"); null }
+                rightFailed.onAwait { reason ->
+                    Log.w(name, "$label $id: a re-ask could not be written to RIGHT ($reason) — the read ends here")
+                    if (askBound > 0) ended = ReadingEnded(0, "$label $id not written to RIGHT: $reason")
+                    null
+                }
             }
         } catch (e: Exception) { null } finally { reask.cancel(); telemetryWaiters.remove(id, waiter) }
         ended?.let { throw it }
@@ -390,6 +427,7 @@ abstract class CfwTransportBase(
         // on while the session drew v1 shapes (2026-09-15, the third review).
         val writtenBoth = CompletableDeferred<Unit>()
         val firstFailed = CompletableDeferred<String>()
+        val rightFailed = CompletableDeferred<String>()       // P5 item 9: RIGHT's write failing on any attempt
         flagsSetPending = set
         telemetryWaiters[0] = waiter
         lastArmedAtMs = nowMs()
@@ -398,7 +436,7 @@ abstract class CfwTransportBase(
             while (true) {
                 if (epoch != sessionEpoch.get()) { waiter.completeExceptionally(LintError("session ended")); break }
                 controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage flags 0x${set.toString(16)}",
-                    failed = if (first) firstFailed else null, written = writtenBoth) { DamageMsg.control(DamageMsg.OP_FLAGS_SET, set) })
+                    failed = if (first) firstFailed else null, written = writtenBoth, rightFailed = rightFailed) { DamageMsg.control(DamageMsg.OP_FLAGS_SET, set) })
                 first = false
                 delay(CAPABILITY_REASK_MS)
                 if (waiter.isCompleted) break
@@ -413,6 +451,7 @@ abstract class CfwTransportBase(
             kotlinx.coroutines.selects.select<DamageMsg.Telemetry?> {
                 waiter.onAwait { it }
                 firstFailed.onAwait { null }
+                rightFailed.onAwait { null }
             }
         } catch (e: Exception) { null } finally { reask.cancel(); telemetryWaiters.remove(0, waiter) }
         // only RIGHT answers, so RIGHT's reply says nothing about the other lens: unless some
@@ -423,8 +462,20 @@ abstract class CfwTransportBase(
         // a session that ended is not a fault: the sweep fails the waiter AND the queued write's own
         // deferred, so both look like a refusal from here
         if (epoch != sessionEpoch.get() || !running) return null
-        if (reply == null && !firstFailed.isCompleted) return null          // the session ended: the sweep says so
-        val why = if (firstFailed.isCompleted) firstFailed.getCompleted() else "no attempt reached both arms"
+        if (reply == null && !firstFailed.isCompleted && !rightFailed.isCompleted) return null   // the session ended: the sweep says so
+        // P5 item 9 (finding 3, correction 2): an attempt that reached both arms is not "did not reach an arm" — say what
+        // happened: placed on both, not answered, and a re-ask that could not be written to RIGHT ended the wait
+        if (writtenBoth.isCompleted) {
+            val why = if (rightFailed.isCompleted) rightFailed.getCompleted() else "no answer"
+            emitFault("flags", "flags 0x${set.toString(16)} were placed on both arms and not answered; a re-ask could not be written ($why) — " +
+                "the set is not taken as armed")
+            return null
+        }
+        val why = when {
+            firstFailed.isCompleted -> firstFailed.getCompleted()
+            rightFailed.isCompleted -> rightFailed.getCompleted()
+            else -> "no attempt reached both arms"
+        }
         emitFault("flags", "flags 0x${set.toString(16)} did not reach an arm ($why) — the lenses would differ, so the set is not taken as armed")
         return null
     }
@@ -481,14 +532,22 @@ abstract class CfwTransportBase(
      *  a note, and a hold-back only if an arming preceded it within [HOLD_BACK_MS]. The phone
      *  time is [nowMs], the wall clock: a forward jump of more than the slack between two
      *  reads reads the same way.) */
-    private suspend fun armFeatures(epoch: Long, extra: Int = 0) {
+    private suspend fun armFeatures(epoch: Long, extra: Int = 0, withhold: Int = 0) {
         var extraLeft = extra
-        val wanted = wantedFlags or extraLeft
+        // P5 item 7: [withhold] keeps bits of the wish this session must not arm (DRAW2 where the start decided against
+        // it): the wish itself is not edited, and the "wish changed under us" test below reads the same expression
+        fun wish() = (wantedFlags and withhold.inv()) or extraLeft
+        val wanted = wish()
         if (wanted == 0) return
         val armedAt = lastArmedAtMs
         // the reply handler notes the uptime (and a reset) itself; the start's own read already
         // ran on this session, so a reset since the last arming is on record either way
-        telemetryRead(epoch) ?: return
+        // P5 item 9 (finding 3, correction 3): an early end of this read dropped the arming with a log line only
+        telemetryRead(epoch) ?: run {
+            emitNote("keeper", "flags 0x${wanted.toString(16)} not armed: the read before the arming ended early " +
+                "(${if (epoch != sessionEpoch.get()) "the session ended" else "a re-ask could not be written"}) — the next start arms them")
+            return
+        }
         val resetAt = lastResetAtMs
         if (resetAt != null && resetAt != heldBackForResetAt && armedAt != null &&
             resetAt >= armedAt - CAPABILITY_REASK_MS && resetAt - armedAt < HOLD_BACK_MS) {
@@ -508,7 +567,7 @@ abstract class CfwTransportBase(
         for (bit in 0 until 16) {
             val b = 1 shl bit
             if (want and b == 0) continue
-            if (epoch != sessionEpoch.get() || (wantedFlags or extraLeft) != want) return   // the session ended, or the wish changed under us
+            if (epoch != sessionEpoch.get() || wish() != want) return   // the session ended, or the wish changed under us
             val r = flagsSet(epoch, set or b) ?: return
             val status = r.lastStatus ?: -1L
             val inForce = r.flags ?: 0L
@@ -522,7 +581,11 @@ abstract class CfwTransportBase(
                 // RIGHT answers every control request twice (§59), and a refusal's copy carries the same
                 // unchanged flags as a refusal of the next set would: a read with its own id drains it
                 // before the next set's waiter can take it for its own answer (2026-09-15 review)
-                telemetryRead(epoch) ?: return
+                telemetryRead(epoch) ?: run {
+                    emitNote("keeper", "flags above bit $bit not armed: the read after the refusal ended early " +
+                        "(${if (epoch != sessionEpoch.get()) "the session ended" else "a re-ask could not be written"}) — the next start arms them")
+                    return
+                }
                 continue
             }
             if (status != 0L || inForce != (set or b).toLong()) {
@@ -557,6 +620,7 @@ abstract class CfwTransportBase(
         val waiter = CompletableDeferred<DamageMsg.Telemetry>()
         val writtenBoth = CompletableDeferred<Unit>()
         val firstFailed = CompletableDeferred<String>()
+        val rightFailed = CompletableDeferred<String>()       // P5 item 9: RIGHT's write failing on any attempt
         cacheSizePending = kib
         telemetryWaiters[0] = waiter
         val reask = scope.launch {
@@ -564,7 +628,7 @@ abstract class CfwTransportBase(
             while (true) {
                 if (epoch != sessionEpoch.get()) { waiter.completeExceptionally(LintError("session ended")); break }
                 controlQueue.trySend(CtlWork.BothArms(epoch, SettingsMsg.SID, "damage cache size $kib",
-                    failed = if (first) firstFailed else null, written = writtenBoth) { DamageMsg.control(DamageMsg.OP_CACHE_SIZE, kib) })
+                    failed = if (first) firstFailed else null, written = writtenBoth, rightFailed = rightFailed) { DamageMsg.control(DamageMsg.OP_CACHE_SIZE, kib) })
                 first = false
                 delay(CAPABILITY_REASK_MS)
                 if (waiter.isCompleted) break
@@ -575,13 +639,15 @@ abstract class CfwTransportBase(
             kotlinx.coroutines.selects.select<DamageMsg.Telemetry?> {
                 waiter.onAwait { it }
                 firstFailed.onAwait { null }
+                rightFailed.onAwait { null }
             }
         } catch (e: Exception) { null } finally {
             reask.cancel(); telemetryWaiters.remove(0, waiter)
             if (cacheSizePending == kib) cacheSizePending = null      // only ever clear our own
         }
         if (t == null) throw LintError("the cache size was not answered (" +
-            (if (firstFailed.isCompleted) firstFailed.getCompleted() else "the session ended") +
+            (if (firstFailed.isCompleted) firstFailed.getCompleted()
+                else if (rightFailed.isCompleted) "a re-ask not written: ${rightFailed.getCompleted()}" else "the session ended") +
             ") — the start fails and the keeper builds the session again")
         // both lenses lay their cache out at this size; an arm that did not take the request would
         // allocate 64 KiB and refuse every record above it, silently (2026-09-15, second review)
@@ -728,8 +794,13 @@ abstract class CfwTransportBase(
          *  which latches on the first arm that threw and so cannot be re-read across a re-ask
          *  (2026-09-15, the third review: one transient failure condemned a set a later attempt
          *  armed). A caller that needs both lenses waits for this, not for the absence of that. */
+        /** [rightFailed] (P5 item 9, the wait-no-escape sweep's finding 3): completed when the write to RIGHT does not
+         *  leave, on ANY attempt — RIGHT is the one arm whose answer can end a gate, so a gate that re-asks passes the
+         *  same deferred on every attempt and its wait ends on it; [failed] stays the first attempt's (a LEFT that
+         *  throws on a re-ask must not end a FLAGS_SET wait RIGHT will still answer — §63.3 item 4). */
         class BothArms(epoch: Long, val sid: Int, val label: String, val failed: CompletableDeferred<String>? = null,
                        val written: CompletableDeferred<Unit>? = null,
+                       val rightFailed: CompletableDeferred<String>? = null,
                        val payload: (Int) -> ByteArray) : CtlWork(epoch)
     }
 
@@ -1561,7 +1632,9 @@ abstract class CfwTransportBase(
      *  a test): every wake is a session rebuild. A driver that ADOPTS this session calls no `start()`,
      *  so it can find the lease released — `Shell.startLocked` rebuilds a session its own shell adopts
      *  so (the P4 review's finding 4; a driver claiming through the seam is not covered). Written by
-     *  the shell's release coroutine and by `start()`, read by the maintenance loops and the control lane. */
+     *  the shell's release coroutine and by `start()`, read by the maintenance loops and the control lane.
+     *  P5 item 3 (RH-5): a call of [setLeaseWanted] during a start is refused — `start()` writes this with
+     *  `startInProgress`, both under `stateLock`. */
     @Volatile private var leaseWanted = true
 
     /** Whether the EvenHub page is ours to keep alive (§42): not while the
@@ -1576,8 +1649,25 @@ abstract class CfwTransportBase(
     private fun pageTrafficWanted(st: LinkState = _state.value): Boolean = leaseWanted && !st.glassesSilent
 
     override suspend fun setLeaseWanted(wanted: Boolean) {
-        if (leaseWanted == wanted) return
-        leaseWanted = wanted
+        // P5 item 3 (review 1b RH-5, its fix 1): a call during a start is a caller of the session before (a sleep's
+        // release coroutine that ran late) — taken, it turned the lease off under the start, the lane dropped the
+        // start's ACQUIRE and the start still reported the lease held. Nothing legitimate calls this during a start
+        // (`Shell.enterSleep` runs on the loop, or on the start path after `start()` returned). The test and the
+        // write are one step under `stateLock`, as `start()`'s two writes are.
+        val refused: Boolean
+        synchronized(stateLock) {
+            refused = startInProgress
+            if (!refused) {
+                if (leaseWanted == wanted) return
+                leaseWanted = wanted
+            }
+        }
+        if (refused) {
+            val what = if (wanted) "taking the lease back" else "releasing the lease"
+            Log.w(name, "$what asked during a start: a caller of the session before — not taken")
+            emitNote("control", "$what asked during a start is a caller of the session before: not taken")
+            return
+        }
         if (!_state.value.started) return
         val written = CompletableDeferred<Unit>()
         controlQueue.trySend(CtlWork.Lease(sessionEpoch.get(),
@@ -1653,8 +1743,8 @@ abstract class CfwTransportBase(
         check(!started) { "transport already started — a second driver must stop() first" }
         val epoch = sessionEpoch.incrementAndGet()
         started = true
-        leaseWanted = true                // a new session holds its lease until the shell says otherwise
-        // ...and it does not inherit the last one's Silent Mode (2026-09-16 review). `noteSilent`
+        sayStaleTees("at the next start")     // P5 item 16: a link end the keeper did not follow with a stop
+        // A new session does not inherit the last one's Silent Mode (2026-09-16 review). `noteSilent`
         // is the only writer. What the READ path does: it sets the state on a field-14 value above
         // 0 and clears it only on an explicit 0 — `parseSilentRestored` returns null when the
         // device-info field is absent, and then nothing is called. Whether this firmware sends the
@@ -1689,7 +1779,13 @@ abstract class CfwTransportBase(
         quietTicks = 0
         watchdogProbed = false
         leaseRequested = false
-        startInProgress = true
+        // P5 item 3 (RH-5): a new session holds its lease until the shell says otherwise — written in ONE step with
+        // `startInProgress` (`setLeaseWanted` tests that under the same lock): a call before this line is overwritten
+        // here, a call after it is refused
+        synchronized(stateLock) {
+            startInProgress = true
+            leaseWanted = true
+        }
         leaseCarryDecided = false
         updateState { it.copy(leaseCarried = false, leaseCarry = "") }
         try {
@@ -1829,7 +1925,8 @@ abstract class CfwTransportBase(
             resetCheckRead = false
             if (damageCaps?.has(DamageMsg.FEATURE_TELEMETRY) == true) {
                 updateState { it.copy(detail = "reset check") }
-                val t = telemetryRead(epoch, label = "reset check") ?: throw LintError("reset check ended early — the session ended")
+                val t = telemetryRead(epoch, label = "reset check") ?: throw LintError("reset check ended early — " +
+                    (if (epoch != sessionEpoch.get()) "the session ended" else "a re-ask could not be written to RIGHT"))
                 resetCheckCache = t.cacheSize
                 resetCheckRead = true
             }
@@ -1880,14 +1977,29 @@ abstract class CfwTransportBase(
             val caps2 = damageCaps
             if (caps2 != null && caps2.has(DamageMsg.FEATURE_DRAW2)) {
                 updateState { it.copy(detail = "cache size and flags") }
+                // P5 item 7 (the twice-read sweep's F2, its corrected fix): DRAW2 is decided ONCE, from one read
+                // of the hold-back and the size this session got. The hold-back used to be read three times across
+                // the size's round trip (a hand probe inside the wait lifted it: a size asked for a held-back
+                // session, then DRAW2 armed over it), and DRAW2 was armed whatever size came back — a v2 atlas
+                // lays out over the size less the strips' reserve, so under 128 KiB it had a capacity of 0 and the
+                // shell's atlas builder threw on the loop. Ways to 64 KiB here: the cache already up at 64 (op 5's
+                // status 4), a size off the wire outside 64..160 (the fallback below), op 5 refused (3 or 5).
+                val heldBack = draw2HeldBack
                 // a session that will not arm DRAW2 draws with v1 shapes over the first 64 KiB, so
                 // asking for 160 would spend 96 KiB of arena 13 against §4's budget for nothing
-                val size = requestCacheSize(epoch, if (draw2HeldBack) DamageMsg.CACHE_MIN_KIB else DamageMsg.CACHE_BUDGET_KIB)
+                val size = requestCacheSize(epoch, if (heldBack) DamageMsg.CACHE_MIN_KIB else DamageMsg.CACHE_BUDGET_KIB)
                 updateState { it.copy(cacheSize = size) }
+                val roomForV2 = size - CfwModes.STAGE_RESERVE >= CfwModes.TEXTURE_CACHE_SIZE
+                val armDraw2 = !heldBack && roomForV2
                 // DRAW2 belongs to the session, not to the wish carried to other builds; a hold-back that
-                // caught it keeps it off until asked for by hand
-                if (draw2HeldBack) emitNote("keeper", "DRAW2 held back since a reset followed its arming — this session draws with v1 shapes (probe flags=0x… with bit 2 to try again)")
-                armFeatures(epoch, extra = if (draw2HeldBack) 0 else DamageMsg.FLAG_DRAW2)
+                // caught it keeps it off until asked for by hand. The wish is not edited: a hold-back lifted
+                // by hand takes effect at the next start that has the room, as the probe's line says.
+                if (heldBack) emitNote("keeper", "DRAW2 held back since a reset followed its arming — this session draws with v1 shapes (probe flags=0x… with bit 2 to try again)")
+                else if (!roomForV2) emitNote("keeper", "DRAW2 not armed: this session's cache is ${size / 1024} KiB and a v2 atlas needs " +
+                    "${(CfwModes.TEXTURE_CACHE_SIZE + CfwModes.STAGE_RESERVE) / 1024} KiB (64 for the atlas, 64 for the strips) — " +
+                    "this session draws with v1 shapes; a start after a fresh acquire asks for the size again")
+                armFeatures(epoch, extra = if (armDraw2) DamageMsg.FLAG_DRAW2 else 0,
+                    withhold = if (armDraw2) 0 else DamageMsg.FLAG_DRAW2)
             } else {
                 updateState { it.copy(cacheSize = CfwModes.TEXTURE_CACHE_SIZE) }
             }
@@ -1919,17 +2031,22 @@ abstract class CfwTransportBase(
                     if (warmupDone.isCompleted) break
                     Log.w(name, "warmup frame unacked after ${STALL_REPORT_MS} ms — sending again; " +
                         "a later ack releases the earlier write (§34)")
-                    emitNote("control", "the warmup frame went unacked for ${STALL_REPORT_MS / 1000} s — sent again")
+                    emitNote("control", "the warmup frame went unacked for ${STALL_REPORT_MS / 1000} s — " +
+                        if (window.availablePermits == 0) "queued again (the window has no free slot)" else "sent again")
                     imageQueue.trySend(ImgWork.Raw(epoch, warmupFrame, warmupDone))
                 }
             }
             try { warmupDone.await() } finally { warmupReask.cancel() }
 
+            // 4b. P5 item 15 (the identity-guard sweep's IG-1): the glasses' fid ring is cleared before the
+            //     session's first fid — awaited, in the warmup's shape. Ended by its ack, a refusal, the session's sweep.
+            clearFidRingAtStart(epoch)
+
             // the session must still be THIS one: a link that ended between the warmup's ack and
             // here has already cleared `running` and swept, and writing started = true over it
             // would leave the state saying "driving" on a link that is gone — the keeper polls a
             // dead session and the rollback below never runs (2026-09-15, second review)
-            if (epoch != sessionEpoch.get() || !running) throw LintError("the session ended during the warmup — the start does not complete")
+            if (epoch != sessionEpoch.get() || !running) throw LintError("the session ended during the warmup or the fid-ring clear — the start does not complete")
             updateState { it.copy(started = true, leaseHeld = true, detail = "") }
             startInProgress = false
             commitLeaseCarry()                // §54: the shell acts on this session's carry decision now
@@ -2038,6 +2155,15 @@ abstract class CfwTransportBase(
                     emitFault("stall", "window full with no image ack for " +
                         "${(nowMs() - lastImageAckAtMs) / 1000} s — a fragment ack was lost; " +
                         "the msgId cycle cannot recover it without new writes")
+                }
+                // P5 item 10: the one case the tick ACTS on — a wide flush's drain parked behind a lost ack. It is nudged
+                // once the drain has waited the stall bound with no image ack and holds at least one slot (with none, all
+                // three are un-acked and nothing could be written: that stays reported only). One read of the park.
+                val park = drainPark
+                if (running && park != null && !park.nudge.isCompleted && park.taken.get() >= 1) {
+                    val bound = if (instant) DRAIN_NUDGE_INSTANT_MS else STALL_REPORT_MS
+                    val now = nowMs()
+                    if (now - park.sinceMs > bound && now - lastImageAckAtMs > bound) park.nudge.complete(Unit)
                 }
             }
         }
@@ -2169,6 +2295,13 @@ abstract class CfwTransportBase(
      *  on it) plus the window semaphore inside the lane. */
     override suspend fun submit(flush: FlushRequest): Long {
         check(_state.value.started) { "submit before start()" }
+        // P5 item 8 (boundary-clear F3): the latch `restartSession` writes first, which `cacheCheck` and `telemetry`
+        // read too. The published state says started until the disconnect has returned (two in turn on the phone), and
+        // the lane failed a flush taken in that window at once: the shell rolled it back and submitted it again, a
+        // round trip with nothing on the air. Thrown here, the pump's catch drops it with a `link` note and a rollback.
+        // (Publishing the end before the disconnect instead lets the keeper's stop() write a lease release into arms
+        // still connected — the cache the carry rule keeps would go with it.)
+        check(started) { "the session is ending" }
         val id = flushIds.incrementAndGet()
         imageQueue.trySend(ImgWork.Flush(sessionEpoch.get(), id, flush))
         return id
@@ -2195,6 +2328,62 @@ abstract class CfwTransportBase(
         // read-back stay unbounded: the reset check reads a null as the session's end, and the read-back's
         // bound was ruled not built in R3.
         return telemetryRead(sessionEpoch.get(), op = DamageMsg.OP_TELEMETRY, label = label, askBound = COUNT_ASK_BOUND)
+    }
+
+    /**
+     * P5 item 15 (the identity-guard sweep's IG-1, its corrected fix): the glasses keep their 16-deep fid ring for as
+     * long as they are up — the fork's context is a singleton that a link, a lease or a CREATE leaves alone — while a
+     * new transport instance (a phone process restarted, a PC standby claim) starts its fids at 1. Its first deltas
+     * then hit fids the last instance left in the ring and are skipped in silence (`DESIGN.md` §8.2, `cfw_diag`'s
+     * exact-hit rule): the measured session start's whole first paint is one delta with fid 1, and nothing on the host
+     * sees the skip. Mode 7 sub 0 clears the ring on both lenses, so one is sent at every start, after the warmup's ack.
+     *
+     * The allocator is NOT restarted: after the clear the firmware's baseline is 0 and the session's first image is a
+     * keyframe, which rebaselines, so a delta with any fid is taken without a flag; within one instance the fids keep
+     * running (and `Round3Test`'s wrap pin keeps reaching the wrap). Awaited in the warmup's shape — one deferred on
+     * every copy, re-sent on the warmup's pacing, ended by the ack or the session's sweep — because the next image is
+     * the session's keyframe, whose drain would wait on an un-awaited clear's lost ack. Any end of the wait other than
+     * the session's own lets the start go on, with one `control` note: a refusal, a first copy released by the
+     * second's ack (§34), a write that failed. Not sent when this session's READ says Silent Mode (§36): the session
+     * the wake rebuilds sends it. The firmware fact the wait rests on (the image result is sent before the decode is
+     * queued, whatever the body's first byte) is graded in the P5 part c build report.
+     */
+    private suspend fun clearFidRingAtStart(epoch: Long) {
+        if (_state.value.glassesSilent) {          // one read: the start's READ (or a push since) set it
+            emitNote("control", "fid-ring clear not sent at the session start: the glasses say Silent Mode is on — " +
+                "the session the wake rebuilds sends it")
+            return
+        }
+        // g2flash/patches/zlib_glue.c :: mode 7 sub 0 (~/damage-cfw f20bac9, zlib_glue.c 477–493): clears the sticky
+        // flags, the allocator's failure flag, the fid ring and baseline, and the refusal record (fields 23–25), on both
+        // lenses through the deferred path; no display change
+        val clear = CfwModes.diag(0)
+        val cleared = CompletableDeferred<Unit>()
+        imageQueue.trySend(ImgWork.Raw(epoch, clear, cleared))
+        val reask = scope.launch {
+            while (true) {
+                delay(if (instant) 200L else STALL_REPORT_MS)
+                if (cleared.isCompleted) break
+                Log.w(name, "fid-ring clear unacked after ${STALL_REPORT_MS} ms — sending again; a later ack releases the earlier write (§34)")
+                emitNote("control", "the fid-ring clear went unacked for ${STALL_REPORT_MS / 1000} s — " +
+                    if (window.availablePermits == 0) "queued again (the window has no free slot)" else "sent again")
+                imageQueue.trySend(ImgWork.Raw(epoch, clear, cleared))
+            }
+        }
+        val why = try {
+            cleared.await(); null
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            e.message ?: e.toString()
+        } finally {
+            reask.cancel()
+        }
+        // the session's own end is the caller's to report (its epoch test); anything else is said here and the start
+        // goes on exactly as it did before this gate. `fids` is the image lane's; nothing else is queued on it while
+        // the start is in progress (submit is refused until `started`), so this read is a journal number only.
+        if (why != null && epoch == sessionEpoch.get() && running)
+            emitNote("control", "the fid-ring clear at the session start was not confirmed: $why; this instance's fids continue at ${fids.peek()}")
     }
 
     override suspend fun clearDiagFlags() {
@@ -2237,7 +2426,9 @@ abstract class CfwTransportBase(
         } catch (e: Exception) {
             Log.w(name, "disconnect: ${e.message}")
         }
-        if (teeMirror) mirrorSim.linkReset()
+        // P5 item 16: under the mirror's monitor, after the epoch moved (this stop's first line) — see writePacket
+        if (teeMirror) synchronized(mirrorSim) { mirrorSim.linkReset() }
+        sayStaleTees("at the stop")
         updateState { it.copy(started = false, leaseHeld = false, connected = false, detail = "") }
         if (!_events.tryEmit(TransportEvent.Link(false, "$name stopped")))
             Log.e(name, "Link(false) after stop DROPPED (buffer full)")
@@ -2332,6 +2523,7 @@ abstract class CfwTransportBase(
             is CtlWork.BothArms -> {
                 Log.w(name, "${w.label} dropped: $why")
                 w.failed?.complete(why)          // the doc on BothArms.failed says so; a swept caller must not park
+                w.rightFailed?.complete(why)     // P5 item 9: neither copy was written
             }
         }
     }
@@ -2350,9 +2542,14 @@ abstract class CfwTransportBase(
         started = false
         sessionEpoch.incrementAndGet()     // the session is over: queued work is stale
         leaseLinkEnded(nowMs(), reason)    // §54: the last seconds' lease writes may not have arrived; a timeout is marked
-        sweepSession("link down: $reason")
-        if (teeMirror) mirrorSim.linkReset()
+        // P5 item 2 (boundary-clear F1, its fix 3): the state says ended BEFORE the sweep fails the work in flight —
+        // the shell judges each swept failure by `linkUpAndSteady()`, and a loop that handled one before this flip
+        // read a steady link and counted the link end toward a resync or a halt
         updateState { it.copy(connected = false, started = false, leaseHeld = false, flagsInForce = 0) }
+        sweepSession("link down: $reason")
+        // P5 item 16: under the mirror's monitor, after the epoch moved above — a packet of the message in progress
+        // that is written after this is not applied (writePacket); the next stop or start says how many
+        if (teeMirror) synchronized(mirrorSim) { mirrorSim.linkReset() }
         if (!_events.tryEmit(TransportEvent.Link(false, reason))) {
             Log.e(name, "Link-down event DROPPED (buffer full)")
         }
@@ -2374,8 +2571,9 @@ abstract class CfwTransportBase(
                     when (work) {
                         is ImgWork.Flush -> laneFlush(work)
                         is ImgWork.Raw -> {
-                            val final = writeImage(work.image, work.epoch)
-                            completeAsync(final, flushId = -1, bytes = work.image.size,
+                            // R4 item 5: null = a re-sent copy whose wait had already ended — not written
+                            val final = writeImage(work.image, work.epoch, unlessDone = work.done)
+                            if (final != null) completeAsync(final, flushId = -1, bytes = work.image.size,
                                 t0 = nowMs(), done = work.done)
                         }
                         is ImgWork.ClearDiag -> {
@@ -2443,12 +2641,11 @@ abstract class CfwTransportBase(
         var seededBefore = tracker.seeded
         var encodeReached = false
         var flushWritten = false
+        // P5 item 10: the depth this flush goes out at — 1 for a wide flush whose drain ended, more after a nudge
+        var depth = 1
         try {
-            if (work.request.wide) {
-                // §8.2 #4: a wide flush drains the pipeline and runs at depth 1.
-                repeat(WINDOW) { window.acquire() }
-                repeat(WINDOW) { window.release() }
-            }
+            // §8.2 #4: a wide flush drains the pipeline and runs at depth 1.
+            if (work.request.wide) depth = drainForWide()
             if (fids.wrapPending) {
                 // a previous flush ended on 0xFFFE and its clear did not reach
                 // the wire: the firmware still holds the old baseline — clear
@@ -2471,8 +2668,9 @@ abstract class CfwTransportBase(
             }
             firstFid = fids.peek(); lastBefore = tracker.last; seededBefore = tracker.seeded
             encodeReached = true
+            // the emit's budget is stated at the depth the flush goes out at (GG-2's pointer: 1, or 2 after a nudge)
             val encoded = Emit.encode(work.request, fids, tracker,
-                window = if (work.request.wide) 1 else WINDOW)
+                window = if (work.request.wide) depth else WINDOW)
             val final = writeImage(encoded.image, work.epoch)
             flushWritten = true
             // the flush is on the wire: its completion is its own, whatever
@@ -2519,6 +2717,64 @@ abstract class CfwTransportBase(
     private var lastCompletion: kotlinx.coroutines.Job? = null
 
     /** Await the final ack off-lane so the lane pipelines the next flush. */
+    /** P5 item 10: a wide flush's drain parked behind un-acked messages — when it parked, the permits it has taken so
+     *  far, and the nudge the stall tick completes. One object, so the tick reads the three in one read. */
+    private class DrainPark(val sinceMs: Long) {
+        val taken = java.util.concurrent.atomic.AtomicInteger(0)
+        val nudge = CompletableDeferred<Unit>()
+    }
+    @Volatile private var drainPark: DrainPark? = null
+
+    /**
+     * §8.2 #4: a wide flush drains the pipeline — every slot back — and goes out at depth 1. Returns the depth it goes
+     * out at. With nothing in flight this is the drain as it always was, line for line.
+     *
+     * P5 item 10 (the wait-no-escape sweep's finding 1, with its three corrections): the drain waited for every slot,
+     * and one held by a message whose ack was lost comes back only on a LATER image ack (§34) — which the drain itself
+     * kept from being written: no image went out until the msgId counter came round (~14 min on the phone, modeled),
+     * the stall reported and nothing done. So the acquires run in a child job and the lane waits for its end OR a nudge
+     * the stall tick completes (`launchMaintenance`: the drain parked, no image ack for the stall bound, at least one
+     * slot taken). On the nudge the child is cancelled and exactly the permits it took are released; the flush is
+     * written at the depth the held slots leave it (2 behind one lost ack) and its first ack releases the earlier
+     * message as lost (`releaseEarlierImagePendings`). Pacing and a send; the ack decides. This changes a recorded
+     * decision for the drain case only (`IMPLEMENTATION.md`: the window-full-no-ack stall is reported, never acted on).
+     */
+    private suspend fun drainForWide(): Int {
+        if (window.availablePermits == WINDOW) {
+            repeat(WINDOW) { window.acquire() }
+            repeat(WINDOW) { window.release() }
+            return 1
+        }
+        val park = DrainPark(nowMs())
+        var released = false
+        try {
+            return kotlinx.coroutines.coroutineScope {
+                val child = launch { repeat(WINDOW) { window.acquire(); park.taken.incrementAndGet() } }
+                drainPark = park
+                val drained = kotlinx.coroutines.selects.select<Boolean> {
+                    child.onJoin { true }
+                    park.nudge.onAwait { false }
+                }
+                if (!drained) child.cancelAndJoin()
+                // after the join `taken` is exact: an acquire cancelled while suspended takes no permit
+                val n = park.taken.get()
+                repeat(n) { window.release() }
+                released = true
+                if (n == WINDOW) return@coroutineScope 1                   // every slot came back (the ack beat the nudge)
+                val depth = WINDOW - n + 1
+                val waited = (nowMs() - park.sinceMs) / 1000
+                Log.w(name, "wide flush written at depth $depth: $waited s without an image ack, ${WINDOW - n} message(s) un-acked — " +
+                    "its ack releases the earlier one (§34)")
+                emitNote("stall", "wide flush written at depth $depth after $waited s without an image ack — its ack releases the earlier message")
+                depth
+            }
+        } finally {
+            if (drainPark === park) drainPark = null
+            // the lane was cancelled while parked (the transport's scope ending): the child's permits go back with it
+            if (!released) repeat(park.taken.get()) { window.release() }
+        }
+    }
+
     private fun completeAsync(
         final: PendingAck?, flushId: Long, bytes: Int, t0: Long,
         done: CompletableDeferred<Unit>?,
@@ -2575,7 +2831,7 @@ abstract class CfwTransportBase(
      * slot until its ack arrives — up to WINDOW un-acked messages ride the link.
      * Returns the FINAL fragment's pending ack (flush completion).
      */
-    private suspend fun writeImage(image: ByteArray, atEpoch: Long): PendingAck? {
+    private suspend fun writeImage(image: ByteArray, atEpoch: Long, unlessDone: CompletableDeferred<Unit>? = null): PendingAck? {
         require(image.isNotEmpty()) { "empty image buffer" }
         lastImageAtMs = nowMs()
         if (sessionPenalty) {
@@ -2596,6 +2852,15 @@ abstract class CfwTransportBase(
                 window.release()
                 throw LintError("session ended while waiting for a window slot")
             }
+            // R4 item 5 (review 3B open finding (b)): a start image's re-sent copy (the warmup, the fid-ring clear) waits
+            // here behind a full window; once the wait it was queued for has ended (an earlier copy's ack, a refusal, the
+            // sweep), it is not written — the slot goes back at once. Read after the slot is taken: a copy can be queued
+            // behind a full window before the wait ends and reach this line after.
+            if (index == 0 && unlessDone?.isCompleted == true) {
+                window.release()
+                Log.i(name, "a re-sent start image (${image.size} B) not written: the wait it was queued for has ended")
+                return null
+            }
             updateState { it.copy(inFlight = WINDOW - window.availablePermits) }
             var registered: Pair<Int, PendingAck>? = null
             try {
@@ -2609,7 +2874,7 @@ abstract class CfwTransportBase(
                     if (end == image.size) finalPending = pending
                     for (p in AaFrame.frame(nextSeqLocked(), EvenHubMsg.SID,
                             EvenHubMsg.FLAG_REQUEST, msg)) {
-                        writePacket(Arm.LEFT, p)
+                        writePacket(Arm.LEFT, p, atEpoch)
                     }
                 }
             } catch (e: Exception) {
@@ -2684,6 +2949,16 @@ abstract class CfwTransportBase(
                     failCtlWork(work, "stale session control work dropped")
                     continue
                 }
+                // P5 item 8 (boundary-clear F3, the lanes' half): a session that is ending writes nothing more. Between
+                // `restartSession`'s first lines and its link-down the published state still says started, so the
+                // maintenance loops, a probe or the shell enqueue for that session and the epoch above passes; the
+                // Hub, Settings, BothArms and Launch arms wrote into arms being disconnected. Failed through
+                // `failCtlWork`, so a waiter completes and the drop is a log line. The Lease arm decides for itself:
+                // a RELEASE must pass while not running (stop, the failed start's rollback), an ACQUIRE does not.
+                if (!running && work !is CtlWork.Lease) {
+                    failCtlWork(work, "transport not running")
+                    continue
+                }
                 try {
                     when (work) {
                         is CtlWork.Hub -> {
@@ -2697,7 +2972,7 @@ abstract class CfwTransportBase(
                                     val payload = restampMsgId(work.payload, id)
                                     for (p in AaFrame.frame(nextSeqLocked(), EvenHubMsg.SID,
                                             EvenHubMsg.FLAG_REQUEST, payload)) {
-                                        writePacket(Arm.RIGHT, p)
+                                        writePacket(Arm.RIGHT, p, work.epoch)
                                     }
                                 }
                             } catch (e: Exception) {
@@ -2744,7 +3019,7 @@ abstract class CfwTransportBase(
                                 val payload = restampMsgId(work.payload, id)
                                 for (p in AaFrame.frame(nextSeqLocked(), SettingsMsg.SID,
                                         SettingsMsg.FLAG_REQUEST, payload)) {
-                                    writePacket(Arm.RIGHT, p)
+                                    writePacket(Arm.RIGHT, p, work.epoch)
                                 }
                             }
                         } catch (e: Exception) {
@@ -2760,7 +3035,7 @@ abstract class CfwTransportBase(
                             var everyArm = true
                             for (arm in Arm.entries) {
                                 try {
-                                    for (p in AaFrame.frame(nextSeqLocked(), work.sid, 0x20, payload)) writePacket(arm, p)
+                                    for (p in AaFrame.frame(nextSeqLocked(), work.sid, 0x20, payload)) writePacket(arm, p, work.epoch)
                                 } catch (e: kotlinx.coroutines.CancellationException) {
                                     throw e                     // the lane is ending: not a write failure
                                 } catch (e: Exception) {
@@ -2768,6 +3043,7 @@ abstract class CfwTransportBase(
                                     Log.w(name, "${work.label} not written to $arm: ${e.message}")
                                     emitNote("probe", "${work.label} not written to $arm: ${e.message}")
                                     work.failed?.complete("$arm: ${e.message}")
+                                    if (arm == Arm.RIGHT) work.rightFailed?.complete("$arm: ${e.message}")
                                 }
                             }
                             if (everyArm) work.written?.complete(Unit)
@@ -2778,7 +3054,7 @@ abstract class CfwTransportBase(
                                 preludeMsgId = id          // known before the bytes leave
                                 for (p in AaFrame.frame(nextSeqLocked(), LaunchMsg.SID,
                                         LaunchMsg.FLAG_REQUEST, LaunchMsg.prelude(id))) {
-                                    writePacket(Arm.RIGHT, p)
+                                    writePacket(Arm.RIGHT, p, work.epoch)
                                 }
                             }
                         } catch (e: Exception) {
@@ -2812,7 +3088,7 @@ abstract class CfwTransportBase(
                                             try {
                                                 for (p in AaFrame.frame(nextSeqLocked(), SettingsMsg.SID,
                                                         SettingsMsg.FLAG_REQUEST, SettingsMsg.control(work.op, nonce))) {
-                                                    writePacket(arm, p)
+                                                    writePacket(arm, p, work.epoch)
                                                 }
                                                 leaseWritten(arm, work.op, nowMs())
                                             } catch (e: Exception) {
@@ -2983,8 +3259,12 @@ abstract class CfwTransportBase(
                 (status == DamageMsg.STATUS_OK.toLong() && pending != null && flags == pending.toLong())
 
         /** Reporting threshold for the stall diagnostic — well past any
-         *  measured ack (176 ms median, 7–13 KB/s); reports, never acts. */
+         *  measured ack (176 ms median, 7–13 KB/s); reports, never acts — except that a wide flush's
+         *  drain parked this long behind no image ack is nudged (P5 item 10, `drainForWide`). */
         private const val STALL_REPORT_MS = 10_000L
+        /** P5 item 10: the drain's nudge bound on an instant transport, the warmup re-send's instant pacing (200 ms):
+         *  its acks come back within milliseconds, so a drain parked this long behind no ack is behind a lost one. */
+        private const val DRAIN_NUDGE_INSTANT_MS = 200L
         /** How long a released msgId is remembered so its late ack is named. */
         private const val RELEASED_MEMORY_MS = 60_000L
 

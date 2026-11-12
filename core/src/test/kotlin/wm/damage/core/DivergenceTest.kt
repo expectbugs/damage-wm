@@ -95,8 +95,6 @@ class DivergenceTest {
     }
 
     private suspend fun settle(shell: Shell) {
-        val t0 = System.currentTimeMillis()
-        while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 10_000) delay(10)
-        assertTrue(shell.isQuiescent(), "shell did not settle")
+        waitUntil(10_000, 10, { "shell did not settle" }) { shell.isQuiescent() }
     }
 }

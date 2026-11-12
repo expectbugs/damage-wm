@@ -341,7 +341,9 @@ class FeedWindow(
         if (!registered) { registered = true; provider.addListener(listener) }
         stateLine = provider.stateLine()
         sources = try { provider.sources() } catch (e: Exception) { emptyList() }
-        for (s in sources) announcedMs[s.id] = reading(s.id).seenMs
+        // RAISED, never set (P7 item 4, OS-6): this runs at every session start on the same instance, and a set
+        // lowered the floor below an item already announced — the next announce named it again
+        for (s in sources) announcedMs[s.id] = maxOf(announcedMs[s.id] ?: 0L, reading(s.id).seenMs)
     }
 
     /** The stack is going away while the provider lives on: stop listening. */
@@ -361,6 +363,9 @@ class FeedWindow(
         when (level) {
             Level_.ITEMS, Level_.ACTIONS, Level_.ARTICLE, Level_.COMIC, Level_.COMMENTS ->
                 if (items.isEmpty() && openSource != null && !itemsLoading) loadItems(0)
+                // P7 item 5 (OS-3), step 3: a record naming an item this instance does not hold, while its list is
+                // loaded — the re-open's one consumer is a list load, which the line above asks only of an empty list
+                else if (pendingOpenItemId != null && items.isNotEmpty()) reloadItems()
             Level_.BINGE, Level_.BINGE_ACTIONS -> if (loaded.isEmpty() && !bingeLoading) ensureBinge()
             else -> {}
         }
@@ -388,6 +393,7 @@ class FeedWindow(
     /** MAIN entry: the source list, the window's root (the reading position
      *  of everything below stays in its records). */
     private fun goRoot() {
+        clearPendingOpen()
         forgetUnpinned()
         level = Level_.SOURCES
         services?.setOperation("idle")
@@ -466,6 +472,7 @@ class FeedWindow(
     }
 
     override fun back(): Boolean {
+        clearPendingOpen()
         when (level) {
             Level_.SOURCES -> return false
             Level_.ITEMS -> { forgetUnpinned(); level = Level_.SOURCES; services?.setOperation("idle") }
@@ -631,6 +638,7 @@ class FeedWindow(
 
     // ================================================================ ITEMS
     private fun openItems(sourceId: String) {
+        clearPendingOpen()        // `open("item:…")` arms its own re-open AFTER this call
         if (openSource != sourceId) {
             forgetUnpinned(except = sourceId)
             openSource = sourceId
@@ -722,9 +730,10 @@ class FeedWindow(
                         val it = items.firstOrNull { it.id == pend }
                         if (it != null) {
                             pendingOpenItemId = null
+                            val restored = restoredLevel      // read before `openOne`, which clears it
                             openOne(it)
                             // the restored level below the article (§9.1: mode included)
-                            when (restoredLevel) {
+                            when (restored) {
                                 Level_.ACTIONS -> openActions()
                                 Level_.COMMENTS -> openComments(it)
                                 else -> {}
@@ -859,6 +868,7 @@ class FeedWindow(
 
     /** One tap opens (the Reader grammar): the article or the comic, read on open (verdict 6). */
     private fun openOne(it: Item) {
+        clearPendingOpen()
         openItem = it
         markRead(it, true)
         docModel.topLine = 0             // a restored position waits in pendingDocTop for the lines to exist
@@ -1798,6 +1808,12 @@ class FeedWindow(
         fun i(k: String, d: Int) = state[k]?.jsonPrimitive?.intOrNull ?: d
         fun b(k: String, d: Boolean) = state[k]?.jsonPrimitive?.booleanOrNull ?: d
         fun art(k: String) = s(k)?.let { n -> LineArt.entries.firstOrNull { it.name == n } } ?: LineArt.AUTO
+        // P7 item 5 (OS-3), step 1: a session start on the SAME instance (a link end, a Silent wake, a rebuild) whose
+        // record names the item this instance holds open, with no re-open armed, keeps the level, the item and its
+        // content — the re-open path below demoted the article to its list and fetched it again. One read of each.
+        val heldOpen = openItem
+        val keepHeld = pendingOpenItemId == null && heldOpen != null &&
+            heldOpen.id == s("openItemId") && heldOpen.source == s("openItemSource")
         level = s("level")?.let { n -> Level_.entries.firstOrNull { it.name == n } } ?: Level_.SOURCES
         openSource = s("openSource")
         val restoredSrc = s("srcCursorId")
@@ -1809,9 +1825,11 @@ class FeedWindow(
         actModel.cursor = i("actCursor", 0)
         bingeActModel.cursor = i("bingeActCursor", 0)
         flagModel.cursor = i("flagCursor", 0)
-        pendingDocTop = i("docTop", 0).takeIf { it > 0 }
-        pendingComicTop = i("comicTop", 0).takeIf { it > 0 }
-        pendingCommentsTop = i("commentsTop", 0).takeIf { it > 0 }
+        if (!keepHeld) {                 // a held article keeps its own positions (they are what the record says)
+            pendingDocTop = i("docTop", 0).takeIf { it > 0 }
+            pendingComicTop = i("comicTop", 0).takeIf { it > 0 }
+            pendingCommentsTop = i("commentsTop", 0).takeIf { it > 0 }
+        }
         bingeSource = s("bingeSource")
         recentSubs.clear(); (state["recentSubs"] as? JsonArray)?.forEach { it.jsonPrimitive.contentOrNull?.let { v -> recentSubs.addLast(v) } }
         recentSections.clear(); (state["recentSections"] as? JsonArray)?.forEach { it.jsonPrimitive.contentOrNull?.let { v -> recentSections.addLast(v) } }
@@ -1827,7 +1845,7 @@ class FeedWindow(
         if (b("srcMenu", false)) srcModel.cursor = maxOf(0, srcRows().size - 1)
         // an open item is re-resolved when its list loads (a restored level
         // below the top loads on the way back — §25 #7)
-        if (itemId != null && itemSrc != null && (level == Level_.ARTICLE || level == Level_.COMIC || level == Level_.ACTIONS || level == Level_.COMMENTS)) {
+        if (!keepHeld && itemId != null && itemSrc != null && (level == Level_.ARTICLE || level == Level_.COMIC || level == Level_.ACTIONS || level == Level_.COMMENTS)) {
             openSource = openSource ?: itemSrc
             openItem = Item(itemId, itemSrc, "", "", kind = if (level == Level_.COMIC) ItemKind.COMIC else ItemKind.LINK)
             pendingOpenItemId = itemId
@@ -1840,6 +1858,10 @@ class FeedWindow(
     /** A restore that lands on ARTICLE/COMIC/ACTIONS/COMMENTS: the list
      *  loads first, the item re-opens, then this level is restored. */
     private var restoredLevel: Level_? = null
+
+    /** P7 item 5 (OS-3), step 2: every explicit navigation (`goRoot`, `back`, `openItems`, `openOne`) ends a re-open
+     *  the restore armed — its one consumer, a list load, otherwise opened the old article by itself later. */
+    private fun clearPendingOpen() { pendingOpenItemId = null; restoredLevel = null }
 
     override fun saveSubState(): Map<String, JsonObject> {
         rememberBingePos()

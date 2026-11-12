@@ -48,15 +48,11 @@ class Review28Test {
         }
 
         suspend fun settle(what: String = "") {
-            val t0 = System.currentTimeMillis()
-            while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 20_000) delay(10)
-            assertTrue(shell.isQuiescent(), "the shell did not settle $what")
+            waitUntil(20_000, 10, { "the shell did not settle $what" }) { shell.isQuiescent() }
         }
 
         suspend fun await(what: String, ms: Long = 20_000, cond: () -> Boolean) {
-            val t0 = System.currentTimeMillis()
-            while (!cond() && System.currentTimeMillis() - t0 < ms) delay(20)
-            assertTrue(cond(), "did not converge: $what (title=${win.title()} level=${win.levelName})")
+            waitUntil(ms, 20, { "did not converge: $what (title=${win.title()} level=${win.levelName})" }) { cond() }
         }
 
         suspend fun tap() { shell.postGesture(EvenHubMsg.EV_CLICK); settle() }
@@ -219,9 +215,7 @@ class Review28ScaleTest {
                 while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 20_000) delay(10)
             }
             suspend fun await(what: String, cond: () -> Boolean) {
-                val t0 = System.currentTimeMillis()
-                while (!cond() && System.currentTimeMillis() - t0 < 20_000) delay(20)
-                assertTrue(cond(), "did not converge: $what (title=${reader.title()})")
+                waitUntil(20_000, 20, { "did not converge: $what (title=${reader.title()})" }) { cond() }
             }
             settle()
             assertTrue(shell.settings.fontScale == 1.3, "the rig runs at 130 %")
@@ -283,9 +277,7 @@ class Review28ScaleTest {
                 while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 20_000) delay(10)
             }
             suspend fun await(what: String, cond: () -> Boolean) {
-                val t0 = System.currentTimeMillis()
-                while (!cond() && System.currentTimeMillis() - t0 < 20_000) delay(20)
-                assertTrue(cond(), "did not converge: $what (title=${win.title()})")
+                waitUntil(20_000, 20, { "did not converge: $what (title=${win.title()})" }) { cond() }
             }
             settle()
             val session = wm.damage.core.windows.tmux.TmuxSessionInfo("beardos", "claude", 1, false,

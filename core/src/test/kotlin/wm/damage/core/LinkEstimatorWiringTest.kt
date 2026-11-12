@@ -118,9 +118,7 @@ class LinkEstimatorWiringTest {
         suspend fun start() = t.start(Zl.encodeCfw(Pack.rect(Gray8(640, 480), Rect(0, 0, 640, 480))))
 
         suspend fun until(what: String, cond: () -> Boolean) {
-            val t0 = System.currentTimeMillis()
-            while (!cond() && System.currentTimeMillis() - t0 < 10_000) delay(2)
-            assertTrue(cond(), what)
+            waitUntil(10_000, 2, { what }) { cond() }
         }
 
         suspend fun await(id: Long): TransportEvent.FlushDone {

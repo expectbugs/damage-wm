@@ -127,8 +127,8 @@ Three facts about this display shape most of the design:
 ## Building and verifying
 
 ```
-./gradlew :core:test                                  # 932 tests, incl. the per-lens oracle and the conformance vectors
-./gradlew :desktop:test                               # 32 tests: the BlueZ glue over a fake link, the standby policy, the setup server, the config file, the xkcd PNG decoder, the status cell's fit
+./gradlew :core:test                                  # 1023 tests, incl. the per-lens oracle and the conformance vectors
+./gradlew :desktop:test                               # 35 tests: the BlueZ glue over a fake link, the standby policy, the setup server, the config file, the xkcd PNG decoder, the status cell's fit
 ./gradlew :desktop:run --args="--selfcheck"           # the 485-check whole-stack gate, run twice (both contracts); run it more than once
 ./gradlew :desktop:run --args="--snapshot DIR"        # lens-truth PNGs of every surface
 ./gradlew :desktop:run --args="--epub-check"          # parse every book; chapters + image decode

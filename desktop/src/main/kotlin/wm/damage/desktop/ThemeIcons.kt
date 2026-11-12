@@ -70,6 +70,14 @@ class ThemeIcons(
      *  of guessing with fixed delays. */
     fun pending(): Int = inFlight.size
 
+    /** Resolves that ended in a repaint ([onLoaded]), counted AFTER the repaint is asked — the snapshot harness
+     *  reads it on both sides of its look at [pending] and the shell's rest (0.65 P7 item 11): a chain's next name
+     *  is asked only by the repaint a miss triggers, so "nothing in flight" alone can be read between two steps.
+     *  R4 item 7 (review 3B-2): counted before it, one evaluation could see the new count, then a shell at rest with
+     *  the repaint not yet posted, and end the wait with the chain's repaint still to come. */
+    fun completions(): Long = completed.get()
+    private val completed = java.util.concurrent.atomic.AtomicLong(0)
+
     // ------------------------------------------------------------- the seam
     override fun missing(name: String, sizePx: Int): Boolean = "$name@$sizePx" in missingKeys
 
@@ -89,10 +97,12 @@ class ThemeIcons(
                             mem[key] = g
                             diskWrite(name, sizePx, g)
                             onLoaded()
+                            completed.incrementAndGet()     // after the repaint is asked (R4 item 7)
                         }
                         cleanMiss -> {
                             missingKeys.add(key)
                             onLoaded()   // the chain's next name gets its turn
+                            completed.incrementAndGet()     // after the repaint is asked (R4 item 7)
                         }
                         else -> {
                             retryAt[key] = System.currentTimeMillis() + RETRY_PACING_MS

@@ -1,6 +1,8 @@
 package wm.damage.core
 
 import kotlin.test.Test
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import wm.damage.core.transport.Arm
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -294,5 +296,32 @@ class SimRoundTripTest {
         // and the session (and its neighbours) are now stuck — the g2-kit trap
         h.write(EvenHubMsg.imageFragment(41, 100, 100, 0, ByteArray(100)), Arm.LEFT)
         assertTrue(h.events.any { it.first == "session" })
+    }
+
+    /**
+     * P5 item 18 (the one-sibling sweep's OS-7): the simulator transport promotes the model's diagnostic kinds to
+     * faults as the mirror tee does — `image` included, the one the model raises for interleaved fragments ("partial
+     * DISCARDED") and for an image completed with no layout, neither of which aborts or fails a flush. Unfixed, the
+     * listener left `image` out: a `Log.w` on every sim-backed gate (`--selfcheck`'s "no transport faults" among them).
+     * Two image streams interleaved on the wire, written to the model behind a `SimTransport`.
+     */
+    @Test
+    fun anInterleavedImageIsAFaultOnTheSimTransport(): Unit = kotlinx.coroutines.runBlocking {
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+        try {
+            val sim = GlassFirmwareSim()
+            val t = wm.damage.core.transport.SimTransport(sim, scope, wm.damage.core.transport.SimTransport.Timing(instant = true))
+            val faults = java.util.concurrent.CopyOnWriteArrayList<wm.damage.core.transport.TransportEvent.Fault>()
+            scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                t.events.collect { if (it is wm.damage.core.transport.TransportEvent.Fault) faults.add(it) }
+            }
+            // fragment 0 of session 10 (of two), then fragment 0 of session 20: the first stream is discarded
+            fun write(msg: ByteArray, seq: Int) { for (p in AaFrame.frame(seq, EvenHubMsg.SID, EvenHubMsg.FLAG_REQUEST, msg)) sim.write(Arm.LEFT, p, 0) }
+            write(EvenHubMsg.imageFragment(1, 10, 200, 0, ByteArray(100)), 1)
+            write(EvenHubMsg.imageFragment(2, 20, 200, 0, ByteArray(100)), 2)
+            waitUntil(5_000, message = { "no image fault: $faults" }) { faults.any { it.what == "image" && "partial DISCARDED" in it.detail } }
+        } finally {
+            scope.cancel()
+        }
     }
 }

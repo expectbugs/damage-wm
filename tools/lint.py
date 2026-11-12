@@ -13,7 +13,8 @@ nothing.
     BUD000, BUD005-007  ink budgets measured from design/shots
 
 The runtime rules (stereo pairs, the rect budget, fid order, the frame walls) are core's
-`geom` package (`Geometry.kt`, `FidTracker.kt`), checked on every emit and pinned by `GeometryTest` — not here.
+`geom` package (`Geometry.kt`, `FidTracker.kt`), checked on every emit and pinned by `GeometryTest` (the emit's
+refusals by `EmitRulesTest`) — not here.
 
 Usage:
     tools/lint.py [PATH ...]              lint files/dirs (default: the whole repo)
@@ -199,60 +200,111 @@ def _kotlin_strings(src: str):
     three of them) and without this the quote inside it opens a string, which
     flips the string/code parity for the whole rest of the file — code read as
     literals and literals read as code, i.e. both false positives and false
-    negatives in a build gate (review pass 3, 2026-09-04)."""
-    out, i, line, n = [], 0, 1, len(src)
-    while i < n:
-        c = src[i]
-        if c == "\n":
-            line += 1; i += 1; continue
-        if c == "'":
-            j = i + 1
-            if j < n and src[j] == "\\":
-                j += 1
-            j += 1                                   # the character itself
-            if j < n and src[j] == "'":
-                i = j + 1
+    negatives in a build gate (review pass 3, 2026-09-04).
+
+    Templates (0.65 P7 item 8, green-gate GG-6): inside a `"…"` or a raw (triple-quoted) literal a
+    `${` opens CODE that runs to its matching `}` (braces counted, comments and char
+    literals known, lines counted — a template body may span lines); a literal inside it
+    is yielded as its own (line, text), and the template's code is not part of the outer
+    literal's text. The old walk ended the outer literal at the first inner quote, read
+    the nested literal as code and never scanned it (231 such literals in the repo).
+    `\\uXXXX` in a `"…"` literal is decoded to its character (it was scanned as the text
+    `uXXXX`); a raw string has no escapes. A `"…"` literal still ends at a newline outside a
+    template, so malformed text never runs on through the file."""
+    out = []
+    n = len(src)
+    st = [0, 1]                                      # position, line
+
+    def code(in_template: bool) -> None:
+        depth = 0
+        while st[0] < n:
+            i = st[0]
+            c = src[i]
+            if c == "\n":
+                st[1] += 1; st[0] = i + 1; continue
+            if c == "'":
+                j = i + 1
+                if j < n and src[j] == "\\":
+                    j += 1
+                    if j < n and src[j] == "u":
+                        j += 4                       # '\\uXXXX'
+                j += 1                               # the character itself
+                if j < n and src[j] == "'":
+                    st[0] = j + 1
+                    continue
+                # not a char literal after all (it cannot be anything else outside
+                # a string or comment, but never consume past the line if it is)
+                st[0] = i + 1
                 continue
-            # not a char literal after all (it cannot be anything else outside
-            # a string or comment, but never consume past the line if it is)
-            i += 1
-            continue
-        if c == "/" and i + 1 < n and src[i + 1] == "/":
-            while i < n and src[i] != "\n":
-                i += 1
-            continue
-        if c == "/" and i + 1 < n and src[i + 1] == "*":
-            i += 2
-            while i + 1 < n and not (src[i] == "*" and src[i + 1] == "/"):
-                if src[i] == "\n":
-                    line += 1
-                i += 1
-            i += 2
-            continue
-        if src.startswith('"""', i):
-            start, i = line, i + 3
-            buf = []
-            while i < n and not src.startswith('"""', i):
-                if src[i] == "\n":
-                    line += 1
-                buf.append(src[i]); i += 1
-            i += 3
-            out.append((start, "".join(buf)))
-            continue
-        if c == '"':
-            start, i = line, i + 1
-            buf = []
-            while i < n and src[i] != '"':
-                if src[i] == "\\" and i + 1 < n:
-                    buf.append(src[i + 1]); i += 2; continue
-                if src[i] == "\n":
-                    line += 1
+            if c == "/" and i + 1 < n and src[i + 1] == "/":
+                while st[0] < n and src[st[0]] != "\n":
+                    st[0] += 1
+                continue
+            if c == "/" and i + 1 < n and src[i + 1] == "*":
+                st[0] = i + 2
+                while st[0] + 1 < n and not (src[st[0]] == "*" and src[st[0] + 1] == "/"):
+                    if src[st[0]] == "\n":
+                        st[1] += 1
+                    st[0] += 1
+                st[0] += 2
+                continue
+            if src.startswith('"""', i):
+                st[0] = i + 3
+                literal(raw=True)
+                continue
+            if c == '"':
+                st[0] = i + 1
+                literal(raw=False)
+                continue
+            if in_template:
+                if c == "{":
+                    depth += 1
+                elif c == "}":
+                    if depth == 0:
+                        st[0] = i + 1
+                        return
+                    depth -= 1
+            st[0] = i + 1
+
+    def literal(raw: bool) -> None:
+        start, buf = st[1], []
+        while st[0] < n:
+            i = st[0]
+            c = src[i]
+            if raw and src.startswith('"""', i):
+                j = i
+                while j < n and src[j] == '"':
+                    j += 1
+                buf.append('"' * (j - i - 3))        # a run of quotes ends the raw string at its LAST three
+                st[0] = j
+                break
+            if not raw and c == '"':
+                st[0] = i + 1
+                break
+            if c == "$" and i + 1 < n and src[i + 1] == "{":
+                st[0] = i + 2
+                code(in_template=True)
+                continue
+            if not raw and c == "\\" and i + 1 < n:
+                e = src[i + 1]
+                h = src[i + 2:i + 6]
+                if e == "u" and len(h) == 4 and all(x in "0123456789abcdefABCDEF" for x in h):
+                    buf.append(chr(int(h, 16)))
+                    st[0] = i + 6
+                    continue
+                buf.append(e)
+                st[0] = i + 2
+                continue
+            if c == "\n":
+                st[1] += 1
+                if not raw:
+                    st[0] = i + 1
                     break
-                buf.append(src[i]); i += 1
-            i += 1
-            out.append((start, "".join(buf)))
-            continue
-        i += 1
+            buf.append(c)
+            st[0] = i + 1
+        out.append((start, "".join(buf)))
+
+    code(in_template=False)
     return out
 
 
@@ -533,7 +585,14 @@ def selftest() -> int:
           # THE SAME LINE: without the walker's char branch the quote inside
           # it opens a string, the parity flips, and line 5's tofu is read as
           # CODE and never reported (Journal.kt writes three of these)
-          "val q = '\"'; val c = \"and \u2508 after a char literal\"\n")
+          "val q = '\"'; val c = \"and \u2508 after a char literal\"\n"
+          # 0.65 P7 item 8 (GG-6): a literal NESTED in a template, a `\\uXXXX` escape, and a template body that
+          # spans lines with its nested literal on the first line — the old walk read the first as code, the second
+          # as the text `u2508`, and the third's literal as code too (a `"` ended the string at the newline)
+          'val d = "x ${f("nested \u2508")} y"\n'
+          'val e = "escaped \\u2508 here"\n'
+          'val h = "a ${f("first \u2508",\n'
+          '    y)} b"\n')
     with tempfile.NamedTemporaryFile("w", suffix=".kt", delete=False) as f:
         f.write(kt)
         tmp = Path(f.name)
@@ -546,6 +605,12 @@ def selftest() -> int:
         # the char-literal branch: line 5's literal must still be scanned
         cases.append(("SYM002 past a char literal",
                       ["ok"] if any(":5:" in g for g in found) else [], "ok"))
+        cases.append(("SYM002 a literal in a template",
+                      ["ok"] if any(":6:" in g and "U+2508" in g for g in found) else [], "ok"))
+        cases.append(("SYM002 a \\uXXXX escape",
+                      ["ok"] if any(":7:" in g and "U+2508" in g for g in found) else [], "ok"))
+        cases.append(("SYM002 a template over lines",
+                      ["ok"] if any(":8:" in g and "U+2508" in g for g in found) else [], "ok"))
     finally:
         tmp.unlink()
 

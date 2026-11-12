@@ -266,9 +266,12 @@ interface ShellServices {
     /** Raise an internal notification (§4.5). The §16.5 signature (2026-09-01):
      *  [thread] is the coalescing key (same source+thread replaces/merges),
      *  [appId] names the window a tap opens, [target] deep-links INTO it
-     *  (§16.1) — tap = commit + activate + open(target). */
+     *  (§16.1) — tap = commit + activate + open(target).
+     *  [answer] (P7 item 2, OS-2): the notice answers Adam's own gesture (a refused tap, a typed line
+     *  nothing took, an open that failed). It is shown whatever Global `Notify · Damage` says — that row
+     *  gates the WM's own courtesy events — and, naming no app, a tap on it only dismisses it. */
     fun notifyInternal(source: String, body: String, urgent: Boolean = false,
-        appId: String? = null, thread: String = "", target: String? = null)
+        appId: String? = null, thread: String = "", target: String? = null, answer: Boolean = false)
 
     /**
      * §16.11 floating context menu (Adam's Files design, 2026-09-01: "a tap

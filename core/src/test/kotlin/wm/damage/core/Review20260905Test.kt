@@ -43,15 +43,11 @@ class Review20260905Test {
         suspend fun stop() { shell.stop(); scope.cancel() }
 
         suspend fun settle() {
-            val t0 = System.currentTimeMillis()
-            while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 20_000) delay(10)
-            assertTrue(shell.isQuiescent(), "the shell did not settle")
+            waitUntil(20_000, 10, { "the shell did not settle" }) { shell.isQuiescent() }
         }
 
         suspend fun await(what: String, cond: () -> Boolean) {
-            val t0 = System.currentTimeMillis()
-            while (!cond() && System.currentTimeMillis() - t0 < 20_000) delay(20)
-            assertTrue(cond(), "did not converge: $what (title=${win.title()}, menu=${shell.menuLabels})")
+            waitUntil(20_000, 20, { "did not converge: $what (title=${win.title()}, menu=${shell.menuLabels})" }) { cond() }
         }
 
         suspend fun tap() { shell.postGesture(EvenHubMsg.EV_CLICK); settle() }

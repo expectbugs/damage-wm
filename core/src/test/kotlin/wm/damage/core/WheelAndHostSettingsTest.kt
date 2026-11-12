@@ -32,9 +32,7 @@ class WheelAndHostSettingsTest {
     }
 
     private suspend fun settle(shell: Shell) {
-        val t0 = System.currentTimeMillis()
-        while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 10_000) delay(10)
-        assertTrue(shell.isQuiescent(), "shell did not settle: ${shell.quiescenceReport()}")
+        waitUntil(10_000, 10, { "shell did not settle: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
     }
 
     private fun notice(thread: String) =

@@ -926,7 +926,8 @@ An **event** — an exception, a failed flush, a transport fault, a refused atla
 thread named for its class, with its whole text (§4.5 scrolls it): one notice per class per episode, a repeat
 updating the one box's count at ×2, ×4, ×8 …, the phone hearing an urgent class once (§9.3), a dismissed box
 staying dismissed until the class has been quiet for a minute. Fault notices ignore Global `Notify · Damage`
-(that row gates courtesy notices). Two things never raise a box: a fault of a session that is ending (the word
+(that row gates the WM's own courtesy notices; a notice that names its app is gated by that app's own rows, and an
+answer to Adam's own gesture is not gated — 0.65 P7). Two things never raise a box: a fault of a session that is ending (the word
 says `no link` or `rebuild`), and a **refused image** — its box would be more images into a page that refuses
 them (§36); the refusal streak's sleep is said once instead. From APK 0.64 (built, not yet installed; `HANDOFF.md`
 §76) the cache count raises four classes, source `DAMAGE · cache`: `cache/short`, `cache/lost` (its body ends "for
@@ -1165,7 +1166,8 @@ notifications were crammed into a title bar.
 on/off row **in that app's Settings category** — Tmux → Alerts, Torrents → Notify · done /
 Notify · errors, Music → its six Notify rows — never in Global. Global keeps `Notify · Damage`
 (the WM's own events) and the APK-wide `Phone notifications` switch. The window gates its own
-`notifyInternal` calls on its rows; the shell filter (`noticeAllowed`) keeps the historical
+`notifyInternal` calls on its rows; the shell's `DAMAGE` arm passes any notice that carries an `appId` or `answer`
+(0.65 P7 items 1–2); the shell filter (`noticeAllowed`) keeps the historical
 SMS/Mail fields for the apps still to come. It no longer gates `music` (2026-09-02): a Global row
 that has gone must not leave a hidden persisted gate behind.
 
@@ -1807,7 +1809,9 @@ safety net, so "keep enough history in the ring" is the wrong thing to engineer 
 1. **Never put the same fid on the wire twice.** On a missed ack, do *not* retransmit — recompute
    damage for that region and send it with a **fresh** fid. Same bytes or fewer, and it removes
    the aged-out-stale-duplicate hazard outright. This is the only duplicate source that scales
-   with rect count.
+   with rect count. The rule holds per boot of the glasses, not per host process: the 16-deep ring
+   outlives a host's allocator (a new transport instance starts at fid 1), so every session start
+   clears the ring with mode 7 sub 0 after the warmup's ack (APK 0.65, P5 item 15).
 2. **The ring's remaining job is firmware-internal re-processing** (the snapshot FIFO / cross-lens
    completion path — the code's *"re-processed message"* comment). That duplicate arrives within a
    few fids, so 16 covers it at any sane rect count. **The ring therefore stops constraining the
@@ -1975,7 +1979,7 @@ come back to the live tail and lose my place, i fuckin HATE that."*
 
   ⚠ **Most of these are RUNTIME properties** — a rect computed at frame time is invisible to a
   source linter. So the runtime rules (GEO004–006, GEO008, BUD001–004, FID001–004) live in **`core`'s `geom`
-  package** (`Geometry.kt`, `FidTracker.kt`), checked by the compositor on every emit and pinned by `GeometryTest`; the linter
+  package** (`Geometry.kt`, `FidTracker.kt`), checked by the compositor on every emit and pinned by `GeometryTest` and the emit's refusals by `EmitRulesTest`; the linter
   checks what a build can see — the cell table §2.3 declares (GEO000–003, GEO007), the renders
   (BUD005–007) and every string literal (SYM). One implementation per rule, the one that runs.
 

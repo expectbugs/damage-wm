@@ -2170,13 +2170,18 @@ class GlyphSubsetShellTest {
             assertTrue(r.spy.state.value.draw2, "DRAW2 is in force before the asks are muted (the start's own reads were answered)")
             r.lab.muteCounts = true                       // from here every op-1 ask is written and never answered
             r.shell.updateSettings { it.copy(cachedText = "on") }
+            // R4 item 8 (review 3B open finding (e)): the transport's third "not answered" note reaches the journal
+            // through the events collector, the ended reading reaches the shell through the ledger's `Run` — no order
+            // between them, so the notice can be up before the note is journaled. ONE evaluation reads both, and the
+            // asserts read the list that evaluation took (it read the notes a second time and missed, 2 of 3).
+            var ended: List<String> = emptyList()
             waitUntil(40_000, 5, { "the count goes off and says so — count notes=${r.notes("atlas").filter { "count" in it }.takeLast(4)} " +
                 "glass=${r.notes("glass").filter { "cache count" in it }.takeLast(3)} notices=${r.cacheNotices()}" }) {
-                r.cacheNotices().any { it.thread == "cache/off" } }
+                ended = r.notes("glass").filter { "not answered after 3 asks" in it }
+                ended.size >= 3 && r.cacheNotices().any { it.thread == "cache/off" } }
             val box = r.cacheNotices().single { it.thread == "cache/off" }
             assertEquals("the glasses did not answer the cache count (asked 3 times) — cache writes go unchecked " +
                 "and Page staging is off until the next session", box.body)
-            val ended = r.notes("glass").filter { "not answered after 3 asks" in it }
             assertEquals(3, ended.size, "each reading ends at its third ask, and the transport says so: $ended")
             assertTrue(ended.all { "cache count" in it }, "the note names the label: $ended")
             assertEquals(2, r.count("count unread — ").size, "two unanswered readings before the third: ${r.count("count")}")

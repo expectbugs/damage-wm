@@ -144,8 +144,6 @@ class Round5Test {
     }
 
     private suspend fun waitFor(cond: () -> Boolean) {
-        val t0 = System.currentTimeMillis()
-        while (!cond() && System.currentTimeMillis() - t0 < 10_000) delay(5)
-        assertTrue(cond(), "condition never became true")
+        waitUntil(10_000, 5, { "condition never became true" }) { cond() }
     }
 }

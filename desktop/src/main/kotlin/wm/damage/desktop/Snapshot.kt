@@ -68,10 +68,14 @@ object Snapshot {
         // scenes wait for the resolve queue to DRAIN, not a guessed delay —
         // a late resolve repainting between settle and save tore the PNG
         // (review 2026-09-01 icons#7)
-        suspend fun iconsSettled() {
-            val t0 = System.currentTimeMillis()
-            while (icons.pending() > 0 && System.currentTimeMillis() - t0 < 30_000) delay(50)
-            settle(shell)
+        // 0.65 P7 item 11: ONE evaluation decides — the shell at rest, no resolve in flight and none ended while
+        // those two were read. The old shape waited for `pending()` to read 0 and then settled: a chain's miss
+        // (`IconPaint.draw` walks `IconNames.PROJECT` / `MOUNT` one pending name at a time) leaves nothing in flight
+        // until the repaint it asked for requests the next name, so the wait could end between the two steps and
+        // the save took the drawn folder (`11-files-locations`' project and mount rows in two of eleven sets, P5-verify §5)
+        suspend fun iconsSettled() = waitFor("theme icons settled") {
+            val c = icons.completions()
+            shell.isQuiescent() && icons.pending() == 0 && icons.completions() == c
         }
         val reader = ReaderWindow(text, LocalContent(books), scope, AwtImages())
         shell.register(reader)

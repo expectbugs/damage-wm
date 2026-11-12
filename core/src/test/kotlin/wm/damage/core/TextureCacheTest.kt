@@ -317,6 +317,26 @@ class TextureCacheTest {
         val m15 = byteArrayOf(15, 0, 0, 0, 0, 15, 1, 'A'.code.toByte())
         assertFalse(sim.dispatchForTest(Arm.LEFT, m15, 1_000L),
             "mode 15 draws with the firmware's own font; no offline model can predict it")
+        assertEquals(listOf(0, 0), sim.refusalRecord(Arm.LEFT).take(2),
+            "a well-formed mode 15 with the lease held is not a refusal the model may claim: nothing is recorded")
+    }
+
+    /** `FIRMWARE.md` §4: a batch takes mode 15 as a sub-mode, and a refused sub-message ends the batch with its
+     *  own record standing. Mode 15's header length (1) and lease (3) come before its font is read, so a
+     *  sub-message answers them as a top-level one does (`v1-mode15` pins the top level against the fork's C;
+     *  the C answered these two batches the same on its host harness, 2026-11-12, a scratch vector not in the
+     *  set). The model used to stop the batch at any mode-15 sub with nothing recorded. */
+    @Test
+    fun aModeFifteenSubMessageIsRefusedInABatchAsItIsAtTheTopLevel() {
+        val short = byteArrayOf(15, 20, 0, 60, 0)                                // shorter than the 7-byte header
+        val whole = byteArrayOf(15, 20, 0, 60, 0, 15, 2, 'A'.code.toByte(), 'B'.code.toByte())
+        fun batchOf(sub: ByteArray) = byteArrayOf(8, 1, sub.size.toByte(), 0) + sub
+        val held = leased(GlassFirmwareSim())
+        assertFalse(held.dispatchForTest(Arm.LEFT, batchOf(short), 1_000L))
+        assertEquals(listOf(15, 1), held.refusalRecord(Arm.LEFT).take(2), "the header's length, inside a batch")
+        val none = GlassFirmwareSim()
+        assertFalse(none.dispatchForTest(Arm.LEFT, batchOf(whole), 1_000L))
+        assertEquals(listOf(15, 3), none.refusalRecord(Arm.LEFT).take(2), "the lease, inside a batch")
     }
 
     // ------------------------------------------- the lease lifecycle, driven for real

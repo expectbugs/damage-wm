@@ -24,7 +24,7 @@ rebuild are the only work until its Phase 8 closes) → `FIRMWARE.md` (wins on t
   string literal, GEO the cells `DESIGN.md` declares, BUD the ink of the renders. `--selftest` passes and
   names the rules it does not cover; the repo run exits 0. The runtime rules (stereo pairs, the rect budget,
   fid order, the frame walls) are `core`'s `geom` package (`Geometry.kt`, `FidTracker.kt`), checked on every
-  emit and pinned by `GeometryTest`.
+  emit and pinned by `GeometryTest` and the emit's refusals by `EmitRulesTest`.
 - `python3 design/render_shots.py` after any design change; read the numbers. Everything renders at
   **true 1× 640×480**: a 2× view flatters delicate type and misled us for several passes.
 - `python3 research/verify_cfw.py` before any flashing conversation (offline; the upstream a5d1c31 image — the

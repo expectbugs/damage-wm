@@ -148,6 +148,10 @@ class SilentGlassesTest {
             rig.until("the push puts the shell to sleep") { rig.shell.glassesAsleep }
             rig.settle("after the push")
             rig.until("the lease is released while silent") { !rig.leaseHeld() }
+            // P5 item 17 (GG-5): the page traffic and the lease are read again AFTER the quiet stretch below, not
+            // only on the moment the wait above ended — a renewal or a carrier refresh 50 ms later would pass it
+            val upgradesAtSleep = rig.sim.textUpgradesSeen
+            val acquiresAtSleep = rig.sim.acquiresSeen
             assertEquals(listOf(true), synchronized(rig.silentEvents) { rig.silentEvents.toList() })
             assertTrue(rig.sim.carrierLost, "the model: the page ended with the mode")
             assertNull(rig.shell.lastDivergence, "the released lease paints the mirror's stock pattern — no divergence report while asleep")
@@ -157,6 +161,9 @@ class SilentGlassesTest {
             repeat(3) { rig.shell.postGesture(EvenHubMsg.EV_SCROLL_BOTTOM); rig.settle("scroll while silent") }
             delay(700)                                      // three pacing ticks
             assertEquals(flushesAwake, rig.flushes(), "no flush leaves while the glasses are silent")
+            assertEquals(upgradesAtSleep, rig.sim.textUpgradesSeen, "no carrier refresh into a page that has ended")
+            assertEquals(acquiresAtSleep, rig.sim.acquiresSeen, "no lease acquire or renewal while the shell sleeps")
+            assertFalse(rig.leaseHeld(), "the lease is still released after the quiet stretch")
             assertEquals(0, rig.failures(), "no flush was even tried, so none failed")
             assertTrue(rig.shell.glassesAsleep, "the glasses still say silent: the shell stays asleep")
             assertEquals(1, rig.keeper.attempts, "no rebuild while the glasses say they are silent")
@@ -274,6 +281,44 @@ class SilentGlassesTest {
         }
     }
 
+    /**
+     * P5 item 6 (the wait-no-escape sweep's finding 4, its sibling fix only): the host's `onUrgent` hook was called
+     * unguarded from `notifyInternal`. On the start path of a session whose READ says Silent Mode (`enterSleep` →
+     * the once-per-session notice) a hook that threw — on the phone, Android's notification call — left
+     * `startLocked` past `transport.start()` and outside both its catches: `running` stayed set and every retry
+     * read "shell already started". `raiseFault` already wraps the same hook. Fixed: the same try; the start
+     * completes asleep and the notice still goes up.
+     */
+    @Test
+    fun aThrowingUrgentHookDoesNotEndASilentStart(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val tmp = Files.createTempDirectory("damage-silent-hook")
+        try {
+            val sim = GlassFirmwareSim()
+            val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+            val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state.json")), tmp.resolve("journal.jsonl"), scope)
+            shell.silentPacingMs = 60_000
+            val rang = java.util.concurrent.atomic.AtomicInteger()
+            shell.onUrgent = { _, _ -> rang.incrementAndGet(); throw IllegalStateException("test: the host's notification call failed") }
+            sim.setSilent(true)                                 // before the session: the start's READ says so
+            shell.start()
+            assertTrue(shell.glassesAsleep, "the session started asleep")
+            assertEquals(1, rang.get(), "the hook was called once, for the Silent Mode notice")
+            val threads = java.util.concurrent.CompletableFuture<List<String>>()
+            waitUntil(10_000, message = { "the Silent Mode notice is up: ${threads.getNow(null)}" }) {
+                val f = java.util.concurrent.CompletableFuture<List<String>>()
+                shell.services.runOnShell { f.complete((listOfNotNull(shell.notifications.current) + shell.notifications.queued()).map { it.thread }) }
+                val got = f.get(10, java.util.concurrent.TimeUnit.SECONDS)
+                threads.obtrudeValue(got)
+                "glasses" in got
+            }
+            shell.stop()
+        } finally {
+            scope.cancel()
+            tmp.toFile().deleteRecursively()
+        }
+    }
+
     /** A list window, so a scroll at Main moves a row and paints (RH-N2: with Settings alone, Main has one row
      *  and a scroll composes nothing). */
     private class Rows(private val tx: wm.damage.core.text.TextRasterizer) :
@@ -383,8 +428,13 @@ class SilentGlassesTest {
             rig.until("asleep") { rig.shell.glassesAsleep }
             rig.until("the lease is released while silent") { !rig.leaseHeld() }
             val atSleep = rig.sim.keepalivesSeen
+            val upgradesAtSleep = rig.sim.textUpgradesSeen          // P5 item 17 (GG-5): the carrier refresh and
+            val acquiresAtSleep = rig.sim.acquiresSeen              // the lease, read after the stretch too
             delay(600)                                               // twelve instant keepalive periods
             assertEquals(atSleep, rig.sim.keepalivesSeen, "no keepalive into a page that has ended")
+            assertEquals(upgradesAtSleep, rig.sim.textUpgradesSeen, "no carrier refresh into a page that has ended")
+            assertEquals(acquiresAtSleep, rig.sim.acquiresSeen, "no lease acquire or renewal while the shell sleeps")
+            assertFalse(rig.leaseHeld(), "the lease is still released after the quiet stretch")
 
             rig.sim.setSilent(false)                                 // the push OFF: a session rebuild
             rig.until("the second session drives") { rig.driving() && rig.sim.preludeAcks >= 2 }

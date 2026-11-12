@@ -574,9 +574,7 @@ class Review30Test {
             shell.register(NamedWin("two", "Two"))
             shell.start()
             suspend fun settle(what: String) {
-                val t0 = System.currentTimeMillis()
-                while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 30_000) kotlinx.coroutines.delay(5)
-                assertTrue(shell.isQuiescent(), "$what: ${shell.quiescenceReport()}")
+                waitUntil(30_000, 5, { "$what: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
             }
             settle("boot")
             // open a window first: from a bare boot the wheel holds only
@@ -787,9 +785,7 @@ class Review30Test {
             }
             shell.start()
             suspend fun settle() {
-                val t0 = System.currentTimeMillis()
-                while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 30_000) kotlinx.coroutines.delay(5)
-                assertTrue(shell.isQuiescent(), "the shell did not settle — ${shell.quiescenceReport()}")
+                waitUntil(30_000, 5, { "the shell did not settle — ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
             }
             /**
              * 🔴 The GLASS, not just the byte count. A declared copy becomes a
@@ -895,7 +891,7 @@ class Review30Test {
         override fun requestRender(window: wm.damage.core.shell.DamageWindow) {}
         override fun setOperation(op: String) { ProbeOps.seen.add(op) }
         override fun notifyInternal(source: String, body: String, urgent: Boolean,
-            appId: String?, thread: String, target: String?) {}
+            appId: String?, thread: String, target: String?, answer: Boolean) {}
         override fun openWindow(id: String, target: String?): Boolean = false
         override fun runOnShell(action: () -> Unit) = action()
         override fun docContentWidth(): Int = 560

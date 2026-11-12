@@ -63,6 +63,8 @@ class SeamSessionTest {
         override suspend fun writeArm(arm: Arm, packet: ByteArray) { glass.write(arm, packet, nowMs()) }
         override fun onMaintenanceTick() { glass.tick(nowMs()) }
         fun endLink(reason: String) = onLinkDown(reason)
+        /** The connection parameters as the phone's BLE stack reports them (`BleTransport`'s one writer). */
+        fun linkParams(intervalMs: Double, latency: Int) = updateState { it.copy(linkIntervalMs = intervalMs, linkLatency = latency) }
     }
 
     @Test
@@ -87,8 +89,9 @@ class SeamSessionTest {
             server.close()                                  // the phone app went away mid-flush
             val t0 = System.currentTimeMillis()
             fun linkDown() = synchronized(events) { events.any { it is TransportEvent.Link && !it.connected } }
-            while (!linkDown() && System.currentTimeMillis() - t0 < 5_000) delay(10)
-            assertTrue(linkDown(), "the link end was reported")
+            var ok = linkDown()
+            while (!ok && System.currentTimeMillis() - t0 < 5_000) { delay(10); ok = linkDown() }
+            assertTrue(ok, "the link end was reported")
             delay(200)                                      // anything late would show up here
             val seq = synchronized(events) { events.toList() }
             val doneIx = seq.indexOfFirst { it is TransportEvent.FlushDone && it.id == id }
@@ -149,9 +152,7 @@ class SeamSessionTest {
             // stale forwarded state frame may flip it for one message right
             // after the start (the round 3 a3-8 tolerance the keeper already
             // documents — a restart from that is a plain reconnect)
-            val t1 = System.currentTimeMillis()
-            while (!client.state.value.started && System.currentTimeMillis() - t1 < 5_000) delay(10)
-            assertTrue(client.state.value.started)
+            waitUntil(5_000, 10, { "the wait's condition did not hold" }) { client.state.value.started }
             assertEquals(2, glass.preludeAcks, "the far end connected the glasses again")
             client.stop()
         } finally {
@@ -206,6 +207,11 @@ class SeamSessionTest {
             until("a change is not a first report (${seen()})") { seen().lastOrNull() == TransportEvent.Wear(worn = false, first = false) }
             glass.setSilent(true)
             until("the far end's Silent Mode is in the client's state") { client.state.value.glassesSilent }
+            // P5 item 19 (the one-sibling sweep's OS-8): the connection parameters ride the state frame too — the
+            // shell's slow-link regime reads them at once (`Shell.paramsSlow`); left out, they arrived 0.0 / 0
+            inner.linkParams(105.0, 4)
+            until("the connection parameters ride the state frame (${client.state.value})") {
+                client.state.value.linkIntervalMs == 105.0 && client.state.value.linkLatency == 4 }
 
             // the driver releases its claim: the session it described is no longer this client's to describe
             client.stop()

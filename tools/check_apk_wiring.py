@@ -18,7 +18,8 @@ It checks, and prints one line each:
   2. the debug APK holds that class (its dex files) and that name (its binary manifest);
   3. `DamageApp.onCreate` installs the record;
   4. `ShellService.onCreate` runs, in this order: startForeground, the journal's rotation, the
-     pickup of the last run's record, the stack, and only then the last run's line; the desktop's
+     pickup of the last run's record, the stack, and only then the last run's line — logged, then raised on
+     the glasses as a `process` fault (0.65 P7, shown whatever `Notify · Damage` says); the desktop's
      `runShell` claims the data directory (`InstanceLock.claimOrExit`, R2) and then runs the record, the
      rotation and the pickup before its store, host and journal writer; `hostOnly` claims it before its
      providers, its store and its host (4c);
@@ -274,11 +275,11 @@ def check(root=ROOT, say=print):
     # 4. the order in ShellService.onCreate
     svc = body_of(kotlin_code(os.path.join(root, 'phone/src/main/kotlin/wm/damage/phone/ShellService.kt')), 'override fun onCreate()')
     steps = ['Log.addSink(', 'startForeground(', 'Journal.rotateAtStart(', 'Journal.archivesSaid(', 'UncaughtRecord.installedLine(',
-             'UncaughtRecord.takePending(', 'startStack(', 'Log.e("uncaught", it)']
+             'UncaughtRecord.takePending(', 'startStack(', 'Log.e("uncaught", it)', 'raiseHostFault("process", it)']
     at = [svc.find(s) if svc else -1 for s in steps]
     missing = [s for s, i in zip(steps, at) if i < 0]
     line(not missing and at == sorted(at), 'ShellService.onCreate: sink, foreground, rotation, the archives counted for the process note, record in place, '
-         'pickup, stack, then the last run\'s line',
+         'pickup, stack, then the last run\'s line (logged, then raised as a `process` fault)',
          ('missing ' + ', '.join(missing)) if missing else 'out of order: ' + ' < '.join(s for _, s in sorted(zip(at, steps))))
 
     # 4b. the same order at the desktop's start, ahead of the store and the content host — and FIRST the claim of

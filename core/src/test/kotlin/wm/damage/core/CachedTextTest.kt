@@ -83,9 +83,7 @@ class CachedTextTest {
         }
 
         suspend fun until(what: String, cond: () -> Boolean) {
-            val t0 = System.currentTimeMillis()
-            while (!cond() && System.currentTimeMillis() - t0 < 10_000) delay(10)
-            assertTrue(cond(), "$what — live=${shell.cachedFontsLive} active=${shell.cachedTextActive} flushes=${all().size} labels=${all().map { it.label }.takeLast(6)}")
+            waitUntil(10_000, 10, { "$what — live=${shell.cachedFontsLive} active=${shell.cachedTextActive} flushes=${all().size} labels=${all().map { it.label }.takeLast(6)}" }) { cond() }
         }
 
         fun all() = spy.all()

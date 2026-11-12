@@ -101,9 +101,7 @@ class QueueWhileDownTest {
         // the glasses come back: the restore still lands — nothing a session needs was lost
         transport.fail = false
         shell.start()
-        val t0 = System.currentTimeMillis()
-        while (!reader.title().contains("p.") && System.currentTimeMillis() - t0 < 20_000) delay(50)
-        assertTrue(reader.title().contains("p."), "the book did not reopen after the failed starts: '${reader.title()}'")
+        waitUntil(20_000, 50, { "the book did not reopen after the failed starts: '${reader.title()}'" }) { reader.title().contains("p.") }
         shell.stop()
     }
 
@@ -264,6 +262,8 @@ class QueueWhileDownTest {
      * running does. A flush answered while the loop is held behind the Shutdown, and a line typed then, were
      * taken by the drain and counted: the flush's in-flight entry stayed for the life of the process (no
      * quiescence, no mirror check, nothing said) and the line was gone. Both reach the next session now.
+     * P5 item 1: the start clears what the last session left in flight, so quiescence no longer reads the
+     * keeping; what keeping still buys is the answer's `done` line, journaled by the next session — read here.
      *
      * The typed line is behind the Shutdown by construction (it is typed after the stop has posted it). The
      * flush's answer is behind it unless it lands in the few milliseconds between the held message's start
@@ -272,8 +272,9 @@ class QueueWhileDownTest {
      */
     @Test
     fun aFlushAnswerAndATypedLineQueuedBehindTheShutdownReachTheNextSession(): Unit = runBlocking {
+        val journal = tmp.resolve("journal-behind.jsonl")
         val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(ackMs = 1_000))
-        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state-behind.json")), null, scope)
+        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state-behind.json")), journal, scope)
         val typer = Typer(FakeText())
         shell.register(typer)
         shell.start()
@@ -292,15 +293,157 @@ class QueueWhileDownTest {
         transport.injectText("behind the shutdown")                          // the Shutdown is queued: this is behind it
         // the held message, the Shutdown, the typed line and the flush's answer
         waitUntil(10_000, message = { "the flush's answer and the line queued behind the Shutdown: ${shell.quiescenceReport()}" }) { queued(shell) >= 4 }
+        // the loop is held: every submit journaled so far without its done line is the one whose answer is queued
+        val owed = unansweredSubmits(journal)
+        assertTrue(owed.isNotEmpty(), "a submit with no done line while the loop is held: ${journalLines(journal).takeLast(5)}")
         go.countDown()
         stopping.join()
         shell.start()
-        waitUntil(30_000, message = { "the next session settles — the flush answered behind the Shutdown completes in it: ${shell.quiescenceReport()}" }) {
-            shell.isQuiescent()
-        }
+        waitUntil(30_000, message = { "the next session settles: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
+        waitUntil(10_000, message = { "the flush answered behind the Shutdown has its done line from the next session: owed=$owed, " +
+            "still unanswered=${unansweredSubmits(journal)}" }) { unansweredSubmits(journal).none { it in owed } }
         waitUntil(10_000, message = { "the line typed behind the Shutdown is handled by the next session: ${typer.lines}" }) {
             typer.lines.toList() == listOf("behind the shutdown")
         }
+        shell.stop()
+    }
+
+    /** The shown and queued notices, sampled ON the loop (the queue is the loop's); a session must be running. */
+    private fun noticesOf(shell: Shell): List<wm.damage.core.shell.Notifications.Notice> {
+        val out = java.util.concurrent.CompletableFuture<List<wm.damage.core.shell.Notifications.Notice>>()
+        shell.services.runOnShell { out.complete(listOfNotNull(shell.notifications.current) + shell.notifications.queued()) }
+        return try { out.get(10, java.util.concurrent.TimeUnit.SECONDS) } catch (e: java.util.concurrent.TimeoutException) {
+            throw AssertionError("the notices were not sampled: the loop did not answer in 10 s — ${shell.quiescenceReport()}")
+        }
+    }
+
+    private fun journalLines(journal: Path): List<String> = if (Files.exists(journal)) Files.readAllLines(journal) else emptyList()
+
+    /** The display submits journaled with no `done` line yet. */
+    private fun unansweredSubmits(journal: Path): Set<Long> {
+        val lines = journalLines(journal)
+        fun ids(ev: String) = lines.filter { "\"ev\":\"$ev\"" in it }
+            .mapNotNull { Regex("\"id\":(\\d+),").find(it)?.groupValues?.get(1)?.toLong() }.toSet()
+        return ids("submit") - ids("done")
+    }
+
+    /**
+     * P5 item 1 (twice-read F1 = boundary-clear F2): a completion carries no session. A flush still in flight at
+     * a FULL stop is answered by the transport's own sweep, with a failure, while no session runs; the answer is
+     * kept for the next session (`keepWhileDown`), whose loop judged it as one of its own: a `flush` notice for a
+     * frame of the session before, on a link that is up and steady. The fix: the start clears what the last session
+     * left in flight (said in its `queue` note) and a completion of no flush this session sent is journaled and
+     * not judged. Watched: fails with either half removed (the clear, or the early return).
+     */
+    @Test
+    fun aFlushOfTheLastSessionIsNotJudgedByTheNext(): Unit = runBlocking {
+        val journal = tmp.resolve("journal-stale.jsonl")
+        val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(ackMs = 1_500))
+        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state-stale.json")), journal, scope)
+        shell.start()
+        waitUntil(10_000, message = { "a flush is in flight: ${shell.quiescenceReport()}" }) { "inflight=" in shell.quiescenceReport() }
+        val stale = Regex("\"ev\":\"submit\",\"id\":(\\d+),").findAll(journalLines(journal).joinToString("\n"))
+            .map { it.groupValues[1].toLong() }.toSet()
+        shell.stop()                                 // full stop: the transport's sweep answers the flush with a failure
+        shell.start()
+        waitUntil(30_000, message = { "the next session settles: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
+        val flushNotices = noticesOf(shell).filter { it.thread == "flush" }
+        assertTrue(flushNotices.isEmpty(), "a flush of the session before was judged by this one: ${flushNotices.map { it.body }}")
+        // not silent: the answer still has its `done` line, and the start said what it cleared
+        val lines = journalLines(journal)
+        val doneFailed = lines.filter { "\"ev\":\"done\"" in it && "\"ok\":false" in it }
+            .mapNotNull { Regex("\"id\":(\\d+),").find(it)?.groupValues?.get(1)?.toLong() }
+        assertTrue(doneFailed.any { it in stale }, "the swept flush of the last session has its done line: stale=$stale done(failed)=$doneFailed")
+        assertTrue(lines.any { "\"kind\":\"queue\"" in it && "not answered when this session started" in it },
+            "the start's queue note names the flushes it cleared: ${lines.filter { "\"kind\":\"queue\"" in it }}")
+        shell.stop()
+    }
+
+    /**
+     * P5 item 11 (GG-3, the drain): a start that fails on the capability gate has already delivered `Link(true)`,
+     * the READ's `SilentMode(true)` and `Battery`, and the capability `Fault` — events of a session that never came
+     * up, queued while `running` was true. `dropTransportEventsOfFailedStart` keeps what `keepWhileDown` keeps and
+     * drops the rest. Five such starts leave nothing queued, and the good start after them is awake. The pin above
+     * (`failedStartsHoldNothing…`) fails its starts before any event, so it runs over none of this.
+     * Mutation watched: the drain's call on the start's first catch removed.
+     */
+    @Test
+    fun startsThatFailOnTheCapabilityGateLeaveNoEventForTheNext(): Unit = runBlocking {
+        val sim = GlassFirmwareSim()
+        val good = sim.capabilityString
+        sim.capabilityString = "not-a-cfw"
+        sim.setSilent(true, push = false)                   // the READ of every failed start says Silent Mode
+        val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state-gate.json")), null, scope)
+        repeat(5) { i ->
+            val e = runCatching { shell.start() }.exceptionOrNull()
+            assertTrue(e != null, "start ${i + 1} fails on the capability gate")
+        }
+        assertEquals(0, settledQueue(shell), "five failed starts left their events queued: ${shell.quiescenceReport()}")
+        sim.capabilityString = good
+        sim.setSilent(false, push = false)
+        shell.start()
+        waitUntil(30_000, message = { "the good session settles: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
+        assertTrue(!shell.glassesAsleep, "the good session slept on a failed start's stale SilentMode(true)")
+        shell.stop()
+    }
+
+    /**
+     * P5 item 11 (GG-3, the `SilentMode` kind): a Silent Mode pressed and ended while no session runs (after a FULL
+     * stop; the simulator's transport parses a push with no session) is two `SilentMode` events at a stopped shell.
+     * They describe no session: dropped, counted. Kept, the next session slept on the first and asked for a rebuild
+     * on the second. (Not the yield form: the model's Silent Mode ends its page until the next CREATE, so an
+     * adopted session would be refused for a reason of its own.)
+     * Mutation watched: `keepWhileDown` keeps a `SilentMode`.
+     */
+    @Test
+    fun aSilentModeSaidWhileDownDoesNotReachTheNextSession(): Unit = runBlocking {
+        val sim = GlassFirmwareSim()
+        val transport = SimTransport(sim, scope, SimTransport.Timing(instant = true))
+        val journal = tmp.resolve("journal-silent.jsonl")
+        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state-silent.json")), journal, scope)
+        shell.start()
+        waitUntil(30_000, message = { "the session settles: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
+        shell.stop()
+        val base = settledQueue(shell)
+        sim.setSilent(true); sim.setSilent(false)          // the both-temple press and its end, both pushed, no session
+        assertEquals(base, settledQueue(shell), "the two SilentMode events at a stopped shell were queued")
+        shell.start()
+        waitUntil(30_000, message = { "the next session settles: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
+        delay(300)
+        assertTrue(!shell.glassesAsleep && transport.state.value.started,
+            "the next session acted on a Silent Mode of no session: asleep=${shell.glassesAsleep} started=${transport.state.value.started}")
+        assertTrue(journalLines(journal).none { "\"kind\":\"silent\"" in it },
+            "a silent note in the next session: ${journalLines(journal).filter { "\"kind\":\"silent\"" in it }}")
+        shell.stop()
+    }
+
+    /**
+     * P5 item 11 (GG-3, the `Lease` kind — the yield form): the shell stops and the transport's session goes on; the
+     * lease is released and taken back while no shell runs — a `Lease(false)` and a `Lease(true)` at a stopped
+     * shell, the lease held again at the end (so P4's adopted-and-released branch stays out of the read). The
+     * adopting session must not hear the stale `Lease(false)`: kept, it raised the urgent "framebuffer lease lost"
+     * (the hook's body) for a lease that is held.
+     * Mutation watched: `keepWhileDown` keeps a `Lease`.
+     */
+    @Test
+    fun aLeaseChangeWhileDownDoesNotReachTheAdoptingSession(): Unit = runBlocking {
+        val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true))
+        val shell = Shell(FakeText(), transport, Persistence(tmp.resolve("state-lease.json")), null, scope)
+        val urgent = java.util.concurrent.CopyOnWriteArrayList<String>()
+        shell.onUrgent = { _, body -> urgent.add(body) }
+        shell.start()
+        waitUntil(30_000, message = { "the session settles: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
+        shell.stop(stopTransport = false)                   // the yield form: the transport's session goes on
+        val base = settledQueue(shell)
+        transport.setLeaseWanted(false)
+        waitUntil(10_000, message = { "the lease is released with no shell running" }) { !transport.state.value.leaseHeld }
+        transport.setLeaseWanted(true)
+        waitUntil(10_000, message = { "the lease is held again" }) { transport.state.value.leaseHeld }
+        assertEquals(base, settledQueue(shell), "the two Lease events at a stopped shell were queued")
+        shell.start()                                       // adopts the transport's session
+        waitUntil(30_000, message = { "the adopting session settles: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
+        assertTrue(urgent.none { "framebuffer lease lost" in it }, "the adopting session heard a lease change of no session: $urgent")
         shell.stop()
     }
 
@@ -331,21 +474,31 @@ class QueueWhileDownTest {
     /** The second review's finding: a flush still in flight when a session stops is answered while
      *  no session runs. That answer must still reach the next session, or its in-flight bookkeeping
      *  never empties: no quiescence, no divergence check, the atlas and staging uploads stuck.
-     *  (It guards §72's own first draft, which dropped every transport event while down.) */
+     *  (It guards §72's own first draft, which dropped every transport event while down.)
+     *  P5 item 1: the start now clears what the last session left in flight, so quiescence holds whether or not
+     *  the answer is kept — the pin stopped measuring what it names (twice-read F1's correction 3). What keeping
+     *  still buys is the answer's record: its `done` line, journaled by the next session. Read here.
+     *  Mutation watched: `keepWhileDown` drops a `FlushDone` with the other stale kinds. */
     @Test
     fun aFlushAnsweredWhileDownStillCompletesInTheNextSession(): Unit = runBlocking {
         val store = Persistence(tmp.resolve("state.json"))
+        val journal = tmp.resolve("journal-down.jsonl")
         val transport = SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(ackMs = 1_500))
-        val shell = Shell(FakeText(), transport, store, null, scope)
+        val shell = Shell(FakeText(), transport, store, journal, scope)
         shell.start()
-        delay(200)                                  // the session's first flushes are on their way
-        assertTrue(shell.quiescenceReport().contains("inflight="), "a flush is in flight at the stop: ${shell.quiescenceReport()}")
+        waitUntil(10_000, message = { "a flush is in flight: ${shell.quiescenceReport()}" }) { "inflight=" in shell.quiescenceReport() }
         shell.stop(stopTransport = false)           // the yield form: the acks land with no session running
-        delay(2_500)
+        val owed = unansweredSubmits(journal)
+        assertTrue(owed.isNotEmpty(), "a submit with no done line at the stop: ${journalLines(journal).takeLast(5)}")
+        // the acks land while no session runs (1.5 s of modeled ack): each answer kept waits in the queue
+        waitUntil(10_000, message = { "the answers that came while down are kept for the next session: queued=${queued(shell)}, owed=$owed" }) {
+            queued(shell) >= owed.size
+        }
+        assertTrue(unansweredSubmits(journal).containsAll(owed), "an answer was journaled with no session running — the pin reads nothing")
         shell.start()
-        val t0 = System.currentTimeMillis()
-        while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 30_000) delay(50)
-        assertTrue(shell.isQuiescent(), "the next session never settled: ${shell.quiescenceReport()}")
+        waitUntil(30_000, message = { "the next session settles: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
+        val left = unansweredSubmits(journal).filter { it in owed }
+        assertTrue(left.isEmpty(), "the answers that came while down have no done line (dropped, not kept): $left of $owed")
         shell.stop()
     }
 }

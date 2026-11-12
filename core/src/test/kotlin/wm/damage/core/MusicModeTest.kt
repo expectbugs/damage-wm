@@ -39,9 +39,7 @@ import wm.damage.core.wire.EvenHubMsg
 class MusicModeTest {
 
     private suspend fun awaitTrue(what: String, ms: Long = 20_000, cond: () -> Boolean) {
-        val t0 = System.currentTimeMillis()
-        while (!cond() && System.currentTimeMillis() - t0 < ms) delay(20)
-        assertTrue(cond(), "did not converge: $what")
+        waitUntil(ms, 20, { "did not converge: $what" }) { cond() }
     }
 
     private class Lib : wm.damage.core.windows.music.MusicLibrary {
@@ -180,4 +178,30 @@ class MusicModeTest {
 
     @Test fun musicModeAt480() = run(480)
     @Test fun musicModeAt288() = run(288)
+
+    /** P7 item 3 (OS-4): Music Mode's visualizer ticker posted each frame UNKEYED, so while the shell is down
+     *  (a stop leaves `exclusive` and the ticker's generation as they were) every tick queued one message —
+     *  8 a second at the default rate, all of them run by the next session's loop. Keyed, a down shell holds
+     *  the latest one. Needs a visualizer and `Music Mode · visualizer` on (the defaults start no ticker;
+     *  Adam's store has Pulse / 8 / on). */
+    @Test
+    fun theVisualizerTickerQueuesNothingWhileTheShellIsDown(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-music-viz-down")
+        val r = Rig(tmp, 480)
+        try {
+            r.shell.start()
+            r.g(EvenHubMsg.EV_CLICK)
+            awaitTrue("music open") { r.shell.currentWindowId() == "music" }
+            r.shell.services.runOnShell { r.win.appSettings().first { it.name == "Visualizer" }.apply("Bars"); r.win.appSettings().first { it.name == "Music Mode · visualizer" }.apply("on") }
+            r.shell.services.runOnShell { r.win.open("mode:music") }
+            awaitTrue("exclusive") { r.shell.exclusiveMode }
+            awaitTrue("quiet") { r.shell.isQuiescent() }
+            r.shell.stop(stopTransport = false)
+            fun queued(): Int = Regex("queued=(\\d+)").find(r.shell.quiescenceReport())?.groupValues?.get(1)?.toInt() ?: 0
+            val q0 = queued()
+            delay(1_000)
+            val q1 = queued()
+            assertEquals(q0, q1, "the queue of a stopped shell held still over a second with the ticker running")
+        } finally { r.scope.cancel(); tmp.toFile().deleteRecursively() }
+    }
 }

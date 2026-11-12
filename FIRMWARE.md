@@ -240,9 +240,14 @@ or font (5) → byte by byte, a code (6) or a glyph record (5) — mode 15 reads
 every glyph, so a glyph refusal there follows all of its code refusals; modes 3, 6 and 9 need no lease — 3: length (1; under 3 bytes it is the same check mode 6 fails, before anything else) → the
 boxes (2) → a duplicate fid skipped unrecorded → no shadow (4) → the stream (13); 6: under 3 bytes, recorded
 as length (1) on the way to the BMP path and before the fid ring is touched → no shadow (4) → the stream (13); 9: length (1) → sizes and bounds (2) → no
-shadow (4). Mode 16: alone (1) · a begin without the lease (3), whose scratch allocation fails (11) or that a release
+shadow (4) — its length check is "at least": a message longer than its one or two rect sets is accepted and the bytes
+after them are not read. Mode 16: alone (1) · a begin without the lease (3), whose scratch allocation fails (11) or that a release
 point ended (7) · an unknown sub (12) · a step shorter than 3 (1), without the lease (3), without a begin (7), carrying
-what a step may not (8), then its message's own reason. A batch is not all-or-nothing: it records its own structural
+what a step may not (8), then its message's own reason. Mode 10 (upstream's compass) needs no lease: no argument (1),
+then an argument other than 0 (stop) or 1 (start) (12). Mode 8's own checks each record length (1): a batch over
+153,718 B (`Geometry.MODE8_MAX`), no count byte, and a sub-message whose 2-byte length is 0 or whose header or bytes run
+past the message (the sub-messages before it have already applied); bytes after the last counted sub-message are not
+read, and a batch counting 0 sub-messages is accepted and presents. A batch is not all-or-nothing: it records its own structural
 refusals (1/8), a refused sub-message ends it and leaves that sub-message's record standing, the sub-messages before
 it have already changed the shadow, and nothing presents until the next present; a mode this build has no handler for records 8, then the stock BMP path runs as before. A duplicate
 fid stays a silent skip (v1). Field **26** is the last Damage transfer's path (0 full, 1 rows). The ack still precedes
@@ -301,7 +306,12 @@ and empty list, the size asked for gone under a latched CACHE_KEEP, the slots fr
 sub 0 clearing the record) · `v2-tablepatch` (`HANDOFF.md` §73, 11 steps: a 224-entry table whose unpacked entries
 all name one tofu record; one message that appends a record and rewrites the unit holding its entry and its
 neighbour's; a patch with nothing appended, naming a record already there; the table's last entry, code 255; per-lens
-draws; a two-entry message whose last entry leaves the cache refused whole, the table entry before it not applied).
+draws; a two-entry message whose last entry leaves the cache refused whole, the table entry before it not applied) ·
+`v2-shape` (2026-11-12, the vector pass: 29 steps — each v2 op's length a byte long or a byte short, the per-lens forms
+under the high bit, mode 23's capture rect past the panel, empty and a pair of two sizes, mode 24's length before the
+batch, a zero glyph record refusing a string before any glyph is drawn, mode 19's whole list checked before a byte is
+written) · `v2-window` (the vector pass, 3 steps: mode 14's table at the last offset the v1 window admits in a 128 KiB
+cache, and one byte later refused).
 A step's expectation now carries `ref` = [mode, reason, sequence, status] beside the CRCs and return codes. The
 self-test form runs every drawing vector (v1-cache too): a cache write is sent live, the control ops before the begin,
 a vector that releases the lease has none, and the refusal's sequence (the live count) is not compared.
@@ -421,7 +431,14 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   lapse refuses and frees it). **The simulator matches the C on every step, both lenses.** Since then
   `v1-stream` (§64) and `v1-tablepatch` (`HANDOFF.md` §73, 11 steps: the v1 twin of `v2-tablepatch` — a 96-entry
   table at an ODD byte offset, a record and its 2-byte entry in one mode-12 message, a patch-only entry, code 126,
-  a two-entry message refused whole).
+  a two-entry message refused whole). The vector pass (2026-11-12) added four: `v1-shape` (26 steps: modes 13, 14 and 9
+  a byte long and a byte short, mode 9's sizes, the per-lens mode 3 without its stream and with two box sizes, mode 8's own structure — no count, a zero or
+  overlong sub-message length, a count past the bytes, bytes after the last sub-message, an empty batch — and mode 12
+  checked whole before a byte is written), `v1-gates` (19 steps: every v1 cache op without the lease and the order of
+  its length check against it, a draw after a fresh lease, mode 10, mode 16's sub and step checks), `v1-mode15` (3
+  steps: only what mode 15 refuses before the font is read — its header's length, the lease, the string's own length;
+  a well-formed mode 15 with the lease held is never in a vector, the PC's host has no font) and `v1-batchmax` (3
+  steps: a batch of exactly 153,718 B accepted, one byte more refused).
 
 ## 10. Lifecycle
 

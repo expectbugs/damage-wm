@@ -101,6 +101,18 @@ class GlassFirmwareSim() : LensPanels {
     override fun panel(arm: Arm): ByteArray = ctx(arm).panel
     @Synchronized
     override fun snapshot(arm: Arm): ByteArray = ctx(arm).panel.copyOf()
+    /** P6 item 5 (the loop-cost sweep's LC-2): the rows [present] and [stockRepaint] wrote to [arm]'s panel since the
+     *  last call, then none — under the monitor both writers hold. */
+    @Synchronized
+    override fun takeChangedRows(arm: Arm): IntRange {
+        val c = ctx(arm)
+        val r = if (c.changedLo > c.changedHi) IntRange.EMPTY else c.changedLo..c.changedHi
+        c.changedLo = Int.MAX_VALUE; c.changedHi = -1
+        return r
+    }
+    /** P6 item 5: [block] over [arm]'s live panel under the monitor its writers hold — a consistent read, no copy. */
+    @Synchronized
+    override fun <T> readPanel(arm: Arm, block: (ByteArray) -> T): T = block(ctx(arm).panel)
     override fun addListener(l: LensPanels.LensListener) { lensListeners.add(l) }
     override fun removeListener(l: LensPanels.LensListener) { lensListeners.remove(l) }
 
@@ -136,6 +148,10 @@ class GlassFirmwareSim() : LensPanels {
         var recentPos = 0
         /** panel = what the wearer sees; presents copy shadow -> panel. */
         val panel = ByteArray(stride * Geometry.PANEL_H)
+        /** APK 0.65, P6 item 5: the rows written to [panel] since [takeChangedRows] last took them (lo > hi: none).
+         *  State of the model only — nothing it answers reads it. A fresh context (a start, a reboot) is every row. */
+        var changedLo = 0
+        var changedHi = Geometry.PANEL_H - 1
         var leaseDeadline = 0L      // 0 = no lease; fail-open
         var seeded = false          // a mode-6 keyframe has landed
         /** The 64 KiB texture cache: null until the first mode-12 write allocates
@@ -373,6 +389,10 @@ class GlassFirmwareSim() : LensPanels {
      *  shell sleeps with the glasses. */
     @Volatile var keepalivesSeen = 0
         private set
+    /** EvenHub text upgrades (Cmd 5, the 30 s carrier refresh and the watchdog's probe) received, for the §42 pin
+     *  (P5 item 17, GG-5): none while the shell sleeps with the glasses. A counter only — the answer is unchanged. */
+    @Volatile var textUpgradesSeen = 0
+        private set
     /** FB_RELEASE control ops received (both arms count), for the §42 pin: a
      *  stop after a link loss sends none. */
     @Volatile var releasesSeen = 0
@@ -523,7 +543,7 @@ class GlassFirmwareSim() : LensPanels {
                 ack(cmd, msgId, null)
             }
             EvenHubMsg.CMD_IMAGE -> imageFragment(arm, fields, msgId, now)
-            EvenHubMsg.CMD_TEXT_UPGRADE -> ack(cmd, msgId, null)
+            EvenHubMsg.CMD_TEXT_UPGRADE -> { textUpgradesSeen++; ack(cmd, msgId, null) }
             EvenHubMsg.CMD_KEEPALIVE -> { keepalivesSeen++; ack(cmd, msgId, null) }
             EvenHubMsg.CMD_SHUTDOWN -> { layoutCreated = false; ack(cmd, msgId, null) }
             else -> diag.event("evenhub", "unmodeled Cmd $cmd — acked")
@@ -799,15 +819,9 @@ class GlassFirmwareSim() : LensPanels {
                     if (subMode !in Fw.BATCH_SUBMODES) {
                         diag.event("decode", "$arm mode-8 sub-mode $subMode rejected"); return refuse(c, src, REF_MODE)
                     }
-                    if (subMode == 15) {
-                        // The firmware WOULD accept and draw this. The model stops here
-                        // because it cannot know the pixels — say which of the two this
-                        // is, so nobody reads it as a hardware rejection at first light.
-                        diag.event("decode", "$arm mode-8 sub $i is mode 15: the firmware " +
-                            "would draw it, but this MODEL cannot predict its pixels, so " +
-                            "the batch stops here. Damage does not emit mode 15 by design.")
-                        return false
-                    }
+                    // a mode-15 sub-message goes to the same branch as a top-level one: its length and
+                    // lease refusals are recorded as the firmware records them, and a well-formed one
+                    // stops the batch there, loudly, because this model cannot predict its pixels
                     if (!dispatchImage(arm, src.copyOfRange(pos, pos + segLen), now, present = false, batch = bctx)) {
                         diag.event("decode", "$arm mode-8 sub $i FAILED — whole batch aborted")
                         return false                     // the sub-message recorded its own reason
@@ -931,13 +945,31 @@ class GlassFirmwareSim() : LensPanels {
                 true
             }
             15 -> {
-                // Legal firmware feature; Damage never emits it. Mode 15 renders with
+                // `FIRMWARE.md` §4, the v1 modes' order as built: "modes 13, 14 and 15: no shadow (4)
+                // → the header's length (1) → the lease (3) → the string's own length (1; 14 and 15)
+                // → the table or font (5)". The first three are asked before the font is read, so
+                // they are modeled: the message is [15][x:u16][y:u16][options][len][text], a 7-byte
+                // header and then exactly `len` bytes (the vector `v1-mode15` pins them).
+                if (src.size < 7) {
+                    diag.event("decode", "$arm mode-15 of ${src.size} B — shorter than its 7-byte header")
+                    return refuse(c, src, REF_LENGTH)
+                }
+                if (!fbLeaseActive(arm, now)) {
+                    diag.event("decode", "$arm mode-15 with NO framebuffer lease — refused")
+                    return refuse(c, src, REF_NO_LEASE)
+                }
+                if (src.size != 7 + (src[6].toInt() and 0xFF)) {
+                    diag.event("decode", "$arm mode-15 is ${src.size} B for a ${src[6].toInt() and 0xFF}-byte string — refused")
+                    return refuse(c, src, REF_LENGTH)
+                }
+                // Past those: a legal firmware feature Damage never emits. Mode 15 renders with
                 // the stock LVGL 20 px font chain that lives inside the firmware, so
                 // this model cannot predict its pixels — and a belief the model cannot
                 // reproduce would quietly break the per-lens oracle. Loud, not silent.
                 diag.event("decode", "$arm mode-15 (builtin-font text) is not modeled: its " +
                     "glyphs come from the firmware's own font, so no offline model can " +
-                    "know the resulting pixels. Damage does not emit mode 15 by design.")
+                    "know the resulting pixels" + (if (present) "" else "; the batch it sits in stops here") +
+                    ". Damage does not emit mode 15 by design.")
                 false
             }
             else -> noHandler(arm, c, src)
@@ -1224,6 +1256,9 @@ class GlassFirmwareSim() : LensPanels {
         }
         if (rows == null) c.shadow.copyInto(c.panel)
         else System.arraycopy(c.shadow, rows.first * c.stride, c.panel, rows.first * c.stride, (rows.last - rows.first + 1) * c.stride)
+        // P6 item 5: the rows this present wrote — every row for an unhinted one
+        if (rows == null) { c.changedLo = 0; c.changedHi = Geometry.PANEL_H - 1 }
+        else { c.changedLo = minOf(c.changedLo, rows.first); c.changedHi = maxOf(c.changedHi, rows.last) }
         c.lastPath = if (rows == null) 0 else 1
         diag.panelChanged(arm)
         // F1.3: the copy hook counts the direct frame; the refresh that follows is timed
@@ -1363,10 +1398,12 @@ class GlassFirmwareSim() : LensPanels {
      *  change and nothing goes stale. Stock content reaches the framebuffer only once the direct
      *  path is not active — after a release point, a lapse, or a copy that failed — which is the
      *  §4 stale condition this event exists to drive. */
+    @Synchronized        // P6 item 5: the panel's other writer, under the monitor [readPanel] reads it with
     fun stockRepaint(arm: Arm) {
         val c = ctx(arm)
         if (c.leaseDeadline != 0L && c.seeded) return       // the direct frame is preserved
         stockPattern(c.panel)
+        c.changedLo = 0; c.changedHi = Geometry.PANEL_H - 1
         c.panelStale = true
         diag.panelChanged(arm)
     }

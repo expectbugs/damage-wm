@@ -569,8 +569,8 @@
   "file": "transport/RemoteTransport.kt",
   "edits": [
    [
-    "    floorSamples = floorSamples, transferSamples = transferSamples,\n    worn = worn, wearSwitch = wearSwitch)\n",
-    "    floorSamples = floorSamples, transferSamples = transferSamples)\n"
+    "    floorSamples = floorSamples, transferSamples = transferSamples,\n    worn = worn, wearSwitch = wearSwitch,\n    linkIntervalMs = linkIntervalMs, linkLatency = linkLatency)\n",
+    "    floorSamples = floorSamples, transferSamples = transferSamples,\n    linkIntervalMs = linkIntervalMs, linkLatency = linkLatency)\n"
    ]
   ],
   "tests": [
@@ -1425,8 +1425,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        synchronized(heldLock) { windowsLive = false }\n        notePower()",
-    "        synchronized(heldLock) { windowsLive = false }"
+    "        // needs a coroutine held between its launch and its first line.\n        silentGen++\n        notePower()\n",
+    "        // needs a coroutine held between its launch and its first line.\n        silentGen++\n"
    ]
   ],
   "tests": [
@@ -1631,8 +1631,8 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "        sessionSerial++\n        restWakeWanted = false\n",
-    "        sessionSerial++\n"
+    "a ring event from here on is this session's\n        restWakeWanted = false\n",
+    "a ring event from here on is this session's\n"
    ]
   ],
   "tests": [

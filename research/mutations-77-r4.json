@@ -1,0 +1,187 @@
+[
+ {
+  "id": "R4-01-the-alert-cuts-the-panes-line-at-80",
+  "file": "windows/tmux/TmuxWindow.kt",
+  "edits": [
+   [
+    "wants input: ${session.lastLine}\",",
+    "wants input: ${session.lastLine.take(80)}\","
+   ]
+  ],
+  "tests": [
+   "*TmuxWindowTest.anAlertNotice*"
+  ],
+  "expect": [
+   "anAlertNoticeCarriesThePanesWholeLine",
+   "anAlertNoticeNeverSplitsASurrogatePair"
+  ],
+  "note": "R4 item 1 (3A-1): the cut back — the line's tail is lost and an emoji at 79/80 leaves a lone surrogate"
+ },
+ {
+  "id": "R4-02-the-shutdown-arm-ends-only-on-success",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                        running = false\n                        m.done.complete(Unit)\n                    }\n                    Msg.Pump -> {}",
+    "                    }\n                    Msg.Pump -> {}"
+   ],
+   [
+    "                        saveAll(sync = true)      // the last state must be ON DISK before stop() returns\n",
+    "                        saveAll(sync = true)      // the last state must be ON DISK before stop() returns\n                        running = false\n                        m.done.complete(Unit)\n"
+   ]
+  ],
+  "tests": [
+   "*SessionBoundaryTest.anErrorInTheFinalSave*"
+  ],
+  "expect": [
+   "anErrorInTheFinalSaveStillEndsTheLoopAndTheStopReturns"
+  ],
+  "note": "R4 item 2 (3A-3): `running = false` and `done` only after the steps succeed — an Error in the final save leaves the loop serving and stop() not returning"
+ },
+ {
+  "id": "R4-03-the-sync-saves-encode-throws-out",
+  "file": "shell/Persistence.kt",
+  "edits": [
+   [
+    "    } catch (e: Exception) {\n        Log.e(\"persist\", \"state save FAILED — the store could not be encoded\", e)",
+    "    } catch (e: UnsupportedOperationException) {\n        Log.e(\"persist\", \"state save FAILED — the store could not be encoded\", e)"
+   ]
+  ],
+  "tests": [
+   "*SaveCostTest.aSynchronousSave*"
+  ],
+  "expect": [
+   "aSynchronousSaveWhoseEncodeThrowsReturnsFalseAndSaysSo"
+  ],
+  "note": "R4 item 2 (b): an encode that throws leaves save() as a throw, not a save that did not land"
+ },
+ {
+  "id": "R4-04-the-prelude-outside-the-rollback",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        for (w in windows) w.onRegistered(services)\n",
+    ""
+   ],
+   [
+    "        val restoredMode: String?\n        try {\n",
+    "        val restoredMode: String?\n        for (w in windows) w.onRegistered(services)\n        try {\n"
+   ]
+  ],
+  "tests": [
+   "*SessionBoundaryTest.aStartWhosePreludeThrows*",
+   "*SessionBoundaryTest.aStopAfterAFailedStart*"
+  ],
+  "expect": [
+   "aStartWhosePreludeThrowsLeavesTheShellStartable",
+   "aStopAfterAFailedStartThatFollowsASessionReturns"
+  ],
+  "note": "R4 item 3 (3A open (c)): a window's onRegistered outside the failed start's rollback — every later start reads 'shell already started', and a stop after a session does not return"
+ },
+ {
+  "id": "R4-05-the-stretch-after-the-transport-start-outside-the-rollback",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        // R4 item 3: the rollback after `transport.start()` covers this stretch too (P5 item 6 fixed one throw in it)\n        try {\n",
+    "        // R4 item 3: the rollback after `transport.start()` covers this stretch too (P5 item 6 fixed one throw in it)\n"
+   ],
+   [
+    "\n            // initial surface — mode AND window restore (§9.1 rule 1). A SILENT",
+    "\n        try {\n            // initial surface — mode AND window restore (§9.1 rule 1). A SILENT"
+   ]
+  ],
+  "tests": [
+   "*SessionBoundaryTest.aStartThatThrowsAfter*"
+  ],
+  "expect": [
+   "aStartThatThrowsAfterTheTransportStartedStopsItAndLeavesTheShellStartable"
+  ],
+  "note": "R4 item 3: the stretch between transport.start() and the second try outside the rollback — the started transport stays up and the shell reads 'already started'"
+ },
+ {
+  "id": "R4-06-the-rollback-leaves-starting-set",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            starting = false              // R4 item 3: a throw before the session's `sessionSerial` bump left it set\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*SessionBoundaryTest.aStartThatThrowsAfter*"
+  ],
+  "expect": [
+   "aStartThatThrowsAfterTheTransportStartedStopsItAndLeavesTheShellStartable"
+  ],
+  "note": "R4 item 3: the second catch does not clear `starting` (expected uncaught: the next start sets and clears it itself; only a ring event posted between the failed start and the next is dropped as a start's — listed unpinned)"
+ },
+ {
+  "id": "R4-07-the-preview-is-the-cursors",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "if (switcher.open && previewPainted != null) windows.firstOrNull { it.id == previewPainted }   // \"@main\": null",
+    "if (switcher.open && previewPainted != null) switcher.selected()?.window"
+   ]
+  ],
+  "tests": [
+   "*ParkedRenderTest.aPushToTheWheels*"
+  ],
+  "expect": [
+   "aPushToTheWheelsPreviewInsideASpinOutAndBackRepaintsIt"
+  ],
+  "note": "R4 item 4 (3A-2): the content window named by the wheel's cursor — a push from the window shown is dropped mid-spin and the preview stays stale after a notch out and back"
+ },
+ {
+  "id": "R4-08-a-queued-start-image-copy-is-written-after-its-wait",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "if (index == 0 && unlessDone?.isCompleted == true) {",
+    "if (false && index == 0 && unlessDone?.isCompleted == true) {"
+   ]
+  ],
+  "tests": [
+   "*FidRingStartTest.aRingClearCopyQueued*"
+  ],
+  "expect": [
+   "aRingClearCopyQueuedBehindAFullWindowIsNotWrittenOnceTheClearIsAcked"
+  ],
+  "note": "R4 item 5 (3B open (b)): every queued copy of the clear is written as the held acks free the window (3 after the first ack)"
+ },
+ {
+  "id": "R4-09-the-clears-re-ask-says-sent-while-queued",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                emitNote(\"control\", \"the fid-ring clear went unacked for ${STALL_REPORT_MS / 1000} s — \" +\n                    if (window.availablePermits == 0)",
+    "                emitNote(\"control\", \"the fid-ring clear went unacked for ${STALL_REPORT_MS / 1000} s — \" +\n                    if (false)"
+   ]
+  ],
+  "tests": [
+   "*FidRingStartTest.aRingClearCopyQueued*"
+  ],
+  "expect": [
+   "aRingClearCopyQueuedBehindAFullWindowIsNotWrittenOnceTheClearIsAcked"
+  ],
+  "note": "R4 item 5: the clear's re-ask note says 'sent again' while the window has no free slot"
+ },
+ {
+  "id": "R4-10-the-warmups-re-ask-says-sent-while-queued",
+  "file": "transport/CfwTransportBase.kt",
+  "edits": [
+   [
+    "                    emitNote(\"control\", \"the warmup frame went unacked for ${STALL_REPORT_MS / 1000} s — \" +\n                        if (window.availablePermits == 0)",
+    "                    emitNote(\"control\", \"the warmup frame went unacked for ${STALL_REPORT_MS / 1000} s — \" +\n                        if (false)"
+   ]
+  ],
+  "tests": [
+   "*PreludeTest*"
+  ],
+  "expect": [
+   "aWarmupTheGlassesNeverSawEndsTheStartAndTheNextOneCompletes"
+  ],
+  "note": "R4 item 5, the warmup's twin of R4-09 (expected uncaught: no pin holds the warmup's acks until the window is full — listed unpinned; the write guard it shares, R4-08, is pinned through the clear)"
+ }
+]

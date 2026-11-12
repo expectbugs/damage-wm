@@ -662,7 +662,7 @@ class ReaderWindow(
                     if (openingId == meta.id) {
                         openingId = null
                         services?.setOperation("idle")
-                        services?.notifyInternal("reader", "could not open ${meta.title}: ${e.message}")
+                        services?.notifyInternal("reader", "could not open ${meta.title}: ${e.message}", answer = true)
                     }   // else: the user already abandoned this open — logged above
                     services?.requestRender(this@ReaderWindow)
                 }
@@ -974,9 +974,9 @@ class ReaderWindow(
                 openingId = null
                 if (meta == null) {
                     services?.setOperation("idle")
-                    services?.notifyInternal("reader", "couldn't open book $id — not in the library")
+                    services?.notifyInternal("reader", "couldn't open book $id — not in the library", answer = true)
                 } else if (!startOpen(meta)) {
-                    services?.notifyInternal("reader", "couldn't open ${meta.title} — another book is opening")
+                    services?.notifyInternal("reader", "couldn't open ${meta.title} — another book is opening", answer = true)
                 }
                 services?.requestRender(this@ReaderWindow)
             }
@@ -1033,6 +1033,10 @@ class ReaderWindow(
         }
         val id = state["bookId"]?.jsonPrimitive?.contentOrNull
         val lvl = state["level"]?.jsonPrimitive?.contentOrNull
+        // P7 item 6 (OS-5): a session start on the SAME instance with this book open (every link end, Silent wake and
+        // rebuild) ran the job below — the library, the file, the parse and the whole layout, on IO — and `apply` then
+        // dropped the result ("superseded"). The open book is the restore; nothing to do (the style path's sibling, §73)
+        if (book?.meta?.id == id && (level == Level_.BOOK || level == Level_.ACTIONS)) return
         // Restoring MODE, not just position (§9.1): reopen the book we were in,
         // at the exact LEVEL we were in (ACTIONS included — losing the level is
         // the Tmux failure class §9.1 #1 names).

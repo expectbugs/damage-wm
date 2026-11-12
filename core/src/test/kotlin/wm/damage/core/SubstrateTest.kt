@@ -48,9 +48,7 @@ class SubstrateTest {
     private fun freePort(): Int = ServerSocket(0).use { it.localPort }
 
     private suspend fun awaitTrue(what: String, ms: Long = 20_000, cond: () -> Boolean) {
-        val t0 = System.currentTimeMillis()
-        while (!cond() && System.currentTimeMillis() - t0 < ms) delay(25)
-        assertTrue(cond(), "did not converge: $what")
+        waitUntil(ms, 25, { "did not converge: $what" }) { cond() }
     }
 
     private class ItemsWindow : DamageWindow("items", "Items", IconKind.FILES) {
@@ -251,7 +249,7 @@ class SubstrateTest {
         override fun requestRender(window: DamageWindow) {}
         override fun setOperation(op: String) {}
         override fun notifyInternal(source: String, body: String, urgent: Boolean,
-            appId: String?, thread: String, target: String?) { notices.add("$source: $body") }
+            appId: String?, thread: String, target: String?, answer: Boolean) { notices.add("$source: $body") }
         override fun openWindow(id: String, target: String?): Boolean = false
         override fun runOnShell(action: () -> Unit) = action()
         override fun docContentWidth(): Int = 560
@@ -472,5 +470,64 @@ class SubstrateTest {
             scope.cancel()
             tmp.toFile().deleteRecursively()
         }
+    }
+
+    /** A shell over [content] with the Reader registered, its store in [tmp]; notify settings from [settings]. */
+    private fun readerShell(tmp: java.nio.file.Path, content: wm.damage.core.content.ContentProvider, scope: CoroutineScope,
+                            settings: ShellSettings? = null): Pair<Shell, ReaderWindow> {
+        val store = Persistence(tmp.resolve("state.json")).also { p -> if (settings != null) p.put("shell.settings", settings.toJson()) }
+        val shell = Shell(FakeText(), SimTransport(GlassFirmwareSim(), scope, SimTransport.Timing(instant = true)), store, null, scope)
+        val reader = ReaderWindow(FakeText(), content, scope)
+        shell.register(reader)
+        return shell to reader
+    }
+
+    /** P7 item 5's sibling, item 6 (OS-5): a session start on the same instance with a book open restored it
+     *  again — the library, the book's file, its parse and its whole layout, on IO, then dropped as "superseded"
+     *  (seen once in the saved phone log, 2026-11-09 12:06). Through a real stop and start: no second open. */
+    @Test
+    fun aSessionStartWithTheBookOpenDoesNotOpenItAgain(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-reader-restart")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            writeBook(tmp.resolve("books"))
+            val inner = LocalContent(tmp.resolve("books"))
+            val opens = java.util.concurrent.atomic.AtomicInteger()
+            val counting = object : wm.damage.core.content.ContentProvider {
+                override fun library() = inner.library()
+                override fun openBook(id: String): java.nio.file.Path { opens.incrementAndGet(); return inner.openBook(id) }
+                override fun state() = ""
+            }
+            val id = inner.library().single().id
+            val (shell, reader) = readerShell(tmp, counting, scope)
+            shell.start()
+            shell.services.runOnShell { shell.services.openWindow(reader.id, "book:$id") }
+            waitUntil(20_000, 20, { "the book is open (${reader.title()})" }) { reader.title().contains("p.") && shell.isQuiescent() }
+            val before = opens.get()
+            shell.stop()
+            shell.start()
+            waitUntil(20_000, 20, { "the restart settled: ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
+            delay(1_000)   // the restore's job runs on IO after the start; this book's parse takes milliseconds
+            assertEquals(before, opens.get(), "the open book was opened again at the session start")
+            assertTrue(reader.title().contains("p."), "the book is still open: ${reader.title()}")
+            shell.stop()
+        } finally { scope.cancel(); tmp.toFile().deleteRecursively() }
+    }
+
+    /** P7 item 2 (OS-2), one of the Reader's answers: a deep link to a book the library does not hold is an answer
+     *  to Adam's own gesture — shown with Global `Notify · Damage` off. */
+    @Test
+    fun aBookNotInTheLibraryIsAnAnswerShownWithNotifyDamageOff(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-reader-answer")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            writeBook(tmp.resolve("books"))
+            val (shell, _) = readerShell(tmp, LocalContent(tmp.resolve("books")), scope, ShellSettings(notifyDamage = false))
+            shell.start()
+            shell.services.runOnShell { shell.services.openWindow("reader", "book:nope") }
+            waitUntil(20_000, 20, { "the answer is up (${shell.notifications.current})" }) {
+                shell.notifications.current?.body?.startsWith("couldn't open book nope") == true }
+            shell.stop()
+        } finally { scope.cancel(); tmp.toFile().deleteRecursively() }
     }
 }

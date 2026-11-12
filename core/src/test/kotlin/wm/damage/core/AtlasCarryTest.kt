@@ -136,9 +136,7 @@ class AtlasCarryTest {
         }
 
         suspend fun until(what: String, cond: () -> Boolean) {
-            val t0 = System.currentTimeMillis()
-            while (!cond() && System.currentTimeMillis() - t0 < 15_000) delay(10)
-            assertTrue(cond(), "$what — live=${shell.cachedFontsLive} notes=${atlasNotes().takeLast(6)}")
+            waitUntil(15_000, 10, { "$what — live=${shell.cachedFontsLive} notes=${atlasNotes().takeLast(6)}" }) { cond() }
         }
 
         /** Up, drawing the rows window with cached text on and its face live. */

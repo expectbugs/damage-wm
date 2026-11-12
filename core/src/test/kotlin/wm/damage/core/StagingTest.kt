@@ -89,6 +89,8 @@ class StagingTest {
         val stageChecksAsked = java.util.concurrent.atomic.AtomicInteger(0)
         /** 1-based ordinals of STAGE flushes whose completion the shell sees as not ok (the ack never came). */
         @Volatile var failStageDone: Set<Int> = emptySet()
+        /** P5 item 5: called with each STAGE flush before it reaches the transport (its writes not yet out). */
+        @Volatile var onStageSubmit: ((FlushRequest) -> Unit)? = null
         private val failIds = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
         private var stageN = 0
         /** "count" when a reading is answered, "stage" when a STAGE flush is submitted — in order. */
@@ -131,6 +133,7 @@ class StagingTest {
             synchronized(flushes) { flushes.add(f) }
             if (flush.label == "ATLAS") { atlasWritten = true; if (shortCountAfterEveryAtlas) shortCountReads = 1 }
             if (flush.label != "STAGE") return inner.submit(f)
+            onStageSubmit?.invoke(f)
             traceLog += "stage"
             val fail = synchronized(this) { ++stageN in failStageDone }
             val id = inner.submit(f)
@@ -146,10 +149,12 @@ class StagingTest {
         @Volatile var layoutKey: Any = Any()
         /** Text appended to chosen lines (characters no other line holds). */
         @Volatile var extra: Map<Int, String> = emptyMap()
+        /** Lines per notch (a strip is one notch's lines): 3, or more where a test needs a record of two writes. */
+        @Volatile var step = 3
         private val f = FontSpec(Face.SYSTEM, 18)
         override fun view() = WindowView.DocView(model, { 200 }, 24,
             { g, i, r -> tx.draw(g, r.x + 4, r.y + 4, "line $i " + LINE.substring(i % 7) + (extra[i] ?: ""), f, ((i % 10) + 3) * 17) },
-            {}, stepLines = { 3 }, contentKey = { layoutKey })
+            {}, stepLines = { step }, contentKey = { layoutKey })
         override fun summary() = Summary("doc")
         override fun saveState(): JsonObject = buildJsonObject {}
         override fun restoreState(state: JsonObject) {}
@@ -159,7 +164,8 @@ class StagingTest {
         val tmp = Files.createTempDirectory("damage-staging")
         val sim = GlassFirmwareSim().also { it.damageContract = 2 }
         val text = CachedText(GlyphyText())
-        val spy = SpyTransport(SimTransport(sim, scope, timing))
+        val simT = SimTransport(sim, scope, timing)
+        val spy = SpyTransport(simT)
         val shell = Shell(text, spy, Persistence(tmp.resolve("state.json")), tmp.resolve("journal.jsonl"), scope)
         val doc = Doc(text)
 
@@ -336,6 +342,53 @@ class StagingTest {
             assertTrue(back.flatMap { it.ops }.any { it is DisplayOp.DrawImage2 }, "the notch back drew the staged strip: ${back.map(::shape)}")
             rig.assertGlassMatchesBelief("after the notch back")
             assertTrue(rig.notes("stage").any { "proved" in it }, "the journal says what was proven: ${rig.notes("stage").take(5)}")
+            rig.shell.stop()
+        } finally {
+            scope.cancel()
+            rig.tmp.toFile().deleteRecursively()
+        }
+    }
+
+    /**
+     * P5 item 5, the staged-strip case (wait-no-escape finding 2's corrected condition): a staged strip is ONE flush
+     * of several cache writes, each holding a window slot, and tracked as the stage's flush — not among the display
+     * flushes in flight. Its two writes' acks lost leave the reserve holding with no display flush in flight; a
+     * yield keyed on display flushes never comes. Fixed (keyed on the slots the room check reads): two idle ticks,
+     * the held repaint goes out, its ack releases the two writes ("acked first") and the stage flush fails.
+     */
+    @Test
+    fun aStagedStripWhoseAcksAreLostDoesNotHoldTheOtherFrames(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val rig = Rig(scope, SimTransport.Timing(ackMs = 5, bytesPerSec = 5_000_000.0, instant = false))
+        try {
+            rig.doc.step = 4                     // a strip of four lines: one record of two writes (3,064 B each at most)
+            val drop = java.util.concurrent.atomic.AtomicInteger(0)
+            val writes = java.util.concurrent.atomic.AtomicInteger(0)
+            rig.simT.notifyFilter = { _, p -> !(isImageAckOnly(p) && drop.getAndUpdate { maxOf(0, it - 1) } > 0) }
+            // the FIRST staged strip's writes lose their acks (set before its submit; nothing else is in flight then:
+            // a strip is written only into an empty window)
+            rig.spy.onStageSubmit = { f -> if (writes.compareAndSet(0, f.ops.size)) drop.set(f.ops.size) }
+            rig.shell.start(); rig.settle("start")
+            rig.shell.services.runOnShell { rig.shell.services.openWindow("doc", null) }
+            rig.settle("open doc")
+            rig.shell.updateSettings { it.copy(cachedText = "on") }
+            rig.until("the first strip's writes are out with their acks lost: writes=${writes.get()} inFlight=${rig.simT.state.value.inFlight}") {
+                writes.get() > 0 && drop.get() == 0 && rig.simT.state.value.inFlight == writes.get()
+            }
+            assertEquals(2, writes.get(), "the staged strip went out in two writes (the case the pin reads): ${rig.notes("stage").takeLast(3)}")
+            val held = rig.all().size
+            nonInputRepaint(rig.shell, 2)
+            assertTrue(rig.all().size == held && "pending" in rig.shell.quiescenceReport(),
+                "the repaint is held by the reserve: ${rig.shell.quiescenceReport()}")
+            rig.shell.postIdleTick(); rig.shell.postIdleTick()
+            rig.until("the held repaint went out past the reserve: ${rig.all().size - held} flush(es)") { rig.all().size > held }
+            rig.until("the strip's two writes are released by the later ack and its flush fails") {
+                rig.notes("stage").any { "acked first" in it } || (Files.exists(rig.tmp.resolve("journal.jsonl")) &&
+                    Files.readAllLines(rig.tmp.resolve("journal.jsonl")).any { "\"ev\":\"done\"" in it && "acked first" in it })
+            }
+            assertTrue(Files.readAllLines(rig.tmp.resolve("journal.jsonl")).none { "counter cycled" in it }, "released by a later ack, not the counter")
+            rig.simT.notifyFilter = null
+            rig.settle("after the repair")
             rig.shell.stop()
         } finally {
             scope.cancel()

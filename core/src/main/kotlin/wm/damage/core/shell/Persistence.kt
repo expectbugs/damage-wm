@@ -220,23 +220,33 @@ class Persistence(private val file: Path) {
     fun removeListener(l: (String) -> Unit) { listeners.remove(l) }
 
     /** Every write goes through ONE thread in submission order, so an
-     *  asynchronous save and a later synchronous one can never land out of
-     *  order (2026-09-05, `HANDOFF.md` §32). Daemon: the sync shutdown save is
+     *  asynchronous save and a later synchronous one land in order per
+     *  submitting thread; every submitter today is the loop (2026-09-05,
+     *  `HANDOFF.md` §32). Daemon: the sync shutdown save is
      *  what guarantees the last state reaches disk, and it waits its turn. */
     private val writer = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
         Thread(r, "damage-persist").apply { isDaemon = true }
     }
 
-    /** The store encoded as one JSON document — under the lock, cheap. */
-    private fun encode(): String = synchronized(lock) {
+    /** P6 item 3 (the loop-cost sweep's LC-6, step 2): every record as it stands — the key, the value (immutable) and
+     *  the stamp's value (`tryApplyRemote` moves a held record's stamp in place) — taken under the lock in one pass. */
+    private fun copyRecords(): List<Triple<String, JsonObject, Long>> = synchronized(lock) {
+        loaded.map { (k, r) -> Triple(k, r.value, r.stamp) }
+    }
+
+    /** [records] encoded as one JSON document — the one definition of the file's form. */
+    private fun encode(records: List<Triple<String, JsonObject, Long>>): String {
         val root = buildJsonObject {
             put("__v", 2L)
             put("records", buildJsonObject {
-                for ((k, r) in loaded) put(k, buildJsonObject { put("v", r.value); put("t", r.stamp) })
+                for ((k, v, t) in records) put(k, buildJsonObject { put("v", v); put("t", t) })
             })
         }
-        json.encodeToString(JsonObject.serializer(), root)
+        return json.encodeToString(JsonObject.serializer(), root)
     }
+
+    /** The store encoded now, on the caller. */
+    private fun encode(): String = encode(copyRecords())
 
     /** Atomic write: temp file + move, so an interruption never half-writes
      *  the store; a unique tmp so two writers could never interleave even if
@@ -260,28 +270,42 @@ class Persistence(private val file: Path) {
      *  save queued before it, and returns whether the write LANDED (R3s#11) —
      *  a full disk repeating only in the log would surface at the next
      *  restart as lost state; saveAll raises it visibly once per failure
-     *  streak. The shutdown path and the sync channel use this form. */
-    fun save(): Boolean {
+     *  streak. The shutdown path and the sync channel use this form.
+     *  R4 item 2 (review 3A-3): the encode is under the `try` — a throw there is
+     *  a save that did not land (P6's rule for [saveAsync]); outside it, the throw
+     *  left the shutdown's final save as an exception. */
+    fun save(): Boolean = try {
         val encoded = encode()
-        return try {
+        try {
             writer.submit<Boolean> { writeNow(encoded) }.get()
         } catch (e: Exception) {
             Log.e("persist", "state save FAILED — the writer refused", e)
             false
         }
+    } catch (e: Exception) {
+        Log.e("persist", "state save FAILED — the store could not be encoded", e)
+        false
     }
 
-    /** ASYNCHRONOUS save (2026-09-05, §32): the encode happens on the caller
-     *  (the shell loop — microseconds), the file write on the writer thread.
+    /** ASYNCHRONOUS save (2026-09-05, §32): the file write on the writer thread.
      *  The loop used to block on the write itself every couple of seconds
      *  after any change: a few milliseconds on the PC, tens on the phone's
      *  flash, each one delaying the next frame. [onDone] gets the same
-     *  LANDED verdict [save] returns, on the writer thread. */
+     *  LANDED verdict [save] returns, on the writer thread.
+     *  P6 item 3 (LC-6, step 2): the ENCODE moved there too. On the caller it was the whole store (219 KB on the PC's
+     *  copy, 2026-11-10) on the shell loop two seconds after every burst — the loop held about 100–150 ms there
+     *  (APK 0.63's journal, measured indirectly), not the "microseconds" this comment said. The caller copies the
+     *  records under the lock; the writer encodes them, in submission order (one thread). The encode sits inside the
+     *  code that reports the verdict: a throw there is a save that did not land, said as one — a task of this executor
+     *  that throws ends with no answer to [onDone] at all. */
     fun saveAsync(onDone: (Boolean) -> Unit) {
-        val encoded = encode()
+        val records = copyRecords()
         try {
             writer.execute {
-                val landed = writeNow(encoded)
+                val landed = try { writeNow(encode(records)) } catch (t: Throwable) {
+                    Log.e("persist", "state save FAILED — the store could not be encoded", t)
+                    false
+                }
                 try { onDone(landed) } catch (e: Exception) { Log.e("persist", "save completion handler failed", e) }
             }
         } catch (e: Exception) {

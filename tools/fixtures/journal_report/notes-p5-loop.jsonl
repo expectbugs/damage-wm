@@ -1,0 +1,17 @@
+{"t": 1800000000000, "ev": "submit", "id": 1, "epoch": 1, "label": "WINDOW", "via": "sim", "handleMs": 20, "handlerMs": 5, "mirrorMs": 0, "assembleMs": 10, "truthMs": 3, "compressMs": 2, "compressN": 1, "slidesMs": 0, "chromeMs": 1, "overlaysMs": 0, "textMs": 1, "cached": 0, "cacheMiss": "", "staged": 0, "unpacked": 0, "in": 1, "ops": [{"op": "delta", "box": "[0,0 64x16]", "bytes": 120, "d": 0}]}
+{"t": 1800000000200, "ev": "done", "id": 1, "ok": true, "ackMs": 150, "bytes": 120}
+{"t": 1800000001200, "ev": "note", "kind": "queue", "detail": "2 ring event(s) that came during the start dropped"}
+{"t": 1800000002200, "ev": "note", "kind": "queue", "detail": "3 flush(es) of the last session not answered when this session started (id 41,42,43): an answer that comes is journaled, not judged"}
+{"t": 1800000003200, "ev": "note", "kind": "queue", "detail": "the loop ended with 2 message(s) unhandled (its scope ended, not a stop): Trans.FlushDone×1, Run×1"}
+{"t": 1800000004200, "ev": "note", "kind": "link", "detail": "the input reserve yields: 2 image message(s) un-acked over two idle ticks with no completion between them — this pump may take the whole window; its ack releases the earlier ones"}
+{"t": 1800000005200, "ev": "note", "kind": "control", "detail": "taking the lease back asked during a start is a caller of the session before: not taken"}
+{"t": 1800000006200, "ev": "note", "kind": "control", "detail": "fid-ring clear not sent at the session start: the glasses say Silent Mode is on — the session the wake rebuilds sends it"}
+{"t": 1800000007200, "ev": "note", "kind": "control", "detail": "the fid-ring clear went unacked for 10 s — sent again"}
+{"t": 1800000008200, "ev": "note", "kind": "control", "detail": "the fid-ring clear at the session start was not confirmed: the session ended; this instance's fids continue at 412"}
+{"t": 1800000009200, "ev": "note", "kind": "control", "detail": "4 packet(s) of the ended session left after its end and were not applied to the mirror (at the stop)"}
+{"t": 1800000010200, "ev": "note", "kind": "keeper", "detail": "a session rebuild asked in a session that has ended is not run (mirror divergence)"}
+{"t": 1800000011200, "ev": "note", "kind": "keeper", "detail": "flags 0x4 not armed: the read before the arming ended early (the session ended) — the next start arms them"}
+{"t": 1800000012200, "ev": "note", "kind": "keeper", "detail": "flags above bit 2 not armed: the read after the refusal ended early (a re-ask could not be written) — the next start arms them"}
+{"t": 1800000013200, "ev": "note", "kind": "keeper", "detail": "DRAW2 not armed: this session's cache is 64 KiB and a v2 atlas needs 128 KiB (64 for the atlas, 64 for the strips) — this session draws with v1 shapes; a start after a fresh acquire asks for the size again"}
+{"t": 1800000014200, "ev": "note", "kind": "stall", "detail": "wide flush written at depth 1 after 10 s without an image ack — its ack releases the earlier message"}
+{"t": 1800000015200, "ev": "note", "kind": "loop", "detail": "over 60 s: Trans.FlushDone n=12 total=150.5 max=40.2; SaveTick n=1 total=120.0 max=120.0; Run n=3 total=61.3 max=60.4; IdleTick n=12 total=3.1 max=0.6; pump n=30 total=210.0 max=55.1; mirror n=11 total=110.2 max=12.0 rows=1320 (ms; handler time per message class, the mirror scan inside its FlushDone)"}

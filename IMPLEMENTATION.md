@@ -33,13 +33,15 @@ shell  ──FlushRequest{ops: Keyframe|Delta|Copy|StereoPair, epoch, wide}─�
   Payloads arrive pre-compressed (zlib(rle)) — compression is the shell's job (§10.1).
 - **Fids are stamped by the transport at EMIT time** (§8.2 #5), via the shared `Emit` encoder.
 - `submit()` enqueues in call order and returns; the backpressure signal is `LinkState.inFlight` against
-  `window`, which the shell's pump gates on. A `wide` flush drains the window and runs at depth 1.
+  `window`, which the shell's pump gates on. A `wide` flush drains the window and runs at depth 1; behind a lost ack
+  it is nudged after the stall bound and runs at the depth the held slots leave (2 behind one), its budget stated at
+  that depth (APK 0.65, `HANDOFF.md` §77).
 - The same interface serializes over TCP (`RemoteTransportClient/Server`, length-prefixed JSON + binary):
   the shell can live on the PC while the transport lives on the phone, or the reverse. The server admits
   ONE driver; claim/yield callbacks let the phone's local shell hand over and take back.
 
 Every transport shares `CfwTransportBase` — the full choreography (capability gate → carrier CREATE → lease
-both arms + 45 s renewal → warmup splash → idle keepalive → fragmenting ≤ 3800 B → msgId/session
+both arms + 45 s renewal → warmup splash → the fid-ring clear (mode 7 sub 0, awaited) → idle keepalive → fragmenting ≤ 3800 B → msgId/session
 discipline) — so both live BLE paths run the protocol brain the sim exercises on every selfcheck.
 
 ## Module map
@@ -108,13 +110,18 @@ Adam's target: *flash the firmware, install the app, and it works — usable fro
 mouse, on a pixel-exact replica.* `HANDOFF.md` §8 is the record; what it added:
 
 - **Every transport owns a mirror** (`Transport.mirror: LensPanels`): a `GlassFirmwareSim` fed the exact packets
-  the transport writes; its `decode`/`fid`/`session` events surface as `mirror/<kind>` faults. Every replica
+  the transport writes; its `decode`/`fid`/`session` events surface as `mirror/<kind>` faults (the seven kinds,
+  `image` included, on the simulator transport too); a packet of a message whose session ended is written but not
+  applied to the mirror, counted in one `control` note at the stop (APK 0.65). Every replica
   draws it; `Transport.injectInput` lets a replica's gesture reach whichever shell drives.
 - **The connect prelude** (`wire/LaunchMsg.kt`): one sid-0x01 app-launch request after both arms are up and an
   800 ms settle, acked on its msgId, before the capability gate; the 7-packet sid-0x80 sequence is never sent.
   The model treats the prelude as required (graded U).
 - **The divergence check** (`Shell.checkMirrorAgreement`): at rest the compositor's belief per lens must equal
-  the mirror through the emitter's quantiser; a disagreement is reported once per episode (the cell's `fault`,
+  the mirror through the emitter's quantiser over the rows the model's panel was written in and the rows our flushes
+  touched since the last agreeing check (every row on a session's first check, after a failed or rolled-back flush,
+  while a disagreement stands, and once a minute; `GlassFirmwareSim.takeChangedRows`, read in place under the model's
+  monitor — APK 0.65); a disagreement is reported once per episode (the cell's `fault`,
   journal, an urgent notice on the `mirror` thread) and answered with one keyframe.
 - **The session keeper** (`shell/ShellKeeper.kt`): a link end restarts the session after a 2 s pause, forever,
   no timeouts; a capability refusal is terminal (`onTerminal`). Since §16 **`pause` YIELDS**
@@ -161,7 +168,7 @@ Desktop (the sim standing in for glass; also serves `~/books` to the phone):
 ./gradlew :desktop:run --args="--ble-info"    # adapter enumeration only (no discovery)
 ./gradlew :desktop:run --args="--selfcheck"   # the 485-check scripted gate: two passes (contract 1 with a gain-in-place step at boot, then contract 2 with cached text on), every window's walk, the truth oracle on every settle
 ./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface (57 scenes)
-./gradlew :desktop:run --args="--epub-check [DIR]"  # parse every book in ~/books (DIR is carried and not used until GG-8's fix, APK 0.65)
+./gradlew :desktop:run --args="--epub-check [DIR]"  # parse every book in DIR (default: the config's booksDir); exit 1 on zero books, a DIR that is not a directory or a failing book
 ./gradlew :desktop:run --args="--music-check" # the real g2cc library, read-only bar the additive schema migration: counts, catalog, lanes, cache keys, Qdrant, one viz blob, the adaptive-playlist derivation
 ./gradlew :desktop:run --args="--games-check" # the Hold'em ecology over hundreds of simulated tournaments (pure in-memory; add `deep` for a longer run)
 ./gradlew :desktop:run --args="--card-render" # the card sheets into design/shots/cards/ at true 1x
@@ -617,7 +624,7 @@ fork's C (`~/damage-cfw`).
 - **Conformance vectors** — `firmware/make_vectors.py` writes the inputs (the documented v1 message formats);
   the fork's `host/run_vectors.py --write` fills the expectations from its C; `ConformanceVectorTest` runs
   every file through `GlassFirmwareSim` per lens (shadow CRC-32 and every return code). 7 vectors, 35 steps
-  then (28 vectors, 259 steps since §73), matching on both lenses.
+  then (34 vectors, 342 steps since the vector pass, 2026-11-12, `HANDOFF.md` §77.4), matching on both lenses.
 - **`DamageMsg` + the simulator's `damageContract`** — the Phase 1 settings extension from the contract text:
   DamageCaps parsed at the capability gate, telemetry parsed on any sid-0x09 frame before the §47 answer
   matching, flags modeled with the texture cache's release points, field 4 a status register (the last
@@ -682,7 +689,7 @@ These mechanisms are load-bearing and easy to break by accident:
   kind in `Shell.keepWhileDown`: `FlushDone` must stay queued (the in-flight, atlas and staging bookkeeping) and
   `Text` too. `holdPushes()` belongs at EVERY `running = false`. The Reader's restore and scan are one job each. Do
   not drop `FlushDone`, do not post a held push outside the lock, do not add a plain `runOnShell` to a listener that
-  keeps pushing. The PC standby claims only when `StandbyPolicy.shouldClaim` says so: the phone unreachable AND both
+  keeps pushing. Music Mode's visualizer frame tick is keyed (`music.vizframe`, 0.65 P7 item 3). The PC standby claims only when `StandbyPolicy.shouldClaim` says so: the phone unreachable AND both
   arms seen.
 
 - **The latency build (§40)** — chrome's telemetry cells repaint only when `allowTelemetry` (`Chrome.sync`); a
@@ -714,8 +721,12 @@ These mechanisms are load-bearing and easy to break by accident:
   for sticky flags, the restarted session's transport events reach the same counters, and a contract-2 pass
   must see a partial transfer (arming DRAW2 proves nothing about what was emitted). **Three start gates have
   an escape from a write that keeps failing** (§64.2 items 4–5): the warmup re-sends on the stall threshold
-  with the same deferred, and the prelude and the capability query pass theirs to every attempt, not just the
-  first. `LinkState.glassesSilent` is cleared at session entry — the READ path can only ever set it, so a
+  with the same deferred; a re-sent copy (the warmup's, the fid-ring clear's) whose wait has ended by the time it
+  holds a window slot is not written (R4 item 5; one copy already waiting for the slot an ack frees is still
+  written), and the re-ask's note says "queued again" while the window is full. The fid-ring clear re-sends on the
+  same threshold with one deferred; any end but the session's is a `control` note and the start goes on. RIGHT's
+  write failing on any attempt ends a gate (P5 item 9). The prelude and the capability query pass theirs to every
+  attempt, not just the first. `LinkState.glassesSilent` is cleared at session entry — the READ path can only ever set it, so a
   `true` used to cross a session boundary and blank an awake pair. Do not key a "have I checked this" on a
   per-object counter or on bytes alone, do not infer an op's success from a sticky register, do not let the
   selfcheck run one contract again, and do not leave a start gate awaiting something only one attempt could
@@ -743,7 +754,8 @@ These mechanisms are load-bearing and easy to break by accident:
   `assembleMs`; `Compositor.compress` is memoised for ONE assemble; both rasterizers cache measures and coverage
   masks (`core/text/GlyphCaches.kt`); `Wrap.wrap` decides from an additive estimate outside a ±24 px band and
   measures exactly inside it (`WrapEstimateTest`); `Shell.pump` reserves one window slot for the pump after a
-  ring event (`pumpPriority`); `LinkState.transferMsPerKbEma` (flushes ≥ 1 KB, against `floorMsEma` from
+  ring event (`pumpPriority`) — two idle ticks in a row with the reserve holding and no flush completion between them
+  give that tick's pump the whole window (one `link` note; APK 0.65); `LinkState.transferMsPerKbEma` (flushes ≥ 1 KB, against `floorMsEma` from
   flushes < 400 B) is the regime discriminator — the wheel spins in 2 frames above 50 ms/KB. **Since §73 the
   two fields hold medians, not EMAs** (the names stay: the seam carries them): `transport/LinkEstimator.kt`
   keeps the last nine ISOLATED flushes per term (every window slot free and no ack clock open when the lane
@@ -751,7 +763,8 @@ These mechanisms are load-bearing and easy to break by accident:
   never takes a cache write as a floor reading, and starts over with each session; a term reads its default
   until three readings (`LinkState.floorSamples` / `transferSamples`, `floorMeasured` / `transferMeasured`),
   and the regime note says how many it stands on (`LinkEstimatorTest`, `LinkEstimatorWiringTest`);
-  `Persistence.saveAsync` writes on one daemon thread in submission order. Do not put the write back on the
+  `Persistence.saveAsync` copies the records under the lock and encodes and writes on one daemon thread in
+  submission order; an encode that throws is a save that did not land (APK 0.65). Do not put the write back on the
   loop, do not let the memo outlive an assemble, keep the estimate band.
 - **The `queued` counter is honest** (`Shell.post` / `loop()`'s `finally` / `quiescenceReport`, §31.8):
   `isQuiescent()` reads `queued`; `post()` undoes its own count on a refused `trySend`; the loop's `finally`
@@ -823,10 +836,16 @@ These mechanisms are load-bearing and easy to break by accident:
   SWEEP (a failed `start()` sweeps without bumping): pending acks fail, window permits return, both queues drain
   loudly, a start parked on the capability gate is answered with a sentinel. A flush never spans the 0xFFFE→1
   fid wrap; a failed encode hands its fids back; completions leave in submission order; msgId cycles 1..249.
-  The window-full-no-ack stall is REPORTED as a fault, never acted on.
+  The window-full-no-ack stall is REPORTED as a fault and otherwise not acted on, with one exception (APK 0.65, P5
+  item 10): a wide flush's drain parked behind a lost image ack is nudged by the stall tick and written at depth 2,
+  and its ack releases the earlier message.
 - **Shell.** start/stop serialize on a mutex (a stop during start waits and never saves defaults over unread
   state); since 0.64 a stop joins the loop, so the drain has run when `stop()` returns, and the drain decides each
-  transport event by `keepWhileDown` and puts the kept ones (a flush's answer, a typed line) back once. A notification box is LIFTED before any slide steps beneath it and repainted after. Every dynamic
+  transport event by `keepWhileDown` and puts the kept ones (a flush's answer, a typed line) back once. Since 0.65
+  a failed start's rollback covers the whole start (the prelude and the stretch after `transport.start()`), and the
+  Shutdown arm clears `running` and completes `done` on every exit (R4 items 2–3); `setLeaseWanted` refuses a call
+  during a start (`control` note) and `requestRebuild` runs only in the session it was asked in (`keeper` note; P5
+  item 3). A notification box is LIFTED before any slide steps beneath it and repainted after. Every dynamic
   chrome string is sanitised to the locked glyph set and fitted with the continuation mark.
 - **Content.** Host reachability is decided in one place (`RemoteContent.withHost`); local disk failures never
   read as "PC gone"; the cache keeps the listing's real extension.
@@ -849,8 +868,8 @@ These mechanisms are load-bearing and easy to break by accident:
 
 ## Verification
 
-Battery as of 2026-09-14 evening (`HANDOFF.md` §51.6; **the current counts are `REMINDER.md`'s** — core 932 ·
-desktop 32 · `--selfcheck` 485 at 0.64's R3, the final battery, simulator): `:core:test` **545** · `:desktop:test` **15** · `--selfcheck`
+Battery as of 2026-09-14 evening (`HANDOFF.md` §51.6; **the current counts are `REMINDER.md`'s** — core 1023 ·
+desktop 35 · `--selfcheck` 485 at 0.65's R4, the final battery, simulator): `:core:test` **545** · `:desktop:test` **15** · `--selfcheck`
 **230** checks ×3 · `--snapshot` **57** scenes · `--epub-check` (380/404 images) · `--music-check` · `--games-check`
 (400 tournaments) · `--feed-check` · `tools/lint.py` **0** · the phone build in its own gradle call (`:phone:assembleDebug` — `:phone:stageApk`
 STAGES the APK for install and is never a battery step). The fork:

@@ -360,9 +360,12 @@ object Epub {
      *  entity ended an entire load in review round 1). */
     private fun codepoint(cp: Int?): String? = when {
         cp == null -> null
+        // U+FFFD is book DATA (the value of a malformed reference), never handed to a draw as itself: the prose is
+        // drawn through `drawFit` → `Draw.dynamic`, which draws a glyph no face holds as '?'. lint:allow-symbols
         cp in 0xD800..0xDFFF -> "\uFFFD"          // a lone surrogate is not text
         cp in 0x80..0x9F -> (CP1252[cp] ?: '\uFFFD').toString()
         cp in 1 until 0x110000 -> String(Character.toChars(cp))
+        // lint:allow-symbols — the same data as above (U+FFFD for an out-of-range reference)
         else -> "\uFFFD"
     }
 

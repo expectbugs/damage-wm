@@ -59,19 +59,15 @@ class GamesWindowTest {
         }
 
         suspend fun settle(what: String = "") {
-            val t0 = System.currentTimeMillis()
-            while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 20_000) delay(10)
+            waitUntil(20_000, 10, { "the shell did not settle $what — ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
             // the REPORT, not just the verdict: "did not settle" alone told a
             // later reader nothing about which half was still moving, and one
             // flake of exactly this shape turned out to be a real defect
             // (the wheel that never stopped spinning — review §30)
-            assertTrue(shell.isQuiescent(), "the shell did not settle $what — ${shell.quiescenceReport()}")
         }
 
         suspend fun await(what: String, ms: Long = 20_000, cond: () -> Boolean) {
-            val t0 = System.currentTimeMillis()
-            while (!cond() && System.currentTimeMillis() - t0 < ms) delay(20)
-            assertTrue(cond(), "did not converge: $what (title=${win.title()})")
+            waitUntil(ms, 20, { "did not converge: $what (title=${win.title()})" }) { cond() }
         }
 
         suspend fun tap() { shell.postGesture(EvenHubMsg.EV_CLICK); settle() }
@@ -479,7 +475,7 @@ class GamesWindowTest {
         override fun requestRender(window: wm.damage.core.shell.DamageWindow) {}
         override fun setOperation(op: String) {}
         override fun notifyInternal(source: String, body: String, urgent: Boolean,
-            appId: String?, thread: String, target: String?) {}
+            appId: String?, thread: String, target: String?, answer: Boolean) {}
         override fun openWindow(id: String, target: String?): Boolean = false
         override fun runOnShell(action: () -> Unit) = action()
         override fun docContentWidth(): Int = 560

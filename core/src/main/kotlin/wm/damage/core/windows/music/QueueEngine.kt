@@ -159,16 +159,21 @@ class QueueEngine(private val random: java.util.Random = java.util.Random()) {
         const val LOW_WATER = 2
 
         /** The same record from a SNAPSHOT (a caller off the engine's thread). */
-        fun jsonOf(queue: List<QueueEntry>, index: Int, mode: Mode, label: String, nextQid: Long = 0L): JsonObject = buildJsonObject {
+        fun jsonOf(queue: List<QueueEntry>, index: Int, mode: Mode, label: String, nextQid: Long = 0L,
+            queueJson: JsonArray = queueJsonOf(queue)): JsonObject = buildJsonObject {
             put("index", index)
             put("mode", mode.name)
             put("label", label)
             put("nextQid", maxOf(nextQid, (queue.maxOfOrNull { it.qid } ?: 0L) + 1))
-            put("queue", buildJsonArray {
-                for (e in queue) add(buildJsonObject {
-                    put("qid", e.qid); put("id", e.track.id); put("title", e.track.title)
-                    put("artist", e.track.artist); put("album", e.track.album); put("dur", e.track.durMs)
-                })
+            put("queue", queueJson)
+        }
+
+        /** The record's `queue` array, one object per entry. P6 item 3 (LC-6): apart, so a caller that kept the array
+         *  built from an equal list ([PlayerCore.persist]) passes it to [jsonOf] instead of building it again. */
+        fun queueJsonOf(queue: List<QueueEntry>): JsonArray = buildJsonArray {
+            for (e in queue) add(buildJsonObject {
+                put("qid", e.qid); put("id", e.track.id); put("title", e.track.title)
+                put("artist", e.track.artist); put("album", e.track.album); put("dur", e.track.durMs)
             })
         }
     }

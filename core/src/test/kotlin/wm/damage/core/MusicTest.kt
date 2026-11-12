@@ -55,9 +55,7 @@ class MusicTest {
     private fun freePort(): Int = ServerSocket(0).use { it.localPort }
 
     private suspend fun awaitTrue(what: String, ms: Long = 20_000, cond: () -> Boolean) {
-        val t0 = System.currentTimeMillis()
-        while (!cond() && System.currentTimeMillis() - t0 < ms) delay(20)
-        assertTrue(cond(), "did not converge: $what")
+        waitUntil(ms, 20, { "did not converge: $what" }) { cond() }
     }
 
     // =========================================================== profiles + cache keys

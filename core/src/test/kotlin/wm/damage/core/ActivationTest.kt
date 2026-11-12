@@ -75,9 +75,7 @@ class ActivationTest {
     }
 
     private suspend fun settle(shell: Shell) {
-        val t0 = System.currentTimeMillis()
-        while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 10_000) delay(10)
-        assertTrue(shell.isQuiescent(), "shell did not settle — ${shell.quiescenceReport()}")
+        waitUntil(10_000, 10, { "shell did not settle — ${shell.quiescenceReport()}" }) { shell.isQuiescent() }
     }
 
     @Test
@@ -161,9 +159,7 @@ class ActivationTest {
                 source = "test", thread = "t", body = "ping", timeHHMM = "12:00",
                 appId = "probb", target = "x"))
             settle(shell)
-            val t0 = System.currentTimeMillis()
-            while (!shell.notifications.focused && System.currentTimeMillis() - t0 < 10_000) delay(20)
-            assertTrue(shell.notifications.focused, "the notice never took the gesture focus")
+            waitUntil(10_000, 20, { "the notice never took the gesture focus" }) { shell.notifications.focused }
             shell.postGesture(EvenHubMsg.EV_CLICK)          // tap the box
             settle(shell)
             assertEquals("probb", shell.currentWindowId())
@@ -240,8 +236,9 @@ class ActivationTest {
             (reader.view() as WindowView.ListView).onCommit(0)
             while (reader.title() == "opening" && System.currentTimeMillis() - t0 < 10_000) delay(20)
             if (reader.title().endsWith("chapters")) (reader.view() as WindowView.ListView).onCommit(0)
-            while (!reader.title().contains("p.") && System.currentTimeMillis() - t0 < 10_000) delay(20)
-            assertTrue(reader.title().contains("p."), "the book never opened: ${reader.title()}")
+            var ok = reader.title().contains("p.")
+            while (!ok && System.currentTimeMillis() - t0 < 10_000) { delay(20); ok = reader.title().contains("p.") }
+            assertTrue(ok, "the book never opened: ${reader.title()}")
             val doc = reader.view() as WindowView.DocView
             doc.model.topLine = 40
             val id = content.library().single().id
@@ -269,7 +266,7 @@ class ActivationTest {
         override fun requestRender(window: DamageWindow) {}
         override fun setOperation(op: String) {}
         override fun notifyInternal(source: String, body: String, urgent: Boolean,
-            appId: String?, thread: String, target: String?) {}
+            appId: String?, thread: String, target: String?, answer: Boolean) {}
         override fun openWindow(id: String, target: String?): Boolean = false
         override fun runOnShell(action: () -> Unit) = action()
         override fun docContentWidth(): Int = 560

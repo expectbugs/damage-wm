@@ -1745,7 +1745,9 @@ class MusicWindow(
                 while (exclusive && gen == mmVizGen) {
                     delay((1000L / vizRate.coerceIn(1, 30)))
                     if (gen != mmVizGen) break
-                    onShell { if (exclusive && gen == mmVizGen && st.play == PlayState.PLAYING) { mmVizDue = true; render() } }
+                    // KEYED (P7 item 3, OS-4; §72's rule, as the 1 Hz tick): a stop leaves `exclusive` and the
+                    // generation as they were, and an unkeyed post queued 8 messages a second while the shell was down
+                    onShell("vizframe") { if (exclusive && gen == mmVizGen && st.play == PlayState.PLAYING) { mmVizDue = true; render() } }
                 }
             }
         } else {

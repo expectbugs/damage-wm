@@ -69,9 +69,7 @@ class Review47Test {
         }
 
         suspend fun until(what: String, cond: () -> Boolean) {
-            val t0 = System.currentTimeMillis()
-            while (!cond() && System.currentTimeMillis() - t0 < 10_000) delay(10)
-            assertTrue(cond(), what)
+            waitUntil(10_000, 10, { what }) { cond() }
         }
 
         fun close() { collector.cancel(); tmp.toFile().deleteRecursively() }

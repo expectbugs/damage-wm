@@ -254,6 +254,7 @@ def main(paths, since_ms=0, glasslog=False):
         # a process that ended before its first flush leaves exactly these: the rotation's line,
         # the record in place, the last run's uncaught error
         for n in notes: start_note(n)
+        loop_report(notes)
         refusal_report(notes)
         present_report(presents)
         battery_report(notes)
@@ -326,15 +327,19 @@ def main(paths, since_ms=0, glasslog=False):
         # the §34 split, when the journal has it
         parts = collections.defaultdict(list)
         for r in joined:                          # the same rows `hm`/`am` came from, not one per id
-            for k in ('handlerMs', 'mirrorMs', 'slidesMs', 'chromeMs', 'overlaysMs', 'textMs', 'truthMs', 'compressMs', 'compressN'):
+            # P6 item 1 (LC-7): not `mirrorMs` — the scan runs in an ack's turn, which submits only when chrome
+            # alone was owed; its column read zero by construction. The `loop` notes below carry it.
+            for k in ('handlerMs', 'slidesMs', 'chromeMs', 'overlaysMs', 'textMs', 'truthMs', 'compressMs', 'compressN'):
                 v = r.get(k)
                 if isinstance(v, int) and v >= 0: parts[k].append(v)
         if parts:
             print('  split (medians / p90, n=%d): ' % len(joined) + ' · '.join(
                 f'{k} {med(v)}/{sorted(v)[int(len(v)*.9)]}' for k, v in parts.items()))
-            print('  (handle = handler + slides + overlays + chrome + mirror + ASSEMBLE; assemble = truth + compress + the diff and plan)')
+            print('  (handle = handler + slides + overlays + chrome + ASSEMBLE; assemble = truth + compress + the diff and plan; '
+                  'the mirror scan: the loop notes)')
     else:
         print('\nno handleMs/assembleMs in this journal (written before §32)')
+    loop_report(notes)
     # §41: the cache's account — rects shipped as draws, and why the rest
     # were pixels (the compositor's own reasons, per flush)
     cached = [r.get('cached') for r in joined if isinstance(r.get('cached'), int) and r.get('cached') >= 0]
@@ -439,8 +444,11 @@ def main(paths, since_ms=0, glasslog=False):
         if start_note(n): continue
         # 0.64: `wear`, `case`, `sid` (what the glasses said on services the transport only reads), `rest`
         # (the rest probe and every case it did nothing in), `lowbatt` (the once-per-discharge notice)
+        # 0.65 (P6, from P5's notes): `queue` (the last session's unanswered ids, ring events a start dropped, what the
+        # loop's end left), `control` (the fid-ring clear, a lease call from the session before, packets not applied
+        # to the mirror) and `stall` (a wide flush written at depth N) were counted above and printed nowhere
         if n['kind'] in ('link', 'panic', 'halt', 'build', 'watchdog', 'restart', 'keeper', 'probe',
-                         'wear', 'case', 'sid', 'rest', 'lowbatt') or (n['kind'] == 'fault' and 'stall' in n['detail']):
+                         'wear', 'case', 'sid', 'rest', 'lowbatt', 'queue', 'control', 'stall') or (n['kind'] == 'fault' and 'stall' in n['detail']):
             print(f'  {datetime.datetime.fromtimestamp(n["t"]/1000):%m-%d %H:%M:%S} {n["kind"]}: {n["detail"][:110]}')
     # the other faults were counted in the line above and shown nowhere — the lost-ack class (§34)
     # was visible only as a digit (2026-09-16 review). One line per class, with the first of each.
@@ -782,6 +790,41 @@ def gate_report(notes):
 
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fixtures', 'journal_report')
 
+LOOP_ENTRY = re.compile(r'(?:^|; |: )(\S+) n=(\d+) total=(\d+(?:\.\d+)?) max=(\d+(?:\.\d+)?)')
+
+def loop_report(notes):
+    """APK 0.65 (P6 item 1, the loop-cost sweep's LC-7): the shell's `loop` notes, one a minute while anything ran
+    (`Shell.noteLoopCost`): per message class the count, the total and the maximum handler time in ms, the pumps and
+    the mirror scans apart. Summed over the window: every message the loop handled, flush or not. The scan's time
+    is inside the `FlushDone` handler's; the submit lines' `mirrorMs` reached a row only when the ack's own turn
+    flushed (1 row in 5,214 on 2026-11-10), so the split above no longer prints it. Prints nothing without one."""
+    ln = [n for n in notes if n.get('kind') == 'loop']
+    if not ln: return
+    acc = collections.OrderedDict()
+    secs = 0
+    rows = None                 # P6 item 5: rows the mirror scans compared (`rows=`, both lenses), once 0.65 writes it
+    for n in ln:
+        d = n.get('detail', '')
+        m = re.match(r'over (\d+) s: ', d)
+        if m: secs += int(m.group(1))
+        r = re.search(r' rows=(\d+)', d)
+        if r: rows = (rows or 0) + int(r.group(1))
+        for name, k, tot, mx in LOOP_ENTRY.findall(d):
+            a = acc.setdefault(name, [0, 0.0, 0.0])
+            a[0] += int(k); a[1] += float(tot); a[2] = max(a[2], float(mx))
+    print(f'\nloop time ({len(ln)} `loop` note(s) over {secs / 60:.1f} min, APK 0.65+; handler time per message class, '
+          'whether its turn flushed or not; ms):')
+    print(f'  {"class":28s} {"n":>7s} {"total":>10s} {"mean":>8s} {"max":>8s}')
+    rest = [k for k in acc if k not in ('pump', 'mirror')]
+    for k in sorted(rest, key=lambda k: -acc[k][1]) + [k for k in ('pump', 'mirror') if k in acc]:
+        n, tot, mx = acc[k]
+        name = {'pump': 'pump (every turn)', 'mirror': 'mirror scan (in FlushDone)'}.get(k, k)
+        print(f'  {name:28s} {n:7d} {tot:10.1f} {tot / n if n else 0:8.1f} {mx:8.1f}')
+    if rows is not None and acc.get('mirror', [0])[0]:
+        print(f'  mirror scans compared {rows} rows, {rows / acc["mirror"][0]:.0f} a scan (every row of both lenses is 960 at height 480)')
+    handlers = sum(acc[k][1] for k in rest)
+    print(f'  handlers {handlers / 1000:.1f} s + pumps {acc.get("pump", [0, 0.0])[1] / 1000:.1f} s on the loop')
+
 def selftest():
     """The report's own checks (0.64 R1; review 1a, RD-1 and RD-2): `main` run over the synthetic journals
     under tools/fixtures/journal_report/ and its text read. Every fixture line was written by hand from
@@ -876,6 +919,24 @@ def selftest():
     o = run(['power-A-restart-no-down.jsonl', 'power-E1.jsonl'])[1]
     case('RF-8: the overlap line says the lines interleave and a flush both files hold is counted twice',
          'lines of the two interleave; a flush both files hold is counted twice' in o, line(o, '('))
+    # 0.65 P6: notes-p5-loop.jsonl — one of each note P5 added (texts from the code at 43dc00f, values filled in by
+    # hand) and one `loop` note (`Shell.noteLoopCost`), behind one flush so the notes list prints.
+    p = run(['notes-p5-loop.jsonl'])[1]
+    listed = p.split('\nnotes: ', 1)[-1] if '\nnotes: ' in p else ''
+    heads = ('queue: 2 ring event(s) that came during the start dropped', 'queue: 3 flush(es) of the last session not answered',
+             'queue: the loop ended with 2 message(s) unhandled', 'link: the input reserve yields',
+             'control: taking the lease back asked during a start', 'control: fid-ring clear not sent at the session start',
+             'control: the fid-ring clear went unacked', 'control: the fid-ring clear at the session start was not confirmed',
+             'control: 4 packet(s) of the ended session', 'keeper: a session rebuild asked in a session that has ended',
+             'keeper: flags 0x4 not armed', 'keeper: flags above bit 2 not armed', 'keeper: DRAW2 not armed',
+             'stall: wide flush written at depth 1')
+    case('P6: every note P5 added is printed in the notes list', all(h in listed for h in heads),
+         'missing: ' + str([h for h in heads if h not in listed]))
+    case('P6 (LC-7): the loop notes print per class, the scan apart, and the split prints no mirrorMs',
+         line(p, 'SaveTick ').split()[1:5] == ['1', '120.0', '120.0', '120.0'] and line(p, 'mirror scan (in FlushDone)').split()[-4:] == ['11', '110.2', '10.0', '12.0']
+         and 'mirrorMs' not in line(p, 'split (') and 'loop:' not in listed, line(p, 'mirror scan') or line(p, 'split ('))
+    case('P6 (LC-2): the rows the scans compared print, per scan', '1320 rows, 120 a scan' in line(p, 'mirror scans compared'),
+         line(p, 'mirror scans compared'))
     missed = 0
     for name, holds, said in results:
         print(('ok    ' if holds else 'MISS  ') + name + ('' if holds else '\n        said: ' + (said or '(no such line)')))

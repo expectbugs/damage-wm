@@ -56,10 +56,9 @@ import wm.damage.core.wire.EvenHubMsg
 class MusicWindowTest {
 
     private suspend fun awaitTrue(what: String, ms: Long = 20_000, cond: () -> Boolean) {
-        val t0 = System.currentTimeMillis()
-        while (!cond() && System.currentTimeMillis() - t0 < ms) delay(20)
-        // 0.64 R1: a miss says what the shell and the link were doing (`P4-verify.md` §5.1's instrument); built only on a miss
-        if (!cond()) kotlin.test.fail("did not converge: $what" + (lastRig?.let { " — the last rig built: ${it.shell.quiescenceReport()} link=${it.transport.state.value}" } ?: ""))
+        // 0.64 R1: a miss says what the shell and the link were doing (`P4-verify.md` §5.1's instrument); built only on a miss.
+        // 0.65 P7 item 10 (RD-7): decided on the answer that ended the wait ([waitUntil])
+        waitUntil(ms, 20, { "did not converge: $what" + (lastRig?.let { " — the last rig built: ${it.shell.quiescenceReport()} link=${it.transport.state.value}" } ?: "") }) { cond() }
     }
     /** The rig a failed [awaitTrue] reports on: this helper holds no shell, and a test's rigs are built one after the other. */
     private companion object { @Volatile var lastRig: Rig? = null }
@@ -71,7 +70,7 @@ class MusicWindowTest {
         override fun requestRender(window: wm.damage.core.shell.DamageWindow) {}
         override fun setOperation(op: String) {}
         override fun notifyInternal(source: String, body: String, urgent: Boolean,
-            appId: String?, thread: String, target: String?) {}
+            appId: String?, thread: String, target: String?, answer: Boolean) {}
         override fun openWindow(id: String, target: String?): Boolean = false
         override fun runOnShell(action: () -> Unit) = action()
         override fun docContentWidth(): Int = 560
@@ -95,9 +94,7 @@ class MusicWindowTest {
             r.start()
             r.toMenuRow()
             r.tap()
-            val t0 = System.currentTimeMillis()
-            while (!r.shell.menuIsOpen && System.currentTimeMillis() - t0 < 20_000) delay(10)
-            assertTrue(r.shell.menuIsOpen, "the Music menu did not open")
+            waitUntil(20_000, 10, { "the Music menu did not open" }) { r.shell.menuIsOpen }
             val enabled = r.shell.menuEnabled
             for (row in listOf("Resume", "Next", "Previous")) {
                 assertTrue(r.shell.menuLabels.any { it == row },
@@ -261,6 +258,35 @@ class MusicWindowTest {
     private class Events : MusicPlayer.Listener {
         val events = ArrayList<PlayerEvent>()
         override fun event(e: PlayerEvent) { events.add(e) }
+    }
+
+    /** APK 0.65, P6 item 3 (the loop-cost sweep's LC-6, step 1): a save while music plays rebuilt one JSON object per
+     *  queue entry on the shell loop (1,415 entries, 191 KB on 2026-11-10), every save, though the queue had not
+     *  changed — the player's 10 s tick makes a NEW snapshot list of the same entries. Fixed: the queue array is kept
+     *  beside the list it was built from and reused while the lists are equal; the small wrapper is rebuilt. Unfixed:
+     *  two saves 10 s apart carry two arrays. */
+    @Test
+    fun twoSavesOfAnUnchangedThousandEntryQueueBuildTheQueueArrayOnce() {
+        var now = 1_000_000L
+        val p = SimMusicPlayer(Lib(), { now })
+        p.playQueue((1..1000).map { t(it, "A", 50_000_000) }, 0, Mode.QUEUE, "big")
+        val list0 = p.state.queue
+        val rec0 = p.persist()
+        now += 10_000; p.advance()                               // the 10 s tick: a new snapshot of the same entries
+        assertTrue(p.state.queue !== list0 && p.state.queue == list0, "the tick made a new list of the same entries")
+        val rec1 = p.persist()
+        assertNotEquals(rec0, rec1, "the position moved (the record differs and is saved)")
+        val q0 = (rec0["engine"] as kotlinx.serialization.json.JsonObject)["queue"]
+        val q1 = (rec1["engine"] as kotlinx.serialization.json.JsonObject)["queue"]
+        assertTrue(q0 === q1, "the second save reuses the queue array the first built")
+        p.next()                                                 // the index moves: the array stays, the wrapper says so
+        val rec2 = p.persist()
+        assertTrue((rec2["engine"] as kotlinx.serialization.json.JsonObject)["queue"] === q0, "an index change keeps the array")
+        assertEquals("1", (rec2["engine"] as kotlinx.serialization.json.JsonObject)["index"].toString(), "the wrapper is rebuilt")
+        p.playQueue((1..999).map { t(it, "A", 50_000_000) }, 0, Mode.QUEUE, "smaller")
+        val rec3 = p.persist()
+        val q3 = (rec3["engine"] as kotlinx.serialization.json.JsonObject)["queue"] as kotlinx.serialization.json.JsonArray
+        assertTrue(q3 !== q0 && q3.size == 999, "a changed queue builds a new array")
     }
 
     @Test
@@ -447,10 +473,9 @@ class MusicWindowTest {
         /** Bounded like the outer class's — an unbounded spin in here hung the
          *  whole suite once (2026-09-03). */
         private suspend fun until(what: String, ms: Long = 20_000, cond: () -> Boolean) {
-            val t0 = System.currentTimeMillis()
-            while (!cond() && System.currentTimeMillis() - t0 < ms) delay(20)
-            // 0.64 R1: a miss says what the shell and the link were doing (`P4-verify.md` §5.1's instrument); built only on a miss
-            if (!cond()) kotlin.test.fail("did not converge: $what — ${shell.quiescenceReport()} link=${transport.state.value}")
+            // 0.64 R1: a miss says what the shell and the link were doing (`P4-verify.md` §5.1's instrument); built only on a miss.
+            // 0.65 P7 item 10 (RD-7): decided on the answer that ended the wait ([waitUntil])
+            waitUntil(ms, 20, { "did not converge: $what — ${shell.quiescenceReport()} link=${transport.state.value}" }) { cond() }
         }
         suspend fun toMenuRow() {
             until("quiescent") { shell.isQuiescent() }

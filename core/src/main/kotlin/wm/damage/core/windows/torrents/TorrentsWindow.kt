@@ -1324,7 +1324,7 @@ class TorrentsWindow(
                 val shown = level == fromLevel &&
                     services?.openMenu(MenuSurface.Spec("stats", lines, onCommit = { }), owner = this@TorrentsWindow) == true
                 if (!shown) {
-                    services?.notifyInternal("torrent", "stats: " + lines.joinToString(" · ") { "${it.label} ${it.detail}" })
+                    services?.notifyInternal("torrent", "stats: " + lines.joinToString(" · ") { "${it.label} ${it.detail}" }, answer = true)
                 }
             }
         }
@@ -1352,7 +1352,7 @@ class TorrentsWindow(
                 services?.setOperation("idle")
                 if (err != null) {
                     setNotice(err)
-                    services?.notifyInternal("torrent", "$verb failed: ${dn(err, fSmall)}")
+                    services?.notifyInternal("torrent", "$verb failed: ${dn(err, fSmall)}", answer = true)
                 } else if (msg != null) {
                     setNotice(dn(msg, fSmall))
                 }

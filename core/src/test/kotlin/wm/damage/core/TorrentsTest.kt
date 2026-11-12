@@ -63,9 +63,7 @@ class TorrentsTest {
     private fun freePort(): Int = ServerSocket(0).use { it.localPort }
 
     private suspend fun awaitTrue(what: String, ms: Long = 20_000, cond: () -> Boolean) {
-        val t0 = System.currentTimeMillis()
-        while (!cond() && System.currentTimeMillis() - t0 < ms) delay(20)
-        assertTrue(cond(), "did not converge: $what")
+        waitUntil(ms, 20, { "did not converge: $what" }) { cond() }
     }
 
     // =========================================================== a fake qBittorrent
@@ -521,7 +519,7 @@ SHA256: abc</pre>
         override fun requestRender(window: wm.damage.core.shell.DamageWindow) {}
         override fun setOperation(op: String) {}
         override fun notifyInternal(source: String, body: String, urgent: Boolean,
-            appId: String?, thread: String, target: String?) {}
+            appId: String?, thread: String, target: String?, answer: Boolean) {}
         override fun openWindow(id: String, target: String?): Boolean = false
         override fun runOnShell(action: () -> Unit) = action()
         override fun docContentWidth(): Int = 560

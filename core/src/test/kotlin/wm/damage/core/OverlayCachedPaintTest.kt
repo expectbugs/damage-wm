@@ -96,7 +96,8 @@ class OverlayCachedPaintTest {
         init {
             glass.attachListener(object : GlassFirmwareSim.SimDiag {
                 override fun event(kind: String, detail: String) {
-                    if (kind in setOf("decode", "fid", "session", "msgid", "compressmode", "abort")) emitFault(kind, detail)
+                    // SimTransport's seven kinds (P5 item 18, OS-7's sibling in this rig: `image` was left out here too)
+                    if (kind in setOf("decode", "fid", "session", "msgid", "compressmode", "abort", "image")) emitFault(kind, detail)
                 }
                 override fun notify(arm: Arm, packet: ByteArray) {
                     // decided and queued in ONE step: an answer that read "held" a moment before a

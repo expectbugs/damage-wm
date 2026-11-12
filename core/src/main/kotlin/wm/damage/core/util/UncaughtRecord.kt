@@ -371,8 +371,8 @@ object UncaughtRecord {
 
     /**
      * The pickup, at a process start, before the stack is built: journals the last run's record
-     * and marks it said. Returns the one line for the log (the caller logs it at ERROR level; with
-     * `Notify · Damage` off that is a log line and a journal note), or null when no record is
+     * and marks it said. Returns the one line for the log (the caller logs it at ERROR level; the
+     * phone's caller also raises it on the glasses as a `process` fault, 0.65 P7), or null when no record is
      * pending. It never throws.
      *
      *  - The pending text is journaled WHOLE as one `uncaught` note (the dated file sits where no

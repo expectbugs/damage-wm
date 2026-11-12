@@ -382,7 +382,8 @@ library] · [Switch to Spotify] (the last two when applicable). Every row wraps 
   20 px pitch in a 44 px band. `--selfcheck` drives the queue forward INSIDE Music Mode so these
   surfaces repaint as deltas — the state that exposes it.
 - Repaint policy: the card on track change and every 5 % of progress; lyrics on line change;
-  visualizer at its rate; ONE dirty rect per surface (§12).
+  visualizer at its rate (its frame tick is keyed; while the shell is down only the latest is held — 0.65);
+  ONE dirty rect per surface (§12).
 
 ### 8.4 Settings → Music (HostSetting rows)
 Notify · track change (on) · queue end (on) · route loss (on) · PC unreachable (off) · YouTube (on)

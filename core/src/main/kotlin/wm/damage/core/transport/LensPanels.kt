@@ -29,6 +29,15 @@ interface LensPanels {
      *  buffer is fine for a replica, not for the divergence check). */
     fun snapshot(arm: Arm): ByteArray
 
+    /** APK 0.65, P6 item 5 (the loop-cost sweep's LC-2): the rows of [arm]'s panel written since the last call
+     *  (empty: none), and from then on none. The shell's agreement check compares those rows with the rows its own
+     *  flushes touched. A mirror that does not keep them answers every row, which is always right. */
+    fun takeChangedRows(arm: Arm): IntRange = 0 until wm.damage.core.geom.Geometry.PANEL_H
+
+    /** P6 item 5: [block] over a consistent view of [arm]'s panel — the live buffer under the mirror's own lock where
+     *  it has one (no copy); a copy otherwise. [block] reads only, and returns before the lock is let go. */
+    fun <T> readPanel(arm: Arm, block: (ByteArray) -> T): T = block(snapshot(arm))
+
     fun addListener(l: LensListener)
     fun removeListener(l: LensListener)
 

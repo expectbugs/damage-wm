@@ -42,9 +42,7 @@ class ShellKeeperTest {
     }
 
     private suspend fun until(what: String, maxMs: Long = 10_000, cond: () -> Boolean) {
-        val t0 = System.currentTimeMillis()
-        while (!cond() && System.currentTimeMillis() - t0 < maxMs) delay(10)
-        assertTrue(cond(), what)
+        waitUntil(maxMs, 10, { what }) { cond() }
     }
 
     @Test

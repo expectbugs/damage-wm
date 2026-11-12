@@ -1,0 +1,75 @@
+[
+ {
+  "id": "VP-01-mode15-header-length-not-checked",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "                if (src.size < 7) {\n                    diag.event(\"decode\", \"$arm mode-15 of ${src.size} B",
+    "                if (false) {\n                    diag.event(\"decode\", \"$arm mode-15 of ${src.size} B"
+   ]
+  ],
+  "tests": [
+   "*ConformanceVectorTest*",
+   "*TextureCacheTest*"
+  ],
+  "expect": [
+   "everyVectorMatchesOnBothLenses"
+  ],
+  "note": "FIRMWARE.md §4: mode 15's header length (1) comes before the lease (3). v1-mode15 step 2 (5 bytes, no lease) then records 3 where the C records 1. The batch test's held-lease short sub reads past the message without it (an index fault), which is not its stated reason, so it is not listed."
+ },
+ {
+  "id": "VP-02-mode15-lease-not-checked",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "                if (!fbLeaseActive(arm, now)) {\n                    diag.event(\"decode\", \"$arm mode-15 with NO framebuffer lease",
+    "                if (false) {\n                    diag.event(\"decode\", \"$arm mode-15 with NO framebuffer lease"
+   ]
+  ],
+  "tests": [
+   "*ConformanceVectorTest*",
+   "*TextureCacheTest*"
+  ],
+  "expect": [
+   "everyVectorMatchesOnBothLenses",
+   "aModeFifteenSubMessageIsRefusedInABatchAsItIsAtTheTopLevel"
+  ],
+  "note": "FIRMWARE.md §4: mode 15 needs the lease (3) before its string length and font. v1-mode15 step 1 (well-formed, no lease) and the batch test's no-lease sub then reach the unmodeled branch and record nothing."
+ },
+ {
+  "id": "VP-03-mode15-string-length-not-checked",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "                if (src.size != 7 + (src[6].toInt() and 0xFF)) {",
+    "                if (false) {"
+   ]
+  ],
+  "tests": [
+   "*ConformanceVectorTest*",
+   "*TextureCacheTest*"
+  ],
+  "expect": [
+   "everyVectorMatchesOnBothLenses"
+  ],
+  "note": "FIRMWARE.md §4: the string's own length (1; 14 and 15) after the lease. v1-mode15 step 0 (leased, 2 bytes for a declared 5) then reaches the unmodeled branch and records nothing where the C records 15,1."
+ },
+ {
+  "id": "VP-04-mode15-sub-of-a-batch-stops-unrecorded",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "                    // stops the batch there, loudly, because this model cannot predict its pixels\n                    if (!dispatchImage(",
+    "                    // stops the batch there, loudly, because this model cannot predict its pixels\n                    if (subMode == 15) return false\n                    if (!dispatchImage("
+   ]
+  ],
+  "tests": [
+   "*ConformanceVectorTest*",
+   "*TextureCacheTest*"
+  ],
+  "expect": [
+   "aModeFifteenSubMessageIsRefusedInABatchAsItIsAtTheTopLevel"
+  ],
+  "note": "The model's old shape: a mode-15 sub-message stopped the batch with nothing recorded. No vector sends mode 15 inside a batch (the six follow the design's steps), so the conformance test does not see this; the unit test does, and its two answers are the C's on the host harness (a scratch vector, 2026-11-12)."
+ }
+]

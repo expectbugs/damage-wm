@@ -48,7 +48,8 @@ a union rule for read marks; an endless archive Document; strips on demand from 
 - 🔴 **A row that cannot succeed is DIM; a menu opens on a row that can act.** A dim row is a visible no-op
   (`Shell` refuses it and says so); a live row that does nothing is a silent failure.
 - **Notification toggles live in the app's own Settings category** (Adam, 2026-09-01): the window gates its own
-  `notifyInternal` calls on its rows (the Tmux `Alerts` shape); Global keeps only `Notify · Damage`.
+  `notifyInternal` calls on its rows (the Tmux `Alerts` shape); Global keeps only `Notify · Damage`, and
+  `Notify · Damage` never gates a notice that names its app (0.65, `HANDOFF.md` §77).
 - 🔴 **Every window works well at all four heights — 288 / 352 / 416 / 480 — and its size is adjustable in
   Settings** (Adam, 2026-09-02: *"This is important."*): each level's layout specified per height in the
   window's record, the per-app Size row not optional, snapshot scenes at 288 and 480 at least.
@@ -88,7 +89,9 @@ more than one base function implements it. Two traps: reset the cursor AND the c
 its live surface has nothing to reset (Music's root is NOW PLAYING, `HANDOFF.md` §24.4).
 
 `ShellServices`: `requestRender` · `setOperation` · `notifyInternal(source, body, urgent, appId, thread,
-target)` (§16.5 — tap = commit + activate + open(target)) · `openMenu(spec, owner): Boolean` (pass `owner`
+target, answer)` (§16.5 — tap = commit + activate + open(target); `answer` = the notice answers the user's own
+gesture — a refused tap, a typed line nothing took, a failed open: shown whatever `Notify · Damage` says; with no
+`appId` a tap only dismisses it) · `openMenu(spec, owner): Boolean` (pass `owner`
 from ASYNC completions; false = deliver the answer as a notice) · `openKeyboard(spec, owner): Boolean` (§4.8;
 `onCommit(text)` runs AFTER the keyboard closed, `onCancel(draft)` hands the draft back) · `openWindow(id,
 target)` (back-to-caller recorded) · `icons()` · `runOnShell` (EVERY off-loop completion applies through it) ·

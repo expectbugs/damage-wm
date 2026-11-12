@@ -436,9 +436,7 @@ class KeyboardTest {
     }
 
     private suspend fun awaitTrue(what: String, cond: () -> Boolean) {
-        val t0 = System.currentTimeMillis()
-        while (!cond() && System.currentTimeMillis() - t0 < 20_000) delay(20)
-        assertTrue(cond(), "did not converge: $what")
+        waitUntil(20_000, 20, { "did not converge: $what" }) { cond() }
     }
 
     @Test

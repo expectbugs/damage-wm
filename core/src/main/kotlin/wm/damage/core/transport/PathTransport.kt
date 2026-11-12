@@ -252,9 +252,14 @@ class PathTransport(
         @Volatile private var inner: LensPanels? = null
         private val relay = LensPanels.LensListener { arm -> for (l in listeners) l.panelChanged(arm) }
 
+        /** P6 item 5: per arm, a panel attached since the last [takeChangedRows] — its rows say nothing of what the
+         *  check compared before, so the next answer is every row. */
+        private val attachedSince = java.util.concurrent.atomic.AtomicIntegerArray(Arm.entries.size)
+
         fun attach(p: LensPanels?) {
             inner?.removeListener(relay)
             inner = p
+            for (arm in Arm.entries) attachedSince.set(arm.ordinal, 1)
             p?.addListener(relay)
             for (arm in Arm.entries) for (l in listeners) l.panelChanged(arm)
         }
@@ -263,6 +268,13 @@ class PathTransport(
         override val stride: Int get() = inner?.stride ?: ((Geometry.PANEL_W + 1) / 2)
         override fun panel(arm: Arm): ByteArray = inner?.panel(arm) ?: blank
         override fun snapshot(arm: Arm): ByteArray = inner?.snapshot(arm) ?: blank.copyOf()
+        override fun takeChangedRows(arm: Arm): IntRange {
+            val p = inner ?: return 0 until Geometry.PANEL_H
+            val rows = p.takeChangedRows(arm)
+            return if (attachedSince.getAndSet(arm.ordinal, 0) == 1) 0 until Geometry.PANEL_H else rows
+        }
+        override fun <T> readPanel(arm: Arm, block: (ByteArray) -> T): T =
+            inner?.readPanel(arm, block) ?: block(blank.copyOf())
         override fun addListener(l: LensPanels.LensListener) { listeners.add(l) }
         override fun removeListener(l: LensPanels.LensListener) { listeners.remove(l) }
     }

@@ -41,7 +41,7 @@ class FeedWindowTest {
     private object Probe : wm.damage.core.shell.ShellServices {
         override fun requestRender(window: wm.damage.core.shell.DamageWindow) {}
         override fun setOperation(op: String) {}
-        override fun notifyInternal(source: String, body: String, urgent: Boolean, appId: String?, thread: String, target: String?) {}
+        override fun notifyInternal(source: String, body: String, urgent: Boolean, appId: String?, thread: String, target: String?, answer: Boolean) {}
         override fun openWindow(id: String, target: String?): Boolean = false
         override fun runOnShell(action: () -> Unit) = action()
         override fun docContentWidth(): Int = 596
@@ -51,9 +51,7 @@ class FeedWindowTest {
     private var dump: () -> String = { "" }
 
     private suspend fun awaitTrue(what: String, ms: Long = 20_000, cond: () -> Boolean) {
-        val t0 = System.currentTimeMillis()
-        while (!cond() && System.currentTimeMillis() - t0 < ms) delay(20)
-        assertTrue(cond(), "did not converge: $what [${dump()}]")
+        waitUntil(ms, 20, { "did not converge: $what [${dump()}]" }) { cond() }
     }
 
     private class Rig(tmp: Path, val feed: ScriptedFeed = ScriptedFeed()) {
@@ -318,6 +316,112 @@ class FeedWindowTest {
             assertFalse(r.win.open("src:nope"))
             assertFalse(r.win.open("binge:popular"))
             assertFalse(r.win.open("garbage"))
+        } finally { r.stop(); tmp.toFile().deleteRecursively() }
+    }
+
+    /** Into the first item of `popular` (the article level); returns its id. */
+    private suspend fun intoAnArticle(r: Rig): String {
+        r.start()
+        waitUntil(20_000, 20, { "root (${r.win.title()})" }) { r.win.title() == "feed" }
+        r.tap(); waitUntil(20_000, 20, { "popular (${r.win.title()})" }) { r.win.title() == "popular" && s(r, "itemCursorId") != null }
+        r.tap(); waitUntil(20_000, 20, { "the article (${r.win.title()})" }) { r.win.title() == "article" }
+        return s(r, "openItemId")!!
+    }
+
+    /** P7 item 5 (OS-3), step 1: a session start on the same instance (every link end, Silent wake and rebuild)
+     *  demoted an open article to its list and armed a re-open the instance did not need — the article level
+     *  was gone from the next save as well. Kept now: same level, the held article, no second fetch. */
+    @Test
+    fun anOpenArticleSurvivesASessionRestartOfTheSameInstance(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-feed-keep")
+        val r = Rig(tmp)
+        try {
+            val id = intoAnArticle(r)
+            r.shell.stop()
+            r.shell.start()
+            var seen = ""
+            waitUntil(10_000, 20, { "the article level after the restart (is '$seen')" }) {
+                seen = "${r.win.title()} depth ${r.win.levelDepth()}"; seen == "article depth 3" }
+            assertEquals(1, r.feed.ops.count { it == "article:$id" }, "fetched once: ${r.feed.ops}")
+        } finally { r.stop(); tmp.toFile().deleteRecursively() }
+    }
+
+    /** P7 item 5 (OS-3), step 2: on a fresh process with Feed not the focused window, the record's article is
+     *  armed for re-open; Main → Feed → tap the source then opened that article by itself (the arm was cleared
+     *  only by its consumer). An explicit navigation clears it. */
+    @Test
+    fun aRestoredArticleDoesNotOpenItselfAfterAnExplicitNavigation(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-feed-nav")
+        val r = Rig(tmp)
+        try {
+            intoAnArticle(r)
+            r.shell.services.runOnShell { r.shell.services.openWindow("settings", null) }
+            waitUntil(20_000, 20, { "settings focused" }) { r.shell.currentWindowId() == "settings" }
+        } finally { r.stop() }
+        val r2 = Rig(tmp)                                          // a fresh process on the same store
+        try {
+            r2.shell.start()
+            waitUntil(20_000, 20, { "settings restored (${r2.shell.currentWindowId()})" }) { r2.shell.currentWindowId() == "settings" && r2.shell.isQuiescent() }
+            r2.back()                                              // Settings' root → Main
+            waitUntil(20_000, 20, { "main (${r2.shell.currentWindowId()})" }) { r2.shell.currentWindowId() == null && r2.shell.isQuiescent() }
+            r2.tap()                                               // Main's row 0 = Feed, a MAIN entry
+            waitUntil(20_000, 20, { "feed's root (${r2.win.title()})" }) { r2.shell.currentWindowId() == "feed" && r2.win.title() == "feed" }
+            r2.tap()                                               // the source the cursor kept: popular
+            var depth = 0
+            waitUntil(20_000, 20, { "the list landed (depth $depth, ${r2.win.title()})" }) {
+                depth = r2.win.levelDepth(); depth >= 3 || (depth == 2 && s(r2, "itemCursorId") != null) }
+            assertEquals(2, depth, "the list, not the record's article: ${r2.feed.ops}")
+            assertTrue(r2.feed.ops.none { it.startsWith("article:") }, "no article fetched: ${r2.feed.ops}")
+        } finally { r2.stop(); tmp.toFile().deleteRecursively() }
+    }
+
+    /** P7 item 5 (OS-3), step 3: a record that names an item this instance does not hold, while its list is
+     *  loaded (a peer's record applied between sessions): the re-open waited for a list load that `onActivate`
+     *  never asked for (it loads only an EMPTY list), so the window sat at the list. It reloads now. */
+    @Test
+    fun aRecordNamingAnotherItemReopensItAtTheSessionStart(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-feed-other")
+        val r = Rig(tmp)
+        try {
+            intoAnArticle(r)
+            r.shell.stop()
+            val other = r.feed.items("popular", 1, 1).items[0].id
+            val rec = r.store.get("window.feed")!!
+            r.store.put("window.feed", kotlinx.serialization.json.JsonObject(rec + ("openItemId" to kotlinx.serialization.json.JsonPrimitive(other))))
+            r.shell.start()
+            var seen = ""
+            waitUntil(10_000, 20, { "the record's item opened (is '$seen'; ${r.feed.ops})" }) {
+                seen = "${r.win.title()} depth ${r.win.levelDepth()}"; seen == "article depth 3" && r.feed.ops.contains("article:$other") }
+        } finally { r.stop(); tmp.toFile().deleteRecursively() }
+    }
+
+    /** P7 item 4 (OS-6): a session start ran `onRegistered` again, which SET the source's announce floor back to
+     *  its seen mark — lower than the item already announced — so the next announce named that item a second
+     *  time ("2 new"). Through a real stop and start of the same instance; the second announce must name only
+     *  the item not yet announced. */
+    @Test
+    fun aSessionStartDoesNotLowerTheAnnounceFloor(): Unit = runBlocking {
+        val tmp = Files.createTempDirectory("damage-feed-floor")
+        val r = Rig(tmp)
+        try {
+            r.start()
+            waitUntil(20_000, 20, { "root (${r.win.title()})" }) { r.win.title() == "feed" }
+            r.tap(); waitUntil(20_000, 20, { "popular seen (${r.win.title()})" }) { r.win.title() == "popular" && s(r, "itemCursorId") != null }
+            r.back(); waitUntil(20_000, 20, { "root again (${r.win.title()})" }) { r.win.title() == "feed" }
+            r.win.appSettings().first { it.name == "Notify · Reddit" }.apply("on")
+            r.feed.fireNew("popular", "Loud one")
+            waitUntil(20_000, 20, { "the first announce (${r.shell.notifications.current})" }) { r.shell.notifications.current?.body?.contains("Loud one") == true }
+            waitUntil(20_000, 20, { "the box took focus" }) { r.shell.notifications.focused }
+            r.back()                                              // a double-tap dismisses it: read, no deep link
+            waitUntil(20_000, 20, { "dismissed (${r.shell.notifications.current})" }) { r.shell.notifications.current == null }
+            r.shell.stop()
+            r.shell.start()
+            waitUntil(20_000, 20, { "the restart settled: ${r.shell.quiescenceReport()}" }) { r.shell.isQuiescent() }
+            r.feed.fireNew("popular", "Third one")
+            var body = ""
+            waitUntil(20_000, 20, { "the second announce (${r.shell.notifications.current})" }) {
+                body = r.shell.notifications.current?.body ?: ""; body.contains("Third one") }
+            assertFalse(body.startsWith("2 new"), "the item announced before the restart was announced again: '$body'")
         } finally { r.stop(); tmp.toFile().deleteRecursively() }
     }
 }

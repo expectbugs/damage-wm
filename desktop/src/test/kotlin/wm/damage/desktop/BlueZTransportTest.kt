@@ -275,8 +275,9 @@ class BlueZTransportTest {
             fake.listener!!.invoke(BlueZLink.Event.Connected(fake.rightPath, false))
             val t0 = System.currentTimeMillis()
             fun down() = synchronized(links) { links.any { !it.connected && it.detail.contains("RIGHT") } }
-            while (!down() && System.currentTimeMillis() - t0 < 5_000) delay(10)
-            assertTrue(down(), "a link-down event naming the arm was emitted")
+            var ok = down()
+            while (!ok && System.currentTimeMillis() - t0 < 5_000) { delay(10); ok = down() }
+            assertTrue(ok, "a link-down event naming the arm was emitted")
             assertFalse(t.state.value.started, "the session ended")
             t.start(warmup())
             assertTrue(t.state.value.started, "a fresh start works on the same instance")

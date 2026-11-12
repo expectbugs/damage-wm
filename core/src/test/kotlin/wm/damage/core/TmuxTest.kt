@@ -299,9 +299,7 @@ private class FakeExec : LocalTmuxProvider.TmuxExec {
 class TmuxProviderTest {
 
     private fun await(deadlineMs: Long = 5_000, cond: () -> Boolean) = runBlocking {
-        val t0 = System.currentTimeMillis()
-        while (!cond() && System.currentTimeMillis() - t0 < deadlineMs) delay(10)
-        assertTrue(cond(), "condition within ${deadlineMs}ms")
+        waitUntil(deadlineMs, 10, { "condition within ${deadlineMs}ms" }) { cond() }
     }
 
     @Test
@@ -491,7 +489,7 @@ private class FakeServices : ShellServices {
     override fun requestRender(window: DamageWindow) { renders++ }
     override fun setOperation(op: String) {}
     override fun notifyInternal(source: String, body: String, urgent: Boolean,
-        appId: String?, thread: String, target: String?) { notices.add("$source: $body"); links.add(Triple(appId, thread, target)) }
+        appId: String?, thread: String, target: String?, answer: Boolean) { notices.add("$source: $body"); links.add(Triple(appId, thread, target)) }
     override fun openWindow(id: String, target: String?): Boolean = false
     override fun runOnShell(action: () -> Unit) = action()
     override fun docContentWidth(): Int = 560
@@ -507,9 +505,7 @@ class TmuxWindowTest {
     private fun frame() = PaneFrame(List(22) { "row $it" }, 80, 22, 0, 0, true, false, 0)
 
     private fun await(deadlineMs: Long = 5_000, cond: () -> Boolean) = runBlocking {
-        val t0 = System.currentTimeMillis()
-        while (!cond() && System.currentTimeMillis() - t0 < deadlineMs) delay(10)
-        assertTrue(cond(), "condition within ${deadlineMs}ms")
+        waitUntil(deadlineMs, 10, { "condition within ${deadlineMs}ms" }) { cond() }
     }
 
     private fun build(): Triple<TmuxWindow, FakeProvider, FakeServices> {
@@ -519,6 +515,28 @@ class TmuxWindowTest {
         val svc = FakeServices()
         w.onRegistered(svc)
         return Triple(w, p, svc)
+    }
+
+    /** APK 0.65, P6 item 2 (the loop-cost sweep's LC-1, its source half): a status push asks for a render only when
+     *  what the session list shows changed — the sessions, the config, or an age the list prints (`age()` reads the
+     *  clock at paint time). The PC's `statusLoop` sends every 2.8 s, changed or not. Unfixed: every push asks. */
+    @Test
+    fun aStatusPushThatChangesNothingShownAsksForNoRender() {
+        val (w, p, svc) = build()
+        w.onActivate(svc, wm.damage.core.shell.ActivationSource.SWITCHER)
+        p.pushStatus(session("alpha"))
+        val first = svc.renders
+        p.pushStatus(session("alpha"))                       // the same list; its age (days since 1970) the same
+        assertEquals(first, svc.renders, "an unchanged push asks for no render")
+        p.pushStatus(session("alpha", waiting = true))
+        assertEquals(first + 1, svc.renders, "a changed list asks for one")
+        val fresh = TmuxSessionInfo("local", "alpha", 1, attached = false, activity = System.currentTimeMillis() / 1000 - 5,
+            waiting = true, lastLine = "tail of alpha")
+        p.pushStatus(fresh)
+        val aged = svc.renders
+        Thread.sleep(1_100)                                   // the age the row prints moves from "5s" to "6s" or later
+        p.pushStatus(fresh)
+        assertEquals(aged + 1, svc.renders, "the same list with a moved age asks for one")
     }
 
     @Test
@@ -763,6 +781,38 @@ class TmuxWindowTest {
         assertTrue(w.title().startsWith("build"), "the live view of the session that wants input (was '${w.title()}')")
         assertFalse(w.open("bogus:x"), "an unknown target is refused, loudly upstream")
         assertFalse(w.open("session:nocolon"), "a malformed target is refused")
+    }
+
+    /** R4 item 1 (review 3A-1): the alert's body carried `lastLine.take(80)`
+     *  — the pane's line cut at 80 characters with no mark, and a cut that
+     *  can split a surrogate pair (the lone half then draws as '?'). The box
+     *  wraps and scrolls, so the whole line goes in (No Truncation). */
+    @Test
+    fun anAlertNoticeCarriesThePanesWholeLine() {
+        val (_, p, svc) = build()
+        val long = (0 until 120).joinToString("") { ('a' + it % 26).toString() }
+        p.pushStatus(session("claude"))
+        p.pushAlert(session("claude", waiting = true).copy(lastLine = long))
+        val body = svc.notices.single { "wants input" in it }
+        assertTrue(body.endsWith(long.takeLast(20)), "the line's last 20 characters are in the body (was '$body')")
+    }
+
+    /** R4 item 1's second half: an emoji whose two halves sit at 79 and 80
+     *  — the old cut kept the high half alone. */
+    @Test
+    fun anAlertNoticeNeverSplitsASurrogatePair() {
+        val (_, p, svc) = build()
+        val emoji = "x".repeat(79) + "😀" + "y".repeat(10)
+        p.pushStatus(session("build"))
+        p.pushAlert(session("build", waiting = true).copy(lastLine = emoji))
+        val body2 = svc.notices.single { "build" in it && "wants input" in it }
+        val lone = body2.indices.filter { i ->
+            val c = body2[i]
+            (c.isHighSurrogate() && (i + 1 >= body2.length || !body2[i + 1].isLowSurrogate())) ||
+                (c.isLowSurrogate() && (i == 0 || !body2[i - 1].isHighSurrogate()))
+        }
+        assertTrue(lone.isEmpty(), "no lone surrogate in the body (at $lone)")
+        assertTrue(body2.endsWith("y".repeat(10)), "the emoji's line arrives whole")
     }
 
     @Test

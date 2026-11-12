@@ -711,7 +711,14 @@ class SyncToleranceTest {
         override fun view(): WindowView = WindowView.ListView(ListModel(), { 0 },
             { _: Gray8, _: Int, _: Rect, _: Boolean -> }, { _: Gray8, _: Rect, _: Int -> }, { })
         override fun summary() = Summary("counting")
-        override fun saveState(): JsonObject { saveCalls.incrementAndGet(); return buildJsonObject { put("v", value) } }
+        /** The next [saveState] says it [entered] and waits on the gate (P5a, RE-4's sibling): a save held inside it. */
+        @Volatile private var holdSave: Pair<CountDownLatch, CountDownLatch>? = null
+        fun holdNextSave(entered: CountDownLatch, gate: CountDownLatch) { holdSave = entered to gate }
+        override fun saveState(): JsonObject {
+            saveCalls.incrementAndGet()
+            holdSave?.let { (e, g) -> holdSave = null; e.countDown(); g.await() }
+            return buildJsonObject { put("v", value) }
+        }
         override fun restoreState(state: JsonObject) { value = state["v"]!!.jsonPrimitive.content.toInt() }
         override fun saveSubState(): Map<String, JsonObject> {
             subCalls.incrementAndGet()
@@ -826,6 +833,36 @@ class SyncToleranceTest {
      * launch, the record behind it); the wait is on the STORE, one evaluation, and the wall clock bounds the
      * failing path only.
      */
+    /**
+     * P5 part a, RE-4's sibling: the Shutdown arm set `running = false` ahead of its final `saveAll(sync = true)`. A
+     * synced record that came in that span met `postSync` false and was applied store-direct by the host's
+     * applier — and the save that followed put the live state over it under a fresh stamp (which the listener
+     * then pushes to the peer). The final save is held on a gate inside the window's own `saveState`; the record
+     * comes then, through the host's applier (the shell while it runs, the store otherwise); the store must end
+     * on the record. The wait is on the STORE, one evaluation.
+     */
+    @Test
+    fun aSyncedRecordThatComesDuringTheFinalSaveIsKept(): Unit = runBlocking {
+        val r = rig("damage-tol-final")
+        val gate = CountDownLatch(1)
+        try {
+            val s = r.store.stamp("window.cw")
+            val entered = CountDownLatch(1)
+            r.win.holdNextSave(entered, gate)
+            val stopping = r.scope.launch { r.shell.stop() }
+            assertTrue(entered.await(20, TimeUnit.SECONDS), "the stop's final save is held inside the window's state")
+            if (!r.shell.postSync("window.cw", blob(4), s + 500)) r.store.tryApplyRemote("window.cw", blob(4), s + 500)
+            gate.countDown()
+            stopping.join()
+            awaitTrue("the record that came during the final save met the store and stayed") { r.store.get("window.cw") == blob(4) }
+            assertEquals(s + 500, r.store.stamp("window.cw"), "the peer's stamp is kept")
+        } finally {
+            gate.countDown()
+            r.scope.cancel()
+            r.tmp.toFile().deleteRecursively()
+        }
+    }
+
     @Test
     fun aSyncedRecordQueuedBehindTheShutdownIsStored(): Unit = runBlocking {
         val r = rig("damage-tol-behind")

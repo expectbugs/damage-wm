@@ -837,8 +837,8 @@
   "file": "transport/RemoteTransport.kt",
   "edits": [
    [
-    "    floorSamples = floorSamples, transferSamples = transferSamples,\n    capability = capability",
-    "    capability = capability"
+    "    floorSamples = floorSamples, transferSamples = transferSamples,\n    linkIntervalMs = linkIntervalMs, linkLatency = linkLatency,\n    capability = capability",
+    "    linkIntervalMs = linkIntervalMs, linkLatency = linkLatency,\n    capability = capability"
    ]
   ],
   "tests": [

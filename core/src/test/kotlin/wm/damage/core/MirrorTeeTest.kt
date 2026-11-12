@@ -54,6 +54,174 @@ class MirrorTeeTest {
         override fun onMaintenanceTick() { glass.tick(nowMs()) }
     }
 
+    /** P5 item 16's rig: the tee transport with a hold in LEFT's write. While [armed], LEFT's image fragments are
+     *  counted (the first packet of each EvenHub image message); the [holdSerial]th packet of fragment [holdFragment]
+     *  (0-based) waits on [gate] before it reaches the far end. [packetsOfHeld] counts that fragment's packets that
+     *  reached the far end; [totalOfHeld] is its AA packet count (the header's pktTot). */
+    private class GatedTee(val glass: GlassFirmwareSim, scope: CoroutineScope, val holdFragment: Int, val holdSerial: Int) :
+        CfwTransportBase(scope, "tee") {
+        override val instant: Boolean get() = true
+        @Volatile var armed = false
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        @Volatile var parked = false
+        private var fragment = -1
+        val packetsOfHeld = java.util.concurrent.atomic.AtomicInteger(0)
+        @Volatile var totalOfHeld = 0
+
+        init {
+            glass.attachListener(object : GlassFirmwareSim.SimDiag {
+                override fun event(kind: String, detail: String) {}
+                override fun notify(arm: Arm, packet: ByteArray) { onNotifyPacket(arm, packet) }
+                override fun panelChanged(arm: Arm) {}
+            })
+        }
+
+        override suspend fun connectLink() {}
+        override suspend fun disconnectLink() {}
+        override suspend fun writeArm(arm: Arm, packet: ByteArray) {
+            if (armed && arm == Arm.LEFT) {
+                if (StartRig.firstOfImage(packet)) fragment++
+                if (fragment == holdFragment) {
+                    if (packet[5].toInt() == 1) totalOfHeld = packet[4].toInt() and 0xFF
+                    if (packet[5].toInt() == holdSerial) { parked = true; gate.await() }
+                    packetsOfHeld.incrementAndGet()
+                }
+            }
+            glass.write(arm, packet, nowMs())
+        }
+        override fun onMaintenanceTick() { glass.tick(nowMs()) }
+        fun endLink(reason: String) = onLinkDown(reason)
+    }
+
+    /** A keyframe whose image is [fragments] EvenHub fragments: black with a block of noise sized to need them. */
+    private fun noisyKeyframe(fragments: Int, seed: Long): ByteArray {
+        val rnd = java.util.Random(seed)
+        val g = Gray8(640, 480)
+        val side = if (fragments == 2) 100 else 125
+        for (y in 0 until side) for (x in 0 until side) g[40 + x, 40 + y] = rnd.nextInt(16) * 17
+        val image = Zl.encodeCfw(Pack.rect(g, Rect(0, 0, 640, 480)))
+        assertEquals(fragments, (image.size + Geometry.MAX_IMAGE_FRAGMENT - 1) / Geometry.MAX_IMAGE_FRAGMENT,
+            "the keyframe is ${image.size} B")
+        return image
+    }
+
+    private class TeeSeen {
+        val faults = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val notes = java.util.concurrent.CopyOnWriteArrayList<String>()
+        val links = java.util.concurrent.CopyOnWriteArrayList<TransportEvent.Link>()
+        val done = java.util.concurrent.CopyOnWriteArrayList<TransportEvent.FlushDone>()
+        fun mirrorFaults(about: String) = faults.filter { it.startsWith("mirror/") && about in it }
+    }
+
+    private fun watch(t: CfwTransportBase, scope: CoroutineScope): TeeSeen {
+        val seen = TeeSeen()
+        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            t.events.collect {
+                when (it) {
+                    is TransportEvent.Fault -> seen.faults.add("${it.what}: ${it.detail}")
+                    is TransportEvent.Note -> if (it.kind == "control") seen.notes.add(it.detail)
+                    is TransportEvent.Link -> seen.links.add(it)
+                    is TransportEvent.FlushDone -> seen.done.add(it)
+                    else -> {}
+                }
+            }
+        }
+        return seen
+    }
+
+    /** Ships a keyframe whose fragment [GatedTee.holdFragment] is held part-way; the link ends while it is held; the
+     *  gate opens; the fragment's tail is written (the wire is unchanged), then the keeper's stop. Returns the number
+     *  of packets written after the end. */
+    private suspend fun linkEndsInsideAFragment(t: GatedTee, seen: TeeSeen, fragments: Int) {
+        t.start(Zl.encodeCfw(Pack.rect(Gray8(640, 480), Rect(0, 0, 640, 480))))
+        t.armed = true
+        t.submit(FlushRequest(listOf(wm.damage.core.transport.DisplayOp.Keyframe(noisyKeyframe(fragments, 7))), 1, wide = true))
+        waitUntil(10_000, message = { "the write did not reach the held packet" }) { t.parked }
+        t.endLink("test: the link ends inside an image fragment")
+        t.gate.complete(Unit)
+        waitUntil(10_000, message = { "the held fragment's tail did not reach the far end: ${t.packetsOfHeld.get()} of ${t.totalOfHeld}" }) {
+            t.totalOfHeld > 0 && t.packetsOfHeld.get() == t.totalOfHeld
+        }
+        waitUntil(10_000, message = { "the flush was not answered: ${seen.done}" }) { seen.done.isNotEmpty() }
+        t.armed = false
+        t.stop()                                        // the keeper's stop after a link end
+        waitUntil(10_000, message = { "the stop's link event: ${seen.links}" }) { seen.links.any { !it.connected && "stopped" in it.detail } }
+    }
+
+    /** P5 item 16 (the identity-guard sweep's IG-2), pin 1: the link ends while a keyframe's second fragment of three is
+     *  part-way out. The tail is still written whole on the wire; the mirror, reset at the end, takes none of it — so
+     *  no "fragment 1 opens session S" abort, which would mark S broken for the rest of the process. */
+    @Test
+    fun aFragmentsTailAfterTheLinkEndsIsNotAppliedToTheMirror(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val t = GatedTee(GlassFirmwareSim(), scope, holdFragment = 1, holdSerial = 3)
+            val seen = watch(t, scope)
+            linkEndsInsideAFragment(t, seen, fragments = 3)
+            assertEquals(emptyList(), seen.mirrorFaults("opens session"), "the mirror took the tail of a fragment whose stream its reset dropped")
+            val tail = t.totalOfHeld - t.holdSerial + 1
+            assertEquals(listOf("$tail packet(s) of the ended session left after its end and were not applied to the mirror (at the stop)"),
+                seen.notes.filter { "not applied to the mirror" in it }, "one note with the count")
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /** Pin 2: the same with the hold inside the image's LAST fragment, then a new start. Unfixed, the tail completes a
+     *  fragment that opens nothing, the mirror marks the session broken, and the next session's warmup (the next id,
+     *  adjacent) is refused by the mirror at once — the short form of the lasting result. */
+    @Test
+    fun aLastFragmentsTailLeavesTheNextSessionsWarmupAlone(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val t = GatedTee(GlassFirmwareSim(), scope, holdFragment = 1, holdSerial = 3)
+            val seen = watch(t, scope)
+            linkEndsInsideAFragment(t, seen, fragments = 2)
+            val before = seen.faults.size
+            t.start(Zl.encodeCfw(Pack.rect(Gray8(640, 480), Rect(0, 0, 640, 480))))
+            val k = t.submit(FlushRequest(listOf(wm.damage.core.transport.DisplayOp.Keyframe(noisyKeyframe(2, 11))), 2, wide = true))
+            waitUntil(10_000, message = { "the new session's keyframe: ${seen.done}" }) { seen.done.any { it.id == k } }
+            assertEquals(emptyList(), seen.faults.drop(before).filter { it.startsWith("mirror/") }, "the new session's images are the mirror's")
+            for (arm in Arm.entries) assertContentEquals(t.glass.panel(arm), t.mirror.panel(arm), "mirror != glass on $arm after the new session's keyframe")
+            t.stop()
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    /** Pin 3, the long form: after pin 1's link end, a new session ships single-fragment flushes until its image
+     *  session ids (250 of them, `nextSessionLocked`) have come round past the broken one and its neighbours: no
+     *  `mirror/session` refusal on the way, and the mirror equals the glass at the end (what the shell's divergence
+     *  check compares). Unfixed, the round comes back to the broken id about every 8 minutes of active use (the
+     *  challenge's count from the saved tails), each time with refusals and, where pixels changed, a divergence. */
+    @Test
+    fun aSessionAfterALinkEndInsideAFragmentKeepsTheMirrorEqualToTheGlass(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            val t = GatedTee(GlassFirmwareSim(), scope, holdFragment = 1, holdSerial = 3)
+            val seen = watch(t, scope)
+            linkEndsInsideAFragment(t, seen, fragments = 3)
+            val before = seen.faults.size
+            val g = Gray8(640, 480)
+            t.start(Zl.encodeCfw(Pack.rect(g, Rect(0, 0, 640, 480))))
+            val ids = ArrayList<Long>()
+            ids += t.submit(FlushRequest(listOf(wm.damage.core.transport.DisplayOp.Keyframe(Zl.encodeCfw(Pack.rect(g, Rect(0, 0, 640, 480))))), 2, wide = true))
+            for (i in 0 until 260) {
+                val r = Rect(60 + (i % 10) * 50, 300 + (i / 10 % 5) * 30, 40, 20)
+                g.fillRect(r.x, r.y, r.w, r.h, (i % 12 + 3) * 17)
+                ids += t.submit(FlushRequest(listOf(wm.damage.core.transport.DisplayOp.Delta(r, Zl.encodeCfw(Pack.rect(g, r)))), 3L + i))
+            }
+            waitUntil(10_000, message = { "the new session's flushes: ${seen.done}" }) { ids.all { id -> seen.done.any { it.id == id } } }
+            assertEquals(emptyList(), seen.faults.drop(before).filter { it.startsWith("mirror/") }, "no mirror refusal in the new session")
+            synchronized(t.glass) {
+                for (arm in Arm.entries) assertContentEquals(t.glass.panel(arm), t.mirror.panel(arm), "mirror != glass on $arm")
+            }
+            t.stop()
+        } finally {
+            scope.cancel()
+        }
+    }
+
     private fun paintScene(g: Gray8, l: Layout, seed: Int) {
         g.clear(0)
         g.fillRect(l.topBar, 3 * 17)

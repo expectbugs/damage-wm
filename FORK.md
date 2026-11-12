@@ -578,7 +578,7 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
   fail, the battery green; APK 0.62 staged, the PC deployed. No firmware change, nothing flashed.
 - **2026-11-09, afternoon and evening — the two phone-only latency items §66 left, built unattended (`HANDOFF.md` §73):** a
   face goes into the atlas with the characters it has drawn and gains the rest in place (a table patch: one
-  cache write, legal on the flashed contract — two vectors, `v1-tablepatch` and `v2-tablepatch`, 28 in all); the
+  cache write, legal on the flashed contract — two vectors, `v1-tablepatch` and `v2-tablepatch`, 28 in all; 34 since the vector pass, `HANDOFF.md` §77.4); the
   link estimator reads medians over isolated flushes; text is laid out and drawn by the cache's metric while
   Cached text is on. Two reviews, the battery green, APK 0.63 built; committed `6bba881`, staged and installed 2026-11-10 on Adam's word, after
   `v2-tablepatch` matched 11 of 11 on glass (its first minutes there: `HANDOFF.md` §73's last block); every design call is the lead's and is listed in §73 for Adam. The fork did not change. **A correction to the

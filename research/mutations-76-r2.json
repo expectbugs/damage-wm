@@ -470,7 +470,7 @@
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "                if (m is Msg.Trans) { if (keepWhileDown(m)) keep.add(m); continue }\n",
+    "                if (m is Msg.Trans && leftThroughShutdown) { if (keepWhileDown(m)) keep.add(m); continue }\n",
     ""
    ]
   ],
@@ -480,15 +480,15 @@
   "expect": [
    "aFlushAnswerAndATypedLineQueuedBehindTheShutdownReachTheNextSession"
   ],
-  "note": "RH-N1: the P4 drain; a flush answered behind the Shutdown leaves its in-flight entry for the life of the process (inflight=1)"
+  "note": "RH-N1: the P4 drain; a flush answered behind the Shutdown leaves its in-flight entry for the life of the process (inflight=1); since P5 item 1 (the start clears the map) the pin reads the answer's done line from the next session"
  },
  {
   "id": "R2b-02-the-drain-keeps-no-typed-line",
   "file": "shell/Shell.kt",
   "edits": [
    [
-    "                if (m is Msg.Trans) { if (keepWhileDown(m)) keep.add(m); continue }\n",
-    "                if (m is Msg.Trans) { if (m.ev !is TransportEvent.Text && keepWhileDown(m)) keep.add(m); continue }\n"
+    "                if (m is Msg.Trans && leftThroughShutdown) { if (keepWhileDown(m)) keep.add(m); continue }\n",
+    "                if (m is Msg.Trans && leftThroughShutdown) { if (m.ev !is TransportEvent.Text && keepWhileDown(m)) keep.add(m); continue }\n"
    ]
   ],
   "tests": [

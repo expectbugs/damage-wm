@@ -83,9 +83,8 @@ fun main(args: Array<String>) {
         val cfg = Config.load()
         when (cli) {
             is Cli.SelfCheck -> SelfCheck.run(cfg)
-            // cli.dir is carried and not read yet: honouring it (and a non-zero exit over zero
-            // books) is green-gate GG-8's fix, a change of its own
-            is Cli.EpubCheck -> epubCheck(cfg)
+            // 0.65 P7 item 9 (green-gate GG-8): DIR is read; the config's booksDir only when none is given
+            is Cli.EpubCheck -> epubCheck(cli.dir?.let { Path.of(it) } ?: Path.of(cfg.booksDir))
             is Cli.MusicCheck -> MusicCheck.run(cfg)
             is Cli.GamesCheck -> GamesCheck.run(cfg, deep = cli.deep)
             is Cli.FeedCheck -> FeedCheck.run(cfg, live = cli.live, fixtures = Path.of(cli.fixtures))
@@ -166,7 +165,8 @@ internal val USAGE: String = """
     ENTRY, one at a time:
       --selfcheck                the scripted whole-stack check on the simulator
       --snapshot [DIR]           lens-truth PNGs of every surface (default: ${Cli.SNAPSHOT_DIR})
-      --epub-check [DIR]         parse every book in the config's booksDir (DIR is read and not used yet)
+      --epub-check [DIR]         parse every book in DIR (default: the config's booksDir); exit 1 on a
+                                 failure, on zero books or on a DIR that is not a directory
       --music-check              the real music library, read-only
       --games-check [deep]       the Hold'em ecology in memory; deep is the long run
       --feed-check [DIR] [live]  the feed engine over fixtures (default: ${Cli.FEED_FIXTURES});
@@ -502,9 +502,16 @@ data class Config(
 
 /** Parse every book in the library and report — the extractor must survive the
  *  REAL shelf, not just fixtures. Exit 1 if any book fails. */
-private fun epubCheck(cfg: Config) {
-    val lib = LocalContent(Path.of(cfg.booksDir)).library()
-    println("${lib.size} books in ${cfg.booksDir}")
+private fun epubCheck(dir: Path) { kotlin.system.exitProcess(epubCheckStatus(dir) { println(it) }) }
+
+/** `--epub-check`'s work and its exit status, without the exit (a desktop test calls it). A DIR that is not a
+ *  directory and a shelf of zero books are not a pass (0.65 P7 item 9, GG-8): `LocalContent` lists either as
+ *  empty, and the step said 0 over a shelf it never read. */
+internal fun epubCheckStatus(dir: Path, say: (String) -> Unit): Int {
+    if (!Files.isDirectory(dir)) { say("$dir is not a directory — no books read"); return 1 }
+    val lib = LocalContent(dir).library()
+    say("${lib.size} books in $dir")
+    if (lib.isEmpty()) { say("no books in $dir — nothing was checked"); return 1 }
     var bad = 0
     var imgTotal = 0
     var imgDecoded = 0
@@ -522,17 +529,17 @@ private fun epubCheck(cfg: Config) {
             val imgNote = if (book.images.isEmpty()) ""
                 else " · ${ok}/${book.images.size} images" +
                     (if (ok < book.images.size) " (rest undecodable — placeholders)" else "")
-            println("  OK   ${b.title} — ${book.text.length / 1024}K chars, " +
+            say("  OK   ${b.title} — ${book.text.length / 1024}K chars, " +
                 "${book.chapters.size} chapters, " +
                 "${System.currentTimeMillis() - t0}ms" +
                 (if (book.author.isNotEmpty()) " · ${book.author}" else "") + imgNote)
         } catch (e: Exception) {
             bad++
-            println("  FAIL ${b.file}: ${e.message}")
+            say("  FAIL ${b.file}: ${e.message}")
         }
     }
-    if (imgTotal > 0) println("images across the shelf: $imgDecoded/$imgTotal decode")
-    kotlin.system.exitProcess(if (bad > 0) 1 else 0)
+    if (imgTotal > 0) say("images across the shelf: $imgDecoded/$imgTotal decode")
+    return if (bad > 0) 1 else 0
 }
 
 /** Adapter enumeration only — a D-Bus read, no discovery, no connection: the

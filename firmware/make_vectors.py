@@ -303,6 +303,120 @@ def vectors():
         step({"tick": 200000}, msg(draw_image(0, 110, 10, 0x0F))),     # lapsed: refused, cache freed
         step({"lease": "acquire"}, msg(draw_image(0, 160, 10, 0x0F))), # a fresh lease: the cache is gone
     ]})
+
+    # ---- the vector pass (2026-11-12, APK 0.65; the design in the build's scratch notes) ----------
+    # The mutation sweep of 2026-11-10 found refusal guards no gate proved: the v1 ops' lengths, the
+    # batch's own structure, the v1 cache ops without the lease, modes 10 and 16's sub checks, mode
+    # 15's checks before the font, the batch's size limit. Each step below is written from
+    # `FIRMWARE.md` §4 ("the v1 modes' order as built") and asks one of them; the C's answers come
+    # from the fork's `run_vectors.py --write`. Rules kept: a vector with a no-lease step carries a
+    # release and so has no self-test form; a zero record is WRITTEN, never assumed (the glasses' live
+    # cache is not zeroed — `v2-badrec`); no step's answer depends on bytes after its message.
+    sv_icon2 = cache_image(40, 30, pattern(40, 30, 15))                 # icon's size, other pixels: what a refused write must not leave
+    sv_gl = {ch: cache_image(6 + (ch % 5), 12, pattern(6 + (ch % 5), 12, 500 + ch)) for ch in b"AB"}
+    t_off = 1000
+    sv_pos = t_off + 96 * 2
+    sv_goff = {}
+    for ch in b"AB":
+        sv_goff[ch] = sv_pos; sv_pos += len(sv_gl[ch])
+    zero_off = sv_pos                                                   # a record of w 0, written below
+    sv_table = b"".join(u16(sv_goff.get(ch, zero_off)) for ch in range(32, 128))   # A and B name glyphs, every other code the zero record
+    v1cache = cache_write((0, icon), (t_off, sv_table), *[(sv_goff[ch], sv_gl[ch]) for ch in b"AB"], (zero_off, bytes(4)))
+    sub = copy((0, 0, 64, 64), (320, 200, 64, 64))
+    sub3 = copy((0, 0, 64, 64), (400, 300, 64, 64))
+    cp = copy((0, 0, 100, 100), (200, 200, 100, 100))
+    sbox = pattern(120, 40, 6)
+    stereo = delta_stereo(100, 108, 300, 120, 40, 1, sbox)
+    stereo_sizes = (bytes([0x83, 100 // 4, 300 // 2, 120 // 4, 40 // 2, 108 // 4, 300 // 2, 124 // 4, 40 // 2])
+                    + u16(1) + z(rle(nibbles_packed(sbox, 120, 40))))   # the right box 4 px wider
+    # The v1 ops' lengths, the batch's own structure, and "checked whole before a byte is written or a
+    # pixel drawn" for modes 12 and 14. Lease held throughout: it has a self-test form.
+    v.append({"name": "v1-shape", "steps": [
+        step({"tick": 1000}, msg(kf), {"lease": "acquire"}, msg(v1cache)),
+        # mode 13: exactly 7 bytes after the mode byte
+        step(msg(draw_image(0, 100, 100, 0x0F) + b"\x00")),                 # 1  one byte long: 1, nothing drawn
+        step(msg(draw_image(0, 100, 100, 0x0F)[:-1])),                      # 2  one byte short: 1
+        step(msg(draw_image(0, 100, 100, 0x0F))),                           # 3  whole: lands
+        # mode 14: the header, then exactly the declared string; every glyph checked before a pixel
+        step(msg(draw_string(t_off, 20, 300, 0x0F, b"AB") + b"A")),         # 4  a byte after the declared string: 1
+        step(msg(draw_string(t_off, 20, 300, 0x0F, b"AB")[:-1])),           # 5  a byte short of it: 1
+        step(msg(draw_string(t_off, 20, 300, 0x0F, b"AB")[:6])),            # 6  shorter than the header: 1
+        step(msg(draw_string(t_off, 20, 300, 0x0F, b"AZ"))),                # 7  Z names the zero record: 5, and A is not drawn
+        step(msg(draw_string(t_off, 20, 300, 0x0F, b"AB"))),                # 8  whole: lands
+        # mode 9: at least its rects; one size; not empty
+        step(msg(cp[:-1])),                                                 # 9  one byte short: 1
+        step(msg(bytes([0x89]) + cp[1:])),                                  # 10 the per-lens form with one rect set: 1 on both lenses
+        step(msg(cp + b"\x00")),                                            # 11 one byte long: accepted (the check is "at least")
+        step(msg(copy((0, 0, 100, 100), (300, 200, 100, 90)))),             # 12 two sizes: 2
+        step(msg(copy((0, 0, 0, 10), (300, 200, 0, 10)))),                  # 13 an empty rect: 2
+        # mode 3, the per-lens form
+        step(msg(stereo[:11])),                                             # 14 both boxes and the fid, no stream: 1
+        step(msg(stereo_sizes)),                                            # 15 two box sizes: 2, before the fid is taken
+        step(msg(stereo)),                                                  # 16 whole, the same fid: lands (the refusals left the fid ring alone)
+        # mode 8: the batch's own structure
+        step(msg(bytes([8]))),                                              # 17 no count: 1
+        step(msg(bytes([8, 1, 0, 0]))),                                     # 18 a sub-message of length 0: 1
+        step(msg(bytes([8, 1]) + u16(len(sub) + 5) + sub)),                 # 19 a length running past the message: 1, the sub not applied
+        step(msg(bytes([8, 2]) + u16(len(sub)) + sub)),                     # 20 count 2, one sub: the sub lands, then 1
+        step(msg(bytes([8, 1]) + u16(len(sub3)) + sub3 + b"\xEE" * 3)),     # 21 bytes after the last counted sub: not read, the sub lands
+        step(msg(bytes([8, 0]))),                                           # 22 an empty batch: accepted
+        # mode 12: the whole list is checked before a byte is written
+        step(msg(cache_write((0, sv_icon2)) + b"\x00\x00\x00"),             # 23 a sound entry, then 3 bytes of a header: 1 ...
+             msg(draw_image(0, 300, 100, 0x0F))),                           #    ... and the sound entry was not written: the first icon draws
+        step(msg(cache_write((0, sv_icon2)) + u16(4000) + u16(100) + bytes(4)),   # 24 a sound entry, then data running past the message: 1
+             msg(draw_image(0, 360, 100, 0x0F))),                           #    the first icon again
+        step(msg(cache_write((0, sv_icon2))), msg(draw_image(0, 420, 100, 0x0F))),   # 25 the entry alone: written, the second icon draws
+    ]})
+    # The v1 twin of `v2-gates`: every v1 cache op with no lease, the order of its length check against
+    # the lease, a draw after a fresh lease (the cache went with the release), and the two modes that
+    # draw nothing (10 and 16). Two releases: no self-test form.
+    v.append({"name": "v1-gates", "steps": [
+        step({"tick": 1000}, msg(kf), {"lease": "acquire"}, msg(v1cache)),
+        step(msg(draw_string(t_off, 20, 20, 0x0F, b"AB"))),                 # 1  the lease held: draws
+        step({"lease": "release"}, msg(cache_write((0, sv_icon2)))),        # 2  mode 12 with data, no lease: 3
+        step(msg(cache_write((0, b"")))),                                   # 3  a list with no data: accepted before the lease is asked
+        step(msg(cache_write((0, sv_icon2)) + b"\x00")),                    # 4  its shape (1) before the lease
+        step(msg(cache_write((65530, bytes(8))))),                          # 5  the window (5) before the lease
+        step(msg(draw_image(0, 10, 10, 0x0F))),                             # 6  mode 13: 3 (v1-lease asks it after a lapse; this is a release)
+        step(msg(draw_image(0, 10, 10, 0x0F) + b"\x00")),                   # 7  its length (1) before the lease
+        step(msg(draw_string(t_off, 20, 40, 0x0F, b"AB"))),                 # 8  mode 14: 3
+        step(msg(draw_string(t_off, 20, 40, 0x0F, b"AB")[:6])),             # 9  its header's length (1) before the lease
+        step(msg(draw_string(t_off, 20, 40, 0x0F, b"AB") + b"A")),          # 10 the string's own length is asked after the lease: 3
+        step({"lease": "acquire"}, msg(draw_string(t_off, 20, 40, 0x0F, b"AB"))),   # 11 a fresh lease, the cache went with the release: 5
+        step(msg(bytes([10]))),                                             # 12 mode 10 with no argument: 1
+        step(msg(bytes([10, 2]))),                                          # 13 neither stop nor start: 12
+        step(msg(bytes([16, 3]))),                                          # 14 mode 16, an unknown sub: 12
+        step(msg(bytes([16, 1]))),                                          # 15 a step with no message: 1 (the lease held, no begin)
+        step(msg(bytes([16, 1]) + copy((0, 0, 8, 8), (8, 8, 8, 8)))),       # 16 a step with the lease held and no begin: 7
+        step({"lease": "release"}, msg(bytes([16, 1]))),                    # 17 and before the lease is asked: 1
+        step(msg(bytes([16, 1]) + copy((0, 0, 8, 8), (8, 8, 8, 8)))),       # 18 a step with no lease: 3
+    ]})
+    # Mode 15 draws with the firmware's own font: Damage never sends it and no offline model draws it.
+    # These are only what it refuses BEFORE the font is read — the header's length (1), the lease (3),
+    # the string's own length (1), in §4's order — so they are the same on the PC and on the glasses.
+    # NEVER add a well-formed mode 15 with the lease held: the PC's host has no font and refuses it for a
+    # reason the glasses do not have. A release inside: no self-test form.
+    m15 = lambda text, declared=None: (bytes([15]) + u16(20) + u16(60)
+                                       + bytes([0x0F, len(text) if declared is None else declared]) + text)
+    v.append({"name": "v1-mode15", "steps": [
+        step({"tick": 1000}, msg(kf), {"lease": "acquire"},
+             msg(m15(b"AB", declared=5))),                                  # 0  the lease held, 2 bytes for a declared 5: 1
+        step({"lease": "release"}, msg(m15(b"AB"))),                        # 1  well-formed, no lease: 3
+        step(msg(m15(b"AB")[:5])),                                          # 2  shorter than its header, no lease: 1 before 3
+    ]})
+    # Mode 8's size limit at its exact edge (`Geometry.MODE8_MAX`, 153,718 B): two ~154 KB messages, the
+    # costliest vector in the set (the fork's host reads a message's hex in one pass since 2026-11-12).
+    batch_max = 118 + 320 * 480
+    bm_ok = bytes([8, 1]) + u16(len(sub)) + sub
+    bm_ok += bytes(batch_max - len(bm_ok))                              # the bytes after the counted sub are not read (v1-shape step 21)
+    bm_sub2 = copy((0, 0, 64, 64), (100, 300, 64, 64))
+    bm_big = bytes([8, 1]) + u16(len(bm_sub2)) + bm_sub2
+    bm_big += bytes(batch_max + 1 - len(bm_big))
+    v.append({"name": "v1-batchmax", "steps": [
+        step({"tick": 1000}, msg(kf)),
+        step(msg(bm_ok)),                                                   # 1  exactly the limit: accepted, its sub lands
+        step(msg(bm_big)),                                                  # 2  one byte more: 1, its sub does not land
+    ]})
     for vec in v:
         vec["contract"] = 1
         vec["start"] = "zero"
@@ -706,6 +820,73 @@ def vectors_v2(kf):
         step(msg(draw2(short, 10, 20, 0x0F))),                                     # fewer: the stream ends first: 5
         step(msg(draw2(zero, 10, 30, 0x0F))),                                      # a run of zero length: 5, and it ends
         step(msg(string2(tbl, 10, 40, 0x0F, b"ok"))),                              # a valid draw from the same cache still lands
+    ]})
+
+    # ---- the vector pass (2026-11-12, APK 0.65): the v2 twins of `v1-shape` --------------------------
+    # Every v2 op's length (`FIRMWARE.md` §4's layouts), "checked whole" for modes 18 and 19, and mode
+    # 23's capture rect — a sweep operator that removed the rect read with its check called it caught;
+    # with the read kept and only the refusal dropped no gate reacted. Lease held: a self-test form.
+    sc = Cache2()
+    sv_pic = sc.add(image2(40, 30, pattern(40, 30, 91)))
+    sv_pic2 = image2(40, 30, pattern(40, 30, 92))                                  # same size, other pixels
+    zrec = sc.add(bytes(4))                                                        # a record of w 0, WRITTEN
+    sv_g2 = {ch: cache_image(5 + (ch % 7), 14, pattern(5 + (ch % 7), 14, 600 + ch)) for ch in b"AB"}
+    stab = sc.reserve(224 * 2)
+    sv_g2off = {ch: sc.add(sv_g2[ch]) for ch in b"AB"}
+    sc.put(stab, b"".join(u16(sv_g2off.get(ch, zrec)) for ch in range(32, 256)))
+    inv = [15 - i for i in range(16)]
+    s2 = string2(stab, 10, 200, 0x0F, b"AB")
+    v.append({"name": "v2-shape", "steps": [
+        step(*arm, *[msg(m) for m in sc.messages()], msg(fill(rect(0, 0, 640, 480), 2))),
+        # mode 21: 10 bytes, 18 under the high bit
+        step(msg(fill(rect(0, 0, 64, 64), 9) + b"\x00")),                   # 1  one byte long: 1
+        step(msg(fill(rect(0, 0, 64, 64), 9)[:-1])),                        # 2  no level: 1
+        step(msg(bytes([0x95]) + rect(0, 0, 64, 64) + bytes([9]))),         # 3  one rect under the high bit: 1
+        # mode 22: 17 bytes, 25 under the high bit
+        step(msg(lut(rect(0, 0, 64, 64), inv) + b"\x00")),                  # 4  one byte long: 1
+        step(msg(bytes([0x96]) + rect(0, 0, 64, 64) + lut_bytes(inv))),     # 5  one rect under the high bit: 1
+        # mode 23
+        step(msg(capture(0, rect(100, 100, 60, 40))), msg(fill(rect(0, 0, 640, 480), 7))),   # 6
+        step(msg(restore(0) + b"\x00")),                                    # 7  a restore one byte long: 1, nothing restored
+        step(msg(bytes([23]))),                                             # 8  no sub: 1
+        step(msg(bytes([23, 1]))),                                          # 9  no slot: 1
+        step(msg(capture(1, rect(0, 0, 8, 8))[:-1])),                       # 10 a capture one byte short: 1
+        step(msg(bytes([0x97, 0, 1]) + rect(0, 0, 8, 8))),                  # 11 one rect under the high bit: 1
+        step(msg(capture(1, rect(600, 0, 41, 10)))),                        # 12 a capture past the panel: 2
+        step(msg(capture(1, rect(0, 0, 0, 10)))),                           # 13 an empty rect: 2
+        step(msg(capture_pair(1, rect(0, 0, 10, 10), rect(0, 0, 20, 10)))), # 14 a pair of two sizes: 2 on both lenses
+        step(msg(free_slot(0) + b"\x00")),                                  # 15 a free one byte long: 1
+        step(msg(restore(0))),                                              # 16 so slot 0 is still held: restores
+        step(msg(restore(1))),                                              # 17 and slot 1 never took a capture: 7
+        # mode 24
+        step(msg(hint(0, 9) + b"\x00")),                                    # 18 top level, one byte long: length (1) before batch (10)
+        step(msg(batch(hint(0, 9) + b"\x00", fill(rect(0, 0, 640, 10), 5)))),   # 19 in a batch: 1, the fill after it does not land
+        step(msg(batch(hint(0, 9)[:-1], fill(rect(0, 0, 640, 10), 5)))),    # 20 one byte short: 1
+        # mode 18
+        step(msg(s2[:5])),                                                  # 21 shorter than its header: 1
+        step(msg(string2_pair(stab, 10, 26, 200, 0x0F, b"AB")[:10])),       # 22 the per-lens header one byte short: 1
+        step(msg(s2 + b"A")),                                               # 23 a byte after the declared string: 1
+        step(msg(string2(stab, 10, 200, 0x0F, b"AZ"))),                     # 24 Z names the zero record: 5, and A is not drawn
+        step(msg(s2)),                                                      # 25 whole: lands
+        # mode 19: the whole list is checked before a byte is written
+        step(msg(cache_write2((sv_pic, sv_pic2)) + b"\x00\x00\x00"),        # 26 a sound entry, then 3 bytes of a header: 1 ...
+             msg(draw2(sv_pic, 300, 100, 0x0F))),                           #    ... the sound entry was not written: the first picture draws
+        step(msg(cache_write2((sv_pic, sv_pic2)) + u16(2000) + u16(100) + bytes(4)),   # 27 a sound entry, then data running past the message: 1
+             msg(draw2(sv_pic, 360, 100, 0x0F))),
+        step(msg(cache_write2((sv_pic, sv_pic2))), msg(draw2(sv_pic, 420, 100, 0x0F))),   # 28 the entry alone: written, the second picture draws
+    ]})
+    # Mode 14's table must lie in the first 64 KiB whatever the cache's size (§4: "the v1 window
+    # addressed by modes 12/13/14 stays the first 64 KiB"). `v2-cachesize` asks it of a mode-13 record;
+    # this asks it of the mode-14 table, at the exact edge, with every byte past the window written.
+    win_ga = 0x0808                            # a glyph offset whose two bytes are equal: a table of it reads the same at any alignment
+    win_glyph = cache_image(9, 12, pattern(9, 12, 700))
+    win_edge = 65536 - 96 * 2                  # 65,344: the last table offset the window admits
+    v.append({"name": "v2-window", "steps": [
+        step(*arm, cachesize(128),
+             msg(cache_write((win_ga, win_glyph), (win_edge, bytes([8]) * 192))),   # the glyph, and a table ending exactly at the window's end
+             msg(cache_write2((65536 // 4, bytes([8]) * 4)))),              # the same bytes carried on past the window, inside the 128 KiB
+        step(msg(draw_string(win_edge, 20, 20, 0x0F, b"AB"))),              # 1  the last offset: draws
+        step(msg(draw_string(win_edge + 1, 20, 40, 0x0F, b"AB"))),          # 2  one byte later: 5 — every entry it would read is in the cache and names a sound record
     ]})
 
     for vec in v:

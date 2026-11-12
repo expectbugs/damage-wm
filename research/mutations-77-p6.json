@@ -1,0 +1,471 @@
+[
+ {
+  "id": "P6-01-the-loop-adds-no-message-time",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            loopCost.getOrPut(if (m is Msg.Trans) m.ev.javaClass else m.javaClass) { LoopCost() }.add(handlerNsThisMsg)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*LoopCostNoteTest.aMessageThatFlushesNothingIsCountedInTheMinutesLoopNote"
+  ],
+  "expect": [
+   "aMessageThatFlushesNothingIsCountedInTheMinutesLoopNote"
+  ],
+  "note": "P6 item 1 (LC-7): without the per-message add a Run that flushes nothing reaches no row again: the minute's loop note names no Run"
+ },
+ {
+  "id": "P6-02-a-scan-is-not-counted",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        mirrorCompared = true                  // P6 item 1: a scan the `loop` note counts\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*LoopCostNoteTest.tenAcksAtRestAreCountedAsMirrorScans"
+  ],
+  "expect": [
+   "tenAcksAtRestAreCountedAsMirrorScans"
+  ],
+  "note": "P6 item 1 (LC-7): without the mark a scan that compared is not counted: the loop notes after ten acks at rest count no mirror scan"
+ },
+ {
+  "id": "P6-03-the-pumps-are-not-counted",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            if (pumped) pumpCost.add(System.nanoTime() - pumpT0)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*LoopCostNoteTest.aMessageThatFlushesNothingIsCountedInTheMinutesLoopNote"
+  ],
+  "expect": [
+   "aMessageThatFlushesNothingIsCountedInTheMinutesLoopNote"
+  ],
+  "note": "P6 item 1 (LC-7, the class sweep): a pump's time is the other loop time that reached no row when its turn flushed nothing; without the add the note's pump entry reads n=0"
+ },
+ {
+  "id": "P6-04-the-done-line-written-after-the-scan",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val a = inflightFlushes.remove(ev.id)\n        journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)\n",
+    "        val a = inflightFlushes.remove(ev.id)\n        if (a == null) journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)\n"
+   ],
+   [
+    "            checkMirrorAgreement()\n        }\n    }\n",
+    "            checkMirrorAgreement()\n        }\n        journal.flushDone(ev.id, ev.ok, ev.ackMs, ev.bytes, ev.error)\n    }\n"
+   ]
+  ],
+  "tests": [
+   "*LoopCostNoteTest.theDoneLineIsWrittenBeforeTheMirrorScan"
+  ],
+  "expect": [
+   "theDoneLineIsWrittenBeforeTheMirrorScan"
+  ],
+  "note": "P6 item 1 (the challenge's correction to LC-7): the finding's 'mirrorMs on the done record' moves the done line behind the scan; every wait (done.t - submit.t) then holds the scan: 2 x 100 ms on the pin's slow mirror"
+ },
+ {
+  "id": "P6-05-a-parked-request-composes-the-window-on-screen",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                    is Msg.Invalidate -> if (!showsRequestOf(m.windowId)) chromeDirty = true\n                        else if (mode == Mode.EXCLUSIVE)",
+    "                    is Msg.Invalidate -> if (mode == Mode.EXCLUSIVE)"
+   ]
+  ],
+  "tests": [
+   "*ParkedRenderTest.aParkedWindowsRenderRequestComposesNothing",
+   "*ParkedRenderTest.aParkedWindowsRenderRequestLeavesARunningSlideToFinish",
+   "*ParkedRenderTest.inExclusiveModeOnlyTheWindowsOwnRequestRepaintsIt"
+  ],
+  "expect": [
+   "aParkedWindowsRenderRequestComposesNothing",
+   "aParkedWindowsRenderRequestLeavesARunningSlideToFinish",
+   "inExclusiveModeOnlyTheWindowsOwnRequestRepaintsIt"
+  ],
+  "note": "P6 item 2 (LC-1): without the gate a parked window's five requests paint the window on screen five times, end a running slide, and repaint the whole-panel window"
+ },
+ {
+  "id": "P6-06-main-is-not-recomposed-for-a-window",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val shown = contentWindow() ?: return true\n",
+    "        val shown = contentWindow() ?: return false\n"
+   ]
+  ],
+  "tests": [
+   "*ParkedRenderTest.onMainARequestFromAnyWindowRepaintsMain"
+  ],
+  "expect": [
+   "onMainARequestFromAnyWindowRepaintsMain"
+  ],
+  "note": "P6 item 2: Main's rows are every window's summary; without the arm a window's request leaves Main's rows stale"
+ },
+ {
+  "id": "P6-07-settings-is-not-recomposed-for-a-parked-window",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        return shown.id == id || shown === settingsWindow\n",
+    "        return shown.id == id\n"
+   ]
+  ],
+  "tests": [
+   "*ParkedRenderTest.withSettingsOnScreenAParkedWindowsRequestRepaintsSettings"
+  ],
+  "expect": [
+   "withSettingsOnScreenAParkedWindowsRequestRepaintsSettings"
+  ],
+  "note": "P6 item 2 (the challenge's first addition): Settings reads every window's appSettings() on each render; without the arm a parked window's change is not shown"
+ },
+ {
+  "id": "P6-08-exclusive-ignores-its-own-request",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (mode == Mode.EXCLUSIVE) return current?.id == id\n",
+    "        if (mode == Mode.EXCLUSIVE) return false\n"
+   ]
+  ],
+  "tests": [
+   "*ParkedRenderTest.inExclusiveModeOnlyTheWindowsOwnRequestRepaintsIt"
+  ],
+  "expect": [
+   "inExclusiveModeOnlyTheWindowsOwnRequestRepaintsIt"
+  ],
+  "note": "P6 item 2: the whole-panel window's own request must still repaint it"
+ },
+ {
+  "id": "P6-09-exclusive-repaints-for-a-parked-window",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        if (mode == Mode.EXCLUSIVE) return current?.id == id\n",
+    "        if (mode == Mode.EXCLUSIVE) return true\n"
+   ]
+  ],
+  "tests": [
+   "*ParkedRenderTest.inExclusiveModeOnlyTheWindowsOwnRequestRepaintsIt"
+  ],
+  "expect": [
+   "inExclusiveModeOnlyTheWindowsOwnRequestRepaintsIt"
+  ],
+  "note": "P6 item 2: in EXCLUSIVE a parked window's request repaints the whole-panel window again"
+ },
+ {
+  "id": "P6-10-tmux-asks-on-every-status-push",
+  "file": "windows/tmux/TmuxWindow.kt",
+  "edits": [
+   [
+    "                if (changed && level == Level_.SESSIONS) services?.requestRender(this@TmuxWindow)\n",
+    "                if (level == Level_.SESSIONS) services?.requestRender(this@TmuxWindow)\n"
+   ]
+  ],
+  "tests": [
+   "*TmuxWindowTest.aStatusPushThatChangesNothingShownAsksForNoRender"
+  ],
+  "expect": [
+   "aStatusPushThatChangesNothingShownAsksForNoRender"
+  ],
+  "note": "P6 item 2 (LC-1's source half): an unchanged status push asks for a render again"
+ },
+ {
+  "id": "P6-11-tmux-misses-an-age-the-row-prints",
+  "file": "windows/tmux/TmuxWindow.kt",
+  "edits": [
+   [
+    " || cfg != this@TmuxWindow.cfg || ages != shownAges\n",
+    " || cfg != this@TmuxWindow.cfg\n"
+   ]
+  ],
+  "tests": [
+   "*TmuxWindowTest.aStatusPushThatChangesNothingShownAsksForNoRender"
+  ],
+  "expect": [
+   "aStatusPushThatChangesNothingShownAsksForNoRender"
+  ],
+  "note": "P6 item 2: the session row prints an age read from the clock at paint time; without the compare a quiet session's age stops moving on the list"
+ },
+ {
+  "id": "P6-12-the-queue-array-is-built-every-save",
+  "file": "windows/music/PlayerCore.kt",
+  "edits": [
+   [
+    "        val kept = persistedQueue?.takeIf { it.first == s.queue }\n",
+    "        val kept = persistedQueue?.takeIf { false }\n"
+   ]
+  ],
+  "tests": [
+   "*MusicWindowTest.twoSavesOfAnUnchangedThousandEntryQueueBuildTheQueueArrayOnce"
+  ],
+  "expect": [
+   "twoSavesOfAnUnchangedThousandEntryQueueBuildTheQueueArrayOnce"
+  ],
+  "note": "P6 item 3 (LC-6 step 1): without the kept array every save builds one object per queue entry on the loop again"
+ },
+ {
+  "id": "P6-13-the-memo-keyed-on-the-lists-identity",
+  "file": "windows/music/PlayerCore.kt",
+  "edits": [
+   [
+    "        val kept = persistedQueue?.takeIf { it.first == s.queue }\n",
+    "        val kept = persistedQueue?.takeIf { it.first === s.queue }\n"
+   ]
+  ],
+  "tests": [
+   "*MusicWindowTest.twoSavesOfAnUnchangedThousandEntryQueueBuildTheQueueArrayOnce"
+  ],
+  "expect": [
+   "twoSavesOfAnUnchangedThousandEntryQueueBuildTheQueueArrayOnce"
+  ],
+  "note": "P6 item 3 (the challenge's correction): the 10 s tick makes a new snapshot list of the same entries, so an identity key misses every 10 s"
+ },
+ {
+  "id": "P6-14-the-store-encoded-on-the-caller",
+  "file": "shell/Persistence.kt",
+  "edits": [
+   [
+    "        val records = copyRecords()\n        try {\n            writer.execute {\n                val landed = try { writeNow(encode(records)) }",
+    "        val encoded = encode()\n        try {\n            writer.execute {\n                val landed = try { writeNow(encoded) }"
+   ]
+  ],
+  "tests": [
+   "*SaveCostTest.anAsynchronousSaveEncodesOnTheWritersThread"
+  ],
+  "expect": [
+   "anAsynchronousSaveEncodesOnTheWritersThread"
+  ],
+  "note": "P6 item 3 (LC-6 step 2): the whole store encoded on the shell loop again"
+ },
+ {
+  "id": "P6-15-the-encode-outside-the-verdict",
+  "file": "shell/Persistence.kt",
+  "edits": [
+   [
+    "                val landed = try { writeNow(encode(records)) } catch (t: Throwable) {\n",
+    "                val encoded = encode(records)\n                val landed = try { writeNow(encoded) } catch (t: Throwable) {\n"
+   ]
+  ],
+  "tests": [
+   "*SaveCostTest.anEncodeThatThrowsOnTheWriterIsASaveThatDidNotLand"
+  ],
+  "expect": [
+   "anEncodeThatThrowsOnTheWriterIsASaveThatDidNotLand"
+  ],
+  "note": "P6 item 3 (the challenge's addition, NO SILENT FAILURES): an encode that throws on the writer ends the task with no verdict; the shell never says the save failed"
+ },
+ {
+  "id": "P6-16-an-unhinted-present-marks-no-rows",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "        if (rows == null) { c.changedLo = 0; c.changedHi = Geometry.PANEL_H - 1 }\n",
+    "        if (rows == null) { }\n"
+   ]
+  ],
+  "tests": [
+   "*MirrorSpanTest.anUnhintedPresentMarksEveryRowOfTheLens"
+  ],
+  "expect": [
+   "anUnhintedPresentMarksEveryRowOfTheLens"
+  ],
+  "note": "P6 item 5: a whole present's rows are not marked; a pixel the model holds outside our flush's rows is presented and never compared"
+ },
+ {
+  "id": "P6-17-a-hinted-present-marks-no-rows",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "        else { c.changedLo = minOf(c.changedLo, rows.first); c.changedHi = maxOf(c.changedHi, rows.last) }\n",
+    "        else { }\n"
+   ]
+  ],
+  "tests": [
+   "*MirrorSpanTest.tenSmallFlushesAtRestCompareTheirRowsNotTheWholeLenses",
+   "*MirrorSpanTest.aPixelOutsideTheDeclaredRectInsideTheHintedRowsIsReportedAtItsAck"
+  ],
+  "expect": [
+   "tenSmallFlushesAtRestCompareTheirRowsNotTheWholeLenses",
+   "aPixelOutsideTheDeclaredRectInsideTheHintedRowsIsReportedAtItsAck"
+  ],
+  "note": "P6 item 5: a hinted present's rows are not marked. Redundant (review 3B, read and found sound): the hint is the union of the flush's touched rows (Compositor.assembleFlush), which the shell's span also holds — expected uncaught"
+ },
+ {
+  "id": "P6-18-a-stock-repaint-marks-no-rows",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "        stockPattern(c.panel)\n        c.changedLo = 0; c.changedHi = Geometry.PANEL_H - 1\n",
+    "        stockPattern(c.panel)\n"
+   ]
+  ],
+  "tests": [
+   "*DivergenceTest.aDisagreeingMirrorIsReportedThenRepairedByAKeyframe"
+  ],
+  "expect": [
+   "aDisagreeingMirrorIsReportedThenRepairedByAKeyframe"
+  ],
+  "note": "P6 item 5: the stock repaint's rows are not marked (no pin: a repaint reaches the panel only with no Damage frame held; listed unpinned)"
+ },
+ {
+  "id": "P6-19-the-model-span-is-never-taken",
+  "file": "sim/GlassFirmwareSim.kt",
+  "edits": [
+   [
+    "        c.changedLo = Int.MAX_VALUE; c.changedHi = -1\n        return r\n",
+    "        return r\n"
+   ]
+  ],
+  "tests": [
+   "*MirrorSpanTest.tenSmallFlushesAtRestCompareTheirRowsNotTheWholeLenses"
+  ],
+  "expect": [
+   "tenSmallFlushesAtRestCompareTheirRowsNotTheWholeLenses"
+  ],
+  "note": "P6 item 5: the model's span is not cleared when taken; the start's whole present makes every later check whole"
+ },
+ {
+  "id": "P6-20-the-shell-span-takes-no-rows",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                mirrorSpanLo = minOf(mirrorSpanLo, t.rect.y); mirrorSpanHi = maxOf(mirrorSpanHi, t.rect.bottom - 1)\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MirrorSpanTest.aFlushTheModelDoesNotPresentIsComparedOverTheShellsOwnRows"
+  ],
+  "expect": [
+   "aFlushTheModelDoesNotPresentIsComparedOverTheShellsOwnRows"
+  ],
+  "note": "P6 item 5: the shell's span takes no rows. Needed (review 3B-1): when the model writes no row for an acked flush (a present inside a self-test step publishes nothing; on the phone a sub-message the mirror refuses ends the batch before its present) the shell's span is the only source of that flush's rows. Pinned by R4 item 6 (the model's self-test-step flag set on LEFT; the reader's self-test BEGIN does not hold the presents off)"
+ },
+ {
+  "id": "P6-21-the-shell-span-is-never-cleared",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            mirrorSpanLo = Int.MAX_VALUE; mirrorSpanHi = -1; mirrorWhole = false\n",
+    "            mirrorWhole = false\n"
+   ]
+  ],
+  "tests": [
+   "*MirrorSpanTest.tenSmallFlushesAtRestCompareTheirRowsNotTheWholeLenses"
+  ],
+  "expect": [
+   "tenSmallFlushesAtRestCompareTheirRowsNotTheWholeLenses"
+  ],
+  "note": "P6 item 5: an agreeing check does not clear the shell's span; it grows with every flush"
+ },
+ {
+  "id": "P6-22-the-sessions-first-check-is-a-span",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            mirrorSpanLo = Int.MAX_VALUE; mirrorSpanHi = -1; mirrorWhole = true    // P6 item 5: the first check is whole\n",
+    "            mirrorSpanLo = Int.MAX_VALUE; mirrorSpanHi = -1\n"
+   ]
+  ],
+  "tests": [
+   "*DivergenceTest.aDisagreeingMirrorIsReportedThenRepairedByAKeyframe"
+  ],
+  "expect": [
+   "aDisagreeingMirrorIsReportedThenRepairedByAKeyframe"
+  ],
+  "note": "P6 item 5: the session's first check reads spans. Redundant twice (review 3B, read and found sound): the start keyframe's whole touch is in the shell's span, and the model marks an unhinted present as every row — expected uncaught"
+ },
+ {
+  "id": "P6-23-a-failed-flush-asks-no-whole-compare",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "            mirrorWhole = true            // P6 item 5: a failed flush (each arm below rolls back) — the next check is whole\n",
+    ""
+   ]
+  ],
+  "tests": [
+   "*MirrorSpanTest.aPanelByteAlteredWithNoPresentIsFoundByTheWholeCompareAfterARolledBackFlush"
+  ],
+  "expect": [
+   "aPanelByteAlteredWithNoPresentIsFoundByTheWholeCompareAfterARolledBackFlush"
+  ],
+  "note": "P6 item 5: a flush that completes not ok asks for no whole compare. Defence in depth (review 3B, read and found sound): a rolled-back flush's unknown cells are repainted inside touched rows; the pin drives the submit's rollback, not this arm — expected uncaught"
+ },
+ {
+  "id": "P6-24-a-rolled-back-submit-asks-no-whole-compare",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "                    comp.rollback(assembled)\n                    mirrorWhole = true                     // P6 item 5: a rolled-back flush — the next check is whole\n",
+    "                    comp.rollback(assembled)\n"
+   ]
+  ],
+  "tests": [
+   "*MirrorSpanTest.aPanelByteAlteredWithNoPresentIsFoundByTheWholeCompareAfterARolledBackFlush"
+  ],
+  "expect": [
+   "aPanelByteAlteredWithNoPresentIsFoundByTheWholeCompareAfterARolledBackFlush"
+  ],
+  "note": "P6 item 5: a flush rolled back at its submit asks for no whole compare; a panel byte no present wrote is never read"
+ },
+ {
+  "id": "P6-25-no-whole-compare-a-minute",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val whole = mirrorWhole || lastDivergence != null || now - mirrorWholeAtNs >= MIRROR_WHOLE_EVERY_NS\n",
+    "        val whole = mirrorWhole || lastDivergence != null\n"
+   ]
+  ],
+  "tests": [
+   "*MirrorSpanTest.aWholeCompareRunsAMinuteAfterTheLast"
+  ],
+  "expect": [
+   "aWholeCompareRunsAMinuteAfterTheLast"
+  ],
+  "note": "P6 item 5 (the lead's ruling): the minute's whole compare, the one check that does not lean on the bookkeeping, removed"
+ },
+ {
+  "id": "P6-26-a-standing-disagreement-reads-spans",
+  "file": "shell/Shell.kt",
+  "edits": [
+   [
+    "        val whole = mirrorWhole || lastDivergence != null || now - mirrorWholeAtNs >= MIRROR_WHOLE_EVERY_NS\n",
+    "        val whole = mirrorWhole || now - mirrorWholeAtNs >= MIRROR_WHOLE_EVERY_NS\n"
+   ]
+  ],
+  "tests": [
+   "*DivergenceTest.recurringEpisodesStopKeyframingAfterThree"
+  ],
+  "expect": [
+   "recurringEpisodesStopKeyframingAfterThree"
+  ],
+  "note": "P6 item 5: while a disagreement stands the check reads spans only. Needed only past DIVERGE_EPISODES_MAX (review 3B, read and found sound), where no keyframe is asked: a narrow check could then say agreement restored over rows it did not read and clear the cell's fault. The guard is in place; no pin holds (the shell's span is kept across a disagreeing check, and the status cell's change to fault widens it)"
+ },
+ {
+  "id": "P6-27-a-path-switch-keeps-the-old-span",
+  "file": "transport/PathTransport.kt",
+  "edits": [
+   [
+    "            return if (attachedSince.getAndSet(arm.ordinal, 0) == 1) 0 until Geometry.PANEL_H else rows\n",
+    "            return rows\n"
+   ]
+  ],
+  "tests": [
+   "*PathTransportTest"
+  ],
+  "expect": [
+   "theFirstPathToStartWinsAndTheOtherIsCancelled"
+  ],
+  "note": "P6 item 5: the desktop's path proxy hands on the new panel's span after an attach. Redundant (review 3B, read and found sound): an attach happens only in PathTransport's start and stop, and the session start that follows asks for a whole compare — expected uncaught"
+ }
+]

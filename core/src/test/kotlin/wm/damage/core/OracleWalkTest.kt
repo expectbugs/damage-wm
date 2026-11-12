@@ -472,9 +472,7 @@ class OracleWalkTest {
                 rig.shell.postNotice(Notifications.Notice(
                     "SMS · WALK", "focus", "the box takes focus and steps forward", "12:00"))
                 rig.settle("$tag notice shown")
-                val t0 = System.currentTimeMillis()
-                while (!rig.shell.notifications.focused && System.currentTimeMillis() - t0 < 8_000) delay(20)
-                assertTrue(rig.shell.notifications.focused, "$tag: the box never took focus")
+                waitUntil(8_000, 20, { "$tag: the box never took focus" }) { rig.shell.notifications.focused }
                 rig.settle("$tag notice focused")
                 rig.assertOracle("$tag notice focused")
                 seen.add(rig.surface())

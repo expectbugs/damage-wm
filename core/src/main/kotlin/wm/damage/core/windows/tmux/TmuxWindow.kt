@@ -84,6 +84,8 @@ class TmuxWindow(
     // ---- provider-pushed state (mutated on the shell loop only) ----
     private var sessions: List<TmuxSessionInfo> = emptyList()
     private var cfg = TmuxConfig()
+    /** P6 item 2: the ages the session rows printed at the last status push (shell loop only, as the two above). */
+    private var shownAges: List<String> = emptyList()
     private var provState = ""
     private var target: TmuxTarget? = null
     private var frame: PaneFrame? = null
@@ -134,10 +136,16 @@ class TmuxWindow(
     private val listener = object : TmuxProvider.Listener {
         override fun status(sessions: List<TmuxSessionInfo>, cfg: TmuxConfig) {
             onShell("status") {
+                // P6 item 2 (the loop-cost sweep's LC-1, its source half): the PC's `statusLoop` sends every 2.8 s,
+                // changed or not; ask only when what the list shows changed — the sessions, the config, or an age
+                // a row prints (`age()` reads the clock when the row is painted)
+                val ages = sessions.map { age(it.activity) }
+                val changed = sessions != this@TmuxWindow.sessions || cfg != this@TmuxWindow.cfg || ages != shownAges
+                shownAges = ages
                 this@TmuxWindow.sessions = sessions
                 this@TmuxWindow.cfg = cfg
                 dirty = alertsOn && sessions.any { it.waiting && mutedKey(it) !in muted }
-                if (level == Level_.SESSIONS) services?.requestRender(this@TmuxWindow)
+                if (changed && level == Level_.SESSIONS) services?.requestRender(this@TmuxWindow)
             }
         }
 
@@ -157,9 +165,11 @@ class TmuxWindow(
                 // the window and the session, so a tap on the box opens that
                 // session — TMUX.md §3.5's "glance → tap → y". It used to be
                 // app-less, so the tap only dismissed it; and it coalesces per
-                // SESSION, so two sessions waiting are two boxes, not one
+                // SESSION, so two sessions waiting are two boxes, not one.
+                // The pane's whole line: the box wraps and scrolls (R4 item 1
+                // — a cut at 80 lost the tail and could split a surrogate pair)
                 services?.notifyInternal("tmux",
-                    "${session.name}${hostSuffix(session.host)} wants input: ${session.lastLine.take(80)}",
+                    "${session.name}${hostSuffix(session.host)} wants input: ${session.lastLine}",
                     appId = id, thread = mutedKey(session), target = "session:${session.host}:${session.name}")
             }
         }

@@ -101,6 +101,8 @@ data class TmuxConfig(
          *  prompt and menus; config replaces the whole list. */
         val DEFAULT_WAIT_PATTERNS = listOf(
             "Do you want", "\\by/n\\b", "\\[y/N\\]", "\\[Y/n\\]",
+            // regex DATA matched against a pane's text (`LocalTmuxProvider`'s `waitRegexes`, the one reader of these
+            // patterns); never drawn. lint:allow-symbols
             "press Enter", "\u276F\\s*$", "\u23F5\u23F5",
         )
     }

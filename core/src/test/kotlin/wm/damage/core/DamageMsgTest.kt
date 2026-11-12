@@ -507,8 +507,6 @@ class DamageMsgTest {
     private fun String.unhex() = ByteArray(length / 2) { i -> substring(2 * i, 2 * i + 2).toInt(16).toByte() }
 
     private suspend fun until(what: String, cond: () -> Boolean) {
-        val t0 = System.currentTimeMillis()
-        while (!cond() && System.currentTimeMillis() - t0 < 10_000) delay(5)
-        assertTrue(cond(), "never true: $what")
+        waitUntil(10_000, 5, { "never true: $what" }) { cond() }
     }
 }

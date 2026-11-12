@@ -92,15 +92,11 @@ class Review29Test {
     }
 
     private suspend fun settle(shell: Shell, what: String) {
-        val t0 = System.currentTimeMillis()
-        while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 20_000) delay(10)
-        assertTrue(shell.isQuiescent(), "the shell did not settle: $what")
+        waitUntil(20_000, 10, { "the shell did not settle: $what" }) { shell.isQuiescent() }
     }
 
     private suspend fun await(what: String, cond: () -> Boolean) {
-        val t0 = System.currentTimeMillis()
-        while (!cond() && System.currentTimeMillis() - t0 < 20_000) delay(20)
-        assertTrue(cond(), "did not converge: $what")
+        waitUntil(20_000, 20, { "did not converge: $what" }) { cond() }
     }
 
     /**

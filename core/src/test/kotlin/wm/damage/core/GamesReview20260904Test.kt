@@ -42,7 +42,7 @@ class GamesReview20260904Test {
         override fun requestRender(window: DamageWindow) {}
         override fun setOperation(op: String) {}
         override fun notifyInternal(source: String, body: String, urgent: Boolean,
-            appId: String?, thread: String, target: String?) {}
+            appId: String?, thread: String, target: String?, answer: Boolean) {}
         override fun openWindow(id: String, target: String?): Boolean = false
         override fun runOnShell(action: () -> Unit) = action()
         override fun docContentWidth(): Int = 560
@@ -398,8 +398,6 @@ class GamesReview20260904Test {
     }
 
     private suspend fun settle(shell: Shell) {
-        val t0 = System.currentTimeMillis()
-        while (!shell.isQuiescent() && System.currentTimeMillis() - t0 < 20_000) delay(10)
-        assertTrue(shell.isQuiescent(), "the shell did not settle")
+        waitUntil(20_000, 10, { "the shell did not settle" }) { shell.isQuiescent() }
     }
 }

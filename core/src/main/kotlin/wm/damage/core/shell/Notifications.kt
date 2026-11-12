@@ -33,10 +33,15 @@ class Notifications(private val text: TextRasterizer) {
         val target: String? = null,
         var read: Boolean = false,
         /** A FAULT's notice (`Shell.raiseFault`, `HANDOFF.md` §69): shown whatever Global
-         *  `Notify · Damage` says — that row gates courtesy notices, never a fault. Also set on
+         *  `Notify · Damage` says — that row gates the WM's own courtesy notices, never a fault (and
+         *  never a notice with an [appId]: an app's own rows gate those). Also set on
          *  the low-battery notice (`HANDOFF.md` §75.4 call 3), for that one effect: it opens no
          *  fault episode and the status cell does not say `fault` for it. */
         val fault: Boolean = false,
+        /** An ANSWER to Adam's own gesture (`ShellServices.notifyInternal`'s `answer`, P7 item 2): shown
+         *  whatever Global `Notify · Damage` says. Not a fault: no episode, and a tap only dismisses it. Not
+         *  saved — a restored notice does not pass the gate again. */
+        val answer: Boolean = false,
     )
 
     private val queue = ArrayDeque<Notice>()

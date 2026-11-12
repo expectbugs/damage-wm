@@ -42,9 +42,7 @@ class HandoverTest {
     private fun warmup() = Zl.encodeCfw(Pack.rect(Gray8(640, 480), Rect(0, 0, 640, 480)))
 
     private suspend fun await(what: String, cond: () -> Boolean) {
-        val t0 = System.currentTimeMillis()
-        while (!cond() && System.currentTimeMillis() - t0 < 8_000) delay(10)
-        assertTrue(cond(), what)
+        waitUntil(8_000, 10, { what }) { cond() }
     }
 
     @Test

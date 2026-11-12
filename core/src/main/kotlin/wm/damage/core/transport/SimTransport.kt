@@ -81,7 +81,9 @@ class SimTransport(
         sim.attachListener(object : GlassFirmwareSim.SimDiag {
             override fun event(kind: String, detail: String) {
                 Log.w("sim/$kind", detail)
-                if (kind in setOf("decode", "fid", "session", "msgid", "compressmode", "abort"))
+                // the mirror tee's seven kinds (CfwTransportBase's listener); `image` (P5 item 18, the one-sibling
+                // sweep's OS-7) is the model's word for interleaved fragments and an image with no layout
+                if (kind in setOf("decode", "fid", "session", "msgid", "compressmode", "abort", "image"))
                     emitFault(kind, detail)
             }
 

@@ -369,6 +369,9 @@ through the decoder) `3ecba02` · **M5** the record `693c122` · the evening's f
 - **Cursor by identity** on every live list; a refresh that inserts rows re-resolves it.
 - **`saveSubState` never returns an empty blob**; a source with no read marks reports nothing.
 - **A restored level below the top loads on the way back** (`MusicWindow.ensureLoaded`).
+- **A session start on the same instance keeps an open article** (no demote, no second fetch); every explicit
+  navigation ends a restored re-open; a re-open armed over a loaded list reloads it; the announce floor is only
+  ever raised (0.65 P7 items 4–5, `HANDOFF.md` §77).
 - **Listeners idempotent; `detach()` in a stack stop's `finally`** (the keeper restart class).
 - **Dynamic text everywhere** through `Draw.dynamic` at wrap time: feed titles carry emoji, curly
   quotes, CJK and HTML entities (decode entities BEFORE wrapping; the C1 mojibake lesson).

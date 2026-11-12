@@ -365,7 +365,8 @@ deltas, and (only mode 3 burns a fid) is free of the 16-deep ring that caps delt
 **❌ Mode 15 is deliberately unused.** Its glyphs come from an LVGL font chain inside the firmware,
 so no offline model can predict its pixels and the compositor's per-lens belief (`LensOracleTest`)
 would stop being exact; modes 13/14 draw from a cache *we* wrote, so the model reproduces them bit
-for bit. The simulator refuses mode 15 loudly. (It is also the wrong typeface: `DESIGN.md` locks
+for bit. The simulator refuses a well-formed mode 15 loudly; its length and lease refusals are modeled as the
+firmware records them (the vector pass, `HANDOFF.md` §77.4). (It is also the wrong typeface: `DESIGN.md` locks
 four faces; the stock 20 px font is none of them.)
 
 **The capability string changed shape** — `EVENCFW/8 img576 img640 imgz rle wakelease directfb

@@ -329,10 +329,14 @@ class RestModeTest {
             // the page traffic sleeps: counted behind the release and three more checks (an absence over a
             // bounded span — nine instant keepalive periods, said as such)
             val keepalives = r.sim.keepalivesSeen
+            val upgrades = r.sim.textUpgradesSeen          // P5 item 17 (GG-5): the carrier refresh and the lease's
+            val acquires = r.sim.acquiresSeen              // acquires, counted over the same span
             val reads = r.sim.deviceInfoReadsSeen
             val q2 = r.sim.wearQueriesSeen
             r.until("three more checks") { r.sim.wearQueriesSeen >= q2 + 6 }
             assertEquals(keepalives, r.sim.keepalivesSeen, "no keepalive into a page the shell has left")
+            assertEquals(upgrades, r.sim.textUpgradesSeen, "no carrier refresh into a page the shell has left")
+            assertEquals(acquires, r.sim.acquiresSeen, "no lease acquire or renewal while the shell rests")
             assertTrue(r.sim.deviceInfoReadsSeen > reads, "the 60 s device-info READ goes on through the rest")
             assertTrue(r.shell.resting && !r.leaseHeld(), "still resting, the lease still released (no renewal)")
             assertEquals(1, r.keeper.attempts, "one session throughout")
@@ -955,6 +959,52 @@ class RestModeTest {
             // six instant renewal periods, said as such)
             delay(300)
             assertEquals(acquires, sim.acquiresSeen, "no renewal while the lease is not wanted")
+            t.stop()
+        } finally { scope.cancel() }
+    }
+
+    /**
+     * P5 item 3 (review 1b RH-5, the confirmed form of P4-verify §4.2 a): a caller of the session before — a sleep's
+     * release coroutine that runs late — turned the lease off under the next `start()`. The lane then dropped the
+     * start's ACQUIRE (the lease not wanted), the start still reported the lease held, and the renewal loop, the
+     * keepalive, the carrier refresh and the watchdog were off for an awake session. The order is MADE: the gate is
+     * set before the start, so the lane parks in the prelude's write with the start in progress; the call comes then.
+     * Fixed: a lease change asked during a start is not taken (a `control` note), and the start's ACQUIRE is written.
+     * Mutation watched: `setLeaseWanted` takes the call during a start.
+     */
+    @Test
+    fun aLeaseChangeAskedDuringAStartIsNotTaken(): Unit = runBlocking {
+        val scope = scope()
+        val sim = GlassFirmwareSim()
+        val t = Parked(sim, scope)
+        val notes = java.util.concurrent.CopyOnWriteArrayList<String>()
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            t.events.collect { if (it is TransportEvent.Note && it.kind == "control") notes.add(it.detail) }
+        }
+        try {
+            suspend fun until(what: String, cond: () -> Boolean) {
+                val t0 = System.currentTimeMillis()
+                while (true) {
+                    if (cond()) return
+                    if (System.currentTimeMillis() - t0 >= 10_000) throw AssertionError("never true: $what")
+                    delay(5)
+                }
+            }
+            t.gate = CompletableDeferred()
+            val starting = scope.launch {
+                t.start(wm.damage.core.gfx.Zl.encodeCfw(wm.damage.core.gfx.Pack.rect(Gray8(640, 480), wm.damage.core.geom.Rect(0, 0, 640, 480))))
+            }
+            until("the start is in progress, its lane parked in the prelude's write") { t.parked }
+            t.setLeaseWanted(false)                                     // a caller of the session before
+            t.gate!!.also { t.gate = null }.complete(Unit)
+            starting.join()
+            assertTrue(t.state.value.leaseHeld, "the start reports the lease held")
+            until("the glasses hold the lease the start reports (ACQUIRE seen ${sim.acquiresSeen}; " +
+                "the call taken during the start leaves the start's ACQUIRE dropped)") {
+                val now = System.currentTimeMillis()
+                sim.acquiresSeen >= 2 && sim.leaseHeld(Arm.LEFT, now) && sim.leaseHeld(Arm.RIGHT, now)
+            }
+            assertTrue(notes.any { "during a start" in it && "not taken" in it }, "the refused call is said: $notes")
             t.stop()
         } finally { scope.cancel() }
     }

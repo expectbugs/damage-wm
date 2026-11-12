@@ -1,0 +1,344 @@
+[
+  {
+    "id": "P7-01-notify-damage-gates-an-apps-own-notice",
+    "file": "shell/Shell.kt",
+    "edits": [
+      [
+        "            \"DAMAGE\" -> n.appId != null || n.answer || settings.notifyDamage\n",
+        "            \"DAMAGE\" -> n.answer || settings.notifyDamage\n"
+      ]
+    ],
+    "tests": [
+      "*StatusCellTest*"
+    ],
+    "expect": [
+      "anAppsOwnNoticeIsShownWithNotifyDamageOffAndTheWmsOwnIsNot"
+    ],
+    "note": "OS-1: Global Notify · Damage dropped every app's own notices (27 Tmux boxes on 2026-11-09/10 with its Alerts row on)"
+  },
+  {
+    "id": "P7-02-an-appid-passes-ahead-of-the-sms-row",
+    "file": "shell/Shell.kt",
+    "edits": [
+      [
+        "        if (n.emergency || n.fault) return true\n        val kind = n.source.substringBefore('·').trim().uppercase()\n",
+        "        if (n.emergency || n.fault || n.appId != null) return true\n        val kind = n.source.substringBefore('·').trim().uppercase()\n"
+      ]
+    ],
+    "tests": [
+      "*StatusCellTest*"
+    ],
+    "expect": [
+      "anAppsOwnNoticeIsShownWithNotifyDamageOffAndTheWmsOwnIsNot"
+    ],
+    "note": "OS-1's placement: the appId test sits inside the DAMAGE arm, so an appId on an SMS or MAIL notice does not pass Notify · SMS / Notify · Mail"
+  },
+  {
+    "id": "P7-03-an-answer-is-gated-by-notify-damage",
+    "file": "shell/Shell.kt",
+    "edits": [
+      [
+        "            \"DAMAGE\" -> n.appId != null || n.answer || settings.notifyDamage\n",
+        "            \"DAMAGE\" -> n.appId != null || settings.notifyDamage\n"
+      ]
+    ],
+    "tests": [
+      "*StatusCellTest*"
+    ],
+    "expect": [
+      "anAnswerToATapIsShownWithNotifyDamageOffAndATapDismissesIt",
+      "theTypedLineAndTheOpenTargetAnswersAreShownWithNotifyDamageOff"
+    ],
+    "note": "OS-2: an answer to Adam's own gesture went through the WM's courtesy door and was dropped with Notify · Damage off"
+  },
+  {
+    "id": "P7-04-the-notice-does-not-carry-answer",
+    "file": "shell/Shell.kt",
+    "edits": [
+      [
+        "body, c.hhmm, emergency = false, appId = appId, target = target, answer = answer)))",
+        "body, c.hhmm, emergency = false, appId = appId, target = target)))"
+      ]
+    ],
+    "tests": [
+      "*StatusCellTest*"
+    ],
+    "expect": [
+      "anAnswerToATapIsShownWithNotifyDamageOffAndATapDismissesIt",
+      "theTypedLineAndTheOpenTargetAnswersAreShownWithNotifyDamageOff"
+    ],
+    "note": "OS-2: notifyInternal's answer flag is carried on the Notice the gate reads"
+  },
+  {
+    "id": "P7-05-a-menu-failure-through-the-courtesy-door",
+    "file": "shell/Shell.kt",
+    "edits": [
+      [
+        "raiseFault(\"menu\", \"action failed: ${e.message}\")",
+        "services.notifyInternal(\"menu\", \"action failed: ${e.message}\")"
+      ]
+    ],
+    "tests": [
+      "*StatusCellTest*"
+    ],
+    "expect": [
+      "aFailedMenuActionIsAFaultShownWithNotifyDamageOff"
+    ],
+    "note": "OS-2: commitMenu's catch"
+  },
+  {
+    "id": "P7-06-a-live-key-failure-through-the-courtesy-door",
+    "file": "shell/Shell.kt",
+    "edits": [
+      [
+        "raiseFault(\"keyboard\", \"key failed: ${e.message}\")",
+        "services.notifyInternal(\"keyboard\", \"key failed: ${e.message}\")"
+      ]
+    ],
+    "tests": [
+      "*StatusCellTest*"
+    ],
+    "expect": [
+      "aFailedLiveKeyIsAFaultShownWithNotifyDamageOff"
+    ],
+    "note": "OS-2: tapKeyboard's catch"
+  },
+  {
+    "id": "P7-07-a-keyboard-commit-failure-through-the-courtesy-door",
+    "file": "shell/Shell.kt",
+    "edits": [
+      [
+        "raiseFault(\"keyboard\", \"typed text failed: ${e.message}\")",
+        "services.notifyInternal(\"keyboard\", \"typed text failed: ${e.message}\")"
+      ]
+    ],
+    "tests": [
+      "*StatusCellTest*"
+    ],
+    "expect": [
+      "aFailedKeyboardCommitIsAFaultShownWithNotifyDamageOff"
+    ],
+    "note": "OS-2: commitKeyboard's catch"
+  },
+  {
+    "id": "P7-08-a-failed-save-through-the-courtesy-door",
+    "file": "shell/Shell.kt",
+    "edits": [
+      [
+        "            raiseFault(\"state\", \"state save FAILED — changes will not survive a restart\", urgent = true)\n",
+        "            services.notifyInternal(\"state\", \"state save FAILED — changes will not survive a restart\", urgent = true)\n"
+      ]
+    ],
+    "tests": [
+      "*StatusCellTest*"
+    ],
+    "expect": [
+      "aFailedSaveIsAFaultShownWithNotifyDamageOffAndRingsOnce"
+    ],
+    "note": "OS-2: noteSaveLanded"
+  },
+  {
+    "id": "P7-09-the-save-failure-latch-outlives-the-session",
+    "file": "shell/Shell.kt",
+    "edits": [
+      [
+        "        saveFailureRaised = false\n",
+        ""
+      ]
+    ],
+    "tests": [
+      "*StatusCellTest*"
+    ],
+    "expect": [
+      "aSaveFailureStreakIsSaidAgainInTheNextSession"
+    ],
+    "note": "OS-2's latch: a failed Shutdown save set it, its notice went with the drain, and the next session said nothing"
+  },
+  {
+    "id": "P7-10-the-hosts-fault-through-the-courtesy-door",
+    "file": "shell/Shell.kt",
+    "edits": [
+      [
+        "    }) { raiseFault(cls, body) })\n",
+        "    }) { services.notifyInternal(cls, body) })\n"
+      ]
+    ],
+    "tests": [
+      "*StatusCellTest*"
+    ],
+    "expect": [
+      "theLastRunsLineIsAProcessFaultShownWithNotifyDamageOff"
+    ],
+    "note": "OS-2 + P3-verify §7 q1: the phone's last-run line"
+  },
+  {
+    "id": "P7-11-the-typed-line-answer-unflagged",
+    "file": "shell/Shell.kt",
+    "edits": [
+      [
+        "\"typed line not delivered — $where (focus a window that types, like Tmux)\", answer = true)",
+        "\"typed line not delivered — $where (focus a window that types, like Tmux)\")"
+      ]
+    ],
+    "tests": [
+      "*StatusCellTest*"
+    ],
+    "expect": [
+      "theTypedLineAndTheOpenTargetAnswersAreShownWithNotifyDamageOff"
+    ],
+    "note": "OS-2's answers: handleTypedText"
+  },
+  {
+    "id": "P7-12-the-app-not-available-answer-unflagged",
+    "file": "shell/Shell.kt",
+    "edits": [
+      [
+        "\"that notice's app (${n.appId}) is not available on this device\", answer = true)",
+        "\"that notice's app (${n.appId}) is not available on this device\")"
+      ]
+    ],
+    "tests": [
+      "*StatusCellTest*"
+    ],
+    "expect": [
+      "anAnswerToATapIsShownWithNotifyDamageOffAndATapDismissesIt"
+    ],
+    "note": "OS-2's answers: handleNotificationGesture"
+  },
+  {
+    "id": "P7-13-the-open-target-answer-unflagged",
+    "file": "shell/Shell.kt",
+    "edits": [
+      [
+        "\"couldn't open the requested item ($target) — it may be gone\", answer = true)",
+        "\"couldn't open the requested item ($target) — it may be gone\")"
+      ]
+    ],
+    "tests": [
+      "*StatusCellTest*"
+    ],
+    "expect": [
+      "theTypedLineAndTheOpenTargetAnswersAreShownWithNotifyDamageOff"
+    ],
+    "note": "OS-2's answers: tryOpenTarget"
+  },
+  {
+    "id": "P7-14-the-viz-ticker-posts-unkeyed",
+    "file": "windows/music/MusicWindow.kt",
+    "edits": [
+      [
+        "onShell(\"vizframe\") { if (exclusive && gen == mmVizGen",
+        "onShell { if (exclusive && gen == mmVizGen"
+      ]
+    ],
+    "tests": [
+      "*MusicModeTest*"
+    ],
+    "expect": [
+      "theVisualizerTickerQueuesNothingWhileTheShellIsDown"
+    ],
+    "note": "OS-4: Music Mode's frame ticker queued 8 messages a second while the shell was down"
+  },
+  {
+    "id": "P7-15-a-session-start-sets-the-announce-floor-back",
+    "file": "windows/feed/FeedWindow.kt",
+    "edits": [
+      [
+        "        for (s in sources) announcedMs[s.id] = maxOf(announcedMs[s.id] ?: 0L, reading(s.id).seenMs)\n",
+        "        for (s in sources) announcedMs[s.id] = reading(s.id).seenMs\n"
+      ]
+    ],
+    "tests": [
+      "*FeedWindowTest*"
+    ],
+    "expect": [
+      "aSessionStartDoesNotLowerTheAnnounceFloor"
+    ],
+    "note": "OS-6: onRegistered runs at every session start and set the floor back to the seen mark; the next announce named an item already announced"
+  },
+  {
+    "id": "P7-16-a-restart-demotes-the-held-article",
+    "file": "windows/feed/FeedWindow.kt",
+    "edits": [
+      [
+        "        val keepHeld = pendingOpenItemId == null && heldOpen != null &&\n",
+        "        val keepHeld = false && pendingOpenItemId == null && heldOpen != null &&\n"
+      ]
+    ],
+    "tests": [
+      "*FeedWindowTest*"
+    ],
+    "expect": [
+      "anOpenArticleSurvivesASessionRestartOfTheSameInstance"
+    ],
+    "note": "OS-3 step 1: a session start on the same instance demoted an open article to its list and armed a re-open"
+  },
+  {
+    "id": "P7-17-explicit-navigation-keeps-the-armed-reopen",
+    "file": "windows/feed/FeedWindow.kt",
+    "edits": [
+      [
+        "    private fun clearPendingOpen() { pendingOpenItemId = null; restoredLevel = null }\n",
+        "    private fun clearPendingOpen() {}\n"
+      ]
+    ],
+    "tests": [
+      "*FeedWindowTest*"
+    ],
+    "expect": [
+      "aRestoredArticleDoesNotOpenItselfAfterAnExplicitNavigation"
+    ],
+    "note": "OS-3 step 2: the four explicit navigations' clear (one helper); goRoot's and openItems' calls each suffice alone on the pinned path (Main, Feed, tap the source), so they are not separable by this pin"
+  },
+  {
+    "id": "P7-18-the-reopen-waits-for-a-load-nobody-asks",
+    "file": "windows/feed/FeedWindow.kt",
+    "edits": [
+      [
+        "                else if (pendingOpenItemId != null && items.isNotEmpty()) reloadItems()\n",
+        ""
+      ]
+    ],
+    "tests": [
+      "*FeedWindowTest*"
+    ],
+    "expect": [
+      "aRecordNamingAnotherItemReopensItAtTheSessionStart"
+    ],
+    "note": "OS-3 step 3: onActivate loaded only an empty list, so a re-open armed over a loaded list never ran"
+  },
+  {
+    "id": "P7-19-a-restart-reopens-the-open-book",
+    "file": "windows/reader/ReaderWindow.kt",
+    "edits": [
+      [
+        "        if (book?.meta?.id == id && (level == Level_.BOOK || level == Level_.ACTIONS)) return\n",
+        ""
+      ]
+    ],
+    "tests": [
+      "*SubstrateTest*"
+    ],
+    "expect": [
+      "aSessionStartWithTheBookOpenDoesNotOpenItAgain"
+    ],
+    "note": "OS-5: a session start with the book open ran the library, the open, the parse and the layout again and dropped the result"
+  },
+  {
+    "id": "P7-20-the-reader-not-in-library-answer-unflagged",
+    "file": "windows/reader/ReaderWindow.kt",
+    "edits": [
+      [
+        "\"couldn't open book $id — not in the library\", answer = true)",
+        "\"couldn't open book $id — not in the library\")"
+      ]
+    ],
+    "tests": [
+      "*SubstrateTest*"
+    ],
+    "expect": [
+      "aBookNotInTheLibraryIsAnAnswerShownWithNotifyDamageOff"
+    ],
+    "note": "OS-2's answers: one of the seven window sites, pinned through the Reader's deep link"
+  }
+]
