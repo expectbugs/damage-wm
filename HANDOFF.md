@@ -6872,7 +6872,7 @@ the firmware) or on the PC unless it says otherwise. Nothing of 0.65 or of 0.64 
 phone half of neither has run on the device.** As written, APK 0.65 is built on the local branch `wip/065` — not
 pushed, not staged, not installed; APK 0.64 (`26ed20a`, pushed) is staged and not installed; the PC service runs
 `26ed20a` since 11-12 02:48 (§76.13); the fork has one local commit, `f9ba7c6`, not pushed. Nothing was flashed; no
-probe was sent to the glasses.
+probe was sent to the glasses. **Since pushed (`b833713`), staged and the PC service deployed — 77.12.**
 
 The build ran on `wip/065` from `a2392d6` (tag `wip065-base`): seventeen commits, `a75bcf2` … `2ebff0d`. P5 in three
 build stages and a verify stage; then P6, P7 and the fork's vector pass; then review pass 3 (two readers, read-only, no
@@ -7342,7 +7342,7 @@ To know, no call:
 
 ### 77.11 What is next
 
-1. **The lead's, after this record:** the four content checks (`--epub-check ~/books`, `--music-check`,
+1. **DONE 2026-11-12 16:58 (77.12).** The lead's, after this record: the four content checks (`--epub-check ~/books`, `--music-check`,
    `--games-check`, `--feed-check`), the squash of `wip/065` onto `main` and the push, the backups, `:phone:stageApk`
    (0.65 in 0.64's place, 0.64 kept in `~/.damage/backup/`), the PC deploy of 0.65's jar and its log, the state lines.
 2. **Adam installs** (his word). First the reads §76.11 item 2 names for 0.64 — 0.65 holds it: `/log`'s
@@ -7355,3 +7355,36 @@ To know, no call:
 4. **The timed rest hour** (his word; `DAILY.md`'s recipe).
 5. After that, `CLAUDE.md`'s "Status and the order of work": window conversion resumes after `FORK.md` Phase 8 closes —
    Adam's per-window verdicts first.
+
+### 77.12 The lead's read of R4, the content checks; pushed, staged, the PC service deployed (2026-11-12 15:27–16:58)
+
+**The lead's read of what R4 invented** (no reader follows a last fix stage; read from `2ebff0d`, nothing run): the
+Shutdown arm's `try/finally`, the start's two rollbacks, `contentWindow()` and the `Raw` arm's skip are sound as
+built. On a throw in the Shutdown arm the fault's notice is posted to a loop that is ending and is counted in the
+drain's `queue` note; the `error` note, the log and the urgent ring carry it. `contentWindow()` also closes a case
+the reader did not list: a compose that names no window (an icon resolve) between a notch and its settle painted the
+cursor's window without moving the key. **Ruled on R4's three questions:** item 5's one remaining copy stands (it
+only writes less than before; 77.10 item 9); item 4's 22 B inside a flush that goes anyway stand ("no more writes"
+meant no new message to the glasses; 77.10 item 22); the slide test's miss is the test's own (77.3, fixed, test
+only, `7c13bf2`).
+
+**The content checks, from the installed build of the final tree:** `--epub-check ~/books` 73 books OK, 2,580 of
+2,604 images decode; `--music-check`, `--games-check`, `--feed-check` all pass. The doc lines the records stage left
+for the lead are applied (`WINDOWS.md`, `FEED.md`, `MUSIC.md`, `IMPLEMENTATION.md`'s `--epub-check` line,
+`tools/lint.py`'s header).
+
+**Pushed:** `wip/065` (20 commits) squashed onto `main` as **`b833713`** (the tree is `0607a93`'s, byte for byte)
+and pushed. Counted in the pushed diff and message, not shown: no value of `~/.damage/config.json`, no mail address,
+no private network address.
+
+- **APK 0.65 is STAGED, not installed** (`~/.damage/damage-wm.apk`, 27,425,068 B, versionCode 65 / 0.65 read from
+  the APK, the same signing certificate as 0.63 and 0.64; the wiring gate exit 0). APK 0.64, never installed, is
+  kept as `~/.damage/backup/damage-wm-0.64.apk`. Installing is Adam's word (his "keep going" of 11-12 covered the
+  push, the staging and the PC deploy). The phone runs 0.63 until then.
+- **The PC service runs `b833713`** (restarted 16:58:26; the jar before it kept as
+  `~/.damage/backup/damage-0.64-26ed20a.jar`). Its start, read from `damage.log` and the journal (M): 26 lines, no
+  `[W]` or `[E]`; the journal's `process` note; the replica line with `?token=…` and no token value in what this
+  start wrote; the 0.63 phone attached to the feed, torrents, files, music, tmux and sync channels within 18 s.
+  Going back: copy a kept jar over `~/.damage/damage.jar` and restart.
+- Not read: anything of 0.65 or 0.64 on the glasses; the phone's journal (the flush gap at a handshake, 77.11 item 3).
+- The fork's `f9ba7c6` is still local — Adam's push.
