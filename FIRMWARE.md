@@ -324,45 +324,397 @@ latency 0 (`0x00784EB4`, `0x00784EC4`), and the 0xA4 slow request bound to the f
 the parameters. Not a wire op. Measured by ms/KB, a capture (`research/perevent.py`), the battery and the earbud's
 A2DP margin; upstream measured ~41 KiB/s on his phone.
 
-## 5. v2 motion programs (Phase 3) — *draft*
+> **Standing of §5 and §6 (2026-11-13).** Written to contract form by one writer from `MOTION.md` §6 as Adam ruled it
+> that day, with new instruction-level reads; **not yet challenged by a second reader** — that challenge is the
+> design pass of the flash each section belongs to (`CLAUDE.md`, the protocol), together with the reads each section
+> marks as blocking. Three calls are Adam's before those flashes and are not taken here: the second flash's input
+> hook runs on every touch from the start (`FORK.md` §3.1 read as "an event loop is not a boot path", as Phase 2 read
+> it — or not); the first flash's link item is a new call site on the connection path (carried, or left out); a
+> local gesture the phone rejects returns to its place about one round trip after it showed. The local-latency
+> target the second flash is judged against (`FORK.md` D7) is not among his rulings yet.
 
-- **Tick:** a fixed period in ms, chosen from the measured panel-transfer time (a present sends the whole
-  panel on both drivers — `CLAIMS.md` 2026-09-13; 30–60 Hz if that allows). A program
-  advances one step per tick; each step mutates the shadow and presents once.
-- **Program:** an id, a duration in ticks, a list of tracks, and a **declared end state** (the
-  ops that, applied to the pre-program shadow, give the post-program shadow — the phone's model
-  uses exactly these).
-- **Track verbs (draft):** move rect per lens; fill rect; cached blit with an options ramp (LUT top
-  nibble per step); vertical-scale blit (fixed-point 16.16 step, nearest row); progressive blit with
-  an offset (slide-in of a cached page); wait.
-- **Easing:** integer tables of per-step displacements (the sum equals the total move); a few named
-  tables live on the glasses (linear, ease-out, bounce); the phone may upload its own.
-- **Control:** upload program (chunked) · play (id, parameters) · stop · retarget (id, new
-  parameters; the remaining steps re-aim) · completion event to the phone (id, sequence).
-- **Lens start:** a play message reaches both lenses through the existing cross-lens deferred path
-  and starts on the tick that follows on each lens.
-- **Region guard:** while a program runs, a phone flush touching its rect is held until the program
-  ends, then applied; the phone's scheduler avoids sending one.
+## 5. v2 motion programs (the first flash, C1) — *contract draft 2026-11-13, from `MOTION.md` §6 as ruled; built with C1*
 
-## 6. v2 local input and bindings (Phase 4) — *draft*
+Grades as `CLAIMS.md`: **V** read (instruction level or the decompile of bytes that hash SAME, `fwread.py sha`), **M**
+measured on Adam's pair, **I** inferred, **U** unknown. "Read 11-13" = `research/fwread.py` this sitting.
 
-- **Binding table:** entries of (event type, source, parameter) → (program id, parameter mapping);
-  armed by the phone; cleared on lease lapse.
-- **Behaviour:** a bound event runs its program at once on both lenses (through stock's input
-  mirror) and reports an **applied-state event** to the phone: event, sequence number, the
-  program's end-state parameter (viewport index, edge hit). Unbound events reach the phone as today.
-- **Where the hook sits (R0.1, read 2026-09-15 — `CLAIMS.md`, `research/fork-reads-2026-09-13.md`):**
-  every input event reaches a lens's display thread only through the sync framework's listeners
-  (`FUN_004445A4`'s two callers), already de-bounced and cross-device locked by RIGHT's input manager, as
-  `{u16 devType, u32 eventId, u32 value}` — so a hook on the display thread's `inputEventDataHandler`
-  (`FUN_00442D86`, the function `gesture_fwd.c` already patches) sees the same event on both lenses, and
-  the binding table needs no mirror of its own. The ids behind the slides and the ring's swipes are still
-  to be read (the touch processor, the ring service).
-- **Reconciliation:** the phone applies the same program in its model when the event arrives;
-  sequence numbers order local and phone-started changes; a mismatch is a `divergence` note and a
-  keyframe, never silent.
-- **Staged content:** the phone keeps N rows or pages ahead as cached images; at a staged edge
-  before the refill lands the program stops at the edge (no bounce, which means end of content).
+### 5.1 What C1 carries, and what it does not
+
+- **The engine** (§5.2–§5.8): image mode 26 (play, retarget, close), program records in the texture cache, the verbs
+  FILL · DRAW (a cached record or the area's own pixels, moved per lens, its brightness ramped) · REVEAL (wipe or
+  slide-in from an edge) · WAIT, two built-in eases plus uploaded tables, flag bit 3 ENGINE, the notify field 114,
+  telemetry 30–34. "Move a rect per lens" (A1) is DRAW from the area's own pixels (`self`); no separate code.
+- **The riders (§5.9):** op 5 up to 256 KiB · telemetry 27–29, the largest free block per arena · mode 25, the deflated
+  cache write (flag bit 5 ZWRITE) · the fork's three owed items: the cache pointer released by one exchange, the
+  context-survival check, the stock "already fast" link test replaced.
+- **Not in C1:** the vertical-scale draw (A2 → C2, §6.6) · a horizontal-scale op (A3: a card flip is three cached
+  images swapped) · any op for fading content that is not cached (B1; a cached fade is DRAW's ramp) · dimming behind
+  a popover (B2: mode 22 as built) · banners (B3) · anything that moves on its own (B4, B5; C1 "motion answers input"
+  is the phone's policy, not a firmware rule) · Phase 5's cells (only if W4/W5 says they pay, `REPLAN.md` R7).
+- **Patch sites:** the engine adds **none** (it renders inside the inherited copy hook, `display_copy_hook`, and runs
+  a thread of its own); the link test is one call retarget at `0x004774AE` (§5.9), on the connection path.
+  Contract version stays 2 (§0: added ops and bits do not bump it); DamageCaps bit 7 ENGINE, bit 8 the riders, bit 9
+  the link test.
+
+### 5.2 Where the engine runs (decided at instruction level as far as the image allows)
+
+| fact | grade, basis |
+|---|---|
+| Every osTimer callback runs on the FreeRTOS timer task "Tmr Svc", priority 54, stack depth 0x1000 | V: `FUN_0047E674` creates it at `0x0047E6B6` (priority `0x36` at `0x0047E6A6`, name `0x0078EBCC`, depth from `FUN_004D3610`) |
+| The display task `FUN_00473C44` ("displaydrv_mgr_task") runs at priority 45, stack 0x800 | V: attr `0x0075381C`, created at `0x00473962` |
+| The input handler and the image worker's thread "ui_task" (`FUN_004437E0`) runs at priority 44, stack 0xC000, queue 96 × 12 B | V: attr `0x0075378C`, created at `0x00444842`; queue `FUN_00449A32(0x60, 0xC)` in `FUN_00444720` |
+| The image worker runs on the ui_task | I (strong): the deferred consumer (`0x00496A0E`, in `FUN_00496544`) is called only from `0x004E16EC`, kind 3 of `FUN_004E1490`, the UI handler of registry entry `0x006A4520` {0xE0, data `0x004E1193`, UI `0x004E1491`}; the ui_task runs the registry's UI handlers (`research/fork-reads-2026-09-13.md` R0.5) |
+| The display gate is held by whoever queues a type-3 refresh and given by the display task after the copy hook; its takers are the worker, the LVGL flush `FUN_004736F4` and three offset setters — not the EvenHub container teardown | V for the five callers of `FUN_0047381E`; I for the teardown (none of them is on it) |
+| `FUN_0047381E` takes the gate through `FUN_00441C44(*[0x0047390C], 1000)` and only logs a failure; `FUN_00474066` queues a type-3 job through `FUN_00449ABE` with a 1,000 ms put and returns −1 on failure | V (decompile, SAME) |
+| CMSIS-RTOS2 wrappers: osThreadNew `0x004490E2` (static control block ≥ 0x70 B), osTimerNew `0x004493B0` (periodic iff type ≠ 0), osTimerStart `0x00449498` (no wait), osTimerStop `0x004494D8`, osEventFlagsNew `0x00449590` (static ≥ 0x20 B), Set `0x004495E4`, Wait `0x0044969C` | V (shapes, SAME); I (names). Upstream's `seq_tick` uses the timer four on glass |
+
+**Decision.** The engine never draws on Tmr Svc (priority 54), and only the image worker writes the shadow, as today
+(the container's buffer is freed and rebuilt without the gate: I, above). Per lens: one one-shot osTimer, one
+event-flags object and one **engine thread** (priority 44; 2 KiB stack, the display task's own size for the same
+calls; every control block and the stack inside the context, so nothing is allocated per tick), created by the first
+accepted PLAY or bound fire of a boot, never deleted. The callback only sets the flag. The thread waits on the flag
+(its idle wait); on a wake with an instance drawing, it takes the gate through `FUN_00441C44` and reads the result,
+then queues a type-3 refresh **with no direct job**; the display task's copy hook draws each open instance's due
+step into the framebuffer (§5.3). A take that fails or a put that fails (the gate given back if held) re-arms the
+timer one period later and is counted. The drawing runs on the display task, whose whole stack is 0x800 B (V): its
+depth is bounded and checked at build.
+
+### 5.3 The tick
+
+- **Time base:** the OS tick, 1.024 per ms (M, §3). Each instance carries its own period **P in OS ticks, 16..128**
+  (≈ 64 Hz .. 8 Hz), from its PLAY; A4's 30 Hz is **P = 34** (33.2 ms), a phone constant moved at the feel session.
+- **Steps:** an instance of T steps (1..255) has step k due at `t0 + (k−1)·P`, t0 = the OS tick at which this lens
+  handled the PLAY. **Step 1 is drawn by the PLAY's own present.** At every present while an instance draws — an
+  engine refresh or any phone frame — the copy hook draws `k = min(T, 1 + ⌊(now − t0) / P⌋)` (again when a phone
+  frame has just copied the shadow over it); steps passed over are **folded** (not drawn, counted); step T is always
+  drawn. Then it re-arms the timer for the earliest next due time over the open instances (at least one tick ahead),
+  or leaves it stopped.
+- **Overrun:** nothing queues. At most one engine refresh is outstanding (the flag coalesces; the thread queues only
+  when none is pending; the copy hook clears the mark). A slow present folds the next step; the end time holds.
+- **What a present costs (M):** a full transfer 2.0 ms median / 5.3 p90 (Phase 1 build, n = 2,996, `HANDOFF.md` §65)
+  and 4.4 ms median / 8.5 max (Phase 2 first light, n = 28); the copy 0.55–0.63 ms; a partial ≈ 1.6 ms + 66 µs/row.
+  **The step's own drawing time is U** (field 34): it, not the panel, sets the floor under P. At P = 34 the panel
+  path uses ≈ 3–5 ms of 33 (from the measured parts).
+- **Refresh rules:** a present that draws a step goes whole (a mode-24 hint is ignored for it); the present after an
+  instance's last step marks the panel stale (§4), so the next one goes whole. Engine refreshes are not stamped as
+  Damage frames: fields 15/16 and the presented notify (113) ignore them; field 32 counts them.
+- **Both lenses:** the PLAY rides the image lane; each lens runs it in its own deferred handler (RIGHT emits the
+  completion both run on, `CLAIMS.md`), so t0 differs between the lenses by the deferred path's own inter-lens delay
+  (U: the UART rate is unread; sub-millisecond is modeled only) plus each lens's scheduling. Nothing else is added:
+  each lens then runs on its own clock (the drift over 255 steps is I, negligible). `MOTION.md` §6 row C2's "no visible
+  mismatch" is judged by eye at the feel session and by the 240 fps video (`FORK.md` M0.2); LEFT cannot report.
+
+### 5.4 Program records (in the texture cache; uploaded by mode 19 or 25)
+
+A program is a record at a 4-byte-aligned offset: uploaded, chunked and proven (field 17) exactly as atlas records
+are, sharing the cache's budget. Little-endian; s16 coordinates; a per-lens pair as §4.
+
+| part | bytes | fields |
+|---|---|---|
+| header | 4 | `version u8 = 1 · tracks u8 (1..8) · length u16` (the whole record; parsing must end exactly there) |
+| track | 12 or 20, then its segments | `segments u8 (1..8) · backdrop u8 (0..15 a level · 0x20 self · 0xFF none) · perLens u8 (0/1) · 0 · area rect (8) or pair (16)` |
+| segment | 32 | `verb u8 (0 WAIT · 1 FILL · 2 DRAW · 3 REVEAL) · steps u8 (1..255) · ease u8 (0 linear · 1 ease-out · 2 table) · kind u8 · src u16 · xL s16 · xR s16 · y s16 · dxL s16 · dxR s16 · dy s16 · lvl0 u8 · lvl1 u8 · opt u8 · 0 · table u16 · h0 u16 · h1 u16 · anchor u8 · 0 · pref0 u8 · pref1 u8` |
+| easing table | 2 + 2n | `n u8 (1..255) · 0 · E[1..n] s16`, E[n] = 4096 |
+
+- **kind / src:** FILL — kind is the level (0..15). DRAW — kind 0 a v2 image record at `src` (off4) · 2 `self`.
+  REVEAL — 0 a record · 2 `self` · 3 a solid level `src` (0..15) of width dxL and height dy. `self` = this track's
+  area as it was in the shadow when the PLAY ran (captured then, per lens). Non-per-lens tracks use xL/dxL on both
+  lenses. **h0, h1, anchor must be 0 in C1** (§6.6 gives them meaning).
+- **Eases:** E[0] = 0 always. Linear `E[j] = ⌊4096·j / n⌋`; ease-out `E[j] = 4096 − ⌊4096·(n−j)² / n²⌋` (u32
+  arithmetic, no overflow at n ≤ 255); table: the record at `table` (off4), whose n must equal the segment's steps
+  (else 5). An eased value: `v(j) = v0 + ((D · E[j] + 2048) >> 12)` on a signed 32-bit product, `>>` arithmetic, so
+  `v(n) = v0 + D` exactly. Bounces and overshoot are uploaded tables (E may leave 0..4096).
+- **Parameters:** a PLAY carries P0..P3 (s16). `pref` bit 7 = used, bits 0–1 = which parameter, bits 2–6 = the field
+  it replaces: 0 src · 1 xL · 2 xR · 3 xL and xR · 4 y · 5 dxL · 6 dxR · 7 dxL and dxR · 8 dy · 9 lvl0 · 10 lvl1 ·
+  11 h0 · 12 h1 · 13 steps (u8 fields take the low byte; every check runs after substitution).
+- **Per step, per track:** a track paints **its whole area at every step 1..T**: first its backdrop (a level fill;
+  `self` = the capture; none = nothing), then its segment's state, clipped to the area. A track holds the state it
+  reached: before its first non-WAIT segment, that segment's state at j = 0; after a segment, its final state; tracks
+  shorter than T hold to the end. Tracks paint in order; instances in slot order (0..3).
+  - DRAW at local step j: the source at `(x + off(dx), y + off(dy))` (per lens), options = `(opt & 0x30) | lvl(j)`
+    with `lvl(j)` eased from lvl0 to lvl1 — the v1 LUT (§2: level in bits 0–3, bit 4 transparent tested on the
+    source, bit 5 inverse) applies to records and `self` alike.
+  - REVEAL: extent `e(j)` eased from 0 to F (F = the source's height for edge 0 top / 1 bottom, its width for
+    2 left / 3 right; `opt` bits 0–1 edge, bit 2 slide). Wipe: the source at rest (x, y), visible only in the e rows
+    or columns at that edge of its rect. Slide: the source moved in from the edge by F − e (top: drawn at
+    y − (F − e), visible [y, y + e); bottom: at y + (F − e), visible [y + F − e, y + F); left and right alike).
+  - FILL: the area filled with its level.
+- **The declared end state END(prog, P)** = every track's state at step T painted in track order. It is defined by
+  the record and the parameters; the phone does not send it. In §4's vocabulary it is a fill (mode 21) per level
+  backdrop, then per DRAW a mode-17 draw of the record (or of the capture) at its final position and level under a
+  mode-20 clip of the area (for `self`, the model's own copy of the captured pixels), per REVEAL the whole source at
+  rest — so the phone's model applies exactly these ops.
+
+### 5.5 Mode 26 — motion control (image lane; both lenses run it; takes the display gate)
+
+`[26][sub]…`; allowed alone or as a mode-8 sub-message; refused inside a self-test step (8). The high bit is ignored.
+
+| sub | payload after `[26][sub]` | what it does |
+|---|---|---|
+| 0 PLAY | `slot u8 (0..3) · period u8 (16..128) · prog u16 (off4) · tag u16 · P0..P3 s16` (14 B) | closes the slot's instance and every open instance whose areas meet this one's; captures the `self` areas; **writes END into the shadow**; keeps the CRC; opens the instance; step 1 drawn by this message's present |
+| 1 RETARGET | `slot u8 · P0..P3 s16` (9 B) | for an open instance (drawing or done): writes END(prog, new P) into the shadow; restarts the instance at step 1 now, each moving segment from the state this lens last drew to the new final state (a leading WAIT restarts whole); END ordinal + 1. Only for programs whose tracks have at most one non-WAIT segment after an optional leading WAIT (else 12) |
+| 2 CLOSE | `slot u8` (0xFF all) (1 B) | a drawing instance stops drawing (the next present shows the shadow, which holds END, whole); a done one frees its captures; an empty slot: nothing |
+
+**Check order (the reason recorded is part of the contract):** length (1) → a self-test step (8) → the lease (3) →
+DRAW2 (9) → ENGINE (15) → slot, period, P values (12) → for RETARGET an empty slot (16) → the program record and
+every record and table it names, inside the cache and well formed (5) → areas inside the panel, not empty, a pair
+one size and one row range — **every pair checked whole on both lenses** (2) → a `none` backdrop's area (both rects)
+inside an earlier track's area whose backdrop is not `none` (2) → every step's values in range: levels 0..15,
+extents 0..F, h0/h1 = 0 (12) → the scratch pool (7) → allocations: captures, and the thread, timer and flags at
+first use (11). Only then is anything closed, captured or written. "Meets" = the bounding boxes of the two pairs
+intersect, the same decision on both lenses.
+
+### 5.6 The end-state rule, the region, and the cases
+
+- **END is written into the shadow when the PLAY (or RETARGET) is handled**, in stream order on both lenses; steps
+  draw only into the framebuffer, over the copied shadow. The phone's model applies exactly END at the same message
+  — so the shadow and the model never depend on timing. RIGHT's CRC-32 of its shadow over the instance's areas
+  (each area's tight packed rows, `(w+1)/2` bytes, high nibble first, in track order), taken right after that END
+  write, is reported in the instance's notify (§5.8); the phone compares it with its model's: **a mismatch is a
+  `divergence` note and a keyframe, never silent.**
+- **A phone write inside a drawing instance's area** lands in the shadow at once (the model agrees); the lens shows
+  the motion over it until the instance's last step, then goes whole and shows the shadow. That is the draft's
+  "held until the program ends", with nothing held in a queue. To show it at once the phone CLOSEs first (same batch).
+- **The cases:** a phone flush touching a running area — as above. A **keyframe** (mode 6) or **mode 11** closes
+  every instance. **A lease lapse, FB_RELEASE, a fresh acquire** (and so Silent Mode, where the shell releases on
+  purpose) are release points: every instance ends, nothing is drawn after, no notify is sent; the copy hook draws
+  only over a Damage frame it copied or preserves (`direct_active` with a live lease), so stock content is never
+  drawn over. **The link dropping:** the lease runs on (≤ 87.9 s), the instance ends by itself, its notify is lost;
+  the next session's acquire ends what is left. **A retarget after the last step** re-aims from the final state (a
+  new motion to the new END); after a CLOSE or a release point it is refused (16) — the phone tracks closes in stream
+  order, so it sends none. **A second PLAY over a busy area** closes the first (its END is already the shadow the
+  second captures from). **A record, table or program evicted:** a cache write (12, 19, 25) whose entries meet bytes
+  an open instance reads closes that instance first (that write takes the gate to do so).
+
+### 5.7 Memory (what must be measured first, and what happens when it is short)
+
+- **Fixed:** the instance table (4 slots, ≈ 0.1 KiB each), the thread's 2 KiB stack and the three control blocks
+  live in the context (allocated once, from the stock malloc's arena, our 20: I from upstream's labels, `HANDOFF.md`
+  §67). Nothing per tick. **Per PLAY:** the `self` captures, priced against the save-under pool (48 KiB per lens, §4
+  mode 23) together with the slots. **Per mode 25:** a transient inflate (§5.9).
+- **Measured before C1's budget is fixed:** arena 13's free memory (fields 7–9) before the carrier CREATE, after it
+  and after the first frame (an APK change, `REPLAN.md` §5), then fields 27–29 on the candidate with the cache at 160
+  and at 256. Modeled today (`HANDOFF.md` §67): ≈ 130 KiB free at 256, ≈ 82 with the pool full, before a mode-25
+  decode's ≈ 40–56 KiB; the self-test's 150 KiB scratch needs a session at ≤ 160.
+- **Short:** a refusal and nothing written — 7 over the pool, 11 an allocation failed — with notify outcome 2 at
+  once; the phone draws that motion as today's frames. No op ever writes past an allocation.
+
+### 5.8 Notify, telemetry, flags, capabilities
+
+- **Notify field 114 DamageMotion (RIGHT only)**, `G2SettingPackage{1: 3, 2: 0, 114: …}`: `1 sequence (since boot) ·
+  2 slot · 3 tag · 4 outcome (0 drew its last step · 1 closed before it · 2 refused) · 5 END ordinal (0 the PLAY, n
+  the n-th RETARGET) · 6 steps drawn · 7 steps folded · 8 the END CRC · 9 the largest step-drawing µs · 10 the reason
+  (outcome 2) · 11 uptime`. Sent each time an instance stops drawing (its last step, or closed while drawing), with
+  the last END written, and once per refusal; from the display task (the presented notify's precedent, in daily
+  use) or the ui_task. **A lost notify** costs pacing only: END is already in the shadow; the phone's scheduler
+  resumes on its own clock at the instance's nominal end and reads field 30 at its next telemetry read; a sequence
+  gap is journaled.
+- **Telemetry:** `30` open slots (bits 0–3), drawing (4–7), the engine thread exists (8) · `31` the last notify-114
+  sequence · `32` engine frames since boot · `33` steps folded since boot (a failed take or put folds its step) ·
+  `34` the last present's step-drawing µs (the DWT figure, §4's calibration).
+- **Flags:** bit 3 **ENGINE** (needs DRAW2 armed too), bit 5 **ZWRITE**; both clear at every release point (§3) and
+  are refused without the lease (status 3). The keeper arms one new bit per soak (ZWRITE, the 256 KiB size, then
+  ENGINE) and its hold-back drops the bit armed last (§10; the per-bit record is a phone change).
+- **Reasons:** 15 the op's own flag not armed (ENGINE for 26, ZWRITE for 25) · 16 no such instance.
+
+### 5.9 The riders
+
+- **Op 5 CACHE_SIZE: 64..256 KiB** on a bit-8 build (status 5 outside it); the v1 window stays the first 64 KiB.
+- **Fields 27/28/29:** the largest free block of arenas 13/20/27 in KiB (the same bounded, range-checked walk as 7–9;
+  omitted when an arena does not validate) — a cache must be one block.
+- **Mode 25, the deflated cache write:** `[25][zlib stream]`, inflating to exactly a mode-19 entry list (no mode
+  byte), at most 16,384 B. Order: length ≥ 3 (1) → not in a batch or a step (8) → the lease (3) → DRAW2 (9) → ZWRITE
+  (15) → the inflate: its state and the 16 KiB output from arena 13 (11), a stream that does not end cleanly or runs
+  past 16,384 B (13) → then mode 19's own checks and semantics on the list (an empty list writes nothing and does not
+  bump; one bump per message). Cache writes were 61 % of the image lane's bytes and per-message deflate took them
+  to 57 % (M, `HANDOFF.md` §68, v1-era traffic). The phone's ledger (field 17) proves each write; a refused mode 25
+  is re-sent as mode 19.
+- **The cache pointer's release:** claimed by one exchange like the slots and the scratch (FBW-2, `HANDOFF.md` §76),
+  and deferred while the copy hook draws (the engine's busy word, §5.11). No wire change.
+- **The context-survival check:** after a lens restarts, nothing of a previous boot's Damage state is used — flags,
+  the cache, slots, captures, instances, bindings, the engine's handles; fields 16, 17, 31–33 restart at 0. A stale
+  context would hand the engine a thread handle from the last boot, so this is **a precondition for ENGINE**. First
+  the free check: a `keeper: the glasses reset` note followed by field 16 continuing rather than restarting means the
+  context survived (`HANDOFF.md` §74 item 9). The mechanism is the fork's; one shape: a context whose recorded uptime
+  is ahead of the OS tick is from an earlier boot and is rebuilt without freeing anything (I: it misses a restart in
+  the previous boot's first seconds).
+- **The link:** the stock test that counts any link under 31.25 ms as already fast (`0x00476F4E`, from the 0xA3
+  branch at `0x004774AE`, V) is replaced by one that counts a link fast only at ≤ 11.25 ms with latency 0
+  (upstream `845f665`'s rule), with the correction our edit (3) needs (the survey's reading of the slow mode byte,
+  `HANDOFF.md` §74 item 7: not re-read). DamageCaps bit 9; the phone journals every parameter change.
+
+### 5.10 Vectors (§9's form), and what no vector can prove
+
+New ops: `{"wake": true}` = one engine wake (the thread's take and queue, then the display task's copy hook and
+refresh, synchronously); expectations gain `"N"`: RIGHT's notify-114 bodies, hex, in order. Engine vectors carry
+`"panel": true`: `L`/`R` prove END in the shadow, `P` the step on the lens. **No self-test form** (a step presents
+nothing); mode 25 runs live. Inputs from `make_vectors.py`, expectations from the C (`--write`), the simulator equal.
+
+`v3-play` (one FILL and one DRAW track: END in the shadow at the PLAY, step 1 on the panel, wakes at chosen ticks,
+the last step, the stale mark after) · `v3-draw` (record and `self` sources, per-lens x and dx, the ramp, transparent
+and inverse, clipping at the area, a late wake folding three steps) · `v3-reveal` (wipe and slide, four edges, a
+level source, F = 1) · `v3-ease` (linear and ease-out at n = 1, 2, 7, 255; an uploaded overshoot table; E[n] ≠ 4096
+and n ≠ steps refused) · `v3-params` (each pref field, a u8 field taking the low byte, a substituted value out of
+range) · `v3-retarget` (drawing, done, after CLOSE → 16, a multi-segment program → 12) · `v3-close` (CLOSE one and
+all, a PLAY into the slot and over an area, mode 6, mode 11, a cache write over a drawn record and beside it) ·
+`v3-order` (one refusal per reason in the stated order, both rects of a pair checked on both lenses) ·
+`v3-lifecycle` (ENGINE before and after DRAW2, release points ending instances, nothing drawn over stock content) ·
+`v3-hint` (a phone frame with a mode-24 hint while an instance draws goes whole) · `v3-zwrite` (mode 25 equal to the
+same list as mode 19, one bump, an empty list, 16,384 B and one more, a broken stream) · `v3-cache256` (op 5 at 256,
+a record past 160 KiB, the v1 window unchanged).
+
+**No vector can prove** what needs time, threads or two radios — the host harness has one thread and no timers:
+the timer firing, the thread's wake, the gate shared with the ui_task and LVGL's flush, the copy hook's drawing
+time, the lens skew, memory fragmentation, the notify reaching the phone. **What proves them:** the notify's END CRC
+equal to the model's on glass (RIGHT), fields 32–34 over a soak day, `glassdrive.py` scripted plays, the feel
+session (lens match by eye, the 240 fps video), the journal (no hold-back, the folded count).
+
+### 5.11 The failure envelope (`FORK.md` §3.8)
+
+| new state, wait or guard | (a) cleared at | (b) a write that never lands | (c) keyed on | (d) other tasks, the other lens | (e) one read | (f) siblings checked |
+|---|---|---|---|---|---|---|
+| instance slots (state word, prog, params, tag, t0, period, T, ordinal, last drawn values) | every release point, mode 6 and 11, CLOSE, a PLAY into the slot, a restart (survival check) | END is in the shadow whatever happens; a lost notify is pacing only (§5.8) | slot + tag + ordinal; bytes by off4 range, closed when rewritten | written on the ui_task under the gate; read and the drawn values written by the copy hook under the same gate; a release point only flips the state word | the copy hook reads each state word once per present | PLAY, RETARGET and C2's COMMIT share one validator; alone and in a batch; both rects of every pair on both lenses |
+| `self` captures | CLOSE, a done instance closed, release points, restart | the PLAY is refused (7/11) before anything is captured | slot | freed on the ui_task under the gate, or at a release point through the busy word (deferred to the copy hook's epilogue) | each pointer claimed by one exchange | the save-under slots (same pool, same word pattern) |
+| the busy word around the copy hook's drawing | the copy hook's epilogue | — | — | release points on the settings task or wherever a lapse is noticed | one exchange | the scratch's and the slots' words; the cache pointer (rider) |
+| engine thread, timer, flags | never deleted; idle with nothing open | creation fails → that PLAY refused (11); tried again by the next | per lens, per boot | the timer only sets the flag; the thread only takes the gate and queues | — | upstream's `seq_tick` timer |
+| the thread's gate take and queue put | — | a failed take (its result read, not inferred from `direct_pending`) or put: gate given back if held, timer re-armed one period on, counted (33) | — | the ui_task (worker, C2's hook) and the LVGL flush take the same gate | the take's own result | the worker's inference (`HANDOFF.md` §74 item 9) |
+| one outstanding engine refresh | cleared by the copy hook | a refresh the display task drops (panel off: the stock gate at `0x00473C96`) still ran the hook, so the mark clears | — | set by the thread, cleared on the display task | — | — |
+| close-on-meet guards | — | — | pair bounding boxes; off4 byte ranges | decided on the ui_task in stream order, so both lenses decide alike | the slot list read once per message | modes 12, 19, 25; modes 6, 11; PLAY over PLAY |
+| drawing only over a Damage frame | — | — | `direct_active` and a live lease, as the copy hook already decides | display task | one read of the copy hook's own decision | the diagnostic overlay stays on top; a mode-24 hint is ignored |
+| mode 25's inflate and output | the end of the message | refused (11/13); the ledger re-sends as mode 19 | — | ui_task only | — | mode 19's own checks reused, not copied |
+
+### 5.12 Not in this contract yet
+
+The default P (feel session) · a hint for small step areas (after field 34's numbers) · a string source for DRAW
+(today: draw the text, then DRAW from `self`) · more than 4 instances, 8 tracks or 255 steps · LEFT's verification
+(an inter-lens report) · the pool and cache numbers (after §5.7's readings) · a compression context kept across
+messages (`HANDOFF.md` §68: re-measure first) · on-glasses compaction (§74 item 8).
+
+## 6. v2 local input and bindings (the second flash, C2) — *contract draft 2026-11-13; built with C2*
+
+### 6.1 What reaches the hook (read 11-13 unless cited)
+
+| fact | grade, basis |
+|---|---|
+| Every input event reaches the ui_task as a type-7 queue message; the loop calls `FUN_00442D86(record 0x2034DC30, len)` at `0x00443FB0`, its only caller | V (`0x00443FA4`–`0x00443FB0`, `fwread.py calls`) |
+| The record is `{u16 devType, u32 eventId, u32 value}`, delivered on both lenses by the sync listeners, after RIGHT's input manager's de-bounce and 1 s cross-device lockout | V (`CLAIMS.md`, R0.1) |
+| **The temple touchpads' slides are event ids 4 and 5**: the gesture processor's dispatch (`0x00503172`–`0x00503226`) posts, per mask bit, id 0xD (bit 0), 0xE (1), 0 (2; ≥ 10 taps → 0x1010), 1 (3), 3 (4), **5 (5) and 4 (6)** with diffX and speed, devType 1 on RIGHT else 0 (`FUN_004C5874`) | V. The bit names (bit 5 SLIDE_L, 6 SLIDE_R) come from the name table at `0x00503250`: I |
+| **The ring's swipes are ids 5 and 4 too**: `FUN_0047269E` maps ring report type 0 → 3, 1 → 0, 2 → 1, **4 → 5, 5 → 4**, 8 → 0xE, devType 4, after its 100-ring-tick filter | V |
+| Stock's names: 0 SINGLE_CLICK · 1 DOUBLE_CLICK · 3 LONG_PRESS · **4 UPROLL · 5 DOWNROLL** · 0xD PRESS · 0xE RELEASE · 0x1010 DECA_CLICK; devType 0 TOUCH_BAR_LEFT · 1 TOUCH_BAR_RIGHT · 4 RING_TOUCH_SENSOR | V (`0x004C5892`, `0x004C58EE`, the strings) — corrects `CLAIMS.md`'s "2, 7, 8 by elimination" |
+| Which of 4 and 5 the EvenHub page sends as the kind-2 scroll's direction 1 (top) or 2 (bottom) | U: the page's callback tables for UI codes 0x44/0x45 (`0x0049556C`…) are unread; the phone pairs the applied-state's id with the scroll it receives on the first gesture and journals the pairing |
+
+### 6.2 The hook
+
+- **Site:** `bl 0x00442D86` at `0x00443FB0` → `damage_input_hook(record, len)`, C2's one new site, on the ui_task's
+  event loop. It runs on every touch from boot; before the first Damage message there is no context, so it is one
+  validated read and the stock call (the copy hook's shape). `FORK.md` §3.1: an event loop, as `0x00473D80` was read.
+- **It never consumes:** in every path it calls `FUN_00442D86` with the unchanged record and length and returns its
+  result, after its own work — so the stock path and the phone's kind-2 or kind-1 message stay exactly as today.
+- **Pass-through:** no context, BIND (flag bit 4) not armed, or no matching entry → nothing else (a flag test and at
+  most 8 two-byte compares; the cost is modeled only). Never bindable: 3 (the long press is unattributed —
+  `CLAUDE.md`), 0xD, 0xE; 0x1010 never reaches the ui_task (the input manager sends it as `0x109`, R0.1).
+- **Fails toward today:** any check that fails in a fire — the lease (the check settles a lapse, which clears every
+  binding), the program record, a parameter, the pool, an allocation — leaves no local draw, sends the applied-state
+  with the reason when an entry matched, and passes through; the phone drives that gesture as it does today. The
+  table lives in the context, validated whole at SET; the program is re-validated at every fire (the cache may
+  change). A fire waits only on the display gate (`FUN_00441C44`, the take the worker makes on this thread); its
+  time is field 37.
+
+### 6.3 Lists and bindings (image mode 27; both lenses, in stream order; not gated)
+
+| sub | payload after `[27][sub]` | meaning |
+|---|---|---|
+| 0 SET | `entry u8 (0..7) · devType u8 (0, 1, 4, 0xFF any) · eventId u8 (0, 1, 4, 5) · list u8 (0..3) · step s8 · slot u8 (0..3) · period u8 (16..128) · prog u16 (off4) · 4 × {kind u8, arg s16}` (21 B) | a binding. Pi = arg (kind 0) · the list's item off4 at (new cursor + arg) (kind 1) · new cursor × pitch + arg (kind 2, s32, refused outside s16) |
+| 1 CLEAR | `entry u8` (0xFF all) | removes entries |
+| 2 LIST | `list u8 · items u16 (off4 of a table of count off4 entries, or 0xFFFF none) · count u16 (1..1024) · cursor u16 (< count) · pitch s16` (9 B) | the staged range: positions 0..count−1 are on the glasses |
+
+Order: length (1) → a self-test step (8) → the lease (3) → DRAW2 (9) → BIND (15) → values (12) → SET: the program
+exists, qualifies as a PLAY and uses **record and level sources only — no `self`** (5/12), so a local draw depends
+only on the cursor and the cache. Every accepted mode-27 message bumps the lens's **binding epoch**. Release points
+clear every entry and list (§10).
+
+### 6.4 A bound fire, and the staged edge
+
+On a matching event (each lens, on its ui_task, inside the hook): the new cursor = cursor + step. **Outside 0..count−1,
+or a kind-1 item outside the list: the staged edge** — nothing is drawn (no bounce: the end of what is staged), the
+applied-state says `edge`, the stock path delivers the gesture and the phone refills or ends it. Otherwise: PLAY's
+validation (§5.5) on (prog, P) → close the slot's instance and any instance whose areas meet → open a **local
+instance**: it draws its steps like any other but **writes nothing into the shadow**; after its last step it keeps
+drawing its final state at every present until COMMIT or DISCARD. Then the cursor moves, RIGHT sends the applied
+state, and the hook calls the stock handler. Step 1 is drawn by an engine refresh the hook queues (it holds the gate
+it took): the local response begins within one copy and transfer of the event reaching the ui_task (modeled
+≈ 5–10 ms; `FORK.md` D7 asks ≤ ~20 ms).
+
+### 6.5 The applied-state event and reconciliation
+
+- **Notify field 115 DamageApplied (RIGHT only):** `1 S (the local sequence since BIND was armed) · 2 devType ·
+  3 eventId · 4 entry · 5 outcome (0 drew · 1 edge · 2 refused) · 6 reason · 7 list · 8 cursor after · 9 slot ·
+  10–13 P0..P3 (their 16 bits) · 14 the binding epoch used · 15 uptime`. It is queued before the hook calls the stock
+  handler, so it precedes that gesture's kind-2/kind-1 message (I: both are sent from the ui_task through the stock
+  senders' queue; that `FUN_004DA16A`'s path ends in the same queue as `FUN_00475B14`'s is unread). A gesture with no
+  field 115 before it is unbound; one that arrives after the phone has already handled that gesture is DISCARDed.
+- **Mode 26 gains (in stream order, so both lenses apply them at the same position):**
+  `3 COMMIT · slot u8 · S u16 · list u8 · cursor u16 · prog u16 · P0..P3 s16` (16 B): validates as a PLAY, writes
+  END(prog, P) into the shadow, sets the list's cursor, and makes the slot's local instance S an ordinary one (a newer
+  local instance in the slot is left drawing; an older one is closed); one notify 114 follows with the END CRC.
+  `4 DISCARD · slot u8 · S u16 · list u8 · cursor u16` (6 B): stops every local instance ≥ S in the slot (the next
+  present shows the shadow, whole) and sets the cursor.
+- **Reconciliation.** The phone treats a field-115 `drew` as an operation of its working copy: END(prog, P) and the
+  cursor, committed by its next message to the glasses (COMMIT carries RIGHT's parameters, so a lens that used
+  another epoch is corrected there); it DISCARDs when its own state has moved on. Until the COMMIT the lenses may
+  differ only if a mode-27 message reached them on either side of the gesture (I: a window of one inter-lens hop);
+  after it, both shadows equal the model by construction. **A COMMIT CRC that differs from the model's is a
+  `divergence` note and a keyframe, never silent.**
+
+### 6.6 The vertical-scale draw (A2, carried by C2)
+
+- **Mode 28** (`0x9C` per lens): `off4 u16 · x s16 (or xL · xR) · y s16 · options u8 · H u16` — the v2 record drawn
+  `H` rows tall (1..2048): output row r takes source row `⌊(2r + 1)·h / (2H)⌋`, columns as they are; clip, options and
+  transparency as mode 17; it takes the gate as mode 17 does. Order: no shadow (4) → length (1) → the lease (3) →
+  DRAW2 (9) → H (12) → the record (5). Allowed in a batch and in a self-test step.
+- **DRAW's h0, h1, anchor** (zero in C1): the output height eased from h0 to h1 (both 1..2048, or both 0 = unscaled);
+  anchor 0 top · 1 centre (`y + ((h − H) >> 1)`) · 2 bottom (`y + h − H`), h the source's height. The wheel's drum
+  (`MOTION.md` W1/W2), the icon grow (M2) and Pulse use it.
+
+### 6.7 Flags, telemetry, capabilities
+
+Flag bit 4 **BIND** (needs ENGINE and DRAW2); clears at every release point with every entry, list and local
+instance. Telemetry `35` bound fires since boot · `36` the last S · `37` the last fire's µs inside the hook. DamageCaps
+bit 10: modes 27, 28, mode 26's subs 3 and 4, fields 115 and 35–37. Reason 15 covers BIND for mode 27.
+
+### 6.8 What waits on C1's measured numbers
+
+The period (feel session) · field 34's drawing time per area size → whether a full-height page slide or only bands
+fit a step, so how strips are staged · fields 27–29 at 256 KiB → how many items a list stages · the lens-skew verdict
+(if visible, C2 needs a start message between the lenses, not designed here) · the folded count under a working
+shell · the ring filter's effect on fast spins (`CLAIMS.md`: the 100-tick filter; its unit unread).
+
+### 6.9 Vectors
+
+New op `{"input": [devType, eventId, value]}`: the record through the hook (the stock handler on the host only counts
+calls); `"N"` gains field-115 bodies. `v4-bind` (unbound and unarmed pass-through with the stock call counted, a fire
+drawing on the panel and leaving the shadow, ids 3/0xD/0xE refused at SET, `any` against a source) · `v4-edge` (both
+edges, a kind-1 item past the list, the cursor unmoved) · `v4-commit` (COMMIT writing END, a newer local instance left
+drawing, DISCARD ≥ S, the cursor set) · `v4-fail` (no context, the lease lapsed at the fire, a rewritten program,
+the pool short: every one passes the record through unchanged) · `v4-vscale` (mode 28 at H = 1, h, 2h and 2048, per
+lens, clipped; DRAW scaled with each anchor). The lens order of input against images, the notify order on the link
+and the local latency need two radios and a clock: the journal's pairs of 115 and kind-2 messages, the COMMIT CRCs
+over a work week (zero divergence, `REPLAN.md` §5's C2 stop) and the feel session prove them.
+
+### 6.10 The failure envelope
+
+| new state, wait or guard | (a) cleared at | (b) a write that never lands | (c) keyed on | (d) other tasks, the other lens | (e) one read | (f) siblings |
+|---|---|---|---|---|---|---|
+| binding entries, lists, cursors | release points, CLEAR, LIST, a restart | the glasses fall back to passing input through; the phone re-sends SET and LIST at each session start | entry and list index; programs by off4 (re-validated per fire) | changed only on the ui_task (I: the worker's thread); read by the hook on the same thread | the hook reads the entry once | SET reuses PLAY's validator; both lenses get the same messages |
+| the binding epoch and S | release points (S restarts at 0 with BIND) | a lost field 115: the phone sees an unbound gesture, drives it, and DISCARDs the local instance its next telemetry shows open (field 30) | epoch per lens; S per lens | LEFT cannot report its S; COMMIT carries RIGHT's | one read per fire | — |
+| local instances | COMMIT, DISCARD, a PLAY or fire over them, mode 6 and 11, release points | uncommitted, they keep drawing their final state; nothing reaches the shadow | slot + S | the copy hook draws them under the gate the hook or thread took | as §5.11 | phone instances (§5.11) |
+| the hook's pass-through | — | — | devType + eventId | runs on both lenses' ui_tasks | one context read | the inherited long-press and release sites in `FUN_00442D86` stay as they are |
+
+### 6.11 Not in this contract yet
+
+Binding the long press (never) · per-source grammar beyond `any` or one source (the phone's design) · LEFT's report
+(an inter-lens message) · a start message between the lenses (only if C1's verdict asks) · local input with the phone
+away (the offline home, step G) · the kit's programs themselves (K).
 
 ## 7. v2 firmware-owned chrome (Phase 5) — *draft*
 
@@ -541,3 +893,7 @@ phone's keeper applies the hold-back rule before re-arming.
   other 26 byte-identical from the C.
 - 2026-11-11 — §2 gains op 7 and the wear event, which had no line here (APK 0.64 sends one op 7 per session
   start, `HANDOFF.md` §76). No wire shape changed and nothing was flashed; contract version unchanged.
+- 2026-11-13 — §5 (motion programs, the first flash) and §6 (local input and bindings, the second flash) taken
+  from draft to contract form on `MOTION.md` §6 as ruled that day: one writer, new instruction-level reads (where the
+  engine can run; the gesture ids 4 and 5), not yet challenged — see the note above §5. Nothing built, nothing
+  flashed; contract version unchanged.
