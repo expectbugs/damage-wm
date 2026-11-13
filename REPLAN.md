@@ -6,8 +6,8 @@ network. This file is planning for display-rendering and user-interface work on 
 wording throughout (`CLAUDE.md`).
 
 **Status: RULED by Adam on 2026-11-12 (evening), with amendments — §14 holds his rulings and wins over §4–§11
-wherever they differ.** R9 and R13 were not in the short list he answered and are still open, with the calls
-§14.3 puts to him. The order of work is §4's as ruled (`FORK.md` §5 points here and keeps the fork's protocol,
+wherever they differ.** All thirteen are ruled, and the nine follow-up
+calls of §14.3 were answered the same evening. The order of work is §4's as ruled (`FORK.md` §5 points here and keeps the fork's protocol,
 its decisions and the phase designs the steps reuse). Nothing of step A is started: its size is put to him
 first. §1–§13 stand as written on 2026-11-12 (the proposal); the recommendations in them are the lead's, the
 facts come from two read-only inventories of that day (rough where marked "≈") and a third reader's challenge
@@ -259,12 +259,13 @@ sittings (§8, which the draft had as nine against sixteen).
 | R1, R2 | yes |
 | R3 | yes, and further: **the owner is always the PC.** "I want one complete persistent system, with the various endpoints merely interacting with it" — a book read on the glasses continues on the phone and then on the PC from the same place, "from one central server, rather than three different apps being at three different places in the same book". "The PC is the main DamageWM system, and everything connects to it. My phone acts as a bridge to my glasses when away, and I do want to retain as much functionality as possible if I happen to lose connection to my home PC while away, or if my phone dies, but in optimal regular day to day usage, the PC should be the main system and control the state and serve it to the various endpoints." |
 | R4 | as recommended: each interface keeps its own focus and cursor; "continue here" is a deliberate action |
-| R5 | yes to the order; no priority stated among S2, S3 and K (§14.3 call 5) |
+| R5 | yes to the order; the priority is §14.3 answer 5 |
 | R6, R7, R8 | yes |
 | R10 | Music is wanted on any or all outputs: the PC's own (a TV and a soundbar), a pair of Bluetooth speakers, the phone and whatever it is connected to (earbuds, other devices). The kitchen TV is mounted portrait and has no audio of its own. A voice device comes back later, only once he has customized it |
 | R11 | yes — the early alert watcher is built |
 | R12 | the battery: **no limit.** "By default the system should be as nice as possible, but have various settings for power saving in case the default uses too much to get through a day." The usage figure was not answered; each step is still sized and put to him first |
-| R9, R13 | not yet put to him (§14.3 calls 6, 7) |
+| R9 | agreed (§14.3 answer 6) |
+| R13 | "For now, yes" (§14.3 answer 7) |
 
 ### 14.2 What the rulings change in this document
 
@@ -287,17 +288,30 @@ sittings (§8, which the draft had as nine against sixteen).
   for step A.
 - **The offline home (G)** now has a stated purpose: what the glasses still do when the phone is not there.
 
-### 14.3 Calls put to him after the rulings (none answered as of this note)
+### 14.3 The follow-up calls, and his answers (2026-11-12, ~21:00)
 
-1. The phone: a working copy that draws the glasses itself and follows the PC (recommended), or a relay with
-   the PC composing every frame (`--transport remote` today; the arrangement his 2026-08-31 correction retired).
-2. What must keep working away from home with the PC out of reach, and what is kept on the phone for it.
-3. Reach: his tailnet and the bus network only (recommended), never the public internet.
-4. Audio: several outputs in step at once, or one output chosen and moved, for the first build.
-5. Priority among S2, S3 and K.
-6. R9 — web first for the browser, the TV and the phone app; XFCE as a panel item, notifications, shortcuts
-   and the web interface in a window.
-7. R13 — new windows after, in his recorded order.
-8. The PC as the one system: its hours, and a nightly copy of its state.
-9. The alert watcher's inputs: a Home Assistant token he places in the config, his word for read-only reads,
-   the first conditions.
+1. **The phone keeps a working copy** — it runs the same windows, draws the glasses itself as today and follows
+   the PC's record. Not a relay with the PC composing every frame (`--transport remote`, the arrangement his
+   2026-08-31 correction retired). One mode: out of reach means the PC has not confirmed yet.
+2. **Away from home with the PC out of reach:** Reader works fully (the whole shelf is kept on the phone — 73
+   books, 50 MB); Music plays what is on the phone (the prefetched tracks, and playlists he pins); Main,
+   Settings, Games and the phone's notifications work fully; Files, Torrents, Tmux and Feed show their last
+   state with its age; changes made meanwhile go to the PC on return. His addition: when the tracks on the
+   phone run out and home is still out of reach, Music goes to Spotify on the phone if the phone has internet —
+   which is what is built (`PlayerCore.libraryStalled`; `MUSIC.md` verdicts 3, 20, 25; the way back is
+   deliberate) and is carried over unchanged.
+3. **Reach: his tailnet and the bus network only.** Never the public internet.
+4. **Audio: one output at a time, chosen and moved.** "I will never intentionally output music to two sources
+   at the same time in sync" — nothing is built to keep two outputs in step. Two players: the PC's own output,
+   and the phone with whatever it is connected to (earbuds; the room speakers over its Bluetooth, which works
+   today because Damage does not care where the phone sends its audio).
+5. **Priority:** the alert watcher first; the glasses kit as soon as the second flash's numbers are in; while
+   flashes are pending, the interface pieces before the bus system.
+6. **R9 agreed:** one web interface for the browser, the TV and the phone app; XFCE as a panel item,
+   notifications, shortcuts and that interface in a window.
+7. **R13: "For now, yes"** — new windows after, in his recorded order.
+8. **The PC is always on.** A nightly copy of its state goes to `/mnt/lilhomie`.
+9. **The alert watcher: yes to all** — he places a Home Assistant token in the gitignored config; the PC
+   service may read Home Assistant, read-only (it switches nothing); the first conditions are proposed from a
+   read of its entities and edited by him; the phone raises "home unreachable" when it has internet and home
+   does not answer (the PC cannot report its own silence).

@@ -7406,7 +7406,7 @@ at 0.64's first start, not 0.65's.
 
 One place for this: **`REPLAN.md`** — §1 Adam's end goal (four more interfaces and a bus control system before
 any new window), §2–§10 the re-plan as proposed, §13 what a challenging reader overturned in the first draft,
-**§14 his rulings of the same evening and the nine calls still open**. In short: every window is described once
+**§14 his rulings of the same evening and his answers to the nine follow-up calls**. In short: every window is described once
 and presented per interface; the PC owns every window's state and every interface connects to it (this replaces
 §19.1's rule 5 for the design to come; the code keeps the stamped sync until the step that converts it); the
 interfaces and the bus system are designed before the app contract is fixed; two batched flashes run beside the
