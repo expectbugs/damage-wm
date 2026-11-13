@@ -437,3 +437,12 @@ I'd go for anything."
   and the watcher's `haUrl`/`haToken` are his as before.
 - **Next: the contract sitting** — the app contract, `FIRMWARE.md` §5 and §6 from draft to contract, the sized
   build plan (§4 step A).
+- **(late morning) Two more answers.** The hub's token: "Just use the tokens in the credentials file in the van/bus
+  directory, no need for a new one" — the watcher reads the token from where he keeps it; no new user or token is
+  asked of him. One read of the hub's entity list was made with it (read-only; kept in the private folder with what
+  it showed); the first alert rules are drafted from it.
+  And proportion: "Again this system is just me. Nobody else has access to my network or PC" — the access rules of
+  rows A1 to A3 are built in their leanest form; nothing is added to protect read-only, low-value content; what the
+  rules are for is keeping a stray request (a web page open in his own browser needs nobody else on his network)
+  from typing into Tmux, writing a file or running a bus action. A note the lead had raised about low-value
+  read-only content is withdrawn.
