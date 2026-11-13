@@ -174,7 +174,7 @@ Shared = one copy on the PC (R3). Per interface = focus, cursor, layout, scroll 
 
 ## 4. Rules every interface shares
 
-Stated here once; `BASTION.md` and `REMINDERS.md` refer to them. Their mechanics wait for the contract sitting (§7).
+Stated here once; `BASTION.md` and `REMINDERS.md` refer to them. Their mechanics are settled in `CONTRACT.md` (§2.4 the merge rule, §7 notices, §9 the wire, §10 access).
 
 **4.1 Access: the tailnet identifies a device, approval authorizes it.** Every device, on the tailnet or on the
 bus network, is approved once from a trusted interface (W-24) and given a level: **view**, **control** or
@@ -197,8 +197,8 @@ acknowledged once, it is gone everywhere. The phone raises a notice from its own
 confirmed it, and such a notice is marked "may repeat". No rule depends on knowing which interface he is using.
 
 **4.4 Edits from several places: one rule.** Each device numbers its operations, the PC merges them, and a losing
-edit is said on the item. Every window follows this one rule and none settles its own variant; it is settled at
-the contract sitting.
+edit is said on the item. Every window follows this one rule and none settles its own variant; it is settled in
+`CONTRACT.md` §2.4.
 
 ## 5. What this asks of the app contract
 
@@ -276,11 +276,12 @@ screens.
   library, and a separate program keeps Damage's code clean (the notifyd pattern).
 
 **Deferred:**
-- To the contract sitting: merge and idempotency (§4.4).
-- To the contract sitting: how notices travel (§4.3).
-- To the contract sitting: the access mechanics — the secret, its storage and renewal, the Origin and Host checks,
-  the approval flow (§4.1, W-22 to W-24).
-- To the contract sitting: page versioning — the handshake between the phone's cached pages and the PC's (P-02).
+- To the contract sitting, settled in `CONTRACT.md` §2.4: merge and idempotency (§4.4).
+- To the contract sitting, settled in `CONTRACT.md` §7: how notices travel (§4.3).
+- To the contract sitting, settled in `CONTRACT.md` §10: the access mechanics — the secret, its storage and renewal,
+  the Origin and Host checks, the approval flow (§4.1, W-22 to W-24).
+- To the contract sitting, settled in `CONTRACT.md` §9.5: page versioning — the handshake between the phone's cached
+  pages and the PC's (P-02).
 
 ## 8. Facts only Adam or a test at a device can settle
 

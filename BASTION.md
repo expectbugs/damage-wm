@@ -303,9 +303,9 @@ action tiers · camera pictures and the recorder's settings · graph history on 
 **Deferred:**
 - To the glasses kit (K): how the glasses confirm a bus action (B-28, B-46) — the draft's options were a chord on
   Bastion's control screens, the same at its top level, or a confirm row like every other irreversible act.
-- To the contract sitting: merge and idempotency (B-27; `INTERFACES.md` §4.4).
-- To the contract sitting: how notices travel (B-38; `INTERFACES.md` §4.3).
-- To the contract sitting: the access mechanics (T-07, T-08; `INTERFACES.md` §4.1).
+- To the contract sitting, settled in `CONTRACT.md` §2.4: merge and idempotency (B-27; `INTERFACES.md` §4.4).
+- To the contract sitting, settled in `CONTRACT.md` §7: how notices travel (B-38; `INTERFACES.md` §4.3).
+- To the contract sitting, settled in `CONTRACT.md` §10: the access mechanics (T-07, T-08; `INTERFACES.md` §4.1).
 
 ## 11. Facts only Adam, or a test at a device, can settle
 

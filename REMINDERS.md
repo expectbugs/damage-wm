@@ -66,7 +66,7 @@ of its own. Rough, the writer's. Reminders is on the phone's away list beside Re
 | L-14 | His own calendar events: title, start (date or date-time), end or length, all-day, note, lead time | calendar events with nothing outside involved | an event record beside items | M | in | — |
 | L-15 | Follow an outside calendar read-only (an ICS URL or Google); two-way sync as aria had is out | work or shared events beside his own | an outside account; a fetch on the PC | M | his call (§6) | CLAUDE.md outside accounts ("Nothing else"); F4 |
 | L-16 | Serve his events as a read-only ICS feed on the tailnet | the phone's own calendar app shows them | an endpoint behind the device gate | S | later | reach: tailnet only (§14.3 3) |
-| L-17 | Edits travel as operations (add, tick, untick, edit, move, snooze, drop), numbered per device and merged on the PC by the one rule of `INTERFACES.md` §4.4 | a tick made offline in a shop and a helper edit to the same item both survive; a replayed queue adds nothing twice | an op log; op numbers per device | M | in — the rule is settled at the contract sitting (§6) | — |
+| L-17 | Edits travel as operations (add, tick, untick, edit, move, snooze, drop), numbered per device and merged on the PC by the one rule of `INTERFACES.md` §4.4 | a tick made offline in a shop and a helper edit to the same item both survive; a replayed queue adds nothing twice | an op log; op numbers per device | M | in — the rule is settled in `CONTRACT.md` §2.4 | — |
 | L-18 | Who may change what: Adam everything; the helper only through its operations (H-01); a bus rule only adds to one list; the TV's host only ticks (its fixed set, `INTERFACES.md` §4.1) | a narrow reach per writer | the source field; a check per writer on the PC | S | in | — |
 | L-19 | Times kept as wall time plus zone, shown in the phone's current zone | the bus moves; the hub's own zone setting cannot be relied on | a zone per due | S | in | ask whether he crosses zones (§7) |
 | L-20 | Location triggers (arrive / leave), as aria had | "at the hardware store" | phone location, geofencing | L | out — home moves with the bus | — |
@@ -248,8 +248,8 @@ front zone).
   come from the allowlist entry (H-19) · a model never switches anything on the bus, nor words the confirm.
 
 **Deferred:**
-- To the contract sitting: merge and idempotency (L-17; `INTERFACES.md` §4.4).
-- To the contract sitting: how notices travel (L-43, L-44; `INTERFACES.md` §4.3).
+- To the contract sitting, settled in `CONTRACT.md` §2.4: merge and idempotency (L-17; `INTERFACES.md` §4.4).
+- To the contract sitting, settled in `CONTRACT.md` §7: how notices travel (L-43, L-44; `INTERFACES.md` §4.3).
 - To the glasses kit (K): the reminder notice's gestures (L-25).
 - To the voice design: the capture device — his wireless microphone through the phone, or a desk mic; never the
   phone's mic (V-05, V-06, V-07).

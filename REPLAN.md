@@ -454,3 +454,10 @@ I'd go for anything."
   Music, medium at least for the helper, and the most for anything that touches the bus. And the bus systems the
   hub does not report today (the power system, the appliances) he re-adds to the hub himself; until then he
   reads them in their own apps, and the watcher's first rules cover what the hub reports.
+- **The app contract is written: `CONTRACT.md`** (the same day). Three read-only inventories of the windows as built,
+  one draft, two challenging readers (41 findings, 19 of them must-fix), the lead's rulings with his words on
+  proportion applied, one editor. Its three questions — Feed with the PC out of reach (the last state with its age;
+  the phone's own fetching retires), Reader at the desk (Damage's own text, the place exact), next and previous on
+  the TV's remote (yes) — are taken as recommended on his "I trust your recommendations for the open stuff", shown
+  to him the same hour, and his to reverse. Still to come in step A: `FIRMWARE.md` §5 and §6 to contract, and the
+  sized build plan.

@@ -7427,3 +7427,14 @@ at medium effort, never Haiku (`REPLAN.md` §15.1 holds his words; the lead's "s
 already recorded for Music). The recorder's settings were read on his yes, masked: all four cameras are restreamed
 in two sizes; the details are in the private annex. Step A's cost to here: 15.0 weighted units for 11 agents
 (the estimate given him was 20–30 for the whole step). Nothing built; no device contacted.
+
+**The contract sitting, first part (2026-11-13 morning; documents only).** `CONTRACT.md`: the app contract — the
+state model (the PC orders every change; the phone's working copy answers a gesture first and is brought into line;
+one merge rule, a losing edit said on the item), the description vocabulary, actions and levels, the notice
+record, the wire, access in its leanest form (his words: "this system is just me"), how the glasses keep today's
+picture through S1, eleven windows on paper, the failure envelope. Made by three inventories of the code, one
+writer, two challenging readers and one editor; the working files are in the gitignored `private/stepA2/`. Also
+that morning: `MOTION.md` §6 ruled as recommended; Music stays on Opus at low effort; one read-only read of the
+hub's entity list with the token he already keeps (the power system is not reporting to the hub — he re-adds it).
+Cost, measured: 15.1 weighted units for the six agents (the estimate given him was 9–11) and the editor on top;
+step A stood at 30.1 before the editor against the 20–30 first given.
