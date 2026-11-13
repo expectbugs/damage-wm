@@ -332,3 +332,15 @@ sittings (§8, which the draft had as nine against sixteen).
   things to do, calendar events.
 - **`CLAUDE.md`** now names this file for the order of work and states the ruled topology beside what runs
   today (his go).
+- **(~22:10) The PC's repeated connects, confirmed by him:** with the phone looking absent, the PC kept
+  connecting to and dropping the glasses while they sat on the charger. That is the standby's takeover; the
+  manual-only ruling above removes it.
+- **(~22:10) Reminders — things to buy, things to do, calendar events — do not exist anywhere yet and are
+  created in Damage:** designed in step A so the TV keeps their place front and centre, **built as the first
+  new window**, once for every interface. He wants an always-on Claude Code session on the PC (stream-json)
+  that keeps the lists populated and current, connected later to the voice system, which will run on the PC's
+  own speech-to-text and text-to-speech stack (two earlier projects of his hold it; read in step A, read-only).
+  The lead's design notes, for step A's sheet and not yet ruled: the lists live in Damage's state on the PC and
+  the session edits them through a narrow set of operations, so the window works whenever the session is not
+  available; the session wakes on his input and on a schedule rather than running in a loop; anything it asks
+  of the bus goes through the same guarded path as a tap. `POPOVER.md`'s Claude path is the precedent to read.
