@@ -265,8 +265,11 @@ front zone).
 - Whether he wants any outside calendar, and which — Adam.
 - Whether the hub's default shopping list holds anything — Adam, or one read with his go once the watcher's token
   exists.
-- His plan's window sizes (`/usage`) and how much of them the helper may take; what `rate_limit_event.utilization`
-  measures — Adam; the next real limit with `--debug-file` (R3).
+- How much of his usage windows the helper may take — Adam. **Settled 2026-11-13 (one one-word headless run per
+  model, his go):** `rate_limit_event.rate_limit_info.unifiedWindows.seven_day.utilization` is the weekly all-models
+  share his usage screen shows, and a request on the largest model also reports that model's own weekly window; both
+  matched his screen exactly. So H-16's stop above a share of the window can read a real figure. Still open: the lines
+  an expired login and a reached limit produce (the probe runs).
 - Three probe runs of the CLI (his go; `--debug-file` on each; a config directory of their own, with the helper's
   own token where a run needs a model, never his login): **(1)** the helper's exact argv — whether init's `tools`
   array holds only the list operations (does `--tools ""` remove the tool-search tool; what `--setting-sources` and a
