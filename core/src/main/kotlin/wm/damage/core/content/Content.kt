@@ -33,7 +33,7 @@ import wm.damage.core.windows.reader.Epub
 @Serializable
 data class BookMeta(
     val id: String, val title: String, val author: String, val bytes: Long, val file: String,
-    /** Library folder, relative, '/'-separated, "" = root (REFINEMENT.md §3a,
+    /** Library folder, relative, '/'-separated, "" = root (archive/REFINEMENT.md §3a,
      *  2026-08-31: folders are folders — a series in a subfolder stays a
      *  category, not a burst into the main list). Additive with a default so
      *  an older cached listing or an older peer still decodes. */

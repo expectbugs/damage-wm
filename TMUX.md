@@ -55,7 +55,7 @@ atop the list; window NAV is non-invasive (`=session:idx` without `select-window
 an explicit action, same class as the resize).
 
 The proposal below stands where the verdicts do not override it. Sources: `G2CC/server/src/tmux.ts`
-+ `windows/terminal.ts` (facts cited, no code taken), `DESIGN.md`, `CAPABILITIES.md`,
++ `windows/terminal.ts` (facts cited, no code taken), `DESIGN.md`, `archive/CAPABILITIES.md`,
 `overview.md` §5.2. Everything
 below is **modeled** unless marked measured.
 
@@ -65,7 +65,9 @@ below is **modeled** unless marked measured.
 
 **The glasses are a viewer/controller of the real tmux server via DISCRETE commands** —
 `list-sessions` / `capture-pane` / `send-keys` / `new-session`. Never a `-C` control-mode
-attach, never a terminal emulator: tmux IS the emulator; a dropped link loses nothing.
+attach, never a terminal emulator: tmux IS the emulator; a dropped link loses nothing. (The
+glasses, as built. Amended FOR THE WEB by `REPLAN.md` §15 B4: a device at level full gets a real
+terminal over a control-mode stream, attached with `ignore-size` — `CONTRACT.md` §3.4.)
 
 Wire facts (lineage: `G2CC/server/src/tmux.ts`):
 
@@ -111,10 +113,10 @@ only on change**); **RemoteTmuxProvider** (the phone side).
 
 The phone already knows beardos (host/port/token in Prefs). **The window declares `Need.HOST`**
 (§10.5): PC unreachable ⇒ Main marks it unavailable, the window shows the last frame with the
-staleness surface. **The staleness surface reaches EVERY level** (2026-09-05, `HANDOFF.md`
-§30): the live pane paints it; the sessions list, history, keys and Main's row carry it in the
-title as `· ! <what is wrong>`. Before that a stopped host said nothing while another host was
-alive (`ghost` failed its status poll for half an hour with the sessions list reading clean).
+staleness surface (as built; from S1 the phone keeps the session list and each session's last
+frame on disk and shows them with their age, keys dim — `CONTRACT.md` §2.7, §12). **The
+staleness surface reaches EVERY level** (`HANDOFF.md` §30): the live pane paints it; the
+sessions list, history, keys and Main's row carry it in the title as `· ! <what is wrong>`.
 
 ### 3.2 The window — levels mapped to the §1 grammar *(⚠ grid-era diagram: LIVE renders as the FLOW view since 2026-08-31 — top matter; the grammar itself is unchanged)*
 
@@ -181,13 +183,11 @@ an optional last-lines pattern list (config; default tuned to CC's permission pr
 ("tmux · claude2 wants input"), sets the dirty tick, and the sessions list marks ⚠ waiting.
 Per-session mute in that session's actions. The workday loop is glance → tap → `y`.
 
-- Until 2026-09-04 (`HANDOFF.md` §29) the notice was app-less and the tap only DISMISSED it. It
-  carries `appId = "tmux"`, `target = session:<host>:<name>`, one thread per session, and
-  `TmuxWindow.open(target)` lands in that session's live view — verified live.
-- The pattern match runs over the last NON-BLANK lines of `capture-pane -p`. Until 2026-09-04
-  (`HANDOFF.md` §28.2) the script took `tail -5` of the RAW pane — five empty rows for a pane
-  that had not filled its screen, so a session created from the glasses never alerted and had
-  no last line (`LocalTmuxProvider.STATUS_SCRIPT`).
+- The notice carries `appId = "tmux"`, `target = session:<host>:<name>`, one thread per
+  session, and `TmuxWindow.open(target)` lands in that session's live view (`HANDOFF.md` §29).
+- The pattern match runs over the last NON-BLANK lines of `capture-pane -p`
+  (`LocalTmuxProvider.STATUS_SCRIPT`; a raw `tail -5` missed every pane that had not filled its
+  screen — `HANDOFF.md` §28.2).
 
 ### 3.6 Contract plumbing (all existing idioms)
 
@@ -209,7 +209,8 @@ consumer. Nothing else in the shell changed.
 
 `send-keys` is command execution on beardos by design — what Adam's own hands have at the
 keyboard, reachable only through the token-gated, Tailscale-only content seam, targeting one
-explicitly-opened session. Tests never touch the real server (`tmux -L damage-test` throwaway;
+explicitly-opened session. (As built. Amended by the reach ruling — the tailnet and the bus
+network, Tmux at device level full only: `REPLAN.md` §14.3 #3, §15 A1–A2; `CONTRACT.md` §10.) Tests never touch the real server (`tmux -L damage-test` throwaway;
 unit tests use a fake provider).
 
 ## 5. The explosion, the v1 cut and the refinery questions — CLOSED
@@ -218,5 +219,7 @@ Closed in one day (2026-08-31): every question answered (verdicts in the top mat
 and reworked into the flow view, and the v1.5/v2 rows shipped early — typed text via all three
 replicas (confirm-to-run), multi-host over ssh, window targeting/select-window, session
 end/rename, per-session mute. Still deliberately unbuilt: scrollback SEARCH (typing prerequisite
-met since the §4.8 keyboard, 2026-09-01), the texture-cache glyph path, history reading filters,
-session-output→Reader hand-off. ❌ never: blinking cursor, bell sound (§0).
+met since the §4.8 keyboard, 2026-09-01), history reading filters, session-output→Reader
+hand-off. (The texture-cache path, once on this list, came shell-wide — `HANDOFF.md` §41.4; Tmux's
+text rides it through `styledText(text)`, `TmuxWindow.kt:76`.) ❌ never: blinking cursor (kept
+out again 2026-11-13, `MOTION.md` §6 B5), bell sound (§0).

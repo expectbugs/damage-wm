@@ -75,10 +75,10 @@ class ReaderWindow(
     private var library: List<BookMeta> = emptyList()
     private var libraryState = "loading"
     /** Current library folder ("" = shelf root) — folders are folders
-     *  (REFINEMENT.md §3a, 2026-08-31): a folder is a row, tap descends,
+     *  (archive/REFINEMENT.md §3a, 2026-08-31): a folder is a row, tap descends,
      *  double-tap ascends. */
     private var folder = ""
-    /** Lines per ring notch inside a book (REFINEMENT.md §3b). Default 5 and
+    /** Lines per ring notch inside a book (archive/REFINEMENT.md §3b). Default 5 and
      *  acceleration OFF since 2026-08-31: Adam tried the ramp on glass and
      *  called it too uneven — "lets just default the scrolling to 5 lines per
      *  notch - configurable". Both live in the Settings window's Reader

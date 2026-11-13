@@ -1,5 +1,9 @@
 # Review archive — the finishing build (2026-08-25) + the texture-cache round (2026-08-30)
 
+> **Archived 2026-11-13** (`archive/README.md`). The register below (deliberate behaviour not to
+> "fix") still describes code that runs; the code cites its entries by round (`ShellKeeper.kt`,
+> `ShellService.kt`, `SeamSessionTest.kt`).
+
 **This file is the 2026-08 review ARCHIVE**, folded 2026-09-01 from the finding-by-finding log
 (git holds every entry). ⚠ **The 2026-09 loops are NOT here** — pointers only:
 

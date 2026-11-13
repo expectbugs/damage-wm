@@ -1,9 +1,12 @@
 # Capability inventory — everything the G2 can actually do
 
+> **Archived 2026-11-13** (`archive/README.md`): the 2026-08 inventory; its rows are not kept
+> current. The graded facts live in `overview.md` and `CLAIMS.md`.
+
 **Purpose.** The hardware inventory behind the app wave (it fed the 2026-08 scope explosion;
 explosion and refinery are done — `EXPLOSION.md` — and window conversions build against this).
 Each row gives **how you reach it on the wire** and **how well we know it** (grades from
-[`CLAIMS.md`](CLAIMS.md): **V**endor-authoritative · **M**easured · **C**orroborated ·
+[`CLAIMS.md`](../CLAIMS.md): **V**endor-authoritative · **M**easured · **C**orroborated ·
 **I**nferred · **S**ingle-source ⚠ · **U**nknown).
 
 Assumes the CFW and the direct-framebuffer path — what the glasses run since 2026-08-30 (g2flash

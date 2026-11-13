@@ -10,10 +10,16 @@ animate and answer the ring themselves. Everything here runs on hardware Adam ow
 network, for his own use. It is display-rendering and UI work. Keep the wording plain (`CLAUDE.md`,
 "Plain engineering wording") in every file, comment and commit this plan produces.
 
-**Status.** Plan written 2026-09-12 (`HANDOFF.md` §48). **All other Damage work is suspended until
-Phase 8 closes** (Adam, 2026-09-12): no new windows, no Feed polish, no popover build outside this
-plan. New windows (Mail, SMS, Info, Notices, FF1, chess, …) resume afterwards. Progress is logged in
-§11; a fresh session reads `REMINDER.md`, then this file, then `FIRMWARE.md`.
+**What is live in this file (2026-11-13).**
+1. **The order of work is `REPLAN.md`** (its §4 as amended by §14), not §5; the suspension of 2026-09-12 (no new
+   windows, no Feed polish, no popover build outside the plan) carries over under it (`CLAUDE.md`).
+2. **Binding:** §2's decisions (with the amendments its status line names), §3's principles — §3.8 is the protocol
+   every build follows —, §7's flash ritual, §8's assumptions, §9 and §10.
+3. **Design still to build:** §4 and Phases 3–8 of §5 — the first flash (C1) is Phase 3's, the second (C2) Phase
+   4's, the glasses kit (K) their Damage halves and Phase 6, step G Phases 7–8; `FIRMWARE.md` §5–§6 is C1's and C2's contract.
+4. **History:** Phases 0–2 are done and flashed (Phase 1 2026-09-15; Phase 2 2026-09-16, pin `48172b62…`, on both
+   lenses since); their sections keep what still binds or is cited. Phase 2's test stop T2 is still open.
+5. **§11 is an index** of the log; the records are `HANDOFF.md` §48 onward.
 
 **Grading.** Every number is measured, modeled or inferred and says which. Every firmware fact
 cites the decompile corpus (`reference/evenRealities-openCFW/g2/research/corpus/apollo-main/ghidra/decomp/`)
@@ -39,7 +45,11 @@ waits longer than the journal says.
 
 ## 2. Decisions
 
-Proposed 2026-09-12; treated as in force; Adam confirms or changes them at the close of Phase 0.
+Proposed 2026-09-12 and treated as in force; Adam's confirmation, owed at Phase 0's close, moved with Phase 0's
+decisions to step A (`REPLAN.md` §4) and is given only where this line says so. Since: D1 stands after the 2026-11-10 survey (`HANDOFF.md` §74); D3's popover
+family is built in step K and D5's new windows wait for `REPLAN.md`'s order (Reminders first, its §14.4; then Mail ·
+SMS · Info · Notices); D6 and D7's phone-started target are confirmed (`MOTION.md` §6 C1, C2, 2026-11-13); D7's battery
+margin is answered — no limit, with power-saving settings (`REPLAN.md` §14.1 R12); D7's local target is not ruled yet; D4's offline home moves last and is decided again (step G; R8, ruled yes in `REPLAN.md` §14.1; §4).
 
 | # | decision | choice | why |
 |---|---|---|---|
@@ -139,58 +149,46 @@ the two instruments' numbers — the differential fuzz (`firmware/fuzz_vectors.p
 on N random vectors) and the mutation sweep (`~/damage-cfw/tools/mutate.py`: N of M refusal guards caught by a
 gate) — which is the record a review starts from (`CLAUDE.md` "Scope, build, review").
 
-### Phase 0 — Measure, research, decide (size S; no firmware; a few sessions plus a week of use)
+### Phase 0 — Measure, research, decide — **done** (`HANDOFF.md` §49–§50, §54; its refinery and decisions moved to step A, `REPLAN.md` §4)
 
-**Measurements (read-only or APK-only):**
+**Measurements** (the ids are cited from code and records):
 
-| id | what | answers |
+| id | what | outcome |
 |---|---|---|
-| M0.1 | diagnostic overlay on for one probe session (`glassdrive.py probe:diag=show`, APK 0.45; never the shell), read on glass by eye or photo, then `probe:diag=hide` | free KiB of arenas 13/20/27 and which arena holds the container buffers; worker µs and the shadow → framebuffer copy µs → the heap budget. **Not the tick ceiling:** the overlay's `p` excludes the panel transfer, which nothing times today (`CLAIMS.md` 2026-09-13) — F1.3 measures it |
-| M0.2 | 240 fps phone video through a lens: a stock dashboard scroll (cadence, the bounce) and a Damage notch (ring press → first visible change) | the real user-perceived numbers; if filming fails, Phase 1 telemetry is the fallback |
-| M0.3 | BTSnoop with the APK driving (bug-report mail path) plus one Wi-Fi-off session | packets per connection event, PHY, the arm split, one arm drop from the radio's side → the link levers |
-| M0.4 | 2M PHY request from the APK (`probe:phy=2m`, APK 0.45; `probe:phy=1m` returns) — **answered 2026-09-14 without the request:** the phone's record of the glasses' link-layer feature set has the LE 2M PHY bit clear (`CLAIMS.md`); the probe stays as a check | measured, not assumed |
-| M0.5 | the sid-0x0F log stream across an arm rebuild (`probe:logger=on`, APK 0.45: RAM-only on the glasses, re-sent after each session start; lines land in the journal as `glasslog` notes) — **dropped as a pre-test 2026-09-14 (`HANDOFF.md` §50.9):** F1.2's uptime answers reset-vs-stall after the flash; the probe stays available | what the surviving arm logs as the other drops → reset vs stall, the hold-back rule's N |
-| M0.6 | the glasses' battery changes journaled (`battery` notes, APK 0.45; `journal_report.py --since`) over a day on `Link = high` and a day on `balanced` (the §47 experiment) | the battery baseline every later soak compares against |
-| M0.7 | **the phone-state experiment** (added 2026-09-14, redesigned the same evening, `HANDOFF.md` §50.6 — the glasses sat in the charging case through the 13th's fourteen daytime drops AND its two quiet nights, so the variable is the phone's day/night state): glasses in the case in the bedroom, session up, `probe:logger=on`, the snoop Enabled — ~2 h with the phone beside the case, screen off; ~2 h with the phone in another room in normal use; the journal's `link` notes say which condition drops, the snoop's vendor quality events what the radio saw before a timeout | whether distance/walls, the phone's activity or a periodic phone-side event gates the drops; with M0.5's log lines across a drop, reset vs stall — the hold-back rule's N and §42.2's ten narrowed — **optional since §50.9** |
+| M0.1 | the diagnostic overlay for one probe session (`glassdrive.py probe:diag=show`, then `diag=hide`; never the shell): free KiB of arenas 13/20/27, worker and copy µs — not the panel transfer, which F1.3 times | read on glass 2026-09-15 (`HANDOFF.md` §54.8); the probe blanked the a5d1c31 build until a rebuild and is not run on the fork's build without Adam |
+| M0.2 | 240 fps phone video through a lens: a stock dashboard scroll and a Damage notch (ring press → first visible change) — the user-perceived numbers | open (`REMINDER.md`); the telemetry is the fallback |
+| M0.3 | BTSnoop with the APK driving (the bug-report path) plus a Wi-Fi-off session: packets per connection event, PHY, the arm split, an arm drop from the radio's side | four two-arm captures (§50.8); the per-event read (§54.4, `research/perevent.py`): two full packets per served event on LEFT, served every 60 ms in two of three sessions, the host not the limit — F1.8 dropped; a capture spanning a drop still owed |
+| M0.4 | the 2M PHY request (`probe:phy=2m`; `probe:phy=1m` returns) | the missing 2M was the host's disabled feature bit (§58), enabled by Phase 2's link edits; both arms on LE 2M since (§65); the probe stays as a check |
+| M0.5 | the sid-0x0F log stream across an arm rebuild (`probe:logger=on`: RAM-only on the glasses, re-sent after each session start; `glasslog` notes) — reset vs stall, the hold-back rule's N | dropped as a pre-test (§50.9): F1.2's uptime answers reset vs stall; the probe stays available |
+| M0.6 | the glasses' battery changes journaled (`battery` notes; `journal_report.py --since`) over a day on `Link = high` and a day on `balanced` (the §47 experiment) | the baseline every later soak compares against; day one on `high` begun 2026-09-14 (§50.9), day two optional |
+| M0.7 | the phone-state experiment for the arm drops (§50.6: the variable is the phone's day/night state) | optional since §50.9 |
 
-**Research (decompile corpus + openCFW docs; findings into `CLAIMS.md`):**
+**Research** (the decompile corpus and openCFW's docs; findings in `CLAIMS.md` and `research/fork-reads-2026-09-13.md`):
 
-| id | subject | where to look |
-|---|---|---|
-| R0.1 | the input path: the gesture mapper `FUN_00442d86` (subtypes 0/2/4/6/8/10/0xc/0xe/0x10), which subtypes are scroll, how input is mirrored to the other lens, how the EvenHub UI handler turns them into SysEvents — **read 2026-09-15** (`CLAIMS.md`, `research/fork-reads-2026-09-13.md` "R0.1"): the mapper is the display thread's `inputEventDataHandler` (one UI code per event id, table in the notes); input reaches a display thread ONLY through the sync framework's listeners, on both lenses (the type-7 poster has two callers, the master's and the slave's listener); the input manager runs on RIGHT only (both-temple detection, a 1 s cross-device lockout) and sends every event to the peers; both lenses can send over the inter-lens link; the per-notch scroll is the EvenHub page's kind-2 container message. Still U: which ids the slides/swipes carry (the touch processor and ring service), the TinyFrame role byte | corpus; `g2flash/patches/gesture_fwd.c` for the two known sites |
-| R0.2 | the inter-lens link: `uart_sync.c` + the sync framework (master/slave TinyFrame over a UART); how a display step runs on both lenses together — **read 2026-09-13** (`CLAIMS.md`): RIGHT forwards the completion through `FUN_00464BB2`, a non-blocking queued send; the UART rate is U | `g2-uart-sync-recovery.md`, `g2-sync-framework-recovery.md` |
-| R0.3 | the refresh path: the display task `FUN_00473c44` passes the queued rect to the ULED manager's async refresh; whether either panel driver honours the rect (JBD4010 and Hongshi A6N-G both have partial-refresh entries); which panel Adam's pair has (chip-id read) — **read 2026-09-13** (`CLAIMS.md`): the async path sends the whole panel on both drivers; JBD4010's partial path writes per row, A6N-G's moves nothing; the selector and the active-record word are known, Adam's panel is U; still open: the MSPI clock that sets the transfer time | `g2-uled-manager-recovery.md`, `g2-uled-jbd4010-recovery.md`, `g2-uled-a6ng-recovery.md` |
-| R0.4 | the connection-parameter policy (`app_connect_params.c`, 14 functions mapped): the fast and slow profiles (`_connectParamReq_impl` and its profile table), where the idle request is issued, the cleanest lease-gated redirect — **read 2026-09-13** (`CLAIMS.md`): a 60 s timer carrying the slow event is armed at connect and after every update; every submit enters `FUN_00476CBC` (the F1.6 site); the profile words and the checks inside the submit are still unread | `g2-app-connect-params-recovery.md`, `tools/manifests/g2-app-connect-params-*.tsv` |
-| R0.5 | stock helpers to call: RTC getter, fuel-gauge getters, crc32, kvdb read/write (Phase 7's persisted flag), the dashboard launch path and module registry (Phase 7) — **read 2026-09-15** (`CLAIMS.md`, the notes "R0.5"): the KV get/set are `FUN_0054116E`/`FUN_005411F2` over FlashDB with no lock of their own (the bracketing call is the tick reader; §50's "takes a lock" corrected); the fuel-gauge record `0x20073B18` is referenced from seven pools (offsets per openCFW, C); the RTC setter is `DRV_RtcSetTime` at `0x0047EE78` over the HAL, the stock getter still to name; app 3 = the dashboard (I), the registry per openCFW's `ui_module_registry.c` (C); crc32: none callable (2026-09-14) | `g2-drv-rtc-recovery.md`, the chg_bq27427 overlay, `ui_module_registry.c`, `ui_startup_app.c` |
-| R0.6 | heap: which arena holds the container buffers; a budget for cache growth, scratch and staged content — **read 2026-09-13**: arena 13 or 20 (I, sizes); M0.1's readout decides | M0.1 plus `patch_compress.py`'s arena notes |
+| id | subject | outcome | where to look |
+|---|---|---|---|
+| R0.1 | the input path: the gesture mapper `FUN_00442d86`, how input is mirrored to the other lens, how the EvenHub UI handler turns it into SysEvents | read 2026-09-15 (notes "R0.1"): the mapper is the display thread's `inputEventDataHandler`; input reaches a display thread ONLY through the sync framework's listeners, on both lenses; the input manager runs on RIGHT only (both-temple detection, a 1 s cross-device lockout) and sends every event to the peers; both lenses can send over the inter-lens link; the per-notch scroll is the EvenHub page's kind-2 container message. The slide and swipe ids since (event ids 4 and 5, 2026-11-13, `CLAIMS.md`); the TinyFrame role byte U | corpus; `g2flash/patches/gesture_fwd.c` for the two known sites |
+| R0.2 | the inter-lens link (`uart_sync.c`, the sync framework) | read 2026-09-13: RIGHT forwards the completion through `FUN_00464BB2`, a non-blocking queued send; the UART rate U | `g2-uart-sync-recovery.md`, `g2-sync-framework-recovery.md` |
+| R0.3 | the refresh path: the display task `FUN_00473c44` and the ULED manager's async refresh | read 2026-09-13: the async path sends the whole panel on both drivers; JBD4010's partial path writes per row (Phase 2's mode 24); Adam's panel is the JBD4010 (§55) | `g2-uled-manager-recovery.md`, `g2-uled-jbd4010-recovery.md`, `g2-uled-a6ng-recovery.md` |
+| R0.4 | the connection-parameter policy (`app_connect_params.c`, 14 functions mapped) | read 2026-09-13: a 60 s timer carrying the slow event is armed at connect and after every update; every submit enters `FUN_00476CBC` (the F1.6 site); superseded by Phase 2's link edits (§58) | `g2-app-connect-params-recovery.md`, `tools/manifests/g2-app-connect-params-*.tsv` |
+| R0.5 | stock helpers: RTC getter, fuel-gauge getters, crc32, the KV store (Phase 7's persisted flag), the dashboard launch path and module registry (Phase 7) | read 2026-09-15 (notes "R0.5"): the KV get/set are `FUN_0054116E`/`FUN_005411F2` over FlashDB with no lock of their own; the fuel-gauge record `0x20073B18` is referenced from seven pools (offsets per openCFW, C); the RTC setter is `DRV_RtcSetTime` at `0x0047EE78`, the stock getter still to name; app 3 = the dashboard (I), the registry per openCFW's `ui_module_registry.c` (C); no callable crc32 | `g2-drv-rtc-recovery.md`, the chg_bq27427 overlay, `ui_module_registry.c`, `ui_startup_app.c` |
+| R0.6 | heap: which arena holds the container buffers; the budget for cache growth, scratch and staged content | arena 13 or 20 (I); the budget as measured is §8's first row | M0.1 plus `patch_compress.py`'s arena notes |
 
-**Design work:** `FIRMWARE.md` v2 filled in from a skeleton to a draft; the conformance-vector
-format; **the motion explosion and refinery** (the explosion's draft list: `MOTION.md`, 2026-09-13) — every animation idea per surface and window (shell:
-Main notch with recede/pan/advance, wheel spin, popover reveal/cover and depth step, notification
-slide, the keyboard, height switch, back-to-Main, the wake; windows: Reader page slide, list panning
-with bounce, Files/Torrents rows, Music card and Music Mode, Tmux history scroll, Feed strips and
-comics, Hold'em deal/flip/chips/showdown; Settings previews), then Adam's verdicts. The surviving
-list fixes the verb set. Revisit `DESIGN.md` §0's cost-based exclusions (fades, dim-behind,
-banners): Adam's call now that cost is gone. Lock D1–D8.
+**Design work** (done): `FIRMWARE.md` v2 (§3 and §4 built; §5 and §6 in contract form 2026-11-13); the
+conformance-vector format (`FIRMWARE.md` §9); the motion explosion and refinery (`MOTION.md`, ruled 2026-11-13),
+which also re-put `DESIGN.md` §0's cost-based exclusions; D1–D8 proposed (§2; confirmed only where its status line
+says). **Adam's ruling (`HANDOFF.md` §50.9):** the arm
+drops are recorded (§42.2, §49.1, §50.6, §50.8), cause U, and not this plan's work — he never sees one while wearing
+the glasses.
 
-**Status 2026-09-14 (`HANDOFF.md` §50.9, Adam's ruling):** M0.4 answered (no 2M PHY); M0.3 done bar a
-drop (four full captures); M0.5 and M0.7 dropped as pre-tests (F1.2's uptime answers reset-vs-stall after
-the flash; the keeper re-uploads on every start anyway); M0.6 day one on `high` running, day two optional;
-M0.2, the refinery and D1–D8 at Adam's pace before Phase 3. **Only M0.1 (one minute) stands between here
-and Phase 1's build and flash.** The arm drops are recorded (§42.2, §49.1, §50.6, §50.8), cause U, and not
-this plan's work: Adam never sees one while wearing the glasses.
+### Phase 1 — The fork pipeline and the first flash — **FLASHED 2026-09-15 04:38 (`HANDOFF.md` §55): both lenses on pin `c5e4f8b7…` (now the rollback image), the self-test green on glass, the panel JBD4010, the transfer 1.2–6.6 ms per present, PROBE + PRESENTED armed**
 
-**Exit:** the numbers in a table; the verb set; the contract draft; the decisions. No flash.
-
-### Phase 1 — The fork pipeline and the first flash (size M; 1 flash) — **the first flash DONE 2026-09-15 (`HANDOFF.md` §55): both lenses on pin `c5e4f8b7…`, the self-test green on glass, the panel JBD4010, the transfer 1.2–6.6 ms per present, PROBE + PRESENTED armed; F1.7 folded into Phase 2 (Adam, 2026-09-15); the noon read `HANDOFF.md` §56**
-
-**Built and flashed (`HANDOFF.md` §49–§55):** the fork pinned to our clang with `tools/verify.py`; the x86 host
-harness (`host/`: the vectors, the self-test form, `test_damage_ext.py`); `patches/damage_ext.c` = F1.1–F1.5 and the
-self-test, one new site (`0x00473CE4`, the display task's refresh call, a pass-through for every stock refresh); pin
-`c5e4f8b7…` on both lenses since 2026-09-15 04:38. Damage: `DamageMsg`, the simulator's mirror, the keeper's arm /
-hold-back protocol (`HOLD_BACK_MS` = 120 s, a placeholder), `present` records, `glassdrive.py selftest:`, the bounded
-atlas skip (§54). Read at instruction level: only RIGHT can send (`CLAIMS.md`); CACHE_KEEP stays unarmed until LEFT
-can be verified (Phase 4).
+**Built (`HANDOFF.md` §49–§55):** the fork pinned to our clang with `tools/verify.py`; the x86 host harness (`host/`:
+the vectors, the self-test form, `test_damage_ext.py`); `patches/damage_ext.c` = F1.1–F1.5 and the self-test, one new
+site (`0x00473CE4`, the display task's refresh call, a pass-through for every stock refresh). Damage: `DamageMsg`, the
+simulator's mirror, the keeper's arm / hold-back protocol (`HOLD_BACK_MS` = 120 s, a placeholder), `present` records,
+`glassdrive.py selftest:`, the bounded atlas skip (§54). Read at instruction level: only RIGHT can send (`CLAIMS.md`);
+CACHE_KEEP stays unarmed until LEFT can be verified.
 
 **Firmware features (flags, default off):**
 
@@ -202,29 +200,29 @@ can be verified (Phase 4).
 | F1.4 | flag op (field 112); flags clear at every release point | flashed |
 | F1.5 | cache-keep across a lapse (flag bit 1, a once-per-lease latch; generation / size / CRC through op 4). Adam's ruling: the phone's atlas skip is the bounded one, no flag (§54); CACHE_KEEP unarmed until LEFT can be verified | flashed, unarmed |
 | F1.6 | fast-link hold — dropped for Phase 1 (§50.9); superseded by upstream's link edits, built in Phase 2 (§58) | → Phase 2 |
-| F1.7 | the JBD4010 per-row partial refresh timed against the full transfer | → Phase 2 (mode 24) |
+| F1.7 | the JBD4010 per-row partial refresh timed against the full transfer | → Phase 2 (mode 24; Adam, 2026-09-15) |
 | F1.8 | multi-packet ATT writes — dropped: the phone is not one-write-per-event (§54.4); the missing 2M PHY was a host-disabled bit (§58) | dropped |
 
-**Test stop T1:** host vectors and simulator green · the flash ritual (§7) · self-test on glass ·
-features armed one at a time · a soak day · journal and `/log` read · fix flash if needed.
-**Exit:** every telemetry field populated (the boot count withdrawn); the cache survives a rebuild without re-upload
-(seen on glass, §54.1); no hold-back events; the soak = ordinary wear during Phase 2's build (Adam, §56).
+**Exit, met before Phase 2's flash:** every telemetry field populated (the boot count withdrawn); the cache kept
+across a rebuild without re-upload (seen on glass, §54.1); no hold-back event; the soak was ordinary wear during
+Phase 2's build (Adam, §56) — 7.3 h then 10.2 h worn clean (§56, §65).
 
-### Phase 2 — Drawing contract v2, phone-driven (size L; 1 flash) — **FLASHED 2026-09-16 (pin `48172b62…`, `HANDOFF.md` §65; built §60, reviewed §61–§64); Reader's page staging built the same evening (§66, APK 0.57, on-glass read owed); test stop T2 open**
+### Phase 2 — Drawing contract v2, phone-driven — **FLASHED 2026-09-16 (pin `48172b62…`, `HANDOFF.md` §65; built §60, reviewed §61–§64); Reader's page staging built the same evening (§66); test stop T2 open**
 
-**Firmware (`FIRMWARE.md` §4, drafted 2026-09-15):** per-lens cached image and string draws (modes 17/18), the v2
-image record (u16 dims), the 224-entry table, cache write v2 (19), clip (20), fill (21), LUT over rect (22),
-save-under (23), the partial-refresh present hint (24, F1.7), op 5 CACHE_SIZE, status 3–5 (the no-lease FLAGS_SET
-refusal, Adam's §53.1 ruling), refusal fields 23–25, DRAW2 flag bit 2, contract 2; **and the link (Adam, 2026-09-15,
-`HANDOFF.md` §58): LE 2M enabled in the startup feature command, both fast profile records 7.5 ms min/max latency 0,
-the slow request bound to the fast record** — three in-place constants ported from upstream `c63710c`.
+**Firmware (`FIRMWARE.md` §4):** per-lens cached image and string draws (modes 17/18), the v2 image record (u16
+dims), the 224-entry table, cache write v2 (19), clip (20), fill (21), LUT over rect (22), save-under (23), the
+partial-refresh present hint (24, F1.7), op 5 CACHE_SIZE, status 3–5 (the no-lease FLAGS_SET refusal, Adam's §53.1
+ruling), refusal fields 23–25, DRAW2 flag bit 2, contract 2; **and the link (Adam, 2026-09-15, `HANDOFF.md` §58): LE
+2M enabled in the startup feature command, both fast profile records 7.5 ms min/max latency 0, the slow request bound
+to the fast record** — three in-place constants ported from upstream `c63710c`.
 
-**Damage:** encoders, simulator and lint for every new op; the compositor drops the base-delta +
-flat-draw + per-lens-copy shape (the `proof` and `edge` misses go away); kerning on; Reader pre-renders the
-next and previous page as cached images and turns pages by clip + draw; back-to-Main and height switches ship
-as fill + draws; dim-in-place ready for popovers; the phone requests 2M PHY at connect on a build whose DamageCaps
-says so and journals the grant; ms/KB, a capture (`research/perevent.py`), the battery and the earbud's A2DP margin
-measure the link.
+**Damage (built, §60, §66):** encoders, simulator and lint for every new op; the compositor's per-lens draws in place
+of the base-delta + flat-draw + per-lens-copy shape (meant to make the `proof` and `edge` misses go away; `proof`
+read 17 in Phase 2's first 2.5 h and 90 in 0.63's first 80 minutes — T2's exit below, `HANDOFF.md` §66, §75.2); kerning on; Reader's
+page staging (the next and previous strips as cached records, a notch as one draw); back-to-Main and height switches
+as a fill plus draws; the 2M PHY request at connect on a build whose DamageCaps says so, the grant journaled. The LUT
+and save-under encoders exist at the wire level; no surface uses them yet (the popover family, step K). The link is
+measured by ms/KB, a capture (`research/perevent.py`), the battery and the earbud's A2DP margin.
 
 **The envelope (§3.8), filled by the reviews rather than the design pass — the worked example:** (a) DRAW2 and
 the cache size drop with the lease (§61.2 item 6); `glassesSilent`, `recentlyReleased` and the atlas proof mark
@@ -366,8 +364,8 @@ in `fws/`. The site list of every candidate (`~/damage-cfw/tools/verify.py` step
 | local input can be handled on both lenses via stock's mirror | inferred | R0.1, Phase 4 |
 | the ack precedes render on 2.2.6.10 | verified (decompile) | — |
 | the refresh queue carries a rect | verified (decompile); honoured by the async refresh: **no** (verified, instruction level, 2026-09-13); a JBD4010 partial path exists, untimed | F1.3 (done); F1.7 in Phase 2 (Adam, 2026-09-15) |
-| the glasses' idle link request can be gated on the lease | inferred (policy object mapped) | R0.4, F1.6 |
-| one packet per ATT write is the phone-path limit | inferred | M0.3 |
+| the glasses' idle link request can be gated on the lease | inferred (policy object mapped) | R0.4; F1.6 superseded by Phase 2's link edits, which bind the slow request to the fast record (§58) |
+| one packet per ATT write is the phone-path limit | **answered no** (M0.3's per-event read, `HANDOFF.md` §54.4: two full packets per served event; F1.8 dropped) | M0.3 (done) |
 | depth changes per notch are comfortable all day | unknown | T3, T4 |
 | battery cost of the fast link and local motion is acceptable | unknown | M0.6, every soak |
 | stock's near/far setting does not stack on Damage's depth | verified (the copy the CFW replaces applies it) | — |
@@ -387,10 +385,11 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
 
 | what | where |
 |---|---|
-| this plan and its log | `damagewm/FORK.md` |
-| the firmware contract (v1 facts by pointer, v2 by design) | `damagewm/FIRMWARE.md` |
+| the order of work | `damagewm/REPLAN.md` (its §4 as amended by §14) |
+| this plan and its log's index | `damagewm/FORK.md` |
+| the firmware contract (v1 facts by pointer, v2 as built and designed) | `damagewm/FIRMWARE.md` |
 | conformance vectors | `damagewm/firmware/vectors/` (data) — inputs written by `damagewm/firmware/make_vectors.py`; expectations by the fork's `host/run_vectors.py --write`; checked by `ConformanceVectorTest` and `host/run_vectors.py` |
-| the motion explosion | `damagewm/MOTION.md` (draft, for Adam's refinery) |
+| the motion explosion and its refinery | `damagewm/MOTION.md` (§6 ruled 2026-11-13) |
 | the Phase 0 reads | `damagewm/CLAIMS.md` ("Firmware internals read for the fork") and `damagewm/research/fork-reads-2026-09-13.md`; the tool `damagewm/research/fwread.py` |
 | the fork's checks | `~/damage-cfw/tools/verify.py` (the candidate image), `~/damage-cfw/host/` (the C on the PC: vectors, `test_damage_ext.py`) |
 | the firmware fork | `~/damage-cfw` (GPL-3.0; branch `damage`; `github` = `https://github.com/expectbugs/damage-cfw`, public; `origin` = upstream g2flash, fetch only; `reference` = the pinned clone) |
@@ -398,198 +397,38 @@ flash (fonts live there; a later idea at most); Faceclaw compatibility; a rebase
 | the decompile corpus and subsystem docs | `damagewm/reference/evenRealities-openCFW/g2/` |
 | records | `HANDOFF.md` §48 onward (§49 = 2026-09-13); `CLAIMS.md` rows added per phase; memory `damage-cfw-fork.md` |
 
-## 11. Progress log
+## 11. Progress log — an index (the records are `HANDOFF.md`)
 
-- **2026-09-12** — Plan written after a discussion session (`HANDOFF.md` §48). Decisions D1–D8
-  proposed. `FIRMWARE.md` skeleton written. `~/damage-cfw` created from `a5d1c31` on branch `damage`
-  with the flasher fix carried over — first commit `b3bdd5c` (the Damage repo's record: `d16e5c1`).
-  Nothing flashed. Phase 0 not started. Next: M0.1 and the R0.x reads.
-- **2026-09-13** — Phase 0 started (`HANDOFF.md` §49). Read: R0.2, R0.3 (mostly), R0.4, R0.6, and the
-  sid-0x0F logger handler — facts in `CLAIMS.md`. Two corrections to this plan: the async refresh
-  sends the whole panel whatever the rect (F1.7 rewritten), and M0.1's overlay does not time the
-  panel transfer (M0.1 and F1.3 amended). Built APK 0.45 (staged, not installed): the probes M0.1
-  (`diag`), M0.4 (`phy`), M0.5 (`logger`) behind the replica port's `probe` message, and `battery`
-  journal notes for M0.6; `journal_report.py --since`, the battery and glass-log sections.
-  `MOTION.md` drafted (the explosion's candidate list). Our clang builds a different image from the
-  same sources (`CLAIMS.md`). With Adam's go, Phase 1 groundwork too: the fork pinned to our clang with
-  `tools/verify.py` (`6db86e2`), the x86 host harness and the v1 conformance vectors — **the simulator
-  matches the fork's C on all 35 steps** (`cd802ec`) — and F1.1/F1.2/F1.4 in source (`a8f3610`, not
-  flashed); Damage's side in `a04cb17`. Measured: 14 arm link ends today, none overnight. §3.1's boot-path
-  rule corrected. A Feed test misses in some full core runs (`HANDOFF.md` §49.6). Both repos pushed at the
-  end of the session. Nothing flashed. Next: Adam's side (`HANDOFF.md` §49.7) — install 0.45, the probe
-  session (M0.1, M0.4, M0.5), the two battery days (M0.6), the capture and the video (M0.3, M0.2), where the
-  glasses were in the quiet windows, the refinery on `MOTION.md`, D1–D8.
-- **2026-09-14** — Review of the 2026-09-13 work (`HANDOFF.md` §50), nothing built beyond fixes: the
-  load-bearing addresses re-read at instruction level (all held); the telemetry record's field 4 made
-  the status register `FIRMWARE.md` §1.2 requires (the C, the simulator, both test sets; fork pin
-  `f9211ea2…`, 26 entries, no new site); the boot-count read withdrawn — stock keeps `kvbooCount` only
-  in the KV store (F1.2 amended); the transport reads DamageCaps from the capability answer only; arena
-  13 is 839,680 B. Then Adam's day: the glasses were in the charging case, untouched, through the 13th's
-  fourteen drops and its quiet nights (§50.6, corrected); the snoop recipe verified from the stack's source
-  and Adam cleared of ever choosing Filtered (§50.7); M0.4 answered from a bug report's stack dump (no 2M
-  PHY); four full two-arm captures with the APK driving, local in `captures/apk-20260914-*` (§50.8); the
-  earbud measured — not the slow side, its audio fine to Adam's ear; today's journal: no drop in 4.5 h worn
-  at work, battery ~7.5 %/h. **Adam's ruling (§50.9): the drops are not the work; Phase 1 proceeds in a
-  fresh session** — M0.1 first, then F1.3, F1.5, F1.7, the self-test op and the keeper's arm/hold-back on
-  uptime; F1.6 dropped unless slow-set episodes return. Nothing flashed.
-- **2026-09-14 (evening)** — Phase 1's candidate built on both sides while Adam was at work (`HANDOFF.md` §51):
-  F1.3, F1.5 and the self-test in the fork (pin `5ff9159b…`, one new site, all host checks green), the keeper's
-  arm / hold-back protocol, the `present` journal record, the report's transfer section, the on-glass self-test
-  runner and APK 0.46 in Damage. Read at instruction level: the stock senders refuse on the left lens — every
-  reply and notify is RIGHT's; Adam chose the bounded atlas skip (no flag) and left CACHE_KEEP unarmed until LEFT
-  can be verified (§51.8). F1.7 waits on the panel type. Nothing flashed; both trees committed and pushed on his
-  word from work (Damage `ca8fe4f`, the fork `2aded36`). Next (`HANDOFF.md` §51.9, `REMINDER.md`): the queue
-  before he is home — the bounded skip, R0.1, R0.5, the M0.3 read, the core suite ×20 — then M0.1 (one minute), the
-  site review (`tools/verify.py` step 6: `0x00473CE4` in `FUN_00473C44`), his go, the ritual.
-- **2026-09-14 (late evening)** — The evening's work reviewed (`HANDOFF.md` §52), Adam's instruction from work: four
-  defects verified before a line changed, fixed, each pinned by a test watched to fail on the old code. The fork
-  (pin `70e47938…`, 27 entries, the same one new site): a self-test step carrying a mode-3/6 message shorter than
-  its header fell through to the BMP loader — it cleared the live direct frame and handed the stack-built state to
-  the stock loader (now refused and counted); a direct copy whose refresh the panel-off skipped left the F1.3 mark
-  set, so a later stock refresh was stamped and reported as a Damage transfer (the stock-copy path clears it);
-  the self-test's cross-task fields made volatile. Damage: the keeper's reset detection compared two uptime
-  readings and missed a reset once the uptime had grown past the previous reading — the post-flash case — and now
-  compares against the elapsed phone time; a bit the build refuses as unsupported no longer blocks the bits above
-  it and is dropped from the wish. Host harness: `panel`, `refresh`, a BMP-loader count. The full battery green
-  (core 548, the fork's checks 41/41); APK 0.47 staged, 0.46 never installed. Both trees left modified and
-  uncommitted for Adam. Nothing flashed. The §51.9 queue stands, the bounded atlas skip first.
-- **2026-09-14 (night)** — A second review of the same work (`HANDOFF.md` §53). One contract deviation on both
-  sides: the flags survived an FB_RELEASE that followed a lapse the glasses had already settled (the settled
-  marker now keeps only the latch; fixed in the C and in the model, pinned on both — three host checks, two
-  `DamageMsgTest` pins); the model also cleared the flags on a lease check with no lease, which the C never did.
-  Guards: a begin of the self-test runs under its active mark (a release from another task during it is honoured
-  after it), and a stale FLAGS_SET waiter can no longer drop a newer session's. Fork pin **`c5e4f8b7…`** (27
-  entries, the same one new site, 46,480-byte block); the battery green (core 550, the fork's checks 44/44); APK
-  0.48 staged, none of 0.46–0.48 installed. Open for Adam: whether a FLAGS_SET with no lease held should be
-  refused. Both trees committed and pushed on Adam's word (Damage `ba70608`, the fork `2935a66`); nothing flashed.
-  The §51.9 queue stands.
-- **2026-09-15** — The §51.9 queue run while Adam was at work (`HANDOFF.md` §54), no firmware change. **The
-  bounded atlas skip built** (Adam's ruling): the transport's per-arm lease log and carry decision at the
-  rebuild's acquire (90 s less a 10 s margin; writes of the last 10 s before a link end struck; a release sticky;
-  a writer tag against a takeover's cache), the shell's kept path (the acked fonts live from the first compose,
-  the in-flight chunk re-sent), an `atlas` note either way; `AtlasCarryTest` (5) watched to fail with the keep
-  disabled; APK 0.49 staged. **R0.1 read:** input reaches a display thread only through the sync framework's
-  listeners on both lenses; the input manager runs on RIGHT only (both-temple detection, a 1 s cross-device
-  lockout) and sends every event to the peers; both lenses can send over the inter-lens link; the per-notch
-  scroll is the EvenHub page's kind-2 container message — the table of event ids and UI codes in the notes; the
-  ids behind slides/swipes and the TinyFrame role byte stay U. **R0.5 read:** the KV get/set take no lock of their
-  own (§50's "lock" was the tick reader), the fuel-gauge record's address is used by seven pools, the RTC setter
-  named, app 3 = the dashboard (I), the registry per openCFW (C). **M0.3's per-event read** (`research/perevent.py`):
-  two full packets per served connection event on LEFT, served every 60 ms in two of three sessions (8.2 KB/s), the
-  host not the limit — F1.8 dropped in its ATT-write form; the cadence's cause U. The core suite ran 30 times
-  (§54.5, §54.7: the Feed miss 5, a seam-test race 2, three untraced exceptions, 18 clean); a self-review pass
-  made three small changes (a locale-safe gap, the lease log kept by count, a bound on re-sent chunks) and the
-  battery ran again green. Damage committed and pushed on Adam's word (`940272e`); the fork untouched; nothing
-  flashed. Next: his part (§51.9 B, APK 0.49), the
-  §53.1 ruling; for a session without him: the touch processor and ring service, the RTC getter, a capture
-  with the ring asleep.
-- **2026-09-15 (noon)** — The soak read (`HANDOFF.md` §56): the Phase 1 build's first 7.3 h clean; 387 presents,
-  transfer 2.0 ms median / 12.2 max (M) — the link is the tick ceiling; in the case the panel is off (copies counted,
-  nothing transferred); the uptime tick runs 1.024 per ms. Adam's rulings: F1.7 folded into Phase 2; a FLAGS_SET with
-  no lease refused (status 3) from Phase 2's candidate; the soak is ordinary wear during Phase 2's build. Docs only.
-- **2026-09-15 (afternoon)** — Phase 2's design pass: `FIRMWARE.md` §4 drafted (modes 17–24, the v2 image record, the
-  224 table, op 5, status 3–5, refusal fields 23–25, budget options, the v2 vectors) from two surveys and the journal
-  baseline (`HANDOFF.md` §57); eleven decisions put to Adam. No code; nothing flashed.
-- **2026-09-15 (afternoon, 2)** — Upstream's link reconfiguration read against our base (`HANDOFF.md` §58): three in-place
-  edits (LE 2M feature bit, a 7.5 ms fast profile, the slow request forced to fast), ~41 KiB/s measured upstream; our
-  three sites found at instruction level; M0.4 corrected. **Adam's ruling: inside Phase 2's candidate.** Phase 1's
-  section and REMINDER trimmed to the plan and pointers (the records hold the history).
-- **2026-09-15 (evening)** — Adam's word on §57's eleven decisions: as recommended. Phase 2 built on the firmware side
-  (`HANDOFF.md` §60): modes 17–24, op 5, status 3–5, fields 23–26, the partial path, the three link edits — pin
-  `aacdc63a…`, no new site, every host gate green; 11 v2 vectors; the simulator matches the C on all 18 vectors, both
-  forms. Damage (the same evening): the v2 atlas, the compositor's per-lens draws, fills, the reseed, the hint,
-  kerning, the transport's start (cache size, DRAW2 before the paint, the 2M request), the report and the on-glass
-  runner — `Contract2Test` pins it, gated on DamageCaps bit 5 + DRAW2; Reader's page staging is the one Phase 2
-  item left. A live defect found from Adam's report at work and fixed for APK 0.50 (`HANDOFF.md` §59: a lens
-  reboot inside the atlas skip's window; a keeper race on the duplicate replies). Nothing flashed.
-- **2026-09-15 (night)** — The first review of Phase 2 (`HANDOFF.md` §61): 10 fork and 13 Damage defects fixed
-  and pinned (a heap overrun behind a sub-64 KiB `CACHE_SIZE`, the partial call's width, the v2 atlas upload's
-  alignment, kerning on the v1 path, a lost lease vs DRAW2, the carry decision's evidence); `FIRMWARE.md` §4
-  amended; 2 vectors added. Fork pin `55746389…`, no new site. Damage `1850fb6`, the fork `759f001`.
-- **2026-09-15 (night, 2)** — The second review (§62): the partial refresh takes the full path unless the panel
-  already shows the whole previous frame (the C, the model, §4; the vectors compare what the LENS shows); the
-  phone's own firmware model told the build's contract; the atlas read back before its fonts go live; the live
-  save-under slots guarded across tasks. Fork pin `f9ddf49f…`. Damage `2329ec8`, the fork `26404f7`.
-- **2026-09-15 (night, 3)** — The third review (§63): the atlas read-back gate dead from the second atlas of a
-  process onward; mode 12's write pass re-checking the bounds it re-reads (three reviewers independently); the
-  deferred free under its busy mark; **ONE NEW SITE — `0x00473D80`, the display task's other refresh call**
-  (§3.1 holds: the event loop, not a boot path); op 5's success from its own reply; the tick unit;
-  `--selfcheck` running contract 2 at last. Fork pin `b0e42923…`, 32 entries. Damage `a4db479`, the fork `e331c3f`.
-- **2026-09-16** — The fourth review (§64), with two instruments the first three lacked: a differential fuzz
-  of the C against the simulator (agreement everywhere but a mode-3/6 stream refusal, which v1 does not roll
-  back) and a mutation sweep of the 106 refusal sites (39 caught, 55 reachable ones by nothing — the lease and
-  DRAW2 checks of six v2 modes among them, now `v2-gates`). The atlas gate dead again across a repack; three
-  start gates that could park for ever; `glassesSilent` crossing a session; two write loops indexing a freed
-  pointer; the busy handshake as one state word; the µs calibration inverted; six harness gates green over code
-  they never ran. Fork pin `48172b62…`, no new site, 5,008 B smaller. Damage `7997a4d`, the fork `f20bac9`.
-- **2026-09-16 (2)** — What the four reviews measured, read against the diffs (§65): half the yield older than
-  Phase 2, a quarter a review fixing a review, the rest the failure envelope the plan never scoped. §3.8 and the
-  §5 template added; `CLAUDE.md` gained the protocol; `REMINDER.md`, this log and the memory files stopped
-  restating §61–§64. `tools/geometry.py`'s runtime-rule copy retired; `v2-badrec` step 4 made live (Damage `b43a1bf`).
-  The evening, for the flash: the fuzz re-run with fresh seeds (60 clean vectors agree everywhere; the corrupted
-  set's one disagreement is the documented adler-only shape, proven to the byte); **the worn-day read** (10.2 h,
-  7.8 %/h, heap flat, no hold-back — §56's precondition met — and the arm drops measured as REBOOTS, in the case,
-  cause U); APK 0.55 staged; the candidate's offline gates re-run green, the image on disk hashed to the pin.
-- **2026-09-16 (3) — Phase 2 FLASHED (`HANDOFF.md` §65):** APK 0.55 installed by Adam; his word for both lenses
-  given in advance as he left for work; phone Bluetooth off, the standby stopped; the staircase per lens, then
-  LEFT 13:19:22–13:22:34 (164 s) and RIGHT 13:24:13–13:27:28 (166 s), six components each, zero resends, every END
-  status 8, exit 0; archived in `fws/2.2.6.10-cfw-48172b62/`; the rollback is Phase 1's image. **First light 13:32,
-  green:** contract 2, the 160 KiB cache, DRAW2, both arms on LE 2M (3–6 KB flushes 276 ms, was 543–667; the 7.5 ms
-  profile not in force, the phone's request wins), the partial refresh running (≈1.6 ms + 66 µs/row vs 4.4 ms full —
-  `hintMaxRows` 240 → 40 on Adam's word, APK 0.56), Adam's verdict "large images significantly faster, no problems";
-  **the on-glass self-test 19 of 20 vectors matching every step** after one vector defect (unwritten padding) and two
-  harness defects (sleeps instead of the firmware's counters) were fixed; the twentieth's one corner — a one-byte empty
-  cache write dropped somewhere before the handler — recorded, cause U. T2 open for the day's reads; the next coding
-  part is Reader's page staging against §3.8 (`REMINDER.md` item 1).
-- **2026-09-16 (4) — Reader's page staging built (`HANDOFF.md` §66), the first build under §3.8:** T2's day read
-  (Reader notches 691 B / 231 ms median, 7.2 KB / 775 ms p90; the atlas repacking 767 KB in 2.5 h on the v2 tables);
-  the design pass put seven decisions to Adam — all as recommended: strips, a 32 KiB reserve at the top of the cache,
-  a Global row, records dropped at a session start, the proof by a cache-write ledger on field 17, `DocView.contentKey`;
-  the envelope answered, then the build: `Staging.kt`, the shell's staging pump, `Compositor.emitStaged`, `StagingTest`
-  ×9, the oracle walk and the self-check through staged draws; APK 0.57 staged. No firmware change, nothing flashed;
-  the on-glass number is T2's next read.
-- **2026-09-16 (5) — the first read of page staging on glass (`HANDOFF.md` §66.1):** a staged notch 12 B / 79 ms
-  ack against 2.7 KB / 307 ms for a strip that went as pixels (10×), about equal to a strip of text draws; the
-  ledger called false shortfalls (a write's bump lands up to ~1 s after its ack) and the strips are 12–34 KB, not the
-  modeled 4.5–7.5 — fixed the same evening on Adam's word (the settle window, the reserve 32 → 64 KiB, APK 0.58
-  staged, PRESENTED armed). Damage committed at `ccf102d` before the fixes; the fork untouched.
-- **2026-09-16 (6) — the 0.57 ledger took cached text down at 19:51 on three lagged readings (`HANDOFF.md` §66.1, the
-  evening entry): a shortfall now costs staging only, never the atlas; APK 0.59 staged, its battery green. Adam's ruling
-  on the status cell (§66.2): errors are notices, the cell holds self-clearing states only — the next coding step, his
-  go pending on the plan.**
-- **2026-09-19 — upstream's 256 KiB cache read against our base (`HANDOFF.md` §67):** nothing to port on the wire; its
-  arena (our 20) has 71–75 KiB free here; the demand is measured. Into the plan: the glyph-subset packing first, then
-  op 5's cap → 256 KiB and a largest-block telemetry figure inside Phase 3's candidate. §54.8's "containers in arena
-  13" withdrawn (`CLAIMS.md`). Docs only.
-- **2026-09-19 (2) — upstream's private message transport priced on our captures (`HANDOFF.md` §68,
-  `research/flushdecomp.py`):** no gain on the ack floor (≲ 20 ms of it is the glasses'); a kept compression context
-  takes gesture flushes to 57 % and needs no SID; cache writes are 61 % of the lane's bytes, uncompressed. Adam's word:
-  a deflated cache write into Phase 3's candidate, the kept context re-measured first, the SID parked until Phase 4.
-- **2026-09-20 → 21 — the status cell built (`HANDOFF.md` §69), the second build under §3.8:** a derived state word and
-  one door for every event (`Shell.raiseFault`, one notice per class per episode); the cell's width measured, the
-  words shortened on Adam's word from the real rasterizer's numbers; the battery found that a notice's own paint must
-  never answer a refusal, and a pre-existing gap — a session whose glasses lost DRAW2 kept emitting v2 ops — now
-  dropped to v1 shapes. APK 0.60 staged. No firmware change, nothing flashed.
-- **2026-09-21 (night) — the glasses ran flat in the case (`HANDOFF.md` §70):** the case's own battery had run out; the
-  in-case reboots every ~100 min were its top-up cycle (I). Adam's two rulings, designed in `DESIGN.md` §9.3 and not
-  built, for the next APK: a phone notification below 20 %, and a rest mode on the CFW's not-worn event (the
-  Silent-Mode path under a new trigger). Docs only.
-- **2026-11-04 — the phone's `/journal` ended the APK's process; the route streams (`HANDOFF.md` §71):** a whole-file
-  read of the never-rotated journal raised an OutOfMemoryError past an `Exception` catch, twice. APK 0.61 = 0.60 + the
-  streamed route + guards on the phone's two servers' connection threads, session coroutines and teardown. Eleven pins,
-  each watched to fail on the unfixed tree; two general reviews. The phone was still on 0.57 (0.60 never installed).
-  No firmware change, nothing flashed.
-- **2026-11-07 → 09 — the PC ran out of memory while Adam read in Sim mode (`HANDOFF.md` §72):** the standby
-  claimed on a powered-off adapter and retried until one laid-out book per attempt filled the heap. Built on his
-  rulings D1–D6: claims only on sight, give-back with backoff, a shell that holds nothing unbounded while down,
-  busy ports retried, the JVM exits on OOM, the shelf answers from its cache. Two reviews, every pin watched to
-  fail, the battery green; APK 0.62 staged, the PC deployed. No firmware change, nothing flashed.
-- **2026-11-09, afternoon and evening — the two phone-only latency items §66 left, built unattended (`HANDOFF.md` §73):** a
-  face goes into the atlas with the characters it has drawn and gains the rest in place (a table patch: one
-  cache write, legal on the flashed contract — two vectors, `v1-tablepatch` and `v2-tablepatch`, 28 in all; 34 since the vector pass, `HANDOFF.md` §77.4); the
-  link estimator reads medians over isolated flushes; text is laid out and drawn by the cache's metric while
-  Cached text is on. Two reviews, the battery green, APK 0.63 built; committed `6bba881`, staged and installed 2026-11-10 on Adam's word, after
-  `v2-tablepatch` matched 11 of 11 on glass (its first minutes there: `HANDOFF.md` §73's last block); every design call is the lead's and is listed in §73 for Adam. The fork did not change. **A correction to the
-  2026-09-16 entry above:** the "one-byte empty cache write dropped before the handler" was the self-test
-  driver's expectation — both handlers return before the generation bump when a list carries no data, and the
-  glass did what the C does (§73; `CLAIMS.md`).
+- **2026-09-12** — the plan written; D1–D8 proposed; `FIRMWARE.md`'s skeleton; `~/damage-cfw` created from `a5d1c31`
+  on branch `damage` with the flasher fix carried over (first commit `b3bdd5c`; the Damage record `d16e5c1`) — §48.
+- **2026-09-13** — Phase 0 begun: R0.2–R0.4, R0.6 and the sid-0x0F logger read; APK 0.45's probes; `MOTION.md` drafted;
+  the fork pinned to our clang, the host harness and the v1 vectors (the simulator matches the C on all 35 steps);
+  F1.1/F1.2/F1.4 in source; §3.1's boot-path rule corrected — §49.
+- **2026-09-14** — the 13th reviewed (field 4 the status register; the boot count withdrawn); four two-arm captures;
+  M0.4 answered; **Adam's ruling: the drops are not the work** — §50.
+- **2026-09-14, evening and night** — Phase 1's candidate built (§51; Adam chose the bounded atlas skip and left
+  CACHE_KEEP unarmed, §51.8); two reviews (§52, §53), fork pin `c5e4f8b7…`.
+- **2026-09-15** — the bounded atlas skip built; R0.1, R0.5 and M0.3's per-event read; F1.8 dropped — §54.
+  **Phase 1 FLASHED** 04:38 (§55); the soak read (§56: transfer 2.0 ms median / 12.2 max, the tick 1.024 per ms;
+  Adam's rulings: F1.7 into Phase 2, a FLAGS_SET with no lease refused, the soak is ordinary wear during Phase 2's
+  build). Phase 2's design pass (§57, eleven decisions, as recommended); upstream's link edits into Phase 2's candidate
+  (Adam, §58); a live defect fixed for APK 0.50 (§59); Phase 2 built (§60).
+- **2026-09-15 night → 09-16** — four reviews of Phase 2 (§61–§64), the fourth with the differential fuzz and the
+  mutation sweep; fork pin `48172b62…`; what they measured, and §3.8 (§65; Damage `b43a1bf`).
+- **2026-09-16** — **Phase 2 FLASHED** (§65): LEFT 164 s, RIGHT 166 s, zero resends; first light 13:32 green
+  (contract 2, the 160 KiB cache, DRAW2, LE 2M; `hintMaxRows` 240 → 40 on Adam's word, APK 0.56); the on-glass
+  self-test 19 of 20 as its driver judged then — the twentieth's difference was the driver's own expectation (§73).
+  Reader's page staging, the first build under §3.8 (§66, seven decisions as recommended); its first read and fixes
+  (§66.1; Damage `ccf102d` before them); the status-cell ruling (§66.2).
+- **2026-09-19** — upstream's 256 KiB cache and private transport priced (§67, §68); Adam: op 5's cap to 256 KiB, a
+  largest-block figure and a deflated cache write ride the first flash, the private SID parked.
+- **2026-09-20 → 21** — the status cell built (§69); the glasses ran flat in the case, two rulings (§70).
+- **2026-11-04 → 09** — the phone's `/journal` route streams (§71, APK 0.61); the PC's out-of-memory and a shell that
+  holds nothing unbounded while down (§72, APK 0.62; rulings D1–D6).
+- **2026-11-09 → 10** — the atlas packs what a face draws and grows in place, the link estimator, the cache metric
+  (§73, APK 0.63, installed 11-10; `v2-tablepatch` 11 of 11 on glass); upstream and official firmware surveyed,
+  D1 stands (§74).
+- **2026-11-10 → 12** — rulings on §71–§73's calls and the fork's mutation sweep (§75); APK 0.64 (§76) and 0.65 (§77),
+  the vector pass (34 vectors).
+- **2026-11-12 → 13** — the order of work re-planned and ruled (`REPLAN.md`, §78): §5's phase order replaced;
+  `MOTION.md` §6 ruled; `FIRMWARE.md` §5 and §6 in contract form. Nothing flashed since 2026-09-16.

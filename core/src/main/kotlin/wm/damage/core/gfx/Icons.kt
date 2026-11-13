@@ -54,7 +54,7 @@ object Icons {
     /** The silent-mode analog clock (§1.5): dots and hands only, NO bezel (a
      *  circle outline breaks the RLE run on every row; twelve dots do not) and
      *  NO second hand, ever. The minute hand snaps once a minute. */
-    /** Seven-segment digital clock (REFINEMENT.md §5, second revision — Adam
+    /** Seven-segment digital clock (archive/REFINEMENT.md §5, second revision — Adam
      *  2026-08-31: "forget analog, make it good-looking digital numbers").
      *  Classic LED-clock digits, DRAWN (never typed: the locked faces stay
      *  four): tapered hexagonal segments with softened edge rows and corner

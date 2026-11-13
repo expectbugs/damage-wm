@@ -62,7 +62,7 @@ abstract class DamageWindow(val id: String, val name: String, val icon: IconKind
      *  it unavailable/stale in Main when a need is unmet, and says so. */
     open val needs: Set<Need> = emptySet()
 
-    /** §2 per-app height (REFINEMENT.md, 2026-08-31): the height mode this
+    /** §2 per-app height (archive/REFINEMENT.md, 2026-08-31): the height mode this
      *  window prefers (e.g. 480 for Reader), or null to follow the global
      *  Size setting. Applied when the window takes FOCUS — commit, never a
      *  switcher preview (§4.3 rule 1) — at the cost of one keyframe. */
@@ -223,7 +223,7 @@ sealed interface WindowView {
         val paintLine: (g: Gray8, line: Int, rect: Rect) -> Unit,
         /** Tap descends to the window's actions level (§4.6). */
         val onTap: () -> Unit,
-        /** Lines moved per ring notch — the window's setting (REFINEMENT.md
+        /** Lines moved per ring notch — the window's setting (archive/REFINEMENT.md
          *  §3b, 2026-08-31: one line per notch was far too little in a book;
          *  coarse steps are the design because cost is ack-dominated). */
         val stepLines: () -> Int = { 1 },

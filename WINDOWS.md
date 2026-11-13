@@ -20,8 +20,14 @@ PUSH slice, a second endpoint (:7404) for media bytes, per-height layouts and th
 §4.9) · `GamesWindow` (`HOLDEM.md`: no host at all, pure Kotlin; a `CanvasView` table at four heights; its own
 stereo planes via `contentPlanes`; a kit under `windows/games/kit/` that names no card game; the persisted
 record is an ACTION LOG the engine replays) · `FeedWindow` (`FEED.md`: ONE engine class on both hosts, the
-phone's parked and switching back only by hand; the Reader grammar over nine levels; synced reading state with
-a union rule for read marks; an endless archive Document; strips on demand from `view()`).
+phone's parked and switching back only by hand — as built; the phone's engine retires at step S1, `CONTRACT.md`
+§14 (a) row 1; the Reader grammar over nine levels; synced reading state with a union rule for read marks; an
+endless archive Document; strips on demand from `view()`).
+
+**What changes at step S1** (`REPLAN.md` §14, `CONTRACT.md` §11): everything below describes the contract as built.
+From S1 the PC owns every window's state, each window splits into a core and a glasses presenter, and the sync
+these sections rely on is replaced (`CONTRACT.md` §2, §9.7); `CONTRACT.md` §11.3 maps today's contract row by row.
+A window built after the re-plan's steps is described once for every interface (`CONTRACT.md` §3, §12).
 
 ---
 
@@ -30,7 +36,8 @@ a union rule for read marks; an endless archive Document; strips on demand from 
 - 🔴 **100 % cross-device continuity** (Adam, 2026-09-01: *"an always-active session that can be continued
   seamlessly from every device connected to DamageWM"*): the replica for the same session on any screen, LWW
   sync for separate shells. The window's part: per-item state in sub-records (`window.<id>.<item>`), content
-  continuable (cache-on-open), the continuity test (§3 step 6) passing.
+  continuable (cache-on-open), the continuity test (§3 step 6) passing. (As built; from S1 one copy on the PC,
+  each interface with its own focus — `REPLAN.md` §14.1 R3–R4, `CONTRACT.md` §2.)
 - **The input grammar is not negotiable** (`DESIGN.md` §1): tap descends, double-tap backs, scroll moves focus,
   long-press is a no-op by default. No per-window gestures. Actions are a LEVEL, not a region (§4.6).
 - **NO TRUNCATION, worded honestly** (§2.4 r3): content wraps/scrolls; rows and titles are handles, elided only
@@ -49,7 +56,8 @@ a union rule for read marks; an endless archive Document; strips on demand from 
   (`Shell` refuses it and says so); a live row that does nothing is a silent failure.
 - **Notification toggles live in the app's own Settings category** (Adam, 2026-09-01): the window gates its own
   `notifyInternal` calls on its rows (the Tmux `Alerts` shape); Global keeps only `Notify · Damage`, and
-  `Notify · Damage` never gates a notice that names its app (0.65, `HANDOFF.md` §77).
+  `Notify · Damage` never gates a notice that names its app (0.65, `HANDOFF.md` §77). `CONTRACT.md` §6 adds one
+  shared `Quiet hours` row to Global, built with the alert watcher (its §14 (b), his to veto).
 - 🔴 **Every window works well at all four heights — 288 / 352 / 416 / 480 — and its size is adjustable in
   Settings** (Adam, 2026-09-02: *"This is important."*): each level's layout specified per height in the
   window's record, the per-app Size row not optional, snapshot scenes at 288 and 480 at least.
@@ -132,8 +140,9 @@ A conversion consumes these; it does not build them:
    merge-load + post-start reconciliation; the continuity-test harness (`SubstrateTest`/`FilesTest` shapes).
 2. **The generic window channel** (§16.10): `{"t":"win","win":"<id>"}` on the content port, `WinService`
    host-side, `RemoteWin` client (id-correlated, blob lane, keeper reconnect, `stateLine`), push frames
-   (`WinService.Push` → `RemoteWin(onPush)`, the `wpush` frame). Still open: summaries-over-channel, a
-   per-backend `needs` contract.
+   (`WinService.Push` → `RemoteWin(onPush)`, the `wpush` frame). Still unbuilt: summaries-over-channel, a
+   per-backend `needs` contract (`WindowContract.kt:63` is one `Set<Need>`). Items 1–2 are replaced at S1
+   (`CONTRACT.md` §9).
 3. **Deep links + the notification signature** (§16.1/§16.5) — §2's `notifyInternal`/`open`.
 4. **The kit** (§16.11): `Draw.fit` (elide with the drawn ▸, always), `Draw.dynamic` ('?'-substitutes
    uncoverable glyphs), `MenuSurface`, open-on-PC via the channel. The confirm-level helper is NOT extracted —
@@ -143,7 +152,8 @@ A conversion consumes these; it does not build them:
    of live keys. Torrents (search), Tmux (Type…), Files (rename / new folder) ride it.
 
 6. **The popover family — SPEC, not built** (`POPOVER.md`, `DESIGN.md` §4.11, 2026-09-12): menus, one confirm
-   shape, peeks, decks/asks with report-back. Until it lands, item 4 stands (confirms by hand).
+   shape, peeks, decks/asks with report-back; built with the glasses kit (`REPLAN.md` §4 K). Until it lands,
+   item 4 stands (confirms by hand).
 
 Icons: theme icons resolve automatically; the drawn-set quality pass is queued (`REMINDER.md`). Independent
 backlog: the curated font-library expansion (§16.6; B612 never a default).
@@ -265,7 +275,8 @@ per screen.
 4. **Live only while active** (Adam's ruling: he is watching); parked windows hold no loop.
 5. **No work on the loop that is not painting** — network, disk, decoding, wrapping go off the loop, applied
    through `runOnShell` with a generation guard.
-6. **No animation of its own.** Frames per notch are the shell's setting.
+6. **No animation of its own.** Frames per notch are the shell's setting (`Slide frames` and `Slide fill` as
+   built; one Global `Motion` row replaces both when the motion engine is adopted — `MOTION.md` §6 C4).
 7. **Ship with numbers.** Walk it with `tools/glassdrive.py` (snap before every tap), read `/journal` through
    `tools/journal_report.py` — its **"time to first visible change per gesture"** section is the judgment (§42)
    — and put the rows in the window's record. **The bar, measured on glass on 0.40 (2026-09-07 → 09,

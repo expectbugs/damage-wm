@@ -194,7 +194,7 @@ keep load-bearing UI centred, outer rows are bonus.
 that app wants depth.** *(Built: Damage ships **480 as the Global default** — Adam's fit loses the
 bottom, so the four sizes 288/352/416/480 are TOP-aligned — with a per-app `preferredHeight`:
 Reader, Tmux and Music prefer 480; Files, Torrents and Music offer global + all four —
-`DESIGN.md` §2.2b/§2.4 rule 4/§4.2, `REFINEMENT.md` §2.)*
+`DESIGN.md` §2.2b/§2.4 rule 4/§4.2, `archive/REFINEMENT.md` §2.)*
 
 ### 🔴 Two corrections to the table above (2026-08-17)
 
@@ -661,7 +661,7 @@ first-light and first-refinement sessions.
 ⇒ **`ms ≈ 60 + bytes/50`** (~60 ms floor + ~50–75 KB/s). Against the stock model
 (`176 + bytes/11`) the floor is ~3× lower, the transfer term ~4–7× faster. A dense 640×480
 keyframe (~10 KB) lands in ~200–270 ms ⇒ **~4 fps full-frame**; the heaviest frame (24.6 KB) ⇒
-~2 fps. That answers `REFINEMENT.md` §6: 2–4 fps for dense frames, small-damage batches ride the
+~2 fps. That answers `archive/REFINEMENT.md` §6: 2–4 fps for dense frames, small-damage batches ride the
 60 ms floor.
 
 🔴 **CORRECTION (2026-09-05, `HANDOFF.md` §31.6): this table is FOUR HOURS of one session.** The
@@ -762,7 +762,7 @@ Measured on 14 real FF1 NES frames from `/home/user/G2CC/games/ff1/bridge/spike_
 **Ack-dominated, not bandwidth-dominated** — a 40-row jump costs barely more than a 1-row nudge.
 ⇒ **Scroll in COARSE steps**: one ring notch = one text line or several, never pixels. *(Stock
 times; on the CFW curve each step is ~65–95 ms, same shape. Shipped: Reader defaults to 5 lines
-per notch, configurable, acceleration ramp present but off — `REFINEMENT.md` §3b; lists stay one
+per notch, configurable, acceleration ramp present but off — `archive/REFINEMENT.md` §3b; lists stay one
 item per notch.)*
 
 ### Endless scroll — solved primitive
@@ -926,7 +926,7 @@ inference, not his preference, and it is backwards.** His stated preference:
 modals come FORWARD toward the screen plane.** FAR stays his baseline for ignorability; the
 *relative* separation does the perceptual work. Ladder and calibration plan: `DESIGN.md` §3.
 
-Built and in daily use: the `DESIGN.md` §3 ladder, chrome on the back plane (`REFINEMENT.md` §1),
+Built and in daily use: the `DESIGN.md` §3 ladder, chrome on the back plane (`archive/REFINEMENT.md` §1),
 per-app content depth (`HANDOFF.md` §17); Adam on glass: *"Depth reads well."* Still
 uncalibrated: the comfortable-disparity ramp (`REMINDER.md` item 3). Depth was never a reason to
 choose this architecture.
@@ -1376,7 +1376,7 @@ The spec has a hybrid power policy and no measured budget.
   firmware's 0x91 service only registers the ring MAC (`EVENT`) and never fills `RawData`
   (verified against firmware source + both captures; `CLAIMS.md`). An earlier note here called
   ring battery "solved" via the relay — wrong. The only source is the closed Even SDK over the
-  ring's own link; not pursued (cosmetic). See `CAPABILITIES.md` and `EXPLOSION.md` §13.
+  ring's own link; not pursued (cosmetic). See `archive/CAPABILITIES.md` and `EXPLOSION.md` §13.
 - ✅ **sid 0x0D is `sync_info`, not "configuration query"** — `sync_info_data_msg
   {backgroundAppID, foregroundAppID}`: when EvenHub is fore/backgrounded, i.e. whether our
   surface is visible.

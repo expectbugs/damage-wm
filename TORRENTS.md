@@ -2,7 +2,7 @@
 
 **Status: DESIGN SETTLED with Adam 2026-09-01 (evening); BUILT the same night; four review
 rounds (`HANDOFF.md` §23.1–§23.4, ~114 findings, every one verified before a fix; PAUSED at
-Adam's word, not converged — the next pass starts from `980d832..HEAD`).** Second window of
+Adam's word, not converged — §23.4 names where a pass resumes).** Second window of
 the app wave after Files (`EXPLOSION.md` §20); not a G2CC conversion — Reader, Tmux and Files
 are the precedents. `IMPLEMENTATION.md` → "Torrents + the keyboard" is what runs; the keyboard's
 design is `DESIGN.md` §4.8.
@@ -107,7 +107,8 @@ TRANSFERS (List, root)  ──tap──▶ transfer MENU ──Details──▶ 
   state line).
 - **transfer MENU** (MenuSurface; Details first — from DETAILS the harmless row 0 is Refresh):
   Details · Start or Stop (whichever applies) · Recheck · Open in Files (a Files `path:` deep
-  link) · Open on PC · Delete (keep files) → confirm · **Delete + files** → confirm → a second
+  link) · Open on PC (as built; send-to the desk companion from S1, `CONTRACT.md` §2.6) · Delete
+  (keep files) → confirm · **Delete + files** → confirm → a second
   confirm whose unrecoverable row sits at index 2 behind a disabled spacer (the Files purge
   shape). Irreversible rows last (§1.7).
 - **Torrents MENU** (the wrap-end row): Browse TorrentLeech · Search TorrentLeech (the
@@ -171,8 +172,9 @@ unreachable 40s`, `qBittorrent unreachable 12s`, `TorrentLeech: login failed`) r
 
 ### 3.5 State
 
-`window.torrents` (main record, synced): level · cursors (the transfers cursor also by hash) ·
-filter · sort · open hash · browse category · search query + recents · the settings rows · the
+As built (from S1 the shared part is one record on the PC and the view state per interface —
+`CONTRACT.md` §2.1, §12): `window.torrents` (main record, synced): level · cursors (the
+transfers cursor also by hash) · filter · sort · open hash · browse category · search query + recents · the settings rows · the
 keyboard draft. Restored positions wait for their content (a document's top; a listing cursor
 for its page; the transfers row — by hash, by the wrap-end menu row, or by index — for the first
 snapshot, once). A live-synced record reloads its open document at once only while focused;
@@ -223,7 +225,9 @@ reads at most one host interval behind — simpler than an on-demand `maxAge` po
   `start`, `stop`, `recheck`, `delete`, `tlcats`, `tlbrowse`, `tlsearch`, `tldetail`, `tladd`,
   `tlaccount`, `open`. The remote `stateLine` is the channel's (`PC unreachable Ns`) first,
   the host's own (`qBittorrent unreachable Ns`, `host answer not understood`) second.
-  App-alone the window is honestly unavailable — a torrent client does not cache.
+  App-alone the window is honestly unavailable — a torrent client does not cache. (As built; from
+  S1 the phone keeps the last snapshot and shows it with its age, actions dim — `REPLAN.md` §14.3
+  #2, `CONTRACT.md` §12.)
 
 ## 5. Failure discipline (the absolute rules, applied)
 
@@ -261,19 +265,15 @@ reads at most one host interval behind — simpler than an on-demand `maxAge` po
   keyboard 9–11 % (list budget ≤ 15 %).
 - **`--snapshot`**: scenes 15–22 (transfers, lens+menu, details, categories, listing, torrent
   page, the keyboard at its two stages), looked at, at true 1×.
-- Battery after round 4: core 221 · desktop 9 · selfcheck 89 · 26 snapshots · `tools/lint.py`
-  0 · `:phone:assembleDebug` green; jar restaged and `damage` restarted on the round-4 build;
-  APK 18/0.18 staged at `390a25c` (0.16 the last observed installed then; 0.29 and selfcheck
-  189 / 49 scenes by 2026-09-04 — `REMINDER.md` has HEAD).
+- Battery after round 4: `HANDOFF.md` §23.4; the battery at HEAD: `REMINDER.md`.
 
-**Since 2026-09-05 (`HANDOFF.md` §30) a host that has stopped answering says so on every level:**
-a details page or a listing used to say nothing while its figures, frozen at the last good poll,
-read as current. The window's TITLE carries `stateLine` wherever the level does not paint it.
+**A host that has stopped answering says so on every level** (`HANDOFF.md` §30): the window's
+TITLE carries `stateLine` wherever the level does not paint it, so frozen figures never read as
+current.
 
 ## 7. Build order — shipped
 
 Built in the planned order in one pass (the keyboard + its shell wiring → `QbtClient` + the
 provider + the window → the tracker adapter + browse/search/add → `TorrentsNet` + both
-registrations + the harnesses + the Settings notify-row move → battery, deploy, docs), commit
-`28997a8`; then the review rounds `73fdf81` · `4f5e6e0` · `980d832` · `390a25c` —
-`HANDOFF.md` §23 is the record.
+registrations + the harnesses + the Settings notify-row move); the commits and the four review
+rounds are `HANDOFF.md` §23.

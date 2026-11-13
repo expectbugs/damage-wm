@@ -99,9 +99,9 @@ bare-long-press no-op keeps stray 10s harmless.
 
 ## 12. The refinement wave — 2026-08-31, live deploys
 
-The whole `REFINEMENT.md` queue deployed while Adam wore the glasses (verdicts there; rules in
+The whole `archive/REFINEMENT.md` queue deployed while Adam wore the glasses (verdicts there; rules in
 `DESIGN.md`): chrome depth inset, coarse scroll (5 lines/notch, acceleration off — later reversed
-for the Reader, `REFINEMENT.md` §3b), Reader folders/chapters/images/reset/descenders, per-app
+for the Reader, `archive/REFINEMENT.md` §3b), Reader folders/chapters/images/reset/descenders, per-app
 height, the digital clock top-right (an analog/top-left attempt reversed), Settings as directories,
 brightness + glasses battery on the wire, the 4× preview.
 
@@ -232,7 +232,7 @@ All of §19.2 is CODE.
 - **Ring battery: CLOSED (2026-08-31, Adam's call), probe reverted.** The stock sid-0x91 relay
   never fills RingRawData, the ring offers no standard Battery Service, its vendor link uses a
   custom checksum, Faceclaw does not read it anywhere — only the closed Even SDK does. The R cell
-  stays blank (`CLAIMS.md`/`CAPABILITIES.md`). Lesson: cost/benefit a cosmetic gauge at the FIRST
+  stays blank (`CLAIMS.md`/`archive/CAPABILITIES.md`). Lesson: cost/benefit a cosmetic gauge at the FIRST
   finding; check the reference implementation first.
 
 ## 20. The general-contract session (2026-09-01) — §16 SETTLED, recorded, no code
@@ -545,7 +545,7 @@ with nothing to turn it back on. Gate removed; the window owns its six Notify ro
 
 Verdict: fresh eyes found what the author's review had not; none of the eight touched a design
 decision; three passes converged on nits. It lists findings only (fixes opt-in via `--fix`, not
-used); it reads `CLAUDE.md` and `REVIEW.md`. Battery: core 317 · APK 0.21.
+used); it reads `CLAUDE.md` and `archive/REVIEW.md`. Battery: core 317 · APK 0.21.
 
 ---
 
@@ -2792,7 +2792,7 @@ At Adam's request the docs were checked for what this session made stale and bro
 progress; core 540), `README.md` (the fork and Phase 0 in the history, the start-here table, commands),
 `IMPLEMENTATION.md` (module map, "The fork's Phase 0 pieces", the battery and test list), `FORK.md` (§4's
 transfer-time wording, Phase 1's built/remaining list, §10's file table, §11), `FIRMWARE.md` (status, §5's
-tick wording), `CAPABILITIES.md` and `overview.md` (the logger handler read), `REMINDER.md`, memory. The
+tick wording), `archive/CAPABILITIES.md` and `overview.md` (the logger handler read), `REMINDER.md`, memory. The
 scratchpad's reading notes and helpers moved into the repo as `research/fork-reads-2026-09-13.md` and
 `research/fwread.py`. Damage (`origin/main`) and the fork (`github/damage`; never `origin`, which is
 upstream g2flash) pushed.
@@ -5832,7 +5832,7 @@ and the three tails: 94 findings, each checked by the lead before an edit. What 
   a5d1c31 image, not the installed one; `:phone:stageApk` is named as never a battery step; the recipe for a
   simulator beside the live service is written down (above).
 - **Facts stale since Phase 2 in files this section had not touched** — LE 2M and the halved per-KB term
-  (`CLAUDE.md`, `overview.md`, `CAPABILITIES.md`, `WINDOWS.md`, `DAILY.md`), `FIRMWARE.md`'s "not flashed", the
+  (`CLAUDE.md`, `overview.md`, `archive/CAPABILITIES.md`, `WINDOWS.md`, `DAILY.md`), `FIRMWARE.md`'s "not flashed", the
   test and check counts (`README.md`, `IMPLEMENTATION.md`), `link slow` and "the next APK" in `DESIGN.md`. The
   edits to `CLAUDE.md` and `DESIGN.md` are measured facts only; no rule or design changed. Left as they are,
   for Adam's word on 0.63: the four statements `REMINDER.md` item 12 names.
@@ -7446,4 +7446,21 @@ glasses kit → Reminders → S3 → G. Its sizes, from this month's two code bu
 after step A comes to about 1,190–3,100 weighted usage units and 225–550 unattended hours, 16–20 of his sittings —
 18 to 47 builds the size of 0.65; S1 is half of it. Step A itself, measured: 41.8 units for its 21 agents (the first
 figure given him was 20–30). Nothing of the plan is started; W waits for his go with both of its size figures.
+
+**The pruning pass (2026-11-13, his request: "prune, trim, optimize … No sense wasting context on irrelevant or
+outdated information").** Three editors on disjoint sets and one verifier of every removal. `REMINDER.md` 637 → 187
+lines (67 → 18 KB): state, next, the measured tables and pointers; its dated narrative is in the sections it now
+points at. `FORK.md` 595 → 434 (finished phases trimmed to what still binds, §3, §7 and the phases to come
+untouched); `README.md` to a status section; `MOTION.md` §6 reads as rulings; `IMPLEMENTATION.md` and `DAILY.md`
+checked against the code and corrected (counts, the seam, classes no host builds); the shell's and the windows'
+records gained "as built; changes at step S1" clauses where a ruling since 11-10 changes the design to come, and a
+replaced verdict is kept as one line; `REFINEMENT.md`, `REVIEW.md` and `CAPABILITIES.md` moved to `archive/` with
+every citation of them repaired (comment-only edits in ten source files; lint 0, no build run). The verifier found
+eight facts lost and restored seven (the eighth restored by the lead), three kinds of wrong correction (manual
+PC-direct BLE arrives with the watcher, not S1) and seventeen drifted line citations, all fixed. `HANDOFF.md` was
+left whole: about 700 citations point into it. Not applied: a proposal for `CLAUDE.md` (351 → 333 lines; it is
+nearly all rules), which is his to approve. One slip of the lead's: commit `6ecccac` (a one-file commit made while
+the pass ran) also carried an editor's staged moves into `archive/`, so the pushed tree had dangling citations until
+this commit — while agents work in the tree, commit by path. Cost, measured: 22.0 units (the estimate was 10–14);
+his weekly meter did not move a whole percent across the pass's second half.
 

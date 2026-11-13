@@ -12,10 +12,10 @@ G2CC music *system* is Damage's now; code ported, never pasted). Where §3 (the 
 | # | question | verdict |
 |---|---|---|
 | 1 | Library source | **The G2CC music system is Damage's now** — Postgres `g2cc` tables, the Qdrant `g2cc_music` collection, the media cache, the Python enrichment + embedding pipeline, yt-dlp. G2CC itself is retired and never returns. |
-| 2 | Where audio plays | **The phone.** Earbuds by default; an Output option for anything connected to the phone, the speaker included. **Never the PC.** |
+| 2 | Where audio plays | **The phone.** Earbuds by default; an Output option for anything connected to the phone, the speaker included. **Never the PC.** (Superseded for the interfaces 2026-11-12 — the note under this table.) |
 | 3 | Backends | PC library primary; **Spotify on the phone** as the selectable fallback (automatic when the PC is unreachable). Other apps maybe later. Desktop Spotify: never. |
 | 4 | Root view | 🔴 **REVERSED 2026-09-03 (Adam, after living with it): the root is a NOW PLAYING screen and the queue is a menu row.** *"Lets put the queue as a menu option rather than the main screen … the main screen should be a useful, really nice looking Now Playing screen. That way i can see what is playing and where in the song it is and what the volume level is at etc."* The original verdict — queue-as-list with the Now Playing card as the lens, Menu on the wrap-end row — is superseded; do not reinstate it. |
-| 5 | Ask (fuzzy requests) | **The latest Claude Opus at low or medium effort** via the CLI one-shot; the deterministic and embedding lanes as the instant fallback. Same model for enriching new tracks. |
+| 5 | Ask (fuzzy requests) | **The latest Claude Opus at low or medium effort** via the CLI one-shot; the deterministic and embedding lanes as the instant fallback. Same model for enriching new tracks. (Low as built, `musicClaudeEffort`; kept at low on his word of 2026-11-13, never Haiku — `REPLAN.md` §15.1.) |
 | 6 | Lyrics | **In, and much better synced than G2CC.** Sources: LRCLIB, embedded tags, `.lrc` beside tracks, the community fetchers; manual search on the keyboard. |
 | 7 | YouTube | **In**: results listed for Adam to pick from (never the first hit), audio-only grab into `~/Music/YouTube/`, then **fully ingested** — indexed, transcoded, enriched, lyrics, embeddings. Offered when a search finds nothing in the library, and from Browse. |
 | 8 | Playlists | **Full editing on glass** (create, save queue, add current, rename, reorder, remove, delete). |
@@ -42,7 +42,8 @@ G2CC music *system* is Damage's now; code ported, never pasted). Where §3 (the 
 | 29 | Prefetch | **Three tracks ahead**, adjustable in Settings. |
 
 Recorded so it is not re-pitched (**"no PC audio output" is superseded for the other interfaces — Adam,
-2026-11-12, `REPLAN.md` §14 R10; it stands for today's glasses window until that build**): no PC audio output; no ring remapping in Music Mode; gain never
+2026-11-12, `REPLAN.md` §14.1 R10, §14.3 #4: one output at a time, chosen and moved, the PC's own among them;
+it stands for today's glasses window until step S1, `CONTRACT.md` §2.7**): no PC audio output; no ring remapping in Music Mode; gain never
 undoes the limiter; no auto-play on boot; Spotify only as the phone fallback (no desktop client);
 radio is not the default.
 
@@ -72,8 +73,10 @@ radio is not the default.
 - **The ring** sends five events: tap, double-tap, scroll up/down, long-press + release
   (`EvenHubMsg.kt:213-222`). No triple-tap event exists.
 - **Shell pieces already waiting:** `IconKind.MUSIC` + theme names `multimedia-audio-player` /
-  `audio-x-generic`; `ShellSettings.notifyMusic` + `noticeAllowed("MUSIC")` (the toggle lives in
-  Settings → Music); Silent Mode's input path (`DESIGN.md` §1.5) is the model for Music Mode.
+  `audio-x-generic`; Silent Mode's input path (`DESIGN.md` §1.5) is the model for Music Mode. (The
+  Global `notifyMusic` gate of the time was removed, `HANDOFF.md` §24.3: the field remains,
+  `ShellSettings.kt:125`, and gates nothing — `noticeAllowed`, `Shell.kt:2338`, leaves Music to
+  its own six Notify rows.)
 - **The seam:** the §16.10 window channel (`WinNet.kt`), the Torrents Local/Remote split
   (`TorrentsNet.kt`), the Files blob lane (`FilesNet.kt`). Music built the channel's PUSH slice
   (`WinService.Push` + `RemoteWin(onPush)`, the `wpush` frame); summaries-over-channel and a
@@ -88,7 +91,10 @@ truth lives on the PC**. Queue and position are a §16 record synced both ways, 
 shell shows the same state (no sink; display only) and a PC-only configuration says playback needs
 the phone. **The phone caches the catalog** (Browse works with the PC down) and **prefetches the
 next 3 queue tracks** (setting) so a Tailscale drop does not stop the music. The card and Music
-Mode show the PC link state and its staleness age.
+Mode show the PC link state and its staleness age. (As built. Ruled 2026-11-12 for the design to
+come, built at step S1: the PC holds the queue, the position and the one chosen output, and each
+output is a player — `REPLAN.md` §14.2, `CONTRACT.md` §2.7; the Spotify fallback away from home
+carries over unchanged, §14.3 #2.)
 
 ### 3.2 The window (`MusicWindow`, id `music`)
 **ROOT = NOW PLAYING (Canvas)** — reversed from the queue-with-card root 2026-09-03 (verdict 4):
@@ -129,8 +135,8 @@ scheduler runs on the phone from ExoPlayer's real position; a **per-output-devic
 (Bluetooth adds ~100–250 ms), calibrated once on glass by nudging a line with the ring (±50 ms
 notches) and remembered per device; each line flushed **ahead by the known display latency** (the
 phone path's ~70 ms + ~120 ms/KB, `REMINDER.md`). Sources: §9.4 (verdict 24). Plain-text fallback
-pages. Mode-14 glyph strings were the later optimization (`REMINDER.md` items 19–20; shell-wide as
-`Cached text` since 2026-09-06).
+pages. Mode-14 glyph strings were the later optimization (shell-wide as `Cached text` since
+2026-09-06, `HANDOFF.md` §40.6, §41.4).
 
 ### 3.8 Visualizer
 Data precomputed on the PC (ffmpeg/librosa: a low-rate spectrum envelope, a waveform envelope,
@@ -178,26 +184,10 @@ with Adam's go 2026-09-02.
 ## 5. Architecture and module map (the build plan, written 2026-09-02 at max effort)
 
 **Library** = the PC; **Player** = the phone. The window is written once against two core
-interfaces (§6) and never knows which host it runs on. `IMPLEMENTATION.md` → "Music" is the
-running module map; the shape:
-
-```
-core/…/windows/music/   MusicModel (data + the two interfaces) · QueueEngine (PURE) · LyricsSync
-                        (PURE) · Viz (PURE, one rect per frame) · MusicWindow · PlayerCore (logic
-                        shared by the phone and SimMusicPlayer) · MusicNet (MusicService +
-                        RemoteMusicLibrary with its disk caches) · MirrorMusicPlayer (desktop, no
-                        sink, refuses transport LOUDLY) · LocalMusicLibrary + MusicDb · Db (the SQL
-                        seam; PgDb in :desktop) · Qdrant · MediaCache (transcoder inside) ·
-                        MediaServer · Art · LibraryScan · Resolver + Rules + ClaudeOneShot +
-                        EmbedQuery · LyricsFetch · YouTube · Enrich · Plugins (AskResolver /
-                        LyricsFetcher / YtClient / Ingester)
-phone/…/music/          AndroidMusicPlayer (PlayerCore over ExoPlayer + media3 MediaSession; a
-                        ForwardingPlayer routes the buds' next/previous to OUR queue) ·
-                        MusicListener · SpotifyRemote · TrackCache
-desktop/…/              ScriptedMusic (for --selfcheck / --snapshot) · Main (Config §9.7,
-                        registration in the auto stack + --host-only, MediaServer)
-audio/                  the enrichment package from G2CC (§9.5) + viz.py
-```
+interfaces (§6) and never knows which host it runs on. The module map — core, phone, desktop
+and `audio/` (the enrichment package, §9.5, + `viz.py`) — is `IMPLEMENTATION.md`'s (its module
+list and "Music"); the plug-in seams are `Plugins.kt` (AskResolver / LyricsFetcher / YtClient /
+Ingester), the SQL seam `Db` with `PgDb` in `:desktop`.
 
 ## 6. Contracts
 
@@ -222,7 +212,7 @@ LimiterKeeps · BoostOff · BoostLoud · SleepEnded · BackendChanged · PcUnrea
 **Persistence** (`PlayerCore.persist()`): engine (queue / index / mode / label), the REAL play
 state, `posMs` + `posAt`, backend, spotifyAuto, volume, holdVolume, profile, prefetch,
 spotifyFallback, output → the sub-record `window.music.player`, no stamp of its own (LWW
-value-equality), every 10 s through the tick and on every change. `restore()` never auto-plays
+value-equality), every 10 s through the tick and on every change (as built; §3.1's note). `restore()` never auto-plays
 and never applies the record's volume — the phone's stream is the truth (review round 1).
 
 ### 6.3 Wire
@@ -494,13 +484,12 @@ every boot. With that server retired the refresh is ours — own code from the f
 
 ## 10. Tests, harnesses, gates
 
-- **Core tests**: `MusicTest` ×8 (profiles + legacy cache mapping, the media endpoint —
+- **Core tests**: `MusicTest` (profiles + legacy cache mapping, the media endpoint —
   Range/token/0-byte, VizData round trip, queue rules, catalog codec, the SQL layer over a fake
-  Db, the remote library over loopback, the scan's hidden-directory prune), `MusicWindowTest` ×7
+  Db, the remote library over loopback, the scan's hidden-directory prune), `MusicWindowTest`
   (`QueueEngine`, a Radio fill after a pick, PlayerCore transport / fill / sleep / boost / hold /
   Spotify, LRC + scheduler, the grammar at **480 and 288**, persistence + continuity),
-  `MusicModeTest` ×2, `ResolverTest` ×19, `LyricsFetchTest` ×24, `YouTubeTest` ×13, `VizTest`
-  ×12, `EnrichTest` ×11.
+  `MusicModeTest`, `ResolverTest`, `LyricsFetchTest`, `YouTubeTest`, `VizTest`, `EnrichTest`.
 - **Desktop**: `ScriptedMusic` drives the selfcheck walk (empty queue → Browse → an artist → play →
   card → row menu → Music menu → Ask via the keyboard → Lyrics → Music Mode 480/Bars then
   288/Scope with a notice over it → the off-screen track-change notice); snapshot scenes 30–39.
@@ -523,13 +512,8 @@ Done 2026-09-01/02 (`HANDOFF.md` §24 names the commits): **M1** host foundation
 `RemoteMusicLibrary`, `--music-check`) · **M2** core model + window · **M3** shell
 (`Mode.EXCLUSIVE`, `LyricsSync`, `Viz`, Music Mode, `DESIGN.md` §4.9) · **M4** APK · **M5** host
 features (`Resolver`, playlists, `LyricsFetch`, `YouTube` + `audio/` + `viz.py`, `play_history`,
-radio, pre-transcode) · **M6** docs + staging (APK 19/0.19). Then review round 1 (§24.2, 0.20) ·
-two ultrareview runs (§24.3, 0.21) · §24.4 on 2026-09-03 (the silent-playback diagnosis, the NOW
-PLAYING root, 0.22) · §25 the same day (0.23: a restored level below the top never loaded; the
-mirror published an empty player record as a removal tombstone; the quiet-stream notice did not
-re-arm) · §30 on 2026-09-05 (Resume / Next / Previous were live rows with an empty queue — DIM now,
-and a menu opens its cursor on the first row that can act; the medium seven-segment clock had its
-last minute digit at an 84 px offset where the pitch is 32).
+radio, pre-transcode) · **M6** docs + staging (APK 19/0.19). The later rounds are `HANDOFF.md`
+§24.2–§24.4 (the NOW PLAYING root), §25 and §30; their traps are in `WINDOWS.md` §5.
 
 ## 12. Traps and rules for the builder
 
@@ -559,5 +543,4 @@ last minute digit at an 84 px offset where the pitch is 32).
 
 ## 13. Kickoff for the build session
 
-The build happened (§11). A later session starts at `REMINDER.md`; Music's remaining items are the
-on-phone checks in `DAILY.md` → Music and the measured items named in §12.
+Spent (§11). What remains: the on-phone checks (`DAILY.md` → Music) and §12's measured items.

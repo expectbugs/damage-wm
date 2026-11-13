@@ -22,7 +22,7 @@ follow the rules of `INTERFACES.md` §4.
 | # | fact | grade | source |
 |---|---|---|---|
 | F1 | Lists and calendar exist nowhere today; designed now, built as the first new window, once for every interface; front and centre on the TV; the helper is an always-on stream-json Claude Code session; voice later on the PC's own speech stack | read (ruling) | `REPLAN.md:330-346` |
-| F2 | The Calendar and Timers windows were axed 2026-09-01, and the scheduled-work piece (§16.13) went with Timers; its sketch said "a duplicate notice, never a missed fire". The 11-12 ruling brings calendar events back inside Reminders | read / inferred | `EXPLOSION.md:190-194,238-243,500` |
+| F2 | The Calendar and Timers windows were axed 2026-09-01, and the scheduled-work piece (§16.13) went with Timers; its sketch said "a duplicate notice, never a missed fire". The 11-12 ruling brings calendar events back inside Reminders | read / inferred | `EXPLOSION.md:193-197,241-246,491` |
 | F3 | The hub holds its default shopping list, contents unknown | read (a backup digest) | R4 §1 |
 | F4 | aria's reminders: date only (time of day lost), recurrence never worked, marked done *before* delivery (a failure was lost), auto-expired 3 days overdue; its Google push-on-failure was never found in code | read / inferred | R5 §B |
 | F5 | ARIA2's rule: compose when saved, deliver on time, **no model call in the firing path**; findings F-411 (double fire without an atomic claim), F-096 (a recurring item stopped for good after one failed fire), F-092 (a stopped process leaves a row "firing") | read | R5 §B |
@@ -33,10 +33,10 @@ follow the rules of `INTERFACES.md` §4.
 | F10 | Speech stack: G2CC's two warm daemons (ASR canary-qwen-2.5b on the GPU, TTS Kokoro on the CPU), stdin/stdout framed, whole utterance only, nothing running today; ASR "~95 % at normal voice" (his note); a Kokoro dependency is GPL-3.0+ | read | R5 §A |
 | F11 | The phone mic is banned for dictation (2026-06-11: "I never ever want to fall back to the phone's mic"; the record notes detection is "a different job"); earbud capture cannot run beside A2DP music and that lane was rejected; the glasses' mic was never used; no audio wake word exists in any of his projects | read | R5 §A, §C |
 | F12 | The kitchen voice device stays unplugged until he has customized it; nothing may depend on it listening | read (his words) | memory `damage-endgoal-interfaces-bastion.md`; `REPLAN.md:264` |
-| F13 | Glasses notices: tap opens the source, double-tap dismisses and marks read, long-press is a no-op by default, scroll scrolls; a 2–3 s focus grace; in Silent Mode a small box, display-only, left unread | read | `DESIGN.md:35,1076-1143` |
-| F14 | `Phone notifications` is off by default and `Notify · Damage` is off on his phone, so the low-battery alert got an Android channel of its own | read | `DESIGN.md:2063-2073` |
-| F15 | The popover family (MENU, NOTICE, CONFIRM, PEEK, DECK, ASK) and the Claude path (`damage-show`, decks, answers that never claim "seen") are a spec, not built | read | `POPOVER.md:3,159-194` |
-| F16 | Typed text always stages behind the window's confirm; app notification toggles live in the app's own Settings category | read | `WINDOWS.md:41-42,50-52` |
+| F13 | Glasses notices: tap opens the source, double-tap dismisses and marks read, long-press is a no-op by default, scroll scrolls; a 2–3 s focus grace; in Silent Mode a small box, display-only, left unread | read | `DESIGN.md:35,1078-1145` |
+| F14 | `Phone notifications` is off by default and `Notify · Damage` is off on his phone, so the low-battery alert got an Android channel of its own | read | `DESIGN.md:2070-2080` |
+| F15 | The popover family (MENU, NOTICE, CONFIRM, PEEK, DECK, ASK) and the Claude path (`damage-show`, decks, answers that never claim "seen") are a spec, not built | read | `POPOVER.md:3,164-199` |
+| F16 | Typed text always stages behind the window's confirm; app notification toggles live in the app's own Settings category | read | `WINDOWS.md:48-49,57-59` |
 | F17 | XFCE: notification buttons vanish under do-not-disturb; shortcuts run commands; the service is headless, so a session-side companion is needed. Web Push goes through the browser vendor's server, so phone alerts stay in the APK | read | R2 §A; R1 "What this decides" 9 |
 | F18 | The TV: portrait by CSS rotation, IR remote (arrows, OK, Back); whether its browser passes arrow keys to a page is unknown | read / unknown | R1 §A |
 

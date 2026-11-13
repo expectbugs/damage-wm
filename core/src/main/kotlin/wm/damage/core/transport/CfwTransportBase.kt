@@ -1277,7 +1277,7 @@ abstract class CfwTransportBase(
             LoggerMsg.SID -> onLoggerFrame(arm, frame.payload)
             RingMsg.SID -> {
                 // The ring data relay. Whether the glasses push RingRawData
-                // unprompted is an open probe (CAPABILITIES.md §3) — read what
+                // unprompted is an open probe (archive/CAPABILITIES.md §3) — read what
                 // arrives, log what does not parse, request nothing.
                 val raw = RingMsg.parseBatteryRaw(frame.payload)
                 if (raw == null) Log.i(name, "sid-0x91 ring relay without rawData battery: " +

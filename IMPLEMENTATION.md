@@ -1,18 +1,22 @@
 # Damage — implementation notes
 
-What runs and how. First stage 2026-08-24; finishing build 2026-08-25 (`HANDOFF.md` §8); live on hardware
-since 2026-08-30 (§11); the daily driver since 2026-08-31 (`DAILY.md`), re-shaped the same night by §19: **the
-phone shell is the primary driver (radio and shell, while the APK is up); the OpenRC `damage` service is the
-data provider — content + tmux + last-write-wins state sync on the content port — and a standby that drives
-PC-direct BLE only while the APK is away.** One `:core` library holds the shell, the byte-exact glass
-simulator, the compositor and every window (Main · Settings · Reader · Tmux · Files · Torrents · Music · Games
-· Feed) on the CFW display contract (modes 3/6/8/9, the 11–15 texture-cache layer, the FB lease, the capability
-gate). Per-window records: `TMUX.md`, `TORRENTS.md`, `MUSIC.md`, `HOLDEM.md`, `FEED.md`; Files is `HANDOFF.md`
-§22 — it brought the shared machinery `WINDOWS.md` §4 lists (`MenuSurface`, the WinNet channel, theme icons via
-desktop `ThemeIcons` + phone `RemoteIcons` with the drawn set as fallback and release path, the §16.4 state
-substrate, deep links, the notification signature, `Draw.fit` / `Draw.dynamic`). Two chrome facts of
-2026-09-01 (Adam): the battery cell is its two gauges (120 px, flush against the clock; the title gained 56 px)
-and the silent-mode clock size is the Global `Silent clock` row (`DESIGN.md` §1.5).
+What runs and how, as built at `b833713` (APK 0.65 and the PC service). Each build's record is `HANDOFF.md`; the
+current battery counts are `REMINDER.md`'s; operations are `DAILY.md`.
+
+**The topology as built** (`HANDOFF.md` §19): **the phone shell drives (radio and shell, while the APK is up); the
+OpenRC `damage` service is the data provider — content + tmux + last-write-wins state sync on the content port — and
+a standby that drives PC-direct BLE only while the APK is away.** **Ruled to change (`REPLAN.md` §14, 2026-11-12):**
+the PC owns every window's state and the phone keeps a working copy (the two-way stamped sync is replaced —
+`CONTRACT.md` §9.7), and PC-direct BLE becomes a manual choice, never automatic (§14.4). The code reaches the first at
+step S1 and the second with the alert watcher, W (`REPLAN.md` §15, §16.1); until then it does what this file says.
+
+One `:core` library holds the shell, the byte-exact glass simulator, the compositor and every window (Main · Settings
+· Reader · Tmux · Files · Torrents · Music · Games · Feed) on the CFW display contract (modes 3/6/8/9, the 11–15
+texture-cache layer, the FB lease, the capability gate; on the fork's build contract 2's modes 17–24, `FIRMWARE.md`
+§4). Per-window records: `TMUX.md`, `TORRENTS.md`, `MUSIC.md`, `HOLDEM.md`, `FEED.md`; Files is `HANDOFF.md` §22 — it
+brought the shared machinery `WINDOWS.md` §4 lists (`MenuSurface`, the WinNet channel, theme icons via desktop
+`ThemeIcons` + phone `RemoteIcons` with the drawn set as fallback and release path, the §16.4 state substrate, deep
+links, the notification signature, `Draw.fit` / `Draw.dynamic`).
 
 ## The two locked decisions
 
@@ -25,9 +29,12 @@ x-height-normalised to the §Type measurements on both.
 **The transport ↔ shell seam** (open item #12) is `wm.damage.core.transport.Transport`:
 
 ```
-shell  ──FlushRequest{ops: Keyframe|Delta|Copy|StereoPair, epoch, wide}──▶  transport
-       ◀──TransportEvent{Input, FlushDone, Lease, Link, DiagFlags, Fault}──
+shell  ──FlushRequest{ops, epoch, label, wide, writer}──────────────────────────────▶  transport
+       ◀──TransportEvent{Input, Text, FlushDone, Lease, Link, DiagFlags, Battery, Fault,
+                         Note, SilentMode, Wear, Presented}──
 ```
+`DisplayOp` (`transport/Transport.kt`): Keyframe · Delta · Copy · CopyPair · StereoPair · CacheWrite · DrawText ·
+DrawImage, and contract 2's DrawText2 · DrawImage2 · Fill · Clip · PresentHint · CacheWrite2.
 
 - Ops are NOMINAL coordinates + per-op disparity; the emitter builds the per-lens stereo boxes (§3.4).
   Payloads arrive pre-compressed (zlib(rle)) — compression is the shell's job (§10.1).
@@ -40,7 +47,7 @@ shell  ──FlushRequest{ops: Keyframe|Delta|Copy|StereoPair, epoch, wide}─�
   the shell can live on the PC while the transport lives on the phone, or the reverse. The server admits
   ONE driver; claim/yield callbacks let the phone's local shell hand over and take back.
 
-Every transport shares `CfwTransportBase` — the full choreography (capability gate → carrier CREATE → lease
+`SimTransport`, `BleTransport` and `BlueZTransport` share `CfwTransportBase` (the seam client relays) — the full choreography (capability gate → carrier CREATE → lease
 both arms + 45 s renewal → warmup splash → the fid-ring clear (mode 7 sub 0, awaited) → idle keepalive → fragmenting ≤ 3800 B → msgId/session
 discipline) — so both live BLE paths run the protocol brain the sim exercises on every selfcheck.
 
@@ -55,21 +62,24 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
                                       sid-0x09 lease + capability, mode 3/6/8/9 builders, CfwModes (11–15),
                                       TextureCache (byte layouts from zlib_glue.c / texture_cache.c),
                                       LoggerMsg (sid 0x0F, the Phase 0 log probe), DamageMsg (FIRMWARE.md
-                                      §0/§3: DamageCaps, the control ops, the telemetry record)
+                                      §0/§3: DamageCaps, the control ops, the telemetry record), LaunchMsg
+                                      (the connect prelude), WearMsg + CaseMsg (sid 0x10 / 0x81)
             wm.damage.core.sim        GlassFirmwareSim — the byte-exact model: per-lens shadows, cfw_diag fid
                                       ring + flags, warmup drop, msgId-255 silence, lease fail-open, the
                                       texture cache, silent rejects made loud; the overlay toggle and the
                                       log switch; a Damage build behind `damageContract`; the conformance
                                       doors (`conformanceMessage`, `conformanceLease`, `shadowCrc32`)
             wm.damage.core.transport  the seam + Emit + CfwTransportBase + SimTransport + Remote client/server
-                                      + PathTransport
+                                      + LensPanels (the mirror) + LinkEstimator + PathTransport (unused, below)
             wm.damage.core.comp       the compositor (one mode-8 flush per frame, §5), CachedText, CanvasShift,
                                       the JSONL journal
             wm.damage.core.shell      Shell, input grammar, chrome, Main, switcher, notifications, silent mode,
                                       ContentKit (lens/list/document), slides, persistence, settings,
-                                      MenuSurface, KeyboardSurface (§4.8), ShellKeeper
+                                      MenuSurface, KeyboardSurface (§4.8), ShellKeeper, Staging, Status,
+                                      BatteryLatch, WindowContract (`DamageWindow`)
             wm.damage.core.windows.reader   Reader + EPUB extraction
-            wm.damage.core.windows.files    the window, Local/Remote providers, FilesService, trash manifest
+            wm.damage.core.windows.files    the window, Local/Remote providers, FilesService, trash manifest,
+                                      ListingCache (the phone's copy of the last listings, §47)
             wm.damage.core.windows.tmux     Tmux window + providers + TmuxNet
             wm.damage.core.windows.torrents QbtClient (Web API 2.11), TorrentLeech + Html, providers, TorrentsNet
             wm.damage.core.windows.music    MusicModel (the MusicLibrary/MusicPlayer contracts), Db + MusicDb,
@@ -88,7 +98,9 @@ core/       wm.damage.core.geom       panel constants, Rect, the runtime lint ga
             wm.damage.core.net        WinNet — the §16.10 window channel (wreq/wres + blob answers + wpush)
             wm.damage.core.sync       SyncNet/RemoteSync — LWW state sync
             wm.damage.core.util       Log · Exec (subprocess runner, stderr drained concurrently) · Http
-                                      (HttpURLConnection, no timeouts, multipart)
+                                      (HttpURLConnection, no timeouts, multipart) · InstanceLock ·
+                                      UncaughtRecord
+            wm.damage.core.replica    ReplicaServer — the browser replica, the journal, the log, the probes
             wm.damage.core.content    library providers: local dir, TCP host, remote client with copy-on-open
                                       caching; the win/icon dispatch
             wm.damage.core.text       TextRasterizer, Style/StyleTransform, GlyphCaches, Wrap
@@ -96,18 +108,18 @@ desktop/    AWT rasterizer · Swing lens preview (integer-scaled, default 4×; k
             ThemeIcons (Papirus-Dark from xfconf, rsvg-convert, mem+disk cache, serves the phone) · PgDb ·
             MusicPlugins · MusicCheck · ScriptedMusic · ScriptedTmux · ScriptedTorrents · GamesCheck ·
             CardSheet · FeedCheck · SelfCheck · Snapshot · SetupServer (/setup + /damage-apk on :7300) ·
-            BlueZLink/BlueZTransport (PC-direct BLE)
+            BlueZLink/BlueZTransport (PC-direct BLE) · StandbyPolicy + StandbyScan (the standby)
 audio/      the enrichment package taken over from G2CC (Adam's code) + viz.py — run on G2CC's venv for now
 phone/      foreground ShellService, on-screen lens view (touch = ring), AndroidText (bundled OFL/Apache
             fonts), BleTransport (LIVE since 2026-08-31), transport seam server, wakelock + Doze exemption +
-            BootReceiver, §9.3 urgent phone notifications, RemoteIcons, AndroidMusicPlayer, MusicListener,
-            SpotifyRemote
+            BootReceiver, DamageApp (the uncaught-error record), §9.3 urgent phone notifications, RemoteIcons,
+            AndroidMusicPlayer, MusicListener, SpotifyRemote, TrackCache
 ```
 
-## The finishing build (2026-08-25)
+## The mirror, the keeper and the replicas (the finishing build, `HANDOFF.md` §8)
 
-Adam's target: *flash the firmware, install the app, and it works — usable from the app or the PC with a
-mouse, on a pixel-exact replica.* `HANDOFF.md` §8 is the record; what it added:
+Adam's target for it: *flash the firmware, install the app, and it works — usable from the app or the PC with a
+mouse, on a pixel-exact replica.*
 
 - **Every transport owns a mirror** (`Transport.mirror: LensPanels`): a `GlassFirmwareSim` fed the exact packets
   the transport writes; its `decode`/`fid`/`session` events surface as `mirror/<kind>` faults (the seven kinds,
@@ -129,9 +141,10 @@ mouse, on a pixel-exact replica.* `HANDOFF.md` §8 is the record; what it added:
   driver, and `Shell.start()` ADOPTS a live session (one wide keyframe). The seam server answers a claim of a
   live session with an adopt-grant and never stops the owner's session on driver loss; only the OWNING host
   tears it down. `HandoverTest` ×4 (`preludeAcks == 1` across claim / silent death / release / pause / resume).
-- **The arbitration** (`transport/PathTransport.kt`): concurrent attempts over the candidate paths, first to
-  start wins, a refused path disabled for the run. ⛔ Not the desktop's default since §19 — `auto` is the
-  STANDBY policy; `--transport remote` is the explicit claim-and-drive dev override.
+- **The arbitration** (`transport/PathTransport.kt`: concurrent attempts over the candidate paths, first to start
+  wins, a refused path disabled for the run) is built by no host since §19 (`DesktopStack.transport` in `desktop/Main.kt`: `auto` builds
+  no stack — it is the STANDBY policy; `sim` / `ble` / `remote` build one transport each); the class and
+  `PathTransportTest` remain. `--transport remote` is the explicit claim-and-drive dev override.
 - **The phone**: `BleTransport` on G2CC's driver + the reference's sequence (RIGHT then LEFT, `retry(10, 500)`,
   MTU 512 checked ≥ 245, priority HIGH, cached pair addresses, RSSI poll); `ShellService` on the keeper (a seam
   claim pauses it, a release resumes it); the **Target** switch in `Prefs`; `LensView` draws the mirror.
@@ -160,12 +173,12 @@ mouse, on a pixel-exact replica.* `HANDOFF.md` §8 is the record; what it added:
 Desktop (the sim standing in for glass; also serves `~/books` to the phone):
 
 ```
-./gradlew :desktop:run                        # AUTO = STANDBY (§19): data host (content+tmux+sync) + replica; probes the phone, BLE-drives ONLY while the APK is away — stop the service first (exit 4 otherwise)
+./gradlew :desktop:run                        # AUTO = STANDBY (§19): data host (content+tmux+sync) + replica; probes the phone, BLE-drives ONLY while the APK is away (as built; manual only from the alert watcher W, REPLAN.md §14.4, §16.1) — stop the service first (exit 4 otherwise)
 ./gradlew :desktop:run --args="--help"   # the usage text; an argument the program does not know is refused (exit 2) and nothing starts; one entry point per line
 ./gradlew :desktop:run --args="--transport sim"   # the simulator in-process (development) — stop the service first (exit 4 otherwise)
 ./gradlew :desktop:run --args="--transport ble"   # PC-direct BLE only (manual) — stop the service first (exit 4 otherwise)
-./gradlew :desktop:run --args="--remote HOST"     # claim the phone's transport and drive through it — the EXPLICIT dev override; stop the service first (exit 4 otherwise)
-./gradlew :desktop:run --args="--ble-info"    # adapter enumeration only (no discovery)
+./gradlew :desktop:run --args="--remote HOST"     # = --transport remote: claim the phone's transport and drive through it — the EXPLICIT dev override; stop the service first (exit 4 otherwise)
+./gradlew :desktop:run --args="--ble-info"    # the BlueZ adapter and the devices it knows (no discovery)
 ./gradlew :desktop:run --args="--selfcheck"   # the 485-check scripted gate: two passes (contract 1 with a gain-in-place step at boot, then contract 2 with cached text on), every window's walk, the truth oracle on every settle
 ./gradlew :desktop:run --args="--snapshot DIR"  # lens-truth PNGs of every surface (57 scenes)
 ./gradlew :desktop:run --args="--epub-check [DIR]"  # parse every book in DIR (default: the config's booksDir); exit 1 on zero books, a DIR that is not a directory or a failing book
@@ -174,7 +187,7 @@ Desktop (the sim standing in for glass; also serves `~/books` to the phone):
 ./gradlew :desktop:run --args="--card-render" # the card sheets into design/shots/cards/ at true 1x
 ./gradlew :desktop:run --args="--feed-check [DIR] [live]"  # the feed engine over the captured fixtures; `live` = one paced fetch per source, read-only, temp dir
 ./gradlew :desktop:run --args="--host-only"   # content host alone (books + tmux + sync + setup page, no stack ever) — stop the service first (exit 4 otherwise)
-./gradlew :desktop:test                       # 32 tests: the BlueZ glue over the fake link, the config file's safety, SetupServer, the standby policy, the status cell's fit, the xkcd PNG through the decoder
+./gradlew :desktop:test                       # 35 tests: the BlueZ glue over the fake link, the argument parser (CliTest), the config file's safety, SetupServer, the standby policy, the status cell's fit, the epub check, theme icons, the xkcd PNG through the decoder
 ```
 
 Preview: mouse wheel scroll · left click tap · right click double-tap · press-and-hold long-press · keys
@@ -195,7 +208,7 @@ frames compared) is appended and said short. The start order: on the PC `Instanc
 another process holds the data directory) ahead of the record's install, the journal's rotation, the `process` note
 (with the archives' count and total) and the pickup; on the phone `DamageApp.onCreate` installs the record and
 `ShellService.onCreate` runs its start steps ahead of `startStack`, caught as one (a fault there is one ERROR line and
-the stack starts). The phone half has not run on the device.
+the stack starts). The phone half has not been read on the device.
 
 Config in `~/.damage/config.json` — books dir, ports, token (generated on first run; must match
 `damage-secrets.properties` before building the APK), the phone host, the cached pair addresses, the tmux
@@ -217,22 +230,22 @@ over Tailscale, copies each book locally on open, falls back to its caches when 
 music from :7404 or its prefetch cache, serves the seam on :7402 (probe/claim) and its replica on :7403. The
 SIM target is the on-phone dev mode. Run the APK build in its OWN gradle invocation (`CLAUDE.md`).
 
-**The all-day daily driver** (`DAILY.md`): `--no-preview` runs any mode headless; `:desktop:stageJar` copies the
-fat jar to the STABLE `~/.damage/damage.jar`; the OpenRC service `/etc/init.d/damage` runs it in `auto`. Deploy
-= `stageJar` + `rc-service damage restart`; stop the service before any `:desktop:run` dev session.
+**The all-day daily driver:** `--no-preview` runs any mode headless; `:desktop:stageJar` copies the fat jar to the
+STABLE `~/.damage/damage.jar`, which the OpenRC service `/etc/init.d/damage` runs in `auto`. Deploying, and stopping
+the service before any `:desktop:run` dev session, are `DAILY.md`'s.
 
-## Configurations wired today
+## Configurations wired today (as built; `REPLAN.md` §14 changes the first two at step S1, the third with the alert watcher W)
 
 | configuration | how |
 |---|---|
 | **app + home PC** (the default — §10.1 row 1 as INTENDED, §19) | APK (Target = glasses) DRIVES; the `damage` service is the data host: live library, tmux, state sync. The PC never claims |
 | app alone | the APK with no PC reachable: its own shell, cached library + cached books, staleness said; sync catches up on reconnect |
-| PC-direct BLE (the rare case) | auto's standby starts a BLE stack after 6 probes (30 s) of the APK UNREACHABLE AND both arms SEEN advertising to the PC's adapter (§47 — a phone that is only unreachable over the network still holds them; §72 — a reachable APK on Target≠glasses is a choice, and an adapter that cannot scan never claims), gives the claim back after 6 failed starts in a row (the next claim's debounce doubles, up to 5 min), and hands back on the APK's return; or `--transport ble` manually |
+| PC-direct BLE (the rare case; manual only from the alert watcher W, `REPLAN.md` §14.4, §16.1) | auto's standby (the next section's last bullet: six probes, 30 s, of an UNREACHABLE APK and both arms seen) starts a BLE stack and hands back on the APK's return; or `--transport ble` manually |
 | PC drives through the phone | `--transport remote` ONLY — the explicit dev override (the old daily mode, kept for development) |
 | laptop-direct with the simulator | `:desktop:run --args="--transport sim"` — the development environment |
 | browser replica | `http://<desktop-or-phone>:7403/?token=…` from any machine on the tailnet — the PHONE's is the live view in the default configuration |
 
-## Phone-primary + sync (2026-08-31 night, `HANDOFF.md` §19 — the corrected §8.1 reading)
+## Phone-primary + sync (`HANDOFF.md` §19; replaced at step S1 — `CONTRACT.md` §9.7, `REPLAN.md` §14.4)
 
 - **`Persistence` is the sync substrate**: schema v2 with a per-key stamp, re-stamped only on real value change;
   `tryApplyRemote` applies a different value by strict stamp order; an equal value within 2 s
@@ -252,32 +265,13 @@ fat jar to the STABLE `~/.damage/damage.jar`; the OpenRC service `/etc/init.d/da
   a claim needs six probes of an UNREACHABLE APK AND both arms seen advertising to the adapter (`StandbyPolicy`,
   `StandbyScan`: §47, §72), every claim, refusal and give-back a `keeper` journal note. A reachable APK on
   Target≠glasses never causes a claim, and neither does an adapter that cannot scan (it says why once per cause and
-  looks again every probe). A claim whose keeper fails 6 starts in a row is given back (`ShellKeeper.failedStarts`),
-  with a doubling debounce for the next one. APK back → stop it (the lease fails open and the phone
+  looks again every probe; §47: a phone that is only unreachable over the network still holds the arms). A claim
+  whose keeper fails 6 starts in a row is given back (`ShellKeeper.failedStarts`), and the next claim's debounce
+  doubles per give-back in a row, up to 60 probes ≈ 5 min (`StandbyPolicy.claimDebounce`). APK back → stop it (the lease fails open and the phone
   re-choreographs). A BlueZ-less machine stands by as data host only, loudly. Every server retries a busy port
-  every 5 s (`bindOrRetry`). `SyncTest` ×6 and `StandbyPolicyTest` ×6 pin it.
+  every 5 s (`bindOrRetry`). `SyncTest` ×6, `SyncToleranceTest` and `StandbyPolicyTest` ×6 pin it.
 
-## Confirmed on hardware — first light, 2026-08-30
-
-`HANDOFF.md` §11 is the record. `BlueZTransport` worked the first time it saw a radio — scan by name, RIGHT
-then LEFT, MTU 247, notifications, write pacing, **no bonding needed**; the whole choreography (prelude,
-capability gate, carrier CREATE, both leases, the warmup drop) painted; ring input arrived over `e0-01`; the
-keeper recovered two unplanned link ends. **Ack latency ~50 ms** against the modeled 176 — an idle-shell
-floor, not the curve (§11). Three defects fixed within minutes; the one to remember: the ack **status
-enum** read as an error code because **the simulator modeled success as an absent field** — a model that
-errs toward permissive is worse than no model.
-
-## The refinement wave (2026-08-31) — `HANDOFF.md` §12 is the full record
-
-Chrome depth, coarse scroll, Reader folders/chapters/images, per-app height, the digital clock, Settings
-directories, brightness + battery on the wire, the 4× preview. The one trap worth restating: **the switcher
-had not worked since first light because our source filter discarded the unattributed events 9/10 (source
-0)** — a test default that supplies what the wire omits. Do not reintroduce a source gate on events 9/10.
-
-## The APK-mission prep (2026-08-31, HANDOFF.md §13 — before any phone-radio test)
-
-Mined from G2CC's Android app and the seam's failure model; on the radio daily since the phone's first light
-the same day (§13):
+## The phone's liveness and the seam heartbeat (`HANDOFF.md` §13)
 
 - **The seam heartbeat** (`RemoteTransport.kt`, both ends): a bare `ping` every 5 s; a side that has SEEN its
   peer speak the protocol treats 20 s of total silence as the link ending — loudly — so a silent path death
@@ -312,7 +306,8 @@ elsewhere, `Retry-After` honoured, `RateLimited`) · `FeedXml` · `Fetchers` (`R
 - **`FeedEngine` runs on both hosts** (`FEED.md` §3.6): the PC's is `Config.feedEngine` (files under
   `~/.damage/feed`) and serves the phone through `FeedService` on the window channel; the phone's own (the app's
   `files/feed`) starts PAUSED and `SwitchingFeedProvider` resumes it after the `PC loss` threshold; `Back to PC`
-  in the root menu parks it. Nothing switches back on its own.
+  in the root menu parks it. Nothing switches back on its own. (As built; from step S1 the phone shows the PC's last
+  state with its age instead — `CONTRACT.md` §14 (a) row 1, `FEED.md` verdict 15.)
 - **Reading state is the shell's:** `feed.src.<id>` (read ids capped at 600, flags, `seen`) and `feed.binge.<id>`
   (episode, strip); read marks UNION on a live apply, flags are LWW. Harness accessors: `rootRowId()`,
   `levelName`, `itemsLoaded()`, `comicFocusLabel()`.
@@ -322,7 +317,7 @@ elsewhere, `Retry-After` honoured, `RateLimited`) · `FeedXml` · `Fetchers` (`R
 - ⚠ **Comics are the heaviest thing the shell ships** (`FEED.md` §2.6, modeled): an xkcd first screen 5–13 KB, an
   8-Bit Theater page 30–54 KB at 16 levels (17 KB at 4). On-glass numbers owed (§8.1).
 
-## Music (2026-09-01/02, MUSIC.md · DESIGN.md §4.9) — the phone plays, the PC serves
+## Music (2026-09-01/02, MUSIC.md · DESIGN.md §4.9) — the phone plays, the PC serves (as built; from step S1 the PC holds the queue and one output at a time plays, the PC's own included — `REPLAN.md` §14.2, §14.3 answer 4)
 
 The G2CC music SYSTEM is Damage's: Postgres `g2cc`, Qdrant `g2cc_music`, the 8.1 GB transcode cache read in
 place, the enrichment package (`audio/`, Adam's own code), yt-dlp. Two contracts (`MusicLibrary` +
@@ -440,7 +435,7 @@ targeting, no `-C` attach). `wm.damage.core.windows.tmux`; `TMUX.md` is the reco
 - **Shell additions**: `CanvasView.onScroll/onTap`, `DamageWindow.onTypedText` + LOUD refusal when nothing
   accepts, `Transport.injectText` → `TransportEvent.Text` across every transport and the seam (`"typed"`); entry
   points: the desktop preview (key T), the browser replica's text bar, the phone strip's `type` button.
-- **Harnesses**: `ScriptedTmux` (the tmux selfcheck checks, snapshot scenes 09b–09e); `TmuxTest.kt` (29, six classes).
+- **Harnesses**: `ScriptedTmux` (the tmux selfcheck checks, snapshot scenes 09b–09e); `TmuxTest.kt` (32, six classes).
 
 On-glass verdicts still owed (`REMINDER.md` → Suspended work): the flow view's default size/wrap feel,
 quick-key order, alert-pattern tuning against real Claude sessions, ssh-host latency feel.
@@ -461,8 +456,9 @@ ladder (`DESIGN.md` §3): the Global row moves everything with the selection bar
 
 ## The texture cache (2026-08-30, CFW `a5d1c31`)
 
-The firmware's **64 KiB lease-scoped texture cache** and three draw modes; wire and model layers built
-2026-08-30, adopted by the compositor behind the Global `Cached text` row 2026-09-06.
+The firmware's **64 KiB lease-scoped texture cache** and three draw modes (on contract 2 the cache is sized by op 5,
+160 KiB a session, and modes 17–19 draw and write it — `FIRMWARE.md` §4); wire and model layers built 2026-08-30,
+adopted by the compositor behind the Global `Cached text` row 2026-09-06.
 
 - `wire/CfwModes.kt` — `cleanup()` (11), `cacheUpdate()` (12), `drawImage()` (13), `drawCachedText()` (14),
   `options()`, `xAdjust()`; every builder refuses what the firmware would reject in silence (mode 13's exact
@@ -475,7 +471,7 @@ The firmware's **64 KiB lease-scoped texture cache** and three draw modes; wire 
 - `gfx/Codec.kt` — `Rle.encodeLevels`/`decodeLevels` over a bare pixel run (`CodecTest.rleMatchesPythonReference` still holds).
 - `sim/GlassFirmwareSim.kt` — modes 11/12/13/14 modeled byte-exactly (the lease gate, whole-list validation, the
   LUT with its integer truncation, transparency tested pre-LUT, per-glyph advance by image width). Mode 15 is
-  **refused loudly**. The cache is dropped on lease expiry and on mode 11. `TextureCacheTest` + `AckStatusTest`: 51.
+  **refused loudly**. The cache is dropped on lease expiry and on mode 11. `TextureCacheTest` + `AckStatusTest`: 52.
 - Two corrections from reading the source: the sim no longer attaches an `EventSource` to long-press events
   (`EvenHubMsg.reportsSource`); the capability gate runs against the real `EVENCFW/16` string (`REQUIRED_CAPS`
   stays at five, version checks through `SettingsMsg.contractVersion`).
@@ -503,7 +499,7 @@ longer throws the atlas away when the glasses still hold it. `CfwTransportBase` 
 out since): a write of the last `LINK_SETTLE_MS` (10 s) before a link end is struck (the platform's write callback means its stack took
 the packet, the last exchange can predate a supervision timeout by 5 s, and a lease write can queue behind
 a flush on the same arm), a release is never struck. At the session's first ACQUIRE the transport decides
-whether both arms were inside `LEASE_CARRY_WINDOW_MS` (90 s less a 10 s margin) and puts the answer and
+whether both arms were inside `LEASE_CARRY_WINDOW_MS` (the firmware's 87.9 s expiry less a 10 s margin) and puts the answer and
 the per-arm gaps in `LinkState.leaseCarried` / `leaseCarry` (over the seam too). Since §59 (2026-09-15, the
 right lens rebooted inside the window and refused every cached draw): the start reads RIGHT's uptime before
 the lease (`noteUptime`), a reboot since that arm's last acquire refuses the carry ("R reset N s ago"), and so
@@ -601,11 +597,11 @@ The focused document's next and previous strips as v2 image records in the cache
 - `LinkState.atlasCapacity` = the cache less `CfwModes.STAGE_RESERVE` on DRAW2; the read-back expects the glasses' cache
   to be the atlas plus the reserve. `Transport.telemetry()` = op 1. `ShellSettings.pageStaging`, the Global row `Page
   staging`, the journal's `staged` field and `stage` notes, `journal_report.py`'s page-staging line.
-- Gates: `StagingTest` (14: §66's ten and §73's four — the two re-read paces on a paced link, a stopped shell, a
-  strip after its glyphs), the contract-2 oracle walk (the document keyed), `--selfcheck`'s contract-2 pass (a Reader
+- Gates: `StagingTest` (21: §66's ten, §73's four — the two re-read paces on a paced link, a stopped shell, a strip
+  after its glyphs — 0.64's six and 0.65's one), the contract-2 oracle walk (the document keyed), `--selfcheck`'s contract-2 pass (a Reader
   notch that shipped a staged draw, counted where the flush is assembled).
 
-## The fork's Phase 0 pieces (2026-09-13, `HANDOFF.md` §49, `FORK.md`)
+## The fork's Phase 0 pieces (`HANDOFF.md` §49, `FORK.md`)
 
 Damage stays clean-room: it holds the contract (`FIRMWARE.md`), data and its own implementation, never the
 fork's C (`~/damage-cfw`).
@@ -623,17 +619,17 @@ fork's C (`~/damage-cfw`).
   `/journal` (`journal_report.py --since`, the battery section).
 - **Conformance vectors** — `firmware/make_vectors.py` writes the inputs (the documented v1 message formats);
   the fork's `host/run_vectors.py --write` fills the expectations from its C; `ConformanceVectorTest` runs
-  every file through `GlassFirmwareSim` per lens (shadow CRC-32 and every return code). 7 vectors, 35 steps
-  then (34 vectors, 342 steps since the vector pass, 2026-11-12, `HANDOFF.md` §77.4), matching on both lenses.
+  every file through `GlassFirmwareSim` per lens (shadow CRC-32 and every return code): 34 vectors, 342 steps
+  since the vector pass (2026-11-12, `HANDOFF.md` §77.4), matching on both lenses.
 - **`DamageMsg` + the simulator's `damageContract`** — the Phase 1 settings extension from the contract text:
   DamageCaps parsed at the capability gate, telemetry parsed on any sid-0x09 frame before the §47 answer
   matching, flags modeled with the texture cache's release points, field 4 a status register (the last
   recording op's status; TELEMETRY records nothing — `HANDOFF.md` §50). `DamageMsgTest` covers the bytes, a
-  Damage build and an upstream build (which answers nothing; the installed build at the time).
+  Damage build and an upstream build (which answers nothing).
 - **`research/fwread.py`** — the stock image at instruction level (disassembly, the corpus decompile, stored
   words, literal references, call sites, strings); `research/fork-reads-2026-09-13.md` the notes it produced.
 
-## The fork's Phase 1 pieces (2026-09-14 evening, `HANDOFF.md` §51, `FIRMWARE.md` §3)
+## The fork's Phase 1 pieces (`HANDOFF.md` §51, `FIRMWARE.md` §3; flashed 2026-09-15)
 
 - **`DamageMsg`** — op 4 CACHE_INFO, flags bit 0 PRESENTED / bit 1 CACHE_KEEP / bit 15 PROBE
   (`FLAGS_IMPLEMENTED`), features 0x1f, telemetry fields 15–22 named in `describe()`, field 113
@@ -657,11 +653,10 @@ fork's C (`~/damage-cfw`).
 - **`Journal.present`** — `{"ev":"present","seq","workerUs","copyUs","transferUs"}`, one per transfer while
   armed; `journal_report.py` prints the distribution; `tools/glassdrive.py selftest:FILE` drives a vector
   through the glasses' self-test and compares RIGHT's report from `/log`.
-- Tests: `DamageMsgTest` (11 then, 16 now — the three of the §52 review: the reset seen past a grown uptime, the dropped
-  unsupported bit, the truncated self-test step refused and counted; the two of §53: a FLAGS_SET with no lease
-  in force until the next release point, an FB_RELEASE after a settled lapse still clearing the flags),
+- Tests: `DamageMsgTest` (16; among them §52's reset seen past a grown uptime, the dropped unsupported bit and the
+  truncated self-test step, and §53's FLAGS_SET with no lease and FB_RELEASE after a settled lapse),
   `ConformanceVectorTest` (2 — the normal path and the self-test form over the drawing vectors),
-  `DevProbeTest` (4). The fork's side: `host/test_damage_ext.py` (44 then; 76 checks now), `host/run_self_test.py`.
+  `DevProbeTest` (4). The fork's side: `host/test_damage_ext.py` (76 checks), `host/run_self_test.py`.
 
 ## Review hardening (rounds 2–8, 2026-08-24)
 
@@ -669,7 +664,7 @@ Seven rounds of independent review after the first build (every candidate verifi
 simulation before a fix) found ~70 real defects; the reviews since (`HANDOFF.md` §25–§42) added to the list.
 These mechanisms are load-bearing and easy to break by accident:
 
-- **APK 0.64's (`HANDOFF.md` §76; built, not yet installed).** The compositor: the base's rule is made by the
+- **APK 0.64's (`HANDOFF.md` §76).** The compositor: the base's rule is made by the
   reference walk (`hole`); `settled` in the plan loop; one proof per grown box per assemble (`failedProofs`); a
   batch's sub-messages are budgeted, 254 given out and one kept for the hint (`Compositor.subsLeft`; `batch-count`).
   The shell: `Shell.retire` before any painter fills a region of `composed` it paints again (a new painter that
@@ -744,7 +739,7 @@ These mechanisms are load-bearing and easy to break by accident:
   asks for the rebuild when the glasses say they are awake, once per pacing. System events 4/5/7 are journaled
   as `event` notes; the simulator's `carrierLost` models the page ending. Do not put the old "panic → keyframe"
   reaction back in front of a refusal (a 20 KB keyframe every 3.5 s for fifteen minutes, 2026-09-05).
-  `SilentGlassesTest` ×6, `ShellKeeperTest.aRestartRequestRebuildsTheSessionOnce`. **Since 0.64 the sleep has a
+  `SilentGlassesTest` ×8, `ShellKeeperTest.aRestartRequestRebuildsTheSessionOnce`. **Since 0.64 the sleep has a
   reason** (`SILENT` / `REST`): a rest is the same path, entered by `probe:rest=on`, ended by `rest=off` or any input
   event (consumed); a cache write in flight and a read-back on its way are dropped at the entry with no keyframe;
   `decode` / `mirror/decode` are expected while asleep. Notes: `rest` and `power`; a rebuild refused while the shell
@@ -807,6 +802,9 @@ These mechanisms are load-bearing and easy to break by accident:
   `Notifications.srcH()/pitch()/roomFor()`, `Switcher.paint`'s `bandH`, `TableLayout(statusH, lineH)` +
   `HoldemView.paintSeat`. The design numbers are the FLOOR, so 100 % is pixel-identical. No pitch constants.
 - **A generation bump and its in-flight flag are ONE operation** (`GamesWindow.cancelPacer`, §28.1).
+- **Events 9/10 are UNATTRIBUTED** (`EventSource` absent, source 0; `HANDOFF.md` §11–§12): the switcher did not work
+  from first light until the source filter that dropped them went. Do not reintroduce a source gate on events 9/10,
+  and never let a test supply what the wire omits (`LongPressTest`).
 - **Windows scan their root at registration, quietly** (§28.1): no op-cell narration, no notice, no `navSeq` bump.
 - **`Config.load` never writes back an unreadable file** (§28.1): defaults for that start only, loudly.
 - **Chrome text is placed from MEASURED ink and its scale is capped to its bar** (2026-09-05): `Chrome.fitY`
@@ -868,16 +866,15 @@ These mechanisms are load-bearing and easy to break by accident:
 
 ## Verification
 
-Battery as of 2026-09-14 evening (`HANDOFF.md` §51.6; **the current counts are `REMINDER.md`'s** — core 1023 ·
-desktop 35 · `--selfcheck` 485 at 0.65's R4, the final battery, simulator): `:core:test` **545** · `:desktop:test` **15** · `--selfcheck`
-**230** checks ×3 · `--snapshot` **57** scenes · `--epub-check` (380/404 images) · `--music-check` · `--games-check`
-(400 tournaments) · `--feed-check` · `tools/lint.py` **0** · the phone build in its own gradle call (`:phone:assembleDebug` — `:phone:stageApk`
-STAGES the APK for install and is never a battery step). The fork:
+The battery is `CLAUDE.md`'s list; **the current counts are `REMINDER.md`'s** (at 0.65's R4, simulator: core 1023 ·
+desktop 35 · `--selfcheck` 485 ×3 · 57 snapshot renders · lint 0). The phone build runs in its own gradle call
+(`:phone:assembleDebug` — `:phone:stageApk` STAGES the APK for install and is never a battery step). The fork:
 `tools/verify.py` · `host/run_vectors.py` · `host/run_self_test.py` · `host/test_damage_ext.py`.
 Every review's pins were run against the unfixed tree and watched to fail before they counted.
 
-- `./gradlew :core:test` — RLE parity against the Python reference, CRC vectors, the geometry/fid fixtures shared
-  with `tools/lint.py --selftest` (`GeometryTest`), pipeline round trips through the sim, `Round3Test`;
+- `./gradlew :core:test` — RLE parity against the Python reference, CRC vectors, the runtime geometry and fid rules
+  each pinned to a fixture that must fire (`GeometryTest`; the emit's refusals `EmitRulesTest`), pipeline round
+  trips through the sim, `Round3Test`;
   `MirrorTeeTest`, `PreludeTest`, `DivergenceTest`, `ShellKeeperTest`, `WheelAndHostSettingsTest`,
   `SeamMirrorTest`, `SeamSessionTest`, `ReplicaServerTest`, `PathTransportTest`, `LongPressTest`;
   `LensOracleTest`, `Round5Test`–`Round7Test`, `L2ProbeTest`; `SeamLivenessTest`, `HandoverTest`, `SyncTest`,
@@ -891,8 +888,10 @@ Every review's pins were run against the unfixed tree and watched to fail before
   the §42 pins; `TextureCacheTest`, `AckStatusTest`; `FeedTest`, `FeedWindowTest`, `FeedNetTest`; `DevProbeTest`,
   `ConformanceVectorTest`, `DamageMsgTest` (§49). ⚠ `FeedWindowTest.deepLinksResolveEveryForm` misses in some
   full runs (§49.6: the window flips to comic #1, which `ScriptedFeed` cannot serve; the trigger is unknown).
-- `./gradlew :desktop:test` — the BlueZ glue over a fake link, `ConfigTest` (an unreadable `config.json` is left
-  untouched, a tokenless one completed), `SetupServerTest`, `FeedStripsTest` (the real xkcd PNG through the decoder).
+- `./gradlew :desktop:test` — the BlueZ glue over a fake link (`BlueZTransportTest`), `CliTest` (the argument list),
+  `ConfigTest` (an unreadable `config.json` is left untouched, a tokenless one completed), `SetupServerTest`,
+  `StandbyPolicyTest`, `StatusCellFitTest`, `EpubCheckTest`, `ThemeIconsTest`, `FeedStripsTest` (the real xkcd PNG
+  through the decoder).
 - `--selfcheck` — the whole stack scripted end to end with real fonts: ink budgets, input grammar, persistence
   byte-behaviour, zero faults/failed flushes/sticky flags. **The per-lens TRUTH oracle runs on EVERY settle**
   (`oracleRuns >= 100` keeps it from quietly stopping); it found the Music Mode card's overrun and both chrome
@@ -917,5 +916,8 @@ Every review's pins were run against the unfixed tree and watched to fail before
   readout sits inside `x∈[240,400]` in a band ≤ 16 rows tall; the live scenes are `11-files-locations`,
   `38-music-mode-480-bars`, `39-music-mode-288-scope`; `10-silent.png` draws no status line and IS
   byte-stable — the useful canary.
-- `tools/lint.py` gates the repo at 0 findings; its geometry rules are mirrored 1:1 (same rule IDs) in
-  `wm.damage.core.geom.Geometry`, and `GeometryTest` pins both to the same fixtures.
+- `tools/lint.py` gates the repo at 0 findings: SYM001/SYM002 (drawn strings and every Kotlin string literal against
+  the locked faces), SEC001 (no token in a log line), GEO (the cells `DESIGN.md` §2.3 declares, through
+  `tools/geometry.py`) and BUD (the ink of the renders); `--selftest` names the rules it covers. The runtime rules
+  (stereo pairs, the rect budget, fid order, the frame walls) are not lint's: `core`'s `geom` package checks them on
+  every emit (the Python copy retired at `HANDOFF.md` §65).

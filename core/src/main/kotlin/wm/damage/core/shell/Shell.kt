@@ -5001,7 +5001,7 @@ class Shell(
         else base.withHeightMode(s.heightMode, wm.damage.core.geom.VPos.TOP)
     }
 
-    /** §2 per-app height (REFINEMENT.md, 2026-08-31): the layout the shell
+    /** §2 per-app height (archive/REFINEMENT.md, 2026-08-31): the layout the shell
      *  should be in RIGHT NOW — the focused window's preferred height when it
      *  declares one, else the global Size setting. */
     private fun effectiveLayout(): Layout {

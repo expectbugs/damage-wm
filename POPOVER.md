@@ -1,7 +1,8 @@
 # POPOVER.md — the popover family, and the Claude path that rides it
 
 **Status: SPEC, designed with Adam 2026-09-11/12. Not built.** Built whole in one pass when Adam
-calls it (verdict 7); nothing ships before §8's last milestone. Precedence as always: `overview.md`
+calls it (verdict 7); nothing ships before §8's last milestone. Its place in the order: the glasses
+kit, built once after the second flash (`REPLAN.md` §4 K; `CONTRACT.md` §11.2). Precedence as always: `overview.md`
 on facts, `CLAUDE.md` on rules, `DESIGN.md` on shell design (§4.11 is the design summary; this file
 is the record). `HANDOFF.md` §46 is the session record.
 
@@ -11,7 +12,7 @@ is the record). `HANDOFF.md` §46 is the session record.
 |---|---|---|
 | 1 | Claude-session content goes to the glasses as a **popover over the active window**, not a dedicated window | 09-11 |
 | 2 | The popover is a **general tool for every window and app**; notifications become one popover type; it replaces the notification spawner's presentation | 09-12 |
-| 3 | **No dimming** of the content behind a popover — *"if dimming the background would cause 0.5 s higher latency, that's a nope"* | 09-11 |
+| 3 | **No dimming** of the content behind a popover — *"if dimming the background would cause 0.5 s higher latency, that's a nope"* → **replaced 2026-11-13** (`MOTION.md` §6 B2, ruled as recommended): the dim is allowed, one step with the popover's open, not animated — the fork's mode 22 does it inside the popover's own flush, so the 0.5 s repaint is gone; built with the family | 09-11 |
 | 4 | **Banners / timed popovers OUT** | 09-12 |
 | 5 | **Width**: whatever makes sense per app, set by the app at spawn, plus a Settings row | 09-12 |
 | 6 | **Stacking: yes** — the top popover always nearest, depth done properly | 09-12 |
@@ -42,7 +43,8 @@ Standing constraint behind 3 and 4: *less latency, not more.*
 
 ### 2.2 Firmware (source: `zlib_glue.c`, `texture_cache.c`)
 - No dim-in-place operation: modes 3/6 fill pixels, 9 copies a rect, 13/14 draw from the cache
-  through a LUT. Dimming what is on the panel = repainting it.
+  through a LUT. Dimming what is on the panel = repainting it. (True of `a5d1c31`. The fork's
+  Phase 2 build, installed, adds mode 22, a LUT over a rect — `FIRMWARE.md` §4; verdict 3's note.)
 - Cached draws are FLAT (plane 0). The LUT `top` (0–15) scales a draw's levels; our recorder already
   dims text with it. A plane change of an existing rect is a per-lens mode-9 copy (+4 B, `DESIGN.md` §8.4).
 - Only mode 3 burns a fid; the budget is 5 per flush.
@@ -52,7 +54,7 @@ Standing constraint behind 3 and 4: *less latency, not more.*
 |---|---:|---:|
 | open a text popover (hole + marks) | few hundred B cached · < 1 KB pixels | ~0.15–0.2 s |
 | dismiss (restore the under-pixels) | 1–3 KB | 0.2–0.5 s |
-| dim the surroundings (rejected, verdict 3) | 1.5–3.5 KB draws · 2.5–6.3 KB pixels, ×2 | +0.5 s each way |
+| dim the surroundings by repaint (verdict 3; mode 22 replaces it) | 1.5–3.5 KB draws · 2.5–6.3 KB pixels, ×2 | +0.5 s each way |
 | a 564×160 photo band | 14 KB | 1.7 s |
 | an image OF a text table (564×416) | 8.4 KB | 1.1 s |
 | the same table as cached text | ~1.5 KB | 0.3 s |
@@ -133,7 +135,8 @@ supersedes the open one (its result is `superseded`).
 
 ### 3.8 Persistence and continuity
 Persistent types survive a restart (the notification queue's re-enqueue path, generalized). An open
-ASK's checked set is live state in a synced record so the phone replica and the PC converge (`EXPLOSION.md` §16.4).
+ASK's checked set is live state in a synced record so the phone replica and the PC converge (`EXPLOSION.md` §16.4;
+the sync as built — from S1 an ASK is a question record on the PC, `CONTRACT.md` §3.2, §2.4).
 The replica shows every popover (it mirrors the frame); input arrives through `injectInput`.
 
 ### 3.9 Latency targets (measured before §8 M6 closes)
@@ -149,6 +152,8 @@ The replica shows every popover (it mirrors the frame); input arrives through `i
 1. **MENU** — `MenuSurface` becomes the MENU type; Files' whole grammar is the regression suite.
 2. **NOTICE** — `Notifications.kt` keeps the POLICY (queue, `+N`, coalescing, persistence,
    emergency, silent-mode 5 s variant, mark-read, deep-link tap); only the presentation moves.
+   (Amended by `CONTRACT.md` §7.2: from S1 the policy — gating, coalescing, read state — lives in
+   the PC's one notice record; the shell keeps the presentation.)
    History (the Notices window, `EXPLOSION.md` §7) remains a property of this type.
 3. **CONFIRM** — one shape for every irreversible act (title, body, Cancel at rest, the act second);
    replaces the per-window shapes (Tmux TYPE_CONFIRM, Torrents' double confirm, Feed's Mark all read).

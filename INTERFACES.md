@@ -19,10 +19,10 @@ every interface shares; `BASTION.md` and `REMINDERS.md` refer to it.
 | fact | grade | source |
 |---|---|---|
 | Every window paints pixels for 640×480; no route serves a window's structure, so today another screen can only show the glasses picture | read | `REPLAN.md:34-37` (F1) |
-| Already independent of the glasses: summary, settings rows, menu and keyboard specs, notice, deep links, sync records, the PC's content services, the engines; `POPOVER.md` has a block vocabulary (heading, text, bullets, kv, table, chart, image, rule, page) and row types | read | `REPLAN.md:51-54`; `POPOVER.md:82-83` |
-| Deep-link targets exist per window: `t:<hash>`, `tl:<fid>`, `session:<host>:<name>`, `path:…`, `cat:<Name>` (opaque strings today) | read | `TORRENTS.md:180`; `TMUX.md:185-186`; `WINDOWS.md:199-200` |
+| Already independent of the glasses: summary, settings rows, menu and keyboard specs, notice, deep links, sync records, the PC's content services, the engines; `POPOVER.md` has a block vocabulary (heading, text, bullets, kv, table, chart, image, rule, page) and row types | read | `REPLAN.md:51-54`; `POPOVER.md:84-85` |
+| Deep-link targets exist per window: `t:<hash>`, `tl:<fid>`, `session:<host>:<name>`, `path:…`, `cat:<Name>` (opaque strings today) | read | `TORRENTS.md:182`; `TMUX.md:186-187`; `WINDOWS.md:209-210` |
 | Positions: Reader keeps a character offset; Files, Torrents, Feed, Music and Games keep indices into lines wrapped at the glasses' width | read | `REPLAN.md:45-49` (F3) |
-| Summaries over the window channel are still unbuilt | read | `WINDOWS.md:135` |
+| Summaries over the window channel are still unbuilt | read | `WINDOWS.md:143` |
 | The PC already runs a dependency-free HTTP/1.1 + WebSocket server (the replica), gated today by one shared token that §4.1 replaces; which addresses today's servers answer on, and how they check the token, is in the private annex ("Today's listeners") | read | R1 §0; R2 §C |
 | One of today's servers (the setup page) already gates by network interface: the pattern §4.2's rule reuses per listener | read | R2 §C (`SetupServer.kt:21-33`) |
 | The service (running as `user`) can ask tailscaled who a tailnet peer is (device + user) without being operator; a LAN peer gets 404; `tailscale serve` hides the peer (arrives from 127.0.0.1). The answer names the device, not the page that connects from it (§4.1) | read / inferred | R2 C rows 6-12 |
@@ -41,7 +41,7 @@ every interface shares; `BASTION.md` and `REMINDERS.md` refer to it.
 | A page from the APK's https asset origin that opens `ws://` to the PC is blocked as mixed content | inferred | R2:81 |
 | The phone's notifications today: the permanent one, urgent (behind Global `Phone notifications`), glasses battery, re-grant; none has an action button | read | `ShellService.kt:410-425`; no `addAction` in `phone/` |
 | A media3 `MediaSession` exists for the phone player; whether the lock screen shows its controls today | read; unknown | `phone/…/music/AndroidMusicPlayer.kt:22,39` |
-| The PC already streams transcoded tracks to the phone with Range requests (the media endpoint) | read | R2 C row 1; `MUSIC.md:53-57` |
+| The PC already streams transcoded tracks to the phone with Range requests (the media endpoint) | read | R2 C row 1; `MUSIC.md:54-58` |
 
 ## 2. Candidates
 
@@ -61,7 +61,7 @@ layout's frame — and its reminders zone is reserved from the start (`REPLAN.md
 | W-05 | A search box (Ctrl-K): windows, settings rows, books, tracks, sessions, files, torrents, feed items, text inside the open book | reach anything by typing | a searchable index per window | M | in | — |
 | W-06 | Keyboard shortcuts: digits for windows, `/` search, `?` help; per window (space play/pause, j/k) | hands stay on the keys | a shortcut table per window | S | in | `DESIGN.md` §1's "no per-window gestures" binds the ring only |
 | W-07 | One focus model for arrows, Enter and Back | keyboard-only use; the TV remote runs the same code | a focus order from the description | M | in | shared with the TV's design |
-| W-08 | Notice toasts while open; a notice tray with history | see what the glasses saw; tap through to the place | the PC's notice record (§4.3) with appId, thread, target | S | in | the future Notices window (`EXPLOSION.md:606`) is the phone's notification history; keep the two apart |
+| W-08 | Notice toasts while open; a notice tray with history | see what the glasses saw; tap through to the place | the PC's notice record (§4.3) with appId, thread, target | S | in | the future Notices window (`EXPLOSION.md:593`) is the phone's notification history; keep the two apart |
 | W-09 | "Continue here": each interface's current place (window, item, age, last input), take one | pick up the book or session the glasses had | each interface's focus held on the PC | S | in | R4 rules it deliberate; this is its form |
 | W-10 | "Send to": from the screen he is at, put a window and its place in front on another screen (the glasses, the TV, the desk); its own act, apart from "continue here" | line up a chapter on the glasses or a camera on the TV from the desk | a focus message per interface | S | in | the other screen's focus moves — by his deliberate act, made on the sending side (R4) |
 | W-11 | Themes: dark, light, follow the system; a "glass" theme in the faces the glasses use | comfort at night; kinship with the glasses | fonts served by the PC | S | in | B612 never a default (memory) |
@@ -82,7 +82,7 @@ layout's frame — and its reminders zone is reserved from the start (`REPLAN.md
 | W-26 | Glasses settings preview: a true-1× render at the chosen face, size and height | set the glasses' type at the desk and see it | the desktop's snapshot renderer as a route | M | later | — |
 | W-27 | A small live glasses mirror tile | watch the glasses from the desk | the replica | S | out | `REPLAN.md` §6, W8: the mirrors stay development views |
 | W-28 | Reminders front and centre on the home | the lists in view wherever he opens the page | the reminders window (the first new window) | S | in — reserve the slot now | its design is `REMINDERS.md` |
-| W-29 | Bus panel; PC load and temperatures on the home | the bus beside everything | the bus step (S3); the PC's figures, built there with the graph store (`BASTION.md` T-33) | S | later, at S3 | Info is a new window in his order (`EXPLOSION.md:605`) |
+| W-29 | Bus panel; PC load and temperatures on the home | the bus beside everything | the bus step (S3); the PC's figures, built there with the graph store (`BASTION.md` T-33) | S | later, at S3 | Info is a new window in his order (`EXPLOSION.md:592`) |
 
 ### 2.2 Web — the existing windows
 
@@ -91,10 +91,10 @@ layout's frame — and its reminders zone is reserved from the start (`REPLAN.md
 | W-30 | Reader: the book as typeset HTML from the EPUB's own XHTML, images in place, a chapter sidebar; the shelf as a cover grid with progress | read at the desk with the pictures | sanitized chapter documents, image and cover blobs, the character offset mapped to the page | M | in | — |
 | W-31 | Reader: highlights and notes | marks that follow the book | new shared per-book state | M | out | a new feature, not an interface; never asked for |
 | W-32 | Tmux: a real terminal (xterm.js, MIT, served by the PC) through tmux control mode; scrollback search | colour, mouse select and his own keyboard in his sessions | a control-mode client in the service; a size policy | L | in, devices at level full only | `window-size` would shrink his desk terminal to the browser's size |
-| W-33 | Tmux: quick keys and snippets as buttons over the phone keyboard | answer `y` one-handed | the configured quick keys (`TMUX.md:138`) | S | in | — |
+| W-33 | Tmux: quick keys and snippets as buttons over the phone keyboard | answer `y` one-handed | the configured quick keys (`TMUX.md:140`) | S | in | — |
 | W-34 | Files: a file manager — breadcrumbs, list or grid, thumbnails, sort, hidden; previews in colour (images, PDF in the browser's viewer, text) | the PC's files from any browser | listings, thumbnails (unbuilt on glasses, `EXPLOSION.md` 5.7), the blob lane | M | in | — |
 | W-35 | Files: upload (drag and drop, several files) and download | move a file between phone and PC with nothing else | streamed upload to a temp file, renamed when complete | M | in | replaces the parked "fetch to phone" (5.16) |
-| W-36 | Files: play a video or audio file in the browser | — | Range requests | S | his call | Feed's "we don't do video" (`FEED.md:36`); Files has a poster frame only (5.11) |
+| W-36 | Files: play a video or audio file in the browser | — | Range requests | S | his call | Feed's "we don't do video" (`FEED.md:37`); Files has a poster frame only (5.11) |
 | W-37 | Torrents: transfers as a sortable table with speed graphs and the under-a-week list | the qBittorrent view, on his terms | the 2 s focused poll (`TORRENTS.md:29`) | M | in | — |
 | W-38 | Torrents: TorrentLeech browse and search as a results table; the torrent page with NFO and files; add / add stopped behind confirm | browse at the desk | the existing adapter | S | in | — |
 | W-39 | Torrents: drop a .torrent or paste a magnet | — | — | S | out | verdict 5 (`TORRENTS.md:27`) |
@@ -106,7 +106,7 @@ layout's frame — and its reminders zone is reserved from the start (`REPLAN.md
 | W-45 | Music: the browser tab as a third player | — | — | S | out | §14.3 #4: two players |
 | W-46 | Games: the Hold'em table by pointer — seats, cards, buttons, a raise slider; standings and bankroll as tables | play at the desk | the table as a typed model; the pacer per viewer (F3) | M | in | — |
 | W-47 | Feed: articles with pictures in colour; comics at source resolution, uninverted, with alt text; the binge as one long page | the comics as drawn | image blobs not quantized | M | in | — |
-| W-48 | Feed: a link to the original page | — | the item's URL | S | his call | verdict 14 "Open on PC" out (`FEED.md:36`) |
+| W-48 | Feed: a link to the original page | — | the item's URL | S | his call | verdict 14 "Open on PC" out (`FEED.md:37`) |
 | W-49 | Settings: forms by category, each row marked shared · this device · glasses only; searchable | any setting from anywhere | a scope tag per row | M | in | — |
 
 ### 2.3 The phone app

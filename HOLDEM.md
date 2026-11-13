@@ -144,19 +144,9 @@ system:
 
 ### The contract addition
 
-```kotlin
-enum class ActivationSource { SWITCHER, MAIN, DEEP_LINK, RESTORE }
-
-// WindowContract.kt
-open fun onActivate(ctx: ShellServices, from: ActivationSource) {}
-```
-
-- `SWITCHER` — resume the deepest persisted level.
-- `MAIN` — the window's **root** level. Persisted deep state is **kept, not discarded**: back
-  down lands exactly where it was (the rule changes the *entry point*, never the *stored state*;
-  §9.1 is not weakened).
-- `DEEP_LINK` — `open(target)` decides.
-- `RESTORE` — shell start-up. Resumes, like SWITCHER.
+`onActivate(ctx, from: ActivationSource)` with `SWITCHER` · `MAIN` · `DEEP_LINK` · `RESTORE` in
+`WindowContract.kt`; the meaning of each and the three rules that are easy to get wrong are the
+shell's record, `DESIGN.md` §4.10 (`MAIN` changes the entry point, never the stored state).
 
 ### The retrofit, window by window
 
@@ -299,7 +289,7 @@ Bankroll                     shared by every betting game
 | `Pots` | contributions, side-pot construction, uncalled-bet return, odd-chip rule. §12/§13. |
 | `ActionLevel` | legal actions → a shell level, with the confirm policy and rest positions applied. |
 | `Money` | formatting; the seven-segment scoreboard renderer; `chipStack`. |
-| `Bankroll` | the shared pool, Loser Count, tournaments won. Persisted and LWW-synced. |
+| `Bankroll` | the shared pool, Loser Count, tournaments won. Persisted and LWW-synced (as built; §11's note). |
 | `Roster` | the ecology (§7) behind one call: *"give me five opponents for this table."* |
 
 **Bespoke to Hold'em:** betting rounds and street order, blind/button rotation and escalation,
@@ -564,6 +554,12 @@ Because the first tap is always harmless, actions sit in natural poker order (§
 `ShellBehaviorTest.switchAwayAndBackIsByteIdentical` is the gate, plus the cross-shell
 continuity test (`WINDOWS.md` §3 step 6).
 
+**As built; changes at step S1** (`CONTRACT.md` §2.7, §12): the PC holds these records; a table
+is a lease held by one interface, whose host alone runs the engine, the pacer and the economy
+(the PC's core for a browser holder; `Continue here` takes it, its confirm saying what is dropped if the holder is out of reach); the
+economy's writes are log ops under the lease; the world seed is minted on the PC alone. Verdict
+27 stands.
+
 ### 11.1 Records (sub-records where per-item state exists — `WINDOWS.md` §1)
 
 | record | holds |
@@ -671,14 +667,10 @@ finish**; **roster differentiation** over a realistic number of sessions; **outc
 
 ## 14. Build order — six milestones, a commit after each
 
-✅ All six landed 2026-09-04: **M1** the shell rule and the retrofit (§3) — `d3da21d` · **M2**
-the card kit (§6), the card render Adam judged first (`CardArt` + `design/render_shots.py`),
-the side-pot oracle and its corpus — `fdab57a` · **M3** the Hold'em engine (§5, §12), no UI — `14299c7` · **M4** the table (§9,
-§10) + **M5** the ecology (§7), Standings, `Bankroll`, the fee, the scoreboard,
-`--games-check` — `b9eb6b6` · **M6** integration and the battery (hub wiring, Settings →
-Games, both registrations, scenes, docs — `HANDOFF.md` §26, `REMINDER.md`, `WINDOWS.md`,
-`EXPLOSION.md` §20, `CLAUDE.md`'s battery list) in the same wave; then `8aa9910` / `20f01a8` (the two
-review passes) and the live-session fixes.
+✅ All six landed 2026-09-04 — M1 the shell rule and the retrofit (§3) · M2 the card kit (§6),
+the card render Adam judged first, the side-pot oracle · M3 the engine (§5, §12) · M4 the table
+(§9, §10) + M5 the ecology (§7) · M6 integration; the commits and what each held are
+`HANDOFF.md` §26.1, the review passes §26.2.
 
 **Settings → Games rows:** `Size` (global / 288 / 352 / 416 / 480) · `Font` / `Font size` /
 `Font style` · `Confirm` (All actions / Money only / All-in only) · `Bot pace` (0 / 300 / 600 /
@@ -723,9 +715,8 @@ category, never Global (`WINDOWS.md` §1).
 §4.6, §4.8, §6, §9.1 · this file · `/home/user/G2CC/games/gamelist.md` §"Card games"
 (read-only); verify the battery green on `main` first (the Games kickoff was `:core:test` 329 ·
 `--selfcheck` 139 · lint 0 at `697a062`); land the smallest cross-cutting piece first, with its
-tests, and commit. Open then and now: only the background-economy ratio inside the 2–3 band — a
-`--games-check` measurement. Not in scope: later card games, multiplayer (verdict 3), the
-texture cache (§2).
+tests, and commit. A later game comes after the re-plan's steps and is built once for every
+interface (`REPLAN.md` §4, `CONTRACT.md` §3.4's card table). Open: §17.4.
 
 ---
 
@@ -931,20 +922,17 @@ $140 side pot"); one pot reads as before. Pinned by
 
 ### 17.3 The battery, after the build
 
-*(the Games build's own numbers; the battery at HEAD is `REMINDER.md`)*
-
-`./gradlew :core:test` **430** · `./gradlew :desktop:test` **11** · `desktop --selfcheck` **189**
-· `desktop --games-check` · `desktop --snapshot` **13 Games scenes** among 49 · `desktop
---card-render` (`design/shots/cards/`) · `desktop --epub-check` · `desktop --music-check` ·
-`python3 tools/lint.py` **21 rules, 0 findings** · `./gradlew :phone:assembleDebug` (APK
-**28 / 0.28** staged, §17.2e included).
+*(the Games build's own numbers, after §17.2e — `HANDOFF.md` §28.4; the battery at HEAD is
+`REMINDER.md`)* `:core:test` **430** · `:desktop:test` **11** · `--selfcheck` **189** ·
+`--snapshot` **13 Games scenes** among 49 · `--games-check` · `--card-render`
+(`design/shots/cards/`) · `tools/lint.py` **21 rules, 0 findings** · APK 0.28.
 
 ### 17.4 Still open
 
 - **On-glass verdicts.** Everything above was judged on the byte-exact simulator at true 1× and
   through the browser replica: the card art, the depth of the hole-card plane, the arc stagger
-  and the pacing want Adam's eye on the real panel. Both sides deployed 2026-09-04 18:16 (the
-  `damage` service on the §17.2e build, APK 28/0.28 staged).
+  and the pacing want Adam's eye on the real panel (owed; with the glasses kit's per-window
+  verdicts, `REPLAN.md` §4 K).
 - **The background-economy ratio** is tuned to `--games-check`, not to a season of Adam's play;
   the money-supply curve is the thing to watch.
 - **Later games.** The kit is built for blackjack, hearts and gin; none is built.

@@ -270,7 +270,7 @@ object SettingsMsg {
  * magicRandom=2, event=3, rawData=4}, RingRawData{battery=1, chargeStates=2,
  * hr=3, …}. Damage only READS relayed frames (ring battery for the chrome);
  * it never requests — whether the glasses push RingRawData unprompted is an
- * open probe (CAPABILITIES.md §3, graded V-schema / U-on-our-wire).
+ * open probe (archive/CAPABILITIES.md §3, graded V-schema / U-on-our-wire).
  */
 object RingMsg {
     const val SID = 0x91

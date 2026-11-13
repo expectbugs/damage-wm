@@ -8,12 +8,12 @@ simulator (`core/.../sim/GlassFirmwareSim.kt`, Kotlin, written from this text an
 C — `CLAUDE.md`, clean room). A conformance-vector set proves both agree, on the host and on the
 glasses. Plain wording throughout.
 
-**Status 2026-09-16:** v1 is the installed base (g2flash `a5d1c31`), pointed at in §2. §0 and §3 (the Phase 1
+**Status 2026-11-13:** v1 is g2flash `a5d1c31`'s contract, the base the fork keeps, pointed at in §2. §0 and §3 (the Phase 1
 extension: DamageCaps, telemetry, flags, the presented notify, cache-keep, the self-test) are **installed on Adam's
 pair since 2026-09-15** (fork pin `c5e4f8b7…`, `HANDOFF.md` §55); the boot count stays withdrawn (§11). **§4 is built
 on both sides (Adam's word on `HANDOFF.md` §57's decisions; fork pin `48172b62…` after the fourth review, `HANDOFF.md` §60–§64) and installed on Adam's pair since 2026-09-16 (`HANDOFF.md` §65):** the
-host C, the simulator and the v2 vectors agree, and the on-glass self-test ran the same day (`CLAIMS.md`). §5–§8 are the decided
-shape only. **Only the RIGHT lens can send** (`CLAIMS.md`): every reply and notify is
+host C, the simulator and the v2 vectors agree, and the on-glass self-test ran the same day (`CLAIMS.md`). §5 and §6 are in
+contract form since 2026-11-13, not yet challenged (the note above §5); §7 and §8 are the decided shape only. **Only the RIGHT lens can send** (`CLAIMS.md`): every reply and notify is
 RIGHT's; the left lens's state is inferred from the same writes. CACHE_KEEP stays unarmed (the atlas skip is the
 phone's bounded one, §3). A section marked *draft* may change until its phase's test stop passes; after that it
 changes only with a contract-version bump.
@@ -24,7 +24,7 @@ changes only with a contract-version bump.
 
 - The installed firmware advertises `EVENCFW/16 …` in settings field 100. Damage keeps requiring
   `SettingsMsg.REQUIRED_CAPS` from it (`img640 directfb fbguard imgz rle`).
-- **v2 (draft, Phase 1; shape fixed 2026-09-13):** every sid-0x09 READ response carries field **110
+- **v2 (Phase 1; shape fixed 2026-09-13, installed 2026-09-15):** every sid-0x09 READ response carries field **110
   `DamageCaps`**, a nested message appended after upstream's fields 100 and 104:
   `{ 1: string "DMG", 2: uint32 contract, 3: uint32 features }` — e.g. `0a 03 44 4d 47 10 01 18 00`
   (contract 1, no features; the Phase 1 candidate ends `18 1f`).
@@ -72,10 +72,10 @@ the getter at `0x0049EB8E` (three instructions, no side effect) — is 1 or 2, a
 `08 03 10 00 2a 04 08 01 10 <1 worn / 0 not worn>` (EVENT, magic 0, field 5 { event 1 `GLS_WEAR_STATUS`, param }),
 from RIGHT only (the senders' lens rule), sent by the stock wear handler's two transitions — which stock reaches
 only while byte +0x14 of its live settings record is 1 (V; that the byte is its wear-detection switch: I). Damage
-from APK 0.64 (built, not yet installed) sends one op 7 to both arms after each session start's lease, never waits
+from APK 0.64 (installed 2026-11-12) sends one op 7 to both arms after each session start's lease, never waits
 on it, and journals every sid-0x10 frame as a `wear` note; what op 7 answers with the switch off is unread.
 
-## 3. v2 telemetry, flags and self-test (Phase 1) — *draft*
+## 3. v2 telemetry, flags and self-test (Phase 1) — *installed 2026-09-15 (`HANDOFF.md` §55)*
 
 - **Telemetry request** (sid 0x09 control field, new op): reply carries heap free per arena
   (13/20/27, KiB), uptime (the OS tick `FW_MS_TICK`: 1.024 per wall-clock ms, measured 2026-09-15 — the 90,000-tick
@@ -121,7 +121,7 @@ on it, and journals every sid-0x10 frame as a `wear` note; what op 7 answers wit
   atlas skip is the bounded one — after a rebuild that completed inside the lease's remaining time on both arms,
   no flag; CACHE_KEEP stays **unarmed** until LEFT's cache can be verified (an inter-lens report, Phase 4).
 - **Flag op:** arm / disarm by bit; a reply echoes the flags in force.
-- **Wire shapes (draft, fixed 2026-09-13):**
+- **Wire shapes (fixed 2026-09-13):**
   - *Request* (phone → each arm): sid 0x09 `G2SettingPackage{ 1: commandId 1, 2: magic 0, 112: body }`,
     body = 6 bytes `['D','M', version 1, op, argLo, argHi]` (the shape of upstream's field-101 lease
     control). Ops: **1 TELEMETRY** (arg = a request id the reply echoes) · **2 FLAGS_SET** (arg = the
@@ -154,8 +154,8 @@ on it, and journals every sid-0x10 frame as a `wear` note; what op 7 answers wit
     the release (2026-09-14 second review: the C and the model both let a FLAGS_SET taken after a
     settled lapse survive the FB_RELEASE). A FLAGS_SET is taken whenever it arrives, with a lease
     held or not; one taken with no lease is in force until the next release point (both sides do
-    this). **Ruled 2026-09-15 (Adam): refused with status 3 (no lease) from Phase 2's candidate; the
-    installed build takes it until then.**
+    this). **Ruled 2026-09-15 (Adam): refused with status 3 (no lease) from Phase 2's candidate — the
+    installed build since 2026-09-16 (§4).**
   - *Status codes:* 0 ok · 1 malformed request · 2 unsupported flag.
 - **Self-test (image mode 16):** rides the image lane, so the unchanged receive path delivers it and
   both lenses run it. `[16][0]` **begin** — the lease must be held; a scratch shadow (the packed
@@ -182,7 +182,7 @@ on it, and journals every sid-0x10 frame as a `wear` note; what op 7 answers wit
   session at the first such write.
 - **Status codes:** one byte; the table grows with each op that can refuse (above).
 
-## 4. v2 drawing ops (Phase 2) — *built 2026-09-15 evening (`HANDOFF.md` §60); changes only with a contract bump once T2 passes*
+## 4. v2 drawing ops (Phase 2) — *built 2026-09-15 (`HANDOFF.md` §60), installed 2026-09-16 (§65); T2 open; changes only with a contract bump once it passes*
 
 Design pass `HANDOFF.md` §57, Adam's word on its eleven decisions as recommended. Every op below rides the image
 lane (both lenses run it), needs the lease, needs flag bit 2 **DRAW2** armed, and inside a mode-8 batch mutates
@@ -716,14 +716,14 @@ Binding the long press (never) · per-source grammar beyond `any` or one source 
 (an inter-lens message) · a start message between the lenses (only if C1's verdict asks) · local input with the phone
 away (the offline home, step G) · the kit's programs themselves (K).
 
-## 7. v2 firmware-owned chrome (Phase 5) — *draft*
+## 7. v2 firmware-owned chrome (Phase 5; in the first flash only if its measurement says it pays, `REPLAN.md` §5) — *draft*
 
 Rects the phone declares firmware-owned (the status bar's clock, battery and link cells; the
 silent-mode clock): the glasses draw them after the frame copy from cached fonts at the Global depth
 the phone sets; they are outside the shadow and the phone never paints them. RTC and fuel-gauge
 sources are stock functions (`FORK.md` R0.5).
 
-## 8. v2 offline home (Phase 7) — *draft*
+## 8. v2 offline home (Phase 7; step G, decided again, `REPLAN.md` §4) — *draft*
 
 Placeholder: display ownership outside the EvenHub page, local input, the persisted flag, saved
 content, the stock override gesture, stock fallback on any failure. Written after the Phase 7 research.
@@ -737,8 +737,8 @@ content, the stock override gesture, stock fallback on any failure. Written afte
   "expect": { "L": "<crc32 hex>", "R": "<crc32 hex>", "rc": { "L": [..], "R": [..] } } } ] }`. A
   `msg` is one completed image message as the deferred handler receives it; `rc` lists each
   message's return (0 accepted, −1 refused) in order; `tick` sets the firmware millisecond clock
-  (the lease deadlines run on it). Later phases add ops (program upload/play, self-test) and
-  `"scratch"` expectations.
+  (the lease deadlines run on it). Later phases add ops (program upload and play, §5.10) and
+  `"scratch"` expectations; the self-test form is below.
 - **CRC:** CRC-32, zlib polynomial `0xEDB88320`, over the packed 4bpp shadow rows in order (320
   bytes per row, 480 rows), per lens; scratch and layers the same way over their own bytes.
 - **The panel (2026-09-15, the second Phase 2 review):** a vector may also carry `"panel": true`, and

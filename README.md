@@ -2,8 +2,8 @@
 
 A from-scratch **window manager and compositor for the Even Realities G2**, running against
 custom firmware (`g2flash`) that replaces the vendor's container model with direct framebuffer
-access. The PC composes complete scenes with real fonts and arbitrary layout; the glasses are
-a plain framebuffer.
+access. The phone (or the PC) composes complete scenes with real fonts and arbitrary layout; the
+glasses are a plain framebuffer.
 
 A personal project: it drives the author's own glasses from his own phone and PC. The
 wire-format work is interoperability with a consumer device he bought, so he can render his
@@ -13,104 +13,53 @@ own interface on it.
 last frame (the X11 DAMAGE extension). Batching a frame's damage into one Bluetooth message
 instead of one per region is the whole thesis: the round-trip cost is per message, not per region.
 
-**Live on hardware since 2026-08-30, the all-day daily driver since 2026-08-31.** The default
-configuration runs for real: **the phone APK is the primary driver** (radio and shell; its BLE
-glue passed first light on the first try), the PC is the data provider (content, tmux,
-last-write-wins state sync over one port, from an OpenRC service) and a standby that drives
-PC-direct BlueZ only while the APK is unavailable, handing the radio back on its return.
+## Status (2026-11-13)
 
-- **2026-08-24/25 — built:** Kotlin shell core, byte-exact glass simulator, desktop program,
-  phone APK; hardened through rounds of independent review.
-- **2026-08-30 — first light.**
-- **2026-08-31 — refined with the wearer in the loop** (`REFINEMENT.md`): chrome behind the
-  content plane, per-app height, Reader folders / chapters / in-book images, a categorized
-  Settings tree with global + per-app typography and depth, a Tmux window (`TMUX.md`: terminal
-  output as FLOWED text, the cell grid kept only as an alternate-screen fallback, typed text via
-  the replicas, waiting-session alerts), a seven-segment silent clock, live brightness, wire-fed
-  battery cells, and a measured latency curve that retired the modeled numbers
-  (`ms ≈ 60 + bytes/50` on PC-direct; the phone path, the daily one, is ~70 ms + ~120 ms/KB —
-  `REMINDER.md`).
-- **2026-09-01 — FILES**, the first G2CC→DamageWM conversion: locations root with capacity bars,
-  tap = floating context menu with Open first, in-app text/image/PDF viewers, clipboard slot,
-  trash with restore, typed rename, EPUB→Reader deep links. New shared machinery: per-item
-  last-write-wins state-sync substrate, generic window channel, notification signature, theme
-  icons from the desktop theme. Eight-round adversarial review loop to convergence (79→…→0).
-- **2026-09-01, same evening — TORRENTS and the KEYBOARD** (`TORRENTS.md`, `DESIGN.md` §4.8):
-  qBittorrent transfers and the TorrentLeech account on glass — activity-sorted list with block
-  bars and a live lens, details document, browse by category and search, torrent page with Add
-  behind a confirm, done-notifications decided once host-side, seeding-under-a-week list for the
-  tracker's rules — plus a ring-driven wireframe keyboard (row, then key) used by Torrents, Tmux
-  and Files.
-- **2026-09-01/02 — MUSIC** (`MUSIC.md`, `HANDOFF.md` §24): the G2CC music system taken over
-  (Postgres, Qdrant, transcode cache, enrichment package, yt-dlp); the phone plays (ExoPlayer +
-  media session — earbud taps drive the queue from anywhere, hold-my-volume, boost, sleep,
-  prefetch, Spotify fallback); the PC is the library over the window channel + a Range-capable
-  media endpoint; a **Now Playing** window (2026-09-03) with the queue one menu row down, browse,
-  Ask through three resolver lanes, synced lyrics, YouTube grabs with full ingest, playlists
-  edited on glass; **Music Mode**, a new EXCLUSIVE shell mode (`DESIGN.md` §4.9) stacking card,
-  lyrics, visualizer, queue peek and clock per height.
-- **2026-09-04 — GAMES · TEXAS HOLD'EM** (`HOLDEM.md`, `HANDOFF.md` §26): the first window with
-  no host and no channel — pure Kotlin, identical on the phone alone, the PC alone or across the
-  seam. A 6-max no-rebuy sit-and-go against a **persistent cast of characters** with their own
-  money, moods and careers (they play their own tournaments in the background, go broke, take
-  time off, retire); a shared bankroll with a visible entry fee and a Loser Count; card art drawn
-  in code at four sizes; side pots to Robert's Rules, checked against a 3,000-scenario oracle; a
-  table whose persisted state is an **action log** the engine replays. It changed the shell for
-  every window: **the switcher resumes where you were, Main presents the window's root list**,
-  and a window can name its own stereo regions (the hole cards sit forward of the table).
-- **2026-09-09 — FEED** (`FEED.md`): Reddit, Slashdot and comics (xkcd, SMBC, an endless 8-Bit Theater
-  archive) through one fetch engine that runs on either host.
-- **2026-09-12 — the firmware fork decided** (`FORK.md`, `HANDOFF.md` §48): a Damage build of the custom
-  firmware (`~/damage-cfw`, GPL-3.0, its own repo) so the glasses can animate and answer the ring
-  themselves; every existing window is rebuilt on it, fully animated, before any new window.
-- **2026-09-14 (night) — a second review of the same work** (`HANDOFF.md` §53): the flags survived an FB_RELEASE
-  that followed a lapse the glasses had already settled, in the fork's C and in Damage's model alike (the
-  contract clears them at every release point; fixed on both sides, fork pin `c5e4f8b7…`); the model also cleared
-  them on a lease check with no lease, which the C never did; a begin of the self-test now runs under its active
-  mark; a stale telemetry waiter can no longer drop a newer session's. Pinned on both sides; nothing flashed;
-  APK 0.48 staged.
-- **2026-09-14 (late evening) — the evening's work reviewed** (`HANDOFF.md` §52): four defects found and fixed —
-  in the fork a self-test step carrying a truncated drawing message reached the BMP loader and dropped the
-  live frame, and a stale transfer mark could stamp a stock refresh (pin `70e47938…`); in Damage the keeper's
-  reset detection missed a reset after a short uptime (the post-flash case) and a refused bit blocked the
-  bits above it. Each pinned by a test on the side it lives; nothing flashed; APK 0.47 staged.
-- **2026-09-14 (evening) — Phase 1's candidate built on both sides** (`HANDOFF.md` §51): F1.3, F1.5 and the
-  self-test in the fork (pin `5ff9159b…`, one new site), the keeper's arm/hold-back protocol, the `present`
-  journal record and the on-glass self-test runner in Damage (APK 0.46); the senders' lens rule read at
-  instruction level (only RIGHT can send). Nothing flashed; both trees for Adam's review.
-- **2026-09-14 — Phase 0 reviewed and closed bar one read** (`HANDOFF.md` §50): the 13th's work corrected in four
-  places, the first two-arm captures with the APK driving, no 2M PHY on the glasses, Adam's ruling that the arm drops
-  are not the work; Phase 1 — the fork pipeline and the first flash — is next.
-- **2026-09-13 — Phase 0 begun** (`HANDOFF.md` §49): the firmware's refresh, link-policy, lens-link,
-  memory and log paths read at instruction level (`CLAIMS.md`, `research/fork-reads-2026-09-13.md`);
-  measurement probes in the APK; the fork builds reproducibly and runs its drawing code on the PC, where
-  Damage's simulator matches it on the conformance vectors; `MOTION.md` lists the animation candidates.
+**Built and in daily use since 2026-08-31** (on the author's glasses since first light, 2026-08-30):
+- **The phone APK (0.65)** drives the glasses: the radio and the shell. **The PC service** (OpenRC, headless)
+  serves the content, tmux, the state sync and the window channel, and stands by to drive the glasses over
+  PC-direct BlueZ while the APK is away. How it runs: [`IMPLEMENTATION.md`](IMPLEMENTATION.md); operations:
+  `DAILY.md`.
+- **Nine windows:** Main, Settings, Reader, Tmux, Files, Torrents, Music (with Music Mode), Games (Texas
+  Hold'em against a persistent cast) and Feed (Reddit, Slashdot, webcomics). Per-window records: `TMUX.md`,
+  `TORRENTS.md`, `MUSIC.md`, `HOLDEM.md`, `FEED.md`.
+- **A Damage build of the custom firmware** (`~/damage-cfw`, GPL-3.0, its own repository; `FORK.md`) on both
+  lenses since 2026-09-16: telemetry, a self-test, and the drawing contract v2 — per-lens cached draws, fills,
+  clips, a partial panel refresh, LE 2M (`FIRMWARE.md` §3, §4).
 
-[`IMPLEMENTATION.md`](IMPLEMENTATION.md) is the how-to-run; `HANDOFF.md` the dated records (§10–§26
-install / first light / refinement / the app wave; §27–§47 reviews and latency; §48–§75 the fork and the rebuild);
-`DAILY.md` the ops crib; [`WINDOWS.md`](WINDOWS.md) the conversion checklist; `EXPLOSION.md` the graded
-app backlog + refinery verdicts; `REFINEMENT.md` and `TMUX.md` the design logs.
+**Designed, not built** — the order of work is [`REPLAN.md`](REPLAN.md): the PC becomes the one owner of every
+window's state; four more interfaces present the same windows (the desktop, the phone app's own screen, a TV,
+any browser — `INTERFACES.md`), beside a dashboard and control system (`BASTION.md`) and a reminders window
+(`REMINDERS.md`); [`CONTRACT.md`](CONTRACT.md) is the app contract they share. Two batched firmware
+flashes bring motion and local ring input to the glasses (`FIRMWARE.md` §5, §6; `MOTION.md`). New windows
+follow.
+
+[`HANDOFF.md`](HANDOFF.md) holds the dated records (§10–§26 install, first light and the app wave; §27–§47
+reviews and latency; §48 onward the firmware fork; §78 the re-plan).
 
 ## Start here
 
 | | |
 |---|---|
 | **[`REMINDER.md`](REMINDER.md)** | orientation — project state, what is next, what is still unmeasured |
-| **[`FORK.md`](FORK.md)** | the current work: the firmware fork and the Damage rebuild — phases, decisions, the flash ritual, the progress log (§11) |
+| **[`REPLAN.md`](REPLAN.md)** | the order of work as the author ruled it (2026-11-12), and his rulings since |
+| **[`CONTRACT.md`](CONTRACT.md)** | the app contract: one description per window, every interface a presenter of it (designed, not built) |
+| [`FORK.md`](FORK.md) | the firmware fork: its protocol (§3), decisions, the design of each firmware piece, the flash ritual (§7) |
 | [`FIRMWARE.md`](FIRMWARE.md) | the firmware contract both the fork (C) and Damage's simulator (Kotlin) implement; the conformance vectors (§9) |
-| [`MOTION.md`](MOTION.md) | the motion explosion: every animation candidate per surface and window, for Adam's refinery |
-| [`HANDOFF.md`](HANDOFF.md) | the dated session records (§73 is the latest; `REMINDER.md` is the entry point) |
-| [`WINDOWS.md`](WINDOWS.md) | how a G2CC app becomes a DamageWM window — the checklist window conversion resumes with after the fork |
+| [`MOTION.md`](MOTION.md) | the motion explosion (every animation candidate per surface and window) and its refinery, ruled 2026-11-13 (§6) |
+| `INTERFACES.md`, `BASTION.md`, `REMINDERS.md` | the explosions of the new interfaces, the dashboard and control system, and the reminders window (ruled in `REPLAN.md` §15) |
+| [`HANDOFF.md`](HANDOFF.md) | the dated session records (§78 is the latest; `REMINDER.md` is the entry point) |
+| [`WINDOWS.md`](WINDOWS.md) | how a G2CC app becomes a DamageWM window — the checklist new windows are built with, after `REPLAN.md`'s steps |
 | [`EXPLOSION.md`](EXPLOSION.md) | the graded app backlog, the §16 contract record, the refinery verdicts |
 | [`TORRENTS.md`](TORRENTS.md) | Torrents: verdicts, the verified qBittorrent and TorrentLeech facts, design, plan |
 | [`MUSIC.md`](MUSIC.md) | Music: 29 verdicts, the verified library facts, the two-host design, the build plan with as-built notes |
 | [`HOLDEM.md`](HOLDEM.md) | Games · Hold'em: 37 verdicts, format, ecology, card kit, the six-milestone plan; §17 = what the build did and where it departed |
 | [`DAILY.md`](DAILY.md) | ops crib: services, ports, deploys, recovery |
-| [`REFINEMENT.md`](REFINEMENT.md) | the post-first-light refinement log: each ask, its analysis, what shipped |
-| [`IMPLEMENTATION.md`](IMPLEMENTATION.md) | the built first stage: modules, the transport seam, how to run and verify |
+| [`archive/REFINEMENT.md`](archive/REFINEMENT.md) | archived: the post-first-light refinement log, each ask, its analysis, what shipped (`archive/README.md` lists the folder) |
+| [`IMPLEMENTATION.md`](IMPLEMENTATION.md) | what runs and how: modules, the transport seam, how to run and verify |
 | [`overview.md`](overview.md) | the research record: hardware facts, the CFW display-mode contract, measured numbers, ecosystem, open unknowns |
 | [`CLAIMS.md`](CLAIMS.md) | every load-bearing claim graded *vendor-authoritative / measured / corroborated / inferred / single-source / unknown* |
-| [`CAPABILITIES.md`](CAPABILITIES.md) | what the hardware can do, graded |
+| [`archive/CAPABILITIES.md`](archive/CAPABILITIES.md) | archived: the 2026-08 hardware inventory, graded (its facts live in `overview.md` and `CLAIMS.md`) |
 | [`DESIGN.md`](DESIGN.md) | the shell contract — input grammar, geometry, depth, motion, persistence, every shell surface (§4, context menu and keyboard included), typography, costs |
 
 ## Why it looks the way it does
@@ -137,7 +86,7 @@ Three facts about this display shape most of the design:
 ./gradlew :desktop:run --args="--card-render"         # the card sheets at true 1x
 ./gradlew :desktop:run --args="--help"                # the usage text; an argument the program does not know is refused (exit 2) and nothing starts
 ./gradlew :desktop:run --args="--transport ble"       # PC-direct BLE (the at-the-desk fallback); stop the service first (exit 4 otherwise)
-./gradlew :desktop:run                                # auto = the §19 standby (data host; claims nothing) + preview (4x); stop the service first (exit 4 otherwise)
+./gradlew :desktop:run                                # auto = the standby (the data host; drives only while the APK is away) + preview (4x); stop the service first (exit 4 otherwise)
 ./gradlew :phone:assembleDebug                        # the APK (deploy flow: :phone:stageApk → the setup page)
 tools/lint.py                # design gate: SYM (every string literal), GEO (DESIGN.md's declared cells), BUD (ink from the renders); --selftest names what it covers
 python3 design/render_shots.py   # design renders at true 1x, priced through the firmware's RLE
@@ -161,6 +110,7 @@ checked by the compositor on every emit and pinned by `GeometryTest`.
   `overview.md` §9.
 - `fws/` — Even Realities firmware images. The public archive lives in the SybilSight webflasher.
 - `captures/` — BTSnoop HCI logs from the author's own devices.
+- `private/` — the private annexes the design documents point at.
 
 ## Status and licensing
 

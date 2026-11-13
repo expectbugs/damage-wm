@@ -1,5 +1,8 @@
 # Refinement — the backlog after first light (2026-08-30)
 
+> **Archived 2026-11-13** (`archive/README.md`): a finished record. Its verdicts live in `DESIGN.md`
+> (§0, §1.5, §2–§3) and the code's comments; read those first.
+
 > **Status 2026-08-31 — the queue is BUILT and live**, battery green at every step, deployed the
 > same hour. **§1** chrome to the back of the ladder (bars inset to x 16–624, plane −2 at d+4
 > capped 16 — `DESIGN.md` §2.2/§2.3/§3.1). **§2** per-app height (`DamageWindow.preferredHeight`,

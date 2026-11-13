@@ -5,6 +5,10 @@ SHELL drives, always; the PC is the DATA PROVIDER.** This file is the ops crib. 
 beardos since 2026-09-21 (DNS moved from Tailscale to the VPN): wherever a line below says `aphone`, use the
 phone's Tailscale address (`tailscale status | grep aphone`).**
 
+**As built.** `REPLAN.md` §14 (2026-11-12) rules the PC the owner of every window's state, with the phone keeping a
+working copy, and PC-direct BLE a manual choice, never automatic; the code reaches the first at step S1 and the second
+with the alert watcher, W (`REPLAN.md` §15, §16.1), so until then the standby and the two-way sync below are what runs.
+
 ## The moving parts
 
 | piece | job | kept alive by |
@@ -25,7 +29,7 @@ the PC is out of reach. Reboot either machine → both restart themselves. **Sta
 positions, settings and every window blob flow between phone and PC whenever both are up — most recent wins,
 per key.
 
-## One-time setup — ✅ COMPLETED 2026-08-31 (kept for a re-pair or a fresh phone)
+## One-time setup (for a re-pair or a fresh phone; done 2026-08-31)
 
 (1) Sideload from the setup page; grant Bluetooth ×2 + notifications + the battery exemption. (2) Keep the
 G2CC bridge app Disconnected (a second central). (3) Phone first light with NOTHING on beardos holding the
@@ -68,7 +72,8 @@ without writing a row.
   sources: `feedSources` in `~/.damage/config.json` (copy `SourceCfg.DEFAULTS` and add; `kind: "rss"` + `url`
   [+ `"image": true` for a webcomic]); `feedUserAgent` is the one string every fetch carries. No credentials.
 - **The phone fetches for itself** after the `PC loss` threshold (Settings → Feed, default 1 min) and says
-  `phone engine` in Main's row; it does NOT switch back by itself — the root menu's `Back to PC` row does.
+  `phone engine` in Main's row; it does NOT switch back by itself — the root menu's `Back to PC` row does. (As built;
+  from step S1 the phone shows the PC's last state with its age instead — `CONTRACT.md` §14 (a) row 1.)
 - **Reddit is paced to one request a minute** (bursts get 429s): `reddit.com rate-limited · retry N s` on the
   lens; comments opened within a minute of the feed's own fetch wait out the pace and say so on the title
   (`FEED.md` §8.3 item 1 — the first polish item).
@@ -105,8 +110,8 @@ without writing a row.
   several, exit 2); read a journal that spans the upgrade to 0.64 with `--since` — its `cached text:` line reads
   "refusals by reason" and the `cache count:` line names "short on staged strips alone".
 - **The phone's journal, no adb** (`HANDOFF.md` §32): `curl -s 'http://aphone:7403/journal?token=…&tail=2000000' | python3
-  tools/journal_report.py -` (the lines in the last ~2 MB). **An APK before 0.61 — the phone ran 0.57 until 2026-11-10 17:16, 0.63 since —
-  reads the whole file into memory without `&tail=` and its process ends (`HANDOFF.md` §71): drop `&tail=` only on 0.61+.** It shows the ack curve by hour (with the connection
+  tools/journal_report.py -` (the lines in the last ~2 MB). **An APK before 0.61 reads the whole file into memory
+  without `&tail=` and its process ends (`HANDOFF.md` §71): drop `&tail=` only on 0.61+.** It shows the ack curve by hour (with the connection
   parameters in force per hour since §47: `105/4` is the slow set, `15/1` the fast) and radio path, CPU
   per flush, the cache's account, **time to first visible change per gesture** (the number a window is judged
   by), the `link`/`keeper` notes. The daily driver's real curve; the PC journal's is the standby's. From 0.64 it also
@@ -144,7 +149,9 @@ without writing a row.
   `glasslog` notes (RAM-only on the glasses; re-sent after every session start; `logger=off` stops it) — read
   with `journal_report.py - --since … --glasslog`. On a Damage build (`FIRMWARE.md` §3/§4): `telemetry=read`,
   `cache=info`, `flags=clear|probe|0xNNNN`, `selftest=begin|end|step:HEX`, and since 0.51 `cachesize=KiB` (op 5) and
-  `selftest=live:HEX` (a vector's cache write to the live cache; `glassdrive.py selftest:FILE` drives a whole vector).
+  `selftest=live:HEX` (a vector's cache write to the live cache; `glassdrive.py selftest:FILE` drives a whole vector:
+  its live writes drop the shell's atlas for the session and nothing presents during a step, so a quiet minute; it
+  exits non-zero on a step that differs — read the status, not only the lines; `HANDOFF.md` §64.4, §65).
   From 0.64: `cache=miscount`, `wear=query` and `rest=on|off` (each his word only on glass), and on the SIM target
   only `sim=battery=N|charging=on|off|worn=yes|no|wearswitch=on|off|case=docked|out`. The new notes: `wear` (every
   sid-0x10 frame; op 7's answer; the READ's field 10 and field 14's presence), `case` (sid 0x81), `sid` (a service
@@ -215,11 +222,11 @@ without writing a row.
 
 ## What was verified vs what awaits glass
 
-The §13 hardware pass ran 2026-08-31 (phone first light + the three configurations); the §19 re-shape is
+The §13 hardware pass ran 2026-08-31 (`HANDOFF.md` §13); the §19 re-shape is
 test-pinned (`SyncTest` ×6; since 0.64 `SyncToleranceTest` for the 2 s tolerance) and seen live (`sync-host: peer attached to the sync channel`; a phone-side
 `window.tmux` record applied store-direct while the PC shell was in standby). **Still awaiting a deliberate
 glass test:** a real standby engagement (stop the APK at the desk → the PC BLE-drives after ~30 s, six probes, once both arms advertise to its adapter — hci0 must be unblocked first → restart
-the APK → handback) and the sync feel across a driver swap (a book position following the swap). **Games
+the APK → handback; moot once the alert watcher, W, makes PC-direct BLE manual only) and the sync feel across a driver swap (a book position following the swap). **Games
 (`HOLDEM.md`) needs nothing from ops** — no host, no provider, no channel; its state is the shell's own store
 (`window.games`, `window.games.world`, `window.games.bankroll`, `window.games.table`,
 `window.games.char.<id>`) and syncs like every other window's. ⚠ Its layouts and card art have never been seen

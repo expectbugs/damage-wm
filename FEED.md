@@ -2,7 +2,8 @@
 
 **Status: DESIGN SETTLED with Adam 2026-09-09 (fifteen verdicts, §1); BUILT the same day, M1–M5
 (§8 as built; `HANDOFF.md` §43 the build's account); ON GLASS that evening, five findings fixed
-that night (§8.2); APK 43/0.43 staged; the measured walk (§3.8 → §8.4) still owed.** #5 in the
+that night (§8.2); the measured walk (§3.8 → §8.4) still owed; polish suspended until the
+re-plan's steps close (`CLAUDE.md`, `REMINDER.md`).** #5 in the
 `EXPLOSION.md` §20 wow order; no G2CC ancestor. Precedents: Reader (one tap opens; the page's tap
 is the actions level), Files (image strips), Torrents (a live list over the channel, the keyboard,
 paging), Music (one window, two hosts, a deliberate switchback).
@@ -11,8 +12,8 @@ The §11 promise, verbatim: *"a Reddit-style feed with endless scroll."* Adam's 
 root is a **source list** (*"I will usually want one at a time. Slashdot content is far different
 from a xkcd comic"*), the glasses are used **away from the PC exclusively** (so no Open-on-PC), and
 the window keeps working **on the phone alone** wherever plain HTTP reaches (*"Let's do the phone
-fallback for everything that we can"*). Where §3–§5 (design) and §8 (as built) differ, §8 is what
-runs; `IMPLEMENTATION.md` → "Feed" is the running inventory.
+fallback for everything that we can"* — as built; verdict 15's note). Where §3–§5 (design) and
+§8 (as built) differ, §8 is what runs; `IMPLEMENTATION.md` → "Feed" is the running inventory.
 
 ---
 
@@ -33,8 +34,8 @@ runs; `IMPLEMENTATION.md` → "Feed" is the running inventory.
 | 11 | cadence | 15 min per feed, comics hourly, a Refresh row; the PC fetches regardless of the glass; the glass polls the engine only while Feed is active. |
 | 12 | retention | 30 days or 500 items per source, whichever first. |
 | 13 | notifications | **default OFF**, per-source-kind rows in Settings → Feed. |
-| 14 | YouTube / Reader hand-off / Open on PC | all **OUT**. *"YT is a video service, we don't do video."* Open on PC: *"if I'm at my PC I will just open it with the PC."* |
-| 15 | phone fallback | **YES, for everything plain HTTP reaches**: the engine is core Kotlin and runs on the phone whenever the PC is unreachable; switchback is deliberate (§3.6). |
+| 14 | YouTube / Reader hand-off / Open on PC | all **OUT**. *"YT is a video service, we don't do video."* Open on PC: *"if I'm at my PC I will just open it with the PC."* (For the glasses; on big screens a plain link to the original page is added, still no video — `REPLAN.md` §15 B5.) |
+| 15 | phone fallback | **YES, for everything plain HTTP reaches**: the engine is core Kotlin and runs on the phone whenever the PC is unreachable; switchback is deliberate (§3.6). → **Replaced for the design to come** (step S1): with the PC out of reach Feed shows the PC's last state with its age and the phone's own fetching retires — `REPLAN.md` §14.3 #2, `CONTRACT.md` §14 (a) row 1 (his to reverse). As built until then. |
 
 Recorded so it is not re-pitched: Hacker News; a Reddit login or private feed token; the merged
 river as root; a 1:1 zoom with sideways panning (each pan is a full ~17 KB repaint); YouTube; a
@@ -226,7 +227,7 @@ ordinary xkcd (596×218, 7 strips) fits one 288 screen (224 px of content) with 
 | Comic levels | 16 · 8 · 4 | 16 | verdict 10; a change re-derives strips from the cached source image, never a refetch |
 | Fetch | 5 min · 15 min · 30 min · 60 min | 15 min | feeds; comics check hourly regardless |
 | Keep | 7 d · 30 d · 90 d | 30 d | with the 500-per-source cap |
-| PC loss | 30 s · 1 min · 5 min | 1 min | the sustained-loss threshold that starts the phone engine (§3.6) |
+| PC loss | 30 s · 1 min · 5 min | 1 min | the sustained-loss threshold that starts the phone engine (§3.6); goes with that engine at S1 |
 | Notify · Reddit | off · on | off | verdict 13 |
 | Notify · Slashdot | off · on | off | |
 | Notify · comics | off · on | off | xkcd + SMBC; a binge archive never notifies |
@@ -245,7 +246,9 @@ a diagram inverts, a photo does not.
 ### 3.5 State and sync (§16.4 — the phone fallback decides this)
 
 Reading state lives in the **shell's synced store**, never inside an engine, so both engines see
-one truth (§16.4's "host-side feed read marks" note is superseded here):
+one truth (§16.4's "host-side feed read marks" note is superseded here). As built; from S1 one
+engine on the PC holds the record, and a read mark or flag is an op under `CONTRACT.md` §2.4's
+one merge rule (§9.7, §12):
 
 - **`window.feed`**: level, open source id, open item id + doc position, list cursors by identity,
   the five recent browses per kind, pinned browses.
@@ -278,9 +281,10 @@ line + strips blob; `index` → the episode table) · `comments` (text blob) · 
 all) · `browse` (kind + name → a transient source id) · push `changed` (source, version) so an
 active list repaints only what changed. Strips ride the blob lane as packed 4-bit rows, deflated.
 
-**The switch (verdict 15, Music's shape):** `SwitchingFeedProvider` wraps `remote` (preferred) and
-`local`. Past the `PC loss` threshold the phone engine starts its pacer and serves, with a notice
-`PC unreachable 1 min · fetching on the phone` and the summary naming `phone engine`.
+**The switch (verdict 15, Music's shape; as built — it retires at S1, verdict 15's note):**
+`SwitchingFeedProvider` wraps `remote` (preferred) and `local`. Past the `PC loss` threshold the
+phone engine starts its pacer and serves, with a notice `PC unreachable 1 min · fetching on the
+phone` and the summary naming `phone engine`.
 **Switchback is deliberate**: a `Back to PC` row (detail `the PC is reachable`) appears in the root
 menu when the channel is back; tapping it parks the phone engine (no pacer, no socket). On the
 desktop the local engine is the only provider. Every source is plain HTTP (§2), so the fallback is
@@ -353,13 +357,8 @@ The bar (`WINDOWS.md` §6): a list notch's first flush under ~1 KB and first vis
 
 ## 5. Build order — five milestones, a commit after each ✅ DONE 2026-09-09 (`a66f2c8` · `95fe6c8` · `3ecba02` · `693c122`, then `fa3747d` for §8.2)
 
-**M1** engine (`FeedHttp`, the fetchers, `FeedStore`, `Extract`, `Strips`, the pacer, the
-announcements, fixtures, `--feed-check`) `a66f2c8` · **M2** window (`FeedWindow`, `ScriptedFeed`,
-the selfcheck walk, snapshots, `IconKind.FEED`, desktop registration in the auto/standby stack and
-`--host-only`) `95fe6c8` · **M3** channel + switch (`FeedService` + push, `RemoteFeedProvider`,
-`SwitchingFeedProvider`, the `PC loss` and `Back to PC` rows) with **M4** phone (the engine in the
-APK — data dir under the app's files, the pacer under the foreground service, `BitmapFactory`
-through the decoder) `3ecba02` · **M5** the record `693c122` · the evening's fixes `fa3747d`.
+M1 engine · M2 window · M3 channel + switch with M4 phone · M5 the record; what each held is
+`HANDOFF.md` §43.2.
 
 ## 6. Traps and rules for the builder
 
@@ -391,10 +390,11 @@ through the decoder) `3ecba02` · **M5** the record `693c122` · the evening's f
 
 ## 7. Kickoff for the POLISH session (the build is done; this replaces the build kickoff)
 
-Read `REMINDER.md`, `HANDOFF.md` §43 (§43.6 is the resume protocol), this file's §1, §3 and §8,
-`WINDOWS.md` §5–§6, `IMPLEMENTATION.md` → "Feed". Then: the measured walk (§8.4) before any
-change, Adam's verdicts on what he sees, §8.3's list by number, the battery green after each
-change.
+Suspended: no Feed polish until the re-plan's steps close (`CLAUDE.md`; `REMINDER.md` → Suspended
+work). When it resumes: read `REMINDER.md`, `HANDOFF.md` §43 (§43.6 is the resume protocol),
+this file's §1, §3 and §8, `WINDOWS.md` §5–§6, `IMPLEMENTATION.md` → "Feed". Then: the measured
+walk (§8.4) before any change, Adam's verdicts on what he sees, §8.3's list by number, the
+battery green after each change.
 
 ## 8. As built (2026-09-09) — the record a polish session works from
 
@@ -489,7 +489,8 @@ them:
 7. **The 8-Bit Theater archive has no bar** — Adam asked for the bar "for comics like xkcd"; the
    archive is an endless document with its actions on tap. Ask before adding one.
 8. **The phone fallback is tested over a loopback host, not over Tailscale with the service
-   stopped.** One deliberate try, with the journal read after, is owed.
+   stopped.** One deliberate try, with the journal read after, is owed (moot if S1 retires the
+   phone engine, verdict 15's note).
 9. **`Notify` rows are off** (verdict 13) and untried on glass; the first-sight baseline means the
    first fetch after turning a row on announces nothing.
 10. **The measured walk is owed** (§8.4): every number in §2.6 and §3.8 is modeled.

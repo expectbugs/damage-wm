@@ -420,7 +420,9 @@ records raised after its **notice cursor** — a cursor of its own, apart from t
 versions (§9.3); on first contact it adopts and lists, never pops old ones (the Torrents rule,
 `W/torrents/TorrentsNet.kt:229-247`). **Quiet hours** (one shared row, §6) hold `NORMAL` records and release them
 together at the end; `URGENT` passes. **An urgent alert repeats every ten minutes until acknowledged** (§15 D4); a
-repeat schedule on the PC is pacing, not a timeout. No rule depends on which interface he is using.
+repeat schedule on the PC is pacing, not a timeout. No rule depends on which interface he is using. A window's
+recorded delivery verdict stands: Tmux alerts pop on the glasses only (`TMUX.md` verdict 3, "no phone fallback"), so
+Tmux has no `Phone ·` row; whether they pop on the desk is asked when S2 builds the desk's rows.
 
 ### 7.4 Raised on the phone
 

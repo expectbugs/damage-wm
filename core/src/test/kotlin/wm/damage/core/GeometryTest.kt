@@ -137,7 +137,7 @@ class GeometryTest {
 
     @Test
     fun defaultLayoutMatchesDesignTable() {
-        // §2.3 revised 2026-08-31 (REFINEMENT.md §1): bars inset to x 16-624
+        // §2.3 revised 2026-08-31 (archive/REFINEMENT.md §1): bars inset to x 16-624
         // so chrome can sit behind the content plane with the full 16 px
         // stereo-shift budget.
         val l = Layout()

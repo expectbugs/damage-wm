@@ -72,7 +72,7 @@ data class Layout(
 
     // --- bars ------------------------------------------------------------------
     // Bars are inset to the content extent (§2.2 revised 2026-08-31 —
-    // REFINEMENT.md §1): chrome now sits BEHIND the content plane, and a
+    // archive/REFINEMENT.md §1): chrome now sits BEHIND the content plane, and a
     // stereo shift needs the same 16 px side budget the content has. A
     // full-width rect cannot shift at all without leaving the panel. The
     // strips beside the bars are shift gutters, level 0, like §3.3's.

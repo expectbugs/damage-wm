@@ -15,7 +15,7 @@ W, H = 640, 480
 TOP_H, DIV = 32, 2
 CX, CY, CW, CH = 16, 34, 608, 416
 DIV2_Y, ST_Y, ST_H = 450, 452, 28
-# Bars inset to the content extent since 2026-08-31 (REFINEMENT.md §1): chrome
+# Bars inset to the content extent since 2026-08-31 (archive/REFINEMENT.md §1): chrome
 # sits behind the content plane and needs the same 16 px stereo-shift budget.
 BAR_X, BAR_R = 16, 624                              # bar extent (x16, w608)
 TITLE_W, BATT_X, CLK_X = 424, 424, 544              # batteries closed up to the clock 2026-09-01 (two gauges, +56 title)
@@ -479,7 +479,7 @@ def seven_seg_clock(d, x0, y0, hh, mm):
     digit(x0 + 112, mm % 10)
 
 def analog_clock(d, cx, cy, r, hh, mm):
-    """Redrawn 2026-08-31 (REFINEMENT.md §5 — "too basic for the size"): radial
+    """Redrawn 2026-08-31 (archive/REFINEMENT.md §5 — "too basic for the size"): radial
     ticks at 12/3/6/9, small dots between, tapered two-segment hands with
     counterweight tails, a hub with a bright pin. Still NO bezel ring (a circle
     outline breaks the RLE run on every row) and NO second hand, ever (Adam
