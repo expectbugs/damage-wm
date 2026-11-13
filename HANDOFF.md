@@ -7438,3 +7438,12 @@ that morning: `MOTION.md` §6 ruled as recommended; Music stays on Opus at low e
 hub's entity list with the token he already keeps (the power system is not reporting to the hub — he re-adds it).
 Cost, measured: 15.1 weighted units for the six agents (the estimate given him was 9–11) and the editor on top;
 step A stood at 30.1 before the editor against the 20–30 first given.
+
+**Step A's last pieces (2026-11-13 afternoon; documents only).** `FIRMWARE.md` §5 and §6 in contract form (one
+writer, not yet challenged; the note above §5), and **the sized build plan, `REPLAN.md` §16 — a draft put to him**:
+W (the alert watcher) → S1 in five builds and three deploys, Reader first → the two flashes beside it → S2 → the
+glasses kit → Reminders → S3 → G. Its sizes, from this month's two code builds with a 40 % correction: everything
+after step A comes to about 1,190–3,100 weighted usage units and 225–550 unattended hours, 16–20 of his sittings —
+18 to 47 builds the size of 0.65; S1 is half of it. Step A itself, measured: 41.8 units for its 21 agents (the first
+figure given him was 20–30). Nothing of the plan is started; W waits for his go with both of its size figures.
+

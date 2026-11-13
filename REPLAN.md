@@ -461,3 +461,221 @@ I'd go for anything."
   the TV's remote (yes) — are taken as recommended on his "I trust your recommendations for the open stuff", shown
   to him the same hour, and his to reverse. Still to come in step A: `FIRMWARE.md` §5 and §6 to contract, and the
   sized build plan.
+
+## 16. The sized build plan (step A's last piece; a draft put to Adam, 2026-11-13)
+
+**Status: a DRAFT for his reading. Nothing in it is started.** The order, the cuts and the recommendations are the
+lead's; §16.5 holds what only he can answer. Every size here is an estimate (inferred) unless it says measured, and
+nothing was measured on his devices. "Units" are the weighted usage units of §8 (per million tokens: cache reads 0.1,
+cache writes 1.25, output 5). **C§n** is `CONTRACT.md` §n; a bare §n is this file's. `I1`–`I3` are the three read-only
+inventories of the code behind the contract, kept in the private folder with step A's research.
+
+**How the sizes are made.** Two code builds of this month are the calibration; §16.2 names the basis of every figure.
+
+| point | lines (`git diff --numstat` against the parent) | effort | per 1,000 product lines | per 1,000 product + test lines |
+|---|---|---|---|---|
+| APK 0.65 (`b833713`) | product +908 / −180 · tests +3,710 / −212 · tools +368 · generated mutation lists and vectors +5,288 | ≈13 h, ≈66 units (§8), ≈10 agents one at a time (`HANDOFF.md` §77) | 14 h · 73 units | 2.8 h · 14 units |
+| APK 0.64 (`26ed20a`) | product +4,131 / −474 · tests +10,504 / −89 · tools +2,840 · lists +7,316 | ≈30 h (inferred: ≈43 h for both builds in the lead's note at 0.65's end, less 0.65's 13); units not separable — the session's cache reads alone, measured 11-11, came to ≈162 units and also covered `HANDOFF.md` §75's work | ≈7 h · no figure | ≈2.0 h · ≥11 units (a loose floor) |
+| Step A (documents) | — | measured: research and explosions 15.0 units (11 agents), the contract's first part 15.1 (6 agents; estimated 9–11), the editor 3.1, the firmware sections 6.5 | — | — |
+| Phase 2 (`HANDOFF.md` §60–§65) | ≈850 lines of C, 1,462 of Kotlin, 554 of tests, 4,360 of vectors | one day, then four reviews and 91 items; usage not measured | — | — |
+
+- **Per product line the two builds differ by 2×; per product + test line they agree within 40 %** (tests ran 2.5× product
+  in 0.64 and 4.1× in 0.65). The plan prices product + test lines: **2.0–2.8 h and 11–16 units per 1,000, raw.**
+- **The 40 % correction is applied:** estimates made before each step A run came out ≈40 % low (the contract's own came
+  out ×1.5), so every hour and unit figure below is raw × 1.4 — **2.8–3.9 h and 15–22 units per 1,000 lines**. Line
+  ranges are the designs' or the lead's estimates, uncorrected (correcting both would count the error twice).
+- **Moved lines.** A conversion moves a window's logic into its core (the inventories' line ranges). The low end of each
+  range prices new lines only at the low rate; the high end prices moved lines like new ones at the high rate. Nothing
+  measured separates the two, and this is the largest single source of S1's spread.
+- Firmware: Phase 2's usage was never measured, so C1 and C2 are priced by their lines at the same rate, plus one reader
+  for the flash's design pass (the firmware sections' writer measured 6.5 units).
+
+### 16.1 The builds, in order
+
+**W → S1-1 → C1 → S1-2 → S1-3 → S1-4 → C2 → S1-5 → S2 → K1–K4 → Reminders → S3 → G.** S1 goes out in three deploys
+(S1-1 alone; S1-2 with S1-3; S1-4 with S1-5); C1's phone half rides the second, C2's the third. Each build's size is put
+to him at the sitting before it (the previous deploy), so a "go" costs no sitting of its own.
+
+| build | contains | he sees in daily use | needs from him (sittings) | before it starts | gate |
+|---|---|---|---|---|---|
+| **W** the alert watcher | its design pass as amended (§15 "the alert watcher's size"): the hub reader on one GET path, rules with severity, the alert store keeping its own epoch, delivery to the glasses and the phone with Acknowledge as an action, the host Settings category and `gatedBy`, the one Quiet hours row, "home unreachable", PC-direct Bluetooth made manual, the nightly copy, listener reach (§15 A1). Rider: the free-memory read at three points of a start (C1's need) | bus alerts on the glasses and the phone, an urgent one repeating every ten minutes until acknowledged; "home unreachable"; the PC never takes the glasses by itself | 1: the APK install (the PC deploy is the lead's); a look at the first rules and his quiet hours | his go (§16.5 #1) | the battery; the design's 19 tests and its mutation list; lint RO001; a day of the journal read |
+| **S1-1** the core and Reader | C§9.7 item 1 — the core executor on the PC, the PC record behind the operation journal, the sequence file, the wire (C§9.2–C§9.4: the `app` lane and the new web listener), the device table and approval (C§10) with the `damage` command line for the first approval, the phone's working copy and queue (C§2.3–C§2.5), contract versions per window; Main's description (the windows and their summaries) as part of the core; the shared index-to-anchor helper; the judge in two arrangements (C§11.1). The web shell: W-01, W-02, W-04, W-07, W-11, W-12, W-18, W-21, W-22, W-24, W-25. Reader converted (C§12, C§5, C§14 (a) row 2) with W-30 as ruled | Reader in his desk browser, and in the phone's browser on the tailnet: the shelf, the book in Damage's own text, the place shared with the glasses. The glasses unchanged | deploy 1 — 1 sitting: install; approve his desk browser once; the web verdict on Reader; one glassdrive pass on Reader | W deployed (the reach rule and the Quiet hours row exist) | the battery; `--snapshot` pixel for pixel in both arrangements, or each difference named; C§2.4's kinds and C§13 (b)'s rows as tests; the mutation sweep; the live pass with him |
+| **C1** the first flash's build | `FIRMWARE.md` §5 (the engine, mode 26, the riders). First stage: its design pass — §5's challenge and reads a2, a3 (blocking) and a10. The simulator's engine equal to the C, `v3-*` vectors, both instruments. The APK half (encoders, the Motion DSL, one bit armed per soak with its hold-back, notify 114 with the CRC compare, the test programs, `--motion-check`) ships inside deploy 2, inert until flashed (DamageCaps bits 7–9) | after the flash: the 256 KiB cache and the deflated cache write; motion only in the feel session's test programs | the flash with his go per lens (dry run first, `FORK.md` §7) and the feel session: 1–2; call b2 | the heap read (W's APK and a worn day); a day on 0.65 read; R7's readings if cells are wanted (else none, `FIRMWARE.md` §5.1); deploy 2 live a day before the flash | host and simulator vectors, the fuzz, `tools/mutate.py`, `verify.py`; on glass the self-test, one bit per soak, the feel session |
+| **S1-2** Torrents and Files | the notice record on the PC (C§7: these are the first windows that raise notices); paged collections and viewers (C§3.2, C§8); Torrents and Files converted (C§12) with W-20, W-34, W-35, W-37, W-38; "open on the desk" keeps today's path until S2's companion | the transfer table with speed graphs, the tracker's browse and search, a file manager with upload and download, in the browser; a notice dismissed once is gone on every screen | deploy 2, with S1-3 | S1-1 live, its journal read | as S1-1 |
+| **S1-3** Feed and Tmux | Feed (C§12; spans, links and the source URL in the extractor, C§3.5; the comic and the paged sequence, C§3.4; the phone's own fetching retired, C§14 (a) row 1) with W-47 and B5's link; Tmux (C§12; the terminal canvas, keys as live ops, alerts raised once on the PC) with W-32, W-33 | Feed in colour, comics as drawn, the binge as one page; his tmux sessions in a real terminal in the browser | deploy 2 — 1 sitting: install, the web verdicts, glassdrive passes, the `ignore-size` check (C§14 (c)); the desk's audio output named for S1-4 | S1-2 built | as S1-1 |
+| **S1-4** Music | Music (C§12, C§2.7: the queue on the PC with entry ids, the active player's host, output moves, per-output settings, the catalog paged) with W-40–W-44, the PC's player (W-43) | library, queue by drag and synced lyrics in the browser; the PC's own output or the phone, moved at the same place in the track | deploy 3, with S1-5 | deploy 2 live | as S1-1, and `--music-check` |
+| **C2** the second flash's build | `FIRMWARE.md` §6 (the hook, bindings and lists, the applied-state event, the vertical-scale draw); its design pass with reads a1, a7, a8; the simulator's local events and the oracle walk with them, `v4-*`; the APK half (SET/LIST, field 115 → the working-copy op, COMMIT/DISCARD) inside deploy 3 | nothing in daily use until K: local input on test surfaces | the flash (perhaps two) with calls b1 and b3 and the local-latency target (D7): 1–2; then a work week of wear | C1's numbers (field 34 by area, folded steps, 27–29 at 256, the period, the lens-match verdict) | vectors, fuzz, sweep; zero divergence over the work week; the latency target |
+| **S1-5** Games, Main, Settings; S1 closed | Games (C§12, the lease of C§2.7, the per-viewer projection) with W-46; Main's and Settings' glasses sides moved onto the core (C§3.1, C§6) with W-49; the cross-window pieces W-03, W-05, W-06, W-09, W-10; the last conversion's removals (C§9.7 item 3); the watcher's phone half moved onto the generic mirror and notice delivery (C§11.2) | Hold'em at the desk; every setting as a form; search, continue here, send to, three windows side by side; one copy of everything, the old sync gone | deploy 3 — 1 sitting: install, the verdicts, glassdrive passes | S1-4 and C2's phone half built | as S1-1; tests of §2.4 replacing `SyncTest` and `SyncToleranceTest` |
+| **S2** the other interface pieces | `INTERFACES.md` §2.3–§2.4 rows marked in (P-01–P-08, P-10, P-11, P-16–P-18; X-01–X-05, X-08–X-12); the TV's frame (`BASTION.md` T-09, T-12, T-14's zones with the reminders zone reserved, T-30; the host as the visit decides). Built in C2's work week, deployed after it so the week's APK does not change | Damage on the phone by touch, away from home on the working copy; notification buttons; the lock-screen player for both outputs; the panel item, desktop notifications, media keys and shortcuts | the ten-minute TV visit; 1 sitting: install, verdicts at the phone and the desk, the helper's token run (for Reminders) | deploy 3 live; C2 flashed | the battery; `check_apk_wiring.py`; the TV test page at the visit |
+| **K1–K4** the glasses kit, once | K1: lists, documents, the popover family (`POPOVER.md`), notices, the keyboard, staging, motion programs, bindings for local input; Main, the wheel, Settings, Silent Mode. K2: Reader, Files, Torrents. K3: Music, Tmux, Feed. K4: Games (`FORK.md` Phase 6a–6d with Phases 3–4's Damage halves) | the glasses redrawn: motion, local input, the popover family; each window at its latency profile | 4 verdict stops on the glasses | C2's numbers; S1-5 deployed; K's own design pass | Phase 6's stops: the battery ×3, `--motion-check`, glassdrive walks, the WAIT column per gesture, a soak day, his verdict |
+| **Reminders** | `REMINDERS.md` §2.1–§2.5 rows marked in, on every interface at once: lists, occurrences and delivery, the quick-add parser, the web editor, the phone's notification and quick add, the TV zone's headline, the glasses window on K's kit (L-24–L-26, L-28), the helper (the H rows) | Buy, Do and Calendar on every screen; due notices with Done and Snooze; the helper keeping the lists | 1 sitting: install, verdict (the three probe runs use the token taken at S2) | K1 and S2 built; §16.5 #3 | the battery; delivery tests (one occurrence, "may repeat"); the probes; a week of due items read |
+| **S3** the bus system | `BASTION.md` §3–§5 rows marked in; the hub's scripts written as files for him (`BASTION.md` §6); the TV into use | the bus pages, graphs, cameras and guarded actions; the kitchen dashboard | 2: the scripts reviewed and applied; install, the TV and his verdict | S2's TV frame; the scripts applied | the battery; the writer's own lint rule and the allowlist test (B-23, B-26); a soak |
+| **G** last | the offline home decided again (C3 or dropped); the closing consistency pass (`FORK.md` Phase 8) | — | the C3 ruling; its flash and phone-off sessions if kept: 1–3 | S3 done; C3's research | Phase 8's battery ×3 and one full live walk |
+
+**The cut of S1.** The first piece is not deployed alone: a core with no window converted shows him nothing and still
+costs an install. It goes out with the first window as S1-1, built in two halves (the first piece; then Reader and the
+web pages) with the halfway check of §16.4 between them. The PC's notice record waits for S1-2: Reader raises no
+notices, only answers (C§4.4), so no notice path is built before the first window that needs one. Then windows one at a
+time, each whole on two consumers, two to a build where they share a shape.
+
+**The first window is Reader.** The part of the contract with no precedent in today's code is the state model — the
+working copy, the queue, the merge rule's position kind with its coalescing and "Go there", anchors carrying the
+extractor version and a quote, the away list. Reader carries all of it for the least code (paint ≈250 lines, logic
+≈880, `I2` §1.9), so a description that cannot reproduce today's glasses picture or cannot make the web page is caught
+on the cheapest window; it is also his own example of the end (§14.1 R3). The breadth of the vocabulary (menus, confirms,
+notices, paged lists, live paces) resembles today's code more, and the second build catches it. The rest:
+- **Torrents** (S1-2): the PC-served mirror that Files, Tmux and Bastion copy; a paged listing of unknown length, every
+  action kind but live and guarded, notices raised once on the PC, a pace per viewer; its version, `since` and epoch are
+  the shape C§9.3 generalises.
+- **Files** (S1-2): the same shape plus jobs, uploads and blobs, the first window at minimum level full.
+- **Feed** (S1-3): documents with spans and links, the comic canvas and the paged sequence; retires the phone's engine.
+- **Tmux** (S1-3): the terminal canvas and the live kind; the web terminal, the largest single web item (§15 B4).
+- **Music** (S1-4), alone: the largest conversion (the PC's player, output moves, entry ids, the active player's host),
+  taken once five windows have proved the vocabulary.
+- **Games** (S1-5): the lease, log ops and the per-viewer projection belong to it alone; a small web part.
+- **Main and Settings** (S1-5): they read every window's summary and rows, so they move last, and the sync channel
+  retires with the last conversion (C§9.7 item 3). Each window's rows appear on the web with its own build.
+
+**The mixed-build rule** (C§9.7 item 2: the PC deploy and the APK install are one sitting) makes every S1 deploy a
+sitting. Five conversion builds go out in three deploys: S1-1 alone, because the foundation must run on his devices
+before anything is built on it; then S1-2 with S1-3, and S1-4 with S1-5. Each build still passes the snapshot judge and
+the battery before it waits for its deploy; each deploy carries the web verdicts and one glassdrive pass per converted
+window. Five deploys would give each window live evidence one build sooner, at two more sittings (§16.5 #2).
+
+**The firmware track beside it** (`FIRMWARE.md` §5's notes, part c). Before C1: his `MOTION.md` rulings (done); a day on
+0.65 and a9's journal check (the lead's, from the phone's journal); the three-point free-memory read, an APK change,
+carried by W; reads a2, a3, a10 and §5's challenge, the first stage of C1's build; the simulator, `v3-*` and the
+instruments, C1's build; the APK half, built in C1 and shipped in deploy 2. The flash is its own sitting a day after
+deploy 2, so a fault is attributed to one change. C1's soaks run while S1-4 builds. Before C2: C1's numbers; ruling b1;
+a1, a7, a8 or their on-glass forms; its APK half in deploy 3. **No APK is installed for a firmware need alone.** The
+software never waits for a flash, and S2 fills C2's work week (§14.3 #5: the interface pieces before the bus system
+while flashes are pending; the kit as soon as C2's numbers are in).
+
+**Reminders.** Ruled: designed now, built as the first new window, once for every interface — under §4, after G. It
+needs every presenter: the web client and the working copy (S1), the phone's own screen for a shop with no PC in reach,
+the TV's frame and the desk companion (S2), and K1's lists, popover family (ASK, DECK) and notice gestures (L-25) for
+its glasses window. The first point where all of them exist is after K and S2 — before S3 and G, not after them. Placed
+there it is built once and whole, and it no longer waits for S3 (110–290 units, two sittings) or G (no basis). An
+earlier part would be honest only in pieces: its core, web editor and phone notification could follow S1-5 with nothing
+rebuilt, but away from home the phone would have only notifications until S2, and its glasses window would join K's
+pass later — a new window split across builds, which "built whole" forbids without his word. The choice is his
+(§16.5 #3). The plan places it after K4 rather than after K1 so the kit runs unbroken.
+
+### 16.2 Sizes
+
+Hours and units are after the ×1.4 correction; lines are not. Agents = stages, one agent each, one at a time.
+
+| build | product lines | test lines | hours | units | agents | basis |
+|---|---|---|---|---|---|---|
+| W | 2,450–2,800 | 2,000–2,200 | 12–20 | 65–110 | 8–10 | its design's own lines (+2,000 product, ≈1,800 tests) plus the amendments and the rider (+450–800, lead), at the rate. **The design's own relative figure — 0.4–0.6 of 0.65, 37–55 units corrected — disagrees**: by lines W is about 0.65's size |
+| S1-1 | 7,800–12,100 new + ≈1,800 moved | 6,000–9,600 | 39–92 | 205–520 | 12–16 | the first piece by part (lead): core executor and facade 400–700 new + ≈940 moved (`I1` §B (ii)); record and journal 700–1,000; wire 1,100–1,600; access and command line 800–1,100; working copy 700–1,000; versions 150–250; anchors and the phone-side source 250–400; the judge 250–450; web shell 1,800–2,800. Reader 1,650–2,800 new + 880 moved (`I2` §1.9) |
+| C1 | 2,900–3,500 (C ≈1,300, Kotlin ≈1,700) | 600–1,200; 12 vectors | 12–22 | 60–115 | 8–10 | the firmware notes' lines (part d) at the rate, plus one reader for the design pass and the reads (9–13). The notes' own "1.4–1.7× Phase 2" has no unit figure behind it |
+| S1-2 | 3,800–5,900 + 2,400 moved | 2,800–4,500 | 18–50 | 100–280 | 9–12 | notice record 700–1,100; paged lists and viewers 400–700; Torrents 1,300–2,000 + 1,160 moved (`I2` §4.9); Files 1,400–2,100 + 1,240 moved (`I2` §2.9) |
+| S1-3 | 3,200–4,900 + 2,200 moved | 2,400–3,800 | 16–43 | 85–240 | 9–12 | Feed 1,550–2,250 + 1,390 moved (`I3` C9); Tmux 1,650–2,650 with the control-mode client + 825 moved (`I2` §3.9) |
+| S1-4 | 3,100–5,000 + 1,460 moved | 2,000–3,200 | 14–38 | 75–215 | 8–11 | Music's core 1,500–2,500, the PC's player 400–700, glue 300–400, web 900–1,400; 1,460 moved (`I3` A9) |
+| C2 | 1,300–1,900 | 300–600 | 6–13 | 30–70 by lines · 35–105 by the notes' ratio | 7–9 | lines at the rate plus one reader; **the notes' ratio to C1 (1.0–1.3 against 1.4–1.7 of Phase 2) gives the higher figure** — both shown |
+| S1-5 | 3,650–5,950 + 1,950 moved | 2,400–3,800 | 17–46 | 90–260 | 9–12 | Games 1,450–2,350 + 1,500 moved (`I3` B9); Main and Settings 1,100–1,700 + ≈450 moved (`I1` §C); the close 200–400 (removals not priced); cross-window web 900–1,500 |
+| S2 | 3,500–6,000 | 2,000–3,500 | 15–37 | 80–210 | 9–12 | ≈30 rows × the watcher's ≈120 lines a piece (its design: 17 pieces, ≈2,000 lines), widened for the panel menu (the bulk, R2). A small computer for the TV, if the visit asks for one: no basis |
+| K1–K4 | 6,000–11,000 | 5,000–9,000 | 31–78 | 165–440 | 32–44 | today's glasses presentation ≈9,500 lines (the shell's ≈4,750, `I1` §B (i); the windows' paint ≈4,770, `I2`/`I3` §9) as the order of what K redraws; the surfaces outside those counts and K's own design: no basis |
+| Reminders | 5,000–8,500 | 3,500–6,000 | 24–57 | 125–320 | 10–13 | ≈57 rows marked in × 90–150 lines a row |
+| S3 | 4,500–8,000 | 3,000–5,000 | 21–51 | 110–290 | 10–13 | ≈47 rows × the watcher's lines a piece (its nearest kin); the hub scripts are files for him, not priced |
+| G | no basis | no basis | no basis | no basis | — | C3 needs its research first; the closing pass has no measured precedent |
+
+**Totals per step** (sittings counted as §16.1 names them; "go" for each build is asked at the sitting before it):
+
+| step | builds | hours | units | his sittings |
+|---|---|---|---|---|
+| A (done) | — | — | ≈40 measured, plus this plan's own run | taken |
+| the watcher | W | 12–20 | 65–110 | 1 |
+| S1 | S1-1 … S1-5 | 104–269 | 555–1,515 | 3 (deploys 1–3) |
+| C1 | 1 | 12–22 | 60–115 | 1–2 |
+| C2 | 1 | 6–13 | 30–105 | 1–2, then a work week of wear |
+| S2 | 1 | 15–37 | 80–210 | 2 (the TV visit; install and verdicts) |
+| K | 4 | 31–78 | 165–440 | 4 |
+| Reminders | 1 | 24–57 | 125–320 | 1 |
+| S3 | 1 | 21–51 | 110–290 | 2 |
+| G | 1–2 | no basis | no basis | 1–3 |
+| **everything after A** | 15 + G | **225–550** | **1,190–3,100** | **16–20** |
+
+That is 18 to 47 builds the size of 0.65. S1 is half of it; S1-1 alone is three to eight times 0.65.
+
+### 16.3 What is built once
+
+The contract's own list (`CONTRACT.md` §11.2), and how this order keeps each small:
+1. Each window's `XGlasses` adapter, replaced by K's presenter: adapters only, the glasses do not change in S1, so no
+   glasses verdict is taken twice; K follows S1 with only S2 between.
+2. The index-to-anchor helper, replaced by K's list presenter: one helper for every window, so K removes one thing.
+3. Menus and confirms fed from actions into today's surfaces, replaced by K's popover family: only the drawing goes.
+4. Glasses renditions as named blobs: today's code behind a name; K keeps or moves them.
+5. The sync channel, kept for unconverted windows, removed in S1-5: nothing new built into it, no bridge of keys.
+6. The watcher's phone half, moved in S1-5 onto the generic mirror: W builds its model in the contract's shape.
+7. The web client, built window by window, laid out for the TV and the phone's screen in S2: its data stays behind
+   the `WindowSource` seam.
+
+What this plan itself creates:
+8. C1's and C2's phone halves ride deploys 2 and 3, gated on DamageCaps — built once, installed with software already due.
+9. Today's "open on PC" path stays behind Files' and Torrents' final "open on the desk" action until S2's companion;
+   nothing new is built in it.
+10. The `damage` command line is built in S1-1 for the first approval and extended in S2 (X-11): additive.
+11. The web home shows converted windows only; no temporary path serves an unconverted window to the web.
+12. The PC's notice record arrives with the first windows that raise notices (S1-2); W's Quiet hours row and `gatedBy`
+    are fields of that record, so nothing of W's notice path is redone. W's listener reach is the rule S1-1's web
+    listener is born under.
+13. The focus model (W-07) is built once in S1-1 for keys and the TV's remote; S2 adds key codes only.
+14. Reminders' glasses window and the glasses' confirm for a bus action (B-28) are built on K's kit, never on today's
+    paint: K comes before both. The Motion DSL is C1's and K writes the programs on it; nothing moves on today's
+    surfaces (§3 W3).
+
+### 16.4 How a build is run, to hold the sizes
+
+- **One stage at a time, one agent per stage, one model** (his instruction of 2026-11-11). No finder-and-challenger
+  pairs, no sweeps of many agents; a review is one or two readers who show their own evidence, and the lead adjudicates.
+- **The shape of every build:** a design pass only where the contract or a design leaves `FORK.md` §3.8's six questions
+  open (C§13 (b) answers the first piece's); build stages per package with the targeted gate; one verify stage;
+  two general review passes, a fix round after each; one focused read of any mechanism a review invented; one pass per
+  defect class across the neighbourhood; the instruments (`research/mutate_core.py`; for the fork the fuzz and
+  `tools/mutate.py`); the full battery once at the end; a "Not built" list. Then reading stops (`CLAUDE.md`, protocol 5).
+- **Context kept small:** source read by range (`Shell.kt` never whole), test output to a file and its tail read,
+  repeated runs batched. Every agent turn re-reading a large context is where this month's usage went.
+- **Measured, then re-fitted:** each build's usage is taken from its transcripts in the same weighting and recorded in
+  its `HANDOFF.md` section; §16.2's rates are re-fitted after W and after S1-1, and every later size re-stated.
+- **The halfway check:** at the stage nearest half its planned stages, if the spend is more than a quarter over half of
+  its range's midpoint, the build stops at the end of that stage and its size is re-stated to him with its cut-first item.
+- **Cut first when a build runs over** — the item that moves to the next build without redoing work (a window is never
+  split):
+
+| build | cut first, and where it goes |
+|---|---|
+| W | the nightly copy, to S1-1 (an independent rider; the alert path stands without it) |
+| S1-1 | Reader's whole-shelf prefetch and the moved-book alias, to S1-2 (until then a book is cached when opened, as today); the web diagnosis page |
+| C1 | the link item, if he declines call b2; then the deflated cache write, to C2 |
+| S1-2 | Files, whole, to S1-3 |
+| S1-3 | Tmux, whole, to S1-4 |
+| S1-4 | nothing inside (one window); recovered from S1-5 |
+| C2 | nothing inside the flash; a second flash is already budgeted |
+| S1-5 | the cross-window web pieces (W-03, W-05, W-06), to S2 |
+| S2 | the TV's frame, to S3, where the TV goes into use |
+| K1–K4 | the last window of the group, to the next K build |
+| Reminders | the helper, to a build of its own after (the window never needs it) |
+| S3 | the PC's own figures (T-33, T-34), to a build after S3 |
+
+### 16.5 His calls
+
+| # | call | recommendation | why |
+|---|---|---|---|
+| 1 | Go on W now (12–20 h, 65–110 units; its design's own figure, 37–55, is the lower basis), and on S1-1 after it (39–92 h, 205–520 units), each re-stated at its halfway check | yes | W is his first priority; S1-1 is the foundation every later step stands on, and Reader at the desk is the first new thing he sees after two builds of hardening |
+| 2 | S1 deployed three times (S1-1; S1-2 with S1-3; S1-4 with S1-5) rather than five | three | two sittings fewer; every build still passes the snapshot judge and the battery first, and the foundation goes out alone |
+| 3 | Reminders after K and S2, before S3 — or as ruled, after G | after K and S2 | the first point where every presenter it needs exists, so it is built once and whole without waiting for S3 and G; it changes R13's order, so it is his |
+| 4 | A weekly usage ceiling (R12's second number, still unanswered) | he names one | without it the plan can state an order but not a calendar; the lead schedules builds to it and reports each one's spend |
+| 5 | Pointers only — asked at their flashes, not now: the first flash's link item (b2, at C1); the input hook on every touch from the start and a rejected local gesture's return (b1, b3, at C2); the local-latency target C2 is judged against (`FORK.md` D7) | at the flashes | each belongs to its flash's design pass (the note above `FIRMWARE.md` §5) |
+
+### 16.6 Risks of this plan
+
+- The rates come from two hardening builds; S1 is mostly new and moved code (≈9,800 moved lines priced from nothing to full).
+- K, S2, Reminders and S3 are sized by rows × the watcher's lines a piece, before any design pass; K is the weakest.
+- S1-1 has no precedent in the code; if Reader shows the description cannot hold today's picture, S1-1 grows and S1-2 waits.
+- C1's blocking reads (a2 the display gate, a3 the display task's stack) can change the engine; C2 may need two flashes; either moves K.
+- The TV visit can add a small computer's image and scripts to S2 (unsized); the phone's WebView memory can force P-03's own process.
+- `BASTION.md` §7 shows Tmux's waiting sessions and Files' disk fill on the TV; C§10.4 keeps both windows off its set: as the contract, no cost (T-33 gives disk fill); as BASTION, a view-level headline each, ≈150–300 lines in S3.
+- The order is wrong if C2's numbers come before S1-5 (K1 needs Main and Settings converted), or if he wants motion on the glasses before the web.
+- His weekly allowance in units is not known here, so no date in this plan is a promise; at 0.65's pace the whole is many weeks of builds.
