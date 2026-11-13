@@ -446,3 +446,11 @@ I'd go for anything."
   rules are for is keeping a stray request (a web page open in his own browser needs nobody else on his network)
   from typing into Tmux, writing a file or running a bus action. A note the lead had raised about low-value
   read-only content is withdrawn.
+- **(~11:05) Three more.** `MOTION.md` §6's eleven open rows (A1, A3–A5, B1–B5, C1, C2), put to him again that
+  morning: "I trust your recommendations for the open stuff" — ruled as recommended; the firmware contract
+  sections are written on them. **Music stays at low effort:** "it won't need deep thought the way the bus systems
+  might. If it makes a mistake on the music, no big deal. A mistake on bus control stuff can really matter
+  though." So: never Haiku; how much thought a Claude path gets follows what a mistake would cost — low for
+  Music, medium at least for the helper, and the most for anything that touches the bus. And the bus systems the
+  hub does not report today (the power system, the appliances) he re-adds to the hub himself; until then he
+  reads them in their own apps, and the watcher's first rules cover what the hub reports.
