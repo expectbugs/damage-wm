@@ -15,8 +15,9 @@ System-wide rules in `~/.claude/CLAUDE.md` apply. This file holds Damage-specifi
 (grades every load-bearing claim V/M/C/I/S/U; **an `S` or `U` claim is not built on without
 checking**) → `DESIGN.md` (the shell design contract, locked with Adam; wins on SHELL DESIGN; its §0
 lists what is deliberately excluded — read it before proposing anything) → this file (wins on RULES) → `REMINDER.md` (the entry point:
-what is true now, what is next) → **`FORK.md` (wins on the ORDER OF WORK: the CFW fork and the Damage
-rebuild are the only work until its Phase 8 closes) → `FIRMWARE.md` (wins on the FIRMWARE CONTRACT)**.
+what is true now, what is next) → **`REPLAN.md` (wins on the ORDER OF WORK since Adam ruled it on 2026-11-12:
+its §4 as amended by §14) → `FORK.md` (the fork's protocol, its decisions and the design of each firmware
+piece; its §5 phase order no longer governs) → `FIRMWARE.md` (wins on the FIRMWARE CONTRACT)**.
 
 ## Gates
 
@@ -81,17 +82,22 @@ when a write fails, a lease lapses, a repack moves every offset, another task fr
 
 ## Status and the order of work
 
-**All other work is suspended for the CFW fork and the Damage rebuild (Adam, 2026-09-12; `FORK.md`,
-`HANDOFF.md` §48)** until Phase 8 closes: no new windows, no Feed polish, no popover build outside the plan.
+**The order of work is `REPLAN.md` as Adam ruled it on 2026-11-12 (its §14 wins; `HANDOFF.md` §78).** The end
+goal: four more interfaces beside the glasses (XFCE4, the phone app, the kitchen TV, any browser) and a bus
+control system, then new windows. Until its steps close: no new windows, no Feed polish, no popover build
+outside the plan (the suspension of 2026-09-12, `HANDOFF.md` §48, carried over).
 The fork is its own GPL-3.0 repo (`~/damage-cfw`); Damage stays clean-room and holds only the contract
 (`FIRMWARE.md`). **Never flash without Adam's in-the-moment go; dry-run first.** `REMINDER.md` holds the state
 and the next steps; `HANDOFF.md` §48 onward the dated records; `DAILY.md` the ops crib; `IMPLEMENTATION.md`
 what runs and how (its "Review hardening" lists the load-bearing mechanisms: the compositor's per-lens
 truth/shadow model, the transport's session-epoch sweep, the shell's start/stop mutex, the measured list rhythm).
 
-**Topology (`HANDOFF.md` §19):** the **phone APK drives** (radio and shell); the OpenRC `damage` service on
-beardos is the **data provider** and a **standby** that drives PC-direct BLE only while the APK is away; the PC
-never claims in daily use (`--transport remote` is the dev override). Detect the CFW by the `EVENCFW/` string
+**Topology, ruled 2026-11-12 (`REPLAN.md` §14): the PC is the system** — it owns every window's state and every
+interface connects to it; the phone keeps a working copy, draws the glasses and carries on when the PC is out of
+reach; **PC-direct BLE is a manual choice, never automatic.** The code reaches that in the re-plan's step S1.
+**What runs until then (`HANDOFF.md` §19):** the **phone APK drives** (radio and shell); the OpenRC `damage`
+service on beardos is the **data provider** and a **standby** that drives PC-direct BLE only while the APK is
+away; the PC never claims in daily use (`--transport remote` is the dev override). Detect the CFW by the `EVENCFW/` string
 and the DamageCaps field, never the version. App layer: Main · Settings · Reader · Tmux · Files · Torrents ·
 Music · Games · Feed (`WINDOWS.md` the conversion checklist; `TMUX.md`, `TORRENTS.md`, `MUSIC.md`, `HOLDEM.md`,
 `FEED.md` the per-window records; `POPOVER.md` a spec, not built).
@@ -117,7 +123,7 @@ Music · Games · Feed (`WINDOWS.md` the conversion checklist; `TMUX.md`, `TORRE
 **Adam's methodology for the app layer:** research → documentation → clean repo → plan → feature-creep
 explosion → refinery → consistency passes → a final plan in real code → then slowly, carefully, execute.
 Explosion and refinery are DONE (`EXPLOSION.md` §20 = the verdicts and the build order). Window conversion
-resumes after Phase 8: Adam's per-window verdicts first, then build against `DamageWindow`
+resumes after the re-plan's steps (`REPLAN.md`; new windows are then built once for every interface): Adam's per-window verdicts first, then build against `DamageWindow`
 (`core/…/shell/WindowContract.kt`) per `WINDOWS.md` (its precedents section names which window to copy),
 reading the G2CC original (`/home/user/G2CC/server/src/windows/`, read-only) for interaction facts only. Two
 rules bind every window: **built whole to its best state before the next — no v1/v1.5 staging**; **each app's

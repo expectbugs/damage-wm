@@ -315,3 +315,20 @@ sittings (§8, which the draft had as nine against sixteen).
    service may read Home Assistant, read-only (it switches nothing); the first conditions are proposed from a
    read of its entities and edited by him; the phone raises "home unreachable" when it has internet and home
    does not answer (the PC cannot report its own silence).
+
+### 14.4 Further answers (2026-11-12, ~21:50)
+
+- **PC-direct BLE is a manual choice, never automatic.** The PC's Bluetooth is switched off on purpose: it kept
+  connecting to the glasses again and again, and he almost never drives them from the PC. "I want the option to
+  drive glasses from PC directly, but I don't want it automatic." This replaces `HANDOFF.md` §19.1's rule 4. As
+  built, the service's standby still takes the glasses by itself when the phone looks absent for two probes
+  (`desktop/Main.kt`, `standbyOn`; no setting turns it off) — the adapter being off is what holds it today.
+- **Home Assistant's own configuration:** guarded actions need their time limits there. The lead writes those
+  scripts as files; he reviews and applies them. Nothing in this project writes to Home Assistant.
+- **One user.** Only Adam uses any interface or the bus network. A new device on the bus network is still
+  approved once from a trusted interface (the lead's recommendation, not objected to).
+- **The kitchen TV's job:** "a big infodump" — a dashboard of every bus system, the four camera feeds, graphs
+  (energy use; the PC's load, usage and temperatures), and **reminders front and centre**: things to buy,
+  things to do, calendar events.
+- **`CLAUDE.md`** now names this file for the order of work and states the ruled topology beside what runs
+  today (his go).
