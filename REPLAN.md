@@ -462,9 +462,15 @@ I'd go for anything."
   to him the same hour, and his to reverse. Still to come in step A: `FIRMWARE.md` §5 and §6 to contract, and the
   sized build plan.
 
-## 16. The sized build plan (step A's last piece; a draft put to Adam, 2026-11-13)
+## 16. The sized build plan (step A's last piece; put to Adam 2026-11-13 and his go given the same day)
 
-**Status: a DRAFT for his reading. Nothing in it is started.** The order, the cuts and the recommendations are the
+**His word (2026-11-13 ~13:20): "Go on the next stages, no ceiling (we will manage usage as we go, but try not to
+waste it), and go with your recommendations for anything else."** So: W is started that afternoon and S1-1 follows it,
+each re-priced from the build before; §16.5's rows stand as recommended (S1 in three deploys; Reminders after K and
+S2; no weekly ceiling — the lead reads his usage screen's two percentages itself before and after each build and
+reports them); the `CLAUDE.md` changes of the pruning pass are applied, with the one shared Quiet hours row in Global.
+
+**The text below is the plan as put to him.** The order, the cuts and the recommendations are the
 lead's; §16.5 holds what only he can answer. Every size here is an estimate (inferred) unless it says measured, and
 nothing was measured on his devices. "Units" are the weighted usage units of §8 (per million tokens: cache reads 0.1,
 cache writes 1.25, output 5). **C§n** is `CONTRACT.md` §n; a bare §n is this file's. `I1`–`I3` are the three read-only
