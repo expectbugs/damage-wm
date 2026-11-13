@@ -5,11 +5,13 @@ glasses, on firmware he installed with the published patch method; it runs on hi
 network. This file is planning for display-rendering and user-interface work on hardware he owns. Plain
 wording throughout (`CLAUDE.md`).
 
-**Status: a PROPOSAL written 2026-11-12 for Adam's rulings. Nothing in it is in force.** `FORK.md` still wins
-on the order of work until he rules; §11 lists the rulings asked and §12 the documents a ruling would change.
-The recommendations are the lead's. Facts about the code and the fork come from two read-only inventories made
-the same day (rough where marked "≈"); a third reader then challenged the first draft, and §13 says what that
-changed. Nothing here was measured on the glasses unless it says so.
+**Status: RULED by Adam on 2026-11-12 (evening), with amendments — §14 holds his rulings and wins over §4–§11
+wherever they differ.** R9 and R13 were not in the short list he answered and are still open, with the calls
+§14.3 puts to him. The order of work is §4's as ruled (`FORK.md` §5 points here and keeps the fork's protocol,
+its decisions and the phase designs the steps reuse). Nothing of step A is started: its size is put to him
+first. §1–§13 stand as written on 2026-11-12 (the proposal); the recommendations in them are the lead's, the
+facts come from two read-only inventories of that day (rough where marked "≈") and a third reader's challenge
+(§13). Nothing here was measured on the glasses unless it says so.
 
 ---
 
@@ -247,3 +249,55 @@ fitted to one consumer, a kit built before the numbers that size it — and that
 two-cores question (principle 3). It also corrected three statements: F2 (the limit is one shell with one
 transport, not the glasses), W4 (the battery sample cannot say what the minute flushes cost), and the count of
 sittings (§8, which the draft had as nine against sixteen).
+
+## 14. Adam's rulings (2026-11-12, evening)
+
+### 14.1 The rulings
+
+| # | his ruling |
+|---|---|
+| R1, R2 | yes |
+| R3 | yes, and further: **the owner is always the PC.** "I want one complete persistent system, with the various endpoints merely interacting with it" — a book read on the glasses continues on the phone and then on the PC from the same place, "from one central server, rather than three different apps being at three different places in the same book". "The PC is the main DamageWM system, and everything connects to it. My phone acts as a bridge to my glasses when away, and I do want to retain as much functionality as possible if I happen to lose connection to my home PC while away, or if my phone dies, but in optimal regular day to day usage, the PC should be the main system and control the state and serve it to the various endpoints." |
+| R4 | as recommended: each interface keeps its own focus and cursor; "continue here" is a deliberate action |
+| R5 | yes to the order; no priority stated among S2, S3 and K (§14.3 call 5) |
+| R6, R7, R8 | yes |
+| R10 | Music is wanted on any or all outputs: the PC's own (a TV and a soundbar), a pair of Bluetooth speakers, the phone and whatever it is connected to (earbuds, other devices). The kitchen TV is mounted portrait and has no audio of its own. A voice device comes back later, only once he has customized it |
+| R11 | yes — the early alert watcher is built |
+| R12 | the battery: **no limit.** "By default the system should be as nice as possible, but have various settings for power saving in case the default uses too much to get through a day." The usage figure was not answered; each step is still sized and put to him first |
+| R9, R13 | not yet put to him (§14.3 calls 6, 7) |
+
+### 14.2 What the rulings change in this document
+
+- **Principle 3 becomes: the PC owns every window's state.** Not one owner chosen per window. This replaces, for
+  the design to come, `HANDOFF.md` §19.1's rule 5 (two stamped stores, the most recent wins) and `MUSIC.md`
+  §3.1's "playback truth lives on the phone"; today's code keeps both until S1 reaches them. §19.1's rules 1, 3
+  and 4 (the phone drives the glasses; the phone alone when the PC is out of reach; the PC's own radio when the
+  phone is away) are what his "bridge" and "retain as much functionality" sentences ask for; whether the phone
+  keeps a working copy or becomes a relay is call 1.
+- **R4 and his Reader example agree:** the place in a book, the queue, the open article are window state — one
+  copy, on the PC, the same on every interface. What is per interface is which window is in front and where
+  the cursor sits. Step A fixes that line for every field of every window.
+- **§9's "kept as they are" loses sync:** the two-way stamped sync is replaced in S1 by changes sent to the PC
+  and state sent back, with a queue on the phone for the time the PC is out of reach. Persistence, the
+  transport, the compositor and the rest of that list stand.
+- **Music:** `MUSIC.md` verdict "no PC audio output" was made for the glasses window and is superseded for the
+  interfaces (R10). The PC holds the queue and the position; each output is a player.
+- **`MOTION.md` §6:** its C3 (the battery number) is answered — no limit, with power-saving settings, which is
+  what its C4 (a Global `Motion` row) provides. Its A and B groups are C1's firmware design and do not wait
+  for step A.
+- **The offline home (G)** now has a stated purpose: what the glasses still do when the phone is not there.
+
+### 14.3 Calls put to him after the rulings (none answered as of this note)
+
+1. The phone: a working copy that draws the glasses itself and follows the PC (recommended), or a relay with
+   the PC composing every frame (`--transport remote` today; the arrangement his 2026-08-31 correction retired).
+2. What must keep working away from home with the PC out of reach, and what is kept on the phone for it.
+3. Reach: his tailnet and the bus network only (recommended), never the public internet.
+4. Audio: several outputs in step at once, or one output chosen and moved, for the first build.
+5. Priority among S2, S3 and K.
+6. R9 — web first for the browser, the TV and the phone app; XFCE as a panel item, notifications, shortcuts
+   and the web interface in a window.
+7. R13 — new windows after, in his recorded order.
+8. The PC as the one system: its hours, and a nightly copy of its state.
+9. The alert watcher's inputs: a Home Assistant token he places in the config, his word for read-only reads,
+   the first conditions.

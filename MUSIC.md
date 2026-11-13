@@ -41,7 +41,8 @@ G2CC music *system* is Damage's now; code ported, never pasted). Where §3 (the 
 | 28 | Sleep | **Sleep options in Settings, default off**: after this track, or after any timer. |
 | 29 | Prefetch | **Three tracks ahead**, adjustable in Settings. |
 
-Recorded so it is not re-pitched: no PC audio output; no ring remapping in Music Mode; gain never
+Recorded so it is not re-pitched (**"no PC audio output" is superseded for the other interfaces — Adam,
+2026-11-12, `REPLAN.md` §14 R10; it stands for today's glasses window until that build**): no PC audio output; no ring remapping in Music Mode; gain never
 undoes the limiter; no auto-play on boot; Spotify only as the phone fallback (no desktop client);
 radio is not the default.
 

@@ -7399,3 +7399,18 @@ phone for an unread part of that day; 0.64's first start and its hours on the gl
 unread (§76.11 item 2's reads now apply to that stretch, and it is P6's "before"); the phone's journal was renamed
 at 0.64's first start, not 0.65's.
 
+
+---
+
+## 78. The end goal stated, the order of work re-planned and ruled (2026-11-12 evening; documents only)
+
+One place for this: **`REPLAN.md`** — §1 Adam's end goal (four more interfaces and a bus control system before
+any new window), §2–§10 the re-plan as proposed, §13 what a challenging reader overturned in the first draft,
+**§14 his rulings of the same evening and the nine calls still open**. In short: every window is described once
+and presented per interface; the PC owns every window's state and every interface connects to it (this replaces
+§19.1's rule 5 for the design to come; the code keeps the stamped sync until the step that converts it); the
+interfaces and the bus system are designed before the app contract is fixed; two batched flashes run beside the
+software and the glasses kit is built once after the second; `FORK.md` §5's phase order no longer governs (its
+pointer). `MOTION.md` §6's sheet: C3 answered, D fallen away, A and B still his. Cost of the planning's four
+readers: 5.2 weighted usage units (the estimate given him was 15–20). Nothing was built, flashed, or sent to the
+phone or the glasses; APK 0.65's first day is unread.

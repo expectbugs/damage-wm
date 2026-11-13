@@ -306,11 +306,13 @@ ones. No candidate here is buildable until those land — this is the list to cu
 
 ---
 
-## 6. The refinery sheet — put to Adam 2026-11-12 (nothing ruled yet; ON HOLD)
+## 6. The refinery sheet — put to Adam 2026-11-12 (C3 answered; the rest not ruled)
 
-**On hold since the same evening:** Adam asked for the order of work to be re-examined first (`REPLAN.md`, a
-proposal). Under it A2 would move to the second flash and D1 would fall away; this sheet is revised once he has
-ruled there.
+**After his rulings on `REPLAN.md` (the same evening, its §14):** C3 is answered — no battery limit, the default
+as nice as it can be, with power-saving settings (C4's Global `Motion` row is one of them). A2 moves to the
+second flash and D1–D4 fall away (the first programs are the glasses kit's, built once after that flash). **A1,
+A3–A5, B1–B5, C1 and C2 are the first flash's design and are still his to rule**; they do not wait for the
+interfaces' design.
 
 The 98 candidates of §1–§2 and the five re-put exclusions of §3 come down to the decisions below, because four
 operations carry nearly every row (§4). **The recommendation column is the lead's; a ruling is Adam's**, and his

@@ -9,10 +9,15 @@ transport read against ours) → **§66** (Reader's page staging: the design pas
 
 ## Where we are (2026-11-12)
 
-- **2026-11-12 (evening) — the order of work is under review: `REPLAN.md` is a PROPOSAL awaiting Adam's rulings
-  (its §11).** He set the end goal that day: after the firmware phases come four more interfaces (XFCE4, the phone
-  app, the kitchen TV, any browser) and a bus control system, before any new window. Until he rules, `FORK.md`
-  stands, `MOTION.md` §6's sheet is on hold, and nothing of Phase 3 is started.
+- **2026-11-12 (evening) — the order of work is `REPLAN.md` as Adam RULED it that evening (its §14 wins).** The end
+  goal: after the firmware work come four more interfaces (XFCE4, the phone app, the kitchen TV, any browser) and a
+  bus control system, before any new window. Ruled: every window described once and presented per interface; **the
+  PC owns every window's state and every interface connects to it** (the phone bridges the glasses and carries on
+  when the PC is out of reach); the interfaces and the bus system designed before the contract is fixed; two
+  batched flashes beside the software, the glasses kit once after the second; Phase 5 measured before built; the
+  offline home last; Music on any output; the early bus alert watcher; no battery limit, with power-saving
+  settings. **Open: the nine calls of `REPLAN.md` §14.3. NEXT = his answers, then step A sized and put to him —
+  nothing of step A, of a flash design or of a build is started.** `FORK.md` §5's phase order no longer governs.
 
 - **2026-11-12 — APK 0.65 BUILT, pushed as `b833713`, and STAGED at 16:58 (versionCode 65; 0.64 kept in
   `~/.damage/backup/`); **Adam said at ~17:05 he was installing it, and that 0.64 WAS installed and in use (the records said otherwise — §77.12's correction)**; the PC service runs `b833713` since 16:58 (`HANDOFF.md` §77,

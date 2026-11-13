@@ -125,6 +125,14 @@ programs before flushing their region); lint rules for programs and budgets;
 
 ## 5. Phases
 
+**The ORDER below no longer governs (Adam, 2026-11-12): `REPLAN.md` as he ruled it (its §4 and §14) is the order
+of work.** Phases 0–2 are history as recorded. Phases 3–8 are kept as the design of each piece — their gates,
+stops and failure envelopes are reused by the steps that replace them (Phase 3's flash is C1's, Phase 4's is
+C2's, their Damage halves and Phase 6 are K's, Phase 5 is measured first, Phase 7 is G's and decided again,
+Phase 8 closes each arc). Principle 4 (one candidate flash per phase) gives way to the batched C1 / C2 / C3 of
+`REPLAN.md` §5; D3's popover family is built in K. The flash ritual (§7), the protocol (§3.8) and every "never
+flash without Adam's in-the-moment go" stand unchanged.
+
 Size is relative (S/M/L/XL). "Flashes" counts candidate flashes; fix flashes are extra and cheap.
 Every phase's design pass fills §3.8's envelope before any code; its build ends with a **Not built** list and
 the two instruments' numbers — the differential fuzz (`firmware/fuzz_vectors.py`: the C and the simulator agree
