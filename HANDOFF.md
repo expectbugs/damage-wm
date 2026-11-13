@@ -7421,3 +7421,9 @@ earlier assistant's lessons, the alert watcher's design), then three explosions 
 editor applying its seventeen corrections: `INTERFACES.md`, `BASTION.md`, `REMINDERS.md`, with the sheet in
 `REPLAN.md` §15 (nineteen rows, none ruled). Private details of his bus stay in the gitignored `private/`. The
 readers found the watcher to be about half of 0.65's build, not a small one — said to him before any build.
+
+**The sheet ruled (2026-11-13 ~09:35).** All nineteen rows as recommended, except the helper's model: Claude Opus
+at medium effort, never Haiku (`REPLAN.md` §15.1 holds his words; the lead's "small model" ignored a choice of his
+already recorded for Music). The recorder's settings were read on his yes, masked: all four cameras are restreamed
+in two sizes; the details are in the private annex. Step A's cost to here: 15.0 weighted units for 11 agents
+(the estimate given him was 20–30 for the whole step). Nothing built; no device contacted.

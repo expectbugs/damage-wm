@@ -20,9 +20,11 @@ transport read against ours) → **§66** (Reader's page staging: the design pas
   tailnet and the bus network only; one audio output at a time; the PC is always on, with a nightly state copy to
   `/mnt/lilhomie`. **Step A is under way (his "go", 11-12 night): the research and the three explosions are written —
   `INTERFACES.md`, `BASTION.md`, `REMINDERS.md` (the six research reports, the challenge and the annexes with the
-  details of his bus are in the gitignored `private/`). The first refinery sheet is `REPLAN.md` §15, nineteen rows,
-  put to him 2026-11-13. NEXT = his answers; then the contract sitting (the app contract, `FIRMWARE.md` §5/§6, the
-  sized build plan). The alert watcher is designed (`private/stepA/R6-watcher-design.md`, to be amended with
+  details of his bus are in the gitignored `private/`). The first refinery sheet is `REPLAN.md` §15, nineteen rows:
+  **RULED 2026-11-13, all as recommended except the helper's model — Claude Opus at medium effort, never Haiku
+  (§15.1).** The recorder's settings are read (his yes): it restreams all four cameras. NEXT = the contract sitting
+  (the app contract, `FIRMWARE.md` §5/§6, the sized build plan); his: the check at the TV, the helper's token for
+  the three probe runs, `MOTION.md` §6's A and B rows. The alert watcher is designed (`private/stepA/R6-watcher-design.md`, to be amended with
   `severity`, a separate rules file and §15 A1's listener reach); its build is about half of 0.65's and waits for
   `haUrl`/`haToken` in the config and his word on that size.** `FORK.md` §5's phase order no longer governs.
 

@@ -281,7 +281,8 @@ For the TV to draw a window it does not know, a description must express:
 
 ## 10. Decisions
 
-**Put to Adam:** the rows of `REPLAN.md` §15 that concern this document: the TV's level · "send to" · a notice
+**Put to Adam, and ruled 2026-11-13 as recommended (`REPLAN.md` §15.1):** the rows of `REPLAN.md` §15 that concern
+this document: the TV's level · "send to" · a notice
 dismissed once · the TV's host (after the visit) · when the TV goes into use · what may take the TV's screen · bus
 action tiers · camera pictures and the recorder's settings · graph history on the PC · alert severity.
 
@@ -325,6 +326,10 @@ setting returns to its input) and the screensaver should not apply to an HDMI in
 
 **Other facts:** the cable distance from the PC to the TV (T-04) · whether he wants a box bought (T-03, after the
 visit) · the hub's live entity list (the annex's map comes from an older backup) · which values to graph and at what
-interval · quiet hours · the camera software's configuration (it holds camera credentials: his read, or a reader he
-clears) · the remote he has (a basic IR remote has no pointer) · four tiles' decode load on a box (measured on the
+interval · quiet hours · the remote he has (a basic IR remote has no pointer) · four tiles' decode load on a box (measured on the
 box with the cameras' low-resolution streams) · whether the TV's browser keeps cookies across power cycles (T-01).
+
+**Settled 2026-11-13 (the read he approved, `REPLAN.md` §15 D2):** the recording software on the PC restreams all
+four cameras, each in a large and a small size, and answers requests for stills and detections on the PC alone. B-16
+needs nothing new from it. Still open: the large streams' picture size and codec (the settings do not say; the
+recorder's own statistics would).

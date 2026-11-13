@@ -245,7 +245,8 @@ the contract sitting.
 
 ## 7. Decisions
 
-**Put to Adam:** the rows of `REPLAN.md` §15 that concern this document: listener reach · device levels · the TV's
+**Put to Adam, and ruled 2026-11-13 as recommended (`REPLAN.md` §15.1):** the rows of `REPLAN.md` §15 that concern
+this document: listener reach · device levels · the TV's
 level · windows side by side · "send to" · a notice dismissed once · the browser terminal · links and video on big
 screens.
 

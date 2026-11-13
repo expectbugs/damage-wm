@@ -346,7 +346,7 @@ sittings (§8, which the draft had as nine against sixteen).
   available; the session wakes on his input and on a schedule rather than running in a loop; anything it asks
   of the bus goes through the same guarded path as a tap. `POPOVER.md`'s Claude path is the precedent to read.
 
-## 15. Step A — the first refinery sheet (put to Adam 2026-11-13; nothing ruled yet)
+## 15. Step A — the first refinery sheet (put to Adam 2026-11-13 and RULED the same morning: §15.1)
 
 The explosions: **`INTERFACES.md`** (the web interface, the phone app's screen, XFCE4), **`BASTION.md`** (the
 kitchen TV and the bus system) and **`REMINDERS.md`** (the lists, the helper, voice later) — 261 candidates
@@ -411,3 +411,29 @@ build the lead first told him. Its scope: the read-only reader and rules, alert 
 glasses notice and the phone notification, a Settings category that exists before the bus window, "home
 unreachable" judged from the phone's own network state, PC-direct Bluetooth made manual, the nightly copy, and
 row A1's listener reach.
+
+### 15.1 His answers (2026-11-13, ~09:35)
+
+"Yes to all your recommendations except one... Never Haiku. That model sucks. Opus at Medium effort is the lowest
+I'd go for anything."
+
+- **All nineteen rows are ruled as recommended, with one change:**
+- **E3, the helper's model: Claude Opus at medium effort, never Haiku.** The Settings row offers Opus at medium
+  effort and above and nothing smaller. The wakes on his messages, the morning and evening hours and the 80 % stop
+  stand. The lead's "small model" went against a choice of his already on record (Music's profile pass:
+  "Haiku sucks, Opus with low thinking is better and quick") and should not have been recommended. What it changes
+  in the design: a wake costs more of his usage window than the draft assumed, so the bound per wake, the daily
+  wake cap and the skipped scheduled wake when nothing changed (`REMINDERS.md` H-05, H-16) carry more weight, and
+  the three probe runs (E4) are made on Opus at medium effort so their figures are the ones the helper will have.
+- **Not changed, and asked of him:** Music's Ask lane and its profile pass run Opus at LOW effort, his earlier
+  choice for them. Whether the medium floor applies there too is his to say; it is two config keys
+  (`musicClaudeModel`, `musicClaudeEffort`).
+- **D2's read, made the same morning** (the recorder's settings read through a masking script; no password,
+  address or host name printed or copied; the file itself holds none — it names a separate environment file, not
+  opened): the recorder restreams all four cameras, each in a large and a small size, eight streams in all, and its
+  own local interface for stills and detections answers on the PC alone. Camera pictures from the PC (D2) therefore
+  need nothing new from the recorder. The details are in the private annex.
+- **E4's probe runs** wait for the helper's own token (one `claude setup-token` run, his); **C1's check at the TV**
+  and the watcher's `haUrl`/`haToken` are his as before.
+- **Next: the contract sitting** — the app contract, `FIRMWARE.md` §5 and §6 from draft to contract, the sized
+  build plan (§4 step A).
