@@ -18,8 +18,13 @@ transport read against ours) → **§66** (Reader's page staging: the design pas
   offline home last; Music on any output; the early bus alert watcher; no battery limit, with power-saving
   settings. **The nine follow-up calls are answered too (`REPLAN.md` §14.3): the phone keeps a working copy; reach is his
   tailnet and the bus network only; one audio output at a time; the PC is always on, with a nightly state copy to
-  `/mnt/lilhomie`. NEXT, on his go: step A (sized for him at about eight readers) and the alert watcher as the
-  first build (it needs the Home Assistant token he places) — nothing of either is started.** `FORK.md` §5's phase order no longer governs.
+  `/mnt/lilhomie`. **Step A is under way (his "go", 11-12 night): the research and the three explosions are written —
+  `INTERFACES.md`, `BASTION.md`, `REMINDERS.md` (the six research reports, the challenge and the annexes with the
+  details of his bus are in the gitignored `private/`). The first refinery sheet is `REPLAN.md` §15, nineteen rows,
+  put to him 2026-11-13. NEXT = his answers; then the contract sitting (the app contract, `FIRMWARE.md` §5/§6, the
+  sized build plan). The alert watcher is designed (`private/stepA/R6-watcher-design.md`, to be amended with
+  `severity`, a separate rules file and §15 A1's listener reach); its build is about half of 0.65's and waits for
+  `haUrl`/`haToken` in the config and his word on that size.** `FORK.md` §5's phase order no longer governs.
 
 - **2026-11-12 — APK 0.65 BUILT, pushed as `b833713`, and STAGED at 16:58 (versionCode 65; 0.64 kept in
   `~/.damage/backup/`); **Adam said at ~17:05 he was installing it, and that 0.64 WAS installed and in use (the records said otherwise — §77.12's correction)**; the PC service runs `b833713` since 16:58 (`HANDOFF.md` §77,

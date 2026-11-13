@@ -321,8 +321,9 @@ sittings (§8, which the draft had as nine against sixteen).
 - **PC-direct BLE is a manual choice, never automatic.** The PC's Bluetooth is switched off on purpose: it kept
   connecting to the glasses again and again, and he almost never drives them from the PC. "I want the option to
   drive glasses from PC directly, but I don't want it automatic." This replaces `HANDOFF.md` §19.1's rule 4. As
-  built, the service's standby still takes the glasses by itself when the phone looks absent for two probes
-  (`desktop/Main.kt`, `standbyOn`; no setting turns it off) — the adapter being off is what holds it today.
+  built, the service's standby still takes the glasses by itself when the phone looks absent for six probes
+  (30 s) and both arms are seen (`desktop/Main.kt`, `StandbyPolicy.kt`; no setting turns it off — the count
+  corrected on 11-12 from a read of the code) — the adapter being off is what holds it today.
 - **Home Assistant's own configuration:** guarded actions need their time limits there. The lead writes those
   scripts as files; he reviews and applies them. Nothing in this project writes to Home Assistant.
 - **One user.** Only Adam uses any interface or the bus network. A new device on the bus network is still
@@ -344,3 +345,69 @@ sittings (§8, which the draft had as nine against sixteen).
   the session edits them through a narrow set of operations, so the window works whenever the session is not
   available; the session wakes on his input and on a schedule rather than running in a loop; anything it asks
   of the bus goes through the same guarded path as a tap. `POPOVER.md`'s Claude path is the precedent to read.
+
+## 15. Step A — the first refinery sheet (put to Adam 2026-11-13; nothing ruled yet)
+
+The explosions: **`INTERFACES.md`** (the web interface, the phone app's screen, XFCE4), **`BASTION.md`** (the
+kitchen TV and the bus system) and **`REMINDERS.md`** (the lists, the helper, voice later) — 261 candidates
+between them, written from six read-only research reports and then gone over by a challenging reader whose
+corrections are applied. Their three draft sheets came to 58 rows; these nineteen are the ones that need him.
+What the lead takes as a default unless he objects, and what waits for a later sitting (the app contract, the
+glasses kit, the voice design), is in each document's "Decisions" section. Details of his own bus are in a
+private annex kept out of this repository. **The recommendation column is the lead's; a ruling is Adam's.**
+Answer by number: "yes to all", or "yes except …".
+
+**A. Who may connect**
+
+| # | decision | recommendation | why |
+|---|---|---|---|
+| A1 | Listener reach: the first build binds every listener to the reach he ruled — the PC on loopback, the tailnet and the bus network; the phone on loopback and the tailnet | yes | §14.3 answer 3; what today's code does is in the private annex |
+| A2 | Device levels: every device is approved once and given a level — view, control or full. Full is needed for Tmux, file writes, bus actions and anything that reaches outside (the tracker, the helper, YouTube). His own phone and PC are full | yes | the tailnet says which device it is; approval says what it may do |
+| A3 | The kitchen TV's level: read, acknowledge alerts, tick reminders, play and pause — no bus action, no Tmux | yes | a remote on a counter is not a confirm |
+
+**B. The screens**
+
+| # | decision | recommendation | why |
+|---|---|---|---|
+| B1 | Windows side by side on the desk, up to three; one at a time on the phone | yes | the split-view exclusion was about the glasses' panel |
+| B2 | "Send to": from the screen he is at, put a window in front on another (the phone or the desk sending to the TV), beside "continue here" | yes | the TV has only a remote; sending to it is the easy way to steer it |
+| B3 | A notice dismissed or acknowledged on one screen is gone on all of them | yes | one record on the PC |
+| B4 | Tmux in a browser as a real terminal, for devices at level full | yes | it is what a keyboard is for; the largest single item on the web side |
+| B5 | On big screens: a plain link from a Feed article to its original page; no video in Feed or Files | the link yes, video no | Feed's verdict 14 was made for the glasses; "we don't do video" stands |
+
+**C. The kitchen TV**
+
+| # | decision | recommendation | why |
+|---|---|---|---|
+| C1 | What runs the TV's screen is decided after a ten-minute check at the TV (the lead prepares one test page; `BASTION.md` holds the procedure). If its own browser fails the check: a small computer on its HDMI input (about $110–160, a reported range, and one more always-on device), the TV itself staying off the network | the check first; nothing bought yet | the vendor says a page cannot hold off the screensaver and the set does not rotate; whether that bites on this set is not known |
+| C2 | The TV goes into use with the bus step, its reminders zone reserved from the start; the interface step builds what its host needs | yes | most of what he wants on it is the bus system |
+| C3 | What may take the TV's screen over: an urgent alert until it is acknowledged; a camera when a person is seen, outside quiet hours | both | the two things worth interrupting a dashboard for |
+
+**D. The bus system**
+
+| # | decision | recommendation | why |
+|---|---|---|---|
+| D1 | (open since 2026-10-19) Bus action tiers: **A** one confirm; **B** filling and draining tanks, each only once its time-limit script exists in Home Assistant; **C** never from Damage. Every action, tier A included, runs a script there and is offered only once that script exists. The list of actions is in the private annex | as listed | §14.4: the time limits live in Home Assistant |
+| D2 | Camera pictures come from the recording software already running on the PC, not through Home Assistant: stills on the TV, live video on the desk and the phone. The lead reads that software's restream settings (the file also holds camera passwords; none is printed or copied) | yes, and yes to the read | the pictures keep working while Home Assistant is down |
+| D3 | Graph history: Damage samples the chosen values on the PC into day files (inside the nightly copy), filled once from Home Assistant's own history — rather than a longer keep configured there | the PC's store | Home Assistant keeps ten days of most values (his notes); the PC is the system |
+| D4 | Alert severity: a rule is normal or urgent; an urgent alert repeats every ten minutes until acknowledged and passes quiet hours | yes | built into the watcher from the start |
+
+**E. Reminders and the helper**
+
+| # | decision | recommendation | why |
+|---|---|---|---|
+| E1 | Lists: Buy, Do and Calendar at first, more can be made; the calendar holds events created in Damage, no outside calendar | yes | none exists today; an outside one adds an account |
+| E2 | The helper adds items and does what he asked without asking; an edit or a drop of something he wrote comes to him as a question | yes | cheap to undo where it acts alone; his own words stay his |
+| E3 | The helper wakes on his messages and at a morning and an evening hour (skipped when nothing changed); a small model with a Settings row; scheduled wakes stop once his usage window is above 80 % | yes; the number is his | it draws on the same limits as his other work |
+| E4 | The helper's login: its own configuration folder with a one-year token he creates once, not his own Claude Code login — and three short probe runs of the CLI first, to settle what the documentation leaves open | its own; yes to the probes | no clash with his sessions; his instruction files are never loaded into it |
+
+**Asked of him outside the sheet:** the ten-minute visit to the TV (C1); `haUrl` and `haToken` in the gitignored
+config for the alert watcher; his quiet hours and the alert thresholds, when the watcher's first rules are drafted
+from the live entity list.
+
+**The alert watcher's size, corrected:** its design pass (kept in the private folder with the research) comes to
+about 1,800 lines of product code and as much again in tests — roughly half of APK 0.65's build, not the small
+build the lead first told him. Its scope: the read-only reader and rules, alert state with acknowledge, the
+glasses notice and the phone notification, a Settings category that exists before the bus window, "home
+unreachable" judged from the phone's own network state, PC-direct Bluetooth made manual, the nightly copy, and
+row A1's listener reach.

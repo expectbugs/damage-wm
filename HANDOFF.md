@@ -7414,3 +7414,10 @@ software and the glasses kit is built once after the second; `FORK.md` §5's pha
 pointer). `MOTION.md` §6's sheet: C3 answered, D fallen away, A and B still his. Cost of the planning's four
 readers: 5.2 weighted usage units (the estimate given him was 15–20). Nothing was built, flashed, or sent to the
 phone or the glasses; APK 0.65's first day is unread.
+
+**Step A started (2026-11-12 23:40, his "go"; documents only).** Six read-only readers (the web interface and the
+TV, XFCE4 with the phone app and device identity, the Claude helper, the bus's systems, the speech stack and his
+earlier assistant's lessons, the alert watcher's design), then three explosions and a challenging reader, then one
+editor applying its seventeen corrections: `INTERFACES.md`, `BASTION.md`, `REMINDERS.md`, with the sheet in
+`REPLAN.md` §15 (nineteen rows, none ruled). Private details of his bus stay in the gitignored `private/`. The
+readers found the watcher to be about half of 0.65's build, not a small one — said to him before any build.

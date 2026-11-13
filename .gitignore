@@ -40,3 +40,7 @@ desktop/snapshots/
 .kotlin/
 # agent worktrees (a session's delegation)
 .claude/worktrees/
+
+# Details of Adam's home that the design documents refer to as "the private annex" — kept local,
+# never published (the public documents are written in general terms).
+private/
