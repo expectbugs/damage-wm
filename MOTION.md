@@ -13,7 +13,8 @@ owns, on his own home network. Plain wording throughout (`CLAUDE.md`).
 wide list on purpose; Adam's refinery cuts it, and the surviving rows fix the motion verb set
 (`FIRMWARE.md` §5). No candidate is a proposal, a default, or a winner — each is a thing that *could*
 move, priced where a doc gives a number and marked "modeled" otherwise. Read `DESIGN.md` §6 (the
-motion contract) and §0 (what is excluded) first; this file does not restate them.
+motion contract) and §0 (what is excluded) first; this file does not restate them. **§6 (2026-11-12) puts
+the refinery's decisions to Adam on one page, each with the lead's recommendation; none is ruled yet.**
 
 ---
 
@@ -302,3 +303,54 @@ on both panel drivers (`CLAIMS.md`, 2026-09-13), and that transfer is timed by n
 overlay times only the shadow copy; F1.3 adds the stamp); comfortable disparity (T3/T4) sets the
 depth-step candidates; the battery cost of local motion over a workday (M0.6) gates the ambient-ish
 ones. No candidate here is buildable until those land — this is the list to cut, not a plan to run.
+
+---
+
+## 6. The refinery sheet — put to Adam 2026-11-12 (nothing ruled yet)
+
+The 98 candidates of §1–§2 and the five re-put exclusions of §3 come down to the decisions below, because four
+operations carry nearly every row (§4). **The recommendation column is the lead's; a ruling is Adam's**, and his
+answer is recorded here. Phase 3 is phone-started motion: the phone sends one play message and the glasses run the
+steps, so a slide is smooth and costs one message, but it still begins after the phone's round trip. The response
+that begins on the glasses themselves is Phase 4.
+
+**A. What the firmware gets in this flash**
+
+| # | decision | recommendation | why |
+|---|---|---|---|
+| A1 | The core set: move a rect per lens, fill a rect, a cached draw with a brightness ramp, a progressive reveal, wait | in | they carry all but a handful of the 98 rows |
+| A2 | The vertical-scale draw (the wheel's drum W1/W2, the icon grow M2, Pulse) | not in this flash; decided again for Phase 4's | its main user, the wheel's notch, is a Phase 4 (local) row; until then the wheel keeps today's phone-drawn spin |
+| A3 | The card flip (P-2): a horizontal-scale operation, or three cached images swapped (back, sliver, front) | the swap | one row; no new operation |
+| A4 | The tick | 30 Hz to start, moved at the feel session | a full panel refresh measured 4.4 ms median on his glasses (`HANDOFF.md` §65), so the panel is not the limit; the battery cost is the unknown |
+| A5 | Riding the same flash, as recorded (`HANDOFF.md` §67, §68): the cache limit 160 → 256 KiB, a largest-free-block figure in telemetry, the compressed cache write | all three stay | a flash is the expensive unit; cache writes were 61 % of the image lane's bytes and compression takes 43 % off (measured, §68) |
+
+**B. The five exclusions re-put (§3) — under these recommendations none changes Phase 3's firmware**
+
+| # | decision | recommendation | why |
+|---|---|---|---|
+| B1 | X1, fades | stays excluded as the default; no operation is added for fading content that is not cached | a fade of cached content is already the brightness ramp of A1, so one use on one surface is a Phase 6 verdict, not a firmware question |
+| B2 | X2, dimming the content behind a popover | allow it: one step with the popover's open, not animated; built with the popover family in Phase 6 | his reason was the repaint, ≈ 0.5 s each way; the LUT-over-rect op Phase 2 built does it in one small op inside the popover's own flush |
+| B3 | X3, banners | stays excluded | it is a compositing layer on the glasses, not an operation; its nearest home is Phase 5 (cells the firmware draws) |
+| B4 | X4, an animated silent-clock minute | stays rejected | D6: nothing moves on its own |
+| B5 | X5, a blinking terminal cursor | stays excluded | constant motion at FAR, whatever it costs |
+
+**C. Policy**
+
+| # | decision | recommendation | why |
+|---|---|---|---|
+| C1 | D6, "motion answers input only" | confirm, with three named exceptions: a game while it is played, the low-battery pulse, Music Mode's visualizer (U7's question) | the last two ship today and are content, not decoration (§5) |
+| C2 | D7's targets | confirm: phone-started motion begins within about 100 ms of the ring event; no visible mismatch between the lenses | the numbers the test stop judges against |
+| C3 | D7's open number: the battery a workday of motion may cost | Adam's number. The lead's suggestion: at most 5 points more than a baseline day read from 0.65's battery journal | a suggestion with no measurement behind it |
+| C4 | A Global `Motion` row (off · subtle · full, and a speed) in place of `Slide frames` and `Slide fill` | as `FORK.md` plans; default `full` | one setting for one engine |
+
+**D. Scope, order and budget**
+
+| # | decision | recommendation | why |
+|---|---|---|---|
+| D1 | The first animations built in Phase 3 | the lean set: the list slide with ease-out (the list kit: Main and every list window — M1, R6, T3, F1, Z1, U4, D1, P-9) and the bounce at a list's end; the document scroll (R1, T1, D3) only if the design pass shows the entering lines can be drawn from the text cache | the wheel's spin needs A2; the popover reveal and Hold'em's deal are rebuilt in Phase 6 (6a, 6d) whatever is done now |
+| D2 | The order | two halves. First, with no flash: the design pass, `FIRMWARE.md` §5 from draft to contract, the simulator's engine, the motion language and the desktop strip check — he looks at the strips before any firmware is written. Second: the firmware candidate, its vectors and host tests, the dry run, the flash on his word, the feel session | his verdict on the motion comes before the flash, and the flash stays the last step |
+| D3 | Before the flash | a day on APK 0.65 and its journal read (closes Phase 2's test stop); the free-memory reading at three points of a session start (a small APK change and one more install) | the engine, the programs and the larger cache share one memory pool on the glasses, and its budget is unmeasured; both run beside the first half |
+| D4 | The usage this phase may take | Adam's number. The lead's guess for the lean shape: about what APK 0.65's agents cost, in eight stages on Claude Opus at xhigh | a guess from one build, not a measurement |
+
+His answer can be "yes to all" or "yes except" by number; C3 and D4 need a number either way.
+
