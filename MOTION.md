@@ -306,7 +306,11 @@ ones. No candidate here is buildable until those land — this is the list to cu
 
 ---
 
-## 6. The refinery sheet — put to Adam 2026-11-12 (nothing ruled yet)
+## 6. The refinery sheet — put to Adam 2026-11-12 (nothing ruled yet; ON HOLD)
+
+**On hold since the same evening:** Adam asked for the order of work to be re-examined first (`REPLAN.md`, a
+proposal). Under it A2 would move to the second flash and D1 would fall away; this sheet is revised once he has
+ruled there.
 
 The 98 candidates of §1–§2 and the five re-put exclusions of §3 come down to the decisions below, because four
 operations carry nearly every row (§4). **The recommendation column is the lead's; a ruling is Adam's**, and his
